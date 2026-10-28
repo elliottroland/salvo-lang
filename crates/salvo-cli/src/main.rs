@@ -570,7 +570,7 @@ fn facts_command(src: Option<PathBuf>, module: Option<String>) -> ExitCode {
             None => !file.is_std && !file.is_test,
         }
     };
-    print!("{}", salvo_core::facts::dump(&program, &checked, &wanted));
+    print!("{}", salvo_core::facts::dump(&program, &symbols, &checked, &wanted));
     for line in salvo_core::diag::render_shown(checked.errors.iter().filter(|d| d.is_error() && wanted(d.file)), &program.files) {
         eprintln!("{line}");
     }

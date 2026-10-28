@@ -789,6 +789,41 @@ before A3). Fix: the copy's target carries its file (an `Origin` that is a
 file with the span; a `by` clause on the type's own declaration never
 reaches it.
 
+### 0ae — Recorded, not scheduled: per-declaration reuse in the check cache (measured 2026-10-28, A4)
+
+The language server's `CheckCache` [lsp-check-cache] reuses an unedited
+*file*'s rows; the edited file is walked whole. Reusing its unedited
+declarations' rows too ([decl-rows] gives the partition) was measured at
+A4 (debug, `tools/lsp-timing.py`; per-declaration walk costs from
+temporary instrumentation of `check_module`): the walk it would save is
+`examples/cluster` 4.4ms of bodies over 28 items (the edited `main` is
+~1ms of it) against a ~43ms edit; `modules/aws` ~1ms (`s3.sv`'s header cost
+is its file-level platform boundary, which a declaration cache would not
+reuse); a 1,654-line one-file project (`lib/std/args.sv` as `main.sv`)
+16.2ms over 74 items against a ~76ms edit. The costs it adds: inserting the
+reused rows (~1.4ms on that file, as the per-file insert costs now) and
+moving their spans. Not built, because the gate cases gain less than their
+run-to-run spread and what it needs is large:
+
+- every span in a reused row re-derived from the current tree: a key's
+  origin (by node id, a per-declaration node → span table built from
+  `Module::node_ranges` and the numbering), and the positions inside values
+  (`DefSite`, `LocalDecl`, `ImplicitParam::span`, `ThrowSite::delimiter`,
+  `handler_deps`, `fn_body_effects`, diagnostics) by the body's growth, as
+  `remap` moves another file's definition sites today, and `Span::node`
+  ordinals shifted by the edited declaration's node count;
+- a file's walk split per declaration: `check_module`'s file-level work
+  (renames, case clashes, doc tags, scalar moves, module `use`s, the
+  platform boundary, `finish_fate`'s flush) apart from each item's, and per
+  declaration step logs for what is order-dependent within a file
+  (diagnostics, the ordered tables, `written_types`' if-absent rows,
+  `carried_identities`' first writer, ROADMAP 0r's minters).
+
+Worth it when one-file projects of that size are common, or as part of the
+typed form (Stage D), whose per-declaration storage makes the second half
+moot. On that file the IR (built and analyzed whole every edit, 28ms) costs
+more than the walk would save.
+
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
 **What it is.** When a message makes an actor runnable, the scheduler unparks

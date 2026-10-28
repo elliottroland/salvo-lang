@@ -141,9 +141,8 @@ fn stamp_of<'p>(program: &'p Program, resolution: &Resolution, decl: &super::Dec
 /// binding that took ownership made: such a binding is the value's owner,
 /// and nothing derived from it shares fate with what it took.
 pub fn drop_owned_fate_reads(checked: &mut Checked, decision: &super::Decision) {
-    let decls = checked.decls.clone();
-    checked.fate_reads.retain(|k, reads| {
-        reads.retain(|r| !decision.decided.contains(&decls.key(k.file(), r.bind_span, &std::cell::Cell::new(0))));
+    checked.fate_reads.retain(|_, reads| {
+        reads.retain(|r| !decision.decided.contains(&r.bind));
         !reads.is_empty()
     });
 }

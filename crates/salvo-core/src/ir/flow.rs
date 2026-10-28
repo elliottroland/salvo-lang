@@ -294,12 +294,11 @@ fn check_fn(f: &FnDecl, out: &mut Vec<FlowDiagnostic>) {
 /// virtual places: a candidate at a mutation event whose binding has not
 /// taken ownership on that path (a binding decided at a later use is still
 /// borrow-mode there), and, for a fields-declaring call's survivor, whose
-/// local is still live. Adds to `out` (keyed by `file_idx`); answers whether
-/// it decided anything, so the builder knows to build the module again.
-pub fn decide(decl: &Decl, file_idx: usize, decls: &crate::decl_id::DeclIndex, out: &mut Decision) -> bool {
+/// local is still live. Adds to `out` (the bindings by their stamps, nodes
+/// [node-id]); answers whether it decided anything, so the builder knows to
+/// build the module again.
+pub fn decide(decl: &Decl, out: &mut Decision) -> bool {
     let mut any = false;
-    let hint = std::cell::Cell::new(0);
-    let key = |s: Span| decls.key(file_idx, s, &hint);
     let mut one = |f: &FnDecl| {
         let Some(body) = &f.body else { return };
         let mut w = Walker { fate: Some(&f.fate), deciding: true, ..Walker::default() };
@@ -310,15 +309,15 @@ pub fn decide(decl: &Decl, file_idx: usize, decls: &crate::decl_id::DeclIndex, o
         w.walk_block(body, &mut moved);
         for stamp in &w.decided {
             any = true;
-            out.decided.insert(key(*stamp));
-            out.modes.insert(key(*stamp));
-            for o in f.fate.origins.get(&stamp).into_iter().flatten() {
-                out.modes.insert(key(*o));
+            out.decided.insert(*stamp);
+            out.modes.insert(*stamp);
+            for o in f.fate.origins.get(stamp).into_iter().flatten() {
+                out.modes.insert(*o);
             }
         }
         for (stamp, place) in w.virtual_binds {
             any = true;
-            out.virtual_binds.insert(key(stamp), place);
+            out.virtual_binds.insert(stamp, place);
         }
     };
     match decl {
@@ -352,7 +351,7 @@ struct Moved {
     /// [fate-move-mode] Deciding: the bindings a use on this path has made
     /// take ownership (by stamp) — from there on they hold no links, so no
     /// mutation can leave them a virtual place [deduce-field].
-    decided_here: std::collections::BTreeSet<Span>,
+    decided_here: std::collections::BTreeSet<crate::check::Key>,
 }
 
 /// Why a local is unusable, and where it happened: moved, poisoned
@@ -531,8 +530,8 @@ struct Walker<'f> {
     /// reports nothing, and collects the bindings that take ownership and
     /// the virtual places.
     deciding: bool,
-    decided: HashSet<Span>,
-    virtual_binds: HashMap<Span, String>,
+    decided: HashSet<crate::check::Key>,
+    virtual_binds: HashMap<crate::check::Key, String>,
     /// [fate-derived-readonly] Checking: the spans of the uses refused as
     /// S1 errors, whose move is then not made (one mistake, one
     /// diagnostic).
@@ -765,8 +764,8 @@ impl<'f> Walker<'f> {
     /// ones its links were made by, and its roots' back along the chain,
     /// as the links stand on this path (the checker's
     /// `record_move_candidates` until R8 piece 8).
-    fn chain(&self, local: &str, moved: &Moved) -> Vec<Span> {
-        let mut out: Vec<Span> = Vec::new();
+    fn chain(&self, local: &str, moved: &Moved) -> Vec<crate::check::Key> {
+        let mut out: Vec<crate::check::Key> = Vec::new();
         let mut stack = vec![self.storage(local).to_string()];
         let mut seen: HashSet<String> = HashSet::new();
         while let Some(v) = stack.pop() {
@@ -794,7 +793,7 @@ impl<'f> Walker<'f> {
         let mut refused = Vec::new();
         for u in uses {
             let Some(fate) = self.fate else { continue };
-            let eligible = |s: &Span| fate.eligible.contains(&s);
+            let eligible = |s: &crate::check::Key| fate.eligible.contains(s);
             if self.deciding {
                 let mut chain = u.own.clone();
                 for s in self.chain(&u.local, moved) {

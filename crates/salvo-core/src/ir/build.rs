@@ -61,7 +61,7 @@ impl<'p> Ctx<'p> {
     pub fn bind_links(&self, file_idx: usize, at: Span) -> Option<(bool, Vec<crate::check::FlowLink>)> {
         let hint = std::cell::Cell::new(0);
         let fact = self.checked.bind_facts.get(&self.checked.decls.key(file_idx, at, &hint))?;
-        let decided = |s: Span| self.decision.decided.contains(&self.checked.decls.key(file_idx, s, &hint));
+        let decided = |s: crate::check::Key| self.decision.decided.contains(&s);
         let mut links: Vec<crate::check::FlowLink> = Vec::new();
         for l in &fact.links {
             if l.stamp != fact.stamp && decided(l.stamp) {
@@ -349,7 +349,8 @@ pub fn build_program_gated<'p>(
         facts_by_decl.entry(k.decl).or_default().push(fact);
     }
     for v in facts_by_decl.values_mut() {
-        v.sort_by_key(|f| f.stamp);
+        // In source order, as the bindings are written.
+        v.sort_by_key(|f| f.stamp.span);
     }
     let mut ctx = Ctx { program, symbols, resolution, checked, names: Ctx::compute_names(program, &resolution.decls), decision: Decision::default(), facts_by_decl, gate };
     let mut out = Program { modules: Vec::new(), names: HashMap::new(), decision: Decision::default() };
@@ -382,10 +383,9 @@ pub fn build_program_gated<'p>(
         let t = crate::timing::phase("  ir build: decide");
         let mut redo: Vec<usize> = Vec::new();
         for (i, m) in out.modules.iter().enumerate() {
-            let file_idx = built[i];
             let mut any = false;
             for decl in &m.decls {
-                any |= super::flow::decide(decl, file_idx, &checked.decls, &mut ctx.decision);
+                any |= super::flow::decide(decl, &mut ctx.decision);
             }
             if any {
                 redo.push(i);

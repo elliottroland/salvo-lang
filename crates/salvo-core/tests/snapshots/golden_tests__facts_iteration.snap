@@ -3,9 +3,12 @@ source: crates/salvo-core/tests/golden_tests.rs
 expression: text
 ---
 module main (main.sv)
-fn describe_container(xs: List<Int>) -> None
+describe_container(List<Int>) -> None@main
+  14:23   `xs`                           List<Int>
+  15:9    `sum`                          Int
   15:15   `0`                            Int
   16:5    `for n in xs {…`               None
+  16:9    `n`                            Int
   16:14   `xs`                           List<Int>
   17:15   `sum + n`                      Int
   17:15   `sum`                          Int
@@ -15,8 +18,10 @@ fn describe_container(xs: List<Int>) -> None
   19:27   `size(xs)`                     Int  -> std.core.list::size
   19:32   `xs`                           List<Int>
   19:47   `sum`                          Int
+  21:9    `letters`                      Mut Str
   21:19   `Mut Str()`                    Mut Str  -> std.core.string::Mut_Str
   22:5    `for c in "salvo" {…`          None
+  22:9    `c`                            Char
   22:14   `"salvo"`                      Str
   23:9    `append(letters, "${c}.")`     None  -> std.core.string::append
   23:16   `letters`                      Mut Str
@@ -25,12 +30,15 @@ fn describe_container(xs: List<Int>) -> None
   25:5    `println("1. string: ${lett…`  None  -> std.core.console::println
   25:13   `"1. string: ${letters}"`      Str
   25:27   `letters`                      Mut Str  [coerced]
+  27:9    `arr`                          Int[]
   27:15   `array_of(10, 20, 30)`         Int[]  -> std.core.array::array_of
   27:24   `10`                           Int
   27:28   `20`                           Int
   27:32   `30`                           Int
+  28:9    `from_array`                   Int
   28:22   `0`                            Int
   29:5    `for n in arr {…`              None
+  29:9    `n`                            Int
   29:14   `arr`                          Int[]
   30:22   `from_array + n`               Int
   30:22   `from_array`                   Int
@@ -38,11 +46,13 @@ fn describe_container(xs: List<Int>) -> None
   32:5    `println("1. array sums to …`  None  -> std.core.console::println
   32:13   `"1. array sums to ${from_a…`  Str
   32:33   `from_array`                   Int
-fn countdown(from: Int) -> Mut Countdown
+countdown(Int) -> Mut Countdown@main
+  48:14   `from`                         Int
   49:5    `return Mut Countdown { at:…`  Never
   49:12   `Mut Countdown { at: from }`   Mut Countdown
   49:32   `from`                         Int
-fn next(p: Mut Countdown) -> Emitted Int | Finished
+next(Mut Countdown) -> Emitted Int | Finished@main
+  54:9    `p`                            Mut Countdown
   55:5    `if p.at <= 0 {…`              None
   55:8    `p.at <= 0`                    Bool
   55:8    `p.at`                         Int
@@ -50,6 +60,7 @@ fn next(p: Mut Countdown) -> Emitted Int | Finished
   55:16   `0`                            Int
   56:9    `return finished()`            Never
   56:16   `finished()`                   Finished  -> std.core.iterator::finished  [coerced]
+  58:9    `now`                          Int
   58:15   `copy(p.at)`                   Int  -> std.core.basic::copy
   58:20   `p.at`                         Int
   58:20   `p`                            Mut Countdown
@@ -62,7 +73,8 @@ fn next(p: Mut Countdown) -> Emitted Int | Finished
   60:5    `return emitted(now)`          Never
   60:12   `emitted(now)`                 Emitted Int  -> std.core.iterator::emitted  [coerced]
   60:20   `now`                          Int
-fn skip(p: Mut Countdown) -> Emitted Int | Finished
+skip(Mut Countdown) -> Emitted Int | Finished@main
+  66:9    `p`                            Mut Countdown
   67:5    `if p.at <= 1 {…`              None
   67:8    `p.at <= 1`                    Bool
   67:8    `p.at`                         Int
@@ -70,6 +82,7 @@ fn skip(p: Mut Countdown) -> Emitted Int | Finished
   67:16   `1`                            Int
   68:9    `return finished()`            Never
   68:16   `finished()`                   Finished  -> std.core.iterator::finished  [coerced]
+  70:9    `now`                          Int
   70:15   `copy(p.at)`                   Int  -> std.core.basic::copy
   70:20   `p.at`                         Int
   70:20   `p`                            Mut Countdown
@@ -82,9 +95,13 @@ fn skip(p: Mut Countdown) -> Emitted Int | Finished
   72:5    `return emitted(now)`          Never
   72:12   `emitted(now)`                 Emitted Int  -> std.core.iterator::emitted  [coerced]
   72:20   `now`                          Int
-fn take(p: Mut Countdown, count: Int) -> None
+take(Mut Countdown, Int) -> None@main
+  77:9    `p`                            Mut Countdown
+  77:27   `count`                        Int
+  78:9    `seen`                         Int
   78:16   `0`                            Int
   79:5    `for n in p {…`                None
+  79:9    `n`                            Int
   79:14   `p`                            Mut Countdown
   80:9    `println("2. got ${n}")`       None  -> std.core.console::println
   80:17   `"2. got ${n}"`                Str
@@ -97,19 +114,22 @@ fn take(p: Mut Countdown, count: Int) -> None
   82:12   `seen`                         Int
   82:20   `count`                        Int
   83:13   `break`                        Never
-fn halving(start: Int) -> Mut Halving
+halving(Int) -> Mut Halving@main
   97:6    `fn halving(start: Int) -> …`  Never
   97:6    `fn halving(start: Int) -> …`  Mut Halving
   97:6    `fn halving(start: Int) -> …`  Int
+  97:17   `start`                        Int
   101:19  `start`                        Int
-fn next(__p: Mut Halving) -> Emitted Int | Finished
+next(Mut Halving) -> Emitted Int | Finished@main
   97:6    `fn halving(start: Int) -> …`  Mut Halving
+  97:9    `halving`                      Mut Halving
   103:5   `if at <= 0 {…`                None
   103:8   `at <= 0`                      Bool
   103:8   `at`                           Int
   103:14  `0`                            Int
   104:9   `return finished()`            Never
   104:16  `finished()`                   Finished  -> std.core.iterator::finished  [coerced]
+  106:9   `now`                          Int
   106:15  `copy(at)`                     Int  -> std.core.basic::copy
   106:20  `at`                           Int
   107:5   `at`                           Int
@@ -119,17 +139,20 @@ fn next(__p: Mut Halving) -> Emitted Int | Finished
   108:5   `return emitted(now)`          Never
   108:12  `emitted(now)`                 Emitted Int  -> std.core.iterator::emitted  [coerced]
   108:20  `now`                          Int
-fn halving_from_ten() -> Mut Halving
+halving_from_ten() -> Mut Halving@main
   113:5   `return halving(10)`           Never
   113:12  `halving(10)`                  Mut Halving  -> main::halving
   113:20  `10`                           Int
-fn iter(bag: Bag) -> Mut BagIter
+iter(Bag) -> Mut BagIter@main
   126:6   `fn iter(bag: Bag) -> Emitt…`  Never
   126:6   `fn iter(bag: Bag) -> Emitt…`  Mut BagIter
   126:6   `fn iter(bag: Bag) -> Emitt…`  Bag
+  126:14  `bag`                          Bag
   128:19  `0`                            Int
-fn next(__p: Mut BagIter) -> Emitted Int | Finished
+next(Mut BagIter) -> Emitted Int | Finished@main
   126:6   `fn iter(bag: Bag) -> Emitt…`  Mut BagIter
+  126:9   `iter`                         Mut BagIter
+  130:9   `e`                            Int?
   130:13  `get(bag.items, at)`           Int?  -> std.core.list::get(List<T>, Int)
   130:17  `bag.items`                    List<Int>
   130:17  `bag`                          proj Bag
@@ -147,15 +170,17 @@ fn next(__p: Mut BagIter) -> Emitted Int | Finished
   135:12  `emitted(copy(e))`             Emitted Int  -> std.core.iterator::emitted  [coerced]
   135:20  `copy(e)`                      Int  -> std.core.basic::copy
   135:25  `e`                            Int  [narrowed]
-fn fibs(count: Int) -> Mut Fibs
+fibs(Int) -> Mut Fibs@main
   142:6   `fn fibs(count: Int) [Conso…`  Never
   142:6   `fn fibs(count: Int) [Conso…`  Mut Fibs
   142:6   `fn fibs(count: Int) [Conso…`  Int
+  142:14  `count`                        Int
   144:18  `0`                            Int
   145:18  `1`                            Int
   146:21  `0`                            Int
-fn next(__p: Mut Fibs) -> Emitted Int | Finished
+next(Mut Fibs) -> Emitted Int | Finished@main
   142:6   `fn fibs(count: Int) [Conso…`  Mut Fibs
+  142:9   `fibs`                         Mut Fibs
   148:5   `if made >= count {…`          None
   148:8   `made >= count`                Bool
   148:8   `made`                         Int
@@ -164,8 +189,10 @@ fn next(__p: Mut Fibs) -> Emitted Int | Finished
   149:17  `"3. finished"`                Str
   150:9   `return finished()`            Never
   150:16  `finished()`                   Finished  -> std.core.iterator::finished  [coerced]
+  152:9   `now`                          Int
   152:15  `copy(a)`                      Int  -> std.core.basic::copy
   152:20  `a`                            Int
+  153:9   `sum`                          Int
   153:15  `a + b`                        Int
   153:15  `a`                            Int
   153:19  `b`                            Int
@@ -182,13 +209,16 @@ fn next(__p: Mut Fibs) -> Emitted Int | Finished
   157:5   `return emitted(now)`          Never
   157:12  `emitted(now)`                 Emitted Int  -> std.core.iterator::emitted  [coerced]
   157:20  `now`                          Int
-fn naturals(from: Int) -> Mut Naturals
+naturals(Int) -> Mut Naturals@main
   162:6   `fn naturals(from: Int) -> …`  Never
   162:6   `fn naturals(from: Int) -> …`  Mut Naturals
   162:6   `fn naturals(from: Int) -> …`  Int
+  162:18  `from`                         Int
   164:19  `from`                         Int
-fn next(__p: Mut Naturals) -> Emitted Int | Finished
+next(Mut Naturals) -> Emitted Int | Finished@main
   162:6   `fn naturals(from: Int) -> …`  Mut Naturals
+  162:9   `naturals`                     Mut Naturals
+  166:9   `now`                          Int
   166:15  `copy(at)`                     Int  -> std.core.basic::copy
   166:20  `at`                           Int
   167:5   `at`                           Int
@@ -198,33 +228,42 @@ fn next(__p: Mut Naturals) -> Emitted Int | Finished
   168:5   `return emitted(now)`          Never
   168:12  `emitted(now)`                 Emitted Int  -> std.core.iterator::emitted  [coerced]
   168:20  `now`                          Int
-fn sum_of(it: Mut It) -> Int
+sum_of(Mut #0) -> Int@main
+  177:15  `it`                           Mut It
+  178:9   `total`                        Int
   178:17  `0`                            Int
   179:5   `for n in it {…`               None
+  179:9   `n`                            Int
   179:14  `it`                           Mut It
   180:17  `total + n`                    Int
   180:17  `total`                        Int
   180:25  `n`                            Int
   182:5   `return total`                 Never
   182:12  `total`                        Int
-fn total(c: C) -> Int
+total(#0) -> Int@main
+  188:17  `c`                            C
+  189:9   `total`                        Int
   189:17  `0`                            Int
   190:5   `for n in c {…`                None
+  190:9   `n`                            Int
   190:14  `c`                            C
   191:17  `total + n`                    Int
   191:17  `total`                        Int
   191:25  `n`                            Int
   193:5   `return total`                 Never
   193:12  `total`                        Int
-fn first(it: Mut It) -> Int
+first(Mut #0) -> Int@main
+  198:14  `it`                           Mut It
   199:5   `for n in it {…`               None
+  199:9   `n`                            Int
   199:14  `it`                           Mut It
   200:9   `return n`                     Never
   200:16  `n`                            Int
   202:5   `return -1`                    Never
   202:12  `-1`                           Int
   202:13  `1`                            Int
-fn main()
+main() -> None@main
+  208:9   `xs`                           NonEmpty List<Int>
   208:14  `List(1, 2, 3, 4)`             NonEmpty List<Int>  -> std.core.list::List(T, T[])
   208:19  `1`                            Int
   208:22  `2`                            Int
@@ -232,6 +271,7 @@ fn main()
   208:28  `4`                            Int
   209:5   `describe_container(xs)`       None  -> main::describe_container
   209:24  `xs`                           NonEmpty List<Int>
+  213:9   `p`                            Mut Countdown
   213:13  `countdown(5)`                 Mut Countdown  -> main::countdown
   213:23  `5`                            Int
   214:5   `take(p, 2)`                   None  -> main::take
@@ -241,20 +281,24 @@ fn main()
   215:13  `"2. rest sums to ${sum_of(…`  Str
   215:32  `sum_of(p)`                    Int  -> main::sum_of
   215:39  `p`                            Mut Countdown
+  216:9   `q`                            Mut Countdown
   216:13  `countdown(6)`                 Mut Countdown  -> main::countdown
   216:23  `6`                            Int
   217:5   `for n in skip(q) {…`          None
+  217:9   `n`                            Int
   217:14  `skip(q)`                      Emitted Int | Finished  -> main::skip
   217:19  `q`                            Mut Countdown
   218:9   `println("2. skip ${n}")`      None  -> std.core.console::println
   218:17  `"2. skip ${n}"`               Str
   218:28  `n`                            Int
   223:5   `for n in halving(20) {…`      None
+  223:9   `n`                            Int
   223:14  `halving(20)`                  Mut Halving  -> main::halving
   223:22  `20`                           Int
   224:9   `println("2b. halving ${n}"…`  None  -> std.core.console::println
   224:17  `"2b. halving ${n}"`           Str
   224:32  `n`                            Int
+  226:9   `hp`                           Mut Halving
   226:14  `halving(20)`                  Mut Halving  -> main::halving
   226:22  `20`                           Int
   227:5   `println("2b. summed from a…`  None  -> std.core.console::println
@@ -265,11 +309,13 @@ fn main()
   228:13  `"2b. first from a fn retur…`  Str
   228:51  `first(halving_from_ten())`    Int  -> main::first
   228:57  `halving_from_ten()`           Mut Halving  -> main::halving_from_ten
+  232:9   `bag`                          Bag
   232:15  `Bag { items: List(7, 8) }`    Bag
   232:28  `List(7, 8)`                   NonEmpty List<Int>  -> std.core.list::List(T, T[])
   232:33  `7`                            Int
   232:36  `8`                            Int
   233:5   `for n in bag {…`              None
+  233:9   `n`                            Int
   233:14  `bag`                          Bag
   234:9   `println("2c. bag ${n}")`      None  -> std.core.console::println
   234:17  `"2c. bag ${n}"`               Str
@@ -281,12 +327,14 @@ fn main()
   236:60  `total(xs)`                    Int  -> main::total
   236:66  `xs`                           NonEmpty List<Int>
   241:5   `for n in fibs(6) {…`          None
+  241:9   `n`                            Int
   241:14  `fibs(6)`                      Mut Fibs  -> main::fibs
   241:19  `6`                            Int
   242:9   `println("3. fib ${n}")`       None  -> std.core.console::println
   242:17  `"3. fib ${n}"`                Str
   242:27  `n`                            Int
   246:5   `for n in naturals(10) {…`     None
+  246:9   `n`                            Int
   246:14  `naturals(10)`                 Mut Naturals  -> main::naturals
   246:23  `10`                           Int
   247:9   `if n > 12 {…`                 None
@@ -297,24 +345,31 @@ fn main()
   250:9   `println("3. natural ${n}")`   None  -> std.core.console::println
   250:17  `"3. natural ${n}"`            Str
   250:31  `n`                            Int
+  258:9   `doubled`                      Mut List<Int>
   258:19  `map(xs, n -> n * 2)`          Mut List<Int>  -> std.core.seq::map(List<T>, (T) -> U)
   258:23  `xs`                           NonEmpty List<Int>
   258:27  `n -> n * 2`                   (Int) -> Int
+  258:27  `n`                            Int
   258:32  `n * 2`                        Int
   258:32  `n`                            Int
   258:36  `2`                            Int
+  259:9   `odd`                          Mut List<Int>
   259:15  `filter(xs, n -> n % 2 == 1…`  Mut List<Int>  -> std.core.seq::filter(List<T>, (T) -> Bool)
   259:22  `xs`                           NonEmpty List<Int>
   259:26  `n -> n % 2 == 1`              (Int) -> Bool
+  259:26  `n`                            Int
   259:31  `n % 2 == 1`                   Bool
   259:31  `n % 2`                        Int
   259:31  `n`                            Int
   259:35  `2`                            Int
   259:40  `1`                            Int
+  260:9   `total`                        Int
   260:17  `reduce(xs, 0, (acc, n) -> …`  Int  -> std.core.seq::reduce(List<T>, A, (A, T) -> A)
   260:24  `xs`                           NonEmpty List<Int>
   260:28  `0`                            Int
   260:31  `(acc, n) -> acc + n`          (Int, Int) -> Int
+  260:32  `acc`                          Int
+  260:37  `n`                            Int
   260:43  `acc + n`                      Int
   260:43  `acc`                          Int
   260:49  `n`                            Int
@@ -325,14 +380,17 @@ fn main()
   261:51  `size(odd)`                    Int  -> std.core.list::size
   261:56  `odd`                          Mut List<Int>  [coerced]
   261:75  `total`                        Int
+  263:9   `words`                        NonEmpty List<Str>
   263:17  `List("ann", "bo", "carol")`   NonEmpty List<Str>  -> std.core.list::List(T, T[])
   263:22  `"ann"`                        Str
   263:29  `"bo"`                         Str
   263:35  `"carol"`                      Str
+  264:9   `lengths`                      Mut List<Int>
   264:19  `map(iter(words), w -> size…`  Mut List<Int>  -> std.core.seq::map(Mut It, (T) -> U)
   264:23  `iter(words)`                  Mut ListYield<Str>  -> std.core.list::iter
   264:28  `words`                        NonEmpty List<Str>
   264:36  `w -> size(w)`                 (proj Str) -> Int
+  264:36  `w`                            proj Str
   264:41  `size(w)`                      Int  -> std.core.string::size
   264:46  `w`                            proj Str  [coerced]
   265:5   `println("5. lengths: ${red…`  None  -> std.core.console::println
@@ -342,14 +400,19 @@ fn main()
   265:40  `lengths`                      Mut List<Int>  [coerced]
   265:50  `0`                            Int
   265:53  `(acc, n) -> acc + n`          (Int, Int) -> Int
+  265:54  `acc`                          Int
+  265:59  `n`                            Int
   265:65  `acc + n`                      Int
   265:65  `acc`                          Int
   265:71  `n`                            Int
+  269:9   `word`                         Str
   269:16  `"iteration"`                  Str
+  270:9   `vowels`                       Mut List<Char>
   270:18  `filter(iter(word), c -> c …`  Mut List<Char>  -> std.core.seq::filter(Mut It, (T) -> Bool)
   270:25  `iter(word)`                   Mut StrYield  -> std.core.string::iter
   270:30  `word`                         Str
   270:37  `c -> c == 'i' || c == 'o'`    (Char) -> Bool
+  270:37  `c`                            Char
   270:42  `c == 'i' || c == 'o'`         Bool
   270:42  `c == 'i'`                     Bool
   270:42  `c`                            Char
@@ -368,14 +431,18 @@ fn main()
   274:48  `20`                           Int
   274:53  `0`                            Int
   274:56  `(acc, n) -> acc + n`          (Int, Int) -> Int
+  274:57  `acc`                          Int
+  274:62  `n`                            Int
   274:68  `acc + n`                      Int
   274:68  `acc`                          Int
   274:74  `n`                            Int
+  281:9   `collected`                    Mut List<Int>
   281:21  `map_to(Mut List<Int>(), co…`  Mut List<Int>  -> std.core.seq::map_to
   281:28  `Mut List<Int>()`              Mut List<Int>  -> std.core.list::Mut_List()
   281:45  `countdown(3)`                 Mut Countdown  -> main::countdown
   281:55  `3`                            Int
   281:59  `(n: Int) -> n * 10`           (Int) -> Int
+  281:60  `n`                            Int
   281:71  `n * 10`                       Int
   281:71  `n`                            Int
   281:75  `10`                           Int
@@ -383,8 +450,10 @@ fn main()
   282:13  `"6. collected ${size(colle…`  Str
   282:29  `size(collected)`              Int  -> std.core.list::size
   282:34  `collected`                    Mut List<Int>  [coerced]
+  288:9   `evens`                        Mut Str
   288:17  `Mut Str()`                    Mut Str  -> std.core.string::Mut_Str
   289:5   `for i in range(0, 10, 2) {…`  None
+  289:9   `i`                            Int
   289:14  `range(0, 10, 2)`              Mut Range  -> std.core.range::range(Int, Int, Int)
   289:20  `0`                            Int
   289:23  `10`                           Int

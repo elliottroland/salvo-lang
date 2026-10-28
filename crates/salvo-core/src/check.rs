@@ -83,6 +83,18 @@ impl std::hash::Hash for Key {
         self.node.hash(state);
     }
 }
+/// By declaration, then node: the same in every run, and consistent with
+/// `==` (the origin takes no part).
+impl Ord for Key {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (self.decl, self.node).cmp(&(other.decl, other.node))
+    }
+}
+impl PartialOrd for Key {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 /// Printed as its origin, `(file, span)`.
 impl std::fmt::Debug for Key {
@@ -1495,12 +1507,12 @@ pub struct LocalDecl {
     pub always_in_scope: bool,
 }
 /// One fate link of a derived variable, exposed for tooling [fate-link]:
-/// the root variable's name and the span of the binding
-/// that created the link.
+/// the root variable's name and the binding that created the link, by its
+/// node [node-id] (its span the binding's origin).
 #[derive(Clone, Debug, PartialEq)]
 pub struct FateRead {
     pub root: String,
-    pub bind_span: Span,
+    pub bind: Key,
     /// [fate-field-disjoint] The projection the value was taken from,
     /// rendered (`.name`, or empty for the whole variable). `None` when the
     /// derivation is not a plain projection chain. Tooling appends it to
@@ -1521,17 +1533,20 @@ pub struct FlowLink {
     pub path: Option<Vec<Step>>,
     pub crosses: bool,
     /// [fate-move-mode] The binding that made the link (a descendant's copy
-    /// of an ancestor's link carries the ancestor's).
-    pub stamp: Span,
+    /// of an ancestor's link carries the ancestor's), by its node: what the
+    /// IR flow pass and its `Decision` know a binding by [node-id].
+    pub stamp: Key,
 }
 
 /// [fate-move-mode] One link-carrying binding (`Checked::bind_facts`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct BindFact {
-    pub stamp: Span,
+    /// [node-id] The binding, by its node.
+    pub stamp: Key,
     pub links: Vec<FlowLink>,
     pub eligible: bool,
-    pub origins: Vec<Span>,
+    /// The `for` loops its roots are bound by, by their iterables' nodes.
+    pub origins: Vec<Key>,
 }
 
 /// [fate-move-mode] A move or mutation of a derived variable
@@ -1546,7 +1561,7 @@ pub struct DerivedUse {
     /// The bindings (by stamp) the variable's own links were made by, as the
     /// walk holds them there: the use is the S1 error unless one of them may
     /// take ownership.
-    pub own: Vec<Span>,
+    pub own: Vec<Key>,
 }
 
 /// [deduce-field] A binding a mutation event may leave as a virtual place
@@ -1555,7 +1570,8 @@ pub struct DerivedUse {
 /// (`survivor`: a fields-declaring call's) or not (a contents spare's).
 #[derive(Clone, Debug, PartialEq)]
 pub struct VirtualCandidate {
-    pub stamp: Span,
+    /// [node-id] The binding, by its node.
+    pub stamp: Key,
     pub place: String,
     pub var: String,
     pub survivor: bool,
@@ -2316,22 +2332,9 @@ fn check_once<'p>(
     walked.sort_by_key(|(f, _)| *f);
     if let (Some(c), Some(syntactic)) = (check_cache, syntactic) {
         let _t = crate::timing::phase("  check: cache record");
-        let walked_files: HashSet<usize> = walked.iter().map(|(f, _)| *f).collect();
-        let mut decl_file: HashMap<String, usize> = HashMap::new();
-        for &f in &walked_files {
-            for item in &program.modules[f].items {
-                match item {
-                    Item::Handler(h) => {
-                        decl_file.insert(symbols.key_or(h, &h.name.name).to_string(), f);
-                    }
-                    Item::Effect(e) => {
-                        decl_file.insert(symbols.key_or(e, &e.name.name).to_string(), f);
-                    }
-                    _ => {}
-                }
-            }
-        }
-        c.record(program, first, syntactic, &out, param_mutations, walked, &decl_file);
+        let walked_files: Vec<usize> = walked.iter().map(|(f, _)| *f).collect();
+        let owners = crate::partition::Owners::new(program, symbols, &out.decls, &walked_files, false);
+        c.record(program, first, syntactic, &out, param_mutations, walked, &owners);
     }
     program_checks(program, symbols, &mut out, parking_handlers);
     out
@@ -12103,7 +12106,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .iter()
                 .map(|l| FateRead {
                     root: l.root_name.clone(),
-                    bind_span: l.bind_span,
+                    bind: self.key(l.bind_span),
                     path: l
                         .path
                         .as_ref()
@@ -12948,7 +12951,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [deduce-field] The IR keeps the spares whose binding is still
         // borrow-mode there [fate-move-mode].
         for (bind_span, place) in spared {
-            let c = VirtualCandidate { stamp: bind_span, place, var: String::new(), survivor: false };
+            let c = VirtualCandidate { stamp: self.key(bind_span), place, var: String::new(), survivor: false };
             let at = self.out.virtual_candidates.entry(self.key(span)).or_default();
             if !at.contains(&c) {
                 at.push(c);
@@ -12980,10 +12983,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             return false;
         }
         let message = Self::derived_message(action, name, links);
-        let mut own: Vec<Span> = Vec::new();
+        let mut own: Vec<Key> = Vec::new();
         for l in links {
-            if !own.contains(&l.bind_span) {
-                own.push(l.bind_span);
+            let stamp = self.key(l.bind_span);
+            if !own.contains(&stamp) {
+                own.push(stamp);
             }
         }
         let use_ = DerivedUse { name: name.to_string(), action: action.to_string(), message, own };
@@ -13129,14 +13133,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (at, (bind_span, links)) in std::mem::take(&mut self.fate_log) {
             let links: Vec<FlowLink> = links
                 .iter()
-                .map(|l| FlowLink { root: l.root_name.clone(), path: l.path.clone(), crosses: l.crosses, stamp: l.bind_span })
+                .map(|l| FlowLink { root: l.root_name.clone(), path: l.path.clone(), crosses: l.crosses, stamp: self.key(l.bind_span) })
                 .collect();
             if links.is_empty() {
                 continue;
             }
             let (eligible, origins) = meta.get(&at).cloned().unwrap_or_default();
+            let origins = origins.into_iter().map(|o| self.key(o)).collect();
             let at = self.key(at);
-            self.out.bind_facts.insert(at, BindFact { stamp: bind_span, links, eligible, origins });
+            self.out.bind_facts.insert(at, BindFact { stamp: self.key(bind_span), links, eligible, origins });
         }
     }
 
@@ -18262,7 +18267,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         for (stamp, place, var) in survivors {
-            let c = VirtualCandidate { stamp, place, var, survivor: true };
+            let c = VirtualCandidate { stamp: self.key(stamp), place, var, survivor: true };
             let at = self.out.virtual_candidates.entry(self.key(span)).or_default();
             if !at.contains(&c) {
                 at.push(c);
@@ -24631,7 +24636,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             .iter()
                             .map(|l| FateRead {
                                 root: l.root_name.clone(),
-                                bind_span: l.bind_span,
+                                bind: self.key(l.bind_span),
                                 path: l
                                     .path
                                     .as_ref()

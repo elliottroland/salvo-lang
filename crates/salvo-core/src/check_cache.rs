@@ -286,8 +286,8 @@ impl CheckCache {
     /// Records the walked files' rows from a check of `program` (after every
     /// body, before the program checks): `out` is the check so far,
     /// `mutations` the walk's `param_mutations`, `steps` what each walked
-    /// file's steps appended, and `decl_file` the declaring file of each
-    /// handler and effect key a walked file declares.
+    /// file's steps appended, and `owners` the walked files' declarations
+    /// [decl-rows].
     pub(crate) fn record(
         &mut self,
         program: &Program,
@@ -296,7 +296,7 @@ impl CheckCache {
         out: &Checked,
         mutations: &HashMap<DeclId, HashSet<String>>,
         steps: Vec<(usize, [StepRows; 3])>,
-        decl_file: &HashMap<String, usize>,
+        owners: &crate::partition::Owners,
     ) {
         self.sync_owners(program);
         self.files = program.files.iter().map(FileId::of).collect();
@@ -304,7 +304,7 @@ impl CheckCache {
         self.first = first;
         self.parking = parking.clone();
         let walked: Vec<usize> = steps.iter().map(|(f, _)| *f).collect();
-        let mut parts = out.split_files(program.files.len(), &walked, decl_file);
+        let mut parts = out.split_files(program.files.len(), &walked, owners);
         for (f, mut steps) in steps {
             for step in &mut steps {
                 let owners = &self.owners;
@@ -780,249 +780,5 @@ pub(crate) fn walk_item<V: Visitor>(c: &mut V, it: &Item) {
         Item::Refn(r) => refn(c, r),
         Item::Rename(ast::RenameDecl { docs: _, name: _, target: _, generics: _, params: ps, span: _ }) => params(c, ps),
         Item::Test(ast::TestDecl { docs: _, name: _, name_span: _, kind: _, body, span: _ }) => v::walk_block(c, body),
-    }
-}
-
-impl Checked {
-    /// [lsp-check-cache] Clones every row keyed by one of [files] into a
-    /// `Checked` of its own per file: the rows of the tables a walk writes
-    /// per file, by the file of their key (`decl_file` for the tables keyed
-    /// by a declaration's symbol key). Exhaustive by construction: a new
-    /// table is a compile error here until it says where its rows go.
-    pub(crate) fn split_files(&self, n_files: usize, files: &[usize], decl_file: &HashMap<String, usize>) -> Vec<Option<Checked>> {
-        let mut parts: Vec<Option<Checked>> = (0..n_files).map(|_| None).collect();
-        for &f in files {
-            parts[f] = Some(Checked::default());
-        }
-        fn part(parts: &mut [Option<Checked>], f: usize) -> Option<&mut Checked> {
-            parts.get_mut(f).and_then(Option::as_mut)
-        }
-        let Checked { decls, expr_ty, comparisons, arm_compares, promotions, repr_ty, coerce, is_tests, safe_navs, when_exhaustive, when_arms, predicate_tests, qual_member_calls, field_casts, call_fn, for_drivers, refinements, use_effects, route_uses, route_keys, parking_handlers, protocol_hashes, use_deps, use_with_items, spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, task_mint_effects, use_addrs, use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_calls, effect_member_calls, member_calls, dot_calls, written_types, local_calls, local_call_names, call_effects, fn_effects, decl_effects, handler_deps, effect_prereqs, fn_body_effects, call_type_args, lambda_effects, fn_value_implicits, widen_targets, pick_left, elvis_picks, elvis_tests, elvis_widen, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_keys, type_ref_span_keys, visible_keys, visible_handler_keys, field_refs, module_refs, fate_reads, interp_to_str, interp_union, interp_implicit, temp_views, lending_calls, fn_lends, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, use_handler_args, implicit_members, errors } = self;
-        // [decl-id] The file a fn-keyed row belongs to.
-        let fk = |k: &DeclId| decls.loc(*k).map_or(usize::MAX, |l| l.file);
-        for (k, v) in expr_ty { if let Some(p) = part(&mut parts, k.file()) { p.expr_ty.insert(k.clone(), v.clone()); } }
-        for (k, v) in comparisons { if let Some(p) = part(&mut parts, k.file()) { p.comparisons.insert(k.clone(), v.clone()); } }
-        for (k, v) in arm_compares { if let Some(p) = part(&mut parts, k.file()) { p.arm_compares.insert(k.clone(), v.clone()); } }
-        for (k, v) in promotions { if let Some(p) = part(&mut parts, k.file()) { p.promotions.insert(k.clone(), v.clone()); } }
-        for (k, v) in repr_ty { if let Some(p) = part(&mut parts, k.file()) { p.repr_ty.insert(k.clone(), v.clone()); } }
-        for (k, v) in coerce { if let Some(p) = part(&mut parts, k.file()) { p.coerce.insert(k.clone(), v.clone()); } }
-        for (k, v) in is_tests { if let Some(p) = part(&mut parts, k.file()) { p.is_tests.insert(k.clone(), v.clone()); } }
-        for (k, v) in safe_navs { if let Some(p) = part(&mut parts, k.file()) { p.safe_navs.insert(k.clone(), v.clone()); } }
-        for k in when_exhaustive { if let Some(p) = part(&mut parts, k.file()) { p.when_exhaustive.insert(*k); } }
-        for (k, v) in when_arms { if let Some(p) = part(&mut parts, k.file()) { p.when_arms.insert(k.clone(), v.clone()); } }
-        for (k, v) in predicate_tests { if let Some(p) = part(&mut parts, k.file()) { p.predicate_tests.insert(k.clone(), v.clone()); } }
-        for (k, v) in qual_member_calls { if let Some(p) = part(&mut parts, k.file()) { p.qual_member_calls.insert(k.clone(), v.clone()); } }
-        for (k, v) in field_casts { if let Some(p) = part(&mut parts, k.file()) { p.field_casts.insert(k.clone(), v.clone()); } }
-        for (k, v) in call_fn { if let Some(p) = part(&mut parts, k.file()) { p.call_fn.insert(k.clone(), v.clone()); } }
-        for (k, v) in for_drivers { if let Some(p) = part(&mut parts, k.file()) { p.for_drivers.insert(k.clone(), v.clone()); } }
-        let _ = refinements; // program-wide: recomputed every check
-        for (k, v) in use_effects { if let Some(p) = part(&mut parts, k.file()) { p.use_effects.insert(k.clone(), v.clone()); } }
-        for (k, v) in route_uses { if let Some(p) = part(&mut parts, k.file()) { p.route_uses.insert(k.clone(), v.clone()); } }
-        for (k, v) in route_keys { if let Some(p) = decl_file.get(k.as_str()).and_then(|f| part(&mut parts, *f)) { p.route_keys.insert(k.clone(), v.clone()); } }
-        let _ = parking_handlers; // program-wide: recomputed every check
-        let _ = protocol_hashes; // program-wide: recomputed every check
-        for (k, v) in use_deps { if let Some(p) = part(&mut parts, k.file()) { p.use_deps.insert(k.clone(), v.clone()); } }
-        for (k, v) in use_with_items { if let Some(p) = part(&mut parts, k.file()) { p.use_with_items.insert(k.clone(), v.clone()); } }
-        for (k, v) in spawn_effects { if let Some(p) = part(&mut parts, k.file()) { p.spawn_effects.insert(k.clone(), v.clone()); } }
-        for (k, v) in spawn_deps { if let Some(p) = part(&mut parts, k.file()) { p.spawn_deps.insert(k.clone(), v.clone()); } }
-        for (k, v) in spawn_dep_items { if let Some(p) = part(&mut parts, k.file()) { p.spawn_dep_items.insert(k.clone(), v.clone()); } }
-        for (k, v) in replyto_members { if let Some(p) = part(&mut parts, k.file()) { p.replyto_members.insert(k.clone(), v.clone()); } }
-        for (k, v) in facade_sends { if let Some(p) = part(&mut parts, k.file()) { p.facade_sends.insert(k.clone(), v.clone()); } }
-        let _ = waitfor_sites; // per walk step (`StepRows`)
-        let _ = handler_constructs; // per walk step (`StepRows`)
-        for (k, v) in replyto_tasks { if let Some(p) = part(&mut parts, k.file()) { p.replyto_tasks.insert(k.clone(), v.clone()); } }
-        for (k, v) in task_mint_effects { if let Some(p) = part(&mut parts, k.file()) { p.task_mint_effects.insert(k.clone(), v.clone()); } }
-        for (k, v) in use_addrs { if let Some(p) = part(&mut parts, k.file()) { p.use_addrs.insert(k.clone(), v.clone()); } }
-        for (k, v) in use_addr_tuples { if let Some(p) = part(&mut parts, k.file()) { p.use_addr_tuples.insert(k.clone(), v.clone()); } }
-        for (k, v) in project_effects { if let Some(p) = part(&mut parts, k.file()) { p.project_effects.insert(k.clone(), v.clone()); } }
-        for (k, v) in merge_effects { if let Some(p) = part(&mut parts, k.file()) { p.merge_effects.insert(k.clone(), v.clone()); } }
-        for (k, v) in addr_calls { if let Some(p) = part(&mut parts, k.file()) { p.addr_calls.insert(k.clone(), v.clone()); } }
-        for (k, v) in self_sends { if let Some(p) = part(&mut parts, k.file()) { p.self_sends.insert(k.clone(), v.clone()); } }
-        for k in linear_moves { if let Some(p) = part(&mut parts, k.file()) { p.linear_moves.insert(*k); } }
-        for k in moved_reads { if let Some(p) = part(&mut parts, k.file()) { p.moved_reads.insert(*k); } }
-        for k in flow_moves { if let Some(p) = part(&mut parts, k.file()) { p.flow_moves.insert(*k); } }
-        for (k, v) in fate_mutations { if let Some(p) = part(&mut parts, k.file()) { p.fate_mutations.insert(k.clone(), v.clone()); } }
-        for (k, v) in bind_facts { if let Some(p) = part(&mut parts, k.file()) { p.bind_facts.insert(k.clone(), v.clone()); } }
-        for (k, v) in derived_uses { if let Some(p) = part(&mut parts, k.file()) { p.derived_uses.insert(k.clone(), v.clone()); } }
-        for (k, v) in virtual_candidates { if let Some(p) = part(&mut parts, k.file()) { p.virtual_candidates.insert(k.clone(), v.clone()); } }
-        for k in by_value_loops { if let Some(p) = part(&mut parts, k.file()) { p.by_value_loops.insert(*k); } }
-        for k in state_takes { if let Some(p) = part(&mut parts, k.file()) { p.state_takes.insert(*k); } }
-        let _ = actor_gates; // per walk step (`StepRows`)
-        let _ = actor_sends; // per walk step (`StepRows`)
-        let _ = task_sends; // per walk step (`StepRows`)
-        let _ = task_mints; // per walk step (`StepRows`)
-        for (k, v) in effect_calls { if let Some(p) = part(&mut parts, k.file()) { p.effect_calls.insert(k.clone(), v.clone()); } }
-        for (k, v) in effect_member_calls { if let Some(p) = part(&mut parts, k.file()) { p.effect_member_calls.insert(k.clone(), v.clone()); } }
-        for (k, v) in member_calls { if let Some(p) = part(&mut parts, k.file()) { p.member_calls.insert(k.clone(), v.clone()); } }
-        for k in dot_calls { if let Some(p) = part(&mut parts, k.file()) { p.dot_calls.insert(*k); } }
-        let _ = written_types; // per walk step (`StepRows`)
-        for k in local_calls { if let Some(p) = part(&mut parts, k.file()) { p.local_calls.insert(*k); } }
-        for (k, v) in local_call_names { if let Some(p) = part(&mut parts, k.file()) { p.local_call_names.insert(k.clone(), v.clone()); } }
-        for (k, v) in call_effects { if let Some(p) = part(&mut parts, k.file()) { p.call_effects.insert(k.clone(), v.clone()); } }
-        for (k, v) in fn_effects { if let Some(p) = part(&mut parts, fk(k)) { p.fn_effects.insert(k.clone(), v.clone()); } }
-        for (k, v) in decl_effects { if let Some(p) = part(&mut parts, k.file()) { p.decl_effects.insert(k.clone(), v.clone()); } }
-        for (k, v) in handler_deps { if let Some(p) = decl_file.get(k.as_str()).and_then(|f| part(&mut parts, *f)) { p.handler_deps.insert(k.clone(), v.clone()); } }
-        for (k, v) in effect_prereqs { if let Some(p) = decl_file.get(k.as_str()).and_then(|f| part(&mut parts, *f)) { p.effect_prereqs.insert(k.clone(), v.clone()); } }
-        let _ = fn_body_effects; // per walk step (`StepRows`)
-        for (k, v) in call_type_args { if let Some(p) = part(&mut parts, k.file()) { p.call_type_args.insert(k.clone(), v.clone()); } }
-        for (k, v) in lambda_effects { if let Some(p) = part(&mut parts, k.file()) { p.lambda_effects.insert(k.clone(), v.clone()); } }
-        for (k, v) in fn_value_implicits { if let Some(p) = part(&mut parts, k.file()) { p.fn_value_implicits.insert(k.clone(), v.clone()); } }
-        for (k, v) in widen_targets { if let Some(p) = part(&mut parts, k.file()) { p.widen_targets.insert(k.clone(), v.clone()); } }
-        for (k, v) in pick_left { if let Some(p) = part(&mut parts, k.file()) { p.pick_left.insert(k.clone(), v.clone()); } }
-        for (k, v) in elvis_picks { if let Some(p) = part(&mut parts, k.file()) { p.elvis_picks.insert(k.clone(), v.clone()); } }
-        for (k, v) in elvis_tests { if let Some(p) = part(&mut parts, k.file()) { p.elvis_tests.insert(k.clone(), v.clone()); } }
-        for (k, v) in elvis_widen { if let Some(p) = part(&mut parts, k.file()) { p.elvis_widen.insert(k.clone(), v.clone()); } }
-        for (k, v) in may_throw { if let Some(p) = part(&mut parts, k.file()) { p.may_throw.insert(k.clone(), v.clone()); } }
-        let _ = deductions; // program-wide: recomputed every check
-        for (k, v) in fn_refs { if let Some(p) = part(&mut parts, k.file()) { p.fn_refs.insert(k.clone(), v.clone()); } }
-        for (k, v) in def_refs { if let Some(p) = part(&mut parts, k.file()) { p.def_refs.insert(k.clone(), v.clone()); } }
-        for (k, v) in local_decls { if let Some(p) = part(&mut parts, *k) { p.local_decls.insert(k.clone(), v.clone()); } }
-        let _ = type_ref_keys; // program-wide: recomputed every check
-        let _ = type_ref_span_keys; // program-wide: recomputed every check
-        let _ = visible_keys; // program-wide: recomputed every check
-        let _ = visible_handler_keys; // program-wide: recomputed every check
-        for (k, v) in field_refs { if let Some(p) = part(&mut parts, k.file()) { p.field_refs.insert(k.clone(), v.clone()); } }
-        for (k, v) in module_refs { if let Some(p) = part(&mut parts, k.file()) { p.module_refs.insert(k.clone(), v.clone()); } }
-        for (k, v) in fate_reads { if let Some(p) = part(&mut parts, k.file()) { p.fate_reads.insert(k.clone(), v.clone()); } }
-        for (k, v) in interp_to_str { if let Some(p) = part(&mut parts, k.file()) { p.interp_to_str.insert(k.clone(), v.clone()); } }
-        for (k, v) in interp_union { if let Some(p) = part(&mut parts, k.file()) { p.interp_union.insert(k.clone(), v.clone()); } }
-        for (k, v) in interp_implicit { if let Some(p) = part(&mut parts, k.file()) { p.interp_implicit.insert(k.clone(), v.clone()); } }
-        for k in temp_views { if let Some(p) = part(&mut parts, k.file()) { p.temp_views.insert(*k); } }
-        for (k, v) in lending_calls { if let Some(p) = part(&mut parts, k.file()) { p.lending_calls.insert(k.clone(), v.clone()); } }
-        for (k, v) in fn_lends { if let Some(p) = part(&mut parts, fk(k)) { p.fn_lends.insert(k.clone(), v.clone()); } }
-        for k in handle_muts { if let Some(p) = part(&mut parts, k.file()) { p.handle_muts.insert(*k); } }
-        let _ = param_mutations; // the walk's own map, by the caller
-        for k in moved_projections { if let Some(p) = part(&mut parts, k.file()) { p.moved_projections.insert(*k); } }
-        for (k, v) in boundary_checks { if let Some(p) = part(&mut parts, k.file()) { p.boundary_checks.insert(k.clone(), v.clone()); } }
-        for (k, v) in factories { if let Some(p) = part(&mut parts, k.file()) { p.factories.insert(k.clone(), v.clone()); } }
-        let _ = platform_closure_all; // program-wide: recomputed every check
-        for (k, v) in lambda_captures { if let Some(p) = part(&mut parts, k.file()) { p.lambda_captures.insert(k.clone(), v.clone()); } }
-        for (k, v) in derived_calls { if let Some(p) = part(&mut parts, k.file()) { p.derived_calls.insert(k.clone(), v.clone()); } }
-        for (k, v) in distinct_pairs { if let Some(p) = part(&mut parts, k.file()) { p.distinct_pairs.insert(k.clone(), v.clone()); } }
-        for k in mut_lend_calls { if let Some(p) = part(&mut parts, k.file()) { p.mut_lend_calls.insert(*k); } }
-        for (k, v) in fn_value_calls { if let Some(p) = part(&mut parts, k.file()) { p.fn_value_calls.insert(k.clone(), v.clone()); } }
-        for (k, v) in lambda_contracts { if let Some(p) = part(&mut parts, k.file()) { p.lambda_contracts.insert(k.clone(), v.clone()); } }
-        for (k, v) in implicit_params { if let Some(p) = part(&mut parts, fk(k)) { p.implicit_params.insert(k.clone(), v.clone()); } }
-        for (k, v) in established_quals { if let Some(p) = part(&mut parts, fk(&k.0)) { p.established_quals.insert(k.clone(), v.clone()); } }
-        for (k, v) in carried_identities { if let Some(p) = part(&mut parts, k.0) { p.carried_identities.insert(k.clone(), v.clone()); } }
-        for (k, v) in implicit_args { if let Some(p) = part(&mut parts, k.file()) { p.implicit_args.insert(k.clone(), v.clone()); } }
-        for (k, v) in use_handler_args { if let Some(p) = part(&mut parts, k.file()) { p.use_handler_args.insert(k.clone(), v.clone()); } }
-        for (k, v) in implicit_members { if let Some(p) = part(&mut parts, k.file()) { p.implicit_members.insert(k.clone(), v.clone()); } }
-        let _ = errors; // per walk step (`StepRows`)
-        parts
-    }
-
-    /// [lsp-check-cache] Inserts one file's rows (`split_files`).
-    pub(crate) fn insert_rows(&mut self, rows: &Checked) {
-        let Checked { decls: _, expr_ty, comparisons, arm_compares, promotions, repr_ty, coerce, is_tests, safe_navs, when_exhaustive, when_arms, predicate_tests, qual_member_calls, field_casts, call_fn, for_drivers, refinements, use_effects, route_uses, route_keys, parking_handlers, protocol_hashes, use_deps, use_with_items, spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, task_mint_effects, use_addrs, use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_calls, effect_member_calls, member_calls, dot_calls, written_types, local_calls, local_call_names, call_effects, fn_effects, decl_effects, handler_deps, effect_prereqs, fn_body_effects, call_type_args, lambda_effects, fn_value_implicits, widen_targets, pick_left, elvis_picks, elvis_tests, elvis_widen, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_keys, type_ref_span_keys, visible_keys, visible_handler_keys, field_refs, module_refs, fate_reads, interp_to_str, interp_union, interp_implicit, temp_views, lending_calls, fn_lends, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, use_handler_args, implicit_members, errors } = rows;
-        self.expr_ty.extend(expr_ty.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.comparisons.extend(comparisons.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.arm_compares.extend(arm_compares.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.promotions.extend(promotions.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.repr_ty.extend(repr_ty.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.coerce.extend(coerce.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.is_tests.extend(is_tests.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.safe_navs.extend(safe_navs.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.when_exhaustive.extend(when_exhaustive.iter().copied());
-        self.when_arms.extend(when_arms.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.predicate_tests.extend(predicate_tests.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.qual_member_calls.extend(qual_member_calls.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.field_casts.extend(field_casts.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.call_fn.extend(call_fn.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.for_drivers.extend(for_drivers.iter().map(|(k, v)| (k.clone(), v.clone())));
-        let _ = refinements;
-        self.use_effects.extend(use_effects.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.route_uses.extend(route_uses.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.route_keys.extend(route_keys.iter().map(|(k, v)| (k.clone(), v.clone())));
-        let _ = parking_handlers;
-        let _ = protocol_hashes;
-        self.use_deps.extend(use_deps.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.use_with_items.extend(use_with_items.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.spawn_effects.extend(spawn_effects.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.spawn_deps.extend(spawn_deps.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.spawn_dep_items.extend(spawn_dep_items.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.replyto_members.extend(replyto_members.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.facade_sends.extend(facade_sends.iter().map(|(k, v)| (k.clone(), v.clone())));
-        let _ = waitfor_sites;
-        let _ = handler_constructs;
-        self.replyto_tasks.extend(replyto_tasks.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.task_mint_effects.extend(task_mint_effects.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.use_addrs.extend(use_addrs.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.use_addr_tuples.extend(use_addr_tuples.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.project_effects.extend(project_effects.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.merge_effects.extend(merge_effects.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.addr_calls.extend(addr_calls.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.self_sends.extend(self_sends.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.linear_moves.extend(linear_moves.iter().copied());
-        self.moved_reads.extend(moved_reads.iter().copied());
-        self.flow_moves.extend(flow_moves.iter().copied());
-        self.fate_mutations.extend(fate_mutations.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.bind_facts.extend(bind_facts.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.derived_uses.extend(derived_uses.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.virtual_candidates.extend(virtual_candidates.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.by_value_loops.extend(by_value_loops.iter().copied());
-        self.state_takes.extend(state_takes.iter().copied());
-        let _ = actor_gates;
-        let _ = actor_sends;
-        let _ = task_sends;
-        let _ = task_mints;
-        self.effect_calls.extend(effect_calls.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.effect_member_calls.extend(effect_member_calls.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.member_calls.extend(member_calls.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.dot_calls.extend(dot_calls.iter().copied());
-        let _ = written_types;
-        self.local_calls.extend(local_calls.iter().copied());
-        self.local_call_names.extend(local_call_names.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.call_effects.extend(call_effects.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.fn_effects.extend(fn_effects.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.decl_effects.extend(decl_effects.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.handler_deps.extend(handler_deps.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.effect_prereqs.extend(effect_prereqs.iter().map(|(k, v)| (k.clone(), v.clone())));
-        let _ = fn_body_effects;
-        self.call_type_args.extend(call_type_args.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.lambda_effects.extend(lambda_effects.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.fn_value_implicits.extend(fn_value_implicits.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.widen_targets.extend(widen_targets.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.pick_left.extend(pick_left.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.elvis_picks.extend(elvis_picks.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.elvis_tests.extend(elvis_tests.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.elvis_widen.extend(elvis_widen.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.may_throw.extend(may_throw.iter().map(|(k, v)| (k.clone(), v.clone())));
-        let _ = deductions;
-        self.fn_refs.extend(fn_refs.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.def_refs.extend(def_refs.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.local_decls.extend(local_decls.iter().map(|(k, v)| (k.clone(), v.clone())));
-        let _ = type_ref_keys;
-        let _ = type_ref_span_keys;
-        let _ = visible_keys;
-        let _ = visible_handler_keys;
-        self.field_refs.extend(field_refs.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.module_refs.extend(module_refs.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.fate_reads.extend(fate_reads.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.interp_to_str.extend(interp_to_str.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.interp_union.extend(interp_union.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.interp_implicit.extend(interp_implicit.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.temp_views.extend(temp_views.iter().copied());
-        self.lending_calls.extend(lending_calls.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.fn_lends.extend(fn_lends.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.handle_muts.extend(handle_muts.iter().copied());
-        let _ = param_mutations; // the walk's own map, by the caller
-        self.moved_projections.extend(moved_projections.iter().copied());
-        self.boundary_checks.extend(boundary_checks.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.factories.extend(factories.iter().map(|(k, v)| (k.clone(), v.clone())));
-        let _ = platform_closure_all;
-        self.lambda_captures.extend(lambda_captures.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.derived_calls.extend(derived_calls.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.distinct_pairs.extend(distinct_pairs.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.mut_lend_calls.extend(mut_lend_calls.iter().copied());
-        self.fn_value_calls.extend(fn_value_calls.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.lambda_contracts.extend(lambda_contracts.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.implicit_params.extend(implicit_params.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.established_quals.extend(established_quals.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.carried_identities.extend(carried_identities.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.implicit_args.extend(implicit_args.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.use_handler_args.extend(use_handler_args.iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.implicit_members.extend(implicit_members.iter().map(|(k, v)| (k.clone(), v.clone())));
-        let _ = errors;
     }
 }

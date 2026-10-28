@@ -367,14 +367,14 @@ pub struct FateFacts {
     /// [linear-state] In a handler member: the state fields holding
     /// obligations, which the member must leave whole.
     pub linear_state: Vec<String>,
-    /// [fate-move-mode] The bindings (by their stamp, the binding's span)
-    /// that may take ownership — the checker's judgment where the binding
-    /// is (`Checked::bind_facts`): the flow pass decides which do.
-    pub eligible: std::collections::HashSet<Span>,
-    /// [fate-move-mode] Per binding stamp, the `for` loops (by iterable
-    /// span) whose binding is one of its roots: taking ownership makes them
-    /// iterate by value.
-    pub origins: std::collections::HashMap<Span, Vec<Span>>,
+    /// [fate-move-mode] The bindings (by their stamp, the binding's node
+    /// [node-id]) that may take ownership — the checker's judgment where the
+    /// binding is (`Checked::bind_facts`): the flow pass decides which do.
+    pub eligible: std::collections::HashSet<crate::check::Key>,
+    /// [fate-move-mode] Per binding stamp, the `for` loops (by their
+    /// iterables' nodes) whose binding is one of its roots: taking ownership
+    /// makes them iterate by value.
+    pub origins: std::collections::HashMap<crate::check::Key, Vec<crate::check::Key>>,
     /// [fate-move-mode] [fate-derived-readonly] Moves and mutations of a
     /// derived local, by the span of the IR expression they happen at: the
     /// local, the action, and the S1 error should its binding stay
@@ -399,8 +399,8 @@ pub struct DerivedUseAt {
     pub at: Span,
     /// The bindings the local's own links were made by (the checker's, at
     /// the use: an `is` binding is the same storage as its subject in the
-    /// IR, so its link is not a local's here).
-    pub own: Vec<Span>,
+    /// IR, so its link is not a local's here), by stamp [node-id].
+    pub own: Vec<crate::check::Key>,
 }
 
 /// [deduce-field] A binding a mutation event may leave as a virtual place:
@@ -408,7 +408,8 @@ pub struct DerivedUseAt {
 /// local that must still be live there.
 #[derive(Clone, Debug)]
 pub struct VirtualAt {
-    pub stamp: Span,
+    /// [node-id] The binding, by its node.
+    pub stamp: crate::check::Key,
     pub place: String,
     pub local: Option<String>,
 }

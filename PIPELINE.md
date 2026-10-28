@@ -2825,6 +2825,61 @@ this log current so the work can resume after a context reset). Newest last.
   depend on the stamps before it in its file. The checker's per-walk maps
   keyed by `Span` (`fate_log`, `fate_meta`) are per file walk.
 
+- **A4: done** (committed "Store the checker's facts by declaration").
+  Built ([decl-rows]; COMPLETED.md "The checker's facts are stored by
+  declaration"): `partition.rs`, one exhaustive router over `Checked` into a
+  sink — `Checked::split_decls` (each declaration's part, plus the
+  program-wide indexes) and `Checked::split_files` (the check cache's, now
+  by `DeclIndex::loc` of each row's declaration, not `Key::file`);
+  `insert_rows` puts either back; tables not keyed by `Key` are placed by
+  their declaration id, the handler's or effect's symbol key
+  (`partition::Owners`), their node's span, or the file's own id. `salvo
+  facts` prints by declaration, under each id (snapshot reviewed: headers,
+  and the bindings' and parameters' rows now shown). The binding stamps
+  (`BindFact::stamp`/`origins`, `FlowLink::stamp`, `DerivedUse::own`,
+  `VirtualCandidate::stamp`, `FateRead::bind`, and the IR flow pass's
+  copies and sets) are `Key`s; `flow::decide`, `bind_links` and
+  `drop_owned_fate_reads` no longer key spans. The differential
+  (`SALVO_XP_A4`, removed; 1,919 IR dumps with their `Decision`s and
+  analyses' diagnostics, both runs cold, base a worktree): identical, one
+  program differing only by the worktree's tmp path in its text. Emitted
+  code and diagnostics unchanged.
+  **The cache level: per file stays** (ROADMAP 0ae). Measured (debug,
+  `tools/lsp-timing.py`, medians of 3×4 edits; per-item walk times from
+  temporary instrumentation): the walk per-declaration reuse could save is
+  `examples/cluster` ≤ 4.4ms of bodies (28 items; the edited `main` ~1ms)
+  of a ~43ms edit, `modules/aws` ~1ms of ~43ms, and a 1,654-line one-file
+  project (`lib/std/args.sv` as `main.sv`) ≤ 16.2ms (74 items) of ~76ms,
+  less the reused rows' insert (~1.4ms there) and their span moves. The gate
+  cases gain less than their ±10ms run spread; what it needs (every span in
+  a reused row re-derived, the file walk split per declaration with
+  per-declaration step logs) is listed in 0ae. So the node → span
+  re-derivation was not built: under per-file reuse a cached file's spans
+  point into the very module it is checked from. On the large file the
+  whole-program IR (build 11, analyze 13.5ms) costs more per edit than the
+  walk reuse would save. Timings flat: cluster 52.6 → 51.0, aws 42.3 → 45.5
+  (`cache record` 0.6 → 0.8ms, the per-row declaration lookup, memoized),
+  the large file 89.2 → 87.3 (interleaved, loaded machine); `salvo analyze`
+  cluster check ~180–194ms both.
+  **Deviations:** (1) resolution's indexes (`type_ref_keys`,
+  `type_ref_span_keys`, `visible_keys`, `visible_handler_keys`,
+  `platform_closure_all`, `refinements`) are program-wide, not assigned;
+  (2) `carried_identities` go to the file's own id (first writer per file,
+  keyed by what is written); (3) a diagnostic or a row at a covering span
+  no node holds goes to its file's own id.
+- **Stage A complete** (A5 dropped, P8). **What B3 needs from it:** a core
+  call a lowering makes at a surface node is keyed by that node's key, or
+  by `Key::synthetic(n)` of it when the form makes several calls at one
+  node (`Key::INTERP_TEXT` is the precedent; `n` < 64); a lowering that
+  rewrites the tree must run before the file is numbered
+  (`salvo_syntax::node_id::number`, called after the last rewrite in
+  `expand_file`) or renumber after it, and a lowered node's span is the
+  surface form's (its origin), with an `ExpansionRecord` where an error must
+  say where it came from ("in this interpolation", A2); a table B3 deletes
+  goes from `partition.rs`'s router and `insert_rows` (and from
+  `check_cache::StepRows` if it is kept in order); `salvo facts`, now per
+  declaration, is the per-declaration dump a B3 differential can compare.
+
 ## II.13. The call census (B1, 2026-10-27)
 
 Kept here, not in `tmp/`, because B2 and B3 work from it. The probe programs

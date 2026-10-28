@@ -35,6 +35,12 @@ const AUTO_PRELUDE: &str = concat!(
 );
 
 fn checked(main: &str) -> (Program, Checked) {
+    let (program, checked) = checked_with_errors(main);
+    assert!(checked.errors.iter().all(|d| !d.is_error()), "{:?}", checked.errors.iter().map(|d| &d.message).collect::<Vec<_>>());
+    (program, checked)
+}
+
+fn checked_with_errors(main: &str) -> (Program, Checked) {
     let mut sources = SourceSet::default();
     for (name, src) in [("std/core/compare.sv", STD_PRELUDE), ("std/core/auto.sv", AUTO_PRELUDE)] {
         sources.add(name, SourceSet::classify(Path::new(name)).unwrap(), src.to_string(), true);
@@ -52,7 +58,6 @@ fn checked(main: &str) -> (Program, Checked) {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    assert!(checked.errors.iter().all(|d| !d.is_error()), "{:?}", checked.errors.iter().map(|d| &d.message).collect::<Vec<_>>());
     (program, checked)
 }
 
@@ -154,8 +159,48 @@ fn a_copied_node_is_listed_where_it_lands() {
     let main = "struct Pair : Hashed<self> by auto {\n    a: Int\n}\n";
     let (program, checked) = checked(main);
     let file = main_file(&program);
-    let dump = salvo_core::facts::dump(&program, &checked, &|f| f == file);
-    let hash = dump.split("fn hash(").nth(1).expect("the stamped `hash`");
+    let symbols = Symbols::collect(&program);
+    let dump = salvo_core::facts::dump(&program, &symbols, &checked, &|f| f == file);
+    let hash = dump.split("\nhash(").nth(1).expect("the stamped `hash`");
     assert!(hash.contains("`a: Int`") && hash.contains("`by auto`"), "{dump}");
     assert!(!hash.contains("`…`"), "a copied row has no text of its own only when nothing places it:\n{dump}");
+}
+
+/// [decl-rows] `Checked::split_decls` puts every row in exactly one
+/// declaration's part: a node-keyed row under its key's declaration, a
+/// declaration-keyed row under that declaration, a handler member's rows
+/// under the member, a diagnostic under the declaration its node is in.
+#[test]
+fn every_row_belongs_to_one_declaration() {
+    let main = "\
+effect Counter {\n    fn get() -> Int\n}\n\
+handler Count() of Counter {\n    fn get() -> Int {\n        let one = 1\n        return one\n    }\n}\n\
+fn twice(n: Int) -> Int {\n    let m = n\n    return m\n}\n\
+fn broken() -> Int {\n    return nope\n}\n";
+    let (program, checked) = checked_with_errors(main);
+    let file = main_file(&program);
+    let symbols = Symbols::collect(&program);
+    let rows = checked.split_decls(&program, &symbols);
+    let total: usize = rows.parts.values().map(|p| p.expr_ty.len()).sum();
+    assert_eq!(total, checked.expr_ty.len(), "every expression row in one part");
+    for (id, part) in &rows.parts {
+        assert!(part.expr_ty.keys().all(|k| k.decl == *id), "{id}: a row of another declaration");
+        assert!(part.fn_effects.keys().all(|k| k == id), "{id}: another declaration's effects");
+    }
+    let errors: usize = rows.parts.values().map(|p| p.errors.len()).sum::<usize>() + rows.rest.errors.len();
+    assert_eq!(errors, checked.errors.len());
+    let item = |name: &str| {
+        program.modules[file]
+            .items
+            .iter()
+            .position(|i| matches!(i, salvo_syntax::ast::Item::Fn(f) if f.name.name == name))
+            .unwrap()
+    };
+    let broken = checked.decls.item(file, item("broken")).unwrap();
+    assert!(rows.parts[&broken].errors.iter().any(|d| d.message.contains("nope")), "the error is `broken`'s");
+    let twice = checked.decls.item(file, item("twice")).unwrap();
+    assert!(rows.parts[&twice].fn_effects.contains_key(&twice));
+    let handler = program.modules[file].items.iter().position(|i| matches!(i, salvo_syntax::ast::Item::Handler(_))).unwrap();
+    let member = checked.decls.member(file, handler, 1).unwrap();
+    assert!(rows.parts.get(&member).is_some_and(|p| !p.expr_ty.is_empty()), "the member's body rows are the member's");
 }

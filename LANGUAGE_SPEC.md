@@ -8936,7 +8936,9 @@ between endpoints and delivers what arrives into the scheduler.
     first moving use, and before piece 4 a second walk applied what the
     first had found). The checker's walk keeps every binding borrow-mode and
     records facts: each binding's links, every one stamped by the binding
-    that made it (`Checked::bind_facts`; the IR cannot see them all — an
+    that made it, by that binding's node key [node-id] (`Checked::bind_facts`,
+    the stamp the flow pass and its `Decision` know the binding by; the span
+    is only its origin; the IR cannot see them all — an
     `is` binding is the same storage as its subject there, a derived return
     [readonly-return], a held view [proj-infer], an element identity
     [elem-distinct] are typing facts), whether it *may* take ownership (the
@@ -10886,7 +10888,30 @@ between endpoints and delivers what arrives into the scheduler.
     was; two nodes at one span (two stamps named at one `by` site, the
     expansions a `test` makes at its name) are two keys.
   * **Stable**: an edit above a declaration moves its spans, not its keys —
-    what a per-declaration cache of facts stands on (A4).
+    what a per-declaration cache of facts stands on (A4). Every identity a
+    row holds is a key too: the binding stamps (`BindFact::stamp` and
+    `origins`, `FlowLink::stamp`, `DerivedUse::own`,
+    `VirtualCandidate::stamp`, `FateRead::bind`), which the IR flow pass
+    and its `Decision` compare. The spans left in rows (a key's origin,
+    `DefSite`, `LocalDecl`, `handler_deps`, a diagnostic) are positions only.
+* [decl-rows] **Every row of `Checked` belongs to one declaration**
+  (PIPELINE.md §II.9 A4; `partition.rs`): a node-keyed row to its key's
+  declaration, a declaration-keyed row (`fn_effects`, `implicit_params`,
+  `deductions`, …) to that declaration, a row keyed by a handler's or an
+  effect's symbol key (`route_keys`, `handler_deps`, `effect_prereqs`,
+  `protocol_hashes`, `parking_handlers`) to that handler or effect, a row
+  placed by its node's span (a local, a body's effects, a diagnostic, a
+  `written_types` lowering) to the declaration that node is in, and a file's
+  own rows (its carried identities) to its `DeclKind::File` id. The indexes
+  resolution builds (`type_ref_keys`, `type_ref_span_keys`, `visible_keys`,
+  `visible_handler_keys`, `platform_closure_all`, `refinements`) are
+  program-wide.
+  * One router, an exhaustive destructure of `Checked`, partitions the rows
+    into a sink: by declaration (`Checked::split_decls`, which `salvo facts`
+    prints [facts-dump]) or by the file the index places each declaration
+    in (`Checked::split_files`, the check cache's [lsp-check-cache]);
+    `Checked::insert_rows` puts a part back. A new table is a compile error
+    there until it says where its rows go.
   * **Made nodes no tree holds** (`Key::synthetic`): the `qualifies` call an
     `is` test implies, and the `to_str` call an interpolated value implies,
     are keys of their declaration no written node has, derived from the node
@@ -12617,7 +12642,13 @@ replaced the working document TESTING.md).
   steps (written keys, program checks, deductions, the literal lowering) run
   over the merged rows as in a full check, so the result is the full check's.
   A program with one project file skips the cache (it would walk that file
-  anyway). Shown by `check_cache_matches_an_uncached_analysis_across_edits`
+  anyway). A file's rows are its declarations' (`Checked::split_files`
+  [decl-rows]). **Per file, not per declaration** (measured 2026-10-28,
+  PIPELINE.md §II.12 A4): reusing an edited file's unedited declarations
+  would save under ~2.5ms of a ~43ms edit on `examples/cluster` and ~1ms on
+  `modules/aws`, ~12ms of ~76ms on a 1,654-line one-file project, against
+  re-deriving every span in the reused rows and splitting the file's walk
+  per declaration (ROADMAP 0ae). Shown by `check_cache_matches_an_uncached_analysis_across_edits`
   (`modules/aws` and two written programs); the CLI and the compile paths do
   not use it.
 * [lsp-hover-iter-fn] An `iter fn`'s minter and generated `next` both hover as
@@ -12772,9 +12803,11 @@ replaced the working document TESTING.md).
   module the program reaches, std included. It builds the IR exactly as the
   backends do, so it is the point to bisect when they disagree.
 * [facts-dump] `salvo facts [--src DIR] [--module PATH]` prints the
-  checker's facts about every body before the IR is built (PIPELINE.md D1,
-  the pre-IR): per declaration, one line per expression in source order —
-  its position and text, its type, the declaration a call resolved to, and
-  the marks `coerced`, `dot`, `moved`, `linear-move`, `narrowed`. A
+  checker's facts before the IR is built (PIPELINE.md D1, the pre-IR), by
+  declaration [decl-rows]: each declaration of a file in declaration order,
+  under its id [decl-id] (`total(#0) -> Int@main`; a file's own nodes under
+  `(file)@module`), one line per node it typed in source order — its
+  position and text, its type, the declaration a call resolved to, and the
+  marks `coerced`, `dot`, `by-value`, `linear-move`, `narrowed`. A
   desugaring's synthesized node prints as `…`. `facts::dump` is the
   library form; `example_facts_are_stable` snapshots one example.

@@ -56,7 +56,7 @@ fn example_facts_are_stable() {
     let resolution = salvo_core::resolve(&program);
     let checked = salvo_core::check_program(&program, &resolution, &symbols);
     assert!(!checked.errors.iter().any(|d| d.is_error()));
-    let text = salvo_core::facts::dump(&program, &checked, &|f| !program.files[f].is_std);
+    let text = salvo_core::facts::dump(&program, &symbols, &checked, &|f| !program.files[f].is_std);
     assert!(text.contains("-> std.core.list::size"), "{text}");
     insta::assert_snapshot!("facts_iteration", text);
 }

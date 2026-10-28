@@ -61,7 +61,7 @@ to ROADMAP.md with a one-line pointer left behind. The **test inventory** and **
 
 ```bash
 cargo build                 # workspace build, no warnings
-cargo test                  # 2111 tests, complete: the toolchain tests are
+cargo test                  # 2112 tests, complete: the toolchain tests are
                             # content-cached, so an unchanged one is not
                             # recompiled — ~86s warm (2026-10-14; budget ~15s,
                             # ROADMAP §0h), minutes cold
@@ -140,6 +140,95 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-28 — The checker's facts are stored by declaration (A4)
+
+**Every row of `Checked` belongs to one declaration** ([decl-rows],
+PIPELINE.md §II.9 Stage A piece A4): a node-keyed row to `Key::decl`, a
+`DeclId`-keyed row to its id, a row keyed by a handler's or effect's symbol
+key (`route_keys`, `handler_deps`, `effect_prereqs`, `protocol_hashes`,
+`parking_handlers`) to that declaration, a row placed by its node's span (a
+local, a body's effects, a diagnostic, a `written_types` lowering) to the
+declaration the node is in, a file's carried identities to its
+`DeclKind::File` id; resolution's indexes (`type_ref_keys`,
+`type_ref_span_keys`, `visible_keys`, `visible_handler_keys`,
+`platform_closure_all`, `refinements`) are program-wide.
+
+- **One router** (`partition.rs`, `Checked::route`): an exhaustive
+  destructure of `Checked` (a new table does not compile until it says where
+  its rows go) into a `Sink`. `Checked::split_decls` is the partition by
+  declaration (`DeclRows`: each declaration's part, in id order, and the
+  program-wide rest); `Checked::split_files` is the check cache's per-file
+  split, now by the file the index places each row's declaration in
+  (`DeclIndex::loc`) rather than the file a key's origin names;
+  `Checked::insert_rows` puts either kind of part back. The two hand-written
+  destructures of `check_cache.rs` (split and insert, 230 lines) went, and
+  the `decl_file` map `check_once` built for them is `partition::Owners`.
+  **Why one router with two sinks** rather than `split_files` over
+  `split_decls`: the cache splits on every recorded check, and a part per
+  declaration merged back per file would allocate a `Checked` per
+  declaration of every walked file. Its cost: a declaration-to-file lookup
+  per row, std's seeded rows included, memoized per declaration with a
+  pointer hasher (`cache record` on `modules/aws` 0.6 → 0.8ms; 1.4ms
+  through `DeclIndex::loc` unmemoized).
+- **`salvo facts` prints by declaration** [facts-dump]: each declaration of
+  a file in declaration order, under its id (`next(Mut Countdown) ->
+  Emitted Int | Finished@main`; a file's own nodes under `(file)@module`),
+  with every `expr_ty` row of its part — so the bindings' and parameters'
+  rows (what a hover reads) now show beside the expressions'. The
+  `facts_iteration` snapshot changed by those headers and rows only.
+- **The binding stamps are node keys** [node-id] [fate-move-mode]:
+  `BindFact::stamp` and `origins`, `FlowLink::stamp`, `DerivedUse::own`,
+  `VirtualCandidate::stamp` and `FateRead::bind` (was `bind_span`) are
+  `Key`s, and so are the IR's copies (`FateFacts::eligible` and `origins`,
+  `DerivedUseAt::own`, `VirtualAt::stamp`) and the flow pass's own sets; the
+  checker keys a stamp once, where it writes the row. `flow::decide` no
+  longer converts spans to keys (its `file_idx` and index parameters went),
+  nor do `Ctx::bind_links` and `drop_owned_fate_reads`. `Key` gained an
+  order (declaration, then node) for the flow pass's per-path set. What
+  spans remain in rows are positions only.
+- **The cache level, measured: per file stays** (ROADMAP 0ae). The walk
+  per-declaration reuse would save, from temporary per-item timing of
+  `check_module` under `salvo analyze`: `examples/cluster` 4.4ms of bodies
+  over 28 items (the edited `main` ~1ms of it), `modules/aws` ~1ms, and a
+  1,654-line one-file project (`lib/std/args.sv` as `main.sv`, its platform
+  handler removed) 16.2ms over 74 items, against edits of ~43, ~43 and
+  ~76ms whose runs spread ±10ms; the reused rows' insert costs ~1.4ms on
+  the large file. What it would need is the rest of 0ae: every span in a
+  reused row re-derived (a key's origin by node id; `DefSite`, `LocalDecl`,
+  `ImplicitParam::span`, `ThrowSite::delimiter`, `handler_deps`,
+  `fn_body_effects` and diagnostics by the body's growth; `Span::node`
+  ordinals by the edited declaration's node count), and the file walk split
+  per declaration with per-declaration step logs. On the large file the IR,
+  built and analyzed whole every edit (28ms), is the larger lever. So the
+  re-derivation lookup (node → span) was not built either: with per-file
+  reuse, a cached file's module is the very `Arc` its spans point into.
+
+**The differential** (temporary, `SALVO_XP_A4`, hooks at the end of
+`build_program_gated` — every built module's IR dump with the
+`Decision`'s keys printed as declaration, file, span and node — and of
+`analyze_full` — the checker's and the IR's diagnostics with the
+`Decision`; base a worktree of 720a65bd; both runs cold under `cargo
+nextest`): 1,919 distinct outputs, identical; one program's three outputs
+differ only by the worktree's `CARGO_TARGET_TMPDIR` in its source text.
+The stamps were already compared as keys wherever the `Decision` was
+consulted (A3 keyed them on the way in), so nothing was latent.
+**Diagnostics and emitted code**: unchanged (the IR and its decision are
+what the emitters read of the stamps).
+
+**Tests**: 2,112 (+1: `every_row_belongs_to_one_declaration`, in
+`node_id_tests`: every expression row in one part and under its own
+declaration, a diagnostic under the fn it is in, a handler member's rows
+under the member, a fn's effects under the fn).
+
+**Timings** (debug, 720a65bd's binary against this one, alternated, same
+session, a loaded machine): `tools/lsp-timing.py`, three rounds of four
+edits, medians of the summed top-level phases: `examples/cluster` 52.6 →
+51.0ms, `modules/aws` 42.3 → 45.5ms (`check` 15.2 → 16.2, of it `cache
+record` 0.6 → 0.8), the 1,654-line file 89.2 → 87.3ms; earlier the same
+day, quieter, the before binary measured 43.0, 43.5 and 76.3ms.
+`SALVO_TIMINGS=1 salvo analyze --src examples/cluster/salvo`, three runs
+each: check 179.7–193.4ms before, 190.7–194.7 after; IR build ~2.2 both.
 
 ### 2026-10-28 — Every fact is keyed by its declaration and node (A3)
 
@@ -30850,7 +30939,7 @@ since 2026-10-06. The open decisions:
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
 
-## Test inventory (all green: 2111 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
+## Test inventory (all green: 2112 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 `cargo test` still runs every one of them, but only recompiles the ones whose
@@ -32143,6 +32232,21 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A differential's baseline must be as cold as its after-run** (A4,
+  2026-10-28): the CLI tests' stamps are keyed by the `salvo` binary, so a
+  warm suite on the unchanged compiler skips the subprocesses an after-run
+  (following a rebuild) runs, and the baseline lacks their programs (177 of
+  them, the first time). Build the base in a worktree (its own `target/`,
+  its own empty stamp cache) and run both cold. A worktree's
+  `CARGO_TARGET_TMPDIR` differs, and some tests write it into their
+  programs' text, so match outputs by their content, not by the program's.
+- **A table's row belongs to a declaration, not to a file** (A4,
+  [decl-rows]): a new `Checked` table goes into `partition.rs`'s router
+  (it does not compile otherwise) with where its rows belong; a table keyed
+  by something other than a `Key` or a `DeclId` needs an owner from
+  `partition::Owners` (a symbol key, a node's span, an `ast::Type`
+  address). Looking a declaration's file up per row costs a hash per row,
+  std's seeded rows included: memoize per declaration.
 - **A fact is keyed by its node, not its span** (A3, 2026-10-28,
   [node-id]): key with `self.key(span)` from the span *of the node the fact
   is about* (its `Span::node` is what is keyed); a span made by `Span::to`,

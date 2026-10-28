@@ -4,6 +4,7 @@
 pub mod features;
 pub mod copyplan;
 pub mod param_mode;
+pub mod partition;
 pub mod mut_lends;
 pub mod borrows;
 pub mod abi;

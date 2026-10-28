@@ -1116,7 +1116,7 @@ impl Server<'_> {
             let roots: Vec<String> = reads
                 .iter()
                 .map(|r| {
-                    let pos = view.range(r.bind_span).start;
+                    let pos = view.range(r.bind.span).start;
                     // [fate-field-disjoint] Name the storage actually
                     // shared: a link to `p.name` is not a link to all of
                     // `p`, and the hover must not overstate it.

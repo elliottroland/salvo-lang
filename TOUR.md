@@ -158,6 +158,10 @@ By what you would come looking for.
   holds a borrow of (`proj`). `refine.rs`: qualifier refinements. `place.rs`:
   places (`h.field`), the keys of flow analysis. `literal.rs`: how literal
   types are represented in a union. `wire.rs`: what may cross a machine.
+* `partition.rs`: which declaration each row of `Checked` belongs to
+  [decl-rows] (`split_decls`, `split_files`, `insert_rows`); `facts.rs`
+  prints the rows by declaration (`salvo facts`), `check_cache.rs` keeps an
+  unedited file's rows across language-server edits [lsp-check-cache].
 
 **Tables derived *from* `Checked` for the backends**
 
@@ -243,7 +247,18 @@ IR flow pass's error (`ir::flow`, run by `ir::analyze`). The checker keeps no
 consumption state of its own; which `let`s take ownership of what they bind
 (move-mode) is the flow pass's decision too (`ir::flow::decide`, read by the
 builder as `ir::Decision`), from the checker's `bind_facts` and
-`derived_uses`.
+`derived_uses`. A binding is known there by its node key, its *stamp*
+(`BindFact::stamp`, `FlowLink::stamp`): `Decision` holds keys, so the flow
+pass and the builder compare the same identity [node-id].
+
+**Whose row is it?** Every row belongs to one declaration [decl-rows]
+(`partition.rs`): a keyed row to its key's `decl`, a `DeclId`-keyed row to
+that id, a handler's or effect's row (by symbol key) to that declaration,
+a local, a body's effects or a diagnostic to the declaration its node is
+in. `Checked::split_decls` partitions the rows that way (what `salvo facts`
+prints, one block per declaration id), and `Checked::split_files` by the
+file the index places each declaration in (the language server's check
+cache, which reuses an unedited file's rows [lsp-check-cache]).
 
 **Lending (views of other values)**
 
