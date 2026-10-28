@@ -764,3 +764,11 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   program on both backends, keep `// BACKENDS:` only where a backend fails,
   then delete each moved run site and whatever the compiler then reports
   unused.
+- **Step 5 part 2 (2026-10-28): run_tests' and platform_tests' behaviour
+  cases.** 71 → 34 run_tests; platform_tests keeps its 23, trimmed to what
+  the CLI does. 55 programs in 15 data files (new areas `args`,
+  `comptime`); the format gained `//= stdin`, `//= stderr` and ` -n`, and
+  each program runs in its own working directory. Format gaps kept in Rust:
+  an argument with a space, environment variables, CR on stdin. Step 5 is
+  done; C1 (content-keyed CLI stamps) is left for C7, with the trimmed CLI
+  tests.

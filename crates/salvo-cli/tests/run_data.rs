@@ -23,7 +23,7 @@
 //!   once into a library, each program's own files rewritten into a package
 //!   namespace of its own, a few `kotlinc` processes per area.
 //! - Every compiled program then runs on a pool of threads, with a time
-//!   limit.
+//!   limit, in a fresh working directory of its own.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Read;
@@ -69,7 +69,7 @@ macro_rules! areas {
     };
 }
 
-areas!(actors, collections, control, deductions, effects, files, functions, handles, implicits, iteration, linear, modules, network, operators, pilot, platform, qualifiers, regressions, throwing, time, types);
+areas!(actors, args, collections, comptime, control, deductions, effects, files, functions, handles, implicits, iteration, linear, modules, network, operators, pilot, platform, qualifiers, regressions, throwing, time, types);
 
 fn run_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/run")
@@ -102,6 +102,7 @@ fn examples() {
                 source: Source::Project(dir),
                 backends: Backend::ALL.to_vec(),
                 args: Vec::new(),
+                stdin: None,
                 outcome: Outcome { stdout: expected, ..Outcome::default() },
             }
         })
@@ -124,6 +125,7 @@ struct Program {
     source: Source,
     backends: Vec<Backend>,
     args: Vec<String>,
+    stdin: Option<String>,
     outcome: Outcome,
 }
 
@@ -150,6 +152,7 @@ fn run_area(area: &str) {
                         label,
                         backends: case.backends.clone(),
                         args: case.args.clone(),
+                        stdin: case.stdin.clone(),
                         outcome: case.outcome.clone(),
                         source: Source::Case(case),
                     });
@@ -250,6 +253,8 @@ fn stamp(job: &Job, version: &str) -> Option<salvo_testkit::Stamp> {
         job.backend.name().as_bytes().to_vec(),
         version.as_bytes().to_vec(),
         job.program.args.join("\0").into_bytes(),
+        job.program.stdin.clone().map(|s| format!("stdin:{s}")).unwrap_or_default().into_bytes(),
+        o.stderr.clone().map(|s| format!("stderr:{s}")).unwrap_or_default().into_bytes(),
         o.stdout.as_bytes().to_vec(),
         o.exit.to_string().into_bytes(),
         o.trap.clone().unwrap_or_default().into_bytes(),
@@ -335,14 +340,22 @@ fn run_programs(area: &str, programs: Vec<Program>) {
     assert!(failures.is_empty(), "{} failures in {area}:\n\n{}", failures.len(), failures.join("\n\n"));
 }
 
-/// Runs `launch` and compares what it did with `job`'s outcome.
+/// Runs `launch` and compares what it did with `job`'s outcome. The program
+/// runs in a fresh working directory of its own, so the files a program
+/// writes at relative paths never meet another run's (the two backends run
+/// the same program at once) and never land in the source tree.
 fn check_run(job: &Job, launch: &Launch) -> Result<(), String> {
+    let cwd = Path::new(TMP).join("run-cwd").join(ident(&job.label()));
+    let _ = std::fs::remove_dir_all(&cwd);
+    std::fs::create_dir_all(&cwd).map_err(|e| format!("{}: {e}", job.label()))?;
     let mut cmd = Command::new(&launch.program);
-    cmd.args(&launch.args).args(&job.program.args);
+    cmd.current_dir(&cwd).args(&launch.args).args(&job.program.args);
     for (k, v) in &launch.env {
         cmd.env(k, v);
     }
-    let ran = run_limited(cmd).map_err(|e| format!("{}: {e}", job.label()))?;
+    let ran = run_limited(cmd, job.program.stdin.as_deref()).map_err(|e| format!("{}: {e}", job.label()));
+    let _ = std::fs::remove_dir_all(&cwd);
+    let ran = ran?;
     let o = &job.program.outcome;
     let mut wrong = Vec::new();
     if ran.stdout != o.stdout {
@@ -358,6 +371,11 @@ fn check_run(job: &Job, launch: &Launch) -> Result<(), String> {
         None if ran.code != Some(o.exit) => wrong.push(format!("expected exit {}, got {:?}", o.exit, ran.code)),
         None => {}
     }
+    if let Some(stderr) = &o.stderr {
+        if ran.stderr != *stderr {
+            wrong.push(format!("--- expected stderr:\n{stderr}--- got (below)"));
+        }
+    }
     if wrong.is_empty() {
         return Ok(());
     }
@@ -371,13 +389,23 @@ struct Ran {
 }
 
 /// Runs `cmd` to its end or [`RUN_LIMIT`], whichever is first.
-fn run_limited(mut cmd: Command) -> Result<Ran, String> {
+fn run_limited(mut cmd: Command, stdin: Option<&str>) -> Result<Ran, String> {
     let mut child = cmd
-        .stdin(Stdio::null())
+        .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("could not start {:?}: {e}", cmd.get_program()))?;
+    if let Some(text) = stdin {
+        let mut input = child.stdin.take().unwrap();
+        let text = text.to_string();
+        // Written from a thread, so a program that prints before it reads
+        // cannot deadlock against a full pipe.
+        std::thread::spawn(move || {
+            use std::io::Write;
+            let _ = input.write_all(text.as_bytes());
+        });
+    }
     let mut out = child.stdout.take().unwrap();
     let mut err = child.stderr.take().unwrap();
     let out_reader = std::thread::spawn(move || {

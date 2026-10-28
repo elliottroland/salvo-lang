@@ -1082,6 +1082,26 @@ repros are over the real std.
   gain it, so no wrong code); a local whose only read is calling it (`n()`)
   warns unused; a servant forwarding a received reply through a dependency
   call (`draw(out)`) needs no `defer`, through a held handle it does.
+- **From the run data (TESTS.md C3)**:
+  - **Backend divergence in a trap's text**: a `[platform-check]` failure
+    quotes the bad value on Rust (`` `platform fn tier`'s result was
+    "bronze", which is not one of "gold", "silver" ``) and not on Kotlin
+    (`was bronze, …`); the same for a bad value sent on a `Reply`
+    (`"neither"` / `neither`). The data asserts only the text before the
+    value, so the `[platform-check]` tag is unchecked meanwhile. Repro:
+    `crates/salvo-cli/tests/run/platform/host_values.sv#a_bad_platform_fn_result_traps`.
+  - **An out-of-range subscript is the host's panic**, not a `salvo:` trap:
+    Rust prints `index out of bounds: the len is 3 but the index is 10`
+    (exit 101), Kotlin throws `ArrayIndexOutOfBoundsException` (exit 1)
+    (`run_tests::the_programs_exit_code_is_the_commands`). Both stop; the
+    messages differ. Whether a subscript should trap with a Salvo message is
+    a DECISION (the user's).
+  - **Stale labels**: `[rs-interp-sequence]` and `[rs-narrow]` are cited
+    (run data, TOUR.md) but defined by no spec; define or retarget them.
+  - **The run-data format cannot say** an argument holding a space, an
+    environment variable, or a CR on stdin; the tests needing them stay in
+    `run_tests.rs` (`run_forwards_command_line_arguments_…`,
+    `process_exit_and_env_…`, `console_reads_a_crlf_line_…`).
 
 ### 0al — Open defect: `let x: Long? = -1L` miscompiles on Rust (found 2026-10-28, B3.3c)
 

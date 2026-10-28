@@ -144,6 +144,32 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — The CLI's behaviour tests are run data too (TESTS.md C3, step 5 part 2)
+
+**run_tests.rs went from 71 tests to 34, and platform_tests.rs kept its 23
+but lost their run halves**: every test whose point was what a program does
+(prints, exits with, traps on, reads and writes) is now cases of the run
+data, on both backends — 55 programs in 15 files, with two new areas
+(`args`, `comptime`). What stays in Rust tests the CLI itself (arguments,
+`--src`/`--main`/`--target`, `build`, `init`, manifests, protocol locks,
+dependencies, host libraries and projects, `platform generate`, rendered
+errors and warnings), or needs what the format cannot say (an argument with
+a space, environment variables, CR on stdin).
+
+- **The format grew** `//= stdin` and `//= stderr` blocks (before `//=
+  stdout`; a block ends at its first non-`//=` line or the next header) and
+  ` -n` on a header to drop the final newline (a prompt printed with
+  `print`). A program now runs in a fresh, empty working directory of its
+  own: the stream-pipe program writes `piped.txt` at a relative path, and
+  the two backends' runs raced on it inside `crates/salvo-cli`.
+- **Every moved case runs on both backends** but one: a reply the host
+  drops unsent is reported on Rust; the JVM cannot see the drop, so Kotlin's
+  waiter would wait for ever (the old test was Rust-only too).
+- Found (ROADMAP §0ar): a `[platform-check]` trap quotes the bad value on
+  Rust and not on Kotlin; an out-of-range subscript is each host's own panic
+  rather than a `salvo:` trap; two stale labels.
+- Suite: 1,001 tests, 81s warm under nextest.
+
 ### 2026-10-28 — Compile-and-run tests are data, run on both backends (TESTS.md C3, step 5 part 1)
 
 **Every compile-and-run case of the two codegen test files is now a program

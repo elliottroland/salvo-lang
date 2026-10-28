@@ -5,6 +5,12 @@
 //! `platform handler`, discover from the error that the host is missing, run
 //! the command, implement the stub, run the program. Tests needing a
 //! toolchain (`kotlinc`, `rustc`) skip gracefully when it is missing.
+//!
+//! What a program does across the boundary — a platform fn's result, a
+//! callback, a host thread's reply, a check that fails — is run data
+//! (`tests/run/platform/`, [test-run-data]); the tests here check what
+//! `generate` writes, what the build refuses or warns about, and the host
+//! projects and tools.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -235,16 +241,22 @@ fn generate_then_run_works_for_a_platform_handler() {
     __stamp.verified();
 }
 
+/// Runs `salvo platform generate` for `backend` in `dir` and answers the
+/// implementation file it wrote for `module` (`platform/<module>.<ext>`).
+fn generate(dir: &Path, backend: &str, module: &str) -> String {
+    let out = salvo_in(dir, &["platform", "generate", "--backend", backend, "--src", "."]);
+    assert!(out.status.success(), "{backend}: {}", String::from_utf8_lossy(&out.stderr));
+    let ext = if backend == "rust" { "rs" } else { "kt" };
+    fs::read_to_string(dir.join("platform").join(format!("{module}.{ext}"))).unwrap()
+}
+
 /// [platform-never] A platform fn and a platform handler member answering
 /// `Never` are `-> !` / `: Nothing` on the host side, so a host body that
 /// returns is the host compiler's error, not a silent fall-through: the
-/// skeletons say so, and a host that exits is the program's end on both
-/// backends.
+/// skeletons say so. That a host which exits ends the program is run data
+/// (`tests/run/platform/boundary.sv`).
 #[test]
 fn a_platform_member_answering_never_cannot_return() {
-    let Some(__stamp) = e2e_stamp("a_platform_member_answering_never_cannot_return", &["kotlinc", "rustc"]) else {
-        return;
-    };
     const SRC: &str = r#"
 effect Stop {
     fn halt(why: Str) [] -> Never => why
@@ -264,60 +276,30 @@ fn main() [use] {
     bail("stop")
 }
 "#;
-    for (backend, tool, ext, sigs, impl_) in [
-        (
-            "kotlin",
-            "kotlinc",
-            "kt",
-            ["fun bail(why: String): Nothing {", "override fun halt(why: String): Nothing {"],
-            "package salvo.platform.main\n\nimport salvo.main.*\n\n\
-             fun bail(why: String): Nothing { System.err.println(why); kotlin.system.exitProcess(3) }\n\n\
-             class HostStop : StopPlatform {\n    override fun halt(why: String): Nothing = kotlin.system.exitProcess(4)\n}\n",
-        ),
-        (
-            "rust",
-            "rustc",
-            "rs",
-            ["pub fn bail(why: &String) -> ! {", "fn halt(&mut self, why: &String) -> ! {"],
-            "use crate::*;\n\npub fn bail(why: &String) -> ! { eprintln!(\"{why}\"); std::process::exit(3) }\n\n\
-             pub struct HostStop;\nimpl HostStop { pub fn new() -> Self { HostStop } }\n\
-             impl crate::StopPlatform for HostStop {\n    fn halt(&mut self, _why: &String) -> ! { std::process::exit(4) }\n}\n",
-        ),
+    for (backend, sigs) in [
+        ("kotlin", ["fun bail(why: String): Nothing {", "override fun halt(why: String): Nothing {"]),
+        ("rust", ["pub fn bail(why: &String) -> ! {", "fn halt(&mut self, why: &String) -> ! {"]),
     ] {
-        if !have(tool) {
-            eprintln!("skipping {backend}: {tool} not found on PATH");
-            continue;
-        }
         let dir = work_dir(&format!("never_{backend}"));
         project(&dir);
         fs::write(dir.join("main.sv"), SRC).unwrap();
-        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
-        assert!(out.status.success(), "{backend}: {}", String::from_utf8_lossy(&out.stderr));
-        let host = dir.join("platform").join(format!("main.{ext}"));
-        let skeleton = fs::read_to_string(&host).unwrap();
+        let skeleton = generate(&dir, backend, "main");
         for sig in sigs {
             assert!(skeleton.contains(sig), "{backend} skeleton lacks `{sig}`:\n{skeleton}");
         }
-        fs::write(&host, impl_).unwrap();
-        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert_eq!(out.status.code(), Some(3), "{backend}: {stderr}");
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "before\n", "{backend}: {stderr}");
-        assert!(stderr.contains("stop"), "{backend}: {stderr}");
     }
-    __stamp.verified();
 }
 
-/// [platform-type] Platform types end to end on both backends, declared in
-/// a module of their own: `generate` writes a class/struct per type with the
-/// contract its kind promises, a copy of a plain handle shares the host
-/// object, a linear `canbe Mut` one is mutated through a `Mut` parameter and
-/// consumed by its closer, and a handle travels to an actor. On Rust a host
-/// type breaking the contract (not `Clone`) is rustc's error at the
-/// declaration's assertion, and a handle in an `encode` is the checker's.
+/// [platform-type] Platform types, declared in a module of their own:
+/// `generate` writes a class/struct per type with the contract its kind
+/// promises. On Rust a host type breaking the contract (not `Clone`) is
+/// rustc's error at the declaration's assertion, and a handle in an
+/// `encode` is the checker's. What a program does with the types — a shared
+/// copy, a linear handle mutated and closed, a handle sent to an actor — is
+/// run data (`tests/run/platform/boundary.sv#platform_types`).
 #[test]
-fn platform_types_run_on_both_backends() {
-    let Some(__stamp) = e2e_stamp("platform_types_run_on_both_backends", &["kotlinc", "rustc"]) else {
+fn platform_types_keep_their_contracts() {
+    let Some(__stamp) = e2e_stamp("platform_types_keep_their_contracts", &["rustc"]) else {
         return;
     };
     const HOST_SV: &str = r#"// A counter living in the host.
@@ -361,6 +343,7 @@ fn main() [use, spawn] {
     println("held ${got}")
 }
 "#;
+    // The Rust implementation, with the contract kept.
     const HOST_RS: &str = r#"use crate::*;
 use std::sync::{Arc, Mutex};
 
@@ -407,46 +390,16 @@ pub fn close(c: Cursor) {
     let _ = c;
 }
 "#;
-    const HOST_KT: &str = r#"package salvo.platform.host
-
-import salvo.host.*
-
-class Tally(var n: Int)
-class Shared
-class Cursor(var at: Int)
-
-fun newTally(start: Int): Tally = Tally(start)
-fun bump(t: Tally): Int = synchronized(t) { t.n += 1; t.n }
-fun newShared(): Shared = Shared()
-fun label(s: Shared): String = "shared"
-fun openCursor(n: Int): Cursor = Cursor(n)
-fun step(c: Cursor): Int { c.at += 1; return c.at }
-fun close(c: Cursor) {}
-"#;
-    for (backend, tool, ext, skeleton_line, implementation) in [
-        ("kotlin", "kotlinc", "kt", "class Cursor {", HOST_KT),
-        ("rust", "rustc", "rs", "#[derive(Clone)]\npub struct Tally {", HOST_RS),
-    ] {
-        if !have(tool) {
-            eprintln!("skipping {backend}: {tool} not found on PATH");
-            continue;
-        }
+    for (backend, skeleton_line) in [("kotlin", "class Cursor {"), ("rust", "#[derive(Clone)]\npub struct Tally {")] {
         let dir = work_dir(&format!("ptype_{backend}"));
         project(&dir);
         fs::write(dir.join("host.sv"), HOST_SV).unwrap();
         fs::write(dir.join("main.sv"), MAIN_SV).unwrap();
-        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
-        assert!(out.status.success(), "{backend}: {}", String::from_utf8_lossy(&out.stderr));
-        let path = dir.join("platform").join(format!("host.{ext}"));
-        let skeleton = fs::read_to_string(&path).unwrap();
+        let skeleton = generate(&dir, backend, "host");
         assert!(skeleton.contains(skeleton_line), "{backend} skeleton:\n{skeleton}");
-        fs::write(&path, implementation).unwrap();
-        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "{backend}: {stderr}");
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "11 12\nshared\n4 5\nheld 13\n", "{backend}: {stderr}");
-        if backend == "rust" {
-            fs::write(&path, implementation.replacen("#[derive(Clone)]\npub struct Tally", "pub struct Tally", 1)).unwrap();
+        if backend == "rust" && have("rustc") {
+            let path = dir.join("platform/host.rs");
+            fs::write(&path, HOST_RS.replacen("#[derive(Clone)]\npub struct Tally", "pub struct Tally", 1)).unwrap();
             let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
             let stderr = String::from_utf8_lossy(&out.stderr);
             assert!(!out.status.success() && stderr.contains("__contract"), "{stderr}");
@@ -463,17 +416,13 @@ fun close(c: Cursor) {}
     __stamp.verified();
 }
 
-/// [platform-fn-value] Function values at the boundary, on both backends: a
-/// platform fn taking an effect-free callback (a plain one, called twice,
-/// and a `once` one, consumed), one catching a fault the callback raises,
-/// and a platform handler member taking a callback — which on Rust is
-/// `&mut dyn FnMut`, since an effect trait is used as `dyn`. The skeletons
-/// give the host its own closure types.
+/// [platform-fn-value] Function values at the boundary: the skeletons give
+/// the host its own closure types — for a platform fn's callback, and for a
+/// platform handler member's, which on Rust is `&mut dyn FnMut`, since an
+/// effect trait is used as `dyn`. The callbacks crossing (called twice,
+/// consumed, faulting) are run data (`tests/run/platform/boundary.sv`).
 #[test]
 fn function_values_cross_the_platform_boundary() {
-    let Some(__stamp) = e2e_stamp("function_values_cross_the_platform_boundary", &["kotlinc", "rustc"]) else {
-        return;
-    };
     const HOST_SV: &str = r#"export platform fn call(body: once () -> Str) [] -> Str => !body
 export platform fn twice(f: (n: Int) -> Int, x: Int) [] -> Int => f, x
 export platform fn run_guarded(body: once () -> None) [] -> Str? => !body
@@ -502,108 +451,28 @@ fn main() [use] {
     println("${apply(n -> n * k, 2)}")
 }
 "#;
-    const HOST_RS: &str = r#"// Host implementation of the platform declarations of Salvo module `host`.
-//
-// Generated once by `salvo platform generate`; the compiler never writes
-// this file again — it is yours. Nothing here is checked by Salvo: rustc
-// checks it, against the traits the backend generates from the
-// `platform handler` declarations.
-
-use crate::host::*;
-
-pub fn call(body: impl FnOnce() -> String) -> String {
-    body()
-}
-
-pub fn twice(f: &mut impl FnMut(i32) -> i32, x: i32) -> i32 {
-    let y = f(x);
-    f(y)
-}
-
-pub fn run_guarded(body: impl FnOnce()) -> Option<String> {
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
-        Ok(()) => None,
-        Err(e) => Some(e.downcast_ref::<String>().cloned().or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_else(|| "fault".into())),
-    }
-}
-
-// `platform handler HostApply` — the compiler SERIALIZES this instance: every
-// member runs under one lock on both backends, so the receivers are
-// `&mut self` and plain fields are fine; the struct must be `Send`.
-// If the host synchronizes internally, declare it `threadsafe platform
-// handler` in Salvo to say so [platform-threadsafe].
-pub struct HostApply {
-}
-
-impl HostApply {
-    pub fn new() -> Self {
-        Self { }
-    }
-}
-
-impl crate::host::ApplyPlatform for HostApply {
-    fn apply(&mut self, f: &mut dyn FnMut(i32) -> i32, x: i32) -> i32 {
-        f(x)
-    }
-}
-"#;
-    const HOST_KT: &str = r#"// Host implementation of the platform declarations of Salvo module `host`.
-//
-// Generated once by `salvo platform generate`; the compiler never writes
-// this file again — it is yours. Nothing here is checked by Salvo: the
-// Kotlin compiler checks it, against the interfaces the backend generates
-// from the `platform handler` declarations.
-package salvo.platform.host
-
-import salvo.host.*
-
-fun call(body: () -> String): String = body()
-fun twice(f: (Int) -> Int, x: Int): Int = f(f(x))
-fun runGuarded(body: () -> Unit): String? = try { body(); null } catch (t: Throwable) { t.message ?: "fault" }
-
-class HostApply : ApplyPlatform {
-    override fun apply(f: (Int) -> Int, x: Int): Int {
-        return f(x)
-    }
-}
-"#;
-    for (backend, tool, ext, sigs, implementation) in [
-        ("kotlin", "kotlinc", "kt", ["fun call(body: () -> String): String", "override fun apply(f: (Int) -> Int, x: Int): Int"], HOST_KT),
-        ("rust", "rustc", "rs", ["pub fn call(body: impl FnOnce() -> String) -> String", "fn apply(&mut self, f: &mut dyn FnMut(i32) -> i32, x: i32) -> i32"], HOST_RS),
+    for (backend, sigs) in [
+        ("kotlin", ["fun call(body: () -> String): String", "override fun apply(f: (Int) -> Int, x: Int): Int"]),
+        ("rust", ["pub fn call(body: impl FnOnce() -> String) -> String", "fn apply(&mut self, f: &mut dyn FnMut(i32) -> i32, x: i32) -> i32"]),
     ] {
-        if !have(tool) {
-            eprintln!("skipping {backend}: {tool} not found on PATH");
-            continue;
-        }
         let dir = work_dir(&format!("pfn_{backend}"));
         project(&dir);
         fs::write(dir.join("host.sv"), HOST_SV).unwrap();
         fs::write(dir.join("main.sv"), MAIN_SV).unwrap();
-        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
-        assert!(out.status.success(), "{backend}: {}", String::from_utf8_lossy(&out.stderr));
-        let path = dir.join("platform").join(format!("host.{ext}"));
-        let skeleton = fs::read_to_string(&path).unwrap();
+        let skeleton = generate(&dir, backend, "host");
         for sig in sigs {
             assert!(skeleton.contains(sig), "{backend} skeleton lacks `{sig}`:\n{skeleton}");
         }
-        fs::write(&path, implementation).unwrap();
-        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "{backend}: {stderr}");
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "11\nlate ran\nfaulted: true\ntrue\n10\n", "{backend}: {stderr}");
     }
-    __stamp.verified();
 }
 
 /// [platform-fn-value] A platform fn that **keeps** a fn value (`=> !hook`
-/// on a plain fn type) takes a named top-level fn: the host stores it and
-/// calls it later, from another call. Rust's host holds a `fn` pointer;
-/// Kotlin's its own fn type. A lambda in that position is refused.
+/// on a plain fn type) takes a named top-level fn: Rust's host gets a `fn`
+/// pointer, Kotlin's its own fn type, and a lambda in that position is
+/// refused. The host storing it and calling it later is run data
+/// (`tests/run/platform/boundary.sv#a_platform_fn_keeps_a_named_fn`).
 #[test]
 fn a_platform_fn_keeps_a_named_fn() {
-    let Some(__stamp) = e2e_stamp("a_platform_fn_keeps_a_named_fn", &["kotlinc", "rustc"]) else {
-        return;
-    };
     const HOST_SV: &str = r#"export platform fn keep(hook: (n: Int, label: Str) -> Str) [] -> None => !hook
 export platform fn fire(n: Int) [] -> Str => n
 "#;
@@ -620,51 +489,16 @@ fn main() [use] {
     println(fire(5))
 }
 "#;
-    const HOST_RS: &str = r#"use std::sync::Mutex;
-
-static HOOK: Mutex<Option<fn(i32, &String) -> String>> = Mutex::new(None);
-
-pub fn keep(hook: fn(i32, &String) -> String) {
-    *HOOK.lock().unwrap() = Some(hook);
-}
-
-pub fn fire(n: i32) -> String {
-    let hook = HOOK.lock().unwrap().expect("kept");
-    std::thread::spawn(move || hook(n, &"fired".to_string())).join().unwrap()
-}
-"#;
-    const HOST_KT: &str = r#"package salvo.platform.host
-
-private var hook: ((Int, String) -> String)? = null
-
-fun keep(hook: (Int, String) -> String) {
-    salvo.platform.host.hook = hook
-}
-
-fun fire(n: Int): String = hook!!(n, "fired")
-"#;
-    for (backend, tool, ext, sig, implementation) in [
-        ("kotlin", "kotlinc", "kt", "fun keep(hook: (Int, String) -> String)", HOST_KT),
-        ("rust", "rustc", "rs", "pub fn keep(hook: fn(i32, &String) -> String)", HOST_RS),
+    for (backend, sig) in [
+        ("kotlin", "fun keep(hook: (Int, String) -> String)"),
+        ("rust", "pub fn keep(hook: fn(i32, &String) -> String)"),
     ] {
-        if !have(tool) {
-            eprintln!("skipping {backend}: {tool} not found on PATH");
-            continue;
-        }
         let dir = work_dir(&format!("pkeep_{backend}"));
         project(&dir);
         fs::write(dir.join("host.sv"), HOST_SV).unwrap();
         fs::write(dir.join("main.sv"), MAIN_SV).unwrap();
-        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
-        assert!(out.status.success(), "{backend}: {}", String::from_utf8_lossy(&out.stderr));
-        let path = dir.join("platform").join(format!("host.{ext}"));
-        let skeleton = fs::read_to_string(&path).unwrap();
+        let skeleton = generate(&dir, backend, "host");
         assert!(skeleton.contains(sig), "{backend} skeleton lacks `{sig}`:\n{skeleton}");
-        fs::write(&path, implementation).unwrap();
-        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "{backend}: {stderr}");
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "fired 8\nfired 10\n", "{backend}: {stderr}");
     }
     // A lambda (or a local) cannot be kept.
     let dir = work_dir("pkeep_lambda");
@@ -678,18 +512,14 @@ fun fire(n: Int): String = hook!!(n, "fired")
     let out = salvo_in(&dir, &["analyze", "--src", "."]);
     let all = String::from_utf8_lossy(&out.stderr).to_string() + &String::from_utf8_lossy(&out.stdout);
     assert!(all.contains("takes a named top-level fn"), "{all}");
-    __stamp.verified();
 }
 
 /// [platform-iterable] A customer's `iterable platform type`: `salvo platform
-/// generate` writes the `each` stub beside the type, a `for` over a value
-/// loops over the host's `each`, and a generic fn walking it through
-/// `Iter<self, BagIter, Int>` gets the Salvo pass — the two agreeing on the elements.
+/// generate` writes the `each` stub beside the type. A `for` over a value
+/// looping over the host's `each`, and the Salvo pass agreeing with it, are
+/// run data (`tests/run/platform/boundary.sv`).
 #[test]
 fn an_iterable_platform_type_loops_over_its_hosts_each() {
-    let Some(__stamp) = e2e_stamp("an_iterable_platform_type_loops_over_its_hosts_each", &["kotlinc", "rustc"]) else {
-        return;
-    };
     const HOST_SV: &str = r#"export iterable platform type Bag : Iter<self, BagIter, Int>
 export platform fn bag_of(a: Int, b: Int) [] -> Bag
 export platform fn bag_size(b: Bag) [] -> Int => b
@@ -717,76 +547,26 @@ fn main() [use] {
     println("pass ${to_list(iter(b))}")
 }
 "#;
-    const HOST_RS: &str = r#"use crate::host::*;
-
-#[derive(Clone)]
-pub struct Bag {
-    items: Vec<i32>,
-}
-
-pub fn bag_of(a: i32, b: i32) -> Bag {
-    Bag { items: vec![a, b] }
-}
-
-pub fn bag_size(b: &Bag) -> i32 {
-    b.items.len() as i32
-}
-
-pub fn bag_at(b: &Bag, i: i32) -> i32 {
-    b.items[i as usize]
-}
-
-pub fn each(x: &Bag) -> impl Iterator<Item = i32> + '_ {
-    x.items.iter().copied()
-}
-"#;
-    const HOST_KT: &str = r#"package salvo.platform.host
-
-import salvo.host.*
-
-class Bag(val items: List<Int>)
-
-fun bagOf(a: Int, b: Int): Bag = Bag(listOf(a, b))
-fun bagSize(b: Bag): Int = b.items.size
-fun bagAt(b: Bag, i: Int): Int = b.items[i]
-
-fun each(x: Bag): Iterable<Int> = x.items
-"#;
-    for (backend, tool, ext, sig, implementation) in [
-        ("kotlin", "kotlinc", "kt", "fun each(x: Bag): Iterable<Int>", HOST_KT),
-        ("rust", "rustc", "rs", "pub fn each(x: &Bag) -> impl Iterator<Item = i32> + '_", HOST_RS),
+    for (backend, sig) in [
+        ("kotlin", "fun each(x: Bag): Iterable<Int>"),
+        ("rust", "pub fn each(x: &Bag) -> impl Iterator<Item = i32> + '_"),
     ] {
-        if !have(tool) {
-            eprintln!("skipping {backend}: {tool} not found on PATH");
-            continue;
-        }
         let dir = work_dir(&format!("iterable_{backend}"));
         project(&dir);
         fs::write(dir.join("host.sv"), HOST_SV).unwrap();
         fs::write(dir.join("main.sv"), MAIN_SV).unwrap();
-        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
-        assert!(out.status.success(), "{backend}: {}", String::from_utf8_lossy(&out.stderr));
-        let path = dir.join("platform").join(format!("host.{ext}"));
-        let skeleton = fs::read_to_string(&path).unwrap();
+        let skeleton = generate(&dir, backend, "host");
         assert!(skeleton.contains(sig), "{backend} skeleton lacks `{sig}`:\n{skeleton}");
-        fs::write(&path, implementation).unwrap();
-        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "{backend}: {stderr}");
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "each 3\neach 4\npass [3, 4]\n", "{backend}: {stderr}");
     }
-    __stamp.verified();
 }
 
-/// [platform-generic] Generic platform types and fns on both backends: the
-/// host stores, moves and hands back an opaque `T` (Rust bounds it `Send +
-/// 'static`, never `Clone`), which is enough to write an erased payload
-/// (`Dyn` with `erase`/`unerase`) — and a linear `T` travels through both.
+/// [platform-generic] Generic platform types and fns: the host's `T` is
+/// opaque — Rust bounds it `Send + 'static`, never `Clone` — as the
+/// skeletons say. The host storing, moving and handing back a `T` (an
+/// erased payload, a linear `T`) is run data
+/// (`tests/run/platform/boundary.sv#generic_platform_types_and_fns`).
 #[test]
-fn generic_platform_types_and_fns_run_on_both_backends() {
-    let Some(__stamp) = e2e_stamp("generic_platform_types_and_fns_run_on_both_backends", &["kotlinc", "rustc"]) else {
-        return;
-    };
+fn generic_platform_skeletons_keep_their_t_opaque() {
     const HOST_SV: &str = r#"export linear platform type Cell<T canbe linear>
 export linear platform type Dyn
 
@@ -823,69 +603,17 @@ fn tickets() [Console] -> None {
     redeem(back)
 }
 "#;
-    const HOST_RS: &str = r#"use crate::*;
-
-pub struct Cell<T: Send + 'static> {
-    v: T,
-}
-
-pub struct Dyn {
-    v: Box<dyn std::any::Any + Send>,
-}
-
-pub fn cell_of<T: Send + 'static>(v: T) -> Cell<T> {
-    Cell { v }
-}
-
-pub fn take<T: Send + 'static>(c: Cell<T>) -> T {
-    c.v
-}
-
-pub fn erase<T: Send + 'static>(v: T) -> Dyn {
-    Dyn { v: Box::new(v) }
-}
-
-pub fn unerase<T: Send + 'static>(d: Dyn) -> T {
-    *d.v.downcast::<T>().expect("salvo: an erased value read back as another type")
-}
-"#;
-    const HOST_KT: &str = r#"package salvo.platform.host
-
-import salvo.host.*
-
-class Cell<T>(val v: T)
-class Dyn(val v: Any?)
-
-fun <T> cellOf(v: T): Cell<T> = Cell(v)
-fun <T> take(c: Cell<T>): T = c.v
-fun <T> erase(v: T): Dyn = Dyn(v)
-@Suppress("UNCHECKED_CAST")
-fun <T> unerase(d: Dyn): T = d.v as T
-"#;
-    for (backend, tool, ext, sig, implementation) in [
-        ("kotlin", "kotlinc", "kt", "fun<T> unerase(d: salvo.platform.host.Dyn): T {", HOST_KT),
-        ("rust", "rustc", "rs", "pub fn unerase<T: Send + 'static>(d: crate::host::Dyn) -> T {", HOST_RS),
+    for (backend, sig) in [
+        ("kotlin", "fun<T> unerase(d: salvo.platform.host.Dyn): T {"),
+        ("rust", "pub fn unerase<T: Send + 'static>(d: crate::host::Dyn) -> T {"),
     ] {
-        if !have(tool) {
-            eprintln!("skipping {backend}: {tool} not found on PATH");
-            continue;
-        }
         let dir = work_dir(&format!("pgen_{backend}"));
         project(&dir);
         fs::write(dir.join("host.sv"), HOST_SV).unwrap();
         fs::write(dir.join("main.sv"), MAIN_SV).unwrap();
-        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
-        assert!(out.status.success(), "{backend}: {}", String::from_utf8_lossy(&out.stderr));
-        let path = dir.join("platform").join(format!("host.{ext}"));
-        let skeleton = fs::read_to_string(&path).unwrap();
+        let skeleton = generate(&dir, backend, "host");
         assert!(skeleton.contains(sig), "{backend} skeleton:\n{skeleton}");
-        fs::write(&path, implementation).unwrap();
-        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "{backend}: {stderr}");
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "hi\n1 2\n7\nredeemed 9\n", "{backend}: {stderr}");
     }
-    __stamp.verified();
 }
 
 /// [platform-tree] The tree mirrors the sources, per module: the implementation
@@ -1211,18 +939,13 @@ fn conflicting_host_libraries_are_refused() {
     );
 }
 
-/// [platform-reply] A platform member that takes a `Reply` returns at once and
-/// completes the reply later from a host thread: `.hosted()` takes the token,
-/// `send` completes it. Checked on both backends with two continuations — a
-/// `waitfor` in `main`, and a free `send fn` whose own answer `main` waits on —
-/// and the skeleton states the contract. On Rust, a host reply dropped unsent
-/// reaches the fault sink and the waiter reports its deadlock instead of
-/// hanging (the JVM cannot see a drop, so Kotlin is not asked to).
+/// [platform-reply] A platform member that takes a `Reply` returns at once
+/// and completes the reply later from a host thread: the skeleton states
+/// that contract (`.hosted()` takes the token, `send` completes it). The
+/// host thread completing it, and on Rust a reply dropped unsent reported
+/// as such, are run data (`tests/run/platform/boundary.sv`).
 #[test]
 fn a_host_thread_completes_a_reply() {
-    let Some(__stamp) = e2e_stamp("a_host_thread_completes_a_reply", &["kotlinc", "rustc"]) else {
-        return;
-    };
     const PROGRAM: &str = "\
 effect Slow {
     fn later(n: Int, done: Reply<Int>) [] -> None => !n, !done
@@ -1247,61 +970,16 @@ fn main() [use] {
     println(line)
 }
 ";
-    let expected = "waited for 42\ncontinued with 2\n";
-    for (backend, tool, ext, stub, body) in [
-        (
-            "rust",
-            "rustc",
-            "rs",
-            "todo!(\"implement Slow.later\")",
-            "let done = done.hosted();\n        std::thread::spawn(move || {\n            std::thread::sleep(std::time::Duration::from_millis(50));\n            if n >= 0 { done.send(n + 1) } else { drop(done) }\n        });",
-        ),
-        (
-            "kotlin",
-            "kotlinc",
-            "kt",
-            "TODO(\"implement Slow.later\")",
-            "val host = done.hosted()\n        Thread { Thread.sleep(50); host.send(n + 1) }.start()",
-        ),
-    ] {
-        if !have(tool) {
-            eprintln!("skipping {backend}: {tool} not found on PATH");
-            continue;
-        }
+    for backend in ["rust", "kotlin"] {
         let dir = work_dir(&format!("reply_{backend}"));
         project(&dir);
         fs::write(dir.join("main.sv"), PROGRAM).unwrap();
-        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        let host = dir.join("platform").join(format!("main.{ext}"));
-        let src = fs::read_to_string(&host).unwrap();
+        let src = generate(&dir, backend, "main");
         assert!(
             src.contains("`done`: a continuation [platform-reply]") && src.contains(".hosted()"),
             "{backend} skeleton states no contract:\n{src}"
         );
-        fs::write(&host, src.replace(stub, body)).unwrap();
-        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "{backend} run failed: {stderr}");
-        assert_eq!(String::from_utf8_lossy(&out.stdout), expected, "{backend} (stderr: {stderr})");
-
-        if backend == "rust" {
-            // Dropped unsent: reported, and the waiter's deadlock is named.
-            fs::write(
-                dir.join("main.sv"),
-                PROGRAM.replace("later(41, done)", "later(-1, done)"),
-            )
-            .unwrap();
-            let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            assert!(
-                stderr.contains("a host reply was dropped without being sent")
-                    && stderr.contains("deadlock"),
-                "{stderr}"
-            );
-        }
     }
-    __stamp.verified();
 }
 
 /// Every file under [dir] as (relative path, contents), sorted, skipping
@@ -1710,20 +1388,13 @@ fn the_checked_in_host_projects_are_current_and_compile() {
 }
 
 /// [platform-check] The adapters and wrappers check what the host hands
-/// back (ABI D7, D10 C3): a closed literal union, a literal field of a
-/// struct inside a list (element by element, which warns), a state qualifier
-/// (`NonEmpty`, by running its `qualifies`), a literal arm of a positional
-/// union, and a `Reply<T>` the host completes from its own thread — the hosts
-/// building their unions with the factories [platform-factory] (a named
-/// union's `Problems.notFound` / `Problem::not_found`, a signature's
-/// `Open.err`, a literal arm's checked `Find.str`). Good values
-/// pass on both backends; a bad one fails where it crosses — Rust panics,
-/// Kotlin throws — naming the declaration and the value.
+/// back (ABI D7, D10 C3): the skeleton has a stub for each member, and a
+/// literal field of a struct inside a list is checked element by element,
+/// which the build warns about. Good values passing on both backends, and a
+/// bad one failing where it crosses, are run data
+/// (`tests/run/platform/host_values.sv`).
 #[test]
 fn the_boundary_checks_what_the_host_returns() {
-    let Some(stamp) = e2e_stamp("the_boundary_checks_what_the_host_returns", &["kotlinc", "rustc"]) else {
-        return;
-    };
     const PROGRAM: &str = "\
 struct Item {
     tier: \"gold\" | \"silver\",
@@ -1782,84 +1453,45 @@ fn main() [use] {
     println(show(tier(TIER)))
 }
 ";
-    let hosts = [
+    for (backend, stubs) in [
         (
             "rust",
-            "rustc",
-            "rs",
-            vec![
-                ("todo!(\"implement tier\")", "match n { 1 => Some(\"gold\".to_string()), 2 => None, _ => Some(\"bronze\".to_string()) }"),
-                ("todo!(\"implement items\")", "vec![Item { tier: \"gold\".to_string(), tags: vec![\"a\".to_string(), \"b\".to_string()] }]"),
-                ("todo!(\"implement names\")", "if n > 0 { vec![\"x\".to_string()] } else { vec![] }"),
-                ("todo!(\"implement open\")", "Open::err(Problem::not_found(NotFound { path: p.clone() }))"),
-                ("todo!(\"implement Lookup.find\")", "Find::str(\"missing\".to_string())"),
-                (
-                    "todo!(\"implement Lookup.parity\")",
-                    "let done = done.hosted();\n        std::thread::spawn(move || {\n            \
-                     let v = if n < 0 { \"neither\" } else if n % 2 == 0 { \"even\" } else { \"odd\" };\n            \
-                     done.send(v.to_string())\n        });",
-                ),
+            [
+                "todo!(\"implement tier\")",
+                "todo!(\"implement items\")",
+                "todo!(\"implement names\")",
+                "todo!(\"implement open\")",
+                "todo!(\"implement Lookup.find\")",
+                "todo!(\"implement Lookup.parity\")",
             ],
         ),
         (
             "kotlin",
-            "kotlinc",
-            "kt",
-            vec![
-                ("TODO(\"implement tier\")", "return when (n) { 1 -> \"gold\"; 2 -> null; else -> \"bronze\" }"),
-                ("TODO(\"implement items\")", "return listOf(Item(tier = \"gold\", tags = listOf(\"a\", \"b\")))"),
-                ("TODO(\"implement names\")", "return if (n > 0) listOf(\"x\") else listOf()"),
-                ("TODO(\"implement open\")", "return Open.err(Problems.notFound(NotFound(p)))"),
-                ("TODO(\"implement Lookup.find\")", "return Find.str(\"missing\")"),
-                (
-                    "TODO(\"implement Lookup.parity\")",
-                    "val host = done.hosted()\n        Thread {\n            \
-                     val v = if (n < 0) \"neither\" else if (n % 2 == 0) \"even\" else \"odd\"\n            \
-                     try { host.send(v) } catch (e: IllegalStateException) { System.err.println(e.message); System.exit(3) }\n        }.start()",
-                ),
+            [
+                "TODO(\"implement tier\")",
+                "TODO(\"implement items\")",
+                "TODO(\"implement names\")",
+                "TODO(\"implement open\")",
+                "TODO(\"implement Lookup.find\")",
+                "TODO(\"implement Lookup.parity\")",
             ],
         ),
-    ];
-    for (backend, tool, ext, edits) in hosts {
-        if !have(tool) {
-            eprintln!("skipping {backend}: {tool} not found on PATH");
-            continue;
-        }
+    ] {
         let dir = work_dir(&format!("boundary_{backend}"));
         project(&dir);
-        let program = |parity: &str, tier: &str| PROGRAM.replace("PARITY", parity).replace("TIER", tier);
-        fs::write(dir.join("main.sv"), program("3", "1")).unwrap();
-        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend]);
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        let host = dir.join("platform").join(format!("main.{ext}"));
-        let mut src = fs::read_to_string(&host).unwrap();
-        for (a, b) in &edits {
-            assert!(src.contains(a), "{backend}: `{a}` not in the skeleton:\n{src}");
-            src = src.replace(a, b);
+        fs::write(dir.join("main.sv"), PROGRAM.replace("PARITY", "3").replace("TIER", "1")).unwrap();
+        let src = generate(&dir, backend, "main");
+        for stub in stubs {
+            assert!(src.contains(stub), "{backend}: `{stub}` not in the skeleton:\n{src}");
         }
-        fs::write(&host, src).unwrap();
-
-        let out = salvo_in(&dir, &["run", "--backend", backend]);
-        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        let out = salvo_in(&dir, &["compile", "--backend", backend, "--target", "out"]);
+        let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "{backend}: {stderr}");
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "gold none\n1 [x]\nnot found x\nmissing\nodd\ngold\n", "{backend}: {stderr}");
         assert!(
             stderr.contains("`platform fn items`'s result is checked element by element"),
             "{backend}: the walk is not warned about: {stderr}"
         );
-
-        for (parity, tier, says) in [
-            ("3", "3", "`platform fn tier`'s result was"),
-            ("-1", "1", "what the host sent on `Lookup.parity` was"),
-        ] {
-            fs::write(dir.join("main.sv"), program(parity, tier)).unwrap();
-            let out = salvo_in(&dir, &["run", "--backend", backend]);
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            assert!(!out.status.success(), "{backend}: a bad value passed: {stderr}");
-            assert!(stderr.contains(says) && stderr.contains("[platform-check]"), "{backend}: {stderr}");
-        }
     }
-    stamp.verified();
 }
 
 /// [platform-stamp] A dependency checks in its host project, stamped with the
@@ -1938,14 +1570,13 @@ fn a_dependencys_host_project_is_checked_before_its_code() {
     assert!(!ok && stderr.contains("was generated for ABI 0, and this compiler's is 1"), "{stderr}");
 }
 
-/// [platform-value-type] A set or map the host returns is std's own host type
-/// (ROADMAP §0j step 7), built with the canonical builders the host files
-/// offer (`canonicalSet`, `canonical_map`, …): Salvo then finds the elements
-/// by its own `hash`/`eq`/`cmp`, and a sorted set of strings is in code-point
-/// order on both backends (UTF-16 order would put the emoji first).
+/// [platform-value-type] A set or map the host returns is std's own host
+/// type (ROADMAP §0j step 7): the skeleton has a stub for each. The hosts
+/// building them with the canonical builders, and Salvo finding the
+/// elements by its own `hash`/`eq`/`cmp`, are run data
+/// (`tests/run/platform/host_values.sv`).
 #[test]
 fn sets_and_maps_from_the_host_are_built_canonically() {
-    let Some(stamp) = e2e_stamp("sets_and_maps_from_the_host_canonical", &["kotlinc", "rustc"]) else { return };
     const PROGRAM: &str = "\
 struct Bag {
     tags: Set<Str>
@@ -1968,53 +1599,18 @@ fn main() [use] {
     println(\"${size(ns)} ${has} ${sorted()} ${y} ${size(bag().tags)}\")
 }
 ";
-    let hosts = [
-        (
-            "kotlin",
-            "kotlinc",
-            "kt",
-            vec![
-                ("TODO(\"implement names\")", "return salvo.platform.std.core.set.canonicalSet(listOf(\"b\", \"a\", \"c\"))"),
-                ("TODO(\"implement sorted\")", "return salvo.platform.std.core.sorted.canonicalSortedSet(listOf(\"\\uFF61\", \"\\uD83D\\uDE00\"))"),
-                ("TODO(\"implement ages\")", "return salvo.platform.std.core.map.canonicalMap(listOf(\"x\" to 1, \"y\" to 2))"),
-                ("TODO(\"implement bag\")", "return Bag(tags = salvo.platform.std.core.set.canonicalSet(listOf(\"a\", \"b\")))"),
-            ],
-        ),
-        (
-            "rust",
-            "rustc",
-            "rs",
-            vec![
-                ("todo!(\"implement names\")", "crate::platform_std_core_set::canonical_set(vec![\"b\".to_string(), \"a\".to_string(), \"c\".to_string()])"),
-                ("todo!(\"implement sorted\")", "crate::platform_std_core_sorted::canonical_sorted_set(vec![\"\\u{FF61}\".to_string(), \"\\u{1F600}\".to_string()])"),
-                ("todo!(\"implement ages\")", "crate::platform_std_core_map::canonical_map(vec![(\"x\".to_string(), 1), (\"y\".to_string(), 2)])"),
-                ("todo!(\"implement bag\")", "Bag { tags: crate::platform_std_core_set::canonical_set(vec![\"a\".to_string(), \"b\".to_string()]) }"),
-            ],
-        ),
-    ];
-    for (backend, tool, ext, edits) in hosts {
-        if !have(tool) {
-            eprintln!("skipping {backend}: {tool} not found on PATH");
-            continue;
-        }
+    for (backend, stubs) in [
+        ("kotlin", ["TODO(\"implement names\")", "TODO(\"implement sorted\")", "TODO(\"implement ages\")", "TODO(\"implement bag\")"]),
+        ("rust", ["todo!(\"implement names\")", "todo!(\"implement sorted\")", "todo!(\"implement ages\")", "todo!(\"implement bag\")"]),
+    ] {
         let dir = work_dir(&format!("shapes_{backend}"));
         project(&dir);
         fs::write(dir.join("main.sv"), PROGRAM).unwrap();
-        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend]);
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        let host = dir.join("platform").join(format!("main.{ext}"));
-        let mut src = fs::read_to_string(&host).unwrap();
-        for (a, b) in &edits {
-            assert!(src.contains(a), "{backend}: `{a}` not in:\n{src}");
-            src = src.replace(a, b);
+        let src = generate(&dir, backend, "main");
+        for stub in stubs {
+            assert!(src.contains(stub), "{backend}: `{stub}` not in:\n{src}");
         }
-        fs::write(&host, src).unwrap();
-        let out = salvo_in(&dir, &["run", "--backend", backend]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "{backend}: {stderr}");
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "3 true {\u{FF61}, \u{1F600}} 2 2\n", "{backend}: {stderr}");
     }
-    stamp.verified();
 }
 
 /// [platform-check] D10 C2: a host cannot build a collection keyed by a

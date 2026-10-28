@@ -36,7 +36,11 @@ fn main() [use] -> None {
   within the program's own file), then `//= stdout`, after which every `//=`
   line is one line of the exact stdout (`//= ` and one space stripped,
   trailing spaces kept; `//=` alone is an empty line). No `//= stdout`: the
-  program prints nothing.
+  program prints nothing. Before `//= stdout`, a `//= stdin` block is what
+  the program reads on standard input, and a `//= stderr` block its exact
+  standard error (not compared without one); such a block ends at the first
+  line that is not `//=`, or at the next header. A header ending ` -n`
+  (`//= stdout -n`) drops its block's final newline.
 - **`// FILE: name`** starts another file: a module, a backend's companion
   (`helpers.kt`), a platform file (`platform/main.rs`) or a `salvo.toml`
   (the program is then read through its manifest, as `salvo compile` reads a
@@ -46,5 +50,8 @@ fn main() [use] -> None {
 - **Stamps**: a program whose generated code, outcome and toolchain are
   unchanged is not compiled again (`SALVO_E2E_FRESH=1` ignores the stamps;
   `SALVO_SKIP_E2E=1` skips the runner).
+- **Working directory**: each run starts in a fresh, empty directory of its
+  own, so a file a program writes at a relative path (`path("out.txt")`)
+  never meets another run's — the two backends run a program at once.
 - Every program here is also built to IR by `salvo-core`'s `corpus_tests`
   ([ir-build]).

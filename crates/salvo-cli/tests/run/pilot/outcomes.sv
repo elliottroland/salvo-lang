@@ -70,3 +70,39 @@ export fn area(s: Square) -> Int => s {
 }
 //= stdout
 //= 9
+
+//--- console_streams
+fn main() [use] -> None {
+    use StdConsole()
+    print("name? ")
+    let name = readln()
+    if name is None {
+        printerr("no input\n")
+        return
+    }
+    println("hello ${name}")
+    let second = readln()
+    printerr("second: ${second ?: "<eof>"}\n")
+}
+//= stdin
+//= Ada
+//= stderr
+//= second: <eof>
+//= stdout
+//= name? hello Ada
+
+//--- console_streams_no_input
+fn main() [use] -> None {
+    use StdConsole()
+    print("name? ")
+    let name = readln()
+    if name is None {
+        printerr("no input\n")
+        return
+    }
+    println("hello ${name}")
+}
+//= stderr
+//= no input
+//= stdout -n
+//= name? 

@@ -21,7 +21,11 @@
 //!   `salvo: <text>`, a nonzero exit on either backend) come first; then
 //!   `//= stdout`, after which every `//=` line is one line of the exact
 //!   stdout (`//= ` and one space stripped, `//=` alone an empty line).
-//!   Without `//= stdout`, the program prints nothing.
+//!   Without `//= stdout`, the program prints nothing. Before it, a
+//!   `//= stdin` block is what the program reads, and a `//= stderr` block
+//!   its exact standard error (not compared without one); such a block ends
+//!   at the first line that is not `//=`, or at the next header. A header
+//!   ending ` -n` (`//= stdout -n`) drops its block's final newline.
 //! - `// FILE: name` starts another file of the same program (a `.sv`
 //!   module, or a backend's companion or platform file: the program is read
 //!   as `salvo compile` reads a source tree); before the first, the file is
@@ -63,6 +67,8 @@ pub struct Outcome {
     pub exit: i32,
     /// `Some(text)`: the program traps with a message starting `salvo: text`.
     pub trap: Option<String>,
+    /// `Some(text)`: the exact stderr; `None`: not compared.
+    pub stderr: Option<String>,
 }
 
 /// One program of a run data file.
@@ -74,6 +80,8 @@ pub struct Case {
     pub at: usize,
     pub backends: Vec<Backend>,
     pub args: Vec<String>,
+    /// What the program reads on standard input (nothing when `None`).
+    pub stdin: Option<String>,
     pub files: Vec<(String, String)>,
     pub outcome: Outcome,
 }
@@ -85,6 +93,13 @@ impl Case {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Block {
+    Stdin,
+    Stderr,
+    Stdout,
+}
+
 /// Splits a run data file into its programs.
 pub fn parse(text: &str) -> Result<Vec<Case>, String> {
     struct State {
@@ -92,6 +107,10 @@ pub fn parse(text: &str) -> Result<Vec<Case>, String> {
         file: (String, String),
         /// After `//= stdout`: every `//=` line is output.
         in_stdout: bool,
+        /// The block `//=` lines are read into, if any.
+        block: Option<Block>,
+        /// The blocks whose final newline goes.
+        chop: Vec<Block>,
         saw_stdout: bool,
         saw_backends: bool,
     }
@@ -99,6 +118,8 @@ pub fn parse(text: &str) -> Result<Vec<Case>, String> {
         case: Case { name, at, backends: Backend::ALL.to_vec(), ..Case::default() },
         file: ("main.sv".to_string(), String::new()),
         in_stdout: false,
+        block: None,
+        chop: Vec::new(),
         saw_stdout: false,
         saw_backends: false,
     };
@@ -112,6 +133,16 @@ pub fn parse(text: &str) -> Result<Vec<Case>, String> {
     let mut s = fresh("main".into(), 1);
     let finish_case = |s: &mut State, cases: &mut Vec<Case>| {
         finish_file(s);
+        for b in std::mem::take(&mut s.chop) {
+            let text = match b {
+                Block::Stdin => s.case.stdin.as_mut(),
+                Block::Stderr => s.case.outcome.stderr.as_mut(),
+                Block::Stdout => Some(&mut s.case.outcome.stdout),
+            };
+            if let Some(t) = text {
+                t.pop();
+            }
+        }
         // Comments alone (a file's preamble, before its first `//---`) are
         // not a program.
         let only_comments = s.case.files.iter().all(|(_, c)| c.lines().all(|l| l.trim().is_empty() || l.trim().starts_with("//")));
@@ -138,25 +169,65 @@ pub fn parse(text: &str) -> Result<Vec<Case>, String> {
         s.file.1.push_str(raw);
         s.file.1.push('\n');
         if let Some(rest) = raw.trim_start().strip_prefix("//=") {
-            if s.in_stdout {
-                // Trailing spaces are output too.
-                let line = rest.strip_prefix(' ').unwrap_or(rest);
-                s.case.outcome.stdout.push_str(line);
-                s.case.outcome.stdout.push('\n');
+            let word = rest.trim();
+            // A block header: `stdout` ends the program; `stdin` and
+            // `stderr` blocks come before it.
+            // `-n` after a header: the block's text has no final newline.
+            let (word, chop) = match word.strip_suffix(" -n") {
+                Some(w) => (w.trim(), true),
+                None => (word, false),
+            };
+            if !s.in_stdout && matches!(word, "stdin" | "stderr" | "stdout") {
+                if chop {
+                    s.chop.push(match word {
+                        "stdin" => Block::Stdin,
+                        "stderr" => Block::Stderr,
+                        _ => Block::Stdout,
+                    });
+                }
+                let block = match word {
+                    "stdin" => Block::Stdin,
+                    "stderr" => Block::Stderr,
+                    _ => Block::Stdout,
+                };
+                if word == "stdin" && s.case.stdin.is_some() || word == "stderr" && s.case.outcome.stderr.is_some() {
+                    return Err(format!("line {n}: a second `//= {word}`"));
+                }
+                match block {
+                    Block::Stdin => s.case.stdin = Some(String::new()),
+                    Block::Stderr => s.case.outcome.stderr = Some(String::new()),
+                    Block::Stdout => {
+                        s.in_stdout = true;
+                        s.saw_stdout = true;
+                    }
+                }
+                s.block = Some(block);
                 continue;
             }
-            let rest = rest.trim();
-            if rest == "stdout" {
-                s.in_stdout = true;
-                s.saw_stdout = true;
-            } else if let Some(code) = rest.strip_prefix("exit ") {
+            if let Some(block) = s.block {
+                // Trailing spaces are content too.
+                let line = rest.strip_prefix(' ').unwrap_or(rest);
+                let into = match block {
+                    Block::Stdin => s.case.stdin.as_mut().unwrap(),
+                    Block::Stderr => s.case.outcome.stderr.as_mut().unwrap(),
+                    Block::Stdout => &mut s.case.outcome.stdout,
+                };
+                into.push_str(line);
+                into.push('\n');
+                continue;
+            }
+            if let Some(code) = word.strip_prefix("exit ") {
                 s.case.outcome.exit = code.trim().parse().map_err(|_| format!("line {n}: `{t}`: the exit code is a number"))?;
-            } else if let Some(trap) = rest.strip_prefix("trap ") {
+            } else if let Some(trap) = word.strip_prefix("trap ") {
                 s.case.outcome.trap = Some(trap.trim().to_string());
             } else {
-                return Err(format!("line {n}: `{t}`: before `//= stdout`, a `//=` line is `exit N` or `trap <text>`"));
+                return Err(format!("line {n}: `{t}`: outside a block, a `//=` line is `exit N`, `trap <text>`, `stdin`, `stderr` or `stdout`"));
             }
             continue;
+        }
+        if s.block.is_some_and(|b| b != Block::Stdout) {
+            // A stdin or stderr block ends at its first other line.
+            s.block = None;
         }
         if s.in_stdout && !t.is_empty() && !t.starts_with("//") {
             return Err(format!("line {n}: `{t}` follows `//= stdout` (the expected output ends the program)"));
@@ -212,6 +283,10 @@ mod tests {
         assert_eq!(cases[1].outcome.trap.as_deref(), Some("unreachable"));
         assert_eq!(cases[1].outcome.stdout, "");
         assert!(parse("fn main() {}\n//= stdout\n//= x\nfn g() {}\n").is_err());
+        let streams = parse("fn main() {}\n//= stdin\n//= a\n//= stderr -n\n//= b\n//= stdout -n\n//= c \n").unwrap();
+        assert_eq!(streams[0].stdin.as_deref(), Some("a\n"));
+        assert_eq!(streams[0].outcome.stderr.as_deref(), Some("b"));
+        assert_eq!(streams[0].outcome.stdout, "c ");
         assert!(parse("//= bogus\nfn main() {}\n").is_err());
         assert!(parse("// BACKENDS: java\nfn main() {}\n").is_err());
     }
