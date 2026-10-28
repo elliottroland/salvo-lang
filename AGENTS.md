@@ -243,18 +243,16 @@ run after a relink.)
     starts a JVM and costs about as much as a small compile, so anything
     less made the *check* one of the most expensive things in the suite
     (under nextest, every test is its own process).
-  - The Kotlin compile-and-run tests are **one driver in four shards**
-    (`kotlinc_compiles_and_runs_every_case_{0..3}` over the `KOTLIN_CASES`
-    registry in `codegen_tests.rs`, plus one case per example directory,
-    found by listing `examples/`): each case is a fn returning a
-    `KotlinCase`, built on a pool of threads; each shard batch-compiles its
-    stamp-missing cases in a few parallel kotlinc invocations, runs the
-    programs in parallel, and stamps each case separately. A new
-    compile-and-run case is a new case fn plus a registry entry — not a new
-    `#[test]` — and a new example needs nothing.
-  - The Rust runner (`run_rust_files`) keeps the per-test shape: a rustc
-    invocation is cheap, and the runner still gates and stamps internally,
-    so a new test that forgets its own guard skips instead of failing.
+  - **Compile-and-run tests are data** ([test-run-data],
+    `crates/salvo-cli/tests/run/<area>/*.sv`, format in its README; runner
+    `run_data.rs`): one test per area, plus `examples`, which runs every
+    example. A new program is a `//--- name` case in an area's file, run on
+    both backends unless `// BACKENDS:` says otherwise — not a new
+    `#[test]`. Within an area the programs emit on a pool of threads, the
+    stamp-missing ones compile in batches (Rust: one crate per batch, std's
+    modules once; Kotlin: a few kotlinc processes linking std's library),
+    and run in parallel, each stamped per backend. The codegen test files
+    keep the emitted-text and refusal tests only.
   - The CLI tests cache per *test*, keyed on the `salvo` binary and the test
     binary rather than on generated text, since there the thing under test is
     a subprocess. Those stamps therefore miss on every compiler rebuild —

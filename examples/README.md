@@ -25,7 +25,8 @@ compiler generated for it and the output it prints.
 Every one of these is **checked by the test suite** (added 2026-09-16, after
 `examples/effects/` was found broken for a day): each backend asserts that the
 checked-in generated tree is what the compiler writes today — which also fails
-if an example's source stops checking — and that the program runs to
+if an example's source stops checking — and the run data's `examples` test
+(`crates/salvo-cli/tests/run_data.rs`) runs every example on both backends to
 `expected.txt`. Both pick up every directory here with a `salvo/` tree, so
 a new example needs no registration.
 

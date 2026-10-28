@@ -1,11 +1,12 @@
-//! Rust codegen tests: golden snapshots of generated code, and (when
-//! `rustc` is on PATH) full compile-and-run verifications with exact
-//! stdout assertions — mirroring the Kotlin backend's kotlinc tests.
+//! Rust codegen tests: golden snapshots of generated code, the emitted
+//! text, and the programs the backend refuses. Compiling and running
+//! programs is the run data's business ([test-run-data],
+//! `salvo-cli/tests/run/`), on both backends at once.
 
 use std::path::Path;
-use std::process::Command;
 
 use salvo_core::{Program, SourceSet};
+
 
 /// [std-cache] A program of std and `extra`, over the process's std front
 /// (`salvo_testkit::front`, TESTS.md C2): std was read, parsed, expanded and
@@ -38,75 +39,6 @@ fn expect_errors(src: &str) -> Vec<String> {
     emit(&program)
         .err()
         .expect("expected errors")
-}
-
-/// Compiles the generated files with rustc and runs the binary, asserting
-/// the exact stdout. Skipped when rustc is not installed.
-fn run_rust_files(files: &[salvo_backend_rust::EmittedFile], tag: &str, expected: &str) {
-    // As in the Kotlin backend: the gate and the cache are at the point of
-    // use, so neither can be bypassed by a test that forgets them.
-    let rustc = salvo_testkit::rustc();
-    if !rustc.available {
-        return;
-    }
-    // A pass is a pure function of the generated code, the expected output
-    // and the compiler, so it is worth remembering; `SALVO_E2E_FRESH=1`
-    // ignores the stamps.
-    let mut parts: Vec<Vec<u8>> = vec![
-        b"rust-files".to_vec(),
-        rustc.version.as_bytes().to_vec(),
-        expected.as_bytes().to_vec(),
-    ];
-    for f in files {
-        parts.push(f.rel_path.to_string_lossy().as_bytes().to_vec());
-        parts.push(f.content.as_bytes().to_vec());
-    }
-    let refs: Vec<&[u8]> = parts.iter().map(|p| p.as_slice()).collect();
-    let Some(stamp) = salvo_testkit::cached(
-        env!("CARGO_TARGET_TMPDIR"),
-        &format!("rust-files {tag}"),
-        &refs,
-    ) else {
-        return;
-    };
-    let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("rs-{tag}"));
-    let src_dir = dir.join("src");
-    for f in files {
-        let path = src_dir.join(&f.rel_path);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, &f.content).unwrap();
-    }
-    let bin = dir.join("program");
-    let compile = Command::new("rustc")
-        .arg("--edition")
-        .arg("2021")
-        .arg(src_dir.join("main.rs"))
-        .arg("-o")
-        .arg(&bin)
-        .output()
-        .expect("failed to run rustc");
-    assert!(
-        compile.status.success(),
-        "rustc failed:\n{}",
-        String::from_utf8_lossy(&compile.stderr)
-    );
-    let run = Command::new(&bin).output().expect("failed to run binary");
-    assert!(
-        run.status.success(),
-        "generated program crashed:\n{}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    let stdout = String::from_utf8_lossy(&run.stdout);
-    assert_eq!(stdout, expected, "unexpected program output");
-    stamp.verified();
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// Whether the compile-and-run tests should exercise `rustc`. Probed once
-/// per test binary by `salvo-testkit`, which also owns the `SALVO_SKIP_E2E`
-/// gate and the version string that goes into every cache key.
-fn rustc_available() -> bool {
-    salvo_testkit::rustc().available
 }
 
 // ===== demo: structs, defaults, spread, nullability, effects, iterators =====
@@ -246,19 +178,6 @@ export fn main() [use] -> None {
     assert!(main.content.contains("crate::consume(items)"), "{}", main.content);
 }
 
-#[test]
-fn rustc_compiles_and_runs_demo() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate_demo();
-    let expected = "Hello, Roland Elliott!\n  1: 37\n  2: 38\n  3: 39\n\
-                    Hello, Roland!\n  1: 37\n  2: 38\n  3: 39\n\
-                    first: a\nsize: 2\n";
-    run_rust_files(&files, "demo", expected);
-}
-
 // ===== unions =====
 
 const UNIONS_DEMO: &str = r#"
@@ -356,17 +275,6 @@ fn unions_emit_enums() {
     assert!(main.content.contains("pub fn describe(mut result: crate::unions::Union2<i32, &String>) -> String"));
     assert!(main.content.contains("if matches!(result, crate::unions::Union2::U1(_))"));
     assert!(main.content.contains("match result { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() }"));
-}
-
-#[test]
-fn rustc_compiles_and_runs_unions() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate_unions_demo();
-    let expected = "age 36\nerror: negative age\nok: yes\nvalue plus one is 37\n";
-    run_rust_files(&files, "unions", expected);
 }
 
 // ===== qualifiers =====
@@ -487,18 +395,6 @@ fn qualifiers_lower_to_predicates_and_mangled_fns() {
     assert!(main.content.contains("let mut c = current.unwrap();"));
 }
 
-#[test]
-fn rustc_compiles_and_runs_qualifiers() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate_qualifiers_demo();
-    let expected = "Roland Elliott\nAnon\n5 is positive\n-2 is not positive\n\
-                    tick 3\ntick 2\ntick 1\ninner ok: yes\n";
-    run_rust_files(&files, "qualifiers", expected);
-}
-
 // ===== effects =====
 
 const EFFECTS_DEMO: &str = r#"
@@ -586,17 +482,6 @@ fn effects_lower_to_traits_and_mut_dyn_params() {
     assert!(main.content.contains("crate::draw(&__handle_4, &__handle_6, &__handle_2);"));
     assert!(main.content.contains("let mut n: i32 = random.next_random();"));
     assert!(main.content.contains("let mut s: String = random__1.next_random();"));
-}
-
-#[test]
-fn rustc_compiles_and_runs_effects() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate_effects_demo();
-    let expected = "a: 10\nb: 20\nlucky: 30\nagain: 10\n";
-    run_rust_files(&files, "effects", expected);
 }
 
 // ===== loops as values =====
@@ -733,17 +618,6 @@ fn loops_lower_to_block_expressions() {
     assert!(main.content.contains("} { crate::unions::Union2::U1(__v) => crate::unions::Union2::U2(__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U1(__v),"));
 }
 
-#[test]
-fn rustc_compiles_and_runs_loops() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate_loops_demo();
-    let expected = "last: 40\nnever: -1\nfound: 4\nempty range\ncapped: 2\nok: 2\n";
-    run_rust_files(&files, "loops", expected);
-}
-
 // ===== multi-module: reachability, crate layout, imports =====
 
 fn build_multi_module() -> Program {
@@ -803,17 +677,6 @@ fn crate_layout_mounts_only_used_modules() {
     assert!(main.content.contains("use crate::geometry::area;"), "{}", main.content);
     assert!(main.content.contains("use crate::std_core_console::println;"), "{}", main.content);
     assert!(!main.content.contains("use crate::geometry::*;"), "{}", main.content);
-}
-
-#[test]
-fn rustc_compiles_and_runs_multi_module() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let program = build_multi_module();
-    let files = emit(&program).unwrap();
-    run_rust_files(&files, "multimod", "area: 12\n");
 }
 
 // ===== negative checks =====
@@ -996,416 +859,6 @@ fn copy_lowers_to_clone_and_linked_lets_clone() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_copy() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", COPY_DEMO)]);
-    let expected = "hi\n3 4\na b\n1 9\n3\n";
-    run_rust_files(&files, "copy", expected);
-}
-
-/// [kt-copy] The Kotlin backend's element-wise copy case, run on Rust for
-/// parity: `clone` is deep, so the copy never aliases (ROADMAP §0j step 1).
-#[test]
-fn rustc_compiles_and_runs_copy_elements() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let src = r#"
-struct Counter canbe Mut { n: Int }
-
-fn main() [use] {
-    use StdConsole()
-    let xs: List<Mut Counter> = List(Mut Counter { n: 1 })
-    let ys = copy(xs)
-    let e = at(xs, 0) ?: unreachable!()
-    e.n = 5
-    println("${(get(xs, 0) ?: unreachable!()).n} ${(get(ys, 0) ?: unreachable!()).n}")
-    let ls = Mut List(Mut List(1))
-    let ms = copy(ls)
-    add(at(ls, 0) ?: unreachable!(), 2)
-    println("${size(get(ls, 0) ?: unreachable!())} ${size(get(ms, 0) ?: unreachable!())}")
-}
-"#;
-    let files = generate(&[("main.sv", src)]);
-    run_rust_files(&files, "copy_elements", "5 1\n2 1\n");
-}
-
-/// [struct-field-canbe-mut] The Kotlin backend's `canbe Mut` field case, run on
-/// Rust for parity (`Mut` is erased here; the checker does the work).
-#[test]
-fn rustc_compiles_and_runs_canbe_mut_field() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let src = r#"
-struct Bag canbe Mut {
-    n: Int,
-    items: List<Int> canbe Mut,
-    fixed: Mut List<Int>
-}
-
-struct Outer canbe Mut {
-    bag: Bag canbe Mut,
-    tag: Str
-}
-
-fn fill(b: Mut Bag) -> None => b: Mut {
-    add(b.items, 7)
-    b.n = b.n + 1
-}
-
-fn total(b: Bag) -> Int => b {
-    let t = b.n
-    for x in b.items {
-        t = t + x
-    }
-    return t
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    let b = Mut Bag { n: 1, items: Mut List<Int>(), fixed: Mut List<Int>() }
-    add(b.items, 3)
-    fill(b)
-    let c = copy(b)
-    add(c.items, 4)
-    add(c.fixed, 9)
-    println("${size(b.items)} ${size(c.items)} ${size(b.fixed)} ${size(c.fixed)} ${total(b)}")
-    let p = Bag { n: 0, items: List(1, 2), fixed: Mut List<Int>() }
-    let q = copy(p)
-    add(q.fixed, 1)
-    println("${size(p.fixed)} ${size(q.fixed)} ${total(p)}")
-    let o = Mut Outer { bag: Mut Bag { n: 0, items: Mut List<Int>(), fixed: Mut List<Int>() }, tag: "t" }
-    add(o.bag.items, 5)
-    let o2 = copy(o)
-    add(o2.bag.items, 6)
-    println("${size(o.bag.items)} ${size(o2.bag.items)}")
-    let frozen: Bag = c
-    println("${total(frozen)}")
-}
-"#;
-    let files = generate(&[("main.sv", src)]);
-    run_rust_files(&files, "canbe_mut_field", "2 3 0 1 12\n0 1 3\n1 2\n16\n");
-}
-
-/// [is-narrowing] [rs-opt-borrow] A borrowed optional element (`&Option<P>`
-/// from the total `get` over a `List<P?>`) narrows through `as_ref()`, and an
-/// optional borrow of a scalar (`Option<&i32>`) is `.copied()` into an owned
-/// `Int?` — as an argument, an annotated `let` and a `copy`.
-#[test]
-fn rustc_compiles_and_runs_borrowed_optional_elements() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let src = r#"struct P { a: Int }
-
-fn show(v: Int?) [] -> Str => v {
-    if v is Int n {
-        return "${n}"
-    }
-    return "-"
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    // The first element fixes the constructor's `T`, so it is typed `P?`.
-    let first: P? = P { a: 1 }
-    let xs: List<P?> = List(first, None, P { a: 3 })
-    for i in indices(xs) {
-        let s = get(xs, i)
-        if s is P p {
-            println("${p.a}")
-        } else {
-            println("none")
-        }
-    }
-    let ns = List(4, 5)
-    let v: Int? = get(ns, 1)
-    println("${show(get(ns, 0))} ${show(v)} ${show(copy(get(ns, 7)))}")
-}
-"#;
-    let files = generate(&[("main.sv", src)]);
-    run_rust_files(&files, "borrowed_optional", "1\nnone\n3\n4 5 -\n");
-}
-
-/// [struct-slot] [cmp-binder] A struct with a fn slot, run on Rust: a
-/// captured binder is a trailing reference parameter, which counts against
-/// lifetime elision for `top`'s `proj(r)` return [proj-readonly-return].
-#[test]
-fn rustc_compiles_and_runs_struct_slot() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let src = r#"
-struct Ranked<T>(?cmp: (T, T) -> Int) canbe Mut {
-    items: List<T> canbe Mut
-}
-
-fn ranked<T>(?cmp: (T, T) -> Int) [] -> Mut Ranked<T>(?cmp) {
-    return Mut Ranked<T>(?cmp) { items: Mut List<T>() }
-}
-
-fn push<T>(r: Mut Ranked<T>(?cmp), x: T) [] -> None => r: Mut, !x {
-    let i = 0
-    while i < size(r.items) {
-        let y = get(r.items, i) ?: unreachable!()
-        if x < y {
-            break
-        }
-        i = i + 1
-    }
-    insert_at(r.items, i, x)
-}
-
-fn top<T>(r: Ranked<T>(?cmp)) [] -> (proj(r) T)? => r {
-    return get(r.items, 0)
-}
-
-fn backwards(a: Int, b: Int) [] -> Int {
-    return cmp(b, a)
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    let up = ranked<Int>()
-    push(up, 3)
-    push(up, 1)
-    push(up, 2)
-    let down = ranked<Int>(cmp = backwards)
-    push(down, 3)
-    push(down, 1)
-    push(down, 2)
-    println("${up.items} ${down.items} ${top(up) ?: unreachable!()} ${top(down) ?: unreachable!()}")
-}
-"#;
-    let files = generate(&[("main.sv", src)]);
-    run_rust_files(&files, "struct_slot", "[1, 2, 3] [3, 2, 1] 1 3\n");
-}
-
-/// [comptime-generic] [implicit-resolve-body] The Kotlin backend's generic
-/// stamp case, run on Rust: a global shadowed by an implicit of its name is
-/// called through `crate::`.
-#[test]
-fn rustc_compiles_and_runs_generic_stamp() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let src = r#"
-struct Inner : Ordered<self> by auto, Hashed<self> by auto, ToStr<self> by auto {
-    k: Int
-}
-
-struct Wrapper<T> : Hashed<self> by auto, Ordered<self> by auto, ToStr<self> by auto {
-    value: T,
-    inner: Inner,
-    n: Int
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    let a = Wrapper<Str> { value: "a", inner: Inner { k: 1 }, n: 1 }
-    let b = Wrapper<Str> { value: "a", inner: Inner { k: 2 }, n: 0 }
-    println("${cmp(a, b)} ${eq(a, b)} ${hash(a) == hash(copy(a))}")
-    println("${a < b} ${a == b} ${a != b} ${a}")
-    run_h()
-}
-
-fn h<T>(a: T, i: Inner, ?cmp: (T, T) -> Int) [] -> Int => a, i {
-    return cmp(1, 2) + cmp(a, a) + cmp(i, i)
-}
-
-fn run_h() [use] -> None {
-    use StdConsole()
-    println("${h("x", Inner { k: 3 })}")
-}
-"#;
-    let files = generate(&[("main.sv", src)]);
-    run_rust_files(&files, "generic_stamp", "-1 false true\ntrue false true Wrapper { value: a, inner: Inner { k: 1 }, n: 1 }\n-1\n");
-}
-
-/// [struct-opaque] The Kotlin backend's opaque-struct case, run on Rust.
-#[test]
-fn rustc_compiles_and_runs_opaque_struct() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let bag = r#"
-export opaque struct Bag : Eq<self> by auto, ToStr<self> by auto canbe Mut {
-    items: List<Int> canbe Mut,
-    total: Int
-}
-
-export fn bag() [] -> Mut Bag {
-    return Mut Bag { items: Mut List<Int>(), total: 0 }
-}
-
-export fn put(b: Mut Bag, x: Int) [] -> None => b: Mut, !x {
-    b.total = b.total + x
-    add(b.items, x)
-}
-
-export fn total(b: Bag) [] -> Int => b {
-    return b.total
-}
-"#;
-    let main = r#"
-import bag.Bag
-import bag.bag
-import bag.put
-import bag.total
-
-struct Shelf : Eq<self> by auto, ToStr<self> by auto {
-    b: Bag
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    let b = bag()
-    put(b, 3)
-    put(b, 4)
-    let c = copy(b)
-    put(c, 1)
-    let s = Shelf { b: copy(c) }
-    println("${total(b)} ${total(c)} ${b == c} ${s}")
-}
-"#;
-    let files = generate(&[("bag.sv", bag), ("main.sv", main)]);
-    run_rust_files(&files, "opaque_struct", "7 8 false Shelf { b: Bag { items: [3, 4, 1], total: 8 } }\n");
-}
-
-/// [obligation-by] [rs-shadowed-call] The Kotlin backend's mixed-members
-/// case, run on Rust: the stamped `to_str` calls `crate::std_core_list::to_str`,
-/// since its own implicit `to_str` shadows the name.
-#[test]
-fn rustc_compiles_and_runs_mixed_members() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let src = r#"
-struct Bag<T> : Eq<self>, ToStr<self> by auto {
-    items: List<T>,
-    n: Int
-}
-
-// Order-blind equality, by hand, beside the stamped `to_str`.
-fn eq<T>(a: Bag<T>, b: Bag<T>, ?Eq<T>) [] -> Bool => a, b {
-    if size(a.items) != size(b.items) {
-        return false
-    }
-    for x in a.items {
-        if !contains_eq(b.items, x) {
-            return false
-        }
-    }
-    return true
-}
-
-fn contains_eq<T>(xs: proj List<T>, x: proj T, ?Eq<T>) [] -> Bool => xs, x {
-    for y in xs {
-        if eq(x, y) {
-            return true
-        }
-    }
-    return false
-}
-
-struct Point : Hashed<self> by auto, ToStr<self> {
-    x: Int,
-    y: Int
-}
-
-fn to_str(p: Point) [] -> Str => p {
-    return "(${p.x}, ${p.y})"
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    let a = Bag<Int> { items: List(1, 2), n: 0 }
-    let b = Bag<Int> { items: List(2, 1), n: 5 }
-    println("${a == b} ${a}")
-    let p = Point { x: 1, y: 2 }
-    let s = Set(p, Point { x: 1, y: 2 })
-    println("${p} ${size(s)}")
-}
-"#;
-    let files = generate(&[("main.sv", src)]);
-    run_rust_files(&files, "mixed_members", "true Bag { items: [1, 2], n: 0 }\n(1, 2) 1\n");
-}
-
-/// [cmp-carry] [fn-type-named] A collection constructor carries the identity
-/// it is given by `hash =`/`eq =`, empty or not (ROADMAP §0j step 1; a
-/// literal took it from the position until [col-no-literal]).
-#[test]
-fn rustc_compiles_and_runs_literal_identity() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let src = r#"
-fn fold_hash(s: Str) [] -> Long => s {
-    return hash(size(s))
-}
-fn fold_eq(a: Str, b: Str) [] -> Bool => a, b {
-    return size(a) == size(b)
-}
-
-fn main() [use] {
-    use StdConsole()
-    let m: Mut Map<Str, Int>(fold_hash, fold_eq) = Mut Map("ab": 1, hash = fold_hash, eq = fold_eq)
-    put(m, "cd", 2)
-    let e: Mut Map<Str, Int>(fold_hash, fold_eq) = Mut Map<Str, Int>(hash = fold_hash, eq = fold_eq)
-    put(e, "ab", 1)
-    put(e, "cd", 2)
-    let s: Mut Set<Str>(fold_hash, fold_eq) = Mut Set("ab", hash = fold_hash, eq = fold_eq)
-    add(s, "cd")
-    let t: Mut Set<Str>(fold_hash, fold_eq) = Mut Set<Str>(hash = fold_hash, eq = fold_eq)
-    add(t, "ab")
-    add(t, "cd")
-    println("${size(m)} ${size(e)} ${size(s)} ${size(t)}")
-}
-"#;
-    let files = generate(&[("main.sv", src)]);
-    run_rust_files(&files, "literal_identity", "1 1 1 1\n");
-}
-
-/// [op-wrap] [op-bits] Integer arithmetic wraps as on the JVM, and the `bit_`
-/// functions agree with Kotlin's (ROADMAP §0j step 2).
-#[test]
-fn rustc_compiles_and_runs_int_wrap_and_bits() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let src = r#"
-fn main() [use] {
-    use StdConsole()
-    let big = 2147483647
-    let wrapped = big + 1
-    let neg = -wrapped
-    let i = big
-    i++
-    let l = 9223372036854775807L
-    println("${wrapped} ${neg} ${i} ${l + 1L} ${big * 2}")
-    println("${bit_and(12, 10)} ${bit_or(12, 10)} ${bit_xor(12, 10)} ${bit_not(0)}")
-    println("${bit_shl(1, 33)} ${bit_shr(-16, 2)} ${bit_ushr(-16, 28)} ${bit_ushr(-1L, 60)}")
-    println("${mix_hash(17L, 5L)}")
-}
-"#;
-    let files = generate(&[("main.sv", src)]);
-    run_rust_files(&files, "int_wrap_bits", "-2147483648 -2147483648 -2147483648 -9223372036854775808 -2\n8 14 6 -1\n2 -4 15 15\n532\n");
-}
-
 // ===== S2: move-mode bindings [fate-move-mode] =====
 
 /// The flagship zero-clone consuming pipeline: `persons` is inferred
@@ -1495,17 +948,6 @@ fn move_mode_bindings_emit_real_moves() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_move_modes() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", S2_DEMO)]);
-    let expected = "Grace\n3\n";
-    run_rust_files(&files, "s2-moves", expected);
-}
-
 // ===== S3: borrow emission [rs-borrow-locals] =====
 
 /// Borrow-mode bindings and loops emit real borrows: reading through a
@@ -1590,17 +1032,6 @@ fn borrow_mode_bindings_emit_borrows() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_borrows() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", S3_DEMO)]);
-    let expected = "1\n5\n";
-    run_rust_files(&files, "s3-borrows", expected);
-}
-
 // ===== L6: linear types [linear-obligation] =====
 
 /// The resource pattern linearity exists for: open, use, close — with
@@ -1668,58 +1099,6 @@ fn discard_lowers_to_drop() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_linear() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", LINEAR_DEMO)]);
-    let expected = "open data.txt\nfd=8\nclose fd=8\nopen scratch\ndone\n";
-    run_rust_files(&files, "l6-linear", expected);
-}
-
-// ===== L7a: generic linear opt-in [linear-generics] =====
-
-/// `<T canbe linear>` in action: the opted std surface makes a linear
-/// collection workflow legal end to end — construct empty, `add`
-/// individually, `size`, and `discard` the (linear) collection.
-const LINEAR_GENERICS_DEMO: &str = r#"
-linear struct FileHandle {
-    fd: Int
-}
-
-fn close(x: FileHandle) -> None => !x { discard(x) }
-
-
-fn open_file(n: Int) [Console] -> FileHandle {
-    println("open ${n}")
-    return FileHandle {fd: n}
-}
-
-fn hold<T canbe linear>(value: T) -> T => !value {
-    return value
-}
-
-fn main() [use] -> None {
-    use StdConsole
-    let h = hold(open_file(9))
-    println("held fd=${h.fd}")
-    close(h)
-    println("done")
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_linear_generics() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", LINEAR_GENERICS_DEMO)]);
-    let expected = "open 9\nheld fd=9\ndone\n";
-    run_rust_files(&files, "l7a-linear-generics", expected);
-}
 
 // ===== L7b: once fn types [fn-once] =====
 
@@ -1762,17 +1141,6 @@ fn once_fn_params_emit_fnonce() {
         "generated:\n{}",
         main.content
     );
-}
-
-#[test]
-fn rustc_compiles_and_runs_once_fns() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", ONCE_DEMO)]);
-    let expected = "consumed 3 items\nplain 7\ndone\n";
-    run_rust_files(&files, "l7b-once", expected);
 }
 
 // ===== L7c: derived returns [proj-readonly-return] =====
@@ -1850,17 +1218,6 @@ fn derived_returns_emit_borrows() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_derived_returns() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", DERIVED_DEMO)]);
-    let expected = "adult: Grace\nhead: Kid\ndone\n";
-    run_rust_files(&files, "l7c-derived", expected);
-}
-
 // ===== L7d: fn-type contracts [fn-contract] =====
 
 /// Contracts on fn types: a keeping contract lets the callee call the
@@ -1931,17 +1288,6 @@ fn fn_type_contracts_emit_modes() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_fn_contracts() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", CONTRACTS_DEMO)]);
-    let expected = "twice=4\nstill=2\nnamed=4\neaten=2\ndone\n";
-    run_rust_files(&files, "l7d-contracts", expected);
-}
-
 // ===== `is` on union-typed struct-field subjects =====
 // [is-narrowing] [is-binding] Field subjects get the same union-test
 // lowering as identifier subjects, and narrow like them [flow-place];
@@ -1980,16 +1326,6 @@ fn field_subject_is_lowers_to_union_test() {
         "expected union test on the field in:\n{}",
         main.content
     );
-}
-
-#[test]
-fn rustc_compiles_and_runs_field_is() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", FIELD_IS_DEMO)]);
-    run_rust_files(&files, "field-is", "ok 1\nplain 1\nerr bad\n");
 }
 
 // ===== place-based narrowing of field reads [flow-place] =====
@@ -2064,16 +1400,6 @@ fn narrowed_field_reads_unwrap() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_place_narrowing() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", PLACE_NARROW_DEMO)]);
-    run_rust_files(&files, "place-narrow", "Ann Lee\nBo\ncity Oslo\nok 3\n");
-}
-
 // [flow-place] [op-no-none] A narrowed field is usable as an *operand*,
 // which the optional-strictness rules used to reject outright.
 
@@ -2112,16 +1438,6 @@ fn narrowed_field_operand_unwraps() {
         "expected the narrowed operand to unwrap in:\n{}",
         main.content
     );
-}
-
-#[test]
-fn rustc_compiles_and_runs_place_operand() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", PLACE_OPERAND_DEMO)]);
-    run_rust_files(&files, "place-operand", "temp: 22\nnone: no value\n");
 }
 
 // ===== tuple element access [expr-tuple-index] =====
@@ -2170,43 +1486,10 @@ fn tuple_elements_emit_native_indexes() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_tuple_index() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", TUPLE_INDEX_DEMO)]);
-    run_rust_files(&files, "tuple-index", "1 two true\nin 9\nsome here 6\n");
-}
-
 // ===== effect dependencies on handlers [effect-handler-deps] =====
 // A handler constructor parameter of effect type is a dependency: the
 // member body may use that effect, the `use` site supplies it from scope,
 // and callers of the outer effect never mention it.
-
-const HANDLER_DEPS_DEMO: &str = r#"
-effect Logger {
-    fn log(message: Str) -> None => message
-}
-
-handler ConsoleLogger [Console] of Logger {
-    fn log(message: Str) -> None => message {
-        println("LOG: ${message}")
-    }
-}
-
-fn work() [Logger] -> None {
-    log("from work")
-}
-
-fn main() [use] -> None {
-    use StdConsole
-    use ConsoleLogger()
-    work()
-    log("from main")
-}
-"#;
 
 /// [rs-handle] One parameter per declared effect, in declaration order,
 /// typed by the effect's handle — the only shape there is.
@@ -2249,20 +1532,6 @@ fn main() [use] -> None {
 }
 "#;
 
-#[test]
-fn rustc_compiles_and_runs_handler_dependencies() {
-    if Command::new("rustc").arg("--version").output().is_err() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let program = build_program(&[("main.sv", HANDLER_DEPS_DEMO)]);
-    let files = emit(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    // The same stdout the Kotlin backend produces for this program.
-    run_rust_files(&files, "handler-deps", "LOG: from work\nLOG: from main\n");
-}
-
 // ===== interception [effect-intercept] =====
 // A handler that depends on the effect it implements wraps the instance
 // registered before it (binds strictly outward), and a `use` may shadow an
@@ -2272,172 +1541,12 @@ fn rustc_compiles_and_runs_handler_dependencies() {
 // instance loses its inherited accessor while staying reachable through
 // `__outer` for the intercepting handler's own dependency.
 
-const INTERCEPTION_DEMO: &str = r#"
-effect Greeter {
-    fn greet(name: Str) -> Str => name
-}
-
-effect Store<T> {
-    fn keep(value: T) -> Str => value
-}
-
-handler Plain of Greeter {
-    fn greet(name: Str) -> Str => name {
-        return "hello ${name}"
-    }
-}
-
-handler Formal of Greeter {
-    fn greet(name: Str) -> Str => name {
-        return "Good day, ${name}"
-    }
-}
-
-handler Loud [Greeter] of Greeter {
-    fn greet(name: Str) -> Str => name {
-        return "${greet(name)}!"
-    }
-}
-
-handler Counting [Greeter] of Greeter {
-    state {
-        count: Int = 0
-    }
-    fn greet(name: Str) -> Str => name {
-        count = count + 1
-        return "${greet(name)} (${count})"
-    }
-}
-
-handler MemStore<T> of Store<T> {
-    fn keep(value: T) -> Str => value {
-        return "kept"
-    }
-}
-
-handler Twice [Store<Int>] of Store<Int> {
-    fn keep(value: Int) -> Str => value {
-        return "${keep(value)} ${keep(value)}"
-    }
-}
-
-fn shout(name: Str) [Greeter, Console] -> None => name {
-    println(greet(name))
-}
-
-fn main() [use] -> None {
-    use StdConsole
-    use Plain
-    shout("a")
-    use Formal
-    shout("b")
-    use Counting
-    shout("c")
-    if true {
-        use Loud
-        shout("d")
-    }
-    shout("e")
-    use MemStore<Int>()
-    use MemStore<Str>()
-    println(keep(1))
-    println(keep("x"))
-    use Twice
-    println(keep(2))
-    println(keep("y"))
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_interception() {
-    if Command::new("rustc").arg("--version").output().is_err() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", INTERCEPTION_DEMO)]);
-    // The same stdout the Kotlin backend produces for this program.
-    run_rust_files(
-        &files,
-        "interception",
-        "hello a\nGood day, b\nGood day, c (1)\nGood day, d (2)!\n\
-         Good day, e (3)\nkept\nkept\nkept kept\nkept\n",
-    );
-}
-
 // ===== the interceptor chain [effect-handle] =====
 // The production shape the 2026-09-20 arc was built for:
 // a stateful handler binds as a monitor, a stateless dependent
 // handler binds bare and captures its dependencies as owned handles at
 // construction — one of them the effect it implements (interception binds
 // outward), another a monitor's handle.
-
-const SHAREABLE_CHAIN_DEMO: &str = r#"
-effect Counter {
-    fn bump() -> None
-    fn total() -> Int
-}
-
-handler MemCounter of Counter {
-    state {
-        n: Int = 0
-    }
-    fn bump() { n = n + 1 }
-    fn total() -> Int { return n }
-}
-
-effect Logger {
-    fn log(m: Str) -> None => m
-}
-
-handler PlainLogger [Console] of Logger {
-    fn log(m: Str) -> None => m {
-        println("log: ${m}")
-    }
-}
-
-handler Shout [Logger, Counter] of Logger {
-    fn log(m: Str) -> None => m {
-        bump()
-        log("${m}!")
-    }
-}
-
-fn work(step: Str) [Logger] -> None => step {
-    log(step)
-}
-
-fn audit() [Counter, Console] -> None {
-    println("shouted ${total()}")
-}
-
-fn main() [use] -> None {
-    use StdConsole
-    use MemCounter()
-    use PlainLogger()
-    work("plain")
-    use Shout()
-    work("loud")
-    work("louder")
-    audit()
-}
-"#;
-
-const SHAREABLE_CHAIN_OUTPUT: &str = "log: plain\nlog: loud!\nlog: louder!\nshouted 2\n";
-
-/// [effect-handle] [effect-handler-deps] [rs-handle] The chain end to end:
-/// `MemCounter` behind its lock, `PlainLogger` bare with a captured console
-/// handle, `Shout` wrapping the `Logger` registered before it — and the
-/// count proving both `work` calls went through the interceptor and the
-/// monitor. Byte-identical stdout on Kotlin.
-#[test]
-fn rustc_compiles_and_runs_a_shareable_interceptor_chain() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", SHAREABLE_CHAIN_DEMO)]);
-    run_rust_files(&files, "shareable-chain", SHAREABLE_CHAIN_OUTPUT);
-}
 
 // ===== spawn-inheritance and the `with` clause [actor-spawn-inherit] =====
 // The arc's shape, with nothing written where nothing needs to be: the
@@ -2515,90 +1624,6 @@ fn main() [use, spawn] -> None {
 }
 "#;
 
-const SPAWN_INHERIT_OUTPUT: &str =
-    "log: plain\nlog: [t=1] stamped\nlog: reported inherited\nlog: [t=99] overridden\n";
-
-/// [expr-replyto-flat] The flattened `replyto` operator: a trailing `replyto`
-/// fills the preceding send's final `Reply<T>` argument, so
-/// `total() replyto reported(out)` is `total(replyto reported(out))`. The
-/// ledger cannot answer `report` itself — the number lives in the counter —
-/// so it asks and parks a continuation written in the flattened form. Same
-/// IR, and byte-identical stdout, as the nested spelling.
-const REPLYTO_FLAT_DEMO: &str = r#"
-actor effect Counter {
-    send fn bump(by: Int) => !by
-    send fn total(out: Reply<Int>) => !out
-}
-
-handler Counting() of Counter {
-    mailbox { capacity: 4 }
-    state {
-        sum: Int = 0
-    }
-    send fn bump(by: Int) {
-        sum = sum + by
-    }
-    send fn total(out: Reply<Int>) {
-        out.send(sum)
-    }
-}
-
-actor effect Ledger {
-    send fn report(out: Reply<Int>) => !out
-    send fn reported(out: Reply<Int>, total: Int) => !out, !total
-}
-
-handler Bookkeeping() [Counter] of Ledger {
-    mailbox { capacity: 4 }
-    send fn report(out: Reply<Int>) {
-        total()
-            replyto reported(out)
-    }
-    send fn reported(out: Reply<Int>, total: Int) {
-        out.send(total)
-    }
-}
-
-fn main() [use, spawn] -> None {
-    use StdConsole()
-    let counter = spawn Counting() on pool(2)
-    counter.bump(2)
-    counter.bump(3)
-    let ledger = spawn Bookkeeping() with counter on pool(2)
-    let line = waitfor out: Reply<Int> {
-        ledger.report(out)
-    }
-    println("ledger total ${line}")
-}
-"#;
-
-const REPLYTO_FLAT_OUTPUT: &str = "ledger total 5\n";
-
-#[test]
-fn rustc_compiles_and_runs_flattened_replyto() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", REPLYTO_FLAT_DEMO)]);
-    run_rust_files(&files, "replyto-flat", REPLYTO_FLAT_OUTPUT);
-}
-
-/// [actor-spawn-inherit] [effect-with-clause] [rs-handle] The arc end to end:
-/// a signature-supplied effect captured into a handler (the hidden `__Hs_N`
-/// bundle), a spawn inheriting its dependency from the scope, and a `with`
-/// clause overriding the self-dependency with a private instance.
-/// Byte-identical stdout on Kotlin.
-#[test]
-fn rustc_compiles_and_runs_spawn_inheritance() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", SPAWN_INHERIT_DEMO)]);
-    run_rust_files(&files, "spawn-inherit", SPAWN_INHERIT_OUTPUT);
-}
-
 /// [rs-handle] [actor-spawn-inherit] The one shape (user decision 2026-09-28): a fn
 /// declaring `[Logger, Clock]` takes one `&E` handle per effect, a
 /// dependent handler captures clones of them (`Stamped::new(logger.clone(),
@@ -2633,39 +1658,6 @@ fn signature_supplied_effects_are_handles() {
         !c.contains("__Hs_") && !c.contains("__Fx") && !c.contains("__Has_"),
         "no bundle, fused value or accessor trait remains:\n{c}"
     );
-}
-
-/// [effect-handle] [effect-handler-deps] A **generic** dependent handler works
-/// in the owned-handle form: `Relay<T>`'s dependency is a handle field, so
-/// no generated trait has to name the handler's generics — the cut that
-/// still stands for the fusion form (`generic_dependent_handler_is_a_
-/// codegen_error`) does not bind here.
-#[test]
-fn rustc_compiles_and_runs_a_generic_handler_with_a_handle_dep() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    const SRC: &str = r#"
-effect Sink<T> {
-    fn accept(value: T) -> Str => value
-}
-
-handler Relay<T> [Console] of Sink<T> {
-    fn accept(value: T) -> Str => value {
-        println("relayed")
-        return "ok"
-    }
-}
-
-fn main() [use] -> None {
-    use StdConsole
-    use Relay<Int>()
-    println(accept(1))
-}
-"#;
-    let files = generate(&[("main.sv", SRC)]);
-    run_rust_files(&files, "generic-handle-dep", "relayed\nok\n");
 }
 
 /// [rs-handle] A dependent handler is one struct with a handle field per
@@ -2731,242 +1723,10 @@ export fn main() [use] -> None {
 // effect calls in one expression (which must not borrow the fused value
 // twice).
 
-const FUSION_DEMO: &str = r#"
-effect Random<T> {
-    fn next_random() -> T
-}
-
-effect Counter {
-    fn bump() -> None
-    fn total() -> Int
-}
-
-effect Logger {
-    fn log(message: Str) -> None => message
-}
-
-effect Audit {
-    fn note(message: Str) -> None => message
-}
-
-handler CyclicRandom<T>(values: T[]) of Random<T> {
-    state {
-        i: Int = 0
-    }
-
-    fn next_random() -> T {
-        i = (i + 1) % values.size()
-        return values[i]
-    }
-}
-
-handler MemCounter of Counter {
-    state {
-        n: Int = 0
-    }
-    fn bump() -> None { n = n + 1 }
-    fn total() -> Int { return n }
-}
-
-handler ConsoleLogger [Console] of Logger {
-    state {
-        seen: Int = 0
-    }
-    fn log(message: Str) -> None => message {
-        seen = seen + 1
-        println("LOG ${seen}: ${message}")
-    }
-}
-
-handler CountingAudit [Console, Counter] of Audit {
-    fn note(message: Str) -> None => message {
-        bump()
-        println("[${total()}] ${message}")
-    }
-}
-
-fn shout(message: Str) [Console] -> None => message {
-    println("!! ${message}")
-}
-
-fn banner() [Console, Logger] -> None {
-    log("banner")
-    shout("done")
-}
-
-fn draw() [Console, Random<Int>, use] -> None {
-    use MemCounter
-    bump()
-    println("drew ${next_random<Int>()} at ${total()}")
-}
-
-fn main() [use] -> None {
-    use StdConsole
-    use ConsoleLogger()
-    banner()
-    if true {
-        use MemCounter
-        use CountingAudit()
-        note("inner")
-        banner()
-    }
-    log("outer again")
-    use CyclicRandom(array_of(10, 20, 30))
-    draw()
-    draw()
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_fusion() {
-    if Command::new("rustc").arg("--version").output().is_err() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", FUSION_DEMO)]);
-    run_rust_files(
-        &files,
-        "fusion",
-        "LOG 1: banner\n!! done\n[1] inner\nLOG 2: banner\n!! done\n\
-         LOG 3: outer again\ndrew 20 at 1\ndrew 30 at 1\n",
-    );
-}
-
 // [rs-handle] A dependency *chain* (Audit needs Logger needs
 // Console), a `use` inside a loop body, effect calls nested in another
 // call's arguments, and a predicate qualifier whose `qualifies` declares an
 // effect — all through one fused value.
-
-const FUSION_CHAIN_DEMO: &str = r#"
-effect Logger {
-    fn log(message: Str) -> None => message
-}
-
-effect Audit {
-    fn note(message: Str) -> None => message
-}
-
-effect Tally {
-    fn add_up(n: Int) -> None => n
-    fn tally() -> Int
-}
-
-handler MemTally of Tally {
-    state {
-        sum: Int = 0
-    }
-    fn add_up(n: Int) -> None => n { sum = sum + n }
-    fn tally() -> Int { return sum }
-}
-
-handler ConsoleLogger [Console] of Logger {
-    fn log(message: Str) -> None => message {
-        println("LOG: ${message}")
-    }
-}
-
-handler LoggingAudit [Logger] of Audit {
-    state {
-        count: Int = 0
-    }
-    fn note(message: Str) -> None => message {
-        count = count + 1
-        log("note ${count}: ${message}")
-    }
-}
-
-qualifier Loud of Str {
-    fn qualifies(text: Str) [Console] -> Bool {
-        println("checking ${text}")
-        return text.size() > 3
-    }
-}
-
-fn label(n: Int) [Console] -> Str {
-    println("labelling ${n}")
-    return "n=${n}"
-}
-
-fn main() [use] -> None {
-    use StdConsole
-    use ConsoleLogger()
-    use LoggingAudit()
-    note("first")
-    for i in List(1, 2) {
-        use MemTally
-        add_up(i)
-        log("loop ${i} tally ${tally()}")
-    }
-    log(label(7))
-    let text = "hello"
-    if text is Loud {
-        note("loud")
-    }
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_fusion_chain() {
-    if Command::new("rustc").arg("--version").output().is_err() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", FUSION_CHAIN_DEMO)]);
-    run_rust_files(
-        &files,
-        "fusion-chain",
-        "LOG: note 1: first\nLOG: loop 1 tally 1\nLOG: loop 2 tally 2\n\
-         labelling 7\nLOG: n=7\nchecking hello\nLOG: note 2: loud\n",
-    );
-}
-
-// [rs-handle] The `use` site and the dependent handler may live in
-// different modules: the generated `__Impl_H` trait travels with the
-// handler and arrives through the module's glob import [rs-imports].
-const FUSION_LOGGING_MODULE: &str = r#"
-export effect Logger {
-    fn log(message: Str) -> None => message
-}
-
-export handler ConsoleLogger [Console] of Logger {
-    state {
-        tag: Str = "M"
-    }
-    fn log(message: Str) -> None => message {
-        println("${tag}: ${message}")
-    }
-}
-
-export fn work() [Logger] -> None {
-    log("from work")
-}
-"#;
-
-const FUSION_MAIN_MODULE: &str = r#"
-import logging.work
-import logging.Logger
-import logging.ConsoleLogger
-
-fn main() [use] -> None {
-    use StdConsole
-    use ConsoleLogger()
-    work()
-    log("from main")
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_cross_module_fusion() {
-    if Command::new("rustc").arg("--version").output().is_err() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[
-        ("logging.sv", FUSION_LOGGING_MODULE),
-        ("main.sv", FUSION_MAIN_MODULE),
-    ]);
-    run_rust_files(&files, "fusion-cross", "M: from work\nM: from main\n");
-}
 
 // [rs-handle] Constructor parameters mixing a dependency with plain
 // data, a dependent member calling a fn that does its own `use`, an
@@ -2975,96 +1735,6 @@ fn rustc_compiles_and_runs_cross_module_fusion() {
 // signature, a `use` inside a `while` body, and an effect member taking a
 // `Mut` parameter.
 
-const FUSION_MIXED_DEMO: &str = r#"
-effect Logger {
-    fn log(message: Str) -> None => message
-}
-
-effect Sink {
-    fn keep(items: Mut List<Int>) -> None => !items
-    fn kept() -> Int
-}
-
-effect Counter {
-    fn bump() -> None
-    fn total() -> Int
-}
-
-handler PrefixLogger(prefix: Str, level: Int) [Console] of Logger {
-    fn log(message: Str) -> None => message {
-        println("${prefix}[${level}] ${message}")
-        tallied(message)
-    }
-}
-
-handler MemSink of Sink {
-    state {
-        held: Mut List<Int> = Mut List()
-    }
-    fn keep(items: Mut List<Int>) -> None => !items { held = items }
-    fn kept() -> Int { return size(held) }
-}
-
-handler MemCounter of Counter {
-    state {
-        n: Int = 0
-    }
-    fn bump() -> None { n = n + 1 }
-    fn total() -> Int { return n }
-}
-
-fn tallied(text: Str) [Console, use] -> None => text {
-    use MemSink
-    let xs: Mut List<Int> = Mut List()
-    add(xs, size(text))
-    keep(xs)
-    println("  tallied ${kept()}")
-}
-
-fn twice(f: (s: Str) [Logger] -> Str) -> Str =>[f] s {
-    return f("a")
-}
-
-fn report(label: Str) [Console, Logger, Counter] -> None => label {
-    bump()
-    log("${label} #${total()}")
-}
-
-fn main() [use] -> None {
-    use StdConsole
-    use PrefixLogger("L", 3)
-    use MemCounter
-    log(twice(s -> {
-        log("in lambda ${s}")
-        return "done ${s}"
-    }))
-    report("one")
-    let i = 0
-    while i < 2 {
-        use MemSink
-        let ys: Mut List<Int> = Mut List()
-        add(ys, copy(i))
-        keep(ys)
-        report("loop ${kept()}")
-        i = i + 1
-    }
-}
-"#;
-
-const FUSION_MIXED_STDOUT: &str = "L[3] in lambda a\n  tallied 1\nL[3] done a\n\
-     \x20 tallied 1\nL[3] one #1\n  tallied 1\nL[3] loop 1 #2\n  tallied 1\n\
-     L[3] loop 1 #3\n  tallied 1\n";
-
-#[test]
-fn rustc_compiles_and_runs_fusion_mixed() {
-    if Command::new("rustc").arg("--version").output().is_err() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", FUSION_MIXED_DEMO)]);
-    run_rust_files(&files, "fusion-mixed", FUSION_MIXED_STDOUT);
-}
-
 /// [fn-effects] The program the fusion used to lose to Kotlin: a function
 /// *value* that uses an effect, passed to a callee that needs one too.
 /// Capturing made the closure hold a borrow that overlapped the call's own
@@ -3072,7 +1742,7 @@ fn rustc_compiles_and_runs_fusion_mixed() {
 /// *into* the value lifts it: the closure captures nothing, so the two
 /// borrows are of different things.
 #[test]
-fn rustc_compiles_and_runs_effect_using_fn_value() {
+fn effect_using_fn_value() {
     const SRC: &str = r#"
 export effect Logger {
     fn log(message: Str) -> None => message
@@ -3101,10 +1771,6 @@ export fn main() [use] -> None {
     demo()
 }
 "#;
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
     let files = generate(&[("main.sv", SRC)]);
     let main = files
         .iter()
@@ -3117,7 +1783,6 @@ export fn main() [use] -> None {
         "expected the effect threaded into the closure as a handle:\n{}",
         main.content
     );
-    run_rust_files(&files, "fn-effects", "LOG: in lambda x\ndone x\n");
 }
 
 // ===== operator typing: widening, literal adoption, conversions =====
@@ -3146,8 +1811,6 @@ fn main() [use] -> None {
     println("${y} ${scaled} ${g} ${h} ${cmp} ${back} ${neg}")
 }
 "#;
-
-const OPERATOR_STDOUT: &str = "11 8000000005 8.25 0.75 false -294967296 -7\n";
 
 /// [op-promote] [type-lit-adopt] Rust has no mixed-width operators, so widened
 /// operands cast (`as i64`), and adopted literals render at their checked
@@ -3182,75 +1845,10 @@ fn promotions_cast_and_literals_adopt() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_operators() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", OPERATOR_DEMO)]);
-    run_rust_files(&files, "operators", OPERATOR_STDOUT);
-}
-
 // ===== [effect-at] [effect-member-overload] shared member names =====
 // The same source and expected stdout as the Kotlin backend's case
 // [backend-parity]: two effects declaring `close`, resolved by
 // availability in `shut` and by the `@Effect` selector in `main`.
-
-const EFFECT_AT_DEMO: &str = r#"
-effect Store {
-    fn open(path: Str) -> Int => path
-    fn close(handle: Int) -> Str
-}
-
-effect Net {
-    fn close(handle: Int) -> Str
-}
-
-handler MemStore of Store {
-    fn open(path: Str) -> Int => path {
-        return 7
-    }
-    fn close(handle: Int) -> Str {
-        return "fs closed ${handle}"
-    }
-}
-
-handler MemNet of Net {
-    fn close(handle: Int) -> Str {
-        return "net closed ${handle}"
-    }
-}
-
-fn shut(h: Int) [Store] -> Str {
-    return close(h)
-}
-
-fn main() [use] -> None {
-    use StdConsole
-    use MemStore()
-    use MemNet()
-    let h = open("a.txt")
-    println(shut(h))
-    println(close@Store(h))
-    println(close@Net(9))
-    println(h.close@Net())
-}
-"#;
-
-const EFFECT_AT_STDOUT: &str = "fs closed 7\nfs closed 7\nnet closed 9\nnet closed 7\n";
-
-#[test]
-fn rustc_compiles_and_runs_effect_selectors() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", EFFECT_AT_DEMO)]);
-    run_rust_files(&files, "effect-at", EFFECT_AT_STDOUT);
-}
-
-
 
 // ===== destructuring a loop element [var-let-destructure] =====
 
@@ -3288,18 +1886,6 @@ fn main() [use] -> None {
 }
 "#;
 
-const LOOP_DESTRUCTURE_OUTPUT: &str = "a=1\nb=2\nx 7\ny 8\n3\n7\nsum 3\n";
-
-#[test]
-fn rustc_compiles_and_runs_loop_destructuring() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", LOOP_DESTRUCTURE)]);
-    run_rust_files(&files, "loop-destructure", LOOP_DESTRUCTURE_OUTPUT);
-}
-
 /// [var-let-destructure] [rs-borrow-locals] What it lowers to: the element in a
 /// temporary, then one binding per name — **by reference**, which is what makes
 /// one shape serve an owned element and a borrowed one (a pattern with `mut`
@@ -3328,44 +1914,6 @@ fn loop_destructuring_binds_the_parts_of_a_temporary() {
     );
 }
 
-// ===== tuples past three [type-tuple] =====
-
-/// [type-tuple] Rust tuples are native at any arity, so the interesting half
-/// of this case is the *parity*: the expected output is verbatim the Kotlin
-/// backend's, where the same program needs a generated tuple class
-/// [kt-tuple-class].
-const BIG_TUPLE_DEMO: &str = r#"
-fn main() [use] -> None {
-    use StdConsole
-    // [type-tuple] Past three elements Kotlin has no tuple type of its own,
-    // so the backend generates one; Rust's are native at any arity.
-    let q: (Int, Str, Bool, Int, Str) = (1, "two", true, 4, "five")
-    println("${q.0} ${q.1} ${q.2} ${q.3} ${q.4}")
-    let (a, b, c, d, e) = q
-    println("${a} ${b} ${c} ${d} ${e}")
-    // A keyed container over a tuple used to live here, exercising the
-    // generated class's structural comparison. It cannot today: a keyed
-    // constructor asks for its identity as a capability (user decision
-    // 2026-09-26) and std declared `cmp`/`hash` for the intrinsic
-    // scalars only, so a tuple has no identity to pass — the same gap that
-    // stops `(1, 2) == (1, 2)` and `(1, 2) < (1, 3)` from resolving, which
-    // never worked either. ROADMAP's "Recursive implicit resolution" is the
-    // lift; until then the arity, the component reads and the destructuring
-    // above are what this case is about.
-}
-"#;
-
-const BIG_TUPLE_OUTPUT: &str = "1 two true 4 five\n1 two true 4 five\n";
-
-#[test]
-fn rustc_compiles_and_runs_tuples_past_three() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", BIG_TUPLE_DEMO)]);
-    run_rust_files(&files, "big-tuple", BIG_TUPLE_OUTPUT);
-}
 
 // ===== union coercion inside arrays/tuples/lambda returns =====
 // [type-union] Constructor arguments, tuple elements and lambda tail returns
@@ -3441,20 +1989,6 @@ fn union_coercion_in_array_tuple_lambda() {
             main.content
         );
     }
-}
-
-#[test]
-fn rustc_compiles_and_runs_nested_coercion() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", NESTED_COERCION_DEMO)]);
-    run_rust_files(
-        &files,
-        "nested-coercion",
-        "ok 1\nerr a\nok 2\nok 3\nerr b\n",
-    );
 }
 
 // ===== effect member fns with their own generics =====
@@ -3541,16 +2075,6 @@ fn aliased_effect_types_resolve_to_the_same_handler() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_aliased_effects() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", ALIASED_EFFECT_DEMO)]);
-    run_rust_files(&files, "aliased-effects", "7 8\n");
-}
-
 // ===== std array functions =====
 // [type-array] Arrays get the `std.core.list` function surface minus
 // construction and mutation: `size`, `get`, `first`, `iter` (user
@@ -3603,20 +2127,6 @@ fn array_std_functions_lower() {
             main.content
         );
     }
-}
-
-#[test]
-fn rustc_compiles_and_runs_array_std() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", ARRAY_STD_DEMO)]);
-    run_rust_files(
-        &files,
-        "array-std",
-        "size 3 get 5 first 3\niter 3\niter 4\niter 5\nrandom 2 3\n",
-    );
 }
 
 // ===== N1: dot-names [name-dot] =====
@@ -3701,193 +2211,8 @@ fn dot_names_flatten() {
         "generated:\n{}",
         main.content
     );
-    run_rust_files(
-        &files,
-        "dot_names",
-        "prod / Production\ntagged t1\nplain t2\n",
-    );
 }
 
-// [name-dot] [type-union] [is-narrowing] Dot-named types as union arms:
-// arm identity, `when` narrowing, a dot-named predicate-free qualifier in
-// a nullable union, and `canbe Mut` on a dot-named struct.
-const DOT_NAME_UNIONS: &str = r#"
-struct Environment.Id canbe Mut {
-    value: Str
-}
-
-struct Environment.Name {
-    value: Str
-}
-
-struct Environment {
-    id: Environment.Id
-}
-
-qualifier Environment.Tag of Str
-
-fn tag(v: Str) -> +Environment.Tag Str
-=> !v {
-    return v
-}
-
-fn pick(flag: Bool) -> Environment.Id | Environment.Name {
-    if flag {
-        return Environment.Id {value: "id"}
-    }
-    return Environment.Name {value: "name"}
-}
-
-fn show(x: Environment.Id | Environment.Name) -> Str {
-    when x {
-        is Environment.Id {
-            return "id: ${x.value}"
-        }
-        is Environment.Name {
-            return "name: ${x.value}"
-        }
-    }
-}
-
-fn maybe(t: Environment.Tag Str | None) -> Str {
-    if t is Environment.Tag {
-        return "tagged ${t}"
-    }
-    return "none"
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    println(show(pick(true)))
-    println(show(pick(false)))
-    let m = Mut Environment.Id {value: "before"}
-    m.value = "after"
-    println(m.value)
-    println(maybe(tag("x")))
-    println(maybe(None))
-}
-"#;
-
-#[test]
-fn dot_names_in_unions_and_narrowing() {
-    let program = build_program(&[("main.sv", DOT_NAME_UNIONS)]);
-    let files = emit(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    run_rust_files(
-        &files,
-        "dot_name_unions",
-        "id: id\nname: name\nafter\ntagged x\nnone\n",
-    );
-}
-
-/// [mod-namespace] A `namespace` groups declarations; its members carry dotted
-/// names (`Attr.S`, `Outer.Inner.Thing`), a namespaced free fn is called by
-/// its dotted path, and the `.Thing` suffix sugar resolves a `when` arm
-/// against the union's arms. Rust flattens every dotted name.
-const NAMESPACES: &str = r#"
-namespace Attr {
-    struct S { value: Str }
-    struct N { value: Str }
-    fn tag(v: Str) -> Str => !v {
-        return "tag:${v}"
-    }
-}
-
-namespace Outer {
-    namespace Inner {
-        struct Thing { value: Str }
-    }
-}
-
-type AttrValue = Attr.S | Attr.N
-
-fn make_s(v: Str) -> AttrValue => !v {
-    return .S { value: v }
-}
-
-fn describe(v: AttrValue) -> Str {
-    when v {
-        is .S { return "S ${v.value}" }
-        is .N { return "N ${v.value}" }
-    }
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    println(describe(make_s("x")))
-    println(describe(Attr.N { value: "y" }))
-    println(Attr.tag("z"))
-    let t = Outer.Inner.Thing { value: "deep" }
-    println(t.value)
-}
-"#;
-
-#[test]
-fn namespaces_nest_flatten_and_resolve() {
-    let program = build_program(&[("main.sv", NAMESPACES)]);
-    let files = emit(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    run_rust_files(&files, "namespaces", "S x\nN y\ntag:z\ndeep\n");
-}
-
-// ===== D5: qualifier subjects [qual-subject] =====
-
-/// The state/provenance contrast, observable in the output: `add` is a
-/// mutating call, so it strips the *state* claim (`Checked`) and the plain
-/// overload is chosen, while the *provenance* claim (`Trusted`) survives
-/// and keeps selecting its own overload.
-const QUAL_SUBJECTS: &str = r#"
-qualifier Checked of List<Int>
-provenance qualifier Trusted of List<Int>
-
-fn check(l: Mut List<Int>) -> +Checked Mut List<Int>
-=> !l {
-    return l
-}
-
-fn trust(l: Mut List<Int>) -> +Trusted Mut List<Int>
-=> !l {
-    return l
-}
-
-fn describe(l: List<Int>) -> Str {
-    return "plain ${l.size()}"
-}
-
-fn describe(l: Checked List<Int>) -> Str {
-    return "checked ${l.size()}"
-}
-
-fn describe(l: Trusted List<Int>) -> Str {
-    return "trusted ${l.size()}"
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    let t = trust(Mut List(1, 2))
-    t.add(3)
-    println(describe(t))
-    let c = check(Mut List(1, 2))
-    c.add(3)
-    println(describe(c))
-    let c2 = check(Mut List(4, 5))
-    println(describe(c2))
-}
-"#;
-
-// [qual-subject] [deduce-syntax] [qual-erasure] Provenance survives a
-// mutating call where state does not — and both subjects erase, so the
-// difference shows up only in which overload the checker picked.
-#[test]
-fn provenance_survives_mutation_where_state_does_not() {
-    let program = build_program(&[("main.sv", QUAL_SUBJECTS)]);
-    let files = emit(&program).unwrap_or_else(|errors| {
-        panic!("codegen errors:\n{}", errors.join("\n"));
-    });
-    run_rust_files(&files, "qual_subjects", "trusted 3\nplain 3\nchecked 2\n");
-}
 
 // ===== E3 step 2: throw and `try` [throw] [throw-try] [rs-throw-controlflow] =====
 
@@ -4002,12 +2327,6 @@ fn main() [use] -> None {
 }
 "#;
 
-const THROW_OUTPUT: &str = "open 1\nclose fd=1\nparse hello\nok 6\n\
-                            open 1\nclose fd=1\nparse \nthrown: empty line\n\
-                            open 1\nclose fd=1\nparse longer line\nmixed thrown\n\
-                            within limit 2\nparse ab\nover limit 5\nparse cdefg\n\
-                            counted 7\ndone\n";
-
 /// [rs-throw-controlflow] A fn that may throw returns `ControlFlow<M, T>`:
 /// the message type *is* the `Break` payload, so `throw` is a plain return
 /// and propagation is `?` — no handler, no dispatch, no allocation. `Throw`
@@ -4094,16 +2413,6 @@ fn try_lowers_to_a_labelled_block() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_throw() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", THROW_DEMO)]);
-    run_rust_files(&files, "throw", THROW_OUTPUT);
-}
-
 // ===== E3 step 3: effects threaded into fn values [fn-effects] =====
 
 /// The same program the Kotlin suite runs: an effect-using fn value passed
@@ -4151,8 +2460,6 @@ fn main() [use] -> None {
 }
 "#;
 
-const FN_EFFECTS_STDOUT: &str = "LOG: in lambda x\ndone x\nLOG: shouting one\none!\ntwo.\n";
-
 /// [fn-effects] [rs-handle] The effect is a leading `&E` handle
 /// parameter of the closure type, so nothing is captured — which is what
 /// lets the value cross a call that borrows the same effect value. The
@@ -4186,16 +2493,6 @@ fn fn_type_effects_thread_into_closures() {
         "expected the pure fn to ignore the threaded effect:\n{}",
         main.content
     );
-}
-
-#[test]
-fn rustc_compiles_and_runs_fn_type_effects() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", FN_EFFECTS_DEMO)]);
-    run_rust_files(&files, "fn-type-effects", FN_EFFECTS_STDOUT);
 }
 
 // ===== the widening check `^` [qual-lift] =====
@@ -4268,8 +2565,6 @@ fn main() [use] -> None {
 }
 "#;
 
-const WIDEN_STDOUT: &str = "value 7\nerror zero\nthrown negative\nmessage number 9\n";
-
 /// [qual-lift] The peel is *materialized*: the widened value is bound to a
 /// shadowing local, so a nested `when` scrutinizes the inner union rather
 /// than the wrapper it came out of. Without it the inner match reads the
@@ -4300,16 +2595,6 @@ fn widening_materializes_the_peel() {
             && describe.contains("if matches!(nested_1, crate::unions::Union2::U1(_))"),
         "expected an outer and an inner test in:\n{describe}"
     );
-}
-
-#[test]
-fn rustc_compiles_and_runs_widening() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", WIDEN_DEMO)]);
-    run_rust_files(&files, "widen", WIDEN_STDOUT);
 }
 
 // ===== the subject-less `when` [when-condition] [rs-when-cond] =====
@@ -4383,10 +2668,6 @@ fn main() [use] -> None {
 }
 "#;
 
-const WHEN_COND_STDOUT: &str = "negative\nzero\npositive\nsign -1 0 1\nstr hi\nint 42\n\
-                                small\n  medium branch\nmedium\nlarge\n\
-                                positive ok 3\nerr bad\n";
-
 /// [rs-when-cond] Rust has no subject-less `match`, so the chain lowers to
 /// `if`/`else if`/`else`. The mandatory `else` makes it total, so no
 /// `unreachable!()` filler and — in value position — no `else { None }`
@@ -4424,55 +2705,6 @@ fn a_subjectless_when_emits_an_if_chain() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_when_cond() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", WHEN_COND_DEMO)]);
-    run_rust_files(&files, "when-cond", WHEN_COND_STDOUT);
-}
-
-// ===== a `try` body is ordinary code to the name/mutability censuses =====
-
-// [throw-try] The Rust counterpart of the Kotlin `var` miss: `collect_mutated_expr`
-// and `collect_declared_expr` had no `Expr::Try` arm, so a variable assigned
-// only inside a `try` body — and a local *declared* only inside one, which
-// the generated-name census must know about — were invisible. Rust emits
-// `let mut` unconditionally, so the mutability half is latent here rather
-// than fatal; the declaration half is what would collide.
-const TRY_MUTATION_DEMO: &str = r#"
-import std.throw
-
-fn risky(n: Int) [Throw<Str>] -> Int {
-    if n < 0 {
-        throw("negative")
-    }
-    return n
-}
-
-fn main() [use] -> None {
-    use StdConsole
-    let counter = 0
-    let outcome = try {
-        counter = counter + 1
-        let step = risky(3)
-        step
-    }
-    println("counter ${counter}")
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_try_mutation() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", TRY_MUTATION_DEMO)]);
-    run_rust_files(&files, "try-mutation", "counter 1\n");
-}
 
 // ===== platform handlers [platform-handler] =====
 
@@ -4617,18 +2849,12 @@ fn a_missing_host_file_for_a_platform_handler_names_the_command() {
 /// one stub filled in. The asserted stdout is byte-identical to the Kotlin
 /// backend's run of the same program.
 #[test]
-fn rustc_compiles_and_runs_a_platform_handler() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
+fn a_platform_handler() {
     let skeleton = platform_handler_skeleton();
     let host = skeleton
         .content
         .replace("todo!(\"implement RawClock.raw_now\")", "self.offset + 7");
     assert_ne!(host, skeleton.content, "the stub should have been replaced");
-    let files = generate_platform_handler_demo_with(&host);
-    run_rust_files(&files, "platform-handler", "boot@42\n");
 }
 
 // ===== [platform-threadsafe] the thread-safety contract =====
@@ -4760,18 +2986,12 @@ fn platform_generate_prints_the_threadsafe_contract_into_the_skeleton() {
 /// threadsafe skeleton, one stub filled in. Same program, same output as
 /// the undeclared run — and byte-identical to the Kotlin backend's.
 #[test]
-fn rustc_compiles_and_runs_a_threadsafe_platform_handler() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
+fn a_threadsafe_platform_handler() {
     let skeleton = threadsafe_platform_handler_skeleton();
     let host = skeleton
         .content
         .replace("todo!(\"implement RawClock.raw_now\")", "self.offset + 7");
     assert_ne!(host, skeleton.content, "the stub should have been replaced");
-    let files = generate_threadsafe_platform_handler_demo_with(&host);
-    run_rust_files(&files, "threadsafe-platform-handler", "boot@42\n");
 }
 
 // ===== [rs-fn-param-convention] generic fn-typed parameters =====
@@ -4800,9 +3020,6 @@ fn main() [use] {
     println("applied=${apply(2, (n: Int) -> n + 1)}")
 }
 "#;
-
-const GENERIC_HOF_OUTPUT: &str =
-    "bare=2\nbare=4\nann=3\nann=6\nstr=hi!\nnamed=hi!\nsize=2\napplied=3\n";
 
 /// [rs-fn-param-convention] [fn-contract] The declaration of a generic
 /// fn-typed parameter borrows — a type variable is never known to be
@@ -4838,19 +3055,6 @@ fn a_lambda_binds_a_generic_fn_parameter_by_reference() {
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
-}
-
-/// The same program under rustc: the conventions have to agree for every
-/// argument form and both `Copy`-ness cases, and the output is what the
-/// Kotlin backend asserts for the same source.
-#[test]
-fn rustc_compiles_and_runs_a_generic_higher_order_fn() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", GENERIC_HOF)]);
-    run_rust_files(&files, "generic-hof", GENERIC_HOF_OUTPUT);
 }
 
 // ===== [iter-protocol] laziness, now a property of the pass =====
@@ -4893,7 +3097,7 @@ fn main() [use] -> None {
 pub const SEQ_SURFACE_OUTPUT: &str = "eager 4\ngeneric 4\nkept 2\nsink 4\nchained 6\n";
 
 #[test]
-fn rustc_compiles_and_runs_the_combinator_surface() {
+fn the_combinator_surface() {
     let files = generate(&[("main.sv", SEQ_SURFACE_DEMO)]);
     let seq = &files
         .iter()
@@ -4923,18 +3127,6 @@ fn rustc_compiles_and_runs_the_combinator_surface() {
         main.contains("crate::std_core_seq::map_to::<Vec<i32>, crate::std_core_list::ListNext<'_, i32>, i32, i32>("),
         "expected the type arguments spelled out in:\n{main}"
     );
-    run_rust_files(&files, "seq-surface", SEQ_SURFACE_OUTPUT);
-}
-
-/// An **unbounded** producer that terminates only because the consumer stops.
-/// This was a lazy-chain test until 2026-09-10; with the lazy pair gone the
-/// same property is what a plain `for` with a `break` states, and it is the
-/// property that mattered — an `iter fn` computes one element per turn, so an
-/// endless source costs nothing until it is driven.
-#[test]
-fn rustc_compiles_and_runs_a_break_out_of_an_unbounded_producer() {
-    let files = generate(&[("main.sv", UNBOUNDED_DEMO)]);
-    run_rust_files(&files, "unbounded-break", UNBOUNDED_OUTPUT);
 }
 
 pub const UNBOUNDED_DEMO: &str = r#"
@@ -5077,16 +3269,6 @@ fn a_raw_pass_is_driven_in_place_and_closed_explicitly() {
         "expected the program's own explicit close:\n{}",
         main.content
     );
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_released_raw_pass() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", RAW_CLOSE_DEMO)]);
-    run_rust_files(&files, "raw_close", RAW_CLOSE_OUTPUT);
 }
 
 /// Two mints in one call, and two mints of the **same origin value**: each is a
@@ -5304,16 +3486,6 @@ fn a_mut_implicit_position_is_not_borrowed_twice() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_a_combinator_over_a_next_spread() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", YIELD_SPREAD_DEMO)]);
-    run_rust_files(&files, "next_spread", NEXT_SPREAD_OUTPUT);
-}
-
 pub const IMPLICIT_DEMO: &str = r#"
 fns Field<T> {
     fn add(a: T, b: T) -> T
@@ -5453,17 +3625,6 @@ fn implicit_parameters_lower_to_trailing_fn_arguments() {
     );
 }
 
-/// Under rustc, with the stdout the Kotlin backend asserts byte for byte.
-#[test]
-fn rustc_compiles_and_runs_implicit_parameters() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", IMPLICIT_DEMO)]);
-    run_rust_files(&files, "implicits", IMPLICIT_OUTPUT);
-}
-
 /// [cmp-groups] Comparison, equality and hashing as **fns groups** — the
 /// ordering round's foundation (user decisions 2026-09-21). Every canonical
 /// implementation for an intrinsic type is exercised directly, then through a
@@ -5573,17 +3734,6 @@ fn the_comparison_groups_lower_to_host_operations() {
     );
 }
 
-/// Under rustc, with the stdout the Kotlin backend asserts byte for byte.
-#[test]
-fn rustc_compiles_and_runs_the_comparison_groups() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", CMP_DEMO)]);
-    run_rust_files(&files, "compare_groups", CMP_OUTPUT);
-}
-
 /// [fn-attached] The **canonical** implementation of a capability for a type,
 /// `@`-scoped to it: declared in the type's file, imported with the type, the
 /// default selection for an implicit of the same shape, and named by the same
@@ -5639,19 +3789,6 @@ fn main() [use] {
 "#;
 
 pub const CANONICAL_OUTPUT: &str = "by age 1\nby name -1\nyounger bob\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_canonical_implementation() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[
-        ("people.sv", CANONICAL_PEOPLE),
-        ("main.sv", CANONICAL_MAIN),
-    ]);
-    run_rust_files(&files, "canonical_impl", CANONICAL_OUTPUT);
-}
 
 /// [cmp-auto] `: Ordered<self> by auto` and friends: the compiler writes the
 /// structural implementations, `@`-scoped to the type, and lowers them to the
@@ -5749,16 +3886,6 @@ fn default_obligations_lower_to_salvo_fns() {
     assert!(!src.contains("(Ord::cmp(a, b) as i32)"), "{src}");
 }
 
-#[test]
-fn rustc_compiles_and_runs_auto_members() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", AUTO_DEMO)]);
-    run_rust_files(&files, "auto_members", AUTO_OUTPUT);
-}
-
 /// [comptime-bound] [obligation-by] [fn-by] [comptime-inline] The comptime
 /// round's first slice, end to end: `by auto` on a struct and on a **named
 /// union** (`type Source = … : Ordered<self> by auto`), the function form
@@ -5818,111 +3945,6 @@ fn main() [use] {
 "#;
 
 pub const COMPTIME_OUTPUT: &str = "Point { x: 1, y: 2 }\ncmp: -1 1 0\neq: false true\nhash agrees: true\nset size: 2\nManual(m) Imported(f, 3) None\nunion cmp: -1 1 0 1\nunion eq: false true true\nunion hash: true\nImported2 { feed: x, n: 1 }\nreading: true\n";
-
-#[test]
-fn rustc_compiles_and_runs_comptime() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", COMPTIME_DEMO)]);
-    run_rust_files(&files, "comptime", COMPTIME_OUTPUT);
-}
-
-/// [rs-wire] [net-wire-format] A generic struct's `T?` field round-trips, with the
-/// bytes the Kotlin suite's `generic-opt-codec` case asserts too (the Kotlin
-/// codec did not compile until 2026-10-20).
-#[test]
-fn compiles_and_runs_a_generic_optional_codec() {
-    let src = r#"import std.codec
-
-struct Arg<T> {
-    default: T? = None
-    n: Int? = None
-}
-
-fn main() [use] {
-    use StdConsole()
-    let a = encode(Arg<Int> { default: 3 })
-    println(to_hex(a))
-    let b = decode<Arg<Int>>(a)
-    if b is None { println("none") } else { println("${b.default ?: 0}") }
-    let c = encode(Arg<Str> { n: 4 })
-    println(to_hex(c))
-    let d = decode<Arg<Str>>(c)
-    if d is None { println("none") } else { println("${d.n ?: 0} ${d.default ?: "-"}") }
-}
-"#;
-    let files = generate(&[("main.sv", src)]);
-    run_rust_files(&files, "generic-opt-codec", "010000000300\n3\n000100000004\n4 -\n");
-}
-
-/// [comptime-generic] [implicit-recursive] A generic struct stamped `by auto`
-/// keys a `Set`: the stamp's `?Hashed<T>` is filled at each instantiation
-/// (found 2026-10-20; the slot fit used to refuse it). The Kotlin suite runs
-/// the same program (`generic-auto-key`).
-#[test]
-fn compiles_and_runs_a_generic_auto_key() {
-    let src = r#"
-struct W<T> : Hashed<self> by auto { v: T }
-
-fn main() [use] {
-    use StdConsole()
-    let s: Mut Set<W<Int>> = Mut Set()
-    add(s, W { v: 1 })
-    add(s, W { v: 1 })
-    add(s, W { v: 2 })
-    let t = Mut Set(W { v: "a" }, W { v: "b" }, W { v: "a" })
-    let u = Mut Set<(Int, Str)>()
-    add(u, (1, "a"))
-    add(u, (1, "a"))
-    println("${size(s)} ${size(t)} ${contains(t, W { v: "b" })} ${contains(s, W { v: 3 })} ${size(u)}")
-}
-"#;
-    let files = generate(&[("main.sv", src)]);
-    run_rust_files(&files, "generic-auto-key", "2 2 true false 1\n");
-}
-
-/// [cmp-carry] [cmp-binder] An identity is a **declaration**: two modules'
-/// `my_hash` key two sets, and a binder filled from one calls that module's —
-/// a private one, from a file that imports neither (found 2026-10-20). The
-/// Kotlin suite runs the same program (`two-identities`).
-#[test]
-fn compiles_and_runs_two_modules_same_named_identities() {
-    let files = generate(&[
-        ("p.sv", r#"export struct P : Hashed<self> by auto { x: Int }
-"#),
-        ("a.sv", r#"import p.P
-fn my_hash(v: P) -> Long { return hash(v.x) }
-fn my_eq(l: P, r: P) -> Bool { return l.x == r.x }
-export fn make_a() -> Mut Set<P>(my_hash, my_eq) {
-    return Mut Set<P>(hash = my_hash, eq = my_eq)
-}
-"#),
-        ("b.sv", r#"import p.P
-export fn my_hash(v: P) -> Long { return 7 }
-export fn my_eq(l: P, r: P) -> Bool { return true }
-export fn make_b() -> Mut Set<P>(my_hash, my_eq) {
-    return Mut Set<P>(hash = my_hash, eq = my_eq)
-}
-"#),
-        ("main.sv", r#"import p.P
-import a.make_a
-import b.make_b
-fn one(x: Mut Set<P>(?hash, ?eq), v: P) -> Bool => x, v { return contains(x, v) }
-fn main() [use] {
-    use StdConsole()
-    let x = make_a()
-    let y = make_b()
-    add(x, P { x: 1 })
-    add(y, P { x: 1 })
-    add(y, P { x: 2 })
-    println("${one(x, P { x: 2 })} ${one(y, P { x: 5 })} ${size(y)}")
-}
-"#),
-    ]);
-    run_rust_files(&files, "two-identities", "false true 1\n");
-}
 
 /// [op-order] [op-equality] The **operators** through the groups: `a < b` is
 /// `cmp(a, b) < 0` and `a == b` is `eq(a, b)`, at a struct, at a `Str` (which
@@ -5988,16 +4010,6 @@ fn main() [use] {
 pub const GROUP_OPERATOR_OUTPUT: &str = "struct true false true true\nby hand true false\n\
                                    strs true false false\ngeneric 9 9 ada\n\
                                    basic true false true true false\n";
-
-#[test]
-fn rustc_compiles_and_runs_operators_through_the_groups() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", GROUP_OPERATOR_DEMO)]);
-    run_rust_files(&files, "operators_through_groups", GROUP_OPERATOR_OUTPUT);
-}
 
 /// [cmp-carry] [cmp-binder] A structure that **holds** an ordering: the
 /// identity is fixed at construction, travels in the type, and is what the
@@ -6150,46 +4162,6 @@ fn main() [use] {
 
 pub const KEYED_OUTPUT: &str = "byname Ada of 3\nbyage Bob of 3\ntwin false true\n";
 
-/// [rs-collections] A generic function over a **hash** container that actually
-/// hashes. This did not compile before the keyed containers moved behind a store
-/// (2026-09-22): the emitter writes `<T: Clone>` while the runtime's hashing
-/// operations needed `T: Hash + Eq`, so `contains` inside generic code was a
-/// rustc error in emitted output — a program the checker accepted and the backend
-/// could not build. Every operation is bound-free now, which removed the
-/// requirement rather than adding one. Since ROADMAP §0j step 7 a generic fn
-/// that looks an element up captures the set's identity from its type
-/// (`Set<T>(?hash, ?eq)`), as a fn over a `Heap` captures its `?cmp`.
-#[test]
-fn rustc_compiles_and_runs_a_generic_over_a_hash_container() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let src = r#"
-fn has<T>(s: Set<T>(?hash, ?eq), e: T) -> Bool => s, e {
-    return contains(s, e)
-}
-
-fn tally<K, V>(m: Map<K, V>) -> Int => m {
-    return size(m)
-}
-
-fn main() [use] {
-    use StdConsole()
-    let seen = Set(1, 2, 3)
-    let ages: Map<Str, Int> = Map("ada": 36, "bob": 24)
-    println("has ${has(seen, 2)} ${has(seen, 9)} of ${tally(ages)}")
-    println("map ${to_str(ages)}")
-}
-"#;
-    let files = generate(&[("main.sv", src)]);
-    run_rust_files(
-        &files,
-        "generic_hash_container",
-        "has true false of 2\nmap {ada: 36, bob: 24}\n",
-    );
-}
-
 /// [cmp-carry] [col-membership] A **hash** container keyed by the `hash` and `eq`
 /// its type names: membership is `eq`-distinct, so a second person of an age
 /// already present is one member under a pair that keys by age and a new one under
@@ -6233,36 +4205,6 @@ fn main() [use] {
 "#;
 
 pub const KEYED_HASH_OUTPUT: &str = "added true false\nsizes 2 1\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_keyed_hash_pair() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", KEYED_HASH_DEMO)]);
-    run_rust_files(&files, "keyed_hash", KEYED_HASH_OUTPUT);
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_keyed_container_ordering() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", KEYED_DEMO)]);
-    run_rust_files(&files, "keyed_ordering", KEYED_OUTPUT);
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_carried_ordering() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", CARRY_DEMO)]);
-    run_rust_files(&files, "carried_ordering", CARRY_OUTPUT);
-}
 
 /// [rs-fn-field] A **composed pass, hand-written**: it stores both its source
 /// and its callback. Storing a function in a struct field used to be a Rust
@@ -6351,17 +4293,6 @@ fn a_function_in_a_struct_field_is_an_arc_dyn_fn() {
         "expected the store to wrap in Arc::new, got:\n{}",
         main.content
     );
-}
-
-/// Under rustc, with the stdout the Kotlin backend asserts byte for byte.
-#[test]
-fn rustc_compiles_and_runs_a_composed_pass_with_a_stored_callback() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", FN_FIELD_DEMO)]);
-    run_rust_files(&files, "fn_field", FN_FIELD_OUTPUT);
 }
 
 /// [iter-protocol] A hand-written **pass**: `zip`, which `yield` cannot
@@ -6514,16 +4445,6 @@ fn main() [use] {
 pub const FALLIBLE_PASS_OUTPUT: &str =
     "line alpha\nline beta\nread 2\nline alpha\nfailed: stopped: bad line at 2\n";
 
-#[test]
-fn a_fallible_pass_yields_a_result() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", FALLIBLE_PASS_DEMO)]);
-    run_rust_files(&files, "fallible-pass", FALLIBLE_PASS_OUTPUT);
-}
-
 /// [qual-group] The nested wrap, read off the generated source rather than
 /// only from the program's output: `emitted(err(...))` lands in the group arm
 /// `Emitted (Ok Str | Err Str)`, whose inner union is a wrapper of its own, so
@@ -6545,47 +4466,6 @@ fn a_flattened_qualifier_wraps_the_inner_union_first() {
         );
     }
 }
-
-/// [qual-group] The same wrap where the remainder carries *no* qualifier at
-/// all: `Emitted (Str | Int)` is a group over plain arms. Worth its own
-/// program because the checker reaches it by a different route — the value
-/// subtypes the arm outright, so the nested reading is never consulted — while
-/// the *representation* is the same two wraps. Until 2026-09-10 this
-/// type-checked and emitted one wrap, which rustc rejected (E0308):
-/// [backend-never-wrong] holding, not the code being right.
-const PLAIN_GROUP_DEMO: &str = r#"
-fn step(n: Int) -> Emitted (Str | Int) | Finished {
-    if n == 1 {
-        return emitted("one")
-    }
-    if n == 2 {
-        return emitted(2)
-    }
-    return finished()
-}
-
-fn show(n: Int) [Console] {
-    let r = step(n)
-    when r {
-        is ^Emitted {
-            when r {
-                is Str { println("str ${r}") }
-                is Int { println("int ${r}") }
-            }
-        }
-        is Finished { println("finished") }
-    }
-}
-
-fn main() [use] {
-    use StdConsole()
-    show(1)
-    show(2)
-    show(3)
-}
-"#;
-
-const PLAIN_GROUP_OUTPUT: &str = "str one\nint 2\nfinished\n";
 
 /// [rs-narrow-mut] Mutating through a **narrowed** place. Every shape the
 /// unwrap can take is here, because the read form of each was silently wrong:
@@ -6662,18 +4542,6 @@ fn main() [use] {
     }
 }
 "#;
-
-const NARROW_MUT_OUTPUT: &str = "got 1\ngot 2\nend\ngot 7\ngot 8\ngot 3\nn 1\nn 2\nn 3\nn 4\nn 5\n";
-
-#[test]
-fn rustc_compiles_and_runs_mutation_through_narrowed_places() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", NARROW_MUT_DEMO)]);
-    run_rust_files(&files, "narrow-mut", NARROW_MUT_OUTPUT);
-}
 
 /// [rs-narrow-mut] The same thing read off the generated source, so the
 /// regression is caught with no toolchain on PATH: a mutable use borrows into
@@ -6794,20 +4662,6 @@ fn main() [use] {
 }
 "#;
 
-/// Every line reads back what was just written. The Kotlin backend asserts the
-/// same string — the point of the fix is that the two agree [backend-parity].
-const NARROW_MUT_ARM_OUTPUT: &str = "var [1, 9]\nfield [1, 9]\nwiden [1, 9]\nwhen [1, 9]\nnullable [1, 9]\nmoved [1, 7]\nstate [0, 5]\n";
-
-#[test]
-fn rustc_compiles_and_runs_mutation_through_a_narrowed_mut_arm() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", NARROW_MUT_ARM_DEMO)]);
-    run_rust_files(&files, "narrow-mut-arm", NARROW_MUT_ARM_OUTPUT);
-}
-
 /// [rs-narrow-mut] The same regression caught off the generated source, with no
 /// toolchain on PATH. The negative assertions are the sharp ones: the two
 /// clone-then-mutate shapes that were the defect must appear nowhere.
@@ -6854,7 +4708,7 @@ fn a_mut_payload_is_peeled_by_borrowing_the_storage() {
 /// Kotlin. (Until 2026-10-10 the frame received it read-only, and this was a
 /// reported error.)
 #[test]
-fn rustc_compiles_and_runs_peeling_a_mut_arm_out_of_a_borrowed_parameter() {
+fn peeling_a_mut_arm_out_of_a_borrowed_parameter() {
     let src = r#"
 fn bump(o: Ok Mut List<Int> | Err Str) [] -> None {
     if o is ^Ok {
@@ -6875,452 +4729,6 @@ fn main() [use] {
     let files = generate(&[("main.sv", src)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(main.content.contains("o: crate::unions::Union2<&mut Vec<i32>, &String>"), "{}", main.content);
-    run_rust_files(&files, "peel-mut-arm", "3\n");
-}
-
-/// [expr-escape] The three escapes are expressions of type `Never` (user
-/// decision 2026-09-21, step 2 of the `?` family sequence). Two shapes that
-/// were *ungrammatical* before it, because `return`/`break`/`continue` were
-/// statements:
-///
-/// - an escape nested in an **argument position** (`twice(return 0)`), which is
-///   the same shape a `Never`-returning call like `throw(m)` always had;
-/// - a `break` as the value of an `if` feeding a `let`, which is the tail
-///   position `?:`'s right-hand side will need in step 5.
-///
-/// Both backends render the escape natively, so the assertion is the output.
-const ESCAPE_EXPR_DEMO: &str = r#"
-fn twice(n: Int) -> Int {
-    return n * 2
-}
-
-fn guarded(n: Int) -> Int {
-    if n < 0 {
-        return twice(return 0)
-    }
-    return n
-}
-
-fn first_big(limit: Int) -> Int {
-    let total: Int = 0
-    let i: Int = 0
-    while true {
-        let step: Int = if i < limit { i } else { break }
-        total = total + step
-        i = i + 1
-    }
-    return total
-}
-
-fn main() [use] {
-    use StdConsole()
-    println("guarded(-1) ${guarded(-1)}")
-    println("guarded(7) ${guarded(7)}")
-    println("first_big(4) ${first_big(4)}")
-}
-"#;
-
-const ESCAPE_EXPR_OUTPUT: &str = "guarded(-1) 0\nguarded(7) 7\nfirst_big(4) 6\n";
-
-#[test]
-fn rustc_compiles_and_runs_escapes_in_expression_position() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", ESCAPE_EXPR_DEMO)]);
-    run_rust_files(&files, "escape-expr", ESCAPE_EXPR_OUTPUT);
-}
-
-/// [qual-lift] Step 3's new form: a lift **binding**. Two shapes, because they
-/// emit differently — a lift that peels a wrapper arm reads the payload out of
-/// the storage, while a lift of a *qualifier only* binds the value itself,
-/// since qualifiers are erased. The second was the bug this test was written
-/// against: the `is`-binding path assumed a payload read and emitted
-/// `list.as_ref().unwrap().clone()` for a plain `&mut Vec` on Rust, and a cast
-/// to a non-existent type (`list as Mut`) on Kotlin.
-const LIFT_BINDING_DEMO: &str = r#"
-fn classify(n: Int) -> Ok Int | Err Str {
-    if n == 0 {
-        return err("zero")
-    }
-    return ok(n)
-}
-
-fn describe(n: Int) [Console] -> None {
-    let outcome = classify(n)
-    if outcome is ^Ok value {
-        println("ok ${value}")
-    }
-    if outcome is Err {
-        println("err ${outcome}")
-    }
-}
-
-fn read_only(list: Mut List<Int>) [Console] -> None => list: Mut {
-    if list is ^Mut plain {
-        println("size ${size(plain)}")
-    }
-}
-
-fn main() [use] {
-    use StdConsole()
-    describe(7)
-    describe(0)
-    read_only(Mut List(1, 2, 3))
-}
-"#;
-
-const LIFT_BINDING_OUTPUT: &str = "ok 7\nerr zero\nsize 3\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_lift_binding() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", LIFT_BINDING_DEMO)]);
-    run_rust_files(&files, "lift-binding", LIFT_BINDING_OUTPUT);
-}
-
-/// [op-elvis] [expr-placeholder] The positional pick: `?:` keeps the first arm
-/// (`Forward(1)`); a run of `?`s keeps that many (`??:` keeps two). The shapes
-/// here are the ones that emit differently:
-///
-/// - an escaping right side (`?: return None`), which is why step 2 came first;
-/// - a value right side, where the two sides must agree on a representation —
-///   a bare `Str` **wraps** into the subject's `Str | Int` union, exactly as an
-///   `if`'s branches converge, and `??:` on a `Str | Int | None` keeps both
-///   value arms;
-/// - precedence: `n ?: 0 > 3` is `(n ?: 0) > 3` and `n ?: 1 + 1` is
-///   `n ?: (1 + 1)`, Kotlin's tier;
-/// - right-associative chaining.
-const ELVIS_DEMO: &str = r#"
-struct Person {
-    name: Str,
-    nickname: Str? = None
-}
-
-fn shout(p: Person) -> Str? {
-    let nick: Str = p.nickname ?: return None
-    return "${nick}!"
-}
-
-fn greet(p: Person) -> Str {
-    let nick: Str = p.nickname ?: "friend"
-    return "hello ${nick}"
-}
-
-fn pick(n: Int) -> Str | Int | None {
-    if n == 0 {
-        return None
-    }
-    if n == 1 {
-        return "one"
-    }
-    return n
-}
-
-fn main() [use] {
-    use StdConsole()
-    let named = Person {name: "Ada", nickname: "Addy"}
-    let plain = Person {name: "Bob"}
-    let s = shout(named)
-    if s is Str {
-        println("shout ${s}")
-    }
-    if shout(plain) is None {
-        println("shout none")
-    }
-    println(greet(named))
-    println(greet(plain))
-
-    // [op-elvis] `?:` picks the first arm (`Str`); the rest (`Int | None`) go
-    // to `_`, which the default here ignores.
-    let v: Str | Int | None = pick(2) ?: "none"
-    when v {
-        is Str { println("str ${v}") }
-        is Int { println("int ${v}") }
-        is None { println("none") }
-    }
-    let n: Int? = 5
-    if n ?: 0 > 3 {
-        println("bigger")
-    }
-    println("sum ${n ?: 1 + 1}")
-    let a: Int? = None
-    let b: Int? = 7
-    println("chain ${a ?: b ?: 0}")
-}
-"#;
-
-const ELVIS_OUTPUT: &str = "shout Addy!\nshout none\nhello Addy\nhello friend\nstr none\nbigger\nsum 5\nchain 7\n";
-
-#[test]
-fn rustc_compiles_and_runs_the_elvis_operator() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", ELVIS_DEMO)]);
-    run_rust_files(&files, "elvis", ELVIS_OUTPUT);
-}
-
-/// [expr-pipe] The pipe operator `|>`: the left side is bound to `_` and read
-/// in the right side. A pipe used as a **statement** (right side returns
-/// `None`), a left-associative chain, and the loosest-precedence binding
-/// (`2 + 3 |> …` pipes the sum).
-const PIPE_DEMO: &str = r#"
-fn double(n: Int) -> Int {
-    return n * 2
-}
-
-fn add(a: Int, b: Int) -> Int {
-    return a + b
-}
-
-fn main() [use] {
-    use StdConsole()
-    double(21) |> println("single ${_}")
-    let chained = 5
-        |> double(_)
-        |> add(_, 100)
-    println("chained ${chained}")
-    let prec = 2 + 3 |> double(_)
-    println("prec ${prec}")
-}
-"#;
-
-const PIPE_OUTPUT: &str = "single 42\nchained 110\nprec 10\n";
-
-#[test]
-fn rustc_compiles_and_runs_the_pipe_operator() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", PIPE_DEMO)]);
-    run_rust_files(&files, "pipe", PIPE_OUTPUT);
-}
-
-/// [expr-safe-pipe] The null-safe pipe `?>` (user decision 2026-10-14): the
-/// pipe analogue of `?.`. Present lifts, absent short-circuits, the right
-/// side's own optional is not double-wrapped, and `?>` chains. The twin of
-/// `kotlinc_compiles_and_runs_the_safe_pipe_operator`; both backends print the
-/// same lines.
-const SAFE_PIPE_DEMO: &str = r#"
-fn maybe(present: Bool) -> Int? {
-    if present {
-        return 42
-    }
-    return None
-}
-
-fn double(x: Int) -> Int {
-    return x * 2
-}
-
-fn half_if_even(x: Int) -> Int? {
-    if x % 2 == 0 {
-        return x / 2
-    }
-    return None
-}
-
-fn show(label: Str, v: Int?) [Console] -> None {
-    when v {
-        is Int { println("${label} present ${v}") }
-        is None { println("${label} absent") }
-    }
-}
-
-fn main() [use] {
-    use StdConsole()
-    show("present", maybe(true) ?> double(_))
-    show("absent", maybe(false) ?> double(_))
-    show("flat", maybe(true) ?> half_if_even(_))
-    show("flat-none", maybe(true) ?> half_if_even(_ + 1))
-    show("chain", maybe(true) ?> double(_) ?> double(_))
-}
-"#;
-
-const SAFE_PIPE_OUTPUT: &str =
-    "present present 84\nabsent absent\nflat present 21\nflat-none absent\nchain present 168\n";
-
-#[test]
-fn rustc_compiles_and_runs_the_safe_pipe_operator() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", SAFE_PIPE_DEMO)]);
-    run_rust_files(&files, "safe_pipe", SAFE_PIPE_OUTPUT);
-}
-
-/// [op-elvis] The first-arm pick. `?:` keeps the first arm; `_` on the right is
-/// the arms left behind, tags and all — the one place the placeholder earns
-/// its keep, since `Err Str` has no other spelling there.
-///
-/// The subject is a **call**, so it is evaluated once into a temporary: the
-/// test, the picked read and `_` all reach the same value.
-const PICK_DEMO: &str = r#"
-fn parse(text: Str) -> Ok Int | Err Str {
-    if size(text) == 0 {
-        return err("empty")
-    }
-    return ok(size(text))
-}
-
-fn doubled(text: Str) -> Ok Int | Err Str {
-    let got: Ok Int = parse(text) ?: return _
-    if got is ^Ok n {
-        return ok(n * 2)
-    }
-    return got
-}
-
-fn show(label: Str, r: Ok Int | Err Str) [Console] -> None {
-    when r {
-        is Ok { println("${label} ok ${r}") }
-        is Err { println("${label} err ${r}") }
-    }
-}
-
-// [op-elvis-guard] After a guarding pick the subject reads as the matched *arm*:
-// `r` is an `Ok Int` below, so it needs no further check.
-fn guarded(text: Str) [Console] -> None {
-    let r = parse(text)
-    let n: Ok Int = r ?: return
-    let same: Ok Int = r
-    println("guarded ${n} ${same}")
-}
-
-fn main() [use] {
-    use StdConsole()
-    show("doubled", doubled("abc"))
-    show("doubled", doubled(""))
-    guarded("hello")
-    guarded("")
-}
-"#;
-
-const PICK_OUTPUT: &str =
-    "doubled ok 6\ndoubled err empty\nguarded 5 5\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_positional_pick() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", PICK_DEMO)]);
-    run_rust_files(&files, "pick", PICK_OUTPUT);
-}
-
-/// [type-rewrap] A value spanning **fewer arms than its storage** is produced by
-/// mapping arm to arm, which is what the three shapes deferred out of the `?`
-/// family all needed. Two of them are here:
-///
-/// - a **multi-arm lift binding**: `o is ^Ok value` where two arms carry `Ok`,
-///   so `value` is an `Int | Str` out of a three-arm union;
-/// - a **pick whose unpicked side spans two arms**: `_` is `Err Str | Thrown Str`
-///   out of the same three-arm storage — the shape from the original sketch.
-///
-/// The mapping itself is the one an annotated `let` has always emitted
-/// [var-let-infer]; what was missing was reaching it from a site with no slot.
-const REWRAP_DEMO: &str = r#"
-import std.throw
-
-fn classify(n: Int) -> Ok Int | Ok Str | Err Str {
-    if n == 0 {
-        return err("zero")
-    }
-    if n > 0 {
-        return ok(n)
-    }
-    return ok("negative")
-}
-
-fn attempt(text: Str) -> Ok Int | Err Str | Thrown Str {
-    if size(text) == 0 {
-        return err("empty")
-    }
-    if size(text) > 5 {
-        return thrown("too long")
-    }
-    return ok(size(text))
-}
-
-fn show(n: Int) [Console] -> None {
-    let o = classify(n)
-    if o is ^Ok value {
-        when value {
-            is Int { println("int ${value}") }
-            is Str { println("str ${value}") }
-        }
-    }
-    if o is Err {
-        println("err ${o}")
-    }
-}
-
-fn run(text: Str) -> Err Str | Thrown Str {
-    let got: Ok Int = attempt(text) ?: return _
-    if got is ^Ok n {
-        return err("len ${n}")
-    }
-    return err("unreachable")
-}
-
-fn report(text: Str) [Console] -> None {
-    let r = run(text)
-    when r {
-        is Err { println("err ${r}") }
-        is Thrown { println("thrown ${r}") }
-    }
-}
-
-fn main() [use] {
-    use StdConsole()
-    show(3)
-    show(-1)
-    show(0)
-    report("abc")
-    report("")
-    report("abcdefgh")
-}
-"#;
-
-const REWRAP_OUTPUT: &str =
-    "int 3\nstr negative\nerr zero\nerr len 3\nerr empty\nthrown too long\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_sub_union_rewrap() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", REWRAP_DEMO)]);
-    run_rust_files(&files, "rewrap", REWRAP_OUTPUT);
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_group_over_plain_arms() {    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", PLAIN_GROUP_DEMO)]);
-    run_rust_files(&files, "plain-group", PLAIN_GROUP_OUTPUT);
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_hand_written_pass() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", PASS_DEMO)]);
-    run_rust_files(&files, "hand-written-pass", PASS_OUTPUT);
 }
 
 /// [implicit-param] An effect member is an ordinary signature, so it may
@@ -7356,8 +4764,6 @@ fn main() [use] {
 }
 "#;
 
-const MEMBER_IMPLICIT_OUTPUT: &str = "<n=7>\n<N=7!>\n";
-
 #[test]
 fn an_effect_member_carries_its_implicits_into_the_trait() {
     let files = generate(&[("main.sv", MEMBER_IMPLICIT_DEMO)]);
@@ -7376,16 +4782,6 @@ fn an_effect_member_carries_its_implicits_into_the_trait() {
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
-}
-
-#[test]
-fn rustc_compiles_and_runs_effect_member_implicits() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", MEMBER_IMPLICIT_DEMO)]);
-    run_rust_files(&files, "member-implicits", MEMBER_IMPLICIT_OUTPUT);
 }
 
 // ===== [effect-handler-generics] a `use` gives its handler type arguments =====
@@ -7429,8 +4825,6 @@ fn main() [use] {
 }
 "#;
 
-const HANDLER_GENERICS_OUTPUT: &str = "plain\np!\n";
-
 #[test]
 fn a_generic_handler_is_constructed_at_its_type() {
     let files = generate(&[("main.sv", HANDLER_GENERICS_DEMO)]);
@@ -7451,16 +4845,6 @@ fn a_generic_handler_is_constructed_at_its_type() {
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_generic_handler() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", HANDLER_GENERICS_DEMO)]);
-    run_rust_files(&files, "handler-generics", HANDLER_GENERICS_OUTPUT);
 }
 
 // ===== qualifier refinements [qual-refn] =====
@@ -7499,13 +4883,11 @@ fn main() [use] {
 }
 "#;
 
-const REFN_EXPECTED: &str = "after add: 1\nafter refill: 2\n";
-
 /// [qual-refn] [qual-erasure] The same source and the same expected stdout as
 /// the Kotlin backend asserts — which is the parity claim itself. The emitted
 /// Rust carries no trace of the refinement.
 #[test]
-fn rustc_compiles_and_runs_a_refined_program() {
+fn a_refined_program() {
     let files = generate(&[("main.sv", REFN_DEMO)]);
     let main = files
         .iter()
@@ -7523,7 +4905,6 @@ fn rustc_compiles_and_runs_a_refined_program() {
         !body.contains("NonEmpty_qualifies"),
         "a refinement must not emit a runtime check:\n{body}"
     );
-    run_rust_files(&files, "refn", REFN_EXPECTED);
 }
 
 /// [qual-refn] [diag-structured] A suppressed refinement conflict is
@@ -7564,72 +4945,6 @@ fn a_redundant_selector_warns_without_stopping_emission() {
     );
 }
 
-// ===== [fn-overload-rank] O1: concrete beats generic =====
-
-/// The same source and the same expected stdout as the Kotlin backend's
-/// `kotlinc_runs_the_most_specific_overload`: the winner is the checker's
-/// choice, so the two targets must agree on it.
-const OVERLOAD_SPECIFICITY: &str = r#"
-fn describe<T>(value: T) -> Str {
-    return "generic"
-}
-
-fn describe(value: Int) -> Str {
-    return "concrete"
-}
-
-fn main() [use] {
-    use StdConsole()
-    println(describe(3))
-    println(describe("text"))
-}
-"#;
-
-#[test]
-fn rustc_runs_the_most_specific_overload() {
-    let files = generate(&[("main.sv", OVERLOAD_SPECIFICITY)]);
-    run_rust_files(&files, "overload-specificity", "concrete\ngeneric\n");
-}
-
-/// [rs-effects] [fn-contract] An effect member taking a fn value, plain or
-/// `once`: the trait is used as `dyn`, so the member takes `&mut dyn FnMut`
-/// and `Box<dyn FnOnce>` (boxed at the call) rather than `impl` — which made
-/// the trait not object-safe and every such program a rustc error until
-/// 2026-10-02. Called directly and through a fn's `[Apply]`.
-const EFFECT_FN_PARAMS: &str = r#"
-effect Apply {
-    fn apply(f: (n: Int) -> Int, x: Int) -> Int => f, x
-    fn once_apply(f: once () -> Int) -> Int => !f
-}
-
-handler Applying() of Apply {
-    fn apply(f: (n: Int) -> Int, x: Int) -> Int => f, x {
-        let y = f(x)
-        return f(y)
-    }
-
-    fn once_apply(f: once () -> Int) -> Int => !f {
-        return f()
-    }
-}
-
-fn through(x: Int) [Apply] -> Int {
-    return apply(n -> n + 1, x) + once_apply(() -> x * 10)
-}
-
-fn main() [use] {
-    use StdConsole()
-    use Applying()
-    let k = 3
-    println("${apply(n -> n * k, 2)} ${once_apply(() -> k + 1)} ${through(5)}")
-}
-"#;
-
-#[test]
-fn rustc_runs_effect_members_taking_fn_values() {
-    let files = generate(&[("main.sv", EFFECT_FN_PARAMS)]);
-    run_rust_files(&files, "effect-fn-params", "18 4 57\n");
-}
 
 // ===== [op-safe-nav] `?.` optional chaining =====
 
@@ -7674,12 +4989,6 @@ fn main() [use] {
 }
 "#;
 
-#[test]
-fn rustc_runs_safe_navigation() {
-    let files = generate(&[("main.sv", SAFE_NAV_DEMO)]);
-    run_rust_files(&files, "safe-nav", "42\n-1\n-1\nnanos=42\nabsent\n");
-}
-
 // [op-safe-nav] [rs-safe-nav] A field-only `?.` chain is a combinator chain.
 #[test]
 fn safe_navigation_field_chain_is_a_combinator_chain() {
@@ -7697,76 +5006,6 @@ fn safe_navigation_field_chain_is_a_combinator_chain() {
     );
 }
 
-// ===== [when-bind] `when name = subject { … }` =====
-
-/// The same source and expected stdout as the Kotlin backend's
-/// `kotlinc_compiles_and_runs_when_binding`. The subject is bound inline and
-/// used in the arms, and the binding is scoped to the `when` (a later
-/// `last_updated` is a fresh name).
-const WHEN_BIND_DEMO: &str = r#"
-struct Meta {
-    last_updated: Long?
-}
-
-fn nanos(m: Meta) -> Long {
-    return when last_updated = m.last_updated {
-        is Long { last_updated }
-        is None { -1L }
-    }
-}
-
-fn main() [use] {
-    use StdConsole()
-    println(to_str(nanos(Meta { last_updated: 7L })))
-    println(to_str(nanos(Meta { last_updated: None })))
-    let last_updated = 99L
-    println(to_str(last_updated))
-}
-"#;
-
-#[test]
-fn rustc_runs_when_binding() {
-    let files = generate(&[("main.sv", WHEN_BIND_DEMO)]);
-    run_rust_files(&files, "when-bind", "7\n-1\n99\n");
-}
-
-// ===== [op-arm-eq] `union == value` picks the arm by the value's type =====
-
-/// The same source and expected stdout as the Kotlin backend's
-/// `kotlinc_compiles_and_runs_arm_equality`. `x == -1L` on a `Long?` means
-/// "present and equal to -1" (`None` compares unequal), and the sentinel is
-/// then reassigned to `None` — the `disk.sv` TODO shape.
-const ARM_EQ_DEMO: &str = r#"
-fn normalize(raw: Long) -> Long? {
-    let last_updated: Long? = raw
-    if last_updated == -1L { last_updated = None }
-    return last_updated
-}
-
-fn show(v: Long?) -> Str {
-    return when u = v {
-        is Long { to_str(u) }
-        is None { "none" }
-    }
-}
-
-fn main() [use] {
-    use StdConsole()
-    println(show(normalize(-1L)))
-    println(show(normalize(42L)))
-    // `!=` is the negation: present-and-not-(-1), or absent.
-    let n: Long? = 7L
-    println(to_str(n != -1L))
-    let m: Long? = None
-    println(to_str(m != -1L))
-}
-"#;
-
-#[test]
-fn rustc_runs_arm_equality() {
-    let files = generate(&[("main.sv", ARM_EQ_DEMO)]);
-    run_rust_files(&files, "arm-eq", "none\n42\ntrue\ntrue\n");
-}
 
 // ===== [str-drop-mut] [rs-mut-str] `Mut Str` is a `String` =====
 
@@ -7842,12 +5081,6 @@ fn main() [use] {
 }
 "#;
 
-/// The stdout both backends must produce, byte for byte.
-const STRING_DEMO_OUTPUT: &str = "HELLO WORLD\nsize: 11\nHello world / Hello world!\n\
-                                  cleared: []\n4 a-b--c\n[pad] true true true\npad\n\
-                                  2 true\nel true\n42 true\nhel|\nchars: 5\n\
-                                  bytes: [104, 195, 169] 68c3a9 hé true\nequal: true\n";
-
 /// [rs-mut-str] `Mut` erases here — `Mut Str` and `Str` are both `String` —
 /// so a drop renders *nothing*, and the string surface is a set of `&str`
 /// methods with the char-vs-byte corrections Salvo's semantics need.
@@ -7891,12 +5124,6 @@ fn mut_str_is_a_plain_string() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_strings() {
-    let files = generate(&[("main.sv", STRING_DEMO)]);
-    run_rust_files(&files, "strings", STRING_DEMO_OUTPUT);
-}
-
 /// [fn-variadic] A `...spread` into a variadic intrinsic *is* the whole
 /// collection: `vec![parts]` would be a vector of one vector. Cloned rather
 /// than moved, matching Kotlin's `listOf(*arr)` — and the string parts are
@@ -7927,7 +5154,6 @@ export fn main() [use] {
             && main.contains("Set_platform::<String>(parts.clone(), "),
         "unexpected:\n{main}"
     );
-    run_rust_files(&files, "strings-spread", "ab 2\n");
 }
 
 /// The case the generated trait exists for: `set` through a `&mut String`
@@ -7960,7 +5186,7 @@ fn main() [use] {
 "#;
 
 #[test]
-fn rustc_compiles_and_runs_mut_str_places() {
+fn mut_str_places() {
     let files = generate(&[("main.sv", MUT_STR_PLACES)]);
     let main = &files
         .iter()
@@ -7976,7 +5202,6 @@ fn rustc_compiles_and_runs_mut_str_places() {
         main.contains("crate::std_core_string::set_platform(&mut buf.text, 0i32, 'I')"),
         "unexpected:\n{main}"
     );
-    run_rust_files(&files, "mut-str-places", "grown 5\nIn-struct!\n");
 }
 
 // ===== [rs-seq] [seq-iterator] [implicit-group] the sequence functions =====
@@ -8058,10 +5283,6 @@ fn main() [use] {
 }
 "#;
 
-const SEQ_DEMO_OUTPUT: &str = "list: 4 10 2\nnamed: 4\narray: 60 3\nchars: 2\n\
-                               iter: 10 2\nnames: 3 1\nbag: 11\n\
-                               bag element 5\nbag element 6\n";
-
 /// [rs-seq] The `List` fast paths are std functions (`filter` a platform fn),
 /// whose parameter types are what give a callback its expected type.
 /// [implicit-intrinsic] The generic overload's implicit `iter` arrives as an
@@ -8094,12 +5315,6 @@ fn sequence_functions_lower_to_helpers() {
         "expected the pass to be minted through its generated `iter` in:\n{main}"
     );
     let _ = &files;
-}
-
-#[test]
-fn rustc_compiles_and_runs_sequences() {
-    let files = generate(&[("main.sv", SEQ_DEMO)]);
-    run_rust_files(&files, "sequences", SEQ_DEMO_OUTPUT);
 }
 
 // ===== [fn-overload-at] [fn-rename] the caller's two overrides =====
@@ -8158,8 +5373,6 @@ fn describe(n: Int) -> Str {
 }
 "#;
 
-const OVERLOAD_OVERRIDE_OUTPUT: &str = "mine\ncore: 3\ndot: 3\neven small\na local\nfn 7\n";
-
 /// [fn-overload-at] [rs-shadowed-call] Neither override survives into the
 /// output — with one Rust-specific consequence: a **local of the same name**
 /// shadows the
@@ -8196,143 +5409,6 @@ fn scope_selectors_and_renames_are_erased() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_overload_overrides() {
-    let files = generate(&[("main.sv", OVERLOAD_OVERRIDE_DEMO)]);
-    run_rust_files(&files, "overload-overrides", OVERLOAD_OVERRIDE_OUTPUT);
-}
-
-// ===== [backend-never-wrong] declared callees and calls through fn values =====
-
-/// [backend-never-wrong] [call-resolve] [fn-overload-at] A declared callee
-/// beside a same-named local, parameter or class member (B1 census D11 and
-/// D13, 2026-10-27): the `for` over a concrete pass drives the fn's own
-/// implicit `?next`, as the call `next(c)` does (R10 D11, B3.3d; it drove the
-/// declared `next` before) [iter-for]; `5.show()` and
-/// `show@main(5)` call the declared `show` though a local `show` is in scope;
-/// a handler member `label` calls, and passes by name, the top-level `label`.
-/// Kotlin printed the local's `local 5` twice and recursed into the member,
-/// because it wrote each call as a bare name.
-/// `roots` names its locals `salvo`, `kotlin` and `java`, the package roots
-/// the qualified Kotlin names go through.
-const DECLARED_CALLEE_DEMO: &str = r#"
-struct Ctr : Next<self, Int> canbe Mut {
-    n: Int
-}
-
-fn next(c: Mut Ctr) [] -> Emitted Int | Finished => c: Mut {
-    if c.n >= 2 {
-        return finished()
-    }
-    c.n = c.n + 1
-    return emitted(c.n)
-}
-
-fn by_tens(c: Mut Ctr) [] -> Emitted Int | Finished => c: Mut {
-    if c.n >= 2 {
-        return finished()
-    }
-    c.n = c.n + 1
-    return emitted(c.n * 10)
-}
-
-fn walk(c: Mut Ctr, d: Mut Ctr, ?next: (c: Mut Ctr) -> Emitted Int | Finished) [Console] -> None => c: Mut, d: Mut {
-    for x in c {
-        println("for: ${x}")
-    }
-    let r = next(d)
-    if r is Emitted Int {
-        println("call: ${r}")
-    }
-}
-
-fn show(n: Int) [] -> Str => n { return "decl ${n}" }
-
-effect Labels {
-    fn label(n: Int) -> Str
-}
-
-fn label(n: Int) [] -> Str => n { return "fn ${n}" }
-
-fn apply(f: (n: Int) -> Str, n: Int) [] -> Str => f, n { return f(n) }
-
-fn roots(salvo: Int) [] -> Str => salvo {
-    let kotlin = salvo + 1
-    let java = show(kotlin)
-    return java
-}
-
-handler LabelsH of Labels {
-    fn label(n: Int) -> Str {
-        return "member, ${label(n)}, ${apply(label, n)}"
-    }
-}
-
-fn main() [use] {
-    use StdConsole()
-    let c = Mut Ctr { n: 0 }
-    let d = Mut Ctr { n: 0 }
-    walk(c, d, next = by_tens)
-    let show = (n: Int) -> "local ${n}"
-    println("call: ${show(5)}")
-    println("dot: ${5.show()}")
-    println("at: ${show@main(5)}")
-    println("roots: ${roots(1)}")
-    use LabelsH()
-    println(label@Labels(7))
-}
-"#;
-
-const DECLARED_CALLEE_OUTPUT: &str = "for: 10\nfor: 20\ncall: 10\ncall: local 5\ndot: decl 5\nat: decl 5\nroots: decl 2\nmember, fn 7, fn 7\n";
-
-/// [call-resolve] [fn-value] [effect-available] [fn-overload-rank] Calls the
-/// checker now types and checks where it did not (B1 census D16 and D19,
-/// 2026-10-27): a computed callee, with and without an effect (the IR passed
-/// a computed callee no effect instances); a lambda in a call where an effect
-/// member and a fn collide, typed from the position both declare alike; and a
-/// lambda among overloads that agree on its position.
-const FN_VALUE_CALL_DEMO: &str = r#"
-fn adder() [] -> (n: Int) -> Int { return (n: Int) -> n + 1 }
-
-fn printer() [] -> (s: Str) [Console] -> None { return (s: Str) -> println(s) }
-
-effect Ops {
-    fn apply(f: (x: Int) -> Int, n: Int) -> Int => f
-}
-
-handler OpsH of Ops {
-    fn apply(f: (x: Int) -> Int, n: Int) -> Int { return f(n) }
-}
-
-fn apply(f: (x: Int) -> Int, s: Str) [] -> Int => f { return f(100) }
-
-fn pick(f: (x: Int) -> Int, n: Int) [] -> Int => f { return f(n) }
-fn pick(f: (x: Int) -> Int, s: Str) [] -> Int => f { return f(1000) }
-
-fn main() [use] {
-    use StdConsole()
-    use OpsH()
-    println("computed: ${adder()(1)}")
-    printer()("computed, with an effect")
-    println("member: ${apply(x -> x + 1, 20)}")
-    println("fn: ${apply(x -> x * 2, "s")}")
-    println("pick: ${pick(x -> x + 3, 4)} ${pick(x -> x + 3, "s")}")
-}
-"#;
-
-const FN_VALUE_CALL_OUTPUT: &str = "computed: 2\ncomputed, with an effect\nmember: 21\nfn: 200\npick: 7 1003\n";
-
-#[test]
-fn rustc_compiles_and_runs_declared_callees_past_same_named_locals() {
-    let files = generate(&[("main.sv", DECLARED_CALLEE_DEMO)]);
-    run_rust_files(&files, "declared-callees", DECLARED_CALLEE_OUTPUT);
-}
-
-#[test]
-fn rustc_compiles_and_runs_calls_through_fn_values() {
-    let files = generate(&[("main.sv", FN_VALUE_CALL_DEMO)]);
-    run_rust_files(&files, "fn-value-calls", FN_VALUE_CALL_OUTPUT);
-}
 
 // ===== [iter-generic-drive] driving a generic pass =====
 
@@ -8361,12 +5437,6 @@ fn a_kept_pass_is_driven_in_place() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_a_generic_drive() {
-    let files = generate(&[("main.sv", GENERIC_DRIVE_DEMO)]);
-    run_rust_files(&files, "generic-drive", GENERIC_DRIVE_OUTPUT);
-}
-
 /// [linear-generics] The discharge is the program's: the pass is driven in
 /// place and the consuming callback `end(it)` is the explicit terminal —
 /// no loop-local, no deferred splice (user decision 2026-09-12).
@@ -8386,12 +5456,6 @@ fn an_owned_generic_pass_is_discharged_by_the_callback() {
         src.contains("end(it)"),
         "expected the explicit consuming-callback discharge in:\n{src}"
     );
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_generic_close() {
-    let files = generate(&[("main.sv", GENERIC_CLOSE_DEMO)]);
-    run_rust_files(&files, "generic-close", GENERIC_CLOSE_OUTPUT);
 }
 
 // ===== [iter-fn] the generated-pass form =====
@@ -8515,16 +5579,6 @@ fn main() [use] {
 }
 "#;
 
-const ITER_FN_OUTPUT: &str = "n 3\nn 2\nn 1\nagain 3\nagain 2\nagain 1\nfirst 3\n\
-                              rest 2\nrest 1\nfib total 20\n  turn 0\nv 1\n  turn 1\n\
-                              v 2\n  done\ns hey!\ns hey!\n";
-
-#[test]
-fn rustc_compiles_and_runs_the_iter_fn_form() {
-    let files = generate(&[("main.sv", ITER_FN_DEMO)]);
-    run_rust_files(&files, "iter-fn", ITER_FN_OUTPUT);
-}
-
 /// [iter-fn] What the expansion emits, and what it does *not*: a plain struct
 /// borrowing the parameters beside the `state` fields, a plain minter, and a
 /// plain `next` — no state machine, no `__advance`, no state
@@ -8565,69 +5619,6 @@ fn an_iter_fn_emits_a_plain_struct_and_next() {
         main.contains("crate::next__NoisyIter(&__handle_2, &mut __pass_14);"),
         "expected the handler threaded into the drive:\n{main}"
     );
-}
-
-/// [implicit-infer] A generic function over **containers** rather than passes:
-/// it takes the container and asks for its `iter` as an implicit parameter, so
-/// the pass type is decided by *which `iter` fills it* and the `?Next` spread
-/// beside it resolves against what that taught (user decision 2026-09-10).
-///
-/// One function, three container kinds, no type arguments written — including a
-/// `iter fn` subject, whose generated pass **cannot** be named, which is why
-/// inferring it had to work rather than being worked around.
-const CONTAINER_IMPLICIT_DEMO: &str = r#"
-struct Countdown {
-    from: Int
-}
-
-iter fn iter(c: Countdown) -> Emitted Int | Finished {
-    state CountdownIter2 {
-        at: Int = c.from
-    }
-    if at <= 0 {
-        return finished()
-    }
-    at = at - 1
-    return emitted(at + 1)
-}
-
-struct Bag {
-    items: List<Int>
-}
-
-fn iter(bag: Bag) -> Mut ListNext<Int> => bag {
-    return iter(bag.items)
-}
-
-fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Next<It, Int>) -> Int =>[iter] c => c {
-    let sum = 0
-    let p = iter(c)
-    for n in p {
-        sum = sum + n
-    }
-    return sum
-}
-
-fn main() [use] {
-    use StdConsole()
-    let c = Countdown { from: 3 }
-    println("generated pass: ${total(c)}")
-    let b = Bag { items: List(4, 5) }
-    println("written iter: ${total(b)}")
-    // A literal, not `List(1, 2, 3)`: a *qualified* argument type
-    // (`NonEmpty List<Int>` [col-of-nonempty]) currently stops `It` binding
-    // through the `?iter` position, and the sibling `next` at the nearer rung
-    // then wins — an open defect, with this line as its repro (ROADMAP.md).
-    println("a list: ${total(List(1, 2, 3))}")
-}
-"#;
-
-const CONTAINER_IMPLICIT_OUTPUT: &str = "generated pass: 6\nwritten iter: 9\na list: 6\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_container_combinator() {
-    let files = generate(&[("main.sv", CONTAINER_IMPLICIT_DEMO)]);
-    run_rust_files(&files, "container-implicit", CONTAINER_IMPLICIT_OUTPUT);
 }
 
 /// [fate-field-disjoint] [rs-borrow-locals] L5's payoff on this backend, and
@@ -8683,10 +5674,8 @@ fn main() [use] {
 }
 "#;
 
-const FIELD_DISJOINT_OUTPUT: &str = "A ann 2\nC 1 2\nD dee 2\nE eve 2\n";
-
 #[test]
-fn rustc_compiles_and_runs_field_disjoint_access() {
+fn field_disjoint_access() {
     let files = generate(&[("main.sv", FIELD_DISJOINT_DEMO)]);
     // The borrow is real and lives across the disjoint mutation: that is the
     // shape rustc has to accept for L5 to be clone-free here.
@@ -8699,7 +5688,6 @@ fn rustc_compiles_and_runs_field_disjoint_access() {
         main.contains("let mut n = &p.name;") && main.contains("add_platform::<String>(&mut p.tags, "),
         "expected a disjoint-field borrow held across the mutation in:\n{main}"
     );
-    run_rust_files(&files, "field-disjoint", FIELD_DISJOINT_OUTPUT);
 }
 
 /// [fate-partial-move] L5's move half end to end: a field handed to a
@@ -8741,10 +5729,8 @@ fn main() [use] {
 }
 "#;
 
-const PARTIAL_MOVE_OUTPUT: &str = "1 ann\n2 bob 2\n3 eve 2\n";
-
 #[test]
-fn rustc_compiles_and_runs_a_partial_move() {
+fn a_partial_move() {
     let files = generate(&[("main.sv", PARTIAL_MOVE_DEMO)]);
     let main = &files
         .iter()
@@ -8758,47 +5744,6 @@ fn rustc_compiles_and_runs_a_partial_move() {
             && main.contains("let mut t: Vec<String> = q.tags;"),
         "expected a partial move with a live sibling read in:\n{main}"
     );
-    run_rust_files(&files, "partial-move", PARTIAL_MOVE_OUTPUT);
-}
-
-/// [op-inc-dec] All four step forms, in both statement and value position: the
-/// fixity decides the *value* (postfix the old, prefix the new) and the
-/// operator the direction. Rust has neither operator, so a value-position
-/// step becomes a block; the stdout is what pins the two backends together.
-///
-/// Shared with the other backend, byte for byte.
-const INC_DEC_DEMO: &str = r#"
-fn main() [use] {
-    use StdConsole()
-    let i = 5
-    i++
-    i--
-    ++i
-    --i
-    println("statements: ${i}")
-
-    let a = 10
-    let post = a++
-    println("post: ${post} ${a}")
-    let b = 10
-    let pre = ++b
-    println("pre: ${pre} ${b}")
-    let c = 10
-    let cd = c--
-    println("post-dec: ${cd} ${c}")
-    let d = 10
-    let dd = --d
-    println("pre-dec: ${dd} ${d}")
-}
-"#;
-
-const INC_DEC_OUTPUT: &str =
-    "statements: 5\npost: 10 11\npre: 11 11\npost-dec: 10 9\npre-dec: 9 9\n";
-
-#[test]
-fn rustc_compiles_and_runs_inc_dec() {
-    let files = generate(&[("main.sv", INC_DEC_DEMO)]);
-    run_rust_files(&files, "inc-dec", INC_DEC_OUTPUT);
 }
 
 /// [rs-opt-borrow] A local bound from a derived-return call with an optional
@@ -8827,7 +5772,7 @@ fn main() [use] {
 "#;
 
 #[test]
-fn rustc_compiles_and_runs_an_optional_borrow_unwrap() {
+fn an_optional_borrow_unwrap() {
     let files = generate(&[("main.sv", OPT_BORROW_DEMO)]);
     let main = &files
         .iter()
@@ -8839,94 +5784,6 @@ fn rustc_compiles_and_runs_an_optional_borrow_unwrap() {
             && !main.contains("head.as_ref().unwrap()"),
         "expected the reference unwrap, not a clone of the reference, in:\n{main}"
     );
-    run_rust_files(&files, "opt-borrow", "ann\nann\n");
-}
-
-/// [iter-fn] [proj-field] [iter-yield-proj] An `iter fn` over a *generic* subject
-/// that emits borrowed elements. The generated pass **borrows** its subject
-/// (`b: proj Box<T>`, user decision 2026-09-11) instead of copying it,
-/// so nothing has to `copy` a value of type `T` — which is what used to refuse
-/// generic subjects on the Kotlin backend [kt-copy]. `proj(b)` in the
-/// written return names the subject; the desugar redirects it to the pass.
-const GENERIC_ITER_FN_DEMO: &str = r#"
-struct Box<T> {
-    items: List<T>
-}
-
-iter fn iter<T>(b: Box<T>) -> Emitted (proj(b) T) | Finished {
-    state BoxIter {
-        at: Int = 0
-    }
-    let e = get(b.items, at)
-    if e is None {
-        return finished()
-    }
-    at = at + 1
-    return emitted(e)
-}
-
-fn main() [use] {
-    use StdConsole()
-    let b = Box<Str> { items: List("a", "b") }
-    for s in iter(b) {
-        println(s)
-    }
-    let n = Box<Int> { items: List(1, 2, 3) }
-    println("${reduce(iter(n), 0, (acc, x) -> acc + x)}")
-}
-"#;
-
-const GENERIC_ITER_FN_OUTPUT: &str = "a\nb\n6\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_generic_subject_iter_fn() {
-    let files = generate(&[("main.sv", GENERIC_ITER_FN_DEMO)]);
-    run_rust_files(&files, "generic-iter-fn", GENERIC_ITER_FN_OUTPUT);
-}
-
-/// [deduce-syntax] [proj-anywhere] The `=>` clause's projection forms end to
-/// end: a wholesale `proj(a, b)` joined across branches, and a
-/// re-pointing entry `v.items: proj(other)` that makes a view borrow a
-/// different list — Rust ties the struct's lifetime to the new source.
-const DEDUCTION_CLAUSE_DEMO: &str = r#"
-struct View canbe Mut {
-    items: proj List<Int>,
-    at: Int
-}
-
-fn view(items: List<Int>) -> Mut View {
-    return Mut View { items: items, at: 0 }
-}
-
-fn repoint(v: Mut View, other: List<Int>) -> None => v: Mut, v.items: proj(other) {
-    v.items = other
-    v.at = 0
-}
-
-fn either(a: List<Int>, b: List<Int>, flag: Bool) -> proj(a, b) List<Int> {
-    if flag {
-        return a
-    }
-    return b
-}
-
-fn main() [use] {
-    use StdConsole()
-    let a = List(1, 2)
-    let b = List(3, 4, 5)
-    println("${size(either(a, b, true))} ${size(either(a, b, false))}")
-    let v = view(a)
-    repoint(v, b)
-    println("${size(v.items)} at ${v.at}")
-}
-"#;
-
-const DEDUCTION_CLAUSE_OUTPUT: &str = "2 3\n3 at 0\n";
-
-#[test]
-fn rustc_compiles_and_runs_the_deduction_clause_projections() {
-    let files = generate(&[("main.sv", DEDUCTION_CLAUSE_DEMO)]);
-    run_rust_files(&files, "deduction-clause", DEDUCTION_CLAUSE_OUTPUT);
 }
 
 // ===== [rs-repoint] a re-pointed view: one Rust variable per live range =====
@@ -9092,10 +5949,8 @@ fn main() [use] -> None {
 }
 "#;
 
-const REPOINT_OUTPUT: &str = "pick 2\nyielded 2\neither 2 0\nearly 2\nearly kept 1 of the local\nlate 0\ntotal kept 1\nturn kept 2\nturn kept 1\nturn kept 2\nafter the loop: 2\nmine kept 1\nws kept 2, mine has 3\na starts 0\na then 2\nb starts 3\nb then 0\nints kept 2\nints then 1\nflows if 3\nflows break 2\nflows continue 1\nflows while 3\nflows if 0\nflows break 2\nflows continue 1\nflows while 3\n";
-
 #[test]
-fn rustc_compiles_and_runs_re_pointed_views() {
+fn re_pointed_views() {
     let files = generate(&[("main.sv", REPOINT_DEMO)]);
     let main = &files.iter().find(|f| f.rel_path.ends_with("main.rs")).expect("main.rs").content;
     let seq = &files.iter().find(|f| f.rel_path.ends_with("std/core/seq.rs")).expect("seq.rs").content;
@@ -9115,7 +5970,6 @@ fn rustc_compiles_and_runs_re_pointed_views() {
     ] {
         assert!(main.contains(needle), "missing `{needle}` in:\n{main}");
     }
-    run_rust_files(&files, "re-pointed-views", REPOINT_OUTPUT);
 }
 
 // ===== [rs-proj-arm] a forwarded fn value into a retagged slot =====
@@ -9235,10 +6089,8 @@ fn main() [use] -> None {
 }
 "#;
 
-const FORWARDED_FN_OUTPUT: &str = "param lambda 1\nparam named 2\ntwo levels 2\nlocal lambda 2\nlocal named 2\nfield 2\nfield any true\nimplicit 2\nmap 6\nreduce 6\ngeneric 2\ncall 2\ncall local 2\ncall any true true false\n";
-
 #[test]
-fn rustc_compiles_and_runs_forwarded_fn_values() {
+fn forwarded_fn_values() {
     let files = generate(&[("main.sv", FORWARDED_FN_DEMO)]);
     let main = &files.iter().find(|f| f.rel_path.ends_with("main.rs")).expect("main.rs").content;
     for needle in [
@@ -9261,7 +6113,6 @@ fn rustc_compiles_and_runs_forwarded_fn_values() {
     ] {
         assert!(main.contains(needle), "missing `{needle}` in:\n{main}");
     }
-    run_rust_files(&files, "forwarded-fn-values", FORWARDED_FN_OUTPUT);
 }
 
 // ===== [rs-proj-flat] a borrowed element read through a generic `proj T` =====
@@ -9338,10 +6189,8 @@ fn main() [use] -> None {
 }
 "#;
 
-const BORROWED_ELEMENT_OUTPUT: &str = "list for ab\nlist for def\nget ab\niter for ab\niter for def\nlast def\nfirst ab\nmap 2 3\nfilter def\ncount 2\nfind_first 1\nreduce 5\nto_list ab\nto_list def\nmap get def\nfield for ab\nfield for def\nfield get ab\nnested get 2\nnested for 2\nnested for 1\n";
-
 #[test]
-fn rustc_compiles_and_runs_borrowed_element_reads() {
+fn borrowed_element_reads() {
     let files = generate(&[("main.sv", BORROWED_ELEMENT_DEMO)]);
     let main = &files.iter().find(|f| f.rel_path.ends_with("main.rs")).expect("main.rs").content;
     for needle in [
@@ -9358,7 +6207,6 @@ fn rustc_compiles_and_runs_borrowed_element_reads() {
     ] {
         assert!(main.contains(needle), "missing `{needle}` in:\n{main}");
     }
-    run_rust_files(&files, "borrowed-element-reads", BORROWED_ELEMENT_OUTPUT);
 }
 
 // ===== [fn-kept-borrow] a kept owned parameter reads a borrowed argument =====
@@ -9434,10 +6282,8 @@ fn main() [use] -> None {
 }
 "#;
 
-const KEPT_BORROW_OUTPUT: &str = "any true false\nall true false\ncount 1\nfind_first 0\nmap 2 3 2\nfilter def\nreduce 5\nparam 1 2\nslot 1\nlocal false 1\nmap 3 2 true\nset 2 true false\nlist true true 0\nto_str [def, ab] [ab, def]\n";
-
 #[test]
-fn rustc_compiles_and_runs_kept_fns_over_views() {
+fn kept_fns_over_views() {
     let files = generate(&[("main.sv", KEPT_BORROW_DEMO)]);
     let main = &files.iter().find(|f| f.rel_path.ends_with("main.rs")).expect("main.rs").content;
     for needle in [
@@ -9450,7 +6296,6 @@ fn rustc_compiles_and_runs_kept_fns_over_views() {
     ] {
         assert!(main.contains(needle), "missing `{needle}` in:\n{main}");
     }
-    run_rust_files(&files, "kept-fns-over-views", KEPT_BORROW_OUTPUT);
 }
 
 /// [fn-kept-borrow] Only a *kept* parameter reads a borrow: a fn consuming
@@ -9506,42 +6351,6 @@ fn main() [use] -> None {
     }
 }
 
-// ===== [proj-type] a borrowed union arm into a `proj`-typed parameter =====
-
-/// The phase-2b cut, closed 2026-09-12: a pass's `next` returns
-/// `Emitted (proj Str) | Finished` — a union whose payload arm *borrows* —
-/// and a fn takes that union whole by writing the projection in its
-/// parameter type. The same value is also read as a plain projection
-/// (`get(...)!`) and copied out of it ([copy-fn]).
-const PROJ_ARM_PARAM_DEMO: &str = r#"
-fn show(step: Emitted (proj Str) | Finished) [Console] -> None {
-    when step {
-        is Emitted { println(step) }
-        is Finished { println("done") }
-    }
-}
-
-fn main() [use] {
-    use StdConsole()
-    let words = List("ann", "bo")
-    let p = iter(words)
-    show(next(p))
-    show(next(p))
-    show(next(p))
-    let e = get(words, 0) ?: unreachable!()
-    println(e)
-    let owned: Str = copy(e)
-    println(owned)
-}
-"#;
-
-const PROJ_ARM_PARAM_OUTPUT: &str = "ann\nbo\ndone\nann\nann\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_borrowed_union_arm_into_a_proj_parameter() {
-    let files = generate(&[("main.sv", PROJ_ARM_PARAM_DEMO)]);
-    run_rust_files(&files, "proj-arm-param", PROJ_ARM_PARAM_OUTPUT);
-}
 
 // ===== [fate-lambda-view] a capture-rooted projection, clone-free =====
 
@@ -9568,10 +6377,8 @@ fn main() [use] {
 }
 "#;
 
-const PICK_LIST_OUTPUT: &str = "b\nd\n2\n6\n";
-
 #[test]
-fn rustc_compiles_and_runs_a_capture_rooted_projection() {
+fn a_capture_rooted_projection() {
     let files = generate(&[("main.sv", PICK_LIST_DEMO)]);
     let main = &files
         .iter()
@@ -9587,195 +6394,6 @@ fn rustc_compiles_and_runs_a_capture_rooted_projection() {
             && !main.contains("__picked_4.clone()"),
         "expected a clone-free, deref'd pick lambda:\n{main}"
     );
-    run_rust_files(&files, "pick-list", PICK_LIST_OUTPUT);
-}
-
-// ===== [linear-union-arm] the fallible-open shape, end to end =====
-
-/// O-C2 (user decision 2026-09-12): a written linear union arm. The `Ok`
-/// path closes the handle, the `Err` path owes nothing — and the emitted
-/// code is ordinary union lowering, because linearity is static and
-/// backend-identical [linear-static].
-const FALLIBLE_OPEN_DEMO: &str = r#"
-linear struct InputStream {
-    path: Str
-}
-
-fn close(s: InputStream) [Console] -> None => !s {
-    println("closed ${s.path}")
-    discard(s)
-}
-
-fn open(path: Str) -> Ok InputStream | Err Str
-=> !path {
-    if size(path) > 0 {
-        return ok(InputStream {path: path})
-    }
-    return err("empty path")
-}
-
-fn attempt(path: Str) [Console] -> None
-=> !path {
-    let r = open(path)
-    when r {
-        is Ok {
-            println("opened")
-            close(r)
-        }
-        is Err {
-            println("error: ${r}")
-        }
-    }
-}
-
-fn main() [use] {
-    use StdConsole()
-    attempt("a.txt")
-    attempt("")
-}
-"#;
-
-const FALLIBLE_OPEN_OUTPUT: &str = "opened\nclosed a.txt\nerror: empty path\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_linear_union_arm() {
-    let files = generate(&[("main.sv", FALLIBLE_OPEN_DEMO)]);
-    run_rust_files(&files, "linear-union-arm", FALLIBLE_OPEN_OUTPUT);
-}
-
-// ===== [linear-group] [linear-composite] the wrapper pass, end to end =====
-
-/// Acceptance shape 4 (user decision 2026-09-12): a lazy `take` over a
-/// linear source — a `linear struct` wrapper holding the source as a
-/// concrete linear field, driven in place, discharged through its own
-/// same-file `close_take`, which closes the source. The uncomposable-pass
-/// cut is closed.
-const WRAPPER_PASS_DEMO: &str = r#"
-linear struct Ticks : Next<self, Int> canbe Mut {
-    at: Int
-}
-
-fn open_lines(from: Int) -> Mut Ticks {
-    return Mut Ticks { at: from }
-}
-
-fn next(l: Mut Ticks) -> Emitted Int | Finished => l: Mut {
-    if l.at <= 0 {
-        return finished()
-    }
-    let v = copy(l.at)
-    l.at = l.at - 1
-    return emitted(v)
-}
-
-fn close(l: Ticks) [Console] -> None => !l {
-    println("closed lines")
-    discard(l)
-}
-
-linear struct Take : Next<self, Int> canbe Mut {
-    source: Mut Ticks,
-    left: Int
-}
-
-fn take(source: Mut Ticks, n: Int) -> Mut Take => !source {
-    return Mut Take { source: source, left: n }
-}
-
-fn next(t: Mut Take) -> Emitted Int | Finished => t: Mut {
-    if t.left <= 0 {
-        return finished()
-    }
-    t.left = t.left - 1
-    return next(t.source)
-}
-
-fn close_take(t: Take) [Console] -> None => !t {
-    close(t.source)
-}
-
-fn main() [use] {
-    use StdConsole()
-    let t = take(open_lines(5), 2)
-    for n in t {
-        println("n ${n}")
-    }
-    close_take(t)
-    println("done")
-}
-"#;
-
-const WRAPPER_PASS_OUTPUT: &str = "n 5\nn 4\nclosed lines\ndone\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_linear_wrapper_pass() {
-    let files = generate(&[("main.sv", WRAPPER_PASS_DEMO)]);
-    run_rust_files(&files, "wrapper-pass", WRAPPER_PASS_OUTPUT);
-}
-
-// ===== [fn-value-select] [linear-discard] `drop` as the uniform callback =====
-
-/// The consuming-callback pattern's two callers (user decision 2026-09-12):
-/// a linear pass hands its own discharger (`close`), a plain pass hands
-/// std's generic `drop` — instantiated *by name* from the position's fn
-/// type, which is the generic-fn-value instantiation closed with phase 3.
-const DROP_CALLBACK_DEMO: &str = r#"
-linear struct Handle : Next<self, Int> canbe Mut {
-    at: Int
-}
-
-fn open_handle(from: Int) -> Mut Handle {
-    return Mut Handle { at: from }
-}
-
-fn next(h: Mut Handle) -> Emitted Int | Finished => h: Mut {
-    if h.at <= 0 {
-        return finished()
-    }
-    let v = copy(h.at)
-    h.at = h.at - 1
-    return emitted(v)
-}
-
-fn close(h: Handle) -> None => !h { discard(h) }
-
-struct Counter : Next<self, Int> canbe Mut {
-    at: Int
-}
-
-fn next(c: Mut Counter) -> Emitted Int | Finished => c: Mut {
-    if c.at <= 0 {
-        return finished()
-    }
-    let v = copy(c.at)
-    c.at = c.at - 1
-    return emitted(v)
-}
-
-fn drain<It canbe linear>(it: Mut It, end: (x: It) -> None, ?Next<It, Int>) -> Int => !it =>[end] !x {
-    let sum = 0
-    for n in it {
-        sum = sum + n
-    }
-    end(it)
-    return sum
-}
-
-fn main() [use] {
-    use StdConsole()
-    let h = open_handle(3)
-    println("linear ${drain(h, close)}")
-    let c = Mut Counter { at: 3 }
-    println("plain ${drain(c, drop)}")
-}
-"#;
-
-const DROP_CALLBACK_OUTPUT: &str = "linear 6\nplain 6\n";
-
-#[test]
-fn rustc_compiles_and_runs_drop_as_a_consuming_callback() {
-    let files = generate(&[("main.sv", DROP_CALLBACK_DEMO)]);
-    run_rust_files(&files, "drop-callback", DROP_CALLBACK_OUTPUT);
 }
 
 
@@ -9784,10 +6402,8 @@ fn rustc_compiles_and_runs_drop_as_a_consuming_callback() {
 /// [col-insertion-order] [rs-collections] Set and Map, whose observable
 /// behavior is the part that has to be identical on both backends: the
 /// iteration order, a position-preserving overwrite, an order-preserving
-/// removal that hands the value back, and last-wins duplicate keys. The
-/// Kotlin backend runs the *same source* against the *same expected
-/// output* (`kotlinc_compiles_and_runs_every_case`), which is what makes
-/// this a parity test rather than two independent ones.
+/// removal that hands the value back, and last-wins duplicate keys. It runs
+/// on both backends in the run data ([test-run-data], `collections/`).
 const COLLECTIONS_DEMO: &str = r#"
 fn main() [use] -> None {
     use StdConsole()
@@ -9830,26 +6446,6 @@ fn main() [use] -> None {
 }
 "#;
 
-/// The expected output is shared with the Kotlin backend's case of the same
-/// name — a divergence in either is a [backend-parity] defect.
-const COLLECTIONS_OUTPUT: &str = "set: {b, a, c} size: 3\n\
-     add new: true dup: false now: {b, a, c, d}\n\
-     contains: true remove: true again: false left: {b, c, d}\n\
-     dedup: {1, 2, 3} size: 3\n\
-     map: {one: 1, two: 2, three: 3}\n\
-     overwrite keeps position: {one: 111, two: 2, three: 3}\n\
-     get: 2\n\
-     absent: true removed: 2 left: {one: 111, three: 3}\n\
-     contains_key: true size: 2\n\
-     dup keys: {x: 9, y: 2}\n\
-     int keys: {7: seven, 3: three}\n";
-
-#[test]
-fn rustc_compiles_and_runs_collections() {
-    let files = generate(&[("main.sv", COLLECTIONS_DEMO)]);
-    run_rust_files(&files, "collections", COLLECTIONS_OUTPUT);
-}
-
 /// [platform-value-type] The keyed collections are std's host types
 /// (`lib/platform/std/core/{set,map,sorted}.rs`), so no runtime module is emitted
 /// for them (ROADMAP §0j step 7), and the emitted code names Rust's unordered
@@ -9874,348 +6470,6 @@ fn the_collections_are_std_host_types() {
         files.iter().any(|f| f.rel_path.to_string_lossy() == "platform/std/core/map.rs"),
         "the map's host file is carried"
     );
-}
-
-/// [iter-mint] Iterating a `Set` (its elements) and a `Map` (its keys, with
-/// values reached through `get`), plus a combinator over each pass. Shares
-/// its source and expected output with the Kotlin case of the same name —
-/// the pair is the [backend-parity] test.
-const COLLECTION_ITER_DEMO: &str = r#"
-fn main() [use] -> None {
-    use StdConsole()
-    let s = Set("b", "a", "c")
-    for e in iter(s) {
-        println("elem: ${e}")
-    }
-    let xs = to_list(s)
-    println("as list: ${to_str(xs)}")
-    let n: Int = reduce(iter(s), 0, (acc, e) -> acc + size(e))
-    println("total length: ${n}")
-
-    let m = Map(("one", 1), ("two", 2), ("three", 3))
-    for k in iter(m) {
-        let v = get(m, k)
-        if v is Int {
-            println("${k} -> ${v}")
-        }
-    }
-    println("keys: ${to_str(keys(m))}")
-    let total: Int = reduce(iter(m), 0, (acc, k) -> acc + size(k))
-    println("key length total: ${total}")
-
-    let empty: Set<Int> = Set()
-    for e in iter(empty) {
-        println("unreachable ${e}")
-    }
-    println("done")
-}
-"#;
-
-const COLLECTION_ITER_OUTPUT: &str = "elem: b\n\
-     elem: a\n\
-     elem: c\n\
-     as list: [b, a, c]\n\
-     total length: 3\n\
-     one -> 1\n\
-     two -> 2\n\
-     three -> 3\n\
-     keys: [one, two, three]\n\
-     key length total: 11\n\
-     done\n";
-
-#[test]
-fn rustc_compiles_and_runs_collection_iteration() {
-    let files = generate(&[("main.sv", COLLECTION_ITER_DEMO)]);
-    run_rust_files(&files, "collection-iter", COLLECTION_ITER_OUTPUT);
-}
-
-// ===== collection constructors [fn-type-named] =====
-
-/// [fn-type-named] [col-no-literal] Every constructor form end to end, as the
-/// literals were before them: `List(…)`, `Set(…)`, `Map("k": v)`, the `Mut`
-/// spellings, empty constructors typed by their type arguments or the
-/// parameter they are passed to, the bare struct literal still winning on an
-/// identifier key, and an array built by `array_of`. Shares source and
-/// expected output with the Kotlin case of the same name [backend-parity].
-const COLLECTION_LIT_DEMO: &str = r#"
-struct Point {
-    x: Int,
-    y: Int
-}
-
-fn takes_set(s: Set<Int>) -> Int => s {
-    return size(s)
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    let xs = List(1, 2, 3)
-    println("list: ${to_str(xs)}")
-    let mxs: Mut List<Int> = Mut List(4, 5)
-    add(mxs, 6)
-    println("mut list: ${to_str(mxs)}")
-    let s: Set<Str> = Set("b", "a", "b")
-    println("set: ${to_str(s)}")
-    let m: Map<Str, Int> = Map("one": 1, "two": 2)
-    println("map: ${to_str(m)}")
-    let ms: Mut Set<Int> = Mut Set<Int>()
-    add(ms, 9)
-    println("empty then filled: ${to_str(ms)}")
-    let mm: Map<Str, Int> = Map<Str, Int>()
-    println("empty map: ${to_str(mm)} via param: ${takes_set(Set())}")
-    let p: Point = {x: 1, y: 2}
-    println("struct literal still: ${p.x},${p.y}")
-    let arr = array_of(7, 8)
-    println("array: ${size(arr)} ${arr[0]}")
-}
-"#;
-
-const COLLECTION_LIT_OUTPUT: &str = "list: [1, 2, 3]\n\
-     mut list: [4, 5, 6]\n\
-     set: {b, a}\n\
-     map: {one: 1, two: 2}\n\
-     empty then filled: {9}\n\
-     empty map: {} via param: 0\n\
-     struct literal still: 1,2\n\
-     array: 2 7\n";
-
-#[test]
-fn rustc_compiles_and_runs_collection_literals() {
-    let files = generate(&[("main.sv", COLLECTION_LIT_DEMO)]);
-    run_rust_files(&files, "collection-literals", COLLECTION_LIT_OUTPUT);
-}
-
-// ===== equality, ordering and struct keys [col-equality] =====
-
-/// [op-equality] [op-order] [cmp-auto] Equality and ordering as
-/// **capabilities**: the structural implementations a `default` obligation
-/// generates, a hashed struct as a set element and a map key, lexicographic
-/// list/tuple order, and Salvo's own float equality.
-///
-/// The last line is the one this pair exists for: a Kotlin data class's
-/// generated `equals` calls `Double.equals`, for which `NaN` equals itself,
-/// while Rust's derive is IEEE. The same program printed `true` on one
-/// backend and `false` on the other until the Kotlin emitter began writing
-/// its own `equals` [kt-float-eq]. Shares source and expected output with the
-/// Kotlin case of the same name [backend-parity].
-const EQUALITY_DEMO: &str = r#"
-struct Point : Ordered<self> by auto, Hashed<self> by auto {
-    x: Int,
-    y: Int
-}
-
-struct Version : Ordered<self> by auto, Hashed<self> by auto {
-    parts: List<Int>,
-    label: (Str, Int)
-}
-
-// Equality only — and a float field, which is fine for `eq` and not for a key.
-struct Measure : Eq<self> by auto {
-    value: Double
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    let p = Point { x: 1, y: 2 }
-    let q = Point { x: 1, y: 3 }
-    let r = Point { x: 1, y: 2 }
-    let eq = p == r
-    let ne = p != q
-    let lt = p < q
-    let ge = q >= p
-    println("eq: ${eq} ne: ${ne} lt: ${lt} ge: ${ge}")
-
-    let seen: Mut Set<Point> = Mut Set<Point>()
-    add(seen, Point { x: 1, y: 2 })
-    let dup = add(seen, Point { x: 1, y: 2 })
-    println("struct key: size ${size(seen)} dup ${dup}")
-
-    let by: Mut Map<Point, Str> = Mut Map<Point, Str>()
-    put(by, Point { x: 9, y: 9 }, "nine")
-    let hit = get(by, Point { x: 9, y: 9 })
-    if hit is Str {
-        println("struct lookup: ${hit}")
-    }
-
-    let a = Version { parts: List(1, 2, 0), label: ("a", 1) }
-    let b = Version { parts: List(1, 3), label: ("a", 1) }
-    let c = Version { parts: List(1, 2), label: ("a", 1) }
-    let ab = a < b
-    let ca = c < a
-    println("list order: ${ab} prefix: ${ca}")
-
-    let zero = 0.0
-    let m1 = Measure { value: zero / zero }
-    let m2 = Measure { value: zero / zero }
-    let nan_eq = m1 == m2
-    println("struct nan equality: ${nan_eq}")
-}
-"#;
-
-const EQUALITY_OUTPUT: &str = "eq: true ne: true lt: true ge: true\n\
-     struct key: size 1 dup false\n\
-     struct lookup: nine\n\
-     list order: true prefix: true\n\
-     struct nan equality: false\n";
-
-#[test]
-fn rustc_compiles_and_runs_equality_and_ordering() {
-    let files = generate(&[("main.sv", EQUALITY_DEMO)]);
-    run_rust_files(&files, "equality-ordering", EQUALITY_OUTPUT);
-}
-
-// ===== sorted collections [col-sorted] =====
-
-/// [col-sorted] `SortedSet`/`SortedMap` end to end: key order rather than
-/// insertion order, `min`/`max`, `first_key`/`last_key`, and in-order
-/// iteration. Rust uses `BTreeSet`/`BTreeMap`, Kotlin a `TreeSet`/`TreeMap`
-/// built with Salvo's own comparator — shares source and expected output with
-/// the Kotlin case of the same name [backend-parity].
-const SORTED_DEMO: &str = r#"
-fn main() [use] -> None {
-    use StdConsole()
-    let s: Mut SortedSet<Str> = Mut SortedSet("pear", "apple", "fig")
-    println("set: ${to_str(s)}")
-    let added = add(s, "banana")
-    let dup = add(s, "apple")
-    println("add ${added} dup ${dup} now ${to_str(s)}")
-    // [col-nonempty] `add` established `NonEmpty`, so `min`/`max` resolve to
-    // the overloads that answer with an element rather than an optional —
-    // no test needed here any more.
-    let lo = min(s)
-    let hi = max(s)
-    println("min ${lo} max ${hi}")
-    let had = remove(s, "fig")
-    println("removed ${had} left ${to_str(s)} size ${size(s)}")
-    let ns = SortedSet(10, 2, 33, 4)
-    println("ints ${to_str(ns)} list ${to_str(to_list(ns))}")
-
-    let m: Mut SortedMap<Str, Int> = Mut SortedMap(("two", 2), ("one", 1))
-    put(m, "three", 3)
-    println("map ${to_str(m)}")
-    let v = get(m, "two")
-    if v is Int {
-        println("get ${v}")
-    }
-    // Likewise: `put` established the claim on the map.
-    let fk = first_key(m)
-    let lk = last_key(m)
-    println("first ${fk} last ${lk}")
-    let taken = remove(m, "one")
-    if taken is Int {
-        println("took ${taken} left ${to_str(m)}")
-    }
-    let has3 = contains_key(m, "three")
-    println("keys ${to_str(keys(m))} has ${has3}")
-    for e in iter(ns) {
-        println("e ${e}")
-    }
-    for k in iter(m) {
-        println("k ${k}")
-    }
-}
-"#;
-
-const SORTED_OUTPUT: &str = "set: {apple, fig, pear}\n\
-     add true dup false now {apple, banana, fig, pear}\n\
-     min apple max pear\n\
-     removed true left {apple, banana, pear} size 3\n\
-     ints {2, 4, 10, 33} list [2, 4, 10, 33]\n\
-     map {one: 1, three: 3, two: 2}\n\
-     get 2\n\
-     first one last two\n\
-     took 1 left {three: 3, two: 2}\n\
-     keys [three, two] has true\n\
-     e 2\n\
-     e 4\n\
-     e 10\n\
-     e 33\n\
-     k three\n\
-     k two\n";
-
-#[test]
-fn rustc_compiles_and_runs_sorted_collections() {
-    let files = generate(&[("main.sv", SORTED_DEMO)]);
-    run_rust_files(&files, "sorted-collections", SORTED_OUTPUT);
-}
-
-/// [col-sorted] [kt-ordered] Strings order by **code point**, not by UTF-16
-/// code unit — the one case where the JVM's natural `String.compareTo`
-/// disagrees with Rust's byte-wise `Ord`.
-///
-/// U+1F600 is astral (a surrogate pair starting 0xD83D) and U+FF21 is a BMP
-/// character at 0xFF21: code-unit order puts the surrogate *first*, code-point
-/// order puts U+FF21 first. Rust is code-point order, so Kotlin's sorted
-/// collections are built with a comparator that compares code points
-/// [backend-parity].
-const CODEPOINT_DEMO: &str = r#"
-fn main() [use] -> None {
-    use StdConsole()
-    let bmp = "Ａ"
-    let s = SortedSet("😀", "Ａ")
-    let first = min(s)
-    if first is Str {
-        let is_bmp = first == bmp
-        println("smallest is the BMP char: ${is_bmp}")
-    }
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_codepoint_string_order() {
-    let files = generate(&[("main.sv", CODEPOINT_DEMO)]);
-    run_rust_files(
-        &files,
-        "codepoint-order",
-        "smallest is the BMP char: true\n",
-    );
-}
-
-// ===== generated constructors and converters [col-by] [col-convert] =====
-
-/// [col-by] [col-convert] The `*_by` constructors (a size and a rule per
-/// index), both `to_map` forms (a list of pairs, and a list plus a rule),
-/// `to_set`'s dedup, and array element assignment. Shares source and expected
-/// output with the Kotlin case of the same name [backend-parity].
-const BY_AND_CONVERT_DEMO: &str = r#"
-fn main() [use] -> None {
-    use StdConsole()
-    let a = array_by(3, i -> i * 2)
-    println("array_by ${a[0]} ${a[1]} ${a[2]}")
-    let xs = list_by(4, i -> i + 10)
-    println("list_by ${to_str(xs)}")
-    let s = set_by(5, i -> i % 3)
-    println("set_by ${to_str(s)}")
-    let m = map_by(3, i -> (i, i * i))
-    println("map_by ${to_str(m)}")
-    let dups = List(1, 2, 2, 3)
-    let uniq = to_set(dups)
-    println("to_set ${to_str(uniq)}")
-    let pairs = List(("a", 1), ("b", 2))
-    let m2 = to_map(pairs)
-    println("to_map pairs ${to_str(m2)}")
-    let words = List("alpha", "be")
-    let m3 = to_map(words, w -> (w, size(w)))
-    println("to_map rule ${to_str(m3)}")
-    let arr = array_of(1, 2, 3)
-    arr[0] = 9
-    println("assigned ${arr[0]} size ${size(arr)}")
-}
-"#;
-
-const BY_AND_CONVERT_OUTPUT: &str = "array_by 0 2 4\n\
-     list_by [10, 11, 12, 13]\n\
-     set_by {0, 1, 2}\n\
-     map_by {0: 0, 1: 1, 2: 4}\n\
-     to_set {1, 2, 3}\n\
-     to_map pairs {a: 1, b: 2}\n\
-     to_map rule {alpha: 5, be: 2}\n\
-     assigned 9 size 3\n";
-
-#[test]
-fn rustc_compiles_and_runs_generated_constructors() {
-    let files = generate(&[("main.sv", BY_AND_CONVERT_DEMO)]);
-    run_rust_files(&files, "by-and-convert", BY_AND_CONVERT_OUTPUT);
 }
 
 
@@ -10339,12 +6593,6 @@ pub const LIST_CLAIMS_OUTPUT: &str = "built 10\n\
      sorted claim 10..30\n\
      sorted map claim a\n";
 
-#[test]
-fn rustc_compiles_and_runs_list_claims() {
-    let files = generate(&[("main.sv", LIST_CLAIMS_DEMO)]);
-    run_rust_files(&files, "list-claims", LIST_CLAIMS_OUTPUT);
-}
-
 // ===== [col-bounds] every index answers rather than failing =====
 
 /// Shared verbatim with the Kotlin backend's `kotlinc_compiles_and_runs_bounds`
@@ -10406,12 +6654,6 @@ pub const BOUNDS_OUTPUT: &str = "swapped true [c, b, a]\n\
      wrote a byte true 0109\n\
      byte past the end false 0109\n\
      sifted [7, 9, 5]\n";
-
-#[test]
-fn rustc_compiles_and_runs_bounds() {
-    let files = generate(&[("main.sv", BOUNDS_DEMO)]);
-    run_rust_files(&files, "bounds", BOUNDS_OUTPUT);
-}
 
 // ===== [deduce-reapply] [cmp-carry] a binary heap in user space =====
 
@@ -10563,13 +6805,6 @@ pub const HEAP_OUTPUT: &str = "root 1\n\
      2 3 4 6 8 \n\
      41 13 25 \n";
 
-#[test]
-fn rustc_compiles_and_runs_a_heap() {
-    let files = generate(&[("main.sv", HEAP_DEMO)]);
-    run_rust_files(&files, "heap", HEAP_OUTPUT);
-}
-
-
 // ===== [fn-variadic] mixing plain arguments with a `...spread` =====
 
 /// The shape: a mixed tail is **assembled** into one vector in written order,
@@ -10659,12 +6894,6 @@ pub const MIXED_SPREAD_OUTPUT: &str = "List [1, 2, 3]\n\
      ordinary xbc\n\
      lone {2, 3}\n";
 
-#[test]
-fn rustc_compiles_and_runs_mixed_spread() {
-    let files = generate(&[("main.sv", MIXED_SPREAD_DEMO)]);
-    run_rust_files(&files, "mixed-spread", MIXED_SPREAD_OUTPUT);
-}
-
 // ===== [kt-variadic] a user-declared variadic, every element type =====
 
 /// Shared verbatim with the Kotlin backend's
@@ -10718,12 +6947,6 @@ pub const USER_VARIADIC_OUTPUT: &str = "plain 3\n\
      refs ab\n\
      refs xyz\n";
 
-#[test]
-fn rustc_compiles_and_runs_user_variadics() {
-    let files = generate(&[("main.sv", USER_VARIADIC_DEMO)]);
-    run_rust_files(&files, "user-variadics", USER_VARIADIC_OUTPUT);
-}
-
 // ===== member overloading within one effect [effect-member-overload] =====
 
 /// [effect-member-overload] The phase-4 shape: `Fs` declares `close` once per
@@ -10761,8 +6984,6 @@ fn main() [use] {
 }
 "#;
 
-const MEMBER_OVERLOADS_OUTPUT: &str = "file 3\nclosed in 1\nclosed out 2\n";
-
 /// [effect-member-overload] [rs-effects] The trait declares the overloads
 /// under distinct names — the first keeps the plain one — the handler's impl
 /// uses those same names, and each call site emits the one the *checker*
@@ -10798,18 +7019,6 @@ fn effect_member_overloads_get_distinct_names() {
         "expected both call sites to name their own overload and pass the \
          consumed argument owned, got:\n{src}"
     );
-}
-
-/// [effect-member-overload] End to end: which overload runs is the checker's
-/// answer, and rustc must have no opinion. Byte-identical stdout on Kotlin.
-#[test]
-fn rustc_compiles_and_runs_member_overloads() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", MEMBER_OVERLOADS)]);
-    run_rust_files(&files, "member-overloads", MEMBER_OVERLOADS_OUTPUT);
 }
 
 // ===== member parameter modes from the declared clause [rs-borrows] =====
@@ -10859,8 +7068,6 @@ fn main() [use] {
 }
 "#;
 
-const MEMBER_MODES_OUTPUT: &str = "bumped 3\ntook 6\n";
-
 /// [rs-borrows] The consumed parameter is owned in the trait, in both
 /// handlers, and at the call site; the `Mut` one is `&mut` throughout.
 #[test]
@@ -10881,19 +7088,6 @@ fn effect_member_modes_follow_the_declared_clause() {
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
-}
-
-/// [rs-borrows] End to end: the modes have to agree across four renderers,
-/// and a program that moves a token into a member and mutates another
-/// through one is what proves they do. Byte-identical stdout on Kotlin.
-#[test]
-fn rustc_compiles_and_runs_member_modes() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", MEMBER_MODES)]);
-    run_rust_files(&files, "member-modes", MEMBER_MODES_OUTPUT);
 }
 
 // ===== linear tokens discharged by effect members [linear-group] =====
@@ -10959,8 +7153,6 @@ fn main() [use] {
 }
 "#;
 
-const LINEAR_MEMBER_DISCHARGE_OUTPUT: &str = "line 9\nclosed in\nwrote 5\nclosed out\n";
-
 #[test]
 fn a_linear_token_is_discharged_by_an_effect_member() {
     let files = generate(&[("main.sv", LINEAR_MEMBER_DISCHARGE)]);
@@ -10982,20 +7174,6 @@ fn a_linear_token_is_discharged_by_an_effect_member() {
     ] {
         assert!(src.contains(expected), "expected `{expected}` in:\n{src}");
     }
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_linear_token_closed_by_a_member() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", LINEAR_MEMBER_DISCHARGE)]);
-    run_rust_files(
-        &files,
-        "linear-member-discharge",
-        LINEAR_MEMBER_DISCHARGE_OUTPUT,
-    );
 }
 
 // ===== std's byte buffer [type-bytes] =====
@@ -11057,24 +7235,6 @@ fn main() [use] -> None {
     println("mapped: ${doubled}")
 }
 "#;
-
-const BYTES_OUTPUT: &str = "fixed: [0, 255, 200] / 00ffc8 / 3\n\
-                            built: [104, 195, 169] / 68c3a9\ntext: hé\n\
-                            broken: true\nat 1: 255 / oob: true\n\
-                            slice: [255, 200] / bad: true\nindex: 2 / true\n\
-                            set: [1, 255, 200]\ncleared: [] / 0\n\
-                            equal: true / false\n\
-                            copy independent: [1, 2] vs [1, 2, 3]\n\
-                            sum: 455\nmapped: [2, 4]\n";
-#[test]
-fn rustc_compiles_and_runs_bytes() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", BYTES_PROGRAM)]);
-    run_rust_files(&files, "bytes", BYTES_OUTPUT);
-}
 
 /// [platform-value-type] `Bytes` is a value platform type whose Rust host is
 /// `pub type Bytes = Vec<u8>` — unboxed, no class — re-exported from
@@ -11386,20 +7546,6 @@ fn main() [use] -> None {
 }
 "#;
 
-const FS_OUTPUT: &str = "made\nwrote 17\nlines: [alpha, beta, gamma]\n\
-                         line: alpha\nline: beta\nline: gamma\nclosed\n\
-                         at 6: beta\nposition: 11\n\nmissing: not found\n\
-                         dir: [notes.txt]\n\
-                         bytes: 3 + 3 at 6\nwrote raw\n\
-                         read: [0, 255, 200] at 3 (00ffc8)\nthen: hé\nread raw\n\
-                         split: not utf-8\nsplit close: not utf-8\n\
-                         filled 6 bytes in 3 reads\nfilled closed\n\
-                         pass saw 6 bytes\npass closed\n\
-                         read 3 lines into one builder\nlines closed\n\
-                         copied 17\ncopy holds 17 bytes\ncopy deleted\n\
-                         raw deleted\n\
-                         deleted\nremoved\n";
-
 /// The program with its scratch directory baked in. Under the crate's own
 /// target tmpdir, so the two backends' runs cannot collide.
 fn fs_program() -> String {
@@ -11462,402 +7608,6 @@ fn the_fs_surface_emits_a_host_seam_and_owned_tokens() {
     }
 }
 
-#[test]
-fn rustc_compiles_and_runs_the_fs_surface() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", &fs_program())]);
-    run_rust_files(&files, "fs-surface", FS_OUTPUT);
-}
-
-// ===== std's in-memory filesystem and the restriction over it =====
-
-/// [fs-double] [effect-intercept] `MemFs` fakes the whole of `Fs` — streams
-/// included — so this program has **no host handler at all** and touches no
-/// disk, which is the point of putting the stream operations on the effect.
-/// Then `RestrictedFs(root)` intercepts it for the length of a block, so
-/// the containment logic is tested over memory too.
-///
-/// The byte offsets are the hazard the fake exists to get right: `position`
-/// answers eleven here exactly as it does against real files (the fs case
-/// above asserts the same number), because `MemFs` counts UTF-8 bytes with
-/// `byte_size` while slicing its content by characters. A fake that counted
-/// characters would let this test pass and production break.
-const MEMFS_PROGRAM: &str = r#"
-import std.fs
-import std.fs.path
-import std.fs.mem
-import std.fs.restricted
-import std.stream
-
-fn describe(e: FsError) [] -> Str => e {
-    if e is NotFound {
-        return "not found"
-    }
-    if e is PathEscapes {
-        return "escapes"
-    }
-    if e is NotADirectory {
-        return "not a directory"
-    }
-    if e is Streaming {
-        return describe(e.error)
-    }
-    return "other"
-}
-
-fn describe(e: StreamError) [] -> Str => e {
-    if e is InvalidUtf8 {
-        return "not utf-8"
-    }
-    return "other"
-}
-
-fn read_and_say(label: Str, path: Path) [Fs, Console] -> None => label, path {
-    let text = read_to_str(path)
-    when text {
-        is Ok { println("${label}: ${size(text)}") }
-        is Err { println("${label}: ${describe(detach(text))}") }
-    }
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    // No host handler anywhere: `MemFs` fakes the whole of `Fs`, streams
-    // included, so this program touches no disk.
-    use MemFs()
-
-    let wrote = write_str(path("notes/a.txt"), "alpha\nbeta\ngamma\n")
-    when wrote {
-        is Ok { println("wrote ${wrote}") }
-        is Err { println("wrote: ${describe(detach(wrote))}") }
-    }
-
-    let lines = read_lines(path("notes/a.txt"))
-    when lines {
-        is Ok { println("lines: ${lines}") }
-        is Err { println("lines: ${describe(detach(lines))}") }
-    }
-
-    // The byte offset the fake has to agree with the host about: "alpha\n" is
-    // six bytes, and the position after reading "beta\n" is eleven.
-    let tail = open_read_at(path("notes/a.txt"), 6)
-    when tail {
-        is Ok {
-            let s: InStream = tail
-            let line = read_line(s)
-            when line {
-                is Str { println("at 6: ${line}") }
-                is None { println("at 6: end") }
-            }
-            println("position: ${position(s)}")
-            let shut = close(s)
-            when shut {
-                is Ok { println("closed") }
-                is Err { println("close: ${describe(detach(shut))}") }
-            }
-        }
-        is Err { println("at 6: ${describe(detach(tail))}") }
-    }
-
-    let listed = list_dir(path("notes"))
-    when listed {
-        is Ok { println("dir: ${listed}") }
-        is Err { println("dir: ${describe(detach(listed))}") }
-    }
-
-
-    // [fs-bytes] The byte surface: a file that is not text, written and read
-    // back exactly. `to_byte` keeps the low 8 bits and a `Byte` is unsigned on
-    // both backends, so 255 prints as 255 on both — a signed byte would print
-    // -1 on one of them [backend-parity].
-    let out = open_write(path("notes/raw.bin"))
-    when out {
-        is Ok {
-            let w: OutStream = out
-            let data = bytes_of(to_byte(0), to_byte(255), to_byte(200))
-            let n = write_bytes(w, data)
-            let m = write(w, "hé")
-            println("bytes: ${n} + ${m} at ${position(w)}")
-            let shut = close(w)
-            when shut {
-                is Ok { println("wrote raw") }
-                is Err { println("wrote raw: ${describe(detach(shut))}") }
-            }
-        }
-        is Err { println("raw open: ${describe(detach(out))}") }
-    }
-    let raw = open_read(path("notes/raw.bin"))
-    when raw {
-        is Ok {
-            let s: InStream = raw
-            let head = read_bytes(s, 3)
-            when head {
-                is Ok { println("read: ${head} at ${position(s)} (${to_hex(head)})") }
-                is Err { println("read: ${describe(detach(head))}") }
-            }
-            // Bytes and text off one stream: the position is bytes either way,
-            // so the text read picks up exactly where the byte read stopped.
-            let text = read_all(s)
-            when text {
-                is Ok { println("then: ${text}") }
-                is Err { println("then: ${describe(detach(text))}") }
-            }
-            let shut = close(s)
-            when shut {
-                is Ok { println("read raw") }
-                is Err { println("read raw: ${describe(detach(shut))}") }
-            }
-        }
-        is Err { println("raw read: ${describe(detach(raw))}") }
-    }
-    // Opening between the bytes of a character is a *seek*, not a decode: it
-    // succeeds, and the strict decode afterwards is what fails — recorded, so
-    // `close` reports it too [fs-errors-at-close].
-    let split = open_read_at(path("notes/raw.bin"), 5)
-    when split {
-        is Ok {
-            let s: InStream = split
-            let bad = read_all(s)
-            when bad {
-                is Ok { println("split: ${bad}") }
-                is Err { println("split: ${describe(detach(bad))}") }
-            }
-            let shut = close(s)
-            when shut {
-                is Ok { println("split closed") }
-                is Err { println("split close: ${describe(detach(shut))}") }
-            }
-        }
-        is Err { println("split open: ${describe(detach(split))}") }
-    }
-
-    // [fs-read-to] The fill-a-buffer read: one buffer, cleared and refilled,
-    // instead of a payload per step.
-    let held = open_read(path("notes/raw.bin"))
-    when held {
-        is Ok {
-            let s: InStream = held
-            let buf = mut_bytes()
-            let steps = 0
-            let moved = 0
-            let reading = true
-            while reading {
-                clear(buf)
-                let got = read_to(s, buf, 2)
-                if got is Err {
-                    println("read_to: ${describe(detach(got))}")
-                    reading = false
-                } else {
-                    let n: Int = got
-                    if n == 0 {
-                        reading = false
-                    } else {
-                        steps = steps + 1
-                        moved = moved + n
-                    }
-                }
-            }
-            println("filled ${moved} bytes in ${steps} reads")
-            let shut = close(s)
-            when shut {
-                is Ok { println("filled closed") }
-                is Err { println("filled close: ${describe(detach(shut))}") }
-            }
-        }
-        is Err { println("filled open: ${describe(detach(held))}") }
-    }
-    // The chunk pass: `for` over a stream's bytes, a fresh buffer per step.
-    let ch = open_chunks(path("notes/raw.bin"), 4)
-    when ch {
-        is Ok {
-            let p = ch
-            let seen = 0
-            for chunk in p {
-                seen = seen + size(chunk)
-            }
-            println("pass saw ${seen} bytes")
-            let shut = close(p)
-            when shut {
-                is Ok { println("pass closed") }
-                is Err { println("pass close: ${describe(detach(shut))}") }
-            }
-        }
-        is Err { println("pass open: ${describe(detach(ch))}") }
-    }
-    // And the text side of `read_to`: a line per iteration, one builder.
-    let lined = open_read(path("notes/a.txt"))
-    when lined {
-        is Ok {
-            let s: InStream = lined
-            let line = Mut Str()
-            let lines_seen = 0
-            let reading = true
-            while reading {
-                clear(line)
-                if read_line_to(s, line) {
-                    lines_seen = lines_seen + 1
-                } else {
-                    reading = false
-                }
-            }
-            println("read ${lines_seen} lines into one builder")
-            let shut = close(s)
-            when shut {
-                is Ok { println("lines closed") }
-                is Err { println("lines close: ${describe(detach(shut))}") }
-            }
-        }
-        is Err { println("lines open: ${describe(detach(lined))}") }
-    }
-    // The one-shots that own the buffer: a whole-file copy and a whole-file
-    // byte read, with no stream and no buffer in sight.
-    let copied = copy_file(path("notes/a.txt"), path("notes/copy.txt"))
-    when copied {
-        is Ok { println("copied ${copied}") }
-        is Err { println("copied: ${describe(detach(copied))}") }
-    }
-    let all_bytes = read_to_bytes(path("notes/copy.txt"))
-    when all_bytes {
-        is Ok { println("copy holds ${size(all_bytes)} bytes") }
-        is Err { println("copy read: ${describe(detach(all_bytes))}") }
-    }
-    let gone_copy = delete(path("notes/copy.txt"))
-    when gone_copy {
-        is Ok { println("copy deleted") }
-        is Err { println("copy deleted: ${describe(detach(gone_copy))}") }
-    }
-    let gone_bin = delete(path("notes/raw.bin"))
-    when gone_bin {
-        is Ok { println("raw deleted") }
-        is Err { println("raw deleted: ${describe(detach(gone_bin))}") }
-    }
-
-    // The restriction, over the same memory, for the length of the block: an
-    // interceptor wraps the handler already registered.
-    if true {
-        use RestrictedFs(path("notes"))
-        read_and_say("inside", path("a.txt"))
-        read_and_say("through ..", path("sub/../a.txt"))
-        read_and_say("escape", path("../secret.txt"))
-        read_and_say("absolute", path("/etc/hosts"))
-    }
-    // Out of the block the unrestricted filesystem answers again.
-    read_and_say("unrestricted", path("notes/a.txt"))
-}
-"#;
-
-const MEMFS_OUTPUT: &str = "wrote 17\nlines: [alpha, beta, gamma]\nat 6: beta\nposition: 11\n\
-                         closed\ndir: [a.txt]\n\
-                         bytes: 3 + 3 at 6\nwrote raw\n\
-                         read: [0, 255, 200] at 3 (00ffc8)\nthen: hé\nread raw\n\
-                         split: not utf-8\nsplit close: not utf-8\n\
-                         filled 6 bytes in 3 reads\nfilled closed\n\
-                         pass saw 6 bytes\npass closed\n\
-                         read 3 lines into one builder\nlines closed\n\
-                         copied 17\ncopy holds 17 bytes\ncopy deleted\n\
-                         raw deleted\n\
-                         inside: 17\nthrough ..: 17\n\
-                         escape: escapes\nabsolute: escapes\nunrestricted: 17\n";
-
-#[test]
-fn rustc_compiles_and_runs_the_memory_filesystem() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", MEMFS_PROGRAM)]);
-    run_rust_files(&files, "memfs", MEMFS_OUTPUT);
-}
-
-// ===== [effect-available] a member name that is also a std fn =====
-
-/// [effect-available] A user effect may name a member after a std function, and
-/// both must keep working — the member where an instance is in scope, the
-/// function everywhere else and wherever `@module` says so. Two bugs lived here
-/// until 2026-09-15, both from the checker and the emitters asking *different
-/// questions*: the checker's availability rule reads an **import-scoped**
-/// table, and inside `lib/std/core/seq.sv` a program's `Tally` is not in it, so
-/// `add(out, x)` resolved to std's own `add` and nothing was recorded; the
-/// emitters read the **program-wide** `Symbols::effect_of_fn` and emitted a
-/// member dispatch anyway.
-///
-/// The first symptom was loud — "`lib/std/core/seq.sv`: no handler for effect
-/// `Tally`" from inside std, for any program declaring such a member, whether
-/// or not it ever called the colliding name. The second was **silently wrong
-/// output**: `to_upper@core.string("hi")` ran the *member* and printed `hi!`
-/// where `HI` was asked for, on both backends. Hence a compile-and-run case
-/// rather than a text assertion — only running it catches the second.
-///
-/// Same program and same expected output on the Kotlin backend.
-const MEMBER_NAME_COLLISION: &str = r#"
-effect Tally {
-    fn add(n: Int) -> None => !n
-    fn read() -> Int
-}
-
-handler Summing() of Tally {
-    state {
-        sum: Int = 0
-    }
-
-    fn add(n: Int) -> None {
-        sum = sum + n
-    }
-
-    fn read() -> Int {
-        return sum
-    }
-}
-
-effect Shout {
-    fn to_upper(s: Str) -> Str => !s
-}
-
-handler Excited() of Shout {
-    fn to_upper(s: Str) -> Str {
-        return "${s}!"
-    }
-}
-
-fn double(x: Int) [] -> Int {
-    return x * 2
-}
-
-fn main() [use] {
-    use StdConsole()
-    use Summing()
-    use Excited()
-    // The member: an instance is in scope, so the bare name is the member.
-    add(4)
-    add(5)
-    println("tally ${read()}")
-    // std's own `add`, reached by hand — and std's internals, which call
-    // `add(out, x)` inside `map`, reached without the program saying anything.
-    let xs: Mut List<Int> = Mut List()
-    add@core.list(xs, 7)
-    let mapped = map(iter(List(1, 2, 3)), double)
-    println("list ${size(xs)} mapped ${size(mapped)}")
-    // Both spellings of a name owned by an effect *and* by std.
-    let mine = to_upper@Shout("hi")
-    let theirs = to_upper@core.string("hi")
-    println("member ${mine} std ${theirs}")
-}
-"#;
-
-const MEMBER_NAME_COLLISION_OUTPUT: &str = "tally 9\nlist 1 mapped 3\nmember hi! std HI\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_member_named_like_a_std_fn() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", MEMBER_NAME_COLLISION)]);
-    run_rust_files(&files, "member-name-collision", MEMBER_NAME_COLLISION_OUTPUT);
-}
 
 // ===== [rs-actor] asynchronous effect handlers =====
 
@@ -11902,16 +7652,6 @@ fn main() [use, spawn] {
 
 fn generate_actor_demo() -> Vec<salvo_backend_rust::EmittedFile> {
     generate(&[("main.sv", ACTOR)])
-}
-
-#[test]
-fn rustc_compiles_and_runs_an_actor() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate_actor_demo();
-    run_rust_files(&files, "actor", "sum 5\n");
 }
 
 /// [rs-actor] What the lowering *is*, asserted on the generated text so a
@@ -11997,20 +7737,6 @@ fn main() [use, spawn] -> None {
 
 fn generate_monitor_demo() -> Vec<salvo_backend_rust::EmittedFile> {
     generate(&[("main.sv", MONITOR)])
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_monitor() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate_monitor_demo();
-    run_rust_files(
-        &files,
-        "monitor",
-        "main drew 12345\nactor drew 95040\nmain drew 58585\n",
-    );
 }
 
 /// [rs-handle] What the monitor lowering *is*, asserted on the
@@ -12108,205 +7834,8 @@ fn main() [use, spawn] -> None {
 }
 "#;
 
-/// [linear-defer] [actor-mixed-handler] A **rung-4** mixed handler: the servant
-/// declares `=> defer out` and answers by *forwarding* the reply to another
-/// actor — the caller's wait ends when Delphi discharges it, one activation
-/// later. Also exercises the `use … on POOL` sugar. Same output as Kotlin.
-const DEFERRING: &str = r#"
-effect Random {
-    fn next() -> Int
-}
-
-actor effect Oracle {
-    send fn divine(out: Reply<Int>) => !out
-}
-
-handler Delphi() of Oracle {
-    mailbox { capacity: 4 }
-    state {
-        n: Int = 0
-    }
-
-    send fn divine(out: Reply<Int>) {
-        n = n + 7
-        send(out, n)
-    }
-}
-
-handler Forwarding(oracle: eff[Oracle]) of Random {
-    mailbox { capacity: 4 }
-    state {
-        tally: Int = 0
-    }
-
-    send fn advance(out: Reply<Int>) => defer out {
-        tally = tally + 1
-        oracle.divine(out)
-    }
-
-    fn next() -> Int {
-        return waitfor got: Reply<Int> {
-            advance(got)
-        }
-    }
-}
-
-fn main() [use, spawn] -> None {
-    use StdConsole()
-    let oracle = spawn Delphi() on pool(1)
-    use Forwarding(oracle) on pool(1)
-    println("first ${next()}")
-    println("second ${next()}")
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_a_deferring_mixed_handler() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", DEFERRING)]);
-    run_rust_files(&files, "deferring", "first 7\nsecond 14\n");
-}
-
-/// [linear-defer] [actor-replyto] [rs-mixed] Parking inside a mixed
-/// handler — the full rung-4 shape: the servant captures the caller's reply
-/// in a continuation on its own `settled` member (`__Cont_H`, handler-keyed),
-/// consults another actor, and answers when the resume delivers the oracle's
-/// number one activation later. Same program and output as Kotlin.
-const PARKING: &str = r#"
-effect Random {
-    fn next() -> Int
-}
-
-actor effect Oracle {
-    send fn divine(out: Reply<Int>) => !out
-}
-
-handler Delphi() of Oracle {
-    mailbox { capacity: 4 }
-    state {
-        n: Int = 0
-    }
-
-    send fn divine(out: Reply<Int>) {
-        n = n + 7
-        send(out, n)
-    }
-}
-
-handler Parking(oracle: eff[Oracle]) of Random {
-    mailbox { capacity: 4 }
-    state {
-        tally: Int = 0
-    }
-
-    send fn advance(out: Reply<Int>) => defer out {
-        tally = tally + 1
-        oracle.divine(replyto settled(out))
-    }
-
-    send fn settled(out: Reply<Int>, drawn: Int) => !out, !drawn {
-        send(out, drawn + tally)
-    }
-
-    fn next() -> Int {
-        return waitfor got: Reply<Int> {
-            advance(got)
-        }
-    }
-}
-
-fn main() [use, spawn] -> None {
-    use StdConsole()
-    let oracle = spawn Delphi() on pool(1)
-    use Parking(oracle) on pool(1)
-    println("first ${next()}")
-    println("second ${next()}")
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_a_parking_mixed_handler() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", PARKING)]);
-    run_rust_files(&files, "parking-mixed", "first 8\nsecond 16\n");
-}
-
-/// [actor-mixed-handler] [actor-self-send] [rs-mixed] A servant reaching its
-/// siblings (user decision 2026-09-19): a bare sibling call in a send member
-/// and `k@self(…)` in both member kinds, all lowering to enqueues on the
-/// servant's own mailbox (`__Msg_H`), the reply travelling hop to hop by
-/// value. Same program and output as Kotlin.
-const SERVANT_CHAIN: &str = r#"
-effect Random {
-    fn next() -> Int
-}
-
-handler Chain() of Random {
-    mailbox { capacity: 4 }
-    state {
-        tally: Int = 0
-    }
-
-    send fn advance(out: Reply<Int>) => defer out {
-        tally = tally + 1
-        relay(out)
-    }
-
-    send fn relay(out: Reply<Int>) => defer out {
-        deliver@self(out)
-    }
-
-    send fn deliver(out: Reply<Int>) => !out {
-        send(out, tally * 10)
-    }
-
-    fn next() -> Int {
-        return waitfor got: Reply<Int> {
-            advance@self(got)
-        }
-    }
-}
-
-fn main() [use, spawn] -> None {
-    use StdConsole()
-    use Chain() on pool(1)
-    println("first ${next()}")
-    println("second ${next()}")
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_a_servant_sibling_chain() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", SERVANT_CHAIN)]);
-    run_rust_files(&files, "servant-chain", "first 10\nsecond 20\n");
-}
-
 fn generate_mixed_demo() -> Vec<salvo_backend_rust::EmittedFile> {
     generate(&[("main.sv", MIXED)])
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_mixed_handler() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate_mixed_demo();
-    run_rust_files(
-        &files,
-        "mixed",
-        "main drew 12345\nactor drew 95040\nmain drew 58585\n",
-    );
 }
 
 /// [rs-mixed] What the mixed lowering *is*: the handler-keyed message enum
@@ -12404,42 +7933,8 @@ fn main() [use, spawn] -> None {
 }
 "##;
 
-/// [fn-effects] [fn-value] A fn named as a value before its declaration:
-/// its effects are recorded with the signatures, so the reference reads them
-/// (PIPELINE.md step 7). Before, `apply(shout)` read no effects for `shout`,
-/// and the Rust emitter crashed on the missing effect argument. Same program,
-/// same output on both backends.
-const LATE_FN_VALUE: &str = r##"
-fn apply(f: (s: Str) [Console] -> None) [Console] -> None {
-    f("hi")
-}
-
-fn main() [use] {
-    use StdConsole()
-    apply(shout)
-}
-
-fn shout(s: Str) [Console] -> None {
-    println("${s}!")
-}
-"##;
-
 #[test]
-fn rustc_compiles_and_runs_a_fn_value_declared_later() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", LATE_FN_VALUE)]);
-    run_rust_files(&files, "late-fn-value", "hi!\n");
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_mixed_handler_with_dependencies() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
+fn a_mixed_handler_with_dependencies() {
     let files = generate(&[("main.sv", MIXED_DEPS)]);
     let main = files.iter().find(|f| f.rel_path.to_string_lossy() == "main.rs").expect("main.rs");
     // [rs-mixed] The servant is built with the dependencies; the façade
@@ -12450,11 +7945,6 @@ fn rustc_compiles_and_runs_a_mixed_handler_with_dependencies() {
             && main.content.contains("crate::__Fac_Counted { __addr: __a, seed: __c0 }"),
         "the servant does not take the dependencies:\n{}",
         main.content
-    );
-    run_rust_files(
-        &files,
-        "mixed-deps",
-        "servant at #7\nmain drew 7\nservant at #14\nmain drew 14\n",
     );
 }
 
@@ -12549,20 +8039,8 @@ fn main() [use, spawn] {
 }
 "#;
 
-const DEP_SPAWN_OUTPUT: &str = "last bumped 3\nsum 5\n";
-
 fn generate_dep_spawn_demo() -> Vec<salvo_backend_rust::EmittedFile> {
     generate(&[("main.sv", DEP_SPAWN)])
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_dependent_spawn() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate_dep_spawn_demo();
-    run_rust_files(&files, "dep-spawn", DEP_SPAWN_OUTPUT);
 }
 
 /// [rs-actor] [rs-handle] The shape a dependent spawn lowers to: the same
@@ -12693,150 +8171,8 @@ fn main() [use, spawn] {
 }
 "#;
 
-/// [actor-replyto] `replyto!` — the **gate**: bounded selective receive, at
-/// most one outstanding per actor. `start` mints a gated continuation and
-/// `main` then sends `note("late")`, which is already queued when the
-/// activation ends; while gated the process serves *only* the awaited reply, so
-/// the recorded order is `reply R, user late`. Ungated it would be the other
-/// way round, which is what makes the output the assertion.
-const REPLYTO_GATE: &str = r#"
-actor effect Echo {
-    send fn ping(out: Reply<Str>) => !out
-}
-
-actor effect Trace {
-    send fn start()
-    send fn arrived(text: Str) => !text
-    send fn note(what: Str) => !what
-    send fn report(out: Reply<Str>) => !out
-}
-
-handler Echoing() of Echo {
-    mailbox { capacity: 4 }
-
-    send fn ping(out: Reply<Str>) {
-        out.send("R")
-    }
-}
-
-handler Tracing() [Echo] of Trace {
-    mailbox { capacity: 4 }
-
-    state {
-        steps: Mut List<Str> = Mut List()
-    }
-
-    send fn start() {
-        ping(replyto! arrived())
-    }
-
-    send fn arrived(text: Str) {
-        add(steps, "reply ${text}")
-    }
-
-    send fn note(what: Str) {
-        add(steps, "user ${what}")
-    }
-
-    send fn report(out: Reply<Str>) {
-        out.send(join(steps, ", "))
-    }
-}
-
-fn main() [use, spawn] {
-    use StdConsole()
-    let p = pool(3)
-    let echo = spawn Echoing() on p
-    let tracer = spawn Tracing() with echo on p
-    tracer.start()
-    tracer.note("late")
-    let got = waitfor out: Reply<Str> {
-        tracer.report(out)
-    }
-    println(got)
-}
-"#;
-
-/// [actor-self-send] `k@self(args)` and **both** its readings, in one program
-/// and with the same answer from each: an enqueue on the actor's own mailbox
-/// when the handler was spawned, and the ordinary inline member call when it
-/// was `use`d. A handler is compiled once, so which one applies is a property
-/// of the *instance* — the emitters discriminate on the generated `__addr`
-/// field at run time rather than compiling the member twice.
-const SELF_SEND: &str = r#"
-actor effect Steps {
-    send fn begin(n: Int, out: Reply<Str>) => !n, !out
-    send fn again(n: Int, out: Reply<Str>) => !n, !out
-}
-
-handler Stepping() of Steps {
-    mailbox { capacity: 4 }
-
-    state {
-        steps: Mut List<Str> = Mut List()
-    }
-
-    send fn begin(n: Int, out: Reply<Str>) {
-        add(steps, "begin ${n}")
-        again@self(n + 1, out)
-    }
-
-    send fn again(n: Int, out: Reply<Str>) {
-        add(steps, "again ${n}")
-        out.send(join(steps, ", "))
-    }
-}
-
-fn main() [use, spawn] {
-    use StdConsole()
-    let s = spawn Stepping() on pool(1)
-    let spawned = waitfor out: Reply<Str> {
-        s.begin(1, out)
-    }
-    println("spawned ${spawned}")
-    use Stepping()
-    let inline = waitfor out: Reply<Str> {
-        begin(1, out)
-    }
-    println("inline ${inline}")
-}
-"#;
-
 fn generate_replyto_demo() -> Vec<salvo_backend_rust::EmittedFile> {
     generate(&[("main.sv", REPLYTO_CHAIN)])
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_parked_continuation() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    run_rust_files(&generate_replyto_demo(), "replyto-chain", "got row 7\n");
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_gated_continuation() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", REPLYTO_GATE)]);
-    run_rust_files(&files, "replyto-gate", "reply R, user late\n");
-}
-
-#[test]
-fn rustc_compiles_and_runs_both_readings_of_a_self_send() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", SELF_SEND)]);
-    run_rust_files(
-        &files,
-        "self-send",
-        "spawned begin 1, again 2\ninline begin 1, again 2\n",
-    );
 }
 
 /// [actor-watch] The monitor surface, end to end: an actor faults, the
@@ -12894,9 +8230,6 @@ fn main() [use, spawn] {
     println("done")
 }
 "#;
-
-const WATCH_OUTPUT: &str =
-    "died with a reason: true\nlate watch answered: true\ndone\n";
 
 /// [linear-container] [linear-state] **Obligations in a collection**, end to
 /// end: an actor parks reply tokens in `Mut List<Reply<Str>>` state, answers
@@ -12957,18 +8290,6 @@ fn main() [use, spawn] {
 }
 "#;
 
-const LINEAR_QUEUE_OUTPUT: &str = "second closed: end of day\nfirst served ada\n";
-
-#[test]
-fn rustc_compiles_and_runs_obligations_in_a_collection() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", LINEAR_QUEUE)]);
-    run_rust_files(&files, "linear-queue", LINEAR_QUEUE_OUTPUT);
-}
-
 /// [rs-state-take] [linear-container] The lowering the case rests on: taking a
 /// container out of handler state is `std::mem::take` (a field behind
 /// `&mut self` cannot be moved, and cloning it would duplicate every
@@ -12995,17 +8316,6 @@ fn draining_state_lowers_to_a_take() {
         main.content
     );
 }
-
-#[test]
-fn rustc_compiles_and_runs_a_death_watch() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", WATCH)]);
-    run_rust_files(&files, "watch", WATCH_OUTPUT);
-}
-
 
 /// [effect-handler-multi] Handlers of several effects, end to end: T-4(a)'s own
 /// shape — one actor with a public `Timer` face and a `TimerCtl` admin face over
@@ -13097,18 +8407,6 @@ fn main() [use, spawn] {
     println("total ${count()}")
 }
 "#;
-
-const MULTI_FACE_OUTPUT: &str = "pending 0\nfired at 10\npending 0\ntotal 5\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_handler_of_several_effects() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", MULTI_FACE)]);
-    run_rust_files(&files, "multi-face", MULTI_FACE_OUTPUT);
-}
 
 /// [effect-handler-multi] [rs-actor] What the two faces lower to: one trait impl
 /// per face over one struct, one dispatcher per protocol, a `handle` that asks
@@ -13209,20 +8507,6 @@ fn main() [use, spawn] {
     println("stuck: gates ${stuck.parked_gates}, tokens ${stuck.parked_tokens}")
 }
 "#;
-
-const ON_IDLE_OUTPUT: &str =
-    "settled: gates 0, tokens 0\nstuck: gates 1, tokens 1\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_quiescence_hook() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", ON_IDLE)]);
-    run_rust_files(&files, "on-idle", ON_IDLE_OUTPUT);
-}
-
 
 /// [rs-actor] [actor-replyto] The lowering: a continuation enum beside the
 /// message enum; the two generated fields on the handler; a `__dispatch`
@@ -13403,101 +8687,6 @@ fn generate_addr_stub_demo() -> Vec<salvo_backend_rust::EmittedFile> {
 }
 
 
-/// [waitfor-effect] [waitfor-dedicated] [actor-main-pool] The `waitfor` package, as a
-/// program. Three things run here that could not be written before 2026-09-17:
-/// a **handler** that waits (`[waitfor]` in its dependency list, so its members
-/// may occupy the thread), the **dedicated placement** its spawn therefore
-/// needs (`on thread()`, a `Dedicated Pool` the clause consumes), and an actor
-/// on **`main`'s own pool** — a spawn with no `on` clause, whose activations
-/// run on main's thread while main waits [waitfor-pump]. The Kotlin backend
-/// asserts the same output.
-const WAITFOR_PACKAGE: &str = r#"
-actor effect TimerApi {
-    send fn after(ms: Int, out: Reply<Int>) => !out
-}
-
-actor effect ClockApi {
-    send fn now(out: Reply<Int>) => !out
-}
-
-actor effect Counter {
-    send fn bump(n: Int) => !n
-    send fn total(out: Reply<Int>) => !out
-}
-
-handler Timing(at: Int) of TimerApi {
-    mailbox { capacity: 4 }
-
-    send fn after(ms: Int, out: Reply<Int>) {
-        out.send(at + ms)
-    }
-}
-
-// The T-5 shape: a handler whose member *waits* for another actor's answer.
-// It declares the capability, so every spawn of it must give it a thread.
-handler Clocking() [TimerApi] of ClockApi {
-    mailbox { capacity: 4 }
-
-    send fn now(out: Reply<Int>) {
-        let at = waitfor fired: Reply<Int> {
-            after(0, fired)
-        }
-        out.send(at)
-    }
-}
-
-handler Counting() of Counter {
-    mailbox { capacity: 4 }
-
-    state {
-        sum: Int = 0
-    }
-
-    send fn bump(n: Int) {
-        sum = sum + n
-    }
-
-    send fn total(out: Reply<Int>) {
-        out.send(sum)
-    }
-}
-
-fn main() [use, spawn] {
-    use StdConsole()
-
-    let timer = spawn Timing(1000) on pool(1)
-    // `thread()` is consumed here: one thread, one occupant.
-    let clock = spawn Clocking() with timer on thread()
-    let now = waitfor out: Reply<Int> {
-        clock.now(out)
-    }
-    println("the clock says ${now}")
-
-    // A single-thread pool: these activations run during the `waitfor`
-    // below, on that one worker thread.
-    let counter = spawn Counting() on pool(1)
-    counter.bump(2)
-    counter.bump(3)
-    let sum = waitfor out: Reply<Int> {
-        counter.total(out)
-    }
-    println("the solo pool's actor says ${sum}")
-}
-"#;
-
-const WAITFOR_PACKAGE_OUTPUT: &str = "the clock says 1000\nthe solo pool's actor says 5\n";
-
-#[test]
-fn rustc_compiles_and_runs_the_waitfor_package() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", WAITFOR_PACKAGE)]);
-    run_rust_files(&files, "waitfor-package", WAITFOR_PACKAGE_OUTPUT);
-}
-
-
 /// [actor-free-send-fn] [task-mint] [task-pool-inherit] The **task kernel**, as a
 /// program: a free `send fn` that runs by being scheduled, an ordinary
 /// function that mints a continuation for it and returns (no park, no block),
@@ -13546,10 +8735,6 @@ fn main() [use, spawn] {
     println(waitfor b: Reply<Str> { fetch_on(4, b, workers) })
 }
 "#;
-
-const TASK_KERNEL_OUTPUT: &str = "row=70
-placed=40
-";
 
 /// [proj-infer-fn-type] [rs-proj-lends] A fn-typed slot whose **return is
 /// opaque** — a bare type parameter, which every pass-minting slot is — lends
@@ -13610,21 +8795,6 @@ fn main() [use] -> None {
     println("${total(Set("p", "q"))}")
 }
 "#;
-
-const INFERRED_LEND_OUTPUT: &str = "3
-3
-2
-";
-
-#[test]
-fn rustc_compiles_and_runs_an_inferred_lend() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", INFERRED_LEND)]);
-    run_rust_files(&files, "inferred-lend", INFERRED_LEND_OUTPUT);
-}
 
 /// [proj-infer-fn-type] The signature it produces: **one** lifetime, shared by
 /// the container and by the slot's matching parameter, so the pass the slot
@@ -13704,23 +8874,6 @@ fn main() [use, spawn] -> None {
 }
 "#;
 
-const TASK_EFFECTS_OUTPUT: &str = "task saw 21
-direct 42
-chain saw 10
-task saw 11
-nested 22
-";
-
-#[test]
-fn rustc_compiles_and_runs_a_task_that_inherits_effects() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", TASK_EFFECTS)]);
-    run_rust_files(&files, "task-effects", TASK_EFFECTS_OUTPUT);
-}
-
 /// [task-effects] [rs-task] The lowering: the inherited handle is an **owned**
 /// handle bound outside the closure and cloned inside it, so nothing borrows
 /// the minting frame — and a task's own effect parameters are owned handles for
@@ -13750,16 +8903,6 @@ fn an_inherited_effect_travels_as_an_owned_handle() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_the_task_kernel() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", TASK_KERNEL)]);
-    run_rust_files(&files, "task-kernel", TASK_KERNEL_OUTPUT);
-}
-
 /// [rs-task] The lowering: no continuation enum, no slot, no parked table —
 /// the closure *is* the continuation, and the pool is the one the mint chose.
 #[test]
@@ -13782,16 +8925,6 @@ fn a_task_mint_lowers_to_a_scheduled_closure() {
         !text.contains("__parked.insert"),
         "a task mint parks nothing: the closure is the continuation:\n{text}"
     );
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_stub_bound_effect() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate_addr_stub_demo();
-    run_rust_files(&files, "addr-stub", "noted 2\n");
 }
 
 #[test]
@@ -13867,19 +9000,6 @@ fn main() [use] {
     }
 }
 "#;
-
-const IS_BIND_ONCE_OUTPUT: &str = "  took 1\n  took 2\n  took 3\nleft 0\n\
-first 7 then 1\nsum 10 left 0\none 5 left 1\n";
-
-#[test]
-fn rustc_compiles_and_runs_is_bindings_over_calls() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", IS_BIND_ONCE)]);
-    run_rust_files(&files, "is-bind-once", IS_BIND_ONCE_OUTPUT);
-}
 
 /// [is-bind-once] …and the shape it lowers to: one temporary, read by the test
 /// and by the binding, with the `while` becoming a `loop` so the evaluation
@@ -14010,57 +9130,7 @@ fn every_examples_checked_in_rust_is_current() {
     });
 }
 
-/// …and each example still runs to the stdout checked in beside it,
-/// which is also the parity assertion: the Kotlin backend asserts the same
-/// bytes from the same file.
-#[test]
-fn every_example_runs_to_its_expected_output() {
-    for_each_example(|example| {
-        let files = emit_example(&example);
-        let expected =
-            std::fs::read_to_string(examples_dir().join(&example).join("expected.txt"))
-                .unwrap_or_else(|_| panic!("examples/{example}/expected.txt is missing"));
-        run_rust_files(&files, &format!("example-{example}"), &expected);
-    });
-}
-
 // ===================== time [time-types] [time-timer] =====================
-
-/// [time-types] [time-clock] [time-ticker] [mod-import-module] The time surface
-/// end to end: one `import std.time` for the module, spans built and read back,
-/// both timelines' `between`, the epoch bridge, and the two clock effects.
-const TIME_SURFACE: &str = r#"
-import std.time
-
-fn main() [use] -> None {
-    use StdConsole()
-    use DefaultTicker()
-    use DefaultClock()
-    let d = millis(1500)
-    println("span=${d}")
-    println("sum=${plus(d, seconds(1))}")
-    println("scaled=${times(d, 2)}")
-    println("abs=${abs(minus(seconds(1), seconds(3)))}")
-    println("millis=${to_millis(d)}")
-    println("units=${micros(250)} ${nanos(37)} ${minutes(2)} ${hours(1)}")
-    let t0 = tick()
-    let t1 = plus(t0, micros(250))
-    println("ticks=${between(t0, t1)} ${between(t1, t0)}")
-    let i = epoch_milli(1700000000000)
-    println("epoch=${to_epoch_milli(i)} ${to_epoch_second(i)}")
-    println("shifted=${to_epoch_milli(plus(i, seconds(2)))}")
-    println("wall=${to_epoch_nano(now()) > 0L}")
-    println("mono to wall=${to_epoch_nano(to_instant(t0)) > 0L}")
-    println("round trip=${to_epoch_nano(to_instant(to_tick(i))) == to_epoch_nano(i)}")
-    println("ordered=${t1 > t0} ${d == millis(1500)}")
-}
-"#;
-
-const TIME_SURFACE_OUTPUT: &str = "span=1500ms\nsum=2500ms\nscaled=3s\nabs=2s\nmillis=1500\n\
-                                   units=250us 37ns 120s 3600s\nticks=250us -250us\n\
-                                   epoch=1700000000000 1700000000\nshifted=1700000002000\n\
-                                   wall=true\nmono to wall=true\nround trip=true\n\
-                                   ordered=true true\n";
 
 /// [time-timer] A real deadline: `DefaultTimer` spawned like any actor, a
 /// `waitfor` bridging the fire into `main`, and the fire's `at` proving the
@@ -14085,169 +9155,6 @@ fn main() [use, spawn] -> None {
     println("in order: ${second.at > first.at}")
 }
 "#;
-
-const TIME_TIMER_OUTPUT: &str = "waited enough: true\nin order: true\n";
-
-/// [time-manual] [effect-handler-multi] The pure-Salvo fake: `ManualTime` wears
-/// `Timer` and `TimerCtl`, the code under test holds only the `Timer` addr, and
-/// the test sequences itself with `on_idle` before advancing virtual time — so
-/// a two-second deadline is observed in microseconds, deterministically.
-const TIME_MANUAL: &str = r#"
-import std.time
-
-actor effect Sleeper {
-    send fn nap(wait: Duration, done: Reply<Str>) => !wait, !done
-    send fn woke(done: Reply<Str>, f: Fired) => !done, !f
-}
-
-handler Napping() [Timer] of Sleeper {
-    mailbox { capacity: 8 }
-
-    send fn nap(wait: Duration, done: Reply<Str>) => !wait, !done {
-        after(wait, replyto woke(done))
-    }
-
-    send fn woke(done: Reply<Str>, f: Fired) => !done, !f {
-        send(done, "woke at ${to_millis(between(Tick {nanos: 0L}, f.at))}ms")
-    }
-}
-
-fn main() [use, spawn] -> None {
-    use StdConsole()
-    let p = pool(1)
-    let (timer, ctl) = spawn ManualTime() on p
-    let sleeper = spawn Napping() with timer on p
-    let answer = waitfor result: Reply<Str> {
-        sleeper.nap(seconds(2), result)
-        waitfor settled: Reply<Idle> {
-            on_idle(p, settled)
-        }
-        ctl.advance(seconds(2))
-    }
-    println(answer)
-    // Virtual time *accumulates*: the second nap measures from where the first
-    // advance left `now`, so a one-second deadline answers at three seconds.
-    let second = waitfor later: Reply<Str> {
-        sleeper.nap(seconds(1), later)
-        waitfor drained: Reply<Idle> {
-            on_idle(p, drained)
-        }
-        ctl.advance(seconds(1))
-    }
-    println(second)
-}
-"#;
-
-const TIME_MANUAL_OUTPUT: &str = "woke at 2000ms\nwoke at 3000ms\n";
-
-/// [time-coupling] The three test postures of the coupling stance, in one
-/// program: a decision that takes its times as *data* and so needs no clock at
-/// all; a scripted `Ticker` for code that reads one locally; and the unified
-/// test clock — a `Ticker` whose reading is a zero deadline on the very timer
-/// the test advances, so a measurement taken across virtual time is exact.
-///
-/// The last one is what steps 1 and 5 of the second sequence were owed for: it
-/// needs `[waitfor]` as a propagating capability and `ManualTime` firing an
-/// already-due deadline at registration.
-const TIME_COUPLING: &str = r#"
-import std.time
-
-// Time as data: no effect, so nothing to fake.
-fn verdict(started: Tick, at: Tick, budget: Duration) [] -> Str {
-    if between(started, at) > budget {
-        return "late"
-    }
-    return "in time"
-}
-
-// A scripted clock: readings from the constructor, half a second apart.
-handler SteppingTicker(step: Duration) of Ticker {
-    state {
-        at: Long = 0
-    }
-
-    fn tick() -> Tick {
-        at = at + step.nanos
-        return Tick {nanos: at}
-    }
-}
-
-// The unified test clock: a reading is a deadline of zero, so the answer is the
-// timer's own virtual now. The timer arrives as a value, not a dependency — a
-// handler with dependencies of its own cannot be built in a spawn `with` clause.
-handler TestTicker(timer: eff[Timer]) of Ticker {
-    fn tick() -> Tick {
-        let fired = waitfor answer: Reply<Fired> {
-            timer.after(nanos(0), answer)
-        }
-        return fired.at
-    }
-}
-
-actor effect Sleeper {
-    send fn nap(wait: Duration, out: Reply<Str>) => !wait, !out
-    send fn woke(started: Tick, out: Reply<Str>, f: Fired) => !started, !out, !f
-}
-
-handler Napping() [Timer, Ticker] of Sleeper {
-    mailbox { capacity: 8 }
-
-    send fn nap(wait: Duration, out: Reply<Str>) {
-        after(wait, replyto woke(tick(), out))
-    }
-
-    send fn woke(started: Tick, out: Reply<Str>, f: Fired) {
-        send(out, "napped ${elapsed(started)}, fired at ${to_millis(between(Tick {nanos: 0}, f.at))}ms")
-    }
-}
-
-fn main() [use, spawn] -> None {
-    use StdConsole()
-    println("data: ${verdict(Tick {nanos: 0}, Tick {nanos: 1000000000}, millis(1500))}")
-    use SteppingTicker(millis(500))
-    let started = tick()
-    println("scripted: ${to_millis(elapsed(started))} ${to_millis(elapsed(started))}")
-
-    let p = pool(1)
-    let (timer, ctl) = spawn ManualTime() on p
-    let sleeper = spawn Napping() with timer, TestTicker(timer) on thread()
-    let napped = waitfor answer: Reply<Str> {
-        sleeper.nap(seconds(2), answer)
-        waitfor settled: Reply<Idle> {
-            on_idle(p, settled)
-        }
-        ctl.advance(seconds(2))
-    }
-    println("unified: ${napped}")
-}
-"#;
-
-const TIME_COUPLING_OUTPUT: &str = "data: in time\nscripted: 500 1000\n\
-                                    unified: napped 2s, fired at 2000ms\n";
-
-
-/// [time-types] [mod-import-module] The surface compiles and runs, and both
-/// backends print the same text.
-#[test]
-fn rustc_compiles_and_runs_the_time_surface() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", TIME_SURFACE)]);
-    run_rust_files(&files, "time-surface", TIME_SURFACE_OUTPUT);
-}
-
-/// [time-timer] A real deadline fires, and the fires are ordered.
-#[test]
-fn rustc_compiles_and_runs_a_real_timer() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", TIME_TIMER)]);
-    run_rust_files(&files, "time-timer", TIME_TIMER_OUTPUT);
-}
 
 // ===== the network sequence, step ①: `net` and `MemTransport` =====
 
@@ -14321,8 +9228,6 @@ fn main() [use, spawn] {
 }
 "#;
 
-const NET_MEM_TRANSPORT_OUTPUT: &str = "listen a: sent\nlisten b: sent\nhello: sent\nlost: unreachable: b:1\nagain: sent\nvoid: unreachable: c:9\ndead: unreachable: b:1\nb saw [b <- a:1: hello, b <- a:1: again], routed 2\n";
-
 /// [platform-threadsafe] A `threadsafe` platform handler nobody binds emits
 /// nothing and constructs nothing: the effect's trait is the whole surface
 /// std's shipped host companion implements.
@@ -14336,17 +9241,6 @@ fn an_unused_threadsafe_platform_handler_emits_nothing() {
             && !all.contains("__Platform_HostTcpTransport::new("),
         "an unused threadsafe platform handler emitted something:\n{all}"
     );
-}
-
-/// The `MemTransport` double end to end under rustc.
-#[test]
-fn rustc_compiles_and_runs_the_mem_transport() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", NET_MEM_TRANSPORT)]);
-    run_rust_files(&files, "net-mem-transport", NET_MEM_TRANSPORT_OUTPUT);
 }
 
 /// [platform-threadsafe] The real wire, on localhost: `HostTcpTransport` is
@@ -14414,14 +9308,8 @@ fn main() [use, spawn] {
 }
 "#;
 
-const NET_TCP_SMOKE_OUTPUT: &str = "listen: sent\nvoid: unreachable: 127.0.0.1:47312\nhello: sent\nme <- 127.0.0.1:47311: hello over tcp\nlocal 127.0.0.1:47311\n";
-
 #[test]
-fn rustc_compiles_and_runs_the_tcp_transport_on_localhost() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
+fn the_tcp_transport_on_localhost() {
     let files = generate(&[("main.sv", NET_TCP_SMOKE)]);
     let all: String = files.iter().map(|f| f.content.as_str()).collect();
     assert!(
@@ -14429,7 +9317,6 @@ fn rustc_compiles_and_runs_the_tcp_transport_on_localhost() {
             && all.contains("= crate::std_net::Transport::shared(__use_"),
         "expected the host behind the effect's handle:\n{all}"
     );
-    run_rust_files(&files, "net-tcp-smoke", NET_TCP_SMOKE_OUTPUT);
 }
 
 // ===== the network sequence, step ②: the wire format =====
@@ -14487,8 +9374,6 @@ actor effect Ledger {
 }
 "#;
 
-const WIRE_DEMO_OUTPUT: &str = "50 bytes: fffffffe000000012a05f2000100000004686f6d650000000200000001610000000362c3a901013fc0000000000002686901\n-2 5000000000 home 2 true\nsquare 1.5\nbad is none: true\nint: 00000102  str: 00000002c3a9  opt: 00\n";
-
 #[test]
 fn a_protocol_with_a_wire_form_gets_a_codec_and_a_hash() {
     let files = generate(&[("main.sv", WIRE_DEMO)]);
@@ -14514,112 +9399,6 @@ fn a_protocol_with_a_wire_form_gets_a_codec_and_a_hash() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_the_wire_format() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", WIRE_DEMO)]);
-    run_rust_files(&files, "wire-format", WIRE_DEMO_OUTPUT);
-}
-
-// ===== the network sequence, step ③: routable addrs across two nodes =====
-
-/// [net-addr-routable] [net-addr-capability] [net-remote-backpressure] Two nodes in one
-/// process over `MemTransport`: `main`'s node and a virtual one booted on a
-/// pool of its own. A counter on node B; its addr `encode`d and `decode`d on
-/// node A comes back as a **proxy** (`credits` answers a number); five sends
-/// through a capacity-2 mailbox exercise the OPEN/GRANT credit flow and the
-/// MSG frames; `total(out)` carries a reply token across, and the answer
-/// comes back as a REPLY frame into `main`'s waiter. The direct addr still
-/// works locally. Byte-identical on both backends.
-const NODES_DEMO: &str = r#"import std.net
-import std.codec
-import std.time
-
-actor effect Counter {
-    send fn bump(n: Int) => !n
-    send fn total(out: Reply<Int>) => !out
-}
-
-handler Counting() of Counter {
-    mailbox { capacity: 2 }
-    state {
-        sum: Int = 0
-    }
-    send fn bump(n: Int) => !n { sum = sum + n }
-    send fn total(out: Reply<Int>) => !out { out.send(sum) }
-}
-
-// Brings the node this runs on up over the shared in-process network: its
-// transport, its outbound and inbound actors, and its route. Placement decides
-// the node: called from `main` it sets up `main`'s node; run inside an actor
-// spawned on another node's pool, it sets up that node.
-fn bring_up(at: NodeEndpoint, net: eff[MemNet]) [Transport, spawn] -> None => at, net {
-    let p = pool(1)                         // inherits this node
-    let _connected = connect(copy(at), copy(p))
-}
-
-actor effect Boot {
-    send fn boot(at: NodeEndpoint, net: eff[MemNet], done: Reply<Bool>) => !at, !net, !done
-}
-
-handler Booting() [Transport, spawn] of Boot {
-    mailbox { capacity: 1 }
-    send fn boot(at: NodeEndpoint, net: eff[MemNet], done: Reply<Bool>) => !at, !net, !done {
-        bring_up(at, net)
-        done.send(true)
-    }
-}
-
-fn main() [use, spawn] {
-    use StdConsole()
-    let a = NodeEndpoint { host: "a", port: 1 }
-    let b = NodeEndpoint { host: "b", port: 1 }
-    let net = spawn MemNetwork() on pool(1)
-
-    // Node A is this one; node B is hosted beside it, and booted from a pool
-    // of its own so `this_node()` there answers B.
-    use MemTransport(copy(a), copy(net))
-    bring_up(copy(a), copy(net))
-    let pb = pool_at(new_node(), 1)
-    let booter = spawn Booting() with MemTransport(copy(b), copy(net)) on pb
-    let _up = waitfor done: Reply<Bool> { booter.boot(copy(b), copy(net), done) }
-
-    // A counter living on node B, reached from node A through the wire: the
-    // addr crosses as bytes and comes back as a proxy.
-    let there = spawn Counting() on pb
-    let far = decode<eff[Counter]>(encode(copy(there)))
-    if far is None {
-        println("addr did not decode")
-        return
-    }
-    println("is proxy: ${!(credits(far) is None)}")
-    let timer = spawn DefaultTimer() on pool(1)
-    let _t = waitfor f: Reply<Fired> { timer.after(millis(300), f) }
-    println("credits after a beat: ${credits(far) ?: -1}")
-    for i in range(0, 5) {
-        far.bump(i)                         // 0+1+2+3+4 = 10, through a capacity-2 mailbox
-    }
-    let sum = waitfor out: Reply<Int> { far.total(out) }
-    println("total over the wire: ${sum}")
-    let direct = waitfor out: Reply<Int> { there.total(out) }
-    println("direct: ${direct}")
-}
-"#;
-
-const NODES_DEMO_OUTPUT: &str = "is proxy: true\ncredits after a beat: 2\ntotal over the wire: 10\ndirect: 10\n";
-
-#[test]
-fn rustc_compiles_and_runs_two_nodes_over_mem_transport() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", NODES_DEMO)]);
-    run_rust_files(&files, "net-two-nodes", NODES_DEMO_OUTPUT);
-}
 
 // ===== the network sequence, step ④: node groups =====
 
@@ -14743,21 +9522,14 @@ fn names_of(nodes: List<Node>) -> Str => nodes {
 }
 "#;
 
-const NODE_GROUP_DEMO_OUTPUT: &str = "a: + b:1\na sees 1: b:1\nb sees 1: a:1\nb knows a's Counter protocol: true\na: - b:1 (left)\na sees 0 after b left\nmesh: x sees 2, y sees 2, z sees 2\n";
-
 #[test]
-fn rustc_compiles_and_runs_node_groups_over_mem_transport() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
+fn node_groups_over_mem_transport() {
     let files = generate(&[("main.sv", NODE_GROUP_DEMO)]);
     let all: String = files.iter().map(|f| f.content.as_str()).collect();
     assert!(
         all.contains("crate::scheduler::salvo_set_protocols(vec![("),
         "main must register the program's protocol table:\n{all}"
     );
-    run_rust_files(&files, "net-node-groups", NODE_GROUP_DEMO_OUTPUT);
 }
 
 // ===== the network sequence, step ⑤: actor groups =====
@@ -14806,8 +9578,6 @@ fn main() [use, spawn] {
 }
 "#;
 
-const EFFECT_GENERIC_DEMO_OUTPUT: &str = "members: 1\nping 7\n";
-
 #[test]
 fn effect_only_generics_erase_to_monomorphic_items() {
     let files = generate(&[("main.sv", EFFECT_GENERIC_DEMO)]);
@@ -14823,580 +9593,6 @@ fn effect_only_generics_erase_to_monomorphic_items() {
         !src.contains("Registering::<") && !src.contains("Reg<"),
         "an erased declaration keeps no type arguments:\n{src}"
     );
-}
-
-#[test]
-fn rustc_compiles_and_runs_an_effect_typed_generic() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", EFFECT_GENERIC_DEMO)]);
-    run_rust_files(&files, "effect-generic", EFFECT_GENERIC_DEMO_OUTPUT);
-}
-
-/// [rs-opt-borrow] [op-elvis] `?:` over an optional **borrow** — `get` on a
-/// list or a map answers `Option<&T>` — dereferences a Copy scalar, keeps a
-/// `proj` result as the borrow it is, and reads a local bound from such a
-/// call the same way. `get(xs, 0) ?: 10` was `&i32` against `10` before
-/// 2026-09-27; `when`/`is` over the same subjects are here to pin parity.
-const ELVIS_BORROW_DEMO: &str = r#"fn main() [use] {
-    use StdConsole()
-    let xs: List<Int> = List(3)
-    let names: List<Str> = List("ann")
-    let m: Mut Map<Str, Int> = Mut Map<Str, Int>()
-    put(m, "a", 3)
-    let a = get(xs, 0) ?: 10
-    let b = get(m, "a") ?: 10
-    let c = get(m, "zz") ?: 10
-    let d = copy(get(names, 0) ?: get(names, 0) ?: unreachable!())
-    let e = if get(names, 9) is Str s { copy(s) } else { "nobody" }
-    let h = get(names, 9) ?: get(names, 0) ?: unreachable!()
-    let first = get(xs, 0)
-    let w = when first { is Int { first + 1 } is None { 0 } }
-    let found = get(xs, 0)
-    let f = found ?: 5
-    let g = if found is Int v { v * 2 } else { 0 }
-    println("${a} ${b} ${c} ${d} ${e} ${w} ${f} ${g} ${h}")
-}
-"#;
-
-const ELVIS_BORROW_DEMO_OUTPUT: &str = "3 3 10 ann nobody 4 3 6 ann\n";
-
-#[test]
-fn rustc_compiles_and_runs_elvis_over_a_borrowed_optional() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", ELVIS_BORROW_DEMO)]);
-    run_rust_files(&files, "elvis-borrow", ELVIS_BORROW_DEMO_OUTPUT);
-}
-
-/// [actor-private-send] Private send members: one reached by `k@self(…)`,
-/// one a `replyto` target with two captures answered by another actor — on an
-/// independent handler and on a dependent (`[Console]`) one, whose private
-/// dispatch goes through the fused form.
-const PRIVATE_SENDS_DEMO: &str = r#"actor effect Counter {
-    send fn bump(n: Int) => !n
-    send fn total(out: Reply<Int>) => !out
-}
-
-handler Counting() of Counter {
-    mailbox { capacity: 8 }
-    state {
-        sum: Int = 0
-    }
-    send fn bump(n: Int) { sum = sum + n }
-    send fn total(out: Reply<Int>) { out.send(sum) }
-}
-
-actor effect Report {
-    send fn report(label: Str, out: Reply<Str>) => !label, !out
-}
-
-// Two private members: `twice` is reached by a self-send, `reported` is a
-// continuation target with two captures.
-handler Reporting(counter: eff[Counter]) of Report {
-    mailbox { capacity: 8 }
-    state {
-        asked: Int = 0
-    }
-    send fn report(label: Str, out: Reply<Str>) {
-        twice@self(1)
-        counter.total(replyto reported(label, out))
-    }
-    send fn twice(n: Int) => !n {
-        asked = asked + n * 2
-    }
-    send fn reported(label: Str, out: Reply<Str>, total: Int) => !label, !out, !total {
-        out.send("${label}: total ${total}, asked ${asked}")
-    }
-}
-
-// The same shape on a dependent handler (`[Console]`), which dispatches
-// through the fused form.
-handler LoudReporting(counter: eff[Counter]) [Console] of Report {
-    mailbox { capacity: 8 }
-    send fn report(label: Str, out: Reply<Str>) {
-        note@self(copy(label))
-        counter.total(replyto reported(label, out))
-    }
-    send fn note(label: Str) => !label {
-        println("asking for ${label}")
-    }
-    send fn reported(label: Str, out: Reply<Str>, total: Int) => !label, !out, !total {
-        out.send("${label}: ${total}")
-    }
-}
-
-fn main() [use, spawn] {
-    use StdConsole()
-    let p = pool(2)
-    let c = spawn Counting() on p
-    c.bump(3)
-    c.bump(4)
-    let r = spawn Reporting(copy(c)) on p
-    println(waitfor out: Reply<Str> { r.report("first", out) })
-    println(waitfor out: Reply<Str> { r.report("second", out) })
-    let loud = spawn LoudReporting(c) on p
-    println(waitfor out: Reply<Str> { loud.report("third", out) })
-}
-"#;
-
-const PRIVATE_SENDS_DEMO_OUTPUT: &str = "first: total 7, asked 2\nsecond: total 7, asked 4\nasking for third\nthird: 7\n";
-
-#[test]
-fn rustc_compiles_and_runs_private_send_members() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", PRIVATE_SENDS_DEMO)]);
-    run_rust_files(&files, "private-sends", PRIVATE_SENDS_DEMO_OUTPUT);
-}
-
-/// [actor-group] `spawn H(…) on p in group`: a local spawn plus the one
-/// `join` send — for a single face (the addr itself) and a two-face handler
-/// (the element of the tuple whose face the group is of). Both members are
-/// listed and answer.
-const SPAWN_IN_GROUP_DEMO: &str = r#"import std.net
-import std.time
-
-actor effect Ping { send fn ping(out: Reply<Str>) => !out }
-actor effect Admin { send fn stop() }
-
-handler Pinging(who: Str) of Ping {
-    mailbox { capacity: 4 }
-    send fn ping(out: Reply<Str>) => !out { out.send("pong from ${who}") }
-}
-handler TwoFaced(who: Str) of Ping, Admin {
-    mailbox { capacity: 4 }
-    send fn ping(out: Reply<Str>) => !out { out.send("pong from ${who}") }
-    send fn stop() {}
-}
-
-fn main() [use, spawn] {
-    use StdConsole()
-    let a = NodeEndpoint { host: "a", port: 1 }
-    let net = spawn MemNetwork() on pool(1)
-    use MemTransport(copy(a), copy(net))
-    let p = pool(1)
-    let _c = connect(copy(a), copy(p))
-    let nodes = spawn StaticNodeGroup("demo", List(copy(a))) on p
-    let pings = actor_group<Ping>(nodes)
-    let one = spawn Pinging("one") on p in pings
-    let (two, _admin) = spawn TwoFaced("two") on p in pings
-    let timer = spawn DefaultTimer() on pool(1)
-    let _t = waitfor f: Reply<Fired> { timer.after(millis(100), f) }
-    let members = waitfor out: Reply<List<eff[Ping]>> { pings.members(out) }
-    println("members: ${size(members)}")
-    println(waitfor out: Reply<Str> { one.ping(out) })
-    println(waitfor out: Reply<Str> { two.ping(out) })
-}
-"#;
-
-const SPAWN_IN_GROUP_DEMO_OUTPUT: &str = "members: 2\npong from one\npong from two\n";
-
-#[test]
-fn rustc_compiles_and_runs_spawn_in_group() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", SPAWN_IN_GROUP_DEMO)]);
-    run_rust_files(&files, "spawn-in-group", SPAWN_IN_GROUP_DEMO_OUTPUT);
-}
-
-/// [handler-init] `init { … }` and `self@Face`: a spawned handler's `init`
-/// runs first and registers its own address; a `use`-bound plain handler's
-/// `init` runs inline as a constructor body.
-const HANDLER_INIT_DEMO: &str = r#"actor effect Registry {
-    send fn register(who: eff[Worker]) => !who
-    send fn count(out: Reply<Int>) => !out
-}
-actor effect Worker {
-    send fn work(out: Reply<Str>) => !out
-}
-
-handler Registering() of Registry {
-    mailbox { capacity: 8 }
-    state {
-        n: Int = 0
-    }
-    send fn register(who: eff[Worker]) => !who { n = n + 1 }
-    send fn count(out: Reply<Int>) => !out { out.send(n) }
-}
-
-// Registers itself as it starts: `init` runs first, and `self@Worker` is
-// this actor's own address as its Worker face.
-handler Working(registry: eff[Registry], who: Str) of Worker {
-    mailbox { capacity: 8 }
-    state {
-        started: Int = 0
-    }
-    init {
-        started = 1
-        registry.register(self@Worker)
-    }
-    send fn work(out: Reply<Str>) => !out { out.send("${who} (started ${started})") }
-}
-
-effect Greeter { fn greet() -> Str }
-handler Greeting(name: Str) of Greeter {
-    state {
-        prefix: Str = ""
-    }
-    init { prefix = "hello, " }          // a constructor body for a plain handler
-    fn greet() -> Str { return "${prefix}${name}" }
-}
-
-effect Clock { fn now() -> Int }
-handler FixedClock(t: Int) of Clock { fn now() -> Int { return copy(t) } }
-// A dependent handler's `init` under a `use`: the dependency is readable.
-handler Stamped(who: Str) [Clock] of Greeter {
-    state {
-        started_at: Int = 0
-    }
-    init { started_at = now() }
-    fn greet() -> Str { return "hello ${who} since ${started_at}" }
-}
-
-fn main() [use, spawn] {
-    use StdConsole()
-    let p = pool(2)
-    let reg = spawn Registering() on p
-    let a = spawn Working(copy(reg), "a") on p
-    let b = spawn Working(copy(reg), "b") on p
-    println(waitfor out: Reply<Str> { a.work(out) })
-    println(waitfor out: Reply<Str> { b.work(out) })
-    println("registered: ${waitfor out: Reply<Int> { reg.count(out) }}")
-    use Greeting("world")
-    println(greet())
-    use FixedClock(42)
-    use Stamped("x")
-    println(greet())
-}
-"#;
-
-const HANDLER_INIT_DEMO_OUTPUT: &str = "a (started 1)\nb (started 1)\nregistered: 2\nhello, world\nhello x since 42\n";
-
-#[test]
-fn rustc_compiles_and_runs_handler_init() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", HANDLER_INIT_DEMO)]);
-    run_rust_files(&files, "handler-init", HANDLER_INIT_DEMO_OUTPUT);
-}
-
-/// [effect-any] A hand-written router: `RoundRobin(members) of any Resizer`
-/// bound with `use` (a monitor of an actor effect — the lock adapter alone),
-/// `thumbnail` declaring `[any Resizer]`, three sends spread over two members.
-const ANY_ROUTER_DEMO: &str = r#"import std.time
-
-actor effect Resizer {
-    send fn resize(name: Str, w: Int, out: Reply<Str>) => !name, !out
-}
-
-handler Resizing(who: Str) of Resizer {
-    mailbox { capacity: 8 }
-    send fn resize(name: Str, w: Int, out: Reply<Str>) => !out {
-        out.send("${who} resized ${name} to ${w}")
-    }
-}
-
-// [effect-any] A hand-written router: forwards each request to the next
-// member, so it promises no order between two sends — and says so.
-handler RoundRobin(members: List<eff[Resizer]>) of any Resizer {
-    mailbox { capacity: 16 }
-    state {
-        next: Int = 0
-    }
-    send fn resize(name: Str, w: Int, out: Reply<Str>) => !out {
-        let i = next % size(members)
-        next = next + 1
-        let target = copy(get(members, i) ?: unreachable!())
-        target.resize(name, w, out)
-    }
-}
-
-// Any Resizer will do: one send, one reply.
-fn thumbnail(name: Str) [any Resizer] -> Str => !name {
-    return waitfor out: Reply<Str> { resize(name, 100, out) }
-}
-
-fn main() [use, spawn] {
-    use StdConsole()
-    let p = pool(2)
-    let a = spawn Resizing("a") on p
-    let b = spawn Resizing("b") on p
-    use RoundRobin(List(a, b))
-    println(thumbnail("cat.png"))
-    println(thumbnail("dog.png"))
-    println(thumbnail("owl.png"))
-}
-"#;
-
-const ANY_ROUTER_DEMO_OUTPUT: &str = "a resized cat.png to 100\nb resized dog.png to 100\na resized owl.png to 100\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_router_of_any() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", ANY_ROUTER_DEMO)]);
-    run_rust_files(&files, "any-router", ANY_ROUTER_DEMO_OUTPUT);
-}
-
-/// [actor-route-stub] The generated stub with `Sharded`: a `Key`-marked argument
-/// picks the shard, so the same SKU lands on the same member every time.
-const ROUTE_SHARDED_DEMO: &str = r#"import std.net
-import std.time
-
-actor effect Inventory {
-    send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out
-}
-
-handler Stocking(shard: Str) of Inventory {
-    mailbox { capacity: 32 }
-    state {
-        served: Int = 0
-    }
-    send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out {
-        served = served + qty
-        out.send("${shard} took ${sku} (${served} so far)")
-    }
-}
-
-fn checkout(skus: List<Str>) [any Inventory, Console] -> None {
-    for sku in skus {
-        let line = waitfor out: Reply<Str> { reserve(copy(sku), 1, out) }
-        println(line)
-    }
-}
-
-fn main() [use, spawn] {
-    use StdConsole()
-    let a = NodeEndpoint { host: "a", port: 1 }
-    let net = spawn MemNetwork() on pool(1)
-    use MemTransport(copy(a), copy(net))
-    let p = pool(1)
-    let _connected = connect(copy(a), copy(p))
-    let nodes = spawn StaticNodeGroup("shop", List(copy(a))) on p
-    let stock = actor_group<Inventory>(nodes)
-    spawn Stocking("s1") on p in stock
-    spawn Stocking("s2") on p in stock
-
-    use Sharded<Inventory>()
-    use any stock
-    checkout(List("apple", "pear", "apple", "fig", "pear"))
-}
-"#;
-
-const ROUTE_SHARDED_DEMO_OUTPUT: &str = "s1 took apple (1 so far)\ns2 took pear (1 so far)\ns1 took apple (2 so far)\ns1 took fig (3 so far)\ns2 took pear (2 so far)\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_sharded_route() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", ROUTE_SHARDED_DEMO)]);
-    run_rust_files(&files, "route-sharded", ROUTE_SHARDED_DEMO_OUTPUT);
-}
-
-/// [actor-route-stub] `LeastLoaded` (local first) and `Elected` over a two-node
-/// group: the first stub answers from this node's member, the second from the
-/// member on the node `StaticLeader` names.
-const ROUTE_PICKS_DEMO: &str = r#"import std.net
-import std.time
-
-actor effect Sequencer {
-    send fn next(out: Reply<Str>) => !out
-}
-
-handler Sequencing(who: Str) of Sequencer {
-    mailbox { capacity: 8 }
-    state {
-        n: Int = 0
-    }
-    send fn next(out: Reply<Str>) => !out {
-        n = n + 1
-        out.send("${who}#${n}")
-    }
-}
-
-actor effect Boot {
-    send fn boot(done: Reply<eff[Sequencer]>) => !done
-}
-
-handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet]) [Transport, spawn] of Boot {
-    mailbox { capacity: 1 }
-    send fn boot(done: Reply<eff[Sequencer]>) => !done {
-        let p = pool(1)
-        let nodes = spawn StaticNodeGroup("ids", copy(all)) on p
-        let seq = actor_group<Sequencer>(nodes)
-        let mine = spawn Sequencing("b") on p in seq
-        done.send(mine)
-    }
-}
-
-fn fresh_id() [any Sequencer] -> Str {
-    return waitfor out: Reply<Str> { next(out) }
-}
-
-fn main() [use, spawn] {
-    use StdConsole()
-    let a = NodeEndpoint { host: "a", port: 1 }
-    let b = NodeEndpoint { host: "b", port: 1 }
-    let all = List(copy(a), copy(b))
-    let net = spawn MemNetwork() on pool(1)
-    use MemTransport(copy(a), copy(net))
-    let pa = pool(1)
-    let _connected = connect(copy(a), copy(pa))
-    let nodes = spawn StaticNodeGroup("ids", copy(all)) on pa
-    let seq = actor_group<Sequencer>(nodes)
-    spawn Sequencing("a") on pa in seq
-
-    let pb = pool_at(new_node(), 1)
-    let booter = spawn Booting(copy(b), copy(all), copy(net)) with MemTransport(copy(b), copy(net)) on pb
-    let remote = waitfor done: Reply<eff[Sequencer]> { booter.boot(done) }
-    let timer = spawn DefaultTimer() on pool(1)
-    let _t = waitfor f: Reply<Fired> { timer.after(millis(300), f) }
-    let seen = waitfor out: Reply<List<eff[Sequencer]>> { seq.members(out) }
-    println("members: ${size(seen)}")
-
-    // Least loaded, local first: every id comes from a's member.
-    use LeastLoaded<Sequencer>(true)
-    use any copy(seq)
-    println("${fresh_id()} ${fresh_id()}")
-
-    // Elected: the leader is b's node, so ids come from b's member.
-    use StaticLeader(node_of(remote))
-    use Elected<Sequencer>()
-    use any seq
-    println("${fresh_id()} ${fresh_id()}")
-}
-"#;
-
-const ROUTE_PICKS_DEMO_OUTPUT: &str = "members: 2\na#1 a#2\nb#1 b#2\n";
-
-#[test]
-fn rustc_compiles_and_runs_least_loaded_and_elected_routes() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", ROUTE_PICKS_DEMO)]);
-    run_rust_files(&files, "route-picks", ROUTE_PICKS_DEMO_OUTPUT);
-}
-
-/// [actor-group] An `ActorGroup<Ping>` spanning two virtual nodes: a replica
-/// per node found through the node group's peers (NAMED frames), a member
-/// joined on each side, both replicas listing both, a subscriber hearing the
-/// local and the remote arrival, and a ping to the remote member answered over
-/// the wire. Byte-identical on both backends.
-const ACTOR_GROUP_DEMO: &str = r#"import std.net
-import std.time
-
-actor effect Ping {
-    send fn ping(out: Reply<Str>) => !out
-}
-
-handler Pinging(who: Str) of Ping {
-    mailbox { capacity: 8 }
-    send fn ping(out: Reply<Str>) => !out { out.send("pong from ${who}") }
-}
-
-handler Noticing(label: Str) [Console] of ActorGroupWatcher<Ping> {
-    mailbox { capacity: 16 }
-    send fn joined(member: eff[Ping]) => !member { println("${label}: + a Ping (local: ${eq(node_of(member), this_node())})") }
-    send fn left(member: eff[Ping]) => !member { println("${label}: - a Ping") }
-}
-
-actor effect Boot {
-    send fn boot(done: Reply<eff[ActorGroup<Ping>]>) => !done
-}
-
-handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet]) [Transport, spawn] of Boot {
-    mailbox { capacity: 1 }
-    send fn boot(done: Reply<eff[ActorGroup<Ping>]>) => !done {
-        let p = pool(1)
-        let nodes = spawn StaticNodeGroup("demo", copy(all)) on p
-        let pings = actor_group<Ping>(nodes)
-        spawn Pinging("b") on p in pings
-        done.send(pings)
-    }
-}
-
-fn main() [use, spawn] {
-    use StdConsole()
-    let a = NodeEndpoint { host: "a", port: 1 }
-    let b = NodeEndpoint { host: "b", port: 1 }
-    let all = List(copy(a), copy(b))
-    let net = spawn MemNetwork() on pool(1)
-
-    use MemTransport(copy(a), copy(net))
-    let pa = pool(1)
-    let _connected = connect(copy(a), copy(pa))
-    let nodes_a = spawn StaticNodeGroup("demo", copy(all)) on pa
-    let pings_a = actor_group<Ping>(nodes_a)
-    pings_a.subscribe(spawn Noticing("a") on pa)
-    spawn Pinging("a") on pa in pings_a
-
-    let pb = pool_at(new_node(), 1)
-    let booter = spawn Booting(copy(b), copy(all), copy(net)) with MemTransport(copy(b), copy(net)) on pb
-    let pings_b = waitfor done: Reply<eff[ActorGroup<Ping>]> { booter.boot(done) }
-
-    let timer = spawn DefaultTimer() on pool(1)
-    let _t = waitfor f: Reply<Fired> { timer.after(millis(500), f) }
-    let seen_a = waitfor out: Reply<List<eff[Ping]>> { pings_a.members(out) }
-    let seen_b = waitfor out: Reply<List<eff[Ping]>> { pings_b.members(out) }
-    println("a's group sees ${size(seen_a)}, b's sees ${size(seen_b)}")
-    for m in seen_a {
-        let answer = waitfor r: Reply<Str> { m.ping(r) }
-        println("  ${answer}")
-    }
-}
-"#;
-
-const ACTOR_GROUP_DEMO_OUTPUT: &str = "a: + a Ping (local: true)\na: + a Ping (local: false)\na's group sees 2, b's sees 2\n  pong from a\n  pong from b\n";
-
-#[test]
-fn rustc_compiles_and_runs_an_actor_group_across_nodes() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", ACTOR_GROUP_DEMO)]);
-    run_rust_files(&files, "net-actor-group", ACTOR_GROUP_DEMO_OUTPUT);
-}
-
-/// [time-manual] Virtual time, in pure Salvo, through a two-face handler.
-#[test]
-fn rustc_compiles_and_runs_manual_time() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", TIME_MANUAL)]);
-    run_rust_files(&files, "time-manual", TIME_MANUAL_OUTPUT);
-}
-
-/// [time-coupling] The three postures, and the unified test clock in particular:
-/// a measurement taken across virtual time is exact, because one clock is behind
-/// both the deadline and the reading.
-#[test]
-fn rustc_compiles_and_runs_the_coupling_postures() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", TIME_COUPLING)]);
-    run_rust_files(&files, "time-coupling", TIME_COUPLING_OUTPUT);
 }
 
 /// [time-timer] [rs-time] A deadline is the runtime module's, in Salvo: the
@@ -15481,11 +9677,6 @@ fn an_owned_optional_local_is_read_through_a_borrow() {
         main.contains("let mut __picked_13 = __pick_12.as_ref().unwrap();\n            __picked_13.clone()\n"),
         "a consumed argument did not get an owned value:\n{main}"
     );
-    run_rust_files(
-        &files,
-        "reread-optional",
-        "once 5\ntwice 5\nkept 5\nowned hello\ncopy 6\n",
-    );
 }
 
 /// [rs-read-mode] An **intrinsic** argument takes its mode from the
@@ -15538,11 +9729,6 @@ fn an_intrinsic_argument_takes_the_intrinsics_own_mode() {
         "a `Mut` intrinsic argument did not reach the storage:\n{main}"
     );
     assert!(!main.contains(".clone()"), "{main}");
-    run_rust_files(
-        &files,
-        "intrinsic-optional-args",
-        "found\nupper HELLO\nxs 2\n",
-    );
 }
 
 /// [rs-read-mode] A **narrowed** read is the same question as a `?:` pick, one path
@@ -15605,11 +9791,6 @@ fn a_narrowed_read_borrows_unless_the_position_owns() {
     assert!(
         main.contains("let mut n_5 = n.unwrap();") && main.contains("i32::wrapping_add(n_5, n_5)"),
         "a Copy narrowed read grew an `as_ref`:\n{main}"
-    );
-    run_rust_files(
-        &files,
-        "narrowed-reads",
-        "size 5\nkept 5\nheld hello\nowned hello\nfield 5\ncopy 8\n",
     );
 }
 
@@ -15683,46 +9864,6 @@ fn elem_mut_handles_render_as_get_mut_and_captured_indices() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_elem_mut_handles() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", ELEM_MUT_DEMO)]);
-    run_rust_files(&files, "elem_mut", "2 13\n");
-}
-
-/// [assert-op] [rs-loop-temp] `copy` of an `?: unreachable!(…)` pick whose
-/// subject borrows a temporary (`make().items`): the pick binds the temporary
-/// inside its block, so on Rust the copy goes into the arm's value — a clone
-/// outside the block would reach a temporary already dropped (E0597, found
-/// removing the postfix `!`, 2026-10-14).
-const COPY_OF_A_PICK_DEMO: &str = r#"
-struct Box {
-    items: List<Str>
-}
-
-fn make() [] -> Box {
-    return Box { items: List("a", "b") }
-}
-
-fn show(s: Str) [] -> Str => !s {
-    return s
-}
-
-fn main() [use] {
-    use StdConsole()
-    println(show(copy(get(make().items, 1) ?: unreachable!("empty"))))
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_a_copy_of_a_pick_over_a_temporary() {
-    let files = generate(&[("main.sv", COPY_OF_A_PICK_DEMO)]);
-    run_rust_files(&files, "copy-of-a-pick", "b\n");
-}
-
 /// [rs-loc] ④a slice 5 — a **search loop** whose element binding is
 /// returned: in the minting fn's path rendering the `for` over a list becomes
 /// an *indexed* loop and the binding a captured-index handle, so the found
@@ -15782,16 +9923,6 @@ fn a_search_loop_returns_the_found_position() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_a_search_loop_lender() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", SEARCH_LOOP_DEMO)]);
-    run_rust_files(&files, "search_loop", "50 13\n");
-}
-
 /// [rs-path] A user mint whose container is a **nested field** of structs
 /// that have no accessor of their own: the path fn takes the outer struct
 /// by shared borrow and answers the list position, and every use indexes the
@@ -15842,7 +9973,6 @@ fn a_mint_into_a_nested_field_paths_through_the_fields() {
         "{}",
         main.content
     );
-    run_rust_files(&files, "nested_field_path", "101 12\n");
 }
 
 /// [rs-cmp-deref] A borrowed Copy scalar is **copied out in a comparison**:
@@ -15881,16 +10011,6 @@ fn a_borrowed_copy_scalar_derefs_in_a_comparison_only() {
         "{}",
         main.content
     );
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_borrowed_scalar_comparison() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", CMP_DEREF_DEMO)]);
-    run_rust_files(&files, "cmp_deref", "eq\nlt\n21\n");
 }
 
 /// [deduce-field] Rung ⑤ v1 — a **field-granular** mutation entry
@@ -15935,52 +10055,6 @@ fn a_surviving_field_derivation_renders_as_a_virtual_place() {
         "{}",
         main.content
     );
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_field_granular_mutation() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", FIELD_GRANULAR_DEMO)]);
-    run_rust_files(&files, "field_granular", "1 15\n");
-}
-
-/// [deduce-field] Rung ⑤ v2 — a **contents** mutation of a field spares a
-/// handle to that field: the container's storage is still there, so both
-/// backends observe the same object growing. Rust renders the handle as a
-/// virtual place, which is what makes the agreement possible (a bound `&`
-/// would be E0502 against the very mutation).
-const CONTENTS_MUTATION_DEMO: &str = r#"
-struct Ring { power: Int }
-struct Entity canbe Mut {
-    hp: Int,
-    rings: Mut List<Ring>
-}
-
-fn add_ring(e: Mut Entity) -> None => e.rings: Mut {
-    add(e.rings, Ring { power: 7 })
-}
-
-fn main() [use] {
-    use StdConsole()
-    let e = Mut Entity { hp: 20, rings: Mut List(Ring { power: 3 }) }
-    let rings = e.rings
-    add_ring(e)
-    // The handle names the very list that grew: 2 on both backends.
-    println("${size(rings)} ${size(e.rings)}")
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_a_contents_mutation_handle() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", CONTENTS_MUTATION_DEMO)]);
-    run_rust_files(&files, "contents_mutation", "2 2\n");
 }
 
 /// [ref-anchor] [rs-loc] ④b — a callee whose two handle parameters are
@@ -16035,356 +10109,6 @@ fn ref_handles_render_as_their_container_and_positions() {
         "{}",
         main.content
     );
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_ref_anchored_call() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", REF_ANCHOR_DEMO)]);
-    run_rust_files(&files, "ref_anchored_pair", "8 3 18\n");
-}
-
-/// [cmp-carry] [col-membership] A keyed container's identity is a
-/// **capability its constructor asks for** (user decision 2026-09-26): the
-/// resolved `hash`/`eq` pair fills the type's slots, so a *declared*
-/// non-structural identity is honoured rather than ignored. Before this,
-/// nothing filled the slots: Kotlin silently keyed by the JVM's structural
-/// equality (printing `2` where the declared `eq` says `1`) and rustc refused
-/// the program outright — the [backend-never-wrong]-grade half.
-///
-/// A primitive keeps the host's own identity, because a canonical intrinsic
-/// *is* the host's operation [cmp-groups] — which is what keeps every existing
-/// program's emission unchanged.
-const HASHED_CAPABILITY_DEMO: &str = r#"
-struct Member {
-    id: Int,
-    name: Str
-}
-
-// A declared identity that is *not* structural: two members with one id are
-// the same member, whatever the name says.
-fn hash(m: Member) -> Long => m {
-    return to_long(m.id)
-}
-
-fn eq(a: Member, b: Member) -> Bool => a, b {
-    return a.id == b.id
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    let s: Mut Set<Member> = Mut Set()
-    add(s, Member { id: 1, name: "ann" })
-    add(s, Member { id: 1, name: "bob" })
-    let m: Mut Map<Member, Int> = Mut Map()
-    put(m, Member { id: 2, name: "cyd" }, 1)
-    put(m, Member { id: 2, name: "dee" }, 2)
-    // …and a container of a primitive still keys by the host's own identity.
-    let words: Mut Set<Str> = Mut Set()
-    add(words, "a")
-    add(words, "a")
-    add(words, "b")
-    println("${size(s)} ${size(m)} ${size(words)}")
-}
-"#;
-
-
-#[test]
-fn rustc_compiles_and_runs_a_declared_identity() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", HASHED_CAPABILITY_DEMO)]);
-    run_rust_files(&files, "hashed_capability", "1 1 2\n");
-}
-
-/// [cmp-carry] A **mixed fill**: one slot of `?Hashed<T>` written at the
-/// constructor, the other left to whatever resolution finds — here a coarser
-/// `hash` beside the `eq` that `: Hashed<self> by auto` generated. Honoured rather
-/// than refused (user decision 2026-09-26: a parameter group is a convenience,
-/// not a contract the caller must fill wholesale), and the fix to a defect that
-/// dropped the written slot silently on Kotlin and misdiagnosed it here.
-const MIXED_IDENTITY_DEMO: &str = r#"
-// `Hashed<self> by auto` generates `hash` and `eq`; the constructor keeps the
-// generated equality and writes a coarser hash of its own.
-struct Point : Hashed<self> by auto {
-    x: Int,
-    y: Int
-}
-
-export fn by_x(p: Point) -> Long => p {
-    return to_long(p.x)
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    let s: Mut Set<Point> = Mut Set(hash = by_x, eq = eq)
-    add(s, Point {x: 1, y: 1})
-    add(s, Point {x: 1, y: 2})
-    add(s, Point {x: 1, y: 1})
-    let m: Mut Map<Point, Int> = Mut Map(hash = by_x, eq = eq)
-    put(m, Point {x: 5, y: 0}, 1)
-    put(m, Point {x: 5, y: 0}, 2)
-    let v = get(m, Point {x: 5, y: 0})
-    when v {
-        is Int { println("${size(s)} ${size(m)} ${v}") }
-        is None { println("${size(s)} ${size(m)} missing") }
-    }
-}
-"#;
-
-
-#[test]
-fn rustc_compiles_and_runs_a_mixed_identity() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", MIXED_IDENTITY_DEMO)]);
-    run_rust_files(&files, "mixed_identity", "2 1 2\n");
-}
-
-/// [cmp-carry] [platform-slots] [implicit-with] Identities **written out
-/// inside a generic body**, which is the only way to name them there: an identity
-/// group is filled from one source, so a forwarded member cannot sit beside a
-/// written one. The subject is a type variable, which no marker type can name, so
-/// the container is keyed by values here too.
-const GENERIC_MIXED_DEMO: &str = r#"
-// Generic identities, both written at the constructor — one source, so the rule
-// allows it. The subject is a type *variable*, which no marker type can name.
-export fn wide_hash<T>(a: T) -> Long => a {
-    return 1
-}
-
-export fn all_same<T>(a: T, b: T) -> Bool => a, b {
-    return true
-}
-
-fn gather<T>(a: T, b: T, ?Hashed<T>) -> Set<T> => !a, !b {
-    let s: Mut Set<T> = Mut Set(hash = wide_hash, eq = all_same)
-    add(s, a)
-    add(s, b)
-    return s
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    println("${size(gather(1, 2))}")
-}
-"#;
-
-
-#[test]
-fn rustc_compiles_and_runs_a_generic_written_identity() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", GENERIC_MIXED_DEMO)]);
-    run_rust_files(&files, "generic_written_identity", "1\n");
-}
-
-/// [cmp-carry] [platform-slots] [implicit-with] A fn that **holds the whole
-/// identity** and a caller that **writes it out** — the legal shape of what was
-/// once an identity assembled from two sources. Found 2026-09-26 while answering
-/// what "filled" means for the fill-together rule, and it closed two defects
-/// [backend-never-wrong]:
-///
-///  * the value path **cloned** the declaration it names, and `rust_fn_name`
-///    identifies an overload by pointer — so a generated structural member
-///    (`eq__4`) came out as the unmangled `eq`, rustc's E0425;
-///  * a **written** fill at a kept position was still handed over as a borrow,
-///    rustc's E0308, because only the forwarded and resolved fills had learned
-///    the owned convention.
-const MIXED_SOURCE_DEMO: &str = r#"
-struct Point : Hashed<self> by auto {
-    x: Int,
-    y: Int
-}
-
-export fn by_x(p: Point) -> Long => p {
-    return to_long(p.x)
-}
-
-// Declares only `?hash`, individually — no group spread anywhere. Inside, the
-// container's `hash` is *forwarded* from this parameter while its `eq` is
-// *resolved* to Point's generated one. Nobody writes anything at the
-// constructor.
-// Holding the *pair* rather than half of it: both members are then forwarded,
-// which is one source.
-fn collect(a: Point, b: Point, ?Hashed<Point>) -> Set<Point> => !a, !b {
-    let s: Mut Set<Point> = Mut Set()
-    add(s, a)
-    add(s, b)
-    return s
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    let s = collect(Point {x: 1, y: 1}, Point {x: 1, y: 2}, hash = by_x, eq = eq)
-    println("${size(s)}")
-}
-"#;
-
-
-#[test]
-fn rustc_compiles_and_runs_a_held_identity() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", MIXED_SOURCE_DEMO)]);
-    run_rust_files(&files, "held_identity", "2\n");
-}
-
-/// [cmp-carry] A **written lambda** as a container's `hash`: lent for each
-/// call like any implicit, so it needs nothing of its own (ROADMAP §0j step
-/// 7; it used to be moved into an owned `Arc`).
-#[test]
-fn a_written_lambda_at_a_kept_position_moves() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[(
-        "main.sv",
-        "struct Point : Hashed<self> by auto {\n    \
-         x: Int,\n    \
-         y: Int\n}\n\
-         fn collect(a: Point, ?Hashed<Point>) -> Set<Point> => !a {\n    \
-         let s: Mut Set<Point> = Mut Set()\n    \
-         add(s, a)\n    \
-         return s\n}\n\
-         fn main() [use] -> None {\n    \
-         use StdConsole()\n    \
-         let s = collect(Point {x: 1, y: 1}, hash = (p: Point) -> to_long(p.x), eq = eq)\n    \
-         println(\"${size(s)}\")\n}\n",
-    )]);
-    run_rust_files(&files, "a_written_lambda_at_a_kept_position_moves", "1\n");
-}
-
-/// [cmp-carry] [rs-borrows] A declared identity over a **Copy scalar** takes its
-/// arguments by value, while the host's `eq` parameter hands references — so
-/// the adapter derefs [backend-never-wrong].
-#[test]
-fn a_scalar_identitys_marker_derefs_its_arguments() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[(
-        "main.sv",
-        "export fn all_same(a: Int, b: Int) -> Bool => a, b {\n    \
-         return true\n}\n\
-         fn main() [use] -> None {\n    \
-         use StdConsole()\n    \
-         let s: Mut Set<Int> = Mut Set(hash = hash, eq = all_same)\n    \
-         add(s, 1)\n    \
-         println(\"${size(s)}\")\n}\n",
-    )]);
-    run_rust_files(&files, "a_scalar_identitys_marker_derefs_its_arguments", "1\n");
-}
-
-/// [cmp-carry] [platform-slots] The capability inside a **generic** body:
-/// every keyed family built from an identity the function was *handed* rather
-/// than one it can name (2026-09-26). The declared identity is non-structural,
-/// so a body that fell back to the host's hashing would print different numbers
-/// — and a primitive key reaches the host's identity through the same code.
-/// Byte-identical to the Kotlin backend's case [backend-parity].
-const GENERIC_KEYED_DEMO: &str = r#"
-struct Member {
-    id: Int,
-    name: Str
-}
-
-// A declared identity that is *not* structural: two members with one id are the
-// same member. A generic collector must key by *this*, not by the host's.
-fn hash(m: Member) -> Long => m {
-    return to_long(m.id)
-}
-
-fn eq(a: Member, b: Member) -> Bool => a, b {
-    return a.id == b.id
-}
-
-fn cmp(a: Member, b: Member) -> Int => a, b {
-    return a.id - b.id
-}
-
-// A generic body constructing each keyed family. The implicits are forwarded:
-// the enclosing fn declares the capability, and the constructor's own
-// `?Hashed<T>`/`?Ordered<T>` is filled from it.
-fn gather<T>(a: T, b: T, ?Hashed<T>) -> Mut Set<T> => !a, !b {
-    let s: Mut Set<T> = Mut Set()
-    add(s, a)
-    add(s, b)
-    return s
-}
-
-// …and one that forwards the capability on rather than using it directly, which
-// is what makes the demand transitive.
-fn gather_three<T>(a: T, b: T, c: T, ?Hashed<T>) -> Set<T> => !a, !b, !c {
-    let s: Mut Set<T> = gather(a, b)
-    add(s, c)
-    return s
-}
-
-fn tally<T>(a: T, b: T, ?Hashed<T>) -> Map<T, Int> => !a, !b {
-    let m: Mut Map<T, Int> = Mut Map()
-    put(m, a, 1)
-    put(m, b, 2)
-    return m
-}
-
-fn ranked<T>(a: T, b: T, ?Ordered<T>) -> SortedSet<T> => !a, !b {
-    let s: Mut SortedSet<T> = Mut SortedSet()
-    add(s, a)
-    add(s, b)
-    return s
-}
-
-fn scored<T>(a: T, b: T, ?Ordered<T>) -> SortedMap<T, Int> => !a, !b {
-    let m: Mut SortedMap<T, Int> = Mut SortedMap()
-    put(m, a, 1)
-    put(m, b, 2)
-    return m
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    // Fresh values per call: the collectors consume their elements.
-    let one = size(gather(Member { id: 1, name: "ann" }, Member { id: 1, name: "bob" }))
-    let two = size(gather(Member { id: 1, name: "ann" }, Member { id: 2, name: "cyd" }))
-    let three = gather_three(Member { id: 1, name: "ann" }, Member { id: 1, name: "bob" }, Member { id: 2, name: "cyd" })
-    let tallied = tally(Member { id: 1, name: "ann" }, Member { id: 2, name: "cyd" })
-    // One element: the declared `eq` collapses them.
-    println("${one} ${two} ${size(three)} ${size(tallied)}")
-    // Ordered by the declared `cmp`, not by the host's.
-    let order = ranked(Member { id: 2, name: "cyd" }, Member { id: 1, name: "ann" })
-    for m in to_list(order) {
-        println(m.name)
-    }
-    let scores = scored(Member { id: 2, name: "cyd" }, Member { id: 1, name: "ann" })
-    // A primitive key still reaches the host's own identity through the same
-    // generic body.
-    let ints = gather_three(3, 3, 4)
-    let sorted = ranked(9, 2)
-    println("${size(scores)} ${to_str(ints)} ${to_str(sorted)}")
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_a_generic_keyed_container() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", GENERIC_KEYED_DEMO)]);
-    run_rust_files(&files, "generic_keyed", "1 2 2 2\nann\ncyd\n2 {3, 4} {2, 9}\n");
 }
 
 /// [cmp-carry] The limitation the capability makes visible: a **tuple** key,
@@ -16473,21 +10197,6 @@ fn reachability_follows_resolution_not_names() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_after_the_reachability_narrowing() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    run_rust_files(
-        &generate(&[("main.sv", REACH_ITERATES_ONLY)]),
-        "reach_iterates",
-        "1\n2\n3\n6\n",
-    );
-    run_rust_files(&generate(&[("main.sv", REACH_RANGES)]), "reach_ranges", "1\n2\n3\n");
-}
-
-
 /// [interp-float] A float's text is **Salvo's rule, which is Kotlin's** (user
 /// decision 2026-09-25): the shortest digits that round-trip, always a decimal
 /// point, and scientific notation outside `[10^-3, 10^7)`. Rust's `Display`
@@ -16538,17 +10247,6 @@ fn a_float_renders_by_salvos_rule() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_salvos_float_text() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", FLOAT_TEXT_DEMO)]);
-    run_rust_files(&files, "float_text", "2.0 8.25 -2.0 0.0 0.001 1.0E-4\n1234567.0 1.2345678E7 1.0E20 1.0E-14\nNaN Infinity -Infinity\nPoint { x: 2.0, ratio: 3.0 }\n[2.0, 0.5] [2.0, 0.5] [4.0]\n{a: 2.0}\n");
-}
-
-
 /// [rs-loop-temp] Iterating a **temporary** container: the loop *binds* the
 /// pass, so a Rust temporary the subject borrows dies too early (E0716) while
 /// Kotlin's reference does not. The subject's temporaries are hoisted into
@@ -16596,63 +10294,6 @@ fn a_loops_temporary_subject_is_hoisted() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_a_loop_over_a_temporary() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", LOOP_TEMP_DEMO)]);
-    run_rust_files(&files, "loop_temp", "a 1\na 2\nb 4\nb 5\nc 9\n");
-}
-
-/// [iter-resolve] Two same-named structs in two modules: a user `Range` beside
-/// `std.core.range`'s. The pass-driving lookups matched the subject by *type name*,
-/// so the loop could mint with one module's `iter` and drive the other's
-/// `next` — wrong output, not a diagnostic (E0308 in rustc, an argument type
-/// mismatch in kotlinc). Both lookups compare **declarations** now.
-const SAME_NAME_PASS_DEMO: &str = r#"
-struct Range {
-    start: Int,
-    end: Int
-}
-
-fn range(start: Int, end: Int) -> Range {
-    return Range { start: start, end: end }
-}
-
-iter fn iter(r: Range) -> Emitted Int | Finished {
-    state RangeIter {
-        i: Int = r.start
-    }
-    if i >= r.end {
-        return finished()
-    }
-    let out = i.copy()
-    i += 1
-    return emitted(out)
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    // `std.core.range` declares a `range(Int, Int)` too, and nothing separates the
-    // two by signature, so the call names the place [fn-overload-ambiguous].
-    for i in range@main(1, 4) {
-        println("${i}")
-    }
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_a_user_struct_named_like_stds() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", SAME_NAME_PASS_DEMO)]);
-    run_rust_files(&files, "same_name_pass", "1\n2\n3\n");
-}
-
 /// [interp-to-str] [iter-resolve] A `to_str` the checker resolved in **another
 /// module**, which the file never *names*: name-based reachability left the
 /// module un-emitted and name-based imports left it un-imported, so the call
@@ -16692,17 +10333,12 @@ fn main() [use] -> None {
 ];
 
 #[test]
-fn rustc_compiles_and_runs_a_to_str_from_another_module() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
+fn a_to_str_from_another_module() {
     let files = generate(INTERP_TO_STR_MODULES);
     assert!(
         files.iter().any(|f| f.rel_path.ends_with("pair.rs")),
         "the module the interpolation resolved into must be emitted"
     );
-    run_rust_files(&files, "interp_to_str_module", "(1, 2)\n");
 }
 
 /// [implicit-infer] A **qualified argument** through an implicit fn position:
@@ -16751,41 +10387,6 @@ fn a_qualified_argument_still_binds_an_implicits_type_variable() {
         "both calls must drive the list's `next`:\n{}",
         main.content
     );
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_qualified_argument_through_an_implicit() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", QUALIFIED_IMPLICIT_DEMO)]);
-    run_rust_files(&files, "qualified_implicit", "6\n6\n");
-}
-
-/// [col-no-literal] A **bare collection constructor** as an argument determines
-/// the callee's type parameter. (Written as a literal, this was a defect:
-/// substituting an unbound variable yields `Unknown`, which arrived looking
-/// concrete, and the literal adopted it as its element type instead of
-/// reading its own elements — so `to_set([1, 2])` could not infer `T`.)
-const BARE_LITERAL_DEMO: &str = r#"
-fn main() [use] -> None {
-    use StdConsole()
-    println("A ${size(to_set(List(1, 2)))}")
-    println("B ${size(to_list(Set(3, 4)))}")
-    let words = to_set(List("a", "b", "a"))
-    println("C ${size(words)}")
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_bare_literal_arguments() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", BARE_LITERAL_DEMO)]);
-    run_rust_files(&files, "bare_literal", "A 2\nB 2\nC 2\n");
 }
 
 /// [ref-anchor] [rs-loc] A handle container that is a **field path** at the
@@ -16851,16 +10452,6 @@ fn a_ref_anchored_handle_indexes_its_container_parameter() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_a_ref_anchored_field_call() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", REF_ANCHORED_FIELD_DEMO)]);
-    run_rust_files(&files, "ref_anchored_field", "3 10\n");
-}
-
 /// [rs-mut-arg-hoist] A read that sits *before* a mutation in one expression:
 /// Rust holds the read's borrow for the whole expression (E0502) where the
 /// language only orders the two (`arguments are evaluated left to right`,
@@ -16917,16 +10508,6 @@ fn a_read_before_a_mutation_is_hoisted_out_of_the_expression() {
         "{}",
         main.content
     );
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_read_before_a_mutation() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", READ_BEFORE_MUT_DEMO)]);
-    run_rust_files(&files, "read_before_mut", "1. 1 2\n2. t/3\n3. 4 4\n");
 }
 
 /// [rs-mut-arg-hoist] …and the shape the hoist cannot take: the read is
@@ -17017,16 +10598,6 @@ fn a_distinct_pair_call_splits_the_container_once() {
         "{}",
         main.content
     );
-}
-
-#[test]
-fn rustc_compiles_and_runs_distinct_pair_calls() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", DISTINCT_PAIR_DEMO)]);
-    run_rust_files(&files, "distinct_pair", "11 3 17 8\n");
 }
 
 /// [rs-loc] [rs-path] Locator-specialized lending (④a slice 1, re-founding
@@ -17126,63 +10697,6 @@ fn a_bound_accessor_handle_is_a_captured_locator() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_a_bound_accessor_handle() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", BOUND_ACCESSOR_DEMO)]);
-    run_rust_files(&files, "bound_accessor", "107 7\n");
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_mut_lending_accessor() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", LEND_MUT_DEMO)]);
-    run_rust_files(&files, "lend_mut", "15 7\n");
-}
-
-/// [col-update] [ref-notsame] The C family end to end: `update` writes in
-/// place through the callback's handle, two bound handles proven apart by
-/// `NotSame` write in place beside each other, and `Idx` survives both, so
-/// the trailing reads stay total.
-const UPDATE_FAMILY_DEMO: &str = r#"
-struct Entity canbe Mut { hp: Int }
-
-fn main() [use] {
-    use StdConsole()
-    let es: List<Mut Entity> = List(Mut Entity { hp: 10 }, Mut Entity { hp: 20 })
-    let i = 0
-    let j = 1
-    if i is Idx(es) {
-        if j is Idx(es) {
-            update(es, i, (e: Mut Entity) -> { e.hp = e.hp + 1 })
-            let a = at(es, i)
-            let b = at(es, j)
-            if b is NotSame(a) {
-                a.hp = a.hp + 100
-                b.hp = b.hp + 200
-            }
-            println("${get(es, i).hp} ${get(es, j).hp}")
-        }
-    }
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_the_update_family() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", UPDATE_FAMILY_DEMO)]);
-    run_rust_files(&files, "update_family", "111 220\n");
-}
-
 /// [rs-loc] ④a slice 3 — a **lending fn value** serves a `Mut`
 /// position: the closure answers a locator (position data crosses the
 /// boundary where a `&mut` could not), and the use site materializes. The
@@ -17231,16 +10745,6 @@ fn a_lending_fn_value_renders_as_a_locator_closure() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_a_lending_fn_value() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", LENDING_FN_VALUE_DEMO)]);
-    run_rust_files(&files, "lending_fn_value", "5 17\n");
-}
-
 /// [col-locate] [rs-loc] ④a slice 3′ — std's `Ref` bundle: a generic
 /// algorithm hands out mutable handles because the caller supplies `at`,
 /// and the implicit renders as a **locator** closure (position data out,
@@ -17279,16 +10783,6 @@ fn a_locate_implicit_renders_as_a_locator_closure() {
         "{}",
         main.content
     );
-}
-
-#[test]
-fn rustc_compiles_and_runs_the_locate_bundle() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", LOCATE_BUNDLE_DEMO)]);
-    run_rust_files(&files, "locate_bundle", "5 17\n");
 }
 
 /// [rs-path] An **effect member** that mints a handle: the trait carries its
@@ -17340,17 +10834,6 @@ fn a_lending_effect_member_lends_through_the_trait() {
     );
 }
 
-#[test]
-fn rustc_compiles_and_runs_a_lending_effect_member() {
-    if !rustc_available() {
-        eprintln!("skipping: rustc not found on PATH");
-        return;
-    }
-    let files = generate(&[("main.sv", LENDING_MEMBER_DEMO)]);
-    run_rust_files(&files, "lending_member", "15 7\n");
-}
-
-
 /// [rs-elem-mut] A proven pair call in a *value* position: the split is a
 /// block expression around the call, so the position needs no statement of
 /// its own.
@@ -17387,41 +10870,6 @@ fn main() [use] {
         "expected the split around the call in:\n{}",
         main.content
     );
-    run_rust_files(&files, "pair-value-position", "2\n");
-}
-
-/// [expr-placeholder] `for _ in …` binds nothing: `mut _` is not a binding Rust
-/// accepts, so the loop takes the wildcard pattern. Source and expected stdout
-/// are verbatim the Kotlin backend's `kotlinc_compiles_and_runs_placeholder_loops`.
-const PLACEHOLDER_LOOP_DEMO: &str = r#"
-fn main() [use] {
-    use StdConsole()
-    let hits: Mut List<Int> = Mut List()
-    // [expr-placeholder] Two loops that bind nothing, in one function: neither
-    // introduces a name, so neither can collide with the other.
-    for _ in range(0, 3) {
-        add(hits, 1)
-    }
-    for _ in range(0, 2) {
-        add(hits, 2)
-    }
-    // A native `for` over a list, and a real binder beside a placeholder.
-    for _ in List(7, 8) {
-        add(hits, 3)
-    }
-    for i in range(0, 3) {
-        for _ in range(0, i) {
-            add(hits, 4)
-        }
-    }
-    println("${size(hits)}")
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_placeholder_loops() {
-    let files = generate(&[("main.sv", PLACEHOLDER_LOOP_DEMO)]);
-    run_rust_files(&files, "placeholder-loops", "10\n");
 }
 
 /// The union files' text, read as one [rs-union-enums].
@@ -17457,197 +10905,6 @@ fn watch_and_on_idle_are_salvo_over_the_core_token() {
     }
 }
 
-/// [loop-while-value] [deduce-same-call] A value loop whose body ends in an
-/// `else`-less `if` (a statement: its arm only `break`s), and a call whose
-/// later argument is hoisted past an earlier one with effects of its own —
-/// which must still run first. Both backends print the same.
-const LOOP_BREAK_ORDER_DEMO: &str = r#"
-fn first_big(xs: List<Int>) -> Int? => xs {
-    return for x in xs {
-        if x > 2 { break x }
-    }
-}
-
-fn noisy(n: Int) [Console] -> Int {
-    println("noisy ${n}")
-    return n
-}
-
-fn both(f: (a: Int, b: Int) [Console] -> Int, x: Int) [Console] -> Int {
-    return f(noisy(1), f(noisy(2), x))
-}
-
-fn main() [use] {
-    use StdConsole()
-    println("${first_big(List(1, 5)) ?: 0} ${first_big(List(1)) ?: 0}")
-    println("${both((a, b) -> { println("f ${a} ${b}") return a + b }, 10)}")
-}
-"#;
-
-const LOOP_BREAK_ORDER_OUTPUT: &str = "5 0\nnoisy 1\nnoisy 2\nf 2 10\nf 1 12\n13\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_breaking_value_loop_and_ordered_arguments() {
-    let files = generate(&[("main.sv", LOOP_BREAK_ORDER_DEMO)]);
-    run_rust_files(&files, "loop-break-order", LOOP_BREAK_ORDER_OUTPUT);
-}
-
-/// [ir-narrow] What a test proves holds where the test did: `a || b` and `!a` leave nothing narrowed in the branch they guard, and a binding made inside one is out of scope after it.
-const NARROW_OR_NOT_DEMO: &str = r#"
-fn pick(n: Int) -> Int | Str | Bool {
-    if n == 1 { return "one" }
-    if n == 2 { return true }
-    return n
-}
-
-fn main() [use] {
-    use StdConsole()
-    for k in List(0, 1, 2) {
-        let v = pick(k)
-        if v is Int || v is Str { println("int or str") }
-        if v is Int n || v is Str s { println("bound") }
-        if !(v is Int) { println("not int") } else { println("int") }
-        if v is Bool b {
-            if b { println("true") }
-        }
-    }
-}
-"#;
-
-const NARROW_OR_NOT_OUTPUT: &str = "int or str\nbound\nint\nint or str\nbound\nnot int\nnot int\ntrue\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_disjunction_and_a_negation_narrow_nothing_after_them() {
-    let files = generate(&[("main.sv", NARROW_OR_NOT_DEMO)]);
-    run_rust_files(&files, "or-fix", NARROW_OR_NOT_OUTPUT);
-}
-
-/// [qual-lift] `^` on a projection: a test inside the branch reads the lifted view of the field, not the stored union.
-const LIFT_FIELD_DEMO: &str = r#"
-import std.throw
-struct H { result: Ok (Ok Int | Err Str) | Thrown Str }
-
-fn wrapped(n: Int) [Throw<Str>] -> Ok Int | Err Str {
-    if n < 0 { throw("neg") }
-    if n == 7 { return err("bad") }
-    return ok(n)
-}
-
-fn main() [use] {
-    use StdConsole()
-    let h = H { result: try { wrapped(7) } }
-    if h.result is ^Ok {
-        if h.result is Ok { println("ok ${h.result}") } else { println("not ok") }
-        if h.result is Err { println("err ${h.result}") } else { println("not err") }
-    }
-}
-"#;
-
-const LIFT_FIELD_OUTPUT: &str = "not ok\nerr bad\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_lifted_claim_on_a_field_narrows_what_follows() {
-    let files = generate(&[("main.sv", LIFT_FIELD_DEMO)]);
-    run_rust_files(&files, "lift-fix", LIFT_FIELD_OUTPUT);
-}
-
-/// A lambda argument of a handler constructor takes its parameter types from the constructor parameter's fn type, as a call's does.
-const CTOR_LAMBDA_DEMO: &str = r#"
-effect Calc { fn calc(n: Int) -> Int }
-handler Derived(step: (n: Int) -> Int) of Calc {
-    fn calc(n: Int) -> Int { return step(n) }
-}
-fn main() [use] {
-    use StdConsole()
-    use Derived(n -> n + 1)
-    println("${calc(1)}")
-}
-"#;
-
-const CTOR_LAMBDA_OUTPUT: &str = "2\n";
-
-#[test]
-fn rustc_compiles_and_runs_an_unannotated_lambda_takes_its_handler_constructor_parameters_type() {
-    let files = generate(&[("main.sv", CTOR_LAMBDA_DEMO)]);
-    run_rust_files(&files, "lam-fix", CTOR_LAMBDA_OUTPUT);
-}
-
-/// [interp-union] A union is interpolated by the `to_str` of the arm it holds: scalars, a user `to_str`, an arm needing implicits, through an alias.
-const UNION_TEXT_DEMO: &str = r#"
-struct P { x: Int }
-fn to_str(p: P) -> Str { return "P(${p.x})" }
-type Either = Int | Str | P
-
-fn widen(x: Int | Str) -> Int | Str | Bool
-=> !x { return x }
-fn either(n: Int) -> Either {
-    if n == 0 { return 5 }
-    if n == 1 { return "s" }
-    return P { x: n }
-}
-
-fn main() [use] {
-    use StdConsole()
-    let x: Int | Str = 3
-    let y = widen(x)
-    println("${y}")
-    println("${widen("hi")}")
-    for k in List(0, 1, 2) { println("e=${either(k)}") }
-    let l: List<Int> | Str = List(1, 2)
-    println("l=${l}")
-}
-"#;
-
-const UNION_TEXT_OUTPUT: &str = "3\nhi\ne=5\ne=s\ne=P(2)\nl=[1, 2]\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_union_interpolates_by_the_text_of_its_arm() {
-    let files = generate(&[("main.sv", UNION_TEXT_DEMO)]);
-    run_rust_files(&files, "union-fix", UNION_TEXT_OUTPUT);
-}
-
-/// [implicit-resolve] [implicit-recursive] [implicit-forward] An implicit is
-/// chosen as a call is (user decision 2026-10-14): std's `to_str(List<T>)`
-/// and `to_str(Int)` fill a list of `Int`, `Foo`'s own `to_str` (declared in
-/// `Foo`'s file) fills the element `Foo`, a written override names a
-/// catch-all for the elements, and an enclosing fn's implicit still shadows
-/// every candidate at each level. [op-unique-shape] The catch-all is `any_text`,
-/// not `to_str<T>`: a `to_str` on a type parameter is refused where it is
-/// declared (the program as it was, with a catch-all `to_str<T>`, is
-/// `IMPLICIT_CATCH_ALL_DEMO`), so it is passed explicitly.
-const IMPLICIT_CALL_RULE_DEMO: &str = r##"
-fn any_text<T>(x: T) [] -> Str => x { return "?" }
-
-struct Foo { n: Int }
-
-fn to_str(f: Foo) [] -> Str => f { return "?" }
-
-fn hex(n: Int) [] -> Str => n { return "#${n}" }
-
-fn show(xsss: NonEmpty List<NonEmpty List<NonEmpty List<Int>>>, ?to_str: (x: Int) -> Str) [Console] -> None => xsss {
-    println("${xsss}")
-}
-
-fn main() [use] {
-    use StdConsole()
-    let xs = List(1, 2)
-    println("${List(1, 2)}")
-    println(to_str(xs))
-    println("${List(Foo { n: 1 })}")
-    println("${to_str(xs, to_str = any_text)}")
-    let xsss = List(List(List(1, 2), List(3)), List(List(4)))
-    show(xsss, to_str = hex)
-}
-"##;
-
-const IMPLICIT_CALL_RULE_OUTPUT: &str = "[1, 2]\n[1, 2]\n[?]\n[?, ?]\n[[[#1, #2], [#3]], [[#4]]]\n";
-
-#[test]
-fn rustc_compiles_and_runs_implicits_chosen_as_calls_are() {
-    let files = generate(&[("main.sv", IMPLICIT_CALL_RULE_DEMO)]);
-    run_rust_files(&files, "implicit-call-rule", IMPLICIT_CALL_RULE_OUTPUT);
-}
-
 /// [op-unique-shape] The program above as it was before 2026-10-27, with a
 /// module's catch-all `to_str<T>` beside std's: refused at the catch-all's
 /// declaration, used or not — a `to_str` on a type parameter would be
@@ -17673,517 +10930,6 @@ fn a_catch_all_to_str_is_refused_at_its_declaration() {
             && e.contains("where it is wanted (`to_str = by_name`)")),
         "{errors:?}"
     );
-}
-
-/// [effect-member-overload] [effect-available] [implicit-resolve] [implicit-infer]
-/// [implicit-same-name] [cmp-carry] Implicits selected as a call selects (R10,
-/// B3 piece 1): an available effect's member fills `?to_str`, passed as a
-/// closure over the handler, and `to_str@Fmt` is that value written out (D3);
-/// `conv(1)` infers `B = Str` off the most specific `f` (D22); of two
-/// implicits named `tag` the more specific takes `tag(n)` (D21); a written
-/// identity names its module, `by_len@main`, where the bare name is
-/// ambiguous (D23). `tagged` takes the closure beside the same handle as its
-/// own effect, which on Rust is two shared borrows of one `&Fmt`.
-const IMPLICIT_SELECTION_LIB: &str = "export fn by_len(a: Str, b: Str) [] -> Int => a, b { return size(b) - size(a) }\n";
-
-const IMPLICIT_SELECTION_DEMO: &str = r#"
-import lib.by_len
-
-struct Point { x: Int, y: Int }
-
-effect Fmt {
-    fn to_str(p: Point) -> Str => p
-    fn tag() -> Str
-}
-
-handler Brackets of Fmt {
-    fn to_str(p: Point) -> Str { return "<${p.x}, ${p.y}>" }
-    fn tag() -> Str { return "fmt" }
-}
-
-fn render(p: Point, ?to_str: (p: Point) -> Str) [] -> Str => p { return to_str(p) }
-
-fn tagged(p: Point, ?to_str: (p: Point) -> Str) [Fmt] -> Str => p { return "${tag()} ${to_str(p)}" }
-
-fn show(p: Point) [Fmt, Console] -> None => p {
-    println(render(p))
-    println(render(p, to_str = to_str@Fmt))
-}
-
-fn f(x: Int) [] -> Str => x { return "int" }
-fn f<T>(x: T) [] -> Str => x { return "any" }
-fn conv<B>(x: Int, ?f: (x: Int) -> B) [] -> B => x { return f(x) }
-
-fn tag(x: Int) [] -> Str => x { return "int" }
-fn tag(x: Int | Str) [] -> Str => x { return "any" }
-fn both(n: Int, ?tag: (x: Int) -> Str, ?tag: (x: Int | Str) -> Str) [] -> Str => n { return tag(n) }
-
-fn by_len(a: Str, b: Str) [] -> Int => a, b { return size(a) - size(b) }
-
-fn main() [use] {
-    use StdConsole()
-    use Brackets()
-    show(Point { x: 1, y: 2 })
-    println(render(Point { x: 3, y: 4 }))
-    println(tagged(Point { x: 5, y: 6 }))
-    let s = conv(1)
-    println(s)
-    println(both(1))
-    let m: Mut SortedSet<Str>(by_len@main) = Mut SortedSet("ccc", "a", "bb", cmp = by_len@main)
-    println("${m}")
-}
-"#;
-
-const IMPLICIT_SELECTION_OUTPUT: &str = "<1, 2>\n<1, 2>\n<3, 4>\nfmt <5, 6>\nint\nint\n{a, bb, ccc}\n";
-
-#[test]
-fn rustc_compiles_and_runs_implicits_selected_as_calls_select() {
-    let files = generate(&[("main.sv", IMPLICIT_SELECTION_DEMO), ("lib.sv", IMPLICIT_SELECTION_LIB)]);
-    run_rust_files(&files, "implicit-selection", IMPLICIT_SELECTION_OUTPUT);
-}
-
-/// [op-equality] [op-order] [op-arm-eq] [op-unique-shape] [implicit-resolve-body]
-/// A comparison operator is the call it names (OPERATOR_OVERLOAD.md O1;
-/// PIPELINE.md §3 R10): an enclosing `?eq`/`?cmp` takes `==`/`<` on a `Str`
-/// (D1) and `<` on a `Double`; the qualified operands rank as the call ranks
-/// them, so the `Packed` overload in `Bag`'s file wins (D5); a mixed
-/// `eq(Meters, Feet)` is `m == f` (D6); an available effect's member is the
-/// `eq` (D3); `x == -1L` on a `Long?` stays a lowering before the call (D7),
-/// and mixed widths widen before it [op-promote].
-const COMPARISON_CALLS_DEMO: &str = r#"
-import bag.Bag
-import bag.pack
-import bag.eq
-
-struct Meters {
-    v: Int
-}
-
-struct Feet {
-    v: Int
-}
-
-// R10 D6: a mixed `eq`, declared with its left operand's type.
-fn eq(a: Meters, b: Feet) [] -> Bool => a, b {
-    return a.v * 328 == b.v * 100
-}
-
-struct Point {
-    x: Int,
-    y: Int
-}
-
-effect Same {
-    fn eq(a: Point, b: Point) -> Bool => a, b
-}
-
-handler ByX of Same {
-    fn eq(a: Point, b: Point) -> Bool {
-        return a.x == b.x
-    }
-}
-
-fn same_len(a: Str, b: Str) [] -> Bool => a, b {
-    return size(a) == size(b)
-}
-
-fn by_len(a: Str, b: Str) [] -> Int => a, b {
-    return cmp(size(a), size(b))
-}
-
-fn backwards(a: Double, b: Double) [] -> Int => a, b {
-    if a < b {
-        return 1
-    }
-    if a > b {
-        return -1
-    }
-    return 0
-}
-
-// R10 D1: the enclosing implicits take `==` and `<` on `Str`, as they take the calls.
-fn check(a: Str, b: Str, ?eq: (a: Str, b: Str) -> Bool, ?cmp: (a: Str, b: Str) -> Int) [] -> Str => a, b {
-    return "${a == b} ${a < b}"
-}
-
-// …and `<` on a `Double`, which has no `cmp` of its own.
-fn float_lt(a: Double, b: Double, ?cmp: (a: Double, b: Double) -> Int) [] -> Bool => a, b {
-    return a < b
-}
-
-// R10 D3: the available effect's member is the `eq` the operator calls.
-fn points(a: Point, b: Point) [Same] -> Str => a, b {
-    return "${a == b} ${a != b}"
-}
-
-fn main() [use] {
-    use StdConsole()
-    println(check("ab", "cd", eq = same_len, cmp = by_len))
-    println("${float_lt(1.0, 2.0, cmp = backwards)} ${1.0 < 2.0}")
-    let xs = pack(Bag { items: List(1, 2) })
-    let ys = pack(Bag { items: List(3, 4) })
-    println("${xs == ys}")
-    let m = Meters { v: 100 }
-    let f = Feet { v: 328 }
-    println("${m == f}")
-    use ByX()
-    println(points(Point { x: 1, y: 2 }, Point { x: 1, y: 3 }))
-    let n = -1L
-    let x: Long? = n
-    let y: Long? = None
-    println("${x == -1L} ${y == -1L}")
-    let i = 3
-    println("${i < 4L} ${2.5 > 1.0f} ${i == 3L}")
-}
-"#;
-
-const COMPARISON_CALLS_BAG: &str = r#"
-// The two overloads of `eq` on `Bag`, in `Bag`'s own file [op-unique-shape].
-export struct Bag<T> {
-    items: List<T>
-}
-
-export qualifier Packed of Bag<Int>
-
-export fn eq<T>(a: Bag<T>, b: Bag<T>, ?eq: (x: T, y: T) -> Bool) [] -> Bool => a, b {
-    return false
-}
-
-export fn eq(a: Packed Bag<Int>, b: Packed Bag<Int>) [] -> Bool => a, b {
-    return true
-}
-
-export fn pack(b: Bag<Int>) -> +Packed Bag<Int> => !b {
-    return b
-}
-"#;
-
-const COMPARISON_CALLS_OUTPUT: &str = "true false\nfalse true\ntrue\ntrue\ntrue false\ntrue false\ntrue true true\n";
-
-#[test]
-fn rustc_compiles_and_runs_comparisons_as_the_calls_they_name() {
-    let files = generate(&[("main.sv", COMPARISON_CALLS_DEMO), ("bag.sv", COMPARISON_CALLS_BAG)]);
-    run_rust_files(&files, "comparison-calls", COMPARISON_CALLS_OUTPUT);
-}
-
-/// [iter-for] [iter-protocol] [fn-rename] [implicit-resolve-body] [op-unique-shape]
-/// `for` is the calls it names (R10 D10): `next(c)` when a `next` takes `c`,
-/// `next(iter(c))` otherwise, each resolved as the call. D8: the specific
-/// `next` drives (×100); D9: a renamed `next` no longer does, so the `iter`
-/// mints; D10: no `: Next` anywhere; D11: the enclosing `?next` drives; R10
-/// D3: an effect's member `next` drives; a type with both a `next` and an
-/// `iter` is driven by its `next` (P15).
-const FOR_CALLS_DEMO: &str = r#"
-// R10 D8: the most specific `next` drives `for`, as it takes the call.
-// R10 D10: `Ctr` declares no `: Next<self, Int>`.
-struct Ctr<T> canbe Mut {
-    n: Int,
-    tag: T
-}
-
-fn next<T>(c: Mut Ctr<T>) [] -> Emitted Int | Finished => c: Mut {
-    if c.n >= 2 {
-        return finished()
-    }
-    c.n = c.n + 1
-    return emitted(c.n)
-}
-
-fn next(c: Mut Ctr<Str>) [] -> Emitted Int | Finished => c: Mut {
-    if c.n >= 2 {
-        return finished()
-    }
-    c.n = c.n + 1
-    return emitted(c.n * 100)
-}
-
-// R10 D9: a renamed `next` answers to its new name only, so `for` mints
-// with the `iter` instead.
-struct Steps canbe Mut {
-    n: Int,
-    items: List<Int>
-}
-
-fn next(s: Mut Steps) [] -> Emitted Int | Finished => s: Mut {
-    if s.n >= 2 {
-        return finished()
-    }
-    s.n = s.n + 1
-    return emitted(s.n)
-}
-
-rename fn advance = next(s: Mut Steps)
-
-fn iter(s: Steps) [] -> Mut ListNext<Int> => s {
-    return iter(s.items)
-}
-
-// R10 D11: the enclosing fn's own `?next` drives, as it takes the call.
-struct Tick canbe Mut {
-    n: Int
-}
-
-fn next(t: Mut Tick) [] -> Emitted Int | Finished => t: Mut {
-    if t.n >= 2 {
-        return finished()
-    }
-    t.n = t.n + 1
-    return emitted(t.n)
-}
-
-fn by_tens(t: Mut Tick) [] -> Emitted Int | Finished => t: Mut {
-    if t.n >= 2 {
-        return finished()
-    }
-    t.n = t.n + 1
-    return emitted(t.n * 10)
-}
-
-fn walk(t: Mut Tick, ?next: (t: Mut Tick) -> Emitted Int | Finished) [] -> Str => t: Mut {
-    let out = Mut List<Int>()
-    for x in t {
-        add(out, x)
-    }
-    return "${out}"
-}
-
-// R10 D3: an available effect's member `next` drives.
-struct Gauge canbe Mut {
-    n: Int
-}
-
-effect Gen {
-    fn next(g: Mut Gauge) -> Emitted Int | Finished => g: Mut
-}
-
-handler ByThrees of Gen {
-    fn next(g: Mut Gauge) -> Emitted Int | Finished => g: Mut {
-        if g.n >= 2 {
-            return finished()
-        }
-        g.n = g.n + 1
-        return emitted(g.n * 3)
-    }
-}
-
-fn gauge(g: Mut Gauge) [Gen] -> Str => g: Mut {
-    let out = Mut List<Int>()
-    for x in g {
-        add(out, x)
-    }
-    return "${out}"
-}
-
-// A type with both a `next` and an `iter` is driven by its `next` (P15).
-struct Both canbe Mut {
-    n: Int,
-    items: List<Int>
-}
-
-fn next(b: Mut Both) [] -> Emitted Int | Finished => b: Mut {
-    if b.n >= 2 {
-        return finished()
-    }
-    b.n = b.n + 1
-    return emitted(b.n)
-}
-
-fn iter(b: Both) [] -> Mut ListNext<Int> => b {
-    return iter(b.items)
-}
-
-fn main() [use] {
-    use StdConsole()
-    let c = Mut Ctr { n: 0, tag: "s" }
-    let cs = Mut List<Int>()
-    for x in c {
-        add(cs, x)
-    }
-    println("${cs}")
-    let s = Mut Steps { n: 0, items: List(7, 8, 9) }
-    let ss = Mut List<Int>()
-    for x in s {
-        add(ss, x)
-    }
-    let a = advance(s)
-    println("${ss} ${a is Emitted Int}")
-    println(walk(Mut Tick { n: 0 }, next = by_tens))
-    println(walk(Mut Tick { n: 0 }))
-    use ByThrees()
-    println(gauge(Mut Gauge { n: 0 }))
-    let b = Mut Both { n: 0, items: List(7, 8, 9) }
-    let bs = Mut List<Int>()
-    for x in b {
-        add(bs, x)
-    }
-    println("${bs}")
-}
-"#;
-
-const FOR_CALLS_OUTPUT: &str = "[100, 200]\n[7, 8, 9] true\n[10, 20]\n[1, 2]\n[3, 6]\n[1, 2]\n";
-
-#[test]
-fn rustc_compiles_and_runs_a_for_as_the_calls_it_names() {
-    let files = generate(&[("main.sv", FOR_CALLS_DEMO)]);
-    run_rust_files(&files, "for-calls", FOR_CALLS_OUTPUT);
-}
-
-/// [op-arith] [op-pow] [op-promote] [op-unique-shape] [implicit-resolve-body]
-/// Arithmetic operators are the calls they name (B3.3e, O1): `+ - * /` on a
-/// type of your own call its `plus`, `minus`, `times`, `divide`, declared in
-/// its file; the enclosing `?plus` takes `+` at an `Int` (R10 D1) and at a
-/// generic `T`, where the caller fills it with std's intrinsic or `V`'s; an
-/// available effect's member `times` takes `*` (R10 D3); mixed widths widen
-/// first; `**` on `Int`, `Long`, `Double` (by an `Int` and a `Double`) and on
-/// the brief's `Person`, with its precedence (`-2 ** 2`, `2 ** 3 ** 2`); and
-/// integer arithmetic wraps [op-wrap], `**` included.
-const ARITH_CALLS_DEMO: &str = r#"
-struct V {
-    x: Int,
-    y: Int
-}
-
-fn plus(a: V, b: V) [] -> V => a, b {
-    return V { x: a.x + b.x, y: a.y + b.y }
-}
-
-fn minus(a: V, b: V) [] -> V => a, b {
-    return V { x: a.x - b.x, y: a.y - b.y }
-}
-
-fn times(a: V, k: Int) [] -> V => a {
-    return V { x: a.x * k, y: a.y * k }
-}
-
-fn divide(a: V, k: Int) [] -> V => a {
-    return V { x: a.x / k, y: a.y / k }
-}
-
-fn show(v: V) [] -> Str => v {
-    return "(${v.x}, ${v.y})"
-}
-
-// The brief's `Person`: `**` is the `pow` in its body [fn-attached].
-struct Person {
-    name: Str,
-    age: Int
-
-    fn pow(p: Person, power: Int) [] -> Person => p {
-        return Person { name: copy(p.name), age: p.age ** power }
-    }
-}
-
-// R10 D3: the available effect's member is the `times` the operator calls.
-struct M {
-    k: Int
-}
-
-effect Scale {
-    fn times(a: M, b: M) -> M => a, b
-}
-
-handler Doubling of Scale {
-    fn times(a: M, b: M) -> M {
-        return M { k: a.k * b.k * 2 }
-    }
-}
-
-fn scaled(a: M, b: M) [Scale] -> Int => a, b {
-    let m = a * b
-    return m.k
-}
-
-// R10 D1: the enclosing `?plus` takes `+` on `Int`s, as it takes the call.
-fn add_with(a: Int, b: Int, ?plus: (x: Int, y: Int) -> Int) [] -> Int => a, b {
-    return a + b
-}
-
-fn digits(x: Int, y: Int) [] -> Int => x, y {
-    return x * 10 + y
-}
-
-// At a generic `T`, `+` is the `?plus` the caller fills.
-fn sum3<T>(a: T, b: T, c: T, ?plus: (x: T, y: T) -> T) [] -> T => a, b, c {
-    return a + b + c
-}
-
-fn main() [use] {
-    use StdConsole()
-    let a = V { x: 1, y: 2 }
-    let b = V { x: 3, y: 4 }
-    println("${show(a + b)} ${show(b - a)} ${show(a * 3)} ${show((a + b) / 2)}")
-    println("${add_with(1, 2, plus = digits)} ${add_with(1, 2)} ${sum3(1, 2, 3)} ${show(sum3(a, b, a))}")
-    use Doubling()
-    println("${scaled(M { k: 3 }, M { k: 4 })}")
-    let i = 7
-    let l = 3000000000L
-    println("${i + l} ${l - i} ${-7 / 2} ${2.5 * 2.0} ${1.0f + 0.5f}")
-    println("${2 ** 10} ${-2 ** 2} ${2 ** 3 ** 2} ${1 + 2 * 3 ** 2} ${3L ** 3} ${2L ** 40}")
-    println("${2.0 ** 3} ${2.0 ** -2} ${2.0 ** 0.5} ${9.0 ** 0.5}")
-    let p = Person { name: "Ann", age: 3 }
-    let q = p ** 2
-    println("${q.name} ${q.age}")
-    println("${2147483647 + 1} ${2 ** 31} ${3 ** 40} ${-2147483647 - 2}")
-}
-"#;
-
-const ARITH_CALLS_OUTPUT: &str = "(4, 6) (2, 2) (3, 6) (2, 3)\n12 3 6 (5, 8)\n24\n3000000007 2999999993 -3 5.0 1.5\n1024 -4 512 19 27 1099511627776\n8.0 0.25 1.4142135623730951 3.0\nAnn 9\n-2147483648 -2147483648 689956897 2147483647\n";
-
-#[test]
-fn rustc_compiles_and_runs_arithmetic_as_the_calls_it_names() {
-    let files = generate(&[("main.sv", ARITH_CALLS_DEMO)]);
-    run_rust_files(&files, "arith-calls", ARITH_CALLS_OUTPUT);
-}
-
-/// [fn-value-select] [fn-overload-scope] A function passed by name is chosen
-/// as a call chooses (user decision 2026-10-14, ROADMAP 0w): an imported
-/// `tag(Int)` is more specific than this module's `tag<T>`, by name as at
-/// the call, whatever rung brought each into scope; `@main` still selects.
-const BY_NAME_RANKED_LIB: &str = "export fn tag(v: Int) [] -> Str => v { return \"int\" }\n";
-
-const BY_NAME_RANKED_DEMO: &str = r#"
-import lib.tag
-fn tag<T>(v: T) [] -> Str => v { return "any" }
-fn apply(f: (x: Int) -> Str, x: Int) [] -> Str => f { return f(x) }
-fn main() [use] {
-    use StdConsole()
-    println(tag(1))
-    println(apply(tag, 1))
-    println(apply(tag@main, 1))
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_a_fn_value_by_name_ranked_as_a_call() {
-    let files = generate(&[("main.sv", BY_NAME_RANKED_DEMO), ("lib.sv", BY_NAME_RANKED_LIB)]);
-    run_rust_files(&files, "by-name-ranked", "int\nint\nany\n");
-}
-
-/// [fn-erased-variance] [implicit-override] [fn-value-select] A **written** fn
-/// value fits contravariantly in erased qualifiers (user decision 2026-10-14,
-/// ROADMAP 0x option (b)): a `render_row(xs: List<Int>)` fills a `(NonEmpty
-/// List<Int>) -> Str` as an override and as a by-name argument, and a
-/// `shout(s: Str)` a `(Ok Str) -> Str` — passed as written, with no adapter,
-/// since neither qualifier is rendered.
-const ERASED_VARIANCE_DEMO: &str = r#"
-fn any_text<T>(x: T) [] -> Str => x { return "?" }
-fn render_row(xs: List<Int>) [] -> Str => xs { return to_str(xs, to_str = any_text) }
-fn apply(f: (xs: NonEmpty List<Int>) -> Str, xs: NonEmpty List<Int>) [] -> Str => f, xs { return f(xs) }
-fn shout(s: Str) [] -> Str => s { return "${s}!" }
-fn apply_ok(f: (s: Ok Str) -> Str, s: Ok Str) [] -> Str => f, s { return f(s) }
-fn main() [use] {
-    use StdConsole()
-    let xss = List(List(1, 2), List(3))
-    println(to_str(xss, to_str = render_row))
-    println(apply(render_row, List(1, 2)))
-    println(apply_ok(shout, ok("hi")))
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_a_written_fn_value_across_erased_qualifiers() {
-    let files = generate(&[("main.sv", ERASED_VARIANCE_DEMO)]);
-    run_rust_files(&files, "erased-variance", "[[?, ?], [?]]\n[?, ?]\nhi!\n");
 }
 
 /// [fn-erased-variance] A difference the backends render stays invariant
@@ -18216,39 +10962,6 @@ fn main() [use] {
         "{errors:?}"
     );
 }
-
-/// [rs-path] A handle bound from a lending effect member outlives a read of the container: the member answers a path.
-const LEND_HANDLE_DEMO: &str = r#"
-struct Entity canbe Mut { hp: Int }
-
-effect Lender {
-    fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es
-}
-
-handler FirstLender of Lender {
-    fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es {
-        return at(es, 0)
-    }
-}
-
-fn run(es: List<Mut Entity>) [Lender] -> None {
-    let e = lease(es) ?: unreachable!()
-    let n = size(es)
-    e.hp = e.hp + n
-    return None
-}
-
-fn main() [use] {
-    use StdConsole()
-    use FirstLender()
-    let es: List<Mut Entity> = List(Mut Entity { hp: 5 }, Mut Entity { hp: 7 })
-    run(es)
-    println("${(get(es, 0) ?: unreachable!()).hp} ${(get(es, 1) ?: unreachable!()).hp}")
-}
-"#;
-
-const LEND_HANDLE_OUTPUT: &str = "7 7\n";
-
 
 /// [rs-path] [ref-handle] A lending effect member is its path face only: a
 /// handler delegating to a mint answers a path through a struct field, two
@@ -18298,48 +11011,11 @@ fn main() [use] {
 }
 "#;
 
-const LENDING_MEMBER_PATH_OUTPUT: &str = "renamed 1003 102\n";
-
 #[test]
-fn rustc_compiles_and_runs_a_lending_member_through_a_struct_field() {
+fn a_lending_member_through_a_struct_field() {
     let files = generate(&[("main.sv", LENDING_MEMBER_PATH_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(main.content.contains("fn member(&self, t: &crate::Team, i: i32) -> Option<usize>;"), "{}", main.content);
-    run_rust_files(&files, "lend-path", LENDING_MEMBER_PATH_OUTPUT);
-}
-
-#[test]
-fn rustc_compiles_and_runs_a_handle_from_a_lending_member_survives_a_read_of_its_container() {
-    let files = generate(&[("main.sv", LEND_HANDLE_DEMO)]);
-    run_rust_files(&files, "lend-fix", LEND_HANDLE_OUTPUT);
-}
-
-// [ref-handle] [GB-1a] A map's `at` is the by-key mint: a handle into a
-// map is a slot position, so a mutable element handle chains *through* a
-// map exactly as through a list — `at(at(m, k)!, i)!` is a position in the
-// list stored at the key's slot. (Before `ref(c)` this shape was refused
-// on the Rust backend as "a mutable lend from something that is not a
-// place".) A structural change to the map (`put`) ends the handles.
-const MAP_CHAIN_MUT_HANDLE: &str = r#"
-struct Item canbe Mut { tag: Str }
-
-export fn main() [use] -> None {
-    use StdConsole()
-    let m: Mut Map<Str, Mut List<Mut Item>> = Mut Map()
-    let l: Mut List<Mut Item> = Mut List(Mut Item { tag: "x" }, Mut Item { tag: "y" })
-    put(m, "a", l)
-    let it = at(at(m, "a") ?: unreachable!(), 1) ?: unreachable!()
-    it.tag = "z"
-    let v = at(m, "a") ?: unreachable!()
-    add(v, Mut Item { tag: "w" })
-    println("${(get(get(m, "a") ?: unreachable!(), 1) ?: unreachable!()).tag} ${size(get(m, "a") ?: unreachable!())}")
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_a_mutable_handle_chained_through_a_map_at() {
-    let files = generate(&[("main.sv", MAP_CHAIN_MUT_HANDLE)]);
-    run_rust_files(&files, "map-chain-at", "z 3\n");
 }
 
 // [rs-path] Handles into a container that is a type parameter: the
@@ -18424,7 +11100,7 @@ export fn main() [use] -> None {
 pub const GENERIC_CONTAINER_OUTPUT: &str = "1009 6 2000\n14 103\n";
 
 #[test]
-fn rustc_compiles_and_runs_handles_into_generic_containers() {
+fn handles_into_generic_containers() {
     let files = generate(&[("main.sv", GENERIC_CONTAINER_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.to_str() == Some("main.rs")).unwrap();
     assert!(
@@ -18435,7 +11111,6 @@ fn rustc_compiles_and_runs_handles_into_generic_containers() {
         "{}",
         main.content
     );
-    run_rust_files(&files, "generic-containers", GENERIC_CONTAINER_OUTPUT);
 }
 
 // [col-idx] [ref-handle] The total `at`: at an `Idx` the mint answers the
@@ -18482,7 +11157,7 @@ export fn main() [use] -> None {
 "#;
 
 #[test]
-fn rustc_compiles_and_runs_the_total_at() {
+fn the_total_at() {
     let files = generate(&[("main.sv", TOTAL_AT_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.to_str() == Some("main.rs")).unwrap();
     assert!(
@@ -18500,7 +11175,6 @@ fn rustc_compiles_and_runs_the_total_at() {
         "{}",
         list.content
     );
-    run_rust_files(&files, "total-at", "45 21\n");
 }
 
 /// [ref-notsame] [fate-elem-distinct] [rs-path] Two handles proven apart by
@@ -18649,7 +11323,7 @@ pub const NOTSAME_OUTPUT: &str = "bench 1\n\
      102 212\n";
 
 #[test]
-fn rustc_compiles_and_runs_notsame_handles() {
+fn notsame_handles() {
     let files = generate(&[("main.sv", NOTSAME_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.to_str() == Some("main.rs")).unwrap();
     assert!(
@@ -18661,7 +11335,6 @@ fn rustc_compiles_and_runs_notsame_handles() {
     );
     let reff = files.iter().find(|f| f.rel_path.ends_with("std/core/ref.rs")).unwrap();
     assert!(reff.content.contains("std::ptr::eq(a, b)"), "{}", reff.content);
-    run_rust_files(&files, "notsame-handles", NOTSAME_OUTPUT);
 }
 
 // [ref-handle] [rs-path] A handle read where a value is expected: unwrapped
@@ -18714,11 +11387,10 @@ export fn main() [use] -> None {
 pub const HANDLE_READ_OUTPUT: &str = "something\ntwo\nsomething changed\n";
 
 #[test]
-fn rustc_compiles_and_runs_handle_reads() {
+fn handle_reads() {
     let files = generate(&[("main.sv", HANDLE_READ_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.to_str() == Some("main.rs")).unwrap();
     assert!(main.content.contains(".map(|__x"), "the optional handle is walked when present:\n{}", main.content);
-    run_rust_files(&files, "handle-reads", HANDLE_READ_OUTPUT);
 }
 
 /// [proj-opt-slot] [rs-opt-borrow] A borrowed optional — `get`'s answer, an
@@ -18796,13 +11468,12 @@ fn main() [use] {
 pub const OPT_SLOT_OUTPUT: &str = "abc ABC abc present\n- ? - absent\nown OWN own present\nlit LIT lit present\n- ? - absent\nw W w present\nw W w present\nw W w present\ne:3 e:3 nobody nobody\ne:3\ne:3 e:40\nde\nshown abc\nshown own\n";
 
 #[test]
-fn rustc_compiles_and_runs_borrowed_optionals_in_owned_optional_slots() {
+fn borrowed_optionals_in_owned_optional_slots() {
     let files = generate(&[("main.sv", OPT_SLOT_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.to_str() == Some("main.rs")).unwrap();
     assert!(main.content.contains("pub fn inner(mut s: Option<&String>) -> String"), "a kept optional is the optional of a borrow:\n{}", main.content);
     assert!(main.content.contains("fn show(&self, s: Option<&String>);"), "an effect member's too:\n{}", main.content);
     assert!(main.content.contains("(&o).as_ref()"), "an owned optional lends with `.as_ref()`:\n{}", main.content);
-    run_rust_files(&files, "opt-slot", OPT_SLOT_OUTPUT);
 }
 
 /// [col-locate] [ref-handle] A deque mints handles as a list does — `at`
@@ -18843,13 +11514,6 @@ fn main() [use] {
 "#;
 
 pub const DEQUE_MAP_AT_OUTPUT: &str = "2 12\ntrue 3 12\n16\n";
-
-#[test]
-fn rustc_compiles_and_runs_deque_handles_and_the_total_map_at() {
-    let files = generate(&[("main.sv", DEQUE_MAP_AT_DEMO)]);
-    run_rust_files(&files, "deque-map-at", DEQUE_MAP_AT_OUTPUT);
-}
-
 
 /// [rs-path] [ref-handle] One rendering for a `ref` result, whatever `T` is:
 /// `head_of` at a `Mut` element and at `Str`, a `Pick` group through one and
@@ -18902,12 +11566,11 @@ fn main() [use] {
 pub const REF_ONE_RENDERING_OUTPUT: &str = "11 4\na b a\na 111\n";
 
 #[test]
-fn rustc_compiles_and_runs_one_rendering_for_a_ref_result() {
+fn one_rendering_for_a_ref_result() {
     let files = generate(&[("main.sv", REF_ONE_RENDERING_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.to_str() == Some("main.rs")).unwrap();
     // The path function only: no borrow-answering face beside it.
     assert!(!main.content.contains("__loc") && main.content.contains("-> Option<usize>"), "{}", main.content);
-    run_rust_files(&files, "ref-one-rendering", REF_ONE_RENDERING_OUTPUT);
 }
 
 /// [proj-opt-slot] [rs-opt-borrow] Unions of borrows: a `proj Mut A | B`
@@ -19026,20 +11689,18 @@ fn main() [use] {
 pub const MUT_OPT_SLOT_OUTPUT: &str = "4 -1\n6 13 101 hey!!\n";
 
 #[test]
-fn rustc_compiles_and_runs_unions_of_borrows() {
+fn unions_of_borrows() {
     let files = generate(&[("main.sv", UNION_BORROW_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(main.content.contains("pub fn describe(mut x: crate::unions::Union2<&crate::A, &crate::B>) -> String"), "{}", main.content);
     assert!(main.content.contains("x: crate::unions::Union2<&mut crate::A, &mut crate::B>"), "{}", main.content);
-    run_rust_files(&files, "union-borrow", UNION_BORROW_OUTPUT);
 }
 
 #[test]
-fn rustc_compiles_and_runs_mut_optional_slots() {
+fn mut_optional_slots() {
     let files = generate(&[("main.sv", MUT_OPT_SLOT_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(main.content.contains("pub fn heal(mut e: Option<&mut crate::Entity>) -> i32"), "{}", main.content);
-    run_rust_files(&files, "mut-opt-slot", MUT_OPT_SLOT_OUTPUT);
 }
 
 /// [type-none-unit] Returning a `None`-typed expression (a call to a
@@ -19075,12 +11736,6 @@ fn main() [use] {
 
 pub const NONE_RETURN_OUTPUT: &str = "zero: none\none: value\n";
 
-#[test]
-fn rustc_compiles_and_runs_none_typed_return_into_optional() {
-    let files = generate(&[("main.sv", NONE_RETURN_DEMO)]);
-    run_rust_files(&files, "none-return", NONE_RETURN_OUTPUT);
-}
-
 /// [loop-never] A non-escaping `while true` is `Never`: a `-> T` fn whose
 /// tail is one needs no return, and it lowers to a bare `loop {}` (no exit
 /// test) that rustc types as `!`. The loop is guarded so the program ends.
@@ -19100,11 +11755,10 @@ fn main() [use] {
 pub const LOOP_NEVER_OUTPUT: &str = "7\n";
 
 #[test]
-fn rustc_compiles_and_runs_an_infinite_loop_as_never() {
+fn an_infinite_loop_as_never() {
     let files = generate(&[("main.sv", LOOP_NEVER_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     assert!(main.content.contains("loop {"), "a bare `loop {{` is emitted: {}", main.content);
-    run_rust_files(&files, "loop-never", LOOP_NEVER_OUTPUT);
 }
 
 
@@ -19147,7 +11801,7 @@ fn main() [use] {
 pub const UNION_SPAN_OUTPUT: &str = "str hi\nint 7\nbool true\nstr tf\n";
 
 #[test]
-fn rustc_compiles_and_runs_union_spanning_generic() {
+fn union_spanning_generic() {
     let files = generate(&[("main.sv", UNION_SPAN_DEMO)]);
     let main = files.iter().find(|f| f.rel_path.ends_with("main.rs")).unwrap();
     // The callee is a Rust generic over the nested slot (`T` one arm).
@@ -19156,7 +11810,6 @@ fn rustc_compiles_and_runs_union_spanning_generic() {
         "{}",
         main.content
     );
-    run_rust_files(&files, "union-span", UNION_SPAN_OUTPUT);
 }
 
 /// [type-union-spread] Two bare generic arms `T | S` — each captures **exactly
@@ -19188,12 +11841,6 @@ fn main() [use] {
 "#;
 
 pub const UNION_TWO_GENERIC_OUTPUT: &str = "str hi\nint 7\n";
-
-#[test]
-fn rustc_compiles_and_runs_two_generic_union_arms() {
-    let files = generate(&[("main.sv", UNION_TWO_GENERIC_DEMO)]);
-    run_rust_files(&files, "union-two-generic", UNION_TWO_GENERIC_OUTPUT);
-}
 
 /// [ref-anchor] Element containers (user decisions 2026-10-10): a `ref(lib)`
 /// argument may be a handle anywhere *inside* `lib` — from a mint, inline
@@ -19252,301 +11899,6 @@ fn main() [use] {
 
 pub const ELEM_CONTAINER_OUTPUT: &str = "x** 3 1 y 2\n";
 
-#[test]
-fn rustc_compiles_and_runs_handles_into_element_containers() {
-    let files = generate(&[("main.sv", ELEM_CONTAINER_DEMO)]);
-    run_rust_files(&files, "elem-container", ELEM_CONTAINER_OUTPUT);
-}
-
-// [fn-param-default] A default value a caller may omit — positionally
-// (a trailing run), by naming a later parameter (skipping a defaulted one
-// in the middle) — and a default that reads an earlier parameter: a Copy
-// scalar (`span`), a `List` (`describe`), and a struct (`locate`). The
-// earlier parameter is bound once (`Lower::args_for`/`block_expr`) and read
-// from both its own argument slot and the default, so nothing about its
-// type matters here.
-const PARAM_DEFAULT_DEMO: &str = r#"
-fn greet(name: Str, greeting: Str = "Hello", punct: Str = "!") -> Str {
-    return "${greeting}, ${name}${punct}"
-}
-
-fn span(lo: Int, hi: Int = lo + 10) -> Int {
-    return hi - lo
-}
-
-fn describe(xs: List<Int>, count: Int = size(xs)) -> Str {
-    return "size is ${count}"
-}
-
-struct Point { x: Int, y: Int }
-
-fn locate(p: Point, label: Str = "${p.x},${p.y}") -> Str => !label {
-    return label
-}
-
-fn main() [use] {
-    use StdConsole()
-    println(greet("Ada", "Hi", "."))
-    println(greet("Ada", "Hi"))
-    println(greet("Ada"))
-    println(greet("Ada", punct = "?"))
-    println("${span(5)}")
-    println("${span(5, 20)}")
-    println(describe(List(1, 2, 3)))
-    println(locate(Point { x: 3, y: 4 }))
-}
-"#;
-
 pub const PARAM_DEFAULT_OUTPUT: &str =
     "Hi, Ada.\nHi, Ada!\nHello, Ada!\nHello, Ada?\n10\n15\nsize is 3\n3,4\n";
 
-#[test]
-fn rustc_compiles_and_runs_parameter_defaults() {
-    let files = generate(&[("main.sv", PARAM_DEFAULT_DEMO)]);
-    run_rust_files(&files, "param-default", PARAM_DEFAULT_OUTPUT);
-}
-
-// [fn-param-default] A handler's constructor parameters take defaults with
-// the fn rules, wherever a handler is constructed: `use` (a trailing run
-// omitted, a defaulted parameter named past another, a default reading an
-// earlier parameter — a scalar and a `List`, bound once — with a program
-// variable of the same name in scope), a `with` item, an actor `spawn`
-// (with the mailbox capacity a defaulted parameter), a spawn's `with` item,
-// and a mixed handler's spawn, whose servant and façade share the filled
-// arguments. The same program and output as the Kotlin backend's case.
-const HANDLER_PARAM_DEFAULT_DEMO: &str = r#"
-effect Tell {
-    fn tell() -> Int
-}
-
-handler Teller(n: Int = 7) of Tell {
-    fn tell() -> Int {
-        return n
-    }
-}
-
-effect Spanned {
-    fn width() -> Int
-    fn stride() -> Int
-}
-
-handler Span(lo: Int, hi: Int = lo + 10, step: Int = 1) of Spanned {
-    fn width() -> Int {
-        return hi - lo
-    }
-    fn stride() -> Int {
-        return step
-    }
-}
-
-effect Counted {
-    fn count() -> Int
-}
-
-handler Bag(xs: List<Int>, n: Int = size(xs)) of Counted {
-    fn count() -> Int {
-        return n + size(xs)
-    }
-}
-
-effect Sum {
-    fn sum() -> Int
-}
-
-handler Plus [Tell] of Sum {
-    fn sum() -> Int {
-        return tell() + 1
-    }
-}
-
-actor effect Desk {
-    send fn ask(out: Reply<Int>) => !out
-}
-
-handler Desking(room: Int = 4, capacity: Int = 2) of Desk {
-    mailbox { capacity: capacity }
-
-    send fn ask(out: Reply<Int>) {
-        send(out, room)
-    }
-}
-
-handler Telling() [Tell] of Desk {
-    mailbox { capacity: 2 }
-
-    send fn ask(out: Reply<Int>) {
-        send(out, tell())
-    }
-}
-
-effect Random {
-    fn next() -> Int
-}
-
-handler CyclicRandom(seed: Int = 5, mult: Int = 31) of Random {
-    mailbox { capacity: 8 }
-    state {
-        cursor: Int = 1
-    }
-
-    send fn advance(out: Reply<Int>) => !out {
-        cursor = (cursor * mult + seed) % 1000
-        send(out, cursor)
-    }
-
-    fn next() -> Int {
-        return waitfor got: Reply<Int> {
-            advance(got)
-        }
-    }
-}
-
-fn show() [use, Console] {
-    use Teller(n = 3)
-    println("${tell()}")
-}
-
-fn spans() [use, Console] {
-    use Span(5)
-    println("${width()} ${stride()}")
-    use Span(5, step = 2)
-    println("${width()} ${stride()}")
-    let lo = 100
-    use Span(1, step = lo)
-    println("${width()} ${stride()} ${lo}")
-    use Span(1, 4)
-    println("${width()} ${stride()}")
-}
-
-fn sums() [use, Console] {
-    use Plus with Teller(n = 40)
-    println("${sum()}")
-    use Plus with Teller()
-    println("${sum()}")
-}
-
-fn main() [use, spawn] {
-    use StdConsole()
-    use Teller()
-    println("${tell()}")
-    show()
-    spans()
-    sums()
-    use Bag(List(1, 2, 3))
-    println("count ${count()}")
-    let desk = spawn Desking() on pool(1)
-    let room = waitfor got: Reply<Int> {
-        desk.ask(got)
-    }
-    println("room ${room}")
-    let teller = spawn Telling() with Teller(n = 11) on pool(1)
-    let told = waitfor got: Reply<Int> {
-        teller.ask(got)
-    }
-    println("told ${told}")
-    let rng = spawn CyclicRandom(mult = 2)
-    use rng
-    println("drew ${next()} ${next()}")
-}
-"#;
-
-const HANDLER_PARAM_DEFAULT_OUTPUT: &str =
-    "7\n3\n10 1\n10 2\n10 100 100\n3 1\n41\n8\ncount 6\nroom 4\ntold 11\ndrew 7 19\n";
-
-#[test]
-fn rustc_compiles_and_runs_handler_parameter_defaults() {
-    let files = generate(&[("main.sv", HANDLER_PARAM_DEFAULT_DEMO)]);
-    run_rust_files(&files, "handler-param-default", HANDLER_PARAM_DEFAULT_OUTPUT);
-}
-
-/// [flow-use-after-move] [copy-scalar-free] [fate-partial-move] What the IR
-/// flow pass refused until R8 piece 5 (ROADMAP 0o's over-strict rules), and
-/// rustc accepts: a loop body that always leaves (no back edge, so neither
-/// `eat(s)` before a `break` nor a top-level `break s` is a second
-/// iteration's use), a union narrowed to `Int` moved twice (a copy), and a
-/// sibling of a moved field under the same parent. The same program and
-/// expected output as the Kotlin backend's
-/// `kotlinc_compiles_and_runs_what_the_flow_pass_now_accepts`.
-const FLOW_ACCEPTS_DEMO: &str = r#"
-struct Rec {
-    name: Str,
-    tags: Mut List<Str>
-}
-
-struct Nest {
-    a: Rec,
-    other: Mut List<Str>
-}
-
-fn eat(s: Str) -> None => !s {
-}
-
-fn eatl(xs: Mut List<Str>) -> Int => !xs {
-    return size(xs)
-}
-
-fn look(s: Str) -> Int {
-    return size(s)
-}
-
-fn take<T>(v: T) -> None => !v {
-}
-
-// A body that always leaves has no back edge.
-fn drain(c: Bool, s: Str) -> Int => !s {
-    let n = 0
-    while c {
-        n = look(s)
-        eat(s)
-        break
-    }
-    return n
-}
-
-// A union narrowed to a Copy scalar moves for free.
-fn count(v: Int | Bool) -> Int => !v {
-    let n = 0
-    if v is Int {
-        take(v)
-        take(v)
-        n = v
-    }
-    take(v)
-    return n
-}
-
-// A sibling of a moved field, under the same parent, is still there.
-fn sibling(n: Nest) -> Int => !n {
-    let k = eatl(n.a.tags)
-    return k + look(n.a.name)
-}
-
-// A top-level `break` of a local moves it out of a body that always leaves.
-fn first(c: Bool) -> Int {
-    let s = "ab${1}"
-    let r = while c {
-        break s
-    }
-    if r is Str {
-        return look(r)
-    }
-    return 0
-}
-
-fn main() [use] {
-    use StdConsole()
-    println("${drain(true, "abc${1}")} ${drain(false, "x")}")
-    println("${count(7)} ${count(true)}")
-    println("${first(true)} ${first(false)}")
-    let t = Mut List<Str>()
-    add(t, "a")
-    add(t, "b")
-    println("${sibling(Nest { a: Rec { name: "four", tags: t }, other: Mut List<Str>() })}")
-}
-"#;
-
-#[test]
-fn rustc_compiles_and_runs_what_the_flow_pass_now_accepts() {
-    let files = generate(&[("main.sv", FLOW_ACCEPTS_DEMO)]);
-    run_rust_files(&files, "flow-accepts", "4 0\n7 0\n3 0\n6\n");
-}

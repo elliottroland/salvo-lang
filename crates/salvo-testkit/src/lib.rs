@@ -45,6 +45,7 @@
 
 pub mod data;
 pub mod front;
+pub mod run;
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};

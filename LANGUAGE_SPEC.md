@@ -11297,6 +11297,17 @@ replaced the working document TESTING.md).
   the program reports [diag-id]; `// FILE:` and `//---` split files and
   programs. This is not a language feature: a user's tests are `test`
   blocks [test-decl]. The format is `tests/check/README.md`.
+* [test-run-data] **The compiler repository's compile-and-run tests are data
+  files too** (user decisions 2026-10-28, TESTS.md C3, TD8, TD9): `.sv`
+  programs under `crates/salvo-cli/tests/run/<area>/`, emitted by every
+  backend a program names (both, by default) and run, whose `//= stdout`
+  block, `//= exit N` or `//= trap <text>` must be what the program does;
+  `// ARGS:`, `// BACKENDS:`, `// FILE:` and `//---` as their names say, and
+  a case with a `salvo.toml` is read through it. Rust compiles a batch of
+  programs as one crate (std's modules once, each program a module), Kotlin
+  links std's library; both are stamped per program and backend. Every
+  example under `examples/` runs the same way to its `expected.txt`. The
+  format is `tests/run/README.md`.
 * [test-decl] `test "an empty heap pops nothing" { … }` declares a **test**: a
   top-level declaration with a string-literal name and a block body. No
   parameters, no effect list, no return type, and `export test` is refused — a

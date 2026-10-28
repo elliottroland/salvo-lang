@@ -16,10 +16,10 @@
 # AMFI rejecting a freshly linked binary, not a broken test — see
 # COMPLETED.md's gotchas.
 [profile.default]
-# The kotlin driver tests (`kotlinc_compiles_and_runs_every_case_{0..3}`, four
-# shards since 2026-10-04) legitimately run minutes fresh — together they
-# batch-compile every case (195 that day), and each shard measured ~108s with
-# the machine loaded. The other toolchain
+# The compile-and-run data (`salvo-cli`'s `run_data`, one test per area,
+# TESTS.md C3) legitimately runs a minute or two fresh: an area compiles
+# every program of it on both backends, kotlinc dominating (~100s for the
+# whole data with the machine loaded, 2026-10-28). The other toolchain
 # tests are minutes-long only when something is wrong; a test that hangs
 # should still say so rather than stall the run, so the ceiling is 6 minutes.
 slow-timeout = { period = "30s", terminate-after = 12 }

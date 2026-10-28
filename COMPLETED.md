@@ -144,6 +144,51 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — Compile-and-run tests are data, run on both backends (TESTS.md C3, step 5 part 1)
+
+**Every compile-and-run case of the two codegen test files is now a program
+under `crates/salvo-cli/tests/run/<area>/`** ([test-run-data]; format
+`tests/run/README.md`, parser `salvo_testkit::run`, runner
+`salvo-cli/tests/run_data.rs`), and the examples run there too (the
+`examples` test). The 487 cases (250 Rust `run_rust_files` sites, 237
+`KOTLIN_CASES`) were 288 distinct programs: 199 identical on both sides, 51
+Rust-only, 38 Kotlin-only. **Every one of the 89 single-backend programs
+also runs on the other backend** (a probe ran all 288 on both); 25
+Kotlin-only ones were near-copies (≥94% alike) of a Rust-only one and were
+dropped for it, so 263 programs in 99 files over 20 areas, one
+(`effects/…#member_generics`) still Kotlin-only, refused by Rust as before.
+
+- **Rust batches as TD9 decided.** Measured first on four programs: four
+  rustc processes in parallel 0.74s wall / 1.88s CPU; one crate with each
+  program a module but std per program 1.69s / 1.32s; one crate with std's
+  modules once 0.78s / 0.67s. So a batch (≤16 programs) is one crate: std's
+  and the runtime's files at the root, each program a module `p<i>` whose
+  `crate::` paths are rewritten into it, and a `main` dispatching on
+  `SALVO_RUN_CASE`. A program whose shared files differ goes to another
+  batch; a failing batch is compiled again one program per crate, so the
+  failure names its program (no bisection needed at this size). The 16
+  examples compile as one crate in 3.1s.
+- **Kotlin** keeps the shards' scheme (std's library, each program's own
+  files in a package of its own, a few kotlinc per area); it is still most
+  of the wall time (~11s of the examples' 19s fresh).
+- **Numbers**: fresh, the whole run data takes ~105s wall under nextest; warm
+  ~3–5s per area (emission, to compute the stamps). The suite went from
+  1,219 to 1,036 tests and 82s to 76s warm; the Kotlin codegen file from
+  18,226 to 7,866 lines, the Rust one from 19,552 to 11,904. 45 Rust tests
+  and 14 Kotlin case fns that also asserted emitted text kept those
+  assertions (renamed without their `…compiles_and_runs_` prefix); the
+  rest, the Kotlin driver and `run_rust_files` are gone.
+- `corpus_tests` ([ir-build]) also builds every run-data program, so moving
+  a `const` program out of a codegen file loses no IR coverage.
+- **How it was moved** (repeatable for the rest of step 5): the codegen
+  tests were instrumented to dump every case's sources and expected stdout,
+  a script grouped them, a probe ran every group on both backends, and a
+  second script deleted each moved run site, then whatever the compiler
+  reported unused.
+- Found on the way: `salvo_testkit::front::project` did not set the
+  project's platform roots, so a project with platform files could not be
+  read (fixed); and a `//=` line's trailing spaces are output.
+
 ### 2026-10-28 — The rest of the checker tests are data (TESTS.md T1, step 4 wave 3)
 
 **diag, name, module_import, export, dependency, place, elem_distinct,
@@ -31875,6 +31920,14 @@ The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
 generated code, expected output or toolchain actually changed. Use
 `SALVO_E2E_FRESH=1 cargo nextest run` for a run that takes nothing from the
 cache, with per-test timings.
+
+**Since 2026-10-28 (TESTS.md C3) the compile-and-run programs are run data**
+(`crates/salvo-cli/tests/run/`, 20 areas, 263 programs, each on both
+backends unless it says otherwise, plus every example; [test-run-data]):
+1,036 tests under nextest that day. The backend paragraphs below still
+describe programs by the codegen test that once ran them; those programs are
+now cases of the run data, and the codegen files keep the emitted-text and
+refusal tests only.
 
 The IR corpus tests (`salvo-core/tests/corpus_tests.rs` [ir-build]: every
 inline program of both backends' codegen tests, ~410, must build to IR with

@@ -1,6 +1,8 @@
 //! [ir-build] The builder over every inline program of the two backends'
-//! codegen tests (several hundred programs covering the language): every one
-//! that checks must build with no error and no `Unsupported` node.
+//! codegen tests, and every program of the compile-and-run data
+//! ([test-run-data], `salvo-cli/tests/run/`) — several hundred programs
+//! covering the language: every one that checks must build with no error
+//! and no `Unsupported` node.
 //!
 //! The corpus holds ~400 programs. Three things keep them cheap:
 //!
@@ -97,8 +99,8 @@ enum Outcome {
     Built(Vec<String>),
 }
 
-fn build_one(name: &str, body: &str) -> Outcome {
-    let Some(program) = build_program(&[("main.sv", body)]) else { return Outcome::Refused };
+fn build_one(name: &str, files: &[(&str, &str)]) -> Outcome {
+    let Some(program) = build_program(files) else { return Outcome::Refused };
     let symbols = salvo_core::Symbols::collect(&program);
     let resolution = salvo_core::resolve(&program);
     let checked = front().check(&program, &resolution, &symbols);
@@ -124,36 +126,69 @@ fn build_one(name: &str, body: &str) -> Outcome {
 
 /// The stamp for `body` having come to `outcome` ("built" or "refused"),
 /// or `None` when one is already on disk.
-fn stamp(name: &str, body: &str, outcome: &str) -> Option<salvo_testkit::Stamp> {
+fn stamp(name: &str, files: &[(&str, &str)], outcome: &str) -> Option<salvo_testkit::Stamp> {
     let std = std_front();
     let what = format!("corpus ir-build {outcome}: {name}");
     let compiler = salvo_testkit::self_fingerprint();
-    let parts: [&[u8]; 5] = [
-        b"corpus-ir-build",
-        outcome.as_bytes(),
-        compiler.as_bytes(),
-        std.print.as_bytes(),
-        body.as_bytes(),
-    ];
+    let mut parts: Vec<&[u8]> = vec![b"corpus-ir-build", outcome.as_bytes(), compiler.as_bytes(), std.print.as_bytes()];
+    // One file named `main.sv` keys as it did before files had names.
+    if let [("main.sv", body)] = files {
+        parts.push(body.as_bytes());
+    } else {
+        for (n, c) in files {
+            parts.push(n.as_bytes());
+            parts.push(c.as_bytes());
+        }
+    }
     salvo_testkit::cached(env!("CARGO_TARGET_TMPDIR"), &what, &parts)
 }
 
 fn check_corpus(file: &str) {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(file);
     let text = std::fs::read_to_string(&path).unwrap();
-    let programs = inline_programs(&text);
-    assert!(programs.len() > 50, "found only {} programs in {file}", programs.len());
+    let programs: Vec<(String, Vec<(String, String)>)> =
+        inline_programs(&text).into_iter().map(|(name, body)| (name, vec![("main.sv".to_string(), body)])).collect();
+    check_programs(file, programs, 50);
+}
+
+/// [test-run-data] Every program of the compile-and-run data
+/// (`salvo-cli/tests/run/<area>/*.sv`), its `.sv` files alone.
+fn run_data_programs() -> Vec<(String, Vec<(String, String)>)> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../salvo-cli/tests/run");
+    let mut out = Vec::new();
+    let mut areas: Vec<_> = std::fs::read_dir(&root).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect();
+    areas.sort();
+    for area in areas {
+        let mut files: Vec<_> = std::fs::read_dir(&area).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "sv")).collect();
+        files.sort();
+        for file in files {
+            let text = std::fs::read_to_string(&file).unwrap();
+            let cases = salvo_testkit::run::parse(&text).unwrap_or_else(|e| panic!("{}: {e}", file.display()));
+            for case in cases {
+                let name = format!("{}#{}", file.display(), case.name);
+                let sources = case.sources().into_iter().map(|(n, c)| (n.to_string(), c.to_string())).collect();
+                out.push((name, sources));
+            }
+        }
+    }
+    out
+}
+
+fn check_programs(file: &str, programs: Vec<(String, Vec<(String, String)>)>, at_least: usize) {
+    assert!(programs.len() > at_least, "found only {} programs in {file}", programs.len());
     // A stamp records the outcome in its key, so a stamped program still
     // counts towards `built` below.
     let mut built = 0;
-    let mut todo: Vec<(&str, &str, salvo_testkit::Stamp, salvo_testkit::Stamp)> = Vec::new();
-    for (name, body) in &programs {
-        let Some(built_stamp) = stamp(name, body, "built") else {
+    let programs: Vec<(&str, Vec<(&str, &str)>)> =
+        programs.iter().map(|(n, fs)| (n.as_str(), fs.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect())).collect();
+    let mut todo: Vec<(&str, &[(&str, &str)], salvo_testkit::Stamp, salvo_testkit::Stamp)> = Vec::new();
+    for (name, files) in &programs {
+        let Some(built_stamp) = stamp(name, files, "built") else {
             built += 1;
             continue;
         };
-        let Some(refused_stamp) = stamp(name, body, "refused") else { continue };
-        todo.push((name, body, built_stamp, refused_stamp));
+        let Some(refused_stamp) = stamp(name, files, "refused") else { continue };
+        todo.push((name, files, built_stamp, refused_stamp));
     }
     let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
     let next = std::sync::atomic::AtomicUsize::new(0);
@@ -167,8 +202,8 @@ fn check_corpus(file: &str) {
                 if i >= count {
                     return;
                 }
-                let (name, body, built_stamp, refused_stamp) = todo.lock().unwrap()[i].take().unwrap();
-                let outcome = build_one(name, body);
+                let (name, files, built_stamp, refused_stamp) = todo.lock().unwrap()[i].take().unwrap();
+                let outcome = build_one(name, files);
                 // Each outcome is a function of its own key, so it is
                 // remembered whatever the other programs came to; a
                 // program with failures is not remembered at all.
@@ -190,13 +225,18 @@ fn check_corpus(file: &str) {
             failures.extend(found);
         }
     }
-    assert!(built > 30, "built only {built} programs from {file}");
+    assert!(built > at_least.min(30), "built only {built} programs from {file}");
     assert!(failures.is_empty(), "{} failures over {built} programs:\n{}", failures.len(), failures.join("\n"));
 }
 
 #[test]
 fn every_kotlin_codegen_program_builds() {
     check_corpus("../salvo-backend-kotlin/tests/codegen_tests.rs");
+}
+
+#[test]
+fn every_run_data_program_builds() {
+    check_programs("salvo-cli/tests/run", run_data_programs(), 0);
 }
 
 #[test]

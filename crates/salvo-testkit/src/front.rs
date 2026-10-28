@@ -138,6 +138,8 @@ pub fn project(ext: &str, dir: &Path) -> FrontProgram {
         assert!(errors.is_empty(), "failed to load dependency `{}`: {errors:?}", dep.name);
     }
     let src = project.src();
+    // [platform-root] The project's platform roots, as `salvo compile` sets them.
+    sources.platform = project.platform_roots();
     let errors = sources.add_dir(&src, ext, false, false);
     assert!(errors.is_empty(), "failed to read {}: {errors:?}", src.display());
     std_front(ext).program(sources.files, sources.companions)

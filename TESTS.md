@@ -747,3 +747,20 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   diagnostics confirmed to be what the old test expected (or `_`-prefix the
   local); a diagnostic that looks wrong keeps the old test in Rust as it was
   and goes to ROADMAP §0ar. Each file leaves a where-did-every-test-go table.
+- **Step 5 part 1 (2026-10-28): the run-data runner, and the codegen run
+  cases moved.** TD9 measured before building: one crate with std's modules
+  once costs a third of the CPU of separate rustc processes at the same
+  wall time, so batching stands (record in COMPLETED.md). The codegen
+  files' 487 run cases → 288 distinct programs → 263 after dropping
+  near-copies, every one probed on both backends (all single-backend
+  programs ran on the other too, but one). The examples run in the same
+  runner; `corpus_tests` builds every run-data program. Left for part 2:
+  run_tests' behaviour cases (~43), platform_tests' boundary cases (~8), and
+  the corpus's `const` programs that stayed with text tests.
+- **The run-case procedure** (scripts kept in `tmp/` while step 5 runs:
+  `run_migrate.py`, `run_gen.py`, `run_remove.py`, `run_prune.py`,
+  `run_husks.py`): instrument the tests to dump each case's sources and
+  expected output, group identical programs, generate the data, probe every
+  program on both backends, keep `// BACKENDS:` only where a backend fails,
+  then delete each moved run site and whatever the compiler then reports
+  unused.
