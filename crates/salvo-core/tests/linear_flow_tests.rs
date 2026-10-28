@@ -197,19 +197,19 @@ fn program() -> Program {
     salvo_testkit::front::clean_program("kt", &files)
 }
 
-fn kind(message: &str) -> &'static str {
-    if message.contains("owns a linear value that is consumed on some paths but not others; discharge or move it on every path") {
-        "some"
-    } else if message.contains("drops the linear value it still owns; move it onward or `discard(") {
-        "drop"
-    } else if message.contains("was moved out of and nothing was put back, so this activation would leave the handler with a hole") {
-        "hole"
-    } else if message.contains("still owns a linear value when the path leaves") {
-        "leak"
-    } else if message.contains("cannot be used") {
-        "use"
-    } else {
-        panic!("unexpected diagnostic: {message}")
+/// [diag-id] What each case pins, from the diagnostic's id.
+fn kind(id: Option<&str>, message: &str) -> &'static str {
+    match id {
+        Some("linear-obligation:some-paths") => "some",
+        Some("linear-obligation:assign-drops") => "drop",
+        Some("linear-state:hole") => "hole",
+        Some("ir-linear-check:leak-at-exit") => "leak",
+        Some(id) if ["flow-use-after-move", "fate-partial-move", "fate-poison", "fate-move-mode"]
+            .contains(&salvo_syntax::messages::label_of(id)) =>
+        {
+            "use"
+        }
+        _ => panic!("unexpected diagnostic: {id:?}: {message}"),
     }
 }
 
@@ -233,7 +233,7 @@ fn the_ir_reports_the_linear_flow_rules() {
         let file = &program.files[d.file];
         let (line, col) = salvo_syntax::span::line_col(&file.content, d.span.start);
         let name = file.name.trim_end_matches(".sv").to_string();
-        got.entry(name).or_default().push((line - helper_lines, col, kind(&d.message)));
+        got.entry(name).or_default().push((line - helper_lines, col, kind(d.id, &d.message)));
     }
     for v in got.values_mut() {
         v.sort();

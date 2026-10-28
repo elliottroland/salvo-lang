@@ -78,8 +78,9 @@ fn checked(src: &str) -> salvo_core::Checked {
     checked_files(&[("main.sv", src)])
 }
 
-fn messages(src: &str) -> Vec<String> {
-    checked(src).errors.iter().filter(|d| d.severity == Severity::Error).map(|d| d.message.clone()).collect()
+/// [diag-id] The id of every error `src` reports.
+fn error_ids(src: &str) -> Vec<&'static str> {
+    checked(src).errors.iter().filter(|d| d.severity == Severity::Error).map(|d| d.id.unwrap_or("?")).collect()
 }
 
 fn probe(body: &str) -> String {
@@ -95,11 +96,6 @@ fn a_renamed_name_takes_no_module_selector() {
         "rename fn list_size = size<T>(list: List<T>)\n",
         probe("    let xs = of_list(1, 2)\n    let n = list_size@core.list(xs)")
     );
-    assert!(
-        messages(&src)
-            .iter()
-            .any(|m| m.contains("is a renamed overload")),
-        "{:?}",
-        messages(&src)
-    );
+    let errs = error_ids(&src);
+    assert!(errs.contains(&"fn-rename:at-on-renamed"), "{errs:?}");
 }

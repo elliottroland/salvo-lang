@@ -104,11 +104,9 @@ fn check_errors(src: &str) -> Vec<FileDiagnostic> {
     errors
 }
 
-fn messages(src: &str) -> Vec<String> {
-    check_errors(src)
-        .iter()
-        .map(|d| d.message.clone())
-        .collect()
+/// [diag-id] The id of every error `src` reports.
+fn ids(src: &str) -> Vec<&'static str> {
+    check_errors(src).iter().map(|d| d.id.unwrap_or("?")).collect()
 }
 
 // ===== effects and handlers are not data [effect-not-data]
@@ -139,8 +137,8 @@ actor effect Chatter {
 }
 "#;
 
-fn effect_messages(src: &str) -> Vec<String> {
-    messages(&format!("{EFFECT_PRELUDE}\n{src}"))
+fn effect_ids(src: &str) -> Vec<&'static str> {
+    ids(&format!("{EFFECT_PRELUDE}\n{src}"))
 }
 
 /// [effect-not-data] An effect names a capability, not a type of values.
@@ -159,21 +157,14 @@ fn effect_types_are_rejected_in_data_positions() {
         ("type Alias = Counter\n", "type alias"),
     ];
     for (src, what) in cases {
-        let errs = effect_messages(src);
-        let diag = errs
-            .iter()
-            .find(|m| m.starts_with("`Counter` is an effect, not a data type"))
-            .unwrap_or_else(|| panic!("no rejection for a {what}: {errs:?}"));
-        assert!(
-            diag.contains("`use`"),
-            "the diagnostic should point at `use`: {diag}"
-        );
+        let errs = effect_ids(src);
+        assert!(errs.contains(&"effect-not-data:data-position"), "no rejection for a {what}: {errs:?}");
     }
 }
 
 #[test]
 fn a_fn_type_cannot_declare_the_spawn_capability() {
-    let errors = messages(
+    let errors = ids(
         "\
 fn run(f: (Int) [spawn] -> Int) -> Int {
     return f(1)
@@ -181,9 +172,7 @@ fn run(f: (Int) [spawn] -> Int) -> Int {
 ",
     );
     assert!(
-        errors
-            .iter()
-            .any(|m| m.contains("fn type cannot declare `spawn`")),
+        errors.contains(&"actor-spawn-effect:fn-type"),
         "expected the fn-type spawn refusal, got: {errors:?}"
     );
 }
@@ -199,7 +188,7 @@ fn unresolved_call_suggests_imports() {
         .checked
         .errors
         .iter()
-        .find(|d| d.message.contains("no function named `helper`"))
+        .find(|d| d.id == Some("call-resolve:unknown-fn"))
         .unwrap_or_else(|| panic!("got {:?}", out.checked.errors));
     assert_eq!(diag.suggested_imports, vec!["lib.helper".to_string()]);
 }

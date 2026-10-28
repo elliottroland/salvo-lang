@@ -67,14 +67,6 @@ fn diags(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
     out
 }
 
-fn errors(files: &[(&str, &str)]) -> Vec<String> {
-    diags(files)
-        .iter()
-        .filter(|d| d.is_error())
-        .map(|d| d.message.clone())
-        .collect()
-}
-
 const CLOCK: &str = "\
 effect Clock {
     fn now() -> Int
@@ -105,21 +97,21 @@ fn a_malformed_alias_is_refused() {
     let cycle = &format!("{CLOCK}effects A = [B, Console]\neffects B = [A]\nfn f() [A] -> None {{ print(\"x\") }}\n");
     let errs = diags(&[("main.sv", cycle)]);
     assert!(
-        errs.iter().any(|d| d.id == Some("effect-alias:cycle") && d.message.contains("cyclic")),
+        errs.iter().any(|d| d.id == Some("effect-alias:cycle")),
         "{errs:?}"
     );
 
     let kinds = &format!("{CLOCK}effects A = [Console, use]\n");
     let errs = diags(&[("main.sv", kinds)]);
     assert!(
-        errs.iter().any(|d| d.id == Some("effect-alias:capability") && d.message.contains("`use` and `spawn`")),
+        errs.iter().any(|d| d.id == Some("effect-alias:capability")),
         "{errs:?}"
     );
 
     let any = &format!("{CLOCK}effects A = [any Console]\n");
-    let errs = errors(&[("main.sv", any)]);
+    let errs = diags(&[("main.sv", any)]);
     assert!(
-        errs.iter().any(|e| e.contains("`any` has no meaning in an effect alias")),
+        errs.iter().any(|d| d.is_error() && d.id == Some("effect-alias:any")),
         "{errs:?}"
     );
 }
@@ -134,7 +126,7 @@ fn any_on_an_alias_is_refused() {
     let src = &format!("{CLOCK}effects App = [Console, Clock]\nfn f() [any App] -> None {{ print(\"x\") }}\n");
     let errs = diags(&[("main.sv", src)]);
     assert!(
-        errs.iter().any(|d| d.id == Some("effect-alias:any-alias") && d.message.contains("is an effect alias")),
+        errs.iter().any(|d| d.id == Some("effect-alias:any-alias")),
         "{errs:?}"
     );
 }

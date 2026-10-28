@@ -25,7 +25,8 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
 );
 
-fn errors(src: &str) -> Vec<String> {
+/// [diag-id] The id of every error `src` reports.
+fn errors(src: &str) -> Vec<&'static str> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -64,7 +65,7 @@ fn errors(src: &str) -> Vec<String> {
         .iter()
         .chain(checked.errors.iter())
         .filter(|d| d.is_error())
-        .map(|d| d.message.clone())
+        .map(|d| d.id.unwrap_or("?"))
         .collect()
 }
 
@@ -102,7 +103,7 @@ fn written_type_arguments_must_agree_with_the_constructor() {
          }}\n"
     ));
     assert!(
-        errs.iter().any(|e| e.contains("but an argument makes it")),
+        errs.contains(&"effect-handler-generics:conflict"),
         "expected the disagreement to be reported, got: {errs:?}"
     );
 }

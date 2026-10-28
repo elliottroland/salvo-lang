@@ -29,7 +29,8 @@ const BASICS: &str = concat!(
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
 );
 
-fn errors(src: &str) -> Vec<String> {
+/// [diag-id] The id of every error `src` reports.
+fn errors(src: &str) -> Vec<&'static str> {
     let mut sources = SourceSet::default();
     sources.add("std/core/basic.sv", SourceSet::classify(Path::new("std/core/basic.sv")).unwrap(), BASICS.to_string(), true);
     sources.add(
@@ -50,7 +51,7 @@ fn errors(src: &str) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    checked.errors.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect()
+    checked.errors.iter().filter(|d| d.is_error()).map(|d| d.id.unwrap_or("?")).collect()
 }
 
 /// [type-name-shadow] Each `std.core.comptime` name, shadowed by a user alias
@@ -67,7 +68,7 @@ fn a_program_type_shadows_a_core_comptime_name_of_any_kind() {
                  fn take(x: {name}) [] -> {name} => !x {{ return x }}\n\
                  fn main() [] -> None {{\n    let a: {name} = {value}\n    let b: {name} = take(a)\n    let _h = Holder {{ x: b }}\n}}\n"
             );
-            assert_eq!(errors(&src), Vec::<String>::new(), "{src}");
+            assert_eq!(errors(&src), Vec::<&str>::new(), "{src}");
         }
     }
 }
@@ -77,5 +78,5 @@ fn a_program_type_shadows_a_core_comptime_name_of_any_kind() {
 #[test]
 fn an_unshadowed_comptime_name_is_still_refused_as_data() {
     let errs = errors("fn take(x: Field) [] -> Int => x { return 0 }\n");
-    assert!(errs.iter().any(|e| e.contains("`Field` is a compile-time type")), "{errs:?}");
+    assert!(errs.contains(&"comptime-fields:data-position"), "{errs:?}");
 }

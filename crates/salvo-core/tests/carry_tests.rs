@@ -100,16 +100,18 @@ export fn heapify<T>(list: Mut List<T>, elem: T, ?cmp: (T, T) -> Int) [] -> None
 }
 "#;
 
-fn errors(src: &str) -> Vec<String> {
+fn errors(src: &str) -> Vec<&'static str> {
     errors_in(&[("main.sv", src)])
 }
 
 /// The shared declarations plus one file of test code.
-fn errors_with_heap(src: &str) -> Vec<String> {
+fn errors_with_heap(src: &str) -> Vec<&'static str> {
     errors_in(&[("heap.sv", HEAP), ("main.sv", src)])
 }
 
-fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
+/// [diag-id] The id of every parse and checker error, and of every IR
+/// analysis diagnostic.
+fn errors_in(files: &[(&str, &str)]) -> Vec<&'static str> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/compare.sv",
@@ -126,14 +128,14 @@ fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
         );
     }
     let mut modules = Vec::with_capacity(sources.files.len());
-    let mut parse_errors: Vec<String> = Vec::new();
+    let mut parse_errors: Vec<&'static str> = Vec::new();
     for file in &sources.files {
         let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
         parse_errors.extend(
             diagnostics
                 .iter()
                 .filter(|d| d.is_error())
-                .map(|d| d.message.clone()),
+                .map(|d| d.id.unwrap_or("?")),
         );
         modules.push(ast);
     }
@@ -147,7 +149,7 @@ fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    let mut msgs: Vec<String> = parse_errors
+    let mut ids: Vec<&'static str> = parse_errors
         .into_iter()
         .chain(
             resolution
@@ -155,15 +157,15 @@ fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
                 .iter()
                 .chain(checked.errors.iter())
                 .filter(|d| d.is_error())
-                .map(|d| d.message.clone()),
+                .map(|d| d.id.unwrap_or("?")),
         )
         .collect();
-    msgs.extend(
+    ids.extend(
         salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
             .into_iter()
-            .map(|d| d.message),
+            .map(|d| d.id.unwrap_or("?")),
     );
-    msgs
+    ids
 }
 
 /// [cmp-carry] A local of fn type, written in the type itself, has no
@@ -184,7 +186,7 @@ fn run() [] -> Int {
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("no identity a type can carry")),
+        errs.contains(&"cmp-carry:local-identity"),
         "expected the static-identity refusal: {errs:?}"
     );
 }
@@ -204,7 +206,7 @@ fn run(h: Heap<Person>(nowhere) Mut List<Person>) [] -> Int => h {
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("nowhere")),
+        errs.contains(&"cmp-carry:unknown-fn"),
         "expected the unknown-function error: {errs:?}"
     );
 }
@@ -224,7 +226,7 @@ fn run(h: Heap<Person>(cmp@Nothing) Mut List<Person>) [] -> Int => h {
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("cmp@Nothing")),
+        errs.contains(&"fn-attached:no-identity-on-type"),
         "expected the selector error: {errs:?}"
     );
 }
@@ -246,7 +248,7 @@ fn f(h: Ranked<Person, Int>(by_age) Mut List<Person>) [] -> Int => h {
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("all-or-none")),
+        errs.contains(&"qual-value-arg:partial-type-args"),
         "expected the all-or-none error: {errs:?}"
     );
 }
@@ -263,7 +265,7 @@ fn bad<T, ?cmp: (T, T) -> Int>(a: T) [] -> Int => a {
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("function slot")),
+        errs.contains(&"cmp-carry:fn-slot-misplaced"),
         "expected the slot-position error: {errs:?}"
     );
 }
@@ -308,8 +310,9 @@ fn provenance_arm_is_inferred_from_a_bare_value() {
     );
 }
 
-/// The errors of `src` checked over **std's own** declarations.
-fn std_errors(src: &str) -> Vec<String> {
+/// [diag-id] The ids of the errors of `src` checked over **std's own**
+/// declarations.
+fn std_errors(src: &str) -> Vec<&'static str> {
     let files = [("main.sv", src)];
     // [std-cache] Over the process's std front (TESTS.md T3); the
     // expansion's own diagnostics are not these tests' subject.
@@ -323,7 +326,7 @@ fn std_errors(src: &str) -> Vec<String> {
     // read is the IR flow pass's since R8 piece
     // 3c [flow-use-after-move].
     all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked).into_iter().filter(|d| d.is_error()));
-    all.into_iter().map(|d| d.message).collect()
+    all.into_iter().map(|d| d.id.unwrap_or("?")).collect()
 }
 
 /// [col-no-literal] A bare collection constructor as an argument determines
@@ -339,7 +342,7 @@ fn an_empty_literal_argument_still_needs_its_type() {
          println(\"${size(a)}\")\n}\n",
     );
     assert!(
-        errs.iter().any(|e| e.contains("element type") || e.contains("cannot infer")),
+        errs.contains(&"call-type-args:cannot-infer"),
         "an empty literal determines nothing: {errs:?}"
     );
 }

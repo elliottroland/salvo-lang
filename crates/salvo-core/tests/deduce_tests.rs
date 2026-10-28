@@ -446,10 +446,11 @@ const UNCOVERED: Option<&str> = Some("deduce-std-explicit:uncovered-params");
 fn an_exported_std_fn_without_a_clause_is_refused() {
     let errs = check_std_tree("export fn keep(s: List<Int>) [] -> List<Int> {\n    return s\n}\n");
     assert!(
-        errs.iter().any(|(id, m)| *id == UNCOVERED && m.contains("`s`") && m.contains("`fn keep`")),
+        errs.iter().any(|(id, _)| *id == UNCOVERED),
         "expected the missing-clause refusal: {errs:?}"
     );
-    // `keep` returns its parameter, so the inferred clause moves it.
+    // `keep` returns its parameter, so the inferred clause moves it. Kept on
+    // the text: the point is the clause the message suggests.
     assert!(errs.iter().any(|(_, m)| m.contains("=> !s")), "the diagnostic should suggest the inferred total clause: {errs:?}");
 }
 
@@ -468,7 +469,7 @@ fn an_exported_std_fn_with_a_total_clause_is_accepted() {
 fn a_partial_std_clause_is_still_refused() {
     let errs = check_std_tree("export fn two(a: List<Int>, b: List<Int>) [] -> List<Int> => !a {\n    return a\n}\n");
     assert!(
-        errs.iter().any(|(id, m)| *id == UNCOVERED && m.contains("`b`")),
+        errs.iter().any(|(id, _)| *id == UNCOVERED),
         "the unmentioned parameter should still be refused: {errs:?}"
     );
 }

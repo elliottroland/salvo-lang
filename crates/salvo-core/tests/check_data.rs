@@ -98,3 +98,4 @@ area!(types);
 area!(control);
 area!(ownership);
 area!(fate);
+area!(syntax);

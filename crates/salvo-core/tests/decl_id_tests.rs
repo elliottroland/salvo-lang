@@ -125,7 +125,7 @@ fn only_a_duplicate_takes_an_ordinal() {
     assert_ne!(first, second);
     assert_eq!((first.ordinal(), second.ordinal()), (0, 1));
     let resolution = resolve(&p);
-    assert!(resolution.errors.iter().any(|d| d.message.contains("duplicate fn `f(Int) -> Int`")), "{:?}", resolution.errors);
+    assert!(resolution.errors.iter().any(|d| d.id == Some("fn-overload-return:duplicate-fn")), "{:?}", resolution.errors);
 }
 
 /// [decl-id] [type-identity] A type's key is its declaration's alone: a

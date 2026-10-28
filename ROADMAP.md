@@ -1121,6 +1121,31 @@ repros are over the real std.
     `actor-route-stub:no-selector` and the next call `one()` also
     `effect-available:callee-no-handler`: one mistake, two diagnostics
     (`route_binds_any_and_needs_a_selector`).
+- **From the second wave (parser and salvo-core tests to ids)**:
+  - **Stale advice**: `interp-no-none:optional-value` and
+    `op-no-none:optional-operand` still end "or assert it with `!`", the
+    postfix assertion retired 2026-10-20 (repro: `fn f(s: Str?) -> Str => s
+    { return "${s}" }`);
+  - **wrong advice after a misplaced modifier**: `iterable platform fn f()
+    [] -> Int` and `threadsafe platform fn chars(s: Str) [] -> Str => s`
+    also report `platform-fn:missing-body`, telling the user to write
+    `platform fn …`, which they did; `deduce-syntax:bodiless-clause` says
+    "an `intrinsic fn` has no body" about a plain fn after a clause that did
+    not parse (`=> a canbe d {}`);
+  - **a missing diagnostic?** `handler Working() of Work` with no `Work`
+    declared reports nothing, in a file whose parse error elsewhere still
+    lets `fn-dot:unknown-fn` through (`check/syntax/expressions.sv#the_receiver_form_is_not_the_self_send`);
+  - **inconsistent**: a top-level `refn` reports `qual-refn-scope:top-level-refn`
+    only when its qualifier is unsigned, not for the effects, return-type or
+    missing-clause shapes;
+  - **parse-recovery cascades** (all annotated in `check/syntax/`): `g() is
+    "json" | "text"` with `g` undeclared reports `call-resolve:unknown-fn`
+    twice; `struct A.B.C` adds `name-dot:not-a-namespace`; `external`/`define`
+    declarations recover into checked declarations (`effect-handler-multi:missing-member`
+    ×3, `fn-must-return`); a terminal `if … ...` then `elif` gives three
+    errors; `"${size("a)} z"` gives three; `let a: [x.type] = p` outside a
+    comptime fn adds the unknown type and two mismatches; `is` alone in a
+    handler body is called a bare state field.
 
 ### 0al — Open defect: `let x: Long? = -1L` miscompiles on Rust (found 2026-10-28, B3.3c)
 

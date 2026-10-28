@@ -418,73 +418,38 @@ fn the_gate_reports_what_the_flow_pass_finds() {
         program.units().filter(|u| !u.file.is_std).map(|u| &u.file.module).collect();
     let (ir, build_errors) = salvo_core::ir::build_program(&program, &symbols, &resolution, &normal, Some(&wanted));
     assert!(build_errors.is_empty(), "IR build errors: {build_errors:?}");
-    let mut flow: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
+    // [diag-id] What the flow pass reports is one of its rules' diagnostics.
+    let flow_labels = ["flow-use-after-move", "fate-partial-move", "fate-poison", "fate-move-mode", "fate-derived-readonly", "proj-readonly"];
+    let mut flow: BTreeMap<usize, BTreeSet<(u32, &'static str, String)>> = BTreeMap::new();
     let mut total = 0;
     for module in &ir.modules {
         let file = user[module.file_name.as_str()];
         for decl in &module.decls {
             for d in salvo_core::ir::flow::check_one(decl) {
-                assert!(
-                    d.message.contains(&format!("`{}` cannot be used", d.local))
-                        || d.message.contains(&format!("moved out of `{}`", d.local))
-                        || d.readonly && d.message.contains(&format!("`{}`: it was bound from `", d.local)),
-                    "{}",
-                    d.message
-                );
-                // [fate-poison] The two-site messages: the root and its
+                assert!(flow_labels.contains(&salvo_syntax::messages::label_of(d.id)), "{}: {}", d.id, d.message);
+                // [fate-poison] The two-site diagnostics: the root and its
                 // event, or the binding that took ownership.
                 match &d.poison {
-                    Some(salvo_core::ir::flow::PoisonUse::Shared { root, event }) => {
-                        assert!(
-                            d.message.contains(&format!("it was bound from `{root}` and shares its fate, and `{root}` was {event} after the binding")),
-                            "{}",
-                            d.message
-                        );
-                        assert_eq!(d.id, "fate-poison:shared-root");
-                    }
-                    Some(salvo_core::ir::flow::PoisonUse::BoundAway { binding }) => {
-                        assert!(
-                            d.message.contains(&format!("`{binding}` was bound from it and later moves the value, so the binding took ownership")),
-                            "{}",
-                            d.message
-                        );
-                        assert_eq!(d.id, "fate-move-mode:bound-away");
-                    }
+                    Some(salvo_core::ir::flow::PoisonUse::Shared { .. }) => assert_eq!(d.id, "fate-poison:shared-root"),
+                    Some(salvo_core::ir::flow::PoisonUse::BoundAway { .. }) => assert_eq!(d.id, "fate-move-mode:bound-away"),
                     None => {}
                 }
-                flow.entry(file).or_default().insert(d.span.start);
+                // What the gate shows: the same diagnostic, naming the move.
+                let shown = d.render(&program.files[file].content);
+                assert_eq!(shown.id, d.id);
+                flow.entry(file).or_default().insert((d.span.start, d.id, shown.text));
                 total += 1;
             }
         }
     }
     assert_eq!(salvo_core::ir::flow::check(&ir).len(), total, "`check` is `check_one` over every decl");
 
-    // (b) The gate (`ir::analyze`) reports exactly those reads, naming the
-    // move.
-    let mut gate: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
+    // (b) The gate (`ir::analyze`) reports exactly those reads, with the
+    // flow pass's id and its rendering that names the move.
+    let mut gate: BTreeMap<usize, BTreeSet<(u32, &'static str, String)>> = BTreeMap::new();
     for d in salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &normal) {
         assert!(d.is_error(), "{}", d.message);
-        assert!(
-            d.message.contains("cannot be used here: it was consumed (moved) at line ")
-                || d.message.contains("cannot be used as a whole here: `")
-                    && d.message.contains("` was moved out of it at line ")
-                || d.message.contains("cannot be used here: `") && d.message.contains("` at line ")
-                || d.message.contains("cannot be assigned here: `") && d.message.contains("` at line ")
-                || d.message.contains("and shares its fate, and `") && d.message.contains(" at line ") && d.message.contains(" after the binding")
-                || d.message.contains("` was bound from it at line ") && d.message.contains("so the binding took ownership")
-                || d.message.contains("and shares its fate, so it can only be read"),
-            "the gate names the move: {}",
-            d.message
-        );
-        // [diag-id] The gate keeps the flow pass's id.
-        let flow_labels = ["flow-use-after-move", "fate-partial-move", "fate-poison", "fate-move-mode", "fate-derived-readonly", "proj-readonly"];
-        assert!(
-            d.id.and_then(|id| id.split_once(':')).is_some_and(|(label, _)| flow_labels.contains(&label)),
-            "{:?}: {}",
-            d.id,
-            d.message
-        );
-        gate.entry(d.file).or_default().insert(d.span.start);
+        gate.entry(d.file).or_default().insert((d.span.start, d.id.unwrap_or("?"), d.message));
     }
     assert_eq!(gate, flow, "`ir::analyze` reports what the flow pass finds");
     assert!(CASES.iter().all(|(name, _)| user.contains_key(format!("{name}.sv").as_str())));

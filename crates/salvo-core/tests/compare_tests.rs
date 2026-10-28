@@ -79,14 +79,16 @@ const AUTO_PRELUDE: &str = concat!(
     "    }\n    return h\n}\n",
 );
 
-fn errors(src: &str) -> Vec<String> {
+fn errors(src: &str) -> Vec<&'static str> {
     errors_in(&[("main.sv", src)])
 }
 
 /// The same over several user files, which is what the canonical rules need:
 /// "the type's own file" and "imported with the type" are both about *files*.
-fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
-    checked_in(files, |_, _, diagnostics| diagnostics.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect())
+///
+/// [diag-id] Each error by its id.
+fn errors_in(files: &[(&str, &str)]) -> Vec<&'static str> {
+    checked_in(files, |_, _, diagnostics| diagnostics.iter().filter(|d| d.is_error()).map(|d| d.id.unwrap_or("?")).collect())
 }
 
 /// The files with this file's preludes, expanded, resolved and checked: `f`
@@ -163,8 +165,7 @@ struct Counter : Step<self, Int> by auto canbe Mut {
     );
     // `auto` has no `advance`, and the clause's argument is not `self` either.
     assert!(
-        errs.iter()
-            .any(|e| e.contains("its argument is `self`") || e.contains("has no `comptime fn advance`")),
+        errs.contains(&"obligation-by:not-self") || errs.contains(&"obligation-by:module-lacks-member"),
         "expected the stamping to be refused, got: {errs:?}"
     );
 }
@@ -181,7 +182,7 @@ struct Point : Ordered<Int> by auto {
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("its argument is `self`")),
+        errs.contains(&"obligation-by:not-self"),
         "expected the `self` rule to be named, got: {errs:?}"
     );
 }
@@ -200,9 +201,7 @@ struct Sample : Hashed<self> by auto {
 "#,
     );
     assert!(
-        float_field
-            .iter()
-            .any(|e| e.contains("in `hash` from `auto` for `Sample.at: Double`") && e.contains("hash(Double)")),
+        float_field.contains(&"call-resolve:no-overload"),
         "expected the float field to be refused, got: {float_field:?}"
     );
 
@@ -214,9 +213,7 @@ struct Counter : Hashed<self> by auto canbe Mut {
 "#,
     );
     assert!(
-        mutable
-            .iter()
-            .any(|e| e.contains("`Counter` refused") && e.contains("`Mut`-capable struct")),
+        mutable.contains(&"comptime-refuse:refused"),
         "expected the mutable struct to be refused, got: {mutable:?}"
     );
 }
@@ -244,7 +241,7 @@ struct P : Tagged<self> by tag canbe Mut {
 "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("`P` refused: no tags for a mutable P")),
+        errs.contains(&"comptime-refuse:refused"),
         "expected the refusal with the name substituted: {errs:?}"
     );
 }
@@ -287,7 +284,7 @@ struct P : Tagged<self> by tag {
     ];
     let errs = errors_in(files);
     assert!(
-        errs.iter().any(|e| e.contains("is ambiguous") && e.contains("`by @tag`") && e.contains("`by tag@main`")),
+        errs.contains(&"obligation-by:ambiguous-by"),
         "expected the two spellings: {errs:?}"
     );
 
@@ -316,14 +313,17 @@ fn a_by_path_names_only_the_modules_its_file_can_see() {
     let imported = format!("import auto\n\n{point}\nfn main() [] {{\n    let x = helper()\n}}\n");
     let errs = errors_in(&[auto, ("main.sv", &imported)]);
     assert!(
-        errs.iter().any(|e| e.contains("`by auto` names 2 modules") && e.contains("`std.core.auto`") && e.contains("`auto`")),
+        errs.contains(&"obligation-by:several-modules"),
         "the file's own ambiguity: {errs:?}"
     );
     let settled = errors_in(&[auto, ("main.sv", &imported.replace("by auto", "by core.auto"))]);
     assert!(settled.is_empty(), "`by core.auto` settles it: {settled:?}");
     // A module the file does not see is named in the help, with the import.
     let derive = ("derive.sv", "export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {\n    return 0\n}\n");
-    let errs = errors_in(&[derive, ("main.sv", "struct P : Ordered<self> by derive {\n    x: Int\n}\n")]);
+    // Kept on the text: the point is the import the message suggests.
+    let errs: Vec<String> = checked_in(&[derive, ("main.sv", "struct P : Ordered<self> by derive {\n    x: Int\n}\n")], |_, _, diagnostics| {
+        diagnostics.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect()
+    });
     assert!(errs.iter().any(|e| e.contains("add `import derive`")), "{errs:?}");
 }
 
@@ -338,7 +338,7 @@ fn comptime_syntax_outside_a_comptime_fn_is_refused() {
     ] {
         let (_, diags) = salvo_syntax::parse_module(src);
         assert!(
-            diags.iter().any(|d| d.message.contains("belongs inside a `comptime fn`")),
+            diags.iter().any(|d| d.id == Some("comptime-inline:outside-compfn")),
             "expected the scope to be named for {src:?}: {diags:?}"
         );
     }
@@ -351,7 +351,7 @@ fn comptime_syntax_outside_a_comptime_fn_is_refused() {
 /// Like `errors_in`, but the test source is loaded as a **std** file, so it
 /// may write `intrinsic` — the context an obligation on `Int`/`Str`/etc.
 /// actually lives in (`lib/std/core/basic.sv`).
-fn errors_in_std_file(src: &str) -> Vec<String> {
+fn errors_in_std_file(src: &str) -> Vec<&'static str> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/compare.sv",
@@ -396,7 +396,7 @@ fn errors_in_std_file(src: &str) -> Vec<String> {
         .chain(resolution.errors.iter())
         .chain(checked.errors.iter())
         .filter(|d| d.is_error())
-        .map(|d| d.message.clone())
+        .map(|d| d.id.unwrap_or("?"))
         .collect()
 }
 
@@ -423,8 +423,7 @@ fn an_intrinsic_type_may_carry_a_bare_obligation() {
 fn by_auto_on_an_intrinsic_type_is_rejected() {
     let errs = errors_in_std_file("export intrinsic type Widget : Ordered<self> by auto\n");
     assert!(
-        errs.iter()
-            .any(|e| e.contains("no body to stamp on an `intrinsic type`")),
+        errs.contains(&"obligation-by:intrinsic-type"),
         "expected the by-auto rejection, got {errs:?}"
     );
 }
@@ -436,8 +435,7 @@ fn by_auto_on_an_intrinsic_type_is_rejected() {
 fn an_intrinsic_type_with_a_missing_member_still_errors() {
     let errs = errors_in_std_file("export intrinsic type Widget : Ordered<self>\n");
     assert!(
-        errs.iter()
-            .any(|e| e.contains("`Widget` declares `: Ordered`") && e.contains("fn cmp")),
+        errs.contains(&"group-obligation:no-member"),
         "expected the missing-member error, got {errs:?}"
     );
 }
@@ -526,6 +524,7 @@ fn a_stamped_error_names_the_stamped_fn() {
     let (out, file) = checked_main(main);
     let program = &out.program;
     let diagnostics: Vec<&salvo_core::FileDiagnostic> = out.parse.iter().chain(&out.checked.errors).collect();
+    // Kept on the text: the stamp's prefix is what this test renders.
     let d = diagnostics
         .iter()
         .find(|d| d.message.starts_with("in `hash` from `auto` for `Sample.at: Double`"))

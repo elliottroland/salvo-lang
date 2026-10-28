@@ -219,38 +219,11 @@ fn tuple_index_can_be_a_dot_call_receiver() {
     ));
 }
 
-/// [expr-tuple-index] Numeric suffixes are not tuple indices.
-#[test]
-fn tuple_index_rejects_numeric_suffixes() {
-    let (_, diagnostics) = salvo_syntax::parse_module("fn f() -> None {\n    let x = t.0L\n}\n");
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.message.contains("tuple index has no `L` suffix")),
-        "unexpected diagnostics: {diagnostics:?}"
-    );
-}
-
-// --- Error reporting ---
-
-#[test]
-fn reports_errors_with_spans() {
-    let source = "fn broken( {\n}";
-    let (_module, diagnostics) = salvo_syntax::parse_module(source);
-    assert!(
-        diagnostics.iter().any(|d| d.is_error()),
-        "expected a parse error"
-    );
-}
-
-#[test]
-fn unterminated_string_is_an_error() {
-    let source = "fn f() {\n    let s = \"oops\n}";
-    let (_module, diagnostics) = salvo_syntax::parse_module(source);
-    assert!(diagnostics
-        .iter()
-        .any(|d| d.is_error() && d.message.contains("unterminated string")));
-}
+// --- Parse errors ---
+//
+// [test-data] What the parser refuses is checker data, one program per
+// error: `salvo-core/tests/check/syntax/`. This file keeps the AST the
+// parser builds, and what can only be said of it in Rust.
 
 // --- `with`: implicits filled together [implicit-with] ---
 
@@ -291,20 +264,6 @@ fn with_entries_relate_implicit_parameters() {
     assert_eq!(
         chain.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(),
         vec!["b", "c"]
-    );
-}
-
-/// A group has no body and no parameters of its own, so its clause states only
-/// which members are filled together.
-#[test]
-fn a_fns_groups_clause_takes_only_with_entries() {
-    let source = "fns Hashed<T> => !hash {\n    fn hash(value: T) -> Long\n}\n";
-    let (_, diagnostics) = salvo_syntax::parse_module(source);
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.message.contains("states only which of its members are filled together")),
-        "{diagnostics:?}"
     );
 }
 
@@ -488,38 +447,6 @@ fn dot_name_struct_literal_is_not_a_field_read() {
     );
 }
 
-// [name-dot] Names cap at two segments.
-#[test]
-fn three_segment_dot_names_are_rejected() {
-    let errors = errors_of("struct A.B.C {\n    v: Str\n}\n");
-    assert!(
-        errors.iter().any(|m| m.contains("exactly two segments")),
-        "got {errors:?}"
-    );
-}
-
-// [name-casing] Types are uppercase, values are not.
-#[test]
-fn casing_rule_is_enforced_on_declarations() {
-    for (source, needle) in [
-        ("struct thing {\n    v: Str\n}\n", "struct names must start"),
-        ("qualifier tag of Str\n", "qualifier names must start"),
-        ("type alias = Str\n", "type names must start"),
-        ("effect logger {\n    fn log(m: Str) -> None\n}\n", "effect names must start"),
-        ("fn f(Bad: Str) -> None {\n}\n", "parameter names must not start"),
-        ("struct S {\n    Value: Str\n}\n", "field names must not start"),
-        ("fn f() -> None {\n    let Bad = 1\n}\n", "binding names must not start"),
-        ("fn f() -> None {\n    for Item in xs {\n    }\n}\n", "binding names must not start"),
-        ("fn f() -> None {\n    let g = X -> 1\n}\n", "must not start"),
-    ] {
-        let errors = errors_of(source);
-        assert!(
-            errors.iter().any(|m| m.contains(needle)),
-            "expected {needle:?} for {source:?}, got {errors:?}"
-        );
-    }
-}
-
 // [fn-type-named] A capitalized `fn` name is a type: the fn is named after
 // the type it constructs. The canonical key joins qualifiers and base with
 // `_`; the type's generics become the fn's.
@@ -558,18 +485,6 @@ fn type_named_fn_parses() {
     assert_eq!(f3.generic_canbe.len(), 1, "the `<T canbe linear>` opt-in is recorded");
 }
 
-// [name-casing] Generic parameters are type names.
-#[test]
-fn generic_parameters_must_be_uppercase() {
-    let errors = errors_of("fn f<t>(v: t) -> t {\n    return v\n}\n");
-    assert!(
-        errors
-            .iter()
-            .any(|m| m.contains("generic parameter names must start")),
-        "got {errors:?}"
-    );
-}
-
 // [qual-subject] `provenance qualifier Q of T` parses with the provenance
 // subject; a plain declaration defaults to state.
 #[test]
@@ -596,18 +511,6 @@ fn provenance_qualifiers_parse() {
             salvo_syntax::ast::QualSubject::State,
             salvo_syntax::ast::QualSubject::Provenance
         ]
-    );
-}
-
-// [qual-subject] `provenance` only modifies a qualifier declaration.
-#[test]
-fn provenance_must_precede_a_qualifier() {
-    let errors = errors_of("provenance struct Thing {\n    v: Str\n}\n");
-    assert!(
-        errors
-            .iter()
-            .any(|m| m.contains("expected `qualifier` after `provenance`")),
-        "got {errors:?}"
     );
 }
 
@@ -974,20 +877,6 @@ fn try_parses_as_a_block_expression() {
     assert_eq!(inner.stmts.len(), 1);
 }
 
-// [throw-try] A bodyless `try` is a parse error naming the form.
-#[test]
-fn try_without_a_block_is_an_error() {
-    let source = "fn f() {\n    let outcome = try parse(line)\n}\n";
-    let (_module, diagnostics) = salvo_syntax::parse_module(source);
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.is_error() && d.message.contains("`try` takes a block")),
-        "expected a block-required error, got {:?}",
-        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
-    );
-}
-
 // ===== The subject-less `when` [when-condition] =====
 
 // [when-condition] `when {` is the subject-less form — a subject is always
@@ -1021,76 +910,6 @@ fn a_when_with_a_subject_is_still_the_arm_form() {
         matches!(expr, salvo_syntax::ast::Expr::When { .. }),
         "expected the subject form, got {expr:?}"
     );
-}
-
-// [when-condition] `when` is always exhaustive: with no subject there are
-// no arms to be exhaustive over, so the `else` is required.
-#[test]
-fn subjectless_when_without_an_else_is_an_error() {
-    let errors = errors_of("fn f() -> Str {\n    return when {\n        n < 0 { \"neg\" }\n    }\n}\n");
-    assert!(
-        errors.iter().any(|m| m.contains("must end with an `else`")),
-        "got {errors:?}"
-    );
-}
-
-// [when-condition] An `else` with nothing above it decides nothing.
-#[test]
-fn when_with_only_an_else_is_an_error() {
-    let errors = errors_of("fn f() -> Str {\n    return when {\n        else { \"x\" }\n    }\n}\n");
-    assert!(
-        errors.iter().any(|m| m.contains("nothing to decide")),
-        "got {errors:?}"
-    );
-}
-
-// [when-condition] The `else` is the fall-back, so nothing follows it.
-#[test]
-fn a_branch_after_the_else_is_an_error() {
-    let errors = errors_of(
-        "fn f() -> Str {\n    return when {\n        n < 0 { \"neg\" }\n        \
-         else { \"other\" }\n        n > 0 { \"pos\" }\n    }\n}\n",
-    );
-    assert!(
-        errors.iter().any(|m| m.contains("last branch")),
-        "got {errors:?}"
-    );
-}
-
-// [when-union-subject] The subject form takes no `else` — it is exhaustive
-// over the union's arms. The diagnostic names the subject-less form instead
-// of reporting a missing `is`, which is what the reader actually needs.
-#[test]
-fn an_else_in_the_subject_form_names_the_other_form() {
-    let errors = errors_of(
-        "fn f() -> Str {\n    return when result {\n        is Ok { \"ok\" }\n        \
-         else { \"err\" }\n    }\n}\n",
-    );
-    assert!(
-        errors.iter().any(|m| m.contains("it takes no `else`")),
-        "got {errors:?}"
-    );
-}
-
-/// [platform-handler] [platform-fn] [platform-type] `platform` takes
-/// `handler`, `fn` or `type`, and nothing else — a `platform effect`
-/// included, since platform effects were removed (2026-10-01). The
-/// diagnostic names the forms rather than reporting a bare "expected item".
-#[test]
-fn platform_on_a_non_handler_is_an_error_naming_the_form() {
-    for source in [
-        "platform effect Telemetry {\n    fn emit(s: Str) [] -> None => s\n}\n",
-    ] {
-        let (_module, diagnostics) = salvo_syntax::parse_module(source);
-        assert!(
-            diagnostics.iter().any(|d| d.is_error()
-                && d.message
-                    .contains("expected `handler`, `fn` or `type` after `platform`")
-                && d.message.contains("`platform handler`")),
-            "expected a platform-form error for {source:?}, got {:?}",
-            diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
-        );
-    }
 }
 
 // --- platform handlers [platform-handler] ---
@@ -1162,34 +981,12 @@ fn threadsafe_platform_handler_parses_with_the_flag() {
     assert_eq!(flags, vec![(true, true, false), (true, true, true), (true, false, false)]);
 }
 
-/// [platform-threadsafe] The contract is a claim about a host *class*, so it
-/// belongs on a `platform handler` only: before anything else it is an
-/// error naming the reason.
-#[test]
-fn threadsafe_on_a_non_handler_is_an_error_naming_the_form() {
-    let source = "threadsafe platform effect Telemetry {\n    fn emit(s: Str) -> None\n}\n";
-    let (_, diagnostics) = salvo_syntax::parse_module(source);
-    assert!(
-        diagnostics.iter().any(|d| d.is_error()
-            && d.message.contains("expected `handler` or `type` after `threadsafe platform`")
-            && d.id == Some("platform-threadsafe:not-before-handler-or-type")),
-        "expected the misplaced-`threadsafe` error, got: {:?}",
-        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
-    );
-}
-
 /// [platform-iterable] `iterable` is a claim about a host type, so only
-/// `platform type` may follow `iterable platform`; on one it sets the flag,
-/// and elsewhere `iterable` is an ordinary name.
+/// `platform type` may follow `iterable platform` (the refusal is checker
+/// data, `salvo-core/tests/check/syntax/`); on one it sets the flag, and
+/// elsewhere `iterable` is an ordinary name.
 #[test]
 fn iterable_belongs_on_a_platform_type() {
-    let (_, diagnostics) = salvo_syntax::parse_module("iterable platform fn f() [] -> Int\n");
-    assert!(
-        diagnostics.iter().any(|d| d.is_error()
-            && d.message.contains("expected `type` after `iterable platform`")),
-        "{:?}",
-        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
-    );
     let (module, diagnostics) =
         salvo_syntax::parse_module("export iterable platform type Bag canbe Mut : Iter<self, Int>\nfn iterable() -> Int {\n    return 1\n}\n");
     assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
@@ -1229,51 +1026,15 @@ fn a_plain_handler_is_not_a_platform_handler() {
 // --- Bodiless declarations are gone [decl-body] ---
 
 /// [platform-fn] [decl-body] A bodiless top-level fn is a `platform fn`: the
-/// modifier parses and sets the flag; without it the missing body is an
-/// error naming the modifier; with it, a body is an error (user decision
-/// 2026-10-01, ABI D1).
+/// modifier parses and sets the flag. Without it the missing body is an
+/// error naming the modifier, and with it a body is an error (user decision
+/// 2026-10-01, ABI D1): checker data, `salvo-core/tests/check/syntax/`.
 #[test]
-fn platform_fn_parses_and_a_bare_bodiless_fn_is_refused() {
+fn platform_fn_parses_with_the_flag() {
     let (module, diagnostics) = salvo_syntax::parse_module("export platform fn chars(s: Str) [] -> Char[] => s\n");
     assert!(!diagnostics.iter().any(|d| d.is_error()), "{diagnostics:?}");
     let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else { panic!("expected a fn") };
     assert!(f.platform && f.exported && f.body.is_none(), "{f:?}");
-    let errors = errors_of("fn chars(s: Str) [] -> Char[] => s\n");
-    assert!(
-        errors.iter().any(|m| m.contains("`fn chars` has no body") && m.contains("platform fn chars")),
-        "{errors:?}"
-    );
-    let errors = errors_of("platform fn chars(s: Str) [] -> Str => s {\n    return s\n}\n");
-    assert!(errors.iter().any(|m| m.contains("`platform fn chars` has a body")), "{errors:?}");
-    let ids = ids_of("threadsafe platform fn chars(s: Str) [] -> Str => s\n");
-    assert!(ids.contains(&"platform-threadsafe:not-before-handler-or-type"), "{ids:?}");
-}
-
-/// [decl-body] A `type` with no `= ...` alias (and not `intrinsic`) was only
-/// ever meaningful as `external type`; with `external` gone it declares
-/// nothing, so it is a parse error.
-#[test]
-fn a_bodiless_non_alias_type_is_an_error() {
-    let errors = errors_of("type LinkedList<T>\n");
-    assert!(
-        errors
-            .iter()
-            .any(|m| m.contains("`type LinkedList` declares nothing")),
-        "expected a decl-body error for a bodiless type, got {errors:?}"
-    );
-}
-
-/// [decl-body] A `canbe` clause is not a definition: a `type` opting into an
-/// auto-qualifier with no alias still declares nothing.
-#[test]
-fn a_canbe_type_without_an_alias_is_an_error() {
-    let errors = errors_of("type List<T> canbe Mut\n");
-    assert!(
-        errors
-            .iter()
-            .any(|m| m.contains("declares nothing")),
-        "expected a decl-body error, got {errors:?}"
-    );
 }
 
 /// [decl-body] An alias `type` and an `intrinsic type` are the two forms
@@ -1283,42 +1044,6 @@ fn alias_and_intrinsic_types_are_not_bodiless_errors() {
     for source in ["type Name = Str\n", "intrinsic type Int\n"] {
         let errors = errors_of(source);
         assert!(errors.is_empty(), "unexpected errors for {source:?}: {errors:?}");
-    }
-}
-
-// --- `external`/`define` are no longer keywords ---
-
-/// `external` is gone (user decision 2026-09-05): it is an ordinary
-/// identifier now, so an `external fn`/`external type` declaration no longer
-/// parses — the leading identifier is not a valid item.
-#[test]
-fn external_is_no_longer_a_keyword() {
-    for source in [
-        "external fn chars(str: Str) [] -> Char[] => str\n",
-        "external type LinkedList<T>\n",
-        "external handler StdConsole of Console\n",
-    ] {
-        let errors = errors_of(source);
-        assert!(
-            errors.iter().any(|m| m.contains("expected item")),
-            "expected `external` to fail to parse for {source:?}, got {errors:?}"
-        );
-    }
-}
-
-/// `define` is gone too: the same identifier-at-item-position parse error.
-#[test]
-fn define_is_no_longer_a_keyword() {
-    for source in [
-        "define fn List<T>(...elems: T[]) -> List<T> {\n}\n",
-        "define type LinkedList<T> {\n}\n",
-        "define handler StdConsole of Console {\n}\n",
-    ] {
-        let errors = errors_of(source);
-        assert!(
-            errors.iter().any(|m| m.contains("expected item")),
-            "expected `define` to fail to parse for {source:?}, got {errors:?}"
-        );
     }
 }
 
@@ -1500,50 +1225,6 @@ fn refn_at_wildcard_and_response_parse() {
     assert!(resp[0].negated && resp[0].subject.name == "l" && resp[0].qual.name.name == "Q");
 }
 
-/// [col-pairs] Pairs are all-or-nothing: a positional argument cannot be
-/// mixed with `k: v` pairs in one call.
-#[test]
-fn mixing_a_pair_and_a_positional_argument_is_rejected() {
-    let source = "fn f() {\n    let m = Mut Map(\"a\": 1, 99)\n}\n";
-    let (_, diagnostics) = salvo_syntax::parse_module(source);
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.is_error() && d.message.contains("pair")),
-        "expected the no-mixing error, got {:?}",
-        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
-    );
-}
-
-/// Implicit parameters trail the ordinary ones: a caller could not pass a
-/// positional parameter written after one.
-#[test]
-fn an_ordinary_parameter_after_an_implicit_is_rejected() {
-    let source = "fn f(?cmp: (Int, Int) -> Int, n: Int) -> Int {\n    return n\n}\n";
-    let (_, diagnostics) = salvo_syntax::parse_module(source);
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.is_error() && d.message.contains("implicit parameters must come last")),
-        "expected the ordering error, got {:?}",
-        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
-    );
-}
-
-/// A positional argument after a named one has no meaning.
-#[test]
-fn a_positional_argument_after_a_named_one_is_rejected() {
-    let source = "fn f() {\n    let x = total(add = times, xs)\n}\n";
-    let (_, diagnostics) = salvo_syntax::parse_module(source);
-    assert!(
-        diagnostics.iter().any(|d| {
-            d.is_error() && d.message.contains("cannot follow a named one")
-        }),
-        "expected the ordering error, got {:?}",
-        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
-    );
-}
-
 // --- Qualifier refinements [qual-refn] ---
 
 /// [qual-refn] A refinement in a qualifier body parses into the qualifier's
@@ -1599,57 +1280,12 @@ fn a_refinement_parses_in_a_qualifier_body() {
 #[test]
 fn a_top_level_refinement_is_refused() {
     let source = "refn add<T>(list: Mut List<T>, elem: T) => list: +NonEmpty\n";
-    let (module, diagnostics) = salvo_syntax::parse_module(source);
-    let msgs: Vec<String> = diagnostics
-        .iter()
-        .filter(|d| d.is_error())
-        .map(|d| d.message.clone())
-        .collect();
-    assert_eq!(msgs.len(), 1, "one misplaced refinement, one error: {msgs:?}");
-    assert!(
-        msgs[0].contains("belongs to the qualifier") && msgs[0].contains("refn add"),
-        "{}",
-        msgs[0]
-    );
+    let (module, _) = salvo_syntax::parse_module(source);
+    assert_eq!(ids_of(source), ["qual-refn-scope:top-level-refn"], "one misplaced refinement, one error");
     let salvo_syntax::ast::Item::Refn(r) = &module.items[0] else {
         panic!("expected a refn item");
     };
     assert_eq!(r.name.name, "add");
-}
-
-/// [qual-refn] The three things a refinement may not say are diagnostics
-/// naming the reason, not bare parse errors: it changes what is *known*
-/// after a call, never what the call does.
-#[test]
-fn a_refinement_may_not_declare_effects_a_return_type_or_an_unsigned_qualifier() {
-    let cases = [
-        (
-            "refn add<T>(list: Mut List<T>) [Console] => list: +NonEmpty\n",
-            "cannot declare effects",
-        ),
-        (
-            "refn add<T>(list: Mut List<T>) -> Int => list: +NonEmpty\n",
-            "cannot declare a return type",
-        ),
-        (
-            "refn add<T>(list: Mut List<T>) => list: NonEmpty\n",
-            "need a sign",
-        ),
-        (
-            "refn add<T>(list: Mut List<T>)\n",
-            "expected a deduction clause",
-        ),
-    ];
-    for (source, expected) in cases {
-        let (_module, diagnostics) = salvo_syntax::parse_module(source);
-        assert!(
-            diagnostics
-                .iter()
-                .any(|d| d.is_error() && d.message.contains(expected)),
-            "expected {expected:?} for {source:?}, got {:?}",
-            diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
-        );
-    }
 }
 
 // ===== [fn-overload-at] the scope selector, [fn-rename] the rename =====
@@ -1667,19 +1303,6 @@ fn a_scope_selector_parses_on_names_and_dot_calls() {
         let errors = errors_of(source);
         assert!(errors.is_empty(), "unexpected errors for {source:?}: {errors:?}");
     }
-}
-
-/// The selector belongs to a *name*, so writing it after anything else is a
-/// parse error naming both places it may go.
-#[test]
-fn a_scope_selector_needs_a_name() {
-    let errors = errors_of("fn probe() -> None {\n    let n = (1 + 2)@core.list\n}\n");
-    assert!(
-        errors
-            .iter()
-            .any(|m| m.contains("`@` selects which module's overload")),
-        "expected the `@` placement error, got {errors:?}"
-    );
 }
 
 /// [effect-at] A *capitalized* name after `@` is an effect selector:
@@ -1707,18 +1330,6 @@ fn an_effect_selector_parses_on_names_and_dot_calls() {
     );
 }
 
-/// [effect-at] The effect selector follows a name too.
-#[test]
-fn an_effect_selector_needs_a_name() {
-    let errors = errors_of("fn probe() -> None {\n    let n = (1 + 2)@Fs\n}\n");
-    assert!(
-        errors
-            .iter()
-            .any(|m| m.contains("`@` selects which effect's member")),
-        "expected the `@` placement error, got {errors:?}"
-    );
-}
-
 /// [fn-rename] `rename fn add2 = add(a: Int, b: Int)`, at module level and as
 /// a statement, with type parameters where the overload has them.
 #[test]
@@ -1731,35 +1342,6 @@ fn a_rename_parses_at_module_and_statement_level() {
     ] {
         let errors = errors_of(source);
         assert!(errors.is_empty(), "unexpected errors for {source:?}: {errors:?}");
-    }
-}
-
-/// A rename names an overload by its parameters, so anything that takes no
-/// part in *choosing* one is refused by name: an effect list, a deduction
-/// list, a return type, and an implicit-group spread.
-#[test]
-fn a_rename_takes_no_effects_deductions_or_return_type() {
-    for (source, needle) in [
-        (
-            "rename fn add2 = add(a: Int) [Console]\n",
-            "takes no effect or deduction clause",
-        ),
-        (
-            // The `=>` is reported: a deduction clause is not part of a rename.
-            "rename fn add2 = add(a: Int) => a\n",
-            "takes no effect or deduction",
-        ),
-        ("rename fn add2 = add(a: Int) -> Int\n", "takes no return type"),
-        (
-            "rename fn total2 = total(xs: List<Int>, ?Field<Int>)\n",
-            "implicit parameters take no part",
-        ),
-    ] {
-        let errors = errors_of(source);
-        assert!(
-            errors.iter().any(|m| m.contains(needle)),
-            "expected {needle:?} for {source:?}, got {errors:?}"
-        );
     }
 }
 
@@ -1884,25 +1466,6 @@ fn the_deduction_clause_parses_every_entry_form() {
     }
 }
 
-/// [deduce-syntax] The old bracket list is refused with a pointer to `=>`;
-/// a fn type may not carry an inline list; a group must name a fn-typed
-/// parameter; a result path can only project.
-#[test]
-fn the_deduction_clause_rejects_the_old_and_ill_formed_shapes() {
-    let errs = errors_of("fn f(a: Int) -> [a] Int {\n}\n");
-    assert!(errs.iter().any(|e| e.contains("behind `=>`")), "{errs:?}");
-    let errs = errors_of("fn f(g: (v: Int) -> [v] Int) -> Int {\n}\n");
-    assert!(errs.iter().any(|e| e.contains("`=>[name] …`")), "{errs:?}");
-    let errs = errors_of("fn f(a: Int) -> Int =>[b] !a {\n}\n");
-    assert!(errs.iter().any(|e| e.contains("names no parameter")), "{errs:?}");
-    let errs = errors_of("fn f(a: Int) -> Int =>[a] !a {\n}\n");
-    assert!(errs.iter().any(|e| e.contains("is not one")), "{errs:?}");
-    let errs = errors_of("fn f(a: Int) -> Int => .x: Mut {\n}\n");
-    assert!(errs.iter().any(|e| e.contains("can only state a projection")), "{errs:?}");
-    let errs = errors_of("fn f(a: Int) -> Int => a: {\n}\n");
-    assert!(errs.iter().any(|e| e.contains("`None` to strip every")), "{errs:?}");
-}
-
 // [obligation-spelling] The obligation keywords parse in qualifier
 // position, carry their lowercase spelling as the qualifier name, and
 // `proj` still takes its `[from: …]` bracket.
@@ -1927,19 +1490,6 @@ fn obligation_keywords_parse_in_type_positions() {
     };
     assert_eq!(qualifiers[0].name.name, "proj");
     assert_eq!(qualifiers[0].from[0].name, "step");
-}
-
-// [obligation-spelling] `is once …` narrows through the keyword like any
-// qualifier, and the keywords stay usable nowhere else: a value named
-// `proj` is a parse error, which is what "reserved" means.
-#[test]
-fn obligation_keywords_are_reserved() {
-    let source = "fn f() {\n    let proj = 1\n}\n";
-    let (_module, diagnostics) = salvo_syntax::parse_module(source);
-    assert!(
-        diagnostics.iter().any(|d| d.is_error()),
-        "expected `let proj` to be a parse error"
-    );
 }
 
 /// [actor-send-fn] [actor-spawn-effect] The asynchronous surface's
@@ -2577,10 +2127,10 @@ fn use_them() -> Int {
 /// [actor-self-send] `k@self(args)` — the self-send, parsed as one more
 /// member of the selector family (`k@E`, `k@module`) rather than as a
 /// receiver. `self` is contextual: only special immediately after `@`, so it
-/// remains an ordinary name — and the *old* `self.k(…)` spelling is a plain
-/// parse error naming the new one.
+/// remains an ordinary name. The *old* `self.k(…)` spelling is a parse error
+/// naming the new one: checker data, `salvo-core/tests/check/syntax/`.
 #[test]
-fn the_self_selector_parses_and_the_receiver_form_does_not() {
+fn the_self_selector_parses() {
     use salvo_syntax::ast::{Expr, Item, Stmt};
 
     let source = "\
@@ -2620,23 +2170,6 @@ handler Working() of Work {
         }
     }
     assert_eq!(selectors, vec!["step"], "the self-selector call is lost");
-
-    let old_form = "\
-handler Working() of Work {
-    mailbox { capacity: 1 }
-
-    send fn start(n: Int) {
-        self.step(n)
-    }
-}
-";
-    let (_m, diagnostics) = salvo_syntax::parse_module(old_form);
-    assert!(
-        diagnostics.iter().any(|d| d.is_error()
-            && d.message.contains("is not the self-send form")
-            && d.message.contains("`k@self(…)`")),
-        "expected the retired spelling to be a parse error: {diagnostics:?}"
-    );
 }
 
 /// [linear-defer] `=> !d, defer out` — the deferral entry (SH-10, user
@@ -2732,25 +2265,6 @@ fn not_is_parses_as_a_negated_check() {
     }
 }
 
-/// [assert-op] The postfix `!` assertion is gone (2026-10-20): `first(xs)!`
-/// is a parse error that names the replacements, and `s !is Str` stays the
-/// negated test it reads as.
-#[test]
-fn a_postfix_bang_is_refused_beside_not_is() {
-    let source = "fn f() -> None {\n    let x = first(xs)! + 1\n}\n";
-    let (_, diagnostics) = salvo_syntax::parse_module(source);
-    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).map(|d| (d.message.clone(), d.id)).collect();
-    assert!(
-        errors.iter().any(|(m, id)| m.contains("a postfix `!` asserts nothing") && *id == Some("assert-op:postfix-bang")),
-        "expected the postfix-`!` refusal, got {errors:?}"
-    );
-    let expr = parse_expr_stmt("s !is Str");
-    assert!(
-        matches!(&expr, salvo_syntax::ast::Expr::Unary { operand, .. } if matches!(**operand, salvo_syntax::ast::Expr::Is { .. })),
-        "expected a negated `is`, got {expr:?}"
-    );
-}
-
 /// [assert-fn] `todo!()` / `todo!("why")` parse to `Expr::Todo`, the sibling
 /// of `unreachable!()`, with an optional message.
 #[test]
@@ -2765,27 +2279,6 @@ fn todo_parses_to_its_own_node() {
     }
     // `todo` without the `!(` is still an ordinary identifier.
     assert!(matches!(parse_expr_stmt("todo"), salvo_syntax::ast::Expr::Ident(_)));
-}
-
-/// A negated test narrows nothing on the branch it guards, so there is no
-/// value for a binding to name.
-#[test]
-fn not_is_refuses_a_binding() {
-    let errors = errors_of("fn f(s: Str?) -> Str {\n    if s !is Str text {\n        return \"no\"\n    }\n    return \"yes\"\n}\n");
-    assert!(
-        errors.iter().any(|m| m.contains("`!is` binds nothing")),
-        "got {errors:?}"
-    );
-}
-
-/// …and `^` has nothing to widen either [qual-lift].
-#[test]
-fn not_is_refuses_a_widening() {
-    let errors = errors_of("fn f(o: Ok Int | Err Str) -> Int {\n    if o !is ^Ok {\n        return 0\n    }\n    return 1\n}\n");
-    assert!(
-        errors.iter().any(|m| m.contains("`!is ^Q` is not a check")),
-        "got {errors:?}"
-    );
 }
 
 // ===== [op-compound] `x += e` =====
@@ -2834,17 +2327,6 @@ fn the_step_operators_are_untouched() {
     );
 }
 
-/// A compound assignment is a **statement**, so the operator does not chain and
-/// does not cross a line break.
-#[test]
-fn compound_assignment_does_not_cross_a_line() {
-    let errors = errors_of("fn f() -> None {\n    let n = 1\n    n\n    += 2\n}\n");
-    assert!(
-        errors.iter().any(|m| m.contains("expected expression, found `+=`")),
-        "got {errors:?}"
-    );
-}
-
 // ===== [test-decl] tests =====
 
 /// [test-decl] A test is a declaration with a **string-literal** name and a
@@ -2889,37 +2371,6 @@ fn an_actor_test_carries_its_kind_and_seed() {
     );
 }
 
-/// [test-actor] An actor test takes `seed`, and nothing else.
-#[test]
-fn an_actor_test_refuses_an_unknown_argument() {
-    let errors = errors_of("test actor(speed: 2) \"x\" {\n}\n");
-    assert!(
-        errors.iter().any(|m| m.contains("takes `seed`, not `speed`")),
-        "got {errors:?}"
-    );
-}
-
-/// [test-decl] The name must be knowable without running anything — `--list`
-/// and the filter depend on it — so interpolation is refused.
-#[test]
-fn a_test_name_may_not_interpolate() {
-    let errors = errors_of("test \"case ${n}\" {\n    expect(true, \"x\")\n}\n");
-    assert!(
-        errors.iter().any(|m| m.contains("plain string literal")),
-        "got {errors:?}"
-    );
-}
-
-/// [test-decl] A test is run, never referenced, so there is nothing to export.
-#[test]
-fn a_test_cannot_be_exported() {
-    let errors = errors_of("export test \"nope\" {\n    expect(true, \"x\")\n}\n");
-    assert!(
-        errors.iter().any(|m| m.contains("`export` cannot precede a `test`")),
-        "got {errors:?}"
-    );
-}
-
 /// [test-decl] `test` is contextual: a variable, a parameter and a module may
 /// still be called `test`.
 #[test]
@@ -2936,8 +2387,8 @@ fn test_stays_an_ordinary_name() {
 /// the day before, which read as though the result *were* the projection):
 /// parses on fn declarations and on fn types, synthesizing the
 /// `DeductionTarget::Opaque` entry, reads the type first, needs no
-/// parentheses of its own (`proj(…)` carries them), and both older
-/// spellings are plain parse errors.
+/// parentheses of its own (`proj(…)` carries them). Both older spellings are
+/// plain parse errors: checker data, `salvo-core/tests/check/syntax/`.
 #[test]
 fn the_opaque_projection_is_a_return_annotation() {
     use salvo_syntax::ast::{DeductionKind, DeductionTarget, Item, Type};
@@ -2976,46 +2427,12 @@ fn the_opaque_projection_is_a_return_annotation() {
     };
     assert!(group.iter().any(|d| matches!(d.target, DeductionTarget::Opaque)));
     assert!(matches!(**ret, Type::Named { .. }), "inner type is the ret: {ret:?}");
-
-    // `holds` needs its sources, and they live inside `proj(…)`.
-    let src = "fn view(a: List<Int>) -> Mut View holds proj() => a {\n}\n";
-    let (_, diags) = salvo_syntax::parse_module(src);
-    assert!(
-        diags
-            .iter()
-            .any(|d| d.is_error() && d.message.contains("holds` needs the sources")),
-        "{diags:?}"
-    );
-
-    // Both older spellings stopped parsing (plain errors, no shim): the
-    // prefix annotation of 2026-09-24 and the clause entry before it.
-    for src in [
-        "fn view(a: List<Int>) -> proj(a) in (Mut View) => a {\n}\n",
-        "fn view(a: List<Int>) -> Mut View => a, proj(a) {\n}\n",
-    ] {
-        let (_, diags) = salvo_syntax::parse_module(src);
-        assert!(diags.iter().any(|d| d.is_error()), "{src}: {diags:?}");
-    }
-
-    // `holds` is reserved, which is what keeps a type's qualifier chain from
-    // eating it — so it is not an identifier any more.
-    let src = "fn holds(a: Int) -> Int => a {\n    return a\n}\n";
-    let (_, diags) = salvo_syntax::parse_module(src);
-    assert!(diags.iter().any(|d| d.is_error()), "{diags:?}");
-}
-
-/// [ref-anchor] The `canbe` aliasing clause is gone from the language
-/// (replaced by `ref(c)` parameters): `=> a canbe d` is a plain parse error.
-#[test]
-fn a_canbe_clause_is_a_parse_error() {
-    let src = "fn f(a: Mut Int, d: Mut Int) -> None => a canbe d {}\n";
-    let (_, diagnostics) = salvo_syntax::parse_module(src);
-    assert!(diagnostics.iter().any(|d| d.is_error()), "{diagnostics:?}");
 }
 
 /// [deduce-field] The field-granular entries parse: a field-level `Mut`
 /// (the call mutates only there) and a field-level `!` (the field is
-/// replaced). A field path stating anything else is refused.
+/// replaced). A field path stating anything else is refused (checker data,
+/// `salvo-core/tests/check/syntax/`).
 #[test]
 fn field_granular_mutation_entries_parse() {
     let src = "\
@@ -3026,12 +2443,6 @@ fn field_granular_mutation_entries_parse() {
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "{errors:?}");
     assert_eq!(module.items.len(), 3);
-
-    let (_, bad) = salvo_syntax::parse_module("fn d(h: Mut Int) -> None => h.tags: preserve Idx {}\n");
-    assert!(
-        bad.iter().any(|d| d.is_error() && d.message.contains("field path can state")),
-        "{bad:?}"
-    );
 }
 
 /// [interp-nested-str] A string literal inside `${...}` is part of the
@@ -3066,17 +2477,6 @@ fn a_nested_string_honours_escapes() {
     assert!(errors.is_empty(), "got {errors:?}");
 }
 
-/// [interp-nested-str] Unterminated is still unterminated: the fragment's
-/// literal has to close, and the diagnostic is the interpolation's.
-#[test]
-fn an_unterminated_nested_string_is_reported() {
-    let errors = errors_of("fn f() -> Str {\n    return \"q ${size(\"a)} z\"\n}\n");
-    assert!(
-        errors.iter().any(|m| m.contains("unterminated")),
-        "got {errors:?}"
-    );
-}
-
 // --- the wire opt-out [net-noremote] ---
 
 /// [net-noremote] `noremote` before a `struct` or a `type` sets the flag, with
@@ -3103,19 +2503,6 @@ fn noremote_parses_on_structs_and_types() {
         })
         .collect();
     assert_eq!(flags, vec![(true, false), (true, true), (true, true), (false, false)]);
-}
-
-/// [net-noremote] Before anything but a type declaration it is an error naming
-/// what the word is for.
-#[test]
-fn noremote_on_a_fn_is_an_error() {
-    let source = "noremote fn go() -> None {\n}\n";
-    let (_, diagnostics) = salvo_syntax::parse_module(source);
-    assert!(
-        diagnostics.iter().any(|d| d.is_error() && d.id == Some("net-noremote:not-before-type")),
-        "expected the misplaced-`noremote` error, got: {:?}",
-        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
-    );
 }
 
 /// [effect-any] `any` is contextual, in two places: an effect-list entry
@@ -3174,8 +2561,9 @@ fn main() [spawn] {
 }
 
 /// [handler-init] `init { … }` in a handler body is a parameterless send member
-/// held apart from `fns`; a second one is a parse error; `self@Face` parses
-/// with a generic face. A state field named `init` is still a field.
+/// held apart from `fns`; `self@Face` parses with a generic face. A state
+/// field named `init` is still a field. (A second `init` is a parse error:
+/// checker data, `salvo-core/tests/check/syntax/`.)
 #[test]
 fn init_block_and_self_addr_parse() {
     use salvo_syntax::ast::{Expr, Item, Stmt};
@@ -3202,12 +2590,11 @@ handler H() of Reg<E> {
     };
     assert_eq!(face.name.name, "Reg");
     assert_eq!(face.args.len(), 1);
-    let (_, diagnostics) = salvo_syntax::parse_module("handler H() of R {\n    init {}\n    init {}\n}\n");
-    assert!(diagnostics.iter().any(|d| d.message.contains("one `init` block")), "{diagnostics:?}");
 }
 
 // [type-literal] A literal is a type: strings, integers (negative too), `L`
-// longs and booleans, in a union or alone, and after `is`. A float is refused.
+// longs and booleans, in a union or alone, and after `is`. (A float is
+// refused: checker data, `salvo-core/tests/check/syntax/`.)
 #[test]
 fn literal_types_parse() {
     use salvo_syntax::ast::{Item, Type, TypeLit};
@@ -3235,8 +2622,6 @@ fn literal_types_parse() {
     );
     assert_eq!(arms.len(), 6);
     assert!(errors_of("fn f(c: Str) [] -> Bool => c { return c is \"A\" }\n").is_empty());
-    let errs = errors_of("type F = 1.5 | 2\n");
-    assert!(errs.iter().any(|e| e.contains("a float cannot be a literal type")), "{errs:?}");
 }
 
 // [type-union-spread] A `...T` union arm parses to `Type::Spread` wrapping its
@@ -3260,8 +2645,8 @@ fn union_arm_spread_parses() {
 }
 
 /// [platform-type] The three kinds parse into one declaration with flags: a
-/// plain, a `threadsafe` and a `linear` platform type, each `noremote`, and
-/// an alias is refused.
+/// plain, a `threadsafe` and a `linear` platform type, each `noremote`. (An
+/// alias is refused: checker data, `salvo-core/tests/check/syntax/`.)
 #[test]
 fn platform_types_parse_in_three_kinds() {
     let source = "export platform type Client\nthreadsafe platform type Parker\n\
@@ -3280,8 +2665,6 @@ fn platform_types_parse_in_three_kinds() {
         flags,
         vec![(true, false, false, true, true), (true, true, false, true, false), (true, false, true, true, true)]
     );
-    let (_, diagnostics) = salvo_syntax::parse_module("platform type Client = Int\n");
-    assert!(diagnostics.iter().any(|d| d.is_error() && d.message.contains("cannot be an alias")), "{diagnostics:?}");
 }
 
 /// [struct-lit-condition] A struct literal inside a call's parentheses in a
@@ -3294,7 +2677,8 @@ fn a_struct_literal_parses_inside_parentheses_in_a_condition() {
 }
 
 /// [struct-lit-shorthand] `P { x, y: e }`: a bare field name after a type
-/// name is `x: x`; a bare `{ x }` is an error [col-no-literal].
+/// name is `x: x`; a bare `{ x }` is an error [col-no-literal] (checker data,
+/// `salvo-core/tests/check/syntax/`).
 #[test]
 fn a_struct_literal_field_may_be_written_by_its_name_alone() {
     use salvo_syntax::ast::{Expr, Item, Stmt, StructLitFieldKind};
@@ -3304,16 +2688,6 @@ fn a_struct_literal_field_may_be_written_by_its_name_alone() {
     let stmts = &f.body.as_ref().unwrap().stmts;
     let Stmt::Let { value: Expr::StructLit { fields, .. }, .. } = &stmts[0] else { panic!("{:?}", stmts[0]) };
     assert!(matches!(&fields[0].kind, StructLitFieldKind::Named { name, value: Expr::Ident(v) } if name.name == "x" && v.name == "x"));
-    // [col-no-literal] Without a type name, a bare `{ x }` is neither a struct
-    // literal nor a lambda: it was a set literal, and collection literals are
-    // retired.
-    let (_, diagnostics) = salvo_syntax::parse_module("fn f() {\n    let s = { x }\n}\n");
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.is_error() && d.message.contains("Collection literals are retired") && d.id == Some("col-no-literal:brace-literal")),
-        "{diagnostics:?}"
-    );
 }
 
 /// [comptime-fields] `type` is a reserved keyword, but a struct may declare
@@ -3369,49 +2743,15 @@ fn whl(i: Int) {\n\
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
 }
 
-/// [expr-terminal-scope] It is statement-only: a `...` in a value position (a `let`
-/// value, a call argument, an operand) is a parse error naming the braced form.
-#[test]
-fn a_terminal_scope_in_value_position_is_an_error() {
-    for src in [
-        "fn f(x: Str?) {\n    let v = if x is Str ...\n}\n",
-        "fn f(x: Str?) {\n    g(if x is Str ...)\n}\n",
-        "fn f(x: Str?) {\n    let v = 1 + if x is Str ...\n}\n",
-    ] {
-        let errors = errors_of(src);
-        assert!(
-            errors.iter().any(|e| e.contains("terminal scope")),
-            "expected the terminal-scope refusal for `{src}`, got: {errors:?}"
-        );
-    }
-}
-
-/// [expr-terminal-scope] A terminal `if` takes only an optional braced `else` — no
-/// `elif`, no `else ...`.
-#[test]
-fn a_terminal_if_refuses_elif_and_else_dots() {
-    let elif = errors_of("fn f(x: Str?) {\n    if x is Str ...\n    elif false {\n    }\n}\n");
-    assert!(
-        elif.iter().any(|e| e.contains("cannot have `elif`")),
-        "expected the elif refusal, got: {elif:?}"
-    );
-    let else_dots = errors_of("fn f(x: Str?) {\n    if x is Str ... else ...\n}\n");
-    assert!(
-        else_dots.iter().any(|e| e.contains("`else ...` is not allowed")),
-        "expected the else-dots refusal, got: {else_dots:?}"
-    );
-}
-
 /// [expr-terminal-scope] [comptime-inline] A comptime `[for …]` or `[if …]` takes a
-/// terminal `...` body; the `[if]` an inline braced `else`, never `else ...`.
+/// terminal `...` body; the `[if]` an inline braced `else`, never `else ...`
+/// (checker data, `salvo-core/tests/check/syntax/`).
 #[test]
 fn comptime_for_and_if_take_terminal_scopes() {
     let ok = errors_of(
         "struct P { a: Int }\n\ncomptime fn f(p: P) [] -> Int => p {\n    [for f in P.fields] {\n        [if f.name is \"a\"] ... else {\n            return 1\n        }\n        g()\n    }\n    [for f in P.fields] ...\n    g()\n}\n",
     );
     assert!(ok.is_empty(), "unexpected errors: {ok:?}");
-    let else_dots = errors_of("struct P { a: Int }\n\ncomptime fn f(p: P) [] -> Int => p {\n    [if P.kind is Struct] ... else ...\n    return 0\n}\n");
-    assert!(else_dots.iter().any(|e| e.contains("`else ...` is not allowed on a terminal `[if …]`")), "{else_dots:?}");
 }
 
 // --- [expr-infix] Unified infix precedence, associativity, and cross-line ---
@@ -3554,22 +2894,6 @@ fn is_not_is_sugar_for_not_is() {
     };
     assert_eq!(*op, UnaryOp::Not);
     assert!(matches!(**operand, Expr::Is { .. }));
-}
-
-/// A same-line comparison chain still parses; a newline before a comparison
-/// ends the statement (comparison is NOT a cross-line operator). Here the
-/// continuation line `> 3` would be a fresh statement, so the `let` value is
-/// just `a` and the `> 3` line is a parse error — confirming comparison does
-/// not wrap.
-#[test]
-fn comparison_does_not_wrap_across_lines() {
-    // `a` on its own line, then `> 3`: the second line cannot start a
-    // statement with `>`, so this is a parse error — comparison is same-line.
-    let errors = errors_of("fn f(a: Int) {\n    let x = a\n    > 3\n}\n");
-    assert!(
-        !errors.is_empty(),
-        "a newline-leading `>` must not continue the expression"
-    );
 }
 
 /// The forward elvis wraps across lines, bracketing left: `a ?: b\n ?: c` is
@@ -3826,16 +3150,6 @@ fn flattened_replyto_keeps_the_gate() {
     assert!(*gated, "replyto! is gated");
 }
 
-/// A trailing `replyto` after a non-call is an error (no argument slot).
-#[test]
-fn flattened_replyto_after_a_non_call_is_an_error() {
-    let errors = errors_of("fn f() {\n    let x = y replyto k()\n}\n");
-    assert!(
-        errors.iter().any(|e| e.contains("must follow a call")),
-        "expected the non-call refusal, got: {errors:?}"
-    );
-}
-
 // --- [handler-state-infer] Handler state blocks and inferred field types ---
 
 /// A handler's state goes in a `state { … }` block; a field may infer its type
@@ -3861,24 +3175,6 @@ handler H() of E {
     assert_eq!(h.state.len(), 2);
     assert!(h.state[0].ty.is_none(), "`seen` has an inferred type");
     assert!(h.state[1].ty.is_some(), "`sum` has a written type");
-}
-
-/// A bare field in the handler body (not in a `state { }` block) is an error
-/// naming the block.
-#[test]
-fn a_bare_handler_field_is_refused() {
-    let source = "\
-effect E { fn get() -> Int }
-handler H() of E {
-    sum: Int = 0
-    fn get() -> Int { return sum }
-}
-";
-    let errors = errors_of(source);
-    assert!(
-        errors.iter().any(|e| e.contains("state { … }` block")),
-        "expected the state-block refusal, got: {errors:?}"
-    );
 }
 
 /// `iter fn` state accepts both the written and the inferred form (the
@@ -3924,33 +3220,10 @@ fn a_qualified_type_fn_call_takes_any_type_argument() {
     }
 }
 
-/// [when-exhaustive] A comptime `[when]` with a subject takes no `else`, as an
-/// ordinary `when` with one does not (user decision 2026-10-20): the arms are
-/// the cases, and the error names what covers the rest.
-#[test]
-fn a_subject_comptime_when_takes_no_else() {
-    for (when, remedy) in [
-        ("[when f.kind] { is Struct {} else {} }", "`is Opaque` covers"),
-        ("[when f.name] { is \"a\" {} else {} }", "name the rest in an arm"),
-        ("[when f.type] { is Int {} else {} }", "`is * { … }`"),
-    ] {
-        let src = format!(
-            "struct P {{ a: Int }}\n\ncomptime fn f(p: P) [] -> Int => p {{\n    [for f in P.fields] {{\n        {when}\n    }}\n    return 0\n}}\n"
-        );
-        let (_, diagnostics) = salvo_syntax::parse_module(&src);
-        let errors: Vec<String> = diagnostics.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect();
-        assert!(
-            errors.len() == 1
-                && errors[0].contains("a `[when]` with a subject takes no `else`")
-                && errors[0].contains(remedy),
-            "`{when}`: {errors:?}"
-        );
-    }
-}
-
 /// [struct-field-canbe-mut] A field's `canbe Mut` is written after its type, before a
-/// default (user decision 2026-10-20); the old prefix spelling `name: canbe Mut
-/// T` is a plain parse error, and only `Mut` may follow `canbe`.
+/// default (user decision 2026-10-20). The old prefix spelling `name: canbe
+/// Mut T` is a plain parse error, and only `Mut` may follow `canbe`: checker
+/// data, `salvo-core/tests/check/syntax/`.
 #[test]
 fn a_field_canbe_mut_follows_the_type() {
     let src = "struct S canbe Mut {\n    a: List<Int> canbe Mut,\n    b: Map<Str, Int> canbe Mut = Map<Str, Int>()\n    c: Int\n}\n";
@@ -3961,13 +3234,6 @@ fn a_field_canbe_mut_follows_the_type() {
     let flags: Vec<(&str, bool, bool)> =
         s.fields.iter().map(|f| (f.name.name.as_str(), f.canbe_mut, f.default.is_some())).collect();
     assert_eq!(flags, [("a", true, false), ("b", true, true), ("c", false, false)]);
-
-    for (field, want) in [("a: canbe Mut List<Int>", "expected"), ("a: List<Int> canbe Ord", "only `Mut` may follow `canbe`")] {
-        let src = format!("struct S canbe Mut {{\n    {field}\n}}\n");
-        let (_, diagnostics) = salvo_syntax::parse_module(&src);
-        let errors: Vec<String> = diagnostics.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect();
-        assert!(errors.iter().any(|e| e.contains(want)), "`{field}`: {errors:?}");
-    }
 }
 
 /// [type-literal-qualified] Qualifiers may stand before a literal type
@@ -4028,50 +3294,15 @@ fn a_binder_type_is_spliced_in_brackets() {
     assert_eq!(base.name.name, "field.type");
 }
 
-/// [comptime-inline] The bare projection in a type position is not the
-/// language (no compatibility form, AGENTS.md): a parse error naming the
-/// bracketed spelling, in a `let` and inside a generic call's `<…>` (where a
-/// speculative parse rolls back). A splice outside a comptime fn names the
-/// scope.
-#[test]
-fn a_bare_binder_type_names_the_bracketed_form() {
-    for src in [
-        "comptime fn f<T is Struct>(v: T) [] -> Int => v {\n    [for field in T.fields] {\n        let a: field.type = v.[field]\n    }\n    return 0\n}\n",
-        "comptime fn f<T is Struct>(v: T) [] -> Int => v {\n    [for field in T.fields] {\n        take<field.type>(v.[field])\n    }\n    return 0\n}\n",
-    ] {
-        let (_, diags) = salvo_syntax::parse_module(src);
-        assert!(
-            diags.iter().any(|d| d.message.contains("write `[field.type]`, not `field.type`")),
-            "expected the bracketed form to be named for {src:?}: {diags:?}"
-        );
-    }
-    let (_, diags) = salvo_syntax::parse_module("fn f(p: Int) -> Int => p {\n    let a: [x.type] = p\n    return a\n}\n");
-    assert!(diags.iter().any(|d| d.message.contains("belongs inside a `comptime fn`")), "{diags:?}");
-}
-
-/// [effect-handler] A handler body whose line starts with a token that is
-/// neither a member nor a field (`is`) is one error, not an endless loop:
-/// field recovery stops at a line start, so the body loop made no progress
-/// and pushed a diagnostic per turn until memory ran out (found 2026-10-20
-/// compiling a stale scratch project; the parse never returned).
-#[test]
-fn a_stray_keyword_in_a_handler_body_does_not_hang() {
-    let (_, diagnostics) = salvo_syntax::parse_module("handler H() of C {\n    is\n}\n");
-    let errors = diagnostics.iter().filter(|d| d.is_error()).count();
-    assert!((1..=3).contains(&errors), "{diagnostics:?}");
-}
-
 /// [comptime-default] [comptime-docs] `field.default`, `field.docs` and
-/// `T.docs` are tested only for being there: `is None` / `!is None`; any
-/// other type after one is an error naming the two forms.
+/// `T.docs` are tested only for being there: `is None` / `!is None` (any
+/// other type after one is an error naming the two forms: checker data,
+/// `salvo-core/tests/check/syntax/`).
 #[test]
 fn a_default_test_compares_with_none_only() {
     let ok = "comptime fn f<T is Struct>(v: T) [] -> Int => v {\n    [for field in T.fields] {\n        [if field.default is None] { }\n        [if field.default !is None] { }\n        [if field.docs is None] { }\n    }\n    [if T.docs !is None] { }\n    return 0\n}\n";
     let (_, diags) = salvo_syntax::parse_module(ok);
     assert!(diags.iter().all(|d| !d.is_error()), "{diags:?}");
-    let bad = "comptime fn f<T is Struct>(v: T) [] -> Int => v {\n    [for field in T.fields] {\n        [if field.default is Int] { }\n    }\n    return 0\n}\n";
-    let (_, diags) = salvo_syntax::parse_module(bad);
-    assert!(diags.iter().any(|d| d.message.contains("`field.default is None`")), "{diags:?}");
 }
 
 /// [comptime-qualifier] `comptime qualifier Short(c: Char) of Field`, and the
@@ -4100,8 +3331,6 @@ fn comptime_qualifiers_parse_where_they_are_written() {
     assert!(s.fields[1].annotations.is_empty());
     let Item::Struct(r) = &module.items[2] else { panic!() };
     assert_eq!(r.annotations[0].name.name, "Named");
-    let (_, diagnostics) = salvo_syntax::parse_module("Named(\"x\")\nfn f() {}\n");
-    assert!(diagnostics.iter().any(|d| d.message.contains("only a `struct` may follow it")), "{diagnostics:?}");
 }
 
 /// [comptime-arm] `[arm.type](value)` is a call whose callee is the splice,
@@ -4120,8 +3349,9 @@ fn a_spliced_arm_type_is_a_constructor_call() {
 }
 
 /// [is-union] `s is "json" | "text"` is the disjunction of the tests over the
-/// same place (`!is` negates the whole); a binding, or a subject that is not
-/// a place, is refused, since the subject is read once per test.
+/// same place (`!is` negates the whole). A binding, or a subject that is not
+/// a place, is refused, since the subject is read once per test: checker
+/// data, `salvo-core/tests/check/syntax/`.
 #[test]
 fn a_union_is_is_a_disjunction_of_tests() {
     use salvo_syntax::ast::{BinaryOp, Expr, Item, Stmt, UnaryOp};
@@ -4133,11 +3363,4 @@ fn a_union_is_is_a_disjunction_of_tests() {
     assert!(matches!(&**lhs, Expr::Is { .. }) && matches!(&**rhs, Expr::Is { .. }));
     let Stmt::Let { value: Expr::Unary { op: UnaryOp::Not, operand, .. }, .. } = &stmts[1] else { panic!("{:?}", stmts[1]) };
     assert!(matches!(&**operand, Expr::Binary { op: BinaryOp::Or, .. }));
-    for (src, want) in [
-        ("fn f(x: Int | Str | Bool) {\n    let a = x is Int | Str v\n}\n", "binds nothing"),
-        ("fn f() {\n    let a = g() is \"json\" | \"text\"\n}\n", "bind the value first"),
-    ] {
-        let (_, diagnostics) = salvo_syntax::parse_module(src);
-        assert!(diagnostics.iter().any(|d| d.message.contains(want)), "{src}: {diagnostics:?}");
-    }
 }

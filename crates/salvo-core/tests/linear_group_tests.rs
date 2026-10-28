@@ -24,7 +24,9 @@ const STD_PRELUDE: &str = concat!(
 /// `intrinsic` is std-only [platform-intrinsic-std-only], so an opaque linear type can
 /// only be declared this way — and the real std has no linear intrinsic type
 /// without its discharger, which is why this test keeps a std of its own.
-fn errors_with_std_module(token_src: &str, main_src: &str) -> Vec<String> {
+///
+/// [diag-id] Each error by its id, and each IR analysis diagnostic's.
+fn errors_with_std_module(token_src: &str, main_src: &str) -> Vec<&'static str> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -65,19 +67,19 @@ fn errors_with_std_module(token_src: &str, main_src: &str) -> Vec<String> {
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    let mut msgs: Vec<String> = resolution
+    let mut ids: Vec<&'static str> = resolution
         .errors
         .iter()
         .chain(checked.errors.iter())
         .filter(|d| d.is_error())
-        .map(|d| d.message.clone())
+        .map(|d| d.id.unwrap_or("?"))
         .collect();
-    msgs.extend(
+    ids.extend(
         salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
             .into_iter()
-            .map(|d| d.message),
+            .map(|d| d.id.unwrap_or("?")),
     );
-    msgs
+    ids
 }
 
 /// [linear-group] `linear intrinsic type` carries the obligation on a type
@@ -93,8 +95,7 @@ fn a_linear_intrinsic_type_needs_a_discharger_in_its_own_file() {
         "fn probe() -> Int {\n    return 1\n}\n",
     );
     assert!(
-        errs.iter().any(|m| m.contains("linear intrinsic type `Token`")
-            && m.contains("no discharger")),
+        errs.contains(&"linear-opaque:no-discharger"),
         "expected the legal-death error at the declaration, got {errs:?}"
     );
 }
@@ -110,7 +111,7 @@ fn an_alias_cannot_be_declared_linear() {
     assert!(
         diagnostics
             .iter()
-            .any(|d| d.is_error() && d.message.contains("alias cannot be linear")),
+            .any(|d| d.is_error() && d.id == Some("type-alias:linear-alias")),
         "expected the alias refusal: {diagnostics:?}"
     );
 }

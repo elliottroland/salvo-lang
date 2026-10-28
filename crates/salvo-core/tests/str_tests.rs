@@ -185,12 +185,9 @@ fn a_plain_str_records_nothing() {
 // `strings/strings.sv`'s `opts_into_mut`.
 #[test]
 fn str_opts_into_mut() {
-    assert!(prelude_messages(&body("    let b: Mut Str = mut_str()")).is_empty());
-    let msgs = prelude_messages(&body("    let n: Mut Int = 1"));
-    assert!(
-        msgs.iter().any(|m| m.contains("`Mut` does not apply to `Int`")),
-        "{msgs:?}"
-    );
+    assert!(prelude_errors(&body("    let b: Mut Str = mut_str()")).is_empty());
+    let ids = prelude_errors(&body("    let n: Mut Int = 1"));
+    assert!(ids.contains(&"struct-mut:not-canbe-mut"), "{ids:?}");
 }
 
 // ===== the old prelude, for `str_opts_into_mut` =====
@@ -251,7 +248,8 @@ fn prelude_checked(src: &str) -> (Program, salvo_core::Checked) {
     (program, out)
 }
 
-/// The errors of `src` over the old prelude, for the one test kept on it.
-fn prelude_messages(src: &str) -> Vec<String> {
-    prelude_checked(src).1.errors.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect()
+/// [diag-id] The ids of the errors of `src` over the old prelude, for the
+/// one test kept on it.
+fn prelude_errors(src: &str) -> Vec<&'static str> {
+    prelude_checked(src).1.errors.iter().filter(|d| d.is_error()).map(|d| d.id.unwrap_or("?")).collect()
 }

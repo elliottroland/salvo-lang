@@ -205,7 +205,7 @@ fn broken() -> Int {\n    return nope\n}\n";
             .unwrap()
     };
     let broken = checked.decls.item(file, item("broken")).unwrap();
-    assert!(rows.parts[&broken].errors.iter().any(|d| d.message.contains("nope")), "the error is `broken`'s");
+    assert!(rows.parts[&broken].errors.iter().any(|d| d.id == Some("name-ident-resolve:unknown")), "the error is `broken`'s");
     let twice = checked.decls.item(file, item("twice")).unwrap();
     assert!(rows.parts[&twice].fn_effects.contains_key(&twice));
     let handler = program.modules[file].items.iter().position(|i| matches!(i, salvo_syntax::ast::Item::Handler(_))).unwrap();

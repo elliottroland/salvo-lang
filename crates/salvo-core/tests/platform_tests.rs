@@ -79,17 +79,17 @@ fn check_files(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
 /// reports `obligation-by:not-self` suggesting `: Iter<self> by auto`.
 #[test]
 fn platform_types_are_opaque_handles_in_three_kinds() {
-    let errors = |src: &str| -> Vec<String> {
-        check_errors(src).iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect()
+    let errors = |src: &str| -> Vec<&'static str> {
+        check_errors(src).iter().filter(|d| d.is_error()).map(|d| d.id.unwrap_or("?")).collect()
     };
     let refused = [
-        ("platform type Client : Hashed<self> by auto\n", "cannot take this obligation clause"),
+        ("platform type Client : Hashed<self> by auto\n", "platform-type:obligation"),
         // [platform-iterable] `Iter` is the one clause it may take, and not
         // stamped.
-        ("platform type Client : Iter<self, ClientIter, Int> by auto\n", "cannot take this obligation clause"),
+        ("platform type Client : Iter<self, ClientIter, Int> by auto\n", "platform-type:obligation"),
     ];
     for (src, want) in refused {
         let errs = errors(src);
-        assert!(errs.iter().any(|m| m.contains(want)), "{src}: wanted `{want}` in {errs:?}");
+        assert!(errs.contains(&want), "{src}: wanted `{want}` in {errs:?}");
     }
 }

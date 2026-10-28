@@ -42,14 +42,12 @@ fn check_errors(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
     check_program(&program, &resolution, &symbols).errors
 }
 
-/// The checker's error messages for a single-file program. The std prelude
-/// loaded by [check_errors] supplies the base types, so a source under test
-/// names `Int`/`Str`/`Bool` without declaring them [name-resolve].
-fn messages(src: &str) -> Vec<String> {
-    check_errors(&[("main.sv", src)])
-        .iter()
-        .map(|d| d.message.clone())
-        .collect()
+/// [diag-id] The id of every checker diagnostic for a single-file program.
+/// The std prelude loaded by [check_errors] supplies the base types, so a
+/// source under test names `Int`/`Str`/`Bool` without declaring them
+/// [name-resolve].
+fn ids(src: &str) -> Vec<&'static str> {
+    check_errors(&[("main.sv", src)]).iter().map(|d| d.id.unwrap_or("?")).collect()
 }
 
 /// [platform-intrinsic-std-only] The base-type declarations the checker needs.
@@ -89,32 +87,29 @@ fn uppercase_module_path_is_an_error() {
 #[test]
 fn unknown_names_are_reported_at_declaration_sites() {
     let cases = [
-        ("fn f(x: Nope) -> Int {\n    return 1\n}\n", "unknown type `Nope`"),
-        ("fn f() -> Nope {\n    return 1\n}\n", "unknown type `Nope`"),
-        ("fn f(x: Bogus Int) -> Int {\n    return 1\n}\n", "unknown qualifier `Bogus`"),
-        ("struct S {\n    field: Nope\n}\n", "unknown type `Nope`"),
-        ("struct S {\n    field: Bogus Int\n}\n", "unknown qualifier `Bogus`"),
+        ("fn f(x: Nope) -> Int {\n    return 1\n}\n", "name-resolve:unknown-type"),
+        ("fn f() -> Nope {\n    return 1\n}\n", "name-resolve:unknown-type"),
+        ("fn f(x: Bogus Int) -> Int {\n    return 1\n}\n", "name-resolve:unknown-type"),
+        ("struct S {\n    field: Nope\n}\n", "name-resolve:unknown-type"),
+        ("struct S {\n    field: Bogus Int\n}\n", "name-resolve:unknown-type"),
         (
             "fn f() -> Int {\n    let x: Nope = 1\n    return 1\n}\n",
-            "unknown type `Nope`",
+            "name-resolve:unknown-type",
         ),
-        ("type Alias = Nope | Int\n", "unknown type `Nope`"),
+        ("type Alias = Nope | Int\n", "name-resolve:unknown-type"),
         (
             "effect E {\n    fn member(x: Nope) -> Int\n}\n",
-            "unknown type `Nope`",
+            "name-resolve:unknown-type",
         ),
         (
             "qualifier Q of Nope\n",
-            "unknown type `Nope`",
+            "name-resolve:unknown-type",
         ),
     ];
     for (body, want) in cases {
         let src = format!("{body}");
-        let messages = messages(&src);
-        assert!(
-            messages.iter().any(|m| m == want),
-            "`{body}` should report `{want}`, got {messages:?}"
-        );
+        let ids = ids(&src);
+        assert!(ids.contains(&want), "`{body}` should report `{want}`, got {ids:?}");
     }
 }
 
@@ -129,7 +124,7 @@ fn unknown_type_names_suggest_imports() {
     let out = salvo_testkit::front::check(&[("lib.sv", lib), ("main.sv", main)]);
     let diag = out
         .diagnostics()
-        .find(|d| d.message == "unknown type `Widget`")
+        .find(|d| d.id == Some("name-resolve:unknown-type"))
         .unwrap_or_else(|| panic!("got {:?}", out.errors()));
     assert_eq!(diag.suggested_imports, vec!["lib.Widget".to_string()]);
 }
@@ -147,9 +142,6 @@ fn leading_dot_shorthand_reports_an_unresolvable_sibling() {
                    struct Int {}\n    \
                    type Type = .Int | .Missing\n\
                }\n";
-    let msgs = messages(src);
-    assert!(
-        msgs.iter().any(|m| m.contains("`.Missing` names no member of `Arg`")),
-        "{msgs:?}"
-    );
+    let ids = ids(src);
+    assert!(ids.contains(&"mod-namespace:no-alias-member"), "{ids:?}");
 }

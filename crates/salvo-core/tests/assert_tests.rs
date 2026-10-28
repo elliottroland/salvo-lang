@@ -38,7 +38,8 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b\n",
 );
 
-fn errors(src: &str) -> Vec<String> {
+/// [diag-id] The id of every error the program reports.
+fn errors(src: &str) -> Vec<&'static str> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -78,7 +79,7 @@ fn errors(src: &str) -> Vec<String> {
         .iter()
         .chain(checked.errors.iter())
         .filter(|d| d.is_error())
-        .map(|d| d.message.clone())
+        .map(|d| d.id.unwrap_or("?"))
         .collect()
 }
 
@@ -89,22 +90,14 @@ fn errors(src: &str) -> Vec<String> {
 fn a_postfix_bang_is_a_parse_error_naming_the_alternatives() {
     let src = "fn f(v: Int?) -> Int => v {\n    return v!\n}\n";
     let (_, diagnostics) = salvo_syntax::parse_module(src);
-    let shown: Vec<String> = diagnostics.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect();
-    assert!(
-        shown.iter().any(|m| m.contains("postfix `!`") && m.contains("unreachable!") && m.contains("assert!(x !is None)")),
-        "{shown:?}"
-    );
+    let shown: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).map(|d| d.id).collect();
+    assert!(shown.contains(&Some("assert-op:postfix-bang")), "{shown:?}");
 }
 
 /// [expr-cond-bool] No truthiness: the condition is a `Bool`.
 #[test]
 fn a_non_bool_condition_is_refused() {
     let src = "fn f(n: Int) -> None => n {\n    assert!(n)\n}\n";
-    assert!(
-        errors(src)
-            .iter()
-            .any(|e| e.contains("must be a `Bool`")),
-        "{:?}",
-        errors(src)
-    );
+    let errs = errors(src);
+    assert!(errs.contains(&"expr-cond-bool:assert-condition"), "{errs:?}");
 }

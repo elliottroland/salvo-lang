@@ -52,17 +52,13 @@ fn a_fn_typed_local_outranks_a_same_named_effect_member() {
 // `col-key-eligible:key`: one mistake, several diagnostics.
 #[test]
 fn a_linear_element_is_refused_by_the_instantiation_ban() {
-    let msgs = messages(
+    let ids = error_ids(
         "linear struct Handle {\n    id: Int\n}\n\n\
          fn close(h: Handle) -> None => !h {\n    discard(h)\n}\n\n\
          fn probe() -> Int {\n    let h = Handle { id: 1 }\n    let s = Set(h)\n    \
          return size(s)\n}\n",
     );
-    assert!(
-        msgs.iter()
-            .any(|m| m.contains("cannot instantiate generic parameter `T` of `Set`")),
-        "expected the linear instantiation ban, got: {msgs:?}"
-    );
+    assert!(ids.contains(&"linear-generics:not-opted"), "expected the linear instantiation ban, got: {ids:?}");
 }
 
 // ===== the old prelude, for `a_linear_element_is_refused_by_the_instantiation_ban` =====
@@ -184,6 +180,7 @@ fn checked(src: &str) -> salvo_core::Checked {
     checked
 }
 
-fn messages(src: &str) -> Vec<String> {
-    checked(src).errors.into_iter().filter(|d| d.is_error()).map(|d| d.message).collect()
+/// [diag-id] The id of every error `src` reports.
+fn error_ids(src: &str) -> Vec<&'static str> {
+    checked(src).errors.into_iter().filter(|d| d.is_error()).map(|d| d.id.unwrap_or("?")).collect()
 }

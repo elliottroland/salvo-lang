@@ -791,3 +791,10 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   duplicates found to trim. The remaining binary-keyed cost is the `salvo
   test` and `platform generate` tests: keying them on content would need
   `compile` to emit annexes and host files. Next: the second wave.
+- **Second wave (2026-10-28).** parser_tests' parse errors → `check/syntax/`
+  (98 programs); salvo-core's remaining message assertions → ids. The
+  sequence of §4 is done. Left, recorded rather than scheduled: grouping
+  the LSP feature tests per nextest process (~20s summed, ~2s wall), and
+  content keys for `salvo test` / `platform generate` CLI tests (needs
+  `compile` to emit annexes and host files). Next: the defects of ROADMAP
+  §0ar, then PIPELINE.md Part II.

@@ -65,9 +65,9 @@ export fn drops_it() -> Int { return attempt() ?: return 0 }\n";
     salvo_core::ir::obligations::annotate(&mut ir, &symbols);
     let diags = salvo_core::ir::check::check(&ir);
     assert!(
-        diags.iter().any(|d| d.message.contains("still owns a linear value") && d.id.starts_with("ir-linear-check:")),
+        diags.iter().any(|d| d.id == "ir-linear-check:leak-at-exit"),
         "IR check did not catch the dropped linear arm; got: {:?}",
-        diags.iter().map(|d| &d.message).collect::<Vec<_>>()
+        diags.iter().map(|d| (d.id, &d.message)).collect::<Vec<_>>()
     );
 }
 
@@ -89,7 +89,7 @@ export fn probe(flag: Bool) [Throw<Str>] -> None {\n\
 }\n";
     let diags = leaks_of(src);
     assert!(
-        diags.iter().any(|m| m.contains("still owns a linear value") && m.contains("throw")),
+        diags.contains(&"ir-linear-check:leak-across-throw"),
         "IR check did not catch the throw-path leak; got: {diags:?}"
     );
 }
@@ -190,15 +190,15 @@ export fn narrowed_in_an_arm(t: Tok | Str) -> None => !t {\n\
     assert!(leaks.is_empty(), "the IR reported a leak: {leaks:?}");
 }
 
-/// Build the IR of `src` (with std) and return the IR check's leak messages,
-/// regardless of whether the AST checker also flags them.
-fn leaks_of(src: &str) -> Vec<String> {
+/// Build the IR of `src` (with std) and return the ids of the IR check's
+/// leaks, regardless of whether the AST checker also flags them.
+fn leaks_of(src: &str) -> Vec<&'static str> {
     errors_and_leaks_of(src).1
 }
 
-/// The checker's error messages on `src` (with std), and the IR check's leak
-/// messages.
-fn errors_and_leaks_of(src: &str) -> (Vec<String>, Vec<String>) {
+/// The checker's error messages on `src` (with std), and the ids of the IR
+/// check's leaks.
+fn errors_and_leaks_of(src: &str) -> (Vec<String>, Vec<&'static str>) {
     let program = salvo_testkit::front::clean_program("kt", &[("main.sv", src)]);
     let symbols = salvo_core::Symbols::collect(&program);
     let resolution = salvo_core::resolve(&program);
@@ -206,5 +206,5 @@ fn errors_and_leaks_of(src: &str) -> (Vec<String>, Vec<String>) {
     let errors = checked.errors.iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect();
     let (mut ir, _errs) = salvo_core::ir::build_program(&program, &symbols, &resolution, &checked, None);
     salvo_core::ir::obligations::annotate(&mut ir, &symbols);
-    (errors, salvo_core::ir::check::check(&ir).into_iter().map(|d| d.message).collect())
+    (errors, salvo_core::ir::check::check(&ir).into_iter().map(|d| d.id).collect())
 }

@@ -16,7 +16,7 @@ fn checker_errors_carry_file_and_span() {
     let diag = diags[0];
     assert_eq!(diag.file, main);
     assert!(diag.is_error());
-    assert!(diag.message.contains("expected `Int`, found `Str`"));
+    assert_eq!(diag.id, Some("var-let-infer:annotation-mismatch"));
     // The span points at the string literal on line 2.
     assert_eq!(&src[diag.span.start as usize..diag.span.end as usize], "\"hello\"");
     let rendered = diag.render(&out.program.files);

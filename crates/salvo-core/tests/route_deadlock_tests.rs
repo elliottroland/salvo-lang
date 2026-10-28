@@ -46,9 +46,30 @@ handler Ponging() [any Ping] of Pong {{
     )
 }
 
-/// Checks `src` with std loaded, returning the rendered diagnostics (errors
-/// and warnings) and the deadlock graph's edges.
-fn check(src: &str) -> (Vec<String>, Vec<String>) {
+/// A diagnostic as these tests read it: [diag-id] its id, its severity, the
+/// line and column it starts at in `main.sv` with that line's text, and its
+/// message, whose argument is the cycle — the graph's node names, which an
+/// annotation cannot say.
+#[derive(Debug)]
+struct Diag {
+    id: &'static str,
+    error: bool,
+    line: u32,
+    col: u32,
+    source_line: String,
+    message: String,
+}
+
+impl Diag {
+    /// Whether the message names this cycle: its path and its handlers.
+    fn names(&self, cycle: &str) -> bool {
+        self.message.contains(cycle)
+    }
+}
+
+/// Checks `src` with std loaded, returning the diagnostics (errors and
+/// warnings) and the deadlock graph's edges.
+fn check(src: &str) -> (Vec<Diag>, Vec<String>) {
     // [std-cache] Over the process's std front (TESTS.md T3).
     let program = salvo_testkit::front::program("kt", &[("main.sv", src)]).program;
     let symbols = Symbols::collect(&program);
@@ -58,7 +79,18 @@ fn check(src: &str) -> (Vec<String>, Vec<String>) {
         .errors
         .iter()
         .chain(checked.errors.iter())
-        .map(|d| d.render(&program.files))
+        .map(|d| {
+            let content = &program.files[d.file].content;
+            let (line, col) = salvo_syntax::span::line_col(content, d.span.start);
+            Diag {
+                id: d.id.unwrap_or("?"),
+                error: d.is_error(),
+                line,
+                col,
+                source_line: content.lines().nth(line as usize - 1).unwrap_or_default().to_string(),
+                message: d.message.clone(),
+            }
+        })
         .collect();
     let edges = salvo_core::deadlock::edges(&program, &symbols, &checked);
     (diags, edges)
@@ -82,10 +114,10 @@ fn node_edges<'e>(edges: &'e [String], node: &str) -> (Vec<&'e str>, Vec<&'e str
 
 /// The cycle diagnostics among `diags`: the errors and warnings this file is
 /// about, and nothing else the program might say.
-fn cycles(diags: &[String]) -> Vec<&String> {
+fn cycles(diags: &[Diag]) -> Vec<&Diag> {
     diags
         .iter()
-        .filter(|d| d.contains("wait for each other") || d.contains("send to each other"))
+        .filter(|d| d.id.starts_with("actor-deadlock-cycle:") || d.id == "actor-mixed-handler:occupancy-cycle")
         .collect()
 }
 
@@ -121,14 +153,12 @@ fn main(g: eff[ActorGroup<Ping>]) [use, spawn]
         ponging("replyto!")
     );
     let (diags, edges) = check(&src);
-    let cycles: Vec<&String> = cycles(&diags);
+    let cycles: Vec<&Diag> = cycles(&diags);
     assert_eq!(cycles.len(), 1, "one cycle: {diags:?}");
     assert!(
-        cycles[0].starts_with(
-            "error: these actors wait for each other: Ping → Pong → Ping (`Pinging`, `Ponging`). \
-             A `replyto!` gate serves nothing but its own answer"
-        ) && cycles[0].contains("main.sv:16:19"),
-        "the gate cycle, at `Pinging`'s gate: {}",
+        (cycles[0].error, cycles[0].id, cycles[0].line, cycles[0].col) == (true, "actor-deadlock-cycle:gate-cycle", 16, 19)
+            && cycles[0].names("Ping → Pong → Ping (`Pinging`, `Ponging`)"),
+        "the gate cycle, at `Pinging`'s gate: {:?}",
         cycles[0]
     );
     let (out, into) = route_edges(&edges);
@@ -248,20 +278,18 @@ handler Pinging(back: eff[Pong]) of Ping {{
     let (diags, edges) = check(&src);
     assert_eq!(diags.len(), 2, "{diags:?}");
     assert!(
-        diags[0].starts_with(
-            "warning: these actors send to each other in a cycle: Ping → Pong → Ping \
-             (`Pinging`, `Ponging`)"
-        ),
-        "{}",
+        (diags[0].error, diags[0].id) == (false, "actor-deadlock-cycle:send-cycle")
+            && diags[0].names("Ping → Pong → Ping (`Pinging`, `Ponging`)"),
+        "{:?}",
         diags[0]
     );
     assert!(
-        diags[1].starts_with(
-            "error: these actors can wait for each other through a shared handler: \
-             Watching's lock → Pong → __Route_Ping's servant → Watching's lock \
-             (`Ponging`, `Watching`, `__Route_Ping`)"
-        ),
-        "{}",
+        (diags[1].error, diags[1].id) == (true, "actor-mixed-handler:occupancy-cycle")
+            && diags[1].names(
+                "Watching's lock → Pong → __Route_Ping's servant → Watching's lock \
+                 (`Ponging`, `Watching`, `__Route_Ping`)"
+            ),
+        "{:?}",
         diags[1]
     );
     let (out, into) = route_edges(&edges);
@@ -293,12 +321,13 @@ fn a_cycle_through_a_routes_selector_is_refused() {
     let found = cycles(&diags);
     assert_eq!(found.len(), 1, "{diags:?}");
     assert!(
-        found[0].starts_with(
-            "error: these actors can wait for each other through a shared handler: \
-             Pong → __Route_Ping's servant → Watching's lock → Pong \
-             (`Ponging`, `Watching`, `__Route_Ping`)"
-        ) && found[0].contains("handler Ponging() [any Ping] of Pong"),
-        "{}",
+        (found[0].error, found[0].id) == (true, "actor-mixed-handler:occupancy-cycle")
+            && found[0].names(
+                "Pong → __Route_Ping's servant → Watching's lock → Pong \
+                 (`Ponging`, `Watching`, `__Route_Ping`)"
+            )
+            && found[0].source_line.contains("handler Ponging() [any Ping] of Pong"),
+        "{:?}",
         found[0]
     );
     assert_eq!(diags.len(), 1, "{diags:?}");
@@ -352,11 +381,9 @@ fn a_bare_written_routers_node_gets_the_callers_edge() {
     let found = cycles(&diags);
     assert_eq!(found.len(), 1, "{diags:?}");
     assert!(
-        found[0].starts_with(
-            "warning: these actors send to each other in a cycle: \
-             Fanning's servant → Pong → Fanning's servant (`Fanning`, `Ponging`)"
-        ),
-        "{}",
+        (found[0].error, found[0].id) == (false, "actor-deadlock-cycle:send-cycle")
+            && found[0].names("Fanning's servant → Pong → Fanning's servant (`Fanning`, `Ponging`)"),
+        "{:?}",
         found[0]
     );
     assert_eq!(diags.len(), 1, "{diags:?}");
@@ -381,11 +408,10 @@ fn a_stateful_written_router_is_an_occupancy_edge() {
     let found = cycles(&diags);
     assert_eq!(found.len(), 1, "{diags:?}");
     assert!(
-        found[0].starts_with(
-            "error: these actors can wait for each other through a shared handler: \
-             Fanning's servant → Pong → Fanning's servant (`Fanning`, `Ponging`)"
-        ) && found[0].contains("handler Ponging() [any Ping] of Pong"),
-        "{}",
+        (found[0].error, found[0].id) == (true, "actor-mixed-handler:occupancy-cycle")
+            && found[0].names("Fanning's servant → Pong → Fanning's servant (`Fanning`, `Ponging`)")
+            && found[0].source_line.contains("handler Ponging() [any Ping] of Pong"),
+        "{:?}",
         found[0]
     );
     assert_eq!(diags.len(), 1, "{diags:?}");

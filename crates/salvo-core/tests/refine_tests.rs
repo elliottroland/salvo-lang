@@ -27,10 +27,10 @@ const STD_PRELUDE: &str = concat!(
 );
 
 /// Parses + resolves + checks the given files (the first is `main.sv`) and
-/// returns every diagnostic message, warnings included — an unnecessary
+/// returns every diagnostic's id [diag-id], warnings included — an unnecessary
 /// selector is a *warning* [qual-refn], so the tests have to see both
 /// severities.
-fn diagnostics(files: &[(&str, &str)]) -> Vec<String> {
+fn diagnostics(files: &[(&str, &str)]) -> Vec<&'static str> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -71,7 +71,7 @@ fn diagnostics(files: &[(&str, &str)]) -> Vec<String> {
         .errors
         .iter()
         .chain(checked.errors.iter())
-        .map(|d| d.message.clone())
+        .map(|d| d.id.unwrap_or("?"))
         .collect()
 }
 
@@ -144,7 +144,7 @@ fn a_refinement_is_only_in_scope_with_its_qualifier() {
                    let t: NonEmpty Store<Int> = s\n}\n";
     let diags = diagnostics(&[("quals.sv", &quals), ("user.sv", without)]);
     assert!(
-        diags.iter().any(|d| d.contains("NonEmpty")),
+        diags.contains(&"name-resolve:unknown-type"),
         "expected the unimported qualifier to be unknown here: {diags:?}"
     );
 }

@@ -91,21 +91,17 @@ handler Counting() [Log] of Counter {
 }
 "#;
 
-fn errors(src: &str) -> Vec<String> {
-    diagnostics(src)
+/// [diag-id] The id of every error the program produces.
+fn errors(src: &str) -> Vec<&'static str> {
+    diagnostics_with_ids(src)
         .into_iter()
         .filter(|(error, _)| *error)
-        .map(|(_, message)| message)
+        .map(|(_, id)| id.unwrap_or("?"))
         .collect()
 }
 
-/// Every diagnostic the program produces, as `(is_error, message)`.
-fn diagnostics(src: &str) -> Vec<(bool, String)> {
-    diagnostics_with_ids(src).into_iter().map(|(error, _, message)| (error, message)).collect()
-}
-
-/// [diag-id] Every diagnostic with its id: `(is an error, id, message)`.
-fn diagnostics_with_ids(src: &str) -> Vec<(bool, Option<&'static str>, String)> {
+/// [diag-id] Every diagnostic's severity and id: `(is an error, id)`.
+fn diagnostics_with_ids(src: &str) -> Vec<(bool, Option<&'static str>)> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -140,16 +136,16 @@ fn diagnostics_with_ids(src: &str) -> Vec<(bool, Option<&'static str>, String)> 
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);
-    let mut msgs: Vec<(bool, Option<&'static str>, String)> = resolution
+    let mut msgs: Vec<(bool, Option<&'static str>)> = resolution
         .errors
         .iter()
         .chain(checked.errors.iter())
-        .map(|d| (d.is_error(), d.id, d.message.clone()))
+        .map(|d| (d.is_error(), d.id))
         .collect();
     msgs.extend(
         salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked)
             .into_iter()
-            .map(|d| (d.is_error(), d.id, d.message)),
+            .map(|d| (d.is_error(), d.id)),
     );
     msgs
 }
@@ -172,12 +168,7 @@ handler Asking() [Counter] of Log {
 }
 ",
     );
-    assert!(
-        unknown
-            .iter()
-            .any(|m| m.contains("has no member `arrived`")),
-        "expected the unknown-member error: {unknown:?}"
-    );
+    assert!(unknown.contains(&"actor-replyto:unknown-member"), "expected the unknown-member error: {unknown:?}");
 
     let not_send = errors(
         "\
@@ -200,12 +191,7 @@ handler Asker() [Counter] of Ask {
 }
 ",
     );
-    assert!(
-        not_send
-            .iter()
-            .any(|m| m.contains("is not a `send fn`") && m.contains("answer arrives as a message")),
-        "expected the non-send target refusal: {not_send:?}"
-    );
+    assert!(not_send.contains(&"actor-replyto:not-send"), "expected the non-send target refusal: {not_send:?}");
 }
 
 /// And the *old* spelling is a plain parse error naming the new one — no
@@ -223,9 +209,7 @@ handler Working() of Log {
 ";
     let (_module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
-        diagnostics.iter().any(|d| d.is_error()
-            && d.message.contains("is not the self-send form")
-            && d.message.contains("`k@self(…)`")),
+        diagnostics.iter().any(|d| d.is_error() && d.id == Some("actor-self-send:self-dot-call")),
         "expected the old form to be refused: {diagnostics:?}"
     );
 }
@@ -273,7 +257,7 @@ fn each(f: () [any Counter] -> None) [any Counter] -> None {{
 "
     ));
     assert!(
-        errs.iter().any(|m| m.contains("carry no strength") && m.contains("declare `[any Counter]`")),
+        errs.contains(&"effect-any:fn-type"),
         "{errs:?}"
     );
 }

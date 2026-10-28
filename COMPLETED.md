@@ -144,6 +144,27 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — The rest of the tests assert ids, not message text (TESTS.md second wave)
+
+**parser_tests.rs** moved every parse-error assertion to the checker data:
+98 programs in a new area `check/syntax/` (one `//---` program per error,
+since a parse error stops a program), its AST and snapshot tests staying;
+one test that also reads the AST asserts its id in Rust. **salvo-core's
+Rust tests** (29 files) assert ids in place of the ~70 message substrings
+they still had, through `Checked::ids()`, `FileDiagnostic::id`, or — for
+the loader's and manifest's errors, plain strings — the `[id]` prefix under
+`show_ids`. What still reads text says why: a suggested import or clause,
+a stamp's rendered prefix, `type-union:no-arm`'s "deduplicated" form (one id,
+two texts), the cycle paths `route_deadlock_tests` reads, `refuse!` texts,
+rendered locations. The CLI tests keep their text: rendering is their point.
+
+- Found (ROADMAP §0ar): two messages still advise the retired postfix `!`;
+  a misplaced modifier's cascade advises writing what was written; a
+  handler `of` an undeclared effect reports nothing in one file; a dozen
+  parse-recovery cascades, now annotated where they occur.
+- Suite: 732 tests, 68s warm under nextest. Over the day the suite went
+  from 2,156 tests (208s wall, 1,956s summed after a rebuild) to 732.
+
 ### 2026-10-28 — CLI tests that emit the same code skip their toolchain run (TESTS.md C1, C7)
 
 **`salvo_testkit::cli::cli_stamp`** ([test-cli-stamp]) keys a CLI test twice:

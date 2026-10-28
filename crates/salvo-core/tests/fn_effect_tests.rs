@@ -41,7 +41,8 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
 );
 
-fn errors(src: &str) -> Vec<String> {
+/// [diag-id] The id of every error `src` reports.
+fn errors(src: &str) -> Vec<&'static str> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -89,7 +90,7 @@ fn errors(src: &str) -> Vec<String> {
         .iter()
         .chain(checked.errors.iter())
         .filter(|d| d.is_error())
-        .map(|d| d.message.clone())
+        .map(|d| d.id.unwrap_or("?"))
         .collect()
 }
 
@@ -129,9 +130,5 @@ fn use_in_a_fn_type_is_rejected() {
          note(f(\"x\"))\n\
          }}\n"
     ));
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("a fn type cannot declare `use`")),
-        "expected the `use` rejection, got: {errs:?}"
-    );
+    assert!(errs.contains(&"fn-effects:use"), "expected the `use` rejection, got: {errs:?}");
 }

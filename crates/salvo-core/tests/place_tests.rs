@@ -41,7 +41,8 @@ const STD_PRELUDE: &str = concat!(
 
 /// Parses + resolves + checks one file (no std) and returns the checker's
 /// and resolver's error messages.
-fn errors(src: &str) -> Vec<String> {
+/// [diag-id] The id of every error `src` reports.
+fn errors(src: &str) -> Vec<&'static str> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -87,7 +88,7 @@ fn errors(src: &str) -> Vec<String> {
         .iter()
         .chain(checked.errors.iter())
         .filter(|d| d.is_error())
-        .map(|d| d.message.clone())
+        .map(|d| d.id.unwrap_or("?"))
         .collect()
 }
 
@@ -120,14 +121,14 @@ fn touch_address(a: Mut Address) [] -> None => a: Mut {
 }
 "#;
 
-fn check(body: &str) -> Vec<String> {
+fn check(body: &str) -> Vec<&'static str> {
     errors(&format!("{PRELUDE}\nfn probe(p: Mut Person) -> Str => p: Mut {{\n{body}\n}}\n"))
 }
 
-fn interp_errors(body: &str) -> Vec<String> {
+fn interp_errors(body: &str) -> Vec<&'static str> {
     check(body)
         .into_iter()
-        .filter(|e| e.contains("may be `None`"))
+        .filter(|id| *id == "interp-no-none:optional-value")
         .collect()
 }
 

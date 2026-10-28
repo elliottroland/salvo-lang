@@ -34,7 +34,8 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b\n",
 );
 
-fn errors(src: &str) -> Vec<String> {
+/// [diag-id] Every error as `(id, message)`.
+fn errors(src: &str) -> Vec<(&'static str, String)> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -75,7 +76,7 @@ fn errors(src: &str) -> Vec<String> {
     // read is the IR flow pass's since R8 piece
     // 3c [flow-use-after-move].
     all.extend(salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked).into_iter().filter(|d| d.is_error()));
-    all.into_iter().map(|d| d.message).collect()
+    all.into_iter().map(|d| (d.id.unwrap_or("?"), d.message)).collect()
 }
 
 const PRELUDE: &str = r#"
@@ -119,9 +120,10 @@ fn the_same_qualifier_twice_deduplicates_and_says_so() {
          return ok(ok(1))\n\
          }}\n"
     ));
+    // Kept on the text past the id: the point is the hint the message adds
+    // when the qualifier deduplicated, which the id does not tell apart.
     assert!(
-        errs.iter()
-            .any(|e| e.contains("deduplicates") && e.contains("annotated local")),
+        errs.iter().any(|(id, m)| *id == "type-union:no-arm" && m.contains("deduplicates")),
         "expected the deduplication hint, got: {errs:?}"
     );
 }
@@ -144,8 +146,8 @@ fn a_check_mixing_lifted_and_kept_terms_is_rejected() {
     assert!(
         diagnostics
             .iter()
-            .any(|d| d.is_error() && d.message.contains("lifts every qualifier or none")),
+            .any(|d| d.is_error() && d.id == Some("qual-lift:partial")),
         "expected the mixed-check error, got {:?}",
-        diagnostics.iter().map(|d| &d.message).collect::<Vec<_>>()
+        diagnostics.iter().map(|d| d.id).collect::<Vec<_>>()
     );
 }

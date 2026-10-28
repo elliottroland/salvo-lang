@@ -37,9 +37,10 @@ const STD_PRELUDE: &str = concat!(
     "export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b\n",
 );
 
-/// Every diagnostic — parse, resolve and check — because an `iter fn`'s own
-/// rules are reported by the desugaring, which runs inside the parser.
-fn errors(src: &str) -> Vec<String> {
+/// [diag-id] The id of every diagnostic — parse, resolve and check —
+/// because an `iter fn`'s own rules are reported by the desugaring, which
+/// runs inside the parser.
+fn errors(src: &str) -> Vec<&'static str> {
     let mut sources = SourceSet::default();
     sources.add(
         "std/core/prelude.sv",
@@ -61,7 +62,7 @@ fn errors(src: &str) -> Vec<String> {
             diagnostics
                 .iter()
                 .filter(|d| d.is_error())
-                .map(|d| d.message.clone()),
+                .map(|d| d.id.unwrap_or("?")),
         );
         modules.push(ast);
     }
@@ -72,7 +73,7 @@ fn errors(src: &str) -> Vec<String> {
             .diagnostics
             .iter()
             .filter(|d| d.is_error())
-            .map(|d| d.message.clone()),
+            .map(|d| d.id.unwrap_or("?")),
     );
     let program = Program {
         files: sources.files,
@@ -84,7 +85,7 @@ fn errors(src: &str) -> Vec<String> {
     let checked = check_program(&program, &resolution, &symbols);
     parse_errors
         .into_iter()
-        .chain(resolution.errors.iter().map(|d| d.message.clone()))
+        .chain(resolution.errors.iter().map(|d| d.id.unwrap_or("?")))
         // Errors only: an unused-variable *warning* [var-unused] is a
         // different severity, and these tests are about legality.
         .chain(
@@ -92,7 +93,7 @@ fn errors(src: &str) -> Vec<String> {
                 .errors
                 .iter()
                 .filter(|d| d.is_error())
-                .map(|d| d.message.clone()),
+                .map(|d| d.id.unwrap_or("?")),
         )
         .collect()
 }
@@ -142,7 +143,7 @@ fn an_unexpanded_iter_fn_is_a_loud_resolution_error() {
         resolution
             .errors
             .iter()
-            .any(|d| d.message.contains("reached resolution unexpanded")),
+            .any(|d| d.id == Some("iter-fn:unexpanded")),
         "expected the loud guard, got: {:?}",
         resolution.errors
     );
@@ -158,7 +159,7 @@ fn a_state_name_collides_with_a_type() {
          iter fn upto(n: Int) -> Emitted Int | Finished {\n    state Range {\n        at: Int = 0\n    }\n    return finished()\n}\n",
     );
     assert!(
-        errs.iter().any(|e| e.contains("duplicate struct `Range`")),
+        errs.contains(&"mod-collision:duplicate"),
         "{errs:?}"
     );
     let errs = errors(
@@ -166,7 +167,7 @@ fn a_state_name_collides_with_a_type() {
          iter fn downto(n: Int) -> Emitted Int | Finished {\n    state Upto {}\n    return finished()\n}\n",
     );
     assert!(
-        errs.iter().any(|e| e.contains("duplicate struct `Upto`")),
+        errs.contains(&"mod-collision:duplicate"),
         "{errs:?}"
     );
 }

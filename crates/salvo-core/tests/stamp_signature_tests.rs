@@ -14,6 +14,15 @@
 
 use salvo_core::Program;
 
+/// [diag-id] An error as these tests read it: `line: id` for the user file
+/// `main.sv`, `file:line: id` for another.
+fn shown(program: &Program, file: usize, start: u32, id: Option<&str>) -> String {
+    let file = &program.files[file];
+    let line = file.content[..(start as usize).min(file.content.len())].matches('\n').count() + 1;
+    let id = id.unwrap_or("?");
+    if file.name == "main.sv" { format!("{line}: {id}") } else { format!("{}:{line}: {id}", file.name) }
+}
+
 fn program(files: &[(&str, &str)]) -> (Program, Vec<String>) {
     // [std-cache] Over the process's std front (TESTS.md T3).
     let built = salvo_testkit::front::program("kt", files);
@@ -21,16 +30,12 @@ fn program(files: &[(&str, &str)]) -> (Program, Vec<String>) {
         .diagnostics
         .iter()
         .filter(|d| d.is_error())
-        .map(|d| {
-            let file = &built.program.files[d.file];
-            let line = file.content[..(d.span.start as usize).min(file.content.len())].matches('\n').count() + 1;
-            if file.name == "main.sv" { format!("{line}: {}", d.message) } else { format!("{}:{line}: {}", file.name, d.message) }
-        })
+        .map(|d| shown(&built.program, d.file, d.span.start, d.id))
         .collect();
     (built.program, errors)
 }
 
-/// Every error the expansion, resolver and checker report, as `line: message`
+/// Every error the expansion, resolver and checker report, as `line: id`
 /// for the user file `main.sv` (other files' lines as `file:line`).
 fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
     let (program, mut errors) = program(files);
@@ -40,9 +45,7 @@ fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
     // [ir-analyze] Ownership errors are the IR's, as a build lists them.
     let flow = salvo_core::ir::analyze::analyze(&program, &symbols, &resolution, &checked);
     for d in resolution.errors.iter().chain(checked.errors.iter()).chain(flow.iter()).filter(|d| d.is_error()) {
-        let file = &program.files[d.file];
-        let line = file.content[..(d.span.start as usize).min(file.content.len())].matches('\n').count() + 1;
-        errors.push(if file.name == "main.sv" { format!("{line}: {}", d.message) } else { format!("{}:{line}: {}", file.name, d.message) });
+        errors.push(shown(&program, d.file, d.span.start, d.id));
     }
     errors
 }
@@ -268,14 +271,8 @@ struct Q : Ranked<self> by auto { y: Int }
     // the stamp's is the one diagnostic shown.
     let (_, expansion) = program(&[("main.sv", src)]);
     assert_eq!(expansion.len(), 1, "{expansion:?}");
-    assert!(!errs.iter().any(|e| e.contains("not callable")), "{errs:?}");
-    assert!(
-        expansion[0].starts_with(
-            "6: `Ranked<self>`'s `fn cmp` names its parameter `cmp`, which hides the function `cmp` \
-             that `auto`'s `cmp` calls in its body"
-        ),
-        "{expansion:?}"
-    );
+    assert!(!errs.iter().any(|e| e.contains(": call-resolve:not-callable")), "{errs:?}");
+    assert_eq!(expansion, ["6: fn-by:param-hides-name"]);
     let renamed = src.replace("cmp(cmp: T", "cmp(one: T");
     assert!(errors(&renamed).is_empty(), "{:?}", errors(&renamed));
     let dump = ir(&[("main.sv", &renamed)]);

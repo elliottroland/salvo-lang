@@ -10,6 +10,13 @@ use std::path::{Path, PathBuf};
 
 use salvo_core::{ModulePath, Project, SourceSet};
 
+/// [diag-id] The id a load error leads with. These errors leave the
+/// compiler as bare text (`messages::rendered`), which carries its id once
+/// ids are shown, as each test here asks first.
+fn id_of(err: &str) -> &str {
+    err.strip_prefix('[').and_then(|e| e.split_once("] ")).map_or("?", |(id, _)| id)
+}
+
 fn dir(test: &str) -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("dependency_{test}"));
     let _ = fs::remove_dir_all(&dir);
@@ -46,6 +53,7 @@ fn write_project(root: &Path, deps: &[&str]) {
 // them is refused at load.
 #[test]
 fn dependencies_are_found_by_name_under_the_modules_directory() {
+    salvo_syntax::diag::show_ids(true);
     let root = dir("manifest");
     write_dependency(&root, "aws", "", "aws.sv", "export struct P { path: Str }\n");
     write_project(&root, &["aws"]);
@@ -63,12 +71,12 @@ fn dependencies_are_found_by_name_under_the_modules_directory() {
     )
     .unwrap();
     let err = Project::load(&root.join("salvo.toml")).unwrap().dependencies().unwrap_err();
-    assert!(err.contains("`0.2.0`") && err.contains("`0.1.0`"), "{err}");
+    assert_eq!(id_of(&err), "manifest-deps:version-mismatch", "{err}");
 
     // A declared dependency with no directory is an error naming the path.
     write_project(&root, &["gcp"]);
     let err = Project::load(&root.join("salvo.toml")).unwrap().dependencies().unwrap_err();
-    assert!(err.contains("gcp/salvo.toml") && err.contains("does not exist"), "{err}");
+    assert_eq!(id_of(&err), "manifest-deps:missing-manifest", "{err}");
 
     // A directory under `modules` that no entry names is simply not loaded.
     write_project(&root, &[]);
@@ -77,7 +85,7 @@ fn dependencies_are_found_by_name_under_the_modules_directory() {
     // `[dependencies]` without `[build] modules` is refused at load.
     fs::write(root.join("salvo.toml"), "[dependencies]\naws = \"0.1.0\"\n").unwrap();
     let err = Project::load(&root.join("salvo.toml")).unwrap_err();
-    assert!(err.contains("[build] modules"), "{err}");
+    assert_eq!(id_of(&err), "manifest-deps:no-modules", "{err}");
 }
 
 /// A `SourceSet` holding one fake embedded std module, `std.core.list`.
@@ -136,6 +144,7 @@ fn a_dependency_is_loaded_as_an_ordinary_tree_tagged_with_its_name() {
 // replaces the embedded copy like any std tree [std-shadow].
 #[test]
 fn a_dependency_declares_std_modules_only_when_its_manifest_says_std() {
+    salvo_syntax::diag::show_ids(true);
     let root = dir("std");
     write_dependency(&root, "sneaky", "", "std/core/list.sv", "export fn size() -> Int { return 0 }\n");
     write_dependency(&root, "stdfork", "std = true\n", "std/core/list.sv", "export intrinsic type List<T>\n// fork\n");
@@ -146,11 +155,7 @@ fn a_dependency_declares_std_modules_only_when_its_manifest_says_std() {
     let mut sources = with_embedded_std();
     let errors = sources.add_dependency(&deps[0], "");
     assert_eq!(errors.len(), 1, "{errors:?}");
-    assert!(
-        errors[0].contains("`sneaky`") && errors[0].contains("`std.core.list`") && errors[0].contains("std = true"),
-        "{}",
-        errors[0]
-    );
+    assert_eq!(id_of(&errors[0]), "manifest-deps:std-module", "{}", errors[0]);
 
     let mut sources = with_embedded_std();
     let errors = sources.add_dependency(&deps[1], "");
@@ -217,6 +222,7 @@ fn module_selectors_are_recorded_with_their_resolved_module() {
 // same crate or artifact at two versions refused naming both parties.
 #[test]
 fn host_dependencies_merge_across_the_project_and_its_dependencies() {
+    salvo_syntax::diag::show_ids(true);
     let root = dir("host_deps");
     write_dependency(&root, "aws", "", "aws.sv", "export struct P { path: Str }\n");
     fs::write(
@@ -264,10 +270,7 @@ fn host_dependencies_merge_across_the_project_and_its_dependencies() {
     )
     .unwrap();
     let err = Project::load(&root.join("salvo.toml")).unwrap().host_deps().unwrap_err();
-    assert!(
-        err.contains("`aws-sdk-s3`") && err.contains("`2.0`") && err.contains("`1.0`") && err.contains("dependency `aws`"),
-        "{err}"
-    );
+    assert_eq!(id_of(&err), "platform-host-deps:crate-twice", "{err}");
     // Same for an artifact.
     fs::write(
         root.join("salvo.toml"),
@@ -276,11 +279,11 @@ fn host_dependencies_merge_across_the_project_and_its_dependencies() {
     )
     .unwrap();
     let err = Project::load(&root.join("salvo.toml")).unwrap().host_deps().unwrap_err();
-    assert!(err.contains("`aws.sdk.kotlin:s3`") && err.contains("1.1.0"), "{err}");
+    assert_eq!(id_of(&err), "platform-host-deps:artifact-twice", "{err}");
     // A malformed coordinate is refused at the manifest.
     fs::write(root.join("salvo.toml"), "[kotlin]\nartifacts = [\"nocolon\"]\n").unwrap();
     let err = Project::load(&root.join("salvo.toml")).unwrap().host_deps().unwrap_err();
-    assert!(err.contains("group:artifact:version"), "{err}");
+    assert_eq!(id_of(&err), "platform-host-deps:bad-coordinate", "{err}");
     // Nothing declared: nothing to build with.
     fs::write(root.join("salvo.toml"), "[build]\nsrc = \".\"\n").unwrap();
     assert_eq!(Project::load(&root.join("salvo.toml")).unwrap().host_deps().unwrap(), salvo_core::HostDeps::default());
