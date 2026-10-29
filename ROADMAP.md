@@ -1064,13 +1064,6 @@ repros are over the real std.
   warns unused; a servant forwarding a received reply through a dependency
   call (`draw(out)`) needs no `defer`, through a held handle it does.
 - **From the run data (TESTS.md C3)**:
-  - **Backend divergence in a trap's text**: a `[platform-check]` failure
-    quotes the bad value on Rust (`` `platform fn tier`'s result was
-    "bronze", which is not one of "gold", "silver" ``) and not on Kotlin
-    (`was bronze, …`); the same for a bad value sent on a `Reply`
-    (`"neither"` / `neither`). The data asserts only the text before the
-    value, so the `[platform-check]` tag is unchecked meanwhile. Repro:
-    `crates/salvo-cli/tests/run/platform/host_values.sv#a_bad_platform_fn_result_traps`.
   - **An out-of-range subscript is the host's panic**, not a `salvo:` trap:
     Rust prints `index out of bounds: the len is 3 but the index is 10`
     (exit 101), Kotlin throws `ArrayIndexOutOfBoundsException` (exit 1)
@@ -1091,17 +1084,6 @@ repros are over the real std.
     program's comment says arithmetic must not grow a deref, but the emitted
     (and asserted) code is `i32::wrapping_add((*crate::std_core_list::get::<i32>(&xs, i)), 1i32)`;
     either the comment is stale or the emission is.
-- **From the analyze tests (TESTS.md C6)**, each kept in `analyze_tests.rs` as it was:
-  - **A std warning on every union `ToStr` by auto**: `export type Token = Str
-    | Int : ToStr<self> by auto` warns `expr-dead-code:unreachable` "in
-    `to_str` from `auto` for `Token`" — std's `to_str<T is Union>`
-    (`lib/std/core/auto.sv`) ends with a `return ""` after an exhaustive
-    `[when value]`
-    (`a_clause_stamps_its_own_declaration_beside_a_same_named_struct`);
-  - with no selector in scope, `use any g` reports
-    `actor-route-stub:no-selector` and the next call `one()` also
-    `effect-available:callee-no-handler`: one mistake, two diagnostics
-    (`route_binds_any_and_needs_a_selector`).
 - **From the second wave (parser and salvo-core tests to ids)**:
   - **a missing diagnostic?** `handler Working() of Work` with no `Work`
     declared reports nothing, in a file whose parse error elsewhere still

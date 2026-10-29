@@ -10725,6 +10725,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         });
         let Some(selector) = selector else {
             self.error(span, messages::actor_route_stub_no_selector(&shown));
+            // The route is refused, but it still says what it binds: the calls
+            // after it are not a second mistake [type-unknown-lenient].
+            self.effect_env.push(EffectAvail { ty: effect, declared: false, any: true });
             return;
         };
         self.out.route_uses.insert(self.key(span), effect_key.clone());

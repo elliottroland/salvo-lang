@@ -105,7 +105,6 @@ export comptime fn cmp<T is Union>(a: T, b: T) [] -> Int => a, b {
             }
         }
     }
-    return 0
 }
 
 export comptime fn eq<T is Union>(a: T, b: T) [] -> Bool => a, b {
@@ -126,7 +125,6 @@ export comptime fn eq<T is Union>(a: T, b: T) [] -> Bool => a, b {
             }
         }
     }
-    return false
 }
 
 export comptime fn hash<T is Union>(value: T) [] -> Long => value {
@@ -139,7 +137,6 @@ export comptime fn hash<T is Union>(value: T) [] -> Long => value {
             }
         }
     }
-    return 0L
 }
 
 export comptime fn to_str<T is Union>(value: T) [] -> Str => value {
@@ -154,5 +151,4 @@ export comptime fn to_str<T is Union>(value: T) [] -> Str => value {
             }
         }
     }
-    return ""
 }

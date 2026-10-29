@@ -172,6 +172,20 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   fn's clause error says "a fn with no body", not "an `intrinsic fn`"; the
   conditionally-linear no-discharger text reads as a sentence; six message
   continuations lost their runs of 20–30 spaces.
+- **std's union `cmp`, `eq`, `hash` and `to_str` by auto** ended in a
+  `return` after their exhaustive `[when …]`, unreachable in every stamped
+  copy: `type Token = Str | Int : ToStr<self> by auto` warned
+  `expr-dead-code:unreachable` in the user's file. The returns are gone; the
+  stamped `when` returns on every path. Checker data
+  `module_imports/clause_beside_a_same_named_struct.sv` (from analyze_tests).
+- **A refused route still binds its face**: `use any g` with no
+  `RouteSelector` in scope is one error; the calls after it no longer also
+  report no handler. Checker data `actors/route.sv` (the four cases of
+  analyze_tests' `route_binds_any_and_needs_a_selector`).
+- **A boundary trap reads the same on both backends**: Kotlin's
+  `[platform-check]` message quotes a string value as Rust's `{:?}` does
+  (`was "bronze", which is not one of "gold", "silver"`), so the run data
+  asserts the whole message again.
 
 ### 2026-10-28 — The rest of the tests assert ids, not message text (TESTS.md second wave)
 

@@ -294,9 +294,8 @@ fn main() [use] {
     println("${p}")
     println(show(tier(3)))
 }
-// The value is spelled differently by the two backends — `"bronze"` on
-// Rust, `bronze` on Kotlin — so only the part before it is asserted.
-//= trap `platform fn tier`'s result was 
+// The value is quoted on both backends (on Kotlin since 2026-10-28).
+//= trap `platform fn tier`'s result was "bronze", which is not one of "gold", "silver" [platform-check]
 //= stdout
 //= gold none
 //= 1 [x]
@@ -441,8 +440,7 @@ fn main() [use] {
     println("${p}")
     println(show(tier(1)))
 }
-// As above, `"neither"` on Rust and `neither` on Kotlin.
-//= trap what the host sent on `Lookup.parity` was 
+//= trap what the host sent on `Lookup.parity` was "neither", which is not one of "even", "odd" [platform-check]
 //= stdout
 //= gold none
 //= 1 [x]

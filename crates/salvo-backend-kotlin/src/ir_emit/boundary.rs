@@ -15,11 +15,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     pub(super) fn boundary_check(&mut self, plan: &BoundaryCheck, v: &str, what: &str, indent: usize) -> String {
         use BoundaryCheck as C;
         let pad = "    ".repeat(indent);
-        // `\u{1}` marks where the value goes: everything else is escaped.
+        // `\u{1}` marks where the value goes: everything else is escaped. A
+        // string is shown quoted, as Rust's `{:?}` shows it, so the trap reads
+        // the same on both backends [backend-parity].
         let fail = |msg: String| {
+            let shown = format!("${{({v} as Any?).let {{ if (it is String) \"\\\"\" + it + \"\\\"\" else it.toString() }}}}");
             format!(
                 "throw IllegalStateException(\"salvo: {} [platform-check]\")",
-                escape_string(&format!("{what} {msg}")).replace('\u{1}', &format!("${{{v}}}"))
+                escape_string(&format!("{what} {msg}")).replace('\u{1}', &shown)
             )
         };
         let d = indent;

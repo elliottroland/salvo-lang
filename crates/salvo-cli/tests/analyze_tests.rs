@@ -589,68 +589,6 @@ fn main() [use] {
     );
 }
 
-/// [actor-route-stub] `use any g` (user decision R7): binds `any E` for the `E`
-/// the group handle names, through a route the IR derives — so the policy it
-/// depends on (`RouteSelector<E>`) has to be in scope, and the face is `any`.
-/// A policy's waits are its own `config` parameter.
-#[test]
-fn route_binds_any_and_needs_a_selector() {
-    let dir = src_dir("route_ok");
-    let program = |tail: &str| {
-        format!(
-            "import std.net\n\n\
-             actor effect Ping {{\n    send fn ping(k: Key Str, out: Reply<Str>) => !k, !out\n}}\n\n\
-             fn one() [any Ping] -> Str {{\n    return waitfor out: Reply<Str> {{ ping(\"a\", out) }}\n}}\n\n\
-             fn strong() [Ping] -> Str {{\n    return waitfor out: Reply<Str> {{ ping(\"a\", out) }}\n}}\n\n\
-             fn main(g: eff[ActorGroup<Ping>]) [use]\n=> !g {{\n{tail}}}\n"
-        )
-    };
-    let analyze = |tail: &str| {
-        fs::write(dir.join("main.sv"), program(tail)).unwrap();
-        let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
-        String::from_utf8_lossy(&out.stderr).to_string()
-    };
-    let stderr = analyze("    use Sharded<Ping>()\n    use any g\n    let _a = one()\n");
-    assert!(stderr.contains("no errors"), "{stderr}");
-
-    // The policy's waits, overridden where it is bound.
-    let stderr = analyze("    use Sharded<Ping>(config = RouteConfig {})\n    use any g\n    let _a = one()\n");
-    assert!(stderr.contains("no errors"), "{stderr}");
-
-    // The route binds `any Ping`: a bare `[Ping]` is refused [effect-any].
-    let stderr = analyze("    use Sharded<Ping>()\n    use any g\n    let a = strong()\n");
-    assert!(stderr.contains("`strong` declares `[Ping]`") && stderr.contains("many instances"), "{stderr}");
-
-    // No policy in scope: the route's dependency is missing.
-    let stderr = analyze("    use any g\n    let _a = one()\n");
-    assert!(
-        stderr.contains("`RouteSelector<Ping>` policy") && stderr.contains("use Sharded<Ping>()"),
-        "the route depends on `RouteSelector<Ping>`: {stderr}"
-    );
-}
-
-/// [type-identity] [obligation-by] A clause stamps the declaration it is
-/// written on. With another module's `struct Token` in scope through a
-/// whole-module import, `beta`'s own union `Token` was stamped as that struct
-/// — the comptime expansion looked the name up program-wide, struct first —
-/// and reported "`Str | Int` is not a `Union`". It now reads each file's
-/// names through the resolver's scope (PIPELINE.md step 6).
-#[test]
-fn a_clause_stamps_its_own_declaration_beside_a_same_named_struct() {
-    let dir = src_dir("comptime_token_clash");
-    fs::write(dir.join("alpha.sv"), "export struct Token {\n    a: Int\n}\n").unwrap();
-    fs::write(
-        dir.join("beta.sv"),
-        "import alpha\n\nexport type Token = Str | Int : ToStr<self> by auto\n\n\
-         export fn show(t: Token) -> Str {\n    return to_str(t)\n}\n",
-    )
-    .unwrap();
-    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains(": 0 errors") || stderr.contains("no errors"), "{stderr}");
-}
-
-
 /// [manifest-src] The project of these tests: `[build] src = "src"`, with
 /// `src/main.sv` importing `app.util` — which only resolves when `src/` is
 /// the source root.
