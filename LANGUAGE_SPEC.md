@@ -4241,6 +4241,11 @@ Conventions:
     specificity cannot decide for an argument not yet known, so only a single
     fitting candidate teaches; and the [implicit-fit] probe inside it checks
     shapes without inferring again (one level, depth-capped).
+  * A **written** implicit teaches through what was written, and a selector
+    narrows it as where the value is checked: `iter = iter@main` binds `It`
+    as `iter = iter` does, among the fns the `@` names [fn-overload-at]
+    [fn-attached] (found by [round-trip], 2026-10-28: a scoped value taught
+    nothing, so `next = next@main` beside it picked another type's `next`).
   * Two-sided unification: the *candidate's* generics bind from the known
     part of the pattern, and then the *caller's* variables bind from the
     instantiated candidate (`infer_read_back`). A part that is still one of
@@ -4429,6 +4434,10 @@ Conventions:
     `to_str = render_row` with `render_row(xs: List<Int>)` fills
     `?to_str: (x: NonEmpty List<Int>) -> Str` (2026-10-14; refused until
     then, ROADMAP 0x).
+  * As by name [fn-kept-borrow], a fn reading a borrow of a parameter fits
+    a position passing it: `copy = copy@std.core.basic`, whose parameter is
+    `proj T`, fills `?copy: (v: Str) -> Str` (found by [round-trip],
+    2026-10-28). A difference a backend renders (`Mut`) still does not.
 * [implicit-fn-only] Implicit parameters are declared on a **fn or an effect
   member** — a member is an ordinary signature, so it may have them (user
   decision 2026-09-06). They belong to the member's signature: the generated
@@ -6273,6 +6282,16 @@ Conventions:
     `cmp = cmp@Person` do; a lambda does not, and passing one where the
     signature carries the binder is an error rather than a silently dropped
     claim.
+  * [cmp-carry-override] **A carried binder written as well must name the
+    carried identity** (PIPELINE.md B4, 2026-10-28; DECISION open, §II.10
+    P21): `contains(s, x, hash = my_hash)` with `s` built with `my_hash` is
+    checked like any override and accepted; `hash = other_hash`, a lambda or
+    a member is refused (`cmp-carry:override-disagrees`), since the structure
+    was built with the carried one. Forwarded, the caller's own binder is the
+    one value that agrees (`hash = hash`). Before, the written value was
+    never checked. Not chosen: the written value wins (breaks the
+    structure's invariant); any override refused where an identity is
+    carried.
   * **A binder names its slot, and may be aliased.** `?cmp` fills the slot
     `cmp` under that name; `?cmp: cmp2` fills it under the name `cmp2` — the
     destructuring spelling (`field: variable_name`), for the same reason: the
@@ -11389,6 +11408,19 @@ replaced the working document TESTING.md).
   `//~ refused[id]` annotations must be exactly the ids emission fails with.
   An annotation sits by the construct it is about; only its program, not its
   line, is checked. The format is `salvo_testkit::data`.
+* [round-trip] **Every call's choice survives being written out**
+  (PIPELINE.md B4, §II.7; user decision P5 (b): the examples and the
+  corpus). `salvo_core::round_trip` prints a checked file back with each
+  call's choices spelled out — the callee as `name@module` (`name@Effect`
+  for a member), the inferred type arguments where each has a source form,
+  the implicit arguments by name (`cmp = cmp@main`) — and the re-check must
+  check clean and make the same choices (`round_trip_tests.rs`, with a floor
+  on the number of calls written). Skipped, having no surface spelling:
+  operators, interpolation parts and `for`, calls through a local or a
+  field, sends and mints, a renamed name, `throw`, a forwarded implicit, and
+  what a desugaring or stamp made. Examples with `[dependencies]` need the
+  CLI's loader and are not run; the corpus is a parser corpus, and only the
+  files that check clean are.
 * [test-cli-stamp] **A test of the `salvo` binary is stamped on the binary
   and on what it produces** (TESTS.md C1): the code `salvo compile` emits for
   the test's projects, their inputs, the post-emission driver sources, the

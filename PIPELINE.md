@@ -2453,6 +2453,7 @@ lowering before typing, then the checker's special paths deleted. Needs A2
 - **B4. Round-trip check** (§II.7), for calls: print the lowered calls as Salvo
   (`name@module`, explicit implicit arguments, explicit type arguments),
   re-check, and require the same picks. Where it runs is decision **P5**.
+  **Done (2026-10-28, §II.12).**
 
 ### Stage C — The resolve phase as a lowering
 
@@ -2713,7 +2714,22 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
      call does ("the members of a handler are in scope for it"). Rejected:
      (b) the dot form never reaches a servant send.
 
+- **P21. DECISION (open, B4, 2026-10-28): a carried binder written as
+  well.** `contains(s, x, hash = h)` where `s`'s type carries its `hash`:
+  the written value was never checked. Built: (a) check it, accept the
+  carried identity and refuse any other (`cmp-carry:override-disagrees`;
+  forwarded, only the caller's own binder agrees). Alternatives: (b) the
+  written value wins (breaks the structure's invariant: a set hashed with
+  one fn probed with another); (c) refuse any written override where an
+  identity is carried, even the agreeing one (the round trip could then not
+  write carried binders out). Recommendation (a). [cmp-carry-override],
+  ROADMAP 0av.
+
 ## II.11. Rounds
+
+### 2026-10-28, B4
+
+- P21 raised and built as its recommendation (a), open.
 
 ### 2026-10-28, B3.7
 
@@ -3359,15 +3375,43 @@ this log current so the work can resume after a context reset). Newest last.
   defaults, named arguments and variadic tails, a member typing a lambda
   over std's fns of the name. Nothing else in the suite changed.
 
-- **Where it stands (2026-10-28) — resume here.** Stage A complete; B1,
-  B2 done; **B3 done** (pieces 1–7). TESTS.md's reorganisation is
-  finished (the per-piece method is its data runners and a warm nextest
-  before each commit). **Next: B4** (§II.9), the round-trip check (P5 (b)).
-  Left of B3, recorded: D4's general union `to_str` (deferred, R10), so
-  `interp_union` stays a fact; the send cuts of ROADMAP 0au; the leftovers
-  of 0as and 0at. **Open decisions, each
-  built as its recommended option:** P9–P18 (§II.10; ROADMAP 0af,
-  0ah–0aq).
+- **B4, the round-trip check for calls: done (2026-10-28)** ([round-trip],
+  P5 (b)). `salvo_core::round_trip::write_out` prints a checked file back
+  with each call's callee as `name@module` (`name@Effect` for a member), its
+  inferred type arguments where each has a source form, and its resolved
+  implicits by name; `compare` re-reads the re-checked program's
+  `call_info` at the same calls and requires the same callee, type
+  arguments and implicit fills. `round_trip_tests.rs` runs it over the
+  examples without `[dependencies]` (816 calls; a floor of 500) and the
+  corpus files that check clean (1 of 6: it is a parser corpus). Its first
+  run found three places where the explicit spelling decided differently:
+  1. a **carried binder written as well** (`add(seen, x, hash =
+     hash@std.core.basic)`) was never checked: step 0 of
+     `fill_one_implicit` returned before reading the named argument —
+     now checked, and a different identity refused (P21, open);
+  2. a **written override was held to plain subtyping**, so
+     `copy = copy@std.core.basic` (`(proj T) -> T`) was refused where
+     resolution by name accepts it [fn-kept-borrow] — the override now
+     strips a parameter's top-level `proj` as resolution does (`Mut` still
+     does not fit, `fn_value_across_mut.sv`);
+  3. a **scoped written implicit taught nothing** to [implicit-infer]
+     (`iter = iter@main` left `It` unknown, so `next = next@main` took
+     `Countdown`'s `next`): `learn_from_implicits_once` reads
+     `name@selector` as `name` among the fns the selector names.
+  Skipped by the printer (no surface spelling): operators, interpolation,
+  `for`, local and field calls, sends and mints, renamed names, `throw`,
+  forwarded implicits, desugared or stamped spans.
+
+- **Where it stands (2026-10-28) — resume here.** Stage A complete; B1–B4
+  done (**Stage B complete**). TESTS.md's reorganisation is finished (the
+  per-piece method is its data runners and a warm nextest before each
+  commit). **Next: Stage C, C1** (§II.9), the resolved form, as tables
+  keyed by A3's node keys (P6: the representation is decided at D1). Left
+  of B, recorded:
+  D4's general union `to_str` (deferred, R10), so `interp_union` stays a
+  fact; the send cuts of ROADMAP 0au; the leftovers of 0as, 0at and 0av.
+  **Open decisions, each built as its recommended option:** P9–P18 and P21
+  (§II.10; ROADMAP 0af, 0ah–0aq, 0av).
 
 ## II.13. The call census (B1, 2026-10-27)
 

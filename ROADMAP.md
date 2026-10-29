@@ -1167,6 +1167,33 @@ emitted wrong:
   token's type from the position, `most_specific`; the call's
   `select_among` cannot take a parameter with no argument yet.
 
+### 0av — What the round-trip check for calls left (B4, 2026-10-28)
+
+PIPELINE.md B4 built [round-trip] over the examples and the corpus (P5 (b)).
+
+- **DECISION (PIPELINE.md §II.10 P21): a carried binder written as well.**
+  `contains(s, x, hash = h)` where `s`'s type carries its `hash` was never
+  checked. Built, as recommended: (a) check it, accept the carried identity,
+  refuse any other (`cmp-carry:override-disagrees`; forwarded, only the
+  caller's own binder agrees). Alternatives: (b) the written value wins
+  (a set hashed with one fn probed with another); (c) refuse any written
+  override where an identity is carried, the agreeing one too.
+- **What the printer skips**, having no surface spelling: operators,
+  interpolation parts and `for` (the calls they name are not written);
+  calls through a local or a field; sends, mints and a call whose last
+  argument is a `replyto`; a renamed name; `throw`; a forwarded implicit;
+  a type argument with no source form; desugared or stamped spans. D4
+  extends the check to types, and Stage C's dump is where operators and
+  `for` get a written form.
+- **Where it does not run**: the four examples with `[dependencies]`
+  (`aws_profile`, `aws_sqs`, `aws_s3`, `aws_ddb`) need the CLI's module
+  loader, which `salvo_testkit::front::project` does not have; and 5 of
+  the corpus's 6 files do not check (it is the parser's corpus of
+  language-page examples: unknown effects, missing type arguments, an
+  `intrinsic` outside std), so the round trip runs on `structs.sv` alone,
+  which the checker accepts (its use-after-move errors are the IR's
+  analyses, which the round trip does not run).
+
 ### 0al — Open defect: `let x: Long? = -1L` miscompiles on Rust (found 2026-10-28, B3.3c)
 
 `let x: Long? = -1L` lowers to `present(-(present(1L)))` (IR): the optional

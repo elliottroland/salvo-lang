@@ -78,6 +78,16 @@ fn round_trip() [] -> Int {
     return heap_size(h2)
 }
 
+// [cmp-carry-override] The carried ordering written out by its attached name
+// is the one it carries; another ordering is not.
+fn written_again() [] -> Int {
+    let h = empty_heap<Person>()
+    let h2 = heap_push(h, Person {name: "a", age: 3}, cmp = cmp@Person)
+    //~ error[cmp-carry:override-disagrees]
+    let h3 = heap_push(h2, Person {name: "b", age: 4}, cmp = by_name)
+    return heap_size(h3)
+}
+
 // Two orderings are two types. A heap built by `by_name` does not fit a
 // parameter demanding the canonical one, and the diagnostic reads the
 // identity out of the type ("Heap<Person>(by_name)") — which is the whole

@@ -20,6 +20,29 @@ fn written_identities() [] -> Int {
     return count_keys(s) + count_keys(t) + count_keys(u)
 }
 
+// [cmp-carry-override] A binder the argument already carries may be written
+// as well, and is checked: the declaration it was built with is accepted, any
+// other refused, since the set was hashed with `my_hash` ("`contains` already
+// has the `hash` its argument was built with — `my_hash` — …"). Before, the
+// written value was never checked at all (found by the round trip, PIPELINE
+// B4).
+fn other_hash(v: P) [] -> Long => v { return 0L }
+
+fn written_again() [] -> Bool {
+    let s = Mut Set<P>(hash = my_hash, eq = my_eq)
+    let same = contains(s, P { x: 1 }, hash = my_hash)
+    //~ error[cmp-carry:override-disagrees]
+    let other = contains(s, P { x: 1 }, hash = other_hash)
+    //~ error[cmp-carry:override-disagrees]
+    let lambda = contains(s, P { x: 1 }, hash = (v: P) -> 1L)
+    return same && other && lambda
+}
+
+// Forwarded, the caller's own binder is the one value that agrees.
+fn forwarded<T>(s: Set<T>(?hash, ?eq), v: T) [] -> Bool => s, v {
+    return contains(s, v, hash = hash)
+}
+
 // Where nothing is written the key's own pair is still required, and the
 // refusal names the clause that stamps one ("`P` cannot be a key",
 // "Hashed<self> by auto").

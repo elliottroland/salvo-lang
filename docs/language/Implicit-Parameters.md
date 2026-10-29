@@ -366,3 +366,7 @@ fn main() [use] {
 Two heaps built under different orderings will not mix, a function that needs
 the ordering never asks for it, and none of it costs anything at run time:
 qualifiers are erased, and the carried identity resolves to a direct call.
+
+The carried ordering can still be written at the call, `push(h, 0, cmp =
+cmp@Int)`, but only as itself: a different function, or a lambda, is refused,
+since the heap is arranged by the one it was built with.

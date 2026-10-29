@@ -277,6 +277,15 @@ fn go_total_written() -> Int {
     return total(b)
 }
 
+// [implicit-infer] A written `iter = iter@main` teaches `It` as the bare
+// `iter = iter` does, among the fns its selector names, so the `next` written
+// beside it resolves at `Mut BagNext` (found by the round trip, PIPELINE B4:
+// the written-out form left `It` unknown and `next@main` took `Countdown`'s).
+fn go_total_scoped() -> Int {
+    let b = Bag1 { items: List(4, 5) }
+    return total(b, iter = iter@main, next = next@main)
+}
+
 // And the ambiguity the user accepted as the price (2026-09-10): when nothing
 // determines the container type either, several `iter`s match and the choice
 // would be a guess. The remedies are the ordinary ones — a `rename`, or passing

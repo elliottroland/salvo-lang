@@ -144,6 +144,45 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — Every call's choice survives being written out (PIPELINE.md B4, [round-trip])
+
+- **Built under P5 (b)** (user, 2026-10-27: the corpus and the examples).
+  `salvo_core::round_trip::write_out` prints a checked file back with each
+  call's choices written: `name@module` after the callee (`name@Effect` for
+  an effect member), the inferred type arguments where every one has a
+  source form, and the resolved implicits as `name = fn@module` /
+  `name = member@Effect` before the `)`. `compare` reads the re-checked
+  program's `call_info` at the same calls and requires the same callee,
+  type arguments and implicit fills. `round_trip_tests.rs` runs it over the
+  examples without `[dependencies]` (816 calls written, asserted against a
+  floor of 500 so a printer that stops writing cannot pass vacuously) and
+  over the corpus files the checker accepts (1 of 6).
+- **What its first run found**: the explicit spelling decided differently in
+  three places, each fixed with checker data —
+  1. a binder the arguments carry, **written as well**, was never checked
+     (`fill_one_implicit`'s step 0 returned before reading the named
+     argument): now checked, a different identity refused
+     (`cmp-carry:override-disagrees`, [cmp-carry-override]; built as the
+     recommendation of the new **DECISION P21**, open, ROADMAP 0av);
+     `carry/keys.sv`;
+  2. a **written override was held to plain subtyping**, refusing
+     `copy = copy@std.core.basic` (`(proj T) -> T`) where resolution by name
+     takes it [fn-kept-borrow]: the override strips a parameter's top-level
+     `proj` (the backends already adapt it; `effects` was run on both with
+     the override written). `Mut` still does not fit
+     (`fn_value_across_mut.sv` kept); `implicits/implicits.sv`;
+  3. a **scoped written implicit taught [implicit-infer] nothing**:
+     `iter = iter@main` left `It` unknown and `next = next@main` resolved to
+     `Countdown`'s `next`; `learn_from_implicits_once` reads `name@sel` as
+     `name` among the fns the selector names (a module, or a type's attached
+     fns: `cmp@Person` parses as an effect selector, and both the binder
+     check and the inference read it); `iter_fn/iter_fn.sv`,
+     `carry/heaps.sv`.
+- **Skipped** (no surface spelling; ROADMAP 0av): operators,
+  interpolation, `for`, local and field calls, sends and mints, renamed
+  names, `throw`, forwarded implicits, desugared or stamped spans.
+- **Stage B is complete.** Next is Stage C, C1.
+
 ### 2026-10-28 — Sends and mints choose their targets as calls do (PIPELINE.md B3.7, P20)
 
 - **Decided (user, 2026-10-28)**: a mint ranks the visible `send fn`s of its
@@ -33555,6 +33594,14 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A step that answers early skips the checks after it** (B4,
+  2026-10-28): `fill_one_implicit` tries the carried identity, then the
+  written value, then forwarding, then resolution, returning at the first
+  that answers. The written `name = value` was checked only by step 1, so a
+  carried binder (step 0) left it unchecked and unrecorded: no error, no
+  `fn_refs`, nothing for the LSP. The round trip found it because it reads
+  back what each written value named; a test that only asserts diagnostics
+  could not.
 - **A backend's actor tables repeat the IR's lists** (B3.7, 2026-10-28): the
   resumable send members are computed three times, in the IR builder
   (`ir/build/actors.rs`) and in each backend's `actor_body`/`parking`, all

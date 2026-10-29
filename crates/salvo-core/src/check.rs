@@ -7206,19 +7206,58 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 }
                             };
                             if let Some(own) = own {
+                                // [cmp-carry-override] Written as well, it must
+                                // be the binder itself: any other value is one
+                                // this call cannot show agrees with it.
+                                if let Some(arg) = named.iter().find(|a| a.name.name == imp.name) {
+                                    self.check_expr(&arg.value, Some(&want));
+                                    let same = matches!(&arg.value, Expr::Ident(v) if v.name == own.local);
+                                    if !same {
+                                        self.error(
+                                            arg.span,
+                                            messages::cmp_carry_override_disagrees(&callee, &imp.name, &own.local),
+                                        );
+                                    }
+                                }
                                 return Some((ImplicitArg::Forwarded { name: own.local.clone() }, None));
                             }
                         }
                         FnId::Named { .. } => {
                             match self.resolve_identity(&id, &want) {
                                 Ok((key, _)) => {
+                                    // [cmp-carry-override] (user decision open,
+                                    // PIPELINE §II.10) A value written for a
+                                    // binder the arguments already carry is
+                                    // checked like any override, and must
+                                    // name the same declaration: the
+                                    // structure was built with the carried
+                                    // one, so another would silently break
+                                    // its invariants.
+                                    let nested = std::mem::take(&mut self.last_nested);
+                                    if let Some(arg) = named.iter().find(|a| a.name.name == imp.name) {
+                                        self.check_expr(&arg.value, Some(&want));
+                                        let at = match &arg.value {
+                                            Expr::Ident(v) if self.lookup(&v.name).is_none() => Some(v.span),
+                                            // `cmp@Person`: a type's attached fn
+                                            // [fn-attached] (a member records none).
+                                            Expr::Scoped { base: None, name, .. } | Expr::EffectScoped { base: None, name, .. } => Some(name.span),
+                                            _ => None,
+                                        };
+                                        let written = at.and_then(|s| self.out.fn_refs.get(&self.key(s)).copied());
+                                        if written != Some(key) {
+                                            self.error(
+                                                arg.span,
+                                                messages::cmp_carry_override_disagrees(&callee, &imp.name, &id),
+                                            );
+                                        }
+                                    }
                                     return Some((
                                         ImplicitArg::Resolved {
                                             name: imp.name.clone(),
                                             key,
                                             // [implicit-recursive] Its own implicits
                                             // are filled where it is used.
-                                            nested: std::mem::take(&mut self.last_nested),
+                                            nested,
                                             want: want.clone(),
                                         },
                                         None,
@@ -7244,7 +7283,35 @@ impl<'p, 'r> Checker<'p, 'r> {
             // 1. Written at the call site.
             if let Some(arg) = named.iter().find(|a| a.name.name == imp.name) {
                 let got = self.check_expr(&arg.value, Some(&want));
-                if !got.is_unknown() && !is_subtype(&got, &want) {
+                // The fit resolution uses [implicit-resolve]: a fn reading a
+                // borrow of a parameter fits a position passing it, as when
+                // the same fn is found by name ([fn-kept-borrow]: the
+                // backends adapt the convention) — and nothing else is
+                // relaxed: a difference a backend renders (`Mut`) still does
+                // not fit [fn-erased-variance].
+                let fits = |got: &Ty, want: &Ty| {
+                    let read = match got.strip_quals() {
+                        Ty::Fn { params, ret, contract, effects } => Ty::Fn {
+                            params: params
+                                .iter()
+                                .map(|p| {
+                                    let proj = p.quals().iter().any(|q| crate::types::is_proj_name(&q.name));
+                                    if proj && !matches!(p.strip_quals(), Ty::Union(_)) {
+                                        p.clone().remove_quals(&crate::types::proj_names())
+                                    } else {
+                                        p.clone()
+                                    }
+                                })
+                                .collect(),
+                            ret: ret.clone(),
+                            contract: contract.clone(),
+                            effects: effects.clone(),
+                        },
+                        other => other.clone(),
+                    };
+                    is_subtype(got, want) || is_subtype(&read, want)
+                };
+                if !got.is_unknown() && !fits(&got, &want) {
                     let shown = match &arg.value {
                         Expr::Ident(id) => id.name.clone(),
                         _ => "the value given".to_string(),
@@ -9155,9 +9222,24 @@ impl<'p, 'r> Checker<'p, 'r> {
             // through what was written (`iter = mint_b` binds `It` from
             // `mint_b`, not from the `iter` in scope, ROADMAP §2d item 9c); a
             // written value that is not a fn name teaches nothing here.
+            let mut selected: Option<String> = None;
             let lookup = match named.iter().find(|a| a.name.name == imp.name) {
                 Some(a) => match &a.value {
                     Expr::Ident(id) => id.name.clone(),
+                    // `iter = iter@main` teaches as `iter = iter` does, among
+                    // the fns the selector names [fn-overload-at]
+                    // [fn-attached] (found by the round trip, PIPELINE B4:
+                    // the written-out form inferred less than the original).
+                    Expr::Scoped { base: None, name, module, .. } => {
+                        selected = Some(module.iter().map(|m| m.name.as_str()).collect::<Vec<_>>().join("."));
+                        name.name.clone()
+                    }
+                    // `cmp@Person`, parsed as an effect selector; a member
+                    // teaches nothing here, so only an attached fn can.
+                    Expr::EffectScoped { base: None, name, effect, .. } => {
+                        selected = Some(effect.name.clone());
+                        name.name.clone()
+                    }
                     _ => continue,
                 },
                 None => imp.name.clone(),
@@ -9172,9 +9254,22 @@ impl<'p, 'r> Checker<'p, 'r> {
             // is fns only, and a binder's fill an identity [cmp-carry]; an
             // available effect's member teaches as it fills (R10 D3).
             // Ambiguous or absent teaches nothing.
-            let written = lookup != imp.name;
+            let written = lookup != imp.name || selected.is_some();
             let entries: Vec<ValueCand<'p>> = if written {
-                self.overloads_of(&lookup).into_iter().map(ValueCand::Fn).collect()
+                let mut fns = self.overloads_of(&lookup);
+                if let Some(wanted) = &selected {
+                    // [name-casing] A lowercase selector is a module, a
+                    // capitalized one a type, as where the value is checked.
+                    let is_type = wanted.chars().next().is_some_and(|c| c.is_uppercase());
+                    fns.retain(|e| {
+                        if is_type {
+                            self.attached_to(e.key, e.decl).as_deref() == Some(wanted.as_str())
+                        } else {
+                            ModulePath::text_matches_suffix(&e.module.to_string(), wanted)
+                        }
+                    });
+                }
+                fns.into_iter().map(ValueCand::Fn).collect()
             } else {
                 self.implicit_candidates(&lookup, !imp.binder)
             };

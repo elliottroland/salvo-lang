@@ -84,6 +84,18 @@ fn override_of_the_wrong_type() -> Int {
     return pick(1, 2, cmp = (x: Int) -> x)
 }
 
+// It fits as it would by name: a fn reading a borrow of its parameter fits a
+// position passing that parameter, so `copy = copy@std.core.basic` is what
+// resolution would have filled (found by the round trip, PIPELINE B4: the
+// override was held to plain subtyping, and refused `(proj Str) -> Str`).
+fn duplicate<T>(v: T, ?copy: (v: T) -> T) -> T => v {
+    return copy(v)
+}
+
+fn override_reading_a_borrow() -> Str {
+    return duplicate("a", copy = copy@std.core.basic)
+}
+
 // ===== [implicit-forward] generic code passes its own implicits on =====
 
 // Inside a generic fn nothing about `T` is knowable [call-resolve], so the
