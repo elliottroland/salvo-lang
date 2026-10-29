@@ -493,7 +493,7 @@ A mixed handler is spawn-only (`use` would leave its sends nowhere to arrive). B
 
 ## Two effects, one member name
 
-Different effects may declare the same member name — `close` on a file system and `close` on a network effect is the natural spelling, not a collision. A bare call resolves through whichever effect actually has a handler in scope; when more than one does, the call picks its effect with `@`, the same selector that picks a module's overload:
+Different effects may declare the same member name — `close` on a file system and `close` on a network effect is the natural spelling, not a collision. A bare call sees the members of every effect that has a handler in scope, and the argument types choose among them like any overloads. When two of them take the same arguments, the call picks its effect with `@`, the same selector that picks a module's overload:
 
 ```
 fn shut(h: Int) [Fs] -> Str {
@@ -501,6 +501,7 @@ fn shut(h: Int) [Fs] -> Str {
 }
 
 fn both(h: Int) [Fs, Net] -> None {
+    close(h)                 // ERROR: Fs's and Net's `close(Int)` both fit
     close@Fs(h)              // explicit: the Fs member
     h.close@Net()            // dot form, like any member call
 }
@@ -527,7 +528,7 @@ fn close(p: Lines) [Fs] -> Ok None | Err Checked<FsError> => !p {         // a f
 }
 ```
 
-The argument types decide, ranked exactly as two function overloads are: the more specific signature wins, so a concrete function beats a generic member. Two rules keep it predictable:
+The argument types decide, ranked exactly as two function overloads are: the more specific signature wins, so a concrete function beats a generic member. A member call is an ordinary call in every other way too: its parameters may have defaults, be named at the call, or end in a variadic tail, as a function's may. Two rules keep it predictable:
 
 * **Availability first.** A member is a candidate only where its effect has a handler in scope. Without one, the name is the function — no `@` needed. That is what lets you write a `close` of your own in a program that never opens a file.
 * **A tie is an error.** If both sides fit and neither is more specific, the call must say which it means: `close@Fs(…)` for the member, `close@my.module(…)` for the function. Nothing is preferred silently.

@@ -1,7 +1,8 @@
 // [effect-member-overload] [effect-at] Two effects may declare the same
 // member name (user decision 2026-09-14, lifting the 2026-09-05 ban): a
-// bare call disambiguates by which effect has a handler in scope, and the
-// `member@Effect(…)` selector picks explicitly — including a generic
+// bare call sees the members of the effects with a handler in scope, ranked
+// by the argument types like any overloads, and the `member@Effect(…)`
+// selector picks explicitly — including a generic
 // instance pinned by the call's type arguments
 // (`next_random@Random<Int>()`).
 //
@@ -33,10 +34,11 @@ fn shut(h: Int) [Fs] -> Str {
     return close(h)
 }
 
-// With both effects in scope the bare call is ambiguous, and the error
-// names the selector form ("`close` is a member of `Fs`, `Net`", `close@Fs`).
+// With both effects in scope their members are ranked like overloads
+// (PIPELINE.md B3.5, R10 P4): one signature on both sides is the ordinary
+// ambiguity, naming the selector forms (`close@Fs(...)`, `close@Net(...)`).
 fn both(h: Int) [Fs, Net] -> Str {
-    //~ error[effect-at:ambiguous-member]
+    //~ error[fn-overload-ambiguous:call]
     return close(h)
 }
 
@@ -85,4 +87,21 @@ fn draw() [Random<Int>, Random<Str>, Dice] -> Str {
     let s = next_random@Random<Str>()
     let d = next_random@Dice()
     return "${n}${s}${d}"
+}
+
+//--- two effects ranked by the arguments
+// [effect-member-overload] [fn-overload-rank] Members of two available
+// effects that take different types are one overload set (PIPELINE.md B3.5,
+// census D15): `put(1)` is `Ints`', `put("s")` is `Strs`'. Before, two
+// available owners were refused whatever the arguments.
+effect Ints {
+    fn put(x: Int) -> Str
+}
+
+effect Strs {
+    fn put(x: Str) -> Str => x
+}
+
+fn both() [Ints, Strs] -> Str {
+    return "${put(1)}${put("s")}"
 }

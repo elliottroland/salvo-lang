@@ -1130,6 +1130,17 @@ PIPELINE.md §II.10 P19 is built; these are its recorded leftovers.
   call right; a member call through a field could be misread there (none
   found). Piece 5 or stage C should give them the checker's answer.
 
+### 0at — What one selection for members and fns left (B3.5, 2026-10-28)
+
+- **A member's own generics are not recorded as the call's type arguments**
+  (`call_type_args`, before and after B3.5): the IR's `MemberCall.type_args`
+  is empty, and a *generic* variadic member's tail array lowers at its
+  unsubstituted element type. No std member or test has the shape.
+- **`call-resolve:no-overload` names no candidates**, for fns as before and
+  now for members too, where `effect-member-overload:no-fit` named the
+  effect (`no overload of `Fs.close` takes (Int)`). A candidate list in the
+  message would serve both.
+
 ### 0al — Open defect: `let x: Long? = -1L` miscompiles on Rust (found 2026-10-28, B3.3c)
 
 `let x: Long? = -1L` lowers to `present(-(present(1L)))` (IR): the optional

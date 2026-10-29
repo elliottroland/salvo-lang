@@ -166,6 +166,6 @@ fn next(c: Mut Ctr) -> Emitted Int | Finished => c: Mut {
 }
 
 fn go(c: Mut Ctr) [Gen] -> None => c: Mut {
-    //~ error[effect-available:member-or-fn]
+    //~ error[fn-overload-ambiguous:call]
     for _n in c {}
 }

@@ -144,6 +144,41 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — Effect members are selected as calls (PIPELINE.md B3.5)
+
+- **Under R10 P4 (decided)**: the members of every available effect that
+  declares a name and the fns of it are **one candidate set**, chosen by the
+  call's one rule. Census D15: two available effects' members are ranked by
+  the arguments (`put(1)` beside `Ints.put(Int)` and `Strs.put(Str)`), where
+  two owners were refused. D16: one lead pool types the lambdas; a member
+  leads as the module's own fns do (`Rung::Own`), so it types a lambda over
+  std's fns of its name and neither it nor an own fn types the other's.
+  D17: a member's defaults, named arguments and variadic tail work as a
+  fn's. D25: within one effect the overloads are the same set's candidates
+  (no arity-first pick, no fit test of their own). `m@E(x)` is the same
+  selection over E's members (`Selector::Effect`).
+- **What it took**: `CallCand` (fn or member) through `lead_pool`, the
+  `Viable` loop and `select_overload`; a member's effect generics are
+  seeded from its one visible instance or the written type arguments
+  (`cand_seed`); a member winner goes to `finish_member_call` (instance,
+  coercions, named arguments, contract, implicits). Gone:
+  `route_member_or_fn`, `pick_effect_member`, `fitting_members`,
+  `fitting_fns`, `check_effect_call` and eight messages, whose cases are now
+  the call's (`call-resolve:no-overload`, `fn-overload-ambiguous:call`,
+  `fn-overload-rank:lambda-untyped`). A member's ambiguity remedy names
+  `m@E(…)` and no `rename fn`, which a member cannot take.
+- **What fell out**: nothing in the suite changed behaviour beyond the ids;
+  emitted code is unchanged where calls resolve as before. The IR already
+  lowered a member's defaults and named arguments (`args_for` is
+  callee-generic), so D17 needed only the checker. Leftovers in ROADMAP 0at
+  (a member's own generics are not recorded as call type arguments; the
+  no-overload message lists no candidates). LANGUAGE_SPEC's
+  [effect-available] still described the deleted `fn_over_member_calls`;
+  corrected.
+- Tests: checker data `effect_at/one_selection.sv` and a D15 case in
+  `effect_at/selector.sv`; run data `effects/member_calls_are_calls.sv`
+  (both backends).
+
 ### 2026-10-28 — Member calls and uniform calls (PIPELINE.md B3.4, P19)
 
 - **Decided (user, 2026-10-28), replacing R10 D14**: `x.name(args)` is a

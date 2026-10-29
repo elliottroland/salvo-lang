@@ -130,11 +130,11 @@ effect Same {
 }
 
 fn probe(a: P, b: P) [Same] -> Bool => a, b {
-    //~ error[effect-available:member-or-fn]
+    //~ error[fn-overload-ambiguous:call]
     return a == b
 }
 
 fn call(a: P, b: P) [Same] -> Bool => a, b {
-    //~ error[effect-available:member-or-fn]
+    //~ error[fn-overload-ambiguous:call]
     return eq(a, b)
 }

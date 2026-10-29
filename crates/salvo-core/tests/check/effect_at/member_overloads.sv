@@ -49,11 +49,11 @@ fn shut_both(a: OutFile) [Fs, Net] -> Str => !a {
     return "${code}${msg}"
 }
 
-// [effect-member-overload] An argument no overload takes is an error naming
-// the member and what was passed ("no overload of `Fs.close` takes (Int)") —
-// not a silent pick of the first one [backend-never-wrong].
+// [effect-member-overload] An argument no overload takes is the call's error,
+// naming what was passed ("no matching overload for `close(Int)`") — not a
+// silent pick of the first one [backend-never-wrong].
 fn shut_nothing() [Fs] -> Str {
-    //~ error[effect-member-overload:no-fit]
+    //~ error[call-resolve:no-overload]
     return "${close(7)}"
 }
 

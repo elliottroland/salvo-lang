@@ -118,7 +118,7 @@ handler Mistyping() [Counter] of Mistyped {
     mailbox { capacity: 1 }
 
     send fn go() {
-        //~ error[effect-member-call:arg-mismatch]
+        //~ error[call-resolve:no-overload]
         total(replyto wrong(7))
     }
 

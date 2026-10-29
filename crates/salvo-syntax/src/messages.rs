@@ -2724,29 +2724,8 @@ messages! {
     effect_at_no_member = "effect-at:no-member" (effect: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
         "effect `{effect}` has no member named `{member}`"
     );
-    /// A member call several effects in scope could go through.
-    effect_at_ambiguous_member = "effect-at:ambiguous-member" (name: &dyn std::fmt::Display, owners: &dyn std::fmt::Display, first: &dyn std::fmt::Display) => format!(
-        "`{name}` is a member of {owners} — more than one is in scope, so the call must \
-         pick its effect: `{name}@{first}(…)`"
-    );
 
     // [effect-available]
-    /// A lambda passed where a member and a function of one name both take it.
-    effect_available_lambda_member_or_fn = "effect-available:lambda-member-or-fn" (name: &dyn std::fmt::Display, effect: &dyn std::fmt::Display, why: &dyn std::fmt::Display) => format!(
-        "cannot type this lambda: `{name}` is both a member of `{effect}` and a function, \
-         and {why}; write the lambda's parameter types"
-    );
-    /// A call no member or function of its name accepts.
-    effect_available_no_candidate = "effect-available:no-candidate" (name: &dyn std::fmt::Display, args: &dyn std::fmt::Display, candidates: &dyn std::fmt::Display) => format!(
-        "no `{name}` accepts ({args}): the candidates are {candidates}"
-    );
-    /// A call a member and a function both accept, neither more specific.
-    effect_available_member_or_fn = "effect-available:member-or-fn" (name: &dyn std::fmt::Display, effect: &dyn std::fmt::Display, member_params: &dyn std::fmt::Display, fn_params: &dyn std::fmt::Display, args: &dyn std::fmt::Display, module: &dyn std::fmt::Display) => format!(
-        "ambiguous call to `{name}`: the member `{effect}.{name}({member_params})` and \
-         the function `{name}({fn_params})` both accept ({args}), and neither is more \
-         specific — write `{name}@{effect}(…)` for the member or `{name}@{module}(…)` \
-         for the function"
-    );
     /// A function value whose effect has no handler in scope.
     effect_available_fn_value = "effect-available:fn-value" (want: &dyn std::fmt::Display) => format!(
         "no handler for effect `{want}` in scope, required by this function value \
@@ -2882,14 +2861,6 @@ messages! {
     );
 
     // [effect-member-call]
-    /// A member call with the wrong number of arguments.
-    effect_member_call_arg_count = "effect-member-call:arg-count" (member: &dyn std::fmt::Display, fixed: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
-        "`{member}` takes {fixed} argument(s), found {found}"
-    );
-    /// A member call argument of the wrong type.
-    effect_member_call_arg_mismatch = "effect-member-call:arg-mismatch" (member: &dyn std::fmt::Display, want: &dyn std::fmt::Display, got: &dyn std::fmt::Display) => format!(
-        "`{member}` expects `{want}` here, found `{got}`"
-    );
 
     // [effect-member-no-effects]
     /// Effect dependencies on a member.
@@ -2898,15 +2869,6 @@ messages! {
     );
 
     // [effect-member-overload]
-    /// A member call no overload of the member takes.
-    effect_member_overload_no_fit = "effect-member-overload:no-fit" (effect: &dyn std::fmt::Display, member: &dyn std::fmt::Display, args: &dyn std::fmt::Display) => format!(
-        "no overload of `{effect}.{member}` takes ({args})"
-    );
-    /// A member call several overloads take equally.
-    effect_member_overload_ambiguous = "effect-member-overload:ambiguous" (effect: &dyn std::fmt::Display, member: &dyn std::fmt::Display, args: &dyn std::fmt::Display) => format!(
-        "ambiguous call to `{effect}.{member}`: several overloads take ({args}), and none \
-         is more specific"
-    );
 
     // [effect-member-unique]
     /// Two members of an effect with one name and parameter types.

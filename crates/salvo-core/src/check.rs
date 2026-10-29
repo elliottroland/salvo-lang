@@ -254,25 +254,6 @@ struct RenameBinding<'p> {
     span: Span,
 }
 
-/// [effect-member-overload] The outcome of picking a member overload: the
-/// sole candidate, the one the argument types chose (with those types, so the
-/// caller does not re-check the arguments), or nothing — a reported error.
-enum Picked<'p> {
-    Only(&'p FnDecl),
-    ByArgs(&'p FnDecl, Vec<Ty>),
-    None,
-}
-
-/// [effect-available] Which side of a name's **one overload set** a call
-/// belongs to (user decision 2026-09-14), carrying the argument types typed
-/// while deciding so neither path types them again. `Neither` means a
-/// diagnostic naming both sides has already been reported.
-enum Route {
-    Member(Vec<Ty>),
-    Fn(Vec<Ty>),
-    Neither,
-}
-
 /// [fn-overload-rank] One candidate that *fits* a call: the declaration, the
 /// bindings and coercion targets its match produced, and everything the
 /// selection needs — the ranking view of its parameters, and the rung of the
@@ -291,6 +272,82 @@ struct Viable<'p> {
     /// [comptime-hygiene] Whether it is only visible as a stamped body's
     /// fallback to its template's file.
     template: bool,
+    /// [effect-member-overload] The effect whose member this is, for a member
+    /// candidate (`key` is then `None`): members and fns are one set
+    /// (PIPELINE.md B3.5).
+    effect: Option<&'p EffectDecl>,
+}
+
+/// [fn-overload] [effect-member-overload] A candidate for a call by name: a
+/// declared fn, or a member of an effect, ranked as **one set** by one rule
+/// (R10 P4, PIPELINE.md B3.5): members compete with fns, and with each other
+/// across effects.
+#[derive(Clone)]
+enum CallCand<'p> {
+    Fn(crate::resolve::FnEntry<'p>),
+    Member {
+        effect: &'p EffectDecl,
+        decl: &'p FnDecl,
+        /// The one visible instance of the effect, when there is one: its type
+        /// arguments are the effect's generics at this call. With several, the
+        /// arguments choose after selection [effect-disambiguation].
+        instance: Option<Ty>,
+    },
+}
+
+impl<'p> CallCand<'p> {
+    fn decl(&self) -> &'p FnDecl {
+        match self {
+            CallCand::Fn(e) => e.decl,
+            CallCand::Member { decl, .. } => decl,
+        }
+    }
+
+    fn key(&self) -> Option<DeclId> {
+        match self {
+            CallCand::Fn(e) => Some(e.key),
+            CallCand::Member { .. } => None,
+        }
+    }
+
+    fn effect(&self) -> Option<&'p EffectDecl> {
+        match self {
+            CallCand::Fn(_) => None,
+            CallCand::Member { effect, .. } => Some(effect),
+        }
+    }
+
+    /// [fn-overload-scope] A member leads a call on the footing of the
+    /// module's own fns: neither types the other's lambdas by scope.
+    fn rung(&self) -> crate::resolve::Rung {
+        match self {
+            CallCand::Fn(e) => e.rung,
+            CallCand::Member { .. } => crate::resolve::Rung::Own,
+        }
+    }
+
+    /// Where it comes from, as diagnostics and the `name@…` remedy name it: a
+    /// fn's module, a member's effect.
+    fn origin(&self) -> String {
+        match self {
+            CallCand::Fn(e) => e.module.to_string(),
+            CallCand::Member { effect, .. } => effect.name.name.clone(),
+        }
+    }
+
+    fn is_template(&self) -> bool {
+        matches!(self, CallCand::Fn(e) if e.rung == crate::resolve::Rung::Template)
+    }
+
+    /// The type variables the call infers: the fn's generics, or a member's
+    /// with its effect's.
+    fn generic_names(&self) -> HashSet<String> {
+        let mut out: HashSet<String> = self.decl().generics.iter().map(|g| g.name.clone()).collect();
+        if let CallCand::Member { effect, .. } = self {
+            out.extend(effect.generics.iter().map(|g| g.name.clone()));
+        }
+        out
+    }
 }
 
 /// What an `@` on a call or a fn value selects.
@@ -310,6 +367,8 @@ struct Viable<'p> {
 enum Selector<'p> {
     Module(&'p [ast::Ident]),
     Type(&'p ast::Ident),
+    /// [effect-at] `m@E(x)`: that effect's members alone compete.
+    Effect(&'p EffectDecl),
 }
 
 impl<'p> Selector<'p> {
@@ -322,6 +381,7 @@ impl<'p> Selector<'p> {
                 .collect::<Vec<_>>()
                 .join("."),
             Selector::Type(t) => t.name.clone(),
+            Selector::Effect(e) => e.name.name.clone(),
         }
     }
 
@@ -335,7 +395,7 @@ impl<'p> Selector<'p> {
                 // [node-id] Keyed as its first segment's node.
                 Some(Span { end: last.span.end, ..first.span })
             }
-            Selector::Type(_) => None,
+            Selector::Type(_) | Selector::Effect(_) => None,
         }
     }
 }
@@ -7932,6 +7992,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     Selector::Type(_) => {
                         self.attached_to(e.key, e.decl).as_deref() == Some(wanted.as_str())
                     }
+                    // A member is not a declaration a value names this way.
+                    Selector::Effect(_) => false,
                 })
                 .collect();
             // [mod-suffix] A suffix fitting two modules is refused, as at a call.
@@ -7959,7 +8021,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     name_span,
                     match sel {
                         Selector::Module(_) => messages::fn_overload_at_no_fn_in_module(&name, &wanted),
-                        Selector::Type(_) => messages::fn_attached_no_fn_on_type(&name, &wanted),
+                        Selector::Type(_) | Selector::Effect(_) => messages::fn_attached_no_fn_on_type(&name, &wanted),
                     },
                 );
                 return Ty::Unknown;
@@ -8310,6 +8372,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                             self.attached_to(k, viable[i].decl).as_deref()
                                 == Some(wanted.as_str())
                         }),
+                    // [effect-at] Only that effect's members.
+                    Selector::Effect(e) => viable[i].effect.is_some_and(|ve| std::ptr::eq(ve, e)),
                 })
                 .collect();
             // [mod-suffix] A suffix that fits two modules is refused rather than
@@ -8355,6 +8419,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         span,
                         messages::fn_attached_no_fit_on_type(&name, &wanted, &shown_args()),
                     ),
+                    Selector::Effect(_) => self.error(span, messages::effect_at_no_member(&wanted, &name)),
                 }
                 return None;
             }
@@ -8469,16 +8534,25 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Several places, one name: naming the place is the remedy.
         // One place with several unrankable overloads: only a name of
         // its own can separate them.
+        // [effect-member-overload] A member has no `rename fn`: the selector
+        // naming its effect is the way to it.
+        let member = pool.iter().any(|&i| viable[i].effect.is_some());
         let remedy = if places.len() > 1 {
             let forms: Vec<String> = places
                 .iter()
                 .map(|m| format!("`{name}@{m}(...)`"))
                 .collect();
-            format!(
-                "Name the one you mean — {} — or narrow an argument, or give \
-                 one its own name with `rename fn <new> = {name}(...)`",
-                forms.join(" or ")
-            )
+            if member {
+                format!("Name the one you mean — {} — or narrow an argument", forms.join(" or "))
+            } else {
+                format!(
+                    "Name the one you mean — {} — or narrow an argument, or give \
+                     one its own name with `rename fn <new> = {name}(...)`",
+                    forms.join(" or ")
+                )
+            }
+        } else if member {
+            "Narrow an argument".to_string()
         } else {
             format!(
                 "Narrow an argument, or give one overload its own name with \
@@ -8498,7 +8572,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut classes: Vec<(Vec<String>, Vec<usize>)> = Vec::new();
         for &i in pool {
             let d = viable[i].decl;
-            let generics: Vec<&str> = d.generics.iter().map(|g| g.name.as_str()).collect();
+            let effect_generics = viable[i].effect.map(|e| e.generics.as_slice()).unwrap_or_default();
+            let generics: Vec<&str> = d.generics.iter().chain(effect_generics).map(|g| g.name.as_str()).collect();
             let sig = crate::refine::param_type_signature(&d.params, &generics);
             match classes.iter_mut().find(|(s, _)| *s == sig) {
                 Some((_, members)) => members.push(i),
@@ -8512,9 +8587,15 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// under its generics, with what the arguments bound substituted.
     fn candidate_return(&mut self, v: &Viable<'p>) -> Ty {
         let saved = self.enter_generics(&v.decl.generics);
+        if let Some(e) = v.effect {
+            self.enter_generics(&e.generics);
+        }
         let ret = v.decl.return_type.as_ref().map(|t| self.lower_type(t)).unwrap_or_else(Ty::none);
         self.generics = saved;
-        let generics: HashSet<String> = v.decl.generics.iter().map(|g| g.name.clone()).collect();
+        let mut generics: HashSet<String> = v.decl.generics.iter().map(|g| g.name.clone()).collect();
+        if let Some(e) = v.effect {
+            generics.extend(e.generics.iter().map(|g| g.name.clone()));
+        }
         substitute_vars(&ret, &v.subst, &generics)
     }
 
@@ -8707,195 +8788,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         })
     }
 
-    /// [effect-available] Where a name's **one overload set** sends a call
-    /// (user decision 2026-09-14): an effect member of an available effect,
-    /// or an ordinary fn. The arguments are typed here, once, and handed to
-    /// whichever path runs.
-    fn route_member_or_fn(
-        &mut self,
-        name: &str,
-        effect: &'p EffectDecl,
-        members: &[&'p FnDecl],
-        fn_cands: &[crate::resolve::FnEntry<'p>],
-        args: &[&'p Expr],
-        // [implicit-resolve-body] [op-equality] Arguments the caller already
-        // typed (a call that fell through an implicit, an operator).
-        pre_typed: Option<Vec<Ty>>,
-        span: Span,
-    ) -> Route {
-        // Typed without expected types: the lead-candidate machinery belongs
-        // to the fn path and cannot run before the side is known.
-        //
-        // [effect-available] [type-unknown-lenient] Except a lambda with an
-        // unwritten parameter type, which nothing else could type: it takes
-        // the type every candidate declares at its position when they all
-        // declare the same one, and is refused otherwise — a lambda left
-        // `Unknown` here was checker-clean and refused by both target
-        // compilers (B1 census D16, 2026-10-27). Ranking members and fns as
-        // one candidate set, with a lead candidate, is P4's.
-        //
-        // [type-lit-numeric] Except a numeric literal, which adopts the one numeric
-        // type both sides name at its position, as on the fn path: a `Path`
-        // overload of `open_read_at(Str, Long)` must not turn `5` into a
-        // mismatch (found 2026-10-04).
-        let mut position_tys: Vec<Vec<Ty>> = Vec::new();
-        for decl in members.iter().copied().chain(fn_cands.iter().map(|e| e.decl)) {
-            position_tys.push(self.declared_param_tys(decl));
-        }
-        let arg_tys: Vec<Ty> = match pre_typed {
-            Some(tys) => tys,
-            None => args
-            .iter()
-            .enumerate()
-            .map(|(i, a)| {
-                let want = match a {
-                    Expr::Lambda { params, .. } if params.iter().any(|p| p.ty.is_none()) => {
-                        let mut at: Vec<&Ty> = position_tys.iter().filter_map(|tys| tys.get(i)).collect();
-                        at.dedup_by(|x, y| x == y);
-                        let agreed = at.iter().all(|t| *t == at[0]);
-                        match at.first() {
-                            Some(t) if agreed && !crate::types::mentions_var(t) => Some((*t).clone()),
-                            Some(t) => {
-                                let why = if agreed {
-                                    format!("their parameter at this position is generic (`{t}`)")
-                                } else {
-                                    let mut s: Vec<String> = at.iter().map(|t| format!("`{t}`")).collect();
-                                    s.sort();
-                                    s.dedup();
-                                    format!("their parameters at this position do not agree ({})", s.join(", "))
-                                };
-                                self.error(
-                                    a.span(),
-                                    messages::effect_available_lambda_member_or_fn(
-                                        &name,
-                                        &effect.name.name,
-                                        &why,
-                                    ),
-                                );
-                                None
-                            }
-                            None => None,
-                        }
-                    }
-                    Expr::Int { long: false, .. } | Expr::Float { single: false, .. } => {
-                        let float = matches!(a, Expr::Float { .. });
-                        let own = if float { "Double" } else { "Int" };
-                        let mut names: Vec<String> = Vec::new();
-                        for tys in &position_tys {
-                            if let Some(Ty::Named { name, args }) = tys.get(i) {
-                                if args.is_empty()
-                                    && matches!(name.as_str(), "Int" | "Long" | "Float" | "Double" | "Byte")
-                                    && !names.contains(name)
-                                {
-                                    names.push(name.clone());
-                                }
-                            }
-                        }
-                        match names.as_slice() {
-                            [one] if one != own => Some(Ty::named(one)),
-                            _ => None,
-                        }
-                    }
-                    _ => None,
-                };
-                self.check_expr(a, want.as_ref())
-            })
-            .collect(),
-        };
-        let m = self.fitting_members(effect, members, &arg_tys);
-        let f = self.fitting_fns(fn_cands, &arg_tys);
-        let shown = |tys: &[Ty]| -> String {
-            tys.iter()
-                .map(|t| t.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-        match (m.is_empty(), f.is_empty()) {
-            // Neither side accepts the arguments: one diagnostic listing
-            // both, since to the caller they are one name.
-            (true, true) => {
-                let mut sigs: Vec<String> = Vec::new();
-                for decl in members {
-                    sigs.push(format!(
-                        "`{}.{name}({})`",
-                        effect.name.name,
-                        shown(&self.declared_param_tys(decl))
-                    ));
-                }
-                for entry in fn_cands {
-                    sigs.push(format!(
-                        "`{name}({})`",
-                        shown(&self.declared_param_tys(entry.decl))
-                    ));
-                }
-                self.error(
-                    span,
-                    messages::effect_available_no_candidate(
-                        &name,
-                        &shown(&arg_tys),
-                        &sigs.join(", "),
-                    ),
-                );
-                Route::Neither
-            }
-            (false, true) => Route::Member(arg_tys),
-            (true, false) => Route::Fn(arg_tys),
-            // Both fit: the more specific signature wins, exactly as two fn
-            // overloads settle it [fn-overload-rank]. Each side's own best
-            // stands for it — an internally ambiguous side reports that
-            // itself, on the path it belongs to.
-            (false, false) => {
-                let m_ranks: Vec<crate::types::RankedCandidate> =
-                    m.iter().map(|(_, r)| r.clone()).collect();
-                let f_ranks: Vec<crate::types::RankedCandidate> =
-                    f.iter().map(|(_, r)| r.clone()).collect();
-                let mb = crate::types::most_specific(&m_ranks).unwrap_or(0);
-                let fb = crate::types::most_specific(&f_ranks).unwrap_or(0);
-                let pair = vec![m_ranks[mb].clone(), f_ranks[fb].clone()];
-                match crate::types::most_specific(&pair) {
-                    Some(0) => Route::Member(arg_tys),
-                    Some(_) => Route::Fn(arg_tys),
-                    // [type-unknown-lenient] An argument nothing could type
-                    // (a refused lambda) fits both sides: no second
-                    // diagnostic.
-                    None if arg_tys.iter().any(ty_mentions_unknown) => Route::Member(arg_tys),
-                    None => {
-                        let module = fn_cands[f[fb].0].module;
-                        self.error(
-                            span,
-                            messages::effect_available_member_or_fn(
-                                &name,
-                                &effect.name.name,
-                                &shown(&m_ranks[mb].patterns),
-                                &shown(&f_ranks[fb].patterns),
-                                &shown(&arg_tys),
-                                &module,
-                            ),
-                        );
-                        // Recover as the member: that is what the call meant
-                        // before the two competed, so the rest of the check
-                        // sees the same types it used to.
-                        Route::Member(arg_tys)
-                    }
-                }
-            }
-        }
-    }
-
-    /// The declared parameter types of a fn or member, for a diagnostic that
-    /// has no fitting patterns to show.
-    fn declared_param_tys(&mut self, decl: &'p FnDecl) -> Vec<Ty> {
-        let saved = self.enter_generics(&decl.generics);
-        let tys: Vec<Ty> = decl
-            .params
-            .iter()
-            .filter(|p| !p.variadic && !p.implicit)
-            .map(|p| self.lower_type(&p.ty))
-            .collect();
-        self.generics = saved;
-        tys
-    }
-
     /// [fn-param-default] Whether a call's shape can fill a candidate's fixed
     /// parameters: `n_pos` positional arguments fill the leading params,
     /// `named` names fill params by name, and any parameter left over must
@@ -8925,101 +8817,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         true
     }
 
-    /// [effect-available] [fn-overload-rank] Which fn overloads of a name
-    /// accept `arg_tys`, with the patterns compared — the fn side of the
-    /// member-versus-fn comparison, and deliberately the *same* test the fn
-    /// path itself applies (`arg_fits_param`, the callee's contract for
-    /// `kept`, `unify` for generics), so a call is never routed to a path
-    /// that then reports "no overload" for something that fits.
-    ///
-    /// Returned as (index into `candidates`, patterns). Selection proper —
-    /// rungs, variadic collection, projection diagnostics — stays in the fn
-    /// path: this answers only "does this side have a candidate, and how
-    /// specific is its best one".
-    fn fitting_fns(
-        &mut self,
-        candidates: &[crate::resolve::FnEntry<'p>],
-        arg_tys: &[Ty],
-    ) -> Vec<(usize, crate::types::RankedCandidate)> {
-        let mut viable: Vec<(usize, crate::types::RankedCandidate)> = Vec::new();
-        for (i, entry) in candidates.iter().enumerate() {
-            let decl = entry.decl;
-            let fixed: Vec<&Param> = decl
-                .params
-                .iter()
-                .filter(|p| !p.variadic && !p.implicit)
-                .collect();
-            let variadic = decl.params.iter().find(|p| p.variadic);
-            // [fn-param-default] Positionally, the parameters left after the
-            // arguments must all have defaults. (This member-vs-fn comparison
-            // sees only positional types; named defaults are handled on the
-            // fn path.)
-            let arity_ok = if variadic.is_some() {
-                arg_tys.len() >= fixed.len()
-            } else {
-                arg_tys.len() <= fixed.len()
-                    && fixed.iter().skip(arg_tys.len()).all(|p| p.default.is_some())
-            };
-            if !arity_ok {
-                continue;
-            }
-            let saved = self.enter_generics(&decl.generics);
-            let mut patterns: Vec<Ty> = Vec::with_capacity(arg_tys.len());
-            for i in 0..arg_tys.len() {
-                if i < fixed.len() {
-                    patterns.push(self.lower_type(&fixed[i].ty));
-                } else if let Some(vp) = variadic {
-                    let arr = self.lower_type(&vp.ty);
-                    patterns.push(match &arr {
-                        Ty::Array(e) => (**e).clone(),
-                        _ => arr.clone(),
-                    });
-                }
-            }
-            self.generics = saved;
-            let callee_generics: HashSet<String> =
-                decl.generics.iter().map(|g| g.name.clone()).collect();
-            let mut subst: HashMap<String, Ty> = HashMap::new();
-            if !patterns
-                .iter()
-                .zip(arg_tys)
-                .all(|(p, a)| unify(p, a, &mut subst))
-            {
-                continue;
-            }
-            let contract = self.effective_contract(Some(entry.key), decl);
-            let mut fits = true;
-            for (slot, pattern) in patterns.iter().enumerate() {
-                // [type-union-spread] The marker's job ends at unification; the
-                // assignability check sees the ordinary union it stands for.
-                let sp = substitute_vars(pattern, &subst, &callee_generics).strip_spread();
-                let kept = contract
-                    .as_ref()
-                    .and_then(|c| {
-                        let pname = fixed.get(slot).map(|fp| fp.name.name.as_str());
-                        c.iter()
-                            .find(|d| Some(d.param.as_str()) == pname)
-                            .map(|d| d.kept)
-                    })
-                    .unwrap_or(true);
-                if !self.arg_fits_param(&arg_tys[slot], &sp, kept) {
-                    fits = false;
-                    break;
-                }
-            }
-            if fits {
-                viable.push((
-                    i,
-                    crate::types::RankedCandidate {
-                        patterns,
-                        variadic: variadic.is_some() && arg_tys.len() >= fixed.len(),
-                    },
-                ));
-            }
-        }
-        viable
-    }
-
     /// [fn-overload-rank] The pool of candidates that may *lead* a
     /// call — provide the expected types its arguments are checked against.
     ///
@@ -9031,13 +8828,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// help produce.
     fn lead_pool(
         &mut self,
-        candidates: &[crate::resolve::FnEntry<'p>],
+        candidates: &[CallCand<'p>],
         arity: usize,
         type_args: &'p [ast::Type],
     ) -> Vec<LeadCandidate> {
         let mut pool: Vec<LeadCandidate> = Vec::new();
-        for (i, entry) in candidates.iter().enumerate() {
-            let decl = entry.decl;
+        for (i, cand) in candidates.iter().enumerate() {
+            let decl = cand.decl();
             let fixed: Vec<&Param> = decl
                 .params
                 .iter()
@@ -9050,27 +8847,72 @@ impl<'p, 'r> Checker<'p, 'r> {
             {
                 continue;
             }
-            let saved = self.enter_generics(&decl.generics);
+            let saved = self.enter_cand_generics(cand);
             let patterns: Vec<Ty> = fixed.iter().map(|p| self.lower_type(&p.ty)).collect();
-            // Explicit type arguments pin the substitution from the start.
-            let mut subst: HashMap<String, Ty> = HashMap::new();
-            for (g, ta) in decl.generics.iter().zip(type_args) {
-                let lowered = self.lower_type(ta);
-                subst.insert(g.name.clone(), lowered);
-            }
             self.generics = saved;
+            // Explicit type arguments pin the substitution from the start, and
+            // a member's instance its effect's generics.
+            let subst = self.cand_seed(cand, type_args);
             pool.push(LeadCandidate {
                 index: i,
                 rank: crate::types::RankedCandidate {
                     patterns,
                     variadic: false,
                 },
-                rung: entry.rung,
-                generics: decl.generics.iter().map(|g| g.name.clone()).collect(),
+                rung: cand.rung(),
+                generics: cand.generic_names(),
                 subst,
             });
         }
         pool
+    }
+
+    /// [effect-member-generics] Enters a candidate's type variables for
+    /// lowering its signature: a member's effect's generics as well as its
+    /// own. Answers what to restore.
+    fn enter_cand_generics(&mut self, cand: &CallCand<'p>) -> HashSet<String> {
+        let saved = self.enter_generics(&cand.decl().generics);
+        if let Some(e) = cand.effect() {
+            self.enter_generics(&e.generics);
+        }
+        saved
+    }
+
+    /// [call-type-args] [effect-disambiguation] What a candidate's
+    /// substitution starts from: a fn's explicit type arguments pin its
+    /// generics; a member's pin its **effect's** (they name the instance,
+    /// `next_random@Random<Int>()`), and with none written the one visible
+    /// instance does.
+    fn cand_seed(&mut self, cand: &CallCand<'p>, type_args: &'p [ast::Type]) -> HashMap<String, Ty> {
+        let targs: Vec<Ty> = type_args.iter().map(|t| self.lower_type(t)).collect();
+        match cand {
+            CallCand::Fn(e) => e.decl.generics.iter().map(|g| g.name.clone()).zip(targs).collect(),
+            CallCand::Member { effect, instance, .. } => {
+                if !targs.is_empty() {
+                    return effect.generics.iter().map(|g| g.name.clone()).zip(targs).collect();
+                }
+                match instance {
+                    Some(Ty::Named { args, .. }) => effect.generics.iter().map(|g| g.name.clone()).zip(args.iter().cloned()).collect(),
+                    _ => HashMap::new(),
+                }
+            }
+        }
+    }
+
+    /// [effect-member-overload] A member of `effect` as a call candidate,
+    /// with the effect's instance when exactly one is visible.
+    fn member_cand(&self, effect: &'p EffectDecl, decl: &'p FnDecl) -> CallCand<'p> {
+        let key = self.symbols.key_or(effect, &effect.name.name);
+        let instances: Vec<Ty> = self
+            .visible_effects()
+            .into_iter()
+            .filter(|t| matches!(t, Ty::Named { name, .. } if *name == key))
+            .collect();
+        let instance = match instances.as_slice() {
+            [one] => Some(one.clone()),
+            _ => None,
+        };
+        CallCand::Member { effect, decl, instance }
     }
 
     /// [fn-overload-rank] Which pool entry leads: the only one, or the
@@ -15031,10 +14873,14 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `throw(message)` [throw]. Not an ordinary effect-member call: there
     /// is no handler to resolve — the delimiter is `try` — and the result
     /// is the bottom type, so the code after it never runs.
-    fn check_throw_call(&mut self, member: &'p FnDecl, args: &[&'p Expr], span: Span) -> Ty {
+    fn check_throw_call(&mut self, member: &'p FnDecl, args: &[&'p Expr], typed: Option<&[Ty]>, span: Span) -> Ty {
         let message = match args.first() {
             Some(a) => {
-                let ty = self.check_expr(a, None);
+                // Typed already when the call was selected among overloads.
+                let ty = match typed.and_then(|t| t.first()) {
+                    Some(t) => t.clone(),
+                    None => self.check_expr(a, None),
+                };
                 // The message is moved into the outcome, like the value
                 // passed to `err` [deduce-consume].
                 self.fate_move(a, "throw with", span);
@@ -15045,8 +14891,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Ty::Unknown
             }
         };
-        for extra in args.iter().skip(1) {
-            self.check_expr(extra, None);
+        if typed.is_none() {
+            for extra in args.iter().skip(1) {
+                self.check_expr(extra, None);
+            }
         }
         self.record_throw(span, message, true);
         Ty::Never
@@ -29312,8 +29160,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return Ty::Unknown;
             }
             self.record_def_ref(name.span, &name.name);
-            return self.check_effect_call(
-                decl, &members, type_args, &all_args, named, expected, None, span,
+            // [effect-member-overload] The call's own selection, over that
+            // effect's members alone.
+            return self.resolve_named_call(
+                &name.name,
+                name.span,
+                type_args,
+                &all_args,
+                named,
+                expected,
+                Some(Selector::Effect(decl)),
+                span,
             );
         }
 
@@ -29835,138 +29692,86 @@ impl<'p, 'r> Checker<'p, 'r> {
         // takes them as they are instead of typing the arguments twice.
         // [implicit-resolve-body] A call that fell through an implicit of its
         // name arrives with its arguments typed.
-        let mut pre_typed: Option<Vec<Ty>> = self.pending_arg_tys.take();
+        let pre_typed: Option<Vec<Ty>> = self.pending_arg_tys.take();
         // [iter-for] Typed arguments with no expressions of their own.
         let typed_only = std::mem::take(&mut self.pending_typed_only);
-        // 1. Effect member call: resolve which effect instance in scope
-        // provides it (validating availability and disambiguating generic
-        // effects). [effect-member-overload] Several effects may declare
-        // the member name: the one with an instance available wins; two
-        // available (or none) is an error naming the `member@Effect(…)`
-        // form [effect-at].
+        // 1. The candidates [fn-overload] [effect-member-overload]: the
+        // visible fns of the name and the members of the available effects
+        // declaring it, as **one set** ranked by one rule (R10 P4, PIPELINE.md
+        // B3.5): a member competes with the fns and with the members of other
+        // effects, and a tie is the ordinary ambiguity, whose remedies name
+        // the place (`m@E(…)`, `m@module(…)`).
         //
-        // [effect-available] A written `@module` selector names a *module's
-        // overloads*, which no member ever is, so it skips this block whole:
-        // that is how a fn shadowed by a member is called by hand.
-        if let Some(members) = self.effect_members_here(name).filter(|_| at.is_none()) {
-            // [effect-available] **Availability decides first** (2026-09-14):
-            // a member call needs an instance, so a name that is *also* an
-            // ordinary fn is that fn wherever no handler is in scope — and
-            // `@` is not needed to say so. Without this rule std's `Fs`
-            // claimed `close`, `write`, `read_line` and `position`
-            // program-wide, and a program with a `close` of its own stopped
-            // compiling the moment the module existed, whether or not it
-            // opened a file. The multi-owner branch below already read
-            // availability this way; this is the single-owner case of the
-            // same rule.
-            let any_available = members.iter().any(|(e, _)| {
-                self.effect_env
-                    .iter()
-                    .any(|t| matches!(&t.ty, Ty::Named { name: n, .. } if *n == self.symbols.key_or(*e, &e.name.name)))
-            });
-            if !any_available && !self.overloads_of(name).is_empty() {
-                // Fall through to the fn overloads below [effect-available].
-            } else {
-            // [lsp-definition] members are not keyed by their `DeclId`; the def-site table
-            // carries their declaration span. A `for` names no member.
-            if self.for_site.is_none() {
-                self.record_def_ref(name_span, name);
-            }
-            // [effect-member-overload] One candidate per *effect*: within one
-            // effect the name may be overloaded, and those entries are one
-            // choice, made by the argument types further down — not an
-            // ambiguity between effects.
-            let mut owners_of: Vec<&'p ast::EffectDecl> = Vec::new();
-            for (e, _) in &members {
-                if !owners_of.iter().any(|o| o.name.name == e.name.name) {
-                    owners_of.push(e);
+        // [effect-available] A `@module` or `@Type` selector names
+        // declarations, which a member never is, so it sees no members: that
+        // is how a fn shadowed by a member is called by hand. `m@E(…)` names
+        // that effect's members alone.
+        let effect_sel = match at {
+            Some(Selector::Effect(e)) => Some(e),
+            _ => None,
+        };
+        let mut member_cands: Vec<CallCand<'p>> = Vec::new();
+        if let Some(e) = effect_sel {
+            for f in crate::effect_members_named(e, name) {
+                if !self.shape_refused(f) {
+                    member_cands.push(self.member_cand(e, f));
                 }
             }
-            let effect = if owners_of.len() == 1 {
-                owners_of[0]
-            } else {
-                let available: Vec<&'p ast::EffectDecl> = owners_of
+        } else if at.is_none() {
+            if let Some(members) = self.effect_members_here(name) {
+                // [effect-available] **Availability decides first**
+                // (2026-09-14): a member call needs an instance, so only the
+                // members of an effect with one in scope are candidates — a
+                // name that is also an ordinary fn is that fn wherever no
+                // handler is in scope. Without this rule std's `Fs` claimed
+                // `close`, `write`, `read_line` and `position` program-wide.
+                let mut owners: Vec<&'p ast::EffectDecl> = Vec::new();
+                for (e, _) in &members {
+                    if !owners.iter().any(|o| std::ptr::eq(*o, *e)) {
+                        owners.push(e);
+                    }
+                }
+                let available: Vec<&'p ast::EffectDecl> = owners
                     .iter()
-                    .filter(|e| {
-                        self.effect_env.iter().any(
-                            |t| matches!(&t.ty, Ty::Named { name: n, .. } if *n == self.symbols.key_or(**e, &e.name.name)),
-                        )
-                    })
                     .copied()
+                    .filter(|e| {
+                        let key = self.symbols.key_or(*e, &e.name.name);
+                        self.effect_env.iter().any(|t| matches!(&t.ty, Ty::Named { name: n, .. } if *n == key))
+                    })
                     .collect();
-                let owners = || {
-                    owners_of
-                        .iter()
-                        .map(|e| format!("`{}`", e.name.name))
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                let chosen: Vec<&'p ast::EffectDecl> = if !available.is_empty() {
+                    available
+                } else if !self.overloads_of(name).is_empty() {
+                    Vec::new()
+                } else if owners.len() == 1 {
+                    // No fn of the name: the one effect's members, whose call
+                    // then reports the missing handler (or the self-dispatch
+                    // it would be inside a handler of that effect).
+                    owners
+                } else {
+                    if pre_typed.is_none() {
+                        for a in args {
+                            self.check_expr(a, None);
+                        }
+                    }
+                    let shown = owners.iter().map(|e| format!("`{}`", e.name.name)).collect::<Vec<_>>().join(", ");
+                    self.error(span, messages::effect_available_member_no_handler(&name, &shown));
+                    return Ty::Unknown;
                 };
-                match available.as_slice() {
-                    [one] => *one,
-                    [] => {
-                        if pre_typed.is_none() {
-                            for a in args {
-                                self.check_expr(a, None);
-                            }
-                        }
-                        self.error(
-                            span,
-                            messages::effect_available_member_no_handler(&name, &owners()),
-                        );
-                        return Ty::Unknown;
-                    }
-                    more => {
-                        let first = more[0].name.name.as_str();
-                        if pre_typed.is_none() {
-                            for a in args {
-                                self.check_expr(a, None);
-                            }
-                        }
-                        self.error(
-                            span,
-                            messages::effect_at_ambiguous_member(&name, &owners(), &first),
-                        );
-                        return Ty::Unknown;
+                for (e, f) in members {
+                    if chosen.iter().any(|c| std::ptr::eq(*c, e)) && !self.shape_refused(f) {
+                        member_cands.push(self.member_cand(e, f));
                     }
                 }
-            };
-            // [effect-member-overload] The effect is chosen; its overloads of
-            // this name are what the argument types choose between.
-            let overloads: Vec<&'p FnDecl> =
-                crate::effect_members_named(effect, name).into_iter().filter(|f| !self.shape_refused(f)).collect();
-            // [effect-available] **One overload set** (user decision
-            // 2026-09-14): where the name is *also* a fn, both sides compete
-            // and the more specific signature wins. Only the colliding case
-            // takes this route — with candidates on one side only, that
-            // side's path runs exactly as it always did.
-            let fn_cands = self.overloads_of(name);
-            if fn_cands.is_empty() {
-                self.pending_typed_only = typed_only;
-                return self.check_effect_call(
-                    effect, &overloads, type_args, args, named, expected, pre_typed.take(), span,
-                );
             }
-            match self.route_member_or_fn(name, effect, &overloads, &fn_cands, args, pre_typed.take(), span) {
-                Route::Member(arg_tys) => {
-                    self.pending_typed_only = typed_only;
-                    return self.check_effect_call(
-                        effect,
-                        &overloads,
-                        type_args,
-                        args,
-                        named,
-                        expected,
-                        Some(arg_tys),
-                        span,
-                    );
-                }
-                Route::Fn(arg_tys) => {
-                    // The fn side won: fall through, with the types already
-                    // in hand [effect-available].
-                    pre_typed = Some(arg_tys);
-                }
-                Route::Neither => return Ty::Unknown,
-            }
+        }
+        // [throw] `throw(m)` has no handler and no overloads to rank: the
+        // delimiter is `try`, so its operation resolves through its own path.
+        if let [CallCand::Member { effect, decl, .. }] = member_cands.as_slice() {
+            if effect.name.name == THROW_EFFECT && (effect_sel.is_some() || self.overloads_of(name).is_empty()) {
+                let (effect, decl) = (*effect, *decl);
+                self.record_member_call(effect, decl, span);
+                return self.check_throw_call(decl, args, pre_typed.as_deref(), span);
             }
         }
 
@@ -29975,7 +29780,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [fn-rename] The overloads that still answer to this name — a
         // renamed one answers only to its new name — and, when the name *is*
         // a rename, exactly the overload it points at.
-        let candidates: Vec<crate::resolve::FnEntry<'p>> = self.overloads_of(name);
+        let fn_entries: Vec<crate::resolve::FnEntry<'p>> =
+            if effect_sel.is_some() { Vec::new() } else { self.overloads_of(name) };
+        let candidates: Vec<CallCand<'p>> = fn_entries.into_iter().map(CallCand::Fn).chain(member_cands).collect();
         if self.renamed(name).is_some() {
             if at.is_some() {
                 self.error(span, messages::fn_rename_at_on_renamed(&name));
@@ -30039,11 +29846,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // (`map(xs.iter(), n -> n * 2)` reported as
         // `map(Iter<Int>, (T) -> T)`). The same progressive rule effect
         // member generics already use [effect-member-generics].
-        // [effect-available] Already typed, because this name's member and fn
-        // candidates were ranked as one overload set: type them again and
-        // every argument is checked twice and every mistake reported twice.
-        // A colliding call therefore has no lead candidate and no expected
-        // types — the recorded cut on that rule.
+        // A call that arrives with its arguments typed (through an implicit
+        // of its name, an operator, a `for`) has no lead: typing them again
+        // would report every mistake twice.
         let mut pool: Vec<LeadCandidate> = if pre_typed.is_some() {
             Vec::new()
         } else {
@@ -30064,7 +29869,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // from resolving `iter` at `(It) -> Iter<T>` with `It`
                     // already bound by `xs`, and without it the lambda is
                     // typed against an unbound `T`.
-                    let key = Some(candidates[pool[pi].index].key);
+                    let key = candidates[pool[pi].index].key();
                     let mut subst = std::mem::take(&mut pool[pi].subst);
                     let generics = pool[pi].generics.clone();
                     self.extend_subst_from_implicits(key, &generics, &mut subst, named);
@@ -30229,7 +30034,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut proj_blocked: Vec<(String, String, usize, ProjBlock)> = Vec::new();
         let mut consumed_blocked: Option<String> = None;
         for entry in &candidates {
-            let (key, decl) = (entry.key, entry.decl);
+            let (key, decl) = (entry.key(), entry.decl());
             // [implicit-param] Implicits are never passed positionally, so
             // they take no part in arity or ranking.
             let fixed: Vec<&Param> = decl
@@ -30264,7 +30069,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             {
                 continue;
             }
-            let saved = self.enter_generics(&decl.generics);
+            let saved = self.enter_cand_generics(entry);
             // Pattern types for each argument slot.
             let mut patterns: Vec<Ty> = Vec::with_capacity(args.len());
             for (i, _) in args.iter().enumerate() {
@@ -30320,7 +30125,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 })
                 .collect();
             let arg_tys = &lit_tys;
-            let mut subst = HashMap::new();
+            // [effect-disambiguation] A member's effect generics start from its
+            // instance (or the written type arguments), so an argument is
+            // checked against the effect it will be sent to.
+            let mut subst = match entry {
+                CallCand::Member { .. } => self.cand_seed(entry, type_args),
+                CallCand::Fn(_) => HashMap::new(),
+            };
             let ok = patterns
                 .iter()
                 .zip(arg_tys)
@@ -30335,12 +30146,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 continue;
             }
-            let callee_generics: HashSet<String> =
-                decl.generics.iter().map(|g| g.name.clone()).collect();
+            let callee_generics: HashSet<String> = entry.generic_names();
             // Explicit type args pin the substitution.
-            for (g, ta) in decl.generics.iter().zip(type_args) {
-                let lowered = self.lower_type(ta);
-                subst.insert(g.name.clone(), lowered);
+            if let CallCand::Fn(_) = entry {
+                for (g, ta) in decl.generics.iter().zip(type_args) {
+                    let lowered = self.lower_type(ta);
+                    subst.insert(g.name.clone(), lowered);
+                }
             }
             let mut pairings = Vec::new();
             let mut assignable = true;
@@ -30349,7 +30161,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // borrow of an owned value is a borrow); a consumed or `Mut`
             // position needs the owned value, and a projection *inside* the
             // type (a union arm, a type argument) must match exactly.
-            let contract = self.effective_contract(Some(key), decl);
+            let contract = self.effective_contract(key, decl);
             for (i, p) in patterns.iter().enumerate() {
                 // [type-union-spread] The `...T` marker guides call-site union
                 // matching (above); the assignability check sees the plain
@@ -30414,7 +30226,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // equal, a fixed list wins.
             let collects_variadic = variadic.is_some() && args.len() >= fixed.len();
             viable.push(Viable {
-                key: Some(key),
+                key,
                 decl,
                 subst,
                 pairings,
@@ -30422,8 +30234,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     patterns,
                     variadic: collects_variadic,
                 },
-                module: entry.module.to_string(),
-                template: entry.rung == crate::resolve::Rung::Template,
+                module: entry.origin(),
+                template: entry.is_template(),
+                effect: entry.effect(),
             });
         }
 
@@ -30491,7 +30304,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .position(|a| matches!(a, Expr::Spread { .. }))
                 .is_some_and(|at| {
                     candidates.iter().any(|c| {
-                        c.decl
+                        c.decl()
                             .params
                             .iter()
                             .filter(|p| !p.variadic && !p.implicit)
@@ -30513,6 +30326,17 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Ty::Unknown;
         };
         let best = &viable[best_idx];
+        // [effect-member-overload] A member won: the call is a dispatch
+        // through its effect's instance.
+        if let Some(effect) = best.effect {
+            let (member, subst) = (best.decl, best.subst.clone());
+            if self.for_site.is_none() {
+                self.record_def_ref(name_span, name);
+            }
+            return self.finish_member_call(
+                effect, member, subst, type_args, args, &arg_tys, named, expected, typed_only, span,
+            );
+        }
         if let Some(key) = best.key {
             self.out.call_fn.insert(self.key(span), key);
             // The callee name resolves to this declaration [fn-ref-table]. An
@@ -31667,271 +31491,89 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [effect-member-overload] [effect-available] Which of `members` accept
-    /// `arg_tys`, with the patterns that were compared — the ranking material
-    /// for both the within-effect overload choice and the member-versus-fn
-    /// comparison, so the two cannot disagree about what fits.
-    ///
-    /// Returned as (index into `members`, patterns).
-    fn fitting_members(
-        &mut self,
-        effect: &'p EffectDecl,
-        members: &[&'p FnDecl],
-        arg_tys: &[Ty],
-    ) -> Vec<(usize, crate::types::RankedCandidate)> {
-        let saved = self.enter_generics(&effect.generics);
-        let mut viable: Vec<(usize, crate::types::RankedCandidate)> = Vec::new();
-        for (i, f) in members.iter().enumerate() {
-            let inner = self.enter_generics(&f.generics);
-            let patterns: Vec<Ty> = f
-                .params
-                .iter()
-                .filter(|p| !p.variadic && !p.implicit)
-                .map(|p| self.lower_type(&p.ty))
-                .collect();
-            self.generics = inner;
-            let generic_set: HashSet<String> = effect
-                .generics
-                .iter()
-                .chain(&f.generics)
-                .map(|g| g.name.clone())
-                .collect();
-            let fits = patterns.len() == arg_tys.len()
-                && patterns.iter().zip(arg_tys).all(|(p, a)| {
-                    let mut subst: HashMap<String, Ty> = HashMap::new();
-                    a.is_unknown()
-                        || is_subtype(a, p)
-                        || (!generic_set.is_empty() && unify(p, a, &mut subst))
-                });
-            if fits {
-                viable.push((
-                    i,
-                    crate::types::RankedCandidate {
-                        patterns,
-                        variadic: false,
-                    },
-                ));
-            }
+    /// [effect-member-overload] [effect-dispatch] Records that the call at
+    /// `span` dispatches to `member` of `effect`, and which overload it is
+    /// where the effect declares the name more than once — the emitters name
+    /// an overloaded member positionally.
+    fn record_member_call(&mut self, effect: &'p EffectDecl, member: &'p FnDecl, span: Span) {
+        let Some(index) = crate::effect_member_index(effect, member) else { return };
+        if crate::effect_members_named(effect, &member.name.name).len() > 1 {
+            self.out.effect_member_calls.insert(self.key(span), index);
         }
-        self.generics = saved;
-        viable
+        let key = self.symbols.key_or(effect, &effect.name.name).to_string();
+        self.out.member_calls.insert(self.key(span), MemberCall { effect: key, index });
     }
 
-    /// [effect-member-overload] Picks the overload a member call means, out
-    /// of every member of `effect` with that name.
-    ///
-    /// Arity first, then — only when that leaves a choice — the argument
-    /// types, ranked by the same specificity order function overloads use
-    /// [fn-overload-rank]. The arguments are typed *once* here and handed
-    /// back, so nothing is checked twice and one mistake still gets one
-    /// diagnostic.
-    fn pick_effect_member(
-        &mut self,
-        effect: &'p EffectDecl,
-        members: &[&'p FnDecl],
-        args: &[&'p Expr],
-        // [effect-available] The argument types, when the caller has already
-        // computed them — which it has whenever a name's member and fn
-        // candidates were ranked as one set. Typing them again would check
-        // every argument twice and report every mistake twice.
-        pre_typed: Option<Vec<Ty>>,
-        span: Span,
-    ) -> Picked<'p> {
-        match members {
-            [] => return Picked::None,
-            [only] => {
-                return match pre_typed {
-                    Some(tys) => Picked::ByArgs(only, tys),
-                    None => Picked::Only(only),
-                }
-            }
-            _ => {}
-        }
-        let fixed = |f: &FnDecl| -> usize {
-            f.params.iter().filter(|p| !p.variadic && !p.implicit).count()
-        };
-        let by_arity: Vec<&'p FnDecl> = members
-            .iter()
-            .copied()
-            .filter(|f| {
-                f.params.iter().any(|p| p.variadic) && args.len() >= fixed(f)
-                    || fixed(f) == args.len()
-            })
-            .collect();
-        if let [only] = by_arity.as_slice() {
-            return match pre_typed {
-                Some(tys) => Picked::ByArgs(only, tys),
-                None => Picked::Only(only),
-            };
-        }
-        let pool: Vec<&'p FnDecl> = if by_arity.is_empty() {
-            members.to_vec()
-        } else {
-            by_arity
-        };
-        let arg_tys: Vec<Ty> = match pre_typed {
-            Some(tys) => tys,
-            None => args.iter().map(|a| self.check_expr(a, None)).collect(),
-        };
-        let viable = self.fitting_members(effect, &pool, &arg_tys);
-        let shown = || -> String {
-            arg_tys
-                .iter()
-                .map(|t| t.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
-        match viable.len() {
-            1 => Picked::ByArgs(pool[viable[0].0], arg_tys),
-            0 => {
-                self.error(
-                    span,
-                    messages::effect_member_overload_no_fit(
-                        &effect.name.name,
-                        &members[0].name.name,
-                        &shown(),
-                    ),
-                );
-                Picked::None
-            }
-            _ => {
-                let ranks: Vec<crate::types::RankedCandidate> =
-                    viable.iter().map(|(_, r)| r.clone()).collect();
-                match crate::types::most_specific(&ranks) {
-                    Some(best) => Picked::ByArgs(pool[viable[best].0], arg_tys),
-                    None => {
-                        self.error(
-                            span,
-                            messages::effect_member_overload_ambiguous(
-                                &effect.name.name,
-                                &members[0].name.name,
-                                &shown(),
-                            ),
-                        );
-                        Picked::ByArgs(pool[viable[0].0], arg_tys)
-                    }
-                }
-            }
-        }
-    }
-
-    /// Checks a call to an effect member fn. The providing effect instance
-    /// must be available (declared in the caller's effect list or `use`d)
-    /// [effect-available]; generic effects are disambiguated by explicit
-    /// type arguments, the argument types, and the expected type, in that
-    /// order [effect-disambiguation].
-    ///
-    /// [effect-member-overload] `members` is every member of `effect` with
-    /// the called name — several when the effect *overloads* it
-    /// (`close(InStream)` / `close(OutStream)`). The overload is picked here,
-    /// before the instance is resolved, since the signature is what the rest
-    /// of the check runs on.
+    /// [effect-member-call] A call whose selection chose an effect's member
+    /// (PIPELINE.md B3.5: one candidate set with the fns, so the fit, the
+    /// arity with defaults and named arguments [fn-param-default], and the
+    /// ranking are the call's). What is left is the member's own: the
+    /// instance it dispatches through — available, and disambiguated among
+    /// several by the argument types and the expected type
+    /// [effect-available] [effect-disambiguation] — its contract, its
+    /// implicits, and the result at the instance. `subst` is the winner's.
     #[allow(clippy::too_many_arguments)]
-    fn check_effect_call(
+    fn finish_member_call(
         &mut self,
         effect: &'p EffectDecl,
-        members: &[&'p FnDecl],
+        member: &'p FnDecl,
+        subst: HashMap<String, Ty>,
         type_args: &'p [ast::Type],
         args: &[&'p Expr],
+        arg_tys: &[Ty],
         named: &'p [ast::NamedArg],
         expected: Option<&Ty>,
-        // [effect-available] Argument types the caller already computed,
-        // because it ranked this effect's members against same-named fns as
-        // one overload set.
-        pre_typed: Option<Vec<Ty>>,
+        // [iter-for] Typed arguments with no expressions of their own.
+        typed_only: bool,
         span: Span,
     ) -> Ty {
-        // Argument types when they had to be computed early — for picking an
-        // overload here, or for disambiguating instances below. Recorded once
-        // so the arguments are never checked twice.
-        let mut typed_args: Option<Vec<Ty>> = None;
-        // [iter-for] Typed arguments with no expressions of their own.
-        let typed_only = std::mem::take(&mut self.pending_typed_only);
-        let member: &'p FnDecl = match self.pick_effect_member(effect, members, args, pre_typed, span) {
-            Picked::Only(m) => m,
-            Picked::ByArgs(m, arg_tys) => {
-                typed_args = Some(arg_tys);
-                m
-            }
-            Picked::None => return Ty::Unknown,
-        };
-        // [effect-member-overload] Which overload the call resolved to, for
-        // the emitters: they name an overloaded member positionally, and a
-        // name-keyed guess would pick the wrong one.
-        if members.len() > 1 {
-            if let Some(idx) = crate::effect_member_index(effect, member) {
-                self.out.effect_member_calls.insert(self.key(span), idx);
-            }
-        }
-        if let Some(index) = crate::effect_member_index(effect, member) {
-            let key = self.symbols.key_or(effect, &effect.name.name).to_string();
-            self.out.member_calls.insert(self.key(span), MemberCall { effect: key, index });
-        }
-        // [throw] The throw effect has no handler: the delimiter is `try`,
-        // so its operation resolves through its own path.
+        self.record_member_call(effect, member, span);
+        // [throw] The throw effect has no handler: the delimiter is `try`.
         if effect.name.name == THROW_EFFECT {
-            return self.check_throw_call(member, args, span);
+            return self.check_throw_call(member, args, Some(arg_tys), span);
         }
         // The member's signature, lowered with the effect's generics as
-        // `Var`s — and the member's *own* generics too
-        // [effect-member-generics]: they bind per call from the argument
-        // types (explicit type args keep their [effect-disambiguation]
-        // meaning: they pin the effect instance, not member generics).
+        // `Var`s and the member's own [effect-member-generics].
         let saved = self.enter_generics(&effect.generics);
         self.enter_generics(&member.generics);
-        let member_params: Vec<Ty> = member
-            .params
-            .iter()
-            .map(|p| self.lower_type(&p.ty))
-            .collect();
-        let member_ret: Ty = member
-            .return_type
-            .as_ref()
-            .map(|t| self.lower_type(t))
-            .unwrap_or_else(Ty::none);
-        // [implicit-param] Collected here, with the effect's and the member's
-        // generics still in scope, so `?fmt: (T) -> Str` lowers to a variable
-        // rather than a nominal `T`.
+        let member_params: Vec<Ty> = member.params.iter().map(|p| self.lower_type(&p.ty)).collect();
+        let member_ret: Ty = member.return_type.as_ref().map(|t| self.lower_type(t)).unwrap_or_else(Ty::none);
+        // [implicit-param] Collected with the generics in scope, so
+        // `?fmt: (T) -> Str` lowers to a variable rather than a nominal `T`.
         let member_implicits = self.collect_implicits(member);
         self.generics = saved;
-        let generic_set: HashSet<String> = effect
-            .generics
-            .iter()
-            .chain(&member.generics)
-            .map(|g| g.name.clone())
-            .collect();
+        let generic_set: HashSet<String> =
+            effect.generics.iter().chain(&member.generics).map(|g| g.name.clone()).collect();
         let subst_for = |instance: &Ty| -> HashMap<String, Ty> {
             match instance {
-                Ty::Named { args, .. } => effect
-                    .generics
-                    .iter()
-                    .map(|g| g.name.clone())
-                    .zip(args.iter().cloned())
-                    .collect(),
+                Ty::Named { args, .. } => {
+                    effect.generics.iter().map(|g| g.name.clone()).zip(args.iter().cloned()).collect()
+                }
                 _ => HashMap::new(),
             }
         };
-
+        // The positional parameters, which the arguments line up with.
+        let positional: Vec<usize> = member
+            .params
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| !p.implicit && !p.variadic)
+            .map(|(i, _)| i)
+            .collect();
+        let effect_key = self.symbols.key_or(effect, &effect.name.name).to_string();
         // Instances of this effect currently available — innermost first,
         // with a shadowed registration hidden by the one that shadows it
         // [effect-use-no-dup], so interception does not read as ambiguity.
         let candidates: Vec<Ty> = self
             .visible_effects()
             .into_iter()
-            .filter(|t| matches!(t, Ty::Named { name, .. } if *name == self.symbols.key_or(effect, &effect.name.name)))
+            .filter(|t| matches!(t, Ty::Named { name, .. } if *name == effect_key))
             .collect();
-
         let resolved: Option<Ty> = if !type_args.is_empty() {
             // Explicit type arguments pin the instance.
             let targs: Vec<Ty> = type_args.iter().map(|t| self.lower_type(t)).collect();
-            let want = Ty::Named {
-                name: self.symbols.key_of(effect).unwrap_or(&effect.name.name).to_string(),
-                args: targs,
-            };
-            if candidates
-                .iter()
-                .any(|c| *c == want || unify(c, &want, &mut HashMap::new()))
-            {
+            let want = Ty::Named { name: effect_key.clone(), args: targs };
+            if candidates.iter().any(|c| *c == want || unify(c, &want, &mut HashMap::new())) {
                 Some(want)
             } else {
                 self.error(span, messages::effect_available_no_handler(&want));
@@ -31940,71 +31582,17 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else if candidates.len() == 1 {
             Some(candidates[0].clone())
         } else if candidates.is_empty() {
-            // [effect-handler-deps] Inside a handler member, "no handler for
-            // its own effect" is not a missing registration: it is
-            // *self-dispatch*, which does not exist yet. Neither remedy the
-            // general diagnostic names is even available here — a member may
-            // not declare effects [effect-member-no-effects] and may not
-            // `use` — and declaring the effect as a dependency would bind
-            // outward to the handler registered before this one
-            // [effect-intercept], not to this one. Recorded as a gap in
-            // ROADMAP.md.
-            let own = self.handler_ofs.iter().find(
-                |of| matches!(of.strip_quals(), Ty::Named { name, .. } if *name == self.symbols.key_or(effect, &effect.name.name)),
-            ).cloned();
-            match own {
-                Some(of) => {
-                    // [actor-self-send] For a **send** member the remedy now
-                    // exists: `self.k(…)`, a message to this actor, which
-                    // runs as its own later activation. For a member that
-                    // answers, self-dispatch is still nothing a handler can
-                    // do.
-                    let remedy = if member.is_send {
-                        format!(
-                            "send it to this actor instead: `{}@self(…)`, which runs \
-                             as its own later activation",
-                            member.name.name
-                        )
-                    } else {
-                        "Move the shared logic into a function both members call"
-                            .to_string()
-                    };
-                    self.error(
-                        span,
-                        messages::effect_available_own_effect(&member.name.name, &of, &remedy),
-                    )
-                }
-                // [actor-mixed-handler] A façade member reaching for one of the
-                // handler's dependencies: they are the servant's, so the
-                // remedy is a send, not a declaration.
-                None if self.facade_handler.is_some_and(|h| {
-                    let ekey = self.symbols.key_or(effect, &effect.name.name);
-                    self.out.handler_deps.get(self.symbols.key_or(h, &h.name.name)).is_some_and(|deps| {
-                        deps.iter().any(|(t, _)| matches!(t.strip_quals(), Ty::Named { name, .. } if *name == ekey))
-                    })
-                }) => self.error(
-                    span,
-                    messages::actor_mixed_handler_sync_member_dependency(
-                        &member.name.name,
-                        &effect.name.name,
-                    ),
-                ),
-                None => self.error(span, messages::effect_available_no_handler(&effect.name.name)),
-            }
+            self.report_member_without_instance(effect, member, &effect_key, span);
             None
         } else {
             // Multiple instances in scope: disambiguate by the argument
             // types, then by the expected type.
-            let arg_tys: Vec<Ty> = match typed_args.clone() {
-                Some(tys) if typed_only => tys,
-                _ => args.iter().map(|a| self.check_expr(a, None)).collect(),
-            };
             let viable: Vec<Ty> = candidates
                 .iter()
                 .filter(|c| {
                     let mut subst = subst_for(c);
-                    member_params.iter().zip(&arg_tys).all(|(p, a)| {
-                        let sp = substitute_vars(p, &subst, &generic_set);
+                    positional.iter().zip(arg_tys).all(|(&pi, a)| {
+                        let sp = substitute_vars(&member_params[pi], &subst, &generic_set);
                         unify(&sp, a, &mut subst)
                     })
                 })
@@ -32015,8 +31603,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let by_ret: Vec<Ty> = viable
                         .iter()
                         .filter(|c| {
-                            let subst = subst_for(c);
-                            let sr = substitute_vars(&member_ret, &subst, &generic_set);
+                            let sr = substitute_vars(&member_ret, &subst_for(c), &generic_set);
                             sr.is_unknown() || is_subtype(&sr, exp)
                         })
                         .cloned()
@@ -32029,71 +31616,66 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 _ => viable.clone(),
             };
-            typed_args = Some(arg_tys);
             match narrowed.len() {
                 1 => Some(narrowed[0].clone()),
                 0 => {
-                    self.error(
-                        span,
-                        messages::effect_available_no_handler_matches(&effect.name.name),
-                    );
+                    self.error(span, messages::effect_available_no_handler_matches(&effect.name.name));
                     None
                 }
                 _ => {
                     self.error(
                         span,
-                        messages::effect_disambiguation_ambiguous(
-                            &effect.name.name,
-                            &member.name.name,
-                        ),
+                        messages::effect_disambiguation_ambiguous(&effect.name.name, &member.name.name),
                     );
                     Some(narrowed[0].clone())
                 }
             }
         };
-
-        let mut subst = resolved.as_ref().map(&subst_for).unwrap_or_default();
-        match typed_args.clone() {
-            Some(arg_tys) => {
-                // Args already typed: bind the member's own generics from
-                // them [effect-member-generics], then record coercions
-                // against the fully substituted param types.
-                for (p, a) in member_params.iter().zip(&arg_tys) {
-                    unify(p, a, &mut subst);
-                }
-                for (i, p) in member_params.iter().enumerate().take(arg_tys.len()).filter(|_| !typed_only) {
-                    let sp = substitute_vars(p, &subst, &generic_set);
-                    let logical = arg_tys[i].clone();
-                    let repr = self.repr_of(args[i], &logical);
-                    self.maybe_coerce(args[i].span(), &logical, &repr, &sp);
-                    // [type-none-unit] As for a fn call: a `None`-typed slot
-                    // takes the unit value.
-                    self.note_none_unit(args[i], &sp);
-                }
+        // The instance binds the effect's generics; what the arguments bound
+        // stands for the member's own.
+        let mut subst = {
+            let mut s = resolved.as_ref().map(&subst_for).unwrap_or_default();
+            for (k, v) in subst {
+                s.entry(k).or_insert(v);
             }
-            None => {
-                for (i, a) in args.iter().enumerate() {
-                    match member_params.get(i) {
-                        Some(p) => {
-                            let sp = substitute_vars(p, &subst, &generic_set);
-                            let ty = self.check_expr(a, Some(&sp));
-                            // Progressively bind the member's own generics
-                            // [effect-member-generics]: later params and
-                            // the return type see earlier bindings.
-                            unify(p, &ty, &mut subst);
-                        }
-                        None => {
-                            self.check_expr(a, None);
-                        }
-                    }
+            s
+        };
+        for (i, &pi) in positional.iter().enumerate() {
+            let Some(a) = arg_tys.get(i) else { break };
+            unify(&member_params[pi], a, &mut subst);
+        }
+        // Coercions against the fully substituted parameter types: the fixed
+        // positions, then a variadic tail's elements.
+        if !typed_only {
+            let tail_elem: Option<Ty> = member.params.iter().position(|p| p.variadic).map(|vi| {
+                match substitute_vars(&member_params[vi], &subst, &generic_set) {
+                    Ty::Array(e) => *e,
+                    other => other,
                 }
+            });
+            for (i, a) in args.iter().enumerate() {
+                let Some(logical) = arg_tys.get(i).cloned() else { break };
+                if matches!(a, Expr::Spread { .. }) {
+                    continue;
+                }
+                let sp = match positional.get(i) {
+                    Some(&pi) => substitute_vars(&member_params[pi], &subst, &generic_set),
+                    None => match &tail_elem {
+                        Some(t) => t.clone(),
+                        None => continue,
+                    },
+                };
+                let repr = self.repr_of(a, &logical);
+                self.maybe_coerce(a.span(), &logical, &repr, &sp);
+                // [type-none-unit] As for a fn call: a `None`-typed slot
+                // takes the unit value.
+                self.note_none_unit(a, &sp);
             }
         }
         // [linear-generics] The instantiation ban reaches effect members'
-        // *own* generics too (the hole closed 2026-09-12): a member
-        // `log<T>(x: T)` binding `T` to a linear type would swallow the
-        // obligation — no handler body is checked under a worst-case
-        // linear `T` unless the member opts in with `<T canbe linear>`.
+        // *own* generics too: a member `log<T>(x: T)` binding `T` to a linear
+        // type would swallow the obligation unless it opts in with
+        // `<T canbe linear>`.
         let opted: HashSet<&str> = member
             .generic_canbe
             .iter()
@@ -32110,81 +31692,28 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if self.ty_own_linear(bound) {
                     self.error(
                         span,
-                        messages::linear_generics_effect_member_not_opted(
-                            &var_name,
-                            &member.name.name,
-                            &bound,
-                        ),
+                        messages::linear_generics_effect_member_not_opted(&var_name, &member.name.name, &bound),
                     );
                     break;
                 }
             }
         }
-        // [effect-member-call] A member call is checked against its declared
-        // parameters like any other call — arity and types. It used to be
-        // checked against *neither*: the member's type only flowed in as an
-        // expected type, so `log(true)` on `fn log(message: Str)` was
-        // accepted, and the argument reached the handler's implementation as
-        // whatever it was.
-        //
-        // Members do not overload [effect-member-unique], so there is nothing
-        // to select and nothing to rank — the name identifies one signature,
-        // and these are plain mismatch diagnostics.
-        {
-            // [implicit-param] Implicits are never passed positionally, and a
-            // variadic tail takes what is left — the same arity rule a fn call
-            // uses [fn-variadic].
-            let positional: Vec<usize> = member
-                .params
-                .iter()
-                .enumerate()
-                .filter(|(_, p)| !p.implicit && !p.variadic)
-                .map(|(i, _)| i)
-                .collect();
-            let variadic = member.params.iter().any(|p| p.variadic);
-            let fixed = positional.len();
-            let arity_ok = if variadic {
-                args.len() >= fixed
-            } else {
-                args.len() == fixed
-            };
-            if !arity_ok {
-                self.error(
-                    span,
-                    messages::effect_member_call_arg_count(&member.name.name, &fixed, &args.len()),
-                );
-            }
-            for (i, a) in args.iter().enumerate() {
-                let Some(p) = positional.get(i).and_then(|&pi| member_params.get(pi)) else {
-                    continue;
-                };
-                let want = substitute_vars(p, &subst, &generic_set);
-                let got = match &typed_args {
-                    Some(tys) if typed_only => tys.get(i).cloned().unwrap_or(Ty::Unknown),
-                    _ => self.out.ty_of(self.file_idx, a.span()).cloned().unwrap_or(Ty::Unknown),
-                };
-                // [proj-opt-slot] A member's kept position reads its argument,
-                // as a fn's does: the fit is the one overloads use.
-                let pname = positional.get(i).and_then(|&pi| member.params.get(pi)).map(|p| p.name.name.as_str());
-                let kept = member.deductions.as_ref().is_none_or(|list| {
-                    crate::deduce::from_written(member, list, &HashSet::new(), |_, _| {})
-                        .iter()
-                        .find(|d| Some(d.param.as_str()) == pname)
-                        .is_none_or(|d| d.kept)
-                });
-                if !self.arg_fits_param(&got, &want, kept) {
-                    self.error(
-                        a.span(),
-                        messages::effect_member_call_arg_mismatch(&member.name.name, &want, &got),
-                    );
+        // [fn-param-default] A named argument filling an ordinary parameter:
+        // checked against it, as at a fn call, so the IR reads its type.
+        let fixed_names: HashSet<String> =
+            positional.iter().map(|&pi| member.params[pi].name.name.clone()).collect();
+        for a in named {
+            if let Some(&pi) = positional.iter().find(|&&pi| member.params[pi].name.name == a.name.name) {
+                if member.params[pi].default.is_none() {
+                    self.error(a.span, messages::fn_param_default_named_without_default(&a.name.name));
                 }
+                let want = substitute_vars(&member_params[pi], &subst, &generic_set).strip_spread();
+                self.check_expr(&a.value, Some(&want));
             }
         }
         // [decl-explicit] The member's declared deduction list is a real
         // contract: apply it exactly like a named call's, so a member that
-        // takes ownership consumes its argument. (Validating each
-        // *handler* body against the member's contract is the E1-adjacent
-        // follow-up; the declaration is trusted here.)
+        // takes ownership consumes its argument.
         if let Some(list) = member.deductions.as_ref().filter(|_| !typed_only) {
             let facts = crate::deduce::from_written(member, list, &HashSet::new(), |_, _| {});
             let contract: Vec<FnParamContract> = member
@@ -32196,9 +31725,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     FnParamContract {
                         name: Some(p.name.name.clone()),
                         kept: entry.map(|d| d.kept).unwrap_or(true),
-                        effect: entry
-                            .map(|d| d.effect.clone())
-                            .unwrap_or(QualEffect::KeepAll),
+                        effect: entry.map(|d| d.effect.clone()).unwrap_or(QualEffect::KeepAll),
                         mutable: pty.quals().iter().any(|q| q.name == "Mut"),
                         lent: entry.is_some_and(|d| d.lent),
                     }
@@ -32211,13 +31738,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // kept parameter.
         if member.derived_return.is_none()
             && !typed_only
-            && member
-                .return_type
-                .as_ref()
-                .is_some_and(|t| crate::lends::holds_proj(t, &self.scope.structs))
+            && member.return_type.as_ref().is_some_and(|t| crate::lends::holds_proj(t, &self.scope.structs))
         {
-            let lent = crate::lends::declared_lends(member)
-                .unwrap_or_else(|| crate::lends::kept_params(member));
+            let lent = crate::lends::declared_lends(member).unwrap_or_else(|| crate::lends::kept_params(member));
             if !lent.is_empty() {
                 self.out.lending_calls.insert(self.key(span), lent);
             }
@@ -32228,22 +31751,55 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.note_effect_use(&instance);
             self.out.effect_calls.insert(self.key(span), instance);
         }
-        // [implicit-param] An effect member is an ordinary signature, so it
-        // may declare implicit parameters: they resolve at *this* call, with
-        // the effect instance's type arguments substituted in, and the
-        // handler receives them as trailing arguments like any caller would.
+        // [implicit-param] An effect member may declare implicit parameters:
+        // they resolve at *this* call, with the instance's type arguments
+        // substituted in, and the handler receives them as trailing arguments.
         if !member_implicits.is_empty() {
             let mut filled_subst = subst.clone();
-            self.fill_implicits(
-                &member_implicits,
-                &member.name.name,
-                &mut filled_subst,
-                &generic_set,
-                named,
-                span,
-            );
+            self.call_fixed_params = fixed_names;
+            self.fill_implicits(&member_implicits, &member.name.name, &mut filled_subst, &generic_set, named, span);
+            self.call_fixed_params = HashSet::new();
         }
         substitute_vars(&member_ret, &subst, &generic_set)
+    }
+
+    /// [effect-available] A member call with no instance of its effect in
+    /// scope, reported for what it is: inside a handler of that effect,
+    /// self-dispatch (whose remedy, for a send member, is `k@self(…)`); in a
+    /// façade member, one of the servant's dependencies; otherwise a missing
+    /// handler.
+    fn report_member_without_instance(&mut self, effect: &'p EffectDecl, member: &'p FnDecl, effect_key: &str, span: Span) {
+        let own = self
+            .handler_ofs
+            .iter()
+            .find(|of| matches!(of.strip_quals(), Ty::Named { name, .. } if *name == effect_key))
+            .cloned();
+        match own {
+            Some(of) => {
+                let remedy = if member.is_send {
+                    format!(
+                        "send it to this actor instead: `{}@self(…)`, which runs as its own later \
+                         activation",
+                        member.name.name
+                    )
+                } else {
+                    "Move the shared logic into a function both members call".to_string()
+                };
+                self.error(span, messages::effect_available_own_effect(&member.name.name, &of, &remedy))
+            }
+            None if self.facade_handler.is_some_and(|h| {
+                self.out.handler_deps.get(self.symbols.key_or(h, &h.name.name)).is_some_and(|deps| {
+                    deps.iter().any(|(t, _)| matches!(t.strip_quals(), Ty::Named { name, .. } if *name == effect_key))
+                })
+            }) =>
+            {
+                self.error(
+                    span,
+                    messages::actor_mixed_handler_sync_member_dependency(&member.name.name, &effect.name.name),
+                )
+            }
+            None => self.error(span, messages::effect_available_no_handler(&effect.name.name)),
+        }
     }
 }
 

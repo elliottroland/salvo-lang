@@ -3169,8 +3169,9 @@ Conventions:
     ambiguity: the pool is deduped by declaration before ranking.
   * The rungs above the overload set are unchanged, and they *shadow* rather
     than compete: a fn-typed local, parameter or implicit **is** the function
-    the caller chose, an effect member takes the name before any fn does
-    [effect-member-overload], and a rename introduces a fresh name. `@` is the
+    the caller chose, and a rename introduces a fresh name. An available
+    effect's member is not one of them: it is a candidate of the overload set
+    [effect-member-overload] (R10 P4, built 2026-10-28). `@` is the
     way to reach a fn a local shadows [fn-overload-at]. For an implicit
     position the same two shadow: the override written at the call
     [implicit-override] and the enclosing fn's implicit [implicit-forward].
@@ -3395,14 +3396,18 @@ Conventions:
     passed by name (`takes(eq)` for a stamped generic `eq` was refused); and
     by-name selection compared the claim-less type while the chosen value
     carried the claim.
-* [effect-member-call] An effect member call is checked against its declared
-  parameters like any other call — arity and types. Both selections happen
-  *before* this: which **effect**, by availability or `@Effect`, and which
-  **overload** within it, by the argument types
-  [effect-member-overload] [effect-at] — so by here the signature is fixed and
-  these are plain mismatch diagnostics. (Until 2026-09-07 the member's
-  parameter types only flowed in as *expected* types, so `log(true)` on
-  `fn log(message: Str)` was accepted.)
+* [effect-member-call] An effect member call is a call: it is selected and
+  checked by the call's rule (PIPELINE.md B3.5, census D17 and D25,
+  2026-10-28) — the fit [fn-overload-rank], arity with defaults and named
+  arguments [fn-param-default], a variadic tail [fn-variadic], literal
+  adoption, the lead candidate typing its lambdas — and a member no argument
+  list fits is the call's `call-resolve:no-overload`. What is a member's own
+  comes after the selection (`finish_member_call`): the instance it
+  dispatches through [effect-available] [effect-disambiguation], its written
+  contract, its implicits. (Until 2026-09-07 the member's parameter types
+  only flowed in as *expected* types, so `log(true)` on `fn log(message:
+  Str)` was accepted; until 2026-10-28 a member checked its own exact arity,
+  so `log("hi")` against `fn log(msg: Str, level: Int = 1)` was refused.)
 * [call-type-args] A generic call's type arguments must be **determined**.
   In order: an explicit list (`Mut List<Int>()`) pins them; otherwise
   the arguments bind them by unification; otherwise the **expected type**
@@ -5155,52 +5160,41 @@ Conventions:
     Without it, std declaring `Fs` claimed `close`, `write`, `read_line`
     and `position` program-wide, and a program with a `close` of its own
     stopped compiling whether or not it touched a file.
-    * Recorded for the emitters as `fn_over_member_calls`, since their own
-      "is this a member?" question is asked of a program-wide, scope-blind
-      map (`Symbols::effect_of_fn`) — the same reason `local_calls` exists.
-      **The record is made wherever the fn path wins, not only where the
-      member lost a contest** (fixed 2026-09-15): a member of an effect that
-      is not in scope *at all* never reaches the availability rule, and a
-      written `@module` skips it deliberately, so both used to leave the
-      emitters guessing. Two bugs came of it, and only one was loud —
-      declaring `effect Tally { fn add(n: Int) }` made *std's* own
-      `core/seq.sv` emit a member dispatch for its `add(out, x)` ("no handler
-      for effect `Tally`", from inside std, for any program with such a
-      member whether or not it called the name), while
-      `to_upper@core.string("hi")` **ran the member** and printed `hi!` where
-      `HI` was asked for, silently and on both backends.
+    * The emitters ask nothing of a name: a call is a member dispatch
+      exactly when the checker recorded it in `Checked::member_calls`
+      [effect-dispatch]. (The earlier `fn_over_member_calls` record, written
+      only where the fn path won a contest, left std's `core/seq.sv`
+      emitting a member dispatch for `add(out, x)` beside a user's `effect
+      Tally { fn add(n: Int) }`, and `to_upper@core.string("hi")` running the
+      member; both are history.)
   * **One overload set where the effect *is* available** (user decision
-    2026-09-14): the chosen effect's members and the fn overloads of the
-    name are ranked **together**, by the same specificity order two fn
+    2026-09-14; one selection since 2026-10-28, R10 P4, PIPELINE.md B3.5):
+    the members of every available effect declaring the name and the fn
+    overloads of it are **one candidate set**, ranked by the order two fn
     overloads use [fn-overload-rank], and the more specific signature wins —
     a *generic* member loses to a concrete fn, and `close(InStream)`,
     `close(OutStream)` and `close(Lines)` are three overloads of one name
     across two kinds of declaration. std needs exactly that: `close` is an
     `Fs` member per stream token *and* the `Lines` iterator's discharger
     [fs-surface].
-    * A **tie** — both sides fitting, neither more specific — is an error
-      naming both remedies (`close@Fs(…)` for the member,
-      `close@module(…)` for the fn), never a silent preference. A call
-      fitting *neither* side is one diagnostic listing both sides'
-      signatures, since to the caller they are one name.
-    * `@module` skips the member set whole: it names a module's overloads,
+    * A **tie** — two candidates fitting, neither more specific, member or
+      fn — is the ordinary ambiguity [fn-overload-ambiguous], naming the
+      remedies (`close@Fs(…)` for a member, `close@module(…)` for a fn),
+      never a silent preference. A call nothing fits is the ordinary
+      `call-resolve:no-overload`.
+    * `@module` skips the members whole: it names a module's overloads,
       which no member is. That is how a fn shadowed by an equally specific
       member is called by hand.
-    * Where a name has candidates on **one** side only, that side resolves
-      exactly as it always did — the ranking step exists for the colliding
-      case alone, so nothing else could change meaning.
-    * The arguments are typed **once**, while the side is decided, and
-      handed to whichever path runs. They are typed *without* expected
-      types, because the lead-candidate machinery belongs to the fn path
-      [fn-overload-rank] — except a lambda with an unwritten parameter type
-      (2026-10-27, B1 census D16): it takes the type **every** candidate,
-      member and fn alike, declares at its position when they all declare
-      the same concrete one, and is refused otherwise ("cannot type this
-      lambda … write the lambda's parameter types"), since nothing else
-      could type it. Before, it was left `Unknown` [type-unknown-lenient]:
-      the analysis was clean and rustc and kotlinc both refused the code.
-      Sharing the lead pool across both kinds is still the improvement
-      (P4); nothing in std or the tests depends on it.
+    * The arguments are typed by the lead candidate as for any overloads.
+      A member leads on the footing of the module's own fns (`Rung::Own`),
+      so it types a lambda over std's fns of the name and neither it nor an
+      own fn types the other's; with no lead, a lambda with an unwritten
+      parameter type takes the type every candidate declares at its
+      position, and is refused otherwise (B1 census D16).
+    * With no instance of any owning effect available, the fns of the name
+      are the candidates; with no fn either, one owning effect's members are,
+      and the call reports the missing handler (several owners:
+      `effect-available:member-no-handler`).
 * [effect-disambiguation] With multiple instances of a generic effect in
   scope, a member call disambiguates by (in order): explicit type args
   (`next_random<Int>()`), argument types, the expected type
@@ -7365,8 +7359,9 @@ docs/language/ remains the source of truth for everything that does.
   * The receiver may be any **place** whose type is an addr — a variable, a
     field chain (`registry.child`), a tuple element, an array element — since
     a place has a type the checker can read without checking the expression
-    twice. A receiver that is a *call* (`get(addrs, 0).bump(1)`) needs a `let`
-    first; nothing is lost but a line.
+    twice. A receiver that is a *call* (`get(addrs, 0).bump(1)`) is a send
+    only when nothing of the name takes a uniform call [fn-member-call];
+    a `let` first makes it one regardless.
   * An overloaded send member is picked by **argument count**
     [effect-member-overload]. Typing the arguments to choose the overload and
     again against the winner's parameters would report every mistake in them
@@ -12283,18 +12278,17 @@ replaced the working document TESTING.md).
   sub-question A, because phase 4's `Fs` declares `close` and `position`
   once per stream token).
   * **Across effects**: `Symbols::effect_of_fn` and the scope's member table
-    are multimaps, and a bare call resolves through the one candidate effect
-    that is *available* (an instance in the effect environment). None
-    available, or more than one, is an error naming the selector form
-    [effect-at]. The original ban existed because there was no such syntax.
-    Several same-named members of *one* effect are one candidate here, not an
-    ambiguity between effects.
-  * **Within one effect**: the overload is picked by arity, then by the
-    argument types ranked exactly as a function overload's are
-    [fn-overload-rank] — arguments are typed once and reused, so nothing is
-    checked twice. No overload fitting is an error naming the member and the
-    argument types; several fitting with none most specific is an ambiguity
-    error. Both are errors, never a guess [backend-never-wrong].
+    are multimaps. A bare call's candidates are the members of every
+    *available* effect declaring the name (an instance in the effect
+    environment), with the fns, ranked by the argument types (2026-10-28,
+    census D15: before, two available owners were refused whatever the
+    arguments). One signature in two effects is the ordinary ambiguity,
+    naming the selector forms [effect-at].
+  * **Within one effect**: the overloads are candidates of the same set,
+    picked by the call's rule (census D25: before, by arity first, with a
+    fit test of their own and no return-type tiebreak). No overload fitting
+    and an ambiguity are the call's errors, never a guess
+    [backend-never-wrong].
   * The chosen overload is recorded per call
     (`Checked::effect_member_calls`, the member's index in declaration
     order) because the emitters cannot re-derive it from a name.
@@ -12331,6 +12325,9 @@ replaced the working document TESTING.md).
     lowered as an implicit filled by a member is) — the remedy an ambiguous
     implicit names (`to_str = to_str@Fmt`). Anywhere else it is a call form
     only, and `let v = close@Fs` is refused.
+  * As a call, `m@E(args)` is the call's selection over E's members alone
+    (`Selector::Effect`): fns and the members of other effects do not
+    compete.
   * The selector is a checker mechanism: it narrows what
     `Checked::effect_calls` records, and emission is the ordinary member
     call.

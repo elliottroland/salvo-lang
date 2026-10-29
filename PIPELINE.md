@@ -3251,12 +3251,35 @@ this log current so the work can resume after a context reset). Newest last.
   a uniform call; a member call through a field could be misread there,
   with no case found yet.
 
+- **B3.5, effect-member calls (2026-10-28).** One candidate set, one
+  selection (P4): `resolve_named_call` builds `CallCand`s — the visible fns
+  and the members of every available effect declaring the name (one owner's
+  members when no fn and no instance exist, so the missing handler is still
+  reported) — and the lead pool, the `Viable` loop and `select_overload` run
+  over them. A member's effect generics start from its one visible instance
+  or the written type arguments (`cand_seed`); a member leads as
+  `Rung::Own`. A member winner goes to `finish_member_call`: the instance
+  (several disambiguated by arguments and expected type, as before), the
+  coercions, the named arguments checked against their parameters, the
+  written contract, the implicits. `m@E(x)` is the same selection over E's
+  members (`Selector::Effect`). `throw` keeps its own path. Census D15,
+  D16, D17, D25 built; the qualifier-member calls showed no divergence and
+  are unchanged. Diagnostics that became the call's own:
+  `effect-member-overload:no-fit`, `effect-member-call:arg-count`,
+  `:arg-mismatch` and `effect-available:no-candidate` are
+  `call-resolve:no-overload`; `effect-available:member-or-fn` and
+  `effect-at:ambiguous-member` are `fn-overload-ambiguous:call` (a member's
+  remedy names `m@E(…)` and no `rename fn`);
+  `effect-available:lambda-member-or-fn` is `fn-overload-rank:lambda-untyped`.
+  Newly accepted: two available effects' members told apart by type, member
+  defaults, named arguments and variadic tails, a member typing a lambda
+  over std's fns of the name. Nothing else in the suite changed.
+
 - **Where it stands (2026-10-28) — resume here.** Stage A complete; B1,
-  B2 done; B3 pieces 1, 3a–3e and 4 done. TESTS.md's reorganisation is
+  B2 done; B3 pieces 1, 3a–3e, 4 and 5 done. TESTS.md's reorganisation is
   finished (the per-piece method is its data runners and a warm nextest
-  before each commit). **Remaining B3 order:** 5 (effect- and
-  qualifier-member calls: D15, D16's shared lead pool, D17, D25), 6 (fn
-  values, local calls: a bare member name as a value) — none blocked; 2
+  before each commit). **Remaining B3 order:** 6 (fn values, local calls:
+  a bare member name as a value) — not blocked; 2
   (interpolation) waits on **the format fn's shape** (§II.10 P4) and D4's
   general union `to_str` (deferred, R10); 7 (sends, mints: D18, D24, and a
   handler's own `send fn` under a uniform call). **Open decisions, each
@@ -3698,6 +3721,9 @@ receiver can be a send is the same question.
 
 #### D15. Two available effects with the same member name are refused, not ranked (P4)
 
+**Built in B3.5 (2026-10-28):** ranked; `put(1)` is `Ints.put`. The census
+text below is the state before.
+
 - `member-two-effects`: `Ints.put(x: Int)` and `Strs.put(x: Str)`, both
   available. `put@Ints(1)` is accepted. `put(1)` is refused: "`put` is a
   member of `Ints`, `Strs` — more than one is in scope, so the call must
@@ -3709,6 +3735,10 @@ the ordinary overload one. **Decision:** none; this is the change P4 already
 names.
 
 #### D16. A call where member and fn collide types its arguments without expected types
+
+**Built in B3.5 (2026-10-28):** one lead pool over members and fns; a member
+leads on the footing of the module's own fns (`Rung::Own`). The stopgap in
+`route_member_or_fn` went with it.
 
 `route_member_or_fn` types every argument with no expected type, as its
 recorded cut says. A bare lambda's parameter is then `Unknown`, and nothing
@@ -3735,6 +3765,9 @@ lambda): with no dominant lead the fn path typed it `Unknown` and took the
 first overload. The same rule covers it now.
 
 #### D17. An effect member's parameter defaults are accepted but cannot be used
+
+**Built in B3.5 (2026-10-28):** usable, and named arguments and a variadic
+tail with them.
 
 `check_effect_call` and `pick_effect_member` require `args.len() == fixed`.
 A member call has no [fn-param-default] shape (`call_shape_fits`) and no
@@ -3879,6 +3912,9 @@ evidence here. **Decision:** none, but piece 7 of B3 should decide whether
 send members may overload at all.
 
 #### D25. Effect-member selection is a weaker copy of call selection (P4)
+
+**Built in B3.5 (2026-10-28):** one selection; `pick_effect_member`,
+`fitting_members`, `fitting_fns` and `route_member_or_fn` are gone.
 
 These are differences inside `pick_effect_member` and `fitting_members`,
 read from the code. They change results only for overloaded members:

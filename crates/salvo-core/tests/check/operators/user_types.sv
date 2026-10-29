@@ -69,12 +69,12 @@ fn times(a: V, b: V) -> V {
 }
 
 fn by_operator(a: V, b: V) [Scale] -> V {
-    //~ error[effect-available:member-or-fn]
+    //~ error[fn-overload-ambiguous:call]
     return a * b
 }
 
 fn by_call(a: V, b: V) [Scale] -> V {
-    //~ error[effect-available:member-or-fn]
+    //~ error[fn-overload-ambiguous:call]
     return times(a, b)
 }
 

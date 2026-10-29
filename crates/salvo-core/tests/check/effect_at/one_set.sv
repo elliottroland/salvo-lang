@@ -39,11 +39,11 @@ fn work_fn_side(n: Note) [Store] -> Str => !n {
     return close(n)
 }
 
-// Neither side accepting the arguments is **one** diagnostic listing both
-// ("no `close` accepts (Str)", "`Store.close(Int)`", "`close(Note)`"): to the
-// caller they are one name.
+// Neither side accepting the arguments is **one** diagnostic: to the caller
+// they are one name, and one overload set ("no matching overload for
+// `close(Str)`").
 fn work_neither() [Store] -> Str {
-    //~ error[effect-available:no-candidate]
+    //~ error[call-resolve:no-overload]
     return close("nope")
 }
 
@@ -74,9 +74,9 @@ fn use_it() [Sink] -> Str {
 }
 
 //--- a member and a fn tie
-// A genuine tie — same parameter type on both sides — is an error naming
-// both remedies rather than a silent preference ("ambiguous call to
-// `close`", `close@Store`, `close@main`).
+// A genuine tie — same parameter type on both sides — is the ordinary
+// ambiguity, naming both remedies rather than a silent preference
+// ("ambiguous call to `close(Int)`", `close@Store(...)`, `close@main(...)`).
 effect Store {
     fn close(handle: Int) -> Str
 }
@@ -92,7 +92,7 @@ fn close(handle: Int) -> Str => handle {
 }
 
 fn work() [Store] -> Str {
-    //~ error[effect-available:member-or-fn]
+    //~ error[fn-overload-ambiguous:call]
     return close(1)
 }
 
@@ -107,10 +107,11 @@ fn work_picked() [Store] -> Str {
 
 //--- a lambda the candidates agree on
 // [effect-available] [type-unknown-lenient] A lambda with an unwritten
-// parameter type in a call where member and fn collide (B1 census D16,
-// 2026-10-27): the arguments are typed before either side is chosen, so the
-// lambda takes the type every candidate declares at its position. When they
-// disagree nothing can type it, and the call is refused — before, the
+// parameter type in a call where member and fn collide (B1 census D16): the
+// member and the fn are one candidate set, so the lambda is typed as for any
+// overloads — by the lead candidate, or, with none, by the type every
+// candidate declares at its position (PIPELINE.md B3.5). When they disagree
+// nothing can type it, and the call is refused — before 2026-10-27 the
 // lambda's parameter stayed `?`, the analysis was clean, and rustc and
 // kotlinc both refused the generated code.
 effect Ops {
@@ -128,9 +129,10 @@ fn work() [Ops] -> Int {
 }
 
 //--- a lambda the candidates disagree on
-// The refusal ("cannot type this lambda", "both a member of `Ops` and a
-// function", `(Int) -> Int`, `(Str) -> Str`) is one diagnostic for one
-// mistake; writing the parameter type is the remedy.
+// The refusal ("cannot type this lambda", `(Int) -> Int`, `(Str) -> Str`)
+// is one diagnostic for one mistake; writing the parameter type is the
+// remedy. A member leads on the footing of the module's own fns, so neither
+// types the other's lambda by scope.
 effect Ops {
     fn apply(f: (x: Int) -> Int, n: Int) -> Int => f
 }
@@ -142,7 +144,7 @@ handler OpsH of Ops {
 fn apply(f: (x: Str) -> Str, n: Int) -> Int => f { return 1 }
 
 fn work() [Ops] -> Int {
-    //~ error[effect-available:lambda-member-or-fn]
+    //~ error[fn-overload-rank:lambda-untyped]
     return apply(x -> x, 20)
 }
 

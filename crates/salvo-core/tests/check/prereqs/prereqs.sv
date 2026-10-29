@@ -129,7 +129,7 @@ fn f() [Log<Str>] {
     put("x")
 }
 fn g() [Log<Str>] {
-    //~ error[effect-member-call:arg-mismatch]
+    //~ error[call-resolve:no-overload]
     put(3)
 }
 
