@@ -3513,8 +3513,10 @@ Conventions:
   reach a target-language method. The checker records each call it read this
   way (`Checked::dot_calls`); a backend normalizes exactly those and never
   guesses from the name (built 2026-10-06).
-  * A handler's own `send fn` is not reached by a uniform call: the servant
-    send stays a bare-call form [actor-mixed-handler].
+  * A handler's own `send fn` is reached by a uniform call as by the plain
+    call: `x.k(a)` inside a mixed handler is the servant send `k(x, a)`
+    [actor-mixed-handler] (user decision 2026-10-28, PIPELINE.md B3.7
+    question 3 (a): the handler's members are in scope for it).
 * [name-ident-resolve] Every **identifier reference** must resolve to something
   declared — a local, a parameter, a handler, or a fn passed by name.
   Nothing else is a value, so the reference is an error (user request
@@ -7280,10 +7282,21 @@ docs/language/ remains the source of truth for everything that does.
   ```
 
   * **Resolution is lexical-member-first**: the enclosing handler's members are
-    tried first (the existing rule, unchanged), then free `send fn`s by the
-    ordinary scope ladder [fn-overload-scope]. A tie *within* one rung is
-    refused rather than guessed — a mint carries only captures, which is not
-    enough to choose an overload by.
+    tried first (the existing rule, unchanged), then the free `send fn`s of the
+    name by the call's rule over what a mint knows (user decision 2026-10-28,
+    census D18 (a), PIPELINE.md B3.7): every visible one competes, whatever
+    rung brought it into scope [fn-overload-scope], renames respected; one
+    fits when it takes the captures plus one more parameter, the token, and
+    — where the position fixes the token's type — that parameter takes it;
+    the most specific wins [fn-overload-rank], and a tie is refused
+    (`task-mint:ambiguous-send`), naming `replyto k@module(…)`, the module
+    selector a mint takes (an effect or `self` selector is a parse error,
+    `actor-replyto:selector`). Before, the most specific rung won and only a
+    tie within it was refused.
+  * A **member** mint names its member, so a member overloaded by name is
+    refused there until the lowering can say which
+    (`actor-send-fn:overloaded-own`, ROADMAP 0au); its captures take a
+    consumed position's fit [fn-overload-rank].
   * **Targeting a plain `fn` stays an error**: a normal function runs by being
     called, and a fulfilled token must never run arbitrary synchronous code on
     the fulfiller's thread inside its activation budget.
@@ -7384,11 +7397,20 @@ docs/language/ remains the source of truth for everything that does.
     twice. A receiver that is a *call* (`get(addrs, 0).bump(1)`) is a send
     only when nothing of the name takes a uniform call [fn-member-call];
     a `let` first makes it one regardless.
-  * An overloaded send member is picked by **argument count**
-    [effect-member-overload]. Typing the arguments to choose the overload and
-    again against the winner's parameters would report every mistake in them
-    twice; arity settles every overload the first pass can express, and a
-    same-arity tie is refused rather than guessed.  * **`use H(args) on POOL` is the spawn-and-bind sugar** (SH-7, user
+  * An overloaded send member is chosen by **the call's rule**
+    [effect-member-overload] [fn-overload-rank] (user decision 2026-10-28,
+    census D24 (a), PIPELINE.md B3.7): the arguments typed once, the lead's
+    parameter types flowing in, the overloads ranked by them; each lowers to
+    its own message variant (`effect_member_name`). Before, the pick was by
+    arity alone and a same-arity pair was refused. A self-send and a servant
+    send are chosen the same way among the handler's own members, and refused
+    when the name is overloaded (they name their member;
+    `actor-send-fn:overloaded-own`).
+  * **A message carries its arguments as written**: a send that leaves a
+    defaulted parameter out, names one, or reaches implicit or variadic
+    parameters is refused (`actor-send-fn:message-shape`) until the
+    lowering fills them (ROADMAP 0au).
+  * **`use H(args) on POOL` is the spawn-and-bind sugar** (SH-7, user
     decision 2026-09-19; built the same day): one shared instance serving an
     effect in a scope, in one line — parsed as a `use` whose handler is a
     spawn expression, so the spawn machinery and the addr binding each do

@@ -258,6 +258,7 @@ struct RenameBinding<'p> {
 /// bindings and coercion targets its match produced, and everything the
 /// selection needs — the ranking view of its parameters, and the rung of the
 /// visibility ladder it came in on [fn-overload-scope].
+#[derive(Clone)]
 struct Viable<'p> {
     key: Option<DeclId>,
     decl: &'p FnDecl,
@@ -293,26 +294,31 @@ enum CallCand<'p> {
         /// arguments choose after selection [effect-disambiguation].
         instance: Option<Ty>,
     },
+    /// [actor-self-send] [actor-mixed-handler] A member of the enclosing
+    /// handler itself — the target of a self-send, a servant send or a member
+    /// mint (PIPELINE.md B3.7). Its handler's generics are the context's,
+    /// not the call's to infer.
+    Own { handler: &'p ast::HandlerDecl, decl: &'p FnDecl },
 }
 
 impl<'p> CallCand<'p> {
     fn decl(&self) -> &'p FnDecl {
         match self {
             CallCand::Fn(e) => e.decl,
-            CallCand::Member { decl, .. } => decl,
+            CallCand::Member { decl, .. } | CallCand::Own { decl, .. } => decl,
         }
     }
 
     fn key(&self) -> Option<DeclId> {
         match self {
             CallCand::Fn(e) => Some(e.key),
-            CallCand::Member { .. } => None,
+            CallCand::Member { .. } | CallCand::Own { .. } => None,
         }
     }
 
     fn effect(&self) -> Option<&'p EffectDecl> {
         match self {
-            CallCand::Fn(_) => None,
+            CallCand::Fn(_) | CallCand::Own { .. } => None,
             CallCand::Member { effect, .. } => Some(effect),
         }
     }
@@ -322,16 +328,17 @@ impl<'p> CallCand<'p> {
     fn rung(&self) -> crate::resolve::Rung {
         match self {
             CallCand::Fn(e) => e.rung,
-            CallCand::Member { .. } => crate::resolve::Rung::Own,
+            CallCand::Member { .. } | CallCand::Own { .. } => crate::resolve::Rung::Own,
         }
     }
 
     /// Where it comes from, as diagnostics and the `name@…` remedy name it: a
-    /// fn's module, a member's effect.
+    /// fn's module, a member's effect, a handler's own member's handler.
     fn origin(&self) -> String {
         match self {
             CallCand::Fn(e) => e.module.to_string(),
             CallCand::Member { effect, .. } => effect.name.name.clone(),
+            CallCand::Own { handler, .. } => handler.name.name.clone(),
         }
     }
 
@@ -8954,6 +8961,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Some(e) = cand.effect() {
             self.enter_generics(&e.generics);
         }
+        if let CallCand::Own { handler, .. } = cand {
+            self.enter_generics(&handler.generics);
+        }
         saved
     }
 
@@ -8966,6 +8976,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let targs: Vec<Ty> = type_args.iter().map(|t| self.lower_type(t)).collect();
         match cand {
             CallCand::Fn(e) => e.decl.generics.iter().map(|g| g.name.clone()).zip(targs).collect(),
+            CallCand::Own { decl, .. } => decl.generics.iter().map(|g| g.name.clone()).zip(targs).collect(),
             CallCand::Member { effect, instance, .. } => {
                 if !targs.is_empty() {
                     return effect.generics.iter().map(|g| g.name.clone()).zip(targs).collect();
@@ -15061,7 +15072,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(span, messages::actor_self_send_outside_member(&member.name, &detail));
             return Ty::Unknown;
         };
-        let Some(target) = h.fns.iter().find(|f| f.name.name == member.name) else {
+        let targets: Vec<&'p FnDecl> = h.fns.iter().filter(|f| f.name.name == member.name).collect();
+        let Some(first) = targets.first().copied() else {
             for a in args {
                 self.check_expr(a, None);
             }
@@ -15075,39 +15087,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         // A self-send is a *message*, so its target is a send member: an
         // ordinary member would have to answer, and a member cannot wait for
         // itself.
-        if !target.is_send {
+        if !first.is_send {
             self.error(span, messages::actor_self_send_not_send(&member.name));
         }
-        let saved = self.enter_generics(&h.generics);
-        let params: Vec<&Param> = target.params.iter().filter(|p| !p.implicit).collect();
-        let param_tys: Vec<Ty> = params.iter().map(|p| self.lower_type(&p.ty)).collect();
-        self.generics = saved;
-        if args.len() != param_tys.len() {
-            for a in args {
-                self.check_expr(a, None);
-            }
-            self.error(
-                span,
-                messages::actor_self_send_arg_count(&member.name, &param_tys.len(), &args.len()),
-            );
+        // [fn-overload] The target and its arguments by the call's rule
+        // (PIPELINE.md B3.7, D24 (a)).
+        let arg_refs: Vec<&'p Expr> = args.iter().collect();
+        if self.own_send_target(h, &member.name, &targets, &arg_refs, &[], span).is_none() {
             return Ty::none();
-        }
-        for (i, a) in args.iter().enumerate() {
-            let want = &param_tys[i];
-            let got = self.check_expr(a, Some(want));
-            if !got.is_unknown() && !is_subtype(&got, want) {
-                self.error(a.span(), messages::actor_self_send_arg_mismatch(&want, &got));
-            }
-            let repr = self.repr_of(a, &got);
-            self.maybe_coerce(a.span(), &got, &repr, want);
-            // [linear-defer] A reply riding the payload leaves this
-            // activation — the same hook an addr-send payload passes
-            // through (fires only inside a mixed send member).
-            self.reply_escape(a, "sending it onward");
-            // A payload crosses the seam even when both ends are the same
-            // actor: the message outlives this activation, so the sender
-            // gives it up [deduce-consume].
-            self.fate_move(a, "send", a.span());
         }
         self.record_def_ref(member.span, &member.name);
         // [actor-mixed-handler] Inside a mixed handler's **sync** member the
@@ -15179,7 +15166,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         expected: Option<&Ty>,
         span: Span,
     ) -> Ty {
-        let _ = (type_args, named, expected);
+        let _ = type_args;
         // The receiver is *read* — it names the target rather than being an
         // argument, but a read is what it is: without checking it here nothing
         // would record the use, and the variable would be reported unused
@@ -15201,51 +15188,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Ty::Unknown;
         };
         let members = crate::effect_members_named(effect, &member.name);
-        // [effect-member-overload] An overloaded send member is picked by
-        // **arity** here, not by argument types: typing the arguments to
-        // choose, then typing them again against the winner's parameters,
-        // would report every mistake in them twice. Arity settles every
-        // overload the first pass can express (nothing in std or the design
-        // overloads a send member at all); a genuine tie is refused rather
-        // than guessed.
-        let target: Option<&'p FnDecl> = match members.as_slice() {
-            [] => None,
-            [only] => Some(only),
-            many => {
-                let fits: Vec<&'p FnDecl> = many
-                    .iter()
-                    .copied()
-                    .filter(|f| {
-                        let fixed = f
-                            .params
-                            .iter()
-                            .filter(|p| !p.variadic && !p.implicit)
-                            .count();
-                        f.params.iter().any(|p| p.variadic) && args.len() >= fixed
-                            || fixed == args.len()
-                    })
-                    .collect();
-                match fits.as_slice() {
-                    [one] => Some(one),
-                    _ => {
-                        for a in args {
-                            self.check_expr(a, None);
-                        }
-                        self.error(
-                            span,
-                            messages::actor_use_addr_overload_by_count(
-                                &effect_name,
-                                &member.name,
-                                &fits.len(),
-                                &args.len(),
-                            ),
-                        );
-                        return Ty::Unknown;
-                    }
-                }
-            }
-        };
-        let Some(target) = target else {
+        if members.is_empty() {
             for a in args {
                 self.check_expr(a, None);
             }
@@ -15255,7 +15198,21 @@ impl<'p, 'r> Checker<'p, 'r> {
                 &member.name,
             );
             return Ty::Unknown;
+        }
+        self.record_def_ref(member.span, &member.name);
+        // [effect-member-overload] [fn-overload] The overload and its
+        // arguments by the call's rule (PIPELINE.md B3.7, D24 (a)): typed
+        // once, the lead's parameter types flowing in, ranked like any
+        // overloads; the instance the addr names binds the effect's generics.
+        let cands: Vec<CallCand<'p>> = members
+            .iter()
+            .map(|d| CallCand::Member { effect, decl: d, instance: Some(instance.strip_quals().clone()) })
+            .collect();
+        let arg_refs: Vec<&'p Expr> = args.iter().collect();
+        let Some((best, arg_tys)) = self.select_among(&member.name, &cands, &[], &arg_refs, named, expected, None, None, span) else {
+            return Ty::none();
         };
+        let target = best.decl;
         if members.len() > 1 {
             // [effect-member-overload] Which overload a call resolved to, for
             // the emitters: they name an overloaded member positionally.
@@ -15265,55 +15222,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [actor-send-fn] Only a send member can be reached through an addr in
         // the first pass: an ordinary member answers, and answering across a
-        // actor boundary is the call sugar that comes later (with it, the
-        // named question of whether an ordinary member may be actor-backed
-        // at all).
+        // actor boundary is the call sugar that comes later.
         if !target.is_send {
             self.error(span, messages::actor_use_addr_not_send(&member.name));
         }
-        self.record_def_ref(member.span, &member.name);
-        let saved = self.enter_generics(&effect.generics);
-        let params: Vec<&Param> = target.params.iter().filter(|p| !p.implicit).collect();
-        let param_tys: Vec<Ty> = params.iter().map(|p| self.lower_type(&p.ty)).collect();
-        self.generics = saved;
-        // The instance's arguments bind the effect's own generics.
-        let subst: HashMap<String, Ty> = match instance.strip_quals() {
-            Ty::Named { args: iargs, .. } => effect
-                .generics
-                .iter()
-                .map(|g| g.name.clone())
-                .zip(iargs.iter().cloned())
-                .collect(),
-            _ => HashMap::new(),
-        };
-        let generic_set: HashSet<String> =
-            effect.generics.iter().map(|g| g.name.clone()).collect();
-        if args.len() != param_tys.len() {
-            for a in args {
-                self.check_expr(a, None);
-            }
-            self.error(
-                span,
-                messages::actor_use_addr_arg_count(&member.name, &param_tys.len(), &args.len()),
-            );
-            return Ty::none();
-        }
-        for (i, a) in args.iter().enumerate() {
-            let want = substitute_vars(&param_tys[i], &subst, &generic_set);
-            let got = self.check_expr(a, Some(&want));
-            if !got.is_unknown() && !is_subtype(&got, &want) {
-                self.error(a.span(), messages::actor_use_addr_arg_mismatch(&want, &got));
-            }
-            let repr = self.repr_of(a, &got);
-            self.maybe_coerce(a.span(), &got, &repr, &want);
-            // [linear-defer] Forwarding a received reply to another actor
-            // extends its dependency chain past this activation.
-            self.reply_escape(a, "forwarding it to another actor");
-            // A payload crosses the seam: the sender gives it up
-            // [deduce-consume]. This is what makes a reply token's linearity
-            // discharge by sending it to an actor.
-            self.fate_move(a, "send", a.span());
-        }
+        // [linear-defer] Forwarding a received reply to another actor
+        // extends its dependency chain past this activation.
+        self.send_payload(target, &best, &arg_refs, &arg_tys, named, "forwarding it to another actor", span);
         self.out.addr_calls.insert(self.key(span), instance.clone());
         // [actor-deadlock-cycle] A send from inside a member body is an edge
         // in the wait-for graph: it blocks while the target's bounded mailbox
@@ -15856,17 +15771,17 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the handler's dependencies, which a send member sees — must say
     /// which it means: `k@self(…)` for the servant, `k@Effect(…)` for the
     /// effect [effect-at].
-    fn check_servant_send(&mut self, id: &Ident, args: &'p [Expr], span: Span) -> Option<Ty> {
+    fn check_servant_send(&mut self, id: &'p Ident, args: &[&'p Expr], span: Span) -> Option<Ty> {
         // Façade context (sync member) or servant context (send member)?
         let (h, servant) = match (self.facade_handler, self.servant_reply_params.is_some()) {
             (Some(h), _) => (h, false),
             (None, true) => (self.own_handler?, true),
             _ => return None,
         };
-        let target = h
-            .fns
-            .iter()
-            .find(|f| f.is_send && f.name.name == id.name)?;
+        let targets: Vec<&'p FnDecl> = h.fns.iter().filter(|f| f.is_send && f.name.name == id.name).collect();
+        if targets.is_empty() {
+            return None;
+        }
         let claimed: Vec<String> = self
             .effect_members_here(id.name.as_str())
             .map(|ms| {
@@ -15891,35 +15806,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Some(Ty::Unknown);
         }
         self.record_def_ref(id.span, &id.name);
-        let params: Vec<&Param> = target.params.iter().filter(|p| !p.implicit).collect();
-        let param_tys: Vec<Ty> = params.iter().map(|p| self.lower_type(&p.ty)).collect();
-        if args.len() != param_tys.len() {
-            for a in args {
-                self.check_expr(a, None);
-            }
-            self.error(
-                span,
-                messages::actor_mixed_handler_arg_count(&id.name, &param_tys.len(), &args.len()),
-            );
+        // [fn-overload] The target and the arguments by the call's rule
+        // (PIPELINE.md B3.7, user decision 2026-10-28: D24 (a)).
+        if self.own_send_target(h, &id.name, &targets, args, &[], span).is_none() {
             return Some(Ty::none());
-        }
-        for (i, a) in args.iter().enumerate() {
-            let want = &param_tys[i];
-            let got = self.check_expr(a, Some(want));
-            if !got.is_unknown() && !is_subtype(&got, want) {
-                self.error(a.span(), messages::actor_mixed_handler_arg_mismatch(&want, &got));
-            }
-            let repr = self.repr_of(a, &got);
-            self.maybe_coerce(a.span(), &got, &repr, want);
-            // [linear-defer] A reply riding the payload leaves this
-            // activation, so it must be declared `defer` — the same hook an
-            // addr-send payload passes through. (Nothing fires in a façade:
-            // sync members have no reply parameters to escape.)
-            self.reply_escape(a, "sending it onward");
-            // The payload crosses to the servant: the sender gives it up
-            // [deduce-consume] — which is also how a reply token minted by
-            // the façade's `waitfor` discharges.
-            self.fate_move(a, "send", a.span());
         }
         if servant {
             // [actor-self-send] A servant's bare sibling call *is* a
@@ -15929,6 +15819,79 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.out.facade_sends.insert(self.key(span), id.name.clone());
         }
         Some(Ty::none())
+    }
+
+    /// [actor-self-send] [actor-mixed-handler] A send to one of the
+    /// enclosing handler's own members, chosen among `targets` (its members
+    /// of the name) by the call's rule [fn-overload-rank], and its payload
+    /// taken ([`Self::send_payload`]). The lowering names the member, so an
+    /// overloaded one is refused here until it can say which (ROADMAP 0au).
+    /// `None` once refused.
+    fn own_send_target(
+        &mut self,
+        h: &'p ast::HandlerDecl,
+        name: &str,
+        targets: &[&'p FnDecl],
+        args: &[&'p Expr],
+        named: &'p [ast::NamedArg],
+        span: Span,
+    ) -> Option<&'p FnDecl> {
+        if targets.len() > 1 {
+            for a in args {
+                self.check_expr(a, None);
+            }
+            self.error(span, messages::actor_send_fn_overloaded_own(&name, &h.name.name));
+            return None;
+        }
+        let cands: Vec<CallCand<'p>> = targets.iter().map(|d| CallCand::Own { handler: h, decl: d }).collect();
+        let (best, arg_tys) = self.select_among(name, &cands, &[], args, named, None, None, None, span)?;
+        let target = best.decl;
+        self.send_payload(target, &best, args, &arg_tys, named, "sending it onward", span);
+        Some(target)
+    }
+
+    /// [actor-send-fn] The payload of a send whose target the call's
+    /// selection chose: each argument coerced to its parameter, checked for an
+    /// escaping reply [linear-defer], and moved — it crosses the seam, so the
+    /// sender gives it up [deduce-consume]. A message carries its arguments as
+    /// written, so a send that leaves a defaulted parameter out, names one, or
+    /// reaches implicit or variadic parameters is refused until the lowering
+    /// can fill them (PIPELINE.md B3.7; ROADMAP 0au).
+    #[allow(clippy::too_many_arguments)]
+    fn send_payload(
+        &mut self,
+        target: &'p FnDecl,
+        best: &Viable<'p>,
+        args: &[&'p Expr],
+        arg_tys: &[Ty],
+        named: &[ast::NamedArg],
+        how: &str,
+        span: Span,
+    ) {
+        let positional = target.params.iter().filter(|p| !p.implicit && !p.variadic).count();
+        let shape = if target.params.iter().any(|p| p.implicit) {
+            Some("implicit parameters")
+        } else if target.params.iter().any(|p| p.variadic) {
+            Some("a variadic parameter")
+        } else if !named.is_empty() {
+            Some("named arguments")
+        } else if args.len() < positional {
+            Some("a parameter left to its default")
+        } else {
+            None
+        };
+        if let Some(what) = shape {
+            self.error(span, messages::actor_send_fn_message_shape(&target.name.name, &what));
+        }
+        for (i, pt) in best.pairings.clone() {
+            let (Some(a), Some(logical)) = (args.get(i), arg_tys.get(i)) else { continue };
+            let repr = self.repr_of(a, logical);
+            self.maybe_coerce(a.span(), logical, &repr, &pt);
+        }
+        for a in args {
+            self.reply_escape(a, how);
+            self.fate_move(a, "send", a.span());
+        }
     }
 
     /// [linear-defer] [actor-mixed-handler] The escape check at the rung-4
@@ -16059,44 +16022,110 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [actor-replyto] `replyto k(captures)` — mint a continuation targeting
-    /// member `k` of the **enclosing handler**. `k`'s parameters are the
-    /// captures written here followed by one more: the answer, which is what
-    /// the token carries. So `send fn arrived(id: Int, notices: List<Notice>)`
-    /// minted as `replyto arrived(7)` yields a `Reply<List<Notice>>`.
-    /// [task-mint] The **free `send fn`** a bare name in a mint resolves to,
-    /// or `None` when there is none. Resolution is the language's ordinary
-    /// scope ladder [fn-overload-scope]: the most specific rung that has a
-    /// send-kind candidate wins, so a module's own `parse_row` takes precedence
-    /// over an imported one without either being an error. A tie *within* one
-    /// rung is refused rather than guessed — a mint has no argument types to
-    /// discriminate an overload set by, since its captures are a prefix of the
-    /// target's parameters.
-    fn free_send_target(&mut self, member: &Ident, form: &str) -> Option<&'p FnDecl> {
-        let entries = self.scope.fns.get(member.name.as_str())?;
-        let best = entries
-            .iter()
-            .filter(|e| e.decl.is_send)
-            .map(|e| e.rung)
-            .max()?;
-        let sends: Vec<&'p FnDecl> = entries
-            .iter()
-            .filter(|e| e.decl.is_send && e.rung == best)
-            .map(|e| e.decl)
-            .collect();
-        if sends.len() > 1 {
-            self.error(
-                member.span,
-                messages::task_mint_ambiguous_send(
-                    &form,
-                    &member.name,
-                    &sends.len(),
-                    &best.describe(),
-                ),
-            );
-            return None;
+    /// [task-mint] [fn-overload] Which free `send fn` a mint `replyto
+    /// k(captures)` targets, by the call's rule over what a mint knows
+    /// (PIPELINE.md B3.7, user decision 2026-10-28: D18 (a)): every visible
+    /// `send fn` of the name competes, whatever rung brought it into scope
+    /// (renames respected, `k@module` narrowing it); a candidate fits when it
+    /// takes the captures and one more parameter, the token, and — where the
+    /// position says what the token carries — that parameter takes it; the
+    /// most specific wins, and a tie is the ordinary ambiguity, naming
+    /// `replyto k@module(…)`. Answers the target and, when several competed,
+    /// the captures as typed; `Err(())` once refused, `Ok(None)` for none.
+    fn free_send_target(
+        &mut self,
+        member: &Ident,
+        module: Option<&'p [Ident]>,
+        captures: &'p [Expr],
+        expected: Option<&Ty>,
+        form: &str,
+    ) -> Result<Option<(crate::resolve::FnEntry<'p>, Option<Vec<Ty>>)>, ()> {
+        let mut entries: Vec<crate::resolve::FnEntry<'p>> =
+            self.overloads_of(&member.name).into_iter().filter(|e| e.decl.is_send).collect();
+        let mut seen: HashSet<DeclId> = HashSet::new();
+        entries.retain(|e| seen.insert(e.key));
+        if let Some(path) = module {
+            let wanted = path.iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join(".");
+            let named: Vec<crate::resolve::FnEntry<'p>> = entries
+                .iter()
+                .copied()
+                .filter(|e| ModulePath::text_matches_suffix(&e.module.to_string(), &wanted))
+                .collect();
+            if named.is_empty() {
+                if !entries.is_empty() {
+                    for c in captures {
+                        self.check_expr(c, None);
+                    }
+                    self.error(member.span, messages::fn_overload_at_no_fn_in_module(&member.name, &wanted));
+                    return Err(());
+                }
+                return Ok(None);
+            }
+            entries = named;
         }
-        sends.first().copied()
+        let shaped: Vec<crate::resolve::FnEntry<'p>> = entries
+            .iter()
+            .copied()
+            .filter(|e| e.decl.params.iter().filter(|p| !p.implicit).count() == captures.len() + 1)
+            .collect();
+        match (entries.len(), shaped.as_slice()) {
+            (0, _) => return Ok(None),
+            (1, _) => return Ok(Some((entries[0], None))),
+            (_, [one]) => return Ok(Some((*one, None))),
+            // None takes this many captures: the first reports the count.
+            (_, []) => return Ok(Some((entries[0], None))),
+            _ => {}
+        }
+        // Several take this many: the captures are typed once, and each
+        // candidate fitted by them and by the token the position wants.
+        let tys: Vec<Ty> = captures.iter().map(|c| self.check_expr(c, None)).collect();
+        let token: Option<Ty> = match expected.map(|t| t.strip_quals()) {
+            Some(Ty::Named { name, args }) if name == REPLY_TYPE && args.len() == 1 && !args[0].is_unknown() => {
+                Some(args[0].clone())
+            }
+            _ => None,
+        };
+        let mut fits: Vec<(crate::resolve::FnEntry<'p>, crate::types::RankedCandidate)> = Vec::new();
+        for e in &shaped {
+            let saved = self.enter_generics(&e.decl.generics);
+            let patterns: Vec<Ty> = e.decl.params.iter().filter(|p| !p.implicit).map(|p| self.lower_type(&p.ty)).collect();
+            self.generics = saved;
+            let generics: HashSet<String> = e.decl.generics.iter().map(|g| g.name.clone()).collect();
+            let mut subst: HashMap<String, Ty> = HashMap::new();
+            let unified = patterns.iter().zip(&tys).all(|(p, a)| unify(p, a, &mut subst));
+            let takes = unified
+                && patterns.iter().zip(&tys).all(|(p, a)| self.arg_fits_param(a, &substitute_vars(p, &subst, &generics), false))
+                && token.as_ref().is_none_or(|t| {
+                    let last = patterns.last().cloned().unwrap_or(Ty::Unknown);
+                    unify(&last, t, &mut subst) && is_subtype(t, &substitute_vars(&last, &subst, &generics))
+                });
+            if takes {
+                fits.push((*e, crate::types::RankedCandidate { patterns, variadic: false }));
+            }
+        }
+        let shown_caps = || tys.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ");
+        if fits.is_empty() {
+            self.error(member.span, messages::call_resolve_no_overload(&member.name, &shown_caps(), &""));
+            return Err(());
+        }
+        let ranks: Vec<crate::types::RankedCandidate> = fits.iter().map(|(_, r)| r.clone()).collect();
+        match crate::types::most_specific(&ranks) {
+            Some(i) if fits.iter().filter(|(_, r)| r.patterns == fits[i].1.patterns).count() == 1 => {
+                Ok(Some((fits[i].0, Some(tys))))
+            }
+            _ if tys.iter().any(ty_mentions_unknown) => Ok(Some((fits[0].0, Some(tys)))),
+            _ => {
+                let mut modules: Vec<String> = fits.iter().map(|(e, _)| e.module.to_string()).collect();
+                modules.sort();
+                modules.dedup();
+                let forms: Vec<String> = modules.iter().map(|m| format!("`replyto {}@{m}(…)`", member.name)).collect();
+                self.error(
+                    member.span,
+                    messages::task_mint_ambiguous_send(&form, &member.name, &shown_caps(), &forms.join(" or ")),
+                );
+                Err(())
+            }
+        }
     }
 
     /// [task-mint] A free `fn` visible under `member`'s name that is *not* a
@@ -16186,10 +16215,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn check_task_mint(
         &mut self,
         member: &Ident,
-        target: &'p FnDecl,
+        entry: crate::resolve::FnEntry<'p>,
+        typed: Option<Vec<Ty>>,
         captures: &'p [Expr],
         gated: bool,
         pool: Option<&'p Expr>,
@@ -16213,10 +16244,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.fate_move(p, "run on", p.span());
             }
         }
+        let target = entry.decl;
         let params: Vec<&Param> = target.params.iter().filter(|p| !p.implicit).collect();
         if params.len() != captures.len() + 1 {
-            for c in captures {
-                self.check_expr(c, None);
+            if typed.is_none() {
+                for c in captures {
+                    self.check_expr(c, None);
+                }
             }
             self.error(
                 span,
@@ -16234,8 +16268,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.generics = saved;
         for (i, c) in captures.iter().enumerate() {
             let want = &param_tys[i];
-            let got = self.check_expr(c, Some(want));
-            if !got.is_unknown() && !is_subtype(&got, want) {
+            // [fn-overload-rank] A capture is stored, so it takes a consumed
+            // position's fit, as a call's argument there would.
+            let got = match typed.as_ref().and_then(|t| t.get(i)) {
+                Some(t) => t.clone(),
+                None => self.check_expr(c, Some(want)),
+            };
+            if !got.is_unknown() && !self.arg_fits_param(&got, want, false) {
                 self.error(c.span(), messages::actor_replyto_capture_mismatch(&want, &got));
             }
             // [actor-sendable] A capture crosses to another thread at the
@@ -16262,17 +16301,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         {
             self.out.task_mints.push((minter, member.name.clone(), self.key(span)));
         }
-        if let Some(key) = self.scope.fns.get(member.name.as_str()).and_then(|es| {
-            es.iter()
-                .find(|e| std::ptr::eq(e.decl, target))
-                .map(|e| e.key)
-        }) {
-            self.out.replyto_tasks.insert(self.key(span), key);
-            // [lsp-definition] The mint names a function, so it is a reference
-            // to it like any call.
-            self.out.fn_refs.insert(self.key(member.span), key);
-            self.resolve_task_effects(target, span);
-        }
+        let key = entry.key;
+        self.out.replyto_tasks.insert(self.key(span), key);
+        // [lsp-definition] The mint names a function, so it is a reference
+        // to it like any call.
+        self.out.fn_refs.insert(self.key(member.span), key);
+        self.resolve_task_effects(target, span);
         let answer = param_tys.last().cloned().unwrap_or(Ty::Unknown);
         Ty::Named {
             name: REPLY_TYPE.to_string(),
@@ -16280,12 +16314,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn check_replyto(
         &mut self,
-        member: &Ident,
+        member: &'p Ident,
+        module: Option<&'p [Ident]>,
         captures: &'p [Expr],
         gated: bool,
         pool: Option<&'p Expr>,
+        expected: Option<&Ty>,
         span: Span,
     ) -> Ty {
         let form = if gated { "replyto!" } else { "replyto" };
@@ -16294,12 +16331,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         // the continuation is a detached task rather than an activation (user
         // decision 2026-09-17, FC-2). Resolved *after* the enclosing handler's
         // members, which keeps the existing rule exactly as it was.
-        let member_of_own = self
-            .own_handler
-            .is_some_and(|h| h.fns.iter().any(|f| f.name.name == member.name));
+        let member_of_own = module.is_none()
+            && self.own_handler.is_some_and(|h| h.fns.iter().any(|f| f.name.name == member.name));
         if !member_of_own {
-            if let Some(target) = self.free_send_target(member, form) {
-                return self.check_task_mint(member, target, captures, gated, pool, span);
+            match self.free_send_target(member, module, captures, expected, form) {
+                Ok(Some((entry, typed))) => {
+                    return self.check_task_mint(member, entry, typed, captures, gated, pool, span);
+                }
+                Ok(None) => {}
+                Err(()) => return Ty::Unknown,
             }
         }
         if let Some(p) = pool {
@@ -16326,7 +16366,17 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(span, messages::actor_replyto_outside_member(&form, &detail));
             return Ty::Unknown;
         };
-        let Some(target) = h.fns.iter().find(|f| f.name.name == member.name) else {
+        let targets: Vec<&'p FnDecl> = h.fns.iter().filter(|f| f.name.name == member.name).collect();
+        // [fn-overload] A member mint names its member, which cannot say which
+        // overload yet (PIPELINE.md B3.7; ROADMAP 0au).
+        if targets.len() > 1 {
+            for c in captures {
+                self.check_expr(c, None);
+            }
+            self.error(span, messages::actor_send_fn_overloaded_own(&member.name, &h.name.name));
+            return Ty::Unknown;
+        }
+        let Some(target) = targets.first().copied() else {
             for c in captures {
                 self.check_expr(c, None);
             }
@@ -16418,7 +16468,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (i, c) in captures.iter().enumerate() {
             let want = &param_tys[i];
             let got = self.check_expr(c, Some(want));
-            if !got.is_unknown() && !is_subtype(&got, want) {
+            // [fn-overload-rank] A stored capture takes a consumed position's fit.
+            if !got.is_unknown() && !self.arg_fits_param(&got, want, false) {
                 self.error(c.span(), messages::actor_replyto_capture_mismatch(&want, &got));
             }
             // A capture travels with the continuation, so it is stored, not
@@ -24285,11 +24336,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             // member of the enclosing handler; its value is the linear token.
             Expr::ReplyTo {
                 member,
+                module,
                 captures,
                 gated,
                 pool,
                 span,
-            } => self.check_replyto(member, captures, *gated, pool.as_deref(), *span),
+            } => self.check_replyto(member, module.as_deref(), captures, *gated, pool.as_deref(), expected, *span),
             // [actor-waitfor] `main`'s bridge: its value is what was sent to
             // the token it mints.
             Expr::WaitFor {
@@ -28750,10 +28802,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Some(ty) = self.check_name_call(field, Some(base), type_args, args, named, expected, span) {
             return ty;
         }
+        let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
+        all_args.push(base);
+        all_args.extend(args.iter());
+        // [actor-mixed-handler] …and a handler's own `send fn` takes it as it
+        // takes `name(x, args)`: the handler's members are in scope for the
+        // uniform call (user decision 2026-10-28, B3.7 question 3 (a)).
+        if let Some(ty) = self.check_servant_send(field, &all_args, span) {
+            return ty;
+        }
         if self.effect_members_here(name).is_some() || self.has_callable(name) {
-            let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
-            all_args.push(base);
-            all_args.extend(args.iter());
             return self.resolve_named_call(name, field.span, type_args, &all_args, named, expected, None, span);
         }
         self.out.dot_calls.remove(&key);
@@ -29342,7 +29400,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // members are the innermost declaration scope), after locals
             // (which shadow, as they shadow everything). A collision with
             // an available effect member is refused inside, naming `@self`.
-            if let Some(ty) = self.check_servant_send(id, args, span) {
+            if let Some(ty) = self.check_servant_send(id, &arg_refs, span) {
                 return ty;
             }
             return self.resolve_named_call(
@@ -29766,147 +29824,27 @@ impl<'p, 'r> Checker<'p, 'r> {
         is_subtype(&a, &p) || self.arg_fits_param(&a, &p, true)
     }
 
-    fn resolve_named_call(
+    /// [fn-overload] [fn-overload-rank] The call's selection, over any
+    /// candidate set (PIPELINE.md B3.7: a call by name, and every send and
+    /// mint target, choose by this one rule): the arguments typed once, the
+    /// lead candidate's parameter types flowing into them; every candidate
+    /// fitted by arity with defaults and named arguments, the fit test and
+    /// its contract; [implicit-fit]; then `select_overload`. Answers the
+    /// winner and the argument types, or `None` once the refusal is
+    /// reported. `pre_typed`: arguments the caller already typed.
+    #[allow(clippy::too_many_arguments)]
+    fn select_among(
         &mut self,
         name: &str,
-        name_span: Span,
+        candidates: &[CallCand<'p>],
         type_args: &'p [ast::Type],
         args: &[&'p Expr],
         named: &'p [ast::NamedArg],
         expected: Option<&Ty>,
-        // [fn-overload-at] [fn-attached] What was written after `@`, when the
-        // call selects: a module, whose overloads alone compete, or a type,
-        // whose canonicals alone do.
         at: Option<Selector<'p>>,
+        pre_typed: Option<Vec<Ty>>,
         span: Span,
-    ) -> Ty {
-        // Argument types computed while deciding *which* overload set a
-        // colliding name belongs to [effect-available]: the fn path below
-        // takes them as they are instead of typing the arguments twice.
-        // [implicit-resolve-body] A call that fell through an implicit of its
-        // name arrives with its arguments typed.
-        let pre_typed: Option<Vec<Ty>> = self.pending_arg_tys.take();
-        // [iter-for] Typed arguments with no expressions of their own.
-        let typed_only = std::mem::take(&mut self.pending_typed_only);
-        // 1. The candidates [fn-overload] [effect-member-overload]: the
-        // visible fns of the name and the members of the available effects
-        // declaring it, as **one set** ranked by one rule (R10 P4, PIPELINE.md
-        // B3.5): a member competes with the fns and with the members of other
-        // effects, and a tie is the ordinary ambiguity, whose remedies name
-        // the place (`m@E(…)`, `m@module(…)`).
-        //
-        // [effect-available] A `@module` or `@Type` selector names
-        // declarations, which a member never is, so it sees no members: that
-        // is how a fn shadowed by a member is called by hand. `m@E(…)` names
-        // that effect's members alone.
-        let effect_sel = match at {
-            Some(Selector::Effect(e)) => Some(e),
-            _ => None,
-        };
-        let mut member_cands: Vec<CallCand<'p>> = Vec::new();
-        if let Some(e) = effect_sel {
-            for f in crate::effect_members_named(e, name) {
-                if !self.shape_refused(f) {
-                    member_cands.push(self.member_cand(e, f));
-                }
-            }
-        } else if at.is_none() {
-            if let Some(members) = self.effect_members_here(name) {
-                // [effect-available] **Availability decides first**
-                // (2026-09-14): a member call needs an instance, so only the
-                // members of an effect with one in scope are candidates — a
-                // name that is also an ordinary fn is that fn wherever no
-                // handler is in scope. Without this rule std's `Fs` claimed
-                // `close`, `write`, `read_line` and `position` program-wide.
-                let mut owners: Vec<&'p ast::EffectDecl> = Vec::new();
-                for (e, _) in &members {
-                    if !owners.iter().any(|o| std::ptr::eq(*o, *e)) {
-                        owners.push(e);
-                    }
-                }
-                let available: Vec<&'p ast::EffectDecl> = owners
-                    .iter()
-                    .copied()
-                    .filter(|e| {
-                        let key = self.symbols.key_or(*e, &e.name.name);
-                        self.effect_env.iter().any(|t| matches!(&t.ty, Ty::Named { name: n, .. } if *n == key))
-                    })
-                    .collect();
-                let chosen: Vec<&'p ast::EffectDecl> = if !available.is_empty() {
-                    available
-                } else if !self.overloads_of(name).is_empty() {
-                    Vec::new()
-                } else if owners.len() == 1 {
-                    // No fn of the name: the one effect's members, whose call
-                    // then reports the missing handler (or the self-dispatch
-                    // it would be inside a handler of that effect).
-                    owners
-                } else {
-                    if pre_typed.is_none() {
-                        for a in args {
-                            self.check_expr(a, None);
-                        }
-                    }
-                    let shown = owners.iter().map(|e| format!("`{}`", e.name.name)).collect::<Vec<_>>().join(", ");
-                    self.error(span, messages::effect_available_member_no_handler(&name, &shown));
-                    return Ty::Unknown;
-                };
-                for (e, f) in members {
-                    if chosen.iter().any(|c| std::ptr::eq(*c, e)) && !self.shape_refused(f) {
-                        member_cands.push(self.member_cand(e, f));
-                    }
-                }
-            }
-        }
-        // [throw] `throw(m)` has no handler and no overloads to rank: the
-        // delimiter is `try`, so its operation resolves through its own path.
-        if let [CallCand::Member { effect, decl, .. }] = member_cands.as_slice() {
-            if effect.name.name == THROW_EFFECT && (effect_sel.is_some() || self.overloads_of(name).is_empty()) {
-                let (effect, decl) = (*effect, *decl);
-                self.record_member_call(effect, decl, span);
-                return self.check_throw_call(decl, args, pre_typed.as_deref(), span);
-            }
-        }
-
-        // 2. Function overloads [fn-overload] (fn declarations, else
-        // signatures).
-        // [fn-rename] The overloads that still answer to this name — a
-        // renamed one answers only to its new name — and, when the name *is*
-        // a rename, exactly the overload it points at.
-        let fn_entries: Vec<crate::resolve::FnEntry<'p>> =
-            if effect_sel.is_some() { Vec::new() } else { self.overloads_of(name) };
-        let candidates: Vec<CallCand<'p>> = fn_entries.into_iter().map(CallCand::Fn).chain(member_cands).collect();
-        if self.renamed(name).is_some() {
-            if at.is_some() {
-                self.error(span, messages::fn_rename_at_on_renamed(&name));
-            }
-        }
-        if candidates.is_empty() {
-            // 3. Handler constructor.
-            if pre_typed.is_none() {
-                for a in args {
-                    self.check_expr(a, None);
-                }
-            }
-            if self.scope.handlers.contains_key(name) {
-                // [handler-not-value] A handler instance is produced by
-                // `use` and lives in the effect environment; it is not a
-                // value the program can name, store, or pass. `use` never
-                // reaches here (it validates its own constructor), so this
-                // is always a handler *value* — which neither backend can
-                // render (Rust emits `Name()` for a struct with no such
-                // constructor, `E0423`).
-                self.error(name_span, messages::handler_not_value_called(&name));
-                return Ty::Unknown;
-            }
-            // Nothing declares this name [call-resolve]. Reaching a target
-            // function means declaring it, so an
-            // unresolved callee is an error rather than interop
-            // pass-through (user decision 2026-09-03).
-            self.error_unresolved(name_span, messages::call_resolve_unknown_fn(&name), name);
-            return Ty::Unknown;
-        }
-
+    ) -> Option<(Viable<'p>, Vec<Ty>)> {
         // Type the arguments once, then match candidates against them.
         // The **lead** candidate's parameter types flow into the arguments
         // as expected types — which is what lets lambda literals infer
@@ -30133,7 +30071,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
         let mut proj_blocked: Vec<(String, String, usize, ProjBlock)> = Vec::new();
         let mut consumed_blocked: Option<String> = None;
-        for entry in &candidates {
+        for entry in candidates {
             let (key, decl) = (entry.key(), entry.decl());
             // [implicit-param] Implicits are never passed positionally, so
             // they take no part in arity or ranking.
@@ -30230,7 +30168,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // checked against the effect it will be sent to.
             let mut subst = match entry {
                 CallCand::Member { .. } => self.cand_seed(entry, type_args),
-                CallCand::Fn(_) => HashMap::new(),
+                CallCand::Fn(_) | CallCand::Own { .. } => HashMap::new(),
             };
             let ok = patterns
                 .iter()
@@ -30365,14 +30303,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                     span,
                     messages::implicit_fit_no_fill(&name, &shown.join(", "), &module, &missing),
                 );
-                return Ty::Unknown;
+                return None;
             }
             if let Some(hint) = consumed_blocked {
                 self.error(
                     span,
                     messages::call_resolve_no_overload_why(&name, &shown.join(", "), &hint),
                 );
-                return Ty::Unknown;
+                return None;
             }
             // [proj-type] When a projection is all that stands between the
             // arguments and a candidate, say so — and say the remedy.
@@ -30394,7 +30332,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     ProjBlock::Nested => messages::proj_type_nested_borrow(&what, &arg_shown, &callee, &pname),
                 };
                 self.error(span, msg);
-                return Ty::Unknown;
+                return None;
             }
             // [fn-variadic] The most likely reason when the call spreads: a
             // spread fills the variadic tail and nothing else, so a callee with
@@ -30420,12 +30358,159 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ""
             };
             self.error(span, messages::call_resolve_no_overload(&name, &shown.join(", "), &hint));
+            return None;
+        }
+        let best_idx = self.select_overload(name, &viable, &arg_tys, at, expected, span)?;
+        Some((viable.swap_remove(best_idx), arg_tys))
+    }
+
+    fn resolve_named_call(
+        &mut self,
+        name: &str,
+        name_span: Span,
+        type_args: &'p [ast::Type],
+        args: &[&'p Expr],
+        named: &'p [ast::NamedArg],
+        expected: Option<&Ty>,
+        // [fn-overload-at] [fn-attached] What was written after `@`, when the
+        // call selects: a module, whose overloads alone compete, or a type,
+        // whose canonicals alone do.
+        at: Option<Selector<'p>>,
+        span: Span,
+    ) -> Ty {
+        // Argument types computed while deciding *which* overload set a
+        // colliding name belongs to [effect-available]: the fn path below
+        // takes them as they are instead of typing the arguments twice.
+        // [implicit-resolve-body] A call that fell through an implicit of its
+        // name arrives with its arguments typed.
+        let pre_typed: Option<Vec<Ty>> = self.pending_arg_tys.take();
+        // [iter-for] Typed arguments with no expressions of their own.
+        let typed_only = std::mem::take(&mut self.pending_typed_only);
+        // 1. The candidates [fn-overload] [effect-member-overload]: the
+        // visible fns of the name and the members of the available effects
+        // declaring it, as **one set** ranked by one rule (R10 P4, PIPELINE.md
+        // B3.5): a member competes with the fns and with the members of other
+        // effects, and a tie is the ordinary ambiguity, whose remedies name
+        // the place (`m@E(…)`, `m@module(…)`).
+        //
+        // [effect-available] A `@module` or `@Type` selector names
+        // declarations, which a member never is, so it sees no members: that
+        // is how a fn shadowed by a member is called by hand. `m@E(…)` names
+        // that effect's members alone.
+        let effect_sel = match at {
+            Some(Selector::Effect(e)) => Some(e),
+            _ => None,
+        };
+        let mut member_cands: Vec<CallCand<'p>> = Vec::new();
+        if let Some(e) = effect_sel {
+            for f in crate::effect_members_named(e, name) {
+                if !self.shape_refused(f) {
+                    member_cands.push(self.member_cand(e, f));
+                }
+            }
+        } else if at.is_none() {
+            if let Some(members) = self.effect_members_here(name) {
+                // [effect-available] **Availability decides first**
+                // (2026-09-14): a member call needs an instance, so only the
+                // members of an effect with one in scope are candidates — a
+                // name that is also an ordinary fn is that fn wherever no
+                // handler is in scope. Without this rule std's `Fs` claimed
+                // `close`, `write`, `read_line` and `position` program-wide.
+                let mut owners: Vec<&'p ast::EffectDecl> = Vec::new();
+                for (e, _) in &members {
+                    if !owners.iter().any(|o| std::ptr::eq(*o, *e)) {
+                        owners.push(e);
+                    }
+                }
+                let available: Vec<&'p ast::EffectDecl> = owners
+                    .iter()
+                    .copied()
+                    .filter(|e| {
+                        let key = self.symbols.key_or(*e, &e.name.name);
+                        self.effect_env.iter().any(|t| matches!(&t.ty, Ty::Named { name: n, .. } if *n == key))
+                    })
+                    .collect();
+                let chosen: Vec<&'p ast::EffectDecl> = if !available.is_empty() {
+                    available
+                } else if !self.overloads_of(name).is_empty() {
+                    Vec::new()
+                } else if owners.len() == 1 {
+                    // No fn of the name: the one effect's members, whose call
+                    // then reports the missing handler (or the self-dispatch
+                    // it would be inside a handler of that effect).
+                    owners
+                } else {
+                    if pre_typed.is_none() {
+                        for a in args {
+                            self.check_expr(a, None);
+                        }
+                    }
+                    let shown = owners.iter().map(|e| format!("`{}`", e.name.name)).collect::<Vec<_>>().join(", ");
+                    self.error(span, messages::effect_available_member_no_handler(&name, &shown));
+                    return Ty::Unknown;
+                };
+                for (e, f) in members {
+                    if chosen.iter().any(|c| std::ptr::eq(*c, e)) && !self.shape_refused(f) {
+                        member_cands.push(self.member_cand(e, f));
+                    }
+                }
+            }
+        }
+        // [throw] `throw(m)` has no handler and no overloads to rank: the
+        // delimiter is `try`, so its operation resolves through its own path.
+        if let [CallCand::Member { effect, decl, .. }] = member_cands.as_slice() {
+            if effect.name.name == THROW_EFFECT && (effect_sel.is_some() || self.overloads_of(name).is_empty()) {
+                let (effect, decl) = (*effect, *decl);
+                self.record_member_call(effect, decl, span);
+                return self.check_throw_call(decl, args, pre_typed.as_deref(), span);
+            }
+        }
+
+        // 2. Function overloads [fn-overload] (fn declarations, else
+        // signatures).
+        // [fn-rename] The overloads that still answer to this name — a
+        // renamed one answers only to its new name — and, when the name *is*
+        // a rename, exactly the overload it points at.
+        let fn_entries: Vec<crate::resolve::FnEntry<'p>> =
+            if effect_sel.is_some() { Vec::new() } else { self.overloads_of(name) };
+        let candidates: Vec<CallCand<'p>> = fn_entries.into_iter().map(CallCand::Fn).chain(member_cands).collect();
+        if self.renamed(name).is_some() {
+            if at.is_some() {
+                self.error(span, messages::fn_rename_at_on_renamed(&name));
+            }
+        }
+        if candidates.is_empty() {
+            // 3. Handler constructor.
+            if pre_typed.is_none() {
+                for a in args {
+                    self.check_expr(a, None);
+                }
+            }
+            if self.scope.handlers.contains_key(name) {
+                // [handler-not-value] A handler instance is produced by
+                // `use` and lives in the effect environment; it is not a
+                // value the program can name, store, or pass. `use` never
+                // reaches here (it validates its own constructor), so this
+                // is always a handler *value* — which neither backend can
+                // render (Rust emits `Name()` for a struct with no such
+                // constructor, `E0423`).
+                self.error(name_span, messages::handler_not_value_called(&name));
+                return Ty::Unknown;
+            }
+            // Nothing declares this name [call-resolve]. Reaching a target
+            // function means declaring it, so an
+            // unresolved callee is an error rather than interop
+            // pass-through (user decision 2026-09-03).
+            self.error_unresolved(name_span, messages::call_resolve_unknown_fn(&name), name);
             return Ty::Unknown;
         }
-        let Some(best_idx) = self.select_overload(name, &viable, &arg_tys, at, expected, span) else {
+
+        let Some((best, arg_tys)) =
+            self.select_among(name, &candidates, type_args, args, named, expected, at, pre_typed, span)
+        else {
             return Ty::Unknown;
         };
-        let best = &viable[best_idx];
+        let best = &best;
         // [effect-member-overload] A member won: the call is a dispatch
         // through its effect's instance.
         if let Some(effect) = best.effect {

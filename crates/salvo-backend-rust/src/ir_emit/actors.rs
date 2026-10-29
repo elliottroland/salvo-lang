@@ -64,7 +64,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     pub fn parking<'h>(&self, h: &'h ImplDecl, faces: &[&InterfaceDecl]) -> Vec<&'h FnDecl> {
         let mut out = Vec::new();
         for face in faces {
-            for fm in face.members.iter().filter(|m| m.send) {
+            // [actor-send-fn] An overloaded send member cannot be a mint's
+            // target (the checker refuses it, PIPELINE.md B3.7), so it has no
+            // continuation — and a plain-named one would collide.
+            let overloaded = |name: &str| face.members.iter().filter(|o| o.send && o.name == name).count() > 1;
+            for fm in face.members.iter().filter(|m| m.send && !overloaded(&m.name)) {
                 if let Some(m) = h.members.iter().find(|m| m.name == fm.name) {
                     if !Self::declared_params(m).is_empty() {
                         out.push(m);

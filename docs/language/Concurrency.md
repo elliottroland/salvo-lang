@@ -61,6 +61,8 @@ fn fetch(id: Int, out: Reply<Str>) [Db] -> None => !out {
 }
 ```
 
+Where several `send fn`s of the name are visible, the mint picks among them as a call picks among overloads: by the captures it is given, and by the answer the position wants. When two fit equally it is an error, and `replyto finish@reports("row", out)` names the module whose `send fn` is meant.
+
 Inside an actor, `replyto` more often targets one of the actor's **own** members — usually a private one. A `send fn` that no face declares is a private member: nothing outside the handler can send to it, and the only ways in are `k@self(…)` from a sibling member and `replyto k(…)`. Its parameters are consumed like any message's, so its clause is written out, and its trailing parameter is the answer the continuation carries:
 
 ```

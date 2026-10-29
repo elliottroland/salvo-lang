@@ -1164,7 +1164,12 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
         }
         if let Some(member) = info.self_send.or(info.facade_send).cloned() {
-            let a: Vec<Expr> = args.iter().map(|x| self.expr(x)).collect();
+            // [fn-uniform] `x.k(a)` reaching a servant send is `k(x, a)`.
+            let mut a: Vec<Expr> = Vec::with_capacity(args.len() + 1);
+            if let (true, AExpr::Field { base, .. }) = (info.dot_call, callee) {
+                a.push(self.expr(base));
+            }
+            a.extend(args.iter().map(|x| self.expr(x)));
             return Expr { ty, span, kind: ExprKind::SelfSend { member, args: a } };
         }
         // [fn-uniform] A uniform call: the receiver is the first argument.

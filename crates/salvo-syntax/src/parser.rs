@@ -7458,10 +7458,10 @@ impl<'s> Parser<'s> {
             // Nesting a chain: the previous mint's own `Reply<T>` slot is
             // filled by this one. The mint carries its continuation's args as
             // `captures`, so the fill is appended there.
-            Expr::ReplyTo { member, mut captures, gated, pool, span } => {
+            Expr::ReplyTo { member, module, mut captures, gated, pool, span } => {
                 let span = span.to(reply.span());
                 captures.push(reply);
-                Some(Expr::ReplyTo { member, captures, gated, pool, span })
+                Some(Expr::ReplyTo { member, module, captures, gated, pool, span })
             }
             other => {
                 self.error(messages::actor_replyto_not_after_call(), other.span().to(reply.span()));
@@ -7502,6 +7502,27 @@ impl<'s> Parser<'s> {
         let start = self.bump().span; // `replyto`
         let gated = self.eat(&TokenKind::Bang).is_some();
         let member = self.ident()?;
+        // [task-mint] [fn-overload-at] `replyto k@module(…)`: the module whose
+        // `send fn` is meant. A mint names a function, so only a module
+        // selector applies.
+        let mut module = None;
+        if self.at(&TokenKind::At) && self.same_line() {
+            let at = self.bump().span;
+            let first = self.ident()?;
+            let misplaced = first.name.chars().next().is_some_and(|c| c.is_uppercase()) || first.name == SELF_SELECTOR;
+            if misplaced {
+                self.error(messages::actor_replyto_selector(), at.to(first.span));
+            }
+            let mut path = vec![first];
+            while self.at(&TokenKind::Dot) && self.same_line() {
+                self.bump();
+                path.push(self.ident()?);
+            }
+            // One mistake, one diagnostic: a refused selector selects nothing.
+            if !misplaced {
+                module = Some(path);
+            }
+        }
         // The parentheses are part of the form even when there is nothing to
         // capture — `replyto k()` reads as the continuation it is.
         if !self.at(&TokenKind::LParen) {
@@ -7524,6 +7545,7 @@ impl<'s> Parser<'s> {
         }
         Some(Expr::ReplyTo {
             member,
+            module,
             captures,
             gated,
             pool,

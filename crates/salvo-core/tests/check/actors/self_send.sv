@@ -81,7 +81,7 @@ handler Typing() of Typed {
     mailbox { capacity: 1 }
 
     send fn start(n: Int) {
-        //~ error[actor-self-send:arg-mismatch]
+        //~ error[call-resolve:no-overload]
         step@self("one")
     }
 

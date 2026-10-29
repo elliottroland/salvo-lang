@@ -1141,6 +1141,32 @@ PIPELINE.md §II.10 P19 is built; these are its recorded leftovers.
   effect (`no overload of `Fs.close` takes (Int)`). A candidate list in the
   message would serve both.
 
+### 0au — What one selection for sends and mints left (B3.7, 2026-10-28)
+
+PIPELINE.md B3.7 built D18 (a), D24 (a) and the uniform call reaching a
+handler's own `send fn`. Cut, each refused with a diagnostic rather than
+emitted wrong:
+
+- **A send to an overloaded member of this actor**: a self-send, a servant
+  send and a member mint name their member (`SelfSend { member: String }`,
+  `ReplyTarget::Member(String)`, the `__Priv_`/`__Cont_` variants and both
+  backends' resume tables by plain name), so a name overloaded in the
+  handler is refused (`actor-send-fn:overloaded-own`); a handler's private
+  sends are still refused overloading at the declaration
+  (`actor-mixed-handler:overloaded-send`). Lifting it means carrying the
+  member's index through the IR's `SelfSend`/`ReplyTarget::Member` and naming
+  the continuation and private variants by `effect_member_name`. An
+  overloaded **face** member now has no continuation variant at all (the IR
+  and both backends skip it), which is right while no mint can target it.
+- **A send's message shape**: defaults, named arguments, implicit and
+  variadic parameters on a send member are refused at the send
+  (`actor-send-fn:message-shape`): the IR's `Send`/`SelfSend` carry the
+  written arguments, and the backends zip them with the parameters. Filling
+  them is `args_for` at the send.
+- **A mint's ranking is its own** (`free_send_target`): typed captures, the
+  token's type from the position, `most_specific`; the call's
+  `select_among` cannot take a parameter with no argument yet.
+
 ### 0al — Open defect: `let x: Long? = -1L` miscompiles on Rust (found 2026-10-28, B3.3c)
 
 `let x: Long? = -1L` lowers to `present(-(present(1L)))` (IR): the optional

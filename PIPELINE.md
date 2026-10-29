@@ -2700,7 +2700,24 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
   such member and nothing to take it first reports
   `actor-use-addr:no-member`.
 
+- **P20. Sends and mints** (B3.7, census D18, D24). **Decided (user,
+  2026-10-28).**
+  1. **D18 (a):** a mint ranks the visible `send fn`s of its name like a
+     partial call — by the captures, and by the token's type where the
+     position fixes it; a tie is the ordinary ambiguity, naming `replyto
+     k@module(…)` (a new module selector on `replyto`). Rejected: (b) refuse
+     whenever more than one is visible.
+  2. **D24 (a):** send members may overload, and every send target is
+     chosen by the call's rule. Rejected: (b) forbid overloading send members.
+  3. **(a):** a uniform call reaches a handler's own `send fn` as the plain
+     call does ("the members of a handler are in scope for it"). Rejected:
+     (b) the dot form never reaches a servant send.
+
 ## II.11. Rounds
+
+### 2026-10-28, B3.7
+
+- P20 decided: D18 (a), D24 (a), question 3 (a).
 
 ### 2026-10-28
 
@@ -3262,6 +3279,30 @@ this log current so the work can resume after a context reset). Newest last.
   a uniform call; a member call through a field could be misread there,
   with no case found yet.
 
+- **B3.7, sends and mints (2026-10-28).** Under P20. `resolve_named_call`'s
+  selection is `select_among`, reusable over any candidate set; a
+  `CallCand::Own { handler, decl }` stands for a handler's own member.
+  Addr sends choose among an effect's overloaded send members by it (the
+  instance the addr names seeds the effect's generics); self-sends and
+  servant sends by it over the handler's members of the name; the payload
+  is `send_payload` (coercions, `reply_escape`, the move). Mints:
+  `free_send_target` ranks the free `send fn`s by captures and the token's
+  wanted type (`check_replyto` now receives `expected`); `replyto k@m(…)`
+  parses (`Expr::ReplyTo.module`). `check_dot_call` offers `x.k(a)` to
+  `check_servant_send` before the declarations; the IR's `SelfSend` puts
+  the receiver first for a dot call. Cuts (ROADMAP 0au): an overloaded name
+  at a self-send, servant send or member mint
+  (`actor-send-fn:overloaded-own`), and defaults, named, implicit or
+  variadic parameters at any send (`actor-send-fn:message-shape`). Found
+  and fixed: a handler of an effect with overloaded send members got two
+  same-named continuation variants (`__Cont_H::Put` twice, rustc E0428), in
+  the IR and both backends; such members are no mint targets, so they get
+  none. Gone: `actor-use-addr:overload-by-count`, `:arg-count`,
+  `:arg-mismatch`, `actor-self-send:arg-count`, `:arg-mismatch`,
+  `actor-mixed-handler:arg-count`, `:arg-mismatch` (now the call's
+  `call-resolve:no-overload`). `effect_calls` unchanged (handler choice,
+  with erasure).
+
 - **B3.2, interpolation (2026-10-28).** Under P4 option (a): each part is
   the call `to_str(part)`, resolved by `interp_call` — the enclosing fn's own
   implicit (`pick_own_implicit`), else `resolve_named_call` with the part
@@ -3319,11 +3360,12 @@ this log current so the work can resume after a context reset). Newest last.
   over std's fns of the name. Nothing else in the suite changed.
 
 - **Where it stands (2026-10-28) — resume here.** Stage A complete; B1,
-  B2 done; B3 pieces 1, 2, 3a–3e, 4, 5 and 6 done. TESTS.md's reorganisation is
+  B2 done; **B3 done** (pieces 1–7). TESTS.md's reorganisation is
   finished (the per-piece method is its data runners and a warm nextest
-  before each commit). **Remaining B3 order:** 7 (sends, mints: D18, D24,
-  and a handler's own `send fn` under a uniform call); D4's general union
-  `to_str` stays deferred (R10), so `interp_union` is a fact until it lands. **Open decisions, each
+  before each commit). **Next: B4** (§II.9), the round-trip check (P5 (b)).
+  Left of B3, recorded: D4's general union `to_str` (deferred, R10), so
+  `interp_union` stays a fact; the send cuts of ROADMAP 0au; the leftovers
+  of 0as and 0at. **Open decisions, each
   built as its recommended option:** P9–P18 (§II.10; ROADMAP 0af,
   0ah–0aq).
 
@@ -3829,6 +3871,10 @@ declaration.
 
 #### D18. A task mint resolves its target by the old scope ladder
 
+**Built in B3.7 (2026-10-28), P20 1 (a):** ranked by the captures and the
+token; a tie names `replyto k@module(…)`. The census text below is the
+state before.
+
 `free_send_target` keeps the most specific rung that has a `send fn` of
 that name, and refuses only a tie within that rung. That is the rule calls
 dropped on 2026-09-26. It also reads `scope.fns` raw (renames ignored) and
@@ -3939,6 +3985,10 @@ that module.
 Fixed (commit "Select every implicit argument as a call selects"): the written `SortedSet<Str>(by_len)` is ambiguous, an error naming `by_len@lib` and `by_len@main`; `SortedSet<Str>(by_len@main)` settles it.
 
 #### D24. Send-member and own-handler targets are picked by arity or by first name
+
+**Built in B3.7 (2026-10-28), P20 2 (a):** chosen by the call's rule; an
+overloaded name at a self-send, servant send or member mint is refused
+until the lowering names the overload (ROADMAP 0au).
 
 `check_addr_call` picks among overloaded send members by arity only and
 refuses a tie. It also ignores the call's type arguments and named

@@ -144,6 +144,41 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — Sends and mints choose their targets as calls do (PIPELINE.md B3.7, P20)
+
+- **Decided (user, 2026-10-28)**: a mint ranks the visible `send fn`s of its
+  name by the captures and the token's wanted type, a tie naming `replyto
+  k@module(…)` (census D18 (a), "the closest behaviour to normal function
+  overloads"); send members may overload and every send target is chosen by
+  the call's rule (D24 (a), "make the one-rule principle as consistently
+  applied as possible"); a uniform call reaches a handler's own `send fn`
+  ("the members of a handler are in scope for it"). Rejected: refusing
+  every multi-candidate mint; forbidding send overloads; keeping servant
+  sends bare-call only.
+- **What it took**: `select_among`, cut out of `resolve_named_call`, is the
+  selection any candidate set runs; `CallCand::Own` is a handler's own member.
+  Addr sends, self-sends and servant sends select through it (`own_send_target`,
+  `send_payload`); `free_send_target` ranks a mint's free targets; `replyto`
+  takes a module selector (`Expr::ReplyTo.module`); `check_replyto` gets the
+  expected type; `check_dot_call` offers `x.k(a)` to `check_servant_send`.
+  Seven send-specific argument messages went (the call's
+  `call-resolve:no-overload` now); `actor-send-fn:message-shape`,
+  `actor-send-fn:overloaded-own` and `actor-replyto:selector` are new.
+- **Cuts, refused rather than emitted wrong** (ROADMAP 0au): an overloaded
+  name at a self-send, servant send or member mint (they lower by name), and
+  defaults, named, implicit or variadic parameters at any send (the IR
+  passes a send's written arguments).
+- **Found and fixed**: a handler implementing an effect with overloaded send
+  members (`put(Int)`, `put(Str)`) produced two `__Cont_H::Put` variants,
+  refused by rustc (E0428) — in the IR builder and both backends, which each
+  listed the resumable members by plain name. An overloaded member is no
+  mint target, so it gets no continuation. Present before B3.7 (the
+  arity-overloaded `spawn.sv` case was only ever checked, never compiled).
+- **B3 is complete.** Next is B4, the round-trip check.
+- Tests: checker data `actors/send_selection.sv`, `actors/spawn.sv` and
+  `actors/self_send.sv` updated; run data
+  `actors/send_targets_are_selected_as_calls.sv` (both backends).
+
 ### 2026-10-28 — An interpolated part is the call `to_str(part)` (PIPELINE.md B3.2)
 
 - **Under the user's P4 decision (option (a), 2026-10-28)**: each `${part}`
@@ -33520,6 +33555,11 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A backend's actor tables repeat the IR's lists** (B3.7, 2026-10-28): the
+  resumable send members are computed three times, in the IR builder
+  (`ir/build/actors.rs`) and in each backend's `actor_body`/`parking`, all
+  by plain name. A change to which members park has to land in all three,
+  or the continuation enum and the resume match disagree.
 - **Asking whether a function "takes" a type needs rigid outer type
   variables** (B3.4, 2026-10-28): `unify` binds every `Ty::Var`, so lowering
   a candidate's parameter inside a generic handler turns the handler's own

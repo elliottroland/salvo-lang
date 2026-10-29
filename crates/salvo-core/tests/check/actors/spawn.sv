@@ -140,7 +140,7 @@ fn an_addr_call_resolves_against_the_served_effect() [use, spawn] {
 
 fn an_addr_call_checks_its_arguments() [use, spawn] {
     let counter = spawn Counting() with Printing() on pool(1)
-    //~ error[actor-use-addr:arg-mismatch]
+    //~ error[call-resolve:no-overload]
     counter.bump("two")
 }
 
@@ -314,9 +314,8 @@ fn a_waitfor_stops_at_a_lambda() [use, spawn] {
 }
 
 // [effect-member-overload] An overloaded send member reached through an addr
-// is picked by **argument count**: typing the arguments to choose and then
-// again against the winner would report every mistake in them twice. A tie is
-// refused rather than guessed.
+// is chosen by the call's rule (PIPELINE.md B3.7, D24 (a)): the arguments
+// typed once, the overloads ranked by them — by arity here, by type below.
 actor effect Sink {
     send fn put(a: Int)
     send fn put(a: Int, b: Int)
@@ -347,10 +346,14 @@ handler TiedDropping() of TiedSink {
     send fn put(a: Str) {}
 }
 
-fn a_same_arity_overload_is_refused() [use, spawn] {
+// Before B3.7 a same-arity pair was refused ("several overloads take 1
+// argument"): arity was all a send could tell them apart by.
+fn a_same_arity_overload_is_chosen_by_type() [use, spawn] {
     let s = spawn TiedDropping() on pool(1)
-    //~ error[actor-use-addr:overload-by-count]
     s.put(1)
+    s.put("one")
+    //~ error[call-resolve:no-overload]
+    s.put(true)
 }
 
 // ===== [waitfor-infer] The binder's type =====

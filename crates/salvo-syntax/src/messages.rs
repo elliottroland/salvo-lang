@@ -1921,14 +1921,6 @@ messages! {
          here: say which — `{name}@self(…)` for a send to this handler's servant, or \
          name the effect (`{name}@E(…)`)"
     );
-    /// A servant send with the wrong number of arguments.
-    actor_mixed_handler_arg_count = "actor-mixed-handler:arg-count" (name: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
-        "`{name}` takes {expected} argument(s), found {found}"
-    );
-    /// A servant send argument of the wrong type.
-    actor_mixed_handler_arg_mismatch = "actor-mixed-handler:arg-mismatch" (want: &dyn std::fmt::Display, got: &dyn std::fmt::Display) => format!(
-        "expected `{want}`, found `{got}`"
-    );
     /// A received reply whose answer outlives the activation undeclared.
     actor_mixed_handler_undeclared_defer = "actor-mixed-handler:undeclared-defer" (name: &dyn std::fmt::Display, how: &dyn std::fmt::Display) => format!(
         "`{name}` is a reply this member received, and {how} lets its answer outlive the \
@@ -2103,14 +2095,6 @@ messages! {
         "`{member}` is not a `send fn`, so `{member}@self(…)` cannot reach it: a \
          self-send is a message, and a member that answers would have to wait for itself"
     );
-    /// A self-send with the wrong number of arguments.
-    actor_self_send_arg_count = "actor-self-send:arg-count" (member: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
-        "`{member}` takes {expected} argument(s), found {found}"
-    );
-    /// A self-send argument of the wrong type.
-    actor_self_send_arg_mismatch = "actor-self-send:arg-mismatch" (want: &dyn std::fmt::Display, got: &dyn std::fmt::Display) => format!(
-        "expected `{want}`, found `{got}`"
-    );
     /// `k@self` as a value.
     actor_self_send_member_value = "actor-self-send:member-value" (member: &dyn std::fmt::Display) => format!(
         "`{member}@self` names a member of the enclosing handler, which is not a value: \
@@ -2259,12 +2243,6 @@ messages! {
     actor_use_addr_not_in_scope = "actor-use-addr:not-in-scope" (effect_name: &dyn std::fmt::Display) => format!(
         "effect `{effect_name}` is not in scope here"
     );
-    /// A send through a handle that argument counts cannot choose.
-    actor_use_addr_overload_by_count = "actor-use-addr:overload-by-count" (effect_name: &dyn std::fmt::Display, member: &dyn std::fmt::Display, count: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
-        "effect `{effect_name}` overloads `{member}`, and {count} of its overloads take \
-         {found} argument(s): a send through a `eff[…]` picks by argument count, so this \
-         call cannot say which one it means"
-    );
     /// A send through a handle naming no member.
     actor_use_addr_no_member = "actor-use-addr:no-member" (instance: &dyn std::fmt::Display, effect_name: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
         "`{instance}` serves effect `{effect_name}`, which has no member named `{member}`, \
@@ -2274,14 +2252,6 @@ messages! {
     actor_use_addr_not_send = "actor-use-addr:not-send" (member: &dyn std::fmt::Display) => format!(
         "`{member}` is not a `send fn`, so it cannot be called through a `eff[…]`: an \
          actor serves messages, and a member that answers would have to park its caller"
-    );
-    /// A send through a handle with the wrong number of arguments.
-    actor_use_addr_arg_count = "actor-use-addr:arg-count" (member: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, found: &dyn std::fmt::Display) => format!(
-        "`{member}` takes {expected} argument(s), found {found}"
-    );
-    /// A send-through-a-handle argument of the wrong type.
-    actor_use_addr_arg_mismatch = "actor-use-addr:arg-mismatch" (want: &dyn std::fmt::Display, got: &dyn std::fmt::Display) => format!(
-        "expected `{want}`, found `{got}`"
     );
 
     // [actor-waitfor]
@@ -3323,6 +3293,21 @@ messages! {
         "`{name}` is overloaded, so passing it by name is ambiguous: {candidates} all fit \
          here. Annotate the position with the fn type you mean, or give one overload its \
          own name with `rename fn <new> = {name}(...)`"
+    );
+    /// A mint naming its target with an effect or `self` selector.
+    actor_replyto_selector = "actor-replyto:selector" () =>
+        "a mint names a function, so its target takes only a module selector: \
+         `replyto k@module(…)`";
+    /// A send whose arguments a message cannot carry as written yet.
+    actor_send_fn_message_shape = "actor-send-fn:message-shape" (name: &dyn std::fmt::Display, what: &dyn std::fmt::Display) => format!(
+        "`{name}` is sent as a message, which carries its arguments as written, and a \
+         send with {what} is not supported yet; pass every parameter positionally"
+    );
+    /// A self-send, servant send or member mint naming an overloaded member.
+    actor_send_fn_overloaded_own = "actor-send-fn:overloaded-own" (name: &dyn std::fmt::Display, handler: &dyn std::fmt::Display) => format!(
+        "`{name}` names several members of `{handler}`: a send to this actor or a mint \
+         names its member, which cannot say which overload yet; send through an addr \
+         (`addr.{name}(…)`) or give the overloads names of their own"
     );
     /// An effect's member named as a value where no function type is expected.
     fn_value_select_member_not_expected = "fn-value-select:member-not-expected" (name: &dyn std::fmt::Display, effect: &dyn std::fmt::Display) => format!(
@@ -4642,10 +4627,10 @@ messages! {
 
     // [task-mint]
     /// A mint of a `send fn` several overloads could be.
-    task_mint_ambiguous_send = "task-mint:ambiguous-send" (form: &dyn std::fmt::Display, member: &dyn std::fmt::Display, count: &dyn std::fmt::Display, from: &dyn std::fmt::Display) => format!(
-        "`{form}` cannot tell which `send fn {member}` it means: {count} of them are \
-         visible from {from}, and a mint carries only the captures — not enough to \
-         choose an overload. Rename one, or bring in only the one this scope means"
+    task_mint_ambiguous_send = "task-mint:ambiguous-send" (form: &dyn std::fmt::Display, member: &dyn std::fmt::Display, captures: &dyn std::fmt::Display, remedy: &dyn std::fmt::Display) => format!(
+        "`{form}` cannot tell which `send fn {member}` it means: several take the \
+         captures ({captures}) and none is more specific. Name the one you mean — \
+         {remedy} — or give one its own name"
     );
     /// `replyto!` of a free `send fn`.
     task_mint_gated_free_send = "task-mint:gated-free-send" (member: &dyn std::fmt::Display) => format!(

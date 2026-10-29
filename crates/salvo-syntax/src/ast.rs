@@ -2330,6 +2330,9 @@ pub enum Expr {
     /// actor serves nothing else until the answer arrives.
     ReplyTo {
         member: Ident,
+        /// [task-mint] [fn-overload-at] `replyto k@module(…)`: the module whose
+        /// `send fn` is meant, where several are visible (PIPELINE.md B3.7).
+        module: Option<Vec<Ident>>,
         captures: Vec<Expr>,
         /// Written `replyto!`: the gated mint.
         gated: bool,
