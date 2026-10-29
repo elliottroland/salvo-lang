@@ -1,4 +1,4 @@
-# aws_sqs
+# aws example: sqs
 
 Amazon SQS from Salvo, with no AWS anywhere. `aws.sqs` is **generated** from
 the service's Smithy model by `modules/aws/codegen`; this program is written
@@ -7,8 +7,8 @@ against its `Sqs` effect and runs against two handlers that need no SDK.
 Run it:
 
 ```bash
-cd examples/aws_sqs
-cargo run -q --manifest-path ../../Cargo.toml -- run
+cd modules/aws/examples/sqs
+cargo run -q --manifest-path ../../../../Cargo.toml -- run
 ```
 
 ## What to look for

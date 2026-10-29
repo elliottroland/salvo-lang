@@ -1,4 +1,4 @@
-# aws_ddb
+# aws example: ddb
 
 Amazon DynamoDB from Salvo, with no AWS anywhere. `aws.ddb` is **generated**
 from the service's Smithy model by `modules/aws/codegen`; this program is
@@ -8,8 +8,8 @@ SDK.
 Run it:
 
 ```bash
-cd examples/aws_ddb
-cargo run -q --manifest-path ../../Cargo.toml -- run
+cd modules/aws/examples/ddb
+cargo run -q --manifest-path ../../../../Cargo.toml -- run
 ```
 
 ## What to look for

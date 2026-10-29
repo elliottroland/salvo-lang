@@ -333,8 +333,8 @@ fn main() [use] {
   under the `[build] modules` directory at the version it declares, and its
   modules arrive by `import` like any other — paths from its own layout, no
   prefix, and no way to redefine the standard library on its users unless its
-  own manifest says it is one. `modules/aws/` is the first, consumed by
-  `examples/aws_profile/`.
+  own manifest says it is one. `modules/aws/` is the first, consumed by its
+  own `modules/aws/examples/`.
 - **Testing**: a test is a declaration named by a string —
   `test "an empty cart totals to zero" { ... }` — living in a companion file
   (`cart.test.sv` beside `cart.sv`) that is part of the module, so a test reaches

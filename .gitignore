@@ -38,10 +38,12 @@ vscode/*.vsix
 # Wiki -- a sub-directory which is its own git repo
 wiki/
 
-# The aws module's generator build output, and the demo's scratch trees.
+# The aws module's generator build output, the demo's scratch trees, and
+# check.sh's scratch output.
 modules/aws/codegen/build/
 modules/aws/codegen/.gradle/
 modules/aws/demo/*/out/
+modules/aws/.check/
 
 # What the host tools write into a platform root's generated host project.
 **/platform/.gradle/

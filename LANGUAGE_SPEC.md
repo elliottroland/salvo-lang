@@ -11777,8 +11777,8 @@ replaced the working document TESTING.md).
     `salvo_modules` from anywhere, and a check that a dependency's own tree
     does not need a `[build] modules` of its own. The repository's first
     dependency is `modules/aws/` (`ProfileCredentials`, the services to
-    follow as actors), consumed by `examples/aws_profile/` through `modules =
-    "../../modules"` — the setting pointing anywhere is what makes
+    follow as actors), consumed by `modules/aws/examples/profile/` through
+    `modules = "../../.."` — the setting pointing anywhere is what makes
     `salvo_modules` a convention rather than a rule.
 
 ## Backends
@@ -12228,10 +12228,11 @@ replaced the working document TESTING.md).
   change without notice.
   * The contract is **checked**, not just stated: `salvo platform generate`
     writes skeletons against it, std's own host files are compiled by every
-    run that reaches them, and `the_aws_glue_compiles_against_both_sdks`
-    compiles the generated aws glue against both SDKs whenever they are
-    available locally — the case the contract exists for, a generator outside
-    the compiler writing host code.
+    run that reaches them, and the aws module's own `modules/aws/check.sh`
+    compiles its generated glue against both SDKs whenever they are available
+    locally — the case the contract exists for, a generator outside the
+    compiler writing host code (the compiler's tests do not reach the module,
+    user decision 2026-10-29).
   * Changing an entry is a breaking change to every host file: update the
     backend spec, std's `platform/` files, the aws generator, and say so in
     COMPLETED.md.

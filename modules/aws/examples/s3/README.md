@@ -1,4 +1,4 @@
-# aws_s3
+# aws example: s3
 
 Amazon S3 from Salvo, with no AWS anywhere, and objects as **streams**. `aws.s3`
 is **generated** from the service's Smithy model by `modules/aws/codegen`
@@ -8,8 +8,8 @@ and runs against two handlers that need no SDK, over the in-memory filesystem.
 Run it:
 
 ```bash
-cd examples/aws_s3
-cargo run -q --manifest-path ../../Cargo.toml -- run
+cd modules/aws/examples/s3
+cargo run -q --manifest-path ../../../../Cargo.toml -- run
 ```
 
 ## What to look for

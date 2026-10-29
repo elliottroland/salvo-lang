@@ -1219,7 +1219,7 @@ mod tests {
     }
 
     /// [lsp-check-cache] Programs of more than one file for the check cache's
-    /// test: `modules/aws`, and two written ones whose files reach into each
+    /// test: two written ones whose files reach into each
     /// other's declarations — types, fields, a qualifier with a value slot, a
     /// module-level rename, a generic struct read through a substitution, an
     /// effect and its handler, a test annex, and an error in a body.
@@ -1235,7 +1235,6 @@ mod tests {
             root
         };
         vec![
-            repo.join("modules/aws"),
             scratch(
                 "shapes",
                 &[

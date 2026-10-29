@@ -48,9 +48,10 @@ effects on both backends (every binding a handle, no fusion, no `local`), and
 the first comptime slice (`comptime fn` and `by auto`, replacing `auto`: the
 structural `cmp`/`eq`/`hash`/`to_str` are std functions over the fields of any
 struct or the arms of any union).
-Fourteen worked examples in `examples/` carry the checked-in generated code for both
-targets and the output they print, three of them consuming the first dependency
-(`modules/aws/`: `aws_profile`, `aws_sqs`, `aws_s3`). 1735 tests green; std's own Salvo tests run inside one of them.
+Twelve worked examples in `examples/` carry the checked-in generated code for both
+targets and the output they print; the first dependency, `modules/aws/`, keeps
+its four (`profile`, `sqs`, `s3`, `ddb`) and its own checks (`modules/aws/check.sh`)
+outside the compiler's tests. 732 tests green; std's own Salvo tests run inside one of them.
 
 ## The sequence
 
@@ -553,7 +554,7 @@ un-annotated braced lambda whose result is used).
 
 `copy(m)` for `m: Map<K, V>` fails the Kotlin emitter with "cannot `copy` a
 value of type `Map<…>`", while Rust copies it fine (a plain immutable map is an
-Identity copy). Found building `examples/aws_ddb`, which copies a
+Identity copy). Found building `modules/aws/examples/ddb`, which copies a
 `Map<Str, AttributeValue>` item; the example works around it with a `rebuild`
 helper that copies attribute by attribute. Nothing in std or the other examples
 copies a whole map, which is why it was latent.
@@ -1185,14 +1186,21 @@ PIPELINE.md B4 built [round-trip] over the examples and the corpus (P5 (b)).
   a type argument with no source form; desugared or stamped spans. D4
   extends the check to types, and Stage C's dump is where operators and
   `for` get a written form.
-- **Where it does not run**: the four examples with `[dependencies]`
-  (`aws_profile`, `aws_sqs`, `aws_s3`, `aws_ddb`) need the CLI's module
-  loader, which `salvo_testkit::front::project` does not have; and 5 of
+- **Where it does not run**: 5 of
   the corpus's 6 files do not check (it is the parser's corpus of
   language-page examples: unknown effects, missing type arguments, an
   `intrinsic` outside std), so the round trip runs on `structs.sv` alone,
   which the checker accepts (its use-after-move errors are the IR's
   analyses, which the round trip does not run).
+
+### 0aw — The aws module's Rust glue check has been skipping (found 2026-10-29)
+
+`modules/aws/check.sh host` and `glue` run `cargo check --offline`, and the
+SDK manifest names `aws-sdk-dynamodb`, which is not in this machine's cargo
+cache, so both Rust checks skip ("the SDK crates are not in cargo's cache").
+They skipped the same way in the compiler's test before the move. `ONLINE=1
+modules/aws/check.sh` fetches the crates; until someone runs it once, the Rust
+glue is unchecked against the SDK.
 
 ### 0al — Open defect: `let x: Long? = -1L` miscompiles on Rust (found 2026-10-28, B3.3c)
 
@@ -1873,7 +1881,7 @@ per-backend for `run`/`test` (suffixed) and refused for `compile`; only a build
 server read the manifest but never write the lock, so an editor session cannot
 produce one. Dependencies between projects, parked here as out of scope, got
 their first slice on 2026-09-29 ([manifest-deps]: `[dependencies]` + `[build]
-modules`, `modules/aws/` consumed by `examples/aws_profile/`; COMPLETED.md has
+modules`, `modules/aws/` consumed by its `examples/profile/`; COMPLETED.md has
 the entry). **What that slice left for later**: transitive dependencies (a
 dependency's own `[dependencies]` are not followed), version ranges and
 resolution, a fetcher that fills `salvo_modules/` from anywhere, a dependency's
@@ -1958,8 +1966,8 @@ generator (`modules/aws/codegen`, a smithy-build plugin; `modules/aws/README.md`
 has the from-scratch setup), `aws.sqs` for six operations with a recording
 `FakeSqs`, `AwsConfig` with a `Credentials` union and an `endpoint` override,
 `aws.s3` for `PutObject`/`GetObject` with bodies as `stream.InStream` in linear
-structs and timestamps as `time.Instant`, `examples/aws_sqs` and
-`examples/aws_s3` in the suite, and `modules/aws/demo/{sqs,s3}_live` run by
+structs and timestamps as `time.Instant`, `modules/aws/examples/{sqs,s3}`
+checked by the module's `check.sh`, and `modules/aws/demo/{sqs,s3}_live` run by
 hand against both SDKs through local stand-ins (COMPLETED.md has both entries).
 Uploads stream and require `content_length` (2026-09-30). Left, in the module
 (DESIGN §9): multipart upload for a body of unknown length, Smithy unions,

@@ -841,7 +841,7 @@ fn main() [use] {
 
         // [kt-gradle] [backend-host-tool] `artifacts` are resolved by the Gradle
         // `[kotlin] gradle` names — here a stand-in speaking the same
-        // protocol (the real one runs in the aws glue test): it is given the
+        // protocol (the real one runs in `modules/aws/check.sh`): it is given the
         // target as `--project-dir`, finds the coordinate in the build salvo
         // wrote, and lists the jar. It announces a download on stdout, as a
         // wrapper's first run does, which must not reach the program's.
@@ -1009,116 +1009,6 @@ fn tree_contents(dir: &Path) -> Vec<(String, Vec<u8>)> {
     }
     out.sort();
     out
-}
-
-/// A stamp keyed on the *generated code* (and the toolchains), not on the
-/// `salvo` binary: the glue has to be recompiled only when what it is
-/// compiled with changed.
-fn content_stamp(what: &str, tree: &[(String, Vec<u8>)], tools: &[&str]) -> Option<salvo_testkit::Stamp> {
-    let mut parts: Vec<Vec<u8>> = vec![what.as_bytes().to_vec()];
-    for (path, bytes) in tree {
-        parts.push(path.as_bytes().to_vec());
-        parts.push(bytes.clone());
-    }
-    for tool in tools {
-        parts.push(salvo_testkit::tool(env!("CARGO_TARGET_TMPDIR"), tool).version.into_bytes());
-    }
-    let refs: Vec<&[u8]> = parts.iter().map(|p| p.as_slice()).collect();
-    salvo_testkit::cached(env!("CARGO_TARGET_TMPDIR"), what, &refs)
-}
-
-/// [platform-abi] [platform-tree] [platform-host-deps] [kt-gradle] The `aws`
-/// module's **generated** host glue (`modules/aws/salvo/platform/aws/**`)
-/// compiles against the real SDKs, through the two live demos that reach it.
-/// The generator writes host code that names what the Salvo emitters produce
-/// (`UnionN`, `Checked`, a module's Rust path, a Kotlin data class), so a
-/// change to emission breaks it — loudly, but until now only when someone ran
-/// a demo by hand. The Kotlin SDK is resolved the way a build resolves it:
-/// through the `build.gradle.kts` `salvo compile` writes, run by the Gradle
-/// the demo's manifest names (the generator's wrapper). Skips, saying so, when
-/// the SDKs are not available locally: the crates not in cargo's cache
-/// (checked `--offline`), or Gradle unable to resolve the artifacts (offline,
-/// nothing cached). Keyed on the generated trees, so it reruns only when
-/// emission or the glue changed.
-#[test]
-fn the_aws_glue_compiles_against_both_sdks() {
-    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
-    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
-    let gradlew = repo.join("modules/aws/codegen/gradlew");
-    for demo in ["sqs_live", "s3_live"] {
-        let src = repo.join("modules/aws/demo").join(demo);
-
-        // ---- Rust: `cargo check`, offline, sharing one target directory.
-        if have("rustc") && have("cargo") {
-            let out = tmp.join(format!("aws_glue_rs_{demo}"));
-            let _ = fs::remove_dir_all(&out);
-            let done = salvo_in(&src, &["compile", "--backend", "rust", "--target", out.to_str().unwrap()]);
-            assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
-            let tree = tree_contents(&out);
-            if let Some(stamp) = content_stamp(&format!("aws glue rust {demo}"), &tree, &["rustc", "cargo"]) {
-                let check = Command::new("cargo")
-                    .args(["check", "--offline", "--quiet", "--manifest-path"])
-                    .arg(out.join("Cargo.toml"))
-                    .env("CARGO_TARGET_DIR", tmp.join("aws_glue_cargo"))
-                    .output()
-                    .expect("failed to run cargo");
-                let stderr = String::from_utf8_lossy(&check.stderr);
-                if !check.status.success() && (stderr.contains("offline") || stderr.contains("no matching package")) {
-                    eprintln!("skipping the Rust glue of {demo}: the SDK crates are not in cargo's cache");
-                } else {
-                    assert!(check.status.success(), "the Rust glue of {demo} does not compile:\n{stderr}");
-                    stamp.verified();
-                }
-            }
-        }
-
-        // ---- Kotlin: kotlinc over the tree, the SDK resolved by Gradle.
-        if have("kotlinc") && have("java") {
-            let out = tmp.join(format!("aws_glue_kt_{demo}"));
-            let _ = fs::remove_dir_all(&out);
-            let done = salvo_in(&src, &["compile", "--backend", "kotlin", "--target", out.to_str().unwrap()]);
-            assert!(done.status.success(), "{}", String::from_utf8_lossy(&done.stderr));
-            let build = fs::read_to_string(out.join("build.gradle.kts"))
-                .expect("reaching the aws glue writes the Gradle build");
-            assert!(build.contains("salvoHost(\"aws.sdk.kotlin:sqs:1.9.11\")"), "{build}");
-            let tree = tree_contents(&out);
-            if let Some(stamp) = content_stamp(&format!("aws glue kotlin {demo}"), &tree, &["kotlinc"]) {
-                let resolved = Command::new(&gradlew)
-                    .args(["--quiet", "--project-dir"])
-                    .arg(&out)
-                    .arg("salvoClasspath")
-                    .output()
-                    .expect("failed to run the aws Gradle wrapper");
-                if !resolved.status.success() {
-                    eprintln!(
-                        "skipping the Kotlin glue of {demo}: Gradle could not resolve the SDK:\n{}",
-                        String::from_utf8_lossy(&resolved.stderr)
-                    );
-                    continue;
-                }
-                let classpath = fs::read_to_string(out.join(".salvo_gradle/classpath.txt")).unwrap();
-                assert!(classpath.lines().any(|l| l.ends_with("sqs-jvm-1.9.11.jar")), "{classpath}");
-                let sources: Vec<PathBuf> = tree
-                    .iter()
-                    .filter(|(p, _)| p.ends_with(".kt"))
-                    .map(|(p, _)| out.join(p))
-                    .collect();
-                let classpath = classpath.lines().collect::<Vec<_>>().join(":");
-                let compiled = Command::new("kotlinc")
-                    .args(&sources)
-                    .args(["-nowarn", "-cp", &classpath, "-d"])
-                    .arg(out.join(".classes"))
-                    .output()
-                    .expect("failed to run kotlinc");
-                assert!(
-                    compiled.status.success(),
-                    "the Kotlin glue of {demo} does not compile:\n{}",
-                    String::from_utf8_lossy(&compiled.stderr)
-                );
-                stamp.verified();
-            }
-        }
-    }
 }
 
 /// [platform-root] [cli-platform] [platform-fn] Each backend has its own
@@ -1310,7 +1200,7 @@ fn main() [use] {
 fn copy_project(from: &Path, to: &Path) {
     let _ = fs::remove_dir_all(to);
     for (rel, bytes) in tree_contents(from) {
-        if rel.starts_with("codegen/") || rel.starts_with("demo/") || rel.ends_with("Cargo.lock") {
+        if rel.ends_with("Cargo.lock") {
             continue;
         }
         let path = to.join(&rel);
@@ -1327,69 +1217,26 @@ fn generated_files(root: &Path) -> Vec<(String, Vec<u8>)> {
         .collect()
 }
 
-/// [platform-abi] The host projects checked in beside std's and aws's
-/// implementation files are what the compiler generates now (a dependency
-/// checks in its own, ABI D9), and aws's implementation files compile
-/// against them alone — `cargo check` on the root's `Cargo.toml`, Gradle's
-/// `compileKotlin` on its `build.gradle.kts` — which is the setup an IDE
-/// opening the root gets. Skips the compiles, saying so, when the SDKs or
-/// the Kotlin Gradle plugin are not available offline.
+/// [platform-abi] The host project checked in beside std's implementation
+/// files is what the compiler generates now (a dependency checks in its own,
+/// ABI D9). A dependency's own host project — `modules/aws`'s — is that
+/// module's to check (`modules/aws/check.sh`), not the compiler's.
 #[test]
-fn the_checked_in_host_projects_are_current_and_compile() {
+fn the_checked_in_host_project_is_current() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
-    for (name, root) in [("std", "platform"), ("aws", "salvo/platform")] {
-        let src = if name == "std" { repo.join("lib") } else { repo.join("modules/aws") };
-        let copy = tmp.join(format!("host_project_{name}"));
-        copy_project(&src, &copy);
-        let out = salvo_in(&copy, &["platform", "generate", "--backend", "*"]);
-        assert!(out.status.success(), "{name}: {}", String::from_utf8_lossy(&out.stderr));
-        let fresh = generated_files(&copy.join(root));
-        assert!(!fresh.is_empty(), "{name}: no host project generated");
-        let checked_in = generated_files(&src.join(root));
-        let names = |t: &[(String, Vec<u8>)]| t.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>();
-        assert_eq!(names(&checked_in), names(&fresh), "{name}: regenerate with `salvo platform generate --backend '*'` in {}", src.display());
-        for ((path, a), (_, b)) in checked_in.iter().zip(&fresh) {
-            assert!(a == b, "{name}: `{path}` is stale: regenerate with `salvo platform generate --backend '*'` in {}", src.display());
-        }
-        if name != "aws" {
-            continue;
-        }
-        let tree = tree_contents(&copy.join(root));
-        if have("cargo") && have("rustc") {
-            if let Some(stamp) = content_stamp("aws host crate", &tree, &["rustc", "cargo"]) {
-                let check = Command::new("cargo")
-                    .args(["check", "--offline", "--quiet", "--manifest-path"])
-                    .arg(copy.join(root).join("Cargo.toml"))
-                    .env("CARGO_TARGET_DIR", tmp.join("aws_glue_cargo"))
-                    .output()
-                    .expect("failed to run cargo");
-                let stderr = String::from_utf8_lossy(&check.stderr);
-                if !check.status.success() && (stderr.contains("offline") || stderr.contains("no matching package")) {
-                    eprintln!("skipping aws's host crate: the SDK crates are not in cargo's cache");
-                } else {
-                    assert!(check.status.success(), "aws's host crate does not compile:\n{stderr}");
-                    stamp.verified();
-                }
-            }
-        }
-        if have("java") {
-            if let Some(stamp) = content_stamp("aws host gradle project", &tree, &["java"]) {
-                let built = Command::new(repo.join("modules/aws/codegen/gradlew"))
-                    .args(["--offline", "--quiet", "--project-dir"])
-                    .arg(copy.join(root))
-                    .arg("compileKotlin")
-                    .output()
-                    .expect("failed to run the aws Gradle wrapper");
-                let stderr = String::from_utf8_lossy(&built.stderr);
-                if !built.status.success() && (stderr.contains("was not found in any of the following sources") || stderr.contains("Could not resolve")) {
-                    eprintln!("skipping aws's Gradle project: the Kotlin plugin or the SDK is not cached:\n{stderr}");
-                } else {
-                    assert!(built.status.success(), "aws's Gradle project does not compile:\n{stderr}");
-                    stamp.verified();
-                }
-            }
-        }
+    let src = repo.join("lib");
+    let copy = tmp.join("host_project_std");
+    copy_project(&src, &copy);
+    let out = salvo_in(&copy, &["platform", "generate", "--backend", "*"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let fresh = generated_files(&copy.join("platform"));
+    assert!(!fresh.is_empty(), "no host project generated");
+    let checked_in = generated_files(&src.join("platform"));
+    let names = |t: &[(String, Vec<u8>)]| t.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>();
+    assert_eq!(names(&checked_in), names(&fresh), "regenerate with `salvo platform generate --backend '*'` in {}", src.display());
+    for ((path, a), (_, b)) in checked_in.iter().zip(&fresh) {
+        assert!(a == b, "`{path}` is stale: regenerate with `salvo platform generate --backend '*'` in {}", src.display());
     }
 }
 

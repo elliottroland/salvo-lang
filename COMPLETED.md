@@ -144,6 +144,29 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-29 — The aws module checks itself; the compiler's tests do not reach it
+
+- **Decided (user, 2026-10-29)**: "I don't think there should be anything
+  about the aws modules in the compiler's tests. Any tests related to that
+  should be exclusively in that module itself."
+- **What moved**: the four examples consuming the module
+  (`examples/aws_{profile,sqs,s3,ddb}`) are `modules/aws/examples/{profile,
+  sqs,s3,ddb}` (`modules = "../../.."`; the generated code is byte-identical);
+  `the_aws_glue_compiles_against_both_sdks` and the aws half of
+  `the_checked_in_host_projects_are_current_and_compile` (now
+  `the_checked_in_host_project_is_current`, std's only) became
+  `modules/aws/check.sh`: the examples current and running to
+  `expected.txt` on both backends, the host project current and compiling
+  (`cargo check`, Gradle `compileKotlin`), and the glue compiling against
+  both SDKs through the live demos. It skips, saying so, what is not cached
+  (`ONLINE=1` fetches); about 80s. The check-cache test no longer reads
+  `modules/aws`. Tests naming a *synthetic* dependency `aws` (dependency,
+  run and LSP tests) are the compiler's and stay.
+- **Found**: the Rust glue check had been skipping: `aws-sdk-dynamodb` was
+  never in cargo's offline cache, so `cargo check --offline` refused the
+  whole manifest since `aws.ddb` was added (ROADMAP 0aw).
+- Fresh suite: about 360s summed less (the glue test alone was 158s).
+
 ### 2026-10-28 — Every call's choice survives being written out (PIPELINE.md B4, [round-trip])
 
 - **Built under P5 (b)** (user, 2026-10-27: the corpus and the examples).

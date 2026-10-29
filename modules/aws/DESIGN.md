@@ -99,7 +99,7 @@ layering, not a rule change, and it **replaces decisions 11–13 and the
 §8 steps 3 and 4 are built: `codegen/` (a `smithy-build` plugin plus a driver,
 Gradle wrapper checked in), `aws.sqs` for six operations (CreateQueue,
 GetQueueUrl, SendMessage, ReceiveMessage, DeleteMessage, DeleteQueue),
-`examples/aws_sqs` in the suite (the generated fake and a hand-written
+`examples/sqs` in the suite (the generated fake and a hand-written
 in-memory double), and `demo/sqs_live` run by hand against the real SDKs and
 the stand-in `local_sqs.py`, printing the same on both backends. Choices made
 while building, within the decisions above — worth a second look:
@@ -126,7 +126,7 @@ while building, within the decisions above — worth a second look:
 
 ### Built: S3 and streaming bodies (2026-09-30)
 
-§8 step 5: `aws.s3` for `PutObject` and `GetObject`, `examples/aws_s3` in the
+§8 step 5: `aws.s3` for `PutObject` and `GetObject`, `examples/s3` in the
 suite (the generated fake and a hand-written `MemS3` over `MemFs`), and
 `demo/s3_live` with `local_s3.py`, run by hand through both SDKs with
 identical output — a file put and got back, a 3 MiB binary round trip
@@ -190,7 +190,7 @@ the decisions — worth a second look:
 ### Built: DynamoDB and the namespaced `AttributeValue` union (2026-10-17)
 
 `aws.ddb` for six operations — `GetItem`, `PutItem`, `DeleteItem`, `Query`,
-`CreateTable`, `DeleteTable` — with `examples/aws_ddb` in the suite (the
+`CreateTable`, `DeleteTable` — with `examples/ddb` in the suite (the
 generated fake and a hand-written `MemDdb`, identical output on both backends).
 This is the service D7 deferred ("DynamoDB first" was declined in favour of SQS
 then S3), picked up once namespaces made its central type expressible.
@@ -235,7 +235,7 @@ Platform templates were removed (the ABI decisions), so the generator is back at
 pre-splice shape (`883b8e9`): it writes `platform/aws/<svc>/host.{kt,rs}`,
 plain host code that names what the emitters produce. Two spellings changed
 since: Kotlin names are camel case ([kt-camel]) and union arms are nested
-(`Union2.U1`). The drift test checks both against the real SDKs. The ABI work
+(`Union2.U1`). The drift check (`check.sh glue`) checks both against the real SDKs. The ABI work
 in the ABI decisions (generated interface files with factories and adapters) is what will
 let this code stop spelling emitted names.
 
@@ -267,7 +267,7 @@ What is left in the text is the SDKs' API and the documented host ABI
 emission change no longer means a generator change. Credentials dispatch
 through two Salvo helpers in `aws.sv` (`profile_of`, `uses_environment`)
 rather than a match on the union's host shape. Kotlin's file-level opt-in
-became an `@OptIn` on the one helper that needs it. The drift test still
+became an `@OptIn` on the one helper that needs it. The drift check (`check.sh glue`) still
 compiles both against both SDKs, and both demos print as before.
 The glue then lost its type annotations in host text too: helpers take
 `@{v : MessageAttributeValue}` and read `@{v.data_type}`, answers are declared
@@ -331,7 +331,7 @@ modules/aws/
 
 (Planned here as a `tests/` directory; the fakes are generated into each
 service's module instead, and the suite exercises them from
-`examples/aws_sqs` and `examples/aws_s3`.)
+`examples/sqs` and `examples/s3`.)
 
 The generated files are checked in, as `examples/*/rust` are, and a test
 regenerates from `models/` and diffs. Nothing here needs the compiler: the

@@ -1,4 +1,4 @@
-# aws_profile
+# aws example: profile
 
 A program with a **dependency**: the `aws` module lives in another project
 (`modules/aws/` at the repository root), and this one reaches it through its
@@ -7,9 +7,9 @@ manifest rather than by copying the source in.
 Run it:
 
 ```bash
-cd examples/aws_profile
-cargo run -q --manifest-path ../../Cargo.toml -- run                  # both backends
-cargo run -- run --backend rust --src examples/aws_profile/salvo      # from the root
+cd modules/aws/examples/profile
+cargo run -q --manifest-path ../../../../Cargo.toml -- run                  # both backends
+cargo run -- run --backend rust --src modules/aws/examples/profile/salvo   # from the root
 ```
 
 ## What to look for
@@ -19,7 +19,7 @@ in `salvo.toml` do the whole job:
 
 ```toml
 [build]
-modules = "../../modules"     # the directory dependencies are found under
+modules = "../../.."          # the directory dependencies are found under
 
 [dependencies]
 aws = "0.1.0"                 # `<modules>/aws/salvo.toml`, at that version

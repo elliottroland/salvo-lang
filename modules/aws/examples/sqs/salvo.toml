@@ -1,11 +1,11 @@
 [project]
-name = "aws_profile"
+name = "sqs"
 version = "0.1.0"
 
 [build]
 src = "salvo"
 backend = "*"
-modules = "../../modules"
+modules = "../../.."
 
 [dependencies]
 aws = "0.1.0"

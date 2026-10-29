@@ -24,10 +24,32 @@ modules/aws/
 │   ├── aws/s3/host.sv  generated: `HostS3`, declared
 │   └── platform/aws/{sqs,s3}/host.{kt,rs}   generated implementation files:
 │                       the SDK glue, plain Kotlin and Rust
+├── examples/           programs over the fakes, with their generated code and
+│                       expected output (sqs, s3, ddb, and profile: consuming
+│                       the module as a dependency)
+├── check.sh            the module's own checks (below)
 └── demo/               programs against the real SDKs, run by hand:
     ├── sqs_live/       + local_sqs.py, an in-memory SQS
     └── s3_live/        + local_s3.py, an in-memory S3
 ```
+
+## Checking it
+
+The compiler's test suite does not reach this module; `check.sh` is its test
+suite. It checks that the examples are current and run to their
+`expected.txt` on both backends, that the checked-in host project under
+`salvo/platform/` is what `salvo platform generate` writes and compiles, and
+that the generated glue compiles against both SDKs through the live demos
+(skipping, saying so, when the SDKs are not cached; `ONLINE=1` fetches them):
+
+```bash
+modules/aws/check.sh             # everything, about a minute and a half
+modules/aws/check.sh examples    # or one part: examples | host | glue
+```
+
+Run it after changing the module or its generator, and after a compiler
+change to emission or the platform ABI, which is what the glue is written
+against.
 
 ## Using it
 
@@ -44,8 +66,8 @@ aws = "0.1.0"
 `import aws.sqs` brings the surface. A program that uses only `FakeSqs` (or a
 handler of its own) needs no SDK at all: the SDKs are needed only when
 `aws.sqs.host` is imported, because a dependency's host libraries join a build
-only when its platform code is reached. `examples/aws_sqs/` is that case, and
-runs in the test suite.
+only when its platform code is reached. `examples/sqs/` is that case, and
+`check.sh` runs it.
 
 `import aws.s3` works the same way, with one addition: bodies are streams, so a
 program also needs a `Streams` bound (`import std.stream`). `FakeS3` mints and
@@ -53,8 +75,8 @@ closes its bodies through that `Streams`, and so does a hand-written double.
 With `HostS3`, bind the host's streams — `HostRawStreams()` then
 `DefaultStreams()` — since the glue registers a response body in the host's
 stream table and reads a request body out of it; a `MemFs` stream handed to
-`HostS3` traps. `examples/aws_s3/` runs the fake and an in-memory double over
-`MemFs` in the test suite.
+`HostS3` traps. `examples/s3/` runs the fake and an in-memory double over
+`MemFs`, checked by `check.sh`.
 
 **Enums and errors are data.** An enum is a union of its wire values and `Other
 Str` (`"STANDARD" | "GLACIER" | … | Other Str`), a plain string at run time.
