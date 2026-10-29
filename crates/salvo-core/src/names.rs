@@ -14,9 +14,11 @@
 //! callee's signature is lowered at every call).
 //!
 //! A reference is found by its address, as resolution walked it; a copy (the
-//! checker, the IR builder and the emitters clone types freely) by its node
-//! [node-id], its span and its written name — what a copy keeps — when only
-//! one written reference has them, or only references meaning the same.
+//! checker, the IR builder and the emitters clone types freely) by its file's
+//! tag and node [node-file] [node-id], its span and its written name — what a
+//! copy keeps — when only one written reference has them, or only references
+//! meaning the same (a tree no program tagged has no tag to tell its files
+//! apart).
 
 use std::collections::HashMap;
 
@@ -164,13 +166,13 @@ pub struct Names<'p> {
     spelling_ids: HashMap<String, u32>,
     refs: Vec<Written>,
     by_addr: HashMap<usize, u32>,
-    /// A copy's way in: by node, span and name — `None` where two written
-    /// references there mean different things.
-    by_copy: HashMap<(u32, Span, u32), Option<u32>>,
+    /// A copy's way in: by file tag and node [node-file], span and name —
+    /// `None` where two written references there mean different things.
+    by_copy: HashMap<(u32, u32, Span, u32), Option<u32>>,
     /// [name-table] The value-position names, the same three ways.
     values: Vec<WrittenValue>,
     value_by_addr: HashMap<usize, u32>,
-    value_by_copy: HashMap<(u32, Span, u32), Option<u32>>,
+    value_by_copy: HashMap<(u32, u32, Span, u32), Option<u32>>,
     empty: Option<u32>,
 }
 
@@ -222,7 +224,7 @@ impl<'p> Names<'p> {
                 self.names.refs.push(Written { addr, file: self.file, at, span: t.name.span, generic, name: spelling, meaning });
                 self.names.by_addr.insert(addr, idx);
                 if t.name.span.is_numbered() {
-                    let key = (t.name.span.node, t.name.span, spelling);
+                    let key = (t.name.span.file, t.name.span.node, t.name.span, spelling);
                     match self.names.by_copy.get(&key).copied() {
                         None => {
                             self.names.by_copy.insert(key, Some(idx));
@@ -279,7 +281,7 @@ impl<'p> Names<'p> {
             Some(i) => *i,
             None if id.span.is_numbered() => {
                 let spelling = *self.spelling_ids.get(id.name.as_str())?;
-                (*self.value_by_copy.get(&(id.span.node, id.span, spelling))?)?
+                (*self.value_by_copy.get(&(id.span.file, id.span.node, id.span, spelling))?)?
             }
             None => return None,
         };
@@ -330,7 +332,7 @@ impl<'p> Names<'p> {
             Some(i) => *i,
             None if r.name.span.is_numbered() => {
                 let spelling = *self.spelling_ids.get(r.name.name.as_str())?;
-                (*self.by_copy.get(&(r.name.span.node, r.name.span, spelling))?)?
+                (*self.by_copy.get(&(r.name.span.file, r.name.span.node, r.name.span, spelling))?)?
             }
             None => return None,
         };

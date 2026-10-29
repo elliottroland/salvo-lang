@@ -1732,9 +1732,7 @@ impl Checked {
         if let Some(k) = self.value_keys.get(&(id as *const Ident as usize)) {
             return k;
         }
-        id.span
-            .is_numbered()
-            .then(|| (id.span.node, id.span, id.name.clone()))
+        crate::resolve::ident_copy_key(id)
             .and_then(|at| self.value_span_keys.get(&at))
             .map(|k| k.as_str())
             .unwrap_or(&id.name)
@@ -2342,7 +2340,7 @@ fn check_once<'p>(
                     Some(std_key) => key.filter(|k| std_key.as_ref() == Some(k)),
                     None => key,
                 };
-                match merged.filter(|k| *k != at.2) {
+                match merged.filter(|k| *k != at.3) {
                     Some(k) => {
                         out.type_ref_span_keys.insert(at, k);
                     }

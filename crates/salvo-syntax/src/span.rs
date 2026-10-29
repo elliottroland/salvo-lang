@@ -21,6 +21,12 @@ use std::fmt;
 /// declaration and the node's ordinal within it, `salvo_core::check::Key`).
 /// It is identity, not origin, so spans compare, hash and order as origins:
 /// `node` takes no part in `==`, `Hash` or `Ord`.
+///
+/// [node-file] `file` is the **tag** of the file whose tree holds the node,
+/// set with `node` (`Module::file_tag`, which a program's driver gives each
+/// file before numbering it): with it a node — a copy of one included, which
+/// keeps both — names itself in its program without the tree it was copied
+/// from. Identity too, so no part of `==` either.
 #[derive(Clone, Copy)]
 pub struct Span {
     pub start: u32,
@@ -31,10 +37,16 @@ pub struct Span {
     /// [node-id] The node's ordinal in its file ([`NO_NODE`] for a span no
     /// node holds: one made after numbering, or by `to`/`at`).
     pub node: u32,
+    /// [node-file] The tag of the file whose tree holds the node
+    /// ([`NO_FILE`] where no program tagged it: a bare parse, or no node).
+    pub file: u32,
 }
 
 /// [node-id] The `node` of a span no numbered node holds.
 pub const NO_NODE: u32 = u32::MAX;
+
+/// [node-file] The `file` of a span no tagged file holds.
+pub const NO_FILE: u32 = u32::MAX;
 
 impl PartialEq for Span {
     fn eq(&self, other: &Self) -> bool {
@@ -55,7 +67,7 @@ impl Default for Span {
 
 impl Span {
     pub fn new(start: u32, end: u32) -> Self {
-        Span { start, end, expn: 0, node: NO_NODE }
+        Span { start, end, expn: 0, node: NO_NODE, file: NO_FILE }
     }
 
     /// [node-id] Whether a numbered node holds this span.
@@ -71,13 +83,14 @@ impl Span {
             end: self.end.max(other.end),
             expn: self.expn,
             node: NO_NODE,
+            file: NO_FILE,
         }
     }
 
     /// Another range of the code `self` is in: the same expansion. Not a
     /// node's.
     pub fn at(self, start: u32, end: u32) -> Span {
-        Span { start, end, expn: self.expn, node: NO_NODE }
+        Span { start, end, expn: self.expn, node: NO_NODE, file: NO_FILE }
     }
 
     /// [node-origin] The same range, copied by expansion `expn` (0: as written).

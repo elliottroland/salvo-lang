@@ -2491,13 +2491,19 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   4. **Node identity without a file** (scheduled 2026-10-29, the user: "the
      real fix"): a span — or every node — carries its file, so any node, a
      copy included, finds its key [node-id] without the tree it was copied
-     from. Then a copy of a written reference finds its entry in the
-     resolved form exactly, not by node, span and name; and the by-address
-     maps go (`Names`' address index, `Resolution::handler_files`,
-     `fn_stamp_scope`, `decl_files`, the checker's `written_types` and
-     `type_ref_keys`, `written_keys_by_span`). After C1.3, whose expression
-     names have the same copy question; before C2, whose dump names every
-     node by its key.
+     from. In two halves:
+     - **a. Spans carry their file's tag** [node-file] — done (§II.12): a
+       copy of a written reference finds its entry in the resolved form by
+       tag and node.
+     - **b. Keys and maps from it**: `DeclIndex::key` reads the tag rather
+       than the file it is asked for (which decides where a fact a check of
+       one file records at another file's node belongs — the row partition
+       and the check cache have to agree), and the by-address maps go
+       (`Names`' address index, `Resolution::handler_files`,
+       `fn_stamp_scope`, `decl_files`, the checker's `written_types` and
+       `type_ref_keys`, `written_keys_by_span`). Before C2 only if C2's
+       dump needs it: the dump names written nodes, which their files
+       already key.
 - **C2. The resolve dump** (`salvo dump --phase …`, P7), as Salvo
   with every name qualified.
 - **C3. Comptime on the resolved form** (§II.5): templates resolved once in
@@ -3532,9 +3538,21 @@ this log current so the work can resume after a context reset). Newest last.
   - **Cost**: the names build is ~6.5ms per resolution over the actors
     example with std (types ~3.5ms, values ~3ms, debug build).
 
+- **C1.4a, spans carry their file's tag: done (2026-10-29).** `Span::file`
+  [node-file], stamped by numbering from `Module::file_tag`, which
+  `expand_file` sets from `source::file_tag` (one tag per module path, name
+  and std-ness, process-wide, so std's shared front keeps its tags); the
+  test harness is tagged where it is numbered. The resolved names' copy
+  keys add the tag (`resolve::CopyKey`, `Names`' copy indexes), so a copy is
+  found exactly where two files with the same text made it ambiguous
+  (`name_tests::a_copy_of_a_reference_means_what_its_file_means`, which
+  fails on node, span and name alone). C1.4b (keys from the tag, retiring
+  the by-address maps) is next in the plan.
+
 - **Where it stands (2026-10-29) — resume here.** Stages A and B complete;
-  **Stage C under way**: C1.1–C1.3 done; **next C1.4** (node identity
-  without a file, §II.9), then C2 (the resolve dump). Left of B, recorded: D4's general union
+  **Stage C under way**: C1.1–C1.3 and C1.4a done; **next C1.4b** (keys
+  from the tag; the by-address maps retired, §II.9), or C2 (the resolve
+  dump) first if the dump does not need it. Left of B, recorded: D4's general union
   `to_str` (deferred, R10), so `interp_union` stays a fact; the send cuts of
   ROADMAP 0au; the leftovers of 0as, 0at, 0av and 0ax. **Open decisions,
   each built as its recommended option:** P9–P18 and P21 (§II.10; ROADMAP

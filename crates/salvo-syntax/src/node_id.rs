@@ -24,18 +24,21 @@ use crate::visit_mut::{self as vm, MutVisitor};
 
 struct Numberer {
     next: u32,
+    /// [node-file] The file's tag (`Module::file_tag`).
+    file: u32,
 }
 
 impl MutVisitor for Numberer {
     fn visit_span(&mut self, span: &mut Span) {
         span.node = self.next;
+        span.file = self.file;
         self.next += 1;
     }
 }
 
 /// Numbers every node of `module` and records its declarations' ranges.
 pub fn number(module: &mut Module) {
-    let mut n = Numberer { next: 0 };
+    let mut n = Numberer { next: 0, file: module.file_tag };
     let mut ranges = Vec::new();
     // The file's own nodes.
     for item in &mut module.items {

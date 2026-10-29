@@ -129,7 +129,7 @@ impl<'b, 'p> Binder<'b, 'p> {
         self.names.values.push(WrittenValue { addr, file: self.file, at, span: id.span, local, name: spelling, meaning });
         self.names.value_by_addr.insert(addr, idx);
         if id.span.is_numbered() {
-            let key = (id.span.node, id.span, spelling);
+            let key = (id.span.file, id.span.node, id.span, spelling);
             match self.names.value_by_copy.get(&key).copied() {
                 None => {
                     self.names.value_by_copy.insert(key, Some(idx));

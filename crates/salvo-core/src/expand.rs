@@ -109,6 +109,8 @@ pub fn expand_file(file: &SourceFile, module: &mut Module) -> (Vec<FileTest>, Ve
         module.items = kept;
     }
     // [node-id] The file's tree is final until comptime stamps into it.
+    // [node-file] Its nodes carry the file's tag from here on.
+    module.file_tag = crate::source::file_tag(file);
     salvo_syntax::node_id::number(module);
     (found, diags)
 }

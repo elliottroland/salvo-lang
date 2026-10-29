@@ -527,7 +527,7 @@ impl<'s> Parser<'s> {
                 self.bump();
             }
         }
-        Module { docs, items, uses, namespaces: Vec::new(), node_ranges: Vec::new() }
+        Module { docs, items, uses, namespaces: Vec::new(), node_ranges: Vec::new(), file_tag: crate::span::NO_FILE }
     }
 
     /// Skips tokens until something that can plausibly start a top-level item.

@@ -88,6 +88,26 @@ impl fmt::Debug for ModulePath {
     }
 }
 
+/// [node-file] The tag of `file`'s tree (`Module::file_tag`, stamped on every
+/// node's span when the tree is numbered): one per file identity — module
+/// path, name, and whether std's — the same in every program of a process,
+/// so a module shared between programs (std's front) keeps its tags.
+pub fn file_tag(file: &SourceFile) -> u32 {
+    file_tag_of(&file.module, &file.name, file.is_std)
+}
+
+/// [node-file] [`file_tag`] for a tree with no `SourceFile` yet (the test
+/// harness is numbered before it joins its program).
+pub fn file_tag_of(module: &ModulePath, name: &str, is_std: bool) -> u32 {
+    use std::sync::Mutex;
+    static TAGS: Mutex<Option<std::collections::HashMap<String, u32>>> = Mutex::new(None);
+    let mut tags = TAGS.lock().unwrap_or_else(|e| e.into_inner());
+    let tags = tags.get_or_insert_with(Default::default);
+    let id = format!("{}\u{0}{}\u{0}{}", module, name, is_std);
+    let next = tags.len() as u32;
+    *tags.entry(id).or_insert(next)
+}
+
 #[derive(Clone, Debug)]
 pub struct SourceFile {
     /// Display name (relative path) for diagnostics.

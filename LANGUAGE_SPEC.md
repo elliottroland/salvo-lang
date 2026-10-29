@@ -11371,6 +11371,22 @@ between endpoints and delivers what arrives into the scheduler.
     (its members reach a body through the effect list, an alias or a
     prerequisite without an import), a handler's own `send` members, and
     the unresolved-name diagnostics [name-resolve] [name-ident-resolve].
+* [node-file] **A node carries its file** (PIPELINE.md §II.9 C1.4): every
+  span a program's tree numbers holds, beside its ordinal, the **tag** of the
+  file whose tree it is in (`Span::file`, from `Module::file_tag`, which
+  `expand::expand_file` sets from `source::file_tag` before numbering; the
+  test harness is tagged where it is numbered). A tag is one per file
+  identity — module path, name, std or not — and the same in every program
+  of a process, so std's shared front keeps its tags. With it, `(file,
+  node)` names a node in its program, a copy of one included.
+  * Identity, not origin: no part of `Span`'s `==`, `Hash` or `Ord`, like
+    `node`. A bare parse leaves `NO_FILE`.
+  * Read by the resolved names' copy keys (`resolve::CopyKey`, `Names`'
+    copy indexes [name-table]): a copy is found exactly, where node, span
+    and name alone could not tell two files with the same text apart
+    (`name_tests::a_copy_of_a_reference_means_what_its_file_means`).
+  * Not yet read by `DeclIndex::key`, which still takes the file it is asked
+    for, nor used to retire the by-address maps (C1.4's second half).
 * [decl-rows] **Every row of `Checked` belongs to one declaration**
   (PIPELINE.md §II.9 A4; `partition.rs`): a node-keyed row to its key's
   declaration, a declaration-keyed row (`fn_effects`, `implicit_params`,

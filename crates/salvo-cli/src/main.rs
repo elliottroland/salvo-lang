@@ -1704,7 +1704,12 @@ fn run_test_pass(
     let source = salvo_test::harness_source(tests);
     let (mut ast, diagnostics) = salvo_syntax::parse_module_deferred(&source);
     // [node-id] The harness joins the program as it parsed: its tree is
-    // final, so it is numbered here.
+    // final, so it is numbered here, under [node-file] its own tag.
+    ast.file_tag = salvo_core::source::file_tag_of(
+        &salvo_core::ModulePath(vec![salvo_test::HARNESS_MODULE.to_string()]),
+        &format!("{}.sv", salvo_test::HARNESS_MODULE),
+        false,
+    );
     salvo_syntax::node_id::number(&mut ast);
     if diagnostics.iter().any(|d| d.is_error()) {
         // A generated program that does not parse is a compiler bug, and the

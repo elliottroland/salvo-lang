@@ -2277,13 +2277,18 @@ pub fn written_keys_by_span<'p>(
     span_keys_final(raw)
 }
 
-/// [name-table] What a copy of a written reference is found by: its node
-/// [node-id], its span and its written name.
-pub type CopyKey = (u32, Span, String);
+/// [name-table] What a copy of a written reference is found by: its file's
+/// tag and its node [node-file] [node-id], its span and its written name.
+pub type CopyKey = (u32, u32, Span, String);
 
 /// [name-table] The copy key of `r`, when its node is numbered.
 pub fn copy_key(r: &salvo_syntax::ast::TypeRef) -> Option<CopyKey> {
-    r.name.span.is_numbered().then(|| (r.name.span.node, r.name.span, r.name.name.clone()))
+    ident_copy_key(&r.name)
+}
+
+/// [name-table] The copy key of a written name, when its node is numbered.
+pub fn ident_copy_key(id: &salvo_syntax::ast::Ident) -> Option<CopyKey> {
+    id.span.is_numbered().then(|| (id.span.file, id.span.node, id.span, id.name.clone()))
 }
 
 /// [lsp-std-front] What [`written_keys_by_span`] gathers before it keeps
@@ -2310,7 +2315,7 @@ pub fn span_keys_from<'p>(
         }
         let name = names.name(w);
         let key = names.meaning(w).key(symbols).unwrap_or(name).to_string();
-        span_keys_add(out, (w.span.node, w.span, name.to_string()), Some(key));
+        span_keys_add(out, (w.span.file, w.span.node, w.span, name.to_string()), Some(key));
     }
 }
 
@@ -2329,7 +2334,7 @@ fn span_keys_add(out: &mut SpanKeys, at: CopyKey, key: Option<String>) {
 /// [lsp-std-front] The agreed entries that differ from the written name.
 pub fn span_keys_final(raw: SpanKeys) -> HashMap<CopyKey, String> {
     raw.into_iter()
-        .filter_map(|(at, k)| k.filter(|k| *k != at.2).map(|k| (at, k)))
+        .filter_map(|(at, k)| k.filter(|k| *k != at.3).map(|k| (at, k)))
         .collect()
 }
 
@@ -2356,7 +2361,7 @@ pub fn value_keys<'p>(
             by_addr.insert(w.addr, key.to_string());
         }
         if w.span.is_numbered() {
-            span_keys_add(&mut copies, (w.span.node, w.span, name.to_string()), Some(key.to_string()));
+            span_keys_add(&mut copies, (w.span.file, w.span.node, w.span, name.to_string()), Some(key.to_string()));
         }
     }
     (by_addr, span_keys_final(copies))

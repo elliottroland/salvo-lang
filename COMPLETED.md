@@ -144,6 +144,24 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-29 — A node carries its file's tag (PIPELINE.md C1.4a, [node-file])
+
+- **The scheduled "real fix", first half**: `Span::file`, set with
+  `Span::node` by numbering from `Module::file_tag`; `expand::expand_file`
+  tags each file from `source::file_tag` (a process-wide interner over
+  module path, name and std-ness, so std's shared front keeps its tags), and
+  the test harness is tagged where it is numbered. Identity, like `node`: no
+  part of `==`, `Hash` or `Ord`.
+- **Read by the resolved names**: `resolve::CopyKey` is now (tag, node,
+  span, name) and `Names`' copy indexes key the same, so a copy of a written
+  reference is found exactly where two files of identical text made it
+  ambiguous and it fell back to the checking file's scope
+  (`name_tests::a_copy_of_a_reference_means_what_its_file_means`).
+- **Second half, C1.4b, not done**: `DeclIndex::key` still takes the file it
+  is asked for — reading the tag instead changes which declaration a fact
+  recorded at another file's node belongs to, which the row partition and
+  the check cache must agree on — and the by-address maps stay.
+
 ### 2026-10-29 — Value names are bound by resolution too (PIPELINE.md C1.3, [name-table])
 
 - **Built**: `names/values.rs`, a binder over every body with the checker's

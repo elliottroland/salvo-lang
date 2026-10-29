@@ -14,7 +14,7 @@ pub struct Ident {
 }
 
 /// A parsed source file.
-#[derive(Clone, PartialEq, Default)]
+#[derive(Clone, PartialEq)]
 pub struct Module {
     /// [doc-module] The module's own documentation: the first `//` comment
     /// run in the file, when it documents no declaration — a blank line
@@ -44,12 +44,29 @@ pub struct Module {
     /// declaration, a member after its container's own nodes. Empty until
     /// the module is numbered.
     pub node_ranges: Vec<NodeRange>,
+    /// [node-file] The tag numbering stamps on every span of this file
+    /// (`Span::file`): given by a program's driver, which knows the file
+    /// (`salvo_core::source::file_tag`); `NO_FILE` for a bare parse.
+    pub file_tag: u32,
+}
+
+impl Default for Module {
+    fn default() -> Self {
+        Module {
+            docs: Vec::new(),
+            items: Vec::new(),
+            uses: Vec::new(),
+            namespaces: Vec::new(),
+            node_ranges: Vec::new(),
+            file_tag: crate::span::NO_FILE,
+        }
+    }
 }
 
 /// The tree, without the numbering (`node_ranges`): what the parser made.
 impl fmt::Debug for Module {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Module { docs, items, uses, namespaces, node_ranges: _ } = self;
+        let Module { docs, items, uses, namespaces, node_ranges: _, file_tag: _ } = self;
         f.debug_struct("Module").field("docs", docs).field("items", items).field("uses", uses).field("namespaces", namespaces).finish()
     }
 }

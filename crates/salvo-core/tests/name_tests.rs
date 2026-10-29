@@ -145,3 +145,46 @@ fn leading_dot_shorthand_reports_an_unresolvable_sibling() {
     let ids = ids(src);
     assert!(ids.contains(&"mod-namespace:no-alias-member"), "{ids:?}");
 }
+
+// [name-table] [node-file] A *copy* of a written reference means what the
+// reference does: found by its file's tag and node, its span and its name.
+// Two files with the same text — the same node ordinals, spans and names —
+// declaring different `Item`s used to make the copy ambiguous (by node, span
+// and name alone), so it fell back to the checking file's scope.
+#[test]
+fn a_copy_of_a_reference_means_what_its_file_means() {
+    let src = "struct Item {\n    n: Int\n}\n\nexport fn show(i: Item) -> Int {\n    return i.n\n}\n";
+    let built = salvo_testkit::front::clean_program("kt", &[("a.sv", src), ("b.sv", src)]);
+    let resolution = resolve(&built);
+    let param_ty = |module: &str| -> salvo_syntax::ast::TypeRef {
+        let file = built.files.iter().position(|f| f.module.to_string() == module).expect(module);
+        built.modules[file]
+            .items
+            .iter()
+            .find_map(|i| match i {
+                salvo_syntax::ast::Item::Fn(f) if f.name.name == "show" => match &f.params[0].ty {
+                    salvo_syntax::ast::Type::Named { base, .. } => Some(base.clone()),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .expect("show's parameter")
+    };
+    let (a, b) = (param_ty("a"), param_ty("b"));
+    assert_eq!((a.name.span.node, a.name.span), (b.name.span.node, b.name.span), "the two files line up");
+    assert_ne!(a.name.span.file, b.name.span.file, "each file's nodes carry its own tag");
+    let meant = |r: &salvo_syntax::ast::TypeRef| {
+        let w = resolution.names.written(r).expect("a copy is found");
+        resolution.names.meaning(w).structure.map(|s| s as *const _ as usize)
+    };
+    let declared = |module: &str| {
+        let file = built.files.iter().position(|f| f.module.to_string() == module).unwrap();
+        built.modules[file].items.iter().find_map(|i| match i {
+            salvo_syntax::ast::Item::Struct(s) => Some(s as *const _ as usize),
+            _ => None,
+        })
+    };
+    // `a` and `b` are clones: neither address is one resolution walked.
+    assert_eq!(meant(&a), declared("a"));
+    assert_eq!(meant(&b), declared("b"));
+}
