@@ -3,7 +3,7 @@
 //! every example under `examples/`, compiled by each backend it names and
 //! run, its stdout, exit code or trap asserted.
 //!
-//! One test per area. Within it:
+//! One test for all of it (`every_program_runs`), one plan:
 //!
 //! - **Emission** runs on a pool of threads over the process's std fronts
 //!   ([std-cache]); a program that does not emit fails here, toolchain or
@@ -21,7 +21,8 @@
 //!   crate, so the failure names its program.
 //! - **Kotlin** ([kt-std-library]): as the codegen shards did — std compiled
 //!   once into a library, each program's own files rewritten into a package
-//!   namespace of its own, a few `kotlinc` processes per area.
+//!   namespace of its own, the programs split into a few `kotlinc` compiles
+//!   (one per warm server, at most `KOTLIN_CHUNK` programs each).
 //! - Every compiled program then runs on a pool of threads, with a time
 //!   limit, in a fresh working directory of its own.
 
@@ -45,31 +46,9 @@ const RUN_LIMIT: Duration = Duration::from_secs(60);
 /// once per batch.
 const RUST_BATCH: usize = 16;
 
-macro_rules! areas {
-    ($($area:ident),* $(,)?) => {
-        $(
-            #[test]
-            fn $area() {
-                run_area(stringify!($area));
-            }
-        )*
-        /// Every directory under `tests/run/` has its test.
-        #[test]
-        fn every_area_has_a_test() {
-            let listed: BTreeSet<&str> = [$(stringify!($area)),*].into_iter().collect();
-            let found: BTreeSet<String> = std::fs::read_dir(run_dir())
-                .unwrap()
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().is_dir())
-                .map(|e| e.file_name().to_string_lossy().to_string())
-                .collect();
-            let missing: Vec<&String> = found.iter().filter(|f| !listed.contains(f.as_str())).collect();
-            assert!(missing.is_empty(), "tests/run/ areas without an `areas!` line: {missing:?}");
-        }
-    };
-}
-
-areas!(actors, args, collections, comptime, control, deductions, effects, files, functions, handles, implicits, iteration, linear, modules, network, operators, pilot, platform, qualifiers, regressions, throwing, time, types);
+/// At most this many programs share one `kotlinc` compile: a batch of ~30
+/// outgrew kotlinc's default heap (the warm servers have 3 GiB).
+const KOTLIN_CHUNK: usize = 48;
 
 fn run_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/run")
@@ -79,10 +58,49 @@ fn examples_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples")
 }
 
-/// Every example runs to its `expected.txt` on both backends,
-/// which is the parity claim of `examples/README.md`.
+/// Every program of the data, and every example, compiled by each backend it
+/// names and run: **one plan** for all of them (user decision 2026-10-29).
+/// One test per area made 25 plans, each with its own few `kotlinc` calls
+/// and Rust crates, all queueing at once for the warm compiler's servers
+/// [test-warm-kotlinc]; one plan makes fewer, fuller batches. Failures are
+/// still listed per program.
+///
+/// `SALVO_RUN_AREAS=actors,types` runs only those areas (`examples` names
+/// the examples) — the inner loop's filter, since there is one test.
 #[test]
-fn examples() {
+fn every_program_runs() {
+    let only: Option<BTreeSet<String>> =
+        std::env::var("SALVO_RUN_AREAS").ok().map(|v| v.split(',').map(|a| a.trim().to_string()).filter(|a| !a.is_empty()).collect());
+    let wanted = |area: &str| only.as_ref().is_none_or(|o| o.contains(area));
+    let mut areas: Vec<String> = std::fs::read_dir(run_dir())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    areas.sort();
+    if let Some(o) = &only {
+        let unknown: Vec<&String> = o.iter().filter(|a| *a != "examples" && !areas.contains(a)).collect();
+        assert!(unknown.is_empty(), "SALVO_RUN_AREAS names no area: {unknown:?}");
+    }
+    let mut programs = Vec::new();
+    let mut errors = Vec::new();
+    for area in areas.iter().filter(|a| wanted(a)) {
+        match area_programs(area) {
+            Ok(mut ps) => programs.append(&mut ps),
+            Err(mut es) => errors.append(&mut es),
+        }
+    }
+    assert!(errors.is_empty(), "{}", errors.join("\n"));
+    if wanted("examples") {
+        programs.extend(example_programs());
+    }
+    run_programs("all", programs);
+}
+
+/// Every example runs to its `expected.txt` on both backends, which is the
+/// parity claim of `examples/README.md`.
+fn example_programs() -> Vec<Program> {
     let mut names: Vec<String> = std::fs::read_dir(examples_dir())
         .unwrap()
         .filter_map(|e| e.ok())
@@ -91,7 +109,7 @@ fn examples() {
         .collect();
     names.sort();
     assert!(!names.is_empty(), "no examples found");
-    let programs: Vec<Program> = names
+    names
         .iter()
         .map(|name| {
             let dir = examples_dir().join(name);
@@ -106,8 +124,7 @@ fn examples() {
                 outcome: Outcome { stdout: expected, ..Outcome::default() },
             }
         })
-        .collect();
-    run_programs("examples", programs);
+        .collect()
 }
 
 /// Where a program's sources come from.
@@ -129,7 +146,8 @@ struct Program {
     outcome: Outcome,
 }
 
-fn run_area(area: &str) {
+/// The programs of one area's data files.
+fn area_programs(area: &str) -> Result<Vec<Program>, Vec<String>> {
     let dir = run_dir().join(area);
     let mut paths: Vec<PathBuf> = std::fs::read_dir(&dir)
         .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
@@ -161,8 +179,11 @@ fn run_area(area: &str) {
             Err(e) => errors.push(format!("{area}/{file}: {e}")),
         }
     }
-    assert!(errors.is_empty(), "{}", errors.join("\n"));
-    run_programs(area, programs);
+    if errors.is_empty() {
+        Ok(programs)
+    } else {
+        Err(errors)
+    }
 }
 
 /// One program on one backend, emitted.
@@ -317,17 +338,25 @@ fn run_programs(area: &str, programs: Vec<Program>) {
     let scratch = salvo_testkit::scratch(TMP, &format!("run-{area}"));
     let mut launches: Vec<(Job, salvo_testkit::Stamp, Launch)> = Vec::new();
     let t = Instant::now();
-    let (rs_launches, rs_failures) = compile_rust(&scratch.join("rust"), rust);
-    let t_rs = t.elapsed();
-    let (kt_launches, kt_failures) = compile_kotlin(&scratch.join("kotlin"), kotlin);
-    let t_kt = t.elapsed() - t_rs;
+    // The two backends' compiles side by side: rustc and the warm kotlinc
+    // servers are different processes, and neither waits for the other.
+    let ((rs_launches, rs_failures, t_rs), (kt_launches, kt_failures, t_kt)) = std::thread::scope(|scope| {
+        let rs = scope.spawn(|| {
+            let (l, f) = compile_rust(&scratch.join("rust"), rust);
+            (l, f, t.elapsed())
+        });
+        let (l, f) = compile_kotlin(&scratch.join("kotlin"), kotlin);
+        let kt = (l, f, t.elapsed());
+        (rs.join().unwrap(), kt)
+    });
+    let t_compiled = t_rs.max(t_kt);
     launches.extend(rs_launches);
     launches.extend(kt_launches);
     failures.extend(rs_failures);
     failures.extend(kt_failures);
     // Every compiled program runs, its outcome compared.
     let verdicts = pool(&launches, |(job, _, launch)| check_run(job, launch));
-    eprintln!("[run-data] {area}: rustc {:.1}s, kotlinc {:.1}s, runs {:.1}s", t_rs.as_secs_f64(), t_kt.as_secs_f64(), (t.elapsed() - t_rs - t_kt).as_secs_f64());
+    eprintln!("[run-data] {area}: rustc {:.1}s, kotlinc {:.1}s (side by side), runs {:.1}s", t_rs.as_secs_f64(), t_kt.as_secs_f64(), (t.elapsed() - t_compiled).as_secs_f64());
     for ((_, stamp, _), verdict) in launches.into_iter().zip(verdicts) {
         match verdict {
             Ok(()) => stamp.verified(),
@@ -353,7 +382,12 @@ fn check_run(job: &Job, launch: &Launch) -> Result<(), String> {
     for (k, v) in &launch.env {
         cmd.env(k, v);
     }
+    let started = Instant::now();
     let ran = run_limited(cmd, job.program.stdin.as_deref()).map_err(|e| format!("{}: {e}", job.label()));
+    // The runs are the phase a slow program hides in: name it.
+    if started.elapsed() > Duration::from_secs(3) {
+        eprintln!("[run-data] slow run: {} {:.1}s", job.label(), started.elapsed().as_secs_f64());
+    }
     let _ = std::fs::remove_dir_all(&cwd);
     let ran = ran?;
     let o = &job.program.outcome;
@@ -731,9 +765,10 @@ fn compile_kotlin<'p>(dir: &Path, pending: Vec<(Job<'p>, salvo_testkit::Stamp)>)
     }
     let library = kotlin_library();
     let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-    // Each kotlinc pays ~2.5s to start and is itself multi-threaded; the
-    // areas run beside one another, so a few per area.
-    let chunk_count = pending.len().min((workers / 4).max(1));
+    // [test-warm-kotlinc] One compile per warm server at a time (half the
+    // cores), each chunk at most `KOTLIN_CHUNK` programs so a compile stays
+    // within the server's heap.
+    let chunk_count = pending.len().div_ceil(KOTLIN_CHUNK).max((workers / 2).max(1)).min(pending.len());
     let per_chunk = pending.len().div_ceil(chunk_count);
     let mut chunks: Vec<Vec<(Job, salvo_testkit::Stamp)>> = Vec::new();
     let mut it = pending.into_iter().peekable();

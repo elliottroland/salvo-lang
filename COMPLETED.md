@@ -144,6 +144,21 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-29 — The run data is one plan (test speed, merge 1)
+
+- **Decided (user, 2026-10-29)**: merge `run_data`'s 25 per-area tests (and
+  `examples`) into one plan, failures still listed per program.
+- **Built**: `every_program_runs` lists `tests/run/` (a new area needs no
+  `areas!` line; that macro and `every_area_has_a_test` are gone), adds the
+  examples, and runs one `run_programs`. Kotlin splits into one compile per
+  warm server (half the cores), at most `KOTLIN_CHUNK` = 48 programs each;
+  Rust batches fill across areas (353 programs in 23 crates, 32 before); the
+  two backends compile side by side. `SALVO_RUN_AREAS=a,b` filters, for the
+  inner loop. A run over 3s is named (`[run-data] slow run:`); none is.
+- **Effect** (fresh, the binary alone): 118s with the cold kotlinc, 76s with
+  the warm one in 25 tests, 59s as one plan (rustc 14.5s and kotlinc 19.0s
+  side by side, the runs 23.0s). The stamps' keys are unchanged.
+
 ### 2026-10-29 — The tests' kotlinc is a warm compiler ([test-warm-kotlinc], test speed option 1)
 
 - **Decided (user, 2026-10-29)**: option 1 of the test-speed round, without

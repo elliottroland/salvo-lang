@@ -3,8 +3,11 @@
 Each `<area>/*.sv` here is a program — or several — that every backend it
 names compiles and runs, and what it does must be what its directives say
 ([test-run-data] in LANGUAGE_SPEC.md; the format is `salvo_testkit::run`,
-the runner `run_data.rs`). One test per area, listed in `run_data.rs`'s
-`areas!` line; the examples under `examples/` are one more test.
+the runner `run_data.rs`). One test, `every_program_runs`, compiles and runs
+every area's programs and every example under `examples/` as one plan, so
+the batches are full (user decision 2026-10-29); a new area directory is
+picked up by listing. `SALVO_RUN_AREAS=actors,types` runs only those areas
+(`examples` names the examples), for the inner loop.
 
 ```
 //--- a_program

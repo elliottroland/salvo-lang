@@ -260,13 +260,15 @@ run after a relink.)
     `have()` first, as they all do, or it gets the cold one.
   - **Compile-and-run tests are data** ([test-run-data],
     `crates/salvo-cli/tests/run/<area>/*.sv`, format in its README; runner
-    `run_data.rs`): one test per area, plus `examples`, which runs every
-    example. A new program is a `//--- name` case in an area's file, run on
+    `run_data.rs`): one test, `every_program_runs`, for every area and
+    every example, as one plan (`SALVO_RUN_AREAS=actors,types` to run a
+    few). A new program is a `//--- name` case in an area's file, run on
     both backends unless `// BACKENDS:` says otherwise — not a new
-    `#[test]`. Within an area the programs emit on a pool of threads, the
-    stamp-missing ones compile in batches (Rust: one crate per batch, std's
-    modules once; Kotlin: a few kotlinc processes linking std's library),
-    and run in parallel, each stamped per backend. The codegen test files
+    `#[test]`. The programs emit on a pool of threads, the stamp-missing
+    ones compile in batches (Rust: one crate per 16 programs, std's modules
+    once; Kotlin: one compile per warm server, linking std's library) with
+    the two backends side by side, and run in parallel, each stamped per
+    backend. The codegen test files
     keep the emitted-text and refusal tests only.
   - The CLI tests cache per *test*, keyed on the `salvo` binary and the test
     binary rather than on generated text, since there the thing under test is
