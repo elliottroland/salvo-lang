@@ -11228,9 +11228,10 @@ between endpoints and delivers what arrives into the scheduler.
     everything derived from it (`__Mon_E`, `__Msg_E`, a dependency field)
     after the written name.
   * An emitter finds a written reference's key by its address
-    (`Checked::type_ref_keys`), by its span for a copy, and a name written
-    in an expression (`use H()`) through the file's visible names
-    (`Checked::visible_keys`).
+    (`Checked::type_ref_keys`), by its node, span and name for a copy
+    (`type_ref_span_keys`), and a handler named in an expression (`use H()`)
+    the same two ways (`Checked::value_keys`, `value_span_keys`)
+    [name-table].
   * A `by auto` stamp reads the stamping module's own declaration of a name
     first [comptime-instantiate].
   * **A reading of a declaration's own types resolves the same way**
@@ -11344,10 +11345,32 @@ between endpoints and delivers what arrives into the scheduler.
     `Symbols::ref_key` answers, seeded by the check (`seed_ref_keys`) or, for
     a program nothing checked, by `Symbols::collect_resolved`; `ref_key`
     resolves nothing itself (a debug build refuses an unseeded call).
-  * Still read by name, for C1.3: value-position names (locals, callees,
-    handler names in a `use`, `@`-selectors) and `visible_keys`; and the
-    unresolved-name diagnostics, which the checker reports at declaration
-    sites [name-resolve].
+  * **Value-position names too** (C1.3, `names/values.rs`): every name a
+    body writes where a value goes — a variable read, a callee, a handler in
+    a `use`, an `@`-selected name and its selector — bound to the binding it
+    reads (a `let` or `for` pattern, a parameter, a `?name` binder
+    [cmp-binder], an implicit group's member (bound at the spread), a
+    handler's constructor parameter or state field, an `is`/`when`/lambda/
+    `waitfor` binding), or, with no binding in scope, to its `Meaning` there
+    (which also lists the name's fns and the effect members the scope sees).
+    The scopes are the checker's, stated once in the binder: a condition's
+    `is` bindings reach the branch it guards and the right side of `&&`,
+    not `||`, `!` or `assert!`; a parameter's default sees the parameters
+    before it; a state initialiser and a mailbox bound the constructor's
+    parameters; a mixed handler's sync member no state
+    [actor-mixed-handler]. A selected name (`f@m`, `m@E`) is never a
+    local's. A debug build checks, at every variable read, that the binding
+    is the one the checker's scopes find (`Checker::check_value_binding`).
+  * `Checked::value_keys` (by the name's address) and `value_span_keys`
+    (by copy key) are the key of the handler a value-position name means,
+    where it is not the name: what the IR's handler construction reads.
+    They replaced `visible_keys` and `visible_handler_keys`, per file and
+    name, which asked the file's scope rather than the stamp a
+    comptime-stamped body is checked in.
+  * Still the checker's: what an *available* effect contributes to a name
+    (its members reach a body through the effect list, an alias or a
+    prerequisite without an import), a handler's own `send` members, and
+    the unresolved-name diagnostics [name-resolve] [name-ident-resolve].
 * [decl-rows] **Every row of `Checked` belongs to one declaration**
   (PIPELINE.md §II.9 A4; `partition.rs`): a node-keyed row to its key's
   declaration, a declaration-keyed row (`fn_effects`, `implicit_params`,
@@ -11357,8 +11380,8 @@ between endpoints and delivers what arrives into the scheduler.
   placed by its node's span (a local, a body's effects, a diagnostic, a
   `written_types` lowering) to the declaration that node is in, and a file's
   own rows (its carried identities) to its `DeclKind::File` id. The indexes
-  resolution builds (`type_ref_keys`, `type_ref_span_keys`, `visible_keys`,
-  `visible_handler_keys`, `platform_closure_all`, `refinements`) are
+  resolution builds (`type_ref_keys`, `type_ref_span_keys`, `value_keys`,
+  `value_span_keys`, `platform_closure_all`, `refinements`) are
   program-wide.
   * One router, an exhaustive destructure of `Checked`, partitions the rows
     into a sink: by declaration (`Checked::split_decls`, which `salvo facts`

@@ -144,6 +144,36 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-29 — Value names are bound by resolution too (PIPELINE.md C1.3, [name-table])
+
+- **Built**: `names/values.rs`, a binder over every body with the checker's
+  scopes stated once (its module doc lists them); `Names::value` answers a
+  value-position name (variable read, callee, `use`d handler, `@`-selected
+  name and selector) with its binding or, none in scope, its `Meaning`, which
+  now carries the name's fns and the effect members the scope sees.
+- **Differential first** (temporary, over the suite): the table's binding
+  against the checker's at every variable read, its meaning against the
+  scope's elsewhere. It found two rules the first cut lacked — a
+  signature's `?cmp` binders, bound at the parameter (or return type,
+  constructed claim, reapplied claim) whose type writes them first, and a
+  mixed handler's sync members not seeing the state — and nothing after. It
+  stays as a debug-build assertion at every read.
+- **`visible_keys`/`visible_handler_keys` gone** (per file and name, asked of
+  the file's scope, not a stamp's): the IR's handler construction and `with`
+  items read `Checked::value_keys` by the written name; the language server's
+  struct-literal completion reads the literal type's written key.
+  `handler_is_mixed` read a handler's faces in the checking file's scope (a
+  `use` in another module asks); now the writer's.
+- **Not moved, recorded in ROADMAP 0ax**: the checker's locals stay keyed by
+  name — reading them by binding is C3's, when stamped copies stop being
+  renamed; and the unresolved-name diagnostics stay the checker's, since a
+  value name's verdict needs the body's available effects, the handler's own
+  `send` members and the façade's confined state, and the type positions a
+  complete walk reaches are more than the checker validates.
+- **Cost**: the names build is ~6.5ms per resolution over the actors example
+  with std (types ~3.5ms, values ~3ms; debug build), reported as
+  `names: types` / `names: values` under `SALVO_TIMINGS`.
+
 ### 2026-10-29 — Written type names are resolved once, where they are written (PIPELINE.md C1.2, [name-table])
 
 - **Asked (user, 2026-10-29)**: "Ok, I like this plan. Let's proceed with

@@ -2028,9 +2028,7 @@ impl Server<'_> {
         // answered that case) or where a type is expected (a field's own
         // *value* position is neither).
         if !dot && !type_position {
-            if let Some((name, written)) = struct_lit_at(&analysis.program, view.file, word as u32) {
-                // [type-identity] The struct the written name means here.
-                let key = checked.visible_key(view.file, &name).to_string();
+            if let Some((key, written)) = struct_lit_at(&analysis.program, checked, view.file, word as u32) {
                 for f in struct_fields(&analysis.program, &key, view.file) {
                     if written.contains(&f.0) {
                         continue;
@@ -2514,15 +2512,19 @@ fn when_arm_items((missing, _types): &(Vec<String>, bool), range: Range, indent:
 /// Walks every top-level `fn`'s body (field defaults included, via
 /// `walk_fn`'s own walk of each field's default) — the only places a struct
 /// literal can be written at file scope.
-fn struct_lit_at(program: &salvo_core::Program, file_idx: usize, offset: u32) -> Option<(String, HashSet<String>)> {
+/// The struct literal around `offset`: [type-identity] [name-table] the key
+/// of the struct its written type means where it is written, and the fields
+/// it already names.
+fn struct_lit_at(program: &salvo_core::Program, checked: &Checked, file_idx: usize, offset: u32) -> Option<(String, HashSet<String>)> {
     use salvo_syntax::ast::{Expr, Item, StructLitFieldKind};
     use salvo_syntax::visit::{walk_fn, Visitor};
 
-    struct Finder {
+    struct Finder<'c> {
+        checked: &'c Checked,
         offset: u32,
         best: Option<(Span, String, HashSet<String>)>,
     }
-    impl Visitor for Finder {
+    impl Visitor for Finder<'_> {
         fn visit_expr(&mut self, expr: &Expr) {
             let Expr::StructLit { ty, fields, span } = expr else { return };
             if !span.reaches(self.offset) {
@@ -2541,12 +2543,12 @@ fn struct_lit_at(program: &salvo_core::Program, file_idx: usize, offset: u32) ->
                     _ => None,
                 })
                 .collect();
-            self.best = Some((*span, base.name.name.clone(), written));
+            self.best = Some((*span, self.checked.written_key(base).to_string(), written));
         }
     }
 
     let module = program.modules.get(file_idx)?;
-    let mut finder = Finder { offset, best: None };
+    let mut finder = Finder { checked, offset, best: None };
     for item in &module.items {
         if let Item::Fn(f) = item {
             walk_fn(&mut finder, f);

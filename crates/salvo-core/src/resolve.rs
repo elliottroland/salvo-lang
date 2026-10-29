@@ -1278,7 +1278,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     }
     let (stamp_scopes, fn_stamp_scope, ref_stamps) = stamp_scopes(program, &scopes);
     let t = crate::timing::phase("    resolve: names");
-    let names = crate::names::Names::build(program.modules, &scopes, &stamp_scopes, &ref_stamps);
+    let names = crate::names::Names::build(program.modules, &scopes, &stamp_scopes, &ref_stamps, &fn_stamp_scope);
     drop(t);
     Resolution {
         scopes,
@@ -2331,4 +2331,33 @@ pub fn span_keys_final(raw: SpanKeys) -> HashMap<CopyKey, String> {
     raw.into_iter()
         .filter_map(|(at, k)| k.filter(|k| *k != at.2).map(|k| (at, k)))
         .collect()
+}
+
+/// [type-identity] [name-table] The key of the handler every value-position
+/// name means where it is written, where it is not the name (a handler named
+/// like another module's type or handler): by the name's address, and by its
+/// copy key (`Checked::value_keys`, `value_span_keys`). A name a binding
+/// answers is a local, never a handler.
+pub fn value_keys<'p>(
+    resolution: &Resolution<'p>,
+    symbols: &crate::program::Symbols<'p>,
+) -> (HashMap<usize, String>, HashMap<CopyKey, String>) {
+    let names = &resolution.names;
+    let mut by_addr = HashMap::new();
+    let mut copies = SpanKeys::new();
+    for w in names.values() {
+        if w.local.is_some() {
+            continue;
+        }
+        let Some(h) = names.value_meaning(w).handler else { continue };
+        let Some(key) = symbols.key_of(h) else { continue };
+        let name = names.value_name(w);
+        if key != name {
+            by_addr.insert(w.addr, key.to_string());
+        }
+        if w.span.is_numbered() {
+            span_keys_add(&mut copies, (w.span.node, w.span, name.to_string()), Some(key.to_string()));
+        }
+    }
+    (by_addr, span_keys_final(copies))
 }

@@ -23,7 +23,10 @@ use std::collections::HashMap;
 use salvo_syntax::ast::{EffectAliasDecl, EffectDecl, FnsDecl, HandlerDecl, Ident, Module, QualifierDecl, StructDecl, TypeDecl, TypeRef};
 use salvo_syntax::Span;
 
-use crate::resolve::{DefSite, ModuleScope};
+use crate::resolve::{DefSite, FnEntry, ModuleScope};
+
+mod values;
+pub use values::WrittenValue;
 
 /// [name-table] What one written name means where it is written, in each
 /// namespace: the scope's answer for that file (or for the stamp a
@@ -44,6 +47,11 @@ pub struct Meaning<'p> {
     pub effect_alias: Option<(&'p EffectAliasDecl, usize)>,
     /// [lsp-definition] Where the declaration's name is written.
     pub def: Option<DefSite>,
+    /// [fn-overload-scope] The fns of the name, every rung.
+    pub fns: Vec<FnEntry<'p>>,
+    /// [effect-member-overload] The effect members of the name this scope
+    /// sees (an effect available in a body adds its own: the checker's).
+    pub members: Vec<(&'p EffectDecl, &'p salvo_syntax::ast::FnDecl)>,
 }
 
 impl<'p> Meaning<'p> {
@@ -59,6 +67,8 @@ impl<'p> Meaning<'p> {
             group: scope.fn_groups.get(name).copied(),
             effect_alias: scope.effect_aliases.get(name).copied(),
             def: scope.def_sites.get(name).copied(),
+            fns: scope.fns.get(name).cloned().unwrap_or_default(),
+            members: scope.effect_members.get(name).cloned().unwrap_or_default(),
         }
     }
 
@@ -99,7 +109,7 @@ impl<'p> Meaning<'p> {
 
     /// Whether two meanings name the same declarations (a qualifier set in
     /// any order).
-    fn same(&self, other: &Meaning<'p>) -> bool {
+    pub fn same(&self, other: &Meaning<'p>) -> bool {
         fn p<T>(a: Option<&T>) -> usize {
             a.map_or(0, |a| a as *const T as usize)
         }
@@ -112,6 +122,10 @@ impl<'p> Meaning<'p> {
             && p(self.effect_alias.map(|(a, _)| a)) == p(other.effect_alias.map(|(a, _)| a))
             && self.qualifiers.len() == other.qualifiers.len()
             && self.qualifiers.iter().all(|a| other.qualifiers.iter().any(|b| std::ptr::eq(*a, *b)))
+            && self.fns.len() == other.fns.len()
+            && self.fns.iter().all(|a| other.fns.iter().any(|b| a.key == b.key))
+            && self.members.len() == other.members.len()
+            && self.members.iter().all(|a| other.members.iter().any(|b| std::ptr::eq(a.1, b.1)))
     }
 }
 
@@ -153,16 +167,23 @@ pub struct Names<'p> {
     /// A copy's way in: by node, span and name — `None` where two written
     /// references there mean different things.
     by_copy: HashMap<(u32, Span, u32), Option<u32>>,
+    /// [name-table] The value-position names, the same three ways.
+    values: Vec<WrittenValue>,
+    value_by_addr: HashMap<usize, u32>,
+    value_by_copy: HashMap<(u32, Span, u32), Option<u32>>,
+    empty: Option<u32>,
 }
 
 impl<'p> Names<'p> {
     /// Resolves every written reference of `modules`, each in `scopes`' scope
-    /// of its file — or the stamp scope `stamped` gives it, by address.
+    /// of its file — or the stamp scope `stamped` (a type reference) or
+    /// `fn_stamps` (a stamped fn's body) gives it, by address.
     pub fn build<M: std::borrow::Borrow<Module>>(
         modules: &[M],
         scopes: &[ModuleScope<'p>],
         stamp_scopes: &[ModuleScope<'p>],
         stamped: &HashMap<usize, usize>,
+        fn_stamps: &HashMap<usize, usize>,
     ) -> Names<'p> {
         use salvo_syntax::visit::Visitor;
         struct Walk<'w, 'p> {
@@ -228,6 +249,7 @@ impl<'p> Names<'p> {
         }
         let mut names = Names::default();
         let mut interned = HashMap::new();
+        let (mut types_t, mut values_t) = (std::time::Duration::ZERO, std::time::Duration::ZERO);
         for (file, module) in modules.iter().enumerate() {
             let mut walk = Walk {
                 file: file as u32,
@@ -238,12 +260,60 @@ impl<'p> Names<'p> {
                 stamped,
                 generics: Vec::new(),
             };
+            let t0 = std::time::Instant::now();
             crate::check_cache::walk_module(&mut walk, module.borrow());
+            types_t += t0.elapsed();
+            let t0 = std::time::Instant::now();
+            values::Binder::new(&mut names, &mut interned, scopes, stamp_scopes, fn_stamps, file as u32).module(module.borrow());
+            values_t += t0.elapsed();
         }
+        crate::timing::report("      names: types", types_t);
+        crate::timing::report("      names: values", values_t);
         names
     }
 
-    fn spell(&mut self, name: &str) -> u32 {
+    /// [name-table] The value-position name `id` is, by its address; for a
+    /// copy, by its node, span and name, when that settles it.
+    pub fn value(&self, id: &Ident) -> Option<&WrittenValue> {
+        let idx = match self.value_by_addr.get(&(id as *const Ident as usize)) {
+            Some(i) => *i,
+            None if id.span.is_numbered() => {
+                let spelling = *self.spelling_ids.get(id.name.as_str())?;
+                (*self.value_by_copy.get(&(id.span.node, id.span, spelling))?)?
+            }
+            None => return None,
+        };
+        self.values.get(idx as usize)
+    }
+
+    /// What a value-position name means as a declaration where it is
+    /// written (its binding, if any, comes first: [`WrittenValue::local`]).
+    pub fn value_meaning(&self, w: &WrittenValue) -> &Meaning<'p> {
+        &self.meanings[w.meaning as usize]
+    }
+
+    /// The name a value-position name wrote.
+    pub fn value_name(&self, w: &WrittenValue) -> &str {
+        &self.spellings[w.name as usize]
+    }
+
+    /// Every value-position name, in walk order, file by file.
+    pub fn values(&self) -> &[WrittenValue] {
+        &self.values
+    }
+
+    /// The index of a meaning with nothing in it, made on first need.
+    fn empty_meaning(&mut self) -> u32 {
+        if let Some(i) = self.empty {
+            return i;
+        }
+        self.meanings.push(Meaning::default());
+        let i = self.meanings.len() as u32 - 1;
+        self.empty = Some(i);
+        i
+    }
+
+    pub(crate) fn spell(&mut self, name: &str) -> u32 {
         if let Some(id) = self.spelling_ids.get(name) {
             return *id;
         }

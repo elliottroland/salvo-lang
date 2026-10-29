@@ -1208,14 +1208,15 @@ pub struct Checked {
     /// [type-identity] [name-table] The same by node, span and written name,
     /// for copies (`resolve::CopyKey`).
     pub type_ref_span_keys: HashMap<crate::resolve::CopyKey, String>,
-    /// [type-identity] Per file, the key every visible name of a type,
-    /// effect or handler stands for where it is not the name itself (a clash
-    /// or an alias): how an emitter resolves a name written in an
-    /// expression (`use H()`, `spawn H()`).
-    pub visible_keys: HashMap<(usize, String), String>,
-    /// [type-identity] The same for handler names, which are a namespace of
-    /// their own: a handler may share its name with a type (0c item 13).
-    pub visible_handler_keys: HashMap<(usize, String), String>,
+    /// [type-identity] [name-table] The key of the handler a value-position
+    /// name means where it is written (`use H()`, `spawn H()`, a `with`
+    /// item), by the name's address, where it is not the name itself (a
+    /// handler named like another module's type or handler, 0c item 13):
+    /// how the IR names the handler it constructs. Derived from
+    /// `Resolution::names`.
+    pub value_keys: HashMap<usize, String>,
+    /// [name-table] The same by node, span and name, for a copy.
+    pub value_span_keys: HashMap<crate::resolve::CopyKey, String>,
     /// Field accesses [lsp-definition]: the span of the field *name* in
     /// `base.field` mapped to where the field's declaration is written.
     /// Drives go-to-definition and doc hover on fields [doc-comment].
@@ -1725,22 +1726,18 @@ pub struct LambdaCapture {
 }
 
 impl Checked {
-    /// [type-identity] The key a written type reference resolves to: its
-    /// declaration's, or the written name.
-    /// [type-identity] The key a name written in file [file] stands for.
-    pub fn visible_key<'a>(&'a self, file: usize, name: &'a str) -> &'a str {
-        if self.visible_keys.is_empty() {
-            return name;
+    /// [type-identity] [name-table] The key of the handler a value-position
+    /// name means where it is written, or the name.
+    pub fn value_key<'a>(&'a self, id: &'a Ident) -> &'a str {
+        if let Some(k) = self.value_keys.get(&(id as *const Ident as usize)) {
+            return k;
         }
-        self.visible_keys.get(&(file, name.to_string())).map(|k| k.as_str()).unwrap_or(name)
-    }
-
-    /// [type-identity] The key of handler [name] as file [file] sees it.
-    pub fn visible_handler_key<'a>(&'a self, file: usize, name: &'a str) -> &'a str {
-        self.visible_handler_keys
-            .get(&(file, name.to_string()))
+        id.span
+            .is_numbered()
+            .then(|| (id.span.node, id.span, id.name.clone()))
+            .and_then(|at| self.value_span_keys.get(&at))
             .map(|k| k.as_str())
-            .unwrap_or_else(|| self.visible_key(file, name))
+            .unwrap_or(&id.name)
     }
 
     pub fn written_key<'a>(&'a self, r: &'a TypeRef) -> &'a str {
@@ -2362,28 +2359,8 @@ fn check_once<'p>(
     }
     symbols.seed_ref_keys(&out.type_ref_keys, &out.type_ref_span_keys);
     drop(t);
-    let t = crate::timing::phase("  check: visible keys");
-    for (file, scope) in resolution.scopes.iter().enumerate() {
-        let names = scope
-            .handlers
-            .keys()
-            .chain(scope.structs.keys())
-            .chain(scope.effects.keys())
-            .chain(scope.type_aliases.keys())
-            .chain(scope.opaque_types.keys());
-        for name in names {
-            if let Some(key) = crate::resolve::key_in(symbols, scope, name) {
-                if key != *name {
-                    out.visible_keys.insert((file, name.to_string()), key.to_string());
-                }
-            }
-        }
-        for (name, decl) in &scope.handlers {
-            if let Some(key) = symbols.key_of(*decl) {
-                out.visible_handler_keys.insert((file, name.to_string()), key.to_string());
-            }
-        }
-    }
+    let t = crate::timing::phase("  check: value keys");
+    (out.value_keys, out.value_span_keys) = crate::resolve::value_keys(resolution, symbols);
     drop(t);
     let t = crate::timing::phase("  check: protocol hashes");
     out.errors.extend(resolution.errors.iter().cloned());
@@ -11480,7 +11457,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let implied_by = self
                         .symbols
                         .handlers
-                        .get(self.out.visible_handler_key(self.file_idx, &id.name))
+                        .get(self.out.value_key(id))
                         .copied()
                         .and_then(|h| {
                             self.handler_dep_list(h).into_iter().find_map(|e| match e.origin {
@@ -11603,6 +11580,30 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn lookup(&self, name: &str) -> Option<&LocalVar> {
         self.locals.iter().rev().find_map(|s| s.get(name))
+    }
+
+    /// [name-table] That the binding resolution gave a variable read is the
+    /// one this checker's scopes find (both by its name's span) — or that
+    /// neither finds one. The two state one scoping rule twice until the
+    /// checker reads locals by binding (PIPELINE.md C3).
+    #[cfg(debug_assertions)]
+    fn check_value_binding(&self, id: &Ident) {
+        let Some(w) = self.resolution.names.value(id) else { return };
+        let here = self.lookup(&id.name).map(|v| v.decl_span);
+        let agree = match (here, w.local) {
+            (Some(a), Some(b)) => a.node == b.node || (a.start <= b.start && b.end <= a.end) || (b.start <= a.start && a.end <= b.end),
+            (None, None) => true,
+            _ => false,
+        };
+        assert!(
+            agree,
+            "[name-table] `{}` at {}..{}: resolution bound it to {:?}, the checker's scopes to {:?}",
+            id.name,
+            id.span.start,
+            id.span.end,
+            w.local.map(|s| (s.start, s.end)),
+            here.map(|s| (s.start, s.end)),
+        );
     }
 
     /// Records a non-fn name use as pointing at its declaration's
@@ -15830,20 +15831,19 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !h.fns.iter().any(|f| f.is_send) {
             return false;
         }
+        // [name-table] The faces as the handler's file means them: a `use`
+        // in another module asks too.
         !h.of.is_empty()
             && h.of.iter().all(|of| {
-                let name = match of {
-                    ast::Type::Named { base, .. } => base.name.name.as_str(),
+                let base = match of {
+                    ast::Type::Named { base, .. } => base,
                     ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
-                        ast::Type::Named { base, .. } => base.name.name.as_str(),
+                        ast::Type::Named { base, .. } => base,
                         _ => return false,
                     },
                     _ => return false,
                 };
-                self.scope
-                    .effects
-                    .get(name)
-                    .is_some_and(|e| !e.is_actor)
+                self.named(base).effect.is_some_and(|e| !e.is_actor)
             })
     }
 
@@ -23401,6 +23401,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(var) = self.lookup_mut(&id.name) {
                     var.used = true;
                 }
+                // [name-table] Resolution bound this name to the binding
+                // the scopes here find, or to none: a debug build checks.
+                #[cfg(debug_assertions)]
+                self.check_value_binding(id);
                 if let Some(var) = self.lookup(&id.name) {
                     let mut narrowed = var.narrowed.clone();
                     // [qual-lift] Inside a `^` branch the physical view is

@@ -1227,11 +1227,23 @@ remain, each a design question rather than a lookup to swap:
   name. It should be unreachable for a checked call; making it an error
   rather than a pick is the [backend-never-wrong] fix.
 
-C1.2 (2026-10-29) bound every written *type-position* name where it is
-written [name-table]. Still read through the checking file's scope, for C1.3
-(PIPELINE.md §II.9): value-position names (locals, callees, handler names in a
-`use`, `@`-selectors), `Checked::visible_keys`, and the unresolved-name
-diagnostics, which the checker reports at declaration sites. A qualifier's
+C1.2 and C1.3 (2026-10-29) bound every written type-position and
+value-position name where it is written [name-table]. What still goes through
+the checker's own scopes:
+
+- **Locals, by name.** The checker's `LocalVar` frames are keyed by name and
+  its flow state (narrowing, fate links, captures) follows them; resolution's
+  binding for each read is checked against them in a debug build. Reading
+  them by binding is what lets stamped comptime copies stop being renamed
+  (`k__c3`), so it belongs to PIPELINE.md C3.
+- **Unresolved-name diagnostics**, type and value. The checker reports them
+  at declaration sites and positions it validates; a complete walk reaches
+  more positions (C1.2's differential: group arguments like `: Ordered<self>`,
+  names in patterns, value blocks), and a value name's verdict needs what
+  only the checker knows: the effects available in the body (members reach
+  it through the effect list, an alias or a prerequisite), the handler's own
+  `send` members, a façade's confined state. Moving them means stating each
+  position first; not scheduled. A qualifier's
 declaration is still found as the *first* of its name's overload set where a
 subject is not in hand (`written_qual_decl`, `qual_decl`): the generics and
 `comptime` flag of `NonEmpty` are read off whichever of its five comes first.

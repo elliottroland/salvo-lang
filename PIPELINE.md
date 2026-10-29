@@ -2471,21 +2471,23 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      namespace, where it is written (`salvo_core::names`, [name-table]);
      the checker's type, effect, qualifier and group lookups of a written
      reference read it, and `written_keys*` and `Symbols::ref_key` are
-     derived from it. Two parts of the plan moved: `visible_keys` (its
-     readers are value-position names) and the "unknown type" diagnostics
-     (below) go to C1.3.
-  3. **Value-position names**: locals bound lexically (a use names its
-     binding's node), callables as candidate sets (fns and effect members);
-     the checker's `Expr::Ident` and callee paths read it; `visible_keys`
-     derived from it. **And the unresolved-name diagnostics move to
-     resolution**, type and value positions together: C1.2's differential
-     (resolution's would-be "unknown type/qualifier" against the checker's
-     `require_name`, over salvo-core's tests) found the checker validates a
-     narrower set of positions than a complete walk reaches — a group's
-     arguments (`: Ordered<self>`), names in patterns and checks
-     (`Ok`/`Err` in an `is`), identities in a value block — and one name
-     the walk missed; each position has to be stated before the walk can
-     report for it, which is the same work C1.3 does for value names.
+     derived from it. Two parts of the plan moved to C1.3: `visible_keys`
+     (its readers are value-position names) and the "unknown type"
+     diagnostics.
+  3. **Value-position names** — done (§II.12): every variable read,
+     callee, `use`d handler and selector bound by resolution — to its
+     binding, or to its declaration meaning (fns, effect members, …) —
+     with a debug check against the checker's scopes at every read;
+     `visible_keys` replaced by keys derived per name. Two parts did not
+     move, recorded in ROADMAP 0ax: **the checker still reads locals by
+     name** (its flow state is per name; reading it by binding is what C3
+     needs, when stamped copies stop being renamed, so it goes there), and
+     **the unresolved-name diagnostics** stay the checker's — C1.2's
+     differential found the checker validates fewer type positions than a
+     complete walk reaches (a group's arguments `: Ordered<self>`, names in
+     patterns, value blocks), and a value name's verdict needs what only
+     the checker has (the effects available in the body, the handler's own
+     `send` members, the façade's confined state).
   4. **Node identity without a file** (scheduled 2026-10-29, the user: "the
      real fix"): a span — or every node — carries its file, so any node, a
      copy included, finds its key [node-id] without the tree it was copied
@@ -3503,10 +3505,36 @@ this log current so the work can resume after a context reset). Newest last.
   - **Moved to C1.3**: `visible_keys` and the unresolved-name diagnostics
     (§II.9 C1.3 says why). Scheduled as C1.4: node identity without a file.
 
+- **C1.3, value-position names resolved by resolution: done (2026-10-29).**
+  `names/values.rs`: a binder walks every body with the checker's scopes
+  (stated in its module doc) and records, per value-position name, the
+  binding it reads or — none in scope — its `Meaning`, which now lists the
+  name's fns (every rung) and the effect members the scope sees. Selected
+  names (`f@m`, `m@E`, the selector itself) never take a local.
+  - **Differential** (temporary, over the suite): at every variable read,
+    the table's binding against the checker's `LocalVar::decl_span`, and at
+    every other read its meaning against the scope's. Two scoping rules
+    were missing from the first cut and found that way: a signature's
+    `?cmp` binders (`Sorted<T>(?cmp) List<T>`: bound at the parameter whose
+    type writes it first, after written implicits and group members, as
+    `fn_interface` collects them), and a mixed handler's sync member, which
+    does not see the state. After those, no divergence. The differential
+    stays as a debug-build check at every read
+    (`Checker::check_value_binding`).
+  - **visible_keys** (per file and name) are gone: the IR's handler
+    construction and `with` items read `Checked::value_keys` by the written
+    name (address, or copy key), and the language server's struct-literal
+    completion reads the literal's written type key. `handler_is_mixed` read
+    the handler's faces in the checking file's scope; now the writer's.
+  - **Not moved** (ROADMAP 0ax): the checker's locals stay keyed by name
+    (C3 reads them by binding); the unresolved-name diagnostics stay the
+    checker's (§II.9 C1.3 says why).
+  - **Cost**: the names build is ~6.5ms per resolution over the actors
+    example with std (types ~3.5ms, values ~3ms, debug build).
+
 - **Where it stands (2026-10-29) — resume here.** Stages A and B complete;
-  **Stage C under way**: C1.1 and C1.2 done; **next C1.3** (value-position
-  names, and the unresolved-name diagnostics into resolution, §II.9), then
-  C1.4 (node identity without a file). Left of B, recorded: D4's general union
+  **Stage C under way**: C1.1–C1.3 done; **next C1.4** (node identity
+  without a file, §II.9), then C2 (the resolve dump). Left of B, recorded: D4's general union
   `to_str` (deferred, R10), so `interp_union` stays a fact; the send cuts of
   ROADMAP 0au; the leftovers of 0as, 0at, 0av and 0ax. **Open decisions,
   each built as its recommended option:** P9–P18 and P21 (§II.10; ROADMAP

@@ -3293,16 +3293,16 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// `H(args) [with …]` as a `Construct` of the handler: written arguments,
     /// resolved implicits, then one field per dependency [effect-handler-deps].
     pub(crate) fn construct_handler(&mut self, handler: &AExpr, deps: &[Ty], items: &[Option<usize>], with_items: &[AExpr], span: Span) -> Option<Expr> {
-        let (name, args, named): (String, Vec<&AExpr>, Vec<ast::NamedArg>) = match handler {
+        let (written, args, named): (&ast::Ident, Vec<&AExpr>, Vec<ast::NamedArg>) = match handler {
             AExpr::Call { callee, args, named, .. } => match callee.as_ref() {
-                AExpr::Ident(id) => (id.name.clone(), args.iter().collect(), named.clone()),
+                AExpr::Ident(id) => (id, args.iter().collect(), named.clone()),
                 _ => return None,
             },
-            AExpr::Ident(id) => (id.name.clone(), Vec::new(), Vec::new()),
+            AExpr::Ident(id) => (id, Vec::new(), Vec::new()),
             _ => return None,
         };
         let key = self.key(span);
-        let hkey = self.ctx.checked.visible_handler_key(self.file_idx, &name).to_string();
+        let hkey = self.ctx.checked.value_key(written).to_string();
         let decl = self.ctx.symbols.handlers.get(hkey.as_str()).copied()?;
         let call_span = handler.span();
         let handler_ty = Ty::Named {
@@ -3415,8 +3415,8 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// constructed for this binding alone.
     fn with_item(&mut self, item: &AExpr) -> Expr {
         let is_handler = match item {
-            AExpr::Call { callee, .. } => matches!(callee.as_ref(), AExpr::Ident(id) if self.ctx.symbols.handlers.contains_key(self.ctx.checked.visible_handler_key(self.file_idx, &id.name))),
-            AExpr::Ident(id) => self.lookup(&id.name).is_none() && self.ctx.symbols.handlers.contains_key(self.ctx.checked.visible_handler_key(self.file_idx, &id.name)),
+            AExpr::Call { callee, .. } => matches!(callee.as_ref(), AExpr::Ident(id) if self.ctx.symbols.handlers.contains_key(self.ctx.checked.value_key(id))),
+            AExpr::Ident(id) => self.lookup(&id.name).is_none() && self.ctx.symbols.handlers.contains_key(self.ctx.checked.value_key(id)),
             _ => false,
         };
         if is_handler {
