@@ -244,6 +244,12 @@ test "a loud failure" {
 /// without a newline keeps its verdict (it was glued to the protocol line,
 /// lost, and the test reported `DIED`). `[test]` in the manifest sets the
 /// same, and its `backend` wins over `[build]`'s.
+///
+/// What a backend contributes is the harness's report, every test's output
+/// in it, which `--output all` shows whole: that runs on both. Which of it is
+/// shown is the CLI's rendering of the same report (`render_stream`), so the
+/// default and `--streams stderr` run on Rust alone — each run is a whole
+/// build, and on Kotlin a `kotlinc`.
 #[test]
 fn a_tests_output_is_shown_as_configured() {
     // Keyed on the binary: `salvo test` builds annexes, which `compile` does not emit.
@@ -266,15 +272,6 @@ fn a_tests_output_is_shown_as_configured() {
         };
         let failure = "test calc :: a loud failure ... \n  fail line\ntest calc :: a loud failure ... FAILED\n    expected 5, got 4\n";
         assert_eq!(
-            run(&[]),
-            format!(
-                "test calc :: a quiet pass ... ok (N ms)\n\
-                 test calc :: an unterminated print ... ok (N ms)\n\
-                 {failure}\n3 tests: 2 passed, 1 failed\n"
-            ),
-            "{backend}: the default shows a failure's output only"
-        );
-        assert_eq!(
             run(&["--output", "all"]),
             format!(
                 "test calc :: a quiet pass ... \n  pass line\ntest calc :: a quiet pass ... ok (N ms)\n\
@@ -282,6 +279,18 @@ fn a_tests_output_is_shown_as_configured() {
                  {failure}\n3 tests: 2 passed, 1 failed\n"
             ),
             "{backend}: `--output all`"
+        );
+        if backend != "rust" {
+            continue;
+        }
+        assert_eq!(
+            run(&[]),
+            format!(
+                "test calc :: a quiet pass ... ok (N ms)\n\
+                 test calc :: an unterminated print ... ok (N ms)\n\
+                 {failure}\n3 tests: 2 passed, 1 failed\n"
+            ),
+            "{backend}: the default shows a failure's output only"
         );
         assert!(!run(&["--output", "all", "--streams", "stderr"]).contains("line"), "{backend}: `--streams stderr`");
     }

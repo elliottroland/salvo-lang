@@ -12,11 +12,11 @@
 use std::process::Command;
 
 /// Every static runtime module. A new one belongs here as soon as it exists.
-/// (`bytes.kt` was added by the filesystem work without joining this list;
-/// it is here now, which is what makes this test complete rather than a
-/// sample.)
+/// (`bytes.kt` was added by the filesystem work without joining this list,
+/// and `hostargs.kt` by the command-line work; both are here now, which is
+/// what makes this test complete rather than a sample.)
 const RUNTIME_MODULES: &[&str] =
-    &["throwsignal.kt", "compare.kt", "bytes.kt", "scheduler.kt", "hoststreams.kt", "hosttime.kt", "wire.kt"];
+    &["throwsignal.kt", "compare.kt", "bytes.kt", "scheduler.kt", "hoststreams.kt", "hosttime.kt", "wire.kt", "hostargs.kt"];
 
 /// The bytes the emitter will splice, read from the same path `include_str!`
 /// reads at compile time.
@@ -63,45 +63,47 @@ fn example_runtime() -> Vec<u8> {
     std::fs::read(example.join("std/runtime.kt")).unwrap_or_default()
 }
 
-/// Compiles one runtime module on its own and asserts that `kotlinc`
-/// accepted it. Warnings are asserted away for the same reason as on Rust:
-/// this code lands in user output, where the user cannot fix it.
-fn compile_runtime_module(file: &str) {
-    let kotlinc = salvo_testkit::kotlinc(env!("CARGO_TARGET_TMPDIR"));
-    if !kotlinc.available {
-        return;
-    }
-    let source = runtime_source(file);
-    let example_rt = example_runtime();
-    let parts: Vec<&[u8]> = vec![
-        b"kotlin-runtime-module",
-        kotlinc.version.as_bytes(),
-        file.as_bytes(),
-        source.as_bytes(),
-        &example_rt,
-    ];
-    let Some(stamp) = salvo_testkit::cached(
-        env!("CARGO_TARGET_TMPDIR"),
-        &format!("kotlin-runtime {file}"),
-        &parts,
-    ) else {
-        return;
+/// The modules that compile only inside a generated tree (`example_sources`):
+/// the scheduler, the wire and the stream table name each other and the
+/// Salvo core. One compile checks the three.
+const IN_EXAMPLE: &[&str] = &["scheduler.kt", "wire.kt", "hoststreams.kt"];
+
+/// Compiles `files` — one module alone, or [`IN_EXAMPLE`] inside the
+/// example's tree — and answers what `kotlinc` refused or warned about in
+/// them. Warnings are asserted away for the same reason as on Rust: this
+/// code lands in user output, where the user cannot fix it.
+fn compile_runtime_modules(files: &[&str], in_example: bool, version: &str) -> Result<(), String> {
+    let label = files.join("+");
+    let sources_text: Vec<String> = if in_example {
+        // `example_sources` writes all five tree modules: each is an input.
+        ["scheduler.kt", "wire.kt", "hoststreams.kt", "hosttime.kt", "bytes.kt"].iter().map(|f| runtime_source(f)).collect()
+    } else {
+        files.iter().map(|f| runtime_source(f)).collect()
     };
-    let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("rt-{file}"));
-    let src = dir.join(file);
-    std::fs::write(&src, &source).expect("failed to write the runtime module");
-    let in_example = file == "scheduler.kt" || file == "wire.kt" || file == "hoststreams.kt";
+    let example_rt = example_runtime();
+    let mut parts: Vec<&[u8]> = vec![b"kotlin-runtime-module", version.as_bytes(), label.as_bytes(), &example_rt];
+    parts.extend(sources_text.iter().map(|t| t.as_bytes()));
+    let Some(stamp) = salvo_testkit::cached(env!("CARGO_TARGET_TMPDIR"), &format!("kotlin-runtime {label}"), &parts) else {
+        return Ok(());
+    };
+    let dir = salvo_testkit::scratch(env!("CARGO_TARGET_TMPDIR"), &format!("rt-{label}"));
     // [time-timer] `scheduler.kt`'s deadline thread reads the monotonic clock,
     // so `hosttime.kt` is compiled beside it exactly as the emitter emits the
-    // two together. Every other module stands alone, and `hosttime.kt` is
-    // checked on its own through this same list.
-    // [kt-wire] …and since step ③ the scheduler and the wire name each other
-    // (the typed send encodes; the `Addr` codec asks the scheduler), and the
-    // wire names `SalvoBytes`: the three travel with the scheduler.
+    // two together; and it is checked on its own as well, as every other
+    // module is.
+    // [kt-wire] The scheduler and the wire name each other (the typed send
+    // encodes; the `Addr` codec asks the scheduler), and the wire names
+    // `SalvoBytes`: the three travel with the scheduler.
     // [runtime-sched] The scheduler, the wire and the stream table name each
-    // other and the Salvo core, so those three are checked inside the actors
-    // example's generated tree; the rest stand alone.
-    let sources = if in_example { example_sources(&dir) } else { vec![src.clone()] };
+    // other and the Salvo core, so those three are checked inside the files
+    // example's generated tree — once, for all three; the rest stand alone.
+    let sources = if in_example {
+        example_sources(&dir)
+    } else {
+        let src = dir.join(files[0]);
+        std::fs::write(&src, runtime_source(files[0])).expect("failed to write the runtime module");
+        vec![src]
+    };
     let out = Command::new("kotlinc")
         .args(&sources)
         .arg("-d")
@@ -109,23 +111,38 @@ fn compile_runtime_module(file: &str) {
         .output()
         .expect("failed to run kotlinc");
     let noise = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        out.status.success(),
-        "kotlinc rejected runtime/{file}:\n{noise}"
-    );
-    let mine = |l: &&str| !in_example || l.contains(&format!("/{file}:"));
-    assert!(
-        !noise.lines().filter(mine).any(|l| l.contains("warning:")),
-        "runtime/{file} compiles with warnings, which would land in user output:\n{noise}"
-    );
+    if !out.status.success() {
+        return Err(format!("kotlinc rejected runtime/{label}:\n{noise}"));
+    }
+    let mine = |l: &&str| !in_example || files.iter().any(|f| l.contains(&format!("/{f}:")));
+    if noise.lines().filter(mine).any(|l| l.contains("warning:")) {
+        return Err(format!("runtime/{label} compiles with warnings, which would land in user output:\n{noise}"));
+    }
     stamp.verified();
+    Ok(())
 }
 
+/// Every runtime module compiles warning-free: [`IN_EXAMPLE`] in one
+/// compile of the example's tree, every other module alone — the compiles
+/// side by side, since each is a `kotlinc` start-up (they ran one after
+/// another before, three of them the same tree: 197s fresh with the machine
+/// loaded, 2026-10-29).
 #[test]
 fn every_runtime_module_compiles_warning_free() {
-    for file in RUNTIME_MODULES {
-        compile_runtime_module(file);
+    let kotlinc = salvo_testkit::kotlinc(env!("CARGO_TARGET_TMPDIR"));
+    if !kotlinc.available {
+        return;
     }
+    let mut jobs: Vec<(Vec<&str>, bool)> = vec![(IN_EXAMPLE.to_vec(), true)];
+    jobs.extend(RUNTIME_MODULES.iter().filter(|f| !IN_EXAMPLE.contains(f)).map(|f| (vec![*f], false)));
+    let failures: Vec<String> = std::thread::scope(|scope| {
+        let handles: Vec<_> = jobs
+            .iter()
+            .map(|(files, in_example)| scope.spawn(|| compile_runtime_modules(files, *in_example, &kotlinc.version)))
+            .collect();
+        handles.into_iter().filter_map(|h| h.join().unwrap().err()).collect()
+    });
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
 /// A runtime module is spliced into user output, so it carries the

@@ -890,40 +890,38 @@ fn main() [use] {
 /// alone is a bug — an abort would reject a legal program, and silence would
 /// leave the warning visible only in `salvo analyze`.
 ///
-/// Per backend: the gate and the channel are duplicated in each emitter.
+/// Per backend: the gate and the channel are duplicated in each emitter, so
+/// each backend's `compile` must print it — which needs no toolchain. The
+/// run, which the warning must not fail, is the driver's and the same for
+/// both, so it runs on Rust only (a Kotlin run was a `kotlinc` for nothing
+/// the compile does not show).
 #[test]
 fn a_warning_reaches_the_builder_without_failing_the_run() {
-    // Keyed on the binary: the warning is the checker's, and `compile`'s
-    // emitted files would not change if it went missing.
-    let Some(__stamp) =
-        e2e_stamp("a_warning_reaches_the_builder", &["kotlinc", "rustc"])
-    else {
-        return;
-    };
-    for (backend, tool) in [("kotlin", "kotlinc"), ("rust", "rustc")] {
-        if !have(tool) {
-            eprintln!("skipping {backend}: {tool} not found on PATH");
-            continue;
-        }
+    let warned = |stderr: &str| stderr.contains("warning: this `@core.list` is not needed") && stderr.contains("main.sv:");
+    for backend in ["kotlin", "rust"] {
         let dir = work_dir(&format!("warn_{backend}"));
         fs::write(dir.join("main.sv"), REDUNDANT_SELECTOR).unwrap();
-        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
+        let out = salvo_in(&dir, &["compile", "--backend", backend, "--src", ".", "--target", "out"]);
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(
-            out.status.success(),
-            "a warning must not fail the run ({backend}), stderr: {stderr}"
-        );
-        assert_eq!(
-            String::from_utf8_lossy(&out.stdout),
-            "checked by hand: 1\n",
-            "{backend} stdout (stderr: {stderr})"
-        );
-        assert!(
-            stderr.contains("warning: this `@core.list` is not needed")
-                && stderr.contains("main.sv:"),
-            "the warning should reach the builder ({backend}), stderr: {stderr}"
-        );
+        assert!(out.status.success(), "a warning must not fail the compile ({backend}), stderr: {stderr}");
+        assert!(warned(&stderr), "the warning should reach the builder ({backend}), stderr: {stderr}");
     }
+    // Keyed on the binary: the warning is the checker's, and `compile`'s
+    // emitted files would not change if it went missing.
+    let Some(__stamp) = e2e_stamp("a_warning_reaches_the_builder", &["rustc"]) else {
+        return;
+    };
+    if !have("rustc") {
+        eprintln!("skipping the run: rustc not found on PATH");
+        return;
+    }
+    let dir = work_dir("warn_run");
+    fs::write(dir.join("main.sv"), REDUNDANT_SELECTOR).unwrap();
+    let out = salvo_in(&dir, &["run", "--backend", "rust", "--src", "."]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "a warning must not fail the run, stderr: {stderr}");
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "checked by hand: 1\n", "stdout (stderr: {stderr})");
+    assert!(warned(&stderr), "the warning should reach the builder, stderr: {stderr}");
     __stamp.verified();
 }
 
