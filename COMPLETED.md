@@ -144,6 +144,29 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-29 — CLI tests share their programs (test speed, merge 2)
+
+- **Decided (user, 2026-10-29)**: share one program across the CLI tests
+  that each built their own, accepting that one broken feature fails the
+  shared program.
+- **Merged** (`run_tests.rs`): `run_compiles_and_runs_with_each_backend`,
+  `run_forwards_command_line_arguments_…` and `console_reads_a_crlf_line_…`
+  are `run_builds_and_runs_with_each_backend` — one program, one `salvo run`
+  per backend, with arguments after `--` and `Ada\r\n` on stdin;
+  `build_produces_a_runnable_artifact_…` and `process_exit_and_env_…` are one
+  `salvo build` per backend whose artifact runs four times (`SALVO_PROBE`
+  picks the arguments or an exit path). `test_command_tests.rs`'s report
+  parity and output tests are
+  `the_report_and_its_output_read_the_same_on_both_backends`: one annex with
+  both kinds of test, `--output all` on both backends, the other renderings
+  on Rust. Kotlin builds in these tests: 8 → 3; Rust: 8 → 3.
+- **Left apart**: `--main` among several entries and the nested `--src`
+  entry (each run is its own entry, so sharing a directory saves no build),
+  and the platform tests' generate-only checks (no toolchain).
+- **Also**: under `SALVO_E2E_FRESH` a CLI stamp no longer computes its
+  content key, which ran `salvo compile` per project and backend for a test
+  about to run anyway; the next run that is not fresh writes it.
+
 ### 2026-10-29 — Platform programs run as run data; host tools are looked for first (test speed, merge 3)
 
 - **Decided (user, 2026-10-29)**: move the program-behaviour half of the

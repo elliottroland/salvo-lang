@@ -141,7 +141,11 @@ pub fn cli_stamp(test: &CliTest, projects: &[CliProject]) -> Option<CliStamp> {
             _ => None,
         })
         .collect();
-    if projects.is_empty() || backends.is_empty() {
+    // `SALVO_E2E_FRESH` runs the test whatever the content key says, so the
+    // `salvo compile` per project and backend that computes it would be work
+    // for nothing (a CLI test's run was one more build); the content stamp
+    // is written by the next run that is not fresh.
+    if projects.is_empty() || backends.is_empty() || crate::fresh() {
         return Some(CliStamp { binary, content: None });
     }
     let mut parts: Vec<Vec<u8>> = vec![

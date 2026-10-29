@@ -183,40 +183,6 @@ fn duplicate_names_are_refused() {
 
 // ===== running =====
 
-/// [test-report] The report: a pass with its milliseconds, a failure with its
-/// message indented under it, and a closing count. Asserted with the timings
-/// normalized away, since those are the one part that cannot be identical.
-#[test]
-fn the_report_reads_the_same_on_both_backends() {
-    // Keyed on the binary: `salvo test` builds annexes, which `compile` does not emit.
-    let Some(stamp) = e2e_stamp("report_parity", &["rustc", "kotlinc"]) else {
-        return;
-    };
-    for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
-        if !have(tool) {
-            eprintln!("skipping {backend}: {tool} not found on PATH");
-            continue;
-        }
-        let dir = calc_dir(&format!("report_{backend}"));
-        let out = salvo_in(&dir, &["test", "--backend", backend, "--src", "."]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        let stdout = normalize_ms(&String::from_utf8_lossy(&out.stdout));
-        assert_eq!(
-            stdout,
-            "test calc :: doubling works ... ok (N ms)\n\
-             test calc :: the annex sees a private helper ... ok (N ms)\n\
-             test calc :: a failure names both values ... FAILED\n\
-             \x20   expected 5, got 4\n\
-             \n\
-             3 tests: 2 passed, 1 failed\n",
-            "{backend} (stderr: {stderr})"
-        );
-        // A failing test fails the command: exit code is what a CI reads.
-        assert!(!out.status.success(), "{backend} reported success");
-    }
-    stamp.verified();
-}
-
 /// Tests that print: a passing one, one that ends without a newline, and a
 /// failing one.
 const PRINTING_TESTS: &str = r#"
@@ -238,61 +204,77 @@ test "a loud failure" {
 }
 "#;
 
-/// [test-output] A test's stdout is shown under it — by default only for a
+/// [test-report] [test-output] The report and the output under it, the same
+/// on both backends: a pass with its milliseconds, a failure with its message
+/// indented under it, and a closing count (asserted with the timings
+/// normalized away); a test's stdout shown under it — by default only for a
 /// failure, with `--output all` for every test, and not at all with
-/// `--streams stderr` — and the same on both backends. Output a test leaves
-/// without a newline keeps its verdict (it was glued to the protocol line,
-/// lost, and the test reported `DIED`). `[test]` in the manifest sets the
-/// same, and its `backend` wins over `[build]`'s.
+/// `--streams stderr`. Output a test leaves without a newline keeps its
+/// verdict (it was glued to the protocol line, lost, and the test reported
+/// `DIED`). A failing test fails the command: the exit code is what a CI
+/// reads. `[test]` in the manifest sets the same, and its `backend` wins over
+/// `[build]`'s.
 ///
 /// What a backend contributes is the harness's report, every test's output
-/// in it, which `--output all` shows whole: that runs on both. Which of it is
-/// shown is the CLI's rendering of the same report (`render_stream`), so the
-/// default and `--streams stderr` run on Rust alone — each run is a whole
-/// build, and on Kotlin a `kotlinc`.
+/// in it, which `--output all` shows whole: that runs on both, over one annex
+/// holding both kinds of test (merged 2026-10-29: the report and the output
+/// were a build per backend each). Which of it is shown is the CLI's
+/// rendering of the same report (`render_stream`), so the default and
+/// `--streams stderr` run on Rust alone — each run is a whole build, and on
+/// Kotlin a `kotlinc`.
 #[test]
-fn a_tests_output_is_shown_as_configured() {
+fn the_report_and_its_output_read_the_same_on_both_backends() {
     // Keyed on the binary: `salvo test` builds annexes, which `compile` does not emit.
-    let Some(stamp) = e2e_stamp("test_output", &["rustc", "kotlinc"]) else {
+    let Some(stamp) = e2e_stamp("report_and_output", &["rustc", "kotlinc"]) else {
         return;
     };
+    let annex = format!("{CALC_TESTS}{PRINTING_TESTS}");
+    let calc = "test calc :: doubling works ... ok (N ms)\n\
+                test calc :: the annex sees a private helper ... ok (N ms)\n\
+                test calc :: a failure names both values ... FAILED\n\
+                \x20   expected 5, got 4\n";
+    let failure = "test calc :: a loud failure ... \n  fail line\ntest calc :: a loud failure ... FAILED\n    expected 5, got 4\n";
     for (backend, tool) in [("rust", "rustc"), ("kotlin", "kotlinc")] {
         if !have(tool) {
             eprintln!("skipping {backend}: {tool} not found on PATH");
             continue;
         }
-        let dir = work_dir(&format!("output_{backend}"));
+        let dir = work_dir(&format!("report_{backend}"));
         fs::write(dir.join("calc.sv"), CALC).unwrap();
-        fs::write(dir.join("calc.test.sv"), PRINTING_TESTS).unwrap();
+        fs::write(dir.join("calc.test.sv"), &annex).unwrap();
         let run = |args: &[&str]| {
             let mut all = vec!["test", "--backend", backend, "--src", "."];
             all.extend_from_slice(args);
             let out = salvo_in(&dir, &all);
-            normalize_ms(&String::from_utf8_lossy(&out.stdout))
+            (normalize_ms(&String::from_utf8_lossy(&out.stdout)), out.status.success(), String::from_utf8_lossy(&out.stderr).to_string())
         };
-        let failure = "test calc :: a loud failure ... \n  fail line\ntest calc :: a loud failure ... FAILED\n    expected 5, got 4\n";
+        let (stdout, ok, stderr) = run(&["--output", "all"]);
         assert_eq!(
-            run(&["--output", "all"]),
+            stdout,
             format!(
-                "test calc :: a quiet pass ... \n  pass line\ntest calc :: a quiet pass ... ok (N ms)\n\
+                "{calc}\
+                 test calc :: a quiet pass ... \n  pass line\ntest calc :: a quiet pass ... ok (N ms)\n\
                  test calc :: an unterminated print ... \n  partial\ntest calc :: an unterminated print ... ok (N ms)\n\
-                 {failure}\n3 tests: 2 passed, 1 failed\n"
+                 {failure}\n6 tests: 4 passed, 2 failed\n"
             ),
-            "{backend}: `--output all`"
+            "{backend}: `--output all` (stderr: {stderr})"
         );
+        // A failing test fails the command: exit code is what a CI reads.
+        assert!(!ok, "{backend} reported success");
         if backend != "rust" {
             continue;
         }
         assert_eq!(
-            run(&[]),
+            run(&[]).0,
             format!(
-                "test calc :: a quiet pass ... ok (N ms)\n\
+                "{calc}\
+                 test calc :: a quiet pass ... ok (N ms)\n\
                  test calc :: an unterminated print ... ok (N ms)\n\
-                 {failure}\n3 tests: 2 passed, 1 failed\n"
+                 {failure}\n6 tests: 4 passed, 2 failed\n"
             ),
             "{backend}: the default shows a failure's output only"
         );
-        assert!(!run(&["--output", "all", "--streams", "stderr"]).contains("line"), "{backend}: `--streams stderr`");
+        assert!(!run(&["--output", "all", "--streams", "stderr"]).0.contains("line"), "{backend}: `--streams stderr`");
     }
     // The manifest: `[test] backend` over `[build] backend`, and `output`.
     if have("rustc") {

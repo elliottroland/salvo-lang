@@ -110,17 +110,28 @@ const HELLO_STDOUT: &str = "negative\nzero\npositive\n";
 
 // ===== running, on both backends =====
 
-/// The whole point: one command from `.sv` source to program output. Asserted
-/// per backend with the *same* expected stdout, which is what parity means
-/// here.
+
+/// The whole point: one command from `.sv` source to program output, on each
+/// backend with the *same* stdout, which is what parity means here. One
+/// program, one run per backend, for what `salvo run` hands the program
+/// (merged 2026-10-29: each was a build per backend of its own):
+///
+/// - [cli-args] the arguments after `--` reach `args()`, program name
+///   excluded, order kept, a value with a space preserved — the parity the
+///   two hosts' different argv conventions are reconciled to;
+/// - [std-console] stdin: `readln` answers a line without its terminator, a
+///   `\r\n` included, then `None` at the end; stdout and stderr are the
+///   program's. (The rest of `Console`'s streams is run data,
+///   `tests/run/pilot/outcomes.sv#console_streams`; a carriage return cannot
+///   be written there.)
 #[test]
-fn run_compiles_and_runs_with_each_backend() {
+fn run_builds_and_runs_with_each_backend() {
     let dirs: Vec<PathBuf> = ["kotlin", "rust"].iter().map(|b| work_dir(&format!("hello_{b}"))).collect();
     for dir in &dirs {
-        fs::write(dir.join("main.sv"), HELLO).unwrap();
+        fs::write(dir.join("main.sv"), RUN_PROGRAM).unwrap();
     }
     let Some(__stamp) = cli_stamp(
-        "run_compiles_and_runs_with_each_backend",
+        "run_builds_and_runs_with_each_backend",
         &["kotlinc", "rustc"],
         &[project(&dirs[0], &["--src", "."], &["kotlin"]), project(&dirs[1], &["--src", "."], &["rust"])],
     ) else {
@@ -131,85 +142,85 @@ fn run_compiles_and_runs_with_each_backend() {
             eprintln!("skipping {backend}: {tool} not found on PATH");
             continue;
         }
-        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "{backend} failed, stderr: {stderr}");
+        let mut child = Command::new(env!("CARGO_BIN_EXE_salvo"))
+            .env("SALVO_CACHE_DIR", concat!(env!("CARGO_TARGET_TMPDIR"), "/salvo-cache"))
+            .current_dir(dir)
+            .args(["run", "--backend", backend, "--src", ".", "--", "alpha", "beta gamma", "delta"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("failed to run salvo");
+        use std::io::Write as _;
+        child.stdin.take().unwrap().write_all(b"Ada\r\n").unwrap();
+        let out = child.wait_with_output().unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{backend} failed, stderr: {err}");
         assert_eq!(
             String::from_utf8_lossy(&out.stdout),
-            HELLO_STDOUT,
-            "{backend} stdout (stderr: {stderr})"
+            format!("{HELLO_STDOUT}count: 3\nalpha\nbeta gamma\ndelta\nname? hello Ada\n"),
+            "{backend} stdout (stderr: {err})"
         );
+        assert!(err.ends_with("second: <eof>\n"), "{backend} stderr: {err}");
     }
     __stamp.verified();
 }
 
-/// [cli-args] A program that reads the command line through the `Args`
-/// effect: the arguments after `--` reach `args()`, program name excluded,
-/// and the *same* list prints on both backends — the parity the two hosts'
-/// different argv conventions are reconciled to.
-const ARGS_PROGRAM: &str = r#"
+/// [cli-run] What [`run_builds_and_runs_with_each_backend`] runs: `HELLO`'s
+/// classification, the arguments, and two reads of stdin.
+const RUN_PROGRAM: &str = r#"
 import std.args
+
+fn classify(n: Int) -> Str {
+    return when {
+        n < 0 { "negative" }
+        n == 0 { "zero" }
+        else { "positive" }
+    }
+}
 
 fn main() [use] -> None {
     use StdConsole()
     use HostArgs()
+    println(classify(-5))
+    println(classify(0))
+    println(classify(7))
     let a = args()
     println("count: ${size(a)}")
     for arg in a {
         println(arg)
     }
+    print("name? ")
+    let name = readln()
+    if name is None {
+        printerr("no input\n")
+        return
+    }
+    println("hello ${name}")
+    let second = readln()
+    printerr("second: ${second ?: "<eof>"}\n")
 }
 "#;
 
-#[test]
-fn run_forwards_command_line_arguments_to_both_backends() {
-    let dirs: Vec<PathBuf> = ["kotlin", "rust"].iter().map(|b| work_dir(&format!("args_{b}"))).collect();
-    for dir in &dirs {
-        fs::write(dir.join("main.sv"), ARGS_PROGRAM).unwrap();
-    }
-    let Some(__stamp) = cli_stamp(
-        "run_forwards_command_line_arguments_to_both_backends",
-        &["kotlinc", "rustc"],
-        &[project(&dirs[0], &["--src", "."], &["kotlin"]), project(&dirs[1], &["--src", "."], &["rust"])],
-    ) else {
-        return;
-    };
-    // program name excluded, order kept, a value with a space preserved.
-    let expected = "count: 3\nalpha\nbeta gamma\ndelta\n";
-    for ((backend, tool), dir) in [("kotlin", "kotlinc"), ("rust", "rustc")].into_iter().zip(&dirs) {
-        if !have(tool) {
-            eprintln!("skipping {backend}: {tool} not found on PATH");
-            continue;
-        }
-        let out = salvo_in(
-            &dir,
-            &["run", "--backend", backend, "--src", ".", "--", "alpha", "beta gamma", "delta"],
-        );
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "{backend} failed, stderr: {stderr}");
-        assert_eq!(
-            String::from_utf8_lossy(&out.stdout),
-            expected,
-            "{backend} stdout (stderr: {stderr})"
-        );
-    }
-    __stamp.verified();
-}
-
-// ===== salvo build: persisted artifacts =====
-
 /// [cli-build] `salvo build` produces a persisted, runnable artifact — a
 /// native binary for Rust, a jar + `sh` launcher for Kotlin — that runs to
-/// the *same* stdout on both backends, with argv forwarded. The artifact
-/// outlives the command (unlike `run`'s scratch build), and the launcher
-/// works from any directory.
+/// the *same* stdout on both backends. The artifact outlives the command
+/// (unlike `run`'s scratch build), and the launcher works from any directory
+/// with argv forwarded. One build per backend, run four times (merged
+/// 2026-10-29):
+///
+/// - [cli-args] from an unrelated directory, with arguments;
+/// - [cli-process] [cli-env] [rs-never-call] `exit` ends the process with its
+///   status after flushing what was printed without a newline, from
+///   statement, value and tail position; `env` answers a set variable and
+///   `None` for an unset one — one run per exit path.
 #[test]
 fn build_produces_a_runnable_artifact_on_both_backends() {
     // No annex, so the tests `build` runs first are an empty suite: nothing
     // `compile` leaves out.
     let dirs: Vec<PathBuf> = ["kotlin", "rust"].iter().map(|b| work_dir(&format!("build_{b}"))).collect();
     for dir in &dirs {
-        fs::write(dir.join("main.sv"), ARGS_PROGRAM).unwrap();
+        fs::write(dir.join("main.sv"), BUILD_PROGRAM).unwrap();
     }
     let Some(__stamp) = cli_stamp(
         "build_produces_a_runnable_artifact_on_both_backends",
@@ -233,17 +244,68 @@ fn build_produces_a_runnable_artifact_on_both_backends() {
         let ran = Command::new(&artifact)
             .current_dir(env!("CARGO_TARGET_TMPDIR"))
             .args(["alpha", "beta gamma", "delta"])
+            .env("SALVO_PROBE", "args")
             .output()
             .expect("failed to run the artifact");
-        assert!(ran.status.success(), "{backend} artifact failed: {}", String::from_utf8_lossy(&ran.stderr));
-        assert_eq!(
-            String::from_utf8_lossy(&ran.stdout),
-            "count: 3\nalpha\nbeta gamma\ndelta\n",
-            "{backend} artifact stdout"
-        );
+        assert_eq!(ran.status.code(), Some(0), "{backend} artifact failed: {}", String::from_utf8_lossy(&ran.stderr));
+        assert_eq!(String::from_utf8_lossy(&ran.stdout), "count: 3\nalpha\nbeta gamma\ndelta\n", "{backend} artifact stdout");
+        for (probe, code) in [("plain", 5), ("value", 9), ("tail", 7)] {
+            let ran = Command::new(&artifact)
+                .env("SALVO_PROBE", probe)
+                .env_remove("SALVO_PROBE_UNSET")
+                .output()
+                .expect("failed to run the artifact");
+            let stderr = String::from_utf8_lossy(&ran.stderr);
+            assert_eq!(ran.status.code(), Some(code), "{backend} {probe}: {stderr}");
+            assert_eq!(String::from_utf8_lossy(&ran.stdout), format!("{probe} unset 3\nno newline"), "{backend} {probe}: {stderr}");
+        }
     }
     __stamp.verified();
 }
+
+/// What [`build_produces_a_runnable_artifact_on_both_backends`] builds:
+/// `SALVO_PROBE=args` prints the arguments; otherwise the exit paths.
+const BUILD_PROGRAM: &str = r#"import std.args
+import std.process
+import std.env
+
+fn pick(c: Bool) [Process] -> Int {
+    let x: Int = if c { exit(9) } else { 3 }
+    return x
+}
+
+fn give_up() [Process] -> Int {
+    exit(7)
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    use HostArgs()
+    use HostProcess()
+    use HostEnv()
+    let probe = env("SALVO_PROBE") ?: "unset"
+    if probe == "args" {
+        let a = args()
+        println("count: ${size(a)}")
+        for arg in a {
+            println(arg)
+        }
+        return
+    }
+    println("${probe} ${env("SALVO_PROBE_UNSET") ?: "unset"} ${pick(false)}")
+    print("no newline")
+    if probe == "value" {
+        println("${pick(true)}")
+    }
+    if probe == "tail" {
+        println("${give_up()}")
+    }
+    exit(5)
+}
+"#;
+
+// ===== salvo build: persisted artifacts =====
+
 
 /// [cli-build] A failing test fails the build and writes no artifact
 /// (decision 3). `--skip-tests` builds anyway.
@@ -464,73 +526,6 @@ fn the_programs_exit_code_is_the_commands() {
     __stamp.verified();
 }
 
-/// [cli-process] [cli-env] [rs-never-call] `exit` ends the process with its
-/// status after flushing what was printed without a newline, from statement,
-/// value and tail position; `env` answers a set variable and `None` for an
-/// unset one. Built once per backend, then the artifact runs under three
-/// environments, one per exit path.
-#[test]
-fn process_exit_and_env_run_on_both_backends() {
-    const SRC: &str = r#"import std.process
-import std.env
-
-fn pick(c: Bool) [Process] -> Int {
-    let x: Int = if c { exit(9) } else { 3 }
-    return x
-}
-
-fn give_up() [Process] -> Int {
-    exit(7)
-}
-
-fn main() [use] -> None {
-    use StdConsole()
-    use HostProcess()
-    use HostEnv()
-    let probe = env("SALVO_PROBE") ?: "unset"
-    println("${probe} ${env("SALVO_PROBE_UNSET") ?: "unset"} ${pick(false)}")
-    print("no newline")
-    if probe == "value" {
-        println("${pick(true)}")
-    }
-    if probe == "tail" {
-        println("${give_up()}")
-    }
-    exit(5)
-}
-"#;
-    // No annex, so the tests `build` runs first are an empty suite.
-    let dirs: Vec<PathBuf> = ["rust", "kotlin"].iter().map(|b| work_dir(&format!("process_env_{b}"))).collect();
-    for dir in &dirs {
-        fs::write(dir.join("main.sv"), SRC).unwrap();
-    }
-    let Some(__stamp) = cli_stamp(
-        "process_exit_and_env_run_on_both_backends",
-        &["rustc", "kotlinc"],
-        &[project(&dirs[0], &["--src", "."], &["rust"]), project(&dirs[1], &["--src", "."], &["kotlin"])],
-    ) else {
-        return;
-    };
-    for ((backend, tool), dir) in [("rust", "rustc"), ("kotlin", "kotlinc")].into_iter().zip(&dirs) {
-        if !have(tool) {
-            eprintln!("skipping {backend}: {tool} not found on PATH");
-            continue;
-        }
-        let out = salvo_in(&dir, &["build", "--backend", backend, "--src", ".", "--out", "out"]);
-        assert!(out.status.success(), "{backend} build failed: {}", String::from_utf8_lossy(&out.stderr));
-        for (probe, code) in [("plain", 5), ("value", 9), ("tail", 7)] {
-            let ran = Command::new(dir.join("out").join("main"))
-                .env("SALVO_PROBE", probe)
-                .env_remove("SALVO_PROBE_UNSET")
-                .output()
-                .expect("failed to run the artifact");
-            let stderr = String::from_utf8_lossy(&ran.stderr);
-            assert_eq!(ran.status.code(), Some(code), "{backend} {probe}: {stderr}");
-            assert_eq!(String::from_utf8_lossy(&ran.stdout), format!("{probe} unset 3\nno newline"), "{backend} {probe}: {stderr}");
-        }
-    }
-    __stamp.verified();
-}
 
 // ===== --clean-target =====
 
@@ -1290,60 +1285,4 @@ fn a_projection_local_assigned_an_owned_value_is_refused() {
         stderr.contains("`k` holds a borrow (`proj Str?`), and this is an owned `Str?`") && stderr.contains("`let k = copy(…)` --> "),
         "{stderr}"
     );
-}
-
-/// [std-console] `readln` answers a line without its terminator, a `\r\n`
-/// included, on both backends. The rest of `Console`'s three streams is run
-/// data (`tests/run/pilot/outcomes.sv#console_streams`); a carriage return
-/// cannot be written there.
-#[test]
-fn console_reads_a_crlf_line_on_each_backend() {
-    const SRC: &str = r#"
-fn main() [use] -> None {
-    use StdConsole()
-    print("name? ")
-    let name = readln()
-    if name is None {
-        printerr("no input\n")
-        return
-    }
-    println("hello ${name}")
-    let second = readln()
-    printerr("second: ${second ?: "<eof>"}\n")
-}
-"#;
-    let dirs: Vec<PathBuf> = ["kotlin", "rust"].iter().map(|b| work_dir(&format!("console_streams_{b}"))).collect();
-    for dir in &dirs {
-        fs::write(dir.join("main.sv"), SRC).unwrap();
-    }
-    let Some(stamp) = cli_stamp(
-        "console_streams",
-        &["kotlinc", "rustc"],
-        &[project(&dirs[0], &["--src", "."], &["kotlin"]), project(&dirs[1], &["--src", "."], &["rust"])],
-    ) else {
-        return;
-    };
-    for ((backend, tool), dir) in [("kotlin", "kotlinc"), ("rust", "rustc")].into_iter().zip(&dirs) {
-        if !have(tool) {
-            eprintln!("skipping {backend}: {tool} not found on PATH");
-            continue;
-        }
-        let mut child = Command::new(env!("CARGO_BIN_EXE_salvo"))
-            .env("SALVO_CACHE_DIR", concat!(env!("CARGO_TARGET_TMPDIR"), "/salvo-cache"))
-            .current_dir(dir)
-            .args(["run", "--backend", backend, "--src", "."])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .expect("failed to run salvo");
-        use std::io::Write as _;
-        child.stdin.take().unwrap().write_all(b"Ada\r\n").unwrap();
-        let out = child.wait_with_output().unwrap();
-        let err = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "{backend} failed, stderr: {err}");
-        assert_eq!(String::from_utf8_lossy(&out.stdout), "name? hello Ada\n", "{backend} stdout (stderr: {err})");
-        assert!(err.ends_with("second: <eof>\n"), "{backend} stderr: {err}");
-    }
-    stamp.verified();
 }

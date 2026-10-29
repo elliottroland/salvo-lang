@@ -1076,8 +1076,9 @@ repros are over the real std.
     (run data, TOUR.md) but defined by no spec; define or retarget them.
   - **The run-data format cannot say** an argument holding a space, an
     environment variable, or a CR on stdin; the tests needing them stay in
-    `run_tests.rs` (`run_forwards_command_line_arguments_…`,
-    `process_exit_and_env_…`, `console_reads_a_crlf_line_…`).
+    `run_tests.rs` (`run_builds_and_runs_with_each_backend` and
+    `build_produces_a_runnable_artifact_…`, which hold those programs since
+    2026-10-29).
 - **From the emit data (TESTS.md C4/C5)**:
   - a refused catch-all `fn to_str<T>` also reports
     `fn-overload-at:no-fn-in-module` at `to_str = to_str@main`, which is
