@@ -2539,10 +2539,21 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
     there; O1 decided 2026-10-27: an operator is the call it names, resolved by name like any call, and each operator on a type is declared once, in the type's module), its interaction with implicits and generics; interpolation is an operator on that model. Candidate direction (user):
     `"a ${x} b"` lowers to a call of a std **format fn**, which a backend may
     emit as its native interpolation ([backend-core-layers]: core states the call,
-    the backend spells it). Open inside it: how each part becomes text (the
-    operator question proper: a per-part `to_str` pick, an implicit, or the
-    format fn's own parameter), and what becomes of `interp_union`'s
-    per-arm rendering.
+    the backend spells it). **The shape, decided (user, 2026-10-28,
+    option (a)):** `"a ${x} b"` lowers to `concat("a ", to_str(x), " b")`,
+    a std intrinsic `concat(...parts: Str[]) -> Str`; each part becomes
+    text **at the call site**, through an ordinary `to_str(part)` call
+    resolved as a written one (so an enclosing `?to_str`, a member or the
+    module's own fn takes it, D1 and D3), and a `Str` part too (an enclosing
+    `?to_str` covering `Str` applies; the backends drop the call when it is
+    std's identity). A backend writes native interpolation when `concat` and
+    every part's `to_str` are std's intrinsics. A union part keeps
+    `interp_union`'s per-arm rendering until D4's general union `to_str`
+    exists. Rejected: (b) the format fn taking the values with a
+    `?to_str` per part (needs variadic generics, and picks the part's
+    `to_str` at the format fn's implicit instead of where it is written);
+    (c) a `Mut StrBuilder` with an `append` per part (more IR for no
+    semantic gain).
   - **Effect members compete with fns** (user, 2026-10-27): an effect in a
     fn's effect list is a namespace of additional functions in scope, so its
     members join the call's candidate set and are ranked with fns
@@ -3251,6 +3262,19 @@ this log current so the work can resume after a context reset). Newest last.
   a uniform call; a member call through a field could be misread there,
   with no case found yet.
 
+- **B3.6, fn values (2026-10-28).** D19, D20 and D21 were fixed in B1 and
+  B3.1, so what was left is R10 D3's last position: **a member by its bare
+  name** (`on_point(show, p)`). `fn_value_by_name` adds the available
+  effects' members (`available_members`) to the candidates at a fn-typed
+  position and runs `select_fn_value` over both; a member winner goes to
+  `member_as_value` (shared with `m@E`), the IR's `ident` lowers it through
+  `member_values`. Detached from a fn-typed position a member is refused
+  (`fn-value-select:member-not-expected`), following `m@E`'s rule from
+  B3.1. Found and fixed beside it: `m@E` as a call's argument was typed with
+  no expected type (only `@Type` was), so `on_point(show@Fmt, p)` was
+  refused; a bare member name as an argument gets the parameter's type as a
+  fn's does. `fn-value-select:member` (never reachable) is gone.
+
 - **B3.5, effect-member calls (2026-10-28).** One candidate set, one
   selection (P4): `resolve_named_call` builds `CallCand`s — the visible fns
   and the members of every available effect declaring the name (one owner's
@@ -3276,13 +3300,13 @@ this log current so the work can resume after a context reset). Newest last.
   over std's fns of the name. Nothing else in the suite changed.
 
 - **Where it stands (2026-10-28) — resume here.** Stage A complete; B1,
-  B2 done; B3 pieces 1, 3a–3e, 4 and 5 done. TESTS.md's reorganisation is
+  B2 done; B3 pieces 1, 3a–3e, 4, 5 and 6 done. TESTS.md's reorganisation is
   finished (the per-piece method is its data runners and a warm nextest
-  before each commit). **Remaining B3 order:** 6 (fn values, local calls:
-  a bare member name as a value) — not blocked; 2
-  (interpolation) waits on **the format fn's shape** (§II.10 P4) and D4's
-  general union `to_str` (deferred, R10); 7 (sends, mints: D18, D24, and a
-  handler's own `send fn` under a uniform call). **Open decisions, each
+  before each commit). **Remaining B3 order:** 2
+  (interpolation: the format fn's shape decided 2026-10-28, §II.10 P4; D4's
+  general union `to_str` deferred, R10, so `interp_union` stays a fact); 7
+  (sends, mints: D18, D24, and a handler's own `send fn` under a uniform
+  call). **Open decisions, each
   built as its recommended option:** P9–P18 (§II.10; ROADMAP 0af,
   0ah–0aq).
 

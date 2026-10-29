@@ -3324,9 +3324,10 @@ messages! {
          here. Annotate the position with the fn type you mean, or give one overload its \
          own name with `rename fn <new> = {name}(...)`"
     );
-    /// A name passed as a function that is an effect member here.
-    fn_value_select_member = "fn-value-select:member" (name: &dyn std::fmt::Display) => format!(
-        "`{name}` is not a function here"
+    /// An effect's member named as a value where no function type is expected.
+    fn_value_select_member_not_expected = "fn-value-select:member-not-expected" (name: &dyn std::fmt::Display, effect: &dyn std::fmt::Display) => format!(
+        "`{name}` is a member of `{effect}`, which is a value only where a function type \
+         is expected: call it (`{name}(…)`), or pass it where a function is wanted"
     );
     /// A function passed by name that several overloads fit equally.
     fn_value_select_ambiguous = "fn-value-select:ambiguous" (name: &dyn std::fmt::Display, want: &dyn std::fmt::Display, text: &dyn std::fmt::Display) => format!(

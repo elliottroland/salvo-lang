@@ -94,3 +94,38 @@ fn main() [use] {
 //= stdout
 //= 21
 //= 2
+
+//--- a_member_passed_by_name
+// [effect-member-overload] [fn-value-select] A member is a value by its bare
+// name at a fn-typed position (R10 D3, PIPELINE.md B3.6): the position's type
+// picks it over a fn of the name, and it runs through the instance in scope.
+// `m@E` passed as an argument is the same value.
+
+struct Point { x: Int }
+
+effect Fmt {
+    fn show(p: Point) -> Str => p
+}
+
+handler Brackets of Fmt {
+    fn show(p: Point) -> Str => p { return "[${p.x}]" }
+}
+
+fn show(n: Int) -> Str => n { return "<${n}>" }
+
+fn on_point(f: (p: Point) -> Str, p: Point) -> Str => f, p { return f(p) }
+
+fn on_int(f: (n: Int) -> Str, n: Int) -> Str => f, n { return f(n) }
+
+fn main() [use] {
+    use StdConsole()
+    use Brackets()
+    let p = Point { x: 4 }
+    println(on_point(show, p))
+    println(on_int(show, 5))
+    println(on_point(show@Fmt, p))
+}
+//= stdout
+//= [4]
+//= <5>
+//= [4]

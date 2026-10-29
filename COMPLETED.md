@@ -144,6 +144,30 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — An effect member is a value by its bare name (PIPELINE.md B3.6)
+
+- **Under R10 D3 (decided)**: at a fn-typed position the members of the name
+  of every available effect compete with the fns (`on_point(show, p)`), and
+  a member winner is a closure over its instance, as `show@Fmt` already was.
+  Detached from such a position a member is refused
+  (`fn-value-select:member-not-expected`), following `m@E`'s rule. D19,
+  D20 and D21, the rest of piece 6, were built in B1 and B3.1.
+- **What it took**: `fn_value_by_name` adds `available_members` to the
+  candidates and runs `select_fn_value` over both; `member_as_value`, cut out
+  of the `m@E` branch, is shared; the IR's `ident` reads `member_values`.
+- **Found and fixed beside it**: `m@E` passed as a call's argument was typed
+  with no expected type, so `on_point(show@Fmt, p)` was refused ("a value
+  only where a function type is expected"); the language page still said a
+  selected member is "a call form, not a value", stale since B3.1.
+- **Decided (user, 2026-10-28), for piece 2**: the format fn is option (a),
+  `"a ${x} b"` as `concat("a ", to_str(x), " b")`, each part's `to_str` an
+  ordinary call at the site, a `Str` part included; `interp_union` stays
+  until D4. Rejected: values with a `?to_str` per part, a string builder.
+  PIPELINE.md §II.10 P4.
+- Tests: checker data `effect_at/member_values.sv`; run data
+  `effects/member_calls_are_calls.sv#a_member_passed_by_name` (both
+  backends).
+
 ### 2026-10-28 — Effect members are selected as calls (PIPELINE.md B3.5)
 
 - **Under R10 P4 (decided)**: the members of every available effect that

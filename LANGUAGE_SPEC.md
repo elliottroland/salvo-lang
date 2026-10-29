@@ -3366,6 +3366,15 @@ Conventions:
   written with `@` as a call's argument takes the parameter's expected type as
   a bare name does (2026-10-14: before, `apply(tag@main, 1)` with a generic
   `tag<T>` reached the call as `(T) -> Str` and found no overload).
+  * **An available effect's members are candidates too** (R10 D3, built
+    2026-10-28, PIPELINE.md B3.6): at a fn-typed position the members of the
+    name of every effect with an instance in scope compete with the fns, and
+    a member winner is a closure over its instance (`Checked::member_values`,
+    as for `m@E` [effect-at]). Detached from a fn-typed position a member is
+    no value (`fn-value-select:member-not-expected`), as `m@E` is not; a
+    `@module` or `@Type` selector sees no members. `m@E` as a call's argument
+    takes the parameter's type, as a bare name does (found with B3.6: it was
+    typed with none and refused).
 * [fn-value] **A function passed by name and a function filling an implicit
   are one rule; only the selection differs** (user decision 2026-10-20:
   "implicits should just be lambdas which are automatically selected").

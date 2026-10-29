@@ -7939,6 +7939,41 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [effect-member-overload] [fn-value] An available effect's member that
+    /// won a fn-typed position (R10 D3): a closure over its instance
+    /// (`Checked::member_values`, lowered as an implicit filled by a member
+    /// is), with its own implicits filled where it is used
+    /// [implicit-recursive]. `name@Effect` and a bare name both arrive here.
+    fn member_as_value(&mut self, name: &str, name_span: Span, m: MemberCand<'p>, fit: FnFit, want: &Ty) -> Ty {
+        self.record_def_ref(name_span, name);
+        let mut nested = Vec::new();
+        if fit.fills {
+            let (_, implicits) = self.member_value_ty(&m);
+            let (mut binding, mut generics) = Self::instance_binding(&m);
+            binding.extend(fit.binding.clone());
+            generics.extend(fit.generics.iter().cloned());
+            match self.try_nested_list(m.decl, &implicits, &binding, &generics, want) {
+                Ok(n) => nested = n,
+                Err(u) => {
+                    let text = Self::unfilled_text(name, want, &u, false);
+                    self.error(name_span, messages::effect_at_value_incomplete(&name, &m.effect.name.name, &want, &text));
+                    return Ty::Unknown;
+                }
+            }
+        }
+        self.note_effect_use(&m.instance);
+        let arg = ImplicitArg::Member {
+            name: name.to_string(),
+            effect: self.symbols.key_or(m.effect, &m.effect.name.name).to_string(),
+            index: m.index,
+            instance: m.instance.clone(),
+            nested,
+            want: want.clone(),
+        };
+        self.out.member_values.insert(self.key(name_span), arg);
+        fit.ty
+    }
+
     /// [fn-value-select] A function passed **by name** (`apply(describe, x)`),
     /// with an optional `@module` (or `@Type`) selector. Selection is a
     /// call's [fn-overload-scope]: `@` first, then every visible overload
@@ -7961,14 +7996,29 @@ impl<'p, 'r> Checker<'p, 'r> {
         expected: Option<&Ty>,
     ) -> Ty {
         let entries: Vec<crate::resolve::FnEntry<'p>> = self.overloads_of(name);
+        // [effect-member-overload] [fn-value-select] An available effect's
+        // members of the name compete with the fns at a fn-typed position
+        // (R10 D3, PIPELINE.md B3.6), as `name@Effect` does; a `@module` or
+        // `@Type` selector names declarations, which a member never is.
+        let want: Option<Ty> = expected.filter(|t| matches!(t.strip_quals(), Ty::Fn { .. })).cloned();
+        let members: Vec<MemberCand<'p>> = if at.is_none() { self.available_members(name) } else { Vec::new() };
         if entries.is_empty() {
-            return Ty::Unknown;
+            let Some(first) = members.first() else {
+                return Ty::Unknown;
+            };
+            if want.is_none() {
+                // Detached from a position, a member names no instance's
+                // closure, as `name@Effect` does not [effect-at].
+                let effect = first.effect.name.name.clone();
+                self.error(name_span, messages::fn_value_select_member_not_expected(&name, &effect));
+                return Ty::Unknown;
+            }
         }
         // [actor-free-send-fn] A send-kind function is not a value: it runs by being
         // scheduled, and a fn value runs by being called — there is no
         // position a `send fn` could fill. (A mint is not a value use: it
         // names the target, and the name never becomes a `Ty::Fn`.)
-        if entries.iter().all(|e| e.decl.is_send) {
+        if !entries.is_empty() && members.is_empty() && entries.iter().all(|e| e.decl.is_send) {
             self.error(name_span, messages::actor_free_send_fn_not_a_value(&name));
             return Ty::Unknown;
         }
@@ -8032,6 +8082,42 @@ impl<'p, 'r> Checker<'p, 'r> {
         // ways it is visible.
         let mut seen: HashSet<DeclId> = HashSet::new();
         pool.retain(|e| seen.insert(e.key));
+        if let (Some(w), false) = (want.as_ref(), members.is_empty()) {
+            let cands: Vec<ValueCand<'p>> = pool
+                .iter()
+                .copied()
+                .map(ValueCand::Fn)
+                .chain(members.iter().cloned().map(ValueCand::Member))
+                .collect();
+            match self.select_fn_value(name, cands, w) {
+                Ok((ValueCand::Member(m), fit)) => return self.member_as_value(name, name_span, m, fit, w),
+                // The fn won: the rest is a fn's, below.
+                Ok((ValueCand::Fn(entry), _)) => pool = vec![entry],
+                Err(ImplicitMiss::Ambiguous(cands)) => {
+                    self.error(
+                        name_span,
+                        messages::fn_value_select_ambiguous(
+                            &name,
+                            &w,
+                            &Self::implicit_ambiguity(name, &cands, Some(&format!("`{name}@{{m}}`"))),
+                        ),
+                    );
+                    return Ty::Unknown;
+                }
+                // Nothing fits: with fns, their diagnostic below names each
+                // one's reason; with members alone, the nearest miss.
+                Err(miss) if pool.is_empty() => {
+                    let effect = members[0].effect.name.name.clone();
+                    let msg = match miss {
+                        ImplicitMiss::NearMiss(reason) => messages::effect_at_value_near_miss(&name, &effect, &w, &reason).into_message(),
+                        _ => messages::effect_at_value_no_fit(&name, &effect, &w).into_message(),
+                    };
+                    self.error(name_span, msg);
+                    return Ty::Unknown;
+                }
+                Err(_) => {}
+            }
+        }
         let chosen = self.choose_by_name(name, &pool, expected);
         let entry = match chosen {
             Ok(entry) => entry,
@@ -8064,7 +8150,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         // own implicits filled — exactly as an implicit filled by it would
         // be. With none, or where it does not fit (the mismatch is reported
         // where the value is used), it is the declaration's own type.
-        let want = expected.filter(|t| matches!(t.strip_quals(), Ty::Fn { .. })).cloned();
         let fitted = match want.as_ref() {
             Some(w) => match self.fn_value_at(entry.key, decl, w) {
                 Ok(v) => Some(v),
@@ -8134,7 +8219,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         match self.select_fn_value(name, pool.iter().copied().map(ValueCand::Fn).collect(), want) {
             Ok((ValueCand::Fn(entry), _)) => Ok(entry),
-            Ok((ValueCand::Member(_), _)) => Err(messages::fn_value_select_member(&name)),
+            // Only fns are passed here.
+            Ok((ValueCand::Member(_), _)) => unreachable!("choose_by_name is given fns only"),
             Err(ImplicitMiss::Ambiguous(cands)) => Err(messages::fn_value_select_ambiguous(
                 &name,
                 &want,
@@ -23125,10 +23211,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if self.scope.handlers.contains_key(id.name.as_str()) {
                     return Ty::named(&self.type_key(&id.name));
                 }
-                if self.has_callable(&id.name) {
+                if self.has_callable(&id.name) || !self.available_members(&id.name).is_empty() {
                     // [fn-value-select] Passing a function *by name*: the
                     // same selection every call goes through, against the
-                    // expected fn type instead of an argument list.
+                    // expected fn type instead of an argument list — an
+                    // available effect's member among the candidates (R10 D3).
                     return self.fn_value_by_name(&id.name, id.span, None, expected);
                 }
                 // [name-ident-resolve] Nothing declares this name *as a value*.
@@ -23234,40 +23321,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             let want = want.clone();
                             match self.select_fn_value(&name.name, cands, &want) {
                                 Ok((ValueCand::Member(m), fit)) => {
-                                    let mut nested = Vec::new();
-                                    if fit.fills {
-                                        let (_, implicits) = self.member_value_ty(&m);
-                                        let (mut binding, mut generics) = Self::instance_binding(&m);
-                                        binding.extend(fit.binding.clone());
-                                        generics.extend(fit.generics.iter().cloned());
-                                        match self.try_nested_list(m.decl, &implicits, &binding, &generics, &want) {
-                                            Ok(n) => nested = n,
-                                            Err(u) => {
-                                                let text = Self::unfilled_text(&name.name, &want, &u, false);
-                                                self.error(
-                                                    name.span,
-                                                    messages::effect_at_value_incomplete(
-                                                        &name.name,
-                                                        &effect.name,
-                                                        &want,
-                                                        &text,
-                                                    ),
-                                                );
-                                                return Ty::Unknown;
-                                            }
-                                        }
-                                    }
-                                    self.note_effect_use(&m.instance);
-                                    let arg = ImplicitArg::Member {
-                                        name: name.name.clone(),
-                                        effect: self.symbols.key_or(m.effect, &m.effect.name.name).to_string(),
-                                        index: m.index,
-                                        instance: m.instance.clone(),
-                                        nested,
-                                        want: want.clone(),
-                                    };
-                                    self.out.member_values.insert(self.key(name.span), arg);
-                                    return fit.ty;
+                                    return self.member_as_value(&name.name, name.span, m, fit, &want);
                                 }
                                 Ok(_) => {}
                                 Err(ImplicitMiss::Ambiguous(c)) => {
@@ -29968,9 +30022,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // expected fn type too: what the position expects it to
                 // accept decides the value's shape (a pure fn passed
                 // where effects are expected still takes them).
+                // [effect-member-overload] …and so does an available effect's
+                // member passed by name (R10 D3, PIPELINE.md B3.6).
                 Expr::Ident(id)
                     if self.lookup(&id.name).is_none()
-                        && self.scope.fns.contains_key(id.name.as_str()) =>
+                        && (self.scope.fns.contains_key(id.name.as_str())
+                            || !self.available_members(&id.name).is_empty()) =>
                 {
                     self.check_expr(a, exp.as_ref())
                 }
@@ -29982,8 +30039,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.check_expr(a, exp.as_ref())
                 }
                 Expr::EffectScoped { base: None, name, effect, .. }
-                    if self.names_a_type(&effect.name) && self.scope.fns.contains_key(name.name.as_str()) =>
+                    if (self.names_a_type(&effect.name) && self.scope.fns.contains_key(name.name.as_str()))
+                        || self.scope.effects.contains_key(effect.name.as_str()) =>
                 {
+                    // [effect-at] `m@E` passed as an argument is a member
+                    // value at the parameter's fn type (R10 D3; found with
+                    // B3.6: it was typed with no expected type and refused).
                     self.check_expr(a, exp.as_ref())
                 }
                 // [type-lit-adopt] A numeric literal adopts the numeric type its

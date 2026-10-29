@@ -507,7 +507,7 @@ fn both(h: Int) [Fs, Net] -> None {
 }
 ```
 
-The name after `@` is capitalized, which is what distinguishes an effect selector from a module path (`size@core.list(xs)`). A generic effect's instance is pinned by the call's type arguments, exactly as without the selector: `next_random@Random<Int>()`. A selected member is a call form, not a value.
+The name after `@` is capitalized, which is what distinguishes an effect selector from a module path (`size@core.list(xs)`). A generic effect's instance is pinned by the call's type arguments, exactly as without the selector: `next_random@Random<Int>()`. A member is also a value wherever a function type is expected, by its bare name or with the selector: `on_point(show, p)` passes the `show` of the effect in scope, as a function bound to that handler, when the position's type picks it over any function named `show`; `show@Fmt` names it outright. Away from such a position (`let v = show`) a member is not a value.
 
 Within a *single* effect a member name may recur too, as an ordinary **overload**: one name, different parameter types, picked by the argument types like any function overload.
 

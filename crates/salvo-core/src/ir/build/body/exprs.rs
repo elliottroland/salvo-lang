@@ -454,6 +454,10 @@ impl<'a, 'p> Lower<'a, 'p> {
         if let Some(k) = self.ctx.checked.fn_refs.get(&self.key(span)).copied() {
             return self.fn_value(k, span, span);
         }
+        // [effect-member-overload] An effect's member passed by name (R10 D3).
+        if let Some(ImplicitArg::Member { effect, index, instance, nested, want, .. }) = self.ctx.checked.member_values.get(&self.key(span)).cloned() {
+            return self.member_value(&effect, index, &instance, &nested, &want, span);
+        }
         if let Some(local) = self.implicit_locals.get(&id.name).cloned() {
             return Expr { ty: self.ty_of(span), span, kind: ExprKind::FnValue(FnRef::Local(local)) };
         }
