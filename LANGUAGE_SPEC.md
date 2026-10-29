@@ -11318,6 +11318,36 @@ between endpoints and delivers what arrives into the scheduler.
     `VirtualCandidate::stamp`, `FateRead::bind`), which the IR flow pass
     and its `Decision` compare. The spans left in rows (a key's origin,
     `DefSite`, `LocalDecl`, `handler_deps`, a diagnostic) are positions only.
+* [name-table] **A written type-position name is resolved once, where it
+  is written** (PIPELINE.md §II.9 C1.2; `salvo_core::names`): resolution
+  binds every name a program writes where a type, a qualifier, an effect or
+  a group goes — every `TypeRef` the complete walk reaches
+  (`check_cache::walk_module`) — to what it means in the scope of the file
+  that wrote it (a comptime-stamped body's stamp scope [comptime-hygiene]),
+  and records whether it is a type parameter of a declaration it is written
+  in. The checker reads that, never the scope of the file being checked: a
+  callee's signature, a struct's field or a handler's faces lowered at a use
+  in another file mean what their writer meant [type-identity].
+  * **Every namespace at once** (`names::Meaning`): the struct, effect,
+    `intrinsic`/`platform` type, alias, handler, qualifiers, group and effect
+    alias of that name there, and its definition site. Which one counts is
+    the position's question, asked of the position (`names_type`,
+    `names_qualifier` in the checker): the namespaces are [name-resolve]'s.
+  * **Found by the reference**: by its address in the tree resolution
+    walked; a copy (the checker, the IR builder and the emitters clone types)
+    by its node [node-id], span and written name, when the references there
+    agree. A reference nothing wrote (the checker's own) means what its name
+    means in the file being checked.
+  * **Derived from it**: `resolve::written_keys` (by address) and
+    `written_keys_by_span` (by node, span and name — `resolve::CopyKey`), the
+    checker's `type_ref_keys` and `type_ref_span_keys`, and what
+    `Symbols::ref_key` answers, seeded by the check (`seed_ref_keys`) or, for
+    a program nothing checked, by `Symbols::collect_resolved`; `ref_key`
+    resolves nothing itself (a debug build refuses an unseeded call).
+  * Still read by name, for C1.3: value-position names (locals, callees,
+    handler names in a `use`, `@`-selectors) and `visible_keys`; and the
+    unresolved-name diagnostics, which the checker reports at declaration
+    sites [name-resolve].
 * [decl-rows] **Every row of `Checked` belongs to one declaration**
   (PIPELINE.md §II.9 A4; `partition.rs`): a node-keyed row to its key's
   declaration, a declaration-keyed row (`fn_effects`, `implicit_params`,

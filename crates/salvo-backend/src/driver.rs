@@ -68,6 +68,9 @@ pub fn resolve_for_emission<'p>(
     checked
         .type_ref_keys
         .extend(salvo_core::resolve::written_keys(program, &resolution, &symbols));
+    // [name-table] The copy's references are its own: the keys of the
+    // checked program's, by address, stay for the emitters' reads of those.
+    symbols.seed_ref_keys(&checked.type_ref_keys, &checked.type_ref_span_keys);
     (symbols, resolution)
 }
 

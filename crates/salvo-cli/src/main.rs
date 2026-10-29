@@ -1889,7 +1889,7 @@ fn check_dependency_stamps(
 ) -> Result<(), ExitCode> {
     let Some(project) = project else { return Ok(()) };
     let Ok(deps) = project.dependencies() else { return Ok(()) };
-    let symbols = salvo_core::Symbols::collect(program);
+    let symbols = salvo_core::Symbols::collect_resolved(program);
     let ext = backend.file_extension();
     for dep in deps {
         // Only a dependency whose implementation files this build compiles.
@@ -2343,7 +2343,7 @@ fn target_for(
 /// build declares. Std's protocols are not the project's; a protocol with no
 /// wire form has no hash and is not listed.
 fn reconcile_lock(project: &salvo_core::Project, program: &Program) -> Result<(), String> {
-    let symbols = salvo_core::Symbols::collect(program);
+    let symbols = salvo_core::Symbols::collect_resolved(program);
     let mut current = std::collections::BTreeMap::new();
     for unit in program.units() {
         // [manifest-deps] A dependency's protocols are locked by its own file.

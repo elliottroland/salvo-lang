@@ -144,6 +144,61 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-29 — Written type names are resolved once, where they are written (PIPELINE.md C1.2, [name-table])
+
+- **Asked (user, 2026-10-29)**: "Ok, I like this plan. Let's proceed with
+  implementing it. Schedule the real fix you mention somewhere in the
+  sequence" — the plan being a table resolution builds, every written type,
+  qualifier, effect and group name to what it means where written; the
+  "real fix" being node identity that survives a copy without the tree.
+  Scheduled as C1.4 (PIPELINE.md §II.9): a span carries its file, after
+  C1.3 and before C2's dump.
+- **Built**: `salvo_core::names` — `Names` (every written `TypeRef`, by
+  address and by node + span + name for copies) and `Meaning` (the name in
+  every namespace, plus its definition site), built in `resolve_impl` over
+  the complete walk; `Visitor::enter_generics`/`leave_generics`, called by
+  `check_cache::walk_item` and `func`, mark the names that are type
+  parameters. `Resolution::type_ref_files`, `type_ref_stamp` and
+  `scope_for_ref` are gone into it; `Resolution::file_of` and `scope_at`
+  answer what they did.
+- **The checker reads it** wherever it looked up a written reference's name
+  (`Checker::named`, `names_generic`, `written_key_of`,
+  `written_qual_decl`, `record_written_def`, `record_qualifier_def`):
+  `lower_base_ref`, `require_name`, effect lists and prerequisites,
+  qualifier claims, `is` checks, obligations, implicit groups, handler
+  faces, linear and inline-storage walks, comptime refusals. About half had
+  asked the checking file's scope (`self.scope`), not the writer's.
+- **Fixed by it**: a caller's `fns Item` made a callee's `Item` parameter
+  lower as the group, so `show(5)` passed the checker and rustc refused the
+  output (`names/type_positions.sv#a_callee_type_means_its_writers`;
+  probed against a build of the previous commit). Also
+  `record_carried_identities` looked a keyed container's slots up by the
+  *written* name where every other caller passes the key; it passes the key
+  now (no probe showed a consequence).
+- **`Symbols::ref_key` resolves nothing**: seeded by the check with both
+  maps (address, and copy key), by `resolve_for_emission` for the emission
+  copy, and by `Symbols::collect_resolved` on the three paths that use
+  symbols without a check (ABI stamp, dependency stamp check, lock
+  reconciliation). An unseeded call is a debug assertion; the suite found
+  those three that way. `seed_ref_keys` takes the copy map too, so a copy
+  is no longer "answered by its written name".
+- **Differential** (temporary, over the whole suite, then deleted): the
+  table's meaning against the checking file's scope's at every lookup.
+  Every divergence was at a foreign reference, none at a copy, a stamp or
+  the file's own; the table's answer was the writer's each time (std
+  generics named `A`, `B`, `V` against a test's struct `A`; std's `Str`
+  against a std test annex's; an effect the callee's file sees and the
+  caller does not).
+- **Not done, moved to C1.3**: `visible_keys` (its readers are
+  value-position names) and the "unknown type" diagnostics. A second
+  differential — resolution's would-be errors against `require_name`'s —
+  showed the checker validates fewer positions than a complete walk
+  reaches (group arguments like `: Ordered<self>`, pattern names, value
+  blocks), so each position has to be stated first.
+- **Cost**: building the table is ~3ms per resolution over the actors
+  example with std (47 files); the written-keys derivation dropped from
+  4.5ms to 2.3ms per check.
+
 ### 2026-10-29 — Written names stop being looked up program-wide (PIPELINE.md C1.1)
 
 - **Stage C, first piece.** C1 is split in three (PIPELINE.md §II.9): the
@@ -33776,6 +33831,21 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A written name's meaning is the writer's: ask `Checker::named`, not
+  `self.scope`** (C1.2, 2026-10-29, [name-table]). The checker lowers other
+  files' declarations all the time (a callee's signature at every call, a
+  struct's fields at every use, a handler's faces at a `use`), and
+  `self.scope` is the file being *checked*. A new lookup of a `TypeRef`'s
+  name in `self.scope.structs` (or any scope table) is the bug C1.2 swept
+  out: about half the sites had it, and one let `show(5)` through because
+  the caller had a group named like the callee's parameter type. Names
+  that are strings, not references (a `Ty`'s key, a leading-dot candidate),
+  still go through the scope.
+- **`Symbols::ref_key` needs seeding** (C1.2): it no longer resolves the
+  program on first need. A path that builds `Symbols` without checking the
+  program calls `Symbols::collect_resolved`; a debug build panics with
+  "ref_key before seed_ref_keys" otherwise, and only paths the suite reaches
+  are known to seed (the ABI and lock paths were found that way).
 - **The tests' `kotlinc` is not the one on your PATH** (2026-10-29,
   [test-warm-kotlinc]): inside a test process, after `salvo_testkit::kotlinc()`
   ran, `kotlinc` is the warm client. Its messages carry full paths, and a

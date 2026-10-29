@@ -26,6 +26,7 @@ pub mod linear;
 pub mod literal;
 pub mod lock;
 pub mod naming;
+pub mod names;
 pub mod origin;
 pub mod manifest;
 pub mod place;

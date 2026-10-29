@@ -81,3 +81,36 @@ fn intrinsic_qualifier(s: Mut List<Int>) -> Int {
 struct Tagged canbe Tag {
     v: Int
 }
+
+//--- a_callee_type_means_its_writers
+// FILE: svc.sv
+// [name-table] [type-identity] A written type name means what it means where
+// it is written: `show`'s `Item` is this module's struct wherever `show` is
+// called. A caller with a `fns` group of that name lowered it as the group
+// (to `Unknown`), so `show(5)` passed and rustc refused the output (found
+// 2026-10-29, PIPELINE.md C1.2).
+export struct Item {
+    n: Int
+}
+
+export fn make() -> Item {
+    return Item { n: 1 }
+}
+
+export fn show(i: Item) -> Str {
+    return "${i.n}"
+}
+// FILE: main.sv
+import svc.make
+import svc.show
+
+fns Item<T> {
+    fn size(x: T) -> Int
+}
+
+fn main() [use] {
+    use StdConsole()
+    println(show(make()))
+    //~ error[call-resolve:no-overload]
+    println(show(5))
+}

@@ -565,6 +565,7 @@ fn func<V: Visitor>(c: &mut V, f: &ast::FnDecl) {
         body: _,
         span: _,
     } = f;
+    c.enter_generics(&f.generics, &f.generic_canbe);
     v::walk_fn(c, f);
     if let Some(t) = type_name {
         v::walk_type(c, t);
@@ -577,6 +578,7 @@ fn func<V: Visitor>(c: &mut V, f: &ast::FnDecl) {
             v::walk_expr(c, d);
         }
     }
+    c.leave_generics();
 }
 fn field<V: Visitor>(c: &mut V, f: &ast::FieldDecl) {
     v::walk_field_decl(c, f);
@@ -603,7 +605,8 @@ fn obligations<V: Visitor>(c: &mut V, os: &[ast::Obligation]) {
     }
 }
 fn refn<V: Visitor>(c: &mut V, r: &ast::RefnDecl) {
-    let ast::RefnDecl { docs: _, name: _, at: _, generics: _, params: ps, wildcard: _, deductions, response, span: _ } = r;
+    let ast::RefnDecl { docs: _, name: _, at: _, generics, params: ps, wildcard: _, deductions, response, span: _ } = r;
+    c.enter_generics(generics, &[]);
     params(c, ps);
     for ast::RefnDeduction { param: _, add, remove, preserve, span: _ } in deductions {
         for t in add.iter().chain(remove).chain(preserve) {
@@ -613,8 +616,27 @@ fn refn<V: Visitor>(c: &mut V, r: &ast::RefnDecl) {
     for r in response.iter().flatten() {
         v::walk_type_ref(c, &r.qual);
     }
+    c.leave_generics();
 }
 pub(crate) fn walk_item<V: Visitor>(c: &mut V, it: &Item) {
+    // [name-table] The type parameters the item brings into scope, around
+    // everything it holds (its member fns add their own in `func`).
+    let (generics, canbe_list): (&[ast::Ident], &[(ast::Ident, ast::TypeRef)]) = match it {
+        Item::Type(d) => (&d.generics, &d.generic_canbe),
+        Item::Struct(d) => (&d.generics, &d.generic_canbe),
+        Item::Qualifier(d) => (&d.generics, &d.generic_canbe),
+        Item::Effect(d) => (&d.generics, &[]),
+        Item::Handler(d) => (&d.generics, &[]),
+        Item::Fns(d) => (&d.generics, &[]),
+        Item::Rename(d) => (&d.generics, &[]),
+        _ => (&[], &[]),
+    };
+    c.enter_generics(generics, canbe_list);
+    walk_item_in(c, it);
+    c.leave_generics();
+}
+
+fn walk_item_in<V: Visitor>(c: &mut V, it: &Item) {
     match it {
         Item::Import(_) => {}
         Item::Type(ast::TypeDecl {

@@ -105,11 +105,12 @@ pub struct Symbols<'p> {
     /// [type-identity] The program the tables were collected from, for
     /// [`Symbols::ref_key`].
     program: Option<&'p Program>,
-    /// [type-identity] The key of every written type reference of `program`
-    /// whose key is not its name, by the reference's address
-    /// (`resolve::written_keys`), computed the first time a reference that
-    /// may need it is asked about.
-    ref_keys: std::sync::OnceLock<HashMap<usize, String>>,
+    /// [type-identity] [name-table] The key of every written type reference
+    /// of `program` whose key is not its name, by the reference's address
+    /// (`resolve::written_keys`) and, for a copy, by its node, span and name
+    /// (`resolve::written_keys_by_span`): read off the resolved names and
+    /// handed over by whoever resolved them (`seed_ref_keys`).
+    ref_keys: std::sync::OnceLock<(HashMap<usize, String>, HashMap<crate::resolve::CopyKey, String>)>,
 }
 
 impl<'p> Symbols<'p> {
@@ -142,36 +143,59 @@ impl<'p> Symbols<'p> {
         self.key_of(decl).unwrap_or(name)
     }
 
-    /// [type-identity] Hands [`Symbols::ref_key`] the program's written keys
-    /// when a caller already has them (`resolve::written_keys` over a
-    /// resolution of the same program), so the first clashing or undeclared
-    /// name asked about does not resolve the program a second time
-    /// (PIPELINE.md §6, prerequisite 5). A no-op once they are known.
-    pub fn seed_ref_keys(&self, keys: &HashMap<usize, String>) {
+    /// [name-table] Symbols for a program nothing has checked (the ABI
+    /// stamp of a platform root, a dependency's stamp): collected, with the
+    /// program's names resolved and seeded for [`Symbols::ref_key`].
+    pub fn collect_resolved(program: &'p Program) -> Self {
+        let symbols = Symbols::collect(program);
+        let resolution = crate::resolve::resolve(program);
+        symbols.seed_ref_keys(
+            &crate::resolve::written_keys(program, &resolution, &symbols),
+            &crate::resolve::written_keys_by_span(program, &resolution, &symbols),
+        );
+        symbols
+    }
+
+    /// [type-identity] [name-table] Hands [`Symbols::ref_key`] the program's
+    /// written keys (`resolve::written_keys` and `written_keys_by_span` over a
+    /// resolution of the same program). A no-op once they are known.
+    pub fn seed_ref_keys(&self, keys: &HashMap<usize, String>, copies: &HashMap<crate::resolve::CopyKey, String>) {
         if self.ref_keys.get().is_none() {
-            let _ = self.ref_keys.set(keys.clone());
+            let _ = self.ref_keys.set((keys.clone(), copies.clone()));
         }
     }
 
-    /// [type-identity] The key of the declaration a written type reference
-    /// of the collected program names, in the scope of the file that wrote
-    /// it: what a reading of a declaration's own field and parameter types
-    /// must use, since the tables are keyed. A declared, unclashing name is
-    /// its own key; anything else (a clashing name, an import alias, a
-    /// generic parameter) is looked up in the program's resolved references,
-    /// resolved once on first need (~1% of a check). A reference from
-    /// another tree (a copy) is answered by its written name.
+    /// [type-identity] [name-table] The key of the declaration a written type
+    /// reference of the collected program names, in the scope of the file
+    /// that wrote it: what a reading of a declaration's own field and
+    /// parameter types must use, since the tables are keyed. A declared,
+    /// unclashing name is its own key; anything else (a clashing name, an
+    /// import alias, a generic parameter) is read off the program's resolved
+    /// names, which the checker hands over (`seed_ref_keys`) — by address, or
+    /// for a copy by node, span and name.
+    ///
+    /// Unseeded (a caller that never checked the program), the names are
+    /// resolved here, once: a debug build refuses that, so a path that
+    /// forgets to seed is found by the suite rather than paying a second
+    /// resolution in release.
     pub fn ref_key<'a>(&'a self, r: &'a TypeRef) -> &'a str {
         let name = r.name.name.as_str();
         if !self.clashing.contains(name) && self.key_modules.contains_key(name) {
             return name;
         }
         let Some(program) = self.program else { return name };
-        let keys = self.ref_keys.get_or_init(|| {
+        let (keys, copies) = self.ref_keys.get_or_init(|| {
+            debug_assert!(false, "Symbols::ref_key before seed_ref_keys: resolve the names once and seed them");
             let resolution = crate::resolve::resolve(program);
-            crate::resolve::written_keys(program, &resolution, self)
+            (
+                crate::resolve::written_keys(program, &resolution, self),
+                crate::resolve::written_keys_by_span(program, &resolution, self),
+            )
         });
-        keys.get(&(r as *const TypeRef as usize)).map(String::as_str).unwrap_or(name)
+        if let Some(k) = keys.get(&(r as *const TypeRef as usize)) {
+            return k;
+        }
+        crate::resolve::copy_key(r).and_then(|at| copies.get(&at)).map(String::as_str).unwrap_or(name)
     }
 
     /// Collects symbols from every module of the program.

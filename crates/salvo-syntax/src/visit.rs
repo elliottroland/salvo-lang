@@ -27,6 +27,12 @@ pub trait Visitor {
     fn visit_type_ref(&mut self, _ty: &TypeRef) {}
     fn visit_block(&mut self, _block: &Block) {}
     fn visit_struct_lit_field(&mut self, _field: &StructLitField) {}
+    /// [name-table] Around a declaration that brings type parameters into
+    /// scope (an item, a member fn, a refinement): called by a walk that knows
+    /// declaration boundaries (`salvo_core::check_cache::walk_item`), not by
+    /// the walks here, which start inside one.
+    fn enter_generics(&mut self, _generics: &[Ident], _canbe: &[(Ident, TypeRef)]) {}
+    fn leave_generics(&mut self) {}
 }
 
 pub fn walk_fn<V: Visitor>(v: &mut V, f: &FnDecl) {

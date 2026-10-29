@@ -195,9 +195,9 @@ pub struct Resolution<'p> {
     /// the declaration's address: a handler's dependency list is written in
     /// *its* file and resolves there, whatever file binds it.
     pub handler_files: HashMap<usize, usize>,
-    /// [type-identity] The file every written type reference is in, by its
-    /// address (`type_ref_files`).
-    pub type_ref_files: HashMap<usize, usize>,
+    /// [name-table] Every written type-position name, resolved where it is
+    /// written: the file and scope of each reference, and what it means there.
+    pub names: crate::names::Names<'p>,
     /// [type-identity] The file every struct, type and effect is declared
     /// in, by the declaration's address.
     pub decl_files: HashMap<usize, usize>,
@@ -232,22 +232,24 @@ pub struct Resolution<'p> {
     /// [comptime-hygiene] Which of `stamp_scopes` a stamped fn is checked
     /// in, by the fn declaration's address.
     pub fn_stamp_scope: HashMap<usize, usize>,
-    /// [comptime-hygiene] The same for every written type reference inside
-    /// such a fn, by the reference's address.
-    pub type_ref_stamp: HashMap<usize, usize>,
     /// [op-unique-shape] The declarations refused for their placement, by
     /// address: left out of every candidate set (ROADMAP 0ag).
     pub refused_shapes: HashSet<usize>,
 }
 
 impl<'p> Resolution<'p> {
-    /// [comptime-hygiene] The scope a type reference resolves in, given the
-    /// file it is written in: a stamp's own when it is inside one.
-    pub fn scope_for_ref(&self, file: usize, r: &salvo_syntax::ast::TypeRef) -> &ModuleScope<'p> {
-        match self.type_ref_stamp.get(&(r as *const salvo_syntax::ast::TypeRef as usize)) {
-            Some(&i) => &self.stamp_scopes[i],
-            None => &self.scopes[file],
+    /// [comptime-hygiene] The scope a written reference resolves in: its
+    /// file's, or a stamp's own when it is inside one.
+    pub fn scope_at(&self, at: crate::names::At) -> &ModuleScope<'p> {
+        match at {
+            crate::names::At::File(f) => &self.scopes[f as usize],
+            crate::names::At::Stamp(i) => &self.stamp_scopes[i as usize],
         }
+    }
+
+    /// [name-table] The file that wrote `r`, when resolution walked it.
+    pub fn file_of(&self, r: &salvo_syntax::ast::TypeRef) -> Option<usize> {
+        self.names.original(r).map(|w| w.file as usize)
     }
 }
 
@@ -1262,7 +1264,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
         return Resolution {
             scopes,
             handler_files,
-            type_ref_files: HashMap::new(),
+            names: crate::names::Names::default(),
             decl_files,
             declared_in,
             private_in,
@@ -1271,15 +1273,17 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
             decls,
             stamp_scopes: Vec::new(),
             fn_stamp_scope: HashMap::new(),
-            type_ref_stamp: HashMap::new(),
             refused_shapes,
         };
     }
-    let (stamp_scopes, fn_stamp_scope, type_ref_stamp) = stamp_scopes(program, &scopes);
+    let (stamp_scopes, fn_stamp_scope, ref_stamps) = stamp_scopes(program, &scopes);
+    let t = crate::timing::phase("    resolve: names");
+    let names = crate::names::Names::build(program.modules, &scopes, &stamp_scopes, &ref_stamps);
+    drop(t);
     Resolution {
         scopes,
         handler_files,
-        type_ref_files: type_ref_files_in(program.modules),
+        names,
         decl_files,
         declared_in,
         private_in,
@@ -1288,7 +1292,6 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
         decls,
         stamp_scopes,
         fn_stamp_scope,
-        type_ref_stamp,
         refused_shapes,
     }
 }
@@ -2214,38 +2217,6 @@ fn mentions_type(ty: &salvo_syntax::ast::Type, name: &str) -> bool {
     }
 }
 
-/// [type-identity] The file every written type reference is in, by the
-/// reference's address: a type is resolved in the scope of the file that
-/// wrote it, wherever it is lowered (a callee's signature is lowered at
-/// every call).
-pub fn type_ref_files(program: &Program) -> HashMap<usize, usize> {
-    type_ref_files_in(&program.modules)
-}
-
-///
-/// Every reference, wherever in a declaration it is written (a qualifier's
-/// slots, a rename's parameters, a parameter's default …): a reference this
-/// missed was taken for the lowering file's own, so its definition site and
-/// its names were recorded and resolved there (found 2026-10-20, by the
-/// check cache's differential [lsp-check-cache]).
-fn type_ref_files_in<M: std::borrow::Borrow<salvo_syntax::ast::Module>>(modules: &[M]) -> HashMap<usize, usize> {
-    use salvo_syntax::visit::Visitor;
-    struct Collect<'o> {
-        file: usize,
-        out: &'o mut HashMap<usize, usize>,
-    }
-    impl Visitor for Collect<'_> {
-        fn visit_type_ref(&mut self, t: &salvo_syntax::ast::TypeRef) {
-            self.out.insert(t as *const salvo_syntax::ast::TypeRef as usize, self.file);
-        }
-    }
-    let mut out = HashMap::new();
-    for (file, ast) in modules.iter().enumerate() {
-        crate::check_cache::walk_module(&mut Collect { file, out: &mut out }, ast.borrow());
-    }
-    out
-}
-
 /// [type-identity] The key of the declaration a written name resolves to
 /// in [scope] (through an import alias too), or `None` when it names no
 /// declaration there.
@@ -2274,62 +2245,76 @@ pub fn written_keys<'p>(
 
 /// [lsp-std-front] [`written_keys`] of the files from `first` on.
 pub fn written_keys_from<'p>(
-    program: &'p Program,
+    _program: &'p Program,
     resolution: &Resolution<'p>,
     symbols: &crate::program::Symbols<'p>,
     first: usize,
 ) -> HashMap<usize, String> {
+    let names = &resolution.names;
     let mut out = HashMap::new();
-    for_each_type_ref_from(&program.modules, first, &mut |file, t| {
-        let name = t.name.name.as_str();
-        if let Some(key) = key_in(symbols, resolution.scope_for_ref(file, t), name) {
+    for w in names.refs().iter().filter(|w| w.file as usize >= first) {
+        let name = names.name(w);
+        if let Some(key) = names.meaning(w).key(symbols) {
             if key != name {
-                out.insert(t as *const salvo_syntax::ast::TypeRef as usize, key.to_string());
+                out.insert(w.addr, key.to_string());
             }
         }
-    });
+    }
     out
 }
 
-/// [type-identity] The same, by the reference's span and written name: what
-/// a *copy* of a reference is found by (an emitter clones types freely).
-/// Every reference at one span with one name resolves alike in practice;
-/// where two do not, the entry is dropped rather than guessed.
+/// [type-identity] [name-table] The same, for a *copy* of a reference (an
+/// emitter clones types freely): by the node, span and written name a copy
+/// keeps. Where two references there resolve differently, the entry is
+/// dropped rather than guessed.
 pub fn written_keys_by_span<'p>(
     program: &'p Program,
     resolution: &Resolution<'p>,
     symbols: &crate::program::Symbols<'p>,
-) -> HashMap<(Span, String), String> {
+) -> HashMap<CopyKey, String> {
     let mut raw = SpanKeys::new();
     span_keys_from(program, resolution, symbols, 0, &mut raw);
     span_keys_final(raw)
 }
 
+/// [name-table] What a copy of a written reference is found by: its node
+/// [node-id], its span and its written name.
+pub type CopyKey = (u32, Span, String);
+
+/// [name-table] The copy key of `r`, when its node is numbered.
+pub fn copy_key(r: &salvo_syntax::ast::TypeRef) -> Option<CopyKey> {
+    r.name.span.is_numbered().then(|| (r.name.span.node, r.name.span, r.name.name.clone()))
+}
+
 /// [lsp-std-front] What [`written_keys_by_span`] gathers before it keeps
-/// only the agreed entries that differ from the written name: every
-/// (span, written name) with the one key all its references resolve to, or
-/// `None` where two disagree. Gathering is order-free (a disagreement
-/// anywhere is final), so the files may be gathered in parts — std's once,
-/// a project's per analysis — and merged (`check_once`).
-pub type SpanKeys = HashMap<(Span, String), Option<String>>;
+/// only the agreed entries that differ from the written name: every copy key
+/// with the one key all its references resolve to, or `None` where two
+/// disagree. Gathering is order-free (a disagreement anywhere is final), so
+/// the files may be gathered in parts — std's once, a project's per analysis
+/// — and merged (`check_once`).
+pub type SpanKeys = HashMap<CopyKey, Option<String>>;
 
 /// [lsp-std-front] Gathers the references of the files from `first` on into
 /// `out`.
 pub fn span_keys_from<'p>(
-    program: &'p Program,
+    _program: &'p Program,
     resolution: &Resolution<'p>,
     symbols: &crate::program::Symbols<'p>,
     first: usize,
     out: &mut SpanKeys,
 ) {
-    for_each_type_ref_from(&program.modules, first, &mut |file, t| {
-        let name = t.name.name.as_str();
-        let key = key_in(symbols, resolution.scope_for_ref(file, t), name).unwrap_or(name).to_string();
-        span_keys_add(out, (t.name.span, name.to_string()), Some(key));
-    });
+    let names = &resolution.names;
+    for w in names.refs().iter().filter(|w| w.file as usize >= first) {
+        if !w.span.is_numbered() {
+            continue;
+        }
+        let name = names.name(w);
+        let key = names.meaning(w).key(symbols).unwrap_or(name).to_string();
+        span_keys_add(out, (w.span.node, w.span, name.to_string()), Some(key));
+    }
 }
 
-fn span_keys_add(out: &mut SpanKeys, at: (Span, String), key: Option<String>) {
+fn span_keys_add(out: &mut SpanKeys, at: CopyKey, key: Option<String>) {
     match out.get(&at) {
         None => {
             out.insert(at, key);
@@ -2342,109 +2327,8 @@ fn span_keys_add(out: &mut SpanKeys, at: (Span, String), key: Option<String>) {
 }
 
 /// [lsp-std-front] The agreed entries that differ from the written name.
-pub fn span_keys_final(raw: SpanKeys) -> HashMap<(Span, String), String> {
+pub fn span_keys_final(raw: SpanKeys) -> HashMap<CopyKey, String> {
     raw.into_iter()
-        .filter_map(|(at, k)| k.filter(|k| *k != at.1).map(|k| (at, k)))
+        .filter_map(|(at, k)| k.filter(|k| *k != at.2).map(|k| (at, k)))
         .collect()
-}
-
-/// Every written type reference of the files from `first` on, by their
-/// index in `modules`.
-fn for_each_type_ref_from<M: std::borrow::Borrow<salvo_syntax::ast::Module>>(
-    modules: &[M],
-    first: usize,
-    f: &mut dyn FnMut(usize, &salvo_syntax::ast::TypeRef),
-) {
-    use salvo_syntax::visit::{self as v, Visitor};
-    struct Collect<'m> {
-        file: usize,
-        f: &'m mut dyn FnMut(usize, &salvo_syntax::ast::TypeRef),
-    }
-    impl Visitor for Collect<'_> {
-        fn visit_type_ref(&mut self, t: &salvo_syntax::ast::TypeRef) {
-            (self.f)(self.file, t);
-        }
-    }
-    let out = f;
-    for (file, ast) in modules.iter().enumerate().skip(first) {
-        let ast: &salvo_syntax::ast::Module = ast.borrow();
-        let mut c = Collect { file, f: &mut *out };
-        for u in &ast.uses {
-            v::walk_expr(&mut c, &u.handler);
-        }
-        for item in &ast.items {
-            match item {
-                Item::Fn(f) => v::walk_fn(&mut c, f),
-                Item::Struct(s) => {
-                    for f in &s.fields {
-                        v::walk_field_decl(&mut c, f);
-                    }
-                    for f in &s.fns {
-                        v::walk_fn(&mut c, f);
-                    }
-                    for q in &s.auto_qualifiers {
-                        v::walk_type_ref(&mut c, q);
-                    }
-                }
-                Item::Effect(e) => {
-                    for r in &e.prereqs {
-                        v::walk_effect_ref(&mut c, r);
-                    }
-                    for f in &e.fns {
-                        v::walk_fn(&mut c, f);
-                    }
-                }
-                Item::Handler(h) => {
-                    for p in &h.params {
-                        v::walk_type(&mut c, &p.ty);
-                    }
-                    for r in h.effects.iter().flatten() {
-                        v::walk_effect_ref(&mut c, r);
-                    }
-                    for t in &h.of {
-                        v::walk_type(&mut c, t);
-                    }
-                    if let Some(f) = &h.init {
-                        v::walk_fn(&mut c, f);
-                    }
-                    if let Some(m) = &h.mailbox {
-                        v::walk_expr(&mut c, m);
-                    }
-                    for f in &h.state {
-                        v::walk_field_decl(&mut c, f);
-                    }
-                    for f in &h.fns {
-                        v::walk_fn(&mut c, f);
-                    }
-                }
-                Item::Type(t) => {
-                    if let Some(a) = &t.alias {
-                        v::walk_type(&mut c, a);
-                    }
-                }
-                Item::Qualifier(q) => {
-                    v::walk_type(&mut c, &q.of);
-                    for f in &q.field_overrides {
-                        v::walk_field_decl(&mut c, f);
-                    }
-                    for f in &q.fns {
-                        v::walk_fn(&mut c, f);
-                    }
-                }
-                Item::Fns(g) => {
-                    for f in &g.fns {
-                        v::walk_fn(&mut c, f);
-                    }
-                }
-                Item::Test(t) => v::walk_block(&mut c, &t.body),
-                // [effect-alias] Its members resolve in its own file.
-                Item::EffectAlias(a) => {
-                    for r in &a.effects {
-                        v::walk_effect_ref(&mut c, r);
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
 }

@@ -132,6 +132,10 @@ By what you would come looking for.
   and every node has an id of its own [node-id], so the tables tell copies apart; `origin.rs` renders a
   diagnostic at a copied node through that chain [node-origin].
 * `resolve.rs`: per-file scopes (`ModuleScope`): what names a file sees.
+* `names.rs`: every written type-position name, resolved where it is
+  written (`Names`, `Meaning`) [name-table]. The checker asks it what a
+  `TypeRef`'s name means (`Checker::named`), never the checking file's
+  scope: a callee's signature is lowered at every call.
 * `unique_shape.rs`: the placement rule for operator functions
   [op-unique-shape], run by `resolve` once the scopes exist: an `eq`, `cmp`,
   `to_str`, `next`, … on a type is declared in the type's own file.

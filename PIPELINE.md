@@ -2466,16 +2466,36 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   (2026-10-29), since A1's keys had already taken most of the ~21 lookups:
   1. **The remaining program-wide lookups by name, to keys** — done
      (§II.12).
-  2. **Type-position names resolved by resolution**: a per-file table,
-     node → declaration id (or generic, builtin, unresolved), for every
-     written type, qualifier, effect and group name; the checker's
-     `lower_base_ref`, `lower_effect_ref` and qualifier checks read it,
-     `written_keys*`, `visible_keys` and `Symbols::ref_key` are derived from
-     it, and "unknown type" diagnostics come from resolution. Differential:
-     the old scope walk's key against the table's, at every reference.
+  2. **Type-position names resolved by resolution** — done (§II.12): every
+     written type, qualifier, effect and group name bound, in every
+     namespace, where it is written (`salvo_core::names`, [name-table]);
+     the checker's type, effect, qualifier and group lookups of a written
+     reference read it, and `written_keys*` and `Symbols::ref_key` are
+     derived from it. Two parts of the plan moved: `visible_keys` (its
+     readers are value-position names) and the "unknown type" diagnostics
+     (below) go to C1.3.
   3. **Value-position names**: locals bound lexically (a use names its
      binding's node), callables as candidate sets (fns and effect members);
-     the checker's `Expr::Ident` and callee paths read it.
+     the checker's `Expr::Ident` and callee paths read it; `visible_keys`
+     derived from it. **And the unresolved-name diagnostics move to
+     resolution**, type and value positions together: C1.2's differential
+     (resolution's would-be "unknown type/qualifier" against the checker's
+     `require_name`, over salvo-core's tests) found the checker validates a
+     narrower set of positions than a complete walk reaches — a group's
+     arguments (`: Ordered<self>`), names in patterns and checks
+     (`Ok`/`Err` in an `is`), identities in a value block — and one name
+     the walk missed; each position has to be stated before the walk can
+     report for it, which is the same work C1.3 does for value names.
+  4. **Node identity without a file** (scheduled 2026-10-29, the user: "the
+     real fix"): a span — or every node — carries its file, so any node, a
+     copy included, finds its key [node-id] without the tree it was copied
+     from. Then a copy of a written reference finds its entry in the
+     resolved form exactly, not by node, span and name; and the by-address
+     maps go (`Names`' address index, `Resolution::handler_files`,
+     `fn_stamp_scope`, `decl_files`, the checker's `written_types` and
+     `type_ref_keys`, `written_keys_by_span`). After C1.3, whose expression
+     names have the same copy question; before C2, whose dump names every
+     node by its key.
 - **C2. The resolve dump** (`salvo dump --phase …`, P7), as Salvo
   with every name qualified.
 - **C3. Comptime on the resolved form** (§II.5): templates resolved once in
@@ -3439,9 +3459,54 @@ this log current so the work can resume after a context reset). Newest last.
   qualifier up by name and subject; deadlock's inputs name handlers and
   tasks by written name (E1's); the IR's member-by-name fallback.
 
+- **C1.2, type-position names resolved by resolution: done (2026-10-29).**
+  `salvo_core::names` [name-table]: resolution walks every written
+  `TypeRef` (the complete walk, `check_cache::walk_module`, which now tells
+  a visitor the type parameters each declaration brings into scope —
+  `Visitor::enter_generics`) and binds its name in every namespace
+  (`Meaning`: struct, effect, opaque type, alias, handler, qualifiers,
+  group, effect alias, definition site) in the scope that wrote it, plus
+  whether it is a generic there. Interned per (scope, name): ~3ms over the
+  actors example with std, where the old key walk it replaces cost 4.5ms
+  of each check (2.3ms now).
+  - **The checker reads it** for a written reference: `lower_base_ref`
+    (arity, aliases, slots, the key, `proj` and group tests, the
+    definition site), `require_name`, `lower_effect_ref` and the effect
+    lists, qualifier claims and definition sites, `is` checks, obligations
+    and implicit groups, handler faces, the linear and inline-storage
+    walks, the comptime refusals. Before, about half of those asked the
+    scope of the file being checked, which is not the writer's when a
+    callee's signature is lowered at a call. A reference the checker made
+    up means what its name means here, as before.
+  - **Found by the reference**: by address, or for a copy by node, span
+    and written name when the references there agree (the old by-span map
+    was by span and name only). `Resolution::type_ref_files`,
+    `type_ref_stamp` and `scope_for_ref` are gone into it.
+  - **Derived**: `written_keys*` (the by-span key is now `CopyKey`, node
+    included); `Symbols::ref_key` no longer resolves the program — the
+    check seeds it with both maps, `resolve_for_emission` seeds the
+    emission copy's, and the three paths that use symbols without a check
+    (the ABI stamp, the dependency stamp check, the lock reconciliation)
+    call `Symbols::collect_resolved`. A debug build refuses an unseeded
+    `ref_key`, which is how the suite found those three.
+  - **Differential** (temporary, run over the suite, then deleted): the
+    table's meaning against the current scope's at every lookup. Every
+    divergence was a *foreign* reference — none at a copy, a stamp or the
+    file's own — and the table's answer was the writer's: generics named
+    `A`/`B`/`V` in std signatures against a test's struct `A`, std's own
+    `Str` against a std test annex's, an effect a callee's file sees and
+    the caller does not. One was a live bug: a caller's `fns Item` group
+    made a callee's `Item` parameter lower as the group (`Unknown`), so
+    `show(5)` passed the checker and rustc refused the output
+    (`names/type_positions.sv#a_callee_type_means_its_writers`, failing
+    before).
+  - **Moved to C1.3**: `visible_keys` and the unresolved-name diagnostics
+    (§II.9 C1.3 says why). Scheduled as C1.4: node identity without a file.
+
 - **Where it stands (2026-10-29) — resume here.** Stages A and B complete;
-  **Stage C under way**: C1.1 done; **next C1.2** (type-position names
-  resolved by resolution, §II.9). Left of B, recorded: D4's general union
+  **Stage C under way**: C1.1 and C1.2 done; **next C1.3** (value-position
+  names, and the unresolved-name diagnostics into resolution, §II.9), then
+  C1.4 (node identity without a file). Left of B, recorded: D4's general union
   `to_str` (deferred, R10), so `interp_union` stays a fact; the send cuts of
   ROADMAP 0au; the leftovers of 0as, 0at, 0av and 0ax. **Open decisions,
   each built as its recommended option:** P9–P18 and P21 (§II.10; ROADMAP

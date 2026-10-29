@@ -51,7 +51,7 @@ struct or the arms of any union).
 Twelve worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print; the first dependency, `modules/aws/`, keeps
 its four (`profile`, `sqs`, `s3`, `ddb`) and its own checks (`modules/aws/check.sh`)
-outside the compiler's tests. 732 tests green; std's own Salvo tests run inside one of them.
+outside the compiler's tests. 704 tests green (nextest); std's own Salvo tests run inside one of them.
 
 ## The sequence
 
@@ -1226,6 +1226,15 @@ remain, each a design question rather than a lookup to swap:
   checker recorded no member index for the call: the first of an overloaded
   name. It should be unreachable for a checked call; making it an error
   rather than a pick is the [backend-never-wrong] fix.
+
+C1.2 (2026-10-29) bound every written *type-position* name where it is
+written [name-table]. Still read through the checking file's scope, for C1.3
+(PIPELINE.md §II.9): value-position names (locals, callees, handler names in a
+`use`, `@`-selectors), `Checked::visible_keys`, and the unresolved-name
+diagnostics, which the checker reports at declaration sites. A qualifier's
+declaration is still found as the *first* of its name's overload set where a
+subject is not in hand (`written_qual_decl`, `qual_decl`): the generics and
+`comptime` flag of `NonEmpty` are read off whichever of its five comes first.
 
 ### 0al — Open defect: `let x: Long? = -1L` miscompiles on Rust (found 2026-10-28, B3.3c)
 

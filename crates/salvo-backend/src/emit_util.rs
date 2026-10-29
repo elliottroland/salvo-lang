@@ -135,7 +135,7 @@ pub fn stamp_abi_files(
     program: &salvo_core::Program,
     files: Vec<EmittedFile>,
 ) -> (String, Vec<(std::path::PathBuf, String)>) {
-    let symbols = salvo_core::Symbols::collect(program);
+    let symbols = salvo_core::Symbols::collect_resolved(program);
     let stamp = salvo_core::abi::abi_stamp(program, &symbols, None).unwrap_or_default();
     let out = files
         .into_iter()

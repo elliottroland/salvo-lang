@@ -1205,8 +1205,9 @@ pub struct Checked {
     /// by the reference's address, where it is not the written name (a
     /// clash or an alias): what an emitter rendering a written type reads.
     pub type_ref_keys: HashMap<usize, String>,
-    /// [type-identity] The same by (span, written name), for copies.
-    pub type_ref_span_keys: HashMap<(Span, String), String>,
+    /// [type-identity] [name-table] The same by node, span and written name,
+    /// for copies (`resolve::CopyKey`).
+    pub type_ref_span_keys: HashMap<crate::resolve::CopyKey, String>,
     /// [type-identity] Per file, the key every visible name of a type,
     /// effect or handler stands for where it is not the name itself (a clash
     /// or an alias): how an emitter resolves a name written in an
@@ -1749,8 +1750,8 @@ impl Checked {
         if self.type_ref_span_keys.is_empty() {
             return &r.name.name;
         }
-        self.type_ref_span_keys
-            .get(&(r.name.span, r.name.name.clone()))
+        crate::resolve::copy_key(r)
+            .and_then(|at| self.type_ref_span_keys.get(&at))
             .map(|k| k.as_str())
             .unwrap_or(&r.name.name)
     }
@@ -2344,7 +2345,7 @@ fn check_once<'p>(
                     Some(std_key) => key.filter(|k| std_key.as_ref() == Some(k)),
                     None => key,
                 };
-                match merged.filter(|k| *k != at.1) {
+                match merged.filter(|k| *k != at.2) {
                     Some(k) => {
                         out.type_ref_span_keys.insert(at, k);
                     }
@@ -2359,7 +2360,7 @@ fn check_once<'p>(
             out.type_ref_span_keys = crate::resolve::written_keys_by_span(program, resolution, symbols);
         }
     }
-    symbols.seed_ref_keys(&out.type_ref_keys);
+    symbols.seed_ref_keys(&out.type_ref_keys, &out.type_ref_span_keys);
     drop(t);
     let t = crate::timing::phase("  check: visible keys");
     for (file, scope) in resolution.scopes.iter().enumerate() {
@@ -3876,11 +3877,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .params
                 .iter()
                 .filter_map(|p| {
-                    let base = match &p.ty {
-                        ast::Type::Named { base, .. } => &base.name.name,
+                    let written = match &p.ty {
+                        ast::Type::Named { base, .. } => base,
                         _ => return None,
                     };
-                    if !self.linear_capable(&self.type_key(base)) {
+                    let key = self.written_key_of(written);
+                    let base = &written.name.name;
+                    if !self.linear_capable(&key) {
                         return None;
                     }
                     if self.scope.struct_files.get(base.as_str()).copied()
@@ -3895,7 +3898,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             c.iter().any(|d| d.param == p.name.name && !d.kept)
                         });
                     // [type-identity] By key: `discard` compares the value's type.
-                    consumed.then(|| self.type_key(base))
+                    consumed.then_some(key)
                 })
                 .collect();
         }
@@ -5137,16 +5140,17 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [lsp-definition] The group name in an obligation clause
             // (`: Linear<self>`) points at the group's declaration, so hover
             // and go-to-definition reach it like any other reference.
-            self.record_def_ref(ob.name.span, &ob.name.name);
-            let Some(group) = scope.fn_groups.get(ob.name.name.as_str()).copied() else {
+            self.record_written_def(ob);
+            let meaning = self.named(ob);
+            let Some(group) = meaning.group else {
                 // A name that exists as something else is a position
                 // mistake, not a missing declaration: say which.
-                let hint = if self.type_name_exists(&ob.name.name) {
+                let hint = if names_type(&ob.name.name, &meaning) {
                     format!(
                         " (`{}` is a type; an obligation names a `fns` group)",
                         ob.name.name
                     )
-                } else if self.qual_name_exists(&ob.name.name) {
+                } else if names_qualifier(&ob.name.name, &meaning) {
                     format!(
                         " (`{}` is a qualifier — `canbe` grants qualifiers, `:` \
                          declares obligations)",
@@ -5666,7 +5670,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if base.args.iter().any(|a| self.ast_type_holds_fn(a, depth + 1)) {
                     return true;
                 }
-                match self.scope.structs.get(base.name.name.as_str()) {
+                match self.named(base).structure {
                     Some(decl) => decl
                         .fields
                         .iter()
@@ -6074,7 +6078,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             });
         }
         for g in &f.implicit_groups {
-            let Some(group) = self.scope.fn_groups.get(g.name.name.as_str()).copied() else {
+            let Some(group) = self.named(g).group else {
                 self.error(g.span, messages::implicit_group_unknown_group(&g.name.name));
                 continue;
             };
@@ -6300,7 +6304,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             collect(own, &mut edges);
         }
         for g in &f.implicit_groups {
-            if let Some(group) = self.scope.fn_groups.get(g.name.name.as_str()).copied() {
+            if let Some(group) = self.named(g).group {
                 collect(&group.deductions, &mut edges);
             }
         }
@@ -10467,8 +10471,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 EffectRef::Effect(r) => r,
             };
             let pname = r.name.name.as_str();
-            let scope = self.scope_of(r);
-            if !scope.effects.contains_key(pname) && !scope.effect_aliases.contains_key(pname) {
+            let m = self.named(r);
+            if m.effect.is_none() && m.effect_alias.is_none() {
                 self.error(r.span, messages::effect_prereq_unknown(&pname, &name));
                 continue;
             }
@@ -10569,7 +10573,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         out: &mut Vec<ListedEffect>,
     ) {
         let name = r.name.name.as_str();
-        if let Some(&(alias, _)) = self.scope_of(r).effect_aliases.get(name) {
+        if let Some((alias, _)) = self.named(r).effect_alias {
             if any {
                 self.error(r.span, messages::effect_alias_any_alias(&name));
                 return;
@@ -10635,12 +10639,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut found: Vec<Ty> = Vec::new();
         for p in &decl.prereqs {
             let EffectRef::Effect(r) = p else { continue };
-            let scope = self.scope_of(r);
-            if scope.effect_aliases.contains_key(r.name.name.as_str()) {
+            let m = self.named(r);
+            if m.effect_alias.is_some() {
                 let mut members = Vec::new();
                 self.expand_effect_entry(r, false, r.span, EffectOrigin::Written, &mut Vec::new(), &mut members);
                 found.extend(members.into_iter().map(|m| m.ty));
-            } else if scope.effects.contains_key(r.name.name.as_str()) {
+            } else if m.effect.is_some() {
                 found.push(self.lower_base_ref(r, &subst, 0));
             }
         }
@@ -10662,8 +10666,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// to a declared effect with the right number of type arguments.
     fn lower_effect_ref(&mut self, r: &TypeRef) -> Option<Ty> {
         let name = r.name.name.as_str();
-        let written_in = self.scope_of(r);
-        let Some(effect) = written_in.effects.get(name).copied() else {
+        let Some(effect) = self.named(r).effect else {
             self.error_unresolved(r.span, messages::name_resolve_unknown_effect(&name), name);
             return None;
         };
@@ -11613,10 +11616,70 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// writer came last: `list_dir`'s body overwrote `read_all`'s `Str` in
     /// `lib/std/fs/mem.sv` with a callee's `Int`).
     fn foreign_ref(&self, r: &TypeRef) -> bool {
-        self.resolution
-            .type_ref_files
-            .get(&(r as *const TypeRef as usize))
-            .is_some_and(|f| *f != self.file_idx)
+        self.written_file(r).is_some_and(|f| f != self.file_idx)
+    }
+
+    /// [name-table] The file that wrote `r` (a copy found by its node).
+    fn written_file(&self, r: &TypeRef) -> Option<usize> {
+        self.resolution.names.written(r).map(|w| w.file as usize)
+    }
+
+    /// [name-table] What a written reference means where it is written; for
+    /// a reference the checker made up, what its name means here.
+    fn named(&self, r: &TypeRef) -> std::borrow::Cow<'r, crate::names::Meaning<'p>> {
+        match self.resolution.names.written(r) {
+            Some(w) => std::borrow::Cow::Borrowed(self.resolution.names.meaning(w)),
+            None => std::borrow::Cow::Owned(crate::names::Meaning::of(self.scope, &r.name.name)),
+        }
+    }
+
+    /// [name-table] Whether `r` names a type parameter: one of the
+    /// declaration it is written in, or (for a reference the checker made
+    /// up) one in scope here.
+    fn names_generic(&self, r: &TypeRef) -> bool {
+        match self.resolution.names.written(r) {
+            Some(w) => w.generic || self.generics.contains(r.name.name.as_str()),
+            None => self.generics.contains(r.name.name.as_str()),
+        }
+    }
+
+    /// [lsp-definition] [name-table] A written name -> its declaration,
+    /// recorded by the file that wrote it.
+    fn record_written_def(&mut self, r: &TypeRef) {
+        if self.foreign_ref(r) {
+            return;
+        }
+        if let Some(site) = self.named(r).def {
+            self.out.def_refs.insert(self.key(r.name.span), site);
+        }
+    }
+
+    /// [type-identity] [name-table] The key of the type a written reference
+    /// names where it is written, or its written name.
+    fn written_key_of(&self, r: &TypeRef) -> String {
+        self.named(r).key(self.symbols).unwrap_or(&r.name.name).to_string()
+    }
+
+    /// [qual-overload] [name-table] The first qualifier a written name
+    /// means where it is written.
+    fn written_qual_decl(&self, q: &TypeRef) -> Option<&'p QualifierDecl> {
+        self.named(q).qualifiers.first().copied()
+    }
+
+    /// [lsp-definition] [name-table] A written qualifier name -> its
+    /// declaration, recorded by the file that wrote it, and only for a
+    /// **user** qualifier: a built-in auto-qualifier (`Mut`, `once`) is a
+    /// language keyword with no declaration to jump to, and recording a ref
+    /// for it made hover resolve `Mut` to an arbitrary `canbe Mut` type
+    /// (e.g. `Set`).
+    fn record_qualifier_def(&mut self, q: &TypeRef) {
+        if self.foreign_ref(q) {
+            return;
+        }
+        let m = self.named(q);
+        if let (true, Some(site)) = (m.is_qualifier(), m.def) {
+            self.out.def_refs.insert(self.key(q.name.span), site);
+        }
     }
 
     fn record_def_ref(&mut self, span: Span, name: &str) {
@@ -13956,7 +14019,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .params
                     .first()
                     .is_some_and(|p| matches!(&p.ty, ast::Type::Named { base, .. }
-                        if Self::key_in(self.symbols, self.scope_of(base), &base.name.name) == name))
+                        if self.named(base).key(self.symbols).unwrap_or(&base.name.name) == name))
             })
         })
     }
@@ -14106,7 +14169,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             Some(ty) => ty.clone(),
             None => return,
         };
-        let name = base.name.name.clone();
+        // [type-identity] [name-table] The slots are the declaration's: by
+        // the key the written name means where it is written.
+        let name = self.written_key_of(base);
         for (at, written) in base.value_args.iter().enumerate() {
             let Some(want) = self.type_slot_ty(&name, &type_args, at) else {
                 continue;
@@ -14129,13 +14194,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Err(_) => {
                     let slot = self
-                        .type_fn_slots(&self.type_key(&name))
+                        .type_fn_slots(&name)
                         .get(at)
                         .map(|s| s.name.clone())
                         .unwrap_or_else(|| "?".to_string());
                     self.error(
                         written.span(),
-                        messages::cmp_carry_slot_mismatch(&id, &slot, &name, &want),
+                        messages::cmp_carry_slot_mismatch(&id, &slot, &base.name.name, &want),
                     );
                 }
             }
@@ -14426,15 +14491,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             .of
             .iter()
             .filter_map(|of| {
-                let name = match of {
-                    ast::Type::Named { base, .. } => base.name.name.as_str(),
+                let base = match of {
+                    ast::Type::Named { base, .. } => base,
                     ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
-                        ast::Type::Named { base, .. } => base.name.name.as_str(),
+                        ast::Type::Named { base, .. } => base,
                         _ => return None,
                     },
                     _ => return None,
                 };
-                self.scope.effects.get(name).copied().map(|e| (of, e))
+                self.named(base).effect.map(|e| (of, e))
             })
             .collect();
         let decls: Vec<&'p ast::EffectDecl> = faces.iter().map(|(_, e)| *e).collect();
@@ -14547,14 +14612,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         h.of
             .iter()
             .filter_map(|of| match of {
-                ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
+                ast::Type::Named { base, .. } => Some(base),
                 ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
-                    ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
+                    ast::Type::Named { base, .. } => Some(base),
                     _ => None,
                 },
                 _ => None,
             })
-            .filter_map(|name| self.scope.effects.get(name).copied())
+            .filter_map(|base| self.named(base).effect)
             .collect()
     }
 
@@ -14600,16 +14665,24 @@ impl<'p, 'r> Checker<'p, 'r> {
             .params
             .iter()
             .filter_map(|p| {
-                let base = match &p.ty {
-                    ast::Type::Named { base, .. } => &base.name.name,
+                let written = match &p.ty {
+                    ast::Type::Named { base, .. } => base,
                     ast::Type::QualifiedGroup { base, .. } => match base.as_ref() {
-                        ast::Type::Named { base, .. } => &base.name.name,
+                        ast::Type::Named { base, .. } => base,
                         _ => return None,
                     },
                     _ => return None,
                 };
-                let scope = effect_file.map(|f| &self.resolution.scopes[f]).unwrap_or(self.scope);
-                let key = Self::key_in(self.symbols, scope, base);
+                let base = &written.name.name;
+                // [name-table] The parameter's type means what it means in
+                // the member's own file.
+                let key = match self.resolution.names.written(written) {
+                    Some(_) => self.written_key_of(written),
+                    None => {
+                        let scope = effect_file.map(|f| &self.resolution.scopes[f]).unwrap_or(self.scope);
+                        Self::key_in(self.symbols, scope, base)
+                    }
+                };
                 if !self.linear_capable(&key) {
                     return None;
                 }
@@ -14666,7 +14739,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         match ty {
             ast::Type::Named { base, .. } => {
                 let name = &base.name.name;
-                let key = self.type_key(name);
+                let key = self.written_key_of(base);
                 if self.has_auto_linear(&key) {
                     return Some(name.clone());
                 }
@@ -14762,7 +14835,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         match ty {
             ast::Type::Literal { .. } => {}
             ast::Type::Named { base, .. } => {
-                let opted = self.linear_opt_in_positions(&self.type_key(&base.name.name));
+                let opted = self.linear_opt_in_positions(&self.written_key_of(base));
                 for (i, a) in base.args.iter().enumerate() {
                     if let Some(linear) = self.ast_type_own_linear(a) {
                         // [linear-container] A parameter that declares
@@ -14774,7 +14847,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         if opted.contains(&i) {
                             continue;
                         }
-                        match self.linear_position_reason(&self.type_key(&base.name.name), i) {
+                        match self.linear_position_reason(&self.written_key_of(base), i) {
                             // [linear-container] LC-3's two semantic refusals
                             // say why in their own words.
                             Some(reason) => reasoned.push((a.span(), linear, reason)),
@@ -14909,10 +14982,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         match ty {
             ast::Type::Named { qualifiers, .. } | ast::Type::QualifiedGroup { qualifiers, .. } => {
                 for q in qualifiers {
-                    if self.scope.qualifiers.contains_key(q.name.name.as_str()) {
+                    let m = self.named(q);
+                    if m.is_qualifier() {
                         continue;
                     }
-                    if self.scope.effects.contains_key(q.name.name.as_str()) {
+                    if m.effect.is_some() {
                         if let Some(ty) = self.lower_effect_ref(q) {
                             if !out.contains(&ty) {
                                 out.push(ty);
@@ -17057,7 +17131,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if base.args.iter().any(|a| self.ast_type_mut(a, visited)) {
                     return true;
                 }
-                let Some(decl) = self.scope.structs.get(base.name.name.as_str()) else {
+                let Some(decl) = self.named(base).structure else {
                     return false;
                 };
                 if !visited.insert(base.name.name.clone()) {
@@ -18219,7 +18293,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // positional reading a keyed type has (user decision
                 // 2026-09-22).
                 let generics: Vec<String> = self
-                    .qual_decl(&q.name.name)
+                    .written_qual_decl(q)
                     .map(|d| d.generics.iter().map(|g| g.name.clone()).collect())
                     .unwrap_or_default();
                 let arity = generics.len();
@@ -18234,9 +18308,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 // [lsp-definition] Only a user qualifier has a declaration to
                 // point at; a built-in auto-qualifier (`Mut`) does not.
-                if self.scope.is_qualifier(&q.name.name) && !self.foreign_ref(q) {
-                    self.record_def_ref(q.name.span, &q.name.name);
-                }
+                self.record_qualifier_def(q);
                 out.push(Qual {
                     effect: false,
                     name: q.name.name.clone(),
@@ -18451,13 +18523,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // declaration-side shorthand it is in a parameter list, so it
                 // gets the same diagnostic when the group is not there.
                 ast::SlotDecl::Group(spread) => {
-                    self.record_def_ref(spread.name.span, &spread.name.name);
-                    let Some(group) = self
-                        .scope
-                        .fn_groups
-                        .get(spread.name.name.as_str())
-                        .copied()
-                    else {
+                    self.record_written_def(spread);
+                    let Some(group) = self.named(spread).group else {
                         let name = spread.name.name.clone();
                         self.error_unresolved(
                             spread.span,
@@ -18780,12 +18847,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // reports its own mistakes when it is checked; lowering it here only
         // reads the answer.
         let own = match arg {
-            ast::Type::Named { base, .. } => self
-                .resolution
-                .type_ref_files
-                .get(&(base as *const TypeRef as usize))
-                .copied()
-                .filter(|f| *f != self.file_idx),
+            ast::Type::Named { base, .. } => self.written_file(base).filter(|f| *f != self.file_idx),
             _ => None,
         };
         if let Some(own) = own {
@@ -18937,9 +18999,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // (`Mut`, `once`) is a language keyword with no declaration to
                 // jump to, and recording a ref for it made hover resolve `Mut`
                 // to an arbitrary `canbe Mut` type (e.g. `Set`) [lsp-definition].
-                if self.scope.is_qualifier(&q.name.name) && !self.foreign_ref(q) {
-                    self.record_def_ref(q.name.span, &q.name.name);
-                }
+                self.record_qualifier_def(q);
                 Qual {
                     // [fn-effects] A name in qualifier position that
                     // resolves to an *effect* is an effect claim on a
@@ -18947,8 +19007,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // rules (inverted variance, never dropped, never
                     // tested). Qualifier and effect names cannot collide
                     // [mod-collision], so the lookup decides.
-                    effect: !self.scope.qualifiers.contains_key(q.name.name.as_str())
-                        && self.scope.effects.contains_key(q.name.name.as_str()),
+                    effect: {
+                        let m = self.named(q);
+                        !m.is_qualifier() && m.effect.is_some()
+                    },
                     name: q.name.name.clone(),
                     args: q
                         .args
@@ -19025,10 +19087,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             None
         };
         let name = resolved_dot.as_deref().unwrap_or(base.name.name.as_str());
-        // [type-identity] A written name means what it means in the file that
-        // wrote it, which is not this one when a callee's signature or a
-        // struct's field is lowered at a use.
-        let written_in = self.scope_of(base);
+        // [type-identity] [name-table] A written name means what it means in
+        // the file that wrote it, which is not this one when a callee's
+        // signature or a struct's field is lowered at a use: resolution bound
+        // it there. A leading-dot arm's full name is looked up where the
+        // arm is written.
+        let meaning = match &resolved_dot {
+            Some(full) => std::borrow::Cow::Owned(crate::names::Meaning::of(self.scope_of(base), full)),
+            None => self.named(base),
+        };
         if base.args.is_empty() {
             if let Some(bound) = subst.get(name) {
                 return bound.clone();
@@ -19042,7 +19109,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // alias itself rather than its target.
         let name_span = base.name.span;
         if !self.foreign_ref(base) {
-            self.record_def_ref(name_span, name);
+            if let Some(site) = meaning.def {
+                self.out.def_refs.insert(self.key(name_span), site);
+            }
         }
         // [generic-arity] A generic struct, opaque type, or alias referenced
         // in a type position must supply every type argument it declares —
@@ -19058,12 +19127,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // expansion and the fn-identity-slot branch below (which runs its
         // own, different all-or-none arity rule for `?cmp`-style arguments
         // [qual-value-arg] and would otherwise double-report).
-        let declared_generics = written_in
-            .structs
-            .get(name)
-            .map(|d| d.generics.len())
-            .or_else(|| written_in.opaque_types.get(name).map(|d| d.generics.len()))
-            .or_else(|| written_in.type_aliases.get(name).map(|d| d.generics.len()));
+        let declared_generics = meaning.declared_generics().map(|gs| gs.len());
         if let Some(expected) = declared_generics {
             // [effect-eff-handle] `eff[A, B, …]` parses straight to this same
             // `Addr` name with one argument per effect — a legitimate
@@ -19085,7 +19149,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // way; on a user struct it would smuggle a borrow into a field
         // through the back door of generics, unseen by [proj-infer]'s
         // field-driven inference.
-        if !matches!(name, "List") && self.scope.structs.contains_key(name) {
+        if !matches!(name, "List") && meaning.structure.is_some() {
             for arg in &base.args {
                 if let Some(span) = first_proj_span(arg) {
                     self.error(span, messages::proj_infer_struct_type_arg(&name));
@@ -19111,7 +19175,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // `reject_group_as_data`'s (validation), and the *lowering* is
         // `Unknown` so the one mistake does not cascade into type-mismatch
         // errors at every use of the annotated value [type-unknown-lenient].
-        if !self.type_name_exists(name) && self.scope.fn_groups.contains_key(name) {
+        if name != "None" && !meaning.is_type() && meaning.group.is_some() {
             return Ty::Unknown;
         }
         // [effect-eff-handle] [effect-alias] An alias among an `eff[…]` handle's
@@ -19119,7 +19183,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // `eff[IO]` is `eff[Console, Fs, Streams]`.
         let alias_arg = |c: &Self, a: &ast::Type| match a {
             ast::Type::Named { qualifiers, base: b } => {
-                qualifiers.is_empty() && c.scope_of(b).effect_aliases.contains_key(b.name.name.as_str())
+                qualifiers.is_empty() && c.named(b).effect_alias.is_some()
             }
             _ => false,
         };
@@ -19150,18 +19214,18 @@ impl<'p, 'r> Checker<'p, 'r> {
             // `SortedSet<Str>(my_cmp)`. The leading arguments are types as
             // ever; the trailing ones are identities, and a slot nobody wrote
             // takes its declared default (`?cmp: (T, T) -> Int = cmp`).
-            let slots = self.type_fn_slots(&Self::key_in(self.symbols, written_in, name));
+            let key = meaning.key(self.symbols).unwrap_or(name).to_string();
+            let slots = self.type_fn_slots(&key);
             if slots.is_empty() {
                 base.args
                     .iter()
                     .map(|a| self.lower_type_subst(a, subst, depth))
                     .collect()
             } else {
-                let generics: Vec<String> = written_in
-                    .opaque_types
-                    .get(name)
+                let generics: Vec<String> = meaning
+                    .opaque
                     .map(|d| &d.generics)
-                    .or_else(|| written_in.structs.get(name).map(|d| &d.generics))
+                    .or_else(|| meaning.structure.map(|d| &d.generics))
                     .map(|gs| gs.iter().map(|g| g.name.clone()).collect())
                     .unwrap_or_default();
                 let arity = generics.len();
@@ -19169,7 +19233,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         };
         // Type aliases expand structurally (with generic substitution).
-        if let Some(alias) = written_in.type_aliases.get(name).copied() {
+        if let Some(alias) = meaning.alias {
             if let Some(target) = &alias.alias {
                 let mut alias_subst = HashMap::new();
                 for (g, arg) in alias.generics.iter().zip(&args) {
@@ -19208,7 +19272,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
         Ty::Named {
-            name: Self::key_in(self.symbols, written_in, name),
+            name: meaning.key(self.symbols).unwrap_or(name).to_string(),
             args,
         }
     }
@@ -19221,14 +19285,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// a reference the checker made up.
     fn scope_of(&self, r: &TypeRef) -> &'r ModuleScope<'p> {
         // [comptime-hygiene] Inside a stamped body, its stamp scope.
-        if let Some(&i) = self.resolution.type_ref_stamp.get(&(r as *const TypeRef as usize)) {
-            return &self.resolution.stamp_scopes[i];
+        match self.resolution.names.written(r) {
+            Some(w) => self.resolution.scope_at(w.at),
+            None => self.scope,
         }
-        self.resolution
-            .type_ref_files
-            .get(&(r as *const TypeRef as usize))
-            .map(|f| &self.resolution.scopes[*f])
-            .unwrap_or(self.scope)
     }
 
     fn type_key(&self, name: &str) -> String {
@@ -19270,7 +19330,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// intrinsic ones (which have no declaration to find — their
     /// position-specific rules are enforced by `validate_quals`).
     fn qual_name_exists(&self, name: &str) -> bool {
-        matches!(name, "Mut" | "Linear" | "linear" | "once" | "proj" | "ref")
+        is_intrinsic_qualifier(name)
             || self.scope.is_qualifier(name)
             // [fn-effects] An effect claims what driving a producer
             // performs, and it is written where a qualifier goes. Where it
@@ -19410,13 +19470,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         let name = r.name.name.as_str();
-        if self.generics.contains(name) {
+        if self.names_generic(r) {
             return;
         }
+        // [name-table] What the name means where it is written.
+        let meaning = self.named(r);
         let known = if expect_qual {
-            self.qual_name_exists(name)
+            names_qualifier(name, &meaning)
         } else {
-            self.type_name_exists(name)
+            names_type(name, &meaning)
         };
         if known {
             return;
@@ -19424,22 +19486,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         // A `fns` group in type position is a *position* mistake with its
         // own diagnostic [group-not-a-value] (`reject_group_as_data`); an
         // "unknown type" here would be a second report of the same error.
-        if !expect_qual && self.scope.fn_groups.contains_key(name) {
-            return;
-        }
-        // A `fns` group in type position is a *position* mistake with its
-        // own diagnostic [group-not-a-value] (`reject_group_as_data`); an
-        // "unknown type" here would be a second report of the same error.
-        if !expect_qual && self.scope.fn_groups.contains_key(name) {
+        if !expect_qual && meaning.group.is_some() {
             return;
         }
         let what = if expect_qual { "qualifier" } else { "type" };
         // A name that exists in the *other* namespace is a position
         // mistake, not a missing declaration: say so instead of
         // suggesting an import that would not help.
-        let hint = if expect_qual && self.type_name_exists(name) {
+        let hint = if expect_qual && names_type(name, &meaning) {
             format!(" (`{name}` is a type, not a qualifier)")
-        } else if !expect_qual && self.qual_name_exists(name) {
+        } else if !expect_qual && names_qualifier(name, &meaning) {
             format!(" (`{name}` is a qualifier, not a type)")
         } else {
             String::new()
@@ -19631,8 +19687,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [effect-alias] An alias of effects is effects too: `eff[IO]`.
             ast::Type::Named { qualifiers, base } => {
                 qualifiers.is_empty()
-                    && (self.scope.effects.contains_key(base.name.name.as_str())
-                        || self.scope.effect_aliases.contains_key(base.name.name.as_str()))
+                    && {
+                        let m = self.named(base);
+                        m.effect.is_some() || m.effect_alias.is_some()
+                    }
             }
             _ => false,
         }
@@ -19640,7 +19698,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn reject_effect_as_data(&mut self, r: &TypeRef) {
         let name = r.name.name.as_str();
-        if self.generics.contains(name) || !self.scope.effects.contains_key(name) {
+        if self.names_generic(r) || self.named(r).effect.is_none() {
             return;
         }
         let name = name.to_string();
@@ -19664,8 +19722,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         let name = base.name.name.as_str();
-        let is_comptime = self.scope.structs.get(name).is_some_and(|s| s.comptime)
-            || self.scope.type_aliases.get(name).is_some_and(|t| t.comptime);
+        let meaning = self.named(base);
+        let is_comptime = meaning.structure.is_some_and(|s| s.comptime) || meaning.alias.is_some_and(|t| t.comptime);
         if is_comptime {
             self.error(base.span, messages::comptime_fields_data_position(&name));
         }
@@ -19673,10 +19731,8 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn reject_group_as_data(&mut self, r: &TypeRef) {
         let name = r.name.name.as_str();
-        if self.generics.contains(name)
-            || self.type_name_exists(name)
-            || !self.scope.fn_groups.contains_key(name)
-        {
+        let meaning = self.named(r);
+        if self.names_generic(r) || names_type(name, &meaning) || meaning.group.is_none() {
             return;
         }
         let name = name.to_string();
@@ -19710,7 +19766,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // filling a `Mut List<Reply<Str>>`), and its terminal is checked
             // where the container is.
             ast::Type::Named { base, .. } => {
-                let opted = self.linear_opt_in_positions(&self.type_key(&base.name.name));
+                let opted = self.linear_opt_in_positions(&self.written_key_of(base));
                 base.args
                     .iter()
                     .enumerate()
@@ -19872,7 +19928,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if name == target {
             return true;
         }
-        let decl = self.scope.structs.get(name).copied();
+        let decl = self.named(base).structure;
         // A type argument is an inline edge only where the type *stores* it
         // inline: a user struct with a bare `value: T` field does, while
         // `List<T>`, `Bag<T>` (whose `T` sits inside a `List`) and every
@@ -19952,7 +20008,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if base.name.name == param {
                     return true;
                 }
-                let Some(d) = self.scope.structs.get(base.name.name.as_str()).copied() else {
+                let Some(d) = self.named(base).structure else {
                     return false;
                 };
                 base.args.iter().enumerate().any(|(i, arg)| {
@@ -20227,7 +20283,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [comptime-qualifier] A comptime qualifier describes a declaration,
         // not a value: it is never part of a type.
         for q in qualifiers {
-            if self.qual_decl(&q.name.name).is_some_and(|d| d.comptime) {
+            if self.written_qual_decl(q).is_some_and(|d| d.comptime) {
                 self.error(q.name.span, messages::comptime_qualifier_in_type(&q.name.name));
             }
         }
@@ -20316,7 +20372,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // are the effects of a *function*, where `[…]` already says
                 // them. So the claim-on-a-type spelling is gone, and saying
                 // so names the replacement.
-                if decl.is_none() && self.scope.effects.contains_key(q.name.name.as_str()) {
+                if decl.is_none() && self.named(q).effect.is_some() {
                     let fn_type = matches!(base, Ty::Fn { .. });
                     self.error(
                         q.span,
@@ -20988,10 +21044,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             self.require_name(a, true);
-            let Some(decl) = self.qual_decl(name) else { continue };
-            if self.scope.is_qualifier(name) {
-                self.record_def_ref(a.name.span, name);
-            }
+            let Some(decl) = self.written_qual_decl(a) else { continue };
+            self.record_qualifier_def(a);
             if !decl.comptime {
                 let place = if subject == "Field" { "before a field's name" } else { "before a declaration" };
                 self.error(
@@ -21066,7 +21120,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() => {
                 Some(base.name.name.as_str())
                     .filter(|n| matches!(*n, "Field" | "Struct"))
-                    .filter(|n| self.scope.structs.get(*n).is_some_and(|s| s.comptime))
+                    .filter(|_| self.named(base).structure.is_some_and(|s| s.comptime))
             }
             _ => None,
         };
@@ -25232,7 +25286,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let written = base.name.name.as_str();
         // [type-identity] An alias as the file that wrote the parameter sees
         // it: by written name in the keyed table, only std's were found.
-        if decl.generics.iter().any(|g| g.name == written) || self.scope_of(base).type_aliases.contains_key(written) {
+        if decl.generics.iter().any(|g| g.name == written) || self.named(base).alias.is_some() {
             return true;
         }
         match arg {
@@ -26492,7 +26546,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for ((q, decl), args) in pat.quals.iter().zip(resolved).zip(&pat.qual_args) {
             // The declaration's own slots, not copies: a slot's type is
             // lowered and its names resolved as the declaring file's
-            // (`type_ref_files`), and recorded at its own node.
+            // (`Resolution::names` [name-table]), and recorded at its own node.
             let slots: &'p [ast::ValueSlot] = decl.map(|d| d.value_slots.as_slice()).unwrap_or(&[]);
             if slots.is_empty() && !args.is_empty() {
                 self.error(args[0].1, messages::qual_depend_no_value_args(&q));
@@ -26904,11 +26958,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 base = Some(Ty::Lit(lit));
                 continue;
             }
-            let is_qual = self.qual_name_exists(name) || self.generics.contains(name);
-            let is_type = self.type_name_exists(name) || self.generics.contains(name);
+            // [name-table] What the name means where the check is written.
+            let meaning = self.named(r);
+            let generic = self.names_generic(r);
+            let is_qual = names_qualifier(name, &meaning) || generic;
+            let is_type = names_type(name, &meaning) || generic;
             // Every position but the last is a qualifier; the last is a
             // qualifier when it names one, else the checked base type.
-            if !last || self.qual_name_exists(name) {
+            if !last || names_qualifier(name, &meaning) {
                 if !is_qual {
                     self.require_name(r, true);
                     unresolved = true;
@@ -26917,7 +26974,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // at its declaration, so hovering `Positive` in
                 // `i is Positive` reaches the qualifier rather than falling
                 // through to the enclosing expression's `Bool`.
-                self.record_def_ref(r.name.span, name);
+                self.record_written_def(r);
                 quals.push(r.name.name.clone());
                 // [qual-depend] The filled block: `k is KeyOf(m)` — the
                 // places arrive as value arguments on the check's ref.
@@ -26939,7 +26996,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
             } else if is_type {
                 // The same for a *type* check (`x is Str`).
-                self.record_def_ref(r.name.span, name);
+                self.record_written_def(r);
                 let empty = HashMap::new();
                 base = Some(self.lower_base_ref(r, &empty, 0));
             } else {
@@ -31487,7 +31544,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // `fill_one_implicit`.
         if decl.intrinsic && decl.name.name == "protocol" && args.is_empty() {
             if let Some(ast::Type::Named { base, .. }) = type_args.first() {
-                let effect = self.type_key(&base.name.name);
+                let effect = self.written_key_of(base);
                 self.refuse_noremote_protocol(&effect, "protocol", span);
             }
         }
@@ -32278,6 +32335,27 @@ fn emitted_arm_ty(ret: &Ty) -> Option<(Ty, usize, usize)> {
 /// [proj-anywhere] [ref-handle] The span of the first `proj`/`ref`
 /// qualifier in a type, if any — searching arms, arguments and elements in
 /// order.
+/// [name-resolve] The qualifiers the compiler declares itself: no
+/// declaration to find, their rules `validate_quals`'.
+fn is_intrinsic_qualifier(name: &str) -> bool {
+    matches!(name, "Mut" | "Linear" | "linear" | "once" | "proj" | "ref")
+}
+
+/// [name-resolve] [name-table] Whether a written name, meaning `m` where it
+/// is written, is usable as a *type*: a struct, an `intrinsic` or `platform`
+/// type, an alias, an effect, or the language-level `None`. Generics are the
+/// caller's.
+fn names_type(name: &str, m: &crate::names::Meaning<'_>) -> bool {
+    name == "None" || m.is_type()
+}
+
+/// [name-resolve] [name-table] Whether it is usable as a *qualifier*: a
+/// declared one, an intrinsic one, or an effect (a producer's claim is
+/// written where a qualifier goes [fn-effects]).
+fn names_qualifier(name: &str, m: &crate::names::Meaning<'_>) -> bool {
+    is_intrinsic_qualifier(name) || m.is_qualifier() || m.effect.is_some()
+}
+
 fn first_proj_span(ty: &ast::Type) -> Option<Span> {
     first_qual_span(ty, crate::types::is_proj_name)
 }
