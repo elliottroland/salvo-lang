@@ -47,6 +47,7 @@ pub mod cli;
 pub mod data;
 pub mod front;
 pub mod run;
+mod warm_kotlinc;
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -230,8 +231,18 @@ fn resolve_on_path(program: &str) -> Option<PathBuf> {
 /// `kotlinc`, probed once per machine per install (the probe starts a JVM,
 /// so it is remembered on disk, not just per process). Pass
 /// `env!("CARGO_TARGET_TMPDIR")`.
+///
+/// [test-warm-kotlinc] Once it is found, the warm `kotlinc` goes first on
+/// this process's PATH (`warm_kotlinc`), so what every test and every
+/// `salvo` it starts runs as `kotlinc` from then on is a compile on a
+/// long-lived compiler JVM. The version is the real one's either way, so the
+/// stamps do not change with it.
 pub fn kotlinc(target_tmpdir: &str) -> Toolchain {
-    toolchain_disk_cached(target_tmpdir, "kotlinc", "-version")
+    let found = toolchain_disk_cached(target_tmpdir, "kotlinc", "-version");
+    if found.available {
+        warm_kotlinc::activate(target_tmpdir);
+    }
+    found
 }
 
 /// `rustc`, probed once per process. Deliberately *not* disk-cached: the

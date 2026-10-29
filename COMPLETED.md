@@ -144,6 +144,43 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-29 — The tests' kotlinc is a warm compiler ([test-warm-kotlinc], test speed option 1)
+
+- **Decided (user, 2026-10-29)**: option 1 of the test-speed round, without
+  relying on stamps ("that only helps in the warm case, which for some
+  compiler changes can trip up very often").
+- **Measured first**: a logging wrapper around `kotlinc` over a fresh suite
+  counted 130 invocations, 2,496s summed — about 78% of all test-seconds —
+  median 13.8s each inside the suite against 2.6s (empty file) to 7.0s
+  (hello world) alone. `rustc`, running the programs and the compiler itself
+  were minor (`run_data`'s own lines: kotlinc 20–70s an area, rustc 1–16s,
+  runs 0.5–10s). In one JVM the same hello world compiled in 5.4s, 1.9s,
+  1.4s, then about 1.0s.
+- **Built**: `crates/salvo-testkit/kotlinc/` — `KotlincServer.kt`, a JVM
+  running `K2JVMCompiler` once per request (full-path messages, through the
+  renderer-taking `exec` found by reflection; it is protected), and
+  `client.rs`, a std-only `kotlinc` that makes the path arguments absolute,
+  takes a free slot's lock (`File::try_lock`), starts that slot's server in
+  its own process group if none answers, and prints the messages and exits
+  with the code. `warm_kotlinc.rs` installs both under
+  `target/tmp/kotlinc-warm/<key>/` (the client by `rustc`, the server by the
+  real `kotlinc`, the JVM asked of the real one's `kotlin` runner, `lib/`
+  symlinked so a build finds `kotlin-stdlib.jar` beside it), and
+  `salvo_testkit::kotlinc()` puts it first on the process's PATH once the
+  real one is found, so the `salvo` subprocesses use it too. Unix sockets in
+  a 0700 `run/`; servers exit after 120s idle or 250 compiles; anything the
+  client does not parse, or a server it cannot reach, runs the real
+  `kotlinc`, as does `SALVO_WARM_KOTLINC=0`.
+- **Effect**: a fresh `cargo nextest run` 288s → 155–227s (three runs, load
+  averages 90–270), summed test-seconds 2,748 → 1,417–1,973; one area alone
+  (`control`) 5.0s of kotlinc → 0.8s; the per-commit warm nextest after a
+  `salvo-core` rebuild 91s (123s at B4's commit). A warm run with nothing
+  changed is unchanged (~68s): no kotlinc runs there.
+- **Rejected**: making `run_data` one test process so an in-process server
+  stays warm (the shared server already is, across processes); eight
+  servers instead of five (247s against 178s: the JVMs crowd out the tests);
+  the official Kotlin daemon (no `kotlinc` CLI switch reaches it).
+
 ### 2026-10-29 — Tests stop compiling the same thing twice (test speed, options 3 and 4)
 
 - **Decided (user, 2026-10-29)**: remove duplicated compiles (option 3), and
@@ -33646,6 +33683,14 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **The tests' `kotlinc` is not the one on your PATH** (2026-10-29,
+  [test-warm-kotlinc]): inside a test process, after `salvo_testkit::kotlinc()`
+  ran, `kotlinc` is the warm client. Its messages carry full paths, and a
+  test that spawns `kotlinc` before calling `kotlinc()`/`have()` gets the cold
+  one (correct, slow). A compile that behaves differently there than under
+  the real `kotlinc` is a bug in the client's argument translation: check with
+  `SALVO_WARM_KOTLINC=0`. Servers linger for 120s after the last test, up to
+  five JVMs of up to 3 GiB each.
 - **A step that answers early skips the checks after it** (B4,
   2026-10-28): `fill_one_implicit` tries the carried identity, then the
   written value, then forwarding, then resolution, returning at the first

@@ -18,8 +18,8 @@
 [profile.default]
 # The compile-and-run data (`salvo-cli`'s `run_data`, one test per area,
 # TESTS.md C3) legitimately runs a minute or two fresh: an area compiles
-# every program of it on both backends, kotlinc dominating (~100s for the
-# whole data with the machine loaded, 2026-10-28). The other toolchain
+# every program of it on both backends (kotlinc dominated until the tests'
+# kotlinc became a warm compiler, 2026-10-29: [test-warm-kotlinc]). The other toolchain
 # tests are minutes-long only when something is wrong; a test that hangs
 # should still say so rather than stall the run, so the ceiling is 6 minutes.
 slow-timeout = { period = "30s", terminate-after = 12 }

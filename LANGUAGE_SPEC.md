@@ -11428,6 +11428,17 @@ replaced the working document TESTING.md).
   projects are written before the stamp, and whose outcome the emitted code
   decides, is keyed on content; `salvo test`, `platform generate` and
   warning tests stay on the binary.
+* [test-warm-kotlinc] **The repository's tests compile Kotlin on a warm
+  compiler** (user decision 2026-10-29): `salvo-testkit` installs a
+  `kotlinc` of its own first on the test processes' PATH, a client
+  (`crates/salvo-testkit/kotlinc/client.rs`) handing each compile to a
+  long-lived JVM running the real compiler's `K2JVMCompiler`
+  (`KotlincServer.kt`), shared by every test process and the `salvo`
+  processes they start, one compile per server at a time. Not a cache: every
+  compile is done, by the same compiler on the same JVM. What it does not
+  understand, and any failure to reach a server, runs the real `kotlinc`;
+  `SALVO_WARM_KOTLINC=0` always does. Not a language feature: `salvo`
+  itself runs whatever `kotlinc` is on PATH.
 * [test-decl] `test "an empty heap pops nothing" { … }` declares a **test**: a
   top-level declaration with a string-literal name and a block body. No
   parameters, no effect list, no return type, and `export test` is refused — a

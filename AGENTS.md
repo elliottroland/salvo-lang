@@ -149,16 +149,18 @@ runner, where cross-binary scheduling wins and the timings matter):
 
 | command | what it does | wall time |
 |---|---|---|
-| `SALVO_SKIP_E2E=1 cargo test` | skips every toolchain test | ~75s (2026-10-14) |
-| `cargo test` | runs everything; skips only *re-verifying* unchanged generated code | ~86s warm (2026-10-14; budget ~15s), minutes cold |
-| `cargo nextest run` | the same, one process per test, with per-test timings | ~80–87s warm (2026-10-14) |
-| `SALVO_E2E_FRESH=1 cargo nextest run` | runs everything, ignoring the cache | ~6m20 (2026-10-14, 2,061 tests) |
+| `SALVO_SKIP_E2E=1 cargo test` | skips every toolchain test | ~60s (2026-10-29, machine loaded) |
+| `cargo test` | runs everything; skips only *re-verifying* unchanged generated code | ~74s warm (2026-10-29; budget ~15s), minutes cold |
+| `cargo nextest run` | the same, one process per test, with per-test timings | ~68s warm (2026-10-29) |
+| `SALVO_E2E_FRESH=1 cargo nextest run` | runs everything, ignoring the cache | ~2m35–3m50 (2026-10-29, 731 tests; ~4m50 before the warm kotlinc) |
 
 The warm numbers are over budget: what is left is the compiler running
 inside the tests (every program a test builds re-checks all of std), not
 toolchain work — ROADMAP §0h lists it by binary and names the levers.
 
-(Speeds measured 2026-10-14 at `[profile.dev] opt-level = 1`, on 10 cores;
+(Speeds measured 2026-10-29 at `[profile.dev] opt-level = 1`, on 10 cores
+with load averages of 90–270 during the runs, so they are noisy (the same
+fresh run measured 155–227s);
 the build figures 2026-09-21: a full rebuild is
 ~2m49 one-off, incremental builds ~8–12s. A run right after a **relink** —
 e.g. after touching `salvo-core` — additionally pays a serialized per-binary
@@ -171,8 +173,9 @@ run after a relink.)
   **warm** `cargo nextest run --no-fail-fast` when a commit follows (user
   decision 2026-10-05), otherwise `cargo test`. Not both: a `cargo test`
   after a green nextest repeats it (user decision 2026-10-28, TESTS.md TD6).
-  The nextest takes ~1m20 when little changed, measured 2026-10-14, up to
-  ~5m after an emitter or std change. The stamps already rerun every toolchain test
+  The nextest takes ~1m10 when little changed and ~1m30 after a
+  `salvo-core` rebuild (measured 2026-10-29, the machine loaded), more after
+  an emitter or std change. The stamps already rerun every toolchain test
   whose generated code, expected output or toolchain changed, every CLI test
   after a compiler rebuild, and every corpus program after a `salvo-core`
   rebuild or a std edit (`corpus_tests.rs`, keyed by its own test binary).
@@ -243,6 +246,18 @@ run after a relink.)
     starts a JVM and costs about as much as a small compile, so anything
     less made the *check* one of the most expensive things in the suite
     (under nextest, every test is its own process).
+  - **The tests' `kotlinc` is warm** (user decision 2026-10-29,
+    [test-warm-kotlinc]): once `salvo_testkit::kotlinc()` finds the real one,
+    it puts `target/tmp/kotlinc-warm/<key>/bin/kotlinc` first on the test
+    process's PATH — a client that hands each compile to a long-lived
+    compiler JVM shared by every test process and every `salvo` they start
+    (Unix sockets in a 0700 directory; one compile per server at a time;
+    servers exit after 120s idle). Every compile is still done; a cold
+    `kotlinc` cost 2.6–7s of JVM start and JIT warm-up each, ~78% of a fresh
+    run. Messages print full paths where the real one prints relative ones.
+    `SALVO_WARM_KOTLINC=0` runs the real `kotlinc`. A test that spawns
+    `kotlinc` (or `salvo` on Kotlin) must call `kotlinc()` or `tool()` /
+    `have()` first, as they all do, or it gets the cold one.
   - **Compile-and-run tests are data** ([test-run-data],
     `crates/salvo-cli/tests/run/<area>/*.sv`, format in its README; runner
     `run_data.rs`): one test per area, plus `examples`, which runs every
