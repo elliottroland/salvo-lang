@@ -522,7 +522,7 @@ pub fn walk_expr<V: MutVisitor>(v: &mut V, e: &mut Expr) {
             }
         }
         Expr::Ident(id) => v.visit_ident(id),
-        Expr::Field { base, field, span } => {
+        Expr::Field { base, field, span, .. } => {
             v.visit_span(span);
             walk_expr(v, base);
             v.visit_ident(field);

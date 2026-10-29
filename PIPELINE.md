@@ -281,12 +281,14 @@ all cases where we can.*
   `next(iter(c))`, resolved as those calls are; the declarations are not
   needed.
 - **D13: a dot call sees fn-typed locals.** `x.f(a)` is `f(x, a)`, literally.
-- **D14: an `eff[E]` receiver's call is an ordinary dot call.** In Salvo a
-  send member is understood as taking `self: eff[E]` as an implicit first
-  parameter, and `e.member(args)` is a normal dot call `member(e, args)`,
-  ranked with fns taking `eff[E]` first; the backends still spell it as a
-  send. The user was unsure of the knock-on decisions; they are listed in
-  §II.12 when B3 piece 7 reaches them, and asked before building.
+- **D14: replaced (user, 2026-10-28) by member calls and uniform calls**
+  (§II.10 P19). `x.name(args)` is a member call `(x.name)(args)` when `x`'s
+  type has a member `name` (a struct's field, an `eff[E]`'s member, which
+  sends), and otherwise the uniform call `name(x, args)`. A bare
+  `bump(c, 1)` is not a send. The earlier reading (a send member takes
+  `self: eff[E]` first and ranks with fns taking `eff[E]`) was dropped: it
+  would have put every member of every `eff[E]` variable in scope into the
+  function space.
 - **D18: a mint ranks by its captures**, like a partial call, and refuses a
   tie naming `k@m`.
 - **D21: implicits of one name are ranked** like overloads.
@@ -2662,7 +2664,38 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
   `2 ** 3 ** 2` is `512`); no `**=`. Alternatives: unary minus tighter; refuse
   `-a ** b` unparenthesized. Recommendation: as built. ROADMAP 0aq.
 
+- **P19. Member calls and uniform calls** (B3.4, replacing D14).
+  **Decided (user, 2026-10-28).** `x.name(args)` is a **member call** when
+  `x`'s type has a member `name`, lowered as `(x.name)(args)` (for an
+  `eff[E]`, still the send); otherwise a **uniform call**, the plain call
+  `name(x, args)` exactly, so D12 and D13 hold. Labels `[fn-member-call]`
+  and `[fn-uniform]` (the label was fn-dot). The parts:
+  1. The names "member call" and "uniform call" (user's choice).
+  2. **(a) any member shadows**: a non-fn member makes `x.name()` an error
+     suggesting `name(x)`. Rejected (b), only callable members shadow.
+  3. A member that hides a function is called, **with a warning** naming
+     `(x.name)(…)` and `name(x, …)`; the grouped callee is the explicit
+     member call and does not warn (the parser keeps the parentheses).
+  4. **Member values** (`c.bump` as a fn value that sends): a future change,
+     in ROADMAP.md.
+  5. `?.`: the same rule on the narrowed first arm, **option (a)**: its
+     shadow warning is silenced only by writing the narrowing out.
+     Rejected (b) no warning under `?.`, (c) a new spelling.
+  6. `x.(F)(a)` for `(F)(x, a)`: **left out**, recorded in ROADMAP.md.
+  Engineering under it: a non-place receiver's member is looked up only
+  when nothing of the name could take a uniform call (its type needs a
+  check), so with both it takes the function (ROADMAP.md); a handler's own
+  `send fn` is not reached by a uniform call (piece 7); an `eff[E]` with no
+  such member and nothing to take it first reports
+  `actor-use-addr:no-member`.
+
 ## II.11. Rounds
+
+### 2026-10-28
+
+- D14's knock-ons: the user proposed the fn-typed-field parallel for
+  `eff[E]` and a unified rule; decided as P19 (names, 2a, warning with the
+  grouped form, member values later, `?.` option (a), no `.(`).
 
 ### 2026-10-27, first
 
@@ -3197,28 +3230,38 @@ this log current so the work can resume after a context reset). Newest last.
   overloads share a first-parameter base needs a wider key in the backends'
   tables.
 
+- **B3.4, dot calls (2026-10-28).** Built under P19, which replaced D14:
+  `check_dot_call` decides member call or uniform call (`dot_member`: a
+  struct's visible field, an `eff[E]`'s member); `check_name_call`, cut out
+  of the bare-call branch, is the shared part a local or an implicit
+  answers, so `x.f(a)` and `f(x, a)` go through one path; a member call on a
+  field is recorded in `Checked::field_calls` and lowered as the computed
+  callee; `?.`'s call link is `check_dot_call` on the narrowed arm (and the
+  IR's `safe_call` gained the send, field and local branches). New
+  diagnostics `fn-member-call:not-callable`, `fn-member-call:shadows`;
+  fn-dot's unknown-fn is `fn-uniform:unknown-fn`, and
+  `op-safe-nav:unknown-fn` is gone (one rule, one message). Newly accepted:
+  `counter.describe()` with `fn describe(c: eff[Counter])`, `n.twice()`
+  through a local or an implicit. Changed behaviour: `5.show()` beside a
+  local `show` takes the local (one run expectation). std: `fn join`'s
+  body is `(group.join)(member)`, the one shadow in std. Sites that still
+  read a `Field` callee as receiver-first without asking which it was
+  (`deduce.rs` `call`, `lends.rs`, `reach.rs`, the fate links and the
+  `waitfor` binder inference in `check.rs`): keyed facts keep them right for
+  a uniform call; a member call through a field could be misread there,
+  with no case found yet.
+
 - **Where it stands (2026-10-28) — resume here.** Stage A complete; B1,
-  B2 done; B3 pieces 1, 3a–3e done (HEAD 18073516). **B3.4 (dot calls) was
-  started and cancelled before any edit**; the tree is clean, so it starts
-  from its brief: `x.f(a)` lowers to `f(x, a)` through the plain call's whole
-  path (D12: an enclosing implicit takes it; D13: a fn-typed local takes it,
-  R10; members compete), `x.f@m(a)` as `f@m(x, a)`, `?.` alike; the `eff[E]`
-  receiver (D14) and the namespace and qualifier forms stay as they are.
-  **Remaining B3 order:** 4 (dot calls), 5 (effect- and qualifier-member
-  calls: D15, D16's shared lead pool, D17, D25), 6 (fn values, local calls:
-  a bare member name as a value) — none blocked; 2 (interpolation) waits on
-  **the format fn's shape** (§II.10 P4: how `"a ${x} b"` lowers — not yet
-  asked) and D4's general union `to_str` (deferred, R10); 7 (sends, mints:
-  D14, D18, D24) waits on **D14's knock-on decisions** (not yet listed or
-  asked). **Open decisions, each built as its recommended option:** P9–P18
-  (§II.10; ROADMAP 0af, 0ah–0aq). **Paused by the user (2026-10-28)** to
-  rethink how testing is done before continuing (tracked in TESTS.md): this run spent ~48% of its
-  logged time on tests (since A1: 6.3 of 13.1 h), mostly the per-piece
-  differential (two fresh full suites plus dump comparison), a warm nextest
-  before each commit (3.5–7 min after any core or std change, every stamp
-  missing) and a final `cargo test` repeating it; every test program
-  re-checks all of std. Whatever is decided changes the per-piece method in
-  the briefs above.
+  B2 done; B3 pieces 1, 3a–3e and 4 done. TESTS.md's reorganisation is
+  finished (the per-piece method is its data runners and a warm nextest
+  before each commit). **Remaining B3 order:** 5 (effect- and
+  qualifier-member calls: D15, D16's shared lead pool, D17, D25), 6 (fn
+  values, local calls: a bare member name as a value) — none blocked; 2
+  (interpolation) waits on **the format fn's shape** (§II.10 P4) and D4's
+  general union `to_str` (deferred, R10); 7 (sends, mints: D18, D24, and a
+  handler's own `send fn` under a uniform call). **Open decisions, each
+  built as its recommended option:** P9–P18 (§II.10; ROADMAP 0af,
+  0ah–0aq).
 
 ## II.13. The call census (B1, 2026-10-27)
 
@@ -3617,7 +3660,7 @@ shadows them at `show(5)`.
   name".
 
 **Under P3** `5.show()` → `show(5)` → the local, so the dot call changes
-behaviour on Rust. **Decision: yes.** [fn-dot] says `base.f(args)` is
+behaviour on Rust. **Decision: yes.** [fn-uniform] (then fn-dot) says `base.f(args)` is
 `f(base, args)`, which P3 makes literal. You may prefer dot calls to name
 declared functions only, so that a local `show` cannot capture `x.show()`.
 Either way, the Kotlin miscompile and the warning are bugs now.
@@ -3625,9 +3668,17 @@ Either way, the Kotlin miscompile and the warning are bugs now.
 Fixed, the bugs half (commit "Qualify every declared callee in Kotlin and check fn-value calls"): Kotlin names the
 declaration (`salvo.main.show(5)`), and the warning is withheld where a
 local, a `send fn` or an effect member takes the bare name. The decision is
-still open: the dot call keeps ignoring locals.
+still open: the dot call keeps ignoring locals. **Built in B3.4
+(2026-10-28):** a uniform call is the plain call, so `5.show()` takes the
+local on both backends, and `5.show@main()` beside it is not warned about.
 
 #### D14. A dot call on an `eff[E]` place is always a send
+
+**Replaced by P19 (user, 2026-10-28), built in B3.4.** `counter.describe()`
+is now `describe(counter)` (E has no member `describe`); a fn beside a send
+member of the same name is not an ambiguity: the member is called, with a
+warning. A non-place receiver can be a send now, when nothing of the name
+takes a uniform call. The census text below is the state before.
 
 `addr_receiver` peeks at the receiver. If it is a place of type `eff[E]`,
 the call is `check_addr_call` with E's members only, and fns are never

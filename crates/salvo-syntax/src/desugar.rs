@@ -1055,6 +1055,7 @@ fn pass_field(name: &str, span: Span, base_span: Span) -> Expr {
             span,
         },
         span,
+        grouped: false,
     }
 }
 

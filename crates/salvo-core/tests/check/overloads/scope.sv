@@ -126,9 +126,9 @@ fn past_a_local() -> None {
 // reaches the same function, and a local of that name takes a bare call
 // first: beside a fn-typed local `show`, `show@main(5)` is the only way to
 // the declaration and is not warned about (B1 census D13, 2026-10-27: it
-// was, because the check ranked the declared fns alone). The dot form sees
-// no locals [fn-dot], so `5.show@main()` is still redundant there; without
-// the local, the plain form is too ("this `@main` is not needed").
+// was, because the check ranked the declared fns alone). The dot form is the
+// plain call [fn-uniform], so `5.show@main()` is needed there too; without
+// the local, either form is redundant ("this `@main` is not needed").
 fn show(n: Int) [] -> Str => n { return "decl" }
 
 fn shadowed() -> None {
@@ -139,14 +139,15 @@ fn shadowed() -> None {
 
 fn shadowed_dot() -> None {
     let show = (n: Int) -> "local"
-    let _l: Str = show(5)
-    //~ warning[fn-overload-at:not-needed]
+    let _l: Str = 5.show()
     let _d: Str = 5.show@main()
 }
 
 fn plain() -> None {
     //~ warning[fn-overload-at:not-needed]
     let _d: Str = show@main(5)
+    //~ warning[fn-overload-at:not-needed]
+    let _e: Str = 5.show@main()
 }
 
 //--- a suffix two modules end in

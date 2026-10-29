@@ -421,9 +421,9 @@ Conventions:
     prints the callback as `<fn>` (`.field("f", &"<fn>")`), since `dyn Fn`
     has no `Debug`;
   * a read is an ordinary place read (`let mut g = d.f.clone();`, an `Arc`
-    bump), and calling the value still needs a local first (`let g = h.f`
-    then `g(e)`) — `h.f(e)` is dot-notation for `f(h, e)` [fn-dot], which
-    is a language rule, not a backend one;
+    bump), and `h.f(e)` is a member call [fn-member-call]: the IR reads the
+    field into a local and calls that, so it is emitted as `let g = h.f`
+    then `g(e)`;
   * **a fn value a fn returns** is stored the same way (2026-10-14, found
     with ROADMAP 0y): `-> std::sync::Arc<dyn Fn(&String) -> bool + Send +
     Sync>`, and `return long` wraps
@@ -1721,11 +1721,14 @@ effects" keeps the history).
 
 ## Functions and calls
 
-* [fn-dot] Dot-notation calls resolve to a declared fn or effect
-  member and normalize to `f(base, args)`. There is no method-call
-  fallback: an unresolved name here is a *codegen error* naming an internal
-  inconsistency, since the checker already rejects undeclared dot-calls
-  ([call-resolve]).
+* [fn-uniform] A uniform call resolves to a declared fn, an effect member or
+  a fn-typed local, and normalizes to `f(base, args)`. There is no
+  method-call fallback: an unresolved name here is a *codegen error* naming
+  an internal inconsistency, since the checker already rejects undeclared
+  dot-calls ([call-resolve]).
+* [fn-member-call] A member call through a fn-typed field is the computed
+  callee `(x.f)(args)`: the IR binds the field read to a `__callee` local and
+  calls that (an `Arc` bump of the stored `dyn Fn` [rs-fn-field]). A member call on an `eff[E]` is the send.
 * [fn-variadic] Non-spread trailing arguments collect into `vec![...]`
   (`crate::total(vec![4i32, 5i32])`); with a spread the vector is built in a
   block, each spread extending it with clones of its elements:

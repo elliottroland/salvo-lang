@@ -169,7 +169,7 @@ pub struct CompletionFn {
     /// precomputed in `detail` and its availability gated by `effect`.
     pub key: Option<salvo_core::DeclId>,
     /// The base type name of the first parameter, which dot-notation's
-    /// receiver fills [fn-dot]; `None` when it has none or it is one of the
+    /// receiver fills [fn-uniform]; `None` when it has none or it is one of the
     /// fn's own type parameters.
     pub receiver: Option<String>,
     /// The first parameter is a type parameter: any receiver fits.

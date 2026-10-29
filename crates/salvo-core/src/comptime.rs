@@ -851,7 +851,7 @@ impl HoverRecorder<'_> {
         // are a `Field` whose base is a binder or the bound parameter, and a
         // `v.[binder]` access; everything else recurses.
         match e {
-            Expr::Field { base, field, span } => {
+            Expr::Field { base, field, span, .. } => {
                 if let Some(b) = field.name.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
                     if self.binder_kind(b).is_some() {
                         self.push(
@@ -3781,7 +3781,7 @@ impl MutVisitor for Expander<'_> {
         match expr {
             // `v.[field]` → `v.field`; `field.name` / `field.index` /
             // `field.first` / `field.last`; `T.name`.
-            Expr::Field { base, field, span } => {
+            Expr::Field { base, field, span, .. } => {
                 if let Some(b) = field.name.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
                     match self.binding(b) {
                         Some(bd) if !bd.is_arm => {

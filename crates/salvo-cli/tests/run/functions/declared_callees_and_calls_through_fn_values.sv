@@ -74,7 +74,7 @@ fn main() [use] {
 //= for: 20
 //= call: 10
 //= call: local 5
-//= dot: decl 5
+//= dot: local 5
 //= at: decl 5
 //= roots: decl 2
 //= member, fn 7, fn 7

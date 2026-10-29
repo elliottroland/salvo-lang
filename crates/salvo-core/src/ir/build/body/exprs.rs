@@ -1165,7 +1165,9 @@ impl<'a, 'p> Lower<'a, 'p> {
             let a: Vec<Expr> = args.iter().map(|x| self.expr(x)).collect();
             return Expr { ty, span, kind: ExprKind::SelfSend { member, args: a } };
         }
-        // Dot-notation [fn-dot]: the receiver is the first argument.
+        // [fn-uniform] A uniform call: the receiver is the first argument.
+        // A member call through a field [fn-member-call] is the computed
+        // callee `(x.f)(args)` below.
         let mut all_args: Vec<&AExpr> = Vec::with_capacity(args.len() + 1);
         if info.dot_call {
             if let AExpr::Field { base, .. } = callee {
@@ -1183,10 +1185,13 @@ impl<'a, 'p> Lower<'a, 'p> {
             AExpr::Field { field, .. } => field.name.clone(),
             _ => String::new(),
         };
-        if let Some(call) = self.call_named(&name, all_args.clone(), named, span, ty.clone()) {
-            return call;
+        if !info.field_call {
+            if let Some(call) = self.call_named(&name, all_args.clone(), named, span, ty.clone()) {
+                return call;
+            }
         }
-        // A computed callee: a lambda or fn value expression.
+        // A computed callee: a lambda or fn value expression, or a fn-typed
+        // field [fn-member-call].
         let target = self.expr(callee);
         let tmp = self.fresh("__callee");
         let id = self.id();
@@ -1195,12 +1200,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // its leading arguments (found beside B1 census D19, 2026-10-27 — a
         // computed callee with effects had none passed, and both target
         // compilers refused the call).
-        let mut a: Vec<Expr> = Vec::new();
-        if let Ty::Fn { effects, .. } = tt.strip_quals() {
-            for t in crate::threaded_effects(effects) {
-                a.push(self.effect_instance(&t, span));
-            }
-        }
+        let mut a = self.fn_value_effect_args(&tt, span);
         let rest: Vec<Expr> = all_args.iter().map(|x| self.expr(x)).collect();
         // [fn-contract] The checker applied the value's contract here too
         // (B1 census D19): a consumed position consumes its place.
@@ -2323,37 +2323,89 @@ impl<'a, 'p> Lower<'a, 'p> {
     fn safe_link(&mut self, nav: &Local, inner: &Ty, access: &ast::SafeAccess, span: Span) -> Expr {
         match access {
             ast::SafeAccess::Field(field) => {
-                // The field's type on the (non-`None`) receiver struct.
-                let fty = match inner.strip_quals() {
-                    Ty::Named { name, .. } => self
-                        .ctx
-                        .symbols
-                        .structs
-                        .get(name.as_str())
-                        .and_then(|sd| sd.fields.iter().find(|f| f.name.name == field.name))
-                        .map(|f| match &f.ty {
-                            Some(t) => self.ctx.written_ty(self.file_idx, t),
-                            None => self.ctx.ty_of(self.file_idx, f.name.span).unwrap_or(Ty::Unknown),
-                        }),
-                    _ => None,
-                }
-                .unwrap_or_else(|| self.ty_of(span));
+                let fty = self.struct_field_ty(inner, &field.name).unwrap_or_else(|| self.ty_of(span));
                 Expr { ty: fty, span, kind: ExprKind::Read { place: Place { root: nav.clone(), steps: vec![Step::Field(field.name.clone())] }, consume: false, moved: false } }
             }
-            ast::SafeAccess::Call { args, .. } => self.safe_call(nav, inner, args, span),
+            ast::SafeAccess::Call { field, args, .. } => self.safe_call(nav, inner, field, args, span),
         }
     }
 
+    /// [fn-effects] The leading arguments of a call through a fn value of
+    /// type `fty`: the instances of the effects it performs. A throw is not
+    /// a threaded instance [throw].
+    fn fn_value_effect_args(&mut self, fty: &Ty, span: Span) -> Vec<Expr> {
+        let mut a = Vec::new();
+        if let Ty::Fn { effects, .. } = fty.strip_quals() {
+            for t in crate::threaded_effects(effects) {
+                a.push(self.effect_instance(&t, span));
+            }
+        }
+        a
+    }
+
+    /// The declared type of field `name` of the struct `ty`, when it is one.
+    fn struct_field_ty(&self, ty: &Ty, name: &str) -> Option<Ty> {
+        let Ty::Named { name: sname, .. } = ty.strip_quals() else { return None };
+        let sd = self.ctx.symbols.structs.get(sname.as_str())?;
+        let f = sd.fields.iter().find(|f| f.name.name == name)?;
+        Some(match &f.ty {
+            Some(t) => self.ctx.written_ty(self.file_idx, t),
+            None => self.ctx.ty_of(self.file_idx, f.name.span).unwrap_or(Ty::Unknown),
+        })
+    }
+
     /// [op-safe-nav] A `base?.m(args)` call, built from `call_info` recorded under
-    /// the `SafeNav` span, with the narrowed receiver `nav` as argument zero.
-    /// Handles the two resolutions a dot call reaches — a declared fn and an
-    /// effect member — and refuses anything else rather than emit wrong code
+    /// the `SafeNav` span on the narrowed receiver `nav`: a member call — a
+    /// send through an `eff[E]`, or a call through a fn-typed field
+    /// [fn-member-call] — or a uniform call with `nav` as argument zero
+    /// [fn-uniform], to an effect member, a fn-typed local or implicit, or a
+    /// declared fn. Anything else is refused rather than emitted wrong
     /// ([backend-never-wrong]).
-    fn safe_call(&mut self, nav: &Local, inner: &Ty, args: &[AExpr], span: Span) -> Expr {
+    fn safe_call(&mut self, nav: &Local, inner: &Ty, field: &ast::Ident, args: &[AExpr], span: Span) -> Expr {
         let key = self.key(span);
         let ty = self.ty_of(span);
         let recv = Expr { ty: inner.clone(), span, kind: ExprKind::Read { place: Place { root: nav.clone(), steps: Vec::new() }, consume: false, moved: false } };
         let info = self.ctx.checked.call_info(key);
+        // [fn-member-call] A send through the narrowed addr.
+        if let Some(effect) = info.addr_call.cloned() {
+            let a: Vec<Expr> = args.iter().map(|x| self.expr(x)).collect();
+            return match self.member_ref_by_name(&effect, &field.name, span) {
+                Some(member) => Expr { ty, span, kind: ExprKind::Send { addr: Box::new(recv), member, args: a } },
+                None => unsupported(ty, span, "safe-nav addr send"),
+            };
+        }
+        // [fn-member-call] A call through the narrowed struct's fn-typed field.
+        if info.field_call {
+            let fty = self.struct_field_ty(inner, &field.name).unwrap_or(Ty::Unknown);
+            let read = Expr { ty: fty.clone(), span, kind: ExprKind::Read { place: Place { root: nav.clone(), steps: vec![Step::Field(field.name.clone())] }, consume: false, moved: false } };
+            let tmp = self.fresh("__callee");
+            let id = self.id();
+            let mut a = self.fn_value_effect_args(&fty, span);
+            let rest: Vec<Expr> = args.iter().map(|x| self.expr(x)).collect();
+            a.extend(self.mark_consumed_by_contract(rest, &key));
+            let call = Expr { ty: ty.clone(), span, kind: ExprKind::Call { target: FnRef::Local(tmp.clone()), type_args: Vec::new(), args: a, moved: false } };
+            return self.block_expr(vec![Stmt::Let { id, local: tmp, ty: fty, value: read }], call, span);
+        }
+        // [fn-uniform] A fn-typed local or implicit, the receiver first.
+        if info.local_call {
+            let local_name = info.local_call_name.cloned().unwrap_or_else(|| field.name.clone());
+            let local = self
+                .lookup(&local_name)
+                .map(|b| b.local.clone())
+                .or_else(|| self.implicit_locals.get(&local_name).cloned())
+                .or_else(|| self.lookup(&field.name).map(|b| b.local.clone()));
+            let Some(local) = local else {
+                self.error(span, messages::call_resolve_lower_unknown_local(&field.name));
+                return unsupported(ty, span, "safe-nav local call");
+            };
+            let lty = self.lookup(&local.0).map(|b| b.ty.clone()).unwrap_or(Ty::Unknown);
+            let mut a = self.fn_value_effect_args(&lty, span);
+            let mut rest = vec![recv];
+            rest.extend(args.iter().map(|x| self.expr(x)));
+            a.extend(self.mark_consumed_by_contract(rest, &key));
+            let moved = self.ctx.checked.flow_moves.contains(&key);
+            return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Local(local), type_args: Vec::new(), args: a, moved } };
+        }
         // Effect-member dot call.
         if let Some(mc) = info.member_call.cloned() {
             let Some(interface) = self.ctx.decl_of_effect(&mc.effect) else {

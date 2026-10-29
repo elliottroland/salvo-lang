@@ -22,7 +22,7 @@ fn bucket(n: Int) [] -> Long => n {
     return hash(n)
 }
 
-// Dot notation reaches it too — `a.cmp(b)` *is* `cmp(a, b)` [fn-dot], which
+// A uniform call reaches it too — `a.cmp(b)` *is* `cmp(a, b)` [fn-uniform], which
 // is what makes a capability read like a method without being one.
 fn compare(a: Int, b: Int) [] -> Int => a, b {
     return a.cmp(b)

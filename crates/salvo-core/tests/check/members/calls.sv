@@ -45,11 +45,11 @@ fn calling_a_generic<T>(f: T) -> Int => f {
     return 1
 }
 
-// [call-resolve] [fn-dot] Dot-notation is sugar for a function call, so an
-// undeclared method name is unresolved — the diagnostic says how to reach a
+// [call-resolve] [fn-uniform] A dot call with no member of the name is a
+// plain call, so an undeclared method name is unresolved — the diagnostic says how to reach a
 // target-language method (a `platform handler`).
 fn unresolved_dot_call(p: Person) -> Int => p {
-    //~ error[fn-dot:unknown-fn]
+    //~ error[fn-uniform:unknown-fn]
     p.missing_method()
     return 1
 }

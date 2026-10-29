@@ -881,12 +881,15 @@ nothing but the monitor.
   * An iterator fn's **implicit** parameters become constructor properties of
     the generated pass, like its written ones [implicit-param]: the body calls
     them on every turn, long after the call that filled them.
-* [fn-dot] Dot-notation calls resolve to a declared fn or effect
-  member and normalize to `f(base, args)`. There is no method-call
-  fallback: an unresolved name here is a *codegen error* naming an internal
-  inconsistency, since the checker already rejects undeclared dot-calls
-  ([call-resolve]). Emitted Kotlin is never a guess
+* [fn-uniform] A uniform call resolves to a declared fn, an effect member or
+  a fn-typed local, and normalizes to `f(base, args)`. There is no
+  method-call fallback: an unresolved name here is a *codegen error* naming
+  an internal inconsistency, since the checker already rejects undeclared
+  dot-calls ([call-resolve]). Emitted Kotlin is never a guess
   ([backend-never-wrong]).
+* [fn-member-call] A member call through a fn-typed field is the computed
+  callee `(x.f)(args)`: the IR binds the field read to a `__callee` local and
+  calls that. A member call on an `eff[E]` is the send.
 * [platform-intrinsic-fn] Every std lowering lives in this crate's `intrinsics.rs`
   (`fn_call`), keyed by the checker-resolved declaration (name + first
   parameter's base type name, so `size(Str)` / `size(List<T>)` /

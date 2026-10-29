@@ -90,8 +90,9 @@ implementation of an ordinary Salvo effect whose member functions you
 declare and the compiler turns into an interface
 for the host to implement (see [Backends](Backends.md)) — there is no way to
 name a Kotlin method or a Rust function that some declaration in scope does
-not already stand for. Dot-notation still reads like a method call
-(`text.shout()` is `shout(text)`), but the function has to exist. The same
+not already stand for. A dot call still reads like a method call
+(`text.shout()` is `shout(text)` when `Str` has no member `shout`), but the
+function has to exist. The same
 applies to generics: a type parameter has no bounds, so nothing is known
 about a `T` — reading `value.name` inside `fn f<T>(value: T)` is an error,
 not a promise about the values you will pass in.

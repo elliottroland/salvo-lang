@@ -2267,8 +2267,8 @@ messages! {
     );
     /// A send through a handle naming no member.
     actor_use_addr_no_member = "actor-use-addr:no-member" (instance: &dyn std::fmt::Display, effect_name: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
-        "actor `{instance}` serves effect `{effect_name}`, which has no member named \
-         `{member}`"
+        "`{instance}` serves effect `{effect_name}`, which has no member named `{member}`, \
+         and no function named `{member}` takes it as its first argument"
     );
     /// A call through a handle to a member that is not a `send fn`.
     actor_use_addr_not_send = "actor-use-addr:not-send" (member: &dyn std::fmt::Display) => format!(
@@ -3134,12 +3134,28 @@ messages! {
          type: `({name}: ...) -> ...`)"
     );
 
-    // [fn-dot]
-    /// A dot-notation call naming no function in scope.
-    fn_dot_unknown_fn = "fn-dot:unknown-fn" (name: &dyn std::fmt::Display) => format!(
-        "no function named `{name}` is in scope: dot-notation calls a function with the \
-         receiver as its first argument, so a target-language method is reached by \
-         declaring it in an effect a `platform handler` implements"
+    // [fn-uniform]
+    /// A uniform call naming no function in scope, and no member of the receiver.
+    fn_uniform_unknown_fn = "fn-uniform:unknown-fn" (name: &dyn std::fmt::Display) => format!(
+        "no function named `{name}` is in scope, and the receiver has no member `{name}`: \
+         `x.{name}(…)` calls the receiver's member, or else a function with the receiver as \
+         its first argument; a target-language method is reached by declaring it in an \
+         effect a `platform handler` implements"
+    );
+
+    // [fn-member-call]
+    /// A member call on a member that is not a function.
+    fn_member_call_not_callable = "fn-member-call:not-callable" (member: &dyn std::fmt::Display, owner: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
+        "`{member}` is a field of `{owner}` of type `{ty}`, not a function, so it cannot be \
+         called: a member takes `.{member}(…)` before any function of its name, so to call \
+         the function `{member}` with the receiver first, write `{member}(…)` with the \
+         receiver as its first argument"
+    );
+    /// A member call that hides a function a uniform call would reach.
+    fn_member_call_shadows = "fn-member-call:shadows" (member: &dyn std::fmt::Display, owner: &dyn std::fmt::Display) => format!(
+        "`.{member}(…)` calls the member `{member}` of `{owner}`, not the function `{member}` \
+         in scope that takes it first: write `(x.{member})(…)` to say you mean the member, or \
+         `{member}(x, …)` for the function"
     );
 
     // [fn-effects]
@@ -4011,11 +4027,6 @@ messages! {
     op_safe_nav_single_arm = "op-safe-nav:single-arm" (base_ty: &dyn std::fmt::Display) => format!(
         "`?.` guards the first arm of a union, but this receiver is `{base_ty}` — it has \
          only one arm, so write a plain `.`"
-    );
-    /// A `?.` call naming no function in scope.
-    op_safe_nav_unknown_fn = "op-safe-nav:unknown-fn" (name: &dyn std::fmt::Display) => format!(
-        "no function named `{name}` is in scope: `?.` calls a function with the receiver \
-         as its first argument"
     );
     /// A `?.` method call whose receiver is not a place.
     op_safe_nav_receiver_not_place = "op-safe-nav:receiver-not-place" () =>

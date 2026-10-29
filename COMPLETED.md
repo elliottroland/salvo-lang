@@ -144,6 +144,44 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — Member calls and uniform calls (PIPELINE.md B3.4, P19)
+
+- **Decided (user, 2026-10-28), replacing R10 D14**: `x.name(args)` is a
+  **member call** when `x`'s type has a member `name` (a struct's visible
+  field, or a member of E for an `eff[E]`), lowered as `(x.name)(args)`, and
+  for an `eff[E]` still emitted as the send; otherwise a **uniform call**, the
+  plain call `name(x, args)` exactly, so an enclosing implicit or a fn-typed
+  local takes it (D12, D13). Any member shadows (option (a)): a non-fn
+  member is `fn-member-call:not-callable`, suggesting `name(x)`. A member
+  hiding a function the uniform call would reach is called, with
+  `fn-member-call:shadows` naming `(x.name)(…)` and `name(x, …)`; the
+  grouped form is explicit and does not warn. `?.` follows the same rule on
+  its narrowed arm (option (a)). Left out: `x.(F)(a)` (ROADMAP "Recorded,
+  not scheduled"); member values are a future change (ROADMAP 0as). Labels
+  `[fn-member-call]` and `[fn-uniform]`, which replaces `[fn-dot]`.
+- **What it took**: the parser keeps a parenthesised field callee
+  (`Expr::Field.grouped`); the checker's `check_dot_call` decides which call
+  it is, and `check_name_call`, cut out of the bare-call branch, is the part a
+  local or implicit answers for both spellings; a call through a field is
+  `Checked::field_calls`, lowered as the computed callee; `?.`'s call link
+  runs `check_dot_call` on the narrowed arm, and the IR's `safe_call` gained
+  the send, field-call and local-call branches. `op-safe-nav:unknown-fn`
+  went: one rule, one message (`fn-uniform:unknown-fn`). An `eff[E]` without
+  the member and with nothing to take it first keeps
+  `actor-use-addr:no-member`, so `timer.advance(1)` on the wrong face is one
+  error, not a uniform call's three.
+- **What fell out**: `5.show()` beside a local `show` now takes the local
+  (one run expectation changed), and `5.show@main()` there is no longer
+  warned redundant; `counter.describe()` with `fn describe(c: eff[Counter])`
+  is accepted. std had one shadow: `fn join`'s body sends through
+  `(group.join)(member)`. A non-place receiver has its member looked up
+  only when nothing of the name takes a uniform call (ROADMAP 0as). Found
+  beside it, present before: a `?.` link whose result is `None` miscompiles
+  on Rust (ROADMAP 0ar).
+- Tests: checker data `members/dot_calls.sv`, run data
+  `functions/member_and_uniform_calls.sv` (both backends), `overloads/scope.sv`
+  updated.
+
 ### 2026-10-28 — First fixes from ROADMAP §0ar (what the test migration found)
 
 - **A miscompile**: `return ok(ok(1))` into `Ok (Ok Int | Err Str) | Err
@@ -9234,7 +9272,7 @@ Checked against the tables already built, three things were target concerns:
 
 ### 2026-10-06 — Dot calls and borrowed results from core (§0j steps 12 and 13, partial)
 
-* `Checked::dot_calls` ([fn-dot]): the checker records each `base.f(args)` it
+* `Checked::dot_calls` ([fn-uniform]): the checker records each `base.f(args)` it
   read as `f(base, args)`; both emitters normalize exactly those instead of
   asking `effect_of_fn` / `resolve_fn`. Compared first over the suite: no
   difference.
@@ -16676,7 +16714,7 @@ Three things it had to learn, each found by running it:
   missed them.
 - **A `receiver.member(args)` call means two different things** and the syntax
   cannot say which: dot-notation on a *value* makes the receiver the first
-  declared parameter [fn-dot], while the same shape on an `Addr` is a send whose
+  declared parameter [fn-uniform], while the same shape on an `Addr` is a send whose
   member declares only the message's own parameters. Both positions are now
   tried; since only a `Reply<T>` position is accepted, the wrong guess
   contributes nothing, and two that both hit are the ambiguity the rule already
@@ -26984,7 +27022,7 @@ shape proves; the findings, in the order they matter:
    on Rust and accepted on Kotlin** — a live backend divergence, and the
    reason (B) was a *generated*-pass mechanism; ✅ lifted in R5 as predicted
    ([rs-fn-field]: `Rc<dyn Fn…>` was all it took). Calling a
-   fn-typed field needs a local first (`h.f(e)` is `f(h, e)` [fn-dot]). A
+   fn-typed field needs a local first (`h.f(e)` is `f(h, e)` [fn-uniform]). A
    generic struct literal needs written type arguments. And Rust's overload
    mangling reaches `close` too (`close__2`), so the `for` sugar needs **two**
    resolved functions handed over per subject where `for_drivers` carries one.
@@ -33398,6 +33436,12 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **Asking whether a function "takes" a type needs rigid outer type
+  variables** (B3.4, 2026-10-28): `unify` binds every `Ty::Var`, so lowering
+  a candidate's parameter inside a generic handler turns the handler's own
+  `E` into something `eff[E]` unifies with `eff[Watcher<E>]`. The shadow
+  check (`uniform_reaches`) accepts a binding only for the callee's own
+  generics; without that, std's `ActorGrouping<E>` warned at four sends.
 - **A content-keyed CLI stamp sees only emitted files** (TESTS.md C1,
   2026-10-28): `salvo_testkit::cli` hashes what `salvo compile` writes, and
   its stderr only when it fails, so a test asserting a *warning* the driver

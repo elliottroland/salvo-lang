@@ -2953,6 +2953,7 @@ Module {
                                                 span: 6386..6390,
                                             },
                                             span: 6384..6390,
+                                            grouped: false,
                                         },
                                         Field {
                                             base: Ident(
@@ -2966,6 +2967,7 @@ Module {
                                                 span: 6394..6396,
                                             },
                                             span: 6392..6396,
+                                            grouped: false,
                                         },
                                     ],
                                     named: [],
@@ -3046,6 +3048,7 @@ Module {
                                         span: 6455..6457,
                                     },
                                     span: 6453..6457,
+                                    grouped: false,
                                 },
                                 value: Binary {
                                     op: Add,
@@ -3061,6 +3064,7 @@ Module {
                                             span: 6462..6464,
                                         },
                                         span: 6460..6464,
+                                        grouped: false,
                                     },
                                     rhs: Int {
                                         value: 1,

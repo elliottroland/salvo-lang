@@ -784,6 +784,7 @@ Module {
                                         span: 568..575,
                                     },
                                     span: 561..575,
+                                    grouped: false,
                                 },
                                 span: 541..575,
                             },
@@ -895,6 +896,7 @@ Module {
                                         span: 641..645,
                                     },
                                     span: 634..645,
+                                    grouped: false,
                                 },
                                 value: Str {
                                     parts: [
@@ -1013,6 +1015,7 @@ Module {
                                                                 span: 738..745,
                                                             },
                                                             span: 731..745,
+                                                            grouped: false,
                                                         },
                                                         rhs: Unreachable {
                                                             message: None,

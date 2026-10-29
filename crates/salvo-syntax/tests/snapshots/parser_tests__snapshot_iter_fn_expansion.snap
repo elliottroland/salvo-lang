@@ -419,6 +419,7 @@ Module {
                                                                 span: 137..141,
                                                             },
                                                             span: 135..141,
+                                                            grouped: false,
                                                         },
                                                     },
                                                     span: 125..141,
@@ -624,6 +625,7 @@ Module {
                                                         span: 155..157,
                                                     },
                                                     span: 155..157,
+                                                    grouped: false,
                                                 },
                                                 rhs: Int {
                                                     value: 0,
@@ -675,6 +677,7 @@ Module {
                                         span: 201..203,
                                     },
                                     span: 201..203,
+                                    grouped: false,
                                 },
                                 value: Binary {
                                     op: Sub,
@@ -690,6 +693,7 @@ Module {
                                             span: 206..208,
                                         },
                                         span: 206..208,
+                                        grouped: false,
                                     },
                                     rhs: Int {
                                         value: 1,
@@ -726,6 +730,7 @@ Module {
                                                             span: 232..234,
                                                         },
                                                         span: 232..234,
+                                                        grouped: false,
                                                     },
                                                     rhs: Int {
                                                         value: 1,

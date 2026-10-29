@@ -957,6 +957,7 @@ Module {
                                                             span: 558..565,
                                                         },
                                                         span: 551..565,
+                                                        grouped: false,
                                                     },
                                                     check: [
                                                         TypeRef {

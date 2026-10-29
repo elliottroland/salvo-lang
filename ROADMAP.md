@@ -1064,12 +1064,13 @@ repros are over the real std.
   warns unused; a servant forwarding a received reply through a dependency
   call (`draw(out)`) needs no `defer`, through a held handle it does.
 - **From the run data (TESTS.md C3)**:
-  - **An out-of-range subscript is the host's panic**, not a `salvo:` trap:
+  - **An out-of-range subscript traps with a Salvo message** (user, 2026-10-28:
+    fix it, after the PIPELINE.md work): today it is the host's panic —
     Rust prints `index out of bounds: the len is 3 but the index is 10`
     (exit 101), Kotlin throws `ArrayIndexOutOfBoundsException` (exit 1)
-    (`run_tests::the_programs_exit_code_is_the_commands`). Both stop; the
-    messages differ. Whether a subscript should trap with a Salvo message is
-    a DECISION (the user's).
+    (`run_tests::the_programs_exit_code_is_the_commands`) — and it should be a
+    `salvo: …` trap reading the same on both backends, as `unreachable!` and
+    `assert!` are.
   - **Stale labels**: `[rs-interp-sequence]` and `[rs-narrow]` are cited
     (run data, TOUR.md) but defined by no spec; define or retarget them.
   - **The run-data format cannot say** an argument holding a space, an
@@ -1087,7 +1088,7 @@ repros are over the real std.
 - **From the second wave (parser and salvo-core tests to ids)**:
   - **a missing diagnostic?** `handler Working() of Work` with no `Work`
     declared reports nothing, in a file whose parse error elsewhere still
-    lets `fn-dot:unknown-fn` through (`check/syntax/expressions.sv#the_receiver_form_is_not_the_self_send`);
+    lets `fn-uniform:unknown-fn` through (`check/syntax/expressions.sv#the_receiver_form_is_not_the_self_send`);
   - **inconsistent**: a top-level `refn` reports `qual-refn-scope:top-level-refn`
     only when its qualifier is unsigned, not for the effects, return-type or
     missing-clause shapes;
@@ -1099,6 +1100,35 @@ repros are over the real std.
     errors; `"${size("a)} z"` gives three; `let a: [x.type] = p` outside a
     comptime fn adds the unknown type and two mismatches; `is` alone in a
     handler body is called a bare state field.
+- **From B3.4 (2026-10-28)**: a `?.` call link whose result is `None` (a send,
+  or `fn shout(n: Int) [Console] -> None` as `m?.shout()` on an `Int?`)
+  miscompiles on Rust: the absent branch is `None`, the present one the
+  call's `()`, and rustc refuses the `if` (E0308). Kotlin runs it. Present
+  before B3.4 (the `shout` repro); a send under `?.` is not in the run data
+  for this reason.
+
+### 0as — What member calls and uniform calls left (B3.4, 2026-10-28)
+
+PIPELINE.md §II.10 P19 is built; these are its recorded leftovers.
+
+- **Member values** (user, 2026-10-28: a future change): `c.bump` without a
+  call, as a fn value that sends to `c`, and generally `x.f` read for a
+  member of an `eff[E]`. Today a send member is reached only by calling it.
+- **A receiver that is not a place** has its member looked up only when no
+  function, local or implicit of the name exists, because its type is known
+  only by checking it, and it is checked once. So `get(addrs, 0).bump(1)`
+  with a `fn bump(c: eff[Counter], n: Int)` in scope is the uniform call, where
+  a `let` first makes it the send, with the shadow warning. Fixing it means
+  typing the receiver before choosing (a speculative check, or the typed
+  pass of PIPELINE.md's stage C).
+- **The shadow warning under `?.`** can only be silenced by writing the
+  narrowing out (`if a is T { (a.f)(x) }`): `?.(f)` is not syntax (user's
+  option (a)).
+- **Sites that read a `Field` callee as receiver-first** without asking which
+  call it was: `deduce.rs` `call`, `lends.rs`, `reach.rs`, the fate links and
+  the `waitfor` binder inference in `check.rs`. Keyed facts keep a uniform
+  call right; a member call through a field could be misread there (none
+  found). Piece 5 or stage C should give them the checker's answer.
 
 ### 0al — Open defect: `let x: Long? = -1L` miscompiles on Rust (found 2026-10-28, B3.3c)
 
@@ -2509,6 +2539,10 @@ it would save only the cheap transcription and inherit every coupling of the
 
 ## Recorded, not scheduled
 
+- **`x.(F)(a)` for `(F)(x, a)`** (user, 2026-10-28: left out of P19): a
+  spelling that calls an arbitrary fn expression with the receiver first,
+  e.g. `x.(e.something)()`. Today it is written `(e.something)(x)`.
+
 - **What a language-server edit still costs** (PIPELINE.md step 8, measured
   2026-10-20, debug, `tools/lsp-timing.py`; ~28–39ms on `examples/cluster`,
   ~40ms on `modules/aws`), largest first:
@@ -2738,7 +2772,7 @@ several are "revisit only if a customer appears".
   `export import a.B`, currently a targeted parse error. And **no example shows
   `export`**, because every program in `examples/` is a single file — a two-file
   example would fix that and would be the tree's first multi-module one.
-- **Where dot-notation is normalized** [fn-dot] — scheduled with §0j step 13
+- **Where dot-notation is normalized** [fn-uniform] — scheduled with §0j step 13
   (the lowering pass is the normalization pass below). The receiver-as-argument-0
   rewrite happens twice and never in the AST, so anything inspecting the *written*
   expression must re-derive the shift (one defect came from exactly that). Two

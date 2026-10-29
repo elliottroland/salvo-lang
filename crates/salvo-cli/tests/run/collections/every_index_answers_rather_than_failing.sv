@@ -36,7 +36,7 @@ fn main() [use] {
     println("wrote a byte ${set(buf, 1, to_byte(9))} ${to_hex(buf)}")
     println("byte past the end ${set(buf, 2, to_byte(9))} ${to_hex(buf)}")
 
-    // The heap's own move, in the spelling it uses [fn-dot].
+    // The heap's own move, in the spelling it uses [fn-uniform].
     let heap: Mut List<Int> = Mut List(5, 9, 7)
     ignore(heap.swap(0, 2))
     println("sifted ${to_str(heap)}")

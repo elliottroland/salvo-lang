@@ -105,7 +105,7 @@ handler Working() of Work {
     mailbox { capacity: 1 }
 
     send fn start(n: Int) {
-        //~ error[fn-dot:unknown-fn]
+        //~ error[fn-uniform:unknown-fn]
         //~ error[actor-self-send:self-dot-call]
         self.step(n)
     }

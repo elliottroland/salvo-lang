@@ -465,6 +465,7 @@ Module {
                                                         span: 376..380,
                                                     },
                                                     span: 369..380,
+                                                    grouped: false,
                                                 },
                                                 type_args: [],
                                                 args: [],
@@ -1035,6 +1036,7 @@ Module {
                                                                 span: 787..790,
                                                             },
                                                             span: 780..790,
+                                                            grouped: false,
                                                         },
                                                         rhs: Ident(
                                                             Ident {

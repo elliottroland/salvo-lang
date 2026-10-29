@@ -579,6 +579,14 @@ fn addr_effect(ty: &Ty) -> Option<Ty> {
     }
 }
 
+/// [fn-member-call] What a receiver has under the name of a dot call.
+enum DotMember {
+    /// A send member of the `eff[E]` (`Addr<E>`) receiver; carries E.
+    Send(Ty),
+    /// A visible field of a struct receiver; carries the field's type.
+    Field(Ty),
+}
+
 /// One site that may throw [throw]: the `throw` operation itself, or a
 /// call to a fn declaring `[Throw<M>]` that propagates one.
 #[derive(Clone, Debug)]
@@ -990,11 +998,15 @@ pub struct Checked {
     /// exactly when it is here; the emitters no longer ask the scope-blind
     /// `Symbols::effect_of_fn`.
     pub member_calls: HashMap<Key, MemberCall>,
-    /// [fn-dot] Calls written `base.f(args)` that the checker read as
+    /// [fn-uniform] Calls written `base.f(args)` that the checker read as
     /// `f(base, args)`, keyed by the call span. The emitters normalize
     /// exactly these; they no longer ask whether `f` could be a fn or a
     /// member.
     pub dot_calls: HashSet<Key>,
+    /// [fn-member-call] Calls written `base.f(args)` or `(base.f)(args)` that
+    /// call through a fn-typed **field** `f` of a struct `base`, keyed by the
+    /// call span: the IR reads the field and calls its value.
+    pub field_calls: HashSet<Key>,
     /// [ir-nodes] Every written type the checker lowered, keyed by the
     /// **address of the AST node** (`written_type_key`): what a declaration's
     /// parameters, fields and results *are*, so the IR builder copies the
@@ -1696,6 +1708,7 @@ impl Checked {
             self_send: self.self_sends.get(&key),
             facade_send: self.facade_sends.get(&key),
             dot_call: self.dot_calls.contains(&key),
+            field_call: self.field_calls.contains(&key),
             member_call: self.member_calls.get(&key),
             effect_call: self.effect_calls.get(&key),
             local_call: self.local_calls.contains(&key),
@@ -1808,6 +1821,8 @@ pub struct CallInfo<'c> {
     pub self_send: Option<&'c String>,
     pub facade_send: Option<&'c String>,
     pub dot_call: bool,
+    /// [fn-member-call] A call through a fn-typed field of the receiver.
+    pub field_call: bool,
     pub member_call: Option<&'c MemberCall>,
     pub effect_call: Option<&'c Ty>,
     pub local_call: bool,
@@ -15142,21 +15157,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         Ty::none()
     }
 
-    /// [actor-use-addr] The effect a dot-call's receiver serves, when the
-    /// receiver is a **place** whose type is `Addr<E>` — a variable, a field
-    /// chain (`registry.child`), a tuple element, or an array element.
-    ///
-    /// Read without *checking* the receiver, deliberately: the ordinary dot
-    /// path checks it as argument zero, and checking it here as well would
-    /// duplicate its diagnostics and count a move twice. A place has a type
-    /// the checker can look up, which is what makes the peek possible; a
-    /// receiver that is a **call** (`get(addrs, 0).bump(1)`) has none until it
-    /// is checked, so it needs a `let` first.
-    fn addr_receiver(&mut self, base: &Expr) -> Option<Ty> {
-        let ty = self.peek_place_ty(base)?;
-        addr_effect(&ty)
-    }
-
     /// The type of a place, without checking it: `None` for anything that is
     /// not one, or whose type is not yet known. Errors are never reported
     /// from here — the caller either uses the answer or falls through to the
@@ -15200,6 +15200,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         &mut self,
         instance: &Ty,
         receiver: &'p Expr,
+        receiver_checked: bool,
         member: &'p Ident,
         type_args: &'p [ast::Type],
         args: &'p [Expr],
@@ -15212,8 +15213,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         // argument, but a read is what it is: without checking it here nothing
         // would record the use, and the variable would be reported unused
         // [var-unused]. Checked exactly once, which is why deciding that this
-        // *is* an addr call peeks the type instead of checking it.
-        self.check_expr(receiver, None);
+        // *is* an addr call peeks the type instead of checking it (or the
+        // caller already checked it: `?.`, a receiver that is not a place).
+        if !receiver_checked {
+            self.check_expr(receiver, None);
+        }
         let effect_name = match instance.strip_quals() {
             Ty::Named { name, .. } => name.clone(),
             _ => return Ty::Unknown,
@@ -16528,7 +16532,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // Two candidate positions, because a `receiver.member(args)`
                 // call means different things in the two cases the syntax
                 // cannot tell apart: dot-notation on a *value* makes the
-                // receiver the first declared parameter [fn-dot], while the
+                // receiver the first declared parameter [fn-uniform], while the
                 // same shape on an **addr** is a send, whose member declares
                 // only the message's own parameters [actor-effect]. Only a
                 // `Reply<T>` position is accepted, so the wrong guess
@@ -21451,7 +21455,7 @@ fn collect_assigned(block: &Block, out: &mut HashSet<String>) {
 /// `(callee name, declared parameter index)` pairs.
 ///
 /// A dot-notation call shifts the index by one: `counter.total(out)` is
-/// `total(counter, out)` [fn-dot], so `out` sits at declared index 1. Only
+/// `total(counter, out)` [fn-uniform], so `out` sits at declared index 1. Only
 /// direct arguments count — a binder wrapped in another expression says nothing
 /// about a `Reply<T>` parameter.
 fn collect_binder_arg_sites<'p>(
@@ -23496,7 +23500,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 self.fn_value_by_name(&name.name, name.span, Some(Selector::Module(module)), expected)
             }
-            Expr::Field { base, field, span } => {
+            Expr::Field { base, field, span, .. } => {
                 let base_ty = self.check_expr(base, None);
                 // A predicate-qualifier field override refines the type
                 // [qual-field-override];
@@ -27366,18 +27370,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.field_ty_or_error(inner, field)
             }
             ast::SafeAccess::Call { field, type_args, args, named } => {
-                let name = field.name.as_str();
-                if self.effect_members_here(name).is_none() && !self.has_callable(name) {
-                    for a in args {
-                        self.check_expr(a, None);
-                    }
-                    self.error_unresolved(
-                        field.span,
-                        messages::op_safe_nav_unknown_fn(&name),
-                        name,
-                    );
-                    return Ty::Unknown;
-                }
                 // The receiver is read twice (the `None` test, then the call),
                 // and the call reads it at the non-`None` type, so a call
                 // receiver must be a place to carry the narrowing.
@@ -27388,13 +27380,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     return Ty::Unknown;
                 };
-                self.out.dot_calls.insert(self.key(span));
+                // [fn-member-call] [fn-uniform] The link is the dot call
+                // `base.m(args)` on the first arm, under the one rule: a member
+                // of `inner` is called, and anything else is `m(base, args)`.
                 let narrow = [Narrow { place, narrowed: inner.clone(), declared: base_ty.clone() }];
+                let inner = inner.clone();
                 self.with_narrows(&narrow, |c| {
-                    let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
-                    all_args.push(base);
-                    all_args.extend(args.iter());
-                    c.resolve_named_call(name, field.span, type_args, &all_args, named, expected, None, span)
+                    c.check_dot_call(None, base, field, false, Some(inner), type_args, args, named, expected, span)
                 })
             }
         }
@@ -28744,6 +28736,468 @@ fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashS
 impl<'p, 'r> Checker<'p, 'r> {
     // ================= calls =================
 
+    /// [fn-member-call] [fn-uniform] `x.name(args)`: a **member call** when
+    /// `x`'s type has a member `name` — a struct's field, called through its
+    /// value, or an `eff[E]`'s send member, a send to that instance — and
+    /// otherwise a **uniform call**, the plain call `name(x, args)` exactly
+    /// (user decision 2026-10-28, replacing R10 D14). `grouped` is the
+    /// explicit member call `(x.name)(args)`, never a uniform call.
+    /// `known_recv` is the receiver's type when the caller has it (`?.`'s
+    /// narrowed first arm); otherwise it is peeked from a place, or found by
+    /// checking the receiver when no function of the name exists. `callee`
+    /// is the written `x.name` expression; `?.` has none, and passes the
+    /// receiver's type instead, so nothing needs it.
+    #[allow(clippy::too_many_arguments)]
+    fn check_dot_call(
+        &mut self,
+        callee: Option<&'p Expr>,
+        base: &'p Expr,
+        field: &'p Ident,
+        grouped: bool,
+        known_recv: Option<Ty>,
+        type_args: &'p [ast::Type],
+        args: &'p [Expr],
+        named: &'p [ast::NamedArg],
+        expected: Option<&Ty>,
+        span: Span,
+    ) -> Ty {
+        let name = field.name.as_str();
+        let base_checked = known_recv.is_some();
+        let recv = known_recv.or_else(|| self.peek_place_ty(base));
+        if let Some(recv_ty) = &recv {
+            if let Some(member) = self.dot_member(recv_ty, name) {
+                // [fn-member-call] A member is the callee whenever there is one;
+                // a function the uniform call would have reached is named, so
+                // the reader learns which one they got.
+                if !grouped && self.uniform_reaches(name, recv_ty) {
+                    self.warn(field.span, messages::fn_member_call_shadows(&name, &Self::member_owner(recv_ty)));
+                }
+                return self.check_member_call(member, recv_ty, callee, base, field, base_checked, type_args, args, named, expected, span);
+            }
+        }
+        if let (true, Some(callee)) = (grouped, callee) {
+            // `(x.f)(args)` names a member: the field read reports one that
+            // is not there.
+            return self.check_value_call(callee, args, span);
+        }
+        // [actor-use-addr] An `eff[E]` without the member, and nothing a
+        // uniform call could reach with it first: the mistake is the member's
+        // name, so that is what is reported, not the argument mismatches of a
+        // same-named function that takes something else.
+        if let Some(recv_ty) = recv.as_ref().filter(|r| addr_effect(r).is_some()) {
+            if !self.uniform_reaches(name, recv_ty) {
+                if !base_checked {
+                    self.check_expr(base, None);
+                }
+                for a in args {
+                    self.check_expr(a, None);
+                }
+                let effect = addr_effect(recv_ty).map(|e| e.strip_quals().to_string()).unwrap_or_default();
+                self.error_unresolved(
+                    field.span,
+                    messages::actor_use_addr_no_member(&Self::member_owner(recv_ty), &effect, &name),
+                    name,
+                );
+                return Ty::Unknown;
+            }
+        }
+        // [fn-uniform] The plain call `name(x, args)`: an enclosing implicit
+        // or a fn-typed local of the name takes it first, as it takes
+        // `name(x, args)` (R10 D12, D13).
+        let key = self.key(span);
+        self.out.dot_calls.insert(key);
+        if let Some(ty) = self.check_name_call(field, Some(base), type_args, args, named, expected, span) {
+            return ty;
+        }
+        if self.effect_members_here(name).is_some() || self.has_callable(name) {
+            let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
+            all_args.push(base);
+            all_args.extend(args.iter());
+            return self.resolve_named_call(name, field.span, type_args, &all_args, named, expected, None, span);
+        }
+        self.out.dot_calls.remove(&key);
+        // Nothing of the name to call with the receiver first: a receiver
+        // that is not a place may still have the member (`get(addrs, 0).bump(1)`,
+        // `make().f(3)`), which only checking it can tell.
+        if recv.is_none() {
+            let recv_ty = self.check_expr(base, None);
+            if let Some(member) = self.dot_member(&recv_ty, name) {
+                return self.check_member_call(member, &recv_ty, callee, base, field, true, type_args, args, named, expected, span);
+            }
+        } else if !base_checked {
+            self.check_expr(base, None);
+        }
+        for a in args {
+            self.check_expr(a, None);
+        }
+        self.error_unresolved(field.span, messages::fn_uniform_unknown_fn(&name), name);
+        Ty::Unknown
+    }
+
+    /// [fn-member-call] The member `name` of a receiver of type `recv`: an
+    /// `eff[E]`'s send member (any member of E by that name — a member that is
+    /// not a send is refused by the send itself), or a visible field of a
+    /// struct.
+    fn dot_member(&mut self, recv: &Ty, name: &str) -> Option<DotMember> {
+        if let Some(effect) = addr_effect(recv) {
+            let Ty::Named { name: ename, .. } = effect.strip_quals() else { return None };
+            let decl = self.symbols.effects.get(ename.as_str()).copied()?;
+            return (!crate::effect_members_named(decl, name).is_empty()).then_some(DotMember::Send(effect));
+        }
+        let Ty::Named { name: sname, .. } = recv.strip_quals() else { return None };
+        if !self.symbols.structs.contains_key(sname.as_str()) || self.hidden_opaque(sname).is_some() {
+            return None;
+        }
+        self.field_ty(recv, name).map(DotMember::Field)
+    }
+
+    /// How a diagnostic names the owner of a member: `eff[E]` for a send.
+    fn member_owner(recv: &Ty) -> String {
+        match addr_effect(recv) {
+            Some(e) => format!("eff[{e}]"),
+            None => recv.strip_quals().to_string(),
+        }
+    }
+
+    /// [fn-member-call] Whether a uniform call `x.name(…)` would have reached
+    /// something but for the member: a fn-typed local or implicit, a declared
+    /// function or an available effect member of the name whose first
+    /// parameter takes the receiver.
+    fn uniform_reaches(&mut self, name: &str, recv: &Ty) -> bool {
+        if let Some(var) = self.lookup(name) {
+            if let Ty::Fn { params, .. } = var.narrowed.strip_quals() {
+                return params.first().is_some_and(|p| Self::arg_fits_fn_value(recv, p));
+            }
+            return false;
+        }
+        let mut firsts: Vec<(&'p [Ident], &'p ast::Type)> = Vec::new();
+        for e in self.overloads_of(name) {
+            if let Some(p) = e.decl.params.iter().find(|p| !p.implicit && !p.variadic) {
+                firsts.push((&e.decl.generics, &p.ty));
+            }
+        }
+        for (_, f) in self.effect_members_here(name).unwrap_or_default() {
+            if let Some(p) = f.params.iter().find(|p| !p.implicit && !p.variadic) {
+                firsts.push((&f.generics, &p.ty));
+            }
+        }
+        // Only the callee's own generics are inferred: a type variable of the
+        // enclosing declaration, or an effect's (fixed by the instance in
+        // scope), is rigid, so `eff[E]` does not take `eff[Watcher<E>]`.
+        firsts.into_iter().any(|(generics, ty)| {
+            let saved = self.enter_generics(generics);
+            let pt = self.lower_type(ty);
+            self.generics = saved;
+            let mut subst = HashMap::new();
+            unify(&pt, recv, &mut subst)
+                && subst
+                    .iter()
+                    .all(|(k, v)| generics.iter().any(|g| g.name == *k) || *v == Ty::Var(k.clone()))
+        })
+    }
+
+    /// [fn-member-call] A call through a member: a send for an `eff[E]`'s, a
+    /// call through the field's value for a struct's. `base_checked`: the
+    /// receiver was already checked (`?.`, or a receiver that is not a place).
+    #[allow(clippy::too_many_arguments)]
+    fn check_member_call(
+        &mut self,
+        member: DotMember,
+        recv: &Ty,
+        callee: Option<&'p Expr>,
+        base: &'p Expr,
+        field: &'p Ident,
+        base_checked: bool,
+        type_args: &'p [ast::Type],
+        args: &'p [Expr],
+        named: &'p [ast::NamedArg],
+        expected: Option<&Ty>,
+        span: Span,
+    ) -> Ty {
+        match member {
+            DotMember::Send(effect) => {
+                self.check_addr_call(&effect, base, base_checked, field, type_args, args, named, expected, span)
+            }
+            DotMember::Field(fty) => {
+                if !matches!(fty.strip_quals(), Ty::Fn { .. }) && !fty.is_unknown() {
+                    if !base_checked {
+                        self.check_expr(base, None);
+                    }
+                    for a in args {
+                        self.check_expr(a, None);
+                    }
+                    self.error(
+                        field.span,
+                        messages::fn_member_call_not_callable(&field.name, &recv.strip_quals(), &fty),
+                    );
+                    return Ty::Unknown;
+                }
+                self.out.field_calls.insert(self.key(span));
+                if let (false, Some(callee)) = (base_checked, callee) {
+                    return self.check_value_call(callee, args, span);
+                }
+                // The receiver was checked on its own, so the field read the
+                // IR lowers as the callee is typed here.
+                if let Some(callee) = callee {
+                    self.out.expr_ty.insert(self.key(callee.span()), fty.clone());
+                }
+                self.record_field_ref(recv, field);
+                self.check_fn_value_call(&fty, &format!("`{}`", field.name), args, span)
+            }
+        }
+    }
+
+    /// A call through a computed callee (`adder()(1)`, `(b.f)(3)`): the callee
+    /// checked as a value, then the call through it.
+    fn check_value_call(&mut self, callee: &'p Expr, args: &'p [Expr], span: Span) -> Ty {
+        let cty = self.check_expr(callee, None);
+        self.check_fn_value_call(&cty, "this function value", args, span)
+    }
+
+    /// [call-resolve] [fn-value] A call through a fn value of type `cty`,
+    /// checked as a call through a local is (B1 census D19, 2026-10-27):
+    /// before, each argument was only *typed* against its parameter, so a
+    /// wrong argument or a wrong count passed the checker and rustc and
+    /// kotlinc refused it.
+    fn check_fn_value_call(&mut self, cty: &Ty, what: &str, args: &'p [Expr], span: Span) -> Ty {
+        if let Ty::Fn { params, ret, contract, effects } = cty.strip_quals().clone() {
+            // [fn-effects]
+            self.check_fn_value_effects(&effects, span);
+            let arg_refs: Vec<&'p Expr> = args.iter().collect();
+            self.check_fn_value_args(what, &arg_refs, &params, contract.as_deref(), None, span);
+            return *ret;
+        }
+        // [call-resolve] A known non-fn type is not callable.
+        for a in args {
+            self.check_expr(a, None);
+        }
+        if !cty.is_unknown() && !matches!(cty, Ty::Never) {
+            self.error(span, messages::call_resolve_not_callable(&cty));
+        }
+        Ty::Unknown
+    }
+
+    /// [call-resolve] [fn-uniform] The part of a call by name that a local
+    /// or an implicit of the enclosing fn answers: a plain call `f(args)`
+    /// (`recv` is `None`), or a uniform call `x.f(args)`, which is the plain
+    /// call `f(x, args)` exactly (`recv` is `x`; B3 piece 4, R10 D12, D13).
+    /// `None` when neither takes the name: the caller resolves the
+    /// declarations.
+    #[allow(clippy::too_many_arguments)]
+    fn check_name_call(
+        &mut self,
+        id: &'p Ident,
+        recv: Option<&'p Expr>,
+        type_args: &'p [ast::Type],
+        args: &'p [Expr],
+        named: &'p [ast::NamedArg],
+        expected: Option<&Ty>,
+        span: Span,
+    ) -> Option<Ty> {
+        let all: Vec<&'p Expr> = recv.into_iter().chain(args.iter()).collect();
+        // [implicit-same-name] Two implicits of this name: the one the
+        // call goes through is the local recorded for the emitters.
+        let same = self.own_implicits.iter().filter(|p| p.name == id.name).count();
+        let mut pre_tys: Option<Vec<Ty>> = None;
+        let lname: String = if same > 1 {
+            let tys: Vec<Ty> = all.iter().map(|a| self.check_expr(a, None)).collect();
+            // [implicit-same-name] The one whose parameters the arguments
+            // fit; among several, the most specific, ranked like overloads
+            // (R10 D21), and a tie is the ordinary ambiguity.
+            let fits = |p: &ImplicitParam| match p.ty.strip_quals() {
+                Ty::Fn { params, .. } => {
+                    params.len() == tys.len() && tys.iter().zip(params).all(|(a, p)| Self::arg_fits_fn_value(a, p))
+                }
+                _ => false,
+            };
+            let pick = match self.pick_own_implicit(&id.name, &fits) {
+                Ok(p) => p,
+                Err(tied) => {
+                    self.own_implicit_tie(&id.name, &tied, span);
+                    None
+                }
+            };
+            let chosen = pick.map(|p| p.local).unwrap_or_else(|| id.name.clone());
+            self.out.local_call_names.insert(self.key(span), chosen.clone());
+            pre_tys = Some(tys);
+            chosen
+        } else {
+            id.name.clone()
+        };
+        // [implicit-resolve-body] An **implicit** parameter of the
+        // enclosing fn joins resolution by argument types (user decision
+        // 2026-10-05, ROADMAP §0j 6i, option A): the call goes through the
+        // implicit when its arguments fit it, and to the visible fns of
+        // the name otherwise. Typed once, here; a call that falls through
+        // hands the types on, so nothing is checked twice.
+        let mut implicit_typed: Option<Vec<Ty>> = pre_tys.take();
+        if let Some(var) = self.lookup(&lname) {
+            let is_implicit = self
+                .own_implicits
+                .iter()
+                .any(|p| p.name == id.name && spans_overlap(p.span, var.decl_span));
+            if is_implicit
+                && !self.overloads_of(&id.name).is_empty()
+                && !all.iter().any(|a| matches!(**a, Expr::Lambda { .. } | Expr::Spread { .. }))
+            {
+                if let Ty::Fn { params, .. } = var.narrowed.strip_quals().clone() {
+                    let tys: Vec<Ty> = match implicit_typed.take() {
+                        Some(t) => t,
+                        None => all.iter().map(|a| self.check_expr(a, None)).collect(),
+                    };
+                    let fits = tys.len() == params.len()
+                        && tys.iter().zip(&params).all(|(a, p)| Self::arg_fits_fn_value(a, p));
+                    if !fits {
+                        self.pending_arg_tys = Some(tys);
+                        return Some(self.resolve_named_call(
+                            &id.name, id.span, type_args, &all, named, expected, None, span,
+                        ));
+                    }
+                    implicit_typed = Some(tys);
+                }
+            }
+        }
+        // A local holding a callable (lambda parameter etc.).
+        if let Some(var) = self.lookup(&lname) {
+            let mut vty = var.narrowed.clone();
+            // [flow-use-after-move] A callable called again (a `once`
+            // fn [fn-once]) or after a move is the flow pass's use; a
+            // `Never` one is called as declared.
+            if matches!(vty, Ty::Never) {
+                vty = var.declared.clone();
+            }
+            let once = vty.quals().iter().any(|q| q.name == "once");
+            if let Ty::Fn {
+                params,
+                ret,
+                contract,
+                effects,
+            } = vty.strip_quals().clone()
+            {
+                // [call-resolve] The callee is a *local* holding a
+                // function, which outranks any same-named declaration —
+                // an effect member included. Recorded for the emitters,
+                // whose own effect-member test is a program-wide name
+                // map that cannot see locals.
+                self.out.local_calls.insert(self.key(span));
+                // Calling the local is a use of it.
+                if let Some(v) = self.lookup_mut(&lname) {
+                    v.used = true;
+                }
+                // [fn-effects] The call supplies the value's effects.
+                self.check_fn_value_effects(&effects, span);
+                let typed = implicit_typed.take();
+                let callee_name = format!("`{}`", id.name);
+                self.check_fn_value_args(&callee_name, &all, &params, contract.as_deref(), typed, span);
+                // [proj-readonly-return] [rs-loc] A fn value whose return is a
+                // **wholesale** projection lends that argument outright
+                // (`?at: (c: C, k: Int) -> ref(c) Mut T?`, or a plain
+                // read-only `proj`): record it like any derived-return
+                // call, so the result links to the argument [fate-link]
+                // and the backends know which one it borrows. Both
+                // projection flavours fate-link the same way, so this
+                // asks "is this a borrow of a source" ([`Ty::is_proj`],
+                // covers `proj` and `ref`), not the handle-specific
+                // question. The type keeps no source names, so the
+                // sources are the kept non-Copy arguments —
+                // conservative in the same direction as the held case
+                // below.
+                let wholesale = ret.is_proj()
+                    || matches!(ret.as_ref(), Ty::Union(arms)
+                        if arms.iter().any(|a| a.is_proj()));
+                if wholesale {
+                    let mut sources: Vec<usize> = (0..params.len())
+                        .filter(|&i| {
+                            contract
+                                .as_deref()
+                                .and_then(|c| c.get(i))
+                                .is_none_or(|e| e.kept)
+                                && params
+                                    .get(i)
+                                    .is_some_and(|t| !crate::types::is_copy_scalar(t))
+                        })
+                        .collect();
+                    // [ref-handle] A handle is a position in *one*
+                    // container: the first one it is lent (the
+                    // locator convention the IR and the backends read
+                    // too), not the key it was found by.
+                    if has_ref_arm(&ret) {
+                        sources.retain(|&i| !params.get(i).is_some_and(|t| matches!(t.strip_quals(), Ty::Fn { .. })));
+                        sources.truncate(1);
+                    }
+                    if !sources.is_empty() {
+                        self.out.derived_calls.insert(self.key(span), sources);
+                    }
+                }
+                // [proj-infer] A fn value has no body to read: its result
+                // holds a borrow of the arguments its type declares
+                // (`[p: proj]`), or conservatively of every kept one.
+                if self.ty_holds_proj(&ret) {
+                    let declared: Vec<usize> = contract
+                        .as_deref()
+                        .map(|c| {
+                            c.iter()
+                                .enumerate()
+                                .filter(|(_, e)| e.lent)
+                                .map(|(i, _)| i)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let lent: Vec<usize> = if !declared.is_empty() {
+                        declared
+                    } else {
+                        (0..params.len())
+                            .filter(|&i| {
+                                contract
+                                    .as_deref()
+                                    .and_then(|c| c.get(i))
+                                    .is_none_or(|e| e.kept)
+                            })
+                            .collect()
+                    };
+                    if !lent.is_empty() {
+                        self.out.lending_calls.insert(self.key(span), lent);
+                    }
+                }
+                // [fn-once] Calling a `once` fn consumes it: the IR flow
+                // pass's move then enforces the multiplicity (second
+                // call, loop back edge, branch merges).
+                if once {
+                    let links = self.lookup(&lname).map(|var| var.links.clone());
+                    if let Some(links) = links {
+                        let name = id.name.clone();
+                        if links.is_empty() || self.note_derived_use(id.span, "call", &name, &links) {
+                            // [flow-use-after-move] The IR has no read
+                            // at a call of a local: the call is the move.
+                            self.out.flow_moves.insert(self.key(span));
+                        }
+                    }
+                }
+                return Some(*ret);
+            }
+            // [call-resolve] The local's type is known and is not a
+            // function, so this call can never succeed — including a
+            // generic `T`, which is opaque (no bounds to make it
+            // callable). Only an *un-inferred* type stays lenient
+            // ([type-unknown-lenient]).
+            for a in &all {
+                self.check_expr(a, None);
+            }
+            if !vty.is_unknown() {
+                let detail = if matches!(vty, Ty::Var(_)) {
+                    // Adding a declaration cannot make a `T` callable:
+                    // there are no bounds to say it is a function.
+                    messages::call_resolve_type_param_call(&id.name, &vty)
+                } else {
+                    messages::call_resolve_not_callable_local(&id.name, &vty)
+                };
+                self.error(span, detail);
+            }
+            return Some(Ty::Unknown);
+        }
+        None
+    }
+
     fn check_call(
         &mut self,
         callee: &'p Expr,
@@ -28753,11 +29207,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         expected: Option<&Ty>,
         span: Span,
     ) -> Ty {
-        // Dot-notation [fn-dot]: `base.f(args)` == `f(base, args)`. `f`
-        // must be a declared function or effect member — reaching
-        // a target-language method means declaring it (in an effect a
-        // `platform handler` implements), so an unknown name here is an error, not
-        // interop pass-through [call-resolve].
+        // A dot call `base.f(args)` is a member call or a uniform call
+        // [fn-member-call] [fn-uniform]; either way `f` must be declared —
+        // reaching a target-language method means declaring it (in an effect
+        // a `platform handler` implements), so an unknown name here is an
+        // error, not interop pass-through [call-resolve].
         // [actor-self-send] `k@self(args)` — a message to the actor the
         // enclosing member belongs to. A selector, so it arrives as its own
         // callee shape rather than as a receiver that has to be told apart
@@ -28765,11 +29219,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Expr::SelfScoped { name, .. } = callee {
             return self.check_self_send(name, args, span);
         }
-        if let Expr::Field { base, field, .. } = callee {
+        if let Expr::Field { base, field, grouped, .. } = callee {
             let name = field.name.as_str();
             // [qual-whynot] `InRange.qualifies(n, 1, 65535)`: a qualifier's
             // own fn, called with the subject and the slot values.
-            if let Expr::Ident(q) = &**base {
+            if let (Expr::Ident(q), false) = (&**base, *grouped) {
                 if q.name.starts_with(|c: char| c.is_uppercase()) && self.scope.is_qualifier(&q.name) {
                     if let Some(decl) = self.qual_decl(&q.name) {
                         if let Some(f) = decl.fns.iter().find(|f| f.name.name == name) {
@@ -28784,7 +29238,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // lowercase fn name. It resolves to the flat key `Outer.Inner.make`
             // in scope — a direct call, *not* dot-notation, so the base
             // segments are a path and contribute no receiver argument.
-            if field.name.chars().next().is_some_and(|c| c.is_lowercase()) {
+            if !*grouped && field.name.chars().next().is_some_and(|c| c.is_lowercase()) {
                 if let Some(ns) = namespace_path_of(base) {
                     let flat = format!("{ns}.{name}");
                     if self.has_callable(&flat) {
@@ -28795,31 +29249,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 }
             }
-            // [actor-use-addr] `p.total(out)` where `p` is an `Addr<E>`: the
-            // inline form of `use p` — the member is E's, and the receiver is
-            // the actor it goes to rather than a first argument. Checked
-            // before the ordinary dot rules, because those would make the addr
-            // argument zero of a member that never declared it.
-            if let Some(effect) = self.addr_receiver(base) {
-                return self
-                    .check_addr_call(&effect, base, field, type_args, args, named, expected, span);
-            }
-            let known = self.effect_members_here(name).is_some() || self.has_callable(name);
-            if known {
-                self.out.dot_calls.insert(self.key(span));
-                let mut all_args: Vec<&'p Expr> = Vec::with_capacity(args.len() + 1);
-                all_args.push(base);
-                all_args.extend(args.iter());
-                return self.resolve_named_call(
-                    name, field.span, type_args, &all_args, named, expected, None, span,
-                );
-            }
-            self.check_expr(base, None);
-            for a in args {
-                self.check_expr(a, None);
-            }
-            self.error_unresolved(field.span, messages::fn_dot_unknown_fn(&name), name);
-            return Ty::Unknown;
+            return self.check_dot_call(Some(callee), base, field, *grouped, None, type_args, args, named, expected, span);
         }
 
         // [effect-at] `close@Fs(s)` / `s.close@Fs()`: the *effect* whose
@@ -28913,17 +29343,25 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return Ty::Unknown;
             }
             // [fn-overload-at] What the bare name would reach without the
-            // selector: a plain call sees locals and parameters (an implicit
-            // included, whether or not the arguments fit it) and a
-            // handler's own `send fn`; both forms see effect members. Any of
-            // them makes the selector meaningful, so its warning is withheld.
+            // selector: both forms see locals and parameters (an implicit
+            // included, whether or not the arguments fit it) and effect
+            // members [fn-uniform]; a plain call also sees a handler's own
+            // `send fn`, and the dot form a member of the receiver
+            // [fn-member-call]. Any of them makes the selector meaningful, so
+            // its warning is withheld.
             let plain = base.is_none();
             let servant_send = (self.facade_handler.is_some() || self.servant_reply_params.is_some())
                 && self
                     .facade_handler
                     .or(self.own_handler)
                     .is_some_and(|h| h.fns.iter().any(|f| f.is_send && f.name.name == name.name));
-            if (plain && (self.lookup(&name.name).is_some() || servant_send))
+            let receiver_member = match base {
+                Some(b) => self.peek_place_ty(b).is_some_and(|t| self.dot_member(&t, &name.name).is_some()),
+                None => false,
+            };
+            if self.lookup(&name.name).is_some()
+                || (plain && servant_send)
+                || receiver_member
                 || self.effect_members_here(&name.name).is_some()
             {
                 if let Some(s) = Selector::Module(module).module_span() {
@@ -28943,207 +29381,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
 
         if let Expr::Ident(id) = callee {
-            // [implicit-same-name] Two implicits of this name: the one the
-            // call goes through is the local recorded for the emitters.
-            let same = self.own_implicits.iter().filter(|p| p.name == id.name).count();
-            let mut pre_tys: Option<Vec<Ty>> = None;
-            let lname: String = if same > 1 {
-                let tys: Vec<Ty> = args.iter().map(|a| self.check_expr(a, None)).collect();
-                // [implicit-same-name] The one whose parameters the arguments
-                // fit; among several, the most specific, ranked like overloads
-                // (R10 D21), and a tie is the ordinary ambiguity.
-                let fits = |p: &ImplicitParam| match p.ty.strip_quals() {
-                    Ty::Fn { params, .. } => {
-                        params.len() == tys.len() && tys.iter().zip(params).all(|(a, p)| Self::arg_fits_fn_value(a, p))
-                    }
-                    _ => false,
-                };
-                let pick = match self.pick_own_implicit(&id.name, &fits) {
-                    Ok(p) => p,
-                    Err(tied) => {
-                        self.own_implicit_tie(&id.name, &tied, span);
-                        None
-                    }
-                };
-                let chosen = pick.map(|p| p.local).unwrap_or_else(|| id.name.clone());
-                self.out.local_call_names.insert(self.key(span), chosen.clone());
-                pre_tys = Some(tys);
-                chosen
-            } else {
-                id.name.clone()
-            };
-            // [implicit-resolve-body] An **implicit** parameter of the
-            // enclosing fn joins resolution by argument types (user decision
-            // 2026-10-05, ROADMAP §0j 6i, option A): the call goes through the
-            // implicit when its arguments fit it, and to the visible fns of
-            // the name otherwise. Typed once, here; a call that falls through
-            // hands the types on, so nothing is checked twice.
-            let mut implicit_typed: Option<Vec<Ty>> = pre_tys.take();
-            if let Some(var) = self.lookup(&lname) {
-                let is_implicit = self
-                    .own_implicits
-                    .iter()
-                    .any(|p| p.name == id.name && spans_overlap(p.span, var.decl_span));
-                if is_implicit
-                    && !self.overloads_of(&id.name).is_empty()
-                    && !args.iter().any(|a| matches!(a, Expr::Lambda { .. } | Expr::Spread { .. }))
-                {
-                    if let Ty::Fn { params, .. } = var.narrowed.strip_quals().clone() {
-                        let tys: Vec<Ty> = match implicit_typed.take() {
-                            Some(t) => t,
-                            None => args.iter().map(|a| self.check_expr(a, None)).collect(),
-                        };
-                        let fits = tys.len() == params.len()
-                            && tys.iter().zip(&params).all(|(a, p)| Self::arg_fits_fn_value(a, p));
-                        if !fits {
-                            self.pending_arg_tys = Some(tys);
-                            let arg_refs: Vec<&'p Expr> = args.iter().collect();
-                            return self.resolve_named_call(
-                                &id.name, id.span, type_args, &arg_refs, named, expected, None, span,
-                            );
-                        }
-                        implicit_typed = Some(tys);
-                    }
-                }
-            }
-            // A local holding a callable (lambda parameter etc.).
-            if let Some(var) = self.lookup(&lname) {
-                let mut vty = var.narrowed.clone();
-                // [flow-use-after-move] A callable called again (a `once`
-                // fn [fn-once]) or after a move is the flow pass's use; a
-                // `Never` one is called as declared.
-                if matches!(vty, Ty::Never) {
-                    vty = var.declared.clone();
-                }
-                let once = vty.quals().iter().any(|q| q.name == "once");
-                if let Ty::Fn {
-                    params,
-                    ret,
-                    contract,
-                    effects,
-                } = vty.strip_quals().clone()
-                {
-                    // [call-resolve] The callee is a *local* holding a
-                    // function, which outranks any same-named declaration —
-                    // an effect member included. Recorded for the emitters,
-                    // whose own effect-member test is a program-wide name
-                    // map that cannot see locals.
-                    self.out.local_calls.insert(self.key(span));
-                    // Calling the local is a use of it.
-                    if let Some(v) = self.lookup_mut(&lname) {
-                        v.used = true;
-                    }
-                    // [fn-effects] The call supplies the value's effects.
-                    self.check_fn_value_effects(&effects, span);
-                    let typed = implicit_typed.take();
-                    let callee_name = format!("`{}`", id.name);
-                    let arg_refs: Vec<&'p Expr> = args.iter().collect();
-                    self.check_fn_value_args(&callee_name, &arg_refs, &params, contract.as_deref(), typed, span);
-                    // [proj-readonly-return] [rs-loc] A fn value whose return is a
-                    // **wholesale** projection lends that argument outright
-                    // (`?at: (c: C, k: Int) -> ref(c) Mut T?`, or a plain
-                    // read-only `proj`): record it like any derived-return
-                    // call, so the result links to the argument [fate-link]
-                    // and the backends know which one it borrows. Both
-                    // projection flavours fate-link the same way, so this
-                    // asks "is this a borrow of a source" ([`Ty::is_proj`],
-                    // covers `proj` and `ref`), not the handle-specific
-                    // question. The type keeps no source names, so the
-                    // sources are the kept non-Copy arguments —
-                    // conservative in the same direction as the held case
-                    // below.
-                    let wholesale = ret.is_proj()
-                        || matches!(ret.as_ref(), Ty::Union(arms)
-                            if arms.iter().any(|a| a.is_proj()));
-                    if wholesale {
-                        let mut sources: Vec<usize> = (0..params.len())
-                            .filter(|&i| {
-                                contract
-                                    .as_deref()
-                                    .and_then(|c| c.get(i))
-                                    .is_none_or(|e| e.kept)
-                                    && params
-                                        .get(i)
-                                        .is_some_and(|t| !crate::types::is_copy_scalar(t))
-                            })
-                            .collect();
-                        // [ref-handle] A handle is a position in *one*
-                        // container: the first one it is lent (the
-                        // locator convention the IR and the backends read
-                        // too), not the key it was found by.
-                        if has_ref_arm(&ret) {
-                            sources.retain(|&i| !params.get(i).is_some_and(|t| matches!(t.strip_quals(), Ty::Fn { .. })));
-                            sources.truncate(1);
-                        }
-                        if !sources.is_empty() {
-                            self.out.derived_calls.insert(self.key(span), sources);
-                        }
-                    }
-                    // [proj-infer] A fn value has no body to read: its result
-                    // holds a borrow of the arguments its type declares
-                    // (`[p: proj]`), or conservatively of every kept one.
-                    if self.ty_holds_proj(&ret) {
-                        let declared: Vec<usize> = contract
-                            .as_deref()
-                            .map(|c| {
-                                c.iter()
-                                    .enumerate()
-                                    .filter(|(_, e)| e.lent)
-                                    .map(|(i, _)| i)
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        let lent: Vec<usize> = if !declared.is_empty() {
-                            declared
-                        } else {
-                            (0..params.len())
-                                .filter(|&i| {
-                                    contract
-                                        .as_deref()
-                                        .and_then(|c| c.get(i))
-                                        .is_none_or(|e| e.kept)
-                                })
-                                .collect()
-                        };
-                        if !lent.is_empty() {
-                            self.out.lending_calls.insert(self.key(span), lent);
-                        }
-                    }
-                    // [fn-once] Calling a `once` fn consumes it: the IR flow
-                    // pass's move then enforces the multiplicity (second
-                    // call, loop back edge, branch merges).
-                    if once {
-                        let links = self.lookup(&lname).map(|var| var.links.clone());
-                        if let Some(links) = links {
-                            let name = id.name.clone();
-                            if links.is_empty() || self.note_derived_use(id.span, "call", &name, &links) {
-                                // [flow-use-after-move] The IR has no read
-                                // at a call of a local: the call is the move.
-                                self.out.flow_moves.insert(self.key(span));
-                            }
-                        }
-                    }
-                    return *ret;
-                }
-                // [call-resolve] The local's type is known and is not a
-                // function, so this call can never succeed — including a
-                // generic `T`, which is opaque (no bounds to make it
-                // callable). Only an *un-inferred* type stays lenient
-                // ([type-unknown-lenient]).
-                for a in args {
-                    self.check_expr(a, None);
-                }
-                if !vty.is_unknown() {
-                    let detail = if matches!(vty, Ty::Var(_)) {
-                        // Adding a declaration cannot make a `T` callable:
-                        // there are no bounds to say it is a function.
-                        messages::call_resolve_type_param_call(&id.name, &vty)
-                    } else {
-                        messages::call_resolve_not_callable_local(&id.name, &vty)
-                    };
-                    self.error(span, detail);
-                }
-                return Ty::Unknown;
+            if let Some(ty) = self.check_name_call(id, None, type_args, args, named, expected, span) {
+                return ty;
             }
             let arg_refs: Vec<&'p Expr> = args.iter().collect();
             // [actor-mixed-handler] Inside a mixed handler's member — sync or
@@ -29163,32 +29402,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
         // Computed callee (a `once`-typed temporary is called at most
         // once by construction [fn-once]).
-        let cty = self.check_expr(callee, None);
-        if let Ty::Fn {
-            params,
-            ret,
-            contract,
-            effects,
-        } = cty.strip_quals().clone()
-        {
-            // [fn-effects]
-            self.check_fn_value_effects(&effects, span);
-            // [call-resolve] [fn-value] Checked as a call through a local is
-            // (B1 census D19, 2026-10-27): before, each argument was only
-            // *typed* against its parameter, so a wrong argument or a wrong
-            // count passed the checker and rustc and kotlinc refused it.
-            let arg_refs: Vec<&'p Expr> = args.iter().collect();
-            self.check_fn_value_args("this function value", &arg_refs, &params, contract.as_deref(), None, span);
-            return *ret;
-        }
-        // [call-resolve] As above: a known non-fn type is not callable.
-        for a in args {
-            self.check_expr(a, None);
-        }
-        if !cty.is_unknown() && !matches!(cty, Ty::Never) {
-            self.error(span, messages::call_resolve_not_callable(&cty));
-        }
-        Ty::Unknown
+        self.check_value_call(callee, args, span)
     }
 
     #[allow(clippy::too_many_arguments)]

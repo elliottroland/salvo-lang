@@ -831,7 +831,7 @@ export fn actor_group<E>(name: Str, nodes: eff[NodeGroup], ?protocol: () -> Prot
 // is the same thing written at the spawn.
 // @compilerrules [actor-group]
 export fn join<E>(group: eff[ActorGroup<E>], member: eff[E]) [] -> None => group, !member {
-    group.join(member)
+    (group.join)(member)
 }
 
 // The std replica. State: members as a list of addrs (an addr

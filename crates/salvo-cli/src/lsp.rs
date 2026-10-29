@@ -1877,7 +1877,7 @@ impl Server<'_> {
 
     /// [lsp-completion] Completion at a position: every function the file can
     /// call; after `receiver.`, only those whose first parameter the receiver
-    /// fills [fn-dot] — matched by the receiver's type name — then those
+    /// fills [fn-uniform] — matched by the receiver's type name — then those
     /// taking any type, ranked after.
     ///
     /// The buffer is analysed with the word being typed and its dot removed,

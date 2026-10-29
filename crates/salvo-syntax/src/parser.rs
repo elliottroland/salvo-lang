@@ -6052,6 +6052,7 @@ impl<'s> Parser<'s> {
                             base: Box::new(expr),
                             field,
                             span,
+                            grouped: false,
                         };
                         continue;
                     }
@@ -6061,6 +6062,7 @@ impl<'s> Parser<'s> {
                         base: Box::new(expr),
                         field,
                         span,
+                        grouped: false,
                     };
                 }
                 // [fn-overload-at] `name@core.list(...)`: the module whose
@@ -6361,6 +6363,7 @@ impl<'s> Parser<'s> {
                 base: Box::new(expr),
                 field,
                 span,
+                grouped: false,
             };
             // Same-line trailers after the member (`()`, `[i]`, further
             // `.x`) attach here as usual.
@@ -7046,7 +7049,12 @@ impl<'s> Parser<'s> {
         self.group_depth -= 1;
         let end = self.expect(&TokenKind::RParen)?.span;
         match elems.len() {
-            1 => Some(elems.into_iter().next().unwrap()),
+            // [fn-member-call] `(x.f)` keeps that it was grouped: as a callee
+            // it is the explicit member call.
+            1 => Some(match elems.into_iter().next().unwrap() {
+                Expr::Field { base, field, span, .. } => Expr::Field { base, field, span, grouped: true },
+                e => e,
+            }),
             _ => Some(Expr::Tuple {
                 elems,
                 span: start.to(end),

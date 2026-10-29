@@ -611,7 +611,7 @@ Conventions:
   default (`last_updated?.nanos ?: -1L`).
   * **Checked through the ordinary path.** A field link types as `field_ty`
     on the first arm; a call link resolves exactly as the dot call `base.m(args)`
-    would ([fn-dot], receiver as argument zero), under a narrowing of the
+    would ([fn-member-call] [fn-uniform]), under a narrowing of the
     receiver to its first arm. A link whose result already appears among the
     other arms (it is optional, or its type equals a pass-through arm) is not
     added again (no `Option<Option<T>>`, no duplicate arm).
@@ -3271,10 +3271,11 @@ Conventions:
       census D13): a plain `f@m(x)` whose bare `f(x)` a local or parameter
       named `f` (an implicit included), a handler's own `send fn`, or an
       effect member would take is never warned about — the selector is the
-      way past them. The dot form sees no locals [fn-dot], so there only an
-      effect member of the name withholds the warning. Before, the check
-      ranked the declared fns alone and warned at `show@main(5)` beside a
-      local `show`.
+      way past them. The dot form is the plain call [fn-uniform], so the
+      same locals and effect members withhold it, and so does a member of
+      the receiver [fn-member-call] (a handler's `send fn` does not: the
+      dot form never reaches one). Before, the check ranked the declared fns
+      alone and warned at `show@main(5)` beside a local `show`.
   * Naming a module with no *fitting* overload is an error listing the
     modules that have one — never a silent fallback.
   * It is the way out of a **shadowed** name: a local of the same name hides
@@ -3447,13 +3448,46 @@ Conventions:
     records [deduce-consume].
   * The bindings are a *hint* for expected types only; the candidate scoring
     below re-derives them from the argument types it ends up with.
-* [fn-dot] Dot-notation: `x.f(a)` ≡ `f(x, a)` whenever `f` resolves to a
-  declared fn or effect member. There is no method-call fallback: an
-  undeclared name is an unresolved call ([call-resolve]), and the
-  diagnostic names a `platform handler` [platform-handler] as the way
-  to reach a target-language method. The checker records each call it read
-  this way (`Checked::dot_calls`); a backend normalizes exactly those and
-  never guesses from the name (built 2026-10-06).
+* [fn-member-call] A dot call `x.name(args)` is a **member call** when `x`'s
+  type has a member `name` (user decision 2026-10-28, replacing R10 D14). A
+  member is a visible field of a struct, or a member of E for an `eff[E]`.
+  A member call is `(x.name)(args)`, a call through the member's value; for an
+  `eff[E]` that value sends, so the call is emitted as the send it always was.
+  * **Any member shadows**: a field that is not a function makes
+    `x.name()` an error naming the uniform spelling `name(x)`
+    (`fn-member-call:not-callable`). Rejected: only callable members shadow,
+    which would make a field's type decide what a call means.
+  * **A member hiding a function is a warning** (`fn-member-call:shadows`):
+    when a uniform call would have reached a function, local or implicit of
+    the name whose first parameter takes `x`, the member is called and the
+    warning names `(x.name)(…)` and `name(x, …)`. The grouped callee
+    `(x.name)(args)` is the explicit member call and never warns; the parser
+    keeps the parentheses (`Expr::Field.grouped`), and a grouped callee is
+    always a field read, never a uniform call.
+  * Under `?.` the rule is the same, on the narrowed first arm
+    [op-safe-nav]. Its shadow warning is silenced only by writing the
+    narrowing out (user decision 2026-10-28, option (a)).
+  * An `eff[E]` with no member of the name, where no uniform call could take
+    it first, reports `actor-use-addr:no-member`: the mistake is the member's
+    name, not the argument types of a same-named function.
+  * **A receiver that is not a place** (`make().f(3)`) has its member looked
+    up only when nothing of the name could take a uniform call, since its type
+    is known only by checking it. So when both exist, such a receiver takes
+    the function (ROADMAP.md records the gap).
+  * The checker records a call through a field in `Checked::field_calls`; the
+    IR reads the field and calls the value, as for `(x.f)(args)`.
+* [fn-uniform] Otherwise a dot call is a **uniform call**: `x.f(a)` is the
+  plain call `f(x, a)` exactly (user decision 2026-10-28). So whatever takes
+  `f(x, a)` takes it: a fn-typed local or an implicit of the enclosing fn
+  of the name (R10 D12, D13), then a declared fn or an available effect
+  member. There is no method-call fallback: an undeclared name is an
+  unresolved call ([call-resolve], `fn-uniform:unknown-fn`), and the
+  diagnostic names a `platform handler` [platform-handler] as the way to
+  reach a target-language method. The checker records each call it read this
+  way (`Checked::dot_calls`); a backend normalizes exactly those and never
+  guesses from the name (built 2026-10-06).
+  * A handler's own `send fn` is not reached by a uniform call: the servant
+    send stays a bare-call form [actor-mixed-handler].
 * [name-ident-resolve] Every **identifier reference** must resolve to something
   declared — a local, a parameter, a handler, or a fn passed by name.
   Nothing else is a value, so the reference is an error (user request
@@ -4053,8 +4087,8 @@ Conventions:
     struct of fn-typed fields instead is possible since [rs-fn-field] (a
     field is an `Rc<dyn Fn…>` on Rust, 2026-09-08) but still says something
     different: a struct is a value with an identity, and reaching a member
-    would need a local first, since `h.f(e)` is dot-notation for `f(h, e)`
-    [fn-dot]. A group is resolved per call site instead
+    would be a member call on it [fn-member-call]. A group is resolved per
+    call site instead
     [implicit-resolve].
   * A **member's deduction clause is part of the position** [fn-contract]: a
     member declared `fn next(it: Mut It) -> … => it: Mut` is filled only by an
@@ -5222,7 +5256,7 @@ Conventions:
     order and is corrected in the lowering [kt-ordered].
   * A **type of your own** joins a capability by declaring the fn
     (`fn cmp(a: Person, b: Person) -> Int`), reached by bare call or by
-    dot-notation [fn-dot] like any overload. The obligation form
+    uniform call [fn-uniform] like any overload. The obligation form
     `struct Point : Ordered<self>` checks at the declaration that one exists
     [group-obligation] [group-self] — it designates nothing and adds no scope.
   * A **generic** fn reaches the capability only by asking: nothing about an
@@ -7035,11 +7069,11 @@ docs/language/ remains the source of truth for everything that does.
   * **Several is an error**, naming the written form — the user's call. **None**
     is an error too, naming both remedies: write the type, or send the token.
   * A `receiver.member(args)` call is tried at **two** positions, because the
-    syntax cannot say which it is: dot-notation on a value makes the receiver the
-    first declared parameter [fn-dot], while the same shape on an `Addr` is a
-    send whose member declares only the message's parameters. Only a `Reply<T>`
-    position is accepted, so the wrong guess contributes nothing, and two that
-    both hit are the ambiguity above.
+    body is inferred before the call is checked: a uniform call makes the
+    receiver the first declared parameter [fn-uniform], while a member call on
+    an `eff[E]` is a send whose member declares only the message's parameters
+    [fn-member-call]. Only a `Reply<T>` position is accepted, so the wrong
+    guess contributes nothing, and two that both hit are the ambiguity above.
   * The walk covers the forms that can contain a call; a shape it does not reach
     produces the "cannot tell" diagnostic rather than a wrong answer, and the
     remedy is written there.
@@ -12921,7 +12955,7 @@ replaced the working document TESTING.md).
 * [lsp-completion] **`textDocument/completion` offers functions**
   (2026-10-03, user request): with no `.` before the word, every free fn the
   file can call; after `receiver.`, those whose first parameter's type name is
-  the receiver's [fn-dot], then those whose first parameter is a type
+  the receiver's [fn-uniform], then those whose first parameter is a type
   parameter, ranked after. The buffer is analysed with the word and its dot
   removed, so a half-written call parses; the receiver is the smallest typed
   expression ending at the dot. `.` is a trigger character. Since 2026-10-05:

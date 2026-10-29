@@ -1273,7 +1273,8 @@ impl<'p> Walk<'_, 'p> {
     /// [fn-contract]; anything still unresolved borrows and preserves
     /// everything.
     fn call(&mut self, callee: &Expr, args: &[Expr], span: Span) {
-        // Dot notation: the receiver is argument 0 [fn-dot].
+        // A uniform call: the receiver is argument 0 [fn-uniform]. A member
+        // call [fn-member-call] reads the same way here: its receiver is read.
         let mut arg_exprs: Vec<&Expr> = Vec::new();
         match callee {
             Expr::Field { base, .. } => arg_exprs.push(base),

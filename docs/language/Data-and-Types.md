@@ -497,8 +497,9 @@ The safe-navigation operator `?.` reaches through the **first arm** of a
 union: `a?.b` performs `.b` on that arm and replaces it with the result,
 passing the other arms through. For a `T?` that is the familiar reading —
 `a?.b` is `None` when `a` is, otherwise `a.b` lifted back into an optional —
-and `a?.m(args)` calls `m` the same way (dot-notation, so `m` takes the
-receiver as its first argument). On a general union `(A | B | C)?.field` where
+and `a?.m(args)` is the dot call `a.m(args)` on that arm (a member of the
+arm if it has one, otherwise a function taking it first; see
+[dot calls](Functions.md)). On a general union `(A | B | C)?.field` where
 `A.field: F` is `F | B | C`. It guards **one** link, so a chain spells every
 hop: `notice.metadata.last_updated?.nanos` is a plain read of a non-optional
 `last_updated`, while `o?.inner?.nanos` guards both. It pairs with `?:` for a

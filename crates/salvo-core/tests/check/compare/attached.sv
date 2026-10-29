@@ -3,7 +3,7 @@
 // overload, named by the type's selector, and it travels with the type.
 
 // A fn written **inside** the struct body is an ordinary overload — bare calls
-// and dot-notation reach it [fn-dot] — and it is declared on the type.
+// and uniform calls reach it [fn-uniform] — and it is declared on the type.
 struct Person {
     name: Str,
     age: Int

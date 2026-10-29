@@ -28,6 +28,26 @@ let size_dot: Int = list.size()
 
 Using dot notation allows us to make method-looking functions without actual support for methods.
 
+A dot call `x.name(args)` means one of two things, and which one depends only on `x`'s type:
+
+* **A member call**, when `x`'s type has a member `name`: a struct's field, or a member of the effect behind an `eff[E]`. The call goes through the member: `b.f(3)` calls the function stored in `b`'s field `f`, and `counter.bump(1)` sends `bump(1)` to the actor. `(b.f)(3)` says the same thing explicitly.
+* **A uniform call** otherwise: `x.name(args)` is exactly `name(x, args)`, so whatever the plain call would reach, the dot call reaches too, including a local or an implicit parameter holding a function.
+
+```
+struct Adder {
+    f: (n: Int) -> Int
+    by: Int
+}
+
+fn twice(a: Adder, n: Int) -> Int => a, n { return n * 2 }
+
+a.f(3)          // member call: the function in `a.f`
+a.twice(3)      // uniform call: twice(a, 3)
+a.by()          // ERROR: `by` is a field of `Adder` and is not a function; write `by(a)`
+```
+
+Any member takes the dot call, even one that is not a function. When a member hides a function the uniform call would have reached, the member is called and the compiler warns, naming both spellings: `(x.name)(…)` for the member and `name(x, …)` for the function. `x?.name(args)` follows the same rule on the value it narrowed to.
+
 If a function return type is not specified, it is assumed to be `None`. When a function's return type is exactly `None`, then you can call `return` without a value to return from the function. Also, returning is not required in this case.
 
 **A generic function's type arguments must be determined at every call.** Usually the arguments settle them (`Mut List(1, 2)` is a `Mut List<Int>`), but when they cannot, the *context* is consulted: the annotation on a `let`, the enclosing function's return type, or the parameter type the result flows into. If nothing determines a type argument that appears in the result type, the call is an error and you name it yourself:

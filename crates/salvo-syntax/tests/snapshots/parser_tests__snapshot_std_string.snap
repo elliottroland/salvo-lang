@@ -1347,6 +1347,7 @@ Module {
                                                 span: 2980..2984,
                                             },
                                             span: 2978..2984,
+                                            grouped: false,
                                         },
                                         Field {
                                             base: Ident(
@@ -1360,6 +1361,7 @@ Module {
                                                 span: 2988..2990,
                                             },
                                             span: 2986..2990,
+                                            grouped: false,
                                         },
                                     ],
                                     named: [],
@@ -1440,6 +1442,7 @@ Module {
                                         span: 3051..3053,
                                     },
                                     span: 3049..3053,
+                                    grouped: false,
                                 },
                                 value: Binary {
                                     op: Add,
@@ -1455,6 +1458,7 @@ Module {
                                             span: 3058..3060,
                                         },
                                         span: 3056..3060,
+                                        grouped: false,
                                     },
                                     rhs: Int {
                                         value: 1,
@@ -3943,6 +3947,7 @@ Module {
                                                                     span: 6420..6425,
                                                                 },
                                                                 span: 6415..6425,
+                                                                grouped: false,
                                                             },
                                                             rhs: Int {
                                                                 value: 0,
@@ -3965,6 +3970,7 @@ Module {
                                                                     span: 6439..6444,
                                                                 },
                                                                 span: 6434..6444,
+                                                                grouped: false,
                                                             },
                                                             rhs: Field {
                                                                 base: Ident(
@@ -3978,6 +3984,7 @@ Module {
                                                                     span: 6453..6456,
                                                                 },
                                                                 span: 6448..6456,
+                                                                grouped: false,
                                                             },
                                                             span: 6434..6456,
                                                         },
@@ -3997,6 +4004,7 @@ Module {
                                                                 span: 6465..6468,
                                                             },
                                                             span: 6460..6468,
+                                                            grouped: false,
                                                         },
                                                         rhs: Call {
                                                             callee: Ident(
@@ -4239,6 +4247,7 @@ Module {
                                                             span: 6790..6795,
                                                         },
                                                         span: 6787..6795,
+                                                        grouped: false,
                                                     },
                                                     Field {
                                                         base: Ident(
@@ -4252,6 +4261,7 @@ Module {
                                                             span: 6800..6803,
                                                         },
                                                         span: 6797..6803,
+                                                        grouped: false,
                                                     },
                                                 ],
                                                 named: [],

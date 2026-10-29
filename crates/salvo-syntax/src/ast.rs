@@ -244,8 +244,8 @@ pub struct RefnDeduction {
 /// representation — nothing is boxed, and neither backend needs to know
 /// groups exist. Declaring it as a struct of fn-typed fields would need
 /// `Box<dyn Fn>` fields on Rust (`impl Trait` is illegal in a field type)
-/// and a way to call a fn-typed field, which dot-notation [fn-dot] already
-/// spells otherwise.
+/// and a member call [fn-member-call] would make `group.f(x)` call the
+/// field rather than reach `f(group, x)`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FnsDecl {
     /// The `//` comment block directly above the declaration, one entry
@@ -1939,6 +1939,11 @@ pub enum Expr {
         base: Box<Expr>,
         field: Ident,
         span: Span,
+        /// [fn-member-call] Written in parentheses, `(x.f)`: as a callee,
+        /// `(x.f)(a)` is the explicit member call — `x`'s member `f`, never
+        /// the uniform call `f(x, a)`. Anywhere else it reads the field as
+        /// `x.f` does.
+        grouped: bool,
     },
     /// `expr.0` — a tuple element by constant index [expr-tuple-index].
     /// Distinct from `Index`: the position is known statically, so it
