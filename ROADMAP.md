@@ -1203,6 +1203,30 @@ They skipped the same way in the compiler's test before the move. `ONLINE=1
 modules/aws/check.sh` fetches the crates; until someone runs it once, the Rust
 glue is unchecked against the SDK.
 
+### 0ax — Names still read program-wide (PIPELINE.md C1.1, 2026-10-29)
+
+C1.1 moved the last program-wide lookups of a *written* name to keys. Three
+remain, each a design question rather than a lookup to swap:
+
+- **Qualifiers are identified by name in types.** A `Ty` carries its
+  qualifiers by name (`Qual { name }`), so whatever needs the declaration
+  — the IR's `qual_fn_ref` (a `whynot?` or a default's check), the Rust
+  boundary check — finds it among every module's qualifiers of that name,
+  by subject. [mod-collision] refuses two *visible* qualifiers of one name,
+  which is why it holds today; two modules that never see each other, each
+  declaring `Q` over one type, would be confused. The fix is a key in `Qual`
+  (as `Ty::Named` has), which touches the deduction machinery, keyed by
+  qualifier name throughout.
+- **Deadlock's inputs name handlers and tasks by written name**
+  (`waitfor_sites`, `handler_constructs`, `actor_gates`, `actor_sends`,
+  `task_mints`, the graph's node names): two modules' handlers of one name
+  are one node. Stage E1 rebuilds those inputs as per-declaration summaries,
+  which is where they take ids.
+- **The IR's `member_ref_by_name`** picks an effect member by name when the
+  checker recorded no member index for the call: the first of an overloaded
+  name. It should be unreachable for a checked call; making it an error
+  rather than a pick is the [backend-never-wrong] fix.
+
 ### 0al — Open defect: `let x: Long? = -1L` miscompiles on Rust (found 2026-10-28, B3.3c)
 
 `let x: Long? = -1L` lowers to `present(-(present(1L)))` (IR): the optional

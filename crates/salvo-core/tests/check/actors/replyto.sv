@@ -231,3 +231,43 @@ fn a_remote_mint_target_is_refused_by_name() [use, spawn] {
     let a = spawn RemoteAsking() with c on pool(1)
     a.ask_remote()
 }
+
+//--- a_parking_handler_of_another_module
+// FILE: a.sv
+// [actor-replyto] [type-identity] Which handlers park is known by handler
+// key, not written name: a parking `Srv` of another module, not even
+// imported, does not refuse the `use` of this module's own `Srv` (found
+// 2026-10-29, PIPELINE.md C1: the set held written names).
+export actor effect Counter {
+    send fn total(out: Reply<Int>) => !out
+}
+
+export actor effect Waiting {
+    send fn ask()
+    send fn got(n: Int)
+}
+
+export handler Srv() [Counter] of Waiting {
+    mailbox { capacity: 1 }
+
+    send fn ask() {
+        total(replyto got())
+    }
+    send fn got(n: Int) {}
+}
+// FILE: main.sv
+effect Ping {
+    fn ping() -> Int
+}
+
+handler Srv() of Ping {
+    fn ping() -> Int {
+        return 1
+    }
+}
+
+fn main() [use] {
+    use StdConsole()
+    use Srv()
+    println("${ping()}")
+}

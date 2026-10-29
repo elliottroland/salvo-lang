@@ -2029,7 +2029,9 @@ impl Server<'_> {
         // *value* position is neither).
         if !dot && !type_position {
             if let Some((name, written)) = struct_lit_at(&analysis.program, view.file, word as u32) {
-                for f in struct_fields(&analysis.program, &name, view.file) {
+                // [type-identity] The struct the written name means here.
+                let key = checked.visible_key(view.file, &name).to_string();
+                for f in struct_fields(&analysis.program, &key, view.file) {
                     if written.contains(&f.0) {
                         continue;
                     }
@@ -2553,10 +2555,21 @@ fn struct_lit_at(program: &salvo_core::Program, file_idx: usize, offset: u32) ->
     finder.best.map(|(_, name, written)| (name, written))
 }
 
-/// [lsp-completion] The fields of the struct named `name` (its first
-/// declaration), as `(name, type)`.
-fn struct_fields(program: &salvo_core::Program, name: &str, viewer: usize) -> Vec<(String, String)> {
+/// [lsp-completion] The fields of the struct whose type key is `key`, as
+/// `(name, type)` [type-identity]: `Name§module` is that module's `Name`,
+/// a plain key std's first. (By written name, the first struct of the name
+/// in the program answered, another module's included — PIPELINE.md C1.)
+fn struct_fields(program: &salvo_core::Program, key: &str, viewer: usize) -> Vec<(String, String)> {
+    let name = salvo_core::typekey::plain(key);
+    let declaring = salvo_core::typekey::module_of(key);
     for (file, module) in program.files.iter().zip(&program.modules) {
+        let here = match declaring {
+            Some(m) => file.module.to_string() == m,
+            None => file.is_std,
+        };
+        if !here {
+            continue;
+        }
         for item in &module.items {
             if let salvo_syntax::ast::Item::Struct(s) = item {
                 if s.name.name == name {
@@ -2837,7 +2850,7 @@ fn doc_ref_completions(analysis: &Analysis, view_file: usize, cursor: u32) -> Ve
 /// parameter by: the base, without qualifiers or a module key.
 fn receiver_name(ty: &Ty) -> Option<String> {
     match ty {
-        Ty::Named { name, .. } => Some(name.split('§').next().unwrap_or(name).to_string()),
+        Ty::Named { name, .. } => Some(name.clone()),
         Ty::Qualified { base, .. } => receiver_name(base),
         Ty::Lit(lit) => Some(lit.base().to_string()),
         _ => None,

@@ -144,6 +144,37 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-29 — Written names stop being looked up program-wide (PIPELINE.md C1.1)
+
+- **Stage C, first piece.** C1 is split in three (PIPELINE.md §II.9): the
+  remaining program-wide lookups by name (this), type-position names resolved
+  by resolution (C1.2), value-position names (C1.3).
+- **What the census found**: of PIPELINE §5's "~21 checker sites", A1's keys
+  had already taken most. Still by written name, program-wide:
+  - the **parking handlers** (`use`-refusal of a handler that mints a
+    continuation): a parking `Srv` of another, unimported module refused
+    this module's `Srv` (probe confirmed; now
+    `actors/replyto.sv#a_parking_handler_of_another_module`). Now handler
+    keys, which the IR's `parks`, deadlock and the row partition read too;
+    the partition's owner index was already by key, so the names had been
+    misfiled into the shared rows;
+  - `may_take`: a written name asked of the keyed alias table, so only
+    std's aliases counted; now the writer's scope;
+  - the opaque-struct refusal's "use its functions": every module's fns
+    whose first parameter was written with the type's name; now its own
+    module's;
+  - the language server's field completion, after a dot and in a struct
+    literal: the first struct of the name in the program; now the one the
+    key means (`lsp_tests::completion_offers_the_fields_of_the_struct_meant`,
+    failing before);
+  - `Symbols`' plain-name tables: `effect_of_fn`, `fn_groups`, `resolve_fn`
+    and `fns_matching_arity` were dead; `fns` is `intrinsic_fns`
+    [intrinsic-std-only] (its other readers: the `encode` test, which needed
+    no lookup, and the IR's `intrinsic_fn`).
+- **Left** (ROADMAP 0ax): qualifiers are identified by name in `Ty`, so
+  their declaration is found by name and subject; deadlock's inputs name
+  handlers by written name (E1); the IR's member-by-name fallback.
+
 ### 2026-10-29 — CLI tests share their programs (test speed, merge 2)
 
 - **Decided (user, 2026-10-29)**: share one program across the CLI tests

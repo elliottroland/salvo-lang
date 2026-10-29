@@ -2462,7 +2462,20 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   checker sites, `deduce`'s tables, comptime's and the desugaring's
   first-match tables, the IR's fallback; §5) become reads of
   it. `Symbols::ref_key` stops re-running `resolve()`. Whether this is a
-  tree or a table is decision **P6** (via §II.8).
+  tree or a table is decision **P6** (via §II.8). In three pieces
+  (2026-10-29), since A1's keys had already taken most of the ~21 lookups:
+  1. **The remaining program-wide lookups by name, to keys** — done
+     (§II.12).
+  2. **Type-position names resolved by resolution**: a per-file table,
+     node → declaration id (or generic, builtin, unresolved), for every
+     written type, qualifier, effect and group name; the checker's
+     `lower_base_ref`, `lower_effect_ref` and qualifier checks read it,
+     `written_keys*`, `visible_keys` and `Symbols::ref_key` are derived from
+     it, and "unknown type" diagnostics come from resolution. Differential:
+     the old scope walk's key against the table's, at every reference.
+  3. **Value-position names**: locals bound lexically (a use names its
+     binding's node), callables as candidate sets (fns and effect members);
+     the checker's `Expr::Ident` and callee paths read it.
 - **C2. The resolve dump** (`salvo dump --phase …`, P7), as Salvo
   with every name qualified.
 - **C3. Comptime on the resolved form** (§II.5): templates resolved once in
@@ -3402,16 +3415,37 @@ this log current so the work can resume after a context reset). Newest last.
   `for`, local and field calls, sends and mints, renamed names, `throw`,
   forwarded implicits, desugared or stamped spans.
 
-- **Where it stands (2026-10-28) — resume here.** Stage A complete; B1–B4
-  done (**Stage B complete**). TESTS.md's reorganisation is finished (the
-  per-piece method is its data runners and a warm nextest before each
-  commit). **Next: Stage C, C1** (§II.9), the resolved form, as tables
-  keyed by A3's node keys (P6: the representation is decided at D1). Left
-  of B, recorded:
-  D4's general union `to_str` (deferred, R10), so `interp_union` stays a
-  fact; the send cuts of ROADMAP 0au; the leftovers of 0as, 0at and 0av.
-  **Open decisions, each built as its recommended option:** P9–P18 and P21
-  (§II.10; ROADMAP 0af, 0ah–0aq, 0av).
+- **C1.1, the remaining program-wide lookups by name: done (2026-10-29).**
+  The census of §5's "~21 checker sites" found most already moved to keys by
+  A1; what still read a name program-wide:
+  - **parking handlers**, the set that refuses a `use` of a handler that
+    mints a continuation, held written names: a parking `Srv` of another
+    module, not even imported, refused this module's own `Srv` (probe
+    confirmed). Now handler keys, read the same way by the `use` refusal,
+    the IR's `parks`, deadlock and the row partition (whose owner index was
+    already by key, so the old names were misfiled);
+  - `may_take` asked the keyed alias table with a written name (only std's
+    aliases were found): now the writer's scope;
+  - the opaque-struct refusal listed the fns of *every* module whose first
+    parameter was written with the type's name: now its own module's;
+  - the language server's field completion took the first struct of the
+    name in the program: now the one the value's key (or the written name,
+    through the file's visible keys) means;
+  - `Symbols` lost its dead plain-name tables (`effect_of_fn`, `fn_groups`,
+    `resolve_fn`, `fns_matching_arity`); `fns` is `intrinsic_fns`, std's
+    intrinsics by name [intrinsic-std-only].
+  Left, recorded in ROADMAP 0ax: qualifiers are identified by name in types
+  (`Ty` quals), so the IR's `qual_fn_ref` and the Rust boundary check look a
+  qualifier up by name and subject; deadlock's inputs name handlers and
+  tasks by written name (E1's); the IR's member-by-name fallback.
+
+- **Where it stands (2026-10-29) — resume here.** Stages A and B complete;
+  **Stage C under way**: C1.1 done; **next C1.2** (type-position names
+  resolved by resolution, §II.9). Left of B, recorded: D4's general union
+  `to_str` (deferred, R10), so `interp_union` stays a fact; the send cuts of
+  ROADMAP 0au; the leftovers of 0as, 0at, 0av and 0ax. **Open decisions,
+  each built as its recommended option:** P9–P18 and P21 (§II.10; ROADMAP
+  0af, 0ah–0aq, 0av).
 
 ## II.13. The call census (B1, 2026-10-27)
 

@@ -3191,6 +3191,71 @@ fn main() [Console] {
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
 
+/// [lsp-completion] [type-identity] Two modules' structs of one name: after
+/// the dot, and in a literal, the fields offered are those of the struct the
+/// value's type (or the written name) means — by key, where the first struct
+/// of the name in the program answered (PIPELINE.md C1, 2026-10-29).
+#[test]
+fn completion_offers_the_fields_of_the_struct_meant() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_completion_same_name");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let a = "export struct Pt {\n    ax: Int\n}\n";
+    let main = "\
+struct Pt {
+    mx: Int,
+    my: Int
+}
+
+fn norm(p: Pt) -> Int {
+    return p.
+}
+
+fn make() -> Pt {
+    return Pt { mx: 1, }
+}
+
+fn main() [Console] {
+}
+";
+    std::fs::write(root.join("a.sv"), a).unwrap();
+    std::fs::write(root.join("main.sv"), main).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": main}}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    let complete = |lsp: &mut Lsp, id: i64, line: u32, character: u32| -> Vec<String> {
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/completion",
+                "params": {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}
+            }),
+        );
+        let response = expect_response(&lsp.rx, id);
+        response["result"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no completion list: {response}"))
+            .iter()
+            .map(|i| i["label"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let dot = complete(&mut lsp, 2, 6, 13);
+    assert!(dot.iter().any(|l| l == "my") && !dot.iter().any(|l| l == "ax"), "{dot:?}");
+    let lit = complete(&mut lsp, 3, 10, 23);
+    assert!(lit.iter().any(|l| l == "my") && !lit.iter().any(|l| l == "ax"), "{lit:?}");
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
 /// [lsp-completion] [struct-opaque] After the dot on a value of an opaque
 /// struct, the fields are offered in the declaring module and not elsewhere.
 #[test]

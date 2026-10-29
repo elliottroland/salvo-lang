@@ -253,7 +253,7 @@ fn build(
             if !h.fns.iter().any(|f| f.is_send) {
                 let stateful = crate::handler_is_stateful(
                     h,
-                    out.parking_handlers.contains(h.name.name.as_str()),
+                    out.parking_handlers.contains(symbols.key_or(h, &h.name.name)),
                 );
                 if !stateful {
                     continue;
@@ -332,7 +332,7 @@ fn build(
             let Item::Handler(h) = item else { continue };
             let occupies = crate::handler_is_stateful(
                 h,
-                out.parking_handlers.contains(h.name.name.as_str()),
+                out.parking_handlers.contains(symbols.key_or(h, &h.name.name)),
             ) || waits_of.contains_key(h.name.name.as_str());
             for (of, any) in h.of.iter().zip(h.of_any.iter()) {
                 let Some(name) = face_key(symbols, of).filter(|n| *any && is_actor(n)) else { continue };

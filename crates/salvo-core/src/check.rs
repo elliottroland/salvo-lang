@@ -839,7 +839,7 @@ pub struct Checked {
     /// hashes. Recorded at the effect, since lowering erases `Key`.
     pub route_keys: HashMap<String, HashMap<String, String>>,
     /// [actor-replyto] [effect-handle] The handlers whose members **mint** a
-    /// continuation (`replyto`), by name: they write their parked-continuation
+    /// continuation (`replyto`), by handler key: they write their parked-continuation
     /// table, which makes them stateful for the handle's purposes
     /// (`salvo_core::handler_is_stateful`) even with no declared state.
     pub parking_handlers: std::collections::HashSet<String>,
@@ -2188,7 +2188,7 @@ fn check_program_walk<'p>(
     // continuation, read off each handler's own text before anything is
     // walked (PIPELINE.md 4.5), so the `use` refusal it drives is right in
     // the first walk.
-    let syntactic = syntactic_parking_handlers(program);
+    let syntactic = syntactic_parking_handlers(program, symbols);
     let mut parking: HashSet<String> = syntactic.clone();
 
     // [std-cache] std is not walked, so the facts that also surface as `out`
@@ -2244,9 +2244,12 @@ fn check_program_walk<'p>(
 /// [actor-replyto] The handlers whose members mint a continuation into the
 /// handler itself — `replyto k(…)` naming one of its own members, or
 /// `self@Face` naming one of its faces — read off each handler's text
-/// (PIPELINE.md 4.5). The walk resolves the same names and refuses a wrong
-/// one, so this over-approximates only for a program already in error.
-fn syntactic_parking_handlers(program: &Program) -> HashSet<String> {
+/// (PIPELINE.md 4.5), by handler key [type-identity]: by written name, a
+/// parking `Srv` of one module refused the `use` of another module's `Srv`
+/// that does not park (found 2026-10-29, PIPELINE.md C1). The walk resolves
+/// the same names and refuses a wrong one, so this over-approximates only for
+/// a program already in error.
+fn syntactic_parking_handlers(program: &Program, symbols: &Symbols<'_>) -> HashSet<String> {
     use salvo_syntax::visit::{self as v, Visitor};
     struct Find<'h> {
         h: &'h ast::HandlerDecl,
@@ -2280,7 +2283,7 @@ fn syntactic_parking_handlers(program: &Program) -> HashSet<String> {
                 }
             }
             if find.parks {
-                out.insert(h.name.name.clone());
+                out.insert(symbols.key_or(h, &h.name.name).to_string());
             }
         }
     }
@@ -10864,13 +10867,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         //
         // [actor-mixed-handler] A mixed handler is spawn-only for the structural
         // reason below whether or not it parks, so its refusal speaks alone.
-        let mixed = self
-            .scope
-            .handlers
-            .get(id.name.as_str())
-            .copied()
-            .is_some_and(|h| self.handler_is_mixed(h));
-        if !mixed && self.parking_handlers.contains(id.name.as_str()) {
+        let used = self.scope.handlers.get(id.name.as_str()).copied();
+        let mixed = used.is_some_and(|h| self.handler_is_mixed(h));
+        // [type-identity] The handler this file's name means, by key.
+        let parks = used.is_some_and(|h| self.parking_handlers.contains(self.symbols.key_or(h, &h.name.name)));
+        if !mixed && parks {
             self.error(span, messages::actor_replyto_use_bound(&id.name));
         }
         // [actor-mixed-handler] The same reasoning, structural: a mixed handler's
@@ -16579,9 +16580,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         // continuation needs a mailbox to arrive on and a dispatcher to run
         // it, and a synchronously bound instance has neither. Refused at the
         // `use` site (below), which is where the binding is chosen.
-        self.parking_handlers.insert(h.name.name.clone());
+        let key = self.symbols.key_or(h, &h.name.name).to_string();
+        self.parking_handlers.insert(key.clone());
         if self.record {
-            self.parking_log.push(h.name.name.clone());
+            self.parking_log.push(key);
         }
         // [actor-deadlock-cycle] The gate is the wait-for graph's tail: while
         // this continuation is outstanding the actor serves only its answer,
@@ -24421,9 +24423,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // The address exists only when the instance runs as an actor:
                 // a `use` of this handler is refused where the binding is
                 // chosen, as a `replyto` handler's is [actor-replyto].
-                self.parking_handlers.insert(h.name.name.clone());
+                let key = self.symbols.key_or(h, &h.name.name).to_string();
+                self.parking_handlers.insert(key.clone());
                 if self.record {
-                    self.parking_log.push(h.name.name.clone());
+                    self.parking_log.push(key);
                 }
                 Ty::Named { name: ADDR_TYPE.to_string(), args: vec![ty] }
             }
@@ -25227,7 +25230,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             _ => return true,
         };
         let written = base.name.name.as_str();
-        if decl.generics.iter().any(|g| g.name == written) || self.symbols.type_aliases.contains_key(written) {
+        // [type-identity] An alias as the file that wrote the parameter sees
+        // it: by written name in the keyed table, only std's were found.
+        if decl.generics.iter().any(|g| g.name == written) || self.scope_of(base).type_aliases.contains_key(written) {
             return true;
         }
         match arg {
@@ -29771,14 +29776,26 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(decl) = self.hidden_opaque(&name) else {
             return false;
         };
-        let module = self.symbols.key_modules.get(name.as_str()).map(|m| m.to_string()).unwrap_or_default();
+        let declaring = self.symbols.key_modules.get(name.as_str()).copied();
+        let module = declaring.map(|m| m.to_string()).unwrap_or_default();
         let shown = decl.name.name.clone();
-        // Its functions: the fns of its module whose first parameter is it.
-        let mut fns: Vec<String> = self
-            .symbols
-            .fns
-            .values()
-            .flatten()
+        // Its functions: the fns of its module whose first parameter is it —
+        // its module's own, as one of the module's files sees them (by written
+        // name across the program, another module's fns about a type of the
+        // same name were offered, PIPELINE.md C1).
+        let home = declaring.and_then(|m| self.files.iter().position(|f| f.module == *m));
+        let own: Vec<&'p FnDecl> = match (home, declaring) {
+            (Some(fi), Some(m)) => self.resolution.scopes[fi]
+                .fns
+                .values()
+                .flatten()
+                .filter(|e| e.module == m)
+                .map(|e| e.decl)
+                .collect(),
+            _ => Vec::new(),
+        };
+        let mut fns: Vec<String> = own
+            .into_iter()
             .filter(|f| {
                 f.params.first().is_some_and(|p| {
                     let base = match &p.ty {
@@ -31433,10 +31450,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // declaration that stops it. A generic instantiation is refused too
         // (step ②'s cut): `encode` inside a generic body has nothing to
         // dispatch on until a bound exists for it.
-        if decl.intrinsic
-            && matches!(decl.name.name.as_str(), "encode" | "decode")
-            && self.symbols.fns.get("encode").is_some_and(|fs| fs.iter().any(|f| f.intrinsic))
-        {
+        // [intrinsic-std-only] An intrinsic is std's, so the callee is std's
+        // `encode` or `decode`.
+        if decl.intrinsic && matches!(decl.name.name.as_str(), "encode" | "decode") {
             let subject: Option<Ty> = match decl.name.name.as_str() {
                 "encode" => arg_tys.first().cloned(),
                 _ => match &result {

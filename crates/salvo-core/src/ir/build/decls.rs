@@ -428,7 +428,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
         errors.extend(lower.finish());
         e
     });
-    let parks = ctx.checked.parking_handlers.contains(&h.name.name);
+    let parks = ctx.checked.parking_handlers.contains(ctx.symbols.key_or(h, &h.name.name));
     ImplDecl {
         dispatch: Vec::new(),
         stub: false,

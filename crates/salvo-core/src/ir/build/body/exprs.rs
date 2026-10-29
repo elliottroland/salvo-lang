@@ -754,7 +754,7 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     /// The std intrinsic `name` declared over exactly these parameter types.
     pub(crate) fn intrinsic_fn(&self, name: &str, params: &[Ty]) -> Option<DeclId> {
-        let fns = self.ctx.symbols.fns.get(name)?;
+        let fns = self.ctx.symbols.intrinsic_fns.get(name)?;
         let want: Vec<String> = params.iter().map(|t| erase(t).strip_quals().to_string()).collect();
         for f in fns {
             if !f.intrinsic || f.params.iter().filter(|p| !p.implicit).count() != params.len() {
