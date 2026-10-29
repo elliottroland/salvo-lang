@@ -316,7 +316,7 @@ fun argSpec__SpecServe(): salvo.std.args.Spec {
     var defaultText__c16__c17__c18__c19: String? = null
     val choices__c16__c17__c18__c19: salvo.platform.std.core.list.MutList<String> = mutableListOf<String>()
     val exclusive__c16__c17__c18__c19: Boolean = false
-    defaultText__c16__c17__c18__c19 = "${"text"}"
+    defaultText__c16__c17__c18__c19 = "text"
     salvo.std.core.list.addPlatform(choices__c16__c17__c18__c19, salvo.std.args.literalText("\"json\""))
     salvo.std.core.list.addPlatform(choices__c16__c17__c18__c19, salvo.std.args.literalText("\"text\""))
     if (exclusive__c16__c17__c18__c19) {

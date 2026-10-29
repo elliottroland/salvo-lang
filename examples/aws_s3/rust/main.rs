@@ -147,7 +147,7 @@ pub fn describe(mut e: crate::unions::Union2<&crate::aws_s3::S3Error, &crate::aw
         return String::from("no such key");
     };
     let mut e_3 = match e { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-    return format!("the service refused: {}", e_3.code.clone());
+    return format!("the service refused: {}", e_3.code);
 }
 
 pub fn size_of(fs: &crate::std_fs::Fs, streams: &crate::std_stream::Streams, path: &crate::std_fs_path::Path) -> Option<i64> {

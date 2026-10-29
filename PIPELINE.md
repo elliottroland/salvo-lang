@@ -3262,6 +3262,25 @@ this log current so the work can resume after a context reset). Newest last.
   a uniform call; a member call through a field could be misread there,
   with no case found yet.
 
+- **B3.2, interpolation (2026-10-28).** Under P4 option (a): each part is
+  the call `to_str(part)`, resolved by `interp_call` — the enclosing fn's own
+  implicit (`pick_own_implicit`), else `resolve_named_call` with the part
+  pre-typed and `pending_typed_only` (read, not passed) under a `ForSite`
+  marked `interp` (key remap to the part's `Key::INTERP_TEXT`, refusals
+  said "in this interpolation"). `interp_has_text` is the silent probe
+  that keeps `interp-to-str:no-text` and its opt-in remedy. The IR's
+  `text_of` lowers the recorded call with `for_call` and drops std's
+  identity `to_str(Str)`; the string is the IR's `Concat`, which is the
+  format fn (no std declaration: nothing calls it by name). Census D1 and
+  D3's interpolation halves built; D2 had dissolved in B3.3b; D4 stays
+  deferred, so a union part keeps `interp_union` and `interp_text_form`
+  per arm. Gone: `Checked::interp_to_str`, `interp_implicit`,
+  `record_text_form`. The `@whynot` subject's text is the same call.
+  Emitted code: four examples lost a redundant `.clone()`/`format!("{}", …)`
+  on a `Str` part (`aws_sqs`, `aws_s3`, `aws_ddb`, `cli`), and Kotlin's
+  `cli` a `"${"text"}"`. OPERATOR_OVERLOAD.md O5 (untracked, left alone)
+  still describes the native fast path.
+
 - **B3.6, fn values (2026-10-28).** D19, D20 and D21 were fixed in B1 and
   B3.1, so what was left is R10 D3's last position: **a member by its bare
   name** (`on_point(show, p)`). `fn_value_by_name` adds the available
@@ -3300,13 +3319,11 @@ this log current so the work can resume after a context reset). Newest last.
   over std's fns of the name. Nothing else in the suite changed.
 
 - **Where it stands (2026-10-28) — resume here.** Stage A complete; B1,
-  B2 done; B3 pieces 1, 3a–3e, 4, 5 and 6 done. TESTS.md's reorganisation is
+  B2 done; B3 pieces 1, 2, 3a–3e, 4, 5 and 6 done. TESTS.md's reorganisation is
   finished (the per-piece method is its data runners and a warm nextest
-  before each commit). **Remaining B3 order:** 2
-  (interpolation: the format fn's shape decided 2026-10-28, §II.10 P4; D4's
-  general union `to_str` deferred, R10, so `interp_union` stays a fact); 7
-  (sends, mints: D18, D24, and a handler's own `send fn` under a uniform
-  call). **Open decisions, each
+  before each commit). **Remaining B3 order:** 7 (sends, mints: D18, D24,
+  and a handler's own `send fn` under a uniform call); D4's general union
+  `to_str` stays deferred (R10), so `interp_union` is a fact until it lands. **Open decisions, each
   built as its recommended option:** P9–P18 (§II.10; ROADMAP 0af,
   0ah–0aq).
 
@@ -3465,7 +3482,9 @@ Fixed, the operator half (commit "Resolve comparison operators as the calls they
 so an enclosing `?eq`/`?cmp` takes them on a scalar or `Str`; the probe prints
 `op:   true` on both backends. The backends write the host's operator exactly
 when the selected callee is std's intrinsic `eq`/`cmp` at a basic type
-(`Ctx::is_primitive_compare`). Interpolation waits for piece 2.
+(`Ctx::is_primitive_compare`). Interpolation waits for piece 2. **Built in
+B3.2 (2026-10-28):** `${n}` goes through the enclosing `?to_str` too; the
+probe prints `interp: #7` beside `call:   #7`.
 
 #### D2. The native fast path skips resolution altogether
 
@@ -3511,7 +3530,9 @@ Fixed, the implicit half (commit "Select every implicit argument as a call selec
 Fixed, the operator half (commit "Resolve comparison operators as the calls they name"): an available member `eq`/`cmp` is a candidate
 for `==`/`<` as for the call; beside a fn of the same signature the operator
 is the call's ambiguity (`eq@Same(…)` or `eq@main(…)`). Interpolation waits
-for piece 2.
+for piece 2. **Built in B3.2 (2026-10-28):** `"${p}"` reaches the member, and
+beside a fn of the same signature it is the call's ambiguity, said "in this
+interpolation".
 
 #### D4. A union interpolates arm by arm; the call has no overload
 

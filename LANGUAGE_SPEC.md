@@ -221,20 +221,33 @@ Conventions:
     [interp-struct].
   * Floats are not `Set` elements or `Map` keys [col-key-eligible], so only
     the *value* half of a map needs the rule.
-  * **Otherwise a `to_str`**, resolved *at the interpolation site* like an
-    implicit parameter (user decision 2026-09-11): a `to_str` in scope
-    whose parameter accepts the type and which returns `Str`. A type's
-    `to_str` is declared in the type's own file [op-unique-shape], so a
-    module's `to_str(List<T>)` beside std's, or a catch-all `to_str<T>(x: T)`,
-    is refused where it is written (the 2026-10-14 hazard of PIPELINE.md
-    §II.10 P5). The winner is
-    recorded in `Checked::interp_to_str` and the emitters call it.
+  * **Every part is the call `to_str(part)`** (user decision 2026-10-28,
+    PIPELINE.md §II.10 P4 option (a); built in B3.2), resolved *at the
+    interpolation site* as that call written in the body would be: the
+    enclosing fn's own implicit `to_str` first [implicit-resolve-body] —
+    at a scalar or a `Str` too (census D1: there was a native fast path
+    before it) — then the visible fns and the available effects' members of
+    the name as one set [effect-member-overload] (census D3). The string is
+    `concat` of its literal pieces and those calls (the IR's `Concat`); a
+    backend writes native interpolation where a part's call is std's
+    intrinsic `to_str`, and std's identity `to_str(Str)` is the value
+    itself. The call's facts are recorded at the part's `Key::INTERP_TEXT`
+    and lowered as a `for`'s call is; a refusal is said "in this
+    interpolation". The part is read, not passed: no contract or coercion
+    applies to it. With nothing to take it, the error is
+    `interp-to-str:no-text`, naming the struct opt-in [interp-struct]. A
+    type's `to_str` is declared in the type's own file [op-unique-shape],
+    so a module's `to_str(List<T>)` beside std's, or a catch-all
+    `to_str<T>(x: T)`, is refused where it is written (the 2026-10-14
+    hazard of PIPELINE.md §II.10 P5).
+    * The format fn is the IR's `concat` node, not a std declaration:
+      nothing calls it by name.
   * **std provides** `fn to_str<T>(list: List<T>, ?to_str: (x: T) -> Str)
     -> Str`, rendering `[1, 2, 3]`, in Salvo since 2026-10-04
     [platform-value-type]; and `to_str` for every scalar, `Double` and `Float`
     included (by [interp-float]), so a list of any scalar prints. A `to_str`
-    that takes implicits is called from the interpolation with them filled
-    at the zero-width span after the value, which no other call occupies.
+    that takes implicits is called from the interpolation with them filled,
+    as at any call.
     The format is the *language's*, because the targets' own collection
     formatting disagrees (Rust `Debug` quotes strings, Kotlin's
     `joinToString` does not).
@@ -5501,9 +5514,9 @@ Conventions:
       [group-obligation].
     * **Calls fill them**: a written call as always, an operator
       [op-order] [op-equality] at the comparison's span, an interpolation
-      [interp-to-str] at the zero-width span after the value, and inside a
-      stamped `to_str` an interpolated `T` renders through the implicit
-      (`Checked::interp_implicit`).
+      [interp-to-str] at the part's `Key::INTERP_TEXT`, and inside a
+      stamped `to_str` an interpolated `T` renders through the implicit,
+      as the call `to_str(value)` there would.
     * **A fn value carries them by filling them in turn**
       [implicit-recursive]: a candidate with implicits of its own (a spread
       group included) fits a position when its explicit parameters do and its
@@ -11221,7 +11234,7 @@ between endpoints and delivers what arrives into the scheduler.
     language server's definition sites, the check cache's per-file rows).
   * The checker's fn-keyed tables (`fn_effects`, `fn_lends`,
     `implicit_params`, `established_quals`, `param_mutations`,
-    `deductions`, `call_fn`, `fn_refs`, `replyto_tasks`, `interp_to_str`,
+    `deductions`, `call_fn`, `fn_refs`, `replyto_tasks`,
     `ImplicitArg::Resolved`, …) and the IR's references
     are keyed by it; a handler's member is its own declaration, so the facts
     of its nodes are keyed by its member id [node-id], and its IR `FnDecl`

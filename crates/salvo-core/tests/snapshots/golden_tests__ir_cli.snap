@@ -56,7 +56,7 @@ fn main::describe(lent t: Tool) -> Str {
         narrow#7[after branch#0.cond#0] tls~2: Tls = tls
         value concat("tls ", read tls~2.cert)
       }
-      return concat("serve ", call std.core.string::join(read c~1.files, ","), " on ", read c~1.net.host, ":", call std.core.basic::to_str(Int)(read c~1.port), " as ", call std.core.string::to_str(read c~1.output), ", ", read secure, ", ", call std.core.basic::to_str(Int)(branch#14 cond#0 true {
+      return concat("serve ", call std.core.string::join(read c~1.files, ","), " on ", read c~1.net.host, ":", call std.core.basic::to_str(Int)(read c~1.port), " as ", read c~1.output, ", ", read secure, ", ", call std.core.basic::to_str(Int)(branch#14 cond#0 true {
         bind#9 let __pick~3: Int? = read c~1.net.workers
         value branch#10 cond#0 check#13 (read __pick~3 is arm 0) {
           narrow#11[branch#10.cond#0] __picked~4: Int = __pick~3
@@ -252,7 +252,7 @@ fn main::arg_spec()() -> Spec<Serve> {
   bind#25 let default_text__c16__c17__c18__c19: Str? = none[None]
   bind#26 let choices__c16__c17__c18__c19: Mut List<Str> = call std.core.list::Mut_List()<Str>()
   bind#27 let exclusive__c16__c17__c18__c19: Bool = false
-  assign default_text__c16__c17__c18__c19 = present(concat(call std.core.string::to_str("text")))
+  assign default_text__c16__c17__c18__c19 = present(concat("text"))
   call std.core.list::add<Str>(read choices__c16__c17__c18__c19, call std.args::literal_text("\"json\""))
   call std.core.list::add<Str>(read choices__c16__c17__c18__c19, call std.args::literal_text("\"text\""))
   branch#28 cond#0 read exclusive__c16__c17__c18__c19 {

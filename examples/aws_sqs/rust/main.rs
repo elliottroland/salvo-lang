@@ -110,7 +110,7 @@ pub fn describe(mut e: crate::unions::Union2<&crate::aws_sqs::SqsError, &crate::
         return String::from("no such queue");
     };
     let mut e_3 = match e { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-    return format!("the service refused: {}", e_3.code.clone());
+    return format!("the service refused: {}", e_3.code);
 }
 
 pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::std_core_console::Console, name: &String) {

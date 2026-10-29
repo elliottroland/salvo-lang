@@ -126,7 +126,8 @@ The things to notice:
   different value (`x~1` is the narrowed `x`). Names starting `__` are
   generated.
 * **`"${…}"` is a `concat`** of `Str` parts. Each interpolated value becomes
-  a call to the `to_str` the checker chose for it.
+  the call `to_str(value)`, resolved as a written call is; a `Str` whose
+  `to_str` is std's own is the value itself.
 * **The `wire` flag** on `Box` means every field has a wire form, so the
   struct can travel between actors on different nodes.
 

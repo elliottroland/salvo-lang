@@ -628,26 +628,24 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
-    /// [interp-to-str] The text of `value`, by the form the checker recorded
-    /// at `span` (the expression's own), else natively; `None` when it has
-    /// none.
+    /// [interp-to-str] The text of `value`: the call `to_str(value)` the
+    /// checker resolved at the part's `Key::INTERP_TEXT` (PIPELINE.md B3.2),
+    /// or a union's per-arm dispatch; else natively. `None` when it has none.
     fn text_of(&mut self, value: Expr, span: Span) -> Option<Expr> {
         let str_ty = Ty::named("Str");
-        let info = self.ctx.checked.interp_info(self.key(span));
-        if let Some(local) = info.implicit.cloned() {
-            return Some(Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Local(Local(local)), type_args: Vec::new(), args: vec![value], moved: false } });
-        }
         // [interp-union] A union is the text of the arm it holds: a switch on
         // the value, each arm calling its own `to_str`.
-        if let Some(arms) = info.union.cloned() {
+        if let Some(arms) = self.ctx.checked.interp_info(self.key(span)).union.cloned() {
             return Some(self.interp_union(value, &arms, span));
         }
-        if let Some(k) = info.to_str.copied() {
-            let at = span.at(span.end, span.end);
-            let mut args = vec![value];
-            let key = self.key(span).synthetic(crate::check::Key::INTERP_TEXT);
-            args.extend(self.implicit_args_keyed(key, at));
-            return Some(Expr { ty: str_ty, span, kind: ExprKind::Call { target: FnRef::Decl(k), type_args: Vec::new(), args, moved: false } });
+        let key = self.key(span).synthetic(crate::check::Key::INTERP_TEXT);
+        let info = self.ctx.checked.call_info(key);
+        if info.local_call || info.call_fn.is_some() || info.member_call.is_some() {
+            // std's identity `to_str(Str)` is the value itself.
+            if info.call_fn.copied().is_some_and(|k| self.intrinsic_fn("to_str", &[Ty::named("Str")]) == Some(k)) {
+                return Some(value);
+            }
+            return Some(self.for_call(key, vec![value], str_ty, span));
         }
         self.native_text(value, span)
     }

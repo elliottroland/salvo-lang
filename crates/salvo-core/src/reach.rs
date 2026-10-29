@@ -255,10 +255,9 @@ pub fn resolved_fn_keys(checked: &crate::check::Checked, file_idx: usize) -> Has
             walk(arg, &mut out);
         }
     }
-    // [interp-to-str] [interp-struct] The text form an interpolation resolved.
-    for (_, fn_key) in checked.interp_to_str.iter().filter(|(k, _)| mine(k)) {
-        out.insert(*fn_key);
-    }
+    // [interp-to-str] [interp-struct] The text form an interpolation resolved
+    // is a call fact like any (`call_fn` above, at the part's
+    // `Key::INTERP_TEXT`).
     // [interp-union] The text form of each arm of an interpolated union.
     for (_, arms) in checked.interp_union.iter().filter(|(k, _)| mine(k)) {
         for arm in arms {

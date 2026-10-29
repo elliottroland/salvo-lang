@@ -219,15 +219,15 @@ pub call_fn: HashMap<Key, DeclId>,     // call node → the fn declaration (an o
                                        //   `plus(a, b)`, `a ** b` `pow(a, b)`)
 pub fn_refs: HashMap<Key, DeclId>,     // a fn used as a value
 pub implicit_args: HashMap<Key, Vec<ImplicitArg>>,   // what fills ?cmp, ?hash…
-pub interp_to_str: HashMap<Key, DeclId>,              // the to_str behind "${x}"
 pub member_calls: HashMap<Key, MemberCall>,  // effect-member calls (new)
 pub dot_calls: HashSet<Key>,                 // `x.f(a)` read as `f(x, a)` (new)
 ```
 
 For `println("1. ${b.n} ${bumped(b)}")`: `call_fn` has an entry for the
-`bumped(b)` call; `interp_to_str` has one for each `${…}` part (both are
-scalars here, so they point at the intrinsic `to_str(Int)`); `member_calls` has
-an entry for `println` (it is a member of the `Console` effect):
+`bumped(b)` call, and one for each `${…}` part's `to_str` call at the part's
+synthetic `Key::INTERP_TEXT` (both are scalars here, so they point at the
+intrinsic `to_str(Int)`); `member_calls` has an entry for `println` (it is a
+member of the `Console` effect):
 
 ```rust
 pub struct MemberCall { pub effect: String /* symbol key */, pub index: usize }

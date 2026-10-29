@@ -144,6 +144,31 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-28 — An interpolated part is the call `to_str(part)` (PIPELINE.md B3.2)
+
+- **Under the user's P4 decision (option (a), 2026-10-28)**: each `${part}`
+  is the call `to_str(part)`, resolved as that call written in the body is.
+  So an enclosing `?to_str` takes a scalar or `Str` part too (census D1: the
+  native fast path ran first), and an available effect's `to_str` is a
+  candidate (D3: `"${p}"` was refused where `to_str(p)` worked); beside a fn
+  of one signature that is the call's ambiguity, said "in this
+  interpolation". A union part keeps its per-arm rendering until R10 D4.
+- **What it took**: `interp_call` (own implicit, else `resolve_named_call`
+  pre-typed and read-only under a `ForSite` marked `interp`, at the part's
+  `Key::INTERP_TEXT`), a silent `interp_has_text` probe so the no-text error
+  and its opt-in remedy stay, and the IR's `text_of` lowering the call with
+  `for_call`. Gone: `Checked::interp_to_str`, `interp_implicit`,
+  `record_text_form`. The format fn is the IR's existing `Concat`; no std
+  `concat` was declared, since nothing calls it by name.
+- **What fell out**: a borrowed or qualified part (`ref Str`, `proj Mut Str`)
+  must probe at its base type, as a kept parameter reads its argument (two
+  run-data programs found it); a rewording that repeated the part's type
+  broke the depth-capped chain message's length bound, so the site says
+  only "in this interpolation". Emitted code lost a redundant clone or
+  `format!` on `Str` parts in four examples.
+- Tests: checker data `strings/interpolation_calls.sv`; run data
+  `types/interpolation_is_a_to_str_call.sv` (both backends).
+
 ### 2026-10-28 — An effect member is a value by its bare name (PIPELINE.md B3.6)
 
 - **Under R10 D3 (decided)**: at a fn-typed position the members of the name

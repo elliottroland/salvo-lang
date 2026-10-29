@@ -87,7 +87,7 @@ Everything else in `std.core.string` takes a plain `Str`, and a `Mut Str` reache
 
 **An interpolation may hold a string literal**, and that literal may interpolate in turn: `"${name ?: "unknown"}"` is an ordinary thing to write, and the inner quotes belong to the inner literal. Escapes work inside it as anywhere else.
 
-**Interpolation needs a text form.** `"${value}"` works directly for the scalars and `Str`, and a union is the text of the arm it holds: it interpolates when every arm has a text form of its own (a scalar, `Str`, or a type with a `to_str`), and a `to_str` that takes the union itself takes precedence. Anything else needs a `to_str` — a function taking the value and returning `Str` — which the compiler looks for *at the interpolation site*, exactly as it fills an implicit parameter:
+**Interpolation needs a text form.** Each `${value}` is the call `to_str(value)`, and it resolves exactly as that call would if you wrote it there: the standard library has a `to_str` for every scalar and for `Str`, a type may declare its own, an effect in scope may provide one, and a function's own `?to_str` parameter takes it first. A union is the text of the arm it holds: it interpolates when every arm has a text form of its own (a scalar, `Str`, or a type with a `to_str`), and a `to_str` that takes the union itself takes precedence:
 
 ```
 struct Point { x: Int, y: Int }

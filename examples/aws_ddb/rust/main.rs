@@ -295,7 +295,7 @@ pub fn describe(mut e: crate::unions::Union2<&crate::aws_ddb::DdbError, &crate::
         return String::from("no such table");
     };
     let mut e_3 = match e { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-    return format!("the service refused: {}", e_3.code.clone());
+    return format!("the service refused: {}", e_3.code);
 }
 
 pub struct MemDdb {

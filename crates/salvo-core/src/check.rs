@@ -1225,19 +1225,10 @@ pub struct Checked {
     /// serves the parameters (roots, binding sites) as on-request detail
     /// (user decision 2026-09-02, progressive disclosure).
     pub fate_reads: HashMap<Key, Vec<FateRead>>,
-    /// [interp-to-str] String interpolations whose value is not natively
-    /// renderable, keyed by the *interpolated expression's* span: the
-    /// `to_str` the checker resolved for it at that site. The emitters call
-    /// it instead of formatting the value directly.
-    pub interp_to_str: HashMap<Key, DeclId>,
     /// [interp-union] An interpolated **union**: how each of its runtime arms
     /// (in arm order) reaches text. The emitters call the arm's own `to_str`
     /// on the arm the value is.
     pub interp_union: HashMap<Key, Vec<ArmText>>,
-    /// [interp-to-str] [implicit-resolve-body] Interpolated values rendered by
-    /// an **implicit** `to_str` of the enclosing fn (its name): `${v.value}`
-    /// at a generic `T` inside a `to_str` stamped with `?ToStr<T>`.
-    pub interp_implicit: HashMap<Key, String>,
     /// [proj-anywhere] Derived-return calls whose borrowed argument is a
     /// *temporary*: usable within the statement, but binding, returning or
     /// storing the view is an error (it would outlive what it borrows).
@@ -1457,10 +1448,18 @@ struct ForSite {
     /// The call as the `for` names it (`next(Bag)`, `next(iter(Bag))`).
     call: String,
     subject: Ty,
+    /// [interp-to-str] The site is an interpolated part, whose call is
+    /// `to_str(part)` (PIPELINE.md §II.10 P4), not a `for`.
+    interp: bool,
 }
 
 impl ForSite {
     fn reword(&self, msg: String) -> String {
+        // An interpolated part's call says only where it is: the message
+        // names `to_str` and the type itself.
+        if self.interp {
+            return format!("in this interpolation: {msg}");
+        }
         format!("`for` over `{}` is `{}`: {msg}", self.subject, self.call)
     }
 }
@@ -1825,11 +1824,7 @@ impl Checked {
     /// [unify-checker] string-interpolation rendering facts at one span, in
     /// one lookup (COMPLETED.md's unify-checker entry).
     pub fn interp_info(&self, key: Key) -> InterpInfo<'_> {
-        InterpInfo {
-            implicit: self.interp_implicit.get(&key),
-            union: self.interp_union.get(&key),
-            to_str: self.interp_to_str.get(&key),
-        }
+        InterpInfo { union: self.interp_union.get(&key) }
     }
 }
 
@@ -1841,13 +1836,11 @@ pub struct PickInfo<'c> {
 }
 
 /// [unify-checker] string-interpolation rendering facts at one span
-/// (COMPLETED.md's unify-checker entry): how an interpolated value reaches text — an enclosing
-/// fn's implicit `to_str`, a union's per-arm dispatch, or a resolved `to_str`.
-/// Mutually exclusive; checked in that order.
+/// (COMPLETED.md's unify-checker entry): a union's per-arm dispatch. Any other
+/// part is the call `to_str(part)`, whose facts are the call's, at the part's
+/// `Key::INTERP_TEXT` (PIPELINE.md B3.2).
 pub struct InterpInfo<'c> {
-    pub implicit: Option<&'c String>,
     pub union: Option<&'c Vec<ArmText>>,
-    pub to_str: Option<&'c DeclId>,
 }
 
 /// [unify-checker] `use`-statement facts at one span (COMPLETED.md's unify-checker entry).
@@ -12081,28 +12074,72 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.fill_implicit_list(&implicits, "to_str", &mut subst, &generics, &[], expr.span()).unwrap_or_default()
     }
 
-    /// Resolves and records the text form of the whole value; whether there
-    /// was one.
-    fn record_text_form(&mut self, expr: &'p Expr, ty: &Ty) -> bool {
-        let Some(form) = self.interp_text_form(expr, ty) else { return false };
-        match form {
-            ArmText::Own(name) => {
-                self.out.interp_implicit.insert(self.key(expr.span()), name);
-            }
-            ArmText::Fn { key, implicits } => {
-                self.out.interp_to_str.insert(self.key(expr.span()), key);
-                // Filled where the IR builder looks for them: the `to_str`
-                // call the value implies, a node no tree holds [node-id]
-                // (origin: the zero-width span after the value).
-                if !implicits.is_empty() {
-                    let at = expr.span().at(expr.span().end, expr.span().end);
-                    let key = Key { span: at, ..self.key(expr.span()).synthetic(Key::INTERP_TEXT) };
-                    self.out.implicit_args.insert(key, implicits);
-                }
-            }
-            ArmText::Native => {}
+    /// [interp-to-str] Whether anything would take the call `to_str(ty)`: an
+    /// implicit `to_str` of the enclosing fn, or a visible fn or available
+    /// member of the name (an ambiguity counts: the call reports it). Silent.
+    fn interp_has_text(&mut self, ty: &Ty) -> bool {
+        // The part is read, as a kept parameter reads its argument: a
+        // borrow or a qualifier on it does not stand in the way of a
+        // `to_str` of the base type (the call ranks the exact one).
+        let ty = &ty.strip_quals().clone();
+        let fits = |p: &ImplicitParam| {
+            matches!(p.ty.strip_quals(), Ty::Fn { params, .. }
+                if params.len() == 1 && Self::arg_fits_fn_value(ty, &params[0]))
+        };
+        if !matches!(self.pick_own_implicit("to_str", &fits), Ok(None)) {
+            return true;
         }
-        true
+        let want = Ty::Fn { params: vec![ty.clone()], ret: Box::new(Ty::named("Str")), contract: None, effects: Vec::new() };
+        self.resolve_as_call = true;
+        let found = self.resolve_implicit_value("to_str", &want, true);
+        self.resolve_as_call = false;
+        matches!(found, Ok(_) | Err(ImplicitMiss::Ambiguous(_)))
+    }
+
+    /// [interp-to-str] An interpolated part is the call `to_str(part)`
+    /// (PIPELINE.md §II.10 P4, option (a), user decision 2026-10-28), resolved
+    /// as that call written in the body is: the enclosing fn's own implicit
+    /// `to_str` first [implicit-resolve-body] (at a scalar or a `Str` too,
+    /// census D1), then the visible fns and the available effects' members of
+    /// the name as one set (D3). Its facts are the call's, at the part's
+    /// `Key::INTERP_TEXT`; the IR lowers it with `for_call`, and the backends
+    /// spell std's intrinsic `to_str` natively. The argument is the part as
+    /// already typed, and it is read, not passed: no contract or coercion
+    /// applies to it (as before).
+    fn interp_call(&mut self, expr: &'p Expr, ty: &Ty) {
+        let span = expr.span();
+        let key = self.key(span).synthetic(Key::INTERP_TEXT);
+        let at = span.at(span.end, span.end);
+        let fits = |p: &ImplicitParam| {
+            matches!(p.ty.strip_quals(), Ty::Fn { params, .. }
+                if params.len() == 1 && Self::arg_fits_fn_value(ty, &params[0]))
+        };
+        let site = ForSite { at, key, loc: span, call: format!("to_str({ty})"), subject: ty.clone(), interp: true };
+        match self.pick_own_implicit("to_str", &fits) {
+            Ok(Some(own)) => {
+                self.out.local_calls.insert(key);
+                self.out.local_call_names.insert(key, own.local.clone());
+                if let Some(v) = self.lookup_mut(&own.local) {
+                    v.used = true;
+                }
+                return;
+            }
+            Ok(None) => {}
+            Err(tied) => {
+                let saved = self.for_site.replace(site);
+                self.own_implicit_tie("to_str", &tied, at);
+                self.for_site = saved;
+                return;
+            }
+        }
+        let saved = self.for_site.replace(site);
+        self.pending_arg_tys = Some(vec![ty.clone()]);
+        self.pending_typed_only = true;
+        let args: [&'p Expr; 1] = [expr];
+        self.resolve_named_call("to_str", at, &[], &args, &[], None, None, at);
+        self.pending_arg_tys = None;
+        self.pending_typed_only = false;
+        self.for_site = saved;
     }
 
     fn check_interpolable(&mut self, expr: &'p Expr, ty: &Ty) {
@@ -12111,14 +12148,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [interp-union] A union is text by the text of the arm it is: every
         // arm needs a form of its own (the scalars and `Str` have one), and
-        // the emitters call it on the arm the value turns out to be.
+        // the emitters call it on the arm the value turns out to be — until a
+        // general union `to_str` exists (R10 D4, deferred).
         let collapsed = crate::literal::collapse_ty(ty);
         if let Ty::Union(arms) = collapsed.strip_quals() {
             let arms: Vec<&Ty> = arms.iter().filter(|a| !a.is_none_ty()).collect();
             // A `to_str` that takes the union itself (`to_str(FsError)`) wins
             // when the arms are not all natively text.
             let whole = !arms.iter().all(|a| Self::interp_native(a));
-            if arms.len() >= 2 && whole && self.record_text_form(expr, ty) {
+            if arms.len() >= 2 && whole && self.interp_has_text(ty) {
+                self.interp_call(expr, ty);
                 return;
             }
             if arms.len() >= 2 {
@@ -12137,10 +12176,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 return;
             }
         }
-        if Self::interp_native(ty) {
-            return;
-        }
-        if self.record_text_form(expr, ty) {
+        if self.interp_has_text(ty) {
+            self.interp_call(expr, ty);
             return;
         }
         // [interp-to-str] No `to_str` in scope. A struct interpolates by
@@ -17470,8 +17507,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .any(|p| matches!(p, salvo_syntax::doc::TemplatePart::Param(n) if *n == first.name.name)),
             }
         });
-        if shows {
-            self.record_text_form(subject, &ty);
+        // [interp-to-str] The subject's text is the call `to_str(subject)`, as
+        // an interpolated part's is.
+        if shows && self.interp_has_text(&ty) {
+            self.interp_call(subject, &ty);
         }
     }
 
@@ -25093,20 +25132,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if let Some(v) = self.lookup_mut(&own.local) {
                     v.used = true;
                 }
-                let saved = self.for_site.replace(ForSite { at, key, loc, call, subject: shown.clone() });
+                let saved = self.for_site.replace(ForSite { at, key, loc, call, subject: shown.clone(), interp: false });
                 self.check_fn_value_effects(&effects, at);
                 self.for_site = saved;
                 return ret;
             }
             Ok(None) => {}
             Err(tied) => {
-                let saved = self.for_site.replace(ForSite { at, key, loc, call, subject: shown.clone() });
+                let saved = self.for_site.replace(ForSite { at, key, loc, call, subject: shown.clone(), interp: false });
                 self.own_implicit_tie(name, &tied, at);
                 self.for_site = saved;
                 return Ty::Unknown;
             }
         }
-        let saved = self.for_site.replace(ForSite { at, key, loc, call, subject: shown.clone() });
+        let saved = self.for_site.replace(ForSite { at, key, loc, call, subject: shown.clone(), interp: false });
         self.pending_arg_tys = Some(vec![ty.clone()]);
         self.pending_typed_only = true;
         let args: [&'p Expr; 1] = [subject];

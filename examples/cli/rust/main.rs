@@ -270,7 +270,7 @@ pub fn describe(t: &crate::Tool) -> String {
             let mut tls_2 = tls.as_ref().unwrap();
             format!("tls {}", tls_2.cert)
         };
-        return format!("serve {} on {}:{} as {}, {}, {} worker(s)", crate::std_core_string::join_platform(&c_1.files, &String::from(",")), c_1.net.host, c_1.port, c_1.output.clone(), secure, {
+        return format!("serve {} on {}:{} as {}, {}, {} worker(s)", crate::std_core_string::join_platform(&c_1.files, &String::from(",")), c_1.net.host, c_1.port, c_1.output, secure, {
             let mut __pick_3 = &c_1.net.workers;
             if __pick_3.is_some() {
                 let mut __picked_4 = __pick_3.unwrap();
@@ -453,7 +453,7 @@ pub fn arg_spec__SpecServe() -> crate::std_args::Spec {
     let mut default_text__c16__c17__c18__c19: Option<String> = None;
     let mut choices__c16__c17__c18__c19: Vec<String> = vec![];
     let mut exclusive__c16__c17__c18__c19: bool = false;
-    default_text__c16__c17__c18__c19 = Some(format!("{}", String::from("text")));
+    default_text__c16__c17__c18__c19 = Some(String::from("text"));
     crate::std_core_list::add_platform::<String>(&mut choices__c16__c17__c18__c19, crate::std_args::literal_text(&String::from("\"json\"")));
     crate::std_core_list::add_platform::<String>(&mut choices__c16__c17__c18__c19, crate::std_args::literal_text(&String::from("\"text\"")));
     if exclusive__c16__c17__c18__c19 {
