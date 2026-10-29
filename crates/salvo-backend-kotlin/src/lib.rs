@@ -239,6 +239,15 @@ impl Backend for KotlinBackend {
         Ok(files.iter().map(PathBuf::from).collect())
     }
 
+    /// [kt-gradle] Gradle, when artifacts are declared.
+    fn host_tools(&self, host: &HostDeps) -> Vec<(PathBuf, &'static str)> {
+        if host.has_kotlin_artifacts() {
+            vec![(host.gradle_program(), "[kotlin] gradle")]
+        } else {
+            Vec::new()
+        }
+    }
+
     /// [kt-std-library] Compiles the standard library into the cache, when it
     /// is not there yet, and records it in the target for `program_command`.
     fn prepare_run(&self, program: &Program, target_dir: &Path) -> Result<(), BackendError> {

@@ -1018,8 +1018,14 @@ fn build(
         eprintln!("{msg}");
     }
     check_dependency_stamps(backend, &program, project, &emitted.files)?;
-    // [kt-std-library] A build about to run readies what it links.
+    // [kt-std-library] A build about to run readies what it links — after
+    // looking for the host tools it will run [backend-host-tool], so a
+    // missing one is not reported only after the standard library is built.
     if for_run {
+        if let Err(err) = salvo_backend::find_host_tools(&backend.host_tools(host)) {
+            eprintln!("error: {err}");
+            return Err(ExitCode::FAILURE);
+        }
         if let Err(err) = backend.prepare_run(&program, target) {
             eprintln!("error: {err}");
             return Err(ExitCode::FAILURE);
@@ -1742,6 +1748,11 @@ fn run_test_pass(
         eprintln!("{msg}");
     }
     check_dependency_stamps(backend, program, project, &emitted.files)?;
+    // [backend-host-tool] The host tools first, as for a run.
+    if let Err(err) = salvo_backend::find_host_tools(&backend.host_tools(host)) {
+        eprintln!("error: {err}");
+        return Err(ExitCode::FAILURE);
+    }
     if let Err(err) = backend.prepare_run(program, target) {
         eprintln!("error: {err}");
         return Err(ExitCode::FAILURE);

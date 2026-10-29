@@ -144,6 +144,30 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-29 — Platform programs run as run data; host tools are looked for first (test speed, merge 3)
+
+- **Decided (user, 2026-10-29)**: move the program-behaviour half of the
+  platform tests into the run data.
+- **What moved**: most of it already had (`tests/run/platform/`). Of the
+  two platform tests still running programs, `generate_then_run_works_for_a_platform_handler`
+  ran the exact program of `platform_handlers.sv#a_platform_handler`: it
+  keeps the refusal and the generated stub (now
+  `generate_writes_the_handler_a_run_asks_for`, no toolchain). The run half
+  of `the_platform_tree_mirrors_the_source_tree` is the new case
+  `platform_handlers.sv#a_handler_declared_in_a_nested_module` (a handler
+  in `obs/telemetry.sv`, its host files the generated skeletons filled in,
+  used from `main.sv`); the test keeps what `generate` writes and where,
+  `bin/tool.sv` entry included. The run data's runner still assumes the
+  entry is `main` (no `main.rs`, or no `salvo.main.MainKt`, otherwise), so
+  the nested *entry* stays the CLI test's. `platform_tests` fresh, alone:
+  15s.
+- **Found and fixed**: `a_missing_host_tool_names_its_setting` says the tool
+  is looked for before anything is compiled, but on Kotlin `salvo run` built
+  the standard library first (52s in the cold logged run). `Backend::host_tools`
+  names a build's host tools (cargo with crates, Gradle with artifacts) and
+  `salvo_backend::find_host_tools` looks for them before `prepare_run`, in
+  `run`/`build` and in `test`; the message is `run_host_tool`'s.
+
 ### 2026-10-29 — The run data is one plan (test speed, merge 1)
 
 - **Decided (user, 2026-10-29)**: merge `run_data`'s 25 per-area tests (and

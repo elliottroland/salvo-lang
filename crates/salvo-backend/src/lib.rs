@@ -163,6 +163,14 @@ pub trait Backend {
         Ok(Vec::new())
     }
 
+    /// [backend-host-tool] The host build tools a build with `host`'s
+    /// libraries runs — each the program and the setting naming it — so the
+    /// driver can look for them before compiling anything. None by default.
+    fn host_tools(&self, host: &HostDeps) -> Vec<(PathBuf, &'static str)> {
+        let _ = host;
+        Vec::new()
+    }
+
     /// Readies what [`Backend::program_command`] will link besides the
     /// emitted sources, for a build that is about to run [kt-std-library].
     /// Called by `run` and `test` after [`Backend::emit`]; nothing by default.
@@ -286,18 +294,37 @@ pub fn run_host_tool(
     use std::process::{Command, Stdio};
     match Command::new(program).args(args).stdout(Stdio::from(std::io::stderr())).status() {
         Ok(status) => Ok(status.code().unwrap_or(1)),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            let place = if program.components().count() > 1 {
-                format!("`{}` does not exist", program.display())
-            } else {
-                format!("`{}` was not found on PATH", program.display())
-            };
-            Err(BackendError::Unsupported(salvo_syntax::messages::rendered(
-                &salvo_syntax::messages::backend_host_tool_not_found(&place, key),
-            )))
-        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Err(host_tool_missing(program, key)),
         Err(err) => Err(BackendError::Io(err)),
     }
+}
+
+/// [backend-host-tool] A host build tool that is not there, named by its
+/// setting.
+fn host_tool_missing(program: &std::path::Path, key: &str) -> BackendError {
+    let place = if program.components().count() > 1 {
+        format!("`{}` does not exist", program.display())
+    } else {
+        format!("`{}` was not found on PATH", program.display())
+    };
+    BackendError::Unsupported(salvo_syntax::messages::rendered(&salvo_syntax::messages::backend_host_tool_not_found(&place, key)))
+}
+
+/// [backend-host-tool] Looks for the host build tools a build will run
+/// ([`Backend::host_tools`]) before anything is compiled, so a missing one
+/// is reported at once rather than after the standard library is built.
+pub fn find_host_tools(tools: &[(std::path::PathBuf, &'static str)]) -> Result<(), BackendError> {
+    for (program, key) in tools {
+        let found = if program.components().count() > 1 {
+            program.is_file()
+        } else {
+            std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|d| d.join(program).is_file()))
+        };
+        if !found {
+            return Err(host_tool_missing(program, key));
+        }
+    }
+    Ok(())
 }
 
 /// Registry of available backends, keyed by name.

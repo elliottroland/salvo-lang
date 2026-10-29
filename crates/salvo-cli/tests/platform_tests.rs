@@ -171,39 +171,15 @@ fn a_program_without_platform_declarations_generates_nothing() {
 }
 
 
-/// [cli-platform] [platform-handler] The same arc for a `platform handler`:
-/// the run fails naming the command *and the `use` that needs a host*, the
-/// command writes a class named after the handler, the stub is implemented,
-/// and the program runs — with `main` staying in generated code, since
-/// nothing arrives from outside here. Identical stdout on both backends.
+/// [cli-platform] [platform-handler] The arc for a `platform handler`: the
+/// run fails naming the command *and the `use` that needs a host*, and the
+/// command writes a class named after the handler with its stub. That the
+/// stub, filled in, runs — `main` staying in generated code — is run data
+/// (`tests/run/platform/platform_handlers.sv#a_platform_handler`, the same
+/// program); the refusal comes before any toolchain runs.
 #[test]
-fn generate_then_run_works_for_a_platform_handler() {
-    // Keyed on the binary: `platform generate` writes host files mid-test.
-    let Some(__stamp) =
-        e2e_stamp("generate_then_run_works_for_a_platform_handler", &["kotlinc", "rustc"])
-    else {
-        return;
-    };
-    for (backend, tool, ext, stub, body) in [
-        (
-            "kotlin",
-            "kotlinc",
-            "kt",
-            "TODO(\"implement RawClock.raw_now\")",
-            "return offset + 7",
-        ),
-        (
-            "rust",
-            "rustc",
-            "rs",
-            "todo!(\"implement RawClock.raw_now\")",
-            "self.offset + 7",
-        ),
-    ] {
-        if !have(tool) {
-            eprintln!("skipping {backend}: {tool} not found on PATH");
-            continue;
-        }
+fn generate_writes_the_handler_a_run_asks_for() {
+    for (backend, ext, stub) in [("kotlin", "kt", "TODO(\"implement RawClock.raw_now\")"), ("rust", "rs", "todo!(\"implement RawClock.raw_now\")")] {
         let dir = work_dir(&format!("handler_{backend}"));
         project(&dir);
         fs::write(dir.join("main.sv"), HANDLER_DEMO).unwrap();
@@ -218,28 +194,12 @@ fn generate_then_run_works_for_a_platform_handler() {
             "{backend} stderr: {stderr}"
         );
 
-        let out =
-            salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
+        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", "."]);
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "{backend} generate failed: {stderr}");
-        let host = dir.join("platform").join(format!("main.{ext}"));
-        let src = fs::read_to_string(&host).unwrap();
-        assert!(
-            src.contains("HostRawClock") && src.contains(stub),
-            "{backend} host:\n{src}"
-        );
-        fs::write(&host, src.replace(stub, body)).unwrap();
-
-        let out = salvo_in(&dir, &["run", "--backend", backend, "--src", "."]);
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "{backend} run failed: {stderr}");
-        assert_eq!(
-            String::from_utf8_lossy(&out.stdout),
-            "boot@42\n",
-            "{backend} stdout (stderr: {stderr})"
-        );
+        let src = fs::read_to_string(dir.join("platform").join(format!("main.{ext}"))).unwrap();
+        assert!(src.contains("HostRawClock") && src.contains(stub), "{backend} host:\n{src}");
     }
-    __stamp.verified();
 }
 
 /// Runs `salvo platform generate` for `backend` in `dir` and answers the
@@ -620,32 +580,13 @@ fn tickets() [Console] -> None {
 
 /// [platform-tree] The tree mirrors the sources, per module: the implementation
 /// of a handler declared in `telemetry.sv` is `platform/telemetry.<ext>`, and
-/// a `use` of it from another module (`bin/tool.sv`, chosen with `--main`)
-/// constructs it across modules. Run end to end on both backends, because
-/// the cross-module path is where a mistake would be a target-language error
-/// rather than anything Salvo would notice.
+/// the entry's module (`bin/tool.sv`, chosen with `--main`) gets nothing.
+/// That the filled-in skeleton of a handler in another module is constructed
+/// across modules and runs is run data
+/// (`tests/run/platform/platform_handlers.sv#a_handler_declared_in_a_nested_module`).
 #[test]
 fn the_platform_tree_mirrors_the_source_tree() {
-    // Keyed on the binary: `platform generate` writes host files mid-test.
-    let Some(__stamp) = e2e_stamp("the_platform_tree_mirrors_the_source_tree", &["kotlinc", "rustc"]) else {
-        return;
-    };
-    for (backend, tool, ext, stub, body) in [
-        (
-            "kotlin",
-            "kotlinc",
-            "kt",
-            "TODO(\"implement Telemetry.record\")",
-            "kotlin.io.println(\"[t] $name=$value\")",
-        ),
-        (
-            "rust",
-            "rustc",
-            "rs",
-            "todo!(\"implement Telemetry.record\")",
-            "println!(\"[t] {}={}\", name, value);",
-        ),
-    ] {
+    for (backend, ext, stub) in [("kotlin", "kt", "TODO(\"implement Telemetry.record\")"), ("rust", "rs", "todo!(\"implement Telemetry.record\")")] {
         let dir = work_dir(&format!("nested_{backend}"));
         project(&dir);
         let bin = dir.join("bin");
@@ -663,42 +604,13 @@ fn the_platform_tree_mirrors_the_source_tree() {
              fn main() [use] {\n    use HostTelemetry()\n    record(\"tool\", 7)\n}\n",
         )
         .unwrap();
-
-        let out = salvo_in(
-            &dir,
-            &[
-                "platform", "generate", "--backend", backend, "--src", ".", "--main",
-                "bin/tool.sv",
-            ],
-        );
+        let out = salvo_in(&dir, &["platform", "generate", "--backend", backend, "--src", ".", "--main", "bin/tool.sv"]);
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success(), "{backend} stderr: {stderr}");
-
-        // The declaring module gets the implementation file, mirroring its
-        // source path; the entry's module gets nothing.
-        let template = dir.join(format!("platform/telemetry.{ext}"));
-        let src = fs::read_to_string(&template).unwrap();
+        let src = fs::read_to_string(dir.join(format!("platform/telemetry.{ext}"))).unwrap();
         assert!(src.contains("HostTelemetry") && src.contains(stub), "{backend} host:\n{src}");
         assert!(!dir.join("platform/bin").exists(), "{backend}: nothing for the entry module");
-
-        if !have(tool) {
-            eprintln!("skipping {backend} run: {tool} not found on PATH");
-            continue;
-        }
-        fs::write(&template, src.replace(stub, body)).unwrap();
-        let out = salvo_in(
-            &dir,
-            &["run", "--backend", backend, "--src", ".", "--main", "bin/tool.sv"],
-        );
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "{backend} run failed: {stderr}");
-        assert_eq!(
-            String::from_utf8_lossy(&out.stdout),
-            "[t] tool=7\n",
-            "{backend} stdout (stderr: {stderr})"
-        );
     }
-    __stamp.verified();
 }
 
 /// [platform-host-deps] [rs-cargo] [kt-classpath] [kt-gradle] [backend-host-tool] A platform companion that

@@ -129,6 +129,15 @@ impl Backend for RustBackend {
     /// the dependencies verbatim, and an empty `[workspace]` so a target
     /// directory nested inside some other workspace (this repository's
     /// examples) is its own root rather than an unlisted member.
+    /// [rs-cargo] Cargo, when crates are declared.
+    fn host_tools(&self, host: &HostDeps) -> Vec<(PathBuf, &'static str)> {
+        if host.has_rust() {
+            vec![(host.cargo_program(), "[rust] cargo")]
+        } else {
+            Vec::new()
+        }
+    }
+
     fn write_host_manifest(
         &self,
         target_dir: &Path,
