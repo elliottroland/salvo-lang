@@ -205,12 +205,13 @@ pub fn discharge_set(
     use salvo_syntax::ast;
     // The declaring file keys the rule: either a `linear struct` or a
     // `linear intrinsic type` [linear-group] / conditional container.
-    let file_declaring = |addr: usize| resolution.decl_files.get(&addr).copied();
+    // [node-file] A declaration's file is its name's.
+    let file_declaring = |name: &ast::Ident| resolution.decls.file_of(name.span);
     let struct_file = match symbols.structs.get(type_name) {
-        Some(d) => file_declaring(*d as *const ast::StructDecl as usize),
+        Some(d) => file_declaring(&d.name),
         None if opaque_linear(symbols, type_name) || !linear_opt_in_positions(symbols, type_name).is_empty() => {
             match symbols.intrinsic_types.get(type_name) {
-                Some(d) => file_declaring(*d as *const ast::TypeDecl as usize),
+                Some(d) => file_declaring(&d.name),
                 None => scope.opaque_type_files.get(type_name).copied(),
             }
         }

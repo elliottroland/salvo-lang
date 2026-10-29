@@ -1202,10 +1202,8 @@ mod tests {
                 let c = with.checked.as_ref().expect("checked");
                 let symbols = Symbols::collect(&with.program);
                 let resolution = salvo_core::resolve(&with.program);
-                let keys = salvo_core::resolve::written_keys(&with.program, &resolution, &symbols);
                 let by_span = salvo_core::resolve::written_keys_by_span(&with.program, &resolution, &symbols);
-                assert!(c.type_ref_keys == keys, "{}: written keys differ", dir.display());
-                assert!(c.type_ref_span_keys == by_span, "{}: written keys by span differ", dir.display());
+                assert!(c.type_ref_span_keys == by_span, "{}: written keys differ", dir.display());
             }
             // The written program's mistakes are there to be compared: a
             // checker error, and a comptime one in a project file.

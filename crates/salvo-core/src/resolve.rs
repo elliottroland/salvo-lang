@@ -191,16 +191,9 @@ impl<'p> ModuleScope<'p> {
 pub struct Resolution<'p> {
     /// One scope per file, aligned with `program.files`.
     pub scopes: Vec<ModuleScope<'p>>,
-    /// [effect-handler-deps] The file each handler is declared in, keyed by
-    /// the declaration's address: a handler's dependency list is written in
-    /// *its* file and resolves there, whatever file binds it.
-    pub handler_files: HashMap<usize, usize>,
     /// [name-table] Every written type-position name, resolved where it is
     /// written: the file and scope of each reference, and what it means there.
     pub names: crate::names::Names<'p>,
-    /// [type-identity] The file every struct, type and effect is declared
-    /// in, by the declaration's address.
-    pub decl_files: HashMap<usize, usize>,
     /// Whole-program declaration index: name -> (declaring module,
     /// importable item). For most declarations the item is the name
     /// itself; for effect members it is the owning *effect* (importing
@@ -1212,28 +1205,6 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
         scopes.push(scope);
     }
 
-    let mut handler_files: HashMap<usize, usize> = HashMap::new();
-    let mut decl_files: HashMap<usize, usize> = HashMap::new();
-    for (file_idx, ast) in program.modules.iter().enumerate() {
-        for item in &ast.items {
-            match item {
-                Item::Handler(h) => {
-                    handler_files.insert(h as *const HandlerDecl as usize, file_idx);
-                }
-                Item::Struct(d) => {
-                    decl_files.insert(d as *const StructDecl as usize, file_idx);
-                }
-                Item::Effect(d) => {
-                    decl_files.insert(d as *const EffectDecl as usize, file_idx);
-                }
-                Item::Type(d) => {
-                    decl_files.insert(d as *const salvo_syntax::ast::TypeDecl as usize, file_idx);
-                }
-                _ => {}
-            }
-        }
-    }
-
     // [op-unique-shape] Each operator (unique function shape) on a type is
     // declared in the type's file: a per-declaration interface fact, checked
     // once the scopes say which declaration each written type names.
@@ -1244,7 +1215,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     // than its refusal — one mistake, one diagnostic.
     let mut refused_shapes: HashSet<usize> = HashSet::new();
     if !scopes_only {
-        refused_shapes = crate::unique_shape::check_program(files, &modules, &scopes, &decl_files, &mut errors);
+        refused_shapes = crate::unique_shape::check_program(files, &modules, &scopes, &decls, &mut errors);
         if !refused_shapes.is_empty() {
             let refused = |f: &FnDecl| refused_shapes.contains(&(f as *const FnDecl as usize));
             for scope in scopes.iter_mut() {
@@ -1263,9 +1234,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     if scopes_only {
         return Resolution {
             scopes,
-            handler_files,
             names: crate::names::Names::default(),
-            decl_files,
             declared_in,
             private_in,
             attached,
@@ -1282,9 +1251,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     drop(t);
     Resolution {
         scopes,
-        handler_files,
         names,
-        decl_files,
         declared_in,
         private_in,
         attached,
@@ -2232,41 +2199,12 @@ pub fn key_in<'p>(symbols: &crate::program::Symbols<'p>, scope: &ModuleScope<'p>
     symbols.decl_keys.get(&addr).copied()
 }
 
-/// [type-identity] Every written type reference whose declaration's key is
-/// not the name written — a clashing name, or an alias — by the
-/// reference's address: what an emitter rendering a written type reads.
-pub fn written_keys<'p>(
-    program: &'p Program,
-    resolution: &Resolution<'p>,
-    symbols: &crate::program::Symbols<'p>,
-) -> HashMap<usize, String> {
-    written_keys_from(program, resolution, symbols, 0)
-}
-
-/// [lsp-std-front] [`written_keys`] of the files from `first` on.
-pub fn written_keys_from<'p>(
-    _program: &'p Program,
-    resolution: &Resolution<'p>,
-    symbols: &crate::program::Symbols<'p>,
-    first: usize,
-) -> HashMap<usize, String> {
-    let names = &resolution.names;
-    let mut out = HashMap::new();
-    for w in names.refs().iter().filter(|w| w.file as usize >= first) {
-        let name = names.name(w);
-        if let Some(key) = names.meaning(w).key(symbols) {
-            if key != name {
-                out.insert(w.addr, key.to_string());
-            }
-        }
-    }
-    out
-}
-
-/// [type-identity] [name-table] The same, for a *copy* of a reference (an
-/// emitter clones types freely): by the node, span and written name a copy
-/// keeps. Where two references there resolve differently, the entry is
-/// dropped rather than guessed.
+/// [type-identity] [name-table] Every written type reference whose
+/// declaration's key is not the name written — a clashing name, or an alias
+/// — by its copy key [node-file]: what an emitter rendering a written type
+/// reads, for the reference and every copy of it (an emitter clones types
+/// freely). Where two references at one key resolve differently (a tree no
+/// program tagged), the entry is dropped rather than guessed.
 pub fn written_keys_by_span<'p>(
     program: &'p Program,
     resolution: &Resolution<'p>,
@@ -2340,15 +2278,14 @@ pub fn span_keys_final(raw: SpanKeys) -> HashMap<CopyKey, String> {
 
 /// [type-identity] [name-table] The key of the handler every value-position
 /// name means where it is written, where it is not the name (a handler named
-/// like another module's type or handler): by the name's address, and by its
-/// copy key (`Checked::value_keys`, `value_span_keys`). A name a binding
-/// answers is a local, never a handler.
+/// like another module's type or handler), by its copy key [node-file]
+/// (`Checked::value_span_keys`). A name a binding answers is a local, never
+/// a handler.
 pub fn value_keys<'p>(
     resolution: &Resolution<'p>,
     symbols: &crate::program::Symbols<'p>,
-) -> (HashMap<usize, String>, HashMap<CopyKey, String>) {
+) -> HashMap<CopyKey, String> {
     let names = &resolution.names;
-    let mut by_addr = HashMap::new();
     let mut copies = SpanKeys::new();
     for w in names.values() {
         if w.local.is_some() {
@@ -2357,12 +2294,9 @@ pub fn value_keys<'p>(
         let Some(h) = names.value_meaning(w).handler else { continue };
         let Some(key) = symbols.key_of(h) else { continue };
         let name = names.value_name(w);
-        if key != name {
-            by_addr.insert(w.addr, key.to_string());
-        }
         if w.span.is_numbered() {
             span_keys_add(&mut copies, (w.span.file, w.span.node, w.span, name.to_string()), Some(key.to_string()));
         }
     }
-    (by_addr, span_keys_final(copies))
+    span_keys_final(copies)
 }

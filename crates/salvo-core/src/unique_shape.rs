@@ -28,7 +28,7 @@
 //! * A bare type parameter has no home, so a shape on one is refused: the
 //!   catch-all `fn to_str<T>(x: T)`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use salvo_syntax::ast::{FnDecl, Item, Type, TypeDecl};
 use salvo_syntax::messages;
@@ -136,7 +136,7 @@ struct StdHomes {
 struct Ctx<'a, 'p> {
     files: &'a [SourceFile],
     scopes: &'a [ModuleScope<'p>],
-    decl_files: &'a HashMap<usize, usize>,
+    decls: &'a crate::decl_id::DeclIndex,
     homes: StdHomes,
 }
 
@@ -195,7 +195,8 @@ impl Ctx<'_, '_> {
     /// is structural [type-alias] and names what it expands to, resolved in
     /// the alias's own file.
     fn alias_home(&self, t: &TypeDecl, name: &str, depth: u8) -> Home {
-        let Some(&alias_file) = self.decl_files.get(&(t as *const TypeDecl as usize)) else {
+        // [node-file] A declaration's file is its name's.
+        let Some(alias_file) = self.decls.file_of(t.name.span) else {
             return Home::Unknown;
         };
         match &t.alias {
@@ -278,7 +279,7 @@ pub fn check_program<'p>(
     files: &[SourceFile],
     modules: &[&'p salvo_syntax::ast::Module],
     scopes: &[ModuleScope<'p>],
-    decl_files: &HashMap<usize, usize>,
+    decls: &crate::decl_id::DeclIndex,
     errors: &mut Vec<FileDiagnostic>,
 ) -> HashSet<usize> {
     let mut refused: HashSet<usize> = HashSet::new();
@@ -288,7 +289,7 @@ pub fn check_program<'p>(
     let ctx = Ctx {
         files,
         scopes,
-        decl_files,
+        decls,
         homes: StdHomes {
             basic: home_of(ModulePath::std(&["core", "basic"])),
             array: home_of(ModulePath::std(&["core", "array"])),

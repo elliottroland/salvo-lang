@@ -144,6 +144,26 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-29 — Keys and file lookups come from the tag; address-keyed key maps go (PIPELINE.md C1.4b)
+
+- **Probe first** (temporary, over the whole suite): whenever
+  `DeclIndex::key` was asked for a node of another file than the one passed.
+  Never. So `key` reads the node's own file by tag, the passed file now only
+  a fallback for an untagged tree, at no change in behaviour.
+- **`DeclIndex::file_of(span)`** answers a declaration's file by its name's
+  tag, which retired `Resolution::handler_files` and `decl_files` (five
+  readers: handler dependencies, `home_next`, the IR's effect declarations,
+  linear dischargers, `unique_shape`'s alias homes).
+- **Written keys by copy key alone**: `Checked::type_ref_keys` and
+  `value_keys` (by address) are gone, with `resolve::written_keys*`;
+  `Symbols::seed_ref_keys` takes one map; `resolve_for_emission` reuses the
+  checked program's keys, the erased copy's nodes keeping their tags; the std
+  cache's raw span keys went with the merge they served.
+- **Still by address**, each recorded in PIPELINE.md §II.9 C1.4b with its
+  reason: `Names`' address index (a fast path), the comptime stamp maps (made
+  before the stamped body is numbered in its new file), and the checker's
+  `written_types` (the check cache remaps it across an edit).
+
 ### 2026-10-29 — A node carries its file's tag (PIPELINE.md C1.4a, [node-file])
 
 - **The scheduled "real fix", first half**: `Span::file`, set with

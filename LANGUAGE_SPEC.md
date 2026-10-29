@@ -6066,8 +6066,9 @@ Conventions:
     (`Resolution::stamp_scopes`): the site's scope with the template's added
     underneath, its fns on the lowest rung (`Rung::Template`). The checker
     checks the stamped fn in it, and every written type reference inside the
-    fn resolves in it (`Resolution::scope_for_ref`, which keys the emitters'
-    `type_ref_keys` too). `Stamp::template_file` records where the template
+    fn resolves in it (the resolved names record the stamp scope,
+    `names::At::Stamp` [name-table], which keys the emitters' written keys
+    too). `Stamp::template_file` records where the template
     was written; an expanded-in-place fn has none (its template is its own
     text).
   * Emitters need nothing: every Salvo fn is public in emitted code, so a
@@ -11210,7 +11211,7 @@ between endpoints and delivers what arrives into the scheduler.
   plain). `Ty::Named` carries the key of the declaration the
   resolver chose, the program-wide tables in `Symbols` are keyed by it, and
   a written name is resolved in the scope of **the file that wrote it**
-  (`Resolution::type_ref_files`), not of the file where it is lowered — a
+  (the resolved names [name-table]), not of the file where it is lowered — a
   callee's signature, a field, an alias body. So `import lib.b.Token as
   BToken` is `lib.b`'s `Token` wherever it flows, and a `Token` from one
   module is refused where another's is expected.
@@ -11227,11 +11228,10 @@ between endpoints and delivers what arrives into the scheduler.
     module's own declaration bare, since it shadows star imports) and name
     everything derived from it (`__Mon_E`, `__Msg_E`, a dependency field)
     after the written name.
-  * An emitter finds a written reference's key by its address
-    (`Checked::type_ref_keys`), by its node, span and name for a copy
-    (`type_ref_span_keys`), and a handler named in an expression (`use H()`)
-    the same two ways (`Checked::value_keys`, `value_span_keys`)
-    [name-table].
+  * An emitter finds a written reference's key, and a copy's, by its copy
+    key — file tag, node, span and name [node-file]
+    (`Checked::type_ref_span_keys`) — and a handler named in an expression
+    (`use H()`) the same way (`Checked::value_span_keys`) [name-table].
   * A `by auto` stamp reads the stamping module's own declaration of a name
     first [comptime-instantiate].
   * **A reading of a declaration's own types resolves the same way**
@@ -11339,9 +11339,9 @@ between endpoints and delivers what arrives into the scheduler.
     by its node [node-id], span and written name, when the references there
     agree. A reference nothing wrote (the checker's own) means what its name
     means in the file being checked.
-  * **Derived from it**: `resolve::written_keys` (by address) and
-    `written_keys_by_span` (by node, span and name — `resolve::CopyKey`), the
-    checker's `type_ref_keys` and `type_ref_span_keys`, and what
+  * **Derived from it**: `resolve::written_keys_by_span` (by copy key —
+    file tag, node, span and name, `resolve::CopyKey`), the checker's
+    `type_ref_span_keys`, and what
     `Symbols::ref_key` answers, seeded by the check (`seed_ref_keys`) or, for
     a program nothing checked, by `Symbols::collect_resolved`; `ref_key`
     resolves nothing itself (a debug build refuses an unseeded call).
@@ -11361,9 +11361,9 @@ between endpoints and delivers what arrives into the scheduler.
     [actor-mixed-handler]. A selected name (`f@m`, `m@E`) is never a
     local's. A debug build checks, at every variable read, that the binding
     is the one the checker's scopes find (`Checker::check_value_binding`).
-  * `Checked::value_keys` (by the name's address) and `value_span_keys`
-    (by copy key) are the key of the handler a value-position name means,
-    where it is not the name: what the IR's handler construction reads.
+  * `Checked::value_span_keys` (by copy key) is the key of the handler a
+    value-position name means, where it is not the name: what the IR's
+    handler construction reads.
     They replaced `visible_keys` and `visible_handler_keys`, per file and
     name, which asked the file's scope rather than the stamp a
     comptime-stamped body is checked in.
@@ -11385,8 +11385,14 @@ between endpoints and delivers what arrives into the scheduler.
     copy indexes [name-table]): a copy is found exactly, where node, span
     and name alone could not tell two files with the same text apart
     (`name_tests::a_copy_of_a_reference_means_what_its_file_means`).
-  * Not yet read by `DeclIndex::key`, which still takes the file it is asked
-    for, nor used to retire the by-address maps (C1.4's second half).
+  * `DeclIndex::key` keys a node in its own file, whichever file asks (the
+    file given is the fallback for an untagged tree; across the suite no
+    reader asks for another file's node), and `DeclIndex::file_of` answers
+    the file of a declaration by its name's span — which retired
+    `Resolution::handler_files` and `decl_files`. The written keys are by
+    copy key alone (`Checked::type_ref_keys` and `value_keys`, by address,
+    are gone; the std cache's raw span keys with them, since a project
+    file's tag never meets a std file's).
 * [decl-rows] **Every row of `Checked` belongs to one declaration**
   (PIPELINE.md §II.9 A4; `partition.rs`): a node-keyed row to its key's
   declaration, a declaration-keyed row (`fn_effects`, `implicit_params`,

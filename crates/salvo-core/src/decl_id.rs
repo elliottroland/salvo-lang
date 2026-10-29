@@ -213,6 +213,8 @@ pub struct DeclIndex {
     nodes: Vec<Vec<NodeRun>>,
     /// [node-id] Per file: its `DeclKind::File` id.
     files: Vec<DeclId>,
+    /// [node-file] The file each tag is (`Module::file_tag`).
+    tags: HashMap<u32, usize>,
 }
 
 /// [node-id] One declaration's node ordinals in its file.
@@ -375,6 +377,9 @@ impl DeclIndex {
             index.members.push(members);
             index.nodes.push(runs);
             index.files.push(own);
+            if module.file_tag != salvo_syntax::span::NO_FILE {
+                index.tags.insert(module.file_tag, file_idx);
+            }
         }
         // Forget the modules no longer alive, once they outnumber the rest.
         if memo.len() > 4 * files.len().max(64) {
@@ -435,6 +440,12 @@ impl DeclIndex {
             }
         };
         (span.node < run.end).then(|| (run.decl, NodeId(span.node - run.first)))
+    }
+
+    /// [node-file] The file whose tree holds the node `span` holds, by its
+    /// tag: `None` for a span no tagged file holds.
+    pub fn file_of(&self, span: Span) -> Option<usize> {
+        self.tags.get(&span.file).copied()
     }
 
     /// [node-id] The `DeclKind::File` id of file `file`: what its own nodes

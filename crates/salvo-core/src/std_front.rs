@@ -4,9 +4,9 @@
 //! very `Arc`s, so std is neither parsed, cloned nor expanded again), what the
 //! comptime expansion needs to expand a project over them, std's own
 //! expansion output, and the `StdCache` — checked over a program sharing the
-//! same modules, so its address-keyed rows (`Checked::written_types`,
-//! `type_ref_keys`) are keyed by the addresses a program built from the front
-//! sees, and stay valid while the front lives.
+//! same modules, so its address-keyed rows (`Checked::written_types`) are
+//! keyed by the addresses a program built from the front sees, and stay valid
+//! while the front lives.
 //!
 //! The language server holds one for its whole run; the repository's tests
 //! hold one per process (TESTS.md T3). Where std comes from is the caller's:

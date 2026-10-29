@@ -2495,15 +2495,15 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      - **a. Spans carry their file's tag** [node-file] — done (§II.12): a
        copy of a written reference finds its entry in the resolved form by
        tag and node.
-     - **b. Keys and maps from it**: `DeclIndex::key` reads the tag rather
-       than the file it is asked for (which decides where a fact a check of
-       one file records at another file's node belongs — the row partition
-       and the check cache have to agree), and the by-address maps go
-       (`Names`' address index, `Resolution::handler_files`,
-       `fn_stamp_scope`, `decl_files`, the checker's `written_types` and
-       `type_ref_keys`, `written_keys_by_span`). Before C2 only if C2's
-       dump needs it: the dump names written nodes, which their files
-       already key.
+     - **b. Keys and maps from it** — done (§II.12): `DeclIndex::key`
+       reads the tag; `handler_files`, `decl_files`, `type_ref_keys` and
+       `value_keys` are gone. Left by address, for a reason each:
+       `Names`' address index (the fast path; a copy finds its entry by
+       tag and node), `fn_stamp_scope` and the comptime stamp map (keyed
+       before a stamped body is numbered in its new file), and the
+       checker's `written_types` (the check cache remaps it between an
+       edited file's old and new trees, `check_cache::node_map`: keying it
+       by node is that cache's rework, not this).
 - **C2. The resolve dump** (`salvo dump --phase …`, P7), as Salvo
   with every name qualified.
 - **C3. Comptime on the resolved form** (§II.5): templates resolved once in
@@ -3546,13 +3546,27 @@ this log current so the work can resume after a context reset). Newest last.
   keys add the tag (`resolve::CopyKey`, `Names`' copy indexes), so a copy is
   found exactly where two files with the same text made it ambiguous
   (`name_tests::a_copy_of_a_reference_means_what_its_file_means`, which
-  fails on node, span and name alone). C1.4b (keys from the tag, retiring
-  the by-address maps) is next in the plan.
+  fails on node, span and name alone).
+
+- **C1.4b, keys and maps from the tag: done (2026-10-29).** A temporary probe
+  in `DeclIndex::key` over the whole suite found no reader keying another
+  file's node, so `key` reads the node's own file (`DeclIndex::file_of`, by
+  tag; the file it is asked for is the fallback for an untagged tree) at no
+  change in behaviour. `DeclIndex::file_of` on a declaration's name replaced
+  `Resolution::handler_files` and `decl_files` (handler dependencies,
+  `home_next`, the IR's effect declarations, linear dischargers,
+  `unique_shape`'s alias homes). The written keys are by copy key alone —
+  `Checked::type_ref_keys` and `value_keys` gone, `Symbols::seed_ref_keys`
+  takes the one map, `resolve_for_emission` reuses the checked program's
+  (the erased copy's nodes have its tags), and the std cache's raw span keys
+  went with the merge they served (a project file's tag never meets std's).
+  Left by address, each for its reason: §II.9 C1.4b.
 
 - **Where it stands (2026-10-29) — resume here.** Stages A and B complete;
-  **Stage C under way**: C1.1–C1.3 and C1.4a done; **next C1.4b** (keys
-  from the tag; the by-address maps retired, §II.9), or C2 (the resolve
-  dump) first if the dump does not need it. Left of B, recorded: D4's general union
+  **Stage C under way**: C1 done (C1.1–C1.4); **next C2** (the resolve dump,
+  `salvo dump --phase resolve`, P7), whose notation for what Salvo cannot
+  spell (a type's module, a local's binding, a candidate set) is to be
+  proposed to the user first. Left of B, recorded: D4's general union
   `to_str` (deferred, R10), so `interp_union` stays a fact; the send cuts of
   ROADMAP 0au; the leftovers of 0as, 0at, 0av and 0ax. **Open decisions,
   each built as its recommended option:** P9–P18 and P21 (§II.10; ROADMAP

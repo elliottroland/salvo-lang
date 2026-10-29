@@ -114,12 +114,16 @@ impl std::fmt::Debug for Key {
 }
 
 impl crate::decl_id::DeclIndex {
-    /// [node-id] The key of the node `span` holds in file `file`. A span no
-    /// numbered node holds (made after numbering, or by `Span::to`) has no
+    /// [node-id] The key of the node `span` holds — in its own file
+    /// [node-file], else in `file`. A span no numbered node holds (made after numbering, or by `Span::to`) has no
     /// key: in a debug build that is a panic, the bug being whoever keyed
     /// it; otherwise it falls back to the file's own id and the span's
     /// start, as good a key as the span was.
     pub fn key(&self, file: usize, span: Span, hint: &std::cell::Cell<usize>) -> Key {
+        // [node-file] A node keys in its own file, whichever file asks: a
+        // copy of another file's node included (the file given is the
+        // fallback for a tree no program tagged).
+        let file = self.file_of(span).unwrap_or(file);
         match self.node_key(file, span, hint) {
             Some((decl, node)) => Key::new(decl, node, file, span),
             None => {
@@ -158,15 +162,10 @@ pub struct StdCache {
     /// language server gates on (no std shadow, project not `std = true`).
     checked: Checked,
     /// [lsp-std-front] The modules the check ran over, kept alive: the
-    /// address-keyed rows above (`written_types`, `type_ref_keys`) are keyed
-    /// by their nodes' addresses, which no other allocation can take while
-    /// the cache holds them, and a program sharing these very modules
-    /// (`shares_modules`) has std's written keys already.
+    /// address-keyed rows above (`written_types`) are keyed by their nodes'
+    /// addresses, which no other allocation can take while the cache holds
+    /// them.
     modules: Vec<std::sync::Arc<Module>>,
-    /// [lsp-std-front] std's references by span, before the agreed ones are
-    /// kept (`resolve::SpanKeys`): what a project's references are merged
-    /// into.
-    span_keys: crate::resolve::SpanKeys,
 }
 
 impl Checked {
@@ -182,13 +181,11 @@ impl StdCache {
     /// `checked` is `check_program` over `program`, resolved and collected
     /// as `resolution` and `symbols`.
     pub fn new<'p>(program: &'p Program, resolution: &Resolution<'p>, symbols: &Symbols<'p>, checked: Checked) -> Self {
-        let mut span_keys = crate::resolve::SpanKeys::new();
-        crate::resolve::span_keys_from(program, resolution, symbols, 0, &mut span_keys);
+        let _ = (resolution, symbols);
         StdCache {
             std_files: program.files.len(),
             checked,
             modules: program.modules.clone(),
-            span_keys,
         }
     }
 
@@ -1201,21 +1198,18 @@ pub struct Checked {
     /// enclosing fn, declared before it) as completions. Presentation-only,
     /// like `fate_reads`.
     pub local_decls: HashMap<usize, Vec<LocalDecl>>,
-    /// [type-identity] The key every written type reference resolves to,
-    /// by the reference's address, where it is not the written name (a
-    /// clash or an alias): what an emitter rendering a written type reads.
-    pub type_ref_keys: HashMap<usize, String>,
-    /// [type-identity] [name-table] The same by node, span and written name,
-    /// for copies (`resolve::CopyKey`).
+    /// [type-identity] [name-table] The key every written type reference
+    /// resolves to, where it is not the written name (a clash or an alias):
+    /// what an emitter rendering a written type reads. By the reference's
+    /// copy key [node-file] (`resolve::CopyKey`), which the reference and
+    /// every copy of it share.
     pub type_ref_span_keys: HashMap<crate::resolve::CopyKey, String>,
     /// [type-identity] [name-table] The key of the handler a value-position
     /// name means where it is written (`use H()`, `spawn H()`, a `with`
-    /// item), by the name's address, where it is not the name itself (a
-    /// handler named like another module's type or handler, 0c item 13):
-    /// how the IR names the handler it constructs. Derived from
+    /// item), by the name's copy key [node-file], where it is not the name
+    /// itself (a handler named like another module's type or handler, 0c
+    /// item 13): how the IR names the handler it constructs. Derived from
     /// `Resolution::names`.
-    pub value_keys: HashMap<usize, String>,
-    /// [name-table] The same by node, span and name, for a copy.
     pub value_span_keys: HashMap<crate::resolve::CopyKey, String>,
     /// Field accesses [lsp-definition]: the span of the field *name* in
     /// `base.field` mapped to where the field's declaration is written.
@@ -1729,9 +1723,6 @@ impl Checked {
     /// [type-identity] [name-table] The key of the handler a value-position
     /// name means where it is written, or the name.
     pub fn value_key<'a>(&'a self, id: &'a Ident) -> &'a str {
-        if let Some(k) = self.value_keys.get(&(id as *const Ident as usize)) {
-            return k;
-        }
         crate::resolve::ident_copy_key(id)
             .and_then(|at| self.value_span_keys.get(&at))
             .map(|k| k.as_str())
@@ -1739,9 +1730,6 @@ impl Checked {
     }
 
     pub fn written_key<'a>(&'a self, r: &'a TypeRef) -> &'a str {
-        if let Some(k) = self.type_ref_keys.get(&(r as *const TypeRef as usize)) {
-            return k;
-        }
         if self.type_ref_span_keys.is_empty() {
             return &r.name.name;
         }
@@ -2311,7 +2299,7 @@ fn check_once<'p>(
     // [std-cache] Start from std's rows when caching (so project call sites
     // and whole-program passes read std facts without std being re-checked);
     // the std files themselves are skipped below. The whole-program tables
-    // reset just below (`type_ref_keys` …) are recomputed over the merged
+    // reset just below (`type_ref_span_keys` …) are recomputed over the merged
     // program — cheap, no body walk — so overwriting std's copies of them is
     // correct.
     let t = crate::timing::phase("  check: seed");
@@ -2330,35 +2318,21 @@ fn check_once<'p>(
         // their keys in front of any project's): only the project's are
         // computed, and merged into std's by-span entries as gathering
         // them together would.
+        // [node-file] A project file's tag is no std file's, so its keys
+        // join std's without meeting them.
         Some(c) => {
-            out.type_ref_keys.extend(crate::resolve::written_keys_from(program, resolution, symbols, c.std_files));
             let mut part = crate::resolve::SpanKeys::new();
             crate::resolve::span_keys_from(program, resolution, symbols, c.std_files, &mut part);
-            for (at, key) in part {
-                // Agreed only if std's references there agree too.
-                let merged = match c.span_keys.get(&at) {
-                    Some(std_key) => key.filter(|k| std_key.as_ref() == Some(k)),
-                    None => key,
-                };
-                match merged.filter(|k| *k != at.3) {
-                    Some(k) => {
-                        out.type_ref_span_keys.insert(at, k);
-                    }
-                    None => {
-                        out.type_ref_span_keys.remove(&at);
-                    }
-                }
-            }
+            out.type_ref_span_keys.extend(crate::resolve::span_keys_final(part));
         }
         None => {
-            out.type_ref_keys = crate::resolve::written_keys(program, resolution, symbols);
             out.type_ref_span_keys = crate::resolve::written_keys_by_span(program, resolution, symbols);
         }
     }
-    symbols.seed_ref_keys(&out.type_ref_keys, &out.type_ref_span_keys);
+    symbols.seed_ref_keys(&out.type_ref_span_keys);
     drop(t);
     let t = crate::timing::phase("  check: value keys");
-    (out.value_keys, out.value_span_keys) = crate::resolve::value_keys(resolution, symbols);
+    out.value_span_keys = crate::resolve::value_keys(resolution, symbols);
     drop(t);
     let t = crate::timing::phase("  check: protocol hashes");
     out.errors.extend(resolution.errors.iter().cloned());
@@ -19530,11 +19504,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // use site). Diagnostics about the list itself belong to the
         // handler's file, which reports them when it is checked; lowering
         // under another file's name drops them rather than misfiling them.
-        let own = self
-            .resolution
-            .handler_files
-            .get(&(h as *const ast::HandlerDecl as usize))
-            .copied();
+        // [node-file] The handler's file is its name's.
+        let own = self.resolution.decls.file_of(h.name.span);
         if let Some(own) = own.filter(|f| *f != self.file_idx) {
             let saved_scope = self.scope;
             let saved_errors = self.out.errors.len();
@@ -25528,7 +25499,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// cannot reach: then the loop's own error is the only one.
     fn broken_next_promise(&mut self, subject: &Ty) -> Option<Ty> {
         let (decl, _) = self.next_obligation(subject)?;
-        let file = *self.resolution.decl_files.get(&(decl as *const StructDecl as usize))?;
+        let file = self.resolution.decls.file_of(decl.name.span)?;
         let scope = self.resolution.scopes.get(file)?;
         // A group the struct's file cannot see is refused there as unknown.
         if scope.fn_groups.contains_key("Next") && self.home_next(decl).is_some() {
@@ -25541,7 +25512,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `next` of the protocol's shape over the struct — the one place such a
     /// `next` may be — whether or not this file can reach it.
     fn home_next(&mut self, decl: &'p StructDecl) -> Option<usize> {
-        let file = *self.resolution.decl_files.get(&(decl as *const StructDecl as usize))?;
+        let file = self.resolution.decls.file_of(decl.name.span)?;
         let scope = self.resolution.scopes.get(file)?;
         let entries: Vec<crate::resolve::FnEntry<'p>> = scope.fns.get("next").cloned().unwrap_or_default();
         let key = self.symbols.key_or(decl, &decl.name.name).to_string();

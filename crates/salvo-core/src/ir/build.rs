@@ -115,7 +115,7 @@ impl<'p> Ctx<'p> {
     /// Where a struct/effect/handler declaration lives, by symbol key.
     pub fn decl_of_effect(&self, key: &str) -> Option<DeclId> {
         let decl: &ast::EffectDecl = self.symbols.effects.get(key).copied()?;
-        let file = *self.resolution.decl_files.get(&(decl as *const ast::EffectDecl as usize))?;
+        let file = self.resolution.decls.file_of(decl.name.span)?;
         let item = self.program.modules[file]
             .items
             .iter()
