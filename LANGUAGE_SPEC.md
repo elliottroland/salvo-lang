@@ -5888,16 +5888,26 @@ Conventions:
   Before, a kept `[if]` or `[when]` body was spliced flat and its `let`s leaked
   into the code after it, so `[if c] { let k = 1 }` followed by `return k`
   compiled wherever `c` held.
-  * The expansion renames what the body declares apart (`k` becomes `k__c3`;
-    a `[for]` copy always did, so two copies do not redeclare). The checker
-    refuses a renamed local that would hide a visible one by the name it was
-    written as, names it so in every diagnostic, and offers it so to
-    completion.
-  * Assigning to a local declared outside the body is unaffected, and a
-    terminal `[if …] ...` renames the rest of the block, which holds every use
-    [expr-terminal-scope].
-  * A name ending in `__c` and digits is the rename's, so an identifier
-    written that way reads as its prefix in diagnostics.
+  * The expansion splices each copy and kept body into the enclosing block
+    and records it as a scope by its first and last statement
+    (`Stamp::scopes`, PIPELINE.md C3.2, 2026-10-30): resolution, the checker
+    and the IR builder open a scope there (`origin::SpliceScopes`), so two
+    copies' `let c` are two bindings and neither is visible after its copy,
+    with no local renamed. A copy's local that would hide a visible one is
+    the ordinary [var-no-shadow] error, by its own name.
+  * The IR names a later copy's local apart from an earlier one in the same
+    emitted block (`c`, then `c~3`), as both backends need: Kotlin refuses a
+    second `val c`. Diagnostics read the IR's `~` suffix away, as for any
+    rebinding.
+  * Assigning to a local declared outside the body is unaffected, and so is
+    a `use` (its handler stays registered to the end of the enclosing
+    block); a terminal `[if …] ...` takes the rest of the block as its body,
+    which holds every use [expr-terminal-scope].
+  * Until 2026-10-30 the expansion renamed what a body declared apart
+    (`k__c3`, stacking per nesting), the checker refused a renamed local by
+    the name it was written as, and diagnostics and completion read the
+    suffix away; the renamed names reached the emitted code
+    (`opt__c1__c2__c3__c4`).
 * [comptime-logic] **Comptime conditions combine with `&&`, `||`, `!` and
   parentheses** (user decision 2026-10-20), with the precedence the operators
   have in ordinary expressions: `&&` binds tighter than `||`, `!` tightest.

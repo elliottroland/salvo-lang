@@ -467,6 +467,7 @@ fn fn_decl(
     let modes = Modes { symbols: ctx.symbols, checked: ctx.checked, program: ctx.program };
     let mut lower = Lower::new(ctx, file_idx, Some(id));
     lower.effect_env.extend(statics.iter().cloned());
+    lower.splice = crate::origin::SpliceScopes::of(f.stamped.as_ref());
     // The tables are keyed by the fn's key; a qualifier fn has one through
     // its name span, a member none.
     let table_key = key.or_else(|| ctx.checked.fn_refs.get(&ctx.checked.key_at(file_idx, f.name.span)).copied());

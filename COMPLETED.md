@@ -144,6 +144,35 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Comptime copies are scopes, not renamed locals (PIPELINE.md C3.2, [comptime-scope])
+
+- **Built**: the expansion records every copy and kept `[if]`/`[when]` body
+  it splices flat as a scope, by its first and last statement
+  (`Stamp::scopes`); resolution's binder, the checker (blocks and lambda
+  bodies) and the IR builder open a scope at the first and close it after
+  the last (`origin::SpliceScopes`). `rename_locals` and the `__c<N>`
+  suffix, `scoped_outer` and `shadows_by_written_name` went; a copy's local
+  that hides a visible one is the plain [var-no-shadow] error. The IR names
+  a later copy's local apart within one emitted block (`child`, then
+  `child~2`, emitted `child_2`), which Kotlin needs.
+- **Chose scopes over reading locals by binding** (the plan's wording): with
+  the scopes, the name-keyed frames of the checker and the IR are right, and
+  resolution's per-read debug check still compares the two scopings. Reading
+  locals by binding moves to D2, where the checker writes the typed form.
+- **Kept for C3.3**: the `h__p` apart rename and `hidden_free_name` (a
+  resolved template binds its parameters by position), so `written_local`
+  and `unmangle_message` now read only `__p`.
+- **What changed outside**: emitted code lost its stacked suffixes —
+  `examples/cli`'s `opt__c1__c2__c3__c4` is `opt`, `child__c8__c9__c11__c14__c15`
+  is `child_2` — across 10 example files and two IR snapshots (`ir_cli`,
+  `ir_collections`), reviewed: names only. One emit expectation
+  (`auto_obligations.sv`, `let mut c: i32`) followed.
+- **Found building it**: the checker checks a lambda's block body with a
+  loop of its own (in `check_lambda`), not `check_branch_block`, so the
+  scopes had to open there too — `std.args`'s `from_found` builds each field
+  inside `eval(() -> { … })`, and its copies' `let s` collided until then.
+- 708 tests under nextest, warm run 1m51.
+
 ### 2026-10-30 — A template's names mean what they mean where it is written (PIPELINE.md C3.1, P23, [comptime-hygiene])
 
 - **Decided (user, 2026-10-30), P23**: offered "the template's names, the

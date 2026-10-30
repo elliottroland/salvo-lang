@@ -1,7 +1,7 @@
 //! Fn bodies: statements, places, reads and the narrowing bindings
 //! (IR record §3, §5). Expressions are in `exprs.rs`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::types::Ty;
 use crate::DeclId;
@@ -75,6 +75,14 @@ pub struct Lower<'a, 'p> {
     pub(crate) fate: FateFacts,
     /// [node-id] The declaration the last key was in (`DeclIndex::key`).
     key_hint: std::cell::Cell<usize>,
+    /// [comptime-scope] The scopes the fn's comptime expansion spliced flat
+    /// into its blocks.
+    pub(crate) splice: crate::origin::SpliceScopes,
+    /// [comptime-scope] Per block being lowered, the names bound in a
+    /// spliced scope that has closed: a later copy's binding of one of them
+    /// sits in the same emitted block, so it is a local of its own
+    /// (`c~3`), as the copies' are two bindings.
+    retired: Vec<HashSet<String>>,
 }
 
 impl<'a, 'p> Lower<'a, 'p> {
@@ -104,6 +112,8 @@ impl<'a, 'p> Lower<'a, 'p> {
             scoped_aliases: Vec::new(),
             fate: FateFacts::default(),
             key_hint: std::cell::Cell::new(0),
+            splice: Default::default(),
+            retired: Vec::new(),
         }
     }
 
@@ -137,7 +147,9 @@ impl<'a, 'p> Lower<'a, 'p> {
         if name == "_" {
             return self.fresh("__unused");
         }
-        let local = Local(name.to_string());
+        // [comptime-scope] A spliced copy's binding of a name an earlier copy
+        // in this block bound: another local.
+        let local = if self.retired.last().is_some_and(|r| r.contains(name)) { self.fresh(name) } else { Local(name.to_string()) };
         self.scopes.last_mut().unwrap().insert(name.to_string(), Bound { local: local.clone(), ty, owned });
         local
     }
@@ -322,7 +334,13 @@ impl<'a, 'p> Lower<'a, 'p> {
         let mut stmts = Vec::new();
         let n = block.stmts.len();
         let mut tail: Option<Box<Expr>> = None;
+        self.retired.push(HashSet::new());
         for (i, s) in block.stmts.iter().enumerate() {
+            // [comptime-scope] An unrolled copy or a kept body spliced here
+            // is a scope of its own, in this emitted block.
+            for _ in 0..self.splice.opens(s.span()) {
+                self.push_scope();
+            }
             let is_tail = value && i + 1 == n;
             match s {
                 AStmt::Expr(e) if is_tail && !super::stmt_is_divergent(e) && !is_statement_expr(e) => {
@@ -336,7 +354,15 @@ impl<'a, 'p> Lower<'a, 'p> {
                     stmts.extend(lowered);
                 }
             }
+            for _ in 0..self.splice.closes(s.span()) {
+                let names: Vec<String> = self.scopes.last().map(|f| f.keys().cloned().collect()).unwrap_or_default();
+                self.pop_scope();
+                if let Some(r) = self.retired.last_mut() {
+                    r.extend(names);
+                }
+            }
         }
+        self.retired.pop();
         self.pending = saved_pending;
         self.last_branch = saved_last;
         self.effect_env.truncate(saved_env);

@@ -90,6 +90,8 @@ pub(super) struct Binder<'b, 'p> {
     /// the template writes that its file does not see (`Stamp::site_names`).
     template: Option<(std::collections::HashSet<u32>, u32)>,
     site_names: Vec<String>,
+    /// [comptime-scope] The scopes the fn's expansion spliced flat.
+    splice: crate::origin::SpliceScopes,
     /// [comptime-hygiene] The name being recorded is selected `@[site]`.
     at_site: bool,
     /// Per scope, the bindings by spelling.
@@ -121,6 +123,7 @@ impl<'b, 'p> Binder<'b, 'p> {
             at: At::File(file),
             template: None,
             site_names: Vec::new(),
+            splice: Default::default(),
             at_site: false,
             frames: Vec::new(),
             avail: Vec::new(),
@@ -389,6 +392,7 @@ impl<'b, 'p> Binder<'b, 'p> {
     fn func(&mut self, f: &FnDecl, extra: &[Param], state: &[FieldDecl], deps: &[EffectRef]) {
         let saved = self.template.take();
         let saved_names = std::mem::take(&mut self.site_names);
+        let saved_splice = std::mem::replace(&mut self.splice, crate::origin::SpliceScopes::of(f.stamped.as_ref()));
         if let (Some(&t), Some(stamp)) = (self.templates.get(&(f as *const FnDecl as usize)), &f.stamped) {
             self.template = Some((super::template_text(stamp), t as u32));
             self.site_names = stamp.site_names.clone();
@@ -477,6 +481,7 @@ impl<'b, 'p> Binder<'b, 'p> {
         }
         self.template = saved;
         self.site_names = saved_names;
+        self.splice = saved_splice;
     }
 
     // -------------------------------------------------------- effects --
@@ -619,7 +624,15 @@ impl<'b, 'p> Binder<'b, 'p> {
         // [effect-scope] A block's `use`s expire with it.
         let (avail, dynamic) = (self.avail.len(), self.dynamic);
         for s in &b.stmts {
+            // [comptime-scope] An unrolled copy or a kept body spliced here
+            // is a scope of its own.
+            for _ in 0..self.splice.opens(s.span()) {
+                self.push();
+            }
             self.stmt(s);
+            for _ in 0..self.splice.closes(s.span()) {
+                self.pop();
+            }
         }
         self.avail.truncate(avail);
         self.dynamic = dynamic;

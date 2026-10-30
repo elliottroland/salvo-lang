@@ -2511,18 +2511,23 @@ lowering before typing, then the checker's special paths deleted. Needs A2
     where it is written; a fn name it can see says `@module` or `@[site]`,
     one it cannot see is the site's; types are the template's. The site-wins
     stamp scope and `Rung::Template` went.
-  - **C3.2. Locals by binding**: the checker and the IR builder read a
-    local by the binding resolution gave it, not by name, so stamped copies
-    stop being renamed — `__c<N>`/`h__p`, `shadows_by_written_name`,
-    `written_local`/`unmangle_message` go, and a backend names two copies'
-    locals apart itself. `hidden_free_name` goes for names a template
-    resolves itself; for a `name@[site]` (which reads as the bare name at
-    the site, the declared parameters included) the capture is real, and
-    the error stays unless the site's view is narrowed to exclude them.
+  - **C3.2. Copies are scopes** — done: the expansion records each copy and
+    kept body it splices flat (`Stamp::scopes`) and resolution, the checker
+    and the IR open a scope there, so `__c<N>` renaming and
+    `shadows_by_written_name` went; the IR names a later copy's local apart
+    in its emitted block (`c~3`). Built that way rather than by reading
+    locals by binding: with the scopes the name-keyed frames are right, and
+    resolution's debug check still compares the two. The `h__p` apart
+    rename and `hidden_free_name` stay for C3.3, where a resolved template's
+    parameters bind by position; a `name@[site]` reads as the bare name at
+    the site, declared parameters included, so its capture is real and that
+    error stays unless the site's view is narrowed to exclude them.
   - **C3.3. Comptime after resolution**: templates resolved once in their
-    module and copied, a splice filled with a type id; delete the flat
-    `World` and `pick_decl`; `[if]` type patterns compare ids. The
-    `by`-at-a-call workaround (§II.5.1) documented in the language pages.
+    module and copied, a splice filled with a type id, parameters bound by
+    position (`h__p` and `hidden_free_name` for template-resolved names go);
+    delete the flat `World` and `pick_decl`; `[if]` type patterns compare
+    ids. The `by`-at-a-call workaround (§II.5.1) documented in the language
+    pages.
 - **C4. The remaining early sweeps to their phases**: what is left of
   `expand` that reads names moves after C1 (the `iter fn` expansion per
   file; effect aliases and prerequisites already in scope after Part I

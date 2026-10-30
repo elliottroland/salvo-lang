@@ -1554,13 +1554,13 @@ fun cutKey(a: NodeEndpoint, b: NodeEndpoint): String {
 }
 
 fun cmp(a: NodeEndpoint, b: NodeEndpoint): Int {
-    val c__c1: Int = salvo.__salvoCompare(a.host, b.host)
-    if ((c__c1 != 0)) {
-        return c__c1
+    val c: Int = salvo.__salvoCompare(a.host, b.host)
+    if ((c != 0)) {
+        return c
     }
-    val c__c2: Int = (a.port).compareTo(b.port)
-    if ((c__c2 != 0)) {
-        return c__c2
+    val c_1: Int = (a.port).compareTo(b.port)
+    if ((c_1 != 0)) {
+        return c_1
     }
     return 0
 }

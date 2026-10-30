@@ -1233,9 +1233,9 @@ the checker's own scopes:
 
 - **Locals, by name.** The checker's `LocalVar` frames are keyed by name and
   its flow state (narrowing, fate links, captures) follows them; resolution's
-  binding for each read is checked against them in a debug build. Reading
-  them by binding is what lets stamped comptime copies stop being renamed
-  (`k__c3`), so it belongs to PIPELINE.md C3.2.
+  binding for each read is checked against them in a debug build. Stamped
+  copies no longer need it (PIPELINE.md C3.2 made them scopes, 2026-10-30);
+  reading by binding is now D2's, when the checker writes the typed form.
 - **Unresolved-name diagnostics**, type and value. The checker reports them
   at declaration sites and positions it validates; a complete walk reaches
   more positions (C1.2's differential: group arguments like `: Ordered<self>`,

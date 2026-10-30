@@ -142,13 +142,13 @@ fn main@main() -> None {
 }
 
 fn cmp@main(lent a: Point@main, lent b: Point@main) -> Int {
-  bind#1 let c__c1: Int = call cmp(Int, Int)@std.core.basic(read a.x, read b.x)
-  branch#2 cond#0 (read c__c1 != 0) {
-    return !read c__c1
+  bind#1 let c: Int = call cmp(Int, Int)@std.core.basic(read a.x, read b.x)
+  branch#2 cond#0 (read c != 0) {
+    return !read c
   }
-  bind#3 let c__c2: Int = call cmp(Int, Int)@std.core.basic(read a.y, read b.y)
-  branch#4 cond#0 (read c__c2 != 0) {
-    return !read c__c2
+  bind#3 let c~1: Int = call cmp(Int, Int)@std.core.basic(read a.y, read b.y)
+  branch#4 cond#0 (read c~1 != 0) {
+    return !read c~1
   }
   return 0
 }

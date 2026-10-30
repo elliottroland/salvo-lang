@@ -2288,13 +2288,13 @@ pub fn cut_key(a: &crate::std_net::NodeEndpoint, b: &crate::std_net::NodeEndpoin
 }
 
 pub fn cmp(a: &crate::std_net::NodeEndpoint, b: &crate::std_net::NodeEndpoint) -> i32 {
-    let mut c__c1: i32 = (Ord::cmp(&a.host[..], &b.host[..]) as i32);
-    if (c__c1 != 0i32) {
-        return c__c1;
+    let mut c: i32 = (Ord::cmp(&a.host[..], &b.host[..]) as i32);
+    if (c != 0i32) {
+        return c;
     };
-    let mut c__c2: i32 = (Ord::cmp(&(a.port), &(b.port)) as i32);
-    if (c__c2 != 0i32) {
-        return c__c2;
+    let mut c_1: i32 = (Ord::cmp(&(a.port), &(b.port)) as i32);
+    if (c_1 != 0i32) {
+        return c_1;
     };
     return 0i32;
 }

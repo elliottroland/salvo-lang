@@ -431,9 +431,9 @@ fun earliestDue(deadlines: List<Long>, target: Long): Int? {
 }
 
 fun cmp__Duration_Duration(a: Duration, b: Duration): Int {
-    val c__c1: Int = (a.nanos).compareTo(b.nanos)
-    if ((c__c1 != 0)) {
-        return c__c1
+    val c: Int = (a.nanos).compareTo(b.nanos)
+    if ((c != 0)) {
+        return c
     }
     return 0
 }
@@ -452,9 +452,9 @@ fun eq__Duration_Duration(a: Duration, b: Duration): Boolean {
 }
 
 fun cmp__Instant_Instant(a: Instant, b: Instant): Int {
-    val c__c1: Int = (a.nanos).compareTo(b.nanos)
-    if ((c__c1 != 0)) {
-        return c__c1
+    val c: Int = (a.nanos).compareTo(b.nanos)
+    if ((c != 0)) {
+        return c
     }
     return 0
 }
@@ -473,9 +473,9 @@ fun eq__Instant_Instant(a: Instant, b: Instant): Boolean {
 }
 
 fun cmp__Tick_Tick(a: Tick, b: Tick): Int {
-    val c__c1: Int = (a.nanos).compareTo(b.nanos)
-    if ((c__c1 != 0)) {
-        return c__c1
+    val c: Int = (a.nanos).compareTo(b.nanos)
+    if ((c != 0)) {
+        return c
     }
     return 0
 }

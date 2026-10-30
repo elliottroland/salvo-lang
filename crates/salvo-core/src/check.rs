@@ -1923,9 +1923,9 @@ pub fn check_program<'p>(
     out
 }
 
-/// [comptime-scope] Diagnostics in the author's terms: a local a scoped
-/// comptime body renamed (`k__c3`) is named as written (`k`), wherever the
-/// message came from.
+/// [fn-by] Diagnostics in the author's terms: a template's local renamed
+/// apart from a declared parameter (`h__p`) is named as written (`h`),
+/// wherever the message came from.
 fn unmangle_scoped_locals(out: &mut Checked) {
     for d in &mut out.errors {
         if let std::borrow::Cow::Owned(m) = crate::comptime::unmangle_message(&d.message) {
@@ -3127,6 +3127,8 @@ struct Checker<'p, 'r> {
     /// where a diagnostic at a copied node lands (`render_origin`) — the
     /// field or arm the copy was for, prefixed with what was being stamped.
     own_stamp: Option<&'p ast::Stamp>,
+    /// [comptime-scope] The scopes `own_stamp`'s expansion spliced flat.
+    splice: crate::origin::SpliceScopes,
     /// [comptime-copy-warn] Warnings raised inside the current fn's copies,
     /// redirected and held until the fn is done, so each is reported once
     /// (`flush_copy_warnings`).
@@ -3561,6 +3563,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let_pattern: false,
             fn_name_clash: fn_name_clash(files, resolution),
             own_stamp: None,
+            splice: Default::default(),
             copy_warnings: Vec::new(),
             copy_decls: HashMap::new(),
             copy_unused: HashMap::new(),
@@ -3776,10 +3779,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         // decides whether a parameter root is owned.
         self.own_fn = Some(key);
         self.own_stamp = f.stamped.as_ref();
-        // [comptime-hygiene] A body stamped from another module's template is
-        // checked where the site sees what the template's author saw too:
-        // a name the site cannot resolve falls back to the template's file,
-        // private declarations included.
+        self.splice = crate::origin::SpliceScopes::of(self.own_stamp);
+        // [comptime-hygiene] A body stamped from another file's template is
+        // checked in its stamp scope: the template file's types, the site's
+        // fns for the positions with no written name.
         let saved_scope = self.scope;
         if let Some(&i) = self.resolution.fn_stamp_scope.get(&(f as *const FnDecl as usize)) {
             self.scope = &self.resolution.stamp_scopes[i];
@@ -3864,6 +3867,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.own_task = None;
         self.own_fn = None;
         self.own_stamp = None;
+        self.splice = Default::default();
         self.own_discharges.clear();
         self.own_written.clear();
         self.own_contract = None;
@@ -11904,7 +11908,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .entry(self.file_idx)
             .or_default()
             .push(crate::check::LocalDecl {
-                // [comptime-scope] As written, not as a scoped body renamed it.
+                // [fn-by] As written, not as a stamp renamed it apart.
                 name: crate::comptime::written_local(&name.name).to_string(),
                 ty,
                 span: name.span,
@@ -11917,21 +11921,6 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [var-no-shadow].
     fn declare(&mut self, name: &Ident, ty: Ty) {
         self.declare_with_links(name, ty, Vec::new());
-    }
-
-    /// [comptime-scope] [var-no-shadow] A local a scoped comptime body renamed
-    /// (`k__c3`) still may not hide a visible one it was written as (`k`, or
-    /// `k__c1` when an enclosing copy renamed it first): the rename keeps the
-    /// body's locals from leaking out, not from shadowing what is in.
-    fn shadows_by_written_name(&self, name: &str) -> bool {
-        let mut at = name;
-        while let Some(outer) = crate::comptime::scoped_outer(at) {
-            if self.lookup(outer).is_some() {
-                return true;
-            }
-            at = outer;
-        }
-        false
     }
 
     /// Declares a new local carrying fate links to the variables it was
@@ -11963,7 +11952,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Some(at) = self.in_place_written(name.span) {
             *self.copy_decls.entry((at.start, at.end)).or_default() += 1;
         }
-        if self.lookup(&name.name).is_some() || self.shadows_by_written_name(&name.name) {
+        if self.lookup(&name.name).is_some() {
             self.error(
                 name.span,
                 messages::var_no_shadow_already_declared(
@@ -22834,6 +22823,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.warn(stmt.span(), messages::expr_dead_code_unreachable());
                 diverged = false; // one warning per run of dead code
             }
+            // [comptime-scope] An unrolled copy or a kept body spliced here
+            // is a scope of its own: what it declares ends with it.
+            for _ in 0..self.splice.opens(stmt.span()) {
+                self.locals.push(HashMap::new());
+            }
             if si == last {
                 if let (Some(h), Stmt::Expr(Expr::Call { .. })) = (&tail_hint, stmt) {
                     self.select_hint = Some(h.clone());
@@ -22852,6 +22846,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }),
                 _ => None,
             };
+            for _ in 0..self.splice.closes(stmt.span()) {
+                self.warn_unused_locals();
+                self.locals.pop();
+            }
         }
         // [ir-analyze] The linear-obligation leak check moved to the IR.
         self.warn_unused_locals();
@@ -25773,7 +25771,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             LambdaBody::Block(b) => {
                 for stmt in &b.stmts {
+                    // [comptime-scope] As in any block.
+                    for _ in 0..self.splice.opens(stmt.span()) {
+                        self.locals.push(HashMap::new());
+                    }
                     self.check_stmt(stmt);
+                    for _ in 0..self.splice.closes(stmt.span()) {
+                        self.warn_unused_locals();
+                        self.locals.pop();
+                    }
                 }
                 exp_ret.unwrap_or(Ty::Unknown)
             }

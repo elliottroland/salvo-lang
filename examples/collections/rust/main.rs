@@ -229,13 +229,13 @@ pub fn main() {
 }
 
 pub fn cmp(a: &crate::Point, b: &crate::Point) -> i32 {
-    let mut c__c1: i32 = (Ord::cmp(&(a.x), &(b.x)) as i32);
-    if (c__c1 != 0i32) {
-        return c__c1;
+    let mut c: i32 = (Ord::cmp(&(a.x), &(b.x)) as i32);
+    if (c != 0i32) {
+        return c;
     };
-    let mut c__c2: i32 = (Ord::cmp(&(a.y), &(b.y)) as i32);
-    if (c__c2 != 0i32) {
-        return c__c2;
+    let mut c_1: i32 = (Ord::cmp(&(a.y), &(b.y)) as i32);
+    if (c_1 != 0i32) {
+        return c_1;
     };
     return 0i32;
 }

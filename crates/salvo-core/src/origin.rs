@@ -100,3 +100,35 @@ pub fn written(stamp: &Stamp, span: Span) -> Option<(Span, Vec<&str>)> {
     copies.reverse();
     Some((span.in_expansion(0), copies))
 }
+
+/// [comptime-scope] The scopes a comptime expansion spliced flat into one
+/// fn's blocks (`Stamp::scopes`), by statement: how many open at a statement
+/// and how many close after it. Resolution, the checker and the IR builder
+/// walk a block's statements with it, so each unrolled copy and kept body is
+/// a scope of its own though its statements sit in the enclosing block.
+#[derive(Default, Clone)]
+pub struct SpliceScopes {
+    opens: std::collections::HashMap<Span, u32>,
+    closes: std::collections::HashMap<Span, u32>,
+}
+
+impl SpliceScopes {
+    pub fn of(stamp: Option<&Stamp>) -> SpliceScopes {
+        let mut out = SpliceScopes::default();
+        for (first, last) in stamp.map(|s| s.scopes.as_slice()).unwrap_or_default() {
+            *out.opens.entry(*first).or_default() += 1;
+            *out.closes.entry(*last).or_default() += 1;
+        }
+        out
+    }
+
+    /// How many scopes open at the statement spanning `span`.
+    pub fn opens(&self, span: Span) -> u32 {
+        if self.opens.is_empty() { 0 } else { self.opens.get(&span).copied().unwrap_or(0) }
+    }
+
+    /// How many scopes close after the statement spanning `span`.
+    pub fn closes(&self, span: Span) -> u32 {
+        if self.closes.is_empty() { 0 } else { self.closes.get(&span).copied().unwrap_or(0) }
+    }
+}

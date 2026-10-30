@@ -488,7 +488,7 @@ fn run<M: crate::expand::ModuleSlot>(
                         None => when_arms.push(CompWhenArms { file: file_idx, span, missing, types, bodies }),
                     }
                 }
-                let (expansions, mut errs) = ex.finish();
+                let (expansions, scopes, mut errs) = ex.finish();
                 // Warnings ride along; only an error drops the expansion.
                 diags.extend(errs.iter().filter(|d| !d.is_error()).cloned());
                 errs.retain(|d| d.is_error());
@@ -511,6 +511,7 @@ fn run<M: crate::expand::ModuleSlot>(
                         roots,
                         template_file: None,
                         site_names: Vec::new(),
+                        scopes,
                     });
                 } else {
                     diags.extend(errs);
@@ -2092,6 +2093,7 @@ impl<'w> Stamper<'w> {
             roots: Vec::new(),
             template_file: None,
             site_names: Vec::new(),
+            scopes: Vec::new(),
         });
         f.span = site;
         f.name.span = name_span;
@@ -2198,7 +2200,7 @@ impl<'w> Stamper<'w> {
         if let Some(b) = &mut inst.body {
             ex.expand_block(b);
         }
-        let (expansions, mut errs) = ex.finish();
+        let (expansions, scopes, mut errs) = ex.finish();
         // A stamp reports errors at its `by` site; a template's warnings are
         // its author's business, not every stamping site's.
         errs.retain(|d| d.is_error());
@@ -2261,6 +2263,7 @@ impl<'w> Stamper<'w> {
             roots: Vec::new(),
             template_file: None,
             site_names: Vec::new(),
+            scopes,
         });
         Ok(())
     }
@@ -2656,7 +2659,9 @@ struct Expander<'w> {
     /// copy itself while a copy is expanded — the parent of a copy made now.
     current: u32,
     errors: Vec<Diagnostic>,
-    rename_counter: u32,
+    /// [comptime-scope] The scopes spliced flat (`Stamp::scopes`), in the
+    /// order they were opened: outermost first.
+    scopes: Vec<(Span, Span)>,
     /// [comptime-inline] Whether this is an **expanded-in-place** fn, whose
     /// copies are of its own text: a diagnostic about a written construct
     /// lands where it is written (after following the copies back to it)
@@ -2703,7 +2708,7 @@ impl<'w> Expander<'w> {
             expansions: Vec::new(),
             current: 0,
             errors: Vec::new(),
-            rename_counter: 0,
+            scopes: Vec::new(),
             in_place: false,
             fn_name: None,
             fn_generics: Vec::new(),
@@ -2727,7 +2732,7 @@ impl<'w> Expander<'w> {
         }
     }
 
-    fn finish(mut self) -> (Vec<ExpansionRecord>, Vec<Diagnostic>) {
+    fn finish(mut self) -> (Vec<ExpansionRecord>, Vec<(Span, Span)>, Vec<Diagnostic>) {
         // One mistake, one diagnostic: a condition in an unrolled body is
         // evaluated once per copy, and so is reported once per copy.
         let mut errors: Vec<Diagnostic> = Vec::new();
@@ -2752,7 +2757,9 @@ impl<'w> Expander<'w> {
             ));
         }
         self.expansions.sort_by_key(|e| e.id);
-        (self.expansions, errors)
+        // An empty body declares nothing, and has no statement to mark.
+        let scopes = self.scopes.into_iter().filter(|(first, _)| *first != Span::default()).collect();
+        (self.expansions, scopes, errors)
     }
 
     /// The span a span in a copy was copied from [node-origin]: copies nest, so
@@ -3299,9 +3306,9 @@ impl<'w> Expander<'w> {
             self.type_binders.push((id.name.clone(), ty, id.span, 0));
         }
         // [comptime-scope] A kept body is a scope.
-        self.rename_counter += 1;
-        rename_locals(&mut block, self.rename_counter);
+        let slot = self.open_scope();
         self.expand_block(&mut block);
+        self.close_scope(slot, &block);
         let scope: Vec<(String, Type, Span, usize)> = self.type_binders.drain(base..).collect();
         for (name, _, span, uses) in scope {
             let written = self.unmap(span);
@@ -3313,16 +3320,29 @@ impl<'w> Expander<'w> {
 
     /// [comptime-scope] Splices the body a comptime test kept (an `[if]`'s
     /// branch, a `[when]`'s arm) as a scope, as an ordinary `if` or `when`
-    /// body is one: its locals are renamed apart, so nothing it declares is
-    /// visible after it (user decision 2026-10-20; the body was spliced flat
-    /// before, and a `let` in it leaked into the code that followed). A
-    /// terminal `[if …] ...` renames the rest of the block, which holds every
-    /// use, so it reads as before.
+    /// body is one: recorded by its first and last statement
+    /// (`Stamp::scopes`), so nothing it declares is visible after it (user
+    /// decision 2026-10-20; the body was spliced flat before, and a `let` in
+    /// it leaked into the code that followed). A terminal `[if …] ...` takes
+    /// the rest of the block, which holds every use, so it reads as before.
     fn expand_scoped(&mut self, mut block: Block, out: &mut Vec<Stmt>) {
-        self.rename_counter += 1;
-        rename_locals(&mut block, self.rename_counter);
+        let slot = self.open_scope();
         self.expand_block(&mut block);
+        self.close_scope(slot, &block);
         out.extend(block.stmts);
+    }
+
+    /// [comptime-scope] Opens a scope the expansion is about to splice flat;
+    /// [`Self::close_scope`] marks it once its statements are final.
+    fn open_scope(&mut self) -> usize {
+        self.scopes.push((Span::default(), Span::default()));
+        self.scopes.len() - 1
+    }
+
+    fn close_scope(&mut self, slot: usize, block: &Block) {
+        if let (Some(first), Some(last)) = (block.stmts.first(), block.stmts.last()) {
+            self.scopes[slot] = (first.span(), last.span());
+        }
     }
 
     /// Evaluates a condition. `binds` collects what its patterns bind, when
@@ -3529,7 +3549,8 @@ impl<'w> Expander<'w> {
     }
 
     /// One unrolled copy of `template` with `binder` bound to `b`: fresh
-    /// spans, locals renamed so two copies in one block do not redeclare,
+    /// spans, each a scope (`Stamp::scopes`) so two copies in one block do
+    /// not redeclare,
     /// then substituted and expanded.
     fn copy(&mut self, template: &Block, binder: &str, b: &Binding) -> Block {
         let mut block = template.clone();
@@ -3551,13 +3572,15 @@ impl<'w> Expander<'w> {
                 }),
             },
         });
-        self.rename_counter += 1;
-        rename_locals(&mut block, self.rename_counter);
+        // [comptime-scope] The copy is a scope: two copies' `let c` are two
+        // bindings, and neither is visible after its copy.
+        let slot = self.open_scope();
         self.env.push((binder.to_string(), b.clone()));
         let enclosing = std::mem::replace(&mut self.current, id);
         self.expand_block(&mut block);
         self.current = enclosing;
         self.env.pop();
+        self.close_scope(slot, &block);
         block
     }
 
@@ -4362,44 +4385,22 @@ fn arm_check(arm: &Type) -> Option<Vec<TypeRef>> {
     }
 }
 
-/// The suffix [`rename_locals`] appends: `k` declared in a scoped comptime
-/// body becomes `k__c3`.
-const SCOPED_SUFFIX: &str = "__c";
-
 /// [fn-by] The suffix [`rename_capturing_locals`] appends: a template's local
-/// `h` that a declared parameter `h` would capture becomes `h__p`. Not a
-/// scoped body's suffix, so the checker's no-shadowing rule does not read it
-/// as the `h` it was written as; diagnostics still do.
+/// `h` that a declared parameter `h` would capture becomes `h__p`. Not
+/// visible to the checker's no-shadowing rule as the `h` it was written as;
+/// diagnostics still name it `h`.
 const APART_SUFFIX: &str = "__p";
 
-/// [comptime-scope] The name one scoped body's renaming wrapped: `k__c1__c3`
-/// was `k__c1` before the innermost body renamed it, and `None` for a name no
-/// body renamed.
-pub fn scoped_outer(name: &str) -> Option<&str> {
-    let at = name.rfind(SCOPED_SUFFIX)?;
-    let digits = &name[at + SCOPED_SUFFIX.len()..];
-    (at > 0 && !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())).then(|| &name[..at])
+/// [fn-by] The name a local renamed apart from a declared parameter was
+/// written as.
+pub fn written_local(name: &str) -> &str {
+    name.strip_suffix(APART_SUFFIX).filter(|o| !o.is_empty()).unwrap_or(name)
 }
 
-/// [comptime-scope] The name a renamed local was written as: every scoped
-/// body's suffix stripped, and a local renamed apart from a declared
-/// parameter [fn-by] as written too.
-pub fn written_local(mut name: &str) -> &str {
-    loop {
-        if let Some(outer) = scoped_outer(name) {
-            name = outer;
-        } else if let Some(outer) = name.strip_suffix(APART_SUFFIX).filter(|o| !o.is_empty()) {
-            name = outer;
-        } else {
-            return name;
-        }
-    }
-}
-
-/// [comptime-scope] A diagnostic in the author's terms: every renamed local
-/// it names (`k__c3`, `_k__c3`) written as it was (`k`, `_k`).
+/// [fn-by] A diagnostic in the author's terms: a local renamed apart from a
+/// declared parameter (`h__p`) named as written (`h`).
 pub fn unmangle_message(msg: &str) -> std::borrow::Cow<'_, str> {
-    if !msg.contains(SCOPED_SUFFIX) && !msg.contains(APART_SUFFIX) {
+    if !msg.contains(APART_SUFFIX) {
         return std::borrow::Cow::Borrowed(msg);
     }
     let mut out = String::with_capacity(msg.len());
@@ -4418,25 +4419,6 @@ pub fn unmangle_message(msg: &str) -> std::borrow::Cow<'_, str> {
     }
     flush(&mut word, &mut out);
     std::borrow::Cow::Owned(out)
-}
-
-/// Renames every local an unrolled copy declares (`let` patterns, `is`
-/// bindings, `for` patterns), so two copies spliced into one block do not
-/// redeclare a name [var-no-shadow]. Field names and parameters are untouched:
-/// only names bound *inside* the copy are renamed. The same renaming makes a
-/// kept `[if]` / `[when]` body a scope [comptime-scope]: what it declares is
-/// not visible after it. The checker still refuses a renamed local that
-/// shadows a visible one, by its written name ([`scoped_outer`]).
-fn rename_locals(block: &mut Block, tag: u32) {
-    let mut names: Vec<String> = Vec::new();
-    let mut collect = CollectLocals { names: &mut names };
-    visit_mut::walk_block(&mut collect, block);
-    if names.is_empty() {
-        return;
-    }
-    let renames: HashMap<String, String> = names.into_iter().map(|n| (n.clone(), format!("{n}{SCOPED_SUFFIX}{tag}"))).collect();
-    let mut r = RenameLocals { renames: &renames };
-    visit_mut::walk_block(&mut r, block);
 }
 
 struct CollectLocals<'a> {

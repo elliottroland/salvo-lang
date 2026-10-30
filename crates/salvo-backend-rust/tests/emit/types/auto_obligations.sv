@@ -23,7 +23,7 @@
 //~ emits(main.rs): #[derive(Clone, Debug, PartialEq)]
 //~| pub struct Point
 // The stamped body is field-wise Salvo: one per-field `cmp`, then `0`.
-//~ emits(main.rs): let mut c__c1: i32 = (Ord::cmp(&(a.x), &(b.x)) as i32);
+//~ emits(main.rs): let mut c: i32 = (Ord::cmp(&(a.x), &(b.x)) as i32);
 //~ emits(main.rs): return 0i32;
 struct Point : Ordered<self> by auto, Hashed<self> by auto {
     x: Int,

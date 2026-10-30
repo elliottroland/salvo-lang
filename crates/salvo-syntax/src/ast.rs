@@ -605,6 +605,13 @@ pub struct Stamp {
     /// writes resolves where the template is written, unless selected
     /// `@[site]`.
     pub site_names: Vec<String>,
+    /// [comptime-scope] The scopes the expansion spliced flat: each unrolled
+    /// copy and each kept `[if]`/`[when]` body, by its first and last
+    /// statement as spliced, outermost first. What one declares is not
+    /// visible after its last statement — resolution, the checker and the
+    /// IR open a scope at the first and close it after the last, so two
+    /// copies' `let c` are two bindings without renaming either.
+    pub scopes: Vec<(Span, Span)>,
 }
 
 impl Stamp {

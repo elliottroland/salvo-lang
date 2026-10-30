@@ -95,10 +95,9 @@ comptime fn kept_for(p: P) [] -> Int => p {
     return total
 }
 
-// [comptime-scope] [var-no-shadow] The rename that keeps a body's locals in
-// does not let them hide a visible one: refused by the name as written, also
-// in a `[for]` copy (which renamed, and so allowed it, before), and through
-// both renamings when an `[if]` sits in a copy.
+// [comptime-scope] [var-no-shadow] The scope that keeps a body's locals in
+// does not let them hide a visible one: refused, also in a `[for]` copy
+// (which a rename once let through), and when an `[if]` sits in a copy.
 comptime fn shadow_if(p: P) [] -> Int => p {
     let total: Int = 0
     //~ warning[var-unused:never-used]
@@ -143,7 +142,7 @@ comptime fn siblings(p: P) [] -> Int => p {
     return total
 }
 
-// [comptime-scope] [expr-terminal-scope] A terminal `[if …] ...` renames the rest
+// [comptime-scope] [expr-terminal-scope] A terminal `[if …] ...` takes the rest
 // of the block, which holds every use, so it reads as before…
 comptime fn terminal(p: P) [] -> Int => p {
     let total: Int = 0
@@ -152,7 +151,7 @@ comptime fn terminal(p: P) [] -> Int => p {
     return k
 }
 
-// …and a renamed local is named as written in a warning.
+// …and its local is named as written in a warning.
 comptime fn renamed_unused(p: P) [] -> Int => p {
     let total: Int = 0
     //~ warning[var-unused:never-used]

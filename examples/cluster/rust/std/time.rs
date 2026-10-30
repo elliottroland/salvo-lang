@@ -670,9 +670,9 @@ pub fn earliest_due(deadlines: &Vec<i64>, mut target: i64) -> Option<i32> {
 }
 
 pub fn cmp__Duration_Duration(a: &crate::std_time::Duration, b: &crate::std_time::Duration) -> i32 {
-    let mut c__c1: i32 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
-    if (c__c1 != 0i32) {
-        return c__c1;
+    let mut c: i32 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
+    if (c != 0i32) {
+        return c;
     };
     return 0i32;
 }
@@ -691,9 +691,9 @@ pub fn eq__Duration_Duration(a: &crate::std_time::Duration, b: &crate::std_time:
 }
 
 pub fn cmp__Instant_Instant(a: &crate::std_time::Instant, b: &crate::std_time::Instant) -> i32 {
-    let mut c__c1: i32 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
-    if (c__c1 != 0i32) {
-        return c__c1;
+    let mut c: i32 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
+    if (c != 0i32) {
+        return c;
     };
     return 0i32;
 }
@@ -712,9 +712,9 @@ pub fn eq__Instant_Instant(a: &crate::std_time::Instant, b: &crate::std_time::In
 }
 
 pub fn cmp__Tick_Tick(a: &crate::std_time::Tick, b: &crate::std_time::Tick) -> i32 {
-    let mut c__c1: i32 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
-    if (c__c1 != 0i32) {
-        return c__c1;
+    let mut c: i32 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
+    if (c != 0i32) {
+        return c;
     };
     return 0i32;
 }
