@@ -2522,12 +2522,15 @@ lowering before typing, then the checker's special paths deleted. Needs A2
     parameters bind by position; a `name@[site]` reads as the bare name at
     the site, declared parameters included, so its capture is real and that
     error stays unless the site's view is narrowed to exclude them.
+  - **C3.3a. Lookups where written** — done: every name the expansion
+    looks up is looked up in the file that wrote it, by the node's tag; the
+    program-wide ladder (`pick_decl`, the std-only filter) went, and `[if]`
+    type patterns compare declarations.
   - **C3.3. Comptime after resolution**: templates resolved once in their
     module and copied, a splice filled with a type id, parameters bound by
     position (`h__p` and `hidden_free_name` for template-resolved names go);
-    delete the flat `World` and `pick_decl`; `[if]` type patterns compare
-    ids. The `by`-at-a-call workaround (§II.5.1) documented in the language
-    pages.
+    the flat `World`'s tables go. The `by`-at-a-call workaround (§II.5.1)
+    documented in the language pages.
 - **C4. The remaining early sweeps to their phases**: what is left of
   `expand` that reads names moves after C1 (the `iter fn` expansion per
   file; effect aliases and prerequisites already in scope after Part I

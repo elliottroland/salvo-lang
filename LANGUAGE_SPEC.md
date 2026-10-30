@@ -6139,15 +6139,22 @@ Conventions:
     `type`, group and qualifier each name means — a `type` outranking a
     struct of the same name, as in the checker [type-identity]. A clause
     stamps the declaration it is written on and the group its own file sees.
-    A name the file does not see falls back to the old program-wide ladder
-    (own module, an imported one, `std.core`, the first), which a template's own
-    names still need [comptime-hygiene]. **In a std file the ladder considers
-    std's declarations only** (user decision 2026-10-14, ROADMAP 0s): std
-    sees only std, so a project declaration never fills a gap in std's
-    expansion. (So does the test for which names an expanded-in-place fn's
-    roots are.) With [std-root] nothing is left for a project to reach std
-    through: a project cannot declare a module under `std`, so nothing it
-    writes is implicitly visible to std.
+  * **Each name is looked up in the file that wrote it** (C3.3a,
+    2026-10-30): a template's text in the template's file, a field's type
+    where its struct is declared, a clause in the site's — read off the
+    node's file tag [node-file], which a copy keeps until its file is
+    numbered again after stamping (`World::names_at`). A name that file does
+    not see means nothing: an expanded-in-place fn's root the file cannot
+    see is `name-resolve:unknown-type`, with the import that brings it.
+    Until then a name the stamping file did not see fell back to a
+    program-wide ladder (own module, an imported one, `std.core`, the first;
+    in a std file std's declarations only, ROADMAP 0s), which a template's
+    own names needed.
+  * **A type pattern compares declarations** [comptime-pattern]
+    (`World::decl_of`): `[if field.type is Item]` holds when the field's
+    `Item` is the one the template's file means. A name that declares
+    nothing (`None`) compares by spelling. Before, two modules' `Item`
+    matched each other.
   * **Spans are origins** [node-origin]: every node of a stamped body keeps its
     span in the template and carries a fresh expansion id, one per unrolled
     copy; the checker's facts are keyed by node [node-id], so two copies are

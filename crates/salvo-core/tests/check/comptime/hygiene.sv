@@ -84,3 +84,42 @@ comptime fn g<T is Struct>(v: T) [] -> Int => v {
     //~ error[comptime-hygiene:unknown-place]
     return cmp@[here](1, 0)
 }
+
+//--- a_pattern_names_a_declaration
+// [comptime-pattern] [comptime-hygiene] A type pattern names a declaration as
+// the template's file sees it, and a field's type is its declaration's: the
+// site's `Item` is not `deriv`'s, so the branch that passes the field to
+// `deriv`'s `weight` is not kept (until 2026-10-30 both were "`Item`", the
+// branch was kept, and the call did not check).
+// FILE: deriv.sv
+export fns Weighed<T> {
+    fn weigh(value: T) -> Int
+}
+
+struct Item {
+    n: Int
+}
+
+fn weight(i: Item) [] -> Int => i {
+    return i.n
+}
+
+export comptime fn weigh<T is Struct>(value: T) [] -> Int => value {
+    let total = 0
+    [for field in T.fields] {
+        [if field.type is Item] {
+            total = total + weight@deriv(value.[field])
+        }
+    }
+    return total
+}
+// FILE: main.sv
+import deriv
+
+struct Item {
+    s: Str
+}
+
+struct Box : Weighed<self> by deriv {
+    item: Item
+}

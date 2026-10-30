@@ -2,8 +2,9 @@
 
 // [comptime-root-visible] `Pt.fields` names `Pt`, so `Pt` must be visible
 // where it is written, like any type name (user decision 2026-10-20). The
-// expansion's lookup is program-wide; before this a struct from a module the
-// file never imported was walked silently.
+// expansion looks it up where it is written (C3.3a, 2026-10-30; it was
+// program-wide, and the checker reported it after); before 2026-10-20 a
+// struct from a module the file never imported was walked silently.
 // FILE: geo.sv
 export struct Pt {
     x: Int,

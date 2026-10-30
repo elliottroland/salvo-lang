@@ -144,6 +144,29 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — The expansion looks each name up where it is written (PIPELINE.md C3.3a, [comptime-instantiate] [comptime-pattern])
+
+- **Built**: every lookup the expansion makes — struct, `type`, group,
+  qualifier, the kind of a type, its `canbe`, its docs, a pattern's names —
+  takes the span it was written at and asks that file's scope
+  (`World::names_at`, by the node's file tag, which the template's text and
+  a field's type keep until stamping renumbers the site's file). The
+  program-wide ladder (`pick_decl`: own module, an import, `std.core`, the
+  first; std-only in a std file) went with the per-file import list and the
+  std flags it read. A later run over a base std reads std's names from the
+  base's tables (`Tables::scoped`).
+- **`[if f.type is Item]` compares declarations** (`World::decl_of`): the
+  latent bug PIPELINE.md §II.5 named — a template's `Item` matched any
+  struct spelled `Item` — is gone; `check/comptime/hygiene.sv`
+  `a_pattern_names_a_declaration` is the case (a site `Item` beside
+  `deriv`'s: by spelling the branch was kept and its call did not check).
+- **One diagnostic changed**: an expanded-in-place fn's root its file cannot
+  see (`[for f in Pt.fields]` without `import geo`) is now reported by the
+  expansion, as `name-resolve:unknown-type` with the import, since nothing
+  walks it any more; it used to be walked program-wide and reported by the
+  checker after.
+- 708 tests under nextest.
+
 ### 2026-10-30 — Comptime copies are scopes, not renamed locals (PIPELINE.md C3.2, [comptime-scope])
 
 - **Built**: the expansion records every copy and kept `[if]`/`[when]` body

@@ -97,6 +97,10 @@ struct Tables {
     /// [comptime-hygiene] Each template's site names (`Stamp::site_names`),
     /// by its file and its name's start.
     site_names: HashMap<(usize, u32), Vec<String>>,
+    /// [comptime-hygiene] What each of the run's files sees (empty for a
+    /// file before the run's start), which a later run reads the base's
+    /// files' names through.
+    scoped: Vec<FileNames>,
 }
 
 /// [lsp-std-front] The comptime expansion of the embedded std on its own,
@@ -247,15 +251,20 @@ fn run<M: crate::expand::ModuleSlot>(
     }
 
     let _stamp = crate::timing::phase("  expand: comptime stamps");
+    let tag_files: HashMap<u32, usize> = modules
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (m.borrow().file_tag, i))
+        .filter(|(tag, _)| *tag != salvo_syntax::span::NO_FILE)
+        .collect();
     let world = World {
         scoped,
+        start,
+        tag_files,
         here: std::cell::Cell::new(0),
         base: base.map(|(tables, _)| tables),
         tables,
-        std_here: std::cell::Cell::new(false),
-        std_modules: files.iter().filter(|f| f.is_std).map(|f| f.module.clone()).collect(),
         own: std::cell::RefCell::new(ModulePath(Vec::new())),
-        imports: std::cell::RefCell::new(Vec::new()),
         module_paths: files.iter().map(|f| f.module.clone()).collect(),
     };
 
@@ -267,15 +276,6 @@ fn run<M: crate::expand::ModuleSlot>(
         let module = modules[file_idx].module_mut();
         *world.own.borrow_mut() = file.module.clone();
         world.here.set(file_idx);
-        world.std_here.set(file.is_std);
-        *world.imports.borrow_mut() = module
-            .items
-            .iter()
-            .filter_map(|item| match item {
-                Item::Import(i) => Some(i.path.iter().map(|p| p.name.clone()).collect()),
-                _ => None,
-            })
-            .collect();
         let mut diags: Vec<Diagnostic> = Vec::new();
         // [node-origin] The file's expansion ids: 0 is written code.
         let mut next_expn: u32 = 1;
@@ -321,7 +321,7 @@ fn run<M: crate::expand::ModuleSlot>(
             for ob in obligations {
                 let Some(by) = &ob.by else { continue };
                 // [type-identity] The group the clause's file means.
-                let Some(group) = world.group_named(ob.group.name.name.as_str()) else {
+                let Some(group) = world.group_named(ob.group.name.name.as_str(), ob.group.name.span) else {
                     // The checker reports the unknown group at the clause.
                     continue;
                 };
@@ -417,9 +417,9 @@ fn run<M: crate::expand::ModuleSlot>(
                     fallback_body(f);
                     continue;
                 };
-                let Some(target) = world.target(&target_name) else {
+                let Some(target) = world.target(&target_name, first.ty.span()) else {
                     diags.push(Diagnostic::error(
-                        if world.opaque_here(&target_name) {
+                        if world.opaque_here(&target_name, first.ty.span()) {
                             messages::fn_by_opaque_target(&f.name.name, &target_name)
                         } else {
                             messages::fn_by_target_not_struct_or_union(&f.name.name, &target_name)
@@ -498,7 +498,7 @@ fn run<M: crate::expand::ModuleSlot>(
                     .remove(&f.name.span.start)
                     .unwrap_or_default()
                     .into_iter()
-                    .filter(|r| world.declares_type(&r.name))
+                    .filter(|r| world.declares_type(&r.name, r.span))
                     .collect();
                 if errs.is_empty() {
                     f.body = body;
@@ -531,7 +531,9 @@ fn run<M: crate::expand::ModuleSlot>(
         salvo_syntax::node_id::number(module);
         out.extend(diags.into_iter().map(|d| (file_idx, d)));
     }
-    let World { tables, .. } = world;
+    let World { mut tables, scoped, .. } = world;
+    // [lsp-std-front] A later run over this one's files reads their names.
+    tables.scoped = scoped;
     (
         ComptimeOutput {
             diagnostics: out,
@@ -1264,6 +1266,17 @@ struct Target {
     canbe: Vec<String>,
 }
 
+impl Target {
+    /// [comptime-hygiene] Where the target is declared: what its own name
+    /// is looked up by.
+    fn at(&self) -> Span {
+        match &self.ty {
+            Type::Named { base, .. } => base.name.span,
+            other => other.span(),
+        }
+    }
+}
+
 /// [type-identity] What one file's names mean, as the resolver's scope for
 /// that file says: the module declaring each visible struct, `type`, group
 /// and qualifier. Owned, so the resolution that produced it can be dropped
@@ -1356,28 +1369,23 @@ fn scoped_names<M: crate::decl_id::ModuleRef>(files: &[SourceFile], modules: &[M
 
 struct World {
     /// [type-identity] Per file, what its names mean; `here` is the file
-    /// being expanded.
+    /// being expanded. The files before `start` are the base's
+    /// (`Tables::scoped`).
     scoped: Vec<FileNames>,
+    start: usize,
+    /// [comptime-hygiene] Each file by its node tag [node-file]: a name is
+    /// looked up in the file that wrote it, which a copy keeps until its
+    /// file is numbered again after stamping.
+    tag_files: HashMap<u32, usize>,
     here: std::cell::Cell<usize>,
     /// [lsp-std-front] The tables of the files before the ones stamped (an
     /// already expanded std), which come first in every lookup, as their
     /// files come first in the program.
     base: Option<std::sync::Arc<Tables>>,
     tables: Tables,
-    /// [obligation-by] Whether the file being expanded is std's: std sees
-    /// only std, so a name its scope does not see falls back to std's
-    /// declarations alone.
-    std_here: std::cell::Cell<bool>,
-    /// Every module a std file declares.
-    std_modules: std::collections::HashSet<ModulePath>,
-    /// [type-identity] The module being expanded: its own declaration of a
-    /// name is the one meant.
+    /// [struct-opaque] The module being expanded: where the stamped code
+    /// reads fields from.
     own: std::cell::RefCell<ModulePath>,
-    /// [comptime-root-visible] The `import` paths of the file being
-    /// expanded: of two same-named declarations, the one this file imports
-    /// is the one it can mean (the checker then requires the name to be
-    /// visible at all).
-    imports: std::cell::RefCell<Vec<Vec<String>>>,
     module_paths: Vec<ModulePath>,
 }
 
@@ -1416,11 +1424,10 @@ impl World {
         self.entries(name, |t| &t.types)
     }
 
-    /// Whether any file declares a struct or a `type` named `name` (only a
-    /// std file's, when std is being expanded: std sees only std).
-    fn declares_type(&self, name: &str) -> bool {
-        let seen = |m: &ModulePath| !self.std_here.get() || self.std_modules.contains(m);
-        self.structs_of(name).iter().any(|(m, _)| seen(m)) || self.types_of(name).iter().any(|(m, _)| seen(m))
+    /// [comptime-root-visible] Whether the file that wrote `at` sees a struct
+    /// or a `type` named `name`.
+    fn declares_type(&self, name: &str, at: Span) -> bool {
+        self.names_at(at).is_some_and(|h| h.structs.contains_key(name) || h.types.contains_key(name))
     }
 
     /// Every comptime fn, the base's first.
@@ -1434,54 +1441,14 @@ impl World {
         self.names_here().is_some_and(|h| h.modules.contains(module))
     }
 
-    /// [type-identity] [comptime-root-visible] Which of a name's
-    /// declarations the file being expanded means: its own module's, else
-    /// one from a module it imports (the module itself, or the item by
-    /// name), else one from `std.core` (implicitly visible), else the first.
-    /// [obligation-by] A std file considers std's declarations only.
-    fn pick_decl<'a, D>(&self, name: &str, all: &[&'a (ModulePath, D)]) -> Option<&'a (ModulePath, D)> {
-        let std_only: Vec<&'a (ModulePath, D)>;
-        let all = if self.std_here.get() {
-            std_only = all.iter().copied().filter(|(m, _)| self.std_modules.contains(m)).collect();
-            &std_only[..]
-        } else {
-            all
-        };
-        let own = self.own.borrow();
-        if let Some(d) = all.iter().find(|(m, _)| *m == *own) {
-            return Some(*d);
-        }
-        let imports = self.imports.borrow();
-        let imported = |m: &ModulePath| {
-            imports.iter().any(|path| {
-                path.as_slice() == m.0.as_slice()
-                    || (path.len() == m.0.len() + 1
-                        && path[..m.0.len()] == m.0[..]
-                        && path.last().is_some_and(|l| l == name))
-            })
-        };
-        all.iter()
-            .find(|(m, _)| imported(m))
-            .or_else(|| all.iter().find(|(m, _)| m.is_std_core() && self.std_modules.contains(m)))
-            .or_else(|| all.first())
-            .copied()
-    }
-
     /// [struct-opaque] Whether `name` is an opaque struct whose fields the
     /// module being expanded may not see: declared elsewhere, and this is not
     /// its `*.test.sv` annex (module `m.test`).
-    fn opaque_here(&self, name: &str) -> bool {
-        let all = self.structs_of(name);
-        if all.is_empty() {
-            return false;
-        }
-        let own = self.own.borrow().clone();
-        let here = self.names_here();
-        let other = here.is_some_and(|h| h.types.contains_key(name));
-        let visible = here.and_then(|h| h.structs.get(name)).filter(|_| !other);
-        let Some((module, decl)) = self.scoped_decl(name, &all, visible, other) else {
+    fn opaque_here(&self, name: &str, at: Span) -> bool {
+        let Some((module, decl)) = self.struct_decl(name, at) else {
             return false;
         };
+        let own = self.own.borrow().clone();
         if !decl.opaque || *module == own {
             return false;
         }
@@ -1493,64 +1460,86 @@ impl World {
 
     /// [type-identity] The names of the file being expanded.
     fn names_here(&self) -> Option<&FileNames> {
-        self.scoped.get(self.here.get())
+        self.names_of(self.here.get())
     }
 
-    /// A name's declaration as the file being expanded resolves it — through
-    /// its scope (imports, renames, rungs) — and only when the scope does not
-    /// see the name at all, the old ladder (a template's own names, which the
-    /// stamping site may not see [comptime-hygiene]).
-    fn scoped_decl<'a, D>(
-        &self,
-        name: &str,
-        all: &[&'a (ModulePath, D)],
-        visible: Option<&ModulePath>,
-        other_kind: bool,
-    ) -> Option<&'a (ModulePath, D)> {
-        match visible {
-            Some(m) => all.iter().find(|(dm, _)| dm == m).copied(),
-            // The name is visible here as the other kind of type: this
-            // kind's declaration elsewhere is not what it means.
-            None if other_kind => None,
-            None => self.pick_decl(name, all),
+    fn names_of(&self, file: usize) -> Option<&FileNames> {
+        if file < self.start {
+            self.base.as_ref().and_then(|b| b.scoped.get(file))
+        } else {
+            self.scoped.get(file)
         }
+    }
+
+    /// [comptime-hygiene] [type-identity] The names of the file that wrote
+    /// `at` — a template's text, a field's type where its struct is declared
+    /// — or, for a span no file tagged, of the file being expanded.
+    fn names_at(&self, at: Span) -> Option<&FileNames> {
+        match self.tag_files.get(&at.file) {
+            Some(&f) => self.names_of(f),
+            None => self.names_here(),
+        }
+    }
+
+    /// A name's declaration as the file that wrote it resolves it, through
+    /// its scope (imports, renames, rungs): `visible` is the module it
+    /// sees declaring the name; `None` means nothing (no program-wide
+    /// fallback since 2026-10-30, C3.3a).
+    fn scoped_decl<'a, D>(all: &[&'a (ModulePath, D)], visible: Option<&ModulePath>) -> Option<&'a (ModulePath, D)> {
+        let m = visible?;
+        all.iter().find(|(dm, _)| dm == m).copied()
     }
 
     /// A `type` the file sees outranks a struct of the same name, as in the
     /// checker, which expands an alias before it reads a nominal.
-    fn struct_named(&self, name: &str) -> Option<&StructDecl> {
+    fn struct_decl(&self, name: &str, at: Span) -> Option<&(ModulePath, StructDecl)> {
         let all = self.structs_of(name);
-        let here = self.names_here();
-        let other = here.is_some_and(|h| h.types.contains_key(name));
-        let visible = here.and_then(|h| h.structs.get(name)).filter(|_| !other);
-        self.scoped_decl(name, &all, visible, other).map(|(_, d)| d)
+        let here = self.names_at(at)?;
+        if here.types.contains_key(name) {
+            return None;
+        }
+        Self::scoped_decl(&all, here.structs.get(name))
     }
 
-    fn type_named(&self, name: &str) -> Option<&TypeDecl> {
+    fn struct_named(&self, name: &str, at: Span) -> Option<&StructDecl> {
+        self.struct_decl(name, at).map(|(_, d)| d)
+    }
+
+    fn type_decl(&self, name: &str, at: Span) -> Option<&(ModulePath, TypeDecl)> {
         let all = self.types_of(name);
-        let here = self.names_here();
-        let visible = here.and_then(|h| h.types.get(name));
-        let other = visible.is_none() && here.is_some_and(|h| h.structs.contains_key(name));
-        self.scoped_decl(name, &all, visible, other).map(|(_, d)| d)
+        let here = self.names_at(at)?;
+        Self::scoped_decl(&all, here.types.get(name))
+    }
+
+    fn type_named(&self, name: &str, at: Span) -> Option<&TypeDecl> {
+        self.type_decl(name, at).map(|(_, d)| d)
     }
 
     /// [type-identity] The `fns` group a clause names, in its file.
-    fn group_named(&self, name: &str) -> Option<&FnsDecl> {
+    fn group_named(&self, name: &str, at: Span) -> Option<&FnsDecl> {
         let all = self.entries(name, |t| &t.groups);
-        let visible = self.names_here().and_then(|h| h.groups.get(name));
-        self.scoped_decl(name, &all, visible, false).map(|(_, d)| d)
+        Self::scoped_decl(&all, self.names_at(at)?.groups.get(name)).map(|(_, d)| d)
     }
 
-    /// [comptime-qualifier] The comptime qualifier `name` means here.
-    fn comptime_qual(&self, name: &str) -> Option<&QualifierDecl> {
-        self.qual_named(name).filter(|q| q.comptime)
+    /// [comptime-qualifier] The comptime qualifier `name` means where `at`
+    /// is written.
+    fn comptime_qual(&self, name: &str, at: Span) -> Option<&QualifierDecl> {
+        self.qual_named(name, at).filter(|q| q.comptime)
     }
 
-    /// The qualifier `name` means here, comptime or not.
-    fn qual_named(&self, name: &str) -> Option<&QualifierDecl> {
+    /// The qualifier `name` means where `at` is written, comptime or not.
+    fn qual_named(&self, name: &str, at: Span) -> Option<&QualifierDecl> {
         let all = self.entries(name, |t| &t.quals);
-        let visible = self.names_here().and_then(|h| h.quals.get(name));
-        self.scoped_decl(name, &all, visible, false).map(|(_, d)| d)
+        Self::scoped_decl(&all, self.names_at(at)?.quals.get(name)).map(|(_, d)| d)
+    }
+
+    /// [comptime-pattern] The declaration a named type means where it is
+    /// written — its module and name — for comparing two types by what they
+    /// declare rather than how they are spelled.
+    fn decl_of(&self, base: &TypeRef) -> Option<(ModulePath, String)> {
+        let name = base.name.name.as_str();
+        let here = self.names_at(base.name.span)?;
+        here.types.get(name).or_else(|| here.structs.get(name)).map(|m| (m.clone(), name.to_string()))
     }
 
     /// [comptime-docs] The doc comment of the declaration a type names — a
@@ -1558,9 +1547,9 @@ impl World {
     fn docs_of(&self, ty: &Type) -> Option<String> {
         let Type::Named { base, .. } = ty else { return None };
         let name = base.name.name.as_str();
-        match self.struct_named(name) {
+        match self.struct_named(name, base.name.span) {
             Some(s) => doc_text(&s.docs),
-            None => self.type_named(name).and_then(|t| doc_text(&t.docs)),
+            None => self.type_named(name, base.name.span).and_then(|t| doc_text(&t.docs)),
         }
     }
 
@@ -1611,13 +1600,13 @@ impl World {
 
     /// The target a type name denotes: a struct, or a `type` declaration
     /// whose alias is a union. Anything else is not a `by` target.
-    fn target(&self, name: &str) -> Option<Target> {
+    fn target(&self, name: &str, at: Span) -> Option<Target> {
         // [struct-opaque] Kind `opaque` here: not a struct a comptime fn of kind
         // `Struct` may be stamped at.
-        if self.opaque_here(name) {
+        if self.opaque_here(name, at) {
             return None;
         }
-        if let Some(s) = self.struct_named(name) {
+        if let Some(s) = self.struct_named(name, at) {
             return Some(Target {
                 name: name.to_string(),
                 kind: CompKind::Struct,
@@ -1626,7 +1615,7 @@ impl World {
                 canbe: s.auto_qualifiers.iter().map(|q| q.name.name.clone()).collect(),
             });
         }
-        if let Some(t) = self.type_named(name) {
+        if let Some(t) = self.type_named(name, at) {
             // Only a declared *union* is a target: an intrinsic type has no
             // arms, and an alias of something else is not a kind a compfn is
             // bound to.
@@ -1848,16 +1837,17 @@ impl World {
                 if generics.iter().any(|g| g == name) {
                     return TypeKindWord::Generic;
                 }
-                if self.struct_named(name).is_some() {
+                let at = base.name.span;
+                if self.struct_named(name, at).is_some() {
                     // [struct-opaque] Outside its module an opaque struct is
                     // kind `opaque`: a comptime body there calls the type's
                     // own functions instead of walking fields it may not see.
-                    if self.opaque_here(name) {
+                    if self.opaque_here(name, at) {
                         return TypeKindWord::Basic;
                     }
                     return TypeKindWord::Struct;
                 }
-                if let Some(t) = self.type_named(name) {
+                if let Some(t) = self.type_named(name, at) {
                     if t.intrinsic {
                         return TypeKindWord::Basic;
                     }
@@ -1875,10 +1865,10 @@ impl World {
     fn canbe(&self, ty: &Type, qual: &str) -> bool {
         match ty {
             Type::Named { base, .. } => {
-                if let Some(s) = self.struct_named(base.name.name.as_str()) {
+                if let Some(s) = self.struct_named(base.name.name.as_str(), base.name.span) {
                     return s.auto_qualifiers.iter().any(|q| q.name.name == qual);
                 }
-                if let Some(t) = self.type_named(base.name.name.as_str()) {
+                if let Some(t) = self.type_named(base.name.name.as_str(), base.name.span) {
                     return t.auto_qualifiers.iter().any(|q| q.name.name == qual);
                 }
                 false
@@ -1894,7 +1884,7 @@ impl World {
         match ty {
             Type::Literal { value, .. } => value.to_string(),
             Type::Named { base, .. } => {
-                if let Some(t) = self.type_named(base.name.name.as_str()) {
+                if let Some(t) = self.type_named(base.name.name.as_str(), base.name.span) {
                     if let Some(alias) = &t.alias {
                         if base.args.is_empty() && !t.intrinsic {
                             return self.normalized(alias);
@@ -1988,9 +1978,9 @@ impl<'w> Stamper<'w> {
             _ => return None,
         };
         let (generics, canbe, parts): (Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<Type>) =
-            if let Some(s) = self.world.struct_named(&self.target.name) {
+            if let Some(s) = self.world.struct_named(&self.target.name, self.target.at()) {
                 (s.generics.clone(), s.generic_canbe.clone(), s.fields.iter().filter_map(|f| f.ty.clone()).collect())
-            } else if let Some(t) = self.world.type_named(&self.target.name) {
+            } else if let Some(t) = self.world.type_named(&self.target.name, self.target.at()) {
                 let arms = t.alias.as_ref().map(|a| self.world.arms_of(a)).unwrap_or_default();
                 (t.generics.clone(), t.generic_canbe.clone(), arms)
             } else {
@@ -2838,17 +2828,31 @@ impl<'w> Expander<'w> {
                 return Some(self.type_binders[i].1.clone());
             }
         }
-        if self.world.declares_type(&ct.root.name) {
+        if self.world.declares_type(&ct.root.name, ct.root.span) {
             let mut t = World::simple_named(&ct.root.name, ct.span);
             if let Type::Named { base, .. } = &mut t {
                 base.args = ct.args.clone();
             }
             return Some(t);
         }
-        self.error(
-            ct.span,
-            messages::comptime_fields_unknown_type(&ct.root.name),
-        );
+        // [comptime-root-visible] A type the program declares where this file
+        // cannot see it is an unknown type name here, as anywhere else.
+        let mut homes: Vec<String> = self
+            .world
+            .structs_of(&ct.root.name)
+            .iter()
+            .map(|(m, _)| m.to_string())
+            .chain(self.world.types_of(&ct.root.name).iter().map(|(m, _)| m.to_string()))
+            .collect();
+        homes.sort();
+        homes.dedup();
+        if homes.is_empty() {
+            self.error(ct.span, messages::comptime_fields_unknown_type(&ct.root.name));
+        } else {
+            let imports: Vec<String> = homes.iter().map(|m| format!("`import {m}.{}`", ct.root.name)).collect();
+            let hint = format!(": add {}", imports.join(" or "));
+            self.error(ct.root.span, messages::name_resolve_unknown_type(&"type", &ct.root.name, &hint));
+        }
         None
     }
 
@@ -2943,7 +2947,7 @@ impl<'w> Expander<'w> {
             return None;
         }
         let Some(name) = named_base(&ty) else { return None };
-        let Some(s) = self.world.struct_named(&name) else { return None };
+        let Some(s) = self.world.struct_named(&name, ty.span()) else { return None };
         // [comptime-generic-fn] A generic struct is walked at an instance:
         // its field types come out with the instance's arguments in place of
         // its parameters. A bare root has no arguments to put there.
@@ -3013,7 +3017,7 @@ impl<'w> Expander<'w> {
 
     fn arms_of_type(&self, ty: &Type) -> Vec<Type> {
         match ty {
-            Type::Named { base, .. } => match self.world.type_named(base.name.name.as_str()).and_then(|t| t.alias.as_ref()) {
+            Type::Named { base, .. } => match self.world.type_named(base.name.name.as_str(), base.name.span).and_then(|t| t.alias.as_ref()) {
                 Some(alias) => self.world.arms_of(alias),
                 None => vec![],
             },
@@ -3049,8 +3053,11 @@ impl<'w> Expander<'w> {
                 generics.push("*".to_string());
                 generics.extend(allowed.iter().cloned());
                 generics.extend(self.type_binders.iter().map(|(n, ..)| n.clone()));
-                let declared = self.world.structs_of(name).iter().any(|(_, s)| !s.comptime)
-                    || self.world.types_of(name).iter().any(|(_, t)| !t.comptime);
+                // [comptime-hygiene] A name the file that wrote the pattern
+                // sees.
+                let at = base.name.span;
+                let declared = self.world.struct_named(name, at).is_some_and(|s| !s.comptime)
+                    || self.world.type_named(name, at).is_some_and(|t| !t.comptime);
                 let mut ok = true;
                 if !(declared || name == "None" || generics.iter().any(|g| g == name)) {
                     if TypeKindWord::parse(name).is_some() {
@@ -3086,7 +3093,7 @@ impl<'w> Expander<'w> {
     /// that; with them, each is a constant binder (bound to the written
     /// constant) or a constant (compared).
     fn match_annotation(&mut self, annotations: &[TypeRef], qual: &TypeRef, binders: &[Ident], subject: &str, span: Span, can_bind: bool) -> Option<bool> {
-        let Some(decl) = self.world.comptime_qual(&qual.name.name) else {
+        let Some(decl) = self.world.comptime_qual(&qual.name.name, qual.name.span) else {
             self.error(span, messages::comptime_qualifier_not_comptime(&qual.name.name));
             return None;
         };
@@ -3181,7 +3188,7 @@ impl<'w> Expander<'w> {
             Type::Named { qualifiers, base } => {
                 let mut out = qualifiers.clone();
                 if base.args.is_empty() && depth < 8 {
-                    if let Some(t) = self.world.type_named(base.name.name.as_str()) {
+                    if let Some(t) = self.world.type_named(base.name.name.as_str(), base.name.span) {
                         if let (Some(alias), false) = (&t.alias, t.intrinsic) {
                             out.extend(self.type_quals(alias, depth + 1));
                         }
@@ -3206,7 +3213,7 @@ impl<'w> Expander<'w> {
         let mut ok = true;
         for (i, b) in binders.iter().enumerate() {
             let name = b.name.as_str();
-            let hides = self.world.declares_type(name)
+            let hides = self.world.declares_type(name, b.span)
                 || self.generics().iter().any(|g| g == name)
                 || self.type_binders.iter().any(|(n, ..)| n == name)
                 || binders[..i].iter().any(|o| o.name == name);
@@ -3230,7 +3237,7 @@ impl<'w> Expander<'w> {
             Type::QualifiedGroup { base, .. } => self.peel(base, depth),
             Type::Named { base, .. } => {
                 if base.args.is_empty() && depth < 8 {
-                    if let Some(t) = self.world.type_named(base.name.name.as_str()) {
+                    if let Some(t) = self.world.type_named(base.name.name.as_str(), base.name.span) {
                         if let (Some(alias), false) = (&t.alias, t.intrinsic) {
                             return self.peel(alias, depth + 1);
                         }
@@ -3283,8 +3290,16 @@ impl<'w> Expander<'w> {
             ps.len() == as_.len() && ps.iter().zip(as_).all(|(p, a)| this.match_pattern(p, a, binders, out))
         };
         match (&p, &a) {
+            // [comptime-pattern] [type-identity] Two named types match when
+            // they name one declaration, each as its own file sees it (until
+            // 2026-10-30 by spelling, so two modules' `Item` matched); a name
+            // that declares nothing (`None`) by spelling.
             (Type::Named { base: pb, .. }, Type::Named { base: ab, .. }) => {
-                pb.name.name == ab.name.name && all(self, &pb.args, &ab.args, out)
+                let same = match (self.world.decl_of(pb), self.world.decl_of(ab)) {
+                    (Some(p), Some(a)) => p == a,
+                    _ => pb.name.name == ab.name.name,
+                };
+                same && all(self, &pb.args, &ab.args, out)
             }
             (Type::Union { arms: pa, .. }, Type::Union { arms: aa, .. }) => all(self, pa, aa, out),
             (Type::Tuple { elems: pe, .. }, Type::Tuple { elems: ae, .. }) => all(self, pe, ae, out),
@@ -3394,14 +3409,14 @@ impl<'w> Expander<'w> {
                 // [comptime-qualifier] `T is Named`, `T is <n> Named(n)`: the
                 // struct's own comptime qualifiers, not a type test.
                 if let Type::Named { qualifiers, base } = target {
-                    if qualifiers.is_empty() && self.world.comptime_qual(&base.name.name).is_some() {
+                    if qualifiers.is_empty() && self.world.comptime_qual(&base.name.name, base.name.span).is_some() {
                         if ty.via_type {
                             self.error(*span, messages::comptime_qualifier_on_type(&base.name.name, &ty.root.name));
                             return None;
                         }
                         let annotations = match &self.bound {
-                            Some((param, target)) if *param == ty.root.name => self.world.struct_named(&target.name).map(|s| s.annotations.clone()),
-                            _ => self.world.struct_named(&ty.root.name).map(|s| s.annotations.clone()),
+                            Some((param, target)) if *param == ty.root.name => self.world.struct_named(&target.name, target.at()).map(|s| s.annotations.clone()),
+                            _ => self.world.struct_named(&ty.root.name, ty.root.span).map(|s| s.annotations.clone()),
                         };
                         let Some(annotations) = annotations else {
                             self.error(*span, messages::comptime_qualifier_not_a_struct(&ty.root.name));
@@ -3506,7 +3521,7 @@ impl<'w> Expander<'w> {
                         return Some(self.world.docs_of(&target.ty).is_none());
                     }
                 }
-                if self.world.declares_type(&binder.name) {
+                if self.world.declares_type(&binder.name, binder.span) {
                     return Some(self.world.docs_of(&World::simple_named(&binder.name, binder.span)).is_none());
                 }
                 self.error(*span, messages::comptime_docs_not_binder_or_type(&binder.name));
@@ -3978,7 +3993,7 @@ impl MutVisitor for Expander<'_> {
                                 // A generic claim over its subject (`Ok<T> of
                                 // T`) is told the subject: `Ok<Str>(value)`.
                                 let generic = qualifiers.len() == 1
-                                    && self.world.qual_named(&qualifiers[0].name.name).is_some_and(|q| {
+                                    && self.world.qual_named(&qualifiers[0].name.name, qualifiers[0].name.span).is_some_and(|q| {
                                         q.generics.len() == 1
                                             && matches!(&q.of, Type::Named { qualifiers, base: of } if qualifiers.is_empty() && of.args.is_empty() && of.name.name == q.generics[0].name)
                                     });
@@ -4109,7 +4124,7 @@ impl MutVisitor for Expander<'_> {
                     return;
                 }
                 if root.name.starts_with(|c: char| c.is_uppercase())
-                    && self.world.declares_type(&root.name)
+                    && self.world.declares_type(&root.name, root.span)
                 {
                     if field.name == "name" {
                         let name = root.name.clone();

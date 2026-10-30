@@ -1663,9 +1663,9 @@ narrowed to `Manual`) make `${value}` ambiguous at the interpolation while
 [implicit-resolve] locality, not a comptime defect.
 
 **Left by PIPELINE.md step 6's scoped lookups (2026-10-20).** The expansion
-now resolves the unstamped program and reads each file's names through its
-scope (groups, structs, `type`s, qualifiers), but still falls back to the old
-program-wide ladder for a name the file does not see, and these stay open:
+resolves the unstamped program and reads each name through the scope of the
+file that wrote it (C3.3a, 2026-10-30, which retired the program-wide
+ladder); these stay open:
 
 - **A renamed root** (`import geo.Pt as GPt`, then `[for f in GPt.fields]`)
   is still refused: the world's tables are keyed by declared name, and the
