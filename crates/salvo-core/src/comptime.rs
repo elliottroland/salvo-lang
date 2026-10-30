@@ -3863,6 +3863,19 @@ impl<'w> Expander<'w> {
         made
     }
 
+    /// [comptime-hygiene] A type put in place of a splice, as its own
+    /// expansion (`ExpansionKind::Splice`) that names the file it was written
+    /// in: numbering the stamped file retags its nodes with that file's tag,
+    /// and the expansion is how resolution still reads it where it was
+    /// written (a field's type where its struct is declared).
+    fn splice(&mut self, mut ty: Type) -> Type {
+        let Some(&file) = self.world.tag_files.get(&ty.span().file) else { return ty };
+        let mut tag = Retag::fresh(self.next_expn);
+        self.expansions.push(ExpansionRecord { id: tag.expn, parent: self.current, kind: ExpansionKind::Splice { file } });
+        visit_mut::walk_type(&mut tag, &mut ty);
+        ty
+    }
+
     fn str_lit(&self, text: &str, span: Span) -> Expr {
         Expr::Str {
             parts: vec![StrExprPart::Text(text.to_string())],
@@ -3890,7 +3903,8 @@ impl MutVisitor for Expander<'_> {
         if base.args.is_empty() {
             if let Some(i) = self.type_binders.iter().rposition(|(n, ..)| *n == base.name.name) {
                 self.type_binders[i].3 += 1;
-                let mut new = self.type_binders[i].1.clone();
+                let bound = self.type_binders[i].1.clone();
+                let mut new = self.splice(bound);
                 if !qualifiers.is_empty() {
                     match &mut new {
                         Type::Named { qualifiers: q2, .. } => {
@@ -3930,7 +3944,8 @@ impl MutVisitor for Expander<'_> {
         } else {
             None
         };
-        let Some(mut new) = replacement else { return };
+        let Some(new) = replacement else { return };
+        let mut new = self.splice(new);
         if !qualifiers.is_empty() {
             match &mut new {
                 Type::Named { qualifiers: q2, .. } => {
@@ -4081,11 +4096,11 @@ impl MutVisitor for Expander<'_> {
                             self.error(span, messages::comptime_default_arm_default(&root.name));
                         }
                         "default" => {
-                            *expr = match &bd.default_of {
+                            *expr = match bd.default_of.clone() {
                                 Some(owner) => Expr::FieldDefault {
-                                    owner: owner.clone(),
+                                    owner: self.splice(owner),
                                     field: Ident { name: bd.name.clone(), span },
-                                    ty: bd.ty.clone(),
+                                    ty: self.splice(bd.ty.clone()),
                                     span,
                                 },
                                 None => Expr::Ident(Ident { name: "None".to_string(), span }),

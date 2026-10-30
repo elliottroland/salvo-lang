@@ -1671,12 +1671,6 @@ ladder); these stay open:
   is still refused: the world's tables are keyed by declared name, and the
   root test is `contains_key`. Wants the alias → declaration mapping kept in
   the per-file names.
-- **Spliced field types resolve at the stamping site**, not the file that
-  wrote them [type-identity]: the stamped fn is renumbered into the site's
-  file, so a substituted type is told from site-written code by nothing
-  ([comptime-hygiene] tells only the template's own text apart, by
-  expansion). Differs only for `fn … by X` at an imported target.
-  Unreproduced; C3.3's resolved template fills the splice with a type id.
 - **The fn reading of `by f` ignores visibility**: a private comptime fn of
   an unimported module is found.
 - **`generic_needs` and `group_for` hard-code** member → group

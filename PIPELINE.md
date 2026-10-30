@@ -2525,6 +2525,9 @@ lowering before typing, then the checker's special paths deleted. Needs A2
     looks up is looked up in the file that wrote it, by the node's tag; the
     program-wide ladder (`pick_decl`, the std-only filter) went, and `[if]`
     type patterns compare declarations.
+  - **C3.3b. Splices read where written** — done: a type put in place of
+    a splice is an expansion of its own naming the file that wrote it
+    (`ExpansionKind::Splice`), which resolution reads it in.
   - **C3.3. Comptime after resolution**: templates resolved once in their
     module and copied, a splice filled with a type id, parameters bound by
     position (`h__p` and `hidden_free_name` go);

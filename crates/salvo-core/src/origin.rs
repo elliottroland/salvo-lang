@@ -62,6 +62,8 @@ pub fn render(stamp: &Stamp, span: Span, msg: String) -> (Span, String) {
         return (stamp.site, prefix_at(&stamp.at_type));
     };
     match &record.kind {
+        // [comptime-hygiene] A spliced type lands as its parent would.
+        ExpansionKind::Splice { .. } => render(stamp, span.in_expansion(record.parent), msg),
         ExpansionKind::Copy { target, label, .. } => {
             if let Some((at, copies)) = written(stamp, span) {
                 return (at, format!("when {}: {msg}", copies.join(" and ")));
@@ -87,6 +89,10 @@ pub fn written(stamp: &Stamp, span: Span) -> Option<(Span, Vec<&str>)> {
     let mut guard = 0;
     while expn != 0 {
         let record = stamp.expansion(expn)?;
+        if let ExpansionKind::Splice { .. } = record.kind {
+            expn = record.parent;
+            continue;
+        }
         let ExpansionKind::Copy { written: Some(label), .. } = &record.kind else {
             return None;
         };

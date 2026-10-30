@@ -285,11 +285,31 @@ fn stamp_scopes<'p>(
     scopes: &[ModuleScope<'p>],
 ) -> (Vec<ModuleScope<'p>>, HashMap<usize, usize>, HashMap<usize, usize>, HashMap<usize, usize>) {
     use salvo_syntax::visit::{self as v, Visitor};
-    struct Refs<'m>(&'m std::collections::HashSet<u32>, &'m mut Vec<usize>);
+    /// Each type reference whose expansion says which file wrote it: the
+    /// template's text (`text`, the template's file `template`), or a
+    /// splice (`ExpansionKind::Splice`, its own file).
+    struct Refs<'m> {
+        stamp: &'m salvo_syntax::ast::Stamp,
+        text: &'m std::collections::HashSet<u32>,
+        template: Option<usize>,
+        out: &'m mut HashMap<usize, usize>,
+    }
     impl Visitor for Refs<'_> {
         fn visit_type_ref(&mut self, t: &salvo_syntax::ast::TypeRef) {
-            if t.name.span.expn != 0 && self.0.contains(&t.name.span.expn) {
-                self.1.push(t as *const salvo_syntax::ast::TypeRef as usize);
+            let expn = t.name.span.expn;
+            if expn == 0 {
+                return;
+            }
+            let addr = t as *const salvo_syntax::ast::TypeRef as usize;
+            match self.stamp.expansion(expn).map(|e| &e.kind) {
+                Some(salvo_syntax::ast::ExpansionKind::Splice { file }) => {
+                    self.out.insert(addr, *file);
+                }
+                _ => {
+                    if let (Some(t), true) = (self.template, self.text.contains(&expn)) {
+                        self.out.insert(addr, t);
+                    }
+                }
             }
         }
     }
@@ -301,18 +321,15 @@ fn stamp_scopes<'p>(
     for (site, ast) in program.modules.iter().enumerate() {
         for item in &ast.items {
             let Item::Fn(f) = item else { continue };
-            let Some(t) = f.stamped.as_ref().and_then(|s| s.template_file) else { continue };
-            if t >= scopes.len() || t == site {
-                continue;
-            }
+            let Some(stamp) = &f.stamped else { continue };
+            // [comptime-hygiene] A splice reads where it was written, in a
+            // stamp or an expansion in place alike.
+            let template = stamp.template_file.filter(|&t| t < scopes.len() && t != site);
+            let text = crate::names::template_text(stamp);
+            v::walk_fn(&mut Refs { stamp, text: &text, template, out: &mut refs }, f);
+            let Some(t) = template else { continue };
             let addr = f as *const FnDecl as usize;
             templates.insert(addr, t);
-            if let Some(stamp) = &f.stamped {
-                let text = crate::names::template_text(stamp);
-                let mut addrs = Vec::new();
-                v::walk_fn(&mut Refs(&text, &mut addrs), f);
-                refs.extend(addrs.into_iter().map(|a| (a, t)));
-            }
             let idx = *by_pair.entry((site, t)).or_insert_with(|| {
                 out.push(stamp_scope(&scopes[site], &scopes[t]));
                 out.len() - 1

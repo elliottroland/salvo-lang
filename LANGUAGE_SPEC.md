@@ -6072,10 +6072,14 @@ Conventions:
   template's file, private declarations included, so a derive keeps its
   helpers private and a user imports nothing its body names.
   * **A type, an effect, a qualifier or a handler** the template names is the
-    template file's. A site's same-named one does not capture it. A name the
-    stamp put into the copy — a field's type, an arm's constructor — means
-    what it means where it was written; the stamping site stands in for a
-    name the template's file does not see.
+    template file's. A site's same-named one does not capture it. A type the
+    stamp put into the copy — a field's type, a pattern binder's, the bound
+    `T` — means what it means where it was written: each splice is an
+    expansion of its own, `ExpansionKind::Splice { file }` (C3.3b,
+    2026-10-30), since numbering the stamped file retags its nodes with that
+    file's tag; until then a field type of an imported target resolved at
+    the site. A name the stamp made (an arm's constructor) falls back to the
+    stamping site where the template's file does not see it.
   * **A function name says which place it means**, explicitly, as an
     ordinary call says which module's overload it means [fn-overload-at]:
     `name@module` is that module's as the template's file sees it;

@@ -144,6 +144,23 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A spliced type reads where it was written (PIPELINE.md C3.3b, [comptime-hygiene])
+
+- **Built**: every type the expansion puts in place of a splice — a
+  `[field.type]`, a pattern binder's type, the bound `T`, a field default's
+  owner and type — is retagged as an expansion of its own,
+  `ExpansionKind::Splice { file }` (`Expander::splice`), and resolution
+  reads its references in that file (`resolve::stamp_scopes` collects
+  them for stamps and in-place expansions alike). A diagnostic at one lands
+  as its parent's would (`origin::render`, `origin::written` see through
+  it).
+- **Closed**: ROADMAP's "Spliced field types resolve at the stamping site",
+  unreproduced until now: `check/comptime/hygiene.sv`
+  `a_spliced_type_means_its_declarations_name` — `fn fields(p: Pt) -> Int by
+  deriv` at an imported `Pt` whose field type `geo` keeps private — failed
+  with "unknown type `Inner`" (and "expected `Inner`, found `Inner`")
+  without the change.
+
 ### 2026-10-30 — A `name@[site]` does not see the stamped fn's parameters (P23 item 6, [comptime-hygiene] [fn-by])
 
 - **Decided (user, 2026-10-30)**: offered (a) `@[site]` reads the bare name

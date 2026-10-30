@@ -123,3 +123,31 @@ struct Item {
 struct Box : Weighed<self> by deriv {
     item: Item
 }
+
+//--- a_spliced_type_means_its_declarations_name
+// [comptime-hygiene] [type-identity] A type the expansion splices in reads
+// where it was written: `Pt`'s field type `Inner` is `geo`'s, though the
+// stamping file never imports it (until 2026-10-30 it resolved at the site,
+// where `Inner` is unknown).
+// FILE: geo.sv
+struct Inner {
+    k: Int
+}
+
+export struct Pt {
+    inner: Inner
+}
+// FILE: deriv.sv
+export comptime fn fields<T is Struct>(value: T) [] -> Int => value {
+    let total = 0
+    [for field in T.fields] {
+        let _v: [field.type] = value.[field]
+        total = total + 1
+    }
+    return total
+}
+// FILE: main.sv
+import geo.Pt
+import deriv
+
+fn fields(p: Pt) -> Int by deriv

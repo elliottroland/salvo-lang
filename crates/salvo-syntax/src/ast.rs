@@ -651,6 +651,11 @@ pub enum ExpansionKind {
     /// generic target, so each member's implicits are its own: reported at
     /// the `by` site, for `label`.
     Member { label: String },
+    /// [comptime-hygiene] A type the expansion put in place of a splice
+    /// (`[field.type]`, a pattern binder, the bound `T`), as written in the
+    /// program's file `file`: resolution reads it there. A diagnostic at it
+    /// lands where one at its parent would.
+    Splice { file: usize },
     /// One unrolled copy, of a `[for]` body or a `[when value]` arm, for one
     /// field or arm.
     Copy {
