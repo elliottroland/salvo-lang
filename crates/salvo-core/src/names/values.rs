@@ -90,6 +90,9 @@ pub(super) struct Binder<'b, 'p> {
     /// the template writes that its file does not see (`Stamp::site_names`).
     template: Option<(std::collections::HashSet<u32>, u32)>,
     site_names: Vec<String>,
+    /// [comptime-hygiene] The stamped fn's declared parameters, which a
+    /// `name@[site]` does not see (P23 item 6).
+    site_hidden: Vec<String>,
     /// [comptime-scope] The scopes the fn's expansion spliced flat.
     splice: crate::origin::SpliceScopes,
     /// [comptime-hygiene] The name being recorded is selected `@[site]`.
@@ -123,6 +126,7 @@ impl<'b, 'p> Binder<'b, 'p> {
             at: At::File(file),
             template: None,
             site_names: Vec::new(),
+            site_hidden: Vec::new(),
             splice: Default::default(),
             at_site: false,
             frames: Vec::new(),
@@ -392,10 +396,12 @@ impl<'b, 'p> Binder<'b, 'p> {
     fn func(&mut self, f: &FnDecl, extra: &[Param], state: &[FieldDecl], deps: &[EffectRef]) {
         let saved = self.template.take();
         let saved_names = std::mem::take(&mut self.site_names);
+        let saved_hidden = std::mem::take(&mut self.site_hidden);
         let saved_splice = std::mem::replace(&mut self.splice, crate::origin::SpliceScopes::of(f.stamped.as_ref()));
         if let (Some(&t), Some(stamp)) = (self.templates.get(&(f as *const FnDecl as usize)), &f.stamped) {
             self.template = Some((super::template_text(stamp), t as u32));
             self.site_names = stamp.site_names.clone();
+            self.site_hidden = f.params.iter().filter(|p| !p.implicit).map(|p| p.name.name.clone()).collect();
         }
         self.defaults(&f.params);
         if let Some(body) = &f.body {
@@ -481,6 +487,7 @@ impl<'b, 'p> Binder<'b, 'p> {
         }
         self.template = saved;
         self.site_names = saved_names;
+        self.site_hidden = saved_hidden;
         self.splice = saved_splice;
     }
 
@@ -787,8 +794,10 @@ impl<'b, 'p> Binder<'b, 'p> {
                 }
                 // [comptime-hygiene] `name@[site]` is the bare name at the
                 // stamping site: a binding of the stamped fn answers it.
+                // A declared parameter's name is the user's, not the site's.
                 self.at_site = matches!(module.as_slice(), [m] if m.name == salvo_syntax::parser::SITE_SELECTOR);
-                self.name(name, if self.at_site { ValueRole::Bare } else { ValueRole::Selected });
+                let bare = self.at_site && !self.site_hidden.contains(&name.name);
+                self.name(name, if bare { ValueRole::Bare } else { ValueRole::Selected });
                 self.at_site = false;
             }
             Expr::EffectScoped { base, name, effect, .. } => {

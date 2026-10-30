@@ -94,14 +94,16 @@ Person) -> Long by auto` reads `h` where `std.core.auto`'s `hash` reads
 `value`. A clause is exactly this, once per member, with the group's
 signature as the declaration.
 
-A parameter name must not be one the body uses for something else at your
-site. `fn cmp(cmp: Person, b: Person) -> Int by auto` would make
-`std.core.auto`'s per-field `cmp@[site](…)` calls (below) read the parameter,
-so it is an error at the parameter, and nothing is stamped:
+Your parameter names are yours: `fn cmp(cmp: Person, b: Person) -> Int by
+auto` stamps, because `std.core.auto`'s per-field `cmp@[site](…)` calls
+(below) mean the function your code sees, never a parameter of the stamped
+fn. Only a bare name the template leaves to your site can be caught by a
+parameter of the same name, and that is an error at the parameter, with
+nothing stamped:
 
 ```
-error: parameter `cmp` hides the function `cmp` that `auto`'s `cmp` calls
-       in its body: name the parameter differently [fn-by]
+error: parameter `rank` hides the function `rank` that `derive`'s `cmp`
+       calls in its body: name the parameter differently [fn-by]
 ```
 
 When the name comes from a group's member, the same error is reported at
@@ -142,8 +144,9 @@ template says which place it means:
   anywhere else ([Functions](Functions.md#saying-which-one-you-meant)) —
   `mix_hash@compare(h, x)`, `append@string(out, " ")`.
 - **`name@[site]`**: the one the code it is stamped into sees, as a bare
-  `name` written there would reach it (a stamped fn's own implicits
-  included) — `cmp@[site](a.[field], b.[field])`.
+  `name` written there would reach it — the stamped fn's own implicits
+  included, its declared parameters not — `cmp@[site](a.[field],
+  b.[field])`.
 - **A bare `name` the template's file cannot see** is the site's: there is
   nothing else it could mean.
 

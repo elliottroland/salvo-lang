@@ -5608,20 +5608,23 @@ Conventions:
     [var-no-shadow]. Named arguments use the declared names, so they name
     only a declared default [fn-param-default].
   * **A declared parameter name the body uses for something outside it is
-    an error at the parameter** (2026-10-14, ROADMAP 0u): `fn cmp(cmp: P, b:
-    P) -> Int by auto` would capture `std.core.auto`'s calls
-    `cmp@[site](a.x, b.x)` once its parameter is renamed to `cmp`, since
-    `@[site]` reads as the bare name at the site [comptime-hygiene]. The
-    declared names are the contract (named arguments use them) and a local
-    shadows a name [call-resolve], so neither is bent: a bare name or a
-    `name@[site]` in the expanded body that equals a declared parameter name,
-    and is neither a template parameter nor a body local, is reported —
-    "parameter `cmp` hides the function `cmp` that `auto`'s `cmp` calls in
-    its body: name the parameter differently" (or "the name … uses" for a
-    non-call use, such as a fn passed by name) — and nothing is stamped for
-    the member. Through a clause the group member's parameter is the one
-    named, at the clause [obligation-by]. A dot-form call (`a.cmp(b)`) and a
-    module-selected one (`cmp@basic`) are not captured and not reported.
+    an error at the parameter** (2026-10-14, ROADMAP 0u), for a bare name
+    the template leaves to the site: a template calling `rank(a)`, which its
+    file does not see, stamped as `fn cmp(rank: R, b: R) -> Int by derive`,
+    would read the parameter once its parameters are renamed. The declared
+    names are the contract (named arguments use them) and a local shadows a
+    name [call-resolve], so neither is bent: a bare name in the expanded
+    body that equals a declared parameter name, and is neither a template
+    parameter nor a body local, is reported — "parameter `rank` hides the
+    function `rank` that `derive`'s `cmp` calls in its body: name the
+    parameter differently" (or "the name … uses" for a non-call use, such as
+    a fn passed by name) — and nothing is stamped for the member. Through a
+    clause the group member's parameter is the one named, at the clause
+    [obligation-by]. A selected name (`cmp@[site]`, `cmp@basic`) and a
+    dot-form call (`a.cmp(b)`) are not captured: a `name@[site]` does not
+    see the declared parameters (user decision 2026-10-30, P23 item 6), so
+    `fn cmp(cmp: P, b: P) -> Int by auto` stamps, where until then it was
+    this error.
   * **An obligation clause is this, once per member** [obligation-by]; a
     written declaration at a generic type is refused for now
     [comptime-generic].
@@ -6077,8 +6080,10 @@ Conventions:
     ordinary call says which module's overload it means [fn-overload-at]:
     `name@module` is that module's as the template's file sees it;
     `name@[site]` is the stamping site's, read as the bare name written there
-    would be (the stamped fn's own implicits and parameters included, so a
-    generic target's `?Ordered<T>` serves `cmp@[site](a.item, b.item)`);
+    would be — the stamped fn's own implicits included, so a generic
+    target's `?Ordered<T>` serves `cmp@[site](a.item, b.item)`, and its
+    declared parameters not, whose names are the user's (user decision
+    2026-10-30, P23 item 6; `Checker::site_hidden`);
     and a **bare name the template's file cannot see** is the site's, since
     it could mean nothing else. A bare fn or effect-member name the
     template's file *can* see is an error at the template, once, wherever

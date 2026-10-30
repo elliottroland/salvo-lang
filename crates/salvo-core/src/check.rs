@@ -3129,6 +3129,10 @@ struct Checker<'p, 'r> {
     own_stamp: Option<&'p ast::Stamp>,
     /// [comptime-scope] The scopes `own_stamp`'s expansion spliced flat.
     splice: crate::origin::SpliceScopes,
+    /// [comptime-hygiene] In a body stamped from a template, its declared
+    /// parameters' names: what a `name@[site]` does not see (user decision
+    /// 2026-10-30, P23 item 6).
+    site_hidden: Vec<String>,
     /// [comptime-copy-warn] Warnings raised inside the current fn's copies,
     /// redirected and held until the fn is done, so each is reported once
     /// (`flush_copy_warnings`).
@@ -3564,6 +3568,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             fn_name_clash: fn_name_clash(files, resolution),
             own_stamp: None,
             splice: Default::default(),
+            site_hidden: Vec::new(),
             copy_warnings: Vec::new(),
             copy_decls: HashMap::new(),
             copy_unused: HashMap::new(),
@@ -3780,6 +3785,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.own_fn = Some(key);
         self.own_stamp = f.stamped.as_ref();
         self.splice = crate::origin::SpliceScopes::of(self.own_stamp);
+        self.site_hidden = match self.own_stamp {
+            Some(s) if s.template_file.is_some() => f.params.iter().filter(|p| !p.implicit).map(|p| p.name.name.clone()).collect(),
+            _ => Vec::new(),
+        };
         // [comptime-hygiene] A body stamped from another file's template is
         // checked in its stamp scope: the template file's types, the site's
         // fns for the positions with no written name.
@@ -3868,6 +3877,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.own_fn = None;
         self.own_stamp = None;
         self.splice = Default::default();
+        self.site_hidden.clear();
         self.own_discharges.clear();
         self.own_written.clear();
         self.own_contract = None;
@@ -23671,6 +23681,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [comptime-hygiene] `name@[site]` is the site's `name`, as
                 // the bare name written there reads.
                 if matches!(module.as_slice(), [m] if m.name == salvo_syntax::parser::SITE_SELECTOR) {
+                    if self.site_hidden.contains(&name.name) {
+                        return self.fn_value_by_name(&name.name, name.span, None, expected);
+                    }
                     return self.check_ident(name, expected);
                 }
                 let written = self.written_scope(name);
@@ -29551,7 +29564,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             // fn's own locals and implicits first (a generic target's
             // `?Ordered<T>` is how a field of type `T` is compared).
             let at_site = matches!(module.as_slice(), [m] if m.name == salvo_syntax::parser::SITE_SELECTOR);
-            if at_site {
+            // …but not the stamped fn's declared parameters, whose names are
+            // the user's, not the template's (P23 item 6).
+            if at_site && !self.site_hidden.contains(&name.name) {
                 if let Some(ty) = self.check_name_call(name, base.as_deref(), type_args, args, named, expected, span) {
                     return ty;
                 }

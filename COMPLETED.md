@@ -144,6 +144,25 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A `name@[site]` does not see the stamped fn's parameters (P23 item 6, [comptime-hygiene] [fn-by])
+
+- **Decided (user, 2026-10-30)**: offered (a) `@[site]` reads the bare name
+  at the site with the declared parameters in scope (the capture error
+  stays) or (b) without them, the user chose (b), "more intuitive for
+  users": a declared parameter's name is the user's, not the template's.
+  The stamped fn's implicits stay visible (a generic target's
+  `?Ordered<T>` is how `cmp@[site](a.item, b.item)` compares a `T`).
+- **Built**: the checker (`site_hidden`) and resolution's binder skip the
+  declared parameters for a `name@[site]` in a body stamped from a
+  template; `hidden_free_name` no longer looks at `@[site]` names. So `fn
+  cmp(cmp: P, b: P) -> Int by auto` and a group member `fn cmp(cmp: T,
+  other: T)` stamp (`check/stamp_signature/hides.sv`,
+  `a_group_member_parameter_named_like_the_templates_callee_stamps`); a
+  bare name the template leaves to the site is still caught by a parameter
+  of its name (`fn-by:param-hides-name`), since after the textual parameter
+  rename the two are one spelling — C3.3's positional binding is what ends
+  that.
+
 ### 2026-10-30 — The expansion looks each name up where it is written (PIPELINE.md C3.3a, [comptime-instantiate] [comptime-pattern])
 
 - **Built**: every lookup the expansion makes — struct, `type`, group,

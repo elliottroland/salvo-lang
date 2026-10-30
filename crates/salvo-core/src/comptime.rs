@@ -2513,9 +2513,6 @@ fn template_names(f: &FnDecl, names: &FileNames, bound: bool) -> (Vec<Diagnostic
 /// calls, or a name it reads from outside. Whether it is a call's callee
 /// comes with it.
 fn hidden_free_name(body: &mut Block, renames: &HashMap<String, String>) -> Option<(String, bool)> {
-    fn is_site(module: &[Ident]) -> bool {
-        matches!(module, [m] if m.name == salvo_syntax::parser::SITE_SELECTOR)
-    }
     struct Find<'a> {
         renames: &'a HashMap<String, String>,
         callees: Vec<Span>,
@@ -2527,23 +2524,17 @@ fn hidden_free_name(body: &mut Block, renames: &HashMap<String, String>) -> Opti
                 return;
             }
             match expr {
-                Expr::Call { callee, .. } => match &**callee {
-                    Expr::Ident(id) => self.callees.push(id.span),
-                    Expr::Scoped { name, .. } => self.callees.push(name.span),
-                    _ => {}
-                },
+                Expr::Call { callee, .. } => {
+                    if let Expr::Ident(id) = &**callee {
+                        self.callees.push(id.span);
+                    }
+                }
                 Expr::Ident(id) => {
                     if !self.renames.contains_key(&id.name) && self.renames.values().any(|n| *n == id.name) {
                         self.found = Some((id.name.clone(), self.callees.contains(&id.span)));
                     }
                 }
-                // [comptime-hygiene] `name@[site]` reads as the bare name at
-                // the site, where the declared parameters are in scope.
-                Expr::Scoped { name, module, .. } if is_site(module) => {
-                    if !self.renames.contains_key(&name.name) && self.renames.values().any(|n| *n == name.name) {
-                        self.found = Some((name.name.clone(), self.callees.contains(&name.span)));
-                    }
-                }
+
                 _ => {}
             }
         }

@@ -2519,16 +2519,15 @@ lowering before typing, then the checker's special paths deleted. Needs A2
     locals by binding: with the scopes the name-keyed frames are right, and
     resolution's debug check still compares the two. The `h__p` apart
     rename and `hidden_free_name` stay for C3.3, where a resolved template's
-    parameters bind by position; a `name@[site]` reads as the bare name at
-    the site, declared parameters included, so its capture is real and that
-    error stays unless the site's view is narrowed to exclude them.
+    parameters bind by position (a `name@[site]` no longer meets the
+    declared parameters, P23 item 6; a bare site name still can).
   - **C3.3a. Lookups where written** — done: every name the expansion
     looks up is looked up in the file that wrote it, by the node's tag; the
     program-wide ladder (`pick_decl`, the std-only filter) went, and `[if]`
     type patterns compare declarations.
   - **C3.3. Comptime after resolution**: templates resolved once in their
     module and copied, a splice filled with a type id, parameters bound by
-    position (`h__p` and `hidden_free_name` for template-resolved names go);
+    position (`h__p` and `hidden_free_name` go);
     the flat `World`'s tables go. The `by`-at-a-call workaround (§II.5.1)
     documented in the language pages.
 - **C4. The remaining early sweeps to their phases**: what is left of
@@ -2821,6 +2820,10 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
   4. A type's name called as a constructor follows the type.
   5. An expanded-in-place comptime fn has ordinary names; `@[site]` is an
      error in it.
+  6. **(user, 2026-10-30)** A `name@[site]` sees the stamped fn's implicits
+     but not its declared parameters, whose names are the user's: `fn
+     cmp(cmp: P, b: P) -> Int by auto` stamps. Rejected: seeing them too,
+     which kept `fn-by:param-hides-name` for every `@[site]` call.
   Rejected: the site wins (the 2026-10-20 rule: a site's `shout` replaced a
   derive's private helper); the template wins with the site filling gaps, by
   rank; an ambiguity checked per stamp (it lands on the derive's user, who

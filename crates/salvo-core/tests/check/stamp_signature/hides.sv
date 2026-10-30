@@ -1,25 +1,22 @@
-// [fn-by] [comptime-hygiene] A declared parameter named like a function the
-// template calls at the site would capture those calls once the parameters
-// are renamed (ROADMAP 0u): `std.core.auto`'s `cmp` calls `cmp@[site](…)`
-// per field, which reads as the bare name there, parameters included. The
-// declared names are the contract and a local shadows a name
-// [call-resolve], so it is one error at the parameter — not the stamped
-// body's "`cmp` is not callable" — and nothing is stamped for the member.
+// [fn-by] [comptime-hygiene] `std.core.auto`'s `cmp` calls `cmp@[site](…)`
+// per field, and a `name@[site]` does not see the stamped fn's declared
+// parameters (user decision 2026-10-30, P23 item 6): their names are the
+// user's, so a parameter named `cmp` captures nothing and the member stamps.
+// Until then this was `fn-by:param-hides-name`.
 struct P : Ordered<self> {
     x: Int
-    //~ error[fn-by:param-hides-name]
     fn cmp(cmp: P, b: P) -> Int by auto
 }
 
-// Any other name stamps, the declared one included.
 struct P2 : Ordered<self> {
     x: Int
     fn cmp(first: P2, b: P2) -> Int by auto
 }
 
-// A bare name the template's file does not see is the site's, and a declared
-// parameter of that name would still capture it once the parameters are
-// renamed (ROADMAP 0u): one error at the parameter, and nothing stamped.
+// A bare name the template's file does not see is the site's, but a declared
+// parameter of that name still captures it once the parameters are renamed
+// (ROADMAP 0u): one error at the parameter, and nothing stamped. (Binding
+// the parameters by position, PIPELINE.md C3.3, is what lets this go too.)
 //--- a_bare_site_name
 // FILE: derive.sv
 export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {

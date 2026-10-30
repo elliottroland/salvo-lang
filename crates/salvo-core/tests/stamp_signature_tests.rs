@@ -251,12 +251,13 @@ struct P : Ordered<self> {
     assert!(dump.contains("fn cmp@main(lent first: P@main, lent b: P@main)") && dump.contains("first.x"), "{dump}");
 }
 
-/// [obligation-by] [fn-by] The same capture through a clause: the group's
-/// member names the parameter, so the error lands at the clause and names the
-/// group member; nothing is stamped for it. Kept as it was, not data: the
-/// unstamped member also reports `group-obligation:no-member` (ROADMAP §0ar).
+/// [obligation-by] [fn-by] [comptime-hygiene] A group member's parameter
+/// named like the function the template calls at the site does not capture
+/// it: a `name@[site]` does not see the stamped fn's declared parameters
+/// (user decision 2026-10-30, P23 item 6). Until then this was
+/// `fn-by:param-hides-name`, at the clause, and nothing was stamped.
 #[test]
-fn a_group_member_parameter_that_hides_the_bodys_callee_is_named_at_the_clause() {
+fn a_group_member_parameter_named_like_the_templates_callee_stamps() {
     let src = r#"
 export fns Ranked<T> {
     fn cmp(cmp: T, other: T) -> Int
@@ -264,17 +265,7 @@ export fns Ranked<T> {
 
 struct Q : Ranked<self> by auto { y: Int }
 "#;
-    let errs = errors(src);
-    // The checker's "no visible `cmp`" for the unstamped member is in the
-    // same file, and `salvo analyze` drops the checker's errors in a file
-    // whose parse or expansion reported one (`parse_broken`, [cli-analyze]):
-    // the stamp's is the one diagnostic shown.
-    let (_, expansion) = program(&[("main.sv", src)]);
-    assert_eq!(expansion.len(), 1, "{expansion:?}");
-    assert!(!errs.iter().any(|e| e.contains(": call-resolve:not-callable")), "{errs:?}");
-    assert_eq!(expansion, ["6: fn-by:param-hides-name"]);
-    let renamed = src.replace("cmp(cmp: T", "cmp(one: T");
-    assert!(errors(&renamed).is_empty(), "{:?}", errors(&renamed));
-    let dump = ir(&[("main.sv", &renamed)]);
-    assert!(dump.contains("fn cmp@main(lent one: Q@main, lent other: Q@main)") && dump.contains("one.y"), "{dump}");
+    assert!(errors(src).is_empty(), "{:?}", errors(src));
+    let dump = ir(&[("main.sv", src)]);
+    assert!(dump.contains("fn cmp@main(lent cmp: Q@main, lent other: Q@main)") && dump.contains("cmp.y"), "{dump}");
 }
