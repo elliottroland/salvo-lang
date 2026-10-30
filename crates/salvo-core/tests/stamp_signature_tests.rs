@@ -74,8 +74,8 @@ export fns Labelled<T> {
 export comptime fn label<T is Struct>(v: T, between: Str = ",") [] -> Str => v {
     let out: Mut Str = Mut Str("${T.name}")
     [for field in T.fields] {
-        append(out, between)
-        append(out, "${v.[field]}")
+        append@string(out, between)
+        append@string(out, "${v.[field]}")
     }
     return out
 }
@@ -146,7 +146,7 @@ fn a_generic_target_takes_the_members_signature() {
     let derive = r#"
 export comptime fn cmp<T is Struct>(x: T, y: T) [] -> Int => x, y {
     [for field in T.fields] {
-        let c = cmp(x.[field], y.[field])
+        let c = cmp@[site](x.[field], y.[field])
         if c != 0 {
             return c
         }

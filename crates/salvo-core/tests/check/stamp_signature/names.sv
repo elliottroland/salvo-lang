@@ -22,8 +22,8 @@ export fns Labelled<T> {
 export comptime fn label<T is Struct>(v: T, between: Str = ",") [] -> Str => v {
     let out: Mut Str = Mut Str("${T.name}")
     [for field in T.fields] {
-        append(out, between)
-        append(out, "${v.[field]}")
+        append@string(out, between)
+        append@string(out, "${v.[field]}")
     }
     return out
 }

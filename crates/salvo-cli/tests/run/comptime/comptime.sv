@@ -169,18 +169,19 @@ fn main() [use] -> None {
 //= first debug
 //= json true
 
-// [comptime-hygiene] A stamped body resolves a name the stamping site cannot
-// in the template's own file, private declarations included (user decision
-// 2026-10-20, ROADMAP §2d item 10 (b)): `deriv`'s private `shout` serves
-// `Point`'s stamped `label`, though `main` cannot see it.
-//--- a_stamped_body_falls_back_to_its_templates_names
+// [comptime-hygiene] A template's names mean what they mean where it is
+// written, private declarations included: `deriv`'s private `shout` serves
+// `Point`'s stamped `label`, though `main` cannot see it. A fn name the
+// template can see says which it means (`shout@deriv`), since a stamping
+// site may see another (user decision 2026-10-30).
+//--- a_stamped_body_reads_its_templates_names
 // FILE: deriv.sv
 export fns Labelled<T> {
     fn label(value: T) -> Str
 }
 
 export comptime fn label<T is Struct>(value: T) [] -> Str => value {
-    return shout(T.name)
+    return shout@deriv(T.name)
 }
 
 fn shout(s: Str) [] -> Str => s {
@@ -200,17 +201,17 @@ fn main() [use] -> None {
 //= stdout
 //= Point!
 
-// [comptime-hygiene] A name the site does resolve is the site's: with its
-// own `shout`, `main`'s is called, and the two never meet in an ambiguity
-// the site did not write.
-//--- a_stamped_body_prefers_the_sites_names
+// [comptime-hygiene] A site's own `shout` does not capture the template's:
+// the template wrote `shout@deriv` (until 2026-10-30 the site won, and this
+// printed `mine: Point`).
+//--- a_sites_name_does_not_capture_the_templates
 // FILE: deriv.sv
 export fns Labelled<T> {
     fn label(value: T) -> Str
 }
 
 export comptime fn label<T is Struct>(value: T) [] -> Str => value {
-    return shout(T.name)
+    return shout@deriv(T.name)
 }
 
 fn shout(s: Str) [] -> Str => s {
@@ -232,7 +233,45 @@ fn shout(s: Str) [] -> Str => s {
     return "mine: ${s}"
 }
 //= stdout
-//= mine: Point
+//= Point!
+
+// [comptime-hygiene] `shout@[site]` is the stamping site's: `main`'s, here,
+// and a bare name the template's file does not see is the site's too
+// (`exclaim`).
+//--- a_template_asks_for_the_sites_name
+// FILE: deriv.sv
+export fns Labelled<T> {
+    fn label(value: T) -> Str
+}
+
+export comptime fn label<T is Struct>(value: T) [] -> Str => value {
+    return "${shout@[site](T.name)} ${exclaim(T.name)}"
+}
+
+fn shout(s: Str) [] -> Str => s {
+    return "${s}!"
+}
+// FILE: main.sv
+import deriv
+
+struct Point : Labelled<self> by deriv {
+    x: Int
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    println(label(Point { x: 1 }))
+}
+
+fn shout(s: Str) [] -> Str => s {
+    return "mine: ${s}"
+}
+
+fn exclaim(s: Str) [] -> Str => s {
+    return "${s}?"
+}
+//= stdout
+//= mine: Point Point?
 
 // [obligation-return] A decoder stamped by an obligation clause: two structs
 // each get `from_strs(args: List<Str>) -> S`, which the expected type
@@ -245,7 +284,7 @@ export fns FromStrs<T> {
 }
 
 export comptime fn from_strs<T is Struct>(args: List<Str>) [] -> T => args {
-    return T { [for f in T.fields] { [f]: from_str(get(args, f.index) ?: unreachable!()) ?: unreachable!() } }
+    return T { [for f in T.fields] { [f]: from_str@[site](get@list(args, f.index) ?: unreachable!()) ?: unreachable!() } }
 }
 // FILE: main.sv
 import decode

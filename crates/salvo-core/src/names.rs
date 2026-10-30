@@ -132,12 +132,12 @@ impl<'p> Meaning<'p> {
     }
 }
 
-/// [comptime-hygiene] The scope a reference is resolved in: its file's, or
-/// the stamp scope of the comptime-stamped body it is in.
+/// [comptime-hygiene] The scope a reference is resolved in: a file's — the
+/// one it is written in, or for a comptime-stamped body's copy of its
+/// template's text, the template's file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum At {
     File(u32),
-    Stamp(u32),
 }
 
 /// [name-table] One written reference.
@@ -182,14 +182,17 @@ pub struct Names<'p> {
 
 impl<'p> Names<'p> {
     /// Resolves every written reference of `modules`, each in `scopes`' scope
-    /// of its file — or the stamp scope `stamped` (a type reference) or
-    /// `fn_stamps` (a stamped fn's body) gives it, by address.
+    /// of the file that wrote it. `templates` gives each stamped fn (by
+    /// address) its template's file, and `template_refs` each type reference
+    /// of a stamped fn's copy of its template's text: those resolve where the
+    /// template is written when that file sees the name, and at the stamping
+    /// site otherwise (a name the stamp put there, such as a field's type)
+    /// [comptime-hygiene].
     pub fn build<M: std::borrow::Borrow<Module>>(
         modules: &[M],
         scopes: &[ModuleScope<'p>],
-        stamp_scopes: &[ModuleScope<'p>],
-        stamped: &HashMap<usize, usize>,
-        fn_stamps: &HashMap<usize, usize>,
+        templates: &HashMap<usize, usize>,
+        template_refs: &HashMap<usize, usize>,
     ) -> Names<'p> {
         use salvo_syntax::visit::Visitor;
         struct Walk<'w, 'p> {
@@ -197,26 +200,23 @@ impl<'p> Names<'p> {
             names: &'w mut Names<'p>,
             interned: &'w mut HashMap<(At, u32), u32>,
             scopes: &'w [ModuleScope<'p>],
-            stamp_scopes: &'w [ModuleScope<'p>],
-            stamped: &'w HashMap<usize, usize>,
+            template_refs: &'w HashMap<usize, usize>,
             generics: Vec<Vec<String>>,
         }
         impl<'p> Visitor for Walk<'_, 'p> {
             fn visit_type_ref(&mut self, t: &TypeRef) {
                 let addr = t as *const TypeRef as usize;
-                let at = match self.stamped.get(&addr) {
-                    Some(&i) => At::Stamp(i as u32),
-                    None => At::File(self.file),
+                let at = match self.template_refs.get(&addr) {
+                    Some(&f) if self.scopes[f].declares_name(&t.name.name) => At::File(f as u32),
+                    _ => At::File(self.file),
                 };
                 let name = t.name.name.as_str();
                 let spelling = self.names.spell(name);
                 let meaning = match self.interned.get(&(at, spelling)) {
                     Some(m) => *m,
                     None => {
-                        let scope = match at {
-                            At::File(f) => &self.scopes[f as usize],
-                            At::Stamp(i) => &self.stamp_scopes[i as usize],
-                        };
+                        let At::File(f) = at;
+                        let scope = &self.scopes[f as usize];
                         self.names.meanings.push(Meaning::of(scope, name));
                         let m = self.names.meanings.len() as u32 - 1;
                         self.interned.insert((at, spelling), m);
@@ -262,8 +262,7 @@ impl<'p> Names<'p> {
                 names: &mut names,
                 interned: &mut interned,
                 scopes,
-                stamp_scopes,
-                stamped,
+                template_refs,
                 generics: Vec::new(),
             };
             let t0 = std::time::Instant::now();
@@ -274,7 +273,7 @@ impl<'p> Names<'p> {
         // declarations (an effect's prerequisites, an alias's members).
         for (file, module) in modules.iter().enumerate() {
             let t0 = std::time::Instant::now();
-            values::Binder::new(&mut names, &mut interned, scopes, stamp_scopes, fn_stamps, file as u32).module(module.borrow());
+            values::Binder::new(&mut names, &mut interned, scopes, templates, file as u32).module(module.borrow());
             values_t += t0.elapsed();
         }
         crate::timing::report("      names: types", types_t);
@@ -374,4 +373,26 @@ impl<'p> Names<'p> {
     pub fn refs(&self) -> &[Written] {
         &self.refs
     }
+}
+
+/// [comptime-hygiene] The expansions of a stamp that are its template's own
+/// text: the template copied whole, and every unrolled copy of a part of it
+/// — not what the stamp made up (a clause member's signature, an unrolled
+/// `when`'s tests) or substituted (a field's type keeps its declaration's).
+pub fn template_text(stamp: &salvo_syntax::ast::Stamp) -> std::collections::HashSet<u32> {
+    use salvo_syntax::ast::ExpansionKind;
+    let root_is_template = |mut id: u32| loop {
+        let Some(e) = stamp.expansion(id) else { return false };
+        match e.kind {
+            ExpansionKind::Template => return true,
+            ExpansionKind::Copy { .. } if e.parent != 0 => id = e.parent,
+            _ => return false,
+        }
+    };
+    stamp
+        .expansions
+        .iter()
+        .filter(|e| matches!(e.kind, ExpansionKind::Template | ExpansionKind::Copy { .. }) && root_is_template(e.id))
+        .map(|e| e.id)
+        .collect()
 }

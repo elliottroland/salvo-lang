@@ -267,9 +267,6 @@ struct Viable<'p> {
     /// The declaring module, rendered — for `@module` matching and for the
     /// diagnostics.
     module: String,
-    /// [comptime-hygiene] Whether it is only visible as a stamped body's
-    /// fallback to its template's file.
-    template: bool,
     /// [effect-member-overload] The effect whose member this is, for a member
     /// candidate (`key` is then `None`): members and fns are one set
     /// (PIPELINE.md B3.5).
@@ -337,10 +334,6 @@ impl<'p> CallCand<'p> {
             CallCand::Member { effect, .. } => effect.name.name.clone(),
             CallCand::Own { handler, .. } => handler.name.name.clone(),
         }
-    }
-
-    fn is_template(&self) -> bool {
-        matches!(self, CallCand::Fn(e) if e.rung == crate::resolve::Rung::Template)
     }
 
     /// The type variables the call infers: the fn's generics, or a member's
@@ -3244,6 +3237,11 @@ struct Checker<'p, 'r> {
     /// [implicit-resolve-body] Argument types of a call that fell through an
     /// implicit to the fns of its name, consumed by `resolve_named_call`.
     pending_arg_tys: Option<Vec<Ty>>,
+    /// [comptime-hygiene] The scope the next resolved call's (or fn
+    /// value's) written name takes its fns and members from, when it is not
+    /// this file's: a template's own name, resolved in the template's file
+    /// ([`Self::written_scope`]). Taken by the resolution it is for.
+    written_fns: Option<&'r ModuleScope<'p>>,
     /// [op-equality] [op-order] The comparison operator whose call is being
     /// resolved: what its diagnostics are worded for, so an error at `a == b`
     /// names the operator (`no `eq` for `==` on `Foo``), and what keeps the
@@ -3589,6 +3587,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             lending_ctor: None,
             own_implicits: Vec::new(),
             pending_arg_tys: None,
+            written_fns: None,
             operator_site: None,
             for_site: None,
             pending_typed_only: false,
@@ -7756,12 +7755,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Err((rank, reason)) => note(rank, reason, &mut near),
             }
         }
-        // [comptime-hygiene] A stamped body's fallback, as at a call: the
-        // template's own fns compete only when nothing the stamping site sees
-        // fits.
-        if hits.iter().any(|(c, _)| !c.is_template()) {
-            hits.retain(|(c, _)| !c.is_template());
-        }
         // 2. [implicit-fit] Among several, a candidate whose own implicit
         // nothing here could fill — by shape, as at a call — does not fit.
         if hits.len() > 1 {
@@ -8018,7 +8011,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         at: Option<Selector<'p>>,
         expected: Option<&Ty>,
     ) -> Ty {
-        let entries: Vec<crate::resolve::FnEntry<'p>> = self.overloads_of(name);
+        let written = self.written_fns.take();
+        let entries: Vec<crate::resolve::FnEntry<'p>> = self.overloads_in(written, name);
         // [effect-member-overload] [fn-value-select] An available effect's
         // members of the name compete with the fns at a fn-typed position
         // (R10 D3, PIPELINE.md B3.6), as `name@Effect` does; a `@module` or
@@ -8386,6 +8380,25 @@ impl<'p, 'r> Checker<'p, 'r> {
             .unwrap_or_default()
     }
 
+    /// [comptime-hygiene] The overloads of `name` in `scope` — a template's
+    /// file, for a name of the template's own text — or, with none, here.
+    fn overloads_in(&self, scope: Option<&ModuleScope<'p>>, name: &str) -> Vec<crate::resolve::FnEntry<'p>> {
+        match scope {
+            Some(s) => s.fns.get(name).cloned().unwrap_or_default(),
+            None => self.overloads_of(name),
+        }
+    }
+
+    /// [comptime-hygiene] The scope a written name takes its fns from: the
+    /// file the name table resolved it in, when that is not this one — a
+    /// stamped template's own text, whose file sees the name (user decision
+    /// 2026-10-30). `None` means this file's scope.
+    fn written_scope(&self, id: &Ident) -> Option<&'r ModuleScope<'p>> {
+        let w = self.resolution.names.value(id)?;
+        let crate::names::At::File(f) = w.at;
+        (f as usize != self.file_idx).then(|| &self.resolution.scopes[f as usize])
+    }
+
     /// [fn-attached] Whether a capitalized name in scope is a **type** — a
     /// struct, an `intrinsic type` or an alias — which is what tells a
     /// `name@Thing` selector apart from [effect-at]'s.
@@ -8416,8 +8429,15 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// its members are callable all the same — the effect list, not the
     /// import list, is what makes an instance available [effect-available].
     fn effect_members_here(&self, name: &str) -> Option<Vec<(&'p ast::EffectDecl, &'p FnDecl)>> {
+        self.effect_members_in(None, name)
+    }
+
+    /// [comptime-hygiene] [`Self::effect_members_here`], with the members a
+    /// scope sees in place of this file's (a template's, for a name of its
+    /// own text).
+    fn effect_members_in(&self, scope: Option<&ModuleScope<'p>>, name: &str) -> Option<Vec<(&'p ast::EffectDecl, &'p FnDecl)>> {
         let mut out: Vec<(&'p ast::EffectDecl, &'p FnDecl)> =
-            self.scope.effect_members.get(name).cloned().unwrap_or_default();
+            scope.unwrap_or(self.scope).effect_members.get(name).cloned().unwrap_or_default();
         for t in &self.effect_env {
             let Ty::Named { name: key, .. } = &t.ty else { continue };
             let Some(e) = self.symbols.effects.get(key.as_str()).copied() else { continue };
@@ -8548,13 +8568,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         // what makes step 2's "no single winner is an error" mean what it says —
         // it compares *alternatives*, and these are not.
         Self::dedupe_by_declaration(&mut pool, viable);
-        // [comptime-hygiene] A stamped body's fallback: the template's own
-        // fns compete only when nothing the stamping site sees fits, so a
-        // site name never meets the template's in an ambiguity it did not
-        // write.
-        if pool.iter().any(|&i| !viable[i].template) {
-            pool.retain(|&i| !viable[i].template);
-        }
         // [fn-overload-return] Candidates whose parameter types are identical
         // are one alternative for the ranking (parameters cannot tell them
         // apart); the return type chooses within it below.
@@ -8598,7 +8611,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         // still a correct program, and the remedy is deleting three characters.
         // It echoes the selector as written: `@core.list` is a suffix of
         // `std.core.list` [mod-suffix], and the reader looks for what they wrote.
-        if let Some(Selector::Module(written)) = at {
+        // [comptime-hygiene] In a template's text the selector is what the
+        // template must write, needed or not.
+        let template = self.own_stamp.is_some_and(|s| s.template_file.is_some());
+        if let (Some(Selector::Module(written)), false) = (at, template) {
             if !at.and_then(|s| s.module_span()).is_some_and(|s| self.at_needed.contains(&s))
                 && self
                     .unqualified_winner(viable)
@@ -11552,6 +11568,147 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn lookup(&self, name: &str) -> Option<&LocalVar> {
         self.locals.iter().rev().find_map(|s| s.get(name))
+    }
+
+    /// A name read as a value: a local, a handler, a fn passed by name —
+    /// or, for a template's `name@[site]` [comptime-hygiene], what the bare
+    /// name would be at the stamping site.
+    fn check_ident(&mut self, id: &'p Ident, expected: Option<&Ty>) -> Ty {
+        if id.name == "None" {
+            return Ty::none();
+        }
+        // [var-unused] An identifier *expression* is a read — the
+        // only thing that counts as a use. An assignment target
+        // looks the variable up directly instead, so writing to a
+        // variable without ever reading it leaves it unused.
+        if let Some(var) = self.lookup_mut(&id.name) {
+            var.used = true;
+        }
+        // [name-table] Resolution bound this name to the binding
+        // the scopes here find, or to none: a debug build checks.
+        #[cfg(debug_assertions)]
+        self.check_value_binding(id);
+        #[cfg(debug_assertions)]
+        if self.lookup(&id.name).is_none() {
+            self.check_value_members(id);
+        }
+        if let Some(var) = self.lookup(&id.name) {
+            let mut narrowed = var.narrowed.clone();
+            // [qual-lift] Inside a `^` branch the physical view is
+            // the widened type: the wrapper the arm test peeled is
+            // materialized by the emitters, so reads (and any
+            // further narrowing) unwrap relative to *it*.
+            let declared = var.widened.clone().unwrap_or_else(|| var.declared.clone());
+            let links = var.links.clone();
+            let var_id = var.id;
+            // [deduce-ownership-audit] A read types as the narrowing says,
+            // whatever ownership did: the walk tracks no moves (the
+            // IR flow pass reports a use of a moved, poisoned or
+            // bound-away value [flow-use-after-move]). A variable
+            // narrowed to `Never` reads as declared.
+            if matches!(narrowed, Ty::Never) {
+                narrowed = declared.clone();
+            }
+            // A read of a variable from outside an enclosing
+            // lambda is a *capture* [fate-lambda].
+            if !self.lambda_ctx.is_empty() {
+                if let Some(frame) = self.frame_of_id(var_id) {
+                    let mut visited = HashSet::new();
+                    let mutable = self.ty_transitively_mut(&declared, &mut visited);
+                    let name = id.name.clone();
+                    self.record_capture(frame, &name, var_id, mutable);
+                }
+            }
+            if narrowed != declared {
+                self.out.repr_ty.insert(self.key(id.span), declared);
+            }
+            // Expose the fate links of derived-variable reads for
+            // tooling (`proj` presentation) [fate-link].
+            if !links.is_empty() {
+                let reads: Vec<FateRead> = links
+                    .iter()
+                    .map(|l| FateRead {
+                        root: l.root_name.clone(),
+                        bind: self.key(l.bind_span),
+                        path: l
+                            .path
+                            .as_ref()
+                            .map(|p| p.iter().map(|s| s.to_string()).collect()),
+                    })
+                    .collect();
+                self.out.fate_reads.insert(self.key(id.span), reads);
+            }
+            return narrowed;
+        }
+        if self.scope.handlers.contains_key(id.name.as_str()) {
+            return Ty::named(&self.type_key(&id.name));
+        }
+        let written = self.written_scope(id);
+        if !self.overloads_in(written, &id.name).is_empty() || !self.available_members(&id.name).is_empty() {
+            // [fn-value-select] Passing a function *by name*: the
+            // same selection every call goes through, against the
+            // expected fn type instead of an argument list — an
+            // available effect's member among the candidates (R10 D3).
+            self.written_fns = written;
+            return self.fn_value_by_name(&id.name, id.span, None, expected);
+        }
+        // [name-ident-resolve] Nothing declares this name *as a value*.
+        // Salvo assumes it can see everything, so a reference no
+        // declaration justifies is an error here rather than a
+        // `Ty::Unknown` that reaches a backend and becomes rustc's or
+        // kotlinc's problem [backend-never-wrong].
+        //
+        // [actor-mixed-handler] Inside a mixed handler's sync member, a
+        // state field's name is deliberately out of scope — the
+        // confinement rule — and the diagnostic names the rule
+        // rather than claiming the name does not exist.
+        if self.confined_state.iter().any(|n| n == &id.name) {
+            self.error(
+                id.span,
+                messages::actor_mixed_handler_servant_state_sync(&id.name),
+            );
+            return Ty::Unknown;
+        }
+        //
+        // A name that *is* declared, but as something that is not a
+        // value, says so instead — the same courtesy the effect and
+        // handler rules already extend [effect-not-a-type].
+        let kind = if self.scope.structs.contains_key(id.name.as_str()) {
+            Some("a struct type, not a value: construct one (`Name { … }`)")
+        } else if self.scope.effects.contains_key(id.name.as_str()) {
+            Some(
+                "an effect, not a value: call one of its members, \
+                 having registered a handler with `use`",
+            )
+        } else if self.scope.qualifiers.contains_key(id.name.as_str()) {
+            Some(
+                "a qualifier, not a value: write it on a type \
+                 (`Name value`) or test it with `is`",
+            )
+        } else if self.scope.fn_groups.contains_key(id.name.as_str()) {
+            Some(
+                "a `fns` group, not a value: spread it into a \
+                 signature (`?Name<…>`)",
+            )
+        } else if self.scope.opaque_types.contains_key(id.name.as_str())
+            || self.scope.type_aliases.contains_key(id.name.as_str())
+        {
+            Some("a type, not a value")
+        } else {
+            None
+        };
+        match kind {
+            Some(what) => self.error(
+                id.span,
+                messages::name_ident_resolve_not_a_value(&id.name, &what),
+            ),
+            None => self.error_unresolved(
+                id.span,
+                messages::name_ident_resolve_unknown(&id.name),
+                &id.name,
+            ),
+        }
+        Ty::Unknown
     }
 
     /// [name-table] [effect-available] That the effect members resolution
@@ -23396,141 +23553,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 Ty::named("Str")
             }
-            Expr::Ident(id) => {
-                if id.name == "None" {
-                    return Ty::none();
-                }
-                // [var-unused] An identifier *expression* is a read — the
-                // only thing that counts as a use. An assignment target
-                // looks the variable up directly instead, so writing to a
-                // variable without ever reading it leaves it unused.
-                if let Some(var) = self.lookup_mut(&id.name) {
-                    var.used = true;
-                }
-                // [name-table] Resolution bound this name to the binding
-                // the scopes here find, or to none: a debug build checks.
-                #[cfg(debug_assertions)]
-                self.check_value_binding(id);
-                #[cfg(debug_assertions)]
-                if self.lookup(&id.name).is_none() {
-                    self.check_value_members(id);
-                }
-                if let Some(var) = self.lookup(&id.name) {
-                    let mut narrowed = var.narrowed.clone();
-                    // [qual-lift] Inside a `^` branch the physical view is
-                    // the widened type: the wrapper the arm test peeled is
-                    // materialized by the emitters, so reads (and any
-                    // further narrowing) unwrap relative to *it*.
-                    let declared = var.widened.clone().unwrap_or_else(|| var.declared.clone());
-                    let links = var.links.clone();
-                    let var_id = var.id;
-                    // [deduce-ownership-audit] A read types as the narrowing says,
-                    // whatever ownership did: the walk tracks no moves (the
-                    // IR flow pass reports a use of a moved, poisoned or
-                    // bound-away value [flow-use-after-move]). A variable
-                    // narrowed to `Never` reads as declared.
-                    if matches!(narrowed, Ty::Never) {
-                        narrowed = declared.clone();
-                    }
-                    // A read of a variable from outside an enclosing
-                    // lambda is a *capture* [fate-lambda].
-                    if !self.lambda_ctx.is_empty() {
-                        if let Some(frame) = self.frame_of_id(var_id) {
-                            let mut visited = HashSet::new();
-                            let mutable = self.ty_transitively_mut(&declared, &mut visited);
-                            let name = id.name.clone();
-                            self.record_capture(frame, &name, var_id, mutable);
-                        }
-                    }
-                    if narrowed != declared {
-                        self.out.repr_ty.insert(self.key(id.span), declared);
-                    }
-                    // Expose the fate links of derived-variable reads for
-                    // tooling (`proj` presentation) [fate-link].
-                    if !links.is_empty() {
-                        let reads: Vec<FateRead> = links
-                            .iter()
-                            .map(|l| FateRead {
-                                root: l.root_name.clone(),
-                                bind: self.key(l.bind_span),
-                                path: l
-                                    .path
-                                    .as_ref()
-                                    .map(|p| p.iter().map(|s| s.to_string()).collect()),
-                            })
-                            .collect();
-                        self.out.fate_reads.insert(self.key(id.span), reads);
-                    }
-                    return narrowed;
-                }
-                if self.scope.handlers.contains_key(id.name.as_str()) {
-                    return Ty::named(&self.type_key(&id.name));
-                }
-                if self.has_callable(&id.name) || !self.available_members(&id.name).is_empty() {
-                    // [fn-value-select] Passing a function *by name*: the
-                    // same selection every call goes through, against the
-                    // expected fn type instead of an argument list — an
-                    // available effect's member among the candidates (R10 D3).
-                    return self.fn_value_by_name(&id.name, id.span, None, expected);
-                }
-                // [name-ident-resolve] Nothing declares this name *as a value*.
-                // Salvo assumes it can see everything, so a reference no
-                // declaration justifies is an error here rather than a
-                // `Ty::Unknown` that reaches a backend and becomes rustc's or
-                // kotlinc's problem [backend-never-wrong].
-                //
-                // [actor-mixed-handler] Inside a mixed handler's sync member, a
-                // state field's name is deliberately out of scope — the
-                // confinement rule — and the diagnostic names the rule
-                // rather than claiming the name does not exist.
-                if self.confined_state.iter().any(|n| n == &id.name) {
-                    self.error(
-                        id.span,
-                        messages::actor_mixed_handler_servant_state_sync(&id.name),
-                    );
-                    return Ty::Unknown;
-                }
-                //
-                // A name that *is* declared, but as something that is not a
-                // value, says so instead — the same courtesy the effect and
-                // handler rules already extend [effect-not-a-type].
-                let kind = if self.scope.structs.contains_key(id.name.as_str()) {
-                    Some("a struct type, not a value: construct one (`Name { … }`)")
-                } else if self.scope.effects.contains_key(id.name.as_str()) {
-                    Some(
-                        "an effect, not a value: call one of its members, \
-                         having registered a handler with `use`",
-                    )
-                } else if self.scope.qualifiers.contains_key(id.name.as_str()) {
-                    Some(
-                        "a qualifier, not a value: write it on a type \
-                         (`Name value`) or test it with `is`",
-                    )
-                } else if self.scope.fn_groups.contains_key(id.name.as_str()) {
-                    Some(
-                        "a `fns` group, not a value: spread it into a \
-                         signature (`?Name<…>`)",
-                    )
-                } else if self.scope.opaque_types.contains_key(id.name.as_str())
-                    || self.scope.type_aliases.contains_key(id.name.as_str())
-                {
-                    Some("a type, not a value")
-                } else {
-                    None
-                };
-                match kind {
-                    Some(what) => self.error(
-                        id.span,
-                        messages::name_ident_resolve_not_a_value(&id.name, &what),
-                    ),
-                    None => self.error_unresolved(
-                        id.span,
-                        messages::name_ident_resolve_unknown(&id.name),
-                        &id.name,
-                    ),
-                }
-                Ty::Unknown
-            }
+            Expr::Ident(id) => self.check_ident(id, expected),
             // [effect-at] An effect-selected member: a call form, and a value
             // only at a fn-typed position with an instance in scope (R10 D3),
             // where it is a closure over that instance — detached from its
@@ -23647,7 +23670,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                     return Ty::Unknown;
                 }
-                if !self.has_callable(&name.name) {
+                // [comptime-hygiene] `name@[site]` is the site's `name`, as
+                // the bare name written there reads.
+                if matches!(module.as_slice(), [m] if m.name == salvo_syntax::parser::SITE_SELECTOR) {
+                    return self.check_ident(name, expected);
+                }
+                let written = self.written_scope(name);
+                if self.overloads_in(written, &name.name).is_empty() {
                     self.error_unresolved(
                         name.span,
                         messages::call_resolve_unknown_fn(&name.name),
@@ -23655,6 +23684,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                     return Ty::Unknown;
                 }
+                self.written_fns = written;
                 self.fn_value_by_name(&name.name, name.span, Some(Selector::Module(module)), expected)
             }
             Expr::Field { base, field, span, .. } => {
@@ -29510,7 +29540,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                 all_args.push(base);
             }
             all_args.extend(args.iter());
-            if !self.has_callable(&name.name) {
+            // [comptime-hygiene] `name@[site]`: the stamping site's `name`,
+            // as a bare call written there would reach it — the stamped
+            // fn's own locals and implicits first (a generic target's
+            // `?Ordered<T>` is how a field of type `T` is compared).
+            let at_site = matches!(module.as_slice(), [m] if m.name == salvo_syntax::parser::SITE_SELECTOR);
+            if at_site {
+                if let Some(ty) = self.check_name_call(name, base.as_deref(), type_args, args, named, expected, span) {
+                    return ty;
+                }
+            }
+            let written = if at_site { None } else { self.written_scope(name) };
+            if self.overloads_in(written, &name.name).is_empty() && !(at_site && self.effect_members_here(&name.name).is_some()) {
                 for a in &all_args {
                     self.check_expr(a, None);
                 }
@@ -29520,6 +29561,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     &name.name,
                 );
                 return Ty::Unknown;
+            }
+            if at_site {
+                return self.resolve_named_call(&name.name, name.span, type_args, &all_args, named, expected, None, span);
             }
             // [fn-overload-at] What the bare name would reach without the
             // selector: both forms see locals and parameters (an implicit
@@ -29547,6 +29591,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.at_needed.insert(s);
                 }
             }
+            self.written_fns = written;
             return self.resolve_named_call(
                 &name.name,
                 name.span,
@@ -29578,6 +29623,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if let Some(ty) = self.check_servant_send(id, &arg_refs, span) {
                 return ty;
             }
+            self.written_fns = self.written_scope(id);
             return self.resolve_named_call(
                 &id.name, id.span, type_args, &arg_refs, named, expected, None, span,
             );
@@ -30460,7 +30506,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     variadic: collects_variadic,
                 },
                 module: entry.origin(),
-                template: entry.is_template(),
                 effect: entry.effect(),
             });
         }
@@ -30573,6 +30618,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         let pre_typed: Option<Vec<Ty>> = self.pending_arg_tys.take();
         // [iter-for] Typed arguments with no expressions of their own.
         let typed_only = std::mem::take(&mut self.pending_typed_only);
+        // [comptime-hygiene] A template's own name: its file's fns.
+        let written = self.written_fns.take();
         // 1. The candidates [fn-overload] [effect-member-overload]: the
         // visible fns of the name and the members of the available effects
         // declaring it, as **one set** ranked by one rule (R10 P4, PIPELINE.md
@@ -30596,7 +30643,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         } else if at.is_none() {
-            if let Some(members) = self.effect_members_here(name) {
+            if let Some(members) = self.effect_members_in(written, name) {
                 // [effect-available] **Availability decides first**
                 // (2026-09-14): a member call needs an instance, so only the
                 // members of an effect with one in scope are candidates — a
@@ -30619,7 +30666,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .collect();
                 let chosen: Vec<&'p ast::EffectDecl> = if !available.is_empty() {
                     available
-                } else if !self.overloads_of(name).is_empty() {
+                } else if !self.overloads_in(written, name).is_empty() {
                     Vec::new()
                 } else if owners.len() == 1 {
                     // No fn of the name: the one effect's members, whose call
@@ -30646,7 +30693,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [throw] `throw(m)` has no handler and no overloads to rank: the
         // delimiter is `try`, so its operation resolves through its own path.
         if let [CallCand::Member { effect, decl, .. }] = member_cands.as_slice() {
-            if effect.name.name == THROW_EFFECT && (effect_sel.is_some() || self.overloads_of(name).is_empty()) {
+            if effect.name.name == THROW_EFFECT && (effect_sel.is_some() || self.overloads_in(written, name).is_empty()) {
                 let (effect, decl) = (*effect, *decl);
                 self.record_member_call(effect, decl, span);
                 return self.check_throw_call(decl, args, pre_typed.as_deref(), span);
@@ -30659,7 +30706,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // renamed one answers only to its new name — and, when the name *is*
         // a rename, exactly the overload it points at.
         let fn_entries: Vec<crate::resolve::FnEntry<'p>> =
-            if effect_sel.is_some() { Vec::new() } else { self.overloads_of(name) };
+            if effect_sel.is_some() { Vec::new() } else { self.overloads_in(written, name) };
         let candidates: Vec<CallCand<'p>> = fn_entries.into_iter().map(CallCand::Fn).chain(member_cands).collect();
         if self.renamed(name).is_some() {
             if at.is_some() {
@@ -32898,10 +32945,6 @@ impl<'p> ValueCand<'p> {
             (ValueCand::Member(a), ValueCand::Member(b)) => std::ptr::eq(a.decl, b.decl) && a.instance == b.instance,
             _ => false,
         }
-    }
-
-    fn is_template(&self) -> bool {
-        matches!(self, ValueCand::Fn(e) if e.rung == crate::resolve::Rung::Template)
     }
 }
 

@@ -5,7 +5,7 @@
 // FILE: derive.sv
 export comptime fn cmp<T is Struct>(x: T, y: T) [] -> Int => x, y {
     [for field in T.fields] {
-        let c = cmp(x.[field], y.[field])
+        let c = cmp@[site](x.[field], y.[field])
         if c != 0 {
             return c
         }

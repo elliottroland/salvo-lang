@@ -595,11 +595,16 @@ pub struct Stamp {
     /// and records it for go-to-definition. Empty for a stamped fn.
     pub roots: Vec<Ident>,
     /// [comptime-hygiene] The file the template was written in (an index
-    /// into the program's files), for a stamp from a `comptime fn` of
-    /// another file: a name the stamping site cannot resolve is looked up
-    /// where the template's author wrote it, private declarations included.
-    /// `None` for an expanded-in-place fn, whose template is its own text.
+    /// into the program's files): the names of the template's own text
+    /// resolve there, private declarations included. `None` for an
+    /// expanded-in-place fn, whose template is its own text.
     pub template_file: Option<usize>,
+    /// [comptime-hygiene] The bare names the template writes that its own
+    /// file does not see: the stamping site's, which is where they resolve
+    /// (user decision 2026-10-30). Every other name the template's own text
+    /// writes resolves where the template is written, unless selected
+    /// `@[site]`.
+    pub site_names: Vec<String>,
 }
 
 impl Stamp {

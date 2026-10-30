@@ -94,10 +94,10 @@ Person) -> Long by auto` reads `h` where `std.core.auto`'s `hash` reads
 `value`. A clause is exactly this, once per member, with the group's
 signature as the declaration.
 
-A parameter name must not be one the body uses for something else. `fn
-cmp(cmp: Person, b: Person) -> Int by auto` would make `std.core.auto`'s
-per-field `cmp(…)` calls read the parameter, so it is an error at the
-parameter, and nothing is stamped:
+A parameter name must not be one the body uses for something else at your
+site. `fn cmp(cmp: Person, b: Person) -> Int by auto` would make
+`std.core.auto`'s per-field `cmp@[site](…)` calls (below) read the parameter,
+so it is an error at the parameter, and nothing is stamped:
 
 ```
 error: parameter `cmp` hides the function `cmp` that `auto`'s `cmp` calls
@@ -128,13 +128,41 @@ return, the type the result goes to chooses ([Functions](Functions.md#overloadin
 
 ### Whose names a stamped body sees
 
-A stamped body lands in your module, so its names mean what they mean there
-first. A name your module cannot resolve is then looked up where the
-`comptime fn` was written, private declarations included, so a derive keeps
-its helpers to itself and you import nothing its body uses. Your names win:
-a type you declare is yours in the stamped code, and a function of yours
-that fits a call is the one called. Write `name@module` to reach the
-template's explicitly.
+A template's names mean what they mean **where it is written**, private
+declarations included, so a derive keeps its helpers to itself and you import
+nothing its body uses. A type, an effect or a qualifier the template names is
+the template's: one of yours with the same name does not change it.
+
+Functions are different, because some of a template's calls are meant to
+reach yours: the `cmp` of a field's type is declared beside that type, in
+your module, where the template's file cannot see it. So a function name in a
+template says which place it means:
+
+- **`name@module`**: the one the template's file sees in that module, as
+  anywhere else ([Functions](Functions.md#saying-which-one-you-meant)) —
+  `mix_hash@compare(h, x)`, `append@string(out, " ")`.
+- **`name@[site]`**: the one the code it is stamped into sees, as a bare
+  `name` written there would reach it (a stamped fn's own implicits
+  included) — `cmp@[site](a.[field], b.[field])`.
+- **A bare `name` the template's file cannot see** is the site's: there is
+  nothing else it could mean.
+
+A bare `name` the template's file *can* see is an error at the template,
+whether or not the site sees one too, because the template has not said
+which it means:
+
+```
+error: `mix_hash` is visible where `hash` is written, so a template has to say
+       which `mix_hash` it means: `mix_hash@compare` for the one it sees, or
+       `mix_hash@[site]` for the one the stamping site sees
+```
+
+Positions where the template writes no name — an interpolation's `to_str`,
+an operator's `cmp` or `eq`, a `for`'s `next` — are the site's, as they would
+be in code written there. A type's name called as a constructor (`Mut
+Str("…")`) is the type's, so it needs no selector. A comptime fn expanded in
+place (below) is stamped nowhere: its names are ordinary, and `@[site]` is
+an error in it.
 
 ### Where the errors land
 
@@ -170,7 +198,7 @@ Here is `std.core.auto`'s `cmp` for structs, in full:
 ```
 export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {
     [for field in T.fields] {
-        let c = cmp(a.[field], b.[field])
+        let c = cmp@[site](a.[field], b.[field])
         if c != 0 {
             return c
         }
@@ -188,9 +216,11 @@ Three things in it are compile-time:
 
 - **`T.fields`** is the struct's fields, in declaration order, and `[for …]`
   unrolls the loop: one copy of the body per field, each checked with that
-  field's type concrete. So `cmp(a.[field], b.[field])` in the copy for `x` is
-  an ordinary call `cmp(a.x, b.x)`, resolved like any other, and a field with
-  no `cmp` fails there.
+  field's type concrete. So `cmp@[site](a.[field], b.[field])` in the copy
+  for `x` is an ordinary call `cmp(a.x, b.x)` at your site, resolved like any
+  other, and a field with no `cmp` fails there. (`@[site]` says the `cmp`
+  meant is the one your code sees, not one `std.core.auto` sees; see
+  [Whose names a stamped body sees](#whose-names-a-stamped-body-sees).)
 - **`a.[field]`** reads the field the enclosing `[for …]` is at. Inside a
   struct literal, `[field]: value` is the same entry.
 - The binder exposes **`field.name`** (a string literal), **`field.type`**
@@ -204,13 +234,13 @@ export comptime fn to_str<T is Struct>(value: T) [] -> Str => value {
     let out: Mut Str = Mut Str("${T.name} {")
     [for field in T.fields] {
         [if field.first] {
-            append(out, " ")
+            append@string(out, " ")
         } else {
-            append(out, ", ")
+            append@string(out, ", ")
         }
-        append(out, "${field.name}: ${value.[field]}")
+        append@string(out, "${field.name}: ${value.[field]}")
     }
-    append(out, " }")
+    append@string(out, " }")
     return out
 }
 ```
@@ -236,7 +266,7 @@ one line:
 ```
 [for field in T.fields] {
     [if field.name !is "id" | "created_at"] ...
-    let c = cmp(a.[field], b.[field])
+    let c = cmp@[site](a.[field], b.[field])
     if c != 0 { return c }
 }
 ```
@@ -268,7 +298,7 @@ narrowed to it:
 
 ```
 [if field.type is Int] {
-    let v = parse_int(text) ?: unreachable!()
+    let v = parse_int@string(text) ?: unreachable!()
     if v is [field.type] {
         return v                    // an `InRange(1, 65535) Int`
     }
@@ -293,7 +323,7 @@ cases apart:
 ```
 [for field in T.fields] {
     [if field.default is None] {
-        append(out, "${field.name} (required)\n")
+        append@string(out, "${field.name} (required)\n")
     } else {
         let d: [field.type]? = field.default
         …
@@ -312,7 +342,7 @@ in a head (`[if field.docs !is None]`) rather than with `?:`:
 ```
 [for field in T.fields] {
     [if field.docs !is None] {
-        append(out, "  --${field.name}  ${field.docs}\n")
+        append@string(out, "  --${field.name}  ${field.docs}\n")
     }
 }
 ```
@@ -350,7 +380,7 @@ export comptime fn hash<T is Struct>(value: T) [] -> Long => value {
     }
     let h = 17L
     [for field in T.fields] {
-        h = mix_hash(h, hash(value.[field]))
+        h = mix_hash@compare(h, hash@[site](value.[field]))
     }
     return h
 }
@@ -370,7 +400,7 @@ export comptime fn to_str<T is Union>(value: T) [] -> Str => value {
             [if arm.type is None] {
                 return "None"
             } else {
-                return to_str(value)
+                return to_str@[site](value)
             }
         }
     }
@@ -503,7 +533,7 @@ its constant:
 
 ```
 [if field.type is <lo, hi> InRange(lo, hi) *] {
-    append(out, " (${lo}..${hi})")      // " (1..65535)" for `InRange(1, 65535) Int`
+    append@string(out, " (${lo}..${hi})")   // " (1..65535)" for `InRange(1, 65535) Int`
 }
 ```
 
@@ -572,10 +602,10 @@ lowercase binder declared before it:
 ```
 [for field in T.fields] {
     [if field is <c> Short(c)] {
-        append(out, "-${c} ")           // "-p "
+        append@string(out, "-${c} ")    // "-p "
     }
     [if field !is Positional] {
-        append(out, "--${field.name}")
+        append@string(out, "--${field.name}")
     }
 }
 [if T is <n> Named(n)] { … }            // a struct's own

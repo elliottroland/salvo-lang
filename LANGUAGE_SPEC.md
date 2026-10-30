@@ -5609,18 +5609,19 @@ Conventions:
     only a declared default [fn-param-default].
   * **A declared parameter name the body uses for something outside it is
     an error at the parameter** (2026-10-14, ROADMAP 0u): `fn cmp(cmp: P, b:
-    P) -> Int by auto` would capture `std.core.auto`'s calls `cmp(a.x, b.x)`
-    once its parameter is renamed to `cmp`. The declared names are the
-    contract (named arguments use them) and a local shadows a name
-    [call-resolve], so neither is bent: a bare name in the expanded body that
-    equals a declared parameter name, and is neither a template parameter nor
-    a body local, is reported — "parameter `cmp` hides the function `cmp`
-    that `auto`'s `cmp` calls in its body: name the parameter differently"
-    (or "the name … uses" for a non-call use, such as a fn passed by name) —
-    and nothing is stamped for the member. Through a clause the group
-    member's parameter is the one named, at the clause [obligation-by]. A
-    dot-form call (`a.cmp(b)`) and a scoped one (`cmp@std.core.basic`) are
-    not captured and not reported.
+    P) -> Int by auto` would capture `std.core.auto`'s calls
+    `cmp@[site](a.x, b.x)` once its parameter is renamed to `cmp`, since
+    `@[site]` reads as the bare name at the site [comptime-hygiene]. The
+    declared names are the contract (named arguments use them) and a local
+    shadows a name [call-resolve], so neither is bent: a bare name or a
+    `name@[site]` in the expanded body that equals a declared parameter name,
+    and is neither a template parameter nor a body local, is reported —
+    "parameter `cmp` hides the function `cmp` that `auto`'s `cmp` calls in
+    its body: name the parameter differently" (or "the name … uses" for a
+    non-call use, such as a fn passed by name) — and nothing is stamped for
+    the member. Through a clause the group member's parameter is the one
+    named, at the clause [obligation-by]. A dot-form call (`a.cmp(b)`) and a
+    module-selected one (`cmp@basic`) are not captured and not reported.
   * **An obligation clause is this, once per member** [obligation-by]; a
     written declaration at a generic type is refused for now
     [comptime-generic].
@@ -6049,30 +6050,71 @@ Conventions:
   once per written place and text. Before, `warn` skipped the redirect, so
   a copy's warning kept its synthetic span and printed past the end of the
   file, once per copy.
-* [comptime-hygiene] **A stamped body falls back to its template's names**
-  (user decision 2026-10-20, ROADMAP §2d item 10 (b): "hygiene, as Rust's
-  `$crate::` gives macros"). A body stamped at a `by` site lands in the
-  stamping module, so its names resolve there first; a name the site cannot
-  resolve is then looked up where the template was written — the template's
-  file's own scope, its **private** declarations and its imports included.
-  A derive keeps its helpers private, and a user needs to import nothing the
-  derive's body names.
-  * **The site wins.** A non-fn name (a type, an effect, a qualifier) the
-    site declares or imports means the site's; the template's fills only the
-    gaps. A template fn competes in an overload only when no candidate the
-    site sees fits — it never meets a site's fn in an ambiguity the site did
-    not write. `name@module` reaches the template's explicitly.
-  * Built as a **stamp scope** per (stamping file, template file) pair
-    (`Resolution::stamp_scopes`): the site's scope with the template's added
-    underneath, its fns on the lowest rung (`Rung::Template`). The checker
-    checks the stamped fn in it, and every written type reference inside the
-    fn resolves in it (the resolved names record the stamp scope,
-    `names::At::Stamp` [name-table], which keys the emitters' written keys
-    too). `Stamp::template_file` records where the template
-    was written; an expanded-in-place fn has none (its template is its own
-    text).
+* [comptime-hygiene] **A template's names mean what they mean where it is
+  written** (user decision 2026-10-30, reversing "the site wins" of
+  2026-10-20; the earlier decision's aim, "hygiene, as Rust's `$crate::` gives
+  macros", ROADMAP §2d item 10 (b), stands). A template is a `comptime fn`
+  with a bound, stamped at a `by` site in another file; its own text — the
+  copy of its body and every unrolled copy of a part of it — resolves in the
+  template's file, private declarations included, so a derive keeps its
+  helpers private and a user imports nothing its body names.
+  * **A type, an effect, a qualifier or a handler** the template names is the
+    template file's. A site's same-named one does not capture it. A name the
+    stamp put into the copy — a field's type, an arm's constructor — means
+    what it means where it was written; the stamping site stands in for a
+    name the template's file does not see.
+  * **A function name says which place it means**, explicitly, as an
+    ordinary call says which module's overload it means [fn-overload-at]:
+    `name@module` is that module's as the template's file sees it;
+    `name@[site]` is the stamping site's, read as the bare name written there
+    would be (the stamped fn's own implicits and parameters included, so a
+    generic target's `?Ordered<T>` serves `cmp@[site](a.item, b.item)`);
+    and a **bare name the template's file cannot see** is the site's, since
+    it could mean nothing else. A bare fn or effect-member name the
+    template's file *can* see is an error at the template, once, wherever
+    it is stamped (`comptime-hygiene:ambiguous-name`): the template has not
+    said which it means. A selector written in a template is never "not
+    needed" [fn-overload-at].
+  * Checked over the written template, before stamping, against what its
+    file sees (`comptime::template_names`): a name some binding of the body
+    has is taken as that local wherever it is written, which can miss an
+    error only where a body names a local and a function alike. The bare
+    names found site-bound ride on each stamp (`Stamp::site_names`), so
+    resolution reads them at the site whatever the template's file comes to
+    see once stamped.
+  * **Positions the template writes no name for are the site's**: an
+    interpolation's `to_str`, an operator's `cmp` or `eq`, a `for`'s `next`
+    and `iter`, an implicit argument — as they would be in code written
+    there. (Operator overloading will lower some of these to calls a template
+    can write with a selector, OPERATOR_OVERLOAD.md.) **A type's name called
+    as a constructor** (`Mut Str("…")`, `Point(…)`) is the type's: the
+    template's when its file sees it, the site's otherwise; it needs no
+    selector.
+  * `name@[site]` parses only inside a `comptime fn`
+    (`comptime-inline:outside-compfn`), names no place but `site`
+    (`comptime-hygiene:unknown-place`), and is an error in an
+    expanded-in-place comptime fn, which is stamped nowhere and has ordinary
+    names (`comptime-hygiene:site-in-place`). It is parsed as a module path
+    of one segment, `[site]` (`parser::SITE_SELECTOR`), which no module can
+    be named.
+  * Built as resolution reading each name of a template's text where the
+    rule says (`names::template_text` tells the template's text from what
+    the stamp made, by expansion [node-origin]; the name table records the
+    file, `At::File`), and the checker taking a written fn name's candidates
+    from that file's scope (`Checker::written_scope`). The stamped fn is
+    checked in a **stamp scope** per (stamping file, template file) pair
+    (`Resolution::stamp_scopes`): the template file's non-fn names with the
+    site's filling the gaps, and the site's fns and members — what the
+    positions with no written name take. `Stamp::template_file` records
+    where the template was written; an expanded-in-place fn has none (its
+    template is its own text).
   * Emitters need nothing: every Salvo fn is public in emitted code, so a
     call from the user's module to a template module's private fn compiles.
+  * Before 2026-10-30 the site won: a stamped body resolved in the site's
+    scope with the template's underneath, and a template fn competed in an
+    overload only when nothing the site saw fitted (`Rung::Template`). A
+    site's own `shout` replaced a derive's private helper, and a site's own
+    type replaced the template's.
 * [comptime-instantiate] **Instantiation is concrete and happens at a `by`
   site only** — an obligation clause or a fn declaration (a third site, an
   implicit override `eq by auto` at a call, is decided and deferred; ROADMAP
@@ -11324,7 +11366,8 @@ between endpoints and delivers what arrives into the scheduler.
   binds every name a program writes where a type, a qualifier, an effect or
   a group goes — every `TypeRef` the complete walk reaches
   (`check_cache::walk_module`) — to what it means in the scope of the file
-  that wrote it (a comptime-stamped body's stamp scope [comptime-hygiene]),
+  that wrote it (for a comptime-stamped body's copy of its template's text,
+  the template's file [comptime-hygiene]),
   and records whether it is a type parameter of a declaration it is written
   in. The checker reads that, never the scope of the file being checked: a
   callee's signature, a struct's field or a handler's faces lowered at a use

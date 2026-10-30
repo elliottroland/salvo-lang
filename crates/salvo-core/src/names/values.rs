@@ -80,10 +80,18 @@ pub(super) struct Binder<'b, 'p> {
     pub(super) names: &'b mut Names<'p>,
     pub(super) interned: &'b mut HashMap<(At, u32), u32>,
     pub(super) scopes: &'b [ModuleScope<'p>],
-    pub(super) stamp_scopes: &'b [ModuleScope<'p>],
-    pub(super) fn_stamps: &'b HashMap<usize, usize>,
+    /// [comptime-hygiene] Each stamped fn's template file, by address.
+    pub(super) templates: &'b HashMap<usize, usize>,
     pub(super) file: u32,
     pub(super) at: At,
+    /// [comptime-hygiene] Inside a body stamped from another file's
+    /// template: the expansions that are the template's own text
+    /// ([`super::template_text`]) and that file's index, and the bare names
+    /// the template writes that its file does not see (`Stamp::site_names`).
+    template: Option<(std::collections::HashSet<u32>, u32)>,
+    site_names: Vec<String>,
+    /// [comptime-hygiene] The name being recorded is selected `@[site]`.
+    at_site: bool,
     /// Per scope, the bindings by spelling.
     frames: Vec<HashMap<u32, Span>>,
     /// [effect-available] The effects available from what is written,
@@ -101,17 +109,47 @@ impl<'b, 'p> Binder<'b, 'p> {
         names: &'b mut Names<'p>,
         interned: &'b mut HashMap<(At, u32), u32>,
         scopes: &'b [ModuleScope<'p>],
-        stamp_scopes: &'b [ModuleScope<'p>],
-        fn_stamps: &'b HashMap<usize, usize>,
+        templates: &'b HashMap<usize, usize>,
         file: u32,
     ) -> Self {
-        Binder { names, interned, scopes, stamp_scopes, fn_stamps, file, at: At::File(file), frames: Vec::new(), avail: Vec::new(), dynamic: 0, module_avail: Vec::new() }
+        Binder {
+            names,
+            interned,
+            scopes,
+            templates,
+            file,
+            at: At::File(file),
+            template: None,
+            site_names: Vec::new(),
+            at_site: false,
+            frames: Vec::new(),
+            avail: Vec::new(),
+            dynamic: 0,
+            module_avail: Vec::new(),
+        }
     }
 
     fn scope(&self) -> &ModuleScope<'p> {
-        match self.at {
-            At::File(f) => &self.scopes[f as usize],
-            At::Stamp(i) => &self.stamp_scopes[i as usize],
+        let At::File(f) = self.at;
+        &self.scopes[f as usize]
+    }
+
+    /// [comptime-hygiene] Where a value name resolves: its file's scope —
+    /// except a name of a template's own text, stamped here, which is the
+    /// template file's unless it was selected `@[site]`, the template writes
+    /// it bare without seeing it, or (a name the stamp made, such as an
+    /// arm's constructor) that file does not see it: then the stamping
+    /// site's (user decision 2026-10-30).
+    fn at_of(&self, name: &str, span: Span) -> At {
+        match &self.template {
+            Some((text, file)) if span.expn != 0 && text.contains(&span.expn) => {
+                if !self.at_site && !self.site_names.iter().any(|n| n == name) && self.scopes[*file as usize].declares_name(name) {
+                    At::File(*file)
+                } else {
+                    At::File(self.file)
+                }
+            }
+            _ => self.at,
         }
     }
 
@@ -152,14 +190,15 @@ impl<'b, 'p> Binder<'b, 'p> {
         let spelling = self.names.spell(name);
         let root = self.names.spell(name.split('.').next().unwrap_or(name));
         let local = if locals { self.frames.iter().rev().find_map(|f| f.get(&root).copied()) } else { None };
-        let at = self.at;
+        let at = self.at_of(name, span);
         // A binding answers it: what the name would mean as a declaration
         // is nothing anyone reads (the shared empty meaning).
         let meaning = match self.interned.get(&(at, spelling)) {
             _ if local.is_some() => self.names.empty_meaning(),
             Some(m) => *m,
             None => {
-                let m = Meaning::of(self.scope(), name);
+                let At::File(f) = at;
+                let m = Meaning::of(&self.scopes[f as usize], name);
                 self.names.meanings.push(m);
                 let m = self.names.meanings.len() as u32 - 1;
                 self.interned.insert((at, spelling), m);
@@ -348,9 +387,11 @@ impl<'b, 'p> Binder<'b, 'p> {
     /// groups' members and (a handler member) the handler's parameters and
     /// state. A comptime-stamped body resolves in its stamp's scope.
     fn func(&mut self, f: &FnDecl, extra: &[Param], state: &[FieldDecl], deps: &[EffectRef]) {
-        let saved = self.at;
-        if let Some(&i) = self.fn_stamps.get(&(f as *const FnDecl as usize)) {
-            self.at = At::Stamp(i as u32);
+        let saved = self.template.take();
+        let saved_names = std::mem::take(&mut self.site_names);
+        if let (Some(&t), Some(stamp)) = (self.templates.get(&(f as *const FnDecl as usize)), &f.stamped) {
+            self.template = Some((super::template_text(stamp), t as u32));
+            self.site_names = stamp.site_names.clone();
         }
         self.defaults(&f.params);
         if let Some(body) = &f.body {
@@ -434,7 +475,8 @@ impl<'b, 'p> Binder<'b, 'p> {
             self.avail = saved_avail;
             self.dynamic = saved_dynamic;
         }
-        self.at = saved;
+        self.template = saved;
+        self.site_names = saved_names;
     }
 
     // -------------------------------------------------------- effects --
@@ -726,11 +768,15 @@ impl<'b, 'p> Binder<'b, 'p> {
                 }
             }
             Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => self.expr(base),
-            Expr::Scoped { base, name, .. } => {
+            Expr::Scoped { base, name, module, .. } => {
                 if let Some(b) = base {
                     self.expr(b);
                 }
-                self.name(name, ValueRole::Selected);
+                // [comptime-hygiene] `name@[site]` is the bare name at the
+                // stamping site: a binding of the stamped fn answers it.
+                self.at_site = matches!(module.as_slice(), [m] if m.name == salvo_syntax::parser::SITE_SELECTOR);
+                self.name(name, if self.at_site { ValueRole::Bare } else { ValueRole::Selected });
+                self.at_site = false;
             }
             Expr::EffectScoped { base, name, effect, .. } => {
                 if let Some(b) = base {

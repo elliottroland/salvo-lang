@@ -144,6 +144,56 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A template's names mean what they mean where it is written (PIPELINE.md C3.1, P23, [comptime-hygiene])
+
+- **Decided (user, 2026-10-30), P23**: offered "the template's names, the
+  site's for what it cannot see", the user chose explicit places over a
+  ranked fallback, as calls already are: a fn name the template's file sees
+  is an error unless written `name@module` or `name@[site]` (a comptime
+  place of its own); one it cannot see is the site's; positions with no
+  written name (interpolation, operators, `for`) are the site's; types,
+  effects and qualifiers the template's only; a constructor call follows its
+  type; an expanded-in-place comptime fn has ordinary names and no
+  `@[site]`. Std is annotated with the suffixed selectors (`to_str@basic`).
+  It reverses "the site wins" (2026-10-20), under which a site's own `shout`
+  replaced a derive's private helper and a site's own `Tag` replaced the
+  template's.
+- **Built**: `name@[site]` parses as a module path of one segment `[site]`
+  (comptime fns only). Comptime checks each template's written names against
+  its file's scope before stamping (`comptime::template_names`, one error per
+  name, at the template) and records the bare names it found site-bound on
+  every stamp (`Stamp::site_names`). Resolution reads a template's text — the
+  stamp's `Template` and `Copy` expansions, `names::template_text` — in the
+  template's file, falling back to the site for a name that file does not
+  see (a substituted arm constructor); the checker takes a written fn name's
+  candidates from the file the name table chose (`written_scope`, through
+  `written_fns` as `pending_arg_tys` is passed). The stamp scope became
+  template-first for non-fn names with the site's fns, which the unnamed
+  positions take; `Rung::Template` and both "template only if nothing fits"
+  filters went. A `name@[site]` reads as the bare name at the site — the
+  stamped fn's implicits included, which a generic target's
+  `cmp@[site](a.item, b.item)` needs (`Checker::check_ident`, extracted from
+  `check_expr`'s identifier arm, serves the value form) — so a declared
+  parameter of that name still captures it, and `fn-by:param-hides-name`
+  now covers `@[site]` names too. A selector in a template is never "not
+  needed".
+- **Rewritten**: std's two template files (`auto`: 17 calls; `args`: 67, all
+  but the recursive `arg_spec`/`from_found` placed `@args`, `@list` or
+  `@basic`), the harness copies of `auto` in four Rust test files, the
+  stamp-signature and run data, and the Compile-Time-Functions page (a new
+  account of whose names a stamped body sees). The run case
+  `a_stamped_body_prefers_the_sites_names` became
+  `a_sites_name_does_not_capture_the_templates`, which now prints `Point!`;
+  `a_template_asks_for_the_sites_name` and `check/comptime/hygiene.sv` (a
+  site `Tag` and `weight` that do not capture, `@[site]` refused in place,
+  outside a comptime fn, and for a place other than `site`) are new.
+- **Found building it**: a span's file tag cannot tell a template's text
+  from the site's — numbering the stamped file retags every node with that
+  file's tag ([node-file], gotcha below) — so the first cut, by tag, found
+  nothing; the expansion records are what tell them apart. Substituted field
+  types still resolve at the site (ROADMAP's comptime list; C3.3).
+- 708 tests under nextest, warm run 1m42.
+
 ### 2026-10-30 — Resolution finds the members a body's written effects bring (C2 follow-up, [effect-available])
 
 - **Asked (user, 2026-10-30)**: "Is `#{deferred}` not more appropriate for
@@ -33953,6 +34003,12 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A span's file tag is where a node sits, not where it was copied from**
+  (C3.1, 2026-10-30, [node-file]). `node_id::number` runs over a file after
+  comptime stamps into it and retags every node, the copied template text
+  included, with that file's tag. To tell a stamped body's template text
+  from what the stamp made or substituted, read its expansion
+  (`Span::expn`, `names::template_text`), never `Span::file`.
 - **A written name's meaning is the writer's: ask `Checker::named`, not
   `self.scope`** (C1.2, 2026-10-29, [name-table]). The checker lowers other
   files' declarations all the time (a callee's signature at every call, a

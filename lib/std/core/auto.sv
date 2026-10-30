@@ -28,7 +28,7 @@
 // the meaning, as it always was for the structural `cmp`.
 export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {
     [for field in T.fields] {
-        let c = cmp(a.[field], b.[field])
+        let c = cmp@[site](a.[field], b.[field])
         if c != 0 {
             return c
         }
@@ -38,7 +38,7 @@ export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {
 
 export comptime fn eq<T is Struct>(a: T, b: T) [] -> Bool => a, b {
     [for field in T.fields] {
-        if !eq(a.[field], b.[field]) {
+        if !eq@[site](a.[field], b.[field]) {
             return false
         }
     }
@@ -55,7 +55,7 @@ export comptime fn hash<T is Struct>(value: T) [] -> Long => value {
     }
     let h = 17L
     [for field in T.fields] {
-        h = mix_hash(h, hash(value.[field]))
+        h = mix_hash@compare(h, hash@[site](value.[field]))
     }
     return h
 }
@@ -68,16 +68,16 @@ export comptime fn to_str<T is Struct>(value: T) [] -> Str => value {
     let out: Mut Str = Mut Str("${T.name} {")
     [for field in T.fields] {
         [if field.first] {
-            append(out, " ")
+            append@string(out, " ")
         } else {
-            append(out, ", ")
+            append@string(out, ", ")
         }
         // Interpolated rather than `to_str(…)`: interpolation is what knows
         // how every type renders — the scalars natively, a float by Salvo's
         // rule [interp-float], a struct by its own `to_str` [interp-to-str].
-        append(out, "${field.name}: ${value.[field]}")
+        append@string(out, "${field.name}: ${value.[field]}")
     }
-    append(out, " }")
+    append@string(out, " }")
     return out
 }
 
@@ -96,10 +96,10 @@ export comptime fn cmp<T is Union>(a: T, b: T) [] -> Int => a, b {
                         [if x.type is None] {
                             return 0
                         } else {
-                            return cmp(a, b)
+                            return cmp@[site](a, b)
                         }
                     } else {
-                        return cmp(x.index, y.index)
+                        return cmp@basic(x.index, y.index)
                     }
                 }
             }
@@ -116,7 +116,7 @@ export comptime fn eq<T is Union>(a: T, b: T) [] -> Bool => a, b {
                         [if x.type is None] {
                             return true
                         } else {
-                            return eq(a, b)
+                            return eq@[site](a, b)
                         }
                     } else {
                         return false
@@ -131,9 +131,9 @@ export comptime fn hash<T is Union>(value: T) [] -> Long => value {
     [when value] {
         [arm] {
             [if arm.type is None] {
-                return to_long(arm.index)
+                return to_long@basic(arm.index)
             } else {
-                return mix_hash(to_long(arm.index), hash(value))
+                return mix_hash@compare(to_long@basic(arm.index), hash@[site](value))
             }
         }
     }
@@ -145,9 +145,9 @@ export comptime fn to_str<T is Union>(value: T) [] -> Str => value {
             [if arm.type is None] {
                 return "None"
             } else {
-                // The arm's own `to_str`, by ordinary overload ranking (the
-                // arm is more specific than the union).
-                return to_str(value)
+                // The arm's own `to_str`, as the site sees it, by ordinary
+                // overload ranking (the arm is more specific than the union).
+                return to_str@[site](value)
             }
         }
     }

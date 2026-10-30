@@ -295,7 +295,7 @@ fn fn_decl(n: &mut Numberer, f: &mut FnDecl) {
     // A stamp's `site` and copy targets point at other declarations' nodes
     // (where a diagnostic lands): references, not nodes of this one. Its
     // roots are names this fn's comptime constructs wrote.
-    if let Some(Stamp { compfn: _, from: _, at_type: _, site: _, expansions: _, roots, template_file: _ }) = stamped {
+    if let Some(Stamp { compfn: _, from: _, at_type: _, site: _, expansions: _, roots, template_file: _, site_names: _ }) = stamped {
         idents(n, roots);
     }
 }

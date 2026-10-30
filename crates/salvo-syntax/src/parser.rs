@@ -107,6 +107,10 @@ enum InfixKind {
 /// `k@self(args)`. Contextual, not reserved — `self` stays an ordinary name
 /// everywhere else, and it is only special immediately after `@`.
 pub const SELF_SELECTOR: &str = "self";
+
+/// [comptime-hygiene] The one segment of the module path `name@[site]`
+/// parses to: no module can be named it, so it never meets a real one.
+pub const SITE_SELECTOR: &str = "[site]";
 /// [handler-init] The contextual name of a handler's `init { … }` block.
 pub const INIT_BLOCK: &str = "init";
 
@@ -6087,7 +6091,21 @@ impl<'s> Parser<'s> {
                         expr = Expr::SelfAddr { face, span };
                         continue;
                     }
-                    let first = self.ident()?;
+                    // [comptime-hygiene] `name@[site]`: in a template, the
+                    // stamping site's `name` — written as a module path of
+                    // one segment, `[site]`, which no module can be named.
+                    let first = if self.at(&TokenKind::LBracket) {
+                        let open = self.bump().span;
+                        let word = self.ident()?;
+                        let close = self.expect(&TokenKind::RBracket)?.span;
+                        if word.name != "site" {
+                            self.error(messages::comptime_hygiene_unknown_place(&word.name), word.span);
+                        }
+                        self.require_compfn(open, "a `name@[site]` selector");
+                        Ident { name: SITE_SELECTOR.to_string(), span: open.to(close) }
+                    } else {
+                        self.ident()?
+                    };
                     // [actor-self-send] `k@self(args)`: the enclosing
                     // *handler*'s member — a message to this actor. One
                     // selector family with `k@E` (an effect's member) and

@@ -15,7 +15,7 @@ export fns Taken<T> {
 }
 
 export comptime fn loud<T is Struct>(v: T) [Console] -> Int => v {
-    print("${T.name}")
+    print@Console("${T.name}")
     return 0
 }
 

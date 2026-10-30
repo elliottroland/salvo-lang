@@ -1235,7 +1235,7 @@ the checker's own scopes:
   its flow state (narrowing, fate links, captures) follows them; resolution's
   binding for each read is checked against them in a debug build. Reading
   them by binding is what lets stamped comptime copies stop being renamed
-  (`k__c3`), so it belongs to PIPELINE.md C3.
+  (`k__c3`), so it belongs to PIPELINE.md C3.2.
 - **Unresolved-name diagnostics**, type and value. The checker reports them
   at declaration sites and positions it validates; a complete walk reaches
   more positions (C1.2's differential: group arguments like `: Ordered<self>`,
@@ -1659,7 +1659,7 @@ Known and recorded: two `to_str` overloads that both fit a *narrowed* value
 (`to_str(Manual)` beside a stamped `to_str(Source)` where `value: Source` is
 narrowed to `Manual`) make `${value}` ambiguous at the interpolation while
 `to_str(value)` resolves by [fn-overload-rank]; the comptime fn bodies therefore call
-`to_str(value)` rather than interpolating an arm. Pre-existing
+`to_str@[site](value)` rather than interpolating an arm. Pre-existing
 [implicit-resolve] locality, not a comptime defect.
 
 **Left by PIPELINE.md step 6's scoped lookups (2026-10-20).** The expansion
@@ -1671,9 +1671,12 @@ program-wide ladder for a name the file does not see, and these stay open:
   is still refused: the world's tables are keyed by declared name, and the
   root test is `contains_key`. Wants the alias → declaration mapping kept in
   the per-file names.
-- **Spliced field types resolve in the site's stamp scope**, not the file
-  that wrote them [type-identity]; differs only for `fn … by X` at an
-  imported target. Unreproduced.
+- **Spliced field types resolve at the stamping site**, not the file that
+  wrote them [type-identity]: the stamped fn is renumbered into the site's
+  file, so a substituted type is told from site-written code by nothing
+  ([comptime-hygiene] tells only the template's own text apart, by
+  expansion). Differs only for `fn … by X` at an imported target.
+  Unreproduced; C3.3's resolved template fills the splice with a type id.
 - **The fn reading of `by f` ignores visibility**: a private comptime fn of
   an unimported module is found.
 - **`generic_needs` and `group_for` hard-code** member → group
@@ -1809,8 +1812,9 @@ reproduced in a scratch project; the repros are below.
    are written so that this can extend them.
 
 10. ✅ **A stamped body falls back to its template's names** — done
-    2026-10-20 with option (b) ([comptime-hygiene], COMPLETED.md). Left
-    over: the same-file and same-module rules a stamped body may meet inside
+    2026-10-20 with option (b), and replaced 2026-10-30 by P23: a template's
+    text means its own file's names, a fn name it sees is written `@module`
+    or `@[site]` ([comptime-hygiene], COMPLETED.md). Left over: the same-file and same-module rules a stamped body may meet inside
     template code — [struct-opaque] field access on a template-private
     struct, the `own_qualifiers` constructor rule, the [linear-group]
     same-file discharger — still key on the stamping file, so a derive's

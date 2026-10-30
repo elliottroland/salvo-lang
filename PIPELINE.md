@@ -2506,10 +2506,23 @@ lowering before typing, then the checker's special paths deleted. Needs A2
        by node is that cache's rework, not this).
 - **C2. The resolve dump** (`salvo dump --phase …`, P7), as Salvo
   with every name qualified — done (§II.12; spelling P22).
-- **C3. Comptime on the resolved form** (§II.5): templates resolved once in
-  their module and copied; delete the flat `World`, `__c<N>`/`h__p`
-  renaming, `hidden_free_name`, `pick_decl`; `[if]` type patterns compare
-  ids. The `by`-at-a-call workaround (§II.5.1) documented in the language pages.
+- **C3. Comptime on the resolved form** (§II.5), in three pieces:
+  - **C3.1. A template's names** (P23) — done: a template's text resolves
+    where it is written; a fn name it can see says `@module` or `@[site]`,
+    one it cannot see is the site's; types are the template's. The site-wins
+    stamp scope and `Rung::Template` went.
+  - **C3.2. Locals by binding**: the checker and the IR builder read a
+    local by the binding resolution gave it, not by name, so stamped copies
+    stop being renamed — `__c<N>`/`h__p`, `shadows_by_written_name`,
+    `written_local`/`unmangle_message` go, and a backend names two copies'
+    locals apart itself. `hidden_free_name` goes for names a template
+    resolves itself; for a `name@[site]` (which reads as the bare name at
+    the site, the declared parameters included) the capture is real, and
+    the error stays unless the site's view is narrowed to exclude them.
+  - **C3.3. Comptime after resolution**: templates resolved once in their
+    module and copied, a splice filled with a type id; delete the flat
+    `World` and `pick_decl`; `[if]` type patterns compare ids. The
+    `by`-at-a-call workaround (§II.5.1) documented in the language pages.
 - **C4. The remaining early sweeps to their phases**: what is left of
   `expand` that reads names moves after C1 (the `iter fn` expansion per
   file; effect aliases and prerequisites already in scope after Part I
@@ -2785,6 +2798,25 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
   6. The resolve dump is the file's own text with marks inserted (the round
      trip's technique), not a new AST printer; the spelling functions are
      what the dumps share.
+- **P23. Whose names a template's text means** (C3.1). **Decided (user,
+  2026-10-30)**, refining the recommendation "the template's names, the
+  site's for what the template cannot see" into explicit choices instead of
+  a ranked fallback, as calls already are [fn-overload-scope]:
+  1. A fn name the template's file cannot see is the site's. One it can see
+     is an error unless it says which: `name@module` (the suffixed form,
+     `to_str@basic`, where it is unambiguous) or `name@[site]`, a comptime
+     place of its own.
+  2. Positions a template writes no name for (an interpolation, an
+     operator, a `for`) are the site's; operator overloading
+     (OPERATOR_OVERLOAD.md) will lower them to calls a template can select.
+  3. Types, effects and qualifiers are the template file's only.
+  4. A type's name called as a constructor follows the type.
+  5. An expanded-in-place comptime fn has ordinary names; `@[site]` is an
+     error in it.
+  Rejected: the site wins (the 2026-10-20 rule: a site's `shout` replaced a
+  derive's private helper); the template wins with the site filling gaps, by
+  rank; an ambiguity checked per stamp (it lands on the derive's user, who
+  cannot edit the template).
 
 ## II.11. Rounds
 

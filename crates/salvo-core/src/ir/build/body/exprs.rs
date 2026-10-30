@@ -1190,6 +1190,9 @@ impl<'a, 'p> Lower<'a, 'p> {
         let name = match callee {
             AExpr::Ident(id) => id.name.clone(),
             AExpr::Field { field, .. } => field.name.clone(),
+            // [comptime-hygiene] A template's `name@[site]` may reach a
+            // local (the stamped fn's implicit), as the bare name would.
+            AExpr::Scoped { name, .. } => name.name.clone(),
             _ => String::new(),
         };
         if !info.field_call {

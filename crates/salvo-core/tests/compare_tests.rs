@@ -62,12 +62,12 @@ const AUTO_PRELUDE: &str = concat!(
     "export intrinsic fn mix_hash(seed: Long, value: Long) [] -> Long => seed, value\n",
     "export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {\n",
     "    [for field in T.fields] {\n",
-    "        let c = cmp(a.[field], b.[field])\n",
+    "        let c = cmp@[site](a.[field], b.[field])\n",
     "        if c != 0 {\n            return c\n        }\n",
     "    }\n    return 0\n}\n",
     "export comptime fn eq<T is Struct>(a: T, b: T) [] -> Bool => a, b {\n",
     "    [for field in T.fields] {\n",
-    "        if !eq(a.[field], b.[field]) {\n            return false\n        }\n",
+    "        if !eq@[site](a.[field], b.[field]) {\n            return false\n        }\n",
     "    }\n    return true\n}\n",
     "export comptime fn hash<T is Struct>(value: T) [] -> Long => value {\n",
     "    [if T.mutable] {\n",
@@ -75,7 +75,7 @@ const AUTO_PRELUDE: &str = concat!(
     "    }\n",
     "    let h = 17L\n",
     "    [for field in T.fields] {\n",
-    "        h = mix_hash(h, hash(value.[field]))\n",
+    "        h = mix_hash@auto(h, hash@[site](value.[field]))\n",
     "    }\n    return h\n}\n",
 );
 

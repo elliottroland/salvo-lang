@@ -94,6 +94,9 @@ struct Tables {
     /// comptime ones, and an arm's constructor reads an ordinary one's
     /// generics [comptime-arm].
     quals: HashMap<String, Vec<(ModulePath, QualifierDecl)>>,
+    /// [comptime-hygiene] Each template's site names (`Stamp::site_names`),
+    /// by its file and its name's start.
+    site_names: HashMap<(usize, u32), Vec<String>>,
 }
 
 /// [lsp-std-front] The comptime expansion of the embedded std on its own,
@@ -226,6 +229,23 @@ fn run<M: crate::expand::ModuleSlot>(
     let t = crate::timing::phase("  expand: comptime scopes");
     let scoped = scoped_names(files, modules, start);
     drop(t);
+    // [comptime-hygiene] Each comptime fn's written names, once, where it is
+    // written: a template says which place each fn name it can see means, and
+    // the bare ones it cannot see are the site's — by template, its file and
+    // its name's start.
+    for idx in start..files.len() {
+        let Some(names) = scoped.get(idx) else { continue };
+        for item in &modules[idx].borrow().items {
+            if let Item::Fn(f) = item {
+                if let Some(cf) = &f.compfn {
+                    let (diags, site) = template_names(f, names, cf.bound.is_some());
+                    out.extend(diags.into_iter().map(|d| (idx, d)));
+                    tables.site_names.insert((idx, f.name.span.start), site);
+                }
+            }
+        }
+    }
+
     let _stamp = crate::timing::phase("  expand: comptime stamps");
     let world = World {
         scoped,
@@ -359,6 +379,7 @@ fn run<M: crate::expand::ModuleSlot>(
                         Ok(()) => {
                             if let Some(s) = &mut f.stamped {
                                 s.template_file = template_file;
+                                s.site_names = world.site_names_of(template_file, &template);
                             }
                             generated.push(Item::Fn(f));
                         }
@@ -430,6 +451,7 @@ fn run<M: crate::expand::ModuleSlot>(
                     Ok(()) => {
                         if let Some(s) = &mut f.stamped {
                             s.template_file = template_file;
+                            s.site_names = world.site_names_of(template_file, &template);
                         }
                     }
                     Err(errs) => {
@@ -488,6 +510,7 @@ fn run<M: crate::expand::ModuleSlot>(
                         expansions,
                         roots,
                         template_file: None,
+                        site_names: Vec::new(),
                     });
                 } else {
                     diags.extend(errs);
@@ -1253,6 +1276,10 @@ struct FileNames {
     /// [obligation-by] The modules the file can see (`ModuleScope::modules`):
     /// what its `by` paths name.
     modules: Vec<ModulePath>,
+    /// [comptime-hygiene] Every fn and effect member name the file sees, with
+    /// the selectors that name each place it comes from (`cmp@compare`,
+    /// `println@Console`): what a template written here must choose between.
+    callables: HashMap<String, Vec<String>>,
 }
 
 /// [comptime-instantiate] [type-identity] Resolves the unstamped program, and
@@ -1299,6 +1326,29 @@ fn scoped_names<M: crate::decl_id::ModuleRef>(files: &[SourceFile], modules: &[M
                 .filter_map(|(n, ds)| Some((n.to_string(), of(*ds.first()? as *const QualifierDecl as usize)?)))
                 .collect(),
             modules: s.modules.iter().map(|m| (*m).clone()).collect(),
+            callables: {
+                let mut out: HashMap<String, Vec<String>> = HashMap::new();
+                for (name, entries) in &s.fns {
+                    let places = out.entry(name.to_string()).or_default();
+                    // A comptime fn is no candidate: it is stamped, not called.
+                    for e in entries.iter().filter(|e| e.decl.compfn.is_none()) {
+                        let place = format!("`{name}@{}`", e.module.0.last().map(String::as_str).unwrap_or(""));
+                        if !places.contains(&place) {
+                            places.push(place);
+                        }
+                    }
+                }
+                for (name, members) in &s.effect_members {
+                    let places = out.entry(name.to_string()).or_default();
+                    for (e, _) in members {
+                        let place = format!("`{name}@{}`", e.name.name);
+                        if !places.contains(&place) {
+                            places.push(place);
+                        }
+                    }
+                }
+                out
+            },
         })
         .collect()
 }
@@ -1331,6 +1381,18 @@ struct World {
 }
 
 impl World {
+    /// [comptime-hygiene] The bare names a template writes that its own file
+    /// does not see.
+    fn site_names_of(&self, file: Option<usize>, template: &FnDecl) -> Vec<String> {
+        let key = (file.unwrap_or(usize::MAX), template.name.span.start);
+        self.tables
+            .site_names
+            .get(&key)
+            .or_else(|| self.base.as_ref().and_then(|b| b.site_names.get(&key)))
+            .cloned()
+            .unwrap_or_default()
+    }
+
     /// Every declaration of `name` in one of the tables, the base's first.
     fn entries<'s, D>(
         &'s self,
@@ -2029,6 +2091,7 @@ impl<'w> Stamper<'w> {
             expansions,
             roots: Vec::new(),
             template_file: None,
+            site_names: Vec::new(),
         });
         f.span = site;
         f.name.span = name_span;
@@ -2197,6 +2260,7 @@ impl<'w> Stamper<'w> {
             expansions: all,
             roots: Vec::new(),
             template_file: None,
+            site_names: Vec::new(),
         });
         Ok(())
     }
@@ -2307,6 +2371,148 @@ fn rename_capturing_locals(body: &mut Block, renames: &HashMap<String, String>) 
     }
 }
 
+/// [comptime-hygiene] A comptime fn's written fn names, against what its own
+/// file sees (user decision 2026-10-30). In a **template** (`bound`), a bare
+/// fn name the file can see is refused: the template has to say whether it
+/// means that one (`name@module`) or the stamping site's (`name@[site]`); a
+/// name the file cannot see is the site's. An expanded-in-place comptime fn
+/// is stamped nowhere, so it follows the ordinary rules and may not write
+/// `@[site]`. A name some binding of the body has is taken as that local
+/// wherever it is written — Salvo does not shadow, so this misses an error
+/// only where a body names a local and a function alike.
+fn template_names(f: &FnDecl, names: &FileNames, bound: bool) -> (Vec<Diagnostic>, Vec<String>) {
+    use salvo_syntax::visit::{self as v, Visitor};
+    struct Bindings(std::collections::HashSet<String>);
+    impl Bindings {
+        fn pattern(&mut self, p: &Pattern) {
+            match p {
+                Pattern::Ident(id) => {
+                    self.0.insert(id.name.clone());
+                }
+                Pattern::Tuple { elems, .. } => elems.iter().for_each(|e| self.pattern(e)),
+                Pattern::Struct { fields, .. } => {
+                    for f in fields {
+                        self.0.insert(f.binding.name.clone());
+                    }
+                }
+            }
+        }
+        fn cond(&mut self, c: &CompCond) {
+            match c {
+                CompCond::Is { binders, .. } | CompCond::Annotated { binders, .. } => {
+                    self.0.extend(binders.iter().map(|b| b.name.clone()));
+                }
+                CompCond::Not(inner, _) => self.cond(inner),
+                CompCond::And(a, b, _) | CompCond::Or(a, b, _) => {
+                    self.cond(a);
+                    self.cond(b);
+                }
+                _ => {}
+            }
+        }
+    }
+    impl Visitor for Bindings {
+        fn visit_stmt(&mut self, stmt: &Stmt) {
+            match stmt {
+                Stmt::Let { pattern, .. } => self.pattern(pattern),
+                Stmt::Comp(c) => match c {
+                    CompStmt::For { binder, .. } | CompStmt::WhenArms { binder, .. } => {
+                        self.0.insert(binder.name.clone());
+                    }
+                    CompStmt::If { cond, .. } => self.cond(cond),
+                    CompStmt::WhenType { arms, .. } => {
+                        for a in arms {
+                            self.0.extend(a.binders.iter().map(|b| b.name.clone()));
+                        }
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
+        fn visit_expr(&mut self, expr: &Expr) {
+            match expr {
+                Expr::Is { binding: Some(b), .. } | Expr::Widen { binding: Some(b), .. } | Expr::WaitFor { binding: b, .. } => {
+                    self.0.insert(b.name.clone());
+                }
+                Expr::For { pattern, .. } => self.pattern(pattern),
+                Expr::Lambda { params, .. } => self.0.extend(params.iter().map(|p| p.name.name.clone())),
+                Expr::When { binding, branches, .. } => {
+                    self.0.extend(binding.iter().map(|b| b.name.clone()));
+                    self.0.extend(branches.iter().filter_map(|b| b.binding.as_ref()).map(|b| b.name.clone()));
+                }
+                _ => {}
+            }
+        }
+        fn visit_struct_lit_field(&mut self, field: &salvo_syntax::ast::StructLitField) {
+            if let salvo_syntax::ast::StructLitFieldKind::InlineFor { binder, .. } = &field.kind {
+                self.0.insert(binder.name.clone());
+            }
+        }
+    }
+    struct Names<'a> {
+        names: &'a FileNames,
+        locals: &'a std::collections::HashSet<String>,
+        template: &'a str,
+        bound: bool,
+        out: Vec<Diagnostic>,
+        site: Vec<String>,
+    }
+    impl Names<'_> {
+        fn written(&mut self, id: &Ident) {
+            let plain = id.name.starts_with(|c: char| c.is_lowercase() || c == '_') && !id.name.contains(['.', '[']);
+            if !plain || self.locals.contains(&id.name) {
+                return;
+            }
+            let Some(places) = self.names.callables.get(&id.name).filter(|p| !p.is_empty()) else {
+                if !self.site.contains(&id.name) {
+                    self.site.push(id.name.clone());
+                }
+                return;
+            };
+            {
+                // [dump-spelling] Three places, then how many more.
+                let shown = match places.len() {
+                    n if n > 3 => format!("{} or {} more", places[..3].join(", "), n - 3),
+                    _ => places.join(" or "),
+                };
+                self.out.push(Diagnostic::error(
+                    messages::comptime_hygiene_ambiguous_name(&id.name, self.template, &shown),
+                    id.span,
+                ));
+            }
+        }
+    }
+    impl Visitor for Names<'_> {
+        fn visit_expr(&mut self, expr: &Expr) {
+            match expr {
+                // The dot form names a fn too: `xs.size()` is `size(xs)`.
+                Expr::Call { callee, .. } if self.bound => {
+                    if let Expr::Field { field, grouped: false, .. } = &**callee {
+                        self.written(field);
+                    }
+                }
+                Expr::Ident(id) if self.bound => self.written(id),
+                Expr::Scoped { name, module, .. } if !self.bound => {
+                    if module.len() == 1 && module[0].name == salvo_syntax::parser::SITE_SELECTOR {
+                        self.out.push(Diagnostic::error(messages::comptime_hygiene_site_in_place(&name.name), module[0].span));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut locals = Bindings(f.params.iter().map(|p| p.name.name.clone()).collect());
+    if let Some(body) = &f.body {
+        v::walk_block(&mut locals, body);
+    }
+    let mut walk = Names { names, locals: &locals.0, template: &f.name.name, bound, out: Vec::new(), site: Vec::new() };
+    if let Some(body) = &f.body {
+        v::walk_block(&mut walk, body);
+    }
+    (walk.out, walk.site)
+}
+
 /// [fn-by] The first name a stamped body uses that one of the declared
 /// parameter names would capture: a bare identifier spelled like a declared
 /// name that is no template parameter (those are renamed) and no local (those
@@ -2314,6 +2520,9 @@ fn rename_capturing_locals(body: &mut Block, renames: &HashMap<String, String>) 
 /// calls, or a name it reads from outside. Whether it is a call's callee
 /// comes with it.
 fn hidden_free_name(body: &mut Block, renames: &HashMap<String, String>) -> Option<(String, bool)> {
+    fn is_site(module: &[Ident]) -> bool {
+        matches!(module, [m] if m.name == salvo_syntax::parser::SITE_SELECTOR)
+    }
     struct Find<'a> {
         renames: &'a HashMap<String, String>,
         callees: Vec<Span>,
@@ -2325,14 +2534,21 @@ fn hidden_free_name(body: &mut Block, renames: &HashMap<String, String>) -> Opti
                 return;
             }
             match expr {
-                Expr::Call { callee, .. } => {
-                    if let Expr::Ident(id) = &**callee {
-                        self.callees.push(id.span);
-                    }
-                }
+                Expr::Call { callee, .. } => match &**callee {
+                    Expr::Ident(id) => self.callees.push(id.span),
+                    Expr::Scoped { name, .. } => self.callees.push(name.span),
+                    _ => {}
+                },
                 Expr::Ident(id) => {
                     if !self.renames.contains_key(&id.name) && self.renames.values().any(|n| *n == id.name) {
                         self.found = Some((id.name.clone(), self.callees.contains(&id.span)));
+                    }
+                }
+                // [comptime-hygiene] `name@[site]` reads as the bare name at
+                // the site, where the declared parameters are in scope.
+                Expr::Scoped { name, module, .. } if is_site(module) => {
+                    if !self.renames.contains_key(&name.name) && self.renames.values().any(|n| *n == name.name) {
+                        self.found = Some((name.name.clone(), self.callees.contains(&name.span)));
                     }
                 }
                 _ => {}

@@ -1,0 +1,86 @@
+// [comptime-hygiene] A template's names mean what they mean where it is
+// written (user decision 2026-10-30). A fn name its file can see is refused
+// bare — the template says `name@module` for that one, or `name@[site]` for
+// the stamping site's — and one it cannot see is the site's. Types, effects
+// and qualifiers are the template's, and a site's same-named one does not
+// capture them.
+// FILE: deriv.sv
+export fns Tagged<T> {
+    fn tag(value: T) -> Int
+}
+
+struct Tag {
+    n: Int
+}
+
+fn weight(t: Tag) [] -> Int => t {
+    return t.n
+}
+
+export comptime fn tag<T is Struct>(value: T) [] -> Int => value {
+    let t = Tag { n: 1 }
+    let total = weight@deriv(t) + size@list(List(1, 2))
+    [for field in T.fields] {
+        let v: [field.type] = value.[field]
+        total = total + rank@[site](v) + bonus(v)
+    }
+    //~ error[comptime-hygiene:ambiguous-name]
+    return total + weight(t)
+}
+// FILE: main.sv
+import deriv
+
+// The site's own `Tag` and `weight` mean nothing to the template.
+struct Tag {
+    s: Str
+}
+
+fn weight(t: Tag) [] -> Int => t {
+    return 0
+}
+
+struct Inner {
+    k: Int
+}
+
+fn rank(i: Inner) [] -> Int => i {
+    return i.k
+}
+
+fn bonus(i: Inner) [] -> Int => i {
+    return 1
+}
+
+struct Point : Tagged<self> by deriv {
+    inner: Inner
+}
+
+//--- site_outside_a_template
+// [comptime-hygiene] An expanded-in-place comptime fn is stamped nowhere, so
+// it has no `@[site]`.
+struct Pt {
+    x: Int
+}
+
+comptime fn total(p: Pt) [] -> Int => p {
+    let n = 0
+    [for field in Pt.fields] {
+        //~ error[comptime-hygiene:site-in-place]
+        n = n + cmp@[site](p.[field], 0)
+    }
+    return n
+}
+
+//--- site_outside_a_comptime_fn
+// [comptime-hygiene] `@[site]` is comptime syntax.
+fn f(x: Int) [] -> Int {
+    //~ error[comptime-inline:outside-compfn]
+    return cmp@[site](x, 0)
+}
+
+//--- a_place_that_is_not_site
+// [comptime-hygiene] The one comptime place is `site`.
+comptime fn g<T is Struct>(v: T) [] -> Int => v {
+    //~ error[comptime-hygiene:unknown-place]
+    return cmp@[here](1, 0)
+}

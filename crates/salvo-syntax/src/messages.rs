@@ -275,6 +275,22 @@ messages! {
         "{what} is comptime syntax and belongs inside a `comptime fn`: an ordinary fn has \
          no fields to walk or instantiations to refuse"
     );
+    /// [comptime-hygiene] `name@[…]` naming a place other than `site`.
+    comptime_hygiene_unknown_place = "comptime-hygiene:unknown-place" (word: &str) => format!(
+        "`@[{word}]` names no place: the one comptime place is `@[site]`, the code a template is \
+         stamped into"
+    );
+    /// [comptime-hygiene] A template's bare fn name its own file can see.
+    comptime_hygiene_ambiguous_name = "comptime-hygiene:ambiguous-name" (name: &str, template: &str, modules: &str) => format!(
+        "`{name}` is visible where `{template}` is written, so a template has to say which \
+         `{name}` it means: {modules} for the one it sees, or `{name}@[site]` for the one the \
+         stamping site sees"
+    );
+    /// [comptime-hygiene] `@[site]` in a comptime fn that is not a template.
+    comptime_hygiene_site_in_place = "comptime-hygiene:site-in-place" (name: &str) => format!(
+        "`{name}@[site]` names the site a template is stamped at, and an expanded-in-place \
+         `comptime fn` is not stamped anywhere: write `{name}` or `{name}@module`"
+    );
     /// A `[when value]` over a union without exactly one written arm.
     comptime_inline_union_when_arms = "comptime-inline:union-when-arms" () =>
         "a `[when value]` over a union has exactly one written arm, `[arm] { … }`, \
