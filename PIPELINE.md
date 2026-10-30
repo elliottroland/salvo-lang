@@ -2528,15 +2528,29 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   - **C3.3b. Splices read where written** — done: a type put in place of
     a splice is an expansion of its own naming the file that wrote it
     (`ExpansionKind::Splice`), which resolution reads it in.
-  - **C3.3. Comptime after resolution**: templates resolved once in their
-    module and copied, a splice filled with a type id, parameters bound by
-    position (`h__p` and `hidden_free_name` go);
-    the flat `World`'s tables go. The `by`-at-a-call workaround (§II.5.1)
-    documented in the language pages.
+  - **C3.3c. The `by`-at-a-call workaround** (§II.5.1) — documented in
+    the language pages (Compile-Time-Functions, "Stamping for one call").
+  - **Moved out of C3 (2026-10-30), with the reason:**
+    - *Parameters bound by position* (`h__p` and `hidden_free_name` go) →
+      **D2**. A parameter is identified by its name across the checker's
+      contract (`param_owned`, `own_contract`), `deduce`, `lends` and the IR
+      builder, so binding a template's names to the declared parameters
+      means an alias in each; the typed form identifies parameters by id,
+      which is where this is one change. Until then the textual rename
+      stands, and a `name@[site]` no longer meets the parameters (P23
+      item 6), so only a bare site name can be captured.
+    - *One resolution, and the `World`'s cloned tables* → **C4**. The
+      expansion still resolves the unstamped program itself (now only to
+      read each name where it is written); running it after the program's
+      own resolution is the signature/body split (P8), which needs the
+      stamped bodies resolved after stamping — so it is a phase move, not a
+      hygiene one.
 - **C4. The remaining early sweeps to their phases**: what is left of
   `expand` that reads names moves after C1 (the `iter fn` expansion per
   file; effect aliases and prerequisites already in scope after Part I
-  step 6 — confirm nothing still rewrites effect lists program-wide).
+  step 6 — confirm nothing still rewrites effect lists program-wide); and
+  from C3, comptime after the program's resolution, without its own
+  resolution and cloned tables.
 
 ### Stage D — The typed partial IR
 
@@ -2547,7 +2561,8 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   view accessors already group (`call_info`, `use_info`, `spawn_info`,
   `pick_info`, `interp_info`, COMPLETED.md 2026-10-10), then the rest. The
   checker reads its own facts back from the typed form (`call_fn` alone has
-  13 readers inside the checker; the hard part).
+  13 readers inside the checker; the hard part). From C3: a stamped fn's parameters bound to the
+  template's names by position, which retires `h__p` and `hidden_free_name`.
 - **D3. The IR builder becomes the lowering of the typed form**: erasure as
   its own sub-phase (qualifiers, effects to parameters, union wrapping),
   then flow. The builder's ~87 table reads go.

@@ -128,6 +128,23 @@ let s: Serve = from_strs(List("80", "web"))
 Each struct gets its own `from_strs`, and since they differ only in what they
 return, the type the result goes to chooses ([Functions](Functions.md#overloading-by-return-type)).
 
+### Stamping for one call
+
+There is no `by` at a call site: an override such as `hash = …` names a
+function, and stamping happens where a function is declared. Declare the one
+you want under a name of your own, in your module, and pass that:
+
+```
+fn point_hash(p: Point) -> Long by hash@auto
+fn point_eq(a: Point, b: Point) -> Bool by eq@auto
+
+let seen: Mut Set<Point> = Mut Set(hash = point_hash, eq = point_eq)
+```
+
+`by hash@auto` names the comptime fn, because a `by` path names one after the
+function it stamps, and `point_hash` is not its name; `fn hash(p: Point) ->
+Long by auto` needs no more.
+
 ### Whose names a stamped body sees
 
 A template's names mean what they mean **where it is written**, private

@@ -144,6 +144,24 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — C3 closed: the `by`-at-a-call workaround documented, two leftovers moved (PIPELINE.md C3.3c)
+
+- **Documented** (§II.5.1, user decision 2026-10-27): Compile-Time-Functions
+  "Stamping for one call" — no `by` at a call site; declare `fn
+  point_hash(p: Point) -> Long by hash@auto` and pass it. The page's example
+  was compiled and run (a `Mut Set(hash = point_hash, eq = point_eq)` holding
+  one of two equal points).
+- **Moved, with the reasons in PIPELINE.md C3**: binding a stamped fn's
+  parameters by position (which retires `h__p` and `hidden_free_name`) to
+  D2 — a parameter is identified by name across the checker's contract,
+  `deduce`, `lends` and the IR builder, and the typed form identifies it by
+  id; and running comptime after the program's own resolution, without its
+  own resolution and cloned tables, to C4 — the signature/body split (P8)
+  is a phase move.
+- What C3 delivered, piece by piece: C3.1 a template's names (P23), the
+  user's (b) on `@[site]` and parameters, C3.2 copies as scopes, C3.3a
+  lookups where written, C3.3b splices where written (entries below).
+
 ### 2026-10-30 — A spliced type reads where it was written (PIPELINE.md C3.3b, [comptime-hygiene])
 
 - **Built**: every type the expansion puts in place of a splice — a
