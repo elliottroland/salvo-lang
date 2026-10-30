@@ -144,6 +144,32 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Resolution finds the members a body's written effects bring (C2 follow-up, [effect-available])
+
+- **Asked (user, 2026-10-30)**: "Is `#{deferred}` not more appropriate for
+  something that we expect to be picked at the type-check phase?" — about a
+  member reached through the body's effect list, which the C2 dump printed
+  `#{???}`. Answer: no — everything that makes such a member available is
+  written (the fn's list, aliases, prerequisites, a `use`d handler's faces,
+  the module's `use`s), so it is resolution's; the user agreed to fix it
+  there. `#{deferred}` stays for what a type decides: a `use` of a handle,
+  a lambda's body.
+- **Built**: the binder tracks each body's available effects (block-scoped
+  like the checker's `effect_env`) and records the members they add per
+  bare name (`WrittenValue::available`, `Names::available_members`) and
+  whether a type-decided availability is in scope (`WrittenValue::dynamic`);
+  the dump reads both. A debug check (`Checker::check_value_members`)
+  compares them with the checker's `effect_members_here` at every bare name
+  in a body with no type-decided availability: it agreed across the suite on
+  the first run, and was confirmed to run by tracing the alias case.
+- **Two C2 bugs, found by dumping every example, fixed**: a value block's
+  place (`Idx(squad)`, `NotSame(a)`) was marked as an unknown type, now
+  bound as a variable read (in signatures, `let` annotations, `is` checks,
+  lambda parameters); a char constant in a value block (`Short('v')`) was
+  marked as a name, now skipped with every `Const`.
+- **Not moved**: the checker keeps its own `effect_env`, since where a type
+  decides availability resolution cannot answer.
+
 ### 2026-10-29 — `salvo dump --phase resolve`, and one spelling for every dump (PIPELINE.md C2, P22, [dump-resolve] [dump-spelling])
 
 - **Decided (user, 2026-10-29), P22**: dumps use Salvo where it can spell a

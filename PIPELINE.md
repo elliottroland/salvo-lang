@@ -3601,7 +3601,20 @@ this log current so the work can resume after a context reset). Newest last.
   marks. Two stale lexer comments that mentioned `/*` (Salvo has only `//`)
   are fixed.
 
-- **Where it stands (2026-10-29) — resume here.** Stages A and B complete;
+- **C2 follow-up: the resolve dump's gaps (2026-10-30).** Asked by the user
+  ("is `#{deferred}` not more appropriate…?"): a member reached through the
+  body's effect list is not the type phase's to find — everything that makes
+  it available is written — so resolution finds it now: the binder collects
+  each body's available effects as the checker's effect list does and adds
+  their members per name (`Names::available_members`, [effect-available]);
+  `#{deferred}` is kept for what a type decides (a `use` of a handle, a
+  lambda). Running the dump over every example found two C2 bugs, both
+  fixed: a value block's place (`Idx(squad)`) read as an unknown type, and a
+  value block's char constant (`Short('v')`) as a name. A debug check
+  compares the members with the checker's at every bare name in a body with
+  no type-decided availability; the suite agreed on the first run.
+
+- **Where it stands (2026-10-30) — resume here.** Stages A and B complete;
   **Stage C under way**: C1 and C2 done; **next C3** (comptime on the
   resolved form: templates resolved once and copied, the checker reading
   locals by binding so stamped copies stop being renamed, §II.9). Left of B, recorded: D4's general union

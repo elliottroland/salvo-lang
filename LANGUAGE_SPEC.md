@@ -11367,10 +11367,22 @@ between endpoints and delivers what arrives into the scheduler.
     They replaced `visible_keys` and `visible_handler_keys`, per file and
     name, which asked the file's scope rather than the stamp a
     comptime-stamped body is checked in.
-  * Still the checker's: what an *available* effect contributes to a name
-    (its members reach a body through the effect list, an alias or a
-    prerequisite without an import), a handler's own `send` members, and
-    the unresolved-name diagnostics [name-resolve] [name-ident-resolve].
+  * **Available effects, from what is written** [effect-available]: the
+    binder collects each body's effects as the checker's effect list does —
+    the fn's list with aliases and prerequisites expanded (or, with none
+    written, its fn-typed parameters'), a handler member's dependencies (a
+    façade's none), the faces of a handler a `use` names (to the end of its
+    block), the module's `use`s — and records, per bare name, the members
+    of that name they add to the scope's (`Names::available_members`). A
+    `use` of anything but a named handler, and a lambda's body, make
+    availability the type phase's: the name is marked `dynamic`. A debug
+    build checks, at every bare name in a body with no such availability,
+    that the members are exactly the checker's (`check_value_members`).
+  * A value block's places (`Idx(xs) Int`, `ValidFor(state.data)`) are
+    bound as variable reads, in signatures, `let` annotations, `is` checks
+    and lambda parameters [qual-depend]; its constants are not names.
+  * Still the checker's: a handler's own `send` members and the
+    unresolved-name diagnostics [name-resolve] [name-ident-resolve].
 * [node-file] **A node carries its file** (PIPELINE.md §II.9 C1.4): every
   span a program's tree numbers holds, beside its ordinal, the **tag** of the
   file whose tree it is in (`Span::file`, from `Module::file_tag`, which
@@ -13453,10 +13465,12 @@ replaced the working document TESTING.md).
   `greet@Greeter` for a callee with one selector, `#{@a, @b}` for several,
   `p#{12:9}` for a variable (an implicit group's member at its spread, a
   `?cmp` binder at the parameter writing it), `#{???}` for nothing. std's own
-  names, generics, built-ins, declarations' own names and anything an
-  expansion wrote are left as they are. A member reaching a body only
-  through its effect list (an alias, a prerequisite) is the type phase's
-  and reads `#{???}`. `the_resolve_dump_spells_each_kind_of_name` pins the
+  names, generics, built-ins, declarations' own names, a value block's
+  constants and anything an expansion wrote are left as they are. A place
+  in a value block (`Idx(xs)`) is a variable [qual-depend]; an effect
+  member the body has from its written effects reads `now@Clock`
+  [effect-available]; a name nothing answers where a type decides what is
+  available (a `use` of a handle, a lambda) reads `#{deferred}`. `the_resolve_dump_spells_each_kind_of_name` pins the
   spellings; `example_resolve_dump_is_stable` snapshots one example.
 * [cli-ir] `salvo ir [--src DIR] [--module PATH] [--all]` prints the IR
   [ir-dump] of every user module, of one module, or (`--all`) of every

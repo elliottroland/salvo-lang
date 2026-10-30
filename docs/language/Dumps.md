@@ -68,6 +68,8 @@ Here is how each kind of name reads:
 | `cmp` | `cmp#{9:26}` | a member of the `?Ordered<T>` written at line 9, column 26 |
 | `Pont` | `Pont#{???}` | nothing of that name is visible here |
 | `.Int` | `.Int#{deferred}` | a leading-dot name, which only the type phase can resolve |
+| `now` (inside a lambda) | `now#{deferred}` | nothing written answers it, but the lambda's fn type, which the type phase reads, may make an effect available that does |
+| `xs` in `i: Idx(xs) Int` | `Idx(xs#{3:6}) Int` | a place in a qualifier's value block is a variable, read like any other; a constant there (`InRange(0, 9)`, `Short('v')`) is left as written |
 | `cmp@Person` | `cmp@Person#{app.main}` | a selector naming a type gets the type's module |
 
 These names are left exactly as written:
@@ -78,6 +80,16 @@ These names are left exactly as written:
 - anything the compiler wrote for you, such as the body an `iter fn` expands
   into.
 
-One gap: an effect member that reaches a body only through its effect list,
-by an alias or as a prerequisite, is the type phase's to find, so it reads
-`#{???}` here.
+An effect member is found wherever the body can call it from what is
+written:
+- the fn's effect list, with its aliases and every effect's prerequisites;
+- a fn-typed parameter's effects, when the fn writes no list;
+- a handler member's dependencies;
+- the faces of a handler the body `use`s by name;
+- the module's own `use`s.
+
+So `[Time]`, an alias of `Clock` from another module, makes `now()` read
+`now@Clock` even though `Clock` itself was never imported. The type phase
+decides only where a type says what is available: a `use` of a handle
+rather than a named handler, or a lambda's body. A name nothing else answers
+there reads `#{deferred}`.

@@ -11554,6 +11554,43 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.locals.iter().rev().find_map(|s| s.get(name))
     }
 
+    /// [name-table] [effect-available] That the effect members resolution
+    /// found for a bare name (its scope's, and those of the effects its body
+    /// has from what is written) are the ones the checker's availability
+    /// gives — where resolution could see every availability in scope (a
+    /// debug build checks; the checker still keeps its own availability,
+    /// since a `use` of a handle or a lambda's fn type is the type phase's).
+    #[cfg(debug_assertions)]
+    fn check_value_members(&self, id: &Ident) {
+        let Some(w) = self.resolution.names.value(id) else { return };
+        if w.local.is_some() || w.role != crate::names::ValueRole::Bare || w.dynamic {
+            return;
+        }
+        let names = &self.resolution.names;
+        let mut table: Vec<usize> = names
+            .value_meaning(w)
+            .members
+            .iter()
+            .chain(names.available_members(w))
+            .map(|(_, f)| *f as *const FnDecl as usize)
+            .collect();
+        let mut here: Vec<usize> =
+            self.effect_members_here(&id.name).unwrap_or_default().iter().map(|(_, f)| *f as *const FnDecl as usize).collect();
+        table.sort_unstable();
+        table.dedup();
+        here.sort_unstable();
+        here.dedup();
+        assert!(
+            table == here,
+            "[name-table] `{}` at {}..{}: resolution found {} effect member(s), the checker's availability {}",
+            id.name,
+            id.span.start,
+            id.span.end,
+            table.len(),
+            here.len(),
+        );
+    }
+
     /// [name-table] That the binding resolution gave a variable read is the
     /// one this checker's scopes find (both by its name's span) — or that
     /// neither finds one. The two state one scoping rule twice until the
@@ -23374,6 +23411,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // the scopes here find, or to none: a debug build checks.
                 #[cfg(debug_assertions)]
                 self.check_value_binding(id);
+                #[cfg(debug_assertions)]
+                if self.lookup(&id.name).is_none() {
+                    self.check_value_members(id);
+                }
                 if let Some(var) = self.lookup(&id.name) {
                     let mut narrowed = var.narrowed.clone();
                     // [qual-lift] Inside a `^` branch the physical view is
@@ -29519,6 +29560,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
 
         if let Expr::Ident(id) = callee {
+            #[cfg(debug_assertions)]
+            if self.lookup(&id.name).is_none() {
+                self.check_value_members(id);
+            }
             if let Some(ty) = self.check_name_call(id, None, type_args, args, named, expected, span) {
                 return ty;
             }

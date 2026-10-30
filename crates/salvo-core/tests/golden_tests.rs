@@ -121,6 +121,26 @@ fn the_resolve_dump_spells_each_kind_of_name() {
     ] {
         assert!(text.contains(want), "missing `{want}` in:\n{text}");
     }
+    // [qual-depend] A value block's place is a variable read and its
+    // constant nothing; [effect-available] a member reached only through
+    // the body's effect list (an alias of another module) is that effect's;
+    // and inside a lambda, whose fn type says what it performs, a name
+    // nothing written answers is the type phase's.
+    let svc = "export effect Clock {\n    fn now() -> Int\n}\n\nexport effects Time = [Clock]\n";
+    let main = "import svc.Time\n\n\
+                fn f(xs: List<Int>, i: Idx(xs) Int) [Time] -> Bool {\n    let k = () -> later()\n    return i is InRange(0, 9) && now() > 0\n}\n";
+    let program = salvo_testkit::front::program("kt", &[("svc.sv", svc), ("main.sv", main)]).program;
+    let symbols = salvo_core::Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let file = program.files.iter().position(|f| f.name == "main.sv").unwrap();
+    let text = salvo_core::names::dump::dump_file(&program, &resolution, &symbols, file, false);
+    for want in [
+        "i: Idx(xs#{3:6}) Int",
+        "let k = () -> later#{deferred}()",
+        "return i#{3:21} is InRange(0, 9) && now@Clock() > 0",
+    ] {
+        assert!(text.contains(want), "missing `{want}` in:\n{text}");
+    }
     // A name nothing answers, in a program the checker refuses.
     let broken = salvo_testkit::front::program("kt", &[("main.sv", "fn f() -> Int {\n    let q: Pont = 1\n    return missing(q)\n}\n")]).program;
     let symbols = salvo_core::Symbols::collect(&broken);

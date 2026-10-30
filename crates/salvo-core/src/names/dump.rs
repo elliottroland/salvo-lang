@@ -50,10 +50,20 @@ pub fn dump_file(program: &Program, resolution: &Resolution<'_>, symbols: &Symbo
     // A name that declares (an `iter fn`'s `state Name`, which names the
     // struct the expansion writes) is no reference.
     let declared: std::collections::HashSet<(u32, u32)> = declared_names(&program.modules[file]);
+    // [qual-depend] A value block's names are values (places, fn
+    // identities), spelled by the value pass.
+    let as_values: std::collections::HashSet<(u32, u32)> =
+        names.values().iter().filter(|w| w.file as usize == file).map(|w| (w.span.start, w.span.end)).collect();
     let mut edits: Vec<Edit> = Vec::new();
     for w in names.refs().iter().filter(|w| w.file as usize == file) {
         let name = names.name(w);
-        if !written(w.span, name) || w.generic || builtin(name) || declared.contains(&(w.span.start, w.span.end)) {
+        if !written(w.span, name)
+            || w.generic
+            || builtin(name)
+            || declared.contains(&(w.span.start, w.span.end))
+            || as_values.contains(&(w.span.start, w.span.end))
+            || crate::types::Const::parse(name).is_some()
+        {
             continue;
         }
         let edit = |text: String| Edit { start: w.span.end, end: w.span.end, text };
@@ -95,11 +105,19 @@ pub fn dump_file(program: &Program, resolution: &Resolution<'_>, symbols: &Symbo
                 if namespaces.iter().any(|n| n == name || n.starts_with(&format!("{name}."))) {
                     continue;
                 }
+                // [effect-available] With the members its body's written
+                // effects add.
+                let mut decls = value_decls(program, resolution, symbols, m, names.available_members(w));
                 // A type-like name in value position (`InRange.qualifies(…)`,
                 // a struct named as a value) means its declaration.
-                let mut decls = value_decls(program, resolution, symbols, m);
                 if decls.is_empty() {
                     decls = type_decls(program, resolution, symbols, m);
+                }
+                // A body some of whose effects only types say (a `use` of a
+                // handle, a lambda): the type phase may find a member.
+                if decls.is_empty() && w.dynamic {
+                    edits.push(at_end("#{deferred}".into()));
+                    continue;
                 }
                 if let Some(e) = spell(&decls, name, w.span, all) {
                     edits.push(e);
@@ -224,7 +242,13 @@ fn type_decls(program: &Program, resolution: &Resolution<'_>, symbols: &Symbols<
 
 /// What a bare value-position name may mean: its handler, or its fns and
 /// effect members (each by its selector: a fn's module, a member's effect).
-fn value_decls(program: &Program, resolution: &Resolution<'_>, symbols: &Symbols<'_>, m: &Meaning<'_>) -> Vec<Decl> {
+fn value_decls(
+    program: &Program,
+    resolution: &Resolution<'_>,
+    symbols: &Symbols<'_>,
+    m: &Meaning<'_>,
+    available: &[(&salvo_syntax::ast::EffectDecl, &salvo_syntax::ast::FnDecl)],
+) -> Vec<Decl> {
     if let Some(h) = m.handler {
         let file = resolution.decls.file_of(h.name.span);
         let keyed = symbols.key_of(h).is_some_and(crate::typekey::is_keyed);
@@ -239,7 +263,7 @@ fn value_decls(program: &Program, resolution: &Resolution<'_>, symbols: &Symbols
         .iter()
         .map(|e| Decl { name: e.decl.name.name.clone(), module: e.module.to_string(), bare: program.files[e.file].is_std })
         .collect();
-    for (effect, f) in &m.members {
+    for (effect, f) in m.members.iter().chain(available) {
         let std = resolution.decls.file_of(effect.name.span).is_some_and(|i| program.files[i].is_std);
         out.push(Decl { name: f.name.name.clone(), module: effect.name.name.clone(), bare: std });
     }

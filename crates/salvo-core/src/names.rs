@@ -175,6 +175,9 @@ pub struct Names<'p> {
     value_by_addr: HashMap<usize, u32>,
     value_by_copy: HashMap<(u32, u32, Span, u32), Option<u32>>,
     empty: Option<u32>,
+    /// [effect-available] The members a body's written effects add to a
+    /// value name (`WrittenValue::available`).
+    member_sets: Vec<Vec<(&'p EffectDecl, &'p salvo_syntax::ast::FnDecl)>>,
 }
 
 impl<'p> Names<'p> {
@@ -266,6 +269,10 @@ impl<'p> Names<'p> {
             let t0 = std::time::Instant::now();
             crate::check_cache::walk_module(&mut walk, module.borrow());
             types_t += t0.elapsed();
+        }
+        // Every file's types first: a body's effects reach other files'
+        // declarations (an effect's prerequisites, an alias's members).
+        for (file, module) in modules.iter().enumerate() {
             let t0 = std::time::Instant::now();
             values::Binder::new(&mut names, &mut interned, scopes, stamp_scopes, fn_stamps, file as u32).module(module.borrow());
             values_t += t0.elapsed();
@@ -293,6 +300,13 @@ impl<'p> Names<'p> {
     /// written (its binding, if any, comes first: [`WrittenValue::local`]).
     pub fn value_meaning(&self, w: &WrittenValue) -> &Meaning<'p> {
         &self.meanings[w.meaning as usize]
+    }
+
+    /// [effect-available] The members of the value name's spelling that the
+    /// effects its body has from what is written add to its scope's own
+    /// (`Meaning::members`).
+    pub fn available_members(&self, w: &WrittenValue) -> &[(&'p EffectDecl, &'p salvo_syntax::ast::FnDecl)] {
+        self.member_sets.get(w.available as usize).map(|v| v.as_slice()).unwrap_or(&[])
     }
 
     /// The name a value-position name wrote.
