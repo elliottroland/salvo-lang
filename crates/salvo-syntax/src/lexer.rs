@@ -514,7 +514,8 @@ impl<'s> Lexer<'s> {
             }
             // [op-compound] One token each, and after `++`/`--` so the
             // step operators keep their spelling. `/=` cannot collide with a
-            // comment: `//` and `/*` are consumed before this dispatch.
+            // comment: `//`, Salvo's only comment, is consumed before this
+            // dispatch.
             ('+', Some('=')) => {
                 self.bump();
                 TokenKind::PlusEq
@@ -524,8 +525,7 @@ impl<'s> Lexer<'s> {
                 TokenKind::MinusEq
             }
             // [op-pow] `**` is one token, before `*=` and the bare `*`: no
-            // other construct writes two stars together (`/**` is a comment,
-            // consumed before this dispatch).
+            // other construct writes two stars together.
             ('*', Some('*')) => {
                 self.bump();
                 TokenKind::StarStar

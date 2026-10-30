@@ -12616,7 +12616,29 @@ replaced the working document TESTING.md).
   `Op` [ir-op] is written inline (`(read i < 4)`, `!(read a)`): every binary
   operation parenthesized, and a unary operand too unless it is a binary
   operation, so `!(read x)` never reads as `!read x` (user request
-  2026-10-06).
+  2026-10-06). Names are spelled as every dump spells them [dump-spelling].
+* [dump-spelling] **How a dump names a declaration** (PIPELINE.md §II.10 P22,
+  user decisions 2026-10-29): Salvo's own spelling where Salvo has one,
+  `#{…}` where it has not.
+  * A declaration is `name@module` — Salvo's selector — with its written
+    parameter types when its file declares the name more than once:
+    `to_str(Int)@std.core.basic`, `far@main`, a qualifier's fn
+    `InRange.qualifies@main` (`ir::Program::ref_name`). An effect member is
+    `member@Effect` (`greet@Greeter`), with its parameter types when the
+    effect overloads it (`ir::Program::member_name`).
+  * A type another module could also declare reads `Name@module`
+    (`Point@app.shapes`): a keyed type [type-identity], printed so by `Ty`
+    inside `types::with_keys_shown`. std's first declaration of a name — a
+    plain key — stays bare (`Int`, `List<Int>`).
+  * `#{…}` holds what Salvo cannot spell: where a variable's binding is
+    written (`p#{12:9}`), a name several declarations answer
+    (`#{@main, @std.core.list, … 2 more}`, the program's own first and three
+    at most unless everything is asked for), a selector's module
+    (`cmp@Person#{app.main}`), a name only the type phase can resolve
+    (`#{deferred}`), and a name nothing answers (`#{???}`: three, since a
+    lone `?` is Salvo's optional). The IR's `#n` node ids are a different
+    thing, and its reads of a local stay plain (a name is its binding within
+    a fn [var-no-shadow]).
 * [ir-obligation] The IR carries a **linear-obligation ledger** as `Obligation`
   directive statements, inserted by a pass (`salvo_core::ir::obligations`) over
   the built IR — but only on the dump/check path, never in the IR a backend
@@ -13416,6 +13438,26 @@ replaced the working document TESTING.md).
   * std's and a dependency's host files are **not** generated: they are
     shipped with them [platform-tree], so the command only ever writes into
     the customer's roots.
+* [cli-dump] `salvo dump --phase <phase> [--src DIR] [--module PATH]
+  [--all]` prints what one phase made of every user module, of one module, or
+  (`--all`) of every module the program reaches, std included, with every
+  candidate listed (PIPELINE.md P7). One phase so far, `resolve`
+  [dump-resolve]; `salvo ir`, `salvo facts` and `compile --emit-ast` join as
+  `generate-ir`, `type-check` and `parse-ast` in the pieces that add those
+  phases. A program's errors in the dumped modules go to stderr; the dump is
+  printed regardless.
+* [dump-resolve] The **resolve dump** (`names::dump::dump_file`) is each
+  file's own text with what resolution bound every written name to spelled
+  in place [dump-spelling] [name-table]: `Point@app.shapes` for a declaration
+  (an import alias as the declaration's own name), `show@app.svc` or
+  `greet@Greeter` for a callee with one selector, `#{@a, @b}` for several,
+  `p#{12:9}` for a variable (an implicit group's member at its spread, a
+  `?cmp` binder at the parameter writing it), `#{???}` for nothing. std's own
+  names, generics, built-ins, declarations' own names and anything an
+  expansion wrote are left as they are. A member reaching a body only
+  through its effect list (an alias, a prerequisite) is the type phase's
+  and reads `#{???}`. `the_resolve_dump_spells_each_kind_of_name` pins the
+  spellings; `example_resolve_dump_is_stable` snapshots one example.
 * [cli-ir] `salvo ir [--src DIR] [--module PATH] [--all]` prints the IR
   [ir-dump] of every user module, of one module, or (`--all`) of every
   module the program reaches, std included. It builds the IR exactly as the

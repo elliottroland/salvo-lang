@@ -45,8 +45,23 @@ pub struct WrittenValue {
     /// name no binding in scope has, which means what [`Names::value_meaning`]
     /// says (for a bound one, it says nothing).
     pub local: Option<Span>,
+    /// What the name is at its position.
+    pub role: ValueRole,
     pub(super) name: u32,
     pub(super) meaning: u32,
+}
+
+/// [name-table] What a value-position name is where it is written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ValueRole {
+    /// A bare name: a variable, a callee, a handler, a fn as a value.
+    Bare,
+    /// The name of a selected call or value (`f` in `f@m`, `m` in `m@E`):
+    /// never a local's.
+    Selected,
+    /// The selector itself when it is a name (`E` in `m@E`, `Person` in
+    /// `cmp@Person`).
+    Selector,
 }
 
 /// The walk: a scope stack of bindings, by name.
@@ -107,7 +122,8 @@ impl<'b, 'p> Binder<'b, 'p> {
 
     /// Records one value-position name; `locals` says whether a binding may
     /// answer it (a selected name, `f@m`, is never a local's).
-    fn name(&mut self, id: &Ident, locals: bool) {
+    fn name(&mut self, id: &Ident, role: ValueRole) {
+        let locals = role == ValueRole::Bare;
         let spelling = self.names.spell(&id.name);
         let local = if locals { self.frames.iter().rev().find_map(|f| f.get(&spelling).copied()) } else { None };
         let at = self.at;
@@ -126,7 +142,7 @@ impl<'b, 'p> Binder<'b, 'p> {
         };
         let addr = id as *const Ident as usize;
         let idx = self.names.values.len() as u32;
-        self.names.values.push(WrittenValue { addr, file: self.file, at, span: id.span, local, name: spelling, meaning });
+        self.names.values.push(WrittenValue { addr, file: self.file, at, span: id.span, local, role, name: spelling, meaning });
         self.names.value_by_addr.insert(addr, idx);
         if id.span.is_numbered() {
             let key = (id.span.file, id.span.node, id.span, spelling);
@@ -475,7 +491,7 @@ impl<'b, 'p> Binder<'b, 'p> {
             }
             Expr::Ident(id) => {
                 if id.name != "None" {
-                    self.name(id, true);
+                    self.name(id, ValueRole::Bare);
                 }
             }
             Expr::Field { base, .. } | Expr::TupleIndex { base, .. } => self.expr(base),
@@ -483,14 +499,14 @@ impl<'b, 'p> Binder<'b, 'p> {
                 if let Some(b) = base {
                     self.expr(b);
                 }
-                self.name(name, false);
+                self.name(name, ValueRole::Selected);
             }
             Expr::EffectScoped { base, name, effect, .. } => {
                 if let Some(b) = base {
                     self.expr(b);
                 }
-                self.name(name, false);
-                self.name(effect, false);
+                self.name(name, ValueRole::Selected);
+                self.name(effect, ValueRole::Selector);
             }
             Expr::Call { callee, args, named, .. } => {
                 self.expr(callee);

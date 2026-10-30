@@ -9,84 +9,84 @@ linear struct Ticket wire {
   seat: Str
 }
 
-fn main::issue(lent console: Console; lent id: Int, moved seat: Str) -> Ticket {
-  call std.core.console::println(read console, concat("1. issued #", call std.core.basic::to_str(Int)(read id), " for ", read seat))
-  return construct Ticket { id: read id, seat: !read seat }
+fn issue@main(lent console: Console; lent id: Int, moved seat: Str) -> Ticket@main {
+  call println@std.core.console(read console, concat("1. issued #", call to_str(Int)@std.core.basic(read id), " for ", read seat))
+  return construct Ticket@main { id: read id, seat: !read seat }
 }
 
-fn main::redeem(lent console: Console; moved ticket: Ticket) -> None {
+fn redeem@main(lent console: Console; moved ticket: Ticket@main) -> None {
   obligation gain-params [ticket]
-  call std.core.console::println(read console, concat("1. redeemed #", call std.core.basic::to_str(Int)(read ticket.id)))
+  call println@std.core.console(read console, concat("1. redeemed #", call to_str(Int)@std.core.basic(read ticket.id)))
   obligation release [ticket]
-  call std.core.basic::discard<Ticket>(!read ticket)
+  call discard@std.core.basic<Ticket@main>(!read ticket)
 }
 
-fn main::one_use(lent console: Console) -> None {
-  bind#1 let ticket: Ticket = call main::issue(read console, 1, "12A")
+fn one_use@main(lent console: Console) -> None {
+  bind#1 let ticket: Ticket@main = call issue@main(read console, 1, "12A")
   obligation gain [ticket]
   obligation release [ticket]
-  call main::redeem(read console, !read ticket)
-  call std.core.console::println(read console, "2. gone after one use")
+  call redeem@main(read console, !read ticket)
+  call println@std.core.console(read console, "2. gone after one use")
 }
 
-fn main::describe(lent console: Console; lent ticket: Ticket) -> None {
-  call std.core.console::println(read console, concat("3. still holding #", call std.core.basic::to_str(Int)(read ticket.id), " (", read ticket.seat, ")"))
+fn describe@main(lent console: Console; lent ticket: Ticket@main) -> None {
+  call println@std.core.console(read console, concat("3. still holding #", call to_str(Int)@std.core.basic(read ticket.id), " (", read ticket.seat, ")"))
 }
 
-fn main::borrow_then_use(lent console: Console) -> None {
-  bind#1 let ticket: Ticket = call main::issue(read console, 2, "3C")
+fn borrow_then_use@main(lent console: Console) -> None {
+  bind#1 let ticket: Ticket@main = call issue@main(read console, 2, "3C")
   obligation gain [ticket]
-  call main::describe(read console, read ticket)
-  call main::describe(read console, read ticket)
+  call describe@main(read console, read ticket)
+  call describe@main(read console, read ticket)
   obligation release [ticket]
-  call main::redeem(read console, !read ticket)
+  call redeem@main(read console, !read ticket)
 }
 
-fn main::read_a_field(lent console: Console) -> None {
-  bind#1 let ticket: Ticket = call main::issue(read console, 3, "1A")
+fn read_a_field@main(lent console: Console) -> None {
+  bind#1 let ticket: Ticket@main = call issue@main(read console, 3, "1A")
   obligation gain [ticket]
   bind#2 let seat: Str = read ticket.seat
-  call std.core.console::println(read console, concat("4. read ", read seat, ", and #", call std.core.basic::to_str(Int)(read ticket.id), " is still owed"))
+  call println@std.core.console(read console, concat("4. read ", read seat, ", and #", call to_str(Int)@std.core.basic(read ticket.id), " is still owed"))
   obligation release [ticket]
-  call main::redeem(read console, !read ticket)
+  call redeem@main(read console, !read ticket)
 }
 
-fn main::hand_over<T canbe linear>(lent console: Console; moved value: T, moved to: (T) [Console] -> None) -> None {
+fn hand_over@main<T canbe linear>(lent console: Console; moved value: T, moved to: (T) [Console] -> None) -> None {
   obligation gain-params [value]
   obligation release [value]
   call local to(read console, !read value)
 }
 
-fn main::generic_handoff(lent console: Console) -> None {
-  bind#1 let ticket: Ticket = call main::issue(read console, 4, "9B")
+fn generic_handoff@main(lent console: Console) -> None {
+  bind#1 let ticket: Ticket@main = call issue@main(read console, 4, "9B")
   obligation gain [ticket]
   obligation release [ticket]
-  call main::hand_over<Ticket>(read console, !read ticket, lambda(lent __leff0: Console, lent t: Ticket) -> None {
-    value call main::redeem(read __leff0, !read t)
+  call hand_over@main<Ticket@main>(read console, !read ticket, lambda(lent __leff0: Console, lent t: Ticket@main) -> None {
+    value call redeem@main(read __leff0, !read t)
   })
 }
 
-fn main::scrap(moved ticket: Ticket) -> None {
+fn scrap@main(moved ticket: Ticket@main) -> None {
   obligation gain-params [ticket]
   obligation release [ticket]
-  call std.core.basic::discard<Ticket>(!read ticket)
+  call discard@std.core.basic<Ticket@main>(!read ticket)
 }
 
-fn main::a_queue_of_tickets(lent console: Console) -> None {
-  bind#1 let queue: Mut Deque<Ticket> = call std.core.deque::mut_deque_of()<Ticket>()
+fn a_queue_of_tickets@main(lent console: Console) -> None {
+  bind#1 let queue: Mut Deque<Ticket@main> = call mut_deque_of()@std.core.deque<Ticket@main>()
   obligation gain [queue]
-  call std.core.deque::add_last<Ticket>(read queue, call main::issue(read console, 5, "2B"))
-  call std.core.deque::add_last<Ticket>(read queue, call main::issue(read console, 6, "2C"))
-  call std.core.console::println(read console, concat("6. queued ", call std.core.basic::to_str(Int)(call std.core.deque::size<Ticket>(drop_mut(read queue)))))
-  bind#2 let first: Ticket? = call std.core.deque::remove_first<Ticket>(read queue)
+  call add_last@std.core.deque<Ticket@main>(read queue, call issue@main(read console, 5, "2B"))
+  call add_last@std.core.deque<Ticket@main>(read queue, call issue@main(read console, 6, "2C"))
+  call println@std.core.console(read console, concat("6. queued ", call to_str(Int)@std.core.basic(call size@std.core.deque<Ticket@main>(drop_mut(read queue)))))
+  bind#2 let first: Ticket@main? = call remove_first@std.core.deque<Ticket@main>(read queue)
   obligation gain [first.arms{0}]
   switch#3 read first {
     arm#0 (arm 0) {
-      narrow#4[switch#3.arm#0] first~1: Ticket = first
+      narrow#4[switch#3.arm#0] first~1: Ticket@main = first
       obligation discharge [first.arms{0}]
       obligation gain [first~1]
       obligation release [first~1]
-      call main::redeem(read console, !read first~1)
+      call redeem@main(read console, !read first~1)
     }
     arm#1 (none) {
     }
@@ -95,28 +95,28 @@ fn main::a_queue_of_tickets(lent console: Console) -> None {
     }
   }
   loop#5 {
-    bind#7 let __subject~2: Ticket? = call std.core.deque::remove_first<Ticket>(read queue)
+    bind#7 let __subject~2: Ticket@main? = call remove_first@std.core.deque<Ticket@main>(read queue)
     obligation gain [__subject~2.arms{0}]
     branch#9 cond#0 !(check#6 (read __subject~2 is arm 0)) {
       break
     }
-    narrow#8[check#6] next: Ticket = __subject~2
+    narrow#8[check#6] next: Ticket@main = __subject~2
     obligation discharge [__subject~2.arms{0}]
     obligation gain [next]
     obligation release [next]
-    call main::redeem(read console, !read next)
+    call redeem@main(read console, !read next)
   }
   obligation release [queue]
-  call std.core.deque::drain<Ticket>(drop_mut(!read queue), fn main::scrap)
-  call std.core.console::println(read console, "6. queue drained")
+  call drain@std.core.deque<Ticket@main>(drop_mut(!read queue), fn scrap@main)
+  call println@std.core.console(read console, "6. queue drained")
 }
 
-fn main::main() -> None {
+fn main@main() -> None {
   bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
-  call main::one_use(read __handle~2)
-  call main::borrow_then_use(read __handle~2)
-  call main::read_a_field(read __handle~2)
-  call main::generic_handoff(read __handle~2)
-  call main::a_queue_of_tickets(read __handle~2)
+  call one_use@main(read __handle~2)
+  call borrow_then_use@main(read __handle~2)
+  call read_a_field@main(read __handle~2)
+  call generic_handoff@main(read __handle~2)
+  call a_queue_of_tickets@main(read __handle~2)
 }

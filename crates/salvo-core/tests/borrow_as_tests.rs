@@ -44,7 +44,7 @@ fn dump(src: &str) -> String {
 #[test]
 fn a_borrow_at_a_kept_position_is_a_borrow_as_arm_by_arm() {
     let ir = dump(SRC);
-    assert!(ir.contains("borrow_as[proj Mut A -> A]("), "{ir}");
-    assert!(ir.contains("borrow_as[ref<List<Mut A>> Mut A -> Mut A]("), "{ir}");
-    assert!(ir.contains("borrow_as[proj Mut A -> A, B -> B]("), "{ir}");
+    assert!(ir.contains("borrow_as[proj Mut A@main -> A@main]("), "{ir}");
+    assert!(ir.contains("borrow_as[ref<List<Mut A@main>> Mut A@main -> Mut A@main]("), "{ir}");
+    assert!(ir.contains("borrow_as[proj Mut A@main -> A@main, B@main -> B@main]("), "{ir}");
 }

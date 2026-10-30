@@ -2505,7 +2505,7 @@ lowering before typing, then the checker's special paths deleted. Needs A2
        edited file's old and new trees, `check_cache::node_map`: keying it
        by node is that cache's rework, not this).
 - **C2. The resolve dump** (`salvo dump --phase …`, P7), as Salvo
-  with every name qualified.
+  with every name qualified — done (§II.12; spelling P22).
 - **C3. Comptime on the resolved form** (§II.5): templates resolved once in
   their module and copied; delete the flat `World`, `__c<N>`/`h__p`
   renaming, `hidden_free_name`, `pick_decl`; `[if]` type patterns compare
@@ -2764,9 +2764,34 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
   one fn probed with another); (c) refuse any written override where an
   identity is carried, even the agreeing one (the round trip could then not
   write carried binders out). Recommendation (a). [cmp-carry-override],
-  ROADMAP 0av.
+  ROADMAP 0av. **Settled for now (user, 2026-10-29): "I'm happy with your
+  choice of (a) there."**
+- **P22. How dumps spell names** (C2). **Decided (user, 2026-10-29):**
+  1. One spelling across the dumps: a declaration is `name@module` (Salvo's
+     selector), with its parameter types where its file overloads the name
+     (`to_str(Int)@std.core.basic`); an effect member `member@Effect`. The IR
+     dump moves from `module::name` to it.
+  2. A name stays bare when its key is plain (std's first declaration of
+     it); a keyed type reads `Name@module` in the IR dump too.
+  3. What Salvo cannot spell is marked `#{…}` (ASCII, not Salvo syntax, and
+     of the IR's `#`-for-compiler-ids family; a non-ASCII `⟨…⟩` was
+     refused for looking like round brackets). A name nothing answers is
+     `#{???}`, since a lone `?` is Salvo's optional (user).
+  4. A variable names its binding by line and column, `p#{12:9}`. The IR's
+     `#n` node ids stay (the IR refers to them), and its reads of locals
+     stay plain.
+  5. A long candidate set shows three and `… N more`; `--all` lists every
+     one.
+  6. The resolve dump is the file's own text with marks inserted (the round
+     trip's technique), not a new AST printer; the spelling functions are
+     what the dumps share.
 
 ## II.11. Rounds
+
+### 2026-10-29, C2
+
+- P22 decided (§II.10). Facts' `DeclId` spelling (`name(sig) -> Ret@module`)
+  is left until `salvo facts` joins `dump` as `type-check`.
 
 ### 2026-10-28, B4
 
@@ -3562,11 +3587,24 @@ this log current so the work can resume after a context reset). Newest last.
   went with the merge they served (a project file's tag never meets std's).
   Left by address, each for its reason: §II.9 C1.4b.
 
+- **C2, the resolve dump: done (2026-10-29).** `salvo dump --phase resolve
+  [--module M] [--all]` [cli-dump] prints each file's text with what
+  resolution bound every name to (`names::dump`, [dump-resolve]), spelled
+  as P22 decided [dump-spelling]. The IR dump moved to the same spelling:
+  `ir::Program::ref_name` gives `far@main` / `to_str(Int)@std.core.basic`,
+  the new `member_name` gives `greet@Greeter`, and keyed types print
+  `Point@main` inside `types::with_keys_shown` (a thread-local the `Ty`
+  printer reads, so a diagnostic's reading is unchanged); twelve IR golden
+  snapshots and seven test assertions changed accordingly, and The-IR.md
+  with them. `WrittenValue::role` tells a bare name from a selected one and
+  a selector. A new language page, Dumps.md, explains the command and the
+  marks. Two stale lexer comments that mentioned `/*` (Salvo has only `//`)
+  are fixed.
+
 - **Where it stands (2026-10-29) — resume here.** Stages A and B complete;
-  **Stage C under way**: C1 done (C1.1–C1.4); **next C2** (the resolve dump,
-  `salvo dump --phase resolve`, P7), whose notation for what Salvo cannot
-  spell (a type's module, a local's binding, a candidate set) is to be
-  proposed to the user first. Left of B, recorded: D4's general union
+  **Stage C under way**: C1 and C2 done; **next C3** (comptime on the
+  resolved form: templates resolved once and copied, the checker reading
+  locals by binding so stamped copies stop being renamed, §II.9). Left of B, recorded: D4's general union
   `to_str` (deferred, R10), so `interp_union` stays a fact; the send cuts of
   ROADMAP 0au; the leftovers of 0as, 0at, 0av and 0ax. **Open decisions,
   each built as its recommended option:** P9–P18 and P21 (§II.10; ROADMAP

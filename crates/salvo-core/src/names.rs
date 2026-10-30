@@ -27,8 +27,9 @@ use salvo_syntax::Span;
 
 use crate::resolve::{DefSite, FnEntry, ModuleScope};
 
+pub mod dump;
 mod values;
-pub use values::WrittenValue;
+pub use values::{ValueRole, WrittenValue};
 
 /// [name-table] What one written name means where it is written, in each
 /// namespace: the scope's answer for that file (or for the stamp a

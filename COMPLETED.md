@@ -144,6 +144,34 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-29 — `salvo dump --phase resolve`, and one spelling for every dump (PIPELINE.md C2, P22, [dump-resolve] [dump-spelling])
+
+- **Decided (user, 2026-10-29), P22**: dumps use Salvo where it can spell a
+  thing and `#{…}` where it cannot; a declaration is `name@module` (types
+  too, when keyed; std's plain names bare); a variable names its binding's
+  line and column; a name nothing answers is `#{???}` ("since the singular
+  one is used for `| None` in Salvo"); the IR keeps its `#n` ids and plain
+  local reads. Rejected: `⟨…⟩` ("not ascii and it looks a lot like round
+  brackets"), `` `…` `` (diagnostics quote with it), `@{…}` (reads as a
+  selector), and making the resolve dump parseable (§II.7 asks re-checking
+  of picks only, and Salvo has no `/* */` comments to hide marks in — my
+  first proposal had assumed it did, from two stale lexer comments, now
+  fixed).
+- **Built**: `names::dump::dump_file` (the file's text with marks inserted
+  at each name the table resolved, as the round trip inserts its choices),
+  `salvo dump --phase resolve [--module M] [--all]`, and the IR dump's move
+  to the shared spelling (`ref_name`, `member_name`, `types::with_keys_shown`
+  for keyed types). Declarations' own names, generics, built-ins, selected
+  names and expansion-written names are left alone; the program's own
+  candidates are listed before std's.
+- **Tests**: `the_resolve_dump_spells_each_kind_of_name` (every mark),
+  `example_resolve_dump_is_stable` (the iteration example's snapshot),
+  `analyze_tests::dump_prints_the_resolve_phase` (the command, `--module`,
+  errors to stderr); twelve IR snapshots re-accepted after checking that
+  every changed line differs only in name spelling.
+- **Docs**: Dumps.md (new page, indexed), The-IR.md's examples and prose,
+  LANGUAGE_SPEC [cli-dump], [dump-resolve], [dump-spelling].
+
 ### 2026-10-29 — Keys and file lookups come from the tag; address-keyed key maps go (PIPELINE.md C1.4b)
 
 - **Probe first** (temporary, over the whole suite): whenever

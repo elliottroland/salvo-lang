@@ -77,4 +77,5 @@ Start at the top; each page stands on its own, so jumping in is fine too.
 
 | Page | What it covers |
 |---|---|
+| [Dumps](Dumps.md) | `salvo dump`: what a phase made of your program, and how a dump spells names; the resolve phase's dump |
 | [The IR](The-IR.md) | the decided form both backends read: how to read `salvo ir`, its declarations, statements and expressions, ownership marks, narrowing, loops, effects and actors |

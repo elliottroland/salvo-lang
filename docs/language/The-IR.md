@@ -16,6 +16,7 @@ salvo ir --src ./my_project --all            # with the std modules it reaches
 ```
 
 The printed form is for reading and for golden tests. Nothing parses it back.
+It names declarations as every dump does ([Dumps](Dumps.md)).
 The Rust types behind it are in `crates/salvo-ir/src/ir.rs`.
 
 ## What the IR decides
@@ -85,12 +86,12 @@ struct Box canbe Mut wire {
   tag: Str
 }
 
-fn main::bumped(lent_mut b: Mut Box) -> Int {
+fn bumped@main(lent_mut b: Mut Box@main) -> Int {
   assign b.n = (read b.n + 1)
   return read b.n
 }
 
-fn main::total(moved items: List<Int>) -> Int {
+fn total@main(moved items: List<Int>) -> Int {
   bind#1 let sum: Int = 0
   foreach#2 i: Int in read items {
     assign sum = (read sum + read i)
@@ -98,21 +99,24 @@ fn main::total(moved items: List<Int>) -> Int {
   return !read sum
 }
 
-fn main::main() -> None {
+fn main@main() -> None {
   bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
-  bind#5 let b: Mut Box = construct Mut Box { n: 1, tag: "t" }
-  call std.core.console::println(read __handle~2, concat(call std.core.basic::to_str(Int)(call main::bumped(read b)), " ", read b.tag))
+  bind#5 let b: Mut Box@main = construct Mut Box@main { n: 1, tag: "t" }
+  call println@std.core.console(read __handle~2, concat(call to_str(Int)@std.core.basic(call bumped@main(read b)), " ", read b.tag))
   bind#6 let xs: List<Int> = list[List<Int>](3, 2, 1)
-  call std.core.console::println(read __handle~2, concat(call std.core.basic::to_str(Int)(call main::total(!read xs))))
+  call println@std.core.console(read __handle~2, concat(call to_str(Int)@std.core.basic(call total@main(!read xs))))
 }
 ```
 
 The things to notice:
 
-* **References are `module::name`**, with the parameter types added when the
-  module overloads the name: `std.core.basic::to_str(Int)`. A declaration with
-  no recorded name prints as its module and position, such as `main::#4.0`.
+* **References are `name@module`**, Salvo's own selector, with the parameter
+  types added when the module overloads the name: `to_str(Int)@std.core.basic`.
+  An effect member is `member@Effect` (`now@Clock`). A type another module
+  could also declare carries its module (`Box@main`); std's own names stay
+  bare. A declaration with no recorded name prints its path and module, such
+  as `#4.0@main`.
 * **Parameters say how they are passed.** `lent` means borrowed, `lent_mut`
   means borrowed and mutated, `moved` means handed over. These come from the
   deduction clause (see [Deductions and Ownership](Deductions-and-Ownership.md)).
@@ -160,7 +164,7 @@ An optional `T?` is the union `T | None`.
 | `union Name = A \| B` | a named union type |
 | `interface Name [Prereq] { fn m(…) -> T }` | an effect. An `actor interface` is an actor effect, and its `send fn` members are messages |
 | `impl H(ctor params) of Face deps [Dep] stateful { … }` | a handler: constructor parameters, the effects it depends on, its `state` fields, an optional `mailbox`, `init` and member bodies. It may also be `platform`, `threadsafe` or `intrinsic` |
-| `fn module::name<T>(effects; params; ?implicits) -> T` | a function. `;` separates the leading effect parameters, the declared ones and the trailing implicit ones |
+| `fn name@module<T>(effects; params; ?implicits) -> T` | a function. `;` separates the leading effect parameters, the declared ones and the trailing implicit ones |
 | `intrinsic fn …`, `platform fn …` | a function with no body. A backend lowers an intrinsic from its own table, and the host implements a platform function ([Backends](Backends.md)) |
 | `qualifies fn …` | the test of a predicate qualifier |
 | `platform type Name` | a type the host defines |
@@ -180,7 +184,7 @@ After the return type, a function signature may list:
   (`FnDecl::ref_anchors`; [Mutable Handles](Mutable-Handles.md)). A handle
   parameter's own type dumps as `ref<C> Mut T`, naming its container's type
   (what a backend builds the handle's storage path from):
-  `fn main::strike(lent_mut c: List<Mut Fighter>, lent_mut a: ref<List<Mut Fighter>> Mut Fighter, lent_mut d: ref<List<Mut Fighter>> Mut Fighter) -> None anchors a in c, d in c`.
+  `fn strike@main(lent_mut c: List<Mut Fighter@main>, lent_mut a: ref<List<Mut Fighter@main>> Mut Fighter@main, lent_mut d: ref<List<Mut Fighter@main>> Mut Fighter@main) -> None anchors a in c, d in c`.
 
 ## Statements
 
@@ -250,18 +254,18 @@ against `0` — and the IR writes it as what that call resolved to
   `(read i != 2)`. A `Float` or `Double` ordering, which has no `cmp`, is
   inline too. The intrinsics also appear as values, where a scalar's ordering
   is passed to generic code:
-  `call main::bigger<Int>(2, 7, fn std.core.basic::cmp(Int, Int))`.
+  `call bigger@main<Int>(2, 7, fn cmp(Int, Int)@std.core.basic)`.
 * **Anything else is a call** of the function the checker resolved, whether
   it is declared in Salvo or is an intrinsic: `a == b` on `Str`s is
-  `call std.core.string::eq(read a, read b)`, and `a != b` is `!` of that
+  `call eq@std.core.string(read a, read b)`, and `a != b` is `!` of that
   call. An ordering is the `cmp` call followed by a sign test of its `Int`
   result, which is inline because `Int` is basic. An enclosing implicit takes
   the operator on any type, a basic one included, and an effect's member is a
   member call:
 
   ```
-  (call std.core.string::cmp(read s, "c") < 0)
-  (call main::cmp(read p, read q) < 0)
+  (call cmp@std.core.string(read s, "c") < 0)
+  (call cmp@main(read p, read q) < 0)
   (call local cmp(read a, read b) > 0)     // a forwarded ?cmp, on a T or an Int
   ```
 
@@ -272,9 +276,9 @@ is the call — a struct's `plus`, a forwarded `?plus`, an effect's member.
 no function and is always inline:
 
 ```
-call main::plus(read v, read w)
+call plus@main(read v, read w)
 call local plus(read a, read b)          // a forwarded ?plus
-call std.core.basic::pow(Int, Int)(2, 10)
+call pow(Int, Int)@std.core.basic(2, 10)
 ```
 
 ## Control flow
@@ -287,7 +291,7 @@ begins with a `narrow` that names it:
 ```
 branch#1 cond#0 check#2 (read x is arm 0) {
   narrow#3[check#2] x~1: Int = x
-  return concat("int ", call std.core.basic::to_str(Int)(read x~1))
+  return concat("int ", call to_str(Int)@std.core.basic(read x~1))
 }
 ```
 
@@ -327,7 +331,7 @@ way:
 
 ```
 return branch#4 cond#0 true {
-  bind#1 let __safe~1: P? = read p
+  bind#1 let __safe~1: P@main? = read p
   value switch#2 read __safe~1 { … }
 }
 ```
@@ -342,7 +346,7 @@ special case, `foreach`.
     branch#3 cond#0 !(read at > 0) {
       break
     }
-    assign at = (read at - member main::Clock#0(read clock))
+    assign at = (read at - member now@Clock(read clock))
   }
   ```
 
@@ -352,9 +356,9 @@ special case, `foreach`.
   step. The iterator is minted first:
 
   ```
-  bind#4 let __pass~3: Mut Halving = call main::halving(8)
+  bind#4 let __pass~3: Mut Halving@main = call halving@main(8)
   loop#3 {
-    bind#5 let __step~4: Int | Finished = call main::next(read __pass~3)
+    bind#5 let __step~4: Int | Finished = call next@main(read __pass~3)
     switch#6 read __step~4 {
       arm#0 (arm 0) {
         narrow#7[switch#6.arm#0] __emitted~5: Int = __step~4
@@ -383,26 +387,26 @@ Both backends print a `loop` as their own unconditional loop with the
 A function's effects are its leading parameters, before the `;`:
 
 ```
-fn main::countdown(lent clock: Clock; lent from: Int) -> Int
+fn countdown@main(lent clock: Clock@main; lent from: Int) -> Int
 ```
 
 A call to a function that needs an effect passes the instance the checker
 chose, and a call of an effect member goes through it:
-`member main::Clock#0(read clock)` is member 0 (`now`) of `Clock`. A
+`member now@Clock(read clock)` is the member `now` of `Clock`. A
 `use` becomes a `construct` of the handler and a binding of the instance. A
 stateful handler is wrapped in a `handle`, which lets only one member call in
 at a time:
 
 ```
 bind#3 let __use~3: TickingClock = construct TickingClock { }
-bind#4 let __handle~4: Clock = handle[Clock](read __use~3)
+bind#4 let __handle~4: Clock@main = handle[Clock@main](read __use~3)
 ```
 
 A handler is an `impl`. Its state fields are `state` lines, and its members
 are ordinary function bodies:
 
 ```
-impl TickingClock() of Clock stateful {
+impl TickingClock() of Clock@main stateful {
   state tick: Int = 0
   fn now() -> Int {
     assign tick = (read tick + 5)
@@ -417,10 +421,10 @@ impl TickingClock() of Clock stateful {
 ([Concurrency](Concurrency.md)):
 
 ```
-bind#3 let c: eff[Counter] = spawn[eff[Counter]](construct Tally { }) serves [Counter]
-send main::Counter#0(read c, 2)
+bind#3 let c: eff[Counter@main] = spawn[eff[Counter@main]](construct Tally@main { }) serves [Counter@main]
+send bump@Counter(read c, 2)
 bind#4 let t: Int = waitfor r: Reply<Int> {
-  send main::Counter#1(read c, !read r)
+  send total@Counter(read c, !read r)
 }
 ```
 
@@ -438,11 +442,11 @@ wrote:
   `handler_call` of the member:
 
   ```
-  fn __dispatch_Tally_Counter(lent_mut __handler: Tally, moved __msg: __Msg_Counter) -> None {
+  fn __dispatch_Tally_Counter(lent_mut __handler: Tally@main, moved __msg: __Msg_Counter) -> None {
     switch#1 read __msg {
       arm#0 (arm 0) {
         unpack#2 (by: Int) = __msg as variant 0
-        handler_call main::Counter#0(read __handler, !read by)
+        handler_call bump@Counter(read __handler, !read by)
       }
       …
     }

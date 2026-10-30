@@ -215,37 +215,30 @@ impl<'p> Ctx<'p> {
         self.checked.ty_of(file_idx, span).map(erase)
     }
 
+    /// [dump-spelling] Every declaration's dump name (PIPELINE.md §II.10
+    /// P22): `name@module`, with its parameter types — `to_str(Int)@std.core.basic`
+    /// — when its file declares the name more than once.
     fn compute_names(program: &CoreProgram, decls: &crate::decl_id::DeclIndex) -> HashMap<DeclId, String> {
         let mut out = HashMap::new();
         for (file_idx, (file, module)) in program.files.iter().zip(&program.modules).enumerate() {
-            let _ = file_idx;
             let mut by_name: HashMap<&str, usize> = HashMap::new();
             for item in &module.items {
                 if let Item::Fn(f) = item {
                     *by_name.entry(f.name.name.as_str()).or_default() += 1;
                 }
             }
-            let prefix = file.module.0.join(".");
+            let at = file.module.0.join(".");
             for (item, decl) in module.items.iter().enumerate() {
                 let name = match decl {
-                    Item::Fn(f) => {
-                        if by_name.get(f.name.name.as_str()).copied().unwrap_or(0) > 1 {
-                            let params: Vec<String> = f
-                                .params
-                                .iter()
-                                .filter(|p| !p.implicit)
-                                .map(|p| p.ty.to_string())
-                                .collect();
-                            format!("{prefix}::{}({})", f.name.name, params.join(", "))
-                        } else {
-                            format!("{prefix}::{}", f.name.name)
-                        }
+                    Item::Fn(f) if by_name.get(f.name.name.as_str()).copied().unwrap_or(0) > 1 => {
+                        format!("{}({})@{at}", f.name.name, written_params(&f.params))
                     }
-                    Item::Struct(s) => format!("{prefix}::{}", s.name.name),
-                    Item::Effect(e) => format!("{prefix}::{}", e.name.name),
-                    Item::Handler(h) => format!("{prefix}::{}", h.name.name),
-                    Item::Type(t) => format!("{prefix}::{}", t.name.name),
-                    Item::Qualifier(q) => format!("{prefix}::{}", q.name.name),
+                    Item::Fn(f) => format!("{}@{at}", f.name.name),
+                    Item::Struct(s) => format!("{}@{at}", s.name.name),
+                    Item::Effect(e) => format!("{}@{at}", e.name.name),
+                    Item::Handler(h) => format!("{}@{at}", h.name.name),
+                    Item::Type(t) => format!("{}@{at}", t.name.name),
+                    Item::Qualifier(q) => format!("{}@{at}", q.name.name),
                     _ => continue,
                 };
                 let Some(id) = decls.item(file_idx, item) else { continue };
@@ -253,7 +246,7 @@ impl<'p> Ctx<'p> {
                 if let Item::Qualifier(q) = decl {
                     for (i, f) in q.fns.iter().enumerate() {
                         if let Some(id) = decls.member(file_idx, item, i + 1) {
-                            out.insert(id, format!("{prefix}::{}.{}", q.name.name, f.name.name));
+                            out.insert(id, format!("{}.{}@{at}", q.name.name, f.name.name));
                         }
                     }
                 }
@@ -261,12 +254,47 @@ impl<'p> Ctx<'p> {
         }
         out
     }
+
+    /// [dump-spelling] Every effect member's dump name: `greet@Greeter`, the
+    /// selector Salvo writes, with its parameter types when the effect
+    /// declares the name more than once.
+    fn compute_member_names(program: &CoreProgram, decls: &crate::decl_id::DeclIndex) -> HashMap<(DeclId, usize), String> {
+        let mut out = HashMap::new();
+        for (file_idx, module) in program.modules.iter().enumerate() {
+            for (item, decl) in module.items.iter().enumerate() {
+                let Item::Effect(e) = decl else { continue };
+                let Some(id) = decls.item(file_idx, item) else { continue };
+                for (i, f) in e.fns.iter().enumerate() {
+                    let overloaded = e.fns.iter().filter(|g| g.name.name == f.name.name).count() > 1;
+                    let name = if overloaded {
+                        format!("{}({})@{}", f.name.name, written_params(&f.params), e.name.name)
+                    } else {
+                        format!("{}@{}", f.name.name, e.name.name)
+                    };
+                    out.insert((id, i), name);
+                }
+            }
+        }
+        out
+    }
+}
+
+/// [dump-spelling] A fn's written parameter types, the implicit ones left out.
+fn written_params(params: &[ast::Param]) -> String {
+    params.iter().filter(|p| !p.implicit).map(|p| p.ty.to_string()).collect::<Vec<_>>().join(", ")
 }
 
 impl Program {
-    /// The dump spelling of a declaration reference.
+    /// [dump-spelling] The dump spelling of a declaration reference:
+    /// `name@module` (a generated declaration's own name).
     pub fn ref_name(&self, id: &DeclId) -> String {
-        self.names.get(id).cloned().unwrap_or_else(|| format!("{}::#{}", id.module().0.join("."), id.path().join(".")))
+        self.names.get(id).cloned().unwrap_or_else(|| format!("{}@{}", id.path().join("."), id.module().0.join(".")))
+    }
+
+    /// [dump-spelling] The dump spelling of an effect member, `greet@Greeter`
+    /// (`Effect#index` for one the program does not declare).
+    pub fn member_name(&self, m: &MemberRef) -> String {
+        self.member_names.get(&(m.interface, m.index)).cloned().unwrap_or_else(|| format!("{}#{}", self.ref_name(&m.interface), m.index))
     }
 }
 
@@ -376,7 +404,7 @@ pub fn build_program_gated<'p>(
         v.sort_by_key(|f| f.stamp.span);
     }
     let mut ctx = Ctx { program, symbols, resolution, checked, names: Ctx::compute_names(program, &resolution.decls), decision: Decision::default(), facts_by_decl, gate };
-    let mut out = Program { modules: Vec::new(), names: HashMap::new(), decision: Decision::default() };
+    let mut out = Program { modules: Vec::new(), names: HashMap::new(), member_names: Ctx::compute_member_names(program, &resolution.decls), decision: Decision::default() };
     let mut errors = Vec::new();
     let mut failed: HashSet<(usize, usize)> = HashSet::new();
     let mut built: Vec<usize> = Vec::new();

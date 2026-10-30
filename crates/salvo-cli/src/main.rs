@@ -41,6 +41,17 @@ struct Cli {
     verbose: bool,
 }
 
+/// [cli-dump] The phase `salvo dump` prints the output of (PIPELINE.md P7).
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum Phase {
+    /// Each file's text with what resolution bound every written name to:
+    /// `Point@app.shapes` for a declaration of another module, `show@app.svc`
+    /// or `greet@Greeter` for a callee, `p#{12:9}` for a variable (where its
+    /// binding is written), `#{@a, @b}` for a name several declarations
+    /// answer, `#{???}` for a name nothing does. std's own names stay bare.
+    Resolve,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Format {
     /// Human-readable diagnostics with caret underlines (stderr).
@@ -199,6 +210,22 @@ enum Command {
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
     },
+    /// Print a phase's output for the program's modules [cli-dump]: every user
+    /// module, `--module` alone, or with `--all` every module the program
+    /// reaches (std included) with every name's candidates listed in full.
+    Dump {
+        /// The phase whose output is printed.
+        #[arg(long, value_enum)]
+        phase: Phase,
+        #[arg(long)]
+        src: Option<PathBuf>,
+        /// Every module and every candidate.
+        #[arg(long)]
+        all: bool,
+        /// Dump only this module (dotted path).
+        #[arg(long)]
+        module: Option<String>,
+    },
     /// Print the IR of the program's modules [cli-ir]: the decided form the
     /// backends read (IR record). Every user module, or with `--all` every module
     /// the program reaches (std included).
@@ -312,6 +339,7 @@ fn main() -> ExitCode {
         Command::Analyze { src, format } => analyze(src, format),
         Command::Ir { src, all, module } => ir_command(src, all, module),
         Command::Facts { src, module } => facts_command(src, module),
+        Command::Dump { phase, src, all, module } => dump_command(phase, src, all, module),
         Command::Test {
             backend,
             src,
@@ -578,6 +606,54 @@ fn facts_command(src: Option<PathBuf>, module: Option<String>) -> ExitCode {
     };
     print!("{}", salvo_core::facts::dump(&program, &symbols, &checked, &wanted));
     for line in salvo_core::diag::render_shown(checked.errors.iter().filter(|d| d.is_error() && wanted(d.file)), &program.files) {
+        eprintln!("{line}");
+    }
+    ExitCode::SUCCESS
+}
+
+/// [cli-dump] [dump-resolve] Prints a phase's output for the wanted modules;
+/// the program's errors there go to stderr (a dump shows what the phase
+/// made of a program, a broken one included).
+fn dump_command(phase: Phase, src: Option<PathBuf>, all: bool, module: Option<String>) -> ExitCode {
+    let inputs = match resolve_inputs(src, None, None, "rust", false) {
+        Ok(i) => i,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let analysis = match analysis::analyze_sources(&inputs.layout.src, inputs.project.clone(), "", &Default::default()) {
+        Ok(a) => a,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let program = &analysis.program;
+    let wanted = |f: usize| {
+        let file = &program.files[f];
+        match &module {
+            Some(m) => file.module.0.join(".") == *m,
+            None => all || !file.is_std,
+        }
+    };
+    match phase {
+        Phase::Resolve => {
+            let symbols = salvo_core::Symbols::collect(program);
+            let resolution = salvo_core::resolve(program);
+            let mut first = true;
+            for f in (0..program.files.len()).filter(|f| wanted(*f)) {
+                if !first {
+                    println!();
+                }
+                first = false;
+                let file = &program.files[f];
+                println!("// {} — module {}", file.name, file.module);
+                print!("{}", salvo_core::names::dump::dump_file(program, &resolution, &symbols, f, all));
+            }
+        }
+    }
+    for line in salvo_core::diag::render_shown(analysis.diagnostics.iter().filter(|d| d.is_error() && wanted(d.file)), &program.files) {
         eprintln!("{line}");
     }
     ExitCode::SUCCESS

@@ -697,7 +697,7 @@ fn the_flow_pass_decides_the_modes_and_the_ir_follows() {
     assert_eq!(ir.decision.decided.len(), 3, "{:?}", ir.decision);
     let module = ir.modules.iter().find(|m| m.file_name == "pipeline.sv").unwrap();
     let dump = salvo_core::ir::dump::Dumper::module(&ir, module);
-    for want in ["foreach#2 person: Person in !read persons", "let name: Str = !read person.name", "assign longest = !read name"] {
+    for want in ["foreach#2 person: Person@pipeline in !read persons", "let name: Str = !read person.name", "assign longest = !read name"] {
         assert!(dump.contains(want), "missing `{want}`:\n{dump}");
     }
     // Before the IR's decision every link is presented; after, none a

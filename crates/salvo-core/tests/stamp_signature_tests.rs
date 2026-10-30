@@ -103,7 +103,7 @@ fn plain() [] -> Str {
     // (That it checks clean, and that `between = ` is refused, is
     // `check/stamp_signature/names.sv`.)
     let dump = ir(&[("derive.sv", LABEL), ("main.sv", main)]);
-    assert!(dump.contains("fn main::label(lent value: P, lent sep: Str)"), "{dump}");
+    assert!(dump.contains("fn label@main(lent value: P@main, lent sep: Str)"), "{dump}");
     assert!(dump.contains("value.x") && !dump.contains("between"), "{dump}");
     // The declared default, not the template's.
     assert!(dump.contains(r#"y: "a" }, " ")"#), "{dump}");
@@ -134,8 +134,8 @@ fn probe(p: P, q: P) [] -> Long {
 "#;
     // (That it checks clean is `check/stamp_signature/written.sv`.)
     let dump = ir(&[("main.sv", src)]);
-    assert!(dump.contains("fn main::hash(lent h: P)") && dump.contains("h.x") && dump.contains("h__p"), "{dump}");
-    assert!(dump.contains("fn main::eq(lent left: P, lent right: P)") && dump.contains("left.x"), "{dump}");
+    assert!(dump.contains("fn hash@main(lent h: P@main)") && dump.contains("h.x") && dump.contains("h__p"), "{dump}");
+    assert!(dump.contains("fn eq@main(lent left: P@main, lent right: P@main)") && dump.contains("left.x"), "{dump}");
 }
 
 /// [comptime-generic] [obligation-by] At a generic target the member's
@@ -165,7 +165,7 @@ fn probe() [] -> Int {
 "#;
     // (That it checks clean is `check/stamp_signature/generic.sv`.)
     let dump = ir(&[("derive.sv", derive), ("main.sv", main)]);
-    assert!(dump.contains("fn main::cmp<T>(lent a: W<T>, lent b: W<T>; ?lent cmp: (T, T) -> Int)"), "{dump}");
+    assert!(dump.contains("fn cmp@main<T>(lent a: W@main<T>, lent b: W@main<T>; ?lent cmp: (T, T) -> Int)"), "{dump}");
     assert!(dump.contains("a.item") && !dump.contains("x.item"), "{dump}");
 }
 
@@ -248,7 +248,7 @@ struct P : Ordered<self> {
 }
 "#;
     let dump = ir(&[("main.sv", renamed)]);
-    assert!(dump.contains("fn main::cmp(lent first: P, lent b: P)") && dump.contains("first.x"), "{dump}");
+    assert!(dump.contains("fn cmp@main(lent first: P@main, lent b: P@main)") && dump.contains("first.x"), "{dump}");
 }
 
 /// [obligation-by] [fn-by] The same capture through a clause: the group's
@@ -276,5 +276,5 @@ struct Q : Ranked<self> by auto { y: Int }
     let renamed = src.replace("cmp(cmp: T", "cmp(one: T");
     assert!(errors(&renamed).is_empty(), "{:?}", errors(&renamed));
     let dump = ir(&[("main.sv", &renamed)]);
-    assert!(dump.contains("fn main::cmp(lent one: Q, lent other: Q)") && dump.contains("one.y"), "{dump}");
+    assert!(dump.contains("fn cmp@main(lent one: Q@main, lent other: Q@main)") && dump.contains("one.y"), "{dump}");
 }

@@ -4,16 +4,16 @@ expression: text
 ---
 module main
 
-fn main::verdict(lent started: Tick, lent at: Tick, lent budget: Duration) -> Str {
-  bind#1 let took: Duration = call std.time::between(Tick, Tick)(read started, read at)
-  branch#2 cond#0 (call std.time::cmp(Duration, Duration)(read took, read budget) > 0) {
-    return concat("late by ", call std.time::to_str(call std.time::minus(Duration, Duration)(read took, read budget)))
+fn verdict@main(lent started: Tick, lent at: Tick, lent budget: Duration) -> Str {
+  bind#1 let took: Duration = call between(Tick, Tick)@std.time(read started, read at)
+  branch#2 cond#0 (call cmp(Duration, Duration)@std.time(read took, read budget) > 0) {
+    return concat("late by ", call to_str@std.time(call minus(Duration, Duration)@std.time(read took, read budget)))
   }
-  return concat("in time, ", call std.time::to_str(call std.time::minus(Duration, Duration)(read budget, read took)), " to spare")
+  return concat("in time, ", call to_str@std.time(call minus(Duration, Duration)@std.time(read budget, read took)), " to spare")
 }
 
-fn main::overdue(lent ticker: Ticker; lent started: Tick, lent budget: Duration) -> Bool {
-  return (call std.time::cmp(Duration, Duration)(call std.time::elapsed(read ticker, read started), read budget) > 0)
+fn overdue@main(lent ticker: Ticker; lent started: Tick, lent budget: Duration) -> Bool {
+  return (call cmp(Duration, Duration)@std.time(call elapsed@std.time(read ticker, read started), read budget) > 0)
 }
 
 impl SteppingTicker(lent step: Duration) of Ticker stateful {
@@ -29,15 +29,15 @@ actor interface Session {
   send fn expire(moved started: Tick, moved budget: Duration, moved out: Reply<Str>, moved f: Fired) -> None
 }
 
-impl Sessions() of Session deps [Timer] stateful {
+impl Sessions() of Session@main deps [Timer] stateful {
   mailbox construct Mailbox { capacity: 8 }
   fn open(lent started: Tick, lent budget: Duration, lent out: Reply<Str>) -> None {
     obligation release [out]
-    member std.time::Timer#0(read __dep0, call std.time::plus(Duration, Duration)(read budget, call std.time::seconds(1L)), replyto expire(!read started, !read budget, !read out))
+    member after@Timer(read __dep0, call plus(Duration, Duration)@std.time(read budget, call seconds@std.time(1L)), replyto expire(!read started, !read budget, !read out))
   }
   fn expire(lent started: Tick, lent budget: Duration, lent out: Reply<Str>, lent f: Fired) -> None {
     obligation release [out]
-    call std.core.actor::send<Str>(!read out, call main::verdict(read started, read f.at, read budget))
+    call send@std.core.actor<Str>(!read out, call verdict@main(read started, read f.at, read budget))
   }
 }
 
@@ -46,7 +46,7 @@ impl TestTicker(lent timer: eff[Timer]) of Ticker {
     bind#1 let fired: Fired = waitfor answer: Reply<Fired> {
       obligation gain [answer]
       obligation release [answer]
-      send std.time::Timer#0(read timer, call std.time::nanos(0L), !read answer)
+      send after@Timer(read timer, call nanos@std.time(0L), !read answer)
     }
     return read fired.at
   }
@@ -57,67 +57,67 @@ actor interface Sleeper {
   send fn woke(moved started: Tick, moved out: Reply<Str>, moved f: Fired) -> None
 }
 
-impl Napping() of Sleeper deps [Timer, Ticker] stateful {
+impl Napping() of Sleeper@main deps [Timer, Ticker] stateful {
   mailbox construct Mailbox { capacity: 8 }
   fn nap(lent wait: Duration, lent out: Reply<Str>) -> None {
     obligation release [out]
-    member std.time::Timer#0(read __dep0, !read wait, replyto woke(member std.time::Ticker#0(read __dep1), !read out))
+    member after@Timer(read __dep0, !read wait, replyto woke(member tick@Ticker(read __dep1), !read out))
   }
   fn woke(lent started: Tick, lent out: Reply<Str>, lent f: Fired) -> None {
     obligation release [out]
-    call std.core.actor::send<Str>(!read out, concat("napped ", call std.time::to_str(call std.time::elapsed(read __dep1, read started))))
+    call send@std.core.actor<Str>(!read out, concat("napped ", call to_str@std.time(call elapsed@std.time(read __dep1, read started))))
   }
 }
 
-fn main::main() -> None {
+fn main@main() -> None {
   bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
-  bind#3 let budget: Duration = call std.time::millis(1500L)
-  call std.core.console::println(read __handle~2, concat("budget ", call std.time::to_str(read budget), ", doubled ", call std.time::to_str(call std.time::times(read budget, 2L)), ", in millis ", call std.core.basic::to_str(Long)(call std.time::to_millis(read budget))))
-  bind#4 let stamp: Instant = call std.time::epoch_milli(1700000000000L)
-  call std.core.console::println(read __handle~2, concat("stamp ", call std.core.basic::to_str(Long)(call std.time::to_epoch_second(read stamp)), "s, a minute later ", call std.core.basic::to_str(Long)(call std.time::to_epoch_second(call std.time::plus(Instant, Duration)(read stamp, call std.time::minutes(1L)))), "s"))
+  bind#3 let budget: Duration = call millis@std.time(1500L)
+  call println@std.core.console(read __handle~2, concat("budget ", call to_str@std.time(read budget), ", doubled ", call to_str@std.time(call times@std.time(read budget, 2L)), ", in millis ", call to_str(Long)@std.core.basic(call to_millis@std.time(read budget))))
+  bind#4 let stamp: Instant = call epoch_milli@std.time(1700000000000L)
+  call println@std.core.console(read __handle~2, concat("stamp ", call to_str(Long)@std.core.basic(call to_epoch_second@std.time(read stamp)), "s, a minute later ", call to_str(Long)@std.core.basic(call to_epoch_second@std.time(call plus(Instant, Duration)@std.time(read stamp, call minutes@std.time(1L)))), "s"))
   bind#5 let __use~3: DefaultClock = construct DefaultClock { }
   bind#6 let __handle~4: Clock = handle[Clock](read __use~3)
   bind#7 let __use~5: DefaultTicker = construct DefaultTicker { }
   bind#8 let __handle~6: Ticker = handle[Ticker](read __use~5)
-  call std.core.console::println(read __handle~2, concat("wall clock is set: ", call std.core.basic::to_str(Bool)((call std.time::to_epoch_second(member std.time::Clock#0(read __handle~4)) > 1600000000L))))
-  bind#9 let __use~7: SteppingTicker = construct SteppingTicker { step: call std.time::millis(500L) }
+  call println@std.core.console(read __handle~2, concat("wall clock is set: ", call to_str(Bool)@std.core.basic((call to_epoch_second@std.time(member now@Clock(read __handle~4)) > 1600000000L))))
+  bind#9 let __use~7: SteppingTicker@main = construct SteppingTicker@main { step: call millis@std.time(500L) }
   bind#10 let __handle~8: Ticker = handle[Ticker](read __use~7)
-  bind#11 let started: Tick = member std.time::Ticker#0(read __handle~8)
-  call std.core.console::println(read __handle~2, concat("overdue after one more read: ", call std.core.basic::to_str(Bool)(call main::overdue(read __handle~8, read started, read budget))))
-  call std.core.console::println(read __handle~2, concat("overdue after three: ", call std.core.basic::to_str(Bool)(call main::overdue(read __handle~8, read started, read budget)), " ", call std.core.basic::to_str(Bool)(call main::overdue(read __handle~8, read started, read budget)), " ", call std.core.basic::to_str(Bool)(call main::overdue(read __handle~8, read started, read budget))))
-  call std.core.console::println(read __handle~2, call main::verdict(construct Tick { nanos: 0L }, construct Tick { nanos: 1000000000L }, read budget))
-  call std.core.console::println(read __handle~2, call main::verdict(construct Tick { nanos: 0L }, construct Tick { nanos: 2000000000L }, read budget))
-  bind#12 let p: Pool = call std.core.actor::pool(Int)(1)
+  bind#11 let started: Tick = member tick@Ticker(read __handle~8)
+  call println@std.core.console(read __handle~2, concat("overdue after one more read: ", call to_str(Bool)@std.core.basic(call overdue@main(read __handle~8, read started, read budget))))
+  call println@std.core.console(read __handle~2, concat("overdue after three: ", call to_str(Bool)@std.core.basic(call overdue@main(read __handle~8, read started, read budget)), " ", call to_str(Bool)@std.core.basic(call overdue@main(read __handle~8, read started, read budget)), " ", call to_str(Bool)@std.core.basic(call overdue@main(read __handle~8, read started, read budget))))
+  call println@std.core.console(read __handle~2, call verdict@main(construct Tick { nanos: 0L }, construct Tick { nanos: 1000000000L }, read budget))
+  call println@std.core.console(read __handle~2, call verdict@main(construct Tick { nanos: 0L }, construct Tick { nanos: 2000000000L }, read budget))
+  bind#12 let p: Pool = call pool(Int)@std.core.actor(1)
   bind#13 let __destructured~9: (eff[Timer], eff[TimerCtl]) = spawn[(eff[Timer], eff[TimerCtl])](construct ManualTime { }, on: read p) serves [Timer, TimerCtl]
   bind#14 let timer: eff[Timer] = !read __destructured~9.0
   bind#15 let ctl: eff[TimerCtl] = !read __destructured~9.1
-  bind#16 let sessions: eff[Session] = spawn[eff[Session]](construct Sessions { __dep0: instance_at(read timer) }, on: read p) serves [Session]
+  bind#16 let sessions: eff[Session@main] = spawn[eff[Session@main]](construct Sessions@main { __dep0: instance_at(read timer) }, on: read p) serves [Session@main]
   bind#17 let outcome: Str = waitfor answer: Reply<Str> {
     obligation gain [answer]
     obligation release [answer]
-    send main::Session#0(read sessions, construct Tick { nanos: 0L }, !read budget, !read answer)
+    send open@Session(read sessions, construct Tick { nanos: 0L }, !read budget, !read answer)
     waitfor settled: Reply<Idle> {
       obligation gain [settled]
       obligation release [settled]
-      call std.core.actor::on_idle(read p, !read settled)
+      call on_idle@std.core.actor(read p, !read settled)
     }
-    send std.time::TimerCtl#0(read ctl, call std.time::millis(2500L))
+    send advance@TimerCtl(read ctl, call millis@std.time(2500L))
   }
-  call std.core.console::println(read __handle~2, concat("session: ", read outcome))
-  bind#18 let sleeper: eff[Sleeper] = spawn[eff[Sleeper]](construct Napping { __dep0: instance_at(read timer), __dep1: handle[Ticker](construct TestTicker { timer: !read timer }) }, on: call std.core.actor::thread()) serves [Sleeper]
+  call println@std.core.console(read __handle~2, concat("session: ", read outcome))
+  bind#18 let sleeper: eff[Sleeper@main] = spawn[eff[Sleeper@main]](construct Napping@main { __dep0: instance_at(read timer), __dep1: handle[Ticker](construct TestTicker@main { timer: !read timer }) }, on: call thread@std.core.actor()) serves [Sleeper@main]
   bind#19 let napped: Str = waitfor answer: Reply<Str> {
     obligation gain [answer]
     obligation release [answer]
-    send main::Sleeper#0(read sleeper, call std.time::seconds(2L), !read answer)
+    send nap@Sleeper(read sleeper, call seconds@std.time(2L), !read answer)
     waitfor settled: Reply<Idle> {
       obligation gain [settled]
       obligation release [settled]
-      call std.core.actor::on_idle(read p, !read settled)
+      call on_idle@std.core.actor(read p, !read settled)
     }
-    send std.time::TimerCtl#0(read ctl, call std.time::seconds(2L))
+    send advance@TimerCtl(read ctl, call seconds@std.time(2L))
   }
-  call std.core.console::println(read __handle~2, read napped)
+  call println@std.core.console(read __handle~2, read napped)
 }
 
 enum __Msg_Session [proto 7ed70285b7e6568c] {
@@ -140,62 +140,62 @@ enum __Cont_Napping {
   Woke(started: Tick, out: Reply<Str>)
 }
 
-impl __Stub_Session(moved addr: eff[Session]) of Session {
+impl __Stub_Session(moved addr: eff[Session@main]) of Session@main {
   fn open(moved started: Tick, moved budget: Duration, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
-    send main::Session#0(read addr, !read started, !read budget, !read out)
+    send open@Session(read addr, !read started, !read budget, !read out)
   }
   fn expire(moved started: Tick, moved budget: Duration, moved out: Reply<Str>, moved f: Fired) -> None {
     obligation gain-params [out]
     obligation release [out]
-    send main::Session#1(read addr, !read started, !read budget, !read out, !read f)
+    send expire@Session(read addr, !read started, !read budget, !read out, !read f)
   }
 }
 
-impl __Stub_Sleeper(moved addr: eff[Sleeper]) of Sleeper {
+impl __Stub_Sleeper(moved addr: eff[Sleeper@main]) of Sleeper@main {
   fn nap(moved wait: Duration, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
-    send main::Sleeper#0(read addr, !read wait, !read out)
+    send nap@Sleeper(read addr, !read wait, !read out)
   }
   fn woke(moved started: Tick, moved out: Reply<Str>, moved f: Fired) -> None {
     obligation gain-params [out]
     obligation release [out]
-    send main::Sleeper#1(read addr, !read started, !read out, !read f)
+    send woke@Sleeper(read addr, !read started, !read out, !read f)
   }
 }
 
-fn __dispatch_Sessions_Session(lent_mut __handler: Sessions, moved __msg: __Msg_Session) -> None {
+fn __dispatch_Sessions_Session(lent_mut __handler: Sessions@main, moved __msg: __Msg_Session@main) -> None {
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (started: Tick, budget: Duration, out: Reply<Str>) = __msg as variant 0
       obligation gain [out]
       obligation release [out]
-      handler_call main::Session#0(read __handler, !read started, !read budget, !read out)
+      handler_call open@Session(read __handler, !read started, !read budget, !read out)
     }
     arm#1 (arm 1) {
       unpack#3 (started: Tick, budget: Duration, out: Reply<Str>, f: Fired) = __msg as variant 1
       obligation gain [out]
       obligation release [out]
-      handler_call main::Session#1(read __handler, !read started, !read budget, !read out, !read f)
+      handler_call expire@Session(read __handler, !read started, !read budget, !read out, !read f)
     }
   }
 }
 
-fn __dispatch_Napping_Sleeper(lent_mut __handler: Napping, moved __msg: __Msg_Sleeper) -> None {
+fn __dispatch_Napping_Sleeper(lent_mut __handler: Napping@main, moved __msg: __Msg_Sleeper@main) -> None {
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (wait: Duration, out: Reply<Str>) = __msg as variant 0
       obligation gain [out]
       obligation release [out]
-      handler_call main::Sleeper#0(read __handler, !read wait, !read out)
+      handler_call nap@Sleeper(read __handler, !read wait, !read out)
     }
     arm#1 (arm 1) {
       unpack#3 (started: Tick, out: Reply<Str>, f: Fired) = __msg as variant 1
       obligation gain [out]
       obligation release [out]
-      handler_call main::Sleeper#1(read __handler, !read started, !read out, !read f)
+      handler_call woke@Sleeper(read __handler, !read started, !read out, !read f)
     }
   }
 }

@@ -9,7 +9,7 @@ actor interface Counter {
   send fn total(moved out: Reply<Int>) -> None
 }
 
-impl Counting() of Counter stateful {
+impl Counting() of Counter@main stateful {
   mailbox construct Mailbox { capacity: 8 }
   state sum: Int = 0
   fn bump(lent n: Int) -> None {
@@ -17,7 +17,7 @@ impl Counting() of Counter stateful {
   }
   fn total(lent out: Reply<Int>) -> None {
     obligation release [out]
-    call std.core.actor::send<Int>(!read out, !read sum)
+    call send@std.core.actor<Int>(!read out, !read sum)
   }
 }
 
@@ -26,15 +26,15 @@ actor interface Ledger {
   send fn reported(moved label: Str, moved out: Reply<Str>, lent total: Int) -> None
 }
 
-impl Bookkeeping() of Ledger deps [Counter] stateful {
+impl Bookkeeping() of Ledger@main deps [Counter@main] stateful {
   mailbox construct Mailbox { capacity: 4 }
   fn report(lent label: Str, lent out: Reply<Str>) -> None {
     obligation release [out]
-    member main::Counter#1(read __dep0, replyto reported(!read label, !read out))
+    member total@Counter(read __dep0, replyto reported(!read label, !read out))
   }
   fn reported(lent label: Str, lent out: Reply<Str>, lent total: Int) -> None {
     obligation release [out]
-    call std.core.actor::send<Str>(!read out, concat(read label, "=", call std.core.basic::to_str(Int)(read total)))
+    call send@std.core.actor<Str>(!read out, concat(read label, "=", call to_str(Int)@std.core.basic(read total)))
   }
 }
 
@@ -44,15 +44,15 @@ actor interface Desk {
   send fn close_up(moved reason: Str) -> None
 }
 
-impl Desking(lent room: Int) of Desk stateful {
+impl Desking(lent room: Int) of Desk@main stateful {
   mailbox construct Mailbox { capacity: read room }
-  state waiting: Mut Deque<Reply<Str>> = call std.core.deque::mut_deque_of()<Reply<Str>>()
+  state waiting: Mut Deque<Reply<Str>> = call mut_deque_of()@std.core.deque<Reply<Str>>()
   fn ticket(lent out: Reply<Str>) -> None {
     obligation release [out]
-    call std.core.deque::add_last<Reply<Str>>(read waiting, !read out)
+    call add_last@std.core.deque<Reply<Str>>(read waiting, !read out)
   }
   fn serve(lent name: Str) -> None {
-    bind#1 let next: Reply<Str>? = call std.core.deque::remove_first<Reply<Str>>(read waiting)
+    bind#1 let next: Reply<Str>? = call remove_first@std.core.deque<Reply<Str>>(read waiting)
     obligation gain [next.arms{0}]
     switch#2 read next {
       arm#0 (arm 0) {
@@ -60,10 +60,10 @@ impl Desking(lent room: Int) of Desk stateful {
         obligation discharge [next.arms{0}]
         obligation gain [next~1]
         obligation release [next~1]
-        call std.core.actor::send<Str>(!read next~1, concat("served ", read name))
+        call send@std.core.actor<Str>(!read next~1, concat("served ", read name))
       }
       arm#1 (none) {
-        call std.core.basic::discard<Str>(!read name)
+        call discard@std.core.basic<Str>(!read name)
       }
       arm#2 (else) {
         unreachable("unhandled union arm") at main:118:9
@@ -72,10 +72,10 @@ impl Desking(lent room: Int) of Desk stateful {
   }
   fn close_up(lent reason: Str) -> None {
     obligation release [waiting]
-    call std.core.deque::drain<Reply<Str>>(drop_mut(!read waiting), lambda(lent r: Reply<Str>) -> None captures [reason] {
-      value call std.core.actor::send<Str>(!read r, concat("closed: ", read reason))
+    call drain@std.core.deque<Reply<Str>>(drop_mut(!read waiting), lambda(lent r: Reply<Str>) -> None captures [reason] {
+      value call send@std.core.actor<Str>(!read r, concat("closed: ", read reason))
     })
-    assign waiting = call std.core.deque::mut_deque_of()<Reply<Str>>()
+    assign waiting = call mut_deque_of()@std.core.deque<Reply<Str>>()
   }
 }
 
@@ -83,12 +83,12 @@ actor interface Fragile {
   send fn crash() -> None
 }
 
-impl Breaking() of Fragile {
+impl Breaking() of Fragile@main {
   mailbox construct Mailbox { capacity: 1 }
   fn crash() -> None {
-    bind#1 let empty: List<Int> = call std.core.list::List()<Int>()
+    bind#1 let empty: List<Int> = call List()@std.core.list<Int>()
     bind#8 let boom: Int = branch#7 cond#0 true {
-      bind#2 let __pick~1: Int? = call std.core.list::get(List<T>, Int)<Int>(read empty, 7)
+      bind#2 let __pick~1: Int? = call get(List<T>, Int)@std.core.list<Int>(read empty, 7)
       value branch#3 cond#0 check#6 (read __pick~1 is arm 0) {
         narrow#4[branch#3.cond#0] __picked~2: Int = __pick~1
         value !read __picked~2
@@ -96,92 +96,92 @@ impl Breaking() of Fragile {
         value unreachable() at main:149:37
       }
     }
-    call std.core.basic::discard<Int>(!read boom)
+    call discard@std.core.basic<Int>(!read boom)
   }
 }
 
-fn main::formatted(moved label: Str, moved out: Reply<Str>, moved total: Int) -> None {
+fn formatted@main(moved label: Str, moved out: Reply<Str>, moved total: Int) -> None {
   obligation gain-params [out]
   obligation release [out]
-  call std.core.actor::send<Str>(!read out, concat(read label, " totalled ", call std.core.basic::to_str(Int)(read total)))
+  call send@std.core.actor<Str>(!read out, concat(read label, " totalled ", call to_str(Int)@std.core.basic(read total)))
 }
 
-fn main::report_line(moved counter: eff[Counter], moved label: Str, moved out: Reply<Str>) -> None {
+fn report_line@main(moved counter: eff[Counter@main], moved label: Str, moved out: Reply<Str>) -> None {
   obligation gain-params [out]
   obligation release [out]
-  send main::Counter#1(read counter, replyto task main::formatted(!read label, !read out))
+  send total@Counter(read counter, replyto task formatted@main(!read label, !read out))
 }
 
-fn main::main() -> None {
+fn main@main() -> None {
   bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
-  bind#3 let workers: Pool = call std.core.actor::pool(Int)(2)
-  bind#4 let counter: eff[Counter] = spawn[eff[Counter]](construct Counting { }, on: read workers) serves [Counter]
-  send main::Counter#0(read counter, 2)
-  send main::Counter#0(read counter, 3)
+  bind#3 let workers: Pool = call pool(Int)@std.core.actor(2)
+  bind#4 let counter: eff[Counter@main] = spawn[eff[Counter@main]](construct Counting@main { }, on: read workers) serves [Counter@main]
+  send bump@Counter(read counter, 2)
+  send bump@Counter(read counter, 3)
   bind#5 let sum: Int = waitfor out: Reply<Int> {
     obligation gain [out]
     obligation release [out]
-    send main::Counter#1(read counter, !read out)
+    send total@Counter(read counter, !read out)
   }
-  call std.core.console::println(read __handle~2, concat("1. counter total is ", call std.core.basic::to_str(Int)(read sum)))
-  bind#6 let ledger: eff[Ledger] = spawn[eff[Ledger]](construct Bookkeeping { __dep0: instance_at(read counter) }, on: read workers) serves [Ledger]
+  call println@std.core.console(read __handle~2, concat("1. counter total is ", call to_str(Int)@std.core.basic(read sum)))
+  bind#6 let ledger: eff[Ledger@main] = spawn[eff[Ledger@main]](construct Bookkeeping@main { __dep0: instance_at(read counter) }, on: read workers) serves [Ledger@main]
   bind#7 let line: Str = waitfor out: Reply<Str> {
     obligation gain [out]
     obligation release [out]
-    send main::Ledger#0(read ledger, "counter", !read out)
+    send report@Ledger(read ledger, "counter", !read out)
   }
-  call std.core.console::println(read __handle~2, concat("3. ledger says ", read line))
-  bind#8 let desk: eff[Desk] = spawn[eff[Desk]](construct Desking { room: 8 }, on: read workers) serves [Desk]
+  call println@std.core.console(read __handle~2, concat("3. ledger says ", read line))
+  bind#8 let desk: eff[Desk@main] = spawn[eff[Desk@main]](construct Desking@main { room: 8 }, on: read workers) serves [Desk@main]
   bind#10 let first: Str = waitfor a: Reply<Str> {
     obligation gain [a]
     obligation release [a]
-    send main::Desk#0(read desk, !read a)
+    send ticket@Desk(read desk, !read a)
     bind#9 let second: Str = waitfor b: Reply<Str> {
       obligation gain [b]
       obligation release [b]
-      send main::Desk#0(read desk, !read b)
-      send main::Desk#1(read desk, "ada")
-      send main::Desk#2(read desk, "end of day")
+      send ticket@Desk(read desk, !read b)
+      send serve@Desk(read desk, "ada")
+      send close_up@Desk(read desk, "end of day")
     }
-    call std.core.console::println(read __handle~2, concat("4. second waiter got: ", read second))
+    call println@std.core.console(read __handle~2, concat("4. second waiter got: ", read second))
   }
-  call std.core.console::println(read __handle~2, concat("4. first waiter got: ", read first))
-  bind#11 let fragile: eff[Fragile] = spawn[eff[Fragile]](construct Breaking { }, on: read workers) serves [Fragile]
+  call println@std.core.console(read __handle~2, concat("4. first waiter got: ", read first))
+  bind#11 let fragile: eff[Fragile@main] = spawn[eff[Fragile@main]](construct Breaking@main { }, on: read workers) serves [Fragile@main]
   bind#12 let exit: Exit = waitfor gone: Reply<Exit> {
     obligation gain [gone]
     obligation release [gone]
-    call std.core.actor::watch<Fragile>(read fragile, !read gone)
-    send main::Fragile#0(read fragile)
+    call watch@std.core.actor<Fragile@main>(read fragile, !read gone)
+    send crash@Fragile(read fragile)
   }
-  call std.core.console::println(read __handle~2, concat("5. it died with a reason: ", call std.core.basic::to_str(Bool)((call std.core.string::size(read exit.reason) > 0))))
-  send main::Fragile#0(read fragile)
-  bind#13 let __use~3: Counting = construct Counting { }
-  bind#14 let __handle~4: Counter = handle[Counter](read __use~3)
-  member main::Counter#0(read __handle~4, 4)
-  member main::Counter#0(read __handle~4, 5)
+  call println@std.core.console(read __handle~2, concat("5. it died with a reason: ", call to_str(Bool)@std.core.basic((call size@std.core.string(read exit.reason) > 0))))
+  send crash@Fragile(read fragile)
+  bind#13 let __use~3: Counting@main = construct Counting@main { }
+  bind#14 let __handle~4: Counter@main = handle[Counter@main](read __use~3)
+  member bump@Counter(read __handle~4, 4)
+  member bump@Counter(read __handle~4, 5)
   bind#15 let inline: Int = waitfor out: Reply<Int> {
     obligation gain [out]
     obligation release [out]
-    member main::Counter#1(read __handle~4, !read out)
+    member total@Counter(read __handle~4, !read out)
   }
-  call std.core.console::println(read __handle~2, concat("6. inline total is ", call std.core.basic::to_str(Int)(read inline)))
-  bind#16 let solo: Pool = call std.core.actor::pool(Int)(1)
-  bind#17 let mine: eff[Counter] = spawn[eff[Counter]](construct Counting { }, on: read solo) serves [Counter]
-  send main::Counter#0(read mine, 6)
+  call println@std.core.console(read __handle~2, concat("6. inline total is ", call to_str(Int)@std.core.basic(read inline)))
+  bind#16 let solo: Pool = call pool(Int)@std.core.actor(1)
+  bind#17 let mine: eff[Counter@main] = spawn[eff[Counter@main]](construct Counting@main { }, on: read solo) serves [Counter@main]
+  send bump@Counter(read mine, 6)
   bind#18 let local: Int = waitfor out: Reply<Int> {
     obligation gain [out]
     obligation release [out]
-    send main::Counter#1(read mine, !read out)
+    send total@Counter(read mine, !read out)
   }
-  call std.core.console::println(read __handle~2, concat("7. the solo pool's own actor totalled ", call std.core.basic::to_str(Int)(read local)))
+  call println@std.core.console(read __handle~2, concat("7. the solo pool's own actor totalled ", call to_str(Int)@std.core.basic(read local)))
   bind#19 let line8: Str = waitfor out: Reply<Str> {
     obligation gain [out]
     obligation release [out]
-    call main::report_line(!read mine, "the counter", !read out)
+    call report_line@main(!read mine, "the counter", !read out)
   }
-  call std.core.console::println(read __handle~2, concat("8. ", read line8))
-  call std.core.console::println(read __handle~2, "done")
+  call println@std.core.console(read __handle~2, concat("8. ", read line8))
+  call println@std.core.console(read __handle~2, "done")
 }
 
 enum __Msg_Counter [proto f39d50f9ee8f9923] {
@@ -223,106 +223,106 @@ enum __Cont_Desking {
 enum __Cont_Breaking {
 }
 
-impl __Stub_Counter(moved addr: eff[Counter]) of Counter {
+impl __Stub_Counter(moved addr: eff[Counter@main]) of Counter@main {
   fn bump(lent n: Int) -> None {
-    send main::Counter#0(read addr, !read n)
+    send bump@Counter(read addr, !read n)
   }
   fn total(moved out: Reply<Int>) -> None {
     obligation gain-params [out]
     obligation release [out]
-    send main::Counter#1(read addr, !read out)
+    send total@Counter(read addr, !read out)
   }
 }
 
-impl __Stub_Ledger(moved addr: eff[Ledger]) of Ledger {
+impl __Stub_Ledger(moved addr: eff[Ledger@main]) of Ledger@main {
   fn report(moved label: Str, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
-    send main::Ledger#0(read addr, !read label, !read out)
+    send report@Ledger(read addr, !read label, !read out)
   }
   fn reported(moved label: Str, moved out: Reply<Str>, lent total: Int) -> None {
     obligation gain-params [out]
     obligation release [out]
-    send main::Ledger#1(read addr, !read label, !read out, !read total)
+    send reported@Ledger(read addr, !read label, !read out, !read total)
   }
 }
 
-impl __Stub_Desk(moved addr: eff[Desk]) of Desk {
+impl __Stub_Desk(moved addr: eff[Desk@main]) of Desk@main {
   fn ticket(moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
-    send main::Desk#0(read addr, !read out)
+    send ticket@Desk(read addr, !read out)
   }
   fn serve(moved name: Str) -> None {
-    send main::Desk#1(read addr, !read name)
+    send serve@Desk(read addr, !read name)
   }
   fn close_up(moved reason: Str) -> None {
-    send main::Desk#2(read addr, !read reason)
+    send close_up@Desk(read addr, !read reason)
   }
 }
 
-impl __Stub_Fragile(moved addr: eff[Fragile]) of Fragile {
+impl __Stub_Fragile(moved addr: eff[Fragile@main]) of Fragile@main {
   fn crash() -> None {
-    send main::Fragile#0(read addr)
+    send crash@Fragile(read addr)
   }
 }
 
-fn __dispatch_Counting_Counter(lent_mut __handler: Counting, moved __msg: __Msg_Counter) -> None {
+fn __dispatch_Counting_Counter(lent_mut __handler: Counting@main, moved __msg: __Msg_Counter@main) -> None {
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (n: Int) = __msg as variant 0
-      handler_call main::Counter#0(read __handler, !read n)
+      handler_call bump@Counter(read __handler, !read n)
     }
     arm#1 (arm 1) {
       unpack#3 (out: Reply<Int>) = __msg as variant 1
       obligation gain [out]
       obligation release [out]
-      handler_call main::Counter#1(read __handler, !read out)
+      handler_call total@Counter(read __handler, !read out)
     }
   }
 }
 
-fn __dispatch_Bookkeeping_Ledger(lent_mut __handler: Bookkeeping, moved __msg: __Msg_Ledger) -> None {
+fn __dispatch_Bookkeeping_Ledger(lent_mut __handler: Bookkeeping@main, moved __msg: __Msg_Ledger@main) -> None {
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (label: Str, out: Reply<Str>) = __msg as variant 0
       obligation gain [out]
       obligation release [out]
-      handler_call main::Ledger#0(read __handler, !read label, !read out)
+      handler_call report@Ledger(read __handler, !read label, !read out)
     }
     arm#1 (arm 1) {
       unpack#3 (label: Str, out: Reply<Str>, total: Int) = __msg as variant 1
       obligation gain [out]
       obligation release [out]
-      handler_call main::Ledger#1(read __handler, !read label, !read out, !read total)
+      handler_call reported@Ledger(read __handler, !read label, !read out, !read total)
     }
   }
 }
 
-fn __dispatch_Desking_Desk(lent_mut __handler: Desking, moved __msg: __Msg_Desk) -> None {
+fn __dispatch_Desking_Desk(lent_mut __handler: Desking@main, moved __msg: __Msg_Desk@main) -> None {
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 (out: Reply<Str>) = __msg as variant 0
       obligation gain [out]
       obligation release [out]
-      handler_call main::Desk#0(read __handler, !read out)
+      handler_call ticket@Desk(read __handler, !read out)
     }
     arm#1 (arm 1) {
       unpack#3 (name: Str) = __msg as variant 1
-      handler_call main::Desk#1(read __handler, !read name)
+      handler_call serve@Desk(read __handler, !read name)
     }
     arm#2 (arm 2) {
       unpack#4 (reason: Str) = __msg as variant 2
-      handler_call main::Desk#2(read __handler, !read reason)
+      handler_call close_up@Desk(read __handler, !read reason)
     }
   }
 }
 
-fn __dispatch_Breaking_Fragile(lent_mut __handler: Breaking, moved __msg: __Msg_Fragile) -> None {
+fn __dispatch_Breaking_Fragile(lent_mut __handler: Breaking@main, moved __msg: __Msg_Fragile@main) -> None {
   switch#1 read __msg {
     arm#0 (arm 0) {
       unpack#2 () = __msg as variant 0
-      handler_call main::Fragile#0(read __handler)
+      handler_call crash@Fragile(read __handler)
     }
   }
 }

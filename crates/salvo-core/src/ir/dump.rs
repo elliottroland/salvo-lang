@@ -23,6 +23,11 @@ impl<'a> Dumper<'a> {
     /// Dump `module`, inlining each leak in `leaks` on the line whose statement
     /// shares its span.
     pub fn module_with_leaks(program: &'a Program, module: &Module, leaks: &'a [(Span, String)]) -> String {
+        // [dump-spelling] A keyed type reads `Name@module` here.
+        crate::types::with_keys_shown(|| Self::module_in(program, module, leaks))
+    }
+
+    fn module_in(program: &'a Program, module: &Module, leaks: &'a [(Span, String)]) -> String {
         let mut d = Dumper { program, out: String::new(), leaks };
         let _ = writeln!(d.out, "module {}", module.path.0.join("."));
         for decl in &module.decls {
@@ -471,8 +476,8 @@ impl<'a> Dumper<'a> {
                 self.out.push_str("handler_call ");
                 match member {
                     HandlerMember::Face(m) => {
-                        let n = self.name_of(&m.interface);
-                        let _ = write!(self.out, "{n}#{}", m.index);
+                        let n = self.program.member_name(m);
+                        self.out.push_str(&n);
                     }
                     HandlerMember::Own(n) => self.out.push_str(n),
                 }
@@ -486,8 +491,8 @@ impl<'a> Dumper<'a> {
             }
             ExprKind::MemberCall { instance, member, type_args, args } => {
                 self.out.push_str("member ");
-                let n = self.name_of(&member.interface);
-                let _ = write!(self.out, "{n}#{}", member.index);
+                let n = self.program.member_name(member);
+                self.out.push_str(&n);
                 self.type_args(type_args);
                 self.out.push('(');
                 self.expr(instance, indent);
@@ -713,8 +718,8 @@ impl<'a> Dumper<'a> {
             }
             ExprKind::Send { addr, member, args } => {
                 self.out.push_str("send ");
-                let n = self.name_of(&member.interface);
-                let _ = write!(self.out, "{n}#{}(", member.index);
+                let n = self.program.member_name(member);
+                let _ = write!(self.out, "{n}(");
                 self.expr(addr, indent);
                 for a in args {
                     self.out.push_str(", ");

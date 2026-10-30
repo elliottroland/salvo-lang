@@ -1458,6 +1458,22 @@ impl fmt::Display for Qual {
     }
 }
 
+thread_local! {
+    /// [dump-spelling] Whether `Ty`'s `Display` spells a keyed type with its
+    /// module (`Point@app.shapes`): a dump's reading, never a diagnostic's.
+    static SHOW_KEYS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// [dump-spelling] Runs `f` with every keyed type a `Ty` prints spelled
+/// `Name@module`, as the dumps spell a declaration (PIPELINE.md §II.10 P22).
+/// A plain key — std's first declaration of a name — stays bare.
+pub fn with_keys_shown<R>(f: impl FnOnce() -> R) -> R {
+    let was = SHOW_KEYS.with(|s| s.replace(true));
+    let out = f();
+    SHOW_KEYS.with(|s| s.set(was));
+    out
+}
+
 impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -1481,8 +1497,12 @@ impl fmt::Display for Ty {
                 write!(f, "]")
             }
             Ty::Named { name, args } => {
-                // [type-identity] A key is shown as the name it was written as.
-                write!(f, "{}", crate::typekey::plain(name))?;
+                // [type-identity] A key is shown as the name it was written as;
+                // [dump-spelling] in a dump, with its module.
+                match crate::typekey::module_of(name) {
+                    Some(module) if SHOW_KEYS.with(|s| s.get()) => write!(f, "{}@{module}", crate::typekey::plain(name))?,
+                    _ => write!(f, "{}", crate::typekey::plain(name))?,
+                }
                 fmt_args(f, args)
             }
             Ty::Qualified { quals, base } => {

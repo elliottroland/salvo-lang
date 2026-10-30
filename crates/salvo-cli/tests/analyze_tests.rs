@@ -626,6 +626,7 @@ fn a_src_inside_the_projects_source_root_is_refused() {
         &["test", "--src", inner],
         &["ir", "--src", inner],
         &["facts", "--src", inner],
+        &["dump", "--phase", "resolve", "--src", inner],
         &["run", "--src", inner],
         &["compile", "--backend", "rust", "--src", inner, "--target", target],
         &["build", "--src", inner],
@@ -946,4 +947,26 @@ fn a_doubled_std_analysis_finishes_promptly() {
     }
     let stderr = fs::read_to_string(&log).unwrap();
     assert!(stderr.contains("analyzed "), "{stderr}");
+}
+
+/// [cli-dump] [dump-resolve] `salvo dump --phase resolve` prints each user
+/// module's text with its names' resolutions in it, under a header naming the
+/// file and module; `--module` keeps one. A program's errors go to stderr and
+/// the dump is printed regardless.
+#[test]
+fn dump_prints_the_resolve_phase() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("analyze_dump_resolve");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("shapes.sv"), "export struct Point {\n    x: Int\n}\n").unwrap();
+    fs::write(dir.join("main.sv"), "import shapes.Point\n\nfn main() [use] {\n    use StdConsole()\n    let p = Point { x: 1 }\n    println(\"${p.x} ${missing}\")\n}\n").unwrap();
+    let out = salvo(&["dump", "--phase", "resolve", "--src", dir.to_str().unwrap(), "--module", "main"]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "{stderr}");
+    assert!(stdout.starts_with("// main.sv — module main\n"), "{stdout}");
+    assert!(stdout.contains("let p = Point@shapes { x: 1 }"), "{stdout}");
+    assert!(stdout.contains("println(\"${p#{5:9}.x} ${missing#{???}}\")"), "{stdout}");
+    assert!(!stdout.contains("shapes.sv"), "only the module asked for: {stdout}");
+    assert!(stderr.contains("missing"), "the error is reported: {stderr}");
 }

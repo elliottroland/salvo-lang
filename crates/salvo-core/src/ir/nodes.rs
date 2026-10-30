@@ -25,6 +25,10 @@ pub struct Program {
     pub modules: Vec<Module>,
     /// The dump name of every declaration, program-wide.
     pub names: std::collections::HashMap<DeclId, String>,
+    /// [dump-spelling] The dump name of every effect member, by its effect
+    /// and position: `greet@Greeter`, with its parameters when the effect
+    /// overloads the name.
+    pub member_names: std::collections::HashMap<(DeclId, usize), String>,
     /// [fate-move-mode] The flow pass's decision the bodies were built from.
     pub decision: Decision,
 }

@@ -62,7 +62,7 @@ export fn drops_it() -> Int { return attempt() ?: return 0 }\n";
     // Dumps rather than erroring (the leak is an IR-reliant check, not a type
     // error): returns `Ok` with the IR text.
     let (text, _errors) = salvo_testkit::front::dump_ir("kt", &program, false, None).expect("dump should succeed despite the leak");
-    assert!(text.contains("fn main::drops_it"), "the IR body is dumped:\n{text}");
+    assert!(text.contains("fn drops_it@main"), "the IR body is dumped:\n{text}");
     assert!(text.contains("!!! main:"), "the leak is inlined with a location:\n{text}");
     assert!(text.contains("still owns a linear value"), "the leak message is inlined:\n{text}");
     // The arm is named by its type, not a bare index.
@@ -74,4 +74,58 @@ export fn drops_it() -> Int { return attempt() ?: return 0 }\n";
         .lines()
         .any(|l| l.contains("let __pick") && l.contains("!!! main:"));
     assert!(on_line, "the leak note is on the line that produced it:\n{text}");
+}
+
+/// [dump-resolve] One example's resolve dump (`salvo dump --phase resolve`),
+/// as a golden snapshot: every name with what resolution bound it to.
+#[test]
+fn example_resolve_dump_is_stable() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/iteration");
+    let program = example_program(&dir);
+    let symbols = salvo_core::Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let text: String = (0..program.files.len())
+        .filter(|f| !program.files[*f].is_std)
+        .map(|f| format!("// {}\n{}", program.files[f].name, salvo_core::names::dump::dump_file(&program, &resolution, &symbols, f, false)))
+        .collect();
+    insta::assert_snapshot!("resolve_iteration", text);
+}
+
+/// [dump-resolve] [dump-spelling] What each kind of name reads as in the
+/// resolve dump: another module's declaration with its module (an import
+/// alias as the declaration's own name), a callee by its selector, a name of
+/// several modules as the set, a variable by where its binding is written
+/// (an implicit group's member at the spread), std's own names bare, and a
+/// name nothing answers as `#{???}`.
+#[test]
+fn the_resolve_dump_spells_each_kind_of_name() {
+    let shapes = "export struct Point {\n    x: Int\n}\n\nexport fn show(p: Point) -> Str {\n    return \"${p.x}\"\n}\n\nexport fn describe(n: Int) -> Str {\n    return \"${n}\"\n}\n";
+    let main = "import shapes.Point as P\nimport shapes.show\nimport shapes.describe\n\n\
+                fn describe(s: Str) -> Str => !s {\n    return s\n}\n\n\
+                fn least<T>(a: T, b: T, ?Ordered<T>) -> Bool {\n    return cmp(a, b) < 0\n}\n\n\
+                fn main() [use] {\n    use StdConsole()\n    let p: P = P { x: 1 }\n    println(show(p))\n    println(describe(1))\n    println(describe@main(\"a\"))\n    let n = size(List(1, 2))\n    println(\"${n}\")\n}\n";
+    let program = salvo_testkit::front::clean_program("kt", &[("shapes.sv", shapes), ("main.sv", main)]);
+    let symbols = salvo_core::Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let file = program.files.iter().position(|f| f.name == "main.sv").unwrap();
+    let text = salvo_core::names::dump::dump_file(&program, &resolution, &symbols, file, false);
+    for want in [
+        "let p: Point@shapes = Point@shapes { x: 1 }",
+        "println(show@shapes(p#{15:9}))",
+        "println(describe#{@main, @shapes}(1))",
+        "println(describe@main(\"a\"))",
+        "return cmp#{9:26}(a#{9:13}, b#{9:19}) < 0",
+        "let n = size(List(1, 2))",
+        "println(\"${n#{19:9}}\")",
+        "use StdConsole()",
+    ] {
+        assert!(text.contains(want), "missing `{want}` in:\n{text}");
+    }
+    // A name nothing answers, in a program the checker refuses.
+    let broken = salvo_testkit::front::program("kt", &[("main.sv", "fn f() -> Int {\n    let q: Pont = 1\n    return missing(q)\n}\n")]).program;
+    let symbols = salvo_core::Symbols::collect(&broken);
+    let resolution = salvo_core::resolve(&broken);
+    let file = broken.files.iter().position(|f| f.name == "main.sv").unwrap();
+    let text = salvo_core::names::dump::dump_file(&broken, &resolution, &symbols, file, false);
+    assert!(text.contains("let q: Pont#{???} = 1") && text.contains("return missing#{???}(q#{2:9})"), "{text}");
 }
