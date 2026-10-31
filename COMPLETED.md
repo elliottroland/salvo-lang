@@ -144,6 +144,28 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — `?>` is a `when` as well (user decision, [when-lowered], [expr-safe-pipe])
+
+- **Decided (user, 2026-10-30)**: the null-safe pipe lowers to a `when` the
+  same way. Also decided: the emitters' wordier output (Kotlin's
+  `when { … else -> … }` for a pick) stays for now; the user plans a
+  separate pass over emitter decisions.
+- **Built**: `desugar::lower_picks` rewrites `lhs ?> rhs` into
+  `when __safeN = lhs { is #{first arm} { rhs } is #{rest} { __safeN } }`,
+  `_` in `rhs` read as `__safeN` (`substitute_placeholder` now says whether
+  it replaced any). `ast::WhenOrigin::SafePipe { reads_placeholder }`
+  carries that answer to the checker, which keeps the operator's two
+  diagnostics: `expr-safe-pipe:single-arm`, and
+  `expr-safe-pipe:unused-placeholder` for a right side that reads no `_`
+  and does not leave (only the checker knows it leaves). **Gone**:
+  `check_safe_pipe`, the IR's `safe_pipe` and `rewrap_into`. No golden,
+  example or emit pin moved.
+- Also: `widen_info`'s doc comment had lost its first line in an earlier
+  edit; restored.
+- Tests: checker data `safe_pipe/safe_pipe.sv` (new area: the shapes, an
+  unused `_`, a one-arm left side). 709 tests under nextest, warm run
+  1m21.
+
 ### 2026-10-30 — `?.` is a `when` too (user decision, [when-lowered], [op-safe-nav])
 
 - **Decided (user, 2026-10-30)** with the `?:` lowering: `?.` lowers the

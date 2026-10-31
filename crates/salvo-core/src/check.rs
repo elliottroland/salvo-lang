@@ -22519,60 +22519,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         rhs_ty
     }
 
-    /// [expr-safe-pipe] `lhs ?> rhs` (user decision 2026-10-14): the null-safe
-    /// pipe, `?.`'s analogue, over **any** union. It picks `lhs`'s first arm,
-    /// binds `_` to it, runs `rhs`, and replaces that arm with `rhs`'s result
-    /// in the union — the other arms pass through unchanged. `(A | B | C) ?>
-    /// f(_)` where `f: A -> X` is `X | B | C` (arms collapse). A `T?` recovers
-    /// the old behaviour (`X | None`). A **diverging** `rhs` (`x ?> return _`)
-    /// leaves only the pass-through arms, since the first-arm path left.
-    fn check_safe_pipe(&mut self, lhs: &'p Expr, rhs: &'p Expr, span: Span) -> Ty {
-        let lhs_ty = self.check_expr(lhs, None);
-        if lhs_ty.is_unknown() {
-            // [type-unknown-lenient] One mistake, one diagnostic.
-            let saved = self.placeholder_ty.replace(Ty::Unknown);
-            let _ = self.check_expr(rhs, None);
-            self.placeholder_ty = saved;
-            return Ty::Unknown;
-        }
-        let declared: Vec<Ty> = match &lhs_ty {
-            Ty::Union(arms) => arms.clone(),
-            _ => vec![lhs_ty.clone()],
-        };
-        if declared.len() < 2 {
-            self.error(span, messages::expr_safe_pipe_single_arm(&lhs_ty));
-            let saved = self.placeholder_ty.replace(Ty::Unknown);
-            let _ = self.check_expr(rhs, None);
-            self.placeholder_ty = saved;
-            return Ty::Unknown;
-        }
-        // `_` is the **first arm**, narrowed, the same pick `?.`'s receiver
-        // gets and `?:` keeps.
-        let inner = declared[0].clone();
-        let rest = self.mk_union(declared[1..].to_vec());
-        let saw_before = self.placeholder_read;
-        self.placeholder_read = false;
-        let saved = self.placeholder_ty.replace(inner);
-        let rhs_ty = self.check_expr(rhs, None);
-        let read = std::mem::replace(&mut self.placeholder_read, saw_before);
-        self.placeholder_ty = saved;
-        if !read && !rhs_ty.is_unknown() && !matches!(rhs_ty, Ty::Never) {
-            self.error(rhs.span(), messages::expr_safe_pipe_unused_placeholder());
-        }
-        // A diverging right side: the first-arm path left, so the result is
-        // the pass-through arms only ([expr-escape], mirroring `?:`'s
-        // elvis-guard).
-        if matches!(rhs_ty, Ty::Never) {
-            return rest;
-        }
-        if rhs_ty.is_unknown() {
-            return Ty::Unknown;
-        }
-        // Replace the first arm with `rhs`'s result; `union_of` collapses it
-        // into a pass-through arm of the same type ([op-safe-nav]'s arm-collapse,
-        // the generalized `Option<Option<T>>` guard).
-        self.mk_union(vec![rhs_ty, rest])
-    }
+    /// [qual-lift] The facts of a lifting check `x is ^Q`: the test the
     /// one `is` of the same qualifiers performs — same arm, same lowering —
     /// but the matched type is *generalized* (the qualifiers removed) rather
     /// than refined, so the subject reads without them inside the branch.
@@ -24077,7 +24024,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [expr-pipe] `lhs |> rhs` — the left side evaluated once, bound to
             // `_`, read in the right side. The result is the right side's type.
             Expr::Pipe { lhs, rhs, span } => self.check_pipe(lhs, rhs, *span),
-            Expr::SafePipe { lhs, rhs, span } => self.check_safe_pipe(lhs, rhs, *span),
+            // [when-lowered] Lowered to a `when` after parsing.
+            Expr::SafePipe { span, .. } => {
+                self.error(*span, messages::expr_safe_pipe_not_lowered());
+                Ty::Unknown
+            }
             // [expr-placeholder] Outside an `?:` right-hand side there is no value
             // for `_` to mean.
             Expr::Placeholder { span } => match self.placeholder_ty.clone() {
@@ -27328,6 +27279,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if origin.is_some() && !matches!(subj_ty, Ty::Union(_)) {
             match origin {
                 Some(ast::WhenOrigin::SafeNav) => self.error(span, messages::op_safe_nav_single_arm(&subj_ty)),
+                Some(ast::WhenOrigin::SafePipe { .. }) => self.error(span, messages::expr_safe_pipe_single_arm(&subj_ty)),
                 _ => self.error(span, messages::op_elvis_single_arm(&subj_ty)),
             }
             self.check_arms_unmatched(binding, &subj_ty, branches);
@@ -27366,6 +27318,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         let result = self.check_when_body(binding, subject, &subject_place, &subj_ty, branches, origin, span);
         if scoped {
             self.locals.pop();
+        }
+        // [expr-safe-pipe] A `?>` whose right side reads no `_` is dead
+        // scaffolding — unless it leaves, as `x ?> return 0` does.
+        if let (Some(ast::WhenOrigin::SafePipe { reads_placeholder: false }), Some(first)) = (origin, branches.first()) {
+            if let [Stmt::Expr(rhs)] = first.body.stmts.as_slice() {
+                let ty = self.expr_ty_recorded(rhs);
+                if !ty.as_ref().is_some_and(|t| t.is_unknown() || matches!(t, Ty::Never)) {
+                    self.error(rhs.span(), messages::expr_safe_pipe_unused_placeholder());
+                }
+            }
         }
         result
     }

@@ -2478,6 +2478,11 @@ pub enum WhenOrigin {
     /// `base?.link` [op-safe-nav]: the first arm performs the link, the rest
     /// pass through.
     SafeNav,
+    /// `lhs ?> rhs` [expr-safe-pipe]: the first arm runs `rhs`, the rest
+    /// pass through. `reads_placeholder`: whether `rhs` read `_`, which
+    /// the lowering replaced (a right side that reads nothing is refused
+    /// unless it diverges, which only the checker can tell).
+    SafePipe { reads_placeholder: bool },
 }
 
 /// [when-lowered] An arm head the type checker fills: the subject's first

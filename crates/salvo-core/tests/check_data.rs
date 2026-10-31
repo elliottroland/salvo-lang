@@ -52,6 +52,7 @@ area!(once);
 area!(widening);
 area!(deduce);
 area!(refinements);
+area!(safe_pipe);
 area!(defaults);
 area!(guard);
 area!(linear);

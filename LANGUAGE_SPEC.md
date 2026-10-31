@@ -2362,12 +2362,14 @@ Conventions:
     tier with `|>`, so `a |> f(_) ?> g(_)` is `(a |> f(_)) ?> g(_)` and
     `a ?> f(_) ?> g(_)` chains left; it may begin a continuation line,
     bracketing the chain so far on its left [expr-infix].
-  * **Pure reconstruction, no new node**: it lowers like `?.` — bind the left
-    side once, branch on its first arm; the present arm narrows, binds `_`,
-    runs the right side and rewraps the result into the union, the else arm
-    passes the remaining arms through. The `T | None` shape keeps the
-    `None`/`Else` + `Present` switch so the result is a plain optional. No
-    checker or backend rule past the lowering knows it exists. Spelled `?`
+  * **It is a `when`** [when-lowered], like `?.`: `lhs ?> rhs` means
+    `when __safeN = lhs { is #{first arm} { rhs } is #{rest} { __safeN } }`,
+    `_` in `rhs` read as `__safeN`. The join of the two arms is the result,
+    so a diverging `rhs` leaves the pass-through arms only. The lowering
+    records whether `rhs` read `_` (`WhenOrigin::SafePipe`); the checker
+    refuses one that read nothing and does not leave
+    (`expr-safe-pipe:unused-placeholder`). No backend rule knows it
+    exists. Spelled `?`
     then `>` (two glued tokens, like `?.`), detected before the elvis `?` so a
     `?>` is never read as elvis.
 * [expr-escape] **`return`, `break` and `continue` are expressions of type
@@ -2923,7 +2925,7 @@ Conventions:
     backends needed nothing.
   * The lowered `?:` and `?.` use it: the arms a pick leaves behind are
     one head [when-lowered].
-* [when-lowered] **`?:` and `?.` are sugar for a `when`** (user decision 2026-10-30,
+* [when-lowered] **`?:`, `?.` and `?>` are sugar for a `when`** (user decision 2026-10-30,
   option (a) of PIPELINE.md D2's Convert write-up), lowered after parsing
   and before resolution, since it needs no names (`desugar::lower_picks`):
   * `s ?: rhs` becomes `when s { is #{first arm} { s } is #{rest} { rhs } }`
@@ -2938,10 +2940,13 @@ Conventions:
     code (`ast::ArmHole`); written Salvo has no spelling for them.
   * `base?.link` becomes `when __navN = base { is #{first arm} {
     __navN.link } is #{rest} { __navN } }`, always in the binding form
-    [op-safe-nav].
-  * The `when` remembers its origin (`ast::WhenOrigin::Pick`, `SafeNav`),
-    for the diagnostics that are the operator's: `op-elvis:single-arm` /
-    `op-safe-nav:single-arm` on a one-arm
+    [op-safe-nav]. `lhs ?> rhs` becomes `when __safeN = lhs { is #{first
+    arm} { rhs } is #{rest} { __safeN } }`, `_` in `rhs` read as `__safeN`
+    [expr-safe-pipe] (user decision 2026-10-30).
+  * The `when` remembers its origin (`ast::WhenOrigin::Pick`, `SafeNav`,
+    `SafePipe`), for the diagnostics that are the operator's:
+    `op-elvis:single-arm` / `op-safe-nav:single-arm` /
+    `expr-safe-pipe:single-arm` on a one-arm
     subject, a field-place subject the written `when` would refuse, the
     leniency of an unknown subject, and the call-return hint
     [fn-overload-return]. Nothing else consults it, except the IR: the
@@ -2952,8 +2957,8 @@ Conventions:
     type no backend declares.
   * A parser test that wants the operator itself uses
     `parse_module_deferred`, which stops before the lowering; an unlowered
-    `?:` or `?.` reaching the checker is `op-elvis:not-lowered` /
-    `op-safe-nav:not-lowered`.
+    `?:`, `?.` or `?>` reaching the checker is `op-elvis:not-lowered` /
+    `op-safe-nav:not-lowered` / `expr-safe-pipe:not-lowered`.
 * [when-exhaustive] `when` must be exhaustive over the subject's arms;
   arms are consumed sequentially (each branch matches what previous
   branches left), and a branch that can match nothing is an error. A

@@ -327,7 +327,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             // [when-lowered] Lowered to a `when` before checking.
             AExpr::Elvis { .. } => unsupported(self.ty_of(span), span, "unlowered `?:`"),
             AExpr::Pipe { lhs, rhs, .. } => self.pipe(lhs, rhs, span),
-            AExpr::SafePipe { lhs, rhs, .. } => self.safe_pipe(lhs, rhs, span),
+            AExpr::SafePipe { .. } => unsupported(self.ty_of(span), span, "unlowered `?>`"),
             AExpr::Placeholder { .. } => match self.placeholder.clone() {
                 Some(local) => {
                     let ty = self.ty_of(span);
@@ -2234,28 +2234,6 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
-    /// [op-safe-nav] Rewrap a value into the result union `ty` when its type is
-    /// narrower, so a picked first-arm result or a passed-through remainder
-    /// takes the whole union's representation [type-rewrap]. A `None`-typed value
-    /// into an optional result is the absent arm (`MakeNone`), not a rewrap. A
-    /// value already at the union type is handed back untouched.
-    fn rewrap_into(&mut self, value: Expr, ty: &Ty, span: Span) -> Expr {
-        if &value.ty == ty || ty.is_unknown() {
-            return value;
-        }
-        if value.ty.is_none_ty() && ty.has_none_arm() {
-            return Expr { ty: ty.clone(), span, kind: ExprKind::MakeNone };
-        }
-        match crate::types::read_arm_map(&value.ty, ty) {
-            Some(_) if matches!(ty, Ty::Union(_)) => Expr {
-                ty: ty.clone(),
-                span,
-                kind: ExprKind::Rewrap { from: value.ty.clone(), value: Box::new(value) },
-            },
-            _ => value,
-        }
-    }
-
     /// [fn-effects] The leading arguments of a call through a fn value of
     /// type `fty`: the instances of the effects it performs. A throw is not
     /// a threaded instance [throw].
@@ -2285,106 +2263,6 @@ impl<'a, 'p> Lower<'a, 'p> {
         let r = self.expr(rhs);
         self.placeholder = saved;
         self.block_expr(vec![bind], r, span)
-    }
-
-    /// [expr-safe-pipe] `lhs ?> rhs` (user decision 2026-10-14): the null-safe
-    /// pipe over any union. Bind `lhs` once and branch on its first arm: the
-    /// present arm narrows to that arm, binds `_`, runs `rhs`, and rewraps the
-    /// result into the union; the else arm narrows to the arms left behind and
-    /// passes them through. A diverging `rhs` leaves only the pass-through
-    /// arms. The `T | None` shape is the special case that recovers `?.`'s
-    /// optional result.
-    fn safe_pipe(&mut self, lhs: &AExpr, rhs: &AExpr, span: Span) -> Expr {
-        let ty = self.ty_of(span);
-        let l = self.expr(lhs);
-        let subj_ty = l.ty.clone();
-        let declared: Vec<Ty> = match subj_ty.strip_quals() {
-            Ty::Union(arms) => arms.clone(),
-            other => vec![other.clone()],
-        };
-        let inner = declared.first().cloned().unwrap_or(Ty::Unknown);
-        let rest = Ty::union_of(declared.iter().skip(1).cloned().collect());
-        // The `T | None` shape: first arm the value, rest just `None`. The
-        // result is an optional and the else arm is `MakeNone` — the same
-        // shape `?.` uses, so a diverging rhs and the optional result both
-        // behave as the old `?>`.
-        let optional = subj_ty.has_none_arm() && declared.len() == 2 && rest.is_none_ty();
-        let id = self.id();
-        let tmp = self.fresh("__safepiped");
-        let lid = self.id();
-        let bind = Stmt::Let { id: lid, local: tmp.clone(), ty: subj_ty.clone(), value: l };
-        // Present arm: narrow to the first arm, bind `_` to it, run the right
-        // side. `_` reads non-consuming, like a plain pipe.
-        let nav = self.fresh("__safenav");
-        let nid = self.id();
-        let narrow = Stmt::Narrow {
-            id: nid,
-            local: nav.clone(),
-            ty: inner.clone(),
-            from: Place { root: tmp.clone(), steps: Vec::new() },
-            from_ty: subj_ty.clone(),
-            because: Justification::Arm { switch: id, arm: 0 },
-        };
-        let saved = self.placeholder.replace(nav);
-        let r = self.expr(rhs);
-        self.placeholder = saved;
-        if optional {
-            // Lift the right side's value into the optional result unless it
-            // is already one ([op-safe-nav]'s `Option<Option<T>>` guard) or it
-            // diverged.
-            let present_value = if matches!(r.ty, Ty::Never) || r.ty.has_none_arm() {
-                r
-            } else {
-                Expr { ty: ty.clone(), span, kind: ExprKind::Present { value: Box::new(r) } }
-            };
-            let present = Block { stmts: vec![narrow], value: Some(Box::new(present_value)), span };
-            let absent = Block {
-                stmts: Vec::new(),
-                value: Some(Box::new(Expr { ty: ty.clone(), span, kind: ExprKind::MakeNone })),
-                span,
-            };
-            let sw = Expr {
-                ty: ty.clone(),
-                span,
-                kind: ExprKind::Switch {
-                    id,
-                    subject: Box::new(Expr { ty: subj_ty, span, kind: ExprKind::Read { place: Place { root: tmp, steps: Vec::new() }, consume: false, moved: false } }),
-                    arms: vec![
-                        SwitchArm { test: ArmTest::None, body: absent },
-                        SwitchArm { test: ArmTest::Else, body: present },
-                    ],
-                },
-            };
-            return self.block_expr(vec![bind], sw, span);
-        }
-        // General union: the present arm rewraps the right side's result into
-        // the result union; the else arm passes the remaining arms through.
-        let present_value = self.rewrap_into(r, &ty, span);
-        let present = Block { stmts: vec![narrow], value: Some(Box::new(present_value)), span };
-        let rest_local = self.fresh("__rest");
-        let rrid = self.id();
-        let rest_narrow = Stmt::Narrow {
-            id: rrid,
-            local: rest_local.clone(),
-            ty: rest.clone(),
-            from: Place { root: tmp.clone(), steps: Vec::new() },
-            from_ty: subj_ty.clone(),
-            because: Justification::Arm { switch: id, arm: 1 },
-        };
-        let rest_read = Expr { ty: rest.clone(), span, kind: ExprKind::Read { place: Place { root: rest_local, steps: Vec::new() }, consume: true, moved: false } };
-        let rest_value = self.rewrap_into(rest_read, &ty, span);
-        let absent = Block { stmts: vec![rest_narrow], value: Some(Box::new(rest_value)), span };
-        let test = Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Test { id: self.id(), subject: Box::new(Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false, moved: false } }), test: ArmTest::Arm(0) } };
-        let br = Expr {
-            ty: ty.clone(),
-            span,
-            kind: ExprKind::Branch {
-                id,
-                arms: vec![(test, present)],
-                otherwise: Some(absent),
-            },
-        };
-        self.block_expr(vec![bind], br, span)
     }
 
     // --------------------------------------------------------- branching --

@@ -2620,8 +2620,9 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      `install_elvis_guard` and the IR's `elvis()`. **`?.` lowered — done**
      the same way (origin `SafeNav`, the first arm's narrow keeping the
      native-chain hint): `safe_navs`/`SafeNavInfo`, `check_safe_nav` and the
-     IR's `safe_nav()` are gone. `?>` could follow (a DECISION for the
-     user). The rest: effect lists as explicit arguments (ten tables),
+     IR's `safe_nav()` are gone. **`?>` lowered — done** (user,
+     2026-10-30), the same way: `check_safe_pipe` and the IR's
+     `safe_pipe()` are gone. The rest: effect lists as explicit arguments (ten tables),
      `Convert` (`coerce`, `promotions`, `field_casts`, `repr_ty`), `Test`
      (`is_tests`, `arm_compares`, `widen_targets`, `predicate_tests`), a
      call's borrowed result, `Send` (`self_sends`, `facade_sends`,

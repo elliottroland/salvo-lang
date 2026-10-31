@@ -3013,6 +3013,9 @@ messages! {
         "`?>` pipes the first arm of a union, but this value is `{lhs_ty}` — it has only \
          one arm, so write a plain `|>`"
     );
+    /// [when-lowered] A `?>` that reached the checker unlowered.
+    expr_safe_pipe_not_lowered = "expr-safe-pipe:not-lowered" () =>
+        "internal: this `?>` was not lowered to the `when` it is before checking";
     /// A `?>` whose right side does not use `_`.
     expr_safe_pipe_unused_placeholder = "expr-safe-pipe:unused-placeholder" () =>
         "the right side of `?>` must use the piped value `_` (`x ?> f(_)`); it reads \

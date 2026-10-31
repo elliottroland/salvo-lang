@@ -1620,6 +1620,9 @@ impl crate::visit_mut::MutVisitor for LowerPicks {
         if matches!(expr, Expr::SafeNav { .. }) {
             return self.lower_safe_nav(expr);
         }
+        if matches!(expr, Expr::SafePipe { .. }) {
+            return self.lower_safe_pipe(expr);
+        }
         if !matches!(expr, Expr::Elvis { .. }) {
             return;
         }
@@ -1662,6 +1665,40 @@ impl crate::visit_mut::MutVisitor for LowerPicks {
 }
 
 impl LowerPicks {
+    /// [when-lowered] [expr-safe-pipe] `lhs ?> rhs` is
+    /// `when __safeN = lhs { is #{first arm} { rhs } is #{rest} { __safeN } }`,
+    /// `_` in `rhs` read as `__safeN`. The binding form whatever `lhs` is, as
+    /// the operator always evaluated it into a temporary.
+    fn lower_safe_pipe(&mut self, expr: &mut Expr) {
+        let Expr::SafePipe { lhs, rhs, span } = std::mem::replace(expr, Expr::Placeholder { span: Span::default() }) else {
+            unreachable!()
+        };
+        let (mut lhs, mut rhs) = (*lhs, *rhs);
+        crate::visit_mut::walk_expr(self, &mut lhs);
+        crate::visit_mut::walk_expr(self, &mut rhs);
+        self.next += 1;
+        let name = Ident { name: format!("__safe{}", self.next), span: lhs.span() };
+        let read = Expr::Ident(name.clone());
+        let reads_placeholder = substitute_placeholder(&mut rhs, &read);
+        let branch = |hole: ArmHole, value: Expr, span: Span| WhenBranch {
+            check: Vec::new(),
+            or: Vec::new(),
+            hole: Some(hole),
+            binding: None,
+            widen: false,
+            body: Block { stmts: vec![Stmt::Expr(value)], span },
+            span,
+        };
+        let (rhs_span, lhs_span) = (rhs.span(), lhs.span());
+        *expr = Expr::When {
+            binding: Some(name),
+            subject: Box::new(lhs),
+            branches: vec![branch(ArmHole::First, rhs, rhs_span), branch(ArmHole::Rest, read, lhs_span)],
+            origin: Some(WhenOrigin::SafePipe { reads_placeholder }),
+            span,
+        };
+    }
+
     /// [when-lowered] [op-safe-nav] `base?.link` is
     /// `when __navN = base { is #{first arm} { __navN.link } is #{rest} { __navN } }`:
     /// the link on the first arm, the other arms passed through. Always the
@@ -1727,8 +1764,9 @@ fn is_pick_place(e: &Expr) -> bool {
 }
 
 /// [expr-placeholder] Replaces every `_` in `e` with `read`, except one a
-/// pipe's right side holds (`|>`, `?>`), which is the pipe's.
-fn substitute_placeholder(e: &mut Expr, read: &Expr) {
+/// pipe's right side holds (`|>`, `?>`), which is the pipe's. Whether it
+/// replaced any.
+fn substitute_placeholder(e: &mut Expr, read: &Expr) -> bool {
     use crate::visit::Visitor;
     struct Owned(Vec<Span>);
     impl Visitor for Owned {
@@ -1751,6 +1789,7 @@ fn substitute_placeholder(e: &mut Expr, read: &Expr) {
     struct Sub<'a> {
         read: &'a Expr,
         skip: &'a [Span],
+        any: bool,
     }
     impl crate::visit_mut::MutVisitor for Sub<'_> {
         fn visit_expr(&mut self, expr: &mut Expr) {
@@ -1760,11 +1799,14 @@ fn substitute_placeholder(e: &mut Expr, read: &Expr) {
                     // The read stands where `_` was written.
                     set_root_span(&mut r, *span);
                     *expr = r;
+                    self.any = true;
                 }
             }
         }
     }
-    crate::visit_mut::walk_expr(&mut Sub { read, skip: &owned.0 }, e);
+    let mut sub = Sub { read, skip: &owned.0, any: false };
+    crate::visit_mut::walk_expr(&mut sub, e);
+    sub.any
 }
 
 /// The span of a read's outermost node, set to `span` (a `_` it replaces).
