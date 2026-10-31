@@ -2990,8 +2990,8 @@ Conventions:
     [assert-trap], so "the fallthrough is dead" is carried in the IR
     rather than each emitter synthesizing its own unreachable `else`
     (`panic!` on Rust, `throw` on Kotlin). The checker records the verdict
-    (`Checked::when_exhaustive`, keyed by the `when`'s node [node-id]) and the
-    builder reads it.
+    (`Checked::when_missing`, keyed by the `when`'s node [node-id]: no arm
+    left to cover) and the builder reads it.
 * [when-condition] `when` is **always exhaustive**, and a *subject-less*
   `when` is the second way it can be: `when { cond { … } … else { … } }`,
   a condition chain whose `else` is **mandatory** (user decision
@@ -13349,7 +13349,7 @@ replaced the working document TESTING.md).
     f.name]` (the uncovered names), `[when x.kind]` (the kinds, `Opaque` for
     both halves) and `[when f.type]` (the types no arm matched, and the
     catch-all `is *`), wherever the range is known as the fn is written. The
-    facts are the exhaustiveness check's own: `Checked::when_arms` per
+    facts are the exhaustiveness check's own: `Checked::when_missing` per
     `when`, `CompWhenArms` from the expansion (its fn is expanded before the
     server sees the program, so the record carries the arm bodies too). A
     partial head is cut from the probe buffer, since half an `is` check

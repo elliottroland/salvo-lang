@@ -3612,15 +3612,6 @@ messages! {
          the loop"
     );
 
-    // [iter-fn]
-    /// A mutation of what an open `for` iterates.
-    iter_fn_origin_mutated = "iter-fn:origin-mutated" (name: &dyn std::fmt::Display) => format!(
-        "`{name}` is being iterated, so it cannot be mutated here: the pass reads its \
-         origin as it goes, and what it would see has no answer both backends agree on. \
-         Mutate it before or after the loop, or iterate `copy({name})` to work from a \
-         snapshot"
-    );
-
     // [iter-group]
     /// A type that is both a source and an iterator.
     iter_group_source_and_iterator = "iter-group:source-and-iterator" (name: &dyn std::fmt::Display, obligation: &dyn std::fmt::Display) => format!(

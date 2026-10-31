@@ -144,6 +144,19 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A `when`'s missing arms, one table (user decision, PIPELINE.md D2 `when` facts, [when-exhaustive])
+
+- **Decided (user, 2026-10-30, item 8)**: `when_exhaustive` and
+  `when_arms`, written in one place for one `when`, are `when_missing:
+  HashMap<Key, Vec<String>>` — the arms left to cover, now for lowered
+  `when`s too — and "exhaustive" is an empty list. The edge case accepted
+  with it: a `when` with no branches over a subject with no arms gets the
+  unreachable trap too, which is still correct. `PassDriver.origin`, which
+  both writers set to `false`, is gone with what it fed: the checker's
+  driven-origin mutation check (`driven_origins`) and its message,
+  `iter-fn:origin-mutated`; `check_when_body` lost its unused `origin`.
+- **Output**: nothing moved. 709 tests under nextest, warm run 1m42.
+
 ### 2026-10-30 — A declaration's facts at its name (user decision, PIPELINE.md D2 declaration facts, [node-id] [implicit-param])
 
 - **Decided (user, 2026-10-30, items 6–7)**: no table is keyed by `DeclId`

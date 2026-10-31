@@ -2532,9 +2532,9 @@ and generic code that may receive one takes the discharger as a callback
 `pass_driver_of`, `for_drivers`' doc; `PassMember` and `pass_elem_ty` went
 with B3.3d) and the
 dead residue of the deleted `yield fn` origin machinery is still in the tree
-(`PassDriver.origin`, always `false`; `mint_machines`, `ORIGIN_PASS_PREFIX`,
-`pass_or_origin_elem_ty`'s origin branch, the emitters' `if driver.origin`
-arms). Rename and delete in one change, cutting by function rather than by
+(`ORIGIN_PASS_PREFIX` and `pass_or_origin_elem_ty`'s origin branch;
+`PassDriver.origin`, the checker's driven-origin check and its
+`iter-fn:origin-mutated` message went with D2, 2026-10-30). Rename and delete in one change, cutting by function rather than by
 region (the 2026-09-10 lesson).
 
 **Riding along, decided 2026-09-28 (comptime rounds 3 and 7):** two implicits of

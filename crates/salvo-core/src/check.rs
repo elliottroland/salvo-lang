@@ -518,13 +518,6 @@ pub struct PassDriver {
     /// Number of non-`None` arms, i.e. the union wrapper size. Unused when
     /// `origin` is set.
     pub arms: usize,
-    /// [iter-fn] The resolved `next` is a **`yield fn`**: the subject
-    /// is an *origin* struct, so the loop constructs the hidden state machine
-    /// from it and drives that. `next` is the `yield fn`'s key — what the
-    /// emitters name the machine after and read the handler order from — and
-    /// the subject is *not* consumed, since a fresh machine is minted per
-    /// loop.
-    pub origin: bool,
     /// [iter-drive-in-place] The subject is a **place the enclosing fn keeps**
     /// — a `Mut` parameter its deduction list hands back, or a projection of one
     /// — so the loop advances the pass *where it lives* instead of taking it
@@ -975,19 +968,15 @@ pub struct Checked {
     /// `^`, a `when` branch head, an [op-arm-eq] comparison. An `is` the
     /// checker decided statically has none.
     pub tests: HashMap<Key, Test>,
-    /// [when-exhaustive] `when` expressions (keyed by the `when`'s span)
-    /// the checker proved cover every runtime arm of their union subject
-    /// without a written `else`. The IR builder reads this to give such a
-    /// `when` an explicit unreachable fallthrough arm, so that "the
-    /// fallthrough is dead" is a fact in the IR rather than something each
-    /// backend re-derives from the arm set.
-    pub when_exhaustive: HashSet<Key>,
-    /// [lsp-completion] [when-exhaustive] For each `when` with a subject (keyed
-    /// by its span) whose arms could all be matched against the subject: the
-    /// union arms no branch covers yet, spelled as an `is` check writes them
-    /// (`Str`, `None`, `"a"`, `Ok Int`). Empty when the `when` is exhaustive.
-    /// What the language server offers as the arms still to write.
-    pub when_arms: HashMap<Key, Vec<String>>,
+    /// [when-exhaustive] [lsp-completion] For each `when` with a subject
+    /// whose arms could all be matched against it (keyed by the `when`): the
+    /// union arms no branch covers, spelled as an `is` check writes them
+    /// (`Str`, `None`, `"a"`, `Ok Int`), lowered `when`s included. Empty is
+    /// the checker's proof that the arms cover every runtime arm, which the
+    /// IR reads to give the `when` an explicit unreachable fallthrough rather
+    /// than have each backend re-derive it; the language server offers the
+    /// rest as the arms still to write.
+    pub when_missing: HashMap<Key, Vec<String>>,
     /// [call-resolve] What each call resolved to, by the call (PIPELINE.md D2,
     /// calls): one [`Callee`] — a declared fn at its type arguments, an
     /// effect's member, a qualifier's fn, a fn value (a local, a field, a
@@ -2947,14 +2936,6 @@ struct Checker<'p, 'r> {
     /// statements record their value contributions into the innermost
     /// entry [loop-while-value]. Lambda bodies are a barrier.
     loop_stack: Vec<LoopCtx>,
-    /// [iter-fn] Origins whose `for` loops are currently open: the
-    /// root variable's name and the span to blame. A hidden machine reads
-    /// its origin *across suspensions*, so a write while the loop runs has
-    /// two defensible meanings — the machine's own copy, or the caller's
-    /// object — and the two backends each pick one. Refused rather than
-    /// sided with [backend-parity], which is also what keeps a value
-    /// *derived* from the origin valid for the whole drive.
-    driven_origins: Vec<(String, Span)>,
     /// [deduce-field] Mutation paths of the current fn's **parameters**, as
     /// recorded while its body is checked: the raw material for validating
     /// a written field entry (`=> h.tags: Mut` must cover every mutation
@@ -3465,7 +3446,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             placeholder_read: false,
             can_spawn: false,
             loop_stack: Vec::new(),
-            driven_origins: Vec::new(),
             own_mut_paths: Vec::new(),
             next_var_id: 0,
             key_hint: std::cell::Cell::new(0),
@@ -17210,18 +17190,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         event_path: Option<&[Step]>,
         contents_only: bool,
     ) {
-        // [iter-fn] The origin of an open `for` may not be mutated:
-        // its machine reads it across suspensions.
-        if let Some((_, subject_span)) = self
-            .driven_origins
-            .iter()
-            .find(|(origin, _)| origin == name)
-            .cloned()
-        {
-            let _ = subject_span;
-            self.error(span, messages::iter_fn_origin_mutated(&name));
-        }
-
         // [deduce-syntax] Record the invalidation against the enclosing
         // fn's parameter: mutation can falsify qualifiers the caller has
         // and this signature never mentions, so such a parameter may not
@@ -24362,7 +24330,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .for_drivers
                     .get(&self.key(iterable.span()))
                     .cloned();
-                let drives_origin = recorded.as_ref().is_some_and(|d| d.origin);
                 // [iter-drive-in-place] A pass the fn *keeps* is advanced where
                 // it lives: the loop mutates it rather than taking it over, so
                 // the caller sees the position it reached and may drive it on.
@@ -24376,8 +24343,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .out
                     .call(self.key(iterable.span()).synthetic(Key::FOR_NEXT))
                     .is_some_and(|c| matches!(c.callee, Callee::Local { .. }));
-                let drives_pass = !drives_origin
-                    && !drives_in_place
+                let drives_pass = !drives_in_place
                     && (iter_ty.quals().iter().any(|q| q.name == "once")
                         || recorded.as_ref().is_some_and(|d| {
                             if d.step_call {
@@ -24483,23 +24449,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     entry_depth: self.locals.len(),
                     ..LoopCtx::default()
                 });
-                // [iter-fn] While this loop is open, the origin it
-                // drives is off limits for mutation. Keyed on the subject's
-                // *root* variable, so `add(b.rows, …)` — a write through a
-                // projection — reports too: everything reachable from the
-                // origin is what the machine may read.
-                let driven = if drives_origin {
-                    crate::place::Place::of_expr(iterable).map(|p| p.root.clone())
-                } else {
-                    None
-                };
-                if let Some(root) = &driven {
-                    self.driven_origins.push((root.clone(), iterable.span()));
-                }
                 let (body_ty, body_tail) = self.check_loop_body(body, &[], bindings);
-                if driven.is_some() {
-                    self.driven_origins.pop();
-                }
                 let mut ctx = self.loop_stack.pop().expect("loop ctx pushed above");
                 // Merge break-path states into the after-loop state (the
                 // loop-binding frame is popped first, so the snapshots'
@@ -24954,7 +24904,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         self.out.for_drivers.insert(
             self.key(span),
-            PassDriver { emitted_arm, arms, origin: false, in_place: false, mint: None, step_call: true },
+            PassDriver { emitted_arm, arms, in_place: false, mint: None, step_call: true },
         );
         Some(elem)
     }
@@ -25350,7 +25300,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         self.out.for_drivers.insert(
             self.key(span),
-            PassDriver { emitted_arm, arms, origin: false, in_place, mint: minted, step_call: false },
+            PassDriver { emitted_arm, arms, in_place, mint: minted, step_call: false },
         );
         elem
     }
@@ -27071,7 +27021,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             },
         };
-        let result = self.check_when_body(binding, subject, &subject_place, &subj_ty, branches, origin, span);
+        let result = self.check_when_body(binding, subject, &subject_place, &subj_ty, branches, span);
         if scoped {
             self.locals.pop();
         }
@@ -27111,7 +27061,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         subject_place: &Place,
         subj_ty: &Ty,
         branches: &'p [WhenBranch],
-        origin: Option<ast::WhenOrigin>,
         span: Span,
     ) -> Ty {
         // For the binding form the subject reads at its declared type; for the
@@ -27293,11 +27242,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.install_narrows(&[Narrow { place: subject_place.clone(), narrowed, declared: repr.clone() }]);
             }
         }
-        if !unresolved_check && origin.is_none() {
-            // [lsp-completion] The arms left to write, before the runtime-arm
-            // rewrite collapses literals: spelled as the check would be.
+        if !unresolved_check {
+            // [when-exhaustive] [lsp-completion] The arms left to write, before
+            // the runtime-arm rewrite collapses literals: spelled as the check
+            // would be. None left is the verdict the IR reads.
             let key = self.key(span);
-            self.out.when_arms.insert(key, remaining.iter().map(|a| a.to_string()).collect());
+            self.out.when_missing.insert(key, remaining.iter().map(|a| a.to_string()).collect());
         }
         if !remaining.is_empty() && !unresolved_check {
             let missing: Vec<String> = remaining.iter().map(|a| a.to_string()).collect();
@@ -27308,12 +27258,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     &missing.join(", "),
                 ),
             );
-        } else if !branches.is_empty() && !unresolved_check {
-            // [when-exhaustive] The arms cover every runtime arm. Record the
-            // verdict so the IR can carry an explicit unreachable fallthrough
-            // rather than have each backend re-derive it.
-            let key = self.key(span);
-            self.out.when_exhaustive.insert(key);
         }
         let join = self.mk_union(branch_tys);
         for tail in tails.into_iter().flatten() {

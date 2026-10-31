@@ -2479,7 +2479,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // its own fallthrough. (A written `else` already produced an `Else`
         // arm above; `non_null`, pass-loops and actor dispatch supply their
         // own, so this is the one else-less `Switch` shape.)
-        if self.ctx.checked.when_exhaustive.contains(&self.key(span)) && !arms.iter().any(|a| matches!(a.test, ArmTest::Else)) {
+        if self.ctx.checked.when_missing.get(&self.key(span)).is_some_and(|m| m.is_empty()) && !arms.iter().any(|a| matches!(a.test, ArmTest::Else)) {
             let msg = "unhandled union arm".to_string();
             let trap = Expr { ty: Ty::Never, span, kind: ExprKind::Unreachable { message: Some(Box::new(Expr { ty: Ty::named("Str"), span, kind: ExprKind::Str(msg) })), at: self.location(span) } };
             arms.push(SwitchArm { test: ArmTest::Else, body: Block { stmts: vec![Stmt::Expr(trap)], value: None, span } });

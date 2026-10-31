@@ -2477,7 +2477,7 @@ fn when_missing_arms(analysis: &Analysis, checked: &salvo_core::Checked, file_id
         }
         return Some((missing, w.types));
     }
-    checked.when_arms.get(&checked.key_at(file_idx, span)).map(|m| (m.clone(), false))
+    checked.when_missing.get(&checked.key_at(file_idx, span)).map(|m| (m.clone(), false))
 }
 
 /// [lsp-completion] One item per missing arm (`is Str { }`), and one writing
