@@ -144,6 +144,30 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — P6 decided; the first D2 views (PIPELINE.md D1, D2 step 1, [unify-checker])
+
+- **Decided (user, 2026-10-30), P6 at D1**: the typed form is the AST plus
+  per-declaration fact tables keyed by node, merged cluster by cluster
+  behind typed reads (option (T)); "the main wins are a distinct dumpable
+  pre-IR, and consolidating everything that looks similar in it". The
+  comptime signature/body split moved from C3 to D/C4 with the user's
+  agreement.
+- **Survey** (PIPELINE.md D2): 107 `Checked` fields, 31 in the five views;
+  the rest grouped by the node they key on and, separately, by the fact
+  they state (ten effect-list tables, five conversions, six arm tests, five
+  borrowed-result tables, seven sends, six handler-construction tables).
+- **Built**: `call_info` gained `effect_member` and `qual_member`,
+  `pick_info` `elvis_widen`; new `fn_value_info` (`lambda_effects` at a
+  name, `fn_value_implicits`, `member_values` — three tables one node
+  shares, the first a lambda table doubling for fn values) and
+  `lambda_info`. Every builder read of them goes through a view. Pure
+  refactor: IR goldens and both codegen corpora unchanged, 708 tests.
+- **Not viewed, and why**: `use_handler_args` (a handler construction's, at
+  three node kinds), `for_drivers`/`by_value_loops` and
+  `project_effects`/`merge_effects` (one builder read each, at different
+  sites), the borrowed-result tables (no builder reads). They go with the
+  meaning merges.
+
 ### 2026-10-30 — C3 closed: the `by`-at-a-call workaround documented, two leftovers moved (PIPELINE.md C3.3c)
 
 - **Documented** (§II.5.1, user decision 2026-10-27): Compile-Time-Functions

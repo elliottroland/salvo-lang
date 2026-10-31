@@ -2554,8 +2554,8 @@ lowering before typing, then the checker's special paths deleted. Needs A2
 
 ### Stage D — The typed partial IR
 
-- **D1. Representation** (decision **P6**, §II.8) settled from what B and C
-  taught.
+- **D1. Representation** (decision **P6**, §II.8) — decided: the AST plus
+  per-declaration fact tables keyed by node (P6 (T)).
 - **D2. The checker writes the typed form** (§II.3.3) instead of `Checked`'s
   span tables, one table cluster per piece — the clusters the IR builder's
   view accessors already group (`call_info`, `use_info`, `spawn_info`,
@@ -2563,6 +2563,38 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   checker reads its own facts back from the typed form (`call_fn` alone has
   13 readers inside the checker; the hard part). From C3: a stamped fn's parameters bound to the
   template's names by position, which retires `h__p` and `hidden_free_name`.
+  The clusters left after the five views (survey 2026-10-30, 107 fields):
+  1. **Stragglers into views** — done: `effect_member_calls` and
+     `qual_member_calls` into `call_info`, `elvis_widen` into `pick_info`;
+     new `fn_value_info` (a fn named as a value: `lambda_effects` at its
+     name, `fn_value_implicits`, `member_values`) and `lambda_info`
+     (`lambda_effects`, `lambda_captures`, `lambda_contracts`).
+     `use_handler_args` stays out of `use_info`: it is a handler
+     construction's, keyed at a `use`, a spawn and a `with` item alike.
+     `for_drivers`/`by_value_loops`, `project_effects`/`merge_effects` and
+     the borrowed-result tables were not viewed: the builder reads each at
+     one site of its own, or not at all, so a view reduces nothing.
+  2. **By node, still to merge**: expression facts (`expr_ty`, `repr_ty`,
+     `coerce`, `promotions`, `field_casts`; ~44 checker readers), arm tests
+     (`is_tests`, `predicate_tests`, `widen_targets`, `when_exhaustive`,
+     `when_arms`, `safe_navs`, `arm_compares`), a call's borrowed result
+     (`lending_calls`, `derived_calls`, `mut_lend_calls`, `distinct_pairs`,
+     `temp_views`), the flow handoff (reads that move, bindings,
+     mutations), declaration facts (`deductions`, `fn_effects`,
+     `decl_effects`, `fn_body_effects`, `fn_lends`, `param_mutations`,
+     `implicit_params`, `implicit_members`, `established_quals`,
+     `carried_identities`), the host boundary, navigation. Actor summaries
+     are E1's; `type_ref_span_keys`/`value_span_keys` belong with `Names`.
+  3. **By meaning, one node kind each in the typed form** (each written up
+     for the user before building): effect lists as explicit arguments (ten
+     tables), `Convert` (`coerce`, `promotions`, `elvis_widen`,
+     `field_casts`, `repr_ty`), `Test` (`is_tests`, `arm_compares`,
+     `safe_navs`, `elvis_tests`, `widen_targets`, `predicate_tests`), a
+     call's borrowed result, `Send` (`self_sends`, `facade_sends`,
+     `addr_calls`, `replyto_*`, `actor_sends`, `task_sends`), handler
+     construction (`use_deps`, `use_with_items`, `spawn_deps`,
+     `spawn_dep_items`, `use_handler_args`, `handler_constructs`). The flow
+     handoff last: explicit places and moves may retire it.
 - **D3. The IR builder becomes the lowering of the typed form**: erasure as
   its own sub-phase (qualifiers, effects to parameters, union wrapping),
   then flow. The builder's ~87 table reads go.
@@ -2665,6 +2697,13 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
   (c) (b) plus a debug flag for any project.
 - **P6. Representation** (§II.8; C1, D1). **Decided (user, 2026-10-27):
   decide at D1.** B and C are built on tables keyed by A3's node keys.
+  **Decided at D1 (user, 2026-10-30): (T), the AST plus per-declaration
+  fact tables keyed by node**, merged cluster by cluster behind typed reads;
+  "the main wins are a distinct dumpable pre-IR, and consolidating
+  everything that looks similar in it". Rejected: (A) a tree per phase, (B)
+  one tree with optional slots filled in place (a mutable AST against the
+  language server's shared modules), (C) one node shape parameterized by
+  phase.
 - **P7. Dump command surface** (C2, D4). **Decided (user, 2026-10-27): one
   `salvo dump --phase <name>`**, absorbing `salvo facts`, `salvo ir` and
   `salvo compile --emit-ast` (the parse phase's AST; its `=MODULE` form,

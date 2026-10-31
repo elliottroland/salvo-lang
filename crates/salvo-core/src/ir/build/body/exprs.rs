@@ -136,7 +136,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             AExpr::Field { .. } | AExpr::TupleIndex { .. } | AExpr::Index { .. } => self.read(e),
             AExpr::Scoped { name, .. } | AExpr::EffectScoped { name, .. } => {
                 // [effect-member-overload] An effect's member as a value (R10 D3).
-                if let Some(ImplicitArg::Member { effect, index, instance, nested, want, .. }) = self.ctx.checked.member_values.get(&self.key(name.span)).cloned() {
+                if let Some(ImplicitArg::Member { effect, index, instance, nested, want, .. }) = self.ctx.checked.fn_value_info(self.key(name.span)).member.cloned() {
                     return self.member_value(&effect, index, &instance, &nested, &want, span);
                 }
                 // A fn named through a selector, as a value.
@@ -408,9 +408,15 @@ impl<'a, 'p> Lower<'a, 'p> {
         let ty = self.ty_of(span);
         let id = k;
         // [throw] Neither side threads a throw [`crate::is_throw_effect`].
-        let taken: Vec<Ty> = self.ctx.checked.lambda_effects.get(&self.key(name_span)).map(|v| crate::threaded_effects(v).iter().map(erase).collect()).unwrap_or_default();
+        // [unify-checker] One lookup for the value's facts.
+        let (taken, nested): (Vec<Ty>, Vec<ImplicitArg>) = {
+            let info = self.ctx.checked.fn_value_info(self.key(name_span));
+            (
+                info.effects.map(|v| crate::threaded_effects(v).iter().map(erase).collect()).unwrap_or_default(),
+                info.nested.cloned().unwrap_or_default(),
+            )
+        };
         let declared: Vec<Ty> = self.ctx.checked.fn_effects.get(&k).map(|v| crate::threaded_effects(v).iter().map(erase).collect()).unwrap_or_default();
-        let nested = self.ctx.checked.fn_value_implicits.get(&self.key(name_span)).cloned().unwrap_or_default();
         if taken == declared && nested.is_empty() {
             return Expr { ty, span, kind: ExprKind::FnValue(FnRef::Decl(id)) };
         }
@@ -455,7 +461,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             return self.fn_value(k, span, span);
         }
         // [effect-member-overload] An effect's member passed by name (R10 D3).
-        if let Some(ImplicitArg::Member { effect, index, instance, nested, want, .. }) = self.ctx.checked.member_values.get(&self.key(span)).cloned() {
+        if let Some(ImplicitArg::Member { effect, index, instance, nested, want, .. }) = self.ctx.checked.fn_value_info(self.key(span)).member.cloned() {
             return self.member_value(&effect, index, &instance, &nested, &want, span);
         }
         if let Some(local) = self.implicit_locals.get(&id.name).cloned() {
@@ -1130,7 +1136,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // [unify-checker] One lookup for the whole call cluster.
         let info = checked.call_info(key);
         // [qual-whynot] `InRange.qualifies(n, 1, 65535)`: a qualifier's own fn.
-        if let Some((q, member, of)) = checked.qual_member_calls.get(&key).cloned() {
+        if let Some((q, member, of)) = info.qual_member.cloned() {
             let subject = match &of {
                 Some(base) => Ty::named(base.clone()),
                 None => Ty::Unknown,
@@ -1497,8 +1503,8 @@ impl<'a, 'p> Lower<'a, 'p> {
             _ => return None,
         };
         let decl = self.ctx.symbols.effects.get(eff_name.as_str()).copied()?;
-        let index = match self.ctx.checked.effect_member_calls.get(&self.key(span)) {
-            Some(i) => *i,
+        let index = match self.ctx.checked.call_info(self.key(span)).effect_member {
+            Some(i) => i,
             None => decl.fns.iter().position(|f| f.name.name == name)?,
         };
         let interface = self.ctx.decl_of_effect(&eff_name)?;
@@ -1646,8 +1652,14 @@ impl<'a, 'p> Lower<'a, 'p> {
         let saved_loops = std::mem::take(&mut self.loop_results);
         let saved_env_len = self.effect_env.len();
         let mut ps = Vec::new();
+        // [unify-checker] One lookup for the lambda's facts, owned before the
+        // walk borrows `self` mutably.
+        let (lambda_effects, lambda_captures) = {
+            let info = self.ctx.checked.lambda_info(self.key(span));
+            (info.effects.cloned(), info.captures.cloned())
+        };
         // [fn-effects] the effects a lambda takes as leading parameters.
-        if let Some(effs) = self.ctx.checked.lambda_effects.get(&self.key(span)).cloned() {
+        if let Some(effs) = lambda_effects {
             // [throw] A throw is not threaded in [`crate::is_throw_effect`].
             for (i, t) in crate::threaded_effects(&effs).iter().enumerate() {
                 let local = Local(format!("__leff{i}"));
@@ -1678,11 +1690,8 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.effect_env.truncate(saved_env_len);
         self.loop_results = saved_loops;
         self.pop_scope();
-        let captures = self
-            .ctx
-            .checked
-            .lambda_captures
-            .get(&self.key(span))
+        let captures = lambda_captures
+            .as_ref()
             .map(|cs| {
                 cs.iter()
                     .map(|c| Capture { local: self.lookup(&c.name).map(|b| b.local.clone()).unwrap_or(Local(c.name.clone())), consumed: c.consumed, mutable: c.mutable })
@@ -2580,7 +2589,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 info.elvis_test.cloned(),
                 info.elvis_pick.map(erase).unwrap_or(Ty::Unknown),
                 info.pick_left.map(erase).unwrap_or(Ty::Unknown),
-                self.ctx.checked.elvis_widen.get(&self.key(span)).cloned(),
+                info.elvis_widen.cloned(),
             )
         };
         let s = self.expr_subject(subject);

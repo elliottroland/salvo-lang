@@ -1762,6 +1762,8 @@ impl Checked {
             implicit_args: self.implicit_args.get(&key),
             fn_value_call: self.fn_value_calls.get(&key),
             moved_projection: self.moved_projections.contains(&key),
+            effect_member: self.effect_member_calls.get(&key).copied(),
+            qual_member: self.qual_member_calls.get(&key),
         }
     }
 
@@ -1802,6 +1804,30 @@ impl Checked {
             elvis_test: self.elvis_tests.get(&key),
             elvis_pick: self.elvis_picks.get(&key),
             pick_left: self.pick_left.get(&key),
+            elvis_widen: self.elvis_widen.get(&key),
+        }
+    }
+
+    /// [unify-checker] A function named as a value, at its name: the effects
+    /// the fn type it is passed as threads, the implicits the function fills
+    /// in turn [fn-value], and — for an effect's member written as a value —
+    /// the member it is [effect-member-overload].
+    pub fn fn_value_info(&self, key: Key) -> FnValueInfo<'_> {
+        FnValueInfo {
+            effects: self.lambda_effects.get(&key),
+            nested: self.fn_value_implicits.get(&key),
+            member: self.member_values.get(&key),
+        }
+    }
+
+    /// [unify-checker] A lambda's facts, at its span: the effects it takes as
+    /// leading parameters [fn-effects], what it captures [fate-lambda], and
+    /// the contract it was checked against [fn-contract].
+    pub fn lambda_info(&self, key: Key) -> LambdaInfo<'_> {
+        LambdaInfo {
+            effects: self.lambda_effects.get(&key),
+            captures: self.lambda_captures.get(&key),
+            contract: self.lambda_contracts.get(&key),
         }
     }
 
@@ -1817,6 +1843,23 @@ pub struct PickInfo<'c> {
     pub elvis_test: Option<&'c PickTest>,
     pub elvis_pick: Option<&'c Ty>,
     pub pick_left: Option<&'c Ty>,
+    /// [op-elvis] [type-rewrap] The coercion lifting the picked value into
+    /// the join, when the right side widens it.
+    pub elvis_widen: Option<&'c Coercion>,
+}
+
+/// [unify-checker] A function named as a value, at its name.
+pub struct FnValueInfo<'c> {
+    pub effects: Option<&'c Vec<Ty>>,
+    pub nested: Option<&'c Vec<ImplicitArg>>,
+    pub member: Option<&'c ImplicitArg>,
+}
+
+/// [unify-checker] A lambda's facts, at its span.
+pub struct LambdaInfo<'c> {
+    pub effects: Option<&'c Vec<Ty>>,
+    pub captures: Option<&'c Vec<LambdaCapture>>,
+    pub contract: Option<&'c Vec<FnParamContract>>,
 }
 
 /// [unify-checker] string-interpolation rendering facts at one span
@@ -1870,6 +1913,11 @@ pub struct CallInfo<'c> {
     pub implicit_args: Option<&'c Vec<ImplicitArg>>,
     pub fn_value_call: Option<&'c Vec<FnParamContract>>,
     pub moved_projection: bool,
+    /// [effect-member-overload] Which overload of an effect member the call
+    /// took, where the effect declares the name more than once.
+    pub effect_member: Option<usize>,
+    /// [qual-whynot] `Q.qualifies(…)`: the qualifier, its fn and its `of`.
+    pub qual_member: Option<&'c (String, String, Option<String>)>,
 }
 
 /// [platform-fn-value] [runtime-kept-fn] Whether platform fn `f` keeps its
