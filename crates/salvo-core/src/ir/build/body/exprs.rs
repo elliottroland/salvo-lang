@@ -955,20 +955,35 @@ impl<'a, 'p> Lower<'a, 'p> {
     }
 
     /// [op-arm-eq] Lower `union == value` (checker-recorded) to
-    /// `subject is arm && (subject narrowed to arm) == value`. The subject is
-    /// bound once so it is read for the test and the comparison without
-    /// re-evaluating; `!=` negates the whole thing.
+    /// `subject is arm && (subject narrowed to arm) == value`. Both operands
+    /// are evaluated first, in written order (user decision 2026-10-30,
+    /// ROADMAP 0ay): the subject into a temporary the test and the
+    /// comparison read, the value into one too unless it is a literal,
+    /// which evaluates to itself. `!=` negates the whole thing.
     fn arm_compare(&mut self, op: BinaryOp, ac: &crate::check::ArmCompare, test: &UnionTest, lhs: &AExpr, rhs: &AExpr, span: Span) -> Expr {
         let ty = self.ty_of(span);
         let bool_ty = Ty::named("Bool");
         let (subject_ast, value_ast) = if ac.subject_is_lhs { (lhs, rhs) } else { (rhs, lhs) };
+        // The value operand, when it comes first, is evaluated first.
+        let mut binds = Vec::new();
+        let mut value_first = None;
+        // A subject that is a place reads without effects, so a value that
+        // is a read too may stay where the comparison reads it.
+        let subject_reads = is_ast_place(subject_ast);
+        if !ac.subject_is_lhs {
+            value_first = Some(self.compared_value(value_ast, subject_reads, &mut binds));
+        }
         let s = self.expr_subject(subject_ast);
         let subj_ty = s.ty.clone();
         let arm_ty = self.narrowed_ty_of_test(&subj_ty, test).unwrap_or(Ty::Unknown);
         // Bind the subject once.
         let tmp = self.fresh("__cmp");
         let lid = self.id();
-        let bind = Stmt::Let { id: lid, local: tmp.clone(), ty: subj_ty.clone(), value: s };
+        binds.push(Stmt::Let { id: lid, local: tmp.clone(), ty: subj_ty.clone(), value: s });
+        let value = match value_first {
+            Some(v) => v,
+            None => self.compared_value(value_ast, subject_reads, &mut binds),
+        };
         // `subject is arm`.
         let tid = self.id();
         let test = Expr {
@@ -988,7 +1003,6 @@ impl<'a, 'p> Lower<'a, 'p> {
             from_ty: subj_ty.clone(),
             because: Justification::Cond { branch: tid, arm: 0 },
         };
-        let value = self.expr(value_ast);
         let read_arm = Expr { ty: arm_ty, span, kind: ExprKind::Read { place: Place { root: nar, steps: Vec::new() }, consume: false, moved: false } };
         let cmp = Expr { ty: bool_ty.clone(), span, kind: ExprKind::Op { op: Op::Eq, args: vec![read_arm, value] } };
         let present = Block { stmts: vec![narrow], value: Some(Box::new(cmp)), span };
@@ -1007,7 +1021,26 @@ impl<'a, 'p> Lower<'a, 'p> {
             BinaryOp::NotEq => Expr { ty: ty.clone(), span, kind: ExprKind::Op { op: Op::Not, args: vec![eq] } },
             _ => eq,
         };
-        self.block_expr(vec![bind], result, span)
+        self.block_expr(binds, result, span)
+    }
+
+    /// [op-arm-eq] The value side of an arm comparison, evaluated where it
+    /// is written: a literal is its own value, and so is a read when the
+    /// subject is a read too (neither side has an effect the order could
+    /// show); anything else is bound to a temporary in `binds`, so it runs
+    /// in written order and whether or not the arm matches.
+    fn compared_value(&mut self, value_ast: &AExpr, subject_reads: bool, binds: &mut Vec<Stmt>) -> Expr {
+        let value = self.expr(value_ast);
+        let literal = |e: &Expr| matches!(e.kind, ExprKind::Int(_) | ExprKind::Long(_) | ExprKind::Float(_) | ExprKind::Double(_) | ExprKind::Bool(_) | ExprKind::Char(_) | ExprKind::Str(_));
+        let constant = literal(&value) || matches!(&value.kind, ExprKind::Op { op: Op::Neg, args } if args.len() == 1 && literal(&args[0]));
+        if constant || (subject_reads && is_ast_place(value_ast)) {
+            return value;
+        }
+        let local = self.fresh("__cmpv");
+        let id = self.id();
+        let ty = value.ty.clone();
+        binds.push(Stmt::Let { id, local: local.clone(), ty: ty.clone(), value });
+        Expr { ty, span: value_ast.span(), kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume: false, moved: false } }
     }
 
     // ------------------------------------------------------------- calls --
@@ -3344,5 +3377,15 @@ fn consume_under_coercions(e: &mut Expr) {
         ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::Present { value } | ExprKind::Widen { value } => consume_under_coercions(value),
         ExprKind::Read { place, consume, .. } if place.steps.is_empty() => *consume = true,
         _ => {}
+    }
+}
+
+/// [op-arm-eq] An expression that only reads a place: a variable, or a
+/// field or element chain out of one.
+fn is_ast_place(e: &AExpr) -> bool {
+    match e {
+        AExpr::Ident(id) => id.name != "None",
+        AExpr::Field { base, .. } | AExpr::TupleIndex { base, .. } => is_ast_place(base),
+        _ => false,
     }
 }

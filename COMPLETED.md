@@ -144,6 +144,23 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — An arm comparison evaluates both sides in order (user decision, [op-arm-eq], ROADMAP 0ay)
+
+- **Decided (user, 2026-10-30)**, option (b) of ROADMAP 0ay (recorded with
+  the `Test` merge): `union == value` evaluates both operands, in written
+  order, before the arm test. Rejected: (a) keeping the short-circuit and
+  saying so in the spec.
+- **Was**: the union side first, and the value side only inside the arm
+  that matched, so `f() == x` on `x: Long?` never called `f` when `x` was
+  `None`, and called it after `x` otherwise.
+- **Built**: `Lower::arm_compare` binds the operands in written order —
+  the value through `compared_value`, which binds it to a `__cmpv`
+  temporary unless the order cannot show: a literal (or a negated one), or
+  a place read against a subject that is a place read too (`o.short == c`
+  in std's `args`). No golden, example or pin moved.
+- Tests: run data `operators/union_value_picks_the_arm_by_the_value_s_type.sv`
+  `arm_equality_evaluates_both_sides_in_order` (both backends).
+
 ### 2026-10-30 — One table of tests, and `^Mut` converts (user decision, PIPELINE.md D2 `Test`, [is-narrowing] [qual-lift])
 
 - **Decided (user, 2026-10-30)**, on the write-up of the second D2 merge:
@@ -174,9 +191,9 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   is a narrowing to the builder plus the drop (`Lower::bind_arm`), and the
   IR reads a builder as the builder (`types::drops_only_mut`). Rust was
   right all along (`Mut` erases there).
-- **Recorded for the user**: the [op-arm-eq] lowering evaluates the union
-  operand first and the value only when the arm matches, so `f() == x`
-  skips `f()` when `x` is `None` (ROADMAP 0ay, a DECISION).
+- **Recorded for the user**: the [op-arm-eq] lowering evaluated the union
+  operand first and the value only when the arm matched (ROADMAP 0ay;
+  decided and built in the entry above).
 - Tests: run data `qualifiers/the_widening_check.sv`
   `lifting_mut_converts_the_builder` (both backends; failed on Kotlin
   before). No golden, example or emit pin moved; the facts snapshot gained

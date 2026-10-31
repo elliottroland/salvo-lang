@@ -2432,7 +2432,12 @@ Conventions:
     `eq` resolved at a span this fused form does not have, so it falls back
     to the ordinary error). Zero matching arms, or ordering, stay refused.
     `!=` negates the reduced test; the IR builds the `is`-test-and-compare
-    directly, so no backend rule is needed.
+    directly, so no backend rule is needed. **Both operands are evaluated,
+    in written order, before the test** (user decision 2026-10-30): `f() ==
+    x` calls `f` first, and calls it when `x` is `None` too — the reduction
+    says what the comparison *means*, not that the value side may be
+    skipped. A value side is held in a temporary unless nothing could tell:
+    a literal, or a read when the subject is a read too.
 * [op-arith] **Arithmetic operators are the calls they name** (B3.3e,
   2026-10-28; OPERATOR_OVERLOAD.md O1, PIPELINE.md §3 R10): `a + b` is
   `plus(a, b)`, `a - b` `minus(a, b)`, `a * b` `times(a, b)` and `a / b`

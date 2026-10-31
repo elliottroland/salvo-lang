@@ -62,3 +62,37 @@ fn main() [use] {
 //= 42
 //= true
 //= true
+
+//--- arm_equality_evaluates_both_sides_in_order
+// [op-arm-eq] Both operands are evaluated, in written order, whether or not
+// the arm matches (user decision 2026-10-30, ROADMAP 0ay): `f() == x` calls
+// `f` even when `x` is `None`, and before `x`'s side is read.
+
+fn f(tag: Str) [use] -> Long {
+    use StdConsole()
+    println("f ${tag}")
+    return 1L
+}
+
+fn opt(tag: Str, v: Long?) [use] -> Long? {
+    use StdConsole()
+    println("opt ${tag}")
+    return v
+}
+
+fn main() [use] {
+    use StdConsole()
+    let x: Long? = None
+    println("${f("a") == x}")
+    println("${f("b") == opt("b", 1L)}")
+    println("${opt("c", None) != f("c")}")
+}
+//= stdout
+//= f a
+//= false
+//= f b
+//= opt b
+//= true
+//= opt c
+//= f c
+//= true

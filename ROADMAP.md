@@ -970,21 +970,6 @@ For (1), the arithmetic operators (B3.3e) ask **by name**, as the call does:
 there is no binder slot for `plus` and no 2026-09-22 decision about them, so
 they follow the call; if (c) is chosen for `cmp`, nothing changes for them.
 
-### 0ay — DECISION: the evaluation order of an [op-arm-eq] comparison (found 2026-10-30, PIPELINE.md D2 `Test`)
-
-`union == value` lowers to `union is arm && arm == value` [op-arm-eq]: the
-union operand is evaluated first, and the value operand only when the arm
-matched. With a literal value (the usual case) nothing can tell; with a
-side-effecting one the written order is not kept. `f() == x` on `x: Long?`
-evaluates `x` before `f()`, and never calls `f()` when `x` is `None`. Repro:
-`fn f() [use] -> Long { use StdConsole(); println("f"); return 1L }` and
-`let x: Long? = None; println("${f() == x}")` prints `false` without `f`.
-Options: (a) keep it, and say in the spec that the value side is evaluated
-only when the arm matches; (b) evaluate both operands in written order into
-temporaries before the test (what the arguments of a call do
-[deduce-same-call]). Recommendation: (b), since an operator reads as both
-operands being evaluated.
-
 ### 0ar — Open defects the test-data migration found (2026-10-28, TESTS.md T1)
 
 Moving the checker tests onto the real std and exact annotations (every
