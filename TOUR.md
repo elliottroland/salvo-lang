@@ -206,14 +206,16 @@ examples of what they say about the sample program.
 **What is this expression's type?**
 
 ```rust
-pub expr_ty: HashMap<Key, Ty>,       // after flow narrowing
-pub repr_ty: HashMap<Key, Ty>,       // the type it is *stored* as, when it differs
-pub coercions: ...                   // wrap a value into a union arm, etc.
+pub expr_ty: HashMap<Key, Ty>,                    // after flow narrowing
+pub narrowed_reads: HashMap<Key, NarrowedRead>,   // the type it is *stored* as, when it differs
+pub converts: HashMap<Key, Convert>,              // representation steps: wrap into a union arm, etc.
 ```
 
-`repr_ty` is the narrowing record. In `if value is Int { … value … }` the
-checker says `value` here has `expr_ty` `Int` but `repr_ty` `Box | Int`; the
-emitter sees the difference and reads through the union's arm.
+`narrowed_reads` is the narrowing record. In `if value is Int { … value … }`
+the checker says `value` here has `expr_ty` `Int` but is stored as `Box |
+Int`; the emitter sees the difference and reads through the union's arm.
+`converts` is the conversion record: a chain of steps (`DropMut`, a union
+wrap, a `Promote`), applied in order around the value.
 
 **What did this name resolve to?**
 
@@ -587,7 +589,7 @@ The shape of expression emission is a set of functions that pass a
 Narrowing has its own sub-machinery: `narrowing_of`, `narrow_unwrap`,
 `narrowed_borrow`, `owned_optional_local`, `ident_unwrap`. They decide
 whether a narrowed read is `x.u2()`, `*x.u2()`, `x.u2().clone()` or
-`x.as_ref().unwrap()`, from `repr_ty`, the binding kind, Copy-ness and the mode.
+`x.as_ref().unwrap()`, from `narrowed_reads`, the binding kind, Copy-ness and the mode.
 
 What is in the Rust emitter purely because of rustc:
 
@@ -681,7 +683,7 @@ as a `Block` whose first statement is a `Let` with a temporary name. The Rust
 emitter prints it with its ordinary block/let code. Kotlin, if it did not call
 the pass, is unaffected. Two things it has to do that side tables did not:
 
-* register `expr_ty` (and coercion/`repr_ty`) entries for the nodes it creates,
+* register `expr_ty` (and `converts`/`narrowed_reads`) entries for the nodes it creates,
   under keys of their own (`Key::synthetic`), since nothing numbers a node
   made after the tree is numbered [node-id];
 * run after the demand table, because what counts as a borrow is a function of

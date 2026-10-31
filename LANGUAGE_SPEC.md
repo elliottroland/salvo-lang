@@ -340,7 +340,7 @@ Conventions:
     `collapse_ast`, `runtime_arm`).
   * The checker reasons over the *declared* union (narrowing and
     exhaustiveness are about the literals); the side tables a backend reads
-    (`coerce`, `is_tests`, `repr_ty`) are in runtime arms —
+    (`converts`, `is_tests`, `narrowed_reads`) are in runtime arms —
     `literal::lower_tables` rewrites the coercions after the last round,
     and an `is` test is recorded in runtime arms with **value conditions**
     (`UnionTest.values`: the literals an arm must, or must not, equal).
@@ -655,7 +655,7 @@ Conventions:
   arm of a `T?` and the sole value of the `None` type — and the targets
   spell them differently (Rust `None` vs `()`, Kotlin `null` vs `Unit`),
   so which one a `None` *expression* lowers to comes from its **slot**, not
-  from the expression. The checker records `Coercion::NoneUnit` where a
+  from the expression. The checker records a `ConvertStep::NoneUnit` where a
   `None` literal fills a slot whose type *is* `None`, and the emitters
   render the target's unit value there.
   * The shape that needs it is a generic argument the call inferred as
@@ -1630,7 +1630,8 @@ Conventions:
   does, `Mut T` used as `T` needs a real conversion (Kotlin's
   `StringBuilder` is not a `String` — `MutableList<T>` *is* a `List<T>`,
   which is why this never came up before `Str canbe Mut`).
-  * A **checker-recorded coercion** (`Coercion::DropMut`), not an emitter
+  * A **checker-recorded conversion** (`ConvertStep::DropMut`, always the
+    first step of its chain), not an emitter
     guess: the two sides cannot disagree about where a conversion happens
     (the standing checker/emitter agreement invariant). The record carries
     the qualified type, so the backend decides from its base — Kotlin
@@ -1767,8 +1768,8 @@ Conventions:
     reported instead.
   * **Two wraps, inner first.** A group over a *wrapper* union has an
     inner physical wrapper of its own, so a value entering it is wrapped
-    into the inner union's arm before the outer one — carried as
-    `Coercion::WrapUnion`'s `inner`, which both emitters apply first.
+    into the inner union's arm before the outer one — two `WrapUnion`
+    steps of one conversion, the inner first [ir-coerce].
     This holds whether or not a qualifier is left over: `Emitted (Str |
     Int)` needs it too, and before 2026-09-10 that case type-checked and
     emitted a single wrap, which both target compilers rejected.
@@ -2018,7 +2019,8 @@ Conventions:
   but cast-and-asserted at direct access sites (runtime exception risk is
   the user's).
   * Overrides must refine the real field's type (subtype check); access
-    sites are recorded in the checker's `field_casts` table.
+    sites are recorded in the checker's `narrowed_reads` table as claims
+    (`NarrowBy::Claim`, the declared field type stored).
 * [qual-constructive] A qualifier without a body is *constructive*: values
   gain it only through constructor functions. Plain values never subtype
   `Q T`, and `is Q` on a non-union value is a compile error.
@@ -2527,7 +2529,8 @@ Conventions:
   exact in both directions). On Kotlin, equality is the one operator whose
   mixed form the target refuses, so the promotion is rendered as an explicit
   `.toLong()`/`.toDouble()` there [kt-op-promote]; the narrower operand's span is recorded
-  in `Checked::promotions`. Backends render it their own way: Rust casts
+  as the last step of its conversion (`ConvertStep::Promote`,
+  [ir-coerce]). Backends render it their own way: Rust casts
   (`((n) as i64)` — it has no mixed-width operators), Kotlin's operator
   set already covers the mixes. Mixing the integer and float classes is
   an error naming the explicit conversions — never implicit, so float
@@ -10072,7 +10075,7 @@ between endpoints and delivers what arrives into the scheduler.
   * **A type variable** binds to the argument's own arm, borrow included,
     so a union mentioning one (`T?`, `Box<A> | Int`) is left to
     unification.
-  * **The IR says it**: the checker records `Coercion::BorrowAs`, and the
+  * **The IR says it**: the checker records `ConvertStep::BorrowAs`, and the
     IR has `BorrowAs { value, arms }` pairing each target arm with the arm
     that lands there — `borrow_as[proj Mut A -> A, B -> B](…)`, and for a
     single value `borrow_as[proj X -> X](…)` (user decision: uniform, even
@@ -12709,7 +12712,16 @@ replaced the working document TESTING.md).
   erasure would merge two arms, a tagged `None` keeps its tag, and literal
   types collapse into their base [type-literal].
 * [ir-coerce] A slot's coercion is explicit nodes around the value:
-  `MakeUnion`, `Present`, `Rewrap`, `Widen`, `DropMut`.
+  `MakeUnion`, `Present`, `Rewrap`, `Widen`, `DropMut`, `BorrowAs`, `Unit`.
+  The checker records one **conversion** per expression (`Checked::converts`,
+  PIPELINE.md D2): a chain of steps, each applied to what the steps before
+  it made — a `Mut` drop always first, a numeric promotion always last
+  [op-promote]. A conversion changes how a value is stored; a change of its
+  static type alone is a narrowing [ir-narrow], recorded apart
+  (`Checked::narrowed_reads`: the storage's type, and whether the flow or
+  a field claim made it). Representation steps a later slot records
+  replace the earlier ones at the same expression, since both convert the
+  same value into a slot; a drop and a promotion are added around them.
 * [ir-read] A read of a place carries `consume`: the value's life ends here.
   The IR marks consumption, never duplication; a backend with ownership
   copies a non-consuming read of a value it only borrows. It also carries
@@ -13283,8 +13295,8 @@ replaced the working document TESTING.md).
   part.
 * [doc-hover-narrowed] A variable hovers as the type *known at that
   position* — the flow-narrowed type, qualifiers included — with the
-  declared type named below it when narrowing changed it (`Checked::repr_ty`
-  holds it) [is-narrowing].
+  declared type named below it when narrowing changed it (a flow entry of
+  `Checked::narrowed_reads` holds it) [is-narrowing].
   * Declared *names* are hovered like the variables they introduce:
     parameters, handler state fields, `let` patterns and `is`/`for`
     bindings all record their type in `Checked::expr_ty` at their own
@@ -13625,6 +13637,10 @@ replaced the working document TESTING.md).
   under its id [decl-id] (`total(#0) -> Int@main`; a file's own nodes under
   `(file)@module`), one line per node it typed in source order — its
   position and text, its type, the declaration a call resolved to, and the
-  marks `coerced`, `dot`, `by-value`, `linear-move`, `narrowed`. A
+  marks `dot`, `by-value`, `linear-move`, `narrowed from T` (a flow
+  narrowing, `T` the storage's type) and `claimed from T` (a field claim
+  [qual-field-override]). A conversion is written after the type as
+  `#{as T}` [ir-coerce], `T` what its last step produces — the mark the
+  typed dump puts after a converted expression (PIPELINE.md D2). A
   desugaring's synthesized node prints as `…`. `facts::dump` is the
   library form; `example_facts_are_stable` snapshots one example.

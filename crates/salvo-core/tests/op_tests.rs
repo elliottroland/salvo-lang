@@ -15,7 +15,7 @@ fn checked(src: &str) -> salvo_core::Checked {
     let user = out.program.files.iter().position(|f| !f.is_std).expect("main.sv");
     let mut c = out.checked;
     c.expr_ty.retain(|k, _| k.file() >= user);
-    c.promotions.retain(|k, _| k.file() >= user);
+    c.converts.retain(|k, _| k.file() >= user);
     c.call_fn.retain(|k, _| k.file() >= user);
     c.member_calls.retain(|k, _| k.file() >= user);
     c.local_calls.retain(|k| k.file() >= user);
@@ -42,7 +42,15 @@ fn integer_widening_promotes_and_records() {
         "    let x: Long = 9L\n    let n = 5\n    let _y = x + n\n    let _z = n + x\n    \
          let f: Float = 1.0f\n    let d = 2.5\n    let _g = f * d",
     ));
-    let promoted: Vec<String> = out.promotions.values().map(|t| t.to_string()).collect();
+    let promoted: Vec<String> = out
+        .converts
+        .values()
+        .flat_map(|c| &c.steps)
+        .filter_map(|s| match s {
+            salvo_core::ConvertStep::Promote { to } => Some(to.to_string()),
+            _ => None,
+        })
+        .collect();
     assert_eq!(promoted.iter().filter(|t| *t == "Long").count(), 2, "both `n` operands promote to Long: {promoted:?}");
     assert_eq!(promoted.iter().filter(|t| *t == "Double").count(), 1, "the `f` operand promotes to Double: {promoted:?}");
     let types: Vec<String> = out.expr_ty.values().map(|t| t.to_string()).collect();

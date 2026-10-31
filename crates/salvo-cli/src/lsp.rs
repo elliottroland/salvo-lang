@@ -1164,12 +1164,11 @@ impl Server<'_> {
             ));
         }
         // The variable's type as narrowed at this position, with its
-        // qualifiers; `repr_ty` holds the declared type whenever flow
+        // qualifiers; `narrowed_reads` holds the declared type whenever flow
         // analysis narrowed it, which is the fact worth showing next to
         // it [doc-hover-narrowed].
         let declared = checked
-            .repr_ty
-            .get(&at)
+            .flow_stored(at)
             .filter(|d| **d != *ty)
             .map(|d| {
                 format!(

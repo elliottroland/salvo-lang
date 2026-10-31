@@ -1,13 +1,15 @@
 //! The type checker.
 //!
-//! Walks eery function body of every language file, inferring a type for
+//! Walks every function body of every language file, inferring a type for
 //! each expression and recording side tables the backend consults:
 //!
 //! * `expr_ty`: the logical type of each expression (after flow narrowing).
-//! * `repr_ty`: for narrowed identifier uses, the *declared* type — the
-//!   physical representation the variable is stored in.
-//! * `coerce`: expressions that must be wrapped/re-wrapped into a union
-//!   representation at a boundary (let/assign/return/argument/branch value).
+//! * `narrowed_reads`: for narrowed reads, the *declared* type — the
+//!   physical representation the place is stored in — and what narrowed it
+//!   (the flow, or a qualifier's field claim).
+//! * `converts`: the representation changes an expression needs, in order
+//!   (a union wrap or rewrap at a boundary — let/assign/return/argument/
+//!   branch value — a `Mut` drop, a numeric promotion).
 //! * `is_tests`: how an `is` check (or `when` branch) lowers against a
 //!   union representation (which sealed arms to test / null checks).
 //! * `call_fn`: resolved fn targets for call sites (type-based overloads).
@@ -518,22 +520,29 @@ pub struct PassDriver {
     pub step_call: bool,
 }
 
-/// A representation change the emitter must apply to an expression.
-#[derive(Clone, Debug)]
-pub enum Coercion {
+/// [ir-coerce] A **conversion** at one expression: the representation
+/// changes a backend applies to the value, in order (PIPELINE.md D2,
+/// `Convert`). A conversion changes how a value is stored; a change of its
+/// static type alone is a narrowing ([`NarrowedRead`]).
+///
+/// Every step is applied to what the steps before it produced. One node may
+/// need several: a `Mut` drop and then a union wrap (the wrap is about the
+/// plain type), a wrap into a qualified group's inner union and then into
+/// the outer one [qual-group], a promotion after either.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Convert {
+    pub steps: Vec<ConvertStep>,
+}
+
+/// One representation change of a [`Convert`].
+#[derive(Clone, Debug, PartialEq)]
+pub enum ConvertStep {
     /// Wrap a plain value into arm `arm` (index into non-`None` arms) of
-    /// the `target` union.
-    ///
-    /// `inner` is a representation change applied to the value *first*, and
-    /// exists for one shape: a qualified union group arm `Q (A | B)` reached
-    /// by a value whose qualifier list flattened (`emitted(ok("x"))`
-    /// [qual-group]). Such a value is physically a bare `A`, so it must be
-    /// wrapped into the inner union before the outer one.
-    WrapUnion {
-        target: Ty,
-        arm: usize,
-        inner: Option<Box<Coercion>>,
-    },
+    /// the `target` union. A value whose qualifier list flattened
+    /// (`emitted(ok("x"))` for an `Emitted (Ok Str | Err Str)` arm
+    /// [qual-group]) is physically the bare inner value, so its conversion
+    /// is two wraps: into the inner union, then into the outer.
+    WrapUnion { target: Ty, arm: usize },
     /// Re-wrap a value between two union representations (matching arms by
     /// type equality; unmatched source arms are unreachable at runtime).
     Rewrap { from: Ty, to: Ty },
@@ -563,15 +572,8 @@ pub enum Coercion {
     /// drop is a real conversion. `from` is the qualified type being
     /// dropped, so the backend can decide from its base; a backend where
     /// `Mut` erases (Rust, and Kotlin's `MutableList`) renders nothing.
-    ///
-    /// `then` carries the representation change that would have been
-    /// recorded here anyway (a union wrap, say), because one expression has
-    /// one coercion slot and both have to happen — the drop first, since
-    /// the wrap is about the *plain* type.
-    DropMut {
-        from: Ty,
-        then: Option<Box<Coercion>>,
-    },
+    /// Always the first step: the steps after it are about the plain type.
+    DropMut { from: Ty },
     /// [proj-opt-slot] A union with borrowed arms (`proj Mut A | B`, an
     /// optional handle) read where an owned union is expected — a kept
     /// position, which only reads: each arm of `from` is read as the arm of
@@ -582,7 +584,49 @@ pub enum Coercion {
     /// borrowed rendering of `to` from it; one without may ignore all but
     /// the `Mut` drops.
     BorrowAs { from: Ty, to: Ty },
+    /// [op-promote] A numeric operand widened to the operator's width
+    /// (`Int + Long` promotes the `Int` side to `Long`; `Float`/`Double`
+    /// likewise). Always the last step. Rust casts; Kotlin's operator set
+    /// covers the mixes.
+    Promote { to: Ty },
 }
+
+impl Convert {
+    pub fn one(step: ConvertStep) -> Self {
+        Convert { steps: vec![step] }
+    }
+
+    /// The type the last step produces, when a step names one (`NoneUnit`
+    /// produces `None`; a `Mut` drop, the type without `Mut`).
+    pub fn to_ty(&self) -> Option<Ty> {
+        self.steps.last().map(|s| match s {
+            ConvertStep::WrapUnion { target, .. } | ConvertStep::WrapOption { target } => target.clone(),
+            ConvertStep::Rewrap { to, .. } | ConvertStep::BorrowAs { to, .. } | ConvertStep::Promote { to } => to.clone(),
+            ConvertStep::NoneUnit => Ty::none(),
+            ConvertStep::DropMut { from } => crate::types::drop_mut_ty(from),
+        })
+    }
+}
+
+/// [ir-narrow] A **narrowing** at one read: its static type (the read's
+/// `expr_ty`) is not the type its storage keeps, `stored`. Nothing about
+/// the value changes; the IR reads it through a narrowing binding.
+#[derive(Clone, Debug, PartialEq)]
+pub struct NarrowedRead {
+    pub stored: Ty,
+    pub by: NarrowBy,
+}
+
+/// What a [`NarrowedRead`] rests on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NarrowBy {
+    /// The flow: a test, a guard, a branch [flow-place] [qual-lift].
+    Flow,
+    /// A qualifier's field claim on the read's base [qual-field-override]
+    /// (the backend casts and asserts).
+    Claim,
+}
+
 
 /// The effect whose operation is non-resumptive [throw]. Declared in std
 /// (`lib/std/throw.sv`, module `throw`), known by name to the compiler: it has no
@@ -741,17 +785,16 @@ pub struct Checked {
     /// unequal (user decision 2026-10-12). `==` is the recorded form; `!=`
     /// negates it.
     pub arm_compares: HashMap<Key, ArmCompare>,
-    /// [op-promote] Operator operands widened by numeric promotion, keyed
-    /// by the operand expression's span, mapped to the promoted type
-    /// (`Int + Long` promotes the `Int` side to `Long`; `Float`/`Double`
-    /// likewise). Read by backends whose target has no native mixed-width
-    /// operators (Rust inserts `as` casts; Kotlin's own operator set
-    /// already covers the mixes and ignores this).
-    pub promotions: HashMap<Key, Ty>,
-    /// Declared (physical) type for identifier uses whose logical type was
-    /// narrowed by flow analysis.
-    pub repr_ty: HashMap<Key, Ty>,
-    pub coerce: HashMap<Key, Coercion>,
+    /// [ir-narrow] The reads whose static type is not their storage's: a
+    /// narrowed identifier, field or element place, or a field a
+    /// qualifier's claim refines (PIPELINE.md D2, the narrowing half of
+    /// `Convert`). The checker reads the flow entries back for the physical
+    /// type a coercion starts from (`repr_of`).
+    pub narrowed_reads: HashMap<Key, NarrowedRead>,
+    /// [ir-coerce] The conversions, by the converted expression: what a
+    /// slot, an operator or a `Mut` drop requires of the value's
+    /// representation.
+    pub converts: HashMap<Key, Convert>,
     /// Keyed by the span of the `is` expression or the `when` branch.
     pub is_tests: HashMap<Key, UnionTest>,
     /// [when-exhaustive] `when` expressions (keyed by the `when`'s span)
@@ -777,10 +820,6 @@ pub struct Checked {
     /// (`InRange.qualifies(n, 1, 65535)`): the qualifier, the member, and the
     /// base its `of` names (which declaration of an overloaded qualifier).
     pub qual_member_calls: HashMap<Key, (String, String, Option<String>)>,
-    /// Field accesses whose type is refined by a predicate-qualifier field
-    /// override, keyed by the field expression span: the overridden type
-    /// (the backend casts + asserts).
-    pub field_casts: HashMap<Key, Ty>,
     /// Resolved fn declaration for call sites (keyed by call span).
     pub call_fn: HashMap<Key, DeclId>,
     /// [iter-protocol] How a `for` loop drives a **pass**, keyed by the span
@@ -1793,6 +1832,12 @@ impl Checked {
     /// a projection taking its root), a move only the flow pass sees, the
     /// type a predicate field override refines it to, and the type it is
     /// stored at when it reads narrowed.
+    /// [ir-narrow] The storage type of a read the *flow* narrowed (not a
+    /// field claim, which a test subject reads through).
+    pub fn flow_stored(&self, key: Key) -> Option<&Ty> {
+        self.narrowed_reads.get(&key).filter(|n| n.by == NarrowBy::Flow).map(|n| &n.stored)
+    }
+
     pub fn read_info(&self, key: Key) -> ReadInfo<'_> {
         ReadInfo {
             linear_move: self.linear_moves.contains(&key),
@@ -1800,8 +1845,7 @@ impl Checked {
             state_take: self.state_takes.contains(&key),
             moved_projection: self.moved_projections.contains(&key),
             flow_move: self.flow_moves.contains(&key),
-            field_cast: self.field_casts.get(&key),
-            repr: self.repr_ty.get(&key),
+            narrowed: self.narrowed_reads.get(&key),
         }
     }
 
@@ -1844,8 +1888,7 @@ pub struct ReadInfo<'c> {
     pub state_take: bool,
     pub moved_projection: bool,
     pub flow_move: bool,
-    pub field_cast: Option<&'c Ty>,
-    pub repr: Option<&'c Ty>,
+    pub narrowed: Option<&'c NarrowedRead>,
 }
 
 impl ReadInfo<'_> {
@@ -2783,7 +2826,7 @@ struct LocalVar {
 /// variable, the type reads of that place have while the fact holds, and
 /// the *declared* (physical) type the storage keeps — narrowing never
 /// re-wraps storage, so reads unwrap from `declared` to `narrowed` and
-/// both the checker (`repr_ty`) and the emitters need it.
+/// both the checker (`narrowed_reads`) and the emitters need it.
 #[derive(Clone, PartialEq)]
 struct PlaceNarrow {
     path: Vec<Step>,
@@ -11690,7 +11733,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
             if narrowed != declared {
-                self.out.repr_ty.insert(self.key(id.span), declared);
+                self.out.narrowed_reads.insert(self.key(id.span), NarrowedRead { stored: declared, by: NarrowBy::Flow });
             }
             // Expose the fate links of derived-variable reads for
             // tooling (`proj` presentation) [fate-link].
@@ -14225,7 +14268,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// backends whose operators do not mix widths natively (Rust casts;
     /// Kotlin's operator set covers the mixes).
     fn record_promotion(&mut self, span: Span, target: &Ty) {
-        self.out.promotions.insert(self.key(span), target.clone());
+        let key = self.key(span);
+        let convert = self.out.converts.entry(key).or_default();
+        convert.steps.retain(|s| !matches!(s, ConvertStep::Promote { .. }));
+        convert.steps.push(ConvertStep::Promote { to: target.clone() });
     }
 
     /// [cmp-groups] Whether a **visible** `cmp`/`eq`/`hash` takes this named
@@ -23373,24 +23419,16 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// The physical representation type of an expression: for identifier
     /// uses this is the declared type (narrowing does not re-wrap values),
     /// and for a narrowed projection place the type its storage keeps
-    /// [flow-place].
+    /// [flow-place] — inside a `^` branch, the widened type [qual-lift]. It
+    /// is what the read recorded when it was checked (`narrowed_reads`,
+    /// PIPELINE.md D2): the checker reads its own fact back rather than
+    /// deriving it a second time from the flow state, which may have moved
+    /// on since the read.
     fn repr_of(&self, expr: &Expr, logical: &Ty) -> Ty {
-        if let Expr::Ident(id) = expr {
-            if let Some(var) = self.lookup(&id.name) {
-                // [qual-lift] Inside a `^` branch the value is seen at the
-                // widened type.
-                return var.widened.clone().unwrap_or_else(|| var.declared.clone());
-            }
+        if !matches!(expr, Expr::Ident(_) | Expr::Field { .. } | Expr::TupleIndex { .. }) {
+            return logical.clone();
         }
-        if matches!(expr, Expr::Field { .. } | Expr::TupleIndex { .. }) {
-            if let Some(entry) = Place::of_expr(expr)
-                .as_ref()
-                .and_then(|p| self.place_narrow_entry(p))
-            {
-                return entry.declared.clone();
-            }
-        }
-        logical.clone()
+        self.out.flow_stored(self.key(expr.span())).cloned().unwrap_or_else(|| logical.clone())
     }
 
     fn check_expr_inner(&mut self, expr: &'p Expr, expected: Option<&Ty>) -> Ty {
@@ -23636,21 +23674,21 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 self.record_field_ref(&base_ty, field);
                 if let Some(override_ty) = self.field_override_ty(&base_ty, &field.name) {
-                    self.out
-                        .field_casts
-                        .insert(self.key(*span), override_ty.clone());
+                    if let Some(stored) = self.declared_field_ty(&base_ty, &field.name).filter(|d| *d != override_ty) {
+                        self.out.narrowed_reads.insert(self.key(*span), NarrowedRead { stored, by: NarrowBy::Claim });
+                    }
                     return override_ty;
                 }
                 // [flow-place] A narrowed projection place reads at its
                 // narrowed type. The storage keeps the declared type — the
                 // one the `is` test was lowered against — so the read is
-                // recorded in `repr_ty` for the emitters to unwrap from,
+                // recorded in `narrowed_reads` for the emitters to unwrap from,
                 // exactly as a narrowed identifier read is.
                 if let Some(place) = Place::of_expr(expr) {
                     if let Some(entry) = self.place_narrow_entry(&place) {
                         let (narrowed, declared) = (entry.narrowed.clone(), entry.declared.clone());
                         if narrowed != declared {
-                            self.out.repr_ty.insert(self.key(*span), declared);
+                            self.out.narrowed_reads.insert(self.key(*span), NarrowedRead { stored: declared, by: NarrowBy::Flow });
                         }
                         return narrowed;
                     }
@@ -23665,7 +23703,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if let Some(entry) = self.place_narrow_entry(&place) {
                         let (narrowed, declared) = (entry.narrowed.clone(), entry.declared.clone());
                         if narrowed != declared {
-                            self.out.repr_ty.insert(self.key(*span), declared);
+                            self.out.narrowed_reads.insert(self.key(*span), NarrowedRead { stored: declared, by: NarrowBy::Flow });
                         }
                         return narrowed;
                     }
@@ -27623,8 +27661,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn note_none_unit(&mut self, arg: &Expr, slot: &Ty) {
         if slot.is_none_ty() && matches!(arg, Expr::Ident(id) if id.name == "None") {
             self.out
-                .coerce
-                .insert(self.key(arg.span()), Coercion::NoneUnit);
+                .converts
+                .insert(self.key(arg.span()), Convert::one(ConvertStep::NoneUnit));
         }
     }
 
@@ -27668,7 +27706,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             };
             if plain && crate::types::read_arm_map(logical, &to).is_some() {
                 let key = self.key(span);
-                self.out.coerce.insert(key, Coercion::BorrowAs { from: logical.clone(), to });
+                self.out.converts.insert(key, Convert::one(ConvertStep::BorrowAs { from: logical.clone(), to }));
                 return;
             }
         }
@@ -27720,19 +27758,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         let key = self.key(span);
-        let then = match self.out.coerce.remove(&key) {
-            // Already recorded: keep it, but do not nest a drop in a drop.
-            Some(Coercion::DropMut { from, then }) => {
-                self.out
-                    .coerce
-                    .insert(key, Coercion::DropMut { from, then });
-                return;
-            }
-            other => other.map(Box::new),
-        };
-        self.out
-            .coerce
-            .insert(key, Coercion::DropMut { from, then });
+        let convert = self.out.converts.entry(key).or_default();
+        // Already recorded: keep it, but do not drop twice.
+        if matches!(convert.steps.first(), Some(ConvertStep::DropMut { .. })) {
+            return;
+        }
+        convert.steps.insert(0, ConvertStep::DropMut { from });
     }
 
     /// [str-drop-mut] The `Mut`-dropping conversion an *operand* needs: an
@@ -27809,13 +27840,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if expected.is_wrapper_union() {
                     let arms = expected.value_arms();
                     if let Some(i) = arms.iter().position(|arm| **arm == effective) {
-                        self.out.coerce.insert(
+                        self.out.converts.insert(
                             self.key(span),
-                            Coercion::WrapUnion {
-                                target: expected.clone(),
-                                arm: i,
-                                inner: None,
-                            },
+                            Convert::one(ConvertStep::WrapUnion { target: expected.clone(), arm: i }),
                         );
                         return;
                     }
@@ -27837,12 +27864,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 {
                     return;
                 }
-                self.out.coerce.insert(
+                self.out.converts.insert(
                     self.key(span),
-                    Coercion::Rewrap {
-                        from: effective,
-                        to: expected.clone(),
-                    },
+                    Convert::one(ConvertStep::Rewrap { from: effective, to: expected.clone() }),
                 );
                 return;
             }
@@ -27865,23 +27889,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // (`emitted(ok("x"))` for an `Emitted (Ok Str | Err Str)`
                     // arm) is physically the bare inner value: wrap it into
                     // the inner union first.
-                    let inner = crate::types::nested_group_arm(&effective, arms[matches[0]]).map(
-                        |(inner_ty, inner_arm)| {
-                            Box::new(Coercion::WrapUnion {
-                                target: inner_ty,
-                                arm: inner_arm,
-                                inner: None,
-                            })
-                        },
-                    );
-                    self.out.coerce.insert(
-                        self.key(span),
-                        Coercion::WrapUnion {
-                            target: expected.clone(),
-                            arm: matches[0],
-                            inner,
-                        },
-                    );
+                    let mut steps: Vec<ConvertStep> = crate::types::nested_group_arm(&effective, arms[matches[0]])
+                        .map(|(target, arm)| ConvertStep::WrapUnion { target, arm })
+                        .into_iter()
+                        .collect();
+                    steps.push(ConvertStep::WrapUnion { target: expected.clone(), arm: matches[0] });
+                    self.out.converts.insert(self.key(span), Convert { steps });
                 }
                 0 => {
                     // [qual-arm-infer] Before refusing, try provenance-arm
@@ -27896,26 +27909,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // whose flat qualifier list is just `Ok Int`) holds
                         // the value wrapped into that union first.
                         let payload = self.provenance_payload(arms[i]);
-                        let inner = match &payload {
-                            Some(u) if u.is_wrapper_union() => {
-                                let fits: Vec<usize> =
-                                    u.value_arms().iter().enumerate().filter(|(_, a)| is_subtype(&effective, a)).map(|(j, _)| j).collect();
-                                let [j] = fits[..] else {
-                                    self.error(span, messages::type_union_no_arm(&expected, &logical, true));
-                                    return;
-                                };
-                                Some(Box::new(Coercion::WrapUnion { target: u.clone(), arm: j, inner: None }))
-                            }
-                            _ => None,
-                        };
-                        self.out.coerce.insert(
-                            self.key(span),
-                            Coercion::WrapUnion {
-                                target: expected.clone(),
-                                arm: i,
-                                inner,
-                            },
-                        );
+                        let mut steps = Vec::new();
+                        if let Some(u) = payload.as_ref().filter(|u| u.is_wrapper_union()) {
+                            let fits: Vec<usize> =
+                                u.value_arms().iter().enumerate().filter(|(_, a)| is_subtype(&effective, a)).map(|(j, _)| j).collect();
+                            let [j] = fits[..] else {
+                                self.error(span, messages::type_union_no_arm(&expected, &logical, true));
+                                return;
+                            };
+                            steps.push(ConvertStep::WrapUnion { target: u.clone(), arm: j });
+                        }
+                        steps.push(ConvertStep::WrapUnion { target: expected.clone(), arm: i });
+                        self.out.converts.insert(self.key(span), Convert { steps });
                         return;
                     }
                     // [qual-group] One shape reads confusingly here: an
@@ -27969,11 +27974,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             && !effective.has_none_arm()
             && !matches!(effective, Ty::Union(_))
         {
-            self.out.coerce.insert(
+            self.out.converts.insert(
                 self.key(span),
-                Coercion::WrapOption {
-                    target: expected.clone(),
-                },
+                Convert::one(ConvertStep::WrapOption { target: expected.clone() }),
             );
         }
     }

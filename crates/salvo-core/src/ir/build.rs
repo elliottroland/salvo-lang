@@ -4,7 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::check::{Checked, Coercion};
+use crate::check::{Checked, Convert, ConvertStep};
 use crate::program::{Program as CoreProgram, Symbols};
 use crate::resolve::Resolution;
 use crate::types::{is_proj_name, Qual, Ty};
@@ -462,27 +462,27 @@ pub fn build_program_gated<'p>(
     (out, errors, failed)
 }
 
-/// The span-keyed coercion a slot recorded for an expression, applied as IR
-/// nodes around it [ir-coerce].
-pub fn apply_coercion(c: &Coercion, value: Expr, span: Span) -> Expr {
-    match c {
-        Coercion::WrapUnion { target, arm, inner } => {
-            let value = match inner {
-                Some(i) => apply_coercion(i, value, span),
-                None => value,
-            };
+/// [ir-coerce] The conversion the checker recorded at an expression,
+/// applied as IR nodes around it, step by step.
+pub fn apply_convert(c: &Convert, value: Expr, span: Span) -> Expr {
+    c.steps.iter().fold(value, |value, step| apply_step(step, value, span))
+}
+
+fn apply_step(step: &ConvertStep, value: Expr, span: Span) -> Expr {
+    match step {
+        ConvertStep::WrapUnion { target, arm } => {
             Expr { ty: erase(target), span, kind: ExprKind::MakeUnion { arm: *arm, value: Box::new(value) } }
         }
-        Coercion::Rewrap { from, to } => {
+        ConvertStep::Rewrap { from, to } => {
             Expr { ty: erase(to), span, kind: ExprKind::Rewrap { from: erase(from), value: Box::new(value) } }
         }
-        Coercion::WrapOption { target } => {
+        ConvertStep::WrapOption { target } => {
             // The absent arm is `MakeNone`; a present value is itself, typed
             // at the optional.
             Expr { ty: erase(target), span, kind: ExprKind::Present { value: Box::new(value) } }
         }
-        Coercion::NoneUnit => Expr { ty: Ty::none(), span, kind: ExprKind::Unit },
-        Coercion::BorrowAs { from, to } => {
+        ConvertStep::NoneUnit => Expr { ty: Ty::none(), span, kind: ExprKind::Unit },
+        ConvertStep::BorrowAs { from, to } => {
             let arms = crate::types::read_arm_map(&erase(from), &erase(to))
                 .unwrap_or_default()
                 .into_iter()
@@ -490,23 +490,19 @@ pub fn apply_coercion(c: &Coercion, value: Expr, span: Span) -> Expr {
                 .collect();
             Expr { ty: erase(to), span, kind: ExprKind::BorrowAs { value: Box::new(value), arms } }
         }
-        Coercion::DropMut { from, then } => {
-            // An optional drops `Mut` on its present arm [proj-opt-slot].
-            let ty = match erase(from) {
-                Ty::Union(arms) => {
-                    let m: std::collections::HashSet<String> = ["Mut".to_string()].into_iter().collect();
-                    Ty::Union(arms.into_iter().map(|a| a.remove_quals(&m)).collect())
-                }
-                t => t.strip_quals().clone(),
-            };
-            let dropped = Expr {
-                ty,
-                span,
-                kind: ExprKind::DropMut { value: Box::new(value) },
-            };
-            match then {
-                Some(t) => apply_coercion(t, dropped, span),
-                None => dropped,
+        // An optional drops `Mut` on its present arm [proj-opt-slot].
+        ConvertStep::DropMut { from } => {
+            Expr { ty: crate::types::drop_mut_ty(&erase(from)), span, kind: ExprKind::DropMut { value: Box::new(value) } }
+        }
+        // [op-promote] A literal is retyped; anything else widened.
+        ConvertStep::Promote { to } => {
+            let target = erase(to);
+            let span = value.span;
+            match (&value.kind, target.strip_quals()) {
+                (ExprKind::Int(v), Ty::Named { name, .. }) if name == "Long" => Expr { ty: target, span, kind: ExprKind::Long(*v) },
+                (ExprKind::Float(v), Ty::Named { name, .. }) if name == "Double" => Expr { ty: target, span, kind: ExprKind::Double(*v) },
+                (_, Ty::Named { .. }) => Expr { ty: target, span, kind: ExprKind::Widen { value: Box::new(value) } },
+                _ => value,
             }
         }
     }

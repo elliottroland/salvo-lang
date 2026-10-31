@@ -205,8 +205,8 @@ Conventions:
     generated code.
 * [op-promote] Kotlin's own operator set covers the mixed widths
   (`Long.plus(Int)`, `Int.compareTo(Long)`, `Float.times(Double)`), so
-  checker-recorded promotions emit **nothing** here — the table exists
-  for Rust (mechanism differs, behaviour agrees).
+  checker-recorded promotions (`ConvertStep::Promote`) emit **nothing**
+  here — the step exists for Rust (mechanism differs, behaviour agrees).
 * [type-lit-adopt] An adopted literal renders at its **checked** type — `1L`,
   `3.0`, `0.5f` — because Kotlin adopts less than Salvo does (a bare `1`
   initializes a `Long` `val` but does not conform to a `Long`
@@ -221,7 +221,7 @@ Conventions:
   * `MutableList<T>` **is** a `List<T>`, so dropping `Mut` there is free.
     `StringBuilder` is not a `String`, so a drop emits `.toString()`
     ([str-drop-mut], `intrinsics::drop_mut_suffix`, applied to the
-    checker's `Coercion::DropMut` — a bare name takes the suffix directly,
+    checker's `ConvertStep::DropMut` — a bare name takes the suffix directly,
     anything else is parenthesized first). An optional `Mut Str` read
     where `Str?` is expected drops `Mut` on its present arm, `(v)?.toString()`
     (2026-10-10, [proj-opt-slot]: `show(get(ws, 0))` over a

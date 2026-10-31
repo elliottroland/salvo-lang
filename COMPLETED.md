@@ -144,6 +144,38 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Conversions and narrowings, two tables (user decision, PIPELINE.md D2 `Convert`, [ir-coerce] [ir-narrow])
+
+- **Decided (user, 2026-10-30)**, on the write-up of the first D2 merge by
+  meaning: (1) a conversion is a **chain of steps**, applied in order;
+  (2) the checker's `repr_of` reads the recorded narrowing back instead of
+  deriving it again; (3) `salvo facts` marks a conversion `#{as T}` after
+  the type, and a narrowing `narrowed from T` / `claimed from T`.
+  Rejected: keeping the nested `Coercion` and adding `Promote { then }`.
+- **Built**: `coerce` + `promotions` are `converts: HashMap<Key, Convert>`,
+  `Convert { steps: Vec<ConvertStep> }` with `WrapUnion`, `Rewrap`,
+  `WrapOption`, `NoneUnit`, `DropMut`, `BorrowAs`, `Promote`. The three
+  ad-hoc compositions are steps now: `DropMut.then` (the drop is the first
+  step), `WrapUnion.inner` (the inner wrap is the step before), and the
+  IR's `promoted()` (a `Promote` is the last step, the literal retyping
+  inside it). `repr_ty` + `field_casts` are `narrowed_reads:
+  HashMap<Key, NarrowedRead { stored, by: Flow | Claim }>`; the IR's two
+  read branches read one fact, and a claim's storage type is the
+  checker's (`declared_field_ty`) rather than one the IR looked up again.
+  `Checked::flow_stored` is the flow half, which `repr_of`, the IR's
+  `narrowed_local`/`expr_subject` and the LSP hover read. Four tables are
+  two; `Coercion` is gone.
+- **Fell out**: `literal::lower_tables` never lowered a `DropMut`'s
+  continuation (a union wrap after a `Mut` drop kept its declared-arm index
+  into a literal union); as a step of the chain it is lowered like any
+  other. No program in the suite had the shape.
+- **Output**: no golden, example or emit pin moved; the facts snapshot
+  changed only in its marks.
+- Answered for the user: no read is checked outside `check_expr` (an
+  identifier reaches `check_ident` only through `check_expr_inner`, which
+  only `check_expr` calls), so `repr_of` always finds the entry the read
+  just made. 709 tests under nextest, warm run 1m42.
+
 ### 2026-10-30 — `?>` is a `when` as well (user decision, [when-lowered], [expr-safe-pipe])
 
 - **Decided (user, 2026-10-30)**: the null-safe pipe lowers to a `when` the

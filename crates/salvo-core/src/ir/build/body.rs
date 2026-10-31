@@ -671,12 +671,12 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
-    /// [ir-narrow] A read of a name the flow narrowed (`repr_ty` differs
-    /// from `expr_ty`) goes through a narrowing binding: the one an enclosing
+    /// [ir-narrow] A read of a name the flow narrowed (a `narrowed_reads`
+    /// entry) goes through a narrowing binding: the one an enclosing
     /// arm introduced, or a fresh one justified by the last branch, which the
     /// flow said left on the other arm.
     fn narrowed_local(&mut self, name: &str, bound: &Bound, span: Span) -> Local {
-        let Some(declared) = self.ctx.checked.repr_ty.get(&self.key(span)) else {
+        let Some(declared) = self.ctx.checked.flow_stored(self.key(span)) else {
             return bound.local.clone();
         };
         let logical = self.ty_of(span);

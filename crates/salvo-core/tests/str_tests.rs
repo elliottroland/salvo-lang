@@ -15,7 +15,7 @@
 
 use std::path::Path;
 
-use salvo_core::{check_program, resolve, Coercion, Program, SourceSet, Symbols};
+use salvo_core::{check_program, resolve, ConvertStep, Program, SourceSet, Symbols};
 
 /// `src` checked over the real std, asserting it reports no error, with
 /// only the rows of its own file kept (std's are seeded into every check).
@@ -25,7 +25,7 @@ fn checked(src: &str) -> salvo_core::Checked {
     assert!(errors.is_empty(), "unexpected errors: {errors:#?}");
     let user = out.program.files.iter().position(|f| !f.is_std).expect("main.sv");
     let mut c = out.checked;
-    c.coerce.retain(|k, _| k.file() >= user);
+    c.converts.retain(|k, _| k.file() >= user);
     c
 }
 
@@ -34,10 +34,10 @@ fn checked(src: &str) -> salvo_core::Checked {
 fn drops(src: &str) -> Vec<String> {
     let out = checked(src);
     let mut found: Vec<String> = out
-        .coerce
+        .converts
         .values()
-        .filter_map(|c| match c {
-            Coercion::DropMut { from, .. } => Some(from.to_string()),
+        .filter_map(|c| match c.steps.first() {
+            Some(ConvertStep::DropMut { from }) => Some(from.to_string()),
             _ => None,
         })
         .collect();
@@ -45,16 +45,14 @@ fn drops(src: &str) -> Vec<String> {
     found
 }
 
-/// The coercion a `DropMut` carries with it, if any — one expression has one
-/// coercion slot, and both changes have to happen.
+/// The steps after a `Mut` drop, if any — both changes have to happen at
+/// the one expression, the drop first.
 fn drop_continuations(src: &str) -> Vec<String> {
     let out = checked(src);
-    out.coerce
+    out.converts
         .values()
-        .filter_map(|c| match c {
-            Coercion::DropMut { then, .. } => {
-                Some(then.as_ref().map(|t| format!("{t:?}")).unwrap_or_default())
-            }
+        .filter_map(|c| match c.steps.split_first() {
+            Some((ConvertStep::DropMut { .. }, rest)) => Some(rest.iter().map(|t| format!("{t:?}")).collect::<Vec<_>>().join(", ")),
             _ => None,
         })
         .filter(|s| !s.is_empty())

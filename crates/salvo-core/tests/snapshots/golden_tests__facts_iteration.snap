@@ -29,7 +29,7 @@ describe_container(List<Int>) -> None@main
   23:28   `c`                            Char
   25:5    `println("1. string: ${lett…`  None  -> std.core.console::println
   25:13   `"1. string: ${letters}"`      Str
-  25:27   `letters`                      Mut Str  [coerced]
+  25:27   `letters`                      Mut Str #{as Str}
   27:9    `arr`                          Int[]
   27:15   `array_of(10, 20, 30)`         Int[]  -> std.core.array::array_of
   27:24   `10`                           Int
@@ -59,7 +59,7 @@ next(Mut Countdown) -> Emitted Int | Finished@main
   55:8    `p`                            Mut Countdown
   55:16   `0`                            Int
   56:9    `return finished()`            Never
-  56:16   `finished()`                   Finished  -> std.core.iterator::finished  [coerced]
+  56:16   `finished()`                   Finished #{as Emitted Int | Finished}  -> std.core.iterator::finished
   58:9    `now`                          Int
   58:15   `copy(p.at)`                   Int  -> std.core.basic::copy
   58:20   `p.at`                         Int
@@ -71,7 +71,7 @@ next(Mut Countdown) -> Emitted Int | Finished@main
   59:12   `p`                            Mut Countdown
   59:19   `1`                            Int
   60:5    `return emitted(now)`          Never
-  60:12   `emitted(now)`                 Emitted Int  -> std.core.iterator::emitted  [coerced]
+  60:12   `emitted(now)`                 Emitted Int #{as Emitted Int | Finished}  -> std.core.iterator::emitted
   60:20   `now`                          Int
 skip(Mut Countdown) -> Emitted Int | Finished@main
   66:9    `p`                            Mut Countdown
@@ -81,7 +81,7 @@ skip(Mut Countdown) -> Emitted Int | Finished@main
   67:8    `p`                            Mut Countdown
   67:16   `1`                            Int
   68:9    `return finished()`            Never
-  68:16   `finished()`                   Finished  -> std.core.iterator::finished  [coerced]
+  68:16   `finished()`                   Finished #{as Emitted Int | Finished}  -> std.core.iterator::finished
   70:9    `now`                          Int
   70:15   `copy(p.at)`                   Int  -> std.core.basic::copy
   70:20   `p.at`                         Int
@@ -93,7 +93,7 @@ skip(Mut Countdown) -> Emitted Int | Finished@main
   71:12   `p`                            Mut Countdown
   71:19   `2`                            Int
   72:5    `return emitted(now)`          Never
-  72:12   `emitted(now)`                 Emitted Int  -> std.core.iterator::emitted  [coerced]
+  72:12   `emitted(now)`                 Emitted Int #{as Emitted Int | Finished}  -> std.core.iterator::emitted
   72:20   `now`                          Int
 take(Mut Countdown, Int) -> None@main
   77:9    `p`                            Mut Countdown
@@ -128,7 +128,7 @@ next(Mut Halving) -> Emitted Int | Finished@main
   103:8   `at`                           Int
   103:14  `0`                            Int
   104:9   `return finished()`            Never
-  104:16  `finished()`                   Finished  -> std.core.iterator::finished  [coerced]
+  104:16  `finished()`                   Finished #{as Emitted Int | Finished}  -> std.core.iterator::finished
   106:9   `now`                          Int
   106:15  `copy(at)`                     Int  -> std.core.basic::copy
   106:20  `at`                           Int
@@ -137,7 +137,7 @@ next(Mut Halving) -> Emitted Int | Finished@main
   107:10  `at`                           Int
   107:15  `2`                            Int
   108:5   `return emitted(now)`          Never
-  108:12  `emitted(now)`                 Emitted Int  -> std.core.iterator::emitted  [coerced]
+  108:12  `emitted(now)`                 Emitted Int #{as Emitted Int | Finished}  -> std.core.iterator::emitted
   108:20  `now`                          Int
 halving_from_ten() -> Mut Halving@main
   113:5   `return halving(10)`           Never
@@ -161,15 +161,15 @@ next(Mut BagIter) -> Emitted Int | Finished@main
   131:8   `e is None`                    Bool
   131:8   `e`                            Int?
   132:9   `return finished()`            Never
-  132:16  `finished()`                   Finished  -> std.core.iterator::finished  [coerced]
+  132:16  `finished()`                   Finished #{as Emitted Int | Finished}  -> std.core.iterator::finished
   134:5   `at`                           Int
   134:10  `at + 1`                       Int  -> std.core.basic::plus(Int, Int)
   134:10  `at`                           Int
   134:15  `1`                            Int
   135:5   `return emitted(copy(e))`      Never
-  135:12  `emitted(copy(e))`             Emitted Int  -> std.core.iterator::emitted  [coerced]
+  135:12  `emitted(copy(e))`             Emitted Int #{as Emitted Int | Finished}  -> std.core.iterator::emitted
   135:20  `copy(e)`                      Int  -> std.core.basic::copy
-  135:25  `e`                            Int  [narrowed]
+  135:25  `e`                            Int  [narrowed from Int?]
 fibs(Int) -> Mut Fibs@main
   142:6   `fn fibs(count: Int) [Conso…`  Never
   142:6   `fn fibs(count: Int) [Conso…`  Mut Fibs
@@ -188,7 +188,7 @@ next(Mut Fibs) -> Emitted Int | Finished@main
   149:9   `println("3. finished")`       None  -> std.core.console::println
   149:17  `"3. finished"`                Str
   150:9   `return finished()`            Never
-  150:16  `finished()`                   Finished  -> std.core.iterator::finished  [coerced]
+  150:16  `finished()`                   Finished #{as Emitted Int | Finished}  -> std.core.iterator::finished
   152:9   `now`                          Int
   152:15  `copy(a)`                      Int  -> std.core.basic::copy
   152:20  `a`                            Int
@@ -207,7 +207,7 @@ next(Mut Fibs) -> Emitted Int | Finished@main
   156:12  `made`                         Int
   156:19  `1`                            Int
   157:5   `return emitted(now)`          Never
-  157:12  `emitted(now)`                 Emitted Int  -> std.core.iterator::emitted  [coerced]
+  157:12  `emitted(now)`                 Emitted Int #{as Emitted Int | Finished}  -> std.core.iterator::emitted
   157:20  `now`                          Int
 naturals(Int) -> Mut Naturals@main
   162:6   `fn naturals(from: Int) -> …`  Never
@@ -226,7 +226,7 @@ next(Mut Naturals) -> Emitted Int | Finished@main
   167:10  `at`                           Int
   167:15  `1`                            Int
   168:5   `return emitted(now)`          Never
-  168:12  `emitted(now)`                 Emitted Int  -> std.core.iterator::emitted  [coerced]
+  168:12  `emitted(now)`                 Emitted Int #{as Emitted Int | Finished}  -> std.core.iterator::emitted
   168:20  `now`                          Int
 sum_of(Mut #0) -> Int@main
   177:15  `it`                           Mut It
@@ -376,9 +376,9 @@ main() -> None@main
   261:5   `println("5. list: ${size(d…`  None  -> std.core.console::println
   261:13  `"5. list: ${size(doubled)}…`  Str
   261:25  `size(doubled)`                Int  -> std.core.list::size
-  261:30  `doubled`                      Mut List<Int>  [coerced]
+  261:30  `doubled`                      Mut List<Int> #{as List<Int>}
   261:51  `size(odd)`                    Int  -> std.core.list::size
-  261:56  `odd`                          Mut List<Int>  [coerced]
+  261:56  `odd`                          Mut List<Int> #{as List<Int>}
   261:75  `total`                        Int
   263:9   `words`                        NonEmpty List<Str>
   263:17  `List("ann", "bo", "carol")`   NonEmpty List<Str>  -> std.core.list::List(T, T[])
@@ -392,12 +392,12 @@ main() -> None@main
   264:36  `w -> size(w)`                 (proj Str) -> Int
   264:36  `w`                            proj Str
   264:41  `size(w)`                      Int  -> std.core.string::size
-  264:46  `w`                            proj Str  [coerced]
+  264:46  `w`                            proj Str #{as Str}
   265:5   `println("5. lengths: ${red…`  None  -> std.core.console::println
   265:13  `"5. lengths: ${reduce(iter…`  Str
   265:28  `reduce(iter(lengths), 0, (…`  Int  -> std.core.seq::reduce(Mut It, A, (A, T) -> A)
   265:35  `iter(lengths)`                Mut ListNext<Int>  -> std.core.list::iter
-  265:40  `lengths`                      Mut List<Int>  [coerced]
+  265:40  `lengths`                      Mut List<Int> #{as List<Int>}
   265:50  `0`                            Int
   265:53  `(acc, n) -> acc + n`          (Int, Int) -> Int
   265:54  `acc`                          Int
@@ -423,7 +423,7 @@ main() -> None@main
   271:5   `println("5. vowels: ${size…`  None  -> std.core.console::println
   271:13  `"5. vowels: ${size(vowels)…`  Str
   271:27  `size(vowels)`                 Int  -> std.core.list::size
-  271:32  `vowels`                       Mut List<Char>  [coerced]
+  271:32  `vowels`                       Mut List<Char> #{as List<Char>}
   274:5   `println("5. halving total …`  None  -> std.core.console::println
   274:13  `"5. halving total ${reduce…`  Str
   274:33  `reduce(halving(20), 0, (ac…`  Int  -> std.core.seq::reduce(Mut It, A, (A, T) -> A)
@@ -449,7 +449,7 @@ main() -> None@main
   282:5   `println("6. collected ${si…`  None  -> std.core.console::println
   282:13  `"6. collected ${size(colle…`  Str
   282:29  `size(collected)`              Int  -> std.core.list::size
-  282:34  `collected`                    Mut List<Int>  [coerced]
+  282:34  `collected`                    Mut List<Int> #{as List<Int>}
   288:9   `evens`                        Mut Str
   288:17  `Mut Str()`                    Mut Str  -> std.core.string::Mut_Str
   289:5   `for i in range(0, 10, 2) {…`  None
@@ -464,4 +464,4 @@ main() -> None@main
   290:26  `i`                            Int
   292:5   `println("7. evens ${evens}…`  None  -> std.core.console::println
   292:13  `"7. evens ${evens}"`          Str
-  292:25  `evens`                        Mut Str  [coerced]
+  292:25  `evens`                        Mut Str #{as Str}

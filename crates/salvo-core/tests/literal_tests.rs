@@ -4,7 +4,7 @@
 //! `tests/check/literals/` (TESTS.md T1); these read the checker's tables,
 //! which annotations cannot.
 
-use salvo_core::Coercion;
+use salvo_core::ConvertStep;
 use salvo_syntax::ast::TypeLit;
 
 /// `src` checked over the real std, asserting it reports no error, with
@@ -16,7 +16,7 @@ fn checked(src: &str) -> salvo_core::Checked {
     let user = out.program.files.iter().position(|f| !f.is_std).expect("main.sv");
     let mut c = out.checked;
     c.is_tests.retain(|k, _| k.file() >= user);
-    c.coerce.retain(|k, _| k.file() >= user);
+    c.converts.retain(|k, _| k.file() >= user);
     c
 }
 
@@ -46,10 +46,11 @@ fn g() [] -> Mixed {{
     assert_eq!(test.size, 1);
     assert_eq!(test.values, vec![(0, false, vec![TypeLit::Str("GLACIER".into())])]);
     let wrap = out
-        .coerce
+        .converts
         .values()
+        .flat_map(|c| &c.steps)
         .find_map(|c| match c {
-            Coercion::WrapUnion { target, arm, .. } => Some((target.clone(), *arm)),
+            ConvertStep::WrapUnion { target, arm } => Some((target.clone(), *arm)),
             _ => None,
         })
         .expect("a wrap into the mixed union");
@@ -85,8 +86,8 @@ fn a_qualified_literal_test_is_a_value_comparison() {
         "the `when`'s `is \"host\"` arm is a value test too"
     );
     assert!(
-        !out.coerce.values().any(|c| matches!(c, Coercion::WrapUnion { .. })),
+        !out.converts.values().flat_map(|c| &c.steps).any(|c| matches!(c, ConvertStep::WrapUnion { .. })),
         "a union that collapsed to `Str` has no arm to wrap into: {:?}",
-        out.coerce.values().collect::<Vec<_>>()
+        out.converts.values().collect::<Vec<_>>()
     );
 }

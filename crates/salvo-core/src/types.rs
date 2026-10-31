@@ -1997,3 +1997,15 @@ pub fn fn_type_throws(t: &Ty) -> Option<Ty> {
 pub fn threaded_effects(effects: &[Ty]) -> Vec<Ty> {
     effects.iter().filter(|e| !is_throw_effect(e)).cloned().collect()
 }
+
+/// [str-drop-mut] The type a `Mut` drop leaves: an optional (or any union)
+/// drops `Mut` on its arms [proj-opt-slot]; anything else is its base.
+pub fn drop_mut_ty(from: &Ty) -> Ty {
+    match from {
+        Ty::Union(arms) => {
+            let m: HashSet<String> = ["Mut".to_string()].into_iter().collect();
+            Ty::Union(arms.iter().cloned().map(|a| a.remove_quals(&m)).collect())
+        }
+        t => t.strip_quals().clone(),
+    }
+}

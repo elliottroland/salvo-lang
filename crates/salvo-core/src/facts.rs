@@ -81,15 +81,17 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, id:
         let at = crate::origin::landing(&program.modules[file], span);
         let (line, col) = line_col(source, if at.is_expanded() { source.len() as u32 } else { at.start });
         let mut row = format!("  {:<8}{:<30} {ty}", format!("{line}:{col}"), snippet(source, at));
+        // [ir-coerce] A conversion is marked after the type, `#{as T}`, as
+        // the typed dump marks one after the converted expression.
+        if let Some(to) = part.converts.get(key).and_then(|c| c.to_ty()) {
+            row.push_str(&format!(" #{{as {to}}}"));
+        }
         if let Some(target) = part.call_fn.get(key) {
             row.push_str(&format!("  -> {}", fn_name(program, &checked.decls, *target)));
         } else if let Some(m) = part.member_calls.get(key) {
             row.push_str(&format!("  -> {}.#{}", crate::typekey::plain(&m.effect), m.index));
         }
         let mut marks: Vec<&str> = Vec::new();
-        if part.coerce.contains_key(key) {
-            marks.push("coerced");
-        }
         if part.dot_calls.contains(key) {
             marks.push("dot");
         }
@@ -102,8 +104,14 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, id:
         if part.linear_moves.contains(key) {
             marks.push("linear-move");
         }
-        if part.repr_ty.get(key).is_some_and(|r| r != ty) {
-            marks.push("narrowed");
+        // [ir-narrow] A read whose storage keeps another type: narrowed by
+        // the flow, or claimed by a qualifier's field override.
+        let narrowed = part.narrowed_reads.get(key).filter(|n| n.stored != *ty).map(|n| match n.by {
+            crate::check::NarrowBy::Flow => format!("narrowed from {}", n.stored),
+            crate::check::NarrowBy::Claim => format!("claimed from {}", n.stored),
+        });
+        if let Some(n) = &narrowed {
+            marks.push(n);
         }
         if !marks.is_empty() {
             row.push_str(&format!("  [{}]", marks.join(", ")));

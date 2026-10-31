@@ -400,55 +400,46 @@ pub fn collapse_ast(ty: &ast::Type) -> ast::Type {
 /// rewrap between two unions with the same runtime shape is nothing. The `is`
 /// tests are already lowered where they are recorded.
 pub fn lower_tables(out: &mut crate::check::Checked) {
-    use crate::check::Coercion;
-    fn lower(c: &Coercion) -> Option<Coercion> {
+    use crate::check::{ConvertStep, NarrowBy};
+    fn lower(c: &ConvertStep) -> Option<ConvertStep> {
         match c {
-            Coercion::WrapUnion { target, arm, inner } if mentions_lit(target) => {
-                let inner = inner.as_ref().and_then(|i| lower(i).map(Box::new));
+            ConvertStep::WrapUnion { target, arm } if mentions_lit(target) => {
                 // A backend renders the target arm by arm, so it gets the
                 // runtime union itself.
                 match runtime_arm(target, *arm) {
-                    Some(r) => Some(Coercion::WrapUnion { target: collapse_ty(target), arm: r, inner }),
-                    None if target.has_none_arm() => Some(Coercion::WrapOption { target: collapse_ty(target) }),
+                    Some(r) => Some(ConvertStep::WrapUnion { target: collapse_ty(target), arm: r }),
+                    None if target.has_none_arm() => Some(ConvertStep::WrapOption { target: collapse_ty(target) }),
                     None => None,
                 }
             }
-            Coercion::WrapOption { target } if mentions_lit(target) => {
-                Some(Coercion::WrapOption { target: collapse_ty(target) })
+            ConvertStep::WrapOption { target } if mentions_lit(target) => {
+                Some(ConvertStep::WrapOption { target: collapse_ty(target) })
             }
-            Coercion::Rewrap { from, to } if (mentions_lit(from) || mentions_lit(to)) => {
+            ConvertStep::Rewrap { from, to } if (mentions_lit(from) || mentions_lit(to)) => {
                 let (f, t) = (collapse_ty(from), collapse_ty(to));
                 if f == t {
                     None
                 } else {
-                    Some(Coercion::Rewrap { from: f, to: t })
+                    Some(ConvertStep::Rewrap { from: f, to: t })
                 }
             }
-            Coercion::BorrowAs { from, to } if (mentions_lit(from) || mentions_lit(to)) => {
-                Some(Coercion::BorrowAs { from: collapse_ty(from), to: collapse_ty(to) })
+            ConvertStep::BorrowAs { from, to } if (mentions_lit(from) || mentions_lit(to)) => {
+                Some(ConvertStep::BorrowAs { from: collapse_ty(from), to: collapse_ty(to) })
             }
             other => Some(other.clone()),
         }
     }
     // The declared type of a narrowed identifier decides whether a backend
     // unwraps it (`.value`), so it must be the runtime shape too.
-    for ty in out.repr_ty.values_mut() {
-        if mentions_lit(ty) {
-            *ty = collapse_ty(ty);
+    for n in out.narrowed_reads.values_mut() {
+        if n.by == NarrowBy::Flow && mentions_lit(&n.stored) {
+            n.stored = collapse_ty(&n.stored);
         }
     }
-    let keys: Vec<_> = out.coerce.keys().copied().collect();
-    for k in keys {
-        let c = out.coerce[&k].clone();
-        match lower(&c) {
-            Some(l) => {
-                out.coerce.insert(k, l);
-            }
-            None => {
-                out.coerce.remove(&k);
-            }
-        }
-    }
+    out.converts.retain(|_, c| {
+        c.steps = c.steps.iter().filter_map(lower).collect();
+        !c.steps.is_empty()
+    });
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 //! Expressions (IR record §2): every construct lowered to the node set, every
 //! resolution copied from the checker.
 
-use crate::check::{ImplicitArg, UnionTest};
+use crate::check::{ImplicitArg, NarrowBy, UnionTest};
 use crate::param_mode::PassMode;
 use crate::types::Ty;
 use salvo_syntax::ast::{self, BinaryOp, Expr as AExpr, LambdaBody, Pattern, StrExprPart, UnaryOp};
@@ -9,7 +9,7 @@ use salvo_syntax::messages;
 use salvo_syntax::Span;
 
 use super::Lower;
-use crate::ir::build::{apply_coercion, erase, unsupported};
+use crate::ir::build::{apply_convert, erase, unsupported};
 use crate::ir::*;
 
 /// [flow-use-after-move] [fate-partial-move] A projection whose move took
@@ -92,8 +92,8 @@ impl<'a, 'p> Lower<'a, 'p> {
         if !matches!(e, AExpr::Ident(_)) && self.ctx.checked.flow_moves.contains(&self.key(e.span())) {
             mark_root_move(e, &mut raw);
         }
-        match self.ctx.checked.coerce.get(&self.key(e.span())) {
-            Some(c) => apply_coercion(c, raw, e.span()),
+        match self.ctx.checked.converts.get(&self.key(e.span())) {
+            Some(c) => apply_convert(c, raw, e.span()),
             None => raw,
         }
     }
@@ -528,31 +528,22 @@ impl<'a, 'p> Lower<'a, 'p> {
         let aliased = projected.then(|| self.place_alias(&place).map(|a| a.ty)).flatten();
         let place = self.through_alias(place);
         // [unify-checker] One lookup for the read's facts.
-        let (consume, moved, field_cast, repr) = {
+        let (consume, moved, narrowed) = {
             let info = self.ctx.checked.read_info(key);
             // [flow-use-after-move] `moved`: a move the checker made that
             // this read does not make for emission (a fn value consumed by
             // a call's contract, a projection taking its root): flow-only.
-            (info.consumes(), info.flow_move, info.field_cast.map(erase), info.repr.map(erase))
+            (info.consumes(), info.flow_move, info.narrowed.map(|n| (erase(&n.stored), n.by)))
         };
         // [qual-field-override] A field a qualifier of the subject refines
         // is read through a narrowing binding justified by the claim.
-        if let (AExpr::Field { base, field, .. }, Some(over)) = (e, field_cast) {
-            let base_ty = self.ty_of(base.span());
-            let declared = match base_ty.strip_quals() {
-                Ty::Named { name, .. } => self.ctx.symbols.structs.get(name.as_str()).and_then(|sd| sd.fields.iter().find(|f| f.name.name == field.name).map(|f| match &f.ty {
-                    Some(t) => self.ctx.written_ty(self.file_idx, t),
-                    None => self.ctx.ty_of(self.file_idx, f.name.span).unwrap_or(Ty::Unknown),
-                })),
-                _ => None,
-            };
-            if let Some(declared) = declared.filter(|d| *d != over) {
-                let local = self.fresh("__claimed");
-                let id = self.id();
-                self.pending.push(Stmt::Narrow { id, local: local.clone(), ty: over.clone(), from: place, from_ty: declared, because: Justification::Claim });
-                return Expr { ty: over, span, kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume, moved } };
-            }
+        if let (AExpr::Field { .. }, Some((stored, NarrowBy::Claim))) = (e, &narrowed) {
+            let local = self.fresh("__claimed");
+            let id = self.id();
+            self.pending.push(Stmt::Narrow { id, local: local.clone(), ty: ty.clone(), from: place, from_ty: stored.clone(), because: Justification::Claim });
+            return Expr { ty, span, kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume, moved } };
         }
+        let repr = narrowed.filter(|(_, by)| *by == NarrowBy::Flow).map(|(t, _)| t);
         // [ir-narrow] A projection the flow narrowed (`p.inner` after a test
         // on it) is read through a narrowing binding, like a local.
         if projected {
@@ -792,23 +783,6 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     // --------------------------------------------------------- operators --
 
-    /// [op-promote] An operand, widened to the operator's class width when
-    /// the checker promoted it: a literal is retyped, anything else widened.
-    fn promoted(&mut self, operand: &AExpr) -> Expr {
-        let e = self.expr(operand);
-        let Some(target) = self.ctx.checked.promotions.get(&self.key(operand.span())).map(erase) else { return e };
-        let tname = match target.strip_quals() {
-            Ty::Named { name, .. } => name.as_str(),
-            _ => return e,
-        };
-        let span = e.span;
-        match (&e.kind, tname) {
-            (ExprKind::Int(v), "Long") => Expr { ty: target, span, kind: ExprKind::Long(*v) },
-            (ExprKind::Float(v), "Double") => Expr { ty: target, span, kind: ExprKind::Double(*v) },
-            _ => Expr { ty: target, span, kind: ExprKind::Widen { value: Box::new(e) } },
-        }
-    }
-
     fn binary(&mut self, op: BinaryOp, lhs: &AExpr, rhs: &AExpr, span: Span) -> Expr {
         let ty = self.ty_of(span);
         match op {
@@ -877,8 +851,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                         None => !info.local_call && info.member_call.is_none() && op != BinaryOp::Pow,
                     };
                 if primitive {
-                    let l = self.promoted(lhs);
-                    let r = self.promoted(rhs);
+                    let l = self.expr(lhs);
+                    let r = self.expr(rhs);
                     let o = match op {
                         BinaryOp::Add => Op::Add,
                         BinaryOp::Sub => Op::Sub,
@@ -914,8 +888,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                 // `x == None` is a `None` test of the other side.
                 let (lt, rt) = (self.ty_of(lhs.span()), self.ty_of(rhs.span()));
                 if equality && (lt.is_none_ty() || rt.is_none_ty()) {
-                    let l = self.promoted(lhs);
-                    let r = self.promoted(rhs);
+                    let l = self.expr(lhs);
+                    let r = self.expr(rhs);
                     let subject = if r.ty.is_none_ty() { l } else { r };
                     let id = self.id();
                     let test = Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Test { id, subject: Box::new(subject), test: ArmTest::None } };
@@ -946,8 +920,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                     _ => Op::GtEq,
                 };
                 if primitive {
-                    let l = self.promoted(lhs);
-                    let r = self.promoted(rhs);
+                    let l = self.expr(lhs);
+                    let r = self.expr(rhs);
                     return Expr { ty, span, kind: ExprKind::Op { op: o, args: vec![l, r] } };
                 }
                 let (member, call_ty) = if equality { ("eq", Ty::named("Bool")) } else { ("cmp", Ty::named("Int")) };
@@ -1001,7 +975,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             from_ty: subj_ty.clone(),
             because: Justification::Cond { branch: tid, arm: 0 },
         };
-        let value = self.promoted(value_ast);
+        let value = self.expr(value_ast);
         let read_arm = Expr { ty: ac.arm_ty.clone(), span, kind: ExprKind::Read { place: Place { root: nar, steps: Vec::new() }, consume: false, moved: false } };
         let cmp = Expr { ty: bool_ty.clone(), span, kind: ExprKind::Op { op: Op::Eq, args: vec![read_arm, value] } };
         let present = Block { stmts: vec![narrow], value: Some(Box::new(cmp)), span };
@@ -1288,7 +1262,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     a.push(self.effect_instance(&t, span));
                 }
             }
-            let rest: Vec<Expr> = all_args.iter().map(|x| self.promoted(x)).collect();
+            let rest: Vec<Expr> = all_args.iter().map(|x| self.expr(x)).collect();
             let rest = self.mark_consumed_by_contract(rest, &key);
             a.extend(rest);
             // [fn-once] [flow-use-after-move] A `once` local's call is its move.
@@ -1356,7 +1330,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             let is_tail = variadic_at.is_some_and(|v| i >= v);
             // [op-promote] An operator's operand, widened as the checker
             // recorded (only an operator's operands are ever promoted).
-            let mut x = self.promoted(a);
+            let mut x = self.expr(a);
             let param = if is_tail { fixed.get(variadic_at.unwrap()) } else { fixed.get(i) };
             if let Some(p) = param {
                 let mode = mode_of(p);
@@ -1801,7 +1775,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let span = subject.span();
         if let AExpr::Ident(id) = subject {
             if let Some(b) = self.lookup(&id.name).cloned() {
-                let ty = self.ctx.checked.repr_ty.get(&self.key(span)).map(erase).unwrap_or(b.ty.clone());
+                let ty = self.ctx.checked.flow_stored(self.key(span)).map(erase).unwrap_or(b.ty.clone());
                 return Expr { ty, span, kind: ExprKind::Read { place: Place { root: b.local, steps: Vec::new() }, consume: false, moved: false } };
             }
         }
@@ -1812,7 +1786,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 if let Some(alias) = self.place_alias(&place) {
                     return alias;
                 }
-                if let Some(declared) = self.ctx.checked.repr_ty.get(&self.key(span)).map(erase) {
+                if let Some(declared) = self.ctx.checked.flow_stored(self.key(span)).map(erase) {
                     return Expr { ty: declared, span, kind: ExprKind::Read { place, consume: false, moved: false } };
                 }
             }
