@@ -10255,9 +10255,8 @@ between endpoints and delivers what arrives into the scheduler.
     (either orientation). Anything short of the full proof poisons as
     before [fate-poison].
   * **One call may take two proven handles** — `if d is NotSame(a) {
-    attack(a, d) }` — recorded in `Checked::distinct_pairs` for the Rust
-    pair lowering [rs-elem-mut] [rs-path]. An **unproven** pair is refused
-    at the second argument, naming the remedy.
+    attack(a, d) }`, one proven pair per call. An **unproven** pair is
+    refused at the second argument, naming the remedy.
   * **A write through a handle keeps its container's claims**: an `Idx(xs)`
     on an index survives a call that mutates an element of `xs` through a
     handle (the element changed, not the container's shape); a claim about
@@ -10418,14 +10417,6 @@ between endpoints and delivers what arrives into the scheduler.
   target makes of the mode is its own ([backend-core-layers]): Rust passes a scalar by
   value whatever the mode, spells a lent fn value `&mut impl FnMut`
   ([rs-borrows]).
-* [fate-mut-lends] **Which fns hand back a result a `Mut` position reads**
-  (`salvo_core::mut_lends`, built 2026-10-06): the fns whose lent result
-  serves a `Mut` position (the checker's `mut_lend_calls` and bound mints
-  resolved through `call_fn`, followed along return paths) and the call
-  sites that read one. A target that renders a lent mutable result as a
-  locator ([rs-loc]) emits a twin of each such fn; a garbage-collected
-  target ignores it. (The `canbe` coverage table it also held went with
-  `canbe`, 2026-10-08; anchored handles are [ref-anchor].)
 * [copy-plan] **What `copy` duplicates is core's call** (built 2026-10-06,
   `salvo_core::copyplan`): a tree per type — share the value when no Salvo
   operation can mutate any part of it (scalars, `Str`, non-`Mut` structs of

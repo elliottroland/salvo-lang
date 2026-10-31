@@ -419,7 +419,7 @@ statement's block.
 fields, `List<proj T>`, `iter T`) is inferred from the body when no `holds
 proj(…)` is written (`lends.rs`). The inference is syntactic, but it walks
 **callee bodies** transitively, and is memoised per file (so a callee is
-re-walked once per file). Consumers: the caller's fate links (`lending_calls`,
+re-walked once per file). Consumers: the caller's fate links (`borrows`, formerly `lending_calls` and
 `temp_views`) and the Rust lifetimes (`FnDecl.borrows`).
 
 **Uses.** 5 std container minters (`iter` over list, array, bytes, deque, str;
@@ -2662,10 +2662,24 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      `handler_deps`). `handler_deps` and `effect_prereqs` stay, being
      declaration facts; `handler_constructs` is E1's (an actor summary).
      `salvo facts` marks `handles …` and `constructs H<T> with E (clause
-     0)`. The rest: a call's borrowed result, then `Send` (`self_sends`,
-     `facade_sends`, `addr_calls`, `replyto_*`, `actor_sends`,
-     `task_sends`) (user's order, 2026-10-30). The flow handoff last:
-     explicit places and moves may retire it.
+     0)`. **A call's borrowed result built — done** (user, 2026-10-30):
+     `lending_calls` + `derived_calls` + `temp_views` are `borrows:
+     HashMap<Key, Borrow { kind: View | Held, from, temporary }>`, by
+     argument position (a dot call's receiver 0) through one helper,
+     `call_args`, which fixed a dot-call minting pass losing its claim's
+     root; `distinct_pairs` and `mut_lend_calls` (no readers) are gone, with
+     `borrows.rs` and the dead half of `mut_lends.rs`. **The remaining
+     merges (user, 2026-10-30, all approved in one write-up), in order:**
+     A. calls, the sends included (`calls: HashMap<Key, Call { callee:
+     Callee, dot }>`; `implicit_args` stays its own; `may_throw` keeps only
+     the throw op; `fn_values` for a fn named as a value, `fn_refs` kept);
+     B. `replyto_targets`; C. every declaration table keyed at the
+     declaration's name node (`Key::name_of`), `implicit_params` and
+     `implicit_members` one table; D. `when_missing`, `PassDriver.origin`
+     gone; E. `boundaries`, `platform_closure_all` out of `Checked`; F.
+     `refs` for the navigation tables; G. `moves` for the read moves. Left
+     out: the fate-link tables (D3), the actor rows (E1), the copy-key
+     tables (`Names`), `written_types`, `refinements`.
 - **D3. The IR builder becomes the lowering of the typed form**: erasure as
   its own sub-phase (qualifiers, effects to parameters, union wrapping),
   then flow. The builder's ~87 table reads go. **Decided (user,

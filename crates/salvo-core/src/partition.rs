@@ -234,7 +234,7 @@ impl Checked {
     pub(crate) fn route(&self, owners: &Owners, scope: Scope, sink: &mut dyn Sink) {
         let all = scope == Scope::All;
         let hint = std::cell::Cell::new(0);
-        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_exhaustive, when_arms, qual_member_calls, call_fn, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, addr_calls, self_sends, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_member_calls, member_calls, dot_calls, field_calls, written_types, local_calls, local_call_names, effects_taken, effects_passed, handler_deps, effect_prereqs, call_type_args, fn_value_implicits, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_span_keys, value_span_keys, field_refs, module_refs, fate_reads, interp_union, temp_views, lending_calls, fn_lends, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, implicit_members, member_values, errors } = self;
+        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_exhaustive, when_arms, qual_member_calls, call_fn, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, addr_calls, self_sends, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_member_calls, member_calls, dot_calls, field_calls, written_types, local_calls, local_call_names, effects_taken, effects_passed, handler_deps, effect_prereqs, call_type_args, fn_value_implicits, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_span_keys, value_span_keys, field_refs, module_refs, fate_reads, interp_union, borrows, fn_lends, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, implicit_members, member_values, errors } = self;
         // A node-keyed map, by its key's declaration.
         macro_rules! by_key {
             ($($t:ident),* $(,)?) => {$(
@@ -304,13 +304,13 @@ impl Checked {
             addr_calls, self_sends, fate_mutations, bind_facts, derived_uses, virtual_candidates,
             effect_member_calls, member_calls, local_call_names, effects_taken, effects_passed, call_type_args,
             fn_value_implicits, may_throw, fn_refs,
-            def_refs, field_refs, module_refs, fate_reads, interp_union, lending_calls,
-            boundary_checks, factories, lambda_captures, derived_calls, distinct_pairs, fn_value_calls, lambda_contracts,
+            def_refs, field_refs, module_refs, fate_reads, interp_union, borrows,
+            boundary_checks, factories, lambda_captures, fn_value_calls, lambda_contracts,
             implicit_args, implicit_members, member_values,
         );
         set_by_key!(
-            when_exhaustive, linear_moves, moved_reads, flow_moves, by_value_loops, state_takes, dot_calls, field_calls, local_calls, temp_views,
-            handle_muts, moved_projections, mut_lend_calls,
+            when_exhaustive, linear_moves, moved_reads, flow_moves, by_value_loops, state_takes, dot_calls, field_calls, local_calls,
+            handle_muts, moved_projections,
         );
         by_id!(fn_lends, implicit_params);
         for (k, v) in established_quals {
@@ -373,7 +373,7 @@ impl Checked {
     /// `split_files`, or a declaration's, `split_decls`): the keyed tables;
     /// what `Scope::Keyed` leaves out is the caller's.
     pub(crate) fn insert_rows(&mut self, rows: &Checked) {
-        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_exhaustive, when_arms, qual_member_calls, call_fn, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, addr_calls, self_sends, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_member_calls, member_calls, dot_calls, field_calls, written_types, local_calls, local_call_names, effects_taken, effects_passed, handler_deps, effect_prereqs, call_type_args, fn_value_implicits, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_span_keys, value_span_keys, field_refs, module_refs, fate_reads, interp_union, temp_views, lending_calls, fn_lends, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, implicit_members, member_values, errors } = rows;
+        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_exhaustive, when_arms, qual_member_calls, call_fn, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, addr_calls, self_sends, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_member_calls, member_calls, dot_calls, field_calls, written_types, local_calls, local_call_names, effects_taken, effects_passed, handler_deps, effect_prereqs, call_type_args, fn_value_implicits, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_span_keys, value_span_keys, field_refs, module_refs, fate_reads, interp_union, borrows, fn_lends, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, implicit_members, member_values, errors } = rows;
         macro_rules! map {
             ($($t:ident),* $(,)?) => {$(
                 self.$t.extend($t.iter().map(|(k, v)| (k.clone(), v.clone())));
@@ -397,13 +397,13 @@ impl Checked {
             virtual_candidates, effect_member_calls, member_calls, local_call_names, effects_taken, effects_passed,
             handler_deps, effect_prereqs, call_type_args, fn_value_implicits,
             may_throw, fn_refs, def_refs, field_refs, module_refs, fate_reads,
-            interp_union, lending_calls, fn_lends, boundary_checks, factories, lambda_captures,
-            derived_calls, distinct_pairs, fn_value_calls, lambda_contracts, implicit_params, established_quals,
+            interp_union, borrows, fn_lends, boundary_checks, factories, lambda_captures,
+            fn_value_calls, lambda_contracts, implicit_params, established_quals,
             carried_identities, implicit_args, implicit_members, member_values,
         );
         set!(
-            when_exhaustive, linear_moves, moved_reads, flow_moves, by_value_loops, state_takes, dot_calls, field_calls, local_calls, temp_views,
-            handle_muts, moved_projections, mut_lend_calls,
+            when_exhaustive, linear_moves, moved_reads, flow_moves, by_value_loops, state_takes, dot_calls, field_calls, local_calls,
+            handle_muts, moved_projections,
         );
         for (f, locals) in local_decls {
             self.local_decls.entry(*f).or_default().extend(locals.iter().cloned());

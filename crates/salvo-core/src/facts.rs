@@ -142,6 +142,18 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, id:
         if let Some(c) = &built {
             marks.push(c);
         }
+        // [proj-readonly-return] [proj-infer] What a call's result borrows.
+        let borrowed = part.borrows.get(key).map(|b| {
+            let from: Vec<String> = b.from.iter().map(|i| i.to_string()).collect();
+            let kind = match b.kind {
+                crate::check::BorrowKind::View => "view of arg",
+                crate::check::BorrowKind::Held => "holds arg",
+            };
+            format!("{kind} {}{}", from.join(", "), if b.temporary { " temporary" } else { "" })
+        });
+        if let Some(b) = &borrowed {
+            marks.push(b);
+        }
         if !marks.is_empty() {
             row.push_str(&format!("  [{}]", marks.join(", ")));
         }

@@ -137,6 +137,17 @@ test "indices walks front to back with the same claim" {
     expect_eq(digits, 56)
 }
 
+// A pass minted by a dot call borrows its receiver,
+// so the claim its elements carry binds the receiver too.
+test "indices through a dot call carries the claim" {
+    let xs = List(5, 6)
+    let digits = 0
+    for i in xs.indices() {
+        digits = digits * 10 + get(xs, i)
+    }
+    expect_eq(digits, 56)
+}
+
 test "binary_search answers a proven index" {
     // [col-idx] The found arm carries `Idx(list)`: narrowing the optional
     // is the last check the result ever needs.

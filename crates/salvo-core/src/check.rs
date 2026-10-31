@@ -646,6 +646,31 @@ pub struct NarrowedRead {
     pub by: NarrowBy,
 }
 
+/// [proj-readonly-return] [proj-infer] What a call's result borrows of its
+/// arguments (`Checked::borrows`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Borrow {
+    pub kind: BorrowKind,
+    /// The arguments borrowed, by position among the call's arguments: a
+    /// dot call's receiver is 0, implicit parameters are not counted
+    /// (they come last).
+    pub from: Vec<usize>,
+    /// [proj-anywhere] Some borrowed argument is a temporary: the result may
+    /// be used within the statement, not bound, returned or stored.
+    pub temporary: bool,
+}
+
+/// How a call's result borrows (`Borrow::kind`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BorrowKind {
+    /// [proj-readonly-return] The result *is* the arguments' data: a
+    /// wholesale `proj(p)` return.
+    View,
+    /// [proj-infer] The result is an owned value holding borrows of them: a
+    /// struct with `proj` fields, say.
+    Held,
+}
+
 /// [effect-handler-deps] A handler built at a node (`Checked::constructions`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Construction {
@@ -1223,16 +1248,12 @@ pub struct Checked {
     /// (in arm order) reaches text. The emitters call the arm's own `to_str`
     /// on the arm the value is.
     pub interp_union: HashMap<Key, Vec<ArmText>>,
-    /// [proj-anywhere] Derived-return calls whose borrowed argument is a
-    /// *temporary*: usable within the statement, but binding, returning or
-    /// storing the view is an error (it would outlive what it borrows).
-    pub temp_views: HashSet<Key>,
-    /// [proj-infer] Calls whose result *holds borrows* of some arguments
-    /// (a fn returning a struct with `proj` fields), keyed by the call span:
-    /// the indices of the lent arguments (dot-notation receivers are
-    /// argument 0). The checker links the result to them, held; the Rust
-    /// backend ties the result's lifetime to those parameters.
-    pub lending_calls: HashMap<Key, Vec<usize>>,
+    /// [proj-readonly-return] [proj-infer] [proj-anywhere] What each call's
+    /// result borrows of its arguments, by the call (PIPELINE.md D2, a call's
+    /// borrowed result): a view of them or a value holding borrows of them,
+    /// which arguments, and whether one is a temporary. The checker links
+    /// the result to those arguments [fate-link].
+    pub borrows: HashMap<Key, Borrow>,
     /// [proj-infer] Per fn, the parameters its result holds borrows of
     /// (declared with `[p: proj]` or inferred from the body). Read by the
     /// Rust backend to name the lifetime on lent parameters and the return.
@@ -1268,24 +1289,6 @@ pub struct Checked {
     /// refinements; both emitters currently capture lexically, which is
     /// an alias on both backends).
     pub lambda_captures: HashMap<Key, Vec<LambdaCapture>>,
-    /// Calls to fns with a derived return (`proj(param)`
-    /// [proj-readonly-return]), keyed by the call span: the index of the
-    /// argument the result borrows. The checker links the result to that
-    /// argument; the Rust backend renders the result as a borrow.
-    pub derived_calls: HashMap<Key, Vec<usize>>,
-    /// [fate-elem-distinct] Calls taking **two mutable element handles of one
-    /// container, proven apart** by a live `NotSame` claim, keyed by the
-    /// call span: the two parameter indices. The Rust backend renders the
-    /// pair through `salvo_pair_mut` (one `split_at_mut`, two `&mut`)
-    /// [rs-elem-mut]; an unproven pair never lands here — it is refused at
-    /// the call.
-    pub distinct_pairs: HashMap<Key, (usize, usize)>,
-    /// [rs-loc] Derived-return calls whose **result is used
-    /// mutably** — passed to a `Mut` position or assigned through — keyed
-    /// by the call span. The Rust backend renders such a call against the
-    /// callee's demand-emitted `__mut` variant (mode-specialized lending,
-    /// step ③ of the group-borrowing ladder); Kotlin needs nothing.
-    pub mut_lend_calls: HashSet<Key>,
     /// Calls *through fn-typed values* [fn-contract], keyed by the call
     /// span: the effective per-argument contract (post-default), for the
     /// Rust backend's argument rendering.
@@ -9894,7 +9897,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ) {
         let FnSig { implicits, effects: fn_effects, can_use, can_spawn, ret_ty, .. } = sig;
         // [node-id] Variable ids are per declaration: what a body's facts
-        // carry of them (`FateLink::elem_idx`, `distinct_pairs`) does not
+        // carry of them (`FateLink::elem_idx`) does not
         // move when another declaration of the file changes.
         self.next_var_id = 0;
         // [lsp-completion] Record locals of this body (params below, `let`/
@@ -12148,68 +12151,45 @@ impl<'p, 'r> Checker<'p, 'r> {
             callee, args, span, ..
         } = value
         {
-            // [proj-infer] The result of a lending call holds borrows of the
-            // lent arguments: an owned value (a pass) tied to them.
-            if let Some(lent) = self.out.lending_calls.get(&self.key(*span)).cloned() {
-                let mut links: Vec<FateLink> = Vec::new();
-                for idx in lent {
-                    let arg: Option<&Expr> = if let Expr::Field { base, .. } = callee.as_ref() {
-                        if idx == 0 {
-                            Some(base)
-                        } else {
-                            args.get(idx - 1)
-                        }
-                    } else {
-                        args.get(idx)
-                    };
-                    let Some(arg) = arg else { continue };
-                    for mut l in self.links_for_value(arg, bind_span) {
-                        l.borrowed = true;
-                        l.held = true;
-                        if !links.iter().any(|e| e.root_id == l.root_id) {
-                            links.push(l);
-                        }
-                    }
-                }
-                return links;
-            }
-            if let Some(sources) = self.out.derived_calls.get(&self.key(*span)).cloned() {
+            if let Some(borrow) = self.out.borrows.get(&self.key(*span)).cloned() {
                 // [copy-scalar-free] A borrowed copy scalar *is* the value on
                 // both backends — `proj Int` is `Int`, which `Ty::qualify`
                 // already erases — so a call handing one back borrows nothing
                 // and the result travels freely. Without this, reading an
                 // element of a `List<Double>` and returning it asks for a
                 // `copy` that neither backend would emit.
-                if self
-                    .out
-                    .ty_of(self.file_idx, *span)
-                    .is_some_and(|t| crate::types::is_copy_scalar(t.strip_quals()))
+                if borrow.kind == BorrowKind::View
+                    && self
+                        .out
+                        .ty_of(self.file_idx, *span)
+                        .is_some_and(|t| crate::types::is_copy_scalar(t.strip_quals()))
                 {
                     return Vec::new();
                 }
-                // [proj-readonly] A wholesale projection: the result *is* the
-                // argument's data — of every named source.
+                let call_args = self.call_args(callee, args, *span);
                 let mut links: Vec<FateLink> = Vec::new();
-                for idx in sources {
-                    let arg: Option<&Expr> = if let Expr::Field { base, .. } = callee.as_ref() {
-                        if idx == 0 {
-                            Some(base)
-                        } else {
-                            args.get(idx - 1)
-                        }
-                    } else {
-                        args.get(idx)
-                    };
-                    let Some(arg) = arg else { continue };
+                for idx in borrow.from {
+                    let Some(arg) = call_args.get(idx).copied() else { continue };
                     for mut l in self.links_for_value(arg, bind_span) {
                         l.borrowed = true;
-                        l.held = false;
-                        // [deduce-field] A lend handed back by a *call* may
-                        // reach into contents and leaves no trace of it in
-                        // the path (`first(h.tags)` records `[.tags]`), so
-                        // it is conservative — this is the fact that makes
-                        // the bit necessary rather than inferable.
-                        l.crosses = true;
+                        match borrow.kind {
+                            // [proj-infer] The result of a lending call holds
+                            // borrows of the lent arguments: an owned value (a
+                            // pass) tied to them.
+                            BorrowKind::Held => l.held = true,
+                            // [proj-readonly] A wholesale projection: the
+                            // result *is* the argument's data — of every named
+                            // source. [deduce-field] A lend handed back by a
+                            // *call* may reach into contents and leaves no
+                            // trace of it in the path (`first(h.tags)` records
+                            // `[.tags]`), so it is conservative — this is the
+                            // fact that makes the bit necessary rather than
+                            // inferable.
+                            BorrowKind::View => {
+                                l.held = false;
+                                l.crosses = true;
+                            }
+                        }
                         if !links.iter().any(|e| e.root_id == l.root_id) {
                             links.push(l);
                         }
@@ -12547,9 +12527,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// ([fn-contract]'s "keep the two in sync" applied to this rule):
     /// `mut_kept[i]` says argument `i` lands in a kept `Mut` position. A
     /// second handle into a container an earlier argument already handles
-    /// is accepted — and recorded in `Checked::distinct_pairs` for the
-    /// pair lowering [rs-elem-mut] — only when the minting indices are
-    /// proven apart; anything less is refused, naming the remedy.
+    /// is accepted only when the minting indices are proven apart, and one
+    /// such pair per call; anything less is refused, naming the remedy.
     ///
     /// [ref-anchor] `anchors[i]` is `Some(k)` when the callee's parameter
     /// `i` is a `ref(c) Mut` handle naming parameter `k` as its container:
@@ -12562,10 +12541,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         args: &[&'p Expr],
         mut_kept: &[bool],
         anchors: &[Option<usize>],
-        span: Span,
     ) {
         let mut handles: Vec<(u32, Option<u32>, Option<Vec<Step>>, usize)> = Vec::new();
         let mut proven_pairs: Option<HashSet<(u32, u32)>> = None;
+        let mut paired = false;
         // [ref-anchor] Each anchored argument must hand in a position of its
         // container: one of its links is the container argument's own.
         for (i, arg) in args.iter().enumerate() {
@@ -12653,7 +12632,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                         continue;
                     }
                 }
-                let prev_param = &prev_param;
                 let proven = match (*prev_idx, l.elem_idx) {
                     (Some(a), Some(b)) if a != b && l.path.is_some() && *prev_path == l.path => {
                         proven_pairs
@@ -12662,9 +12640,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     _ => false,
                 };
-                let key = self.key(span);
-                if proven && !self.out.distinct_pairs.contains_key(&key) {
-                    self.out.distinct_pairs.insert(key, (*prev_param, i));
+                // One proven pair per call: the pair is what a backend
+                // splits the container for.
+                if proven && !paired {
+                    paired = true;
                 } else {
                     let root = &l.root_name;
                     self.error(arg.span(), messages::fate_elem_distinct_two_handles(&root));
@@ -13305,6 +13284,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         !forwards_view
     }
 
+    /// [fn-uniform] A call's arguments as the checker positions them: a dot
+    /// call's receiver first (`x.f(a)` is `f(x, a)`), as is the base of a
+    /// scoped name's dot form (`s.close@Fs()`); a namespaced call's path is
+    /// no argument.
+    fn call_args<'e>(&self, callee: &'e Expr, args: &'e [Expr], span: Span) -> Vec<&'e Expr> {
+        let mut out: Vec<&'e Expr> = Vec::with_capacity(args.len() + 1);
+        match callee {
+            Expr::Field { base, .. } if self.out.dot_calls.contains(&self.key(span)) => out.push(base),
+            Expr::Scoped { base: Some(base), .. } | Expr::EffectScoped { base: Some(base), .. } => out.push(base),
+            _ => {}
+        }
+        out.extend(args.iter());
+        out
+    }
+
     /// [proj-anywhere] Errors when `value` is a view of a temporary being
     /// bound, returned or stored: the temporary dies at the end of the
     /// statement, and the view would outlive it. Sees through a `!` and
@@ -13314,7 +13308,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Expr::Call { span, callee, .. } = inner else {
             return;
         };
-        if !self.out.temp_views.contains(&self.key(*span)) {
+        if !self.out.borrows.get(&self.key(*span)).is_some_and(|b| b.temporary) {
             return;
         }
         let name = match callee.as_ref() {
@@ -13439,7 +13433,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             })
             .collect();
-        self.check_elem_handle_pairs(args, &mut_kept, &[], span);
+        self.check_elem_handle_pairs(args, &mut_kept, &[]);
         for (i, arg) in args.iter().enumerate() {
             let param_ty = params.get(i);
             let declared_q: Vec<String> = param_ty
@@ -17566,12 +17560,6 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// **call** taking the place as `Mut` changes its contents (identity
     /// preserved), while an **assignment** to it replaces what is there.
     fn fate_mutation_through_kind(&mut self, expr: &Expr, span: Span, contents_only: bool) {
-        // [rs-loc] A mutation through a lending call's result is the
-        // demand that makes the Rust backend emit the callee's mut
-        // variant: record the call.
-        if let Some(call_span) = self.mut_lend_call_span(expr) {
-            self.out.mut_lend_calls.insert(self.key(call_span));
-        }
         let mut sources = Vec::new();
         Self::provenance(expr, &mut sources);
         let names: Vec<String> = sources.iter().map(|s| s.name.clone()).collect();
@@ -17595,44 +17583,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-    }
-
-    /// [rs-loc] The innermost **derived-return call** a mutable use
-    /// reaches through: `heal(front(es)!)` and `front(es)!.hp = 1` both
-    /// answer `front(es)`'s span. `None` when the expression does not
-    /// bottom out in a lending call whose result carries `ref(...) Mut`.
-    fn mut_lend_call_span(&self, expr: &Expr) -> Option<Span> {
-        let mut e = expr;
-        // The type carrying `ref(...) Mut` is the *unwrapped* one for an
-        // optional lender (`(ref(es) Mut T)?` at the call, `ref(es) Mut T`
-        // at the `!`), so remember the innermost unwrap.
-        let mut unwrap_span: Option<Span> = None;
-        loop {
-            match e {
-                Expr::Elvis { span, .. } | Expr::When { span, .. } if e.presence_unwrapped().is_some() => {
-                    unwrap_span = Some(*span);
-                    e = e.presence_unwrapped().unwrap();
-                }
-                Expr::Field { base, .. } => e = base,
-                Expr::TupleIndex { base, .. } => e = base,
-                Expr::Index { base, .. } => e = base,
-                _ => break,
-            }
-        }
-        let Expr::Call { span, .. } = e else {
-            return None;
-        };
-        // The evidence is the *type*: any call answering a `ref(...) Mut`
-        // handle is a lend, whoever answers it — a named fn (the demand
-        // seed), an intrinsic (①'s splice territory), or an effect member
-        // (the loud v1 cut, no named decl to emit a variant of).
-        let handle_ty = |sp: Span| {
-            self.out
-                .ty_of(self.file_idx, sp)
-                .is_some_and(|t| t.is_ref() && Self::carries_mut(t))
-        };
-        let mutable_handle = handle_ty(*span) || unwrap_span.is_some_and(handle_ty);
-        mutable_handle.then_some(*span)
     }
 
     /// A mutation of a whole variable: every projection fact under it
@@ -24097,7 +24047,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             // The promoted type is what the value *is* from
                             // here on: the emitters render it as the handle
                             // (the Rust locator path keys on a `ref Mut`
-                            // call type, [rs-loc]).
+                            // call type).
                             let mut e: &Expr = v;
                             loop {
                                 if let Some(t) = self.out.expr_ty.get(&self.key(e.span())).cloned() {
@@ -29216,7 +29166,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let typed = implicit_typed.take();
                 let callee_name = format!("`{}`", id.name);
                 self.check_fn_value_args(&callee_name, &all, &params, contract.as_deref(), typed, span);
-                // [proj-readonly-return] [rs-loc] A fn value whose return is a
+                // [proj-readonly-return] A fn value whose return is a
                 // **wholesale** projection lends that argument outright
                 // (`?at: (c: C, k: Int) -> ref(c) Mut T?`, or a plain
                 // read-only `proj`): record it like any derived-return
@@ -29253,7 +29203,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         sources.truncate(1);
                     }
                     if !sources.is_empty() {
-                        self.out.derived_calls.insert(self.key(span), sources);
+                        self.out.borrows.insert(self.key(span), Borrow { kind: BorrowKind::View, from: sources, temporary: false });
                     }
                 }
                 // [proj-infer] A fn value has no body to read: its result
@@ -29282,8 +29232,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                             })
                             .collect()
                     };
+                    // A result that holds borrows is the held kind, whatever
+                    // its wholesale shape (written over the view above).
                     if !lent.is_empty() {
-                        self.out.lending_calls.insert(self.key(span), lent);
+                        self.out.borrows.insert(self.key(span), Borrow { kind: BorrowKind::Held, from: lent, temporary: false });
                     }
                 }
                 // [fn-once] Calling a `once` fn consumes it: the IR flow
@@ -29712,7 +29664,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [qual-depend] The fate roots of a driven pass's **source** — the
     /// value the pass borrows [proj-field]: a named pass's own links, or a
-    /// minting call's lent arguments ([proj-infer], via `lending_calls`).
+    /// minting call's lent arguments ([proj-infer], via `borrows`).
     fn pass_source_roots(&mut self, iterable: &'p Expr) -> Vec<u32> {
         let mut roots: Vec<u32> = Vec::new();
         if let Some(place) = Place::of_expr(iterable) {
@@ -29722,15 +29674,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                     roots.push(var.id);
                 }
             }
-        } else if let Expr::Call { args, span, .. } = iterable {
-            let lent = self
-                .out
-                .lending_calls
-                .get(&self.key(*span))
-                .cloned()
-                .unwrap_or_default();
+        } else if let Expr::Call { callee, args, span, .. } = iterable {
+            let lent = match self.out.borrows.get(&self.key(*span)) {
+                Some(b) if b.kind == BorrowKind::Held => b.from.clone(),
+                _ => Vec::new(),
+            };
+            let call_args = self.call_args(callee, args, *span);
             for i in lent {
-                let Some(arg) = args.get(i) else { continue };
+                let Some(arg) = call_args.get(i).copied() else { continue };
                 let Some(place) = Place::of_expr(arg) else { continue };
                 let Some(var) = self.lookup(&place.root) else { continue };
                 let linked: Vec<u32> = var.links.iter().map(|l| l.root_id).collect();
@@ -31031,8 +30982,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // one call — `attack(at(es, i)!, at(es, j)!)`, or two bound
         // handles — are the two-`&mut` shape the Rust rendering cannot
         // express unless the elements are provably different. A pair of
-        // bound handles a live `NotSame` claim proves apart is accepted
-        // and recorded for the pair lowering [rs-elem-mut]; anything short
+        // bound handles a live `NotSame` claim proves apart is accepted;
+        // anything short
         // of the proof is refused here, naming the remedy. (Before this
         // rule the shape passed the checker and died at rustc — a
         // checker/emitter disagreement, closed 2026-09-24.)
@@ -31073,7 +31024,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .position(|q| q.name.name == c.name)
                 })
                 .collect();
-            self.check_elem_handle_pairs(args, &mut_kept, &anchors, span);
+            self.check_elem_handle_pairs(args, &mut_kept, &anchors);
         }
         if let Some(contract) = contract {
             let fixed_count = decl
@@ -31347,15 +31298,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // or literal, not a place): a view of one dies with the
                 // statement, so it may be *used* there (`map(iter(List(1,
                 // 2)), f)`) but not bound, returned or stored — those sites
-                // consult this table.
-                for &idx in &sources {
-                    if let Some(arg) = args.get(idx).copied() {
-                        if self.is_temporary(arg) {
-                            self.out.temp_views.insert(self.key(span));
-                        }
-                    }
-                }
-                self.out.derived_calls.insert(self.key(span), sources);
+                // consult the flag. A declaration's parameter index is the
+                // argument's position: implicit parameters come last.
+                let temporary = sources.iter().any(|&i| args.get(i).copied().is_some_and(|a| self.is_temporary(a)));
+                self.out.borrows.insert(self.key(span), Borrow { kind: BorrowKind::View, from: sources, temporary });
             }
         }
         // [deduce-syntax] Re-pointing entries — `v.items: proj(other)`
@@ -31458,14 +31404,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     })
                     .collect();
-                for &i in &positional {
-                    if let Some(arg) = args.get(i).copied() {
-                        if self.is_temporary(arg) {
-                            self.out.temp_views.insert(self.key(span));
-                        }
-                    }
-                }
-                self.out.lending_calls.insert(self.key(span), positional);
+                let temporary = positional.iter().any(|&i| args.get(i).copied().is_some_and(|a| self.is_temporary(a)));
+                self.out.borrows.insert(self.key(span), Borrow { kind: BorrowKind::Held, from: positional, temporary });
             }
         }
         // The callee's declared effect dependencies must be satisfiable
@@ -32089,7 +32029,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         {
             let lent = crate::lends::declared_lends(member).unwrap_or_else(|| crate::lends::kept_params(member));
             if !lent.is_empty() {
-                self.out.lending_calls.insert(self.key(span), lent);
+                self.out.borrows.insert(self.key(span), Borrow { kind: BorrowKind::Held, from: lent, temporary: false });
             }
         }
         if let Some(instance) = &resolved {

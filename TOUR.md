@@ -180,8 +180,7 @@ answer for itself.
 | `reach.rs` | which modules does the program use? which fn does each call resolve to (`resolved_fn_keys`)? |
 | `features.rs` | does the program need the scheduler / the wire codecs? |
 | `param_mode.rs` | is a parameter moved in, lent, or lent mutably? |
-| `mut_lends.rs` | which fns hand back a result a `Mut` position reads? which cover `canbe` parameters? |
-| `borrows.rs` | does this call's result borrow from its arguments? which union arms? |
+| `mut_lends.rs` | does a written return type mint a mutable handle into an argument? |
 | `copyplan.rs` | what does `copy(x)` duplicate, for a value of this type? |
 | `naming.rs`, `effects.rs` | the emitted name of an overloaded fn or effect member |
 | `abi.rs`, `platform.rs` | what a host project must see; platform handlers/fns/types |
@@ -274,10 +273,8 @@ cache, which reuses an unedited file's rows [lsp-check-cache]).
 **Lending (views of other values)**
 
 ```rust
-pub derived_calls: HashMap<Key, …>,   // calls whose result is a view of an argument
-pub lending_calls: HashMap<Key, Vec<usize>>,
-pub mut_lend_calls: HashSet<Key>,     // …and a `Mut` position reads it
-pub handle_muts, virtual_candidates, distinct_pairs, covered_calls …
+pub borrows: HashMap<Key, Borrow>,   // a call's result: a view of, or holding borrows of, these arguments
+pub handle_muts, virtual_candidates, covered_calls …
 ```
 
 **Rule of thumb for finding one:** grep `pub .*: HashMap<Key` in
@@ -627,8 +624,7 @@ Applying it to every decision that is still in an emitter:
 | what `copy` duplicates | ✔ (`CopyPlan`) | the spelling | core + Kotlin render |
 | call → declaration, member, dot call | ✔ (tables) | the syntax of the call | core |
 | this read consumes / takes / moves a projection | ✔ (`linear_moves`, `state_takes`, `moved_projections`; a binding's mode, `ir::Decision`) | `mem::take`, move, `.unwrap()` | core tables, IR flow pass |
-| a call's result borrows from its arguments (`proj`) | ✔ (`derived_calls`, `borrows.rs`) | `Option<&T>`, `Union2<&T, …>` | core + Rust |
-| this fn's result is read by a `Mut` position | ✔ (`mut_lends`) | locator twins | core + Rust |
+| a call's result borrows from its arguments (`proj`) | ✔ (`borrows`) | `Option<&T>`, `Union2<&T, …>` | core + Rust |
 | **a `let` binds a borrow instead of a clone** | ✘ | an optimization: Salvo says a read is a copy | Rust `emit_let` |
 | **the kind of a local (`BindKind`)** | ✘ | what Rust type the local has | Rust `bindings` |
 | **a read is moved, cloned, dereferenced or borrowed** | partly | which of those a *position* needs | Rust `ValueMode` + `BindKind` |

@@ -144,6 +144,46 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A call's borrowed result, one table (user decision, PIPELINE.md D2 borrowed result, [proj-readonly-return] [proj-infer] [proj-anywhere])
+
+- **Decided (user, 2026-10-30)**, on the write-up of the fifth D2 merge:
+  (1) `lending_calls`, `derived_calls` and `temp_views` are one table,
+  `borrows: HashMap<Key, Borrow { kind: View | Held, from, temporary }>`;
+  (2) one argument convention (positions among the call's arguments, a
+  dot call's receiver 0, implicits not counted) behind one helper; (3)
+  `distinct_pairs` goes, the one-proven-pair-per-call rule kept with a
+  local flag; (4) `mut_lend_calls` goes, with the dead code behind it;
+  (5) `fn_lends` waits for the declaration-facts merge; (6) the dump marks
+  `view of arg 0` / `holds arg 0, 2` / `temporary`. The table stays in
+  `Checked` (the user's call, over checker-private walk state): an
+  ownership fact is core's to state, and the typed dump should show it.
+  Rejected: two tables with two conventions; the pair inside `Borrow` (it
+  is about arguments, not the result).
+- **Built**: the writers in `resolve_named_call`, `check_name_call` (a
+  call through a fn value that would write both writes `Held`, which won
+  before) and `finish_member_call`; the readers `links_for_value`,
+  `pass_source_roots` and `reject_temp_view` read one entry, through
+  `call_args` (the receiver of a dot call, or of a scoped name's dot form,
+  first). `borrows.rs` is deleted (no caller), and so are `mut_lend_uses`,
+  `MutLendUses`, `mut_lend_call_of`, `collect_let_values`,
+  `collect_returned_exprs` and `ty_lends_mut`; `mut_lends.rs` keeps
+  `fn_type_lends_mut`, which `param_mode` reads. The [fate-mut-lends]
+  rule described that closure and is removed; `[rs-loc]`/`[rs-elem-mut]`
+  citations at the touched sites are gone.
+- **A defect found and fixed**: `pass_source_roots` read the lent argument
+  by index without the receiver, so a minting pass written as a dot call
+  lost its claim's root — `for i in xs.indices() { get(xs, i) }` reported
+  `get`'s `Int?` where `indices(xs)` was total. A std test pins it
+  ("indices through a dot call carries the claim"). The other suspect —
+  `derived_calls` counting implicit parameters — is no defect: implicit
+  parameters must come last, so a declaration index is the position.
+  The same helper fixes a namespaced call (`Outer.make(x)`), whose path
+  `links_for_value` took for a receiver.
+- **Unchanged on purpose**: `temporary` is computed only for named calls,
+  as `temp_views` was.
+- **Output**: no emitted code moved; the facts snapshot gained the
+  borrow marks. 709 tests under nextest, warm run 1m16.
+
 ### 2026-10-30 — Handles and handler constructions, two tables (user decision, PIPELINE.md D2 handles, [effect-handle] [effect-handler-deps])
 
 - **Decided (user, 2026-10-30)**, on the write-up of the fourth D2 merge
