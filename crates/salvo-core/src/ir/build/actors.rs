@@ -175,7 +175,15 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
     //   let __pick = route_pick(group, seen[, key_hash(k)])
     //   seen = __pick.version
     //   send X#m(__pick.to, params…)
-    let mut routed: Vec<&String> = ctx.checked.route_uses.values().collect();
+    let mut routed: Vec<&String> = ctx
+        .checked
+        .constructions
+        .values()
+        .filter_map(|c| match &c.handler {
+            crate::check::Constructed::Route(effect) => Some(effect),
+            crate::check::Constructed::Handler(_) => None,
+        })
+        .collect();
     routed.sort();
     routed.dedup();
     let pick_plain = net_fn(ctx, "route_pick", 2);

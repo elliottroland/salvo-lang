@@ -1976,20 +1976,42 @@ impl Server<'_> {
         // when the cursor is in no effectful body — then no member is offered.
         let available_effects: HashSet<String> = {
             let cursor_off = word as u32;
-            checked
-                .fn_body_effects
-                .iter()
-                .filter(|(file, span, _)| *file == view.file && span.reaches(cursor_off))
-                .min_by_key(|(_, span, _)| span.len())
-                .map(|(_, _, tys)| {
-                    tys.iter()
-                        .filter_map(|ty| match ty {
-                            Ty::Named { name, .. } => Some(name.split('§').next().unwrap_or(name).to_string()),
-                            _ => None,
-                        })
-                        .collect()
+            // The fns with a body reaching the cursor, each with the handler
+            // it is a member of: a member also has its handler's
+            // dependencies [effect-handler-deps].
+            let mut bodies: Vec<(&salvo_syntax::ast::FnDecl, Option<&salvo_syntax::ast::HandlerDecl>)> = Vec::new();
+            if let Some(module) = view.module {
+                for item in &module.items {
+                    match item {
+                        Item::Fn(f) => bodies.push((f, None)),
+                        Item::Fns(d) => bodies.extend(d.fns.iter().map(|f| (f, None))),
+                        Item::Effect(e) => bodies.extend(e.fns.iter().map(|f| (f, None))),
+                        Item::Handler(h) => bodies.extend(h.fns.iter().chain(&h.init).map(|f| (f, Some(h)))),
+                        _ => {}
+                    }
+                }
+            }
+            let innermost = bodies
+                .into_iter()
+                .filter_map(|(f, h)| f.body.as_ref().map(|b| (f, h, b.span)))
+                .filter(|(_, _, span)| span.reaches(cursor_off))
+                .min_by_key(|(_, _, span)| span.len());
+            let mut tys: Vec<Ty> = Vec::new();
+            if let Some((f, h, _)) = innermost {
+                tys.extend(checked.effects_taken_by(view.file, f).into_iter().flatten().cloned());
+                if let Some(h) = h {
+                    let module = analysis.program.files.get(view.file).map(|file| file.module.to_string()).unwrap_or_default();
+                    let keyed = format!("{}{}{}", h.name.name, salvo_core::typekey::SEP, module);
+                    let deps = checked.handler_deps.get(&keyed).or_else(|| checked.handler_deps.get(&h.name.name));
+                    tys.extend(deps.into_iter().flatten().map(|(t, _)| t.clone()));
+                }
+            }
+            tys.iter()
+                .filter_map(|ty| match ty {
+                    Ty::Named { name, .. } => Some(salvo_core::typekey::plain(name).to_string()),
+                    _ => None,
                 })
-                .unwrap_or_default()
+                .collect()
         };
         // The receiver: the smallest typed expression ending at the dot.
         let receiver: Option<String> = if dot {

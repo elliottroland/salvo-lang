@@ -741,7 +741,7 @@ Conventions:
     parameters and locals (pre-scan of declared names; collisions get a
     numeric suffix: `console2`).
   * Handler resolution prefers the checker's effect tables
-    (`use_effects`/`effects_passed`) rendered through
+    (`handles`/`effects_passed`) rendered through
     `kotlin_ty` — which must agree with `emit_type` on the same source
     type, since the result keys the effect-environment lookup. The
     string-keyed environment with base-name matching is the fallback for

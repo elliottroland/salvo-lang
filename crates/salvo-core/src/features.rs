@@ -117,8 +117,7 @@ pub fn module_features(
         f.args = true;
     }
     let mine = |k: &&crate::check::Key| k.file() == file_idx;
-    if checked.spawn_effects.keys().any(|k| mine(&k))
-        || checked.use_addrs.keys().any(|k| mine(&k))
+    if spawns_or_binds_addr(checked, file_idx, ast)
         || checked.addr_calls.keys().any(|k| mine(&k))
         || checked.replyto_tasks.keys().any(|k| mine(&k) && checked.effects_passed.contains_key(k))
         || checked.actor_gates.iter().any(|(_, k)| k.file() == file_idx)
@@ -133,6 +132,55 @@ pub fn module_features(
         f.scheduler = true;
     }
     f
+}
+
+/// [actor-spawn] [actor-use-addr] Whether the module spawns, or binds an
+/// existing handle with `use addr` — a `use` that puts handles in scope
+/// without constructing anything, over a single handle rather than a tuple
+/// of them. Either is a scheduler operation.
+fn spawns_or_binds_addr(checked: &Checked, file_idx: usize, ast: &Module) -> bool {
+    use salvo_syntax::ast::{Expr, Stmt};
+    use salvo_syntax::span::Span;
+    struct Find<'c> {
+        checked: &'c Checked,
+        file: usize,
+        found: bool,
+    }
+    impl Find<'_> {
+        fn bind(&mut self, handler: &Expr, span: Span) {
+            let key = self.checked.key_at(self.file, span);
+            if self.checked.handles.contains_key(&key)
+                && !self.checked.constructions.contains_key(&key)
+                && !matches!(
+                    self.checked.expr_ty.get(&self.checked.key_at(self.file, handler.span())).map(Ty::strip_quals),
+                    Some(Ty::Tuple(_))
+                )
+            {
+                self.found = true;
+            }
+        }
+    }
+    use crate::types::Ty;
+    impl salvo_syntax::visit::Visitor for Find<'_> {
+        fn visit_expr(&mut self, e: &Expr) {
+            match e {
+                Expr::Spawn { .. } => self.found = true,
+                Expr::Use { handler, span, .. } => self.bind(handler, *span),
+                _ => {}
+            }
+        }
+        fn visit_stmt(&mut self, s: &Stmt) {
+            if let Stmt::Use { handler, span, .. } = s {
+                self.bind(handler, *span);
+            }
+        }
+    }
+    let mut v = Find { checked, file: file_idx, found: false };
+    for u in &ast.uses {
+        v.bind(&u.handler, u.span);
+    }
+    crate::check_cache::walk_module(&mut v, ast);
+    v.found
 }
 
 /// [effect-eff-handle] Whether a type contains an `Addr<E>` handle whose effect `E`

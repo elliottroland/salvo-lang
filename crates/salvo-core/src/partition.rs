@@ -234,7 +234,7 @@ impl Checked {
     pub(crate) fn route(&self, owners: &Owners, scope: Scope, sink: &mut dyn Sink) {
         let all = scope == Scope::All;
         let hint = std::cell::Cell::new(0);
-        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_exhaustive, when_arms, qual_member_calls, call_fn, for_drivers, refinements, use_effects, route_uses, route_keys, parking_handlers, protocol_hashes, use_deps, use_with_items, spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, use_addrs, use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_member_calls, member_calls, dot_calls, field_calls, written_types, local_calls, local_call_names, effects_taken, effects_passed, handler_deps, effect_prereqs, fn_body_effects, call_type_args, fn_value_implicits, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_span_keys, value_span_keys, field_refs, module_refs, fate_reads, interp_union, temp_views, lending_calls, fn_lends, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, use_handler_args, implicit_members, member_values, errors } = self;
+        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_exhaustive, when_arms, qual_member_calls, call_fn, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, addr_calls, self_sends, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_member_calls, member_calls, dot_calls, field_calls, written_types, local_calls, local_call_names, effects_taken, effects_passed, handler_deps, effect_prereqs, call_type_args, fn_value_implicits, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_span_keys, value_span_keys, field_refs, module_refs, fate_reads, interp_union, temp_views, lending_calls, fn_lends, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, implicit_members, member_values, errors } = self;
         // A node-keyed map, by its key's declaration.
         macro_rules! by_key {
             ($($t:ident),* $(,)?) => {$(
@@ -299,14 +299,14 @@ impl Checked {
         }
         by_key!(
             expr_ty, arm_compares, narrowed_reads, converts, tests, when_arms,
-            qual_member_calls, call_fn, for_drivers, use_effects, route_uses, use_deps, use_with_items, spawn_effects,
-            spawn_deps, spawn_dep_items, replyto_members, facade_sends, replyto_tasks, use_addrs, use_addr_tuples,
-            project_effects, merge_effects, addr_calls, self_sends, fate_mutations, bind_facts, derived_uses, virtual_candidates,
+            qual_member_calls, call_fn, for_drivers, handles, constructions,
+            replyto_members, facade_sends, replyto_tasks,
+            addr_calls, self_sends, fate_mutations, bind_facts, derived_uses, virtual_candidates,
             effect_member_calls, member_calls, local_call_names, effects_taken, effects_passed, call_type_args,
             fn_value_implicits, may_throw, fn_refs,
             def_refs, field_refs, module_refs, fate_reads, interp_union, lending_calls,
             boundary_checks, factories, lambda_captures, derived_calls, distinct_pairs, fn_value_calls, lambda_contracts,
-            implicit_args, use_handler_args, implicit_members, member_values,
+            implicit_args, implicit_members, member_values,
         );
         set_by_key!(
             when_exhaustive, linear_moves, moved_reads, flow_moves, by_value_loops, state_takes, dot_calls, field_calls, local_calls, temp_views,
@@ -360,11 +360,6 @@ impl Checked {
                     p.written_types.insert(*at, ty.clone());
                 }
             }
-            for row in fn_body_effects {
-                if let Some(p) = owners.at(row.0, row.1, &hint).and_then(|d| sink.part(d)) {
-                    p.fn_body_effects.push(row.clone());
-                }
-            }
             for d in errors {
                 if let Some(p) = owners.diag(d, &hint).and_then(|id| sink.part(id)) {
                     p.errors.push(d.clone());
@@ -378,7 +373,7 @@ impl Checked {
     /// `split_files`, or a declaration's, `split_decls`): the keyed tables;
     /// what `Scope::Keyed` leaves out is the caller's.
     pub(crate) fn insert_rows(&mut self, rows: &Checked) {
-        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_exhaustive, when_arms, qual_member_calls, call_fn, for_drivers, refinements, use_effects, route_uses, route_keys, parking_handlers, protocol_hashes, use_deps, use_with_items, spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, use_addrs, use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_member_calls, member_calls, dot_calls, field_calls, written_types, local_calls, local_call_names, effects_taken, effects_passed, handler_deps, effect_prereqs, fn_body_effects, call_type_args, fn_value_implicits, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_span_keys, value_span_keys, field_refs, module_refs, fate_reads, interp_union, temp_views, lending_calls, fn_lends, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, use_handler_args, implicit_members, member_values, errors } = rows;
+        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_exhaustive, when_arms, qual_member_calls, call_fn, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_members, facade_sends, waitfor_sites, handler_constructs, replyto_tasks, addr_calls, self_sends, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, effect_member_calls, member_calls, dot_calls, field_calls, written_types, local_calls, local_call_names, effects_taken, effects_passed, handler_deps, effect_prereqs, call_type_args, fn_value_implicits, may_throw, deductions, fn_refs, def_refs, local_decls, type_ref_span_keys, value_span_keys, field_refs, module_refs, fate_reads, interp_union, temp_views, lending_calls, fn_lends, handle_muts, param_mutations, moved_projections, boundary_checks, factories, platform_closure_all, lambda_captures, derived_calls, distinct_pairs, mut_lend_calls, fn_value_calls, lambda_contracts, implicit_params, established_quals, carried_identities, implicit_args, implicit_members, member_values, errors } = rows;
         macro_rules! map {
             ($($t:ident),* $(,)?) => {$(
                 self.$t.extend($t.iter().map(|(k, v)| (k.clone(), v.clone())));
@@ -396,15 +391,15 @@ impl Checked {
         }
         map!(
             expr_ty, arm_compares, narrowed_reads, converts, tests, when_arms,
-            qual_member_calls, call_fn, for_drivers, use_effects, route_uses, route_keys, use_deps, use_with_items,
-            spawn_effects, spawn_deps, spawn_dep_items, replyto_members, facade_sends, replyto_tasks, use_addrs,
-            use_addr_tuples, project_effects, merge_effects, addr_calls, self_sends, fate_mutations, bind_facts, derived_uses,
+            qual_member_calls, call_fn, for_drivers, handles, constructions, route_keys,
+            replyto_members, facade_sends, replyto_tasks,
+            addr_calls, self_sends, fate_mutations, bind_facts, derived_uses,
             virtual_candidates, effect_member_calls, member_calls, local_call_names, effects_taken, effects_passed,
             handler_deps, effect_prereqs, call_type_args, fn_value_implicits,
             may_throw, fn_refs, def_refs, field_refs, module_refs, fate_reads,
             interp_union, lending_calls, fn_lends, boundary_checks, factories, lambda_captures,
             derived_calls, distinct_pairs, fn_value_calls, lambda_contracts, implicit_params, established_quals,
-            carried_identities, implicit_args, use_handler_args, implicit_members, member_values,
+            carried_identities, implicit_args, implicit_members, member_values,
         );
         set!(
             when_exhaustive, linear_moves, moved_reads, flow_moves, by_value_loops, state_takes, dot_calls, field_calls, local_calls, temp_views,
@@ -417,7 +412,7 @@ impl Checked {
         // own map (`param_mutations`, by the caller).
         not_keyed!(
             refinements, parking_handlers, protocol_hashes, waitfor_sites, handler_constructs, actor_gates, actor_sends, task_sends,
-            task_mints, written_types, fn_body_effects, deductions, type_ref_span_keys,
+            task_mints, written_types, deductions, type_ref_span_keys,
             value_span_keys, param_mutations, platform_closure_all, errors,
         );
     }

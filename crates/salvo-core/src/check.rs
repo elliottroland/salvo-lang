@@ -646,6 +646,39 @@ pub struct NarrowedRead {
     pub by: NarrowBy,
 }
 
+/// [effect-handler-deps] A handler built at a node (`Checked::constructions`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Construction {
+    pub handler: Constructed,
+    /// [effect-handler-generics] A generic handler's type arguments, in its
+    /// declaration order: written, or bound by the constructor arguments.
+    /// Neither target can infer one from an empty argument list.
+    pub type_args: Vec<Ty>,
+    /// The instance each declared dependency is given, in the handler's
+    /// declaration order.
+    pub deps: Vec<Dep>,
+}
+
+/// What a [`Construction`] builds.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Constructed {
+    /// A declared handler, by key.
+    Handler(String),
+    /// [actor-route-stub] The route a `use any` derives for a protocol (its
+    /// effect key).
+    Route(String),
+}
+
+/// [effect-handler-deps] [effect-with-clause] [actor-spawn-inherit] One
+/// dependency of a [`Construction`]: the instance it is given, and the
+/// written `with` item that supplied it (by its written index), or `None`
+/// for one resolved from the scope.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Dep {
+    pub instance: Ty,
+    pub from_clause: Option<usize>,
+}
+
 /// [fn-effects] [effect-dispatch] What a call site gives of the effects in
 /// scope (`Checked::effects_passed`).
 #[derive(Clone, Debug, PartialEq)]
@@ -890,17 +923,18 @@ pub struct Checked {
     /// by the call-site contract loop, by deduction inference, and by the
     /// language server's merged documentation [qual-refn-docs].
     pub refinements: crate::refine::Refinements,
-    /// Concrete effect instance registered by each `use` statement (keyed
-    /// by the statement span), with handler generics inferred from the
-    /// constructor arguments (e.g. `Random<Int>` for
-    /// `use CyclicRandom([1,2,3])`).
-    /// [effect-handler-multi] Several entries when the handler wears several
-    /// faces: a `use` binds every effect it implements, in declaration order.
-    pub use_effects: HashMap<Key, Vec<Ty>>,
-    /// [actor-route-stub] `use any group` sites, mapped to the protocol they route
-    /// (its type key): the IR derives one `__Route_X` per routed protocol and
-    /// constructs it where the program wrote the `use`.
-    pub route_uses: HashMap<Key, String>,
+    /// [effect-handle] [effect-handler-multi] [effect-eff-handle] The effects
+    /// of the handle or handles a node binds or yields, in order (PIPELINE.md
+    /// D2, handles): a `use` (every face it binds, a tuple's every element),
+    /// a `spawn` (the faces its child serves: its `Addr`s), a projection
+    /// `e[A, B]`, a merge `eff[a, b]` / `eff[*]`.
+    pub handles: HashMap<Key, Vec<Ty>>,
+    /// [effect-handler-deps] [effect-with-clause] [effect-handler-generics]
+    /// A handler built at a node (PIPELINE.md D2, handler construction): a
+    /// `use H()`, a `spawn H()`, a `with` item, and the route a `use any`
+    /// derives [actor-route-stub]. A `use` with handles and no construction
+    /// binds an existing handle (`use addr`, a tuple of them).
+    pub constructions: HashMap<Key, Construction>,
     /// [actor-route-stub] Per actor effect (by key), each send member's
     /// `Key`-marked parameter, by member name: what the derived route
     /// hashes. Recorded at the effect, since lowering erases `Key`.
@@ -915,52 +949,6 @@ pub struct Checked {
     /// both emitters carry the same constants and the handshake (step ④)
     /// compares what the compiler computed rather than what a runtime hashed.
     pub protocol_hashes: std::collections::BTreeMap<String, String>,
-    /// Effect instances resolved for a `use`d handler's *dependencies*
-    /// [effect-handler-deps], in the handler's declaration order (keyed by
-    /// the `use` statement span). Only present when the handler declares
-    /// dependencies. Nothing consumes it since the surface became an effect
-    /// list on the declaration (2026-09-14): both emitters derive the list
-    /// from the declaration and resolve each entry through their own
-    /// environment. Kept because it is the only record of the *resolved
-    /// instance* — which is what a generic dependency would need, and both
-    /// backends refuse those today.
-    pub use_deps: HashMap<Key, Vec<Ty>>,
-    /// [effect-with-clause] Which written `with` item satisfied which declared
-    /// dependency of a `use`, in the handler's declaration order (keyed by
-    /// the `use` statement span): `Some(i)` for the clause item at written
-    /// index `i`, `None` for a dependency resolved from the scope. Present
-    /// only when the clause supplied at least one — a partial clause is the
-    /// rule (user decision 2026-09-20), so both cases coexist in one list.
-    /// Parallel to the `use_deps` entry for the same span.
-    pub use_with_items: HashMap<Key, Vec<Option<usize>>>,
-    /// [actor-spawn-expr] The effect instance each `spawn` expression's child
-    /// serves, keyed by the spawn's span — which is also the type of its
-    /// value, an `Addr<E>`. The emitters' entry point for building an actor
-    /// class.
-    /// [effect-handler-multi] Several entries when the handler wears several
-    /// faces, in declaration order — which is also the order of the addrs the
-    /// spawn's tuple answers.
-    pub spawn_effects: HashMap<Key, Vec<Ty>>,
-    /// [actor-spawn-expr] The effect instances a spawn's `with` clause
-    /// supplies for the child's dependencies, in the handler's declaration
-    /// order (keyed by the spawn's span). Absent when the handler declares
-    /// none. The clause items themselves stay in the AST; this records what
-    /// each *resolved to*, which is what the child's construction needs.
-    pub spawn_deps: HashMap<Key, Vec<Ty>>,
-    /// [actor-spawn-expr] **Which clause item satisfied which declared
-    /// dependency**: one index into the spawn's written `use` clause per
-    /// declared dependency, in the *handler's declaration* order (keyed by
-    /// the spawn's span). The two orders differ routinely — the declaration
-    /// order fixes the child's provider fields and carrier arguments, the
-    /// written order is what the program says — and `check_spawn` is where
-    /// the matching happens, so recording it here is what keeps both
-    /// emitters from re-deriving it (and from disagreeing about it).
-    /// Parallel to `spawn_deps`: same length, same order.
-    /// [actor-spawn-inherit] `None` marks a dependency **synthesized from the
-    /// spawning scope** rather than written (user decision 2026-09-20): the
-    /// emitters then supply the scope's handle where a written item would
-    /// have been constructed.
-    pub spawn_dep_items: HashMap<Key, Vec<Option<usize>>>,
     /// [actor-replyto] The enclosing handler's member each `replyto`
     /// delivers to, keyed by the `replyto` span. The name, because that is
     /// what identifies a continuation target; an overloaded send member is
@@ -990,23 +978,6 @@ pub struct Checked {
     /// resolved through the scope ladder and the emitters need the declaration
     /// the checker picked, not a name to re-resolve.
     pub replyto_tasks: HashMap<Key, DeclId>,
-    /// [actor-use-addr] The effect each `use addr` statement binds, keyed by
-    /// the statement's span: the emitters generate a forwarding stub over
-    /// the addr rather than constructing a handler.
-    pub use_addrs: HashMap<Key, Ty>,
-    /// [effect-eff-handle] `use <tuple-handle>`: the per-element effects when a
-    /// `use` binds a *tuple* of single handles (`use e` where `e:
-    /// (eff[A], eff[B])`). The IR binds one effect per tuple element, in
-    /// order — `use e.0; use e.1` — so this carries the whole flat set.
-    pub use_addr_tuples: HashMap<Key, Vec<Ty>>,
-    /// [effect-eff-handle] `e[A, B]` projection: the effects projected out, in order,
-    /// at the projection's span. The IR picks the matching handles out of the
-    /// base (a single handle or a tuple of them) into the result.
-    pub project_effects: HashMap<Key, Vec<Ty>>,
-    /// [effect-eff-handle] `eff[a, b]` / `eff[*]` merge: the effects of the result
-    /// handle, in order. The IR picks the carrying handle for each — from the
-    /// merged items (`eff[a, b]`) or from the scope (`eff[*]`).
-    pub merge_effects: HashMap<Key, Vec<Ty>>,
     /// [actor-use-addr] Dot-calls that are **sends to an actor** rather than
     /// dispatches through a handler in scope, keyed by the call span and
     /// mapped to the effect instance the addr serves. The emitters need the
@@ -1178,14 +1149,6 @@ pub struct Checked {
     /// [effect-prereq] Each effect's direct prerequisites, by effect key,
     /// aliases flattened, its own generics unsubstituted.
     pub effect_prereqs: HashMap<String, Vec<Ty>>,
-    /// [lsp-completion] The effects available inside each fn/handler-member
-    /// body — the fully expanded set (declared effects, their transitive
-    /// prerequisites, and a handler member's inherited handler dependencies)
-    /// keyed by the file and the span of the body. The language server reads
-    /// this to decide which effect *members* to offer at a cursor: a member
-    /// is callable only when its owning effect is available here. One entry
-    /// per body with a non-empty effect set.
-    pub fn_body_effects: Vec<(usize, Span, Vec<Ty>)>,
     /// [call-type-args] The type arguments a generic call resolved to, in
     /// the callee's declaration order (keyed by the call span). Inferred
     /// from the arguments, an explicit type-argument list, or the expected
@@ -1364,13 +1327,6 @@ pub struct Checked {
     /// What fills each implicit parameter at a call [implicit-resolve],
     /// keyed by the call span, in the callee's declared order.
     pub implicit_args: HashMap<Key, Vec<ImplicitArg>>,
-    /// The type arguments a `use` gives its handler
-    /// [effect-handler-generics], in the handler's declaration order: from
-    /// the written list (`use Plain<Int>()`) and from what the constructor
-    /// arguments bind. The emitters need them because a generic handler has
-    /// to be constructed *at* a type, and neither target can infer one from
-    /// an empty argument list.
-    pub use_handler_args: HashMap<Key, Vec<Ty>>,
     /// The implicit parameters of each *effect member* [implicit-param]:
     /// members are not keyed by their `DeclId`, so they are keyed by the span of the member's
     /// name. The emitters read this where they render the member — the
@@ -1796,29 +1752,10 @@ impl Checked {
         }
     }
 
-    /// [unify-checker] The `use`-statement facts at one span, in one lookup
-    /// (COMPLETED.md's unify-checker entry, the use cluster): the faces to bind, whether it is a
-    /// `use addr`, and the dependency wiring. (`route_uses`/`use_handler_args`
-    /// are read in the handler-construction helper at a different span, so they
-    /// stay direct.)
-    pub fn use_info(&self, key: Key) -> UseInfo<'_> {
-        UseInfo {
-            use_effects: self.use_effects.get(&key),
-            use_addr: self.use_addrs.get(&key),
-            use_addr_tuple: self.use_addr_tuples.get(&key),
-            use_deps: self.use_deps.get(&key),
-            use_with_items: self.use_with_items.get(&key),
-        }
-    }
-
-    /// [unify-checker] The spawn/reply-mint facts at one span, in one lookup
-    /// (COMPLETED.md's unify-checker entry): a `spawn`'s deps/effects, and a `replyto` that mints
-    /// a task (vs a member).
-    pub fn spawn_info(&self, key: Key) -> SpawnInfo<'_> {
-        SpawnInfo {
-            spawn_deps: self.spawn_deps.get(&key),
-            spawn_dep_items: self.spawn_dep_items.get(&key),
-            spawn_effects: self.spawn_effects.get(&key),
+    /// [unify-checker] A `replyto`'s facts at one span, in one lookup: a
+    /// mint of a task (vs a member), and what the task is passed.
+    pub fn replyto_info(&self, key: Key) -> ReplyToInfo<'_> {
+        ReplyToInfo {
             replyto_task: self.replyto_tasks.get(&key),
             task_mint_effects: self.effects_passed.get(&key).and_then(EffectsPassed::leading),
             replyto_member: self.replyto_members.get(&key),
@@ -1922,20 +1859,8 @@ pub struct InterpInfo<'c> {
     pub union: Option<&'c Vec<ArmText>>,
 }
 
-/// [unify-checker] `use`-statement facts at one span (COMPLETED.md's unify-checker entry).
-pub struct UseInfo<'c> {
-    pub use_effects: Option<&'c Vec<Ty>>,
-    pub use_addr: Option<&'c Ty>,
-    pub use_addr_tuple: Option<&'c Vec<Ty>>,
-    pub use_deps: Option<&'c Vec<Ty>>,
-    pub use_with_items: Option<&'c Vec<Option<usize>>>,
-}
-
-/// [unify-checker] spawn / reply-mint facts at one span (COMPLETED.md's unify-checker entry).
-pub struct SpawnInfo<'c> {
-    pub spawn_deps: Option<&'c Vec<Ty>>,
-    pub spawn_dep_items: Option<&'c Vec<Option<usize>>>,
-    pub spawn_effects: Option<&'c Vec<Ty>>,
+/// [unify-checker] A `replyto`'s facts at one span.
+pub struct ReplyToInfo<'c> {
     pub replyto_task: Option<&'c DeclId>,
     pub task_mint_effects: Option<&'c Vec<Ty>>,
     pub replyto_member: Option<&'c String>,
@@ -9975,17 +9900,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [lsp-completion] Record locals of this body (params below, `let`/
         // binding locals in `declare_var`) against the body span.
         self.cur_fn_body = Some(body.span);
-        // [lsp-completion] Record the effects available in this body — the
-        // expanded set just assembled (declared + prerequisites + any
-        // inherited handler dependencies) — so completion can offer the
-        // members of effects in scope. File comes from the body span's owner,
-        // which is the fn being checked.
-        if let Some(key) = self.own_fn {
-            let tys: Vec<Ty> = fn_effects.iter().map(|a| a.ty.clone()).collect();
-            if !tys.is_empty() {
-                self.out.fn_body_effects.push((self.resolution.decls.file(key), body.span, tys));
-            }
-        }
         // [mod-use] The module's bindings sit outermost, so a function's own
         // declaration of the same effect shadows them.
         let mut env = self.module_avails.clone();
@@ -10826,7 +10740,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// each send to whichever member the `RouteSelector<X>` in scope picks.
     /// The route itself is derived per routed protocol in the IR
     /// (`ir::build::actors`), so all the checker records is the protocol
-    /// (`route_uses`), the selector it depends on (`use_deps`) and the face.
+    /// (a `Constructed::Route` construction), the selector it depends on
+    /// (its one dependency) and the face (`handles`).
     fn check_use_any(&mut self, group: &'p Expr, span: Span) {
         let ty = self.check_expr(group, None);
         let effect = match addr_effect(&ty) {
@@ -10868,9 +10783,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.effect_env.push(EffectAvail { ty: effect, declared: false, any: true });
             return;
         };
-        self.out.route_uses.insert(self.key(span), effect_key.clone());
-        self.out.use_deps.insert(self.key(span), vec![selector.ty]);
-        self.out.use_effects.insert(self.key(span), vec![effect.clone()]);
+        self.out.constructions.insert(
+            self.key(span),
+            Construction { handler: Constructed::Route(effect_key.clone()), type_args: Vec::new(), deps: vec![Dep { instance: selector.ty, from_clause: None }] },
+        );
+        self.out.handles.insert(self.key(span), vec![effect.clone()]);
         // [effect-any] A route promises no order: it binds the weak face.
         self.effect_env.push(EffectAvail { ty: effect, declared: false, any: true });
     }
@@ -10909,10 +10826,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let Some(effect) = addr_effect(&ty) else {
                 return;
             };
-            self.out.use_addrs.insert(self.key(span), effect.clone());
-            self.out
-                .use_effects
-                .insert(self.key(span), vec![effect.clone()]);
+            self.out.handles.insert(self.key(span), vec![effect.clone()]);
             self.effect_env.push(EffectAvail {
                 ty: effect,
                 declared: false,
@@ -11110,8 +11024,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 for effect in &effects {
                     self.effect_env.push(EffectAvail { ty: effect.clone(), declared: false, any: false });
                 }
-                self.out.use_addr_tuples.insert(self.key(span), effects.clone());
-                self.out.use_effects.insert(self.key(span), effects);
+                self.out.handles.insert(self.key(span), effects);
                 return;
             }
             // A tuple that is not all handles is not a thing `use` can bind.
@@ -11128,10 +11041,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // or, since SH-3 [actor-monitor-handler], a shared monitor of a plain
         // effect: both kinds are handles a `use` puts in scope, and no call
         // site learns the difference.
-        self.out.use_addrs.insert(self.key(span), effect.clone());
-        self.out
-            .use_effects
-            .insert(self.key(span), vec![effect.clone()]);
+        self.out.handles.insert(self.key(span), vec![effect.clone()]);
         self.effect_env.push(EffectAvail {
             ty: effect,
             declared: false,
@@ -11393,14 +11303,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         // emitters: a generic handler has to be *constructed* at a type
         // (`Plain<Int>()`, `Plain::<i32>::new()`), which neither target can
         // infer from an empty argument list.
-        if !decl.generics.is_empty() {
-            let args: Vec<Ty> = decl
-                .generics
-                .iter()
-                .map(|g| subst.get(&g.name).cloned().unwrap_or(Ty::Unknown))
-                .collect();
-            self.out.use_handler_args.insert(self.key(span), args);
-        }
+        let type_args: Vec<Ty> = decl
+            .generics
+            .iter()
+            .map(|g| subst.get(&g.name).cloned().unwrap_or(Ty::Unknown))
+            .collect();
+        let handler = Constructed::Handler(self.symbols.key_or(decl, &decl.name.name).to_string());
+        self.out.constructions.insert(self.key(span), Construction { handler, type_args, deps: Vec::new() });
         // Record argument coercions against the substituted param types.
         for (&(i, arg), logical) in given.iter().zip(&arg_tys) {
             let Some(p) = param_tys.get(i) else { continue };
@@ -11498,7 +11407,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [effect-with-clause] The written clause items, typed once, each carrying
         // the index the program wrote it at: the matching below drains them,
         // so a matched dep remembers *which* item satisfied it and the
-        // emitters need not re-derive the pairing (`spawn_dep_items`' rule,
+        // emitters need not re-derive the pairing (the spawn's rule,
         // for the `use` side).
         let mut supplied: Vec<(Ty, Span, usize)> = Vec::new();
         for (at, item) in with_items.iter().enumerate() {
@@ -11596,18 +11505,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (eff, sp, _) in &supplied {
             self.error(*sp, messages::effect_with_clause_not_a_dep(&id.name, &eff));
         }
-        if !resolved_deps.is_empty() {
-            self.out.use_deps.insert(self.key(span), resolved_deps);
-            if items.iter().any(|i| i.is_some()) {
-                self.out.use_with_items.insert(self.key(span), items);
-            }
-        }
+        self.set_construction_deps(span, resolved_deps, items);
         // [effect-handler-multi] Every face is registered, in declaration
         // order: one instance, one binding per effect it implements, so a
         // caller reaches whichever face its own effect list names.
-        self.out
-            .use_effects
-            .insert(self.key(span), concrete.clone());
+        self.out.handles.insert(self.key(span), concrete.clone());
         // [effect-any] A face written `of any E` binds the weak
         // availability: the handler forwards to many instances and promises
         // no order, so only a `[any E]` requirement may lean on it.
@@ -15844,9 +15746,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if !declared.is_empty() {
                     self.resolve_monitor_deps(id, &declared, span);
                 }
-                self.out
-                    .spawn_effects
-                    .insert(self.key(span), effects.clone());
+                self.out.handles.insert(self.key(span), effects.clone());
                 let mut addrs: Vec<Ty> = effects
                     .into_iter()
                     .map(|effect| Ty::Named {
@@ -15948,10 +15848,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (eff, sp, _) in &supplied {
             self.error(*sp, messages::actor_spawn_inherit_not_a_dep(&id.name, &eff));
         }
-        if !resolved.is_empty() {
-            self.out.spawn_deps.insert(self.key(span), resolved);
-            self.out.spawn_dep_items.insert(self.key(span), items);
-        }        self.out.spawn_effects.insert(self.key(span), effects.clone());
+        self.set_construction_deps(span, resolved, items);
+        self.out.handles.insert(self.key(span), effects.clone());
         // [effect-handler-multi] One addr per implemented effect: a single face
         // answers the bare `Addr<E>` it always did, and several answer a tuple
         // in declaration order — which is how least authority falls out of the
@@ -15970,11 +15868,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [effect-handler-deps] The dependencies a construction at `span` is
+    /// given, each with the `with` item that supplied it (parallel lists, in
+    /// the handler's declaration order).
+    fn set_construction_deps(&mut self, span: Span, instances: Vec<Ty>, items: Vec<Option<usize>>) {
+        let key = self.key(span);
+        if let Some(c) = self.out.constructions.get_mut(&key) {
+            c.deps = instances.into_iter().zip(items).map(|(instance, from_clause)| Dep { instance, from_clause }).collect();
+        }
+    }
+
     /// [actor-monitor-handler] Resolve a shareable spawn's
     /// dependencies from the enclosing scope — `finish_use`'s rules, at the
     /// spawn: each must be a shareable, lexically bound availability, since
     /// it is captured into the instance as an owned handle. Recorded in
-    /// `use_deps` under the spawn's span for the emitters.
+    /// as the spawn's construction dependencies for the emitters.
     fn resolve_monitor_deps(&mut self, id: &Ident, declared: &[EffectAvail], span: Span) {
         let mut resolved_deps: Vec<Ty> = Vec::new();
         let visible = self.visible_avail();
@@ -16002,9 +15910,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             }
         }
-        if !resolved_deps.is_empty() {
-            self.out.use_deps.insert(self.key(span), resolved_deps);
-        }
+        let items = vec![None; resolved_deps.len()];
+        self.set_construction_deps(span, resolved_deps, items);
     }
 
     /// [actor-monitor-handler] The monitor spawn (SH-3, user decision 2026-09-19):
@@ -24361,7 +24268,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.check_use(handler, with_items, *any, *span);
                 let faces = self
                     .out
-                    .use_effects
+                    .handles
                     .get(&self.key(*span))
                     .cloned()
                     .unwrap_or_default();
@@ -24410,7 +24317,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         );
                     }
                 }
-                self.out.project_effects.insert(self.key(*span), want.clone());
+                self.out.handles.insert(self.key(*span), want.clone());
                 match want.len() {
                     0 => Ty::Unknown,
                     1 => Ty::Named { name: ADDR_TYPE.to_string(), args: want },
@@ -24475,7 +24382,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         effects = ordered;
                     }
                 }
-                self.out.merge_effects.insert(self.key(*span), effects.clone());
+                self.out.handles.insert(self.key(*span), effects.clone());
                 match effects.len() {
                     0 => Ty::Unknown,
                     1 => Ty::Named { name: ADDR_TYPE.to_string(), args: effects },

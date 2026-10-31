@@ -131,6 +131,17 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, id:
         if let Some(t) = &test {
             marks.push(t);
         }
+        // [effect-handle] The handles a node puts in scope or yields, and
+        // [effect-handler-deps] the handler it builds, with each
+        // dependency's instance and the `with` item that supplied it.
+        let handles = part.handles.get(key).map(|v| format!("handles {}", join(v)));
+        if let Some(h) = &handles {
+            marks.push(h);
+        }
+        let built = part.constructions.get(key).map(construction_mark);
+        if let Some(c) = &built {
+            marks.push(c);
+        }
         if !marks.is_empty() {
             row.push_str(&format!("  [{}]", marks.join(", ")));
         }
@@ -182,6 +193,31 @@ fn snippet(source: &str, span: Span) -> String {
         shown.push('…');
     }
     format!("`{shown}`")
+}
+
+/// [effect-handler-deps] A construction's mark: what it builds (a declared
+/// handler at its type arguments, or a `use any` route), then each
+/// dependency's instance, with the `with` item that supplied it.
+fn construction_mark(c: &crate::check::Construction) -> String {
+    let built = match &c.handler {
+        crate::check::Constructed::Handler(h) => crate::typekey::shown_text(h).into_owned(),
+        crate::check::Constructed::Route(e) => format!("route {}", crate::typekey::shown_text(e)),
+    };
+    let args = if c.type_args.is_empty() {
+        String::new()
+    } else {
+        format!("<{}>", c.type_args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", "))
+    };
+    let deps: Vec<String> = c
+        .deps
+        .iter()
+        .map(|d| match d.from_clause {
+            Some(i) => format!("{} (clause {i})", d.instance),
+            None => d.instance.to_string(),
+        })
+        .collect();
+    let with = if deps.is_empty() { String::new() } else { format!(" with {}", deps.join(", ")) };
+    format!("constructs {built}{args}{with}")
 }
 
 /// [is-narrowing] A test's mark: the runtime arms it accepts (a literal

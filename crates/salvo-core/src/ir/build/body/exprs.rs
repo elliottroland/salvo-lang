@@ -1,7 +1,7 @@
 //! Expressions (IR record §2): every construct lowered to the node set, every
 //! resolution copied from the checker.
 
-use crate::check::{ImplicitArg, NarrowBy, UnionTest};
+use crate::check::{Constructed, Dep, ImplicitArg, NarrowBy, UnionTest};
 use crate::param_mode::PassMode;
 use crate::types::Ty;
 use salvo_syntax::ast::{self, BinaryOp, Expr as AExpr, LambdaBody, Pattern, StrExprPart, UnaryOp};
@@ -362,21 +362,19 @@ impl<'a, 'p> Lower<'a, 'p> {
             AExpr::Merge { items, all, span } => self.merge_expr(items, *all, *span),
             AExpr::Spawn { handler, with_items, pool, join, .. } => {
                 let key = self.key(span);
-                let info = self.ctx.checked.spawn_info(key);
-                let deps: Vec<Ty> = info.spawn_deps.map(|v| v.iter().map(erase).collect()).unwrap_or_default();
-                let items: Vec<Option<usize>> = info.spawn_dep_items.cloned().unwrap_or_else(|| vec![None; deps.len()]);
-                let h = match self.construct_handler(handler, &deps, &items, with_items, span) {
+                let deps: Vec<Dep> = self.ctx.checked.constructions.get(&key).map(|c| c.deps.clone()).unwrap_or_default();
+                let h = match self.construct_handler(handler, &deps, with_items, span) {
                     Some(h) => h,
                     None => self.expr(handler),
                 };
                 let pool = pool.as_ref().map(|p| Box::new(self.expr(p)));
                 let join = join.as_ref().map(|j| Box::new(self.expr(j)));
-                let effects: Vec<Ty> = info.spawn_effects.map(|v| v.iter().map(erase).collect()).unwrap_or_default();
+                let effects: Vec<Ty> = self.ctx.checked.handles.get(&key).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
                 Expr { ty: self.ty_of(span), span, kind: ExprKind::Spawn { handler: Box::new(h), deps: Vec::new(), pool, join, effects } }
             }
             AExpr::ReplyTo { member, captures, gated, pool, .. } => {
                 let key = self.key(span);
-                let info = self.ctx.checked.spawn_info(key);
+                let info = self.ctx.checked.replyto_info(key);
                 let caps: Vec<Expr> = captures.iter().map(|x| self.expr(x)).collect();
                 let pool = pool.as_ref().map(|p| Box::new(self.expr(p)));
                 let target = match info.replyto_task.copied() {
@@ -2727,7 +2725,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let effects: Vec<Ty> = self
             .ctx
             .checked
-            .merge_effects
+            .handles
             .get(&self.key(span))
             .map(|v| v.iter().map(erase).collect())
             .unwrap_or_default();
@@ -2796,7 +2794,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let want: Vec<Ty> = self
             .ctx
             .checked
-            .project_effects
+            .handles
             .get(&self.key(span))
             .map(|v| v.iter().map(erase).collect())
             .unwrap_or_default();
@@ -2837,11 +2835,16 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// expression form ([effect-eff-handle]) reads them back as its value.
     pub(crate) fn use_stmt_bound(&mut self, handler: &AExpr, with_items: &[AExpr], span: Span) -> (Vec<Stmt>, Vec<(Ty, Local)>) {
         let key = self.key(span);
-        let info = self.ctx.checked.use_info(key);
-        let faces: Vec<Ty> = info.use_effects.map(|v| v.iter().map(erase).collect()).unwrap_or_default();
+        let faces: Vec<Ty> = self.ctx.checked.handles.get(&key).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
+        let construction = self.ctx.checked.constructions.get(&key);
+        // A `use` that constructs nothing binds handles it is given: a tuple
+        // of them, or one.
+        let binds_tuple = construction.is_none() && !faces.is_empty() && matches!(self.ty_of(handler.span()).strip_quals(), Ty::Tuple(_));
+        let binds_one = construction.is_none() && !faces.is_empty() && !binds_tuple;
         // [effect-eff-handle] `use <tuple>`: bind one effect per tuple element, in
         // order, each `instance_at(tuple.i)` — `use e.0; use e.1`.
-        if let Some(effects) = info.use_addr_tuple.map(|v| v.iter().map(erase).collect::<Vec<_>>()) {
+        if binds_tuple {
+            let effects = faces;
             let tup = self.expr(handler);
             let tup_ty = tup.ty.clone();
             let base = self.fresh("__use");
@@ -2864,7 +2867,8 @@ impl<'a, 'p> Lower<'a, 'p> {
             return (out, bound);
         }
         // `use addr`: the addr is the instance.
-        if let Some(effect) = info.use_addr.map(erase) {
+        if binds_one {
+            let effect = faces[0].clone();
             let a = self.expr(handler);
             let local = self.fresh("__use");
             let id = self.id();
@@ -2876,19 +2880,22 @@ impl<'a, 'p> Lower<'a, 'p> {
             );
         }
         // `use H(args)`: a construct, then one instance per face.
-        let deps: Vec<Ty> = info.use_deps.map(|v| v.iter().map(erase).collect()).unwrap_or_default();
-        let items: Vec<Option<usize>> = info.use_with_items.cloned().unwrap_or_else(|| vec![None; deps.len()]);
+        let deps: Vec<Dep> = construction.map(|c| c.deps.clone()).unwrap_or_default();
         // [actor-route-stub] `use any group`: the route derived for the protocol
         // (`actors::generate`), over the group and the selector in scope.
-        let route = self.ctx.checked.route_uses.get(&key).cloned().map(|effect| {
+        let routed = construction.and_then(|c| match &c.handler {
+            Constructed::Route(effect) => Some(effect.clone()),
+            Constructed::Handler(_) => None,
+        });
+        let route = routed.map(|effect| {
             let module = self.ctx.symbols.key_modules.get(effect.as_str()).map(|m| (*m).clone()).unwrap_or(crate::ModulePath(Vec::new()));
             let group = self.expr(handler);
-            let selector = deps.first().map(|d| self.effect_instance(d, span));
+            let selector = deps.first().map(|d| self.effect_instance(&erase(&d.instance), span));
             let mut fields = vec![("group".to_string(), group)];
             fields.extend(selector.map(|s| ("__dep0".to_string(), s)));
             Expr { ty: Ty::Named { name: crate::ir::build::actors::route_key(&effect, &module), args: Vec::new() }, span, kind: ExprKind::Construct { fields } }
         });
-        let Some(construct) = route.or_else(|| self.construct_handler(handler, &deps, &items, with_items, span)) else {
+        let Some(construct) = route.or_else(|| self.construct_handler(handler, &deps, with_items, span)) else {
             self.error(span, messages::effect_use_lower_not_construction());
             return (vec![Stmt::Expr(unsupported(Ty::Unknown, span, "use"))], Vec::new());
         };
@@ -2945,7 +2952,7 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     /// `H(args) [with …]` as a `Construct` of the handler: written arguments,
     /// resolved implicits, then one field per dependency [effect-handler-deps].
-    pub(crate) fn construct_handler(&mut self, handler: &AExpr, deps: &[Ty], items: &[Option<usize>], with_items: &[AExpr], span: Span) -> Option<Expr> {
+    pub(crate) fn construct_handler(&mut self, handler: &AExpr, deps: &[Dep], with_items: &[AExpr], span: Span) -> Option<Expr> {
         let (written, args, named): (&ast::Ident, Vec<&AExpr>, Vec<ast::NamedArg>) = match handler {
             AExpr::Call { callee, args, named, .. } => match callee.as_ref() {
                 AExpr::Ident(id) => (id, args.iter().collect(), named.clone()),
@@ -2960,7 +2967,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let call_span = handler.span();
         let handler_ty = Ty::Named {
             name: hkey.clone(),
-            args: self.ctx.checked.use_handler_args.get(&key).map(|v| v.iter().map(erase).collect()).unwrap_or_default(),
+            args: self.ctx.checked.constructions.get(&key).map(|c| c.type_args.iter().map(erase).collect()).unwrap_or_default(),
         };
         let mut fields: Vec<(String, Expr)> = Vec::new();
         let value_params: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
@@ -3029,20 +3036,13 @@ impl<'a, 'p> Lower<'a, 'p> {
             let pname = decl.params.iter().filter(|p| p.implicit).nth(i).map(|p| p.name.name.clone()).unwrap_or(format!("__imp{i}"));
             fields.push((pname, v));
         }
-        // The dependencies: the checker's list, or the declaration's when the
-        // construction is a `with` item (which records none of its own).
-        let declared: Vec<Ty> = self
-            .ctx
-            .checked
-            .handler_deps
-            .get(self.ctx.symbols.key_or(decl, &decl.name.name))
-            .map(|l| l.iter().map(|(t, _)| erase(t)).collect())
-            .unwrap_or_default();
-        let deps: Vec<Ty> = if deps.is_empty() { declared } else { deps.to_vec() };
-        for (i, d) in deps.iter().enumerate() {
-            let mut v = match items.get(i).copied().flatten().and_then(|w| with_items.get(w)) {
+        // The dependencies, as the checker resolved them (a `with` item has
+        // none: the checker refuses one that would).
+        for (i, dep) in deps.iter().enumerate() {
+            let d = erase(&dep.instance);
+            let mut v = match dep.from_clause.and_then(|w| with_items.get(w)) {
                 Some(item) => self.with_item(item),
-                None => self.effect_instance(d, span),
+                None => self.effect_instance(&d, span),
             };
             // [actor-use-addr] an addr given where an instance is wanted.
             if matches!(v.ty.strip_quals(), Ty::Named { name, .. } if name == "Addr") {
@@ -3073,7 +3073,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             _ => false,
         };
         if is_handler {
-            if let Some(c) = self.construct_handler(item, &[], &[], &[], item.span()) {
+            if let Some(c) = self.construct_handler(item, &[], &[], item.span()) {
                 return c;
             }
         }

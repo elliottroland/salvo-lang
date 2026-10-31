@@ -175,12 +175,12 @@ the handle as a storable value, so emission is identical by construction
    IR alike — so there is no flat multi-face representation to invent; each
    element is an ordinary single handle. A multi-face `use H()` as a value
    yields that tuple; `use e` over a (nested) tuple binds every effect
-   (`use e.0; use e.1`, via `use_addr_tuples`); projection `e[A, B]` / `e[IO]`
+   (`use e.0; use e.1`, a `use` with `handles` and no construction); projection `e[A, B]` / `e[IO]`
    is a non-consuming copy of the named sub-handles (`Expr::Project`,
-   `project_effects`), with alias flattening in type **and** projection
+   `handles`), with alias flattening in type **and** projection
    position. Both backends byte-identical.
 5. **Merge `eff[a, b]` and `eff[*]`** — ✅ DONE. A value-position `eff[…]`
-   constructor (`Expr::Merge`, `merge_effects`): `eff[clock, logger]` combines
+   constructor (`Expr::Merge`, `handles`): `eff[clock, logger]` combines
    already-bound handles into one `eff[Clock, Log]` (union of effects, ordered
    to the expected type so a positional tuple fits a declared return); `eff[*]`
    bundles every handle in scope. Only bound handles merge (bare `H()` stays
@@ -268,7 +268,7 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
    mutated/declared/`is`-binding walkers are one copy in `salvo-backend` since
    step 3, which removed the duplication a core table would have; and
    `handler_dep_effects` *renders* the declaration's dependency list rather
-   than re-resolving it, so `Checked::use_deps` matters only for a generic
+   than re-resolving it, so `Checked::constructions`' dependencies matter only for a generic
    dependency, which both backends refuse. Still small and open: one
    termination predicate (Rust `block_terminates`, Kotlin
    `block_returns_early`).
@@ -812,7 +812,7 @@ run-to-run spread and what it needs is large:
   origin (by node id, a per-declaration node → span table built from
   `Module::node_ranges` and the numbering), and the positions inside values
   (`DefSite`, `LocalDecl`, `ImplicitParam::span`, `ThrowSite::delimiter`,
-  `handler_deps`, `fn_body_effects`, diagnostics) by the body's growth, as
+  `handler_deps`, diagnostics) by the body's growth, as
   `remap` moves another file's definition sites today, and `Span::node`
   ordinals shifted by the edited declaration's node count;
 - a file's walk split per declaration: `check_module`'s file-level work
@@ -2656,6 +2656,15 @@ it would save only the cheap transcription and inherit every coupling of the
 
 ## Recorded, not scheduled
 
+- **An emitter decisions pass** (user, 2026-10-30: "I expect that there will
+  be a sizable pass on emitter decisions, so I'm postponing it"): what the
+  D2 merges left wordier or vestigial in the generated code, to be decided
+  together rather than one merge at a time. So far: Kotlin spells a lowered
+  pick or safe navigation (`?:`, `?.`, `?>`, now `when`s) as a `when`/`if`
+  chain where it used to write the native operator; the IR's `Spawn.deps`
+  is always empty (a spawn's dependencies are its handler `Construct`'s
+  fields since the construction merge) and can go.
+
 - **`x.(F)(a)` for `(F)(x, a)`** (user, 2026-10-28: left out of P19): a
   spelling that calls an arbitrary fn expression with the receiver first,
   e.g. `x.(e.something)()`. Today it is written `(e.something)(x)`.
@@ -2785,8 +2794,8 @@ several are "revisit only if a customer appears".
   - *"Nothing captures it" is transitive.* The binding is live across every
     fn reachable from the scope, any of which may spawn a handler inheriting
     `[Random]` or mint a task capturing it. So the property is a call-graph
-    fixpoint over the capture sites the checker already records (`use_deps`,
-    `spawn_deps`, `task_mint_effects`) — the shape the deleted
+    fixpoint over the capture sites the checker already records (`constructions`'
+    dependencies, a task mint's `effects_passed`) — the shape the deleted
     `handle_requirements`/`call_edges` propagation had.
   - *The handle must stay `Send + Sync`.* Spawns clone handles across
     threads and `Random` is one type for every binding, so a

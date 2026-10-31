@@ -1,7 +1,7 @@
 //! [actor-deadlock-cycle] [actor-route-stub] [effect-any] A routed protocol in the
 //! deadlock graph. The route `use any g` binds is derived in the IR
 //! (`__Route_X`), so it is no AST handler; the graph builds its node from the
-//! checker's `route_uses`, as a written `of any X` router gets one: a servant
+//! checker's `Route` construction, as a written `of any X` router gets one: a servant
 //! of its own, depending on its `RouteSelector<X>`. Since the router
 //! in-edges (2026-10-26), every dependency on `any X` points at it — an
 //! occupancy edge, since the route locks — next to its edge into `X`, and

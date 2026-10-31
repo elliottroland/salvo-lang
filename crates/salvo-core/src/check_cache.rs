@@ -57,7 +57,6 @@ pub(crate) struct StepRows {
     pub actor_sends: Vec<(String, String, Key)>,
     pub task_sends: Vec<(String, String, Key)>,
     pub task_mints: Vec<(String, String, Key)>,
-    pub fn_body_effects: Vec<(usize, Span, Vec<Ty>)>,
 }
 
 impl StepRows {
@@ -80,7 +79,6 @@ impl StepRows {
         out.actor_sends.extend(self.actor_sends.iter().cloned());
         out.task_sends.extend(self.task_sends.iter().cloned());
         out.task_mints.extend(self.task_mints.iter().cloned());
-        out.fn_body_effects.extend(self.fn_body_effects.iter().cloned());
     }
 }
 
@@ -93,7 +91,6 @@ pub(crate) struct StepMarks {
     actor_sends: usize,
     task_sends: usize,
     task_mints: usize,
-    fn_body_effects: usize,
 }
 
 impl StepMarks {
@@ -106,7 +103,6 @@ impl StepMarks {
             actor_sends: out.actor_sends.len(),
             task_sends: out.task_sends.len(),
             task_mints: out.task_mints.len(),
-            fn_body_effects: out.fn_body_effects.len(),
         }
     }
 
@@ -124,7 +120,6 @@ impl StepMarks {
             actor_sends: out.actor_sends[self.actor_sends..].to_vec(),
             task_sends: out.task_sends[self.task_sends..].to_vec(),
             task_mints: out.task_mints[self.task_mints..].to_vec(),
-            fn_body_effects: out.fn_body_effects[self.fn_body_effects..].to_vec(),
         }
     }
 }

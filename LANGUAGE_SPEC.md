@@ -4983,8 +4983,8 @@ Conventions:
     construction** — fields and trailing constructor arguments, one per dep
     in declaration order, whatever the dependency's kind (plain, actor
     effect, generic instance) and however the handler is bound
-    (`Checked::use_deps` / `spawn_deps` record the resolved instances per
-    construction; the emitters read only those). The handle comes from a
+    (`Checked::constructions` records the resolved instances per
+    construction, `Dep::instance`; the emitters read only those). The handle comes from a
     binding in the same function or from an effect the function received
     through its own signature — a fn's effect parameter *is* a handle
     ([actor-spawn-inherit]). A **generic** dependent handler works (its dep is a
@@ -5081,7 +5081,8 @@ Conventions:
     scope ([actor-spawn-inherit] for a spawn, the ordinary availability rule for a
     `use`). Matching is by effect instance, exact before unifying, so the
     *written* order and the handler's *declaration* order may differ freely
-    (recorded in `use_with_items` / `spawn_dep_items` for the emitters).
+    (recorded as each dependency's `Dep::from_clause` in
+    `Checked::constructions`, for the emitters).
   * **The self-dependency may be supplied**, which is [effect-intercept]'s one
     written exception: `use Loud with Formal()` wraps the clause's private
     instance instead of the registration already in scope. Acyclicity is
@@ -5200,7 +5201,7 @@ Conventions:
     exists. It is also a servant node of its own in the deadlock graph, so
     its forwards do not read as `E → E` — a written router from its AST
     handler, a route `use any` binds [actor-route-stub] from the checker's
-    `route_uses` (2026-10-20), with the same edges — and every dependency
+    `Constructed::Route` construction (2026-10-20), with the same edges — and every dependency
     on `any E` points at it (router in-edges, [actor-deadlock-cycle]).
   * **A fn type carries no strength** (it cannot say `any`): an inherited
     requirement [fn-effects] is the strong one unless
@@ -5217,7 +5218,8 @@ Conventions:
   * The checker infers the handler's generics from the constructor
     arguments and registers the *concrete* effect instance
     (`use CyclicRandom(List(1,2,3))` registers `Random<Int>`), recorded
-    in `use_effects`.
+    in `handles`; the construction itself (handler, type arguments,
+    dependencies) in `constructions`.
   * **Each argument must fit its constructor parameter**, by the same relation
     a call's argument is judged by (`arg_fits_param`, in an owned position —
     a constructor argument is stored [deduce-consume]). A handler has no
@@ -5333,7 +5335,7 @@ Conventions:
   * The resolved instance is recorded per call site (`effects_passed`,
     `Receiver`: the call's receiver, not an argument).
   * Emitter effect environments are keyed by the *checker's* effect types
-    (`effects_taken` for declared lists, `use_effects` for registrations,
+    (`effects_taken` for declared lists, `handles` for registrations,
     `effect_calls`/`call_effects` for lookups); the backend type
     rendering is a secondary key, used only where no checker type exists
     (unchecked contexts) and for the same-base-name fallback that matches
@@ -7939,7 +7941,8 @@ docs/language/ remains the source of truth for everything that does.
     while an `Addr` of its own protocol (a genuine peer mesh) still counts.
   * **A router is a servant node** [effect-any]: a handler `of any E`, and
     the route a `use any` binds [actor-route-stub] (derived in the IR, so its node
-    is built from the checker's `route_uses`, 2026-10-20), is `H's servant`,
+    is built from the checker's `Constructed::Route` construction,
+    2026-10-20), is `H's servant`,
     not `E`, with its dependencies' edges as a mixed servant's.
   * **Router in-edges** [effect-any] (2026-10-26): a dependency declared
     `[any E]` (not on a face of the declarer's own — interception) is an
@@ -8822,7 +8825,8 @@ between endpoints and delivers what arrives into the scheduler.
     `route_pick(group, seen[, key_hash(k)])`, then `seen` updated, then a
     forward to the answer. The checker types the operand, requires a
     `RouteSelector<E>` in scope ("bind one first", naming std's three),
-    records the protocol (`route_uses`) and binds `any E`. Any module may
+    records the protocol (a `Constructed::Route` construction, its one
+    dependency the selector) and binds `any E`. Any module may
     route any protocol it can name the group of: the old refusal of a module
     that never spelled the protocol is gone, with the syntactic generator
     (`route.rs`) and its synthetic imports.
@@ -8830,7 +8834,7 @@ between endpoints and delivers what arrives into the scheduler.
     `E` under `use addr` (ROADMAP ⑥).
   * **Its deadlock node** [actor-deadlock-cycle] [effect-any] (2026-10-20,
     PIPELINE R8 piece 6): the derived route is no AST handler, so the graph
-    builds its node from `route_uses` — `__Route_E's servant`, as a written
+    builds its node from the route construction — `__Route_E's servant`, as a written
     `of any E` router gets one: its `RouteSelector<E>` dependency's
     occupancy edges, to the mixed servants and priced shareable handlers of
     `RouteSelector` in the program, each anchored at `E`'s first `use any`.
@@ -13367,9 +13371,10 @@ replaced the working document TESTING.md).
   members too. "Available" is the body's fully expanded effect set — declared
   effects, their transitive prerequisites [effect-prereq], and a handler
   member's inherited handler dependencies [effect-handler-deps] — which the
-  checker records per body as `Checked::fn_body_effects` (file + body span ->
-  effect types); completion picks the innermost body span containing the
-  cursor and offers a member only when its owning effect is in that set. The
+  language server derives from the checker's tables: the innermost fn body
+  containing the cursor gives its `effects_taken`, and a handler member adds
+  its handler's `handler_deps` (the checker records no per-body table since
+  2026-10-30); completion offers a member only when its owning effect is in that set. The
   index (`completion_index`) reads effect members from the resolver's
   `ModuleScope::effect_members` (members' facts are not keyed by `DeclId`, so their signature is
   rendered at index time and their owning-effect name carried for the gate).

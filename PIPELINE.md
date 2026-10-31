@@ -1551,7 +1551,7 @@ log current so the work can resume after a context reset). Newest last.
     | module: `use` bindings [mod-use] | body: `use` statements, read only by this file's bodies |
     | fn: implicits, `+Q` claims, effect list (step one); parameter and return types, `proj Mut`, type-named fn, constructor signature, conditional responses, `preserve`, lends (`fn_lends`), `proj`/`ref` sources, `proj(p)` kept, `canbe linear`, handler deps merged, `main` and `Throw`, the `+Q` trusted check and the return type the body is checked against (both moved up from after the body gate); platform-fn rules; free send fn; the declaration's own `fn_refs` row | interface |
     | fn: a written lend list against what the body visibly lends | body: it reads the body |
-    | fn: parameter defaults [fn-param-default], the parameter frame, root claims, the walk, declared mutation paths, missing return, `fn_body_effects`; a stamped fn's comptime roots; `own_discharges`, `own_task` | body |
+    | fn: parameter defaults [fn-param-default], the parameter frame, root claims, the walk, declared mutation paths, missing return; a stamped fn's comptime roots; `own_discharges`, `own_task` | body |
     | handler: platform rules, implicit constructor parameter types, faces (duplicates, kinds, bodyless, `Throw`), constructor parameter types, conformance, dependencies (`handler_deps`), `spawn`, mixed, mailbox presence, names, state field types (`canbe Mut`, `proj`, linear), `init` clashes, member signatures (no effects, send member, private send member) | interface (`HandlerSig`) |
     | handler: constructor defaults, the mailbox slot's expression, state initializers, member bodies | body: expressions checked in a frame of locals the body walk numbers |
     | effect alias; effect (prerequisites, route keys, member signatures and implicits, kind) | interface |
@@ -1777,7 +1777,7 @@ log current so the work can resume after a context reset). Newest last.
     its `param_mutations`, and per walk step (signature facts, headers,
     bodies; `StepRows`) what the step appended: diagnostics, the ordered
     tables (`waitfor_sites`, `handler_constructs`, `actor_gates`,
-    `actor_sends`, `task_sends`, `task_mints`, `fn_body_effects`), the
+    `actor_sends`, `task_sends`, `task_mints`), the
     `written_types` rows it wrote (in order, with the row, whether only if
     absent, and the file whose node it is, from an address → file map kept
     over every module, `walk_module`), and the handlers it marked parking.
@@ -2645,15 +2645,27 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      `Leading(Vec<Ty>)`), and the IR passes the checker's instances for a
      call through a fn value too, instead of rebuilding them from the fn
      type. Naming each argument's instance (which `use`, which parameter)
-     is D3's, with `effect_instance`'s search. The handle tables (`use_*`,
-     `spawn_effects`, `project_effects`, `merge_effects`) go with handler
-     construction, which also takes `handler_deps`, `effect_prereqs` and
-     `fn_body_effects` for overlap (user, 2026-10-30). The rest: a
-     call's borrowed result, `Send` (`self_sends`, `facade_sends`,
-     `addr_calls`, `replyto_*`, `actor_sends`, `task_sends`), handler
-     construction (`use_deps`, `use_with_items`, `spawn_deps`,
-     `spawn_dep_items`, `use_handler_args`, `handler_constructs`). The flow
-     handoff last: explicit places and moves may retire it.
+     is D3's, with `effect_instance`'s search. **Handles and handler
+     construction built — done** (user, 2026-10-30): `use_effects`,
+     `spawn_effects`, `project_effects` + `merge_effects` are `handles`
+     (the handles a node puts in scope or yields, in order), and
+     `use_deps`, `use_with_items`, `spawn_deps`, `spawn_dep_items`,
+     `use_handler_args` + `route_uses` are `constructions` (a
+     `Construction { handler: Handler(key) | Route(effect), type_args,
+     deps: Vec<Dep { instance, from_clause }> }`, at a `use`, a spawn and a
+     `with` item alike). `use_addrs` and `use_addr_tuples` are gone: a
+     `use` with handles and no construction binds handles it is given, a
+     tuple of them when the operand's type is a tuple. A monitor spawn's
+     dependencies are its construction's, so the IR's fallback to the
+     declaration's `handler_deps` is gone; `fn_body_effects` is gone (the
+     language server takes a body's `effects_taken` plus its handler's
+     `handler_deps`). `handler_deps` and `effect_prereqs` stay, being
+     declaration facts; `handler_constructs` is E1's (an actor summary).
+     `salvo facts` marks `handles …` and `constructs H<T> with E (clause
+     0)`. The rest: a call's borrowed result, then `Send` (`self_sends`,
+     `facade_sends`, `addr_calls`, `replyto_*`, `actor_sends`,
+     `task_sends`) (user's order, 2026-10-30). The flow handoff last:
+     explicit places and moves may retire it.
 - **D3. The IR builder becomes the lowering of the typed form**: erasure as
   its own sub-phase (qualifiers, effects to parameters, union wrapping),
   then flow. The builder's ~87 table reads go. **Decided (user,
@@ -2670,7 +2682,8 @@ lowering before typing, then the checker's special paths deleted. Needs A2
 
 - **E1. Per-declaration summaries for deadlock's inputs** (handler
   statefulness, the mixed and monitor classification, `parking_handlers`,
-  task mints), then deadlock onto 03-generate-03-link over the IR; the
+  task mints, `handler_constructs` — left out of D2's construction merge,
+  user 2026-10-30), then deadlock onto 03-generate-03-link over the IR; the
   checker-table graph and its router synthesis go.
 - **E2. Retire**: this document into COMPLETED.md's design
   record, open items to ROADMAP.md, rules (origins, the core call,

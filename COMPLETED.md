@@ -144,6 +144,48 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Handles and handler constructions, two tables (user decision, PIPELINE.md D2 handles, [effect-handle] [effect-handler-deps])
+
+- **Decided (user, 2026-10-30)**, on the write-up of the fourth D2 merge
+  (the user's order: this, then a call's borrowed result, then `Send`):
+  (1) the meanings — what a node puts in scope or yields, and the handler
+  it builds; (2) a `use` that constructs nothing binds handles it is
+  given, told apart from a tuple by its operand's type, so `use_addrs`
+  and `use_addr_tuples` go; (3) a monitor spawn's dependencies are its
+  construction's, and the IR stops falling back to the declaration's;
+  (4) `fn_body_effects` goes, the language server deriving it;
+  (5) `handler_deps` and `effect_prereqs` stay (declaration facts) and
+  `handler_constructs` is left to E1 (an actor summary); (6) the dump
+  marks as proposed. Rejected: one table per node kind (a `use`, a spawn
+  and a `with` item build the same thing), parallel lists of instances
+  and clause indices (a `Dep` holds both), an explicit use kind (the
+  tables already say it).
+- **Built**: `use_effects` + `spawn_effects` + `project_effects` +
+  `merge_effects` are `handles: HashMap<Key, Vec<Ty>>`; `use_deps` +
+  `use_with_items` + `spawn_deps` + `spawn_dep_items` + `use_handler_args`
+  + `route_uses` are `constructions: HashMap<Key, Construction>`
+  (`handler: Handler(key) | Route(effect)`, `type_args`, `deps:
+  Vec<Dep { instance, from_clause }>`), written by
+  `check_handler_construction` for every construction (a `with` item's
+  too) and filled by `set_construction_deps`. `use_info` is gone and
+  `spawn_info` is `replyto_info` (all it had left). Readers: the IR's
+  `use_stmt_bound`/`construct_handler`/spawn lowering, the deadlock
+  graph's routes, `actors::generate`'s routed protocols, and
+  `features.rs`, which now finds a spawn or a `use addr` by walking the
+  module (`spawns_or_binds_addr`). Effect-member completion takes the
+  innermost body's `effects_taken` plus its handler's `handler_deps`.
+  `salvo facts` marks `handles …` and `constructs H<T> with E (clause
+  0)` at the expressions that hold them (a spawn, a `use` expression, a
+  projection, a merge).
+- **Deferred, and where**: naming each effect argument's instance is
+  D3's (PIPELINE.md); `handler_constructs` is E1's (PIPELINE.md); the IR's
+  `Spawn.deps`, always empty now, and the Kotlin spelling of lowered
+  picks wait for the emitter decisions pass (ROADMAP.md "Recorded, not
+  scheduled"; the user postponed emitter polish, 2026-10-30).
+- **Output**: no golden, example or emit pin moved (the e2e stamps did
+  not miss: the generated code is byte-identical, the monitor spawns'
+  included). 709 tests under nextest, warm run 1m42.
+
 ### 2026-10-30 — Effects taken and effects passed, two tables (user decision, PIPELINE.md D2 effect lists, [fn-effects])
 
 - **Decided (user, 2026-10-30)**, on the write-up of the third D2 merge:
@@ -171,7 +213,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   `passes …`, `receiver …`.
 - **Output**: no golden, example or emit pin moved, so the two
   derivations agreed everywhere the suite reaches; the facts snapshot
-  gained `passes` marks. 709 tests under nextest, warm run 1m34.
+  gained `passes` marks. 709 tests under nextest, warm run 1m44.
 
 ### 2026-10-30 — An arm comparison evaluates both sides in order (user decision, [op-arm-eq], ROADMAP 0ay)
 

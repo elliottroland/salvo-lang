@@ -320,7 +320,11 @@ fn build(
     // [actor-monitor-handler]. A bare router's member is the caller's own code, so
     // the edge into it is the caller's edge, of the kind its edge to `E` has.
     let mut routed: BTreeMap<&str, crate::check::Key> = BTreeMap::new();
-    for (k, effect) in &out.route_uses {
+    let routes = out.constructions.iter().filter_map(|(k, c)| match &c.handler {
+        crate::check::Constructed::Route(effect) => Some((k, effect)),
+        crate::check::Constructed::Handler(_) => None,
+    });
+    for (k, effect) in routes {
         let slot = routed.entry(effect.as_str()).or_insert(*k);
         if (k.file(), k.span.order_key()) < (slot.file(), slot.span.order_key()) {
             *slot = *k;
@@ -576,11 +580,11 @@ fn build(
         let handler = crate::ir::build::actors::route_name(effect);
         let own_faces = [effect];
         let deps: Vec<(String, usize, Span, bool)> = out
-            .use_deps
+            .constructions
             .get(&at)
             .into_iter()
-            .flatten()
-            .filter_map(|t| match t.strip_quals() {
+            .flat_map(|c| &c.deps)
+            .filter_map(|d| match d.instance.strip_quals() {
                 crate::types::Ty::Named { name, .. } => Some((name.clone(), file, span, false)),
                 _ => None,
             })
