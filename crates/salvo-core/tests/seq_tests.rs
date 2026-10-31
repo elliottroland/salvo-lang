@@ -12,10 +12,11 @@ fn callees(src: &str, callee: &str) -> Vec<String> {
     let user = out.program.files.iter().position(|f| !f.is_std).expect("main.sv");
     let mut found: Vec<String> = out
         .checked
-        .call_fn
+        .calls
         .iter()
         .filter(|(k, _)| k.file() >= user)
-        .map(|(_, d)| d.to_string())
+        .filter_map(|(_, c)| c.decl())
+        .map(|d| d.to_string())
         .filter(|d| d.starts_with(&format!("{callee}(")))
         .collect();
     found.sort();

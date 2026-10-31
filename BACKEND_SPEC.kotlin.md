@@ -972,7 +972,7 @@ nothing but the monitor.
   `salvo_core::effect_member_name`, so the interface, every handler override,
   the host skeletons and the call sites agree — and so the Rust backend, which
   has no choice in the matter, picks the same names. A call site emits the
-  overload the *checker* resolved (`Checked::effect_member_calls`).
+  overload the *checker* resolved (the index in `Callee::Member` / `Callee::Send`).
 * [kt-wire] [net-wire-format] The wire runtime is `runtime/wire.kt`, copied when
   a codec is generated or `encode`/`decode` lowered. Kotlin has no
   type-directed decode, so a codec is a **value** — `WireCodec<T>` with

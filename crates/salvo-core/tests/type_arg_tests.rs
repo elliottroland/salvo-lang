@@ -17,7 +17,16 @@ fn resolved_type_arguments_are_recorded_per_call() {
     let errors = out.errors();
     assert!(errors.is_empty(), "unexpected errors: {errors:#?}");
     let user = out.program.files.iter().position(|f| !f.is_std).expect("main.sv");
-    let recorded: Vec<&Vec<Ty>> = out.checked.call_type_args.iter().filter(|(k, _)| k.file() >= user).map(|(_, v)| v).collect();
+    let recorded: Vec<&Vec<Ty>> = out
+        .checked
+        .calls
+        .iter()
+        .filter(|(k, _)| k.file() >= user)
+        .filter_map(|(_, c)| match &c.callee {
+            salvo_core::Callee::Fn { type_args, .. } => Some(type_args),
+            _ => None,
+        })
+        .collect();
     assert!(
         recorded.iter().any(|args| args.len() == 1 && args[0] == Ty::named("Str")),
         "expected `T = Str` to be recorded, got {recorded:?}"

@@ -144,6 +144,37 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — What a call is, one table (user decision, PIPELINE.md D2 calls, [call-resolve] [effect-dispatch] [actor-use-addr] [throw])
+
+- **Decided (user, 2026-10-30, the remaining-merges write-up, items 1–4)**:
+  every call node is exactly one kind, so `call_fn`, `call_type_args`,
+  `member_calls`, `effect_member_calls`, `qual_member_calls`,
+  `local_calls`, `local_call_names`, `field_calls`, `fn_value_calls`,
+  `addr_calls`, `self_sends`, `facade_sends`, `dot_calls` and the
+  `performs` rows of `may_throw` are one table, `calls: HashMap<Key, Call {
+  callee: Callee, dot }>` — the sends built as part of it rather than as a
+  merge of their own. `implicit_args` stays its own (it is also written at
+  constructions and predicate checks). `may_throw`'s other rows and
+  `ThrowSite`'s landing fields had no reader and are gone; `lambda_contracts`
+  likewise. `member_values` + `fn_value_implicits` are `fn_values:
+  HashMap<Key, FnValue::{Decl { nested }, Member(..)}>`; `fn_refs` stays.
+  `interp_union`'s arms reuse `Callee` (`ArmText::Native | Call { callee,
+  implicits }`, the implicits beside it since they are not a `Call`'s).
+- **Built**: one recorder, `Checker::record_callee`, writes over whatever
+  the node had (a `throw` is a member call first, a fall-through from a
+  local a fn call); the spelling comes from `dot_keys`, the checker's mark
+  set before resolution. The checker reads its own answer through
+  `Checked::call_decl` (`for_next_state`, `for_next_borrows`,
+  `response_narrows`, `constructed_qualifier_at`, …), as do `deduce`,
+  `reach`, `round_trip`, the IR (`call`, `call_named`, `for_call`, the
+  operators, interpolation) and `features.rs`. A send always records its
+  member's index (it was recorded only for an overloaded name, and the IR
+  fell back to the first member of the name); `member_ref_by_name` is
+  `member_ref`. `salvo facts` marks every kind: `-> local`, `-> field`,
+  `-> computed`, `-> send E.#i`, `-> own send k`, `-> throw`, `-> Q.member`.
+- **Output**: no emitted code, golden or facts snapshot moved. 709 tests
+  under nextest, warm run 1m18.
+
 ### 2026-10-30 — A call's borrowed result, one table (user decision, PIPELINE.md D2 borrowed result, [proj-readonly-return] [proj-infer] [proj-anywhere])
 
 - **Decided (user, 2026-10-30)**, on the write-up of the fifth D2 merge:

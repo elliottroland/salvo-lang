@@ -86,13 +86,23 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, id:
         if let Some(to) = part.converts.get(key).and_then(|c| c.to_ty()) {
             row.push_str(&format!(" #{{as {to}}}"));
         }
-        if let Some(target) = part.call_fn.get(key) {
-            row.push_str(&format!("  -> {}", fn_name(program, &checked.decls, *target)));
-        } else if let Some(m) = part.member_calls.get(key) {
-            row.push_str(&format!("  -> {}.#{}", crate::typekey::plain(&m.effect), m.index));
+        // [call-resolve] What the call is.
+        use crate::check::Callee;
+        let call = part.calls.get(key);
+        match call.map(|c| &c.callee) {
+            Some(Callee::Fn { decl, .. }) => row.push_str(&format!("  -> {}", fn_name(program, &checked.decls, *decl))),
+            Some(Callee::Member { effect, index }) => row.push_str(&format!("  -> {}.#{index}", crate::typekey::plain(effect))),
+            Some(Callee::QualMember { qualifier, member, .. }) => row.push_str(&format!("  -> {qualifier}.{member}")),
+            Some(Callee::Local { name, .. }) => row.push_str(&format!("  -> local {}", name.as_deref().unwrap_or("value"))),
+            Some(Callee::Field { .. }) => row.push_str("  -> field"),
+            Some(Callee::Computed { .. }) => row.push_str("  -> computed"),
+            Some(Callee::Send { effect, index }) => row.push_str(&format!("  -> send {}.#{index}", crate::typekey::shown_text(&effect.to_string()))),
+            Some(Callee::OwnSend { member }) => row.push_str(&format!("  -> own send {member}")),
+            Some(Callee::Throw) => row.push_str("  -> throw"),
+            None => {}
         }
         let mut marks: Vec<&str> = Vec::new();
-        if part.dot_calls.contains(key) {
+        if call.is_some_and(|c| c.dot) {
             marks.push("dot");
         }
         // [fate-move-mode] A binding's mode is the IR's decision; the

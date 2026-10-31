@@ -31,7 +31,7 @@ fn a_fn_typed_local_outranks_a_same_named_effect_member() {
     assert!(errors.is_empty(), "expected no errors, got: {errors:#?}");
     let user = out.program.files.iter().position(|f| !f.is_std).expect("main.sv");
     assert_eq!(
-        out.checked.local_calls.iter().filter(|k| k.file() >= user).count(),
+        out.checked.calls.iter().filter(|(k, c)| k.file() >= user && matches!(c.callee, salvo_core::Callee::Local { .. })).count(),
         1,
         "the call to the `keep` parameter should be recorded as a local call, \
          so the emitters do not dispatch it as an effect member"

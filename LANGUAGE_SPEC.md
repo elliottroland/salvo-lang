@@ -2008,7 +2008,7 @@ Conventions:
   * **`Q.qualifies(…)` is callable directly**, the subject first and then
     one value per slot (`InRange.qualifies(n, 1, 65535)`), the qualifier's
     type parameters inferred from the arguments; the checker records it in
-    `Checked::qual_member_calls` and the IR calls the member's declaration.
+    `Checked::calls` (`Callee::QualMember`) and the IR calls the member's declaration.
     A member that takes implicits is refused here (an `is` fills them).
   * Not covered: `expect(x is Q(…))` in std's tests does not use it yet, and
     a failing predicate default [default-predicate] keeps its own message.
@@ -2495,9 +2495,9 @@ Conventions:
     none of them. Their names, if any, are PIPELINE.md §II.10 P16 (open).
     Compound assignment is the binary operator it desugars to
     [op-compound], so `v += w` is `v = plus(v, w)`.
-  * The checker records the operator as the call (`call_fn`,
-    `implicit_args`, `local_calls`/`local_call_names` through an implicit,
-    `member_calls` for a member, at the operator's node); the IR lowers it
+  * The checker records the operator as the call (`calls`: `Callee::Fn`,
+    `Local` through an implicit, `Member` for a member; and `implicit_args`,
+    at the operator's node); the IR lowers it
     through the call path (`Lower::call_named`). Before B3.3e the operator
     resolved nothing and the result was the promoted operand type
     (`check_arith`, which now types `%` alone).
@@ -2626,9 +2626,9 @@ Conventions:
     capability in the signature (`?Ordered<T>`), and the refusal says so.
   * A possibly-absent operand is refused once [op-no-none]: its call is not
     resolved, since it could only repeat the refusal.
-  * The checker records the operator as the call (`call_fn`,
-    `implicit_args`, `local_calls`/`local_call_names` through an implicit,
-    `member_calls` for a member, at the comparison's node); the IR lowers it
+  * The checker records the operator as the call (`calls`: `Callee::Fn`,
+    `Local` through an implicit, `Member` for a member; and `implicit_args`,
+    at the comparison's node); the IR lowers it
     through the call path (`Lower::call_named`). The `comparisons` table and
     its `CompareVia` are gone.
 * [op-equality] **Equality is `eq`**: `a == b` is `eq(a, b)` and `a != b` is
@@ -3105,8 +3105,7 @@ Conventions:
     the same type"), is DECISION P15 (ROADMAP 0am). Declaring both obligations
     stays refused at the type [iter-group].
   * **The calls' facts.** Neither call has a node of its own, so their call
-    facts (`call_fn`, `implicit_args`, `effects_passed`, `local_calls`/
-    `local_call_names`, `member_calls`) are keyed `Key::FOR_NEXT`
+    facts (`calls`, `implicit_args`, `effects_passed`) are keyed `Key::FOR_NEXT`
     and `Key::FOR_ITER` of the subject's node [node-id]; `Checked::for_drivers`
     keeps what the loop needs beyond them (the `Emitted` arm, whether the
     iterator is driven in place, the type `iter` mints, a step call). What a
@@ -3241,7 +3240,7 @@ Conventions:
     [implicit-resolve]: so is an interpolation's `to_str`, a comparison's
     `cmp`/`eq`, a keyed collection's identity slot and an iterator's
     `next`.
-  * The checker records the winner per call site (`call_fn`). In unchecked
+  * The checker records the winner per call site (`calls`). In unchecked
     contexts (no recorded winner) emitters narrow same-arity candidates by
     the checked argument types' base names; an ambiguous dispatch is a
     codegen error ("annotate the argument types"), never a guess
@@ -3476,7 +3475,7 @@ Conventions:
   * **An available effect's members are candidates too** (R10 D3, built
     2026-10-28, PIPELINE.md B3.6): at a fn-typed position the members of the
     name of every effect with an instance in scope compete with the fns, and
-    a member winner is a closure over its instance (`Checked::member_values`,
+    a member winner is a closure over its instance (`Checked::fn_values`,
     as for `m@E` [effect-at]). Detached from a fn-typed position a member is
     no value (`fn-value-select:member-not-expected`), as `m@E` is not; a
     `@module` or `@Type` selector sees no members. `m@E` as a call's argument
@@ -3504,7 +3503,7 @@ Conventions:
   filled (user decision 2026-10-14): one that cannot be is an error naming
   the chain, not a reason to choose another. The IR passes a function with
   implicits of its own as a lambda filling them, whichever way it was chosen
-  (`Checked::fn_value_implicits` for a name).
+  (`Checked::fn_values` for a name).
   * Before, the two built the type separately and disagreed. An implicit
     read the return as written, so `validate(o) -> +Valid Range` did not fill
     `?validate: (o: Range) -> Valid Range` though it could be passed by name;
@@ -3545,7 +3544,7 @@ Conventions:
   * A *concrete* parameter type flows into a nested call as its expected
     type; a pattern still mentioning the callee's own generics does not
     (it would coerce against an unsubstituted `T`).
-  * The resolved bindings are recorded per call (`call_type_args`) in the
+  * The resolved bindings are recorded per call (`Callee::Fn::type_args`) in the
     callee's declaration order, which the backends' intrinsic lowerings
     consume — e.g. the element type in Kotlin's `mutableListOf<Int>()`
     [backend-intrinsic].
@@ -3595,7 +3594,7 @@ Conventions:
     up only when nothing of the name could take a uniform call, since its type
     is known only by checking it. So when both exist, such a receiver takes
     the function (ROADMAP.md records the gap).
-  * The checker records a call through a field in `Checked::field_calls`; the
+  * The checker records a call through a field as `Callee::Field`; the
     IR reads the field and calls the value, as for `(x.f)(args)`.
 * [fn-uniform] Otherwise a dot call is a **uniform call**: `x.f(a)` is the
   plain call `f(x, a)` exactly (user decision 2026-10-28). So whatever takes
@@ -3605,7 +3604,7 @@ Conventions:
   unresolved call ([call-resolve], `fn-uniform:unknown-fn`), and the
   diagnostic names a `platform handler` [platform-handler] as the way to
   reach a target-language method. The checker records each call it read this
-  way (`Checked::dot_calls`); a backend normalizes exactly those and never
+  way (`Call::dot`); a backend normalizes exactly those and never
   guesses from the name (built 2026-10-06).
   * A handler's own `send fn` is reached by a uniform call as by the plain
     call: `x.k(a)` inside a mixed handler is the servant send `k(x, a)`
@@ -4033,7 +4032,7 @@ Conventions:
     * The arguments are typed once: a call that falls through hands their
       types to ordinary resolution. A call with a lambda or spread argument
       stays with the implicit.
-    * The checker records which (`local_calls`); the emitters render through
+    * The checker records which (`Callee::Local`); the emitters render through
       the parameter only for a recorded call. Rust qualifies a shadowed
       global as `crate::…`; Kotlin's own resolution passes an inapplicable
       local `invoke` by.
@@ -4185,7 +4184,7 @@ Conventions:
     Before, any two that fit were refused ("could go through more than one
     implicit of that name"). The checker binds the second and later as
     `to_str__1`, … (`ImplicitParam::local`) and records the one a call took
-    (`local_call_names`), which is the name the backends declare and call.
+    (`Callee::Local::name`), which is the name the backends declare and call.
   * **At a call site** each is filled on its own — a binder from the
     argument's type, the rest by name and type. The bare override `to_str = f`
     cannot say which it fills and is refused; the typed spelling (`to_str:
@@ -5290,7 +5289,7 @@ Conventions:
     and `position` program-wide, and a program with a `close` of its own
     stopped compiling whether or not it touched a file.
     * The emitters ask nothing of a name: a call is a member dispatch
-      exactly when the checker recorded it in `Checked::member_calls`
+      exactly when the checker recorded it as `Callee::Member`
       [effect-dispatch]. (The earlier `fn_over_member_calls` record, written
       only where the fn path won a contest, left std's `core/seq.sv`
       emitting a member dispatch for `add(out, x)` beside a user's `effect
@@ -6766,8 +6765,9 @@ Conventions:
     What *provides* it is an enclosing `try`, or a caller that declares it
     in turn.
   * A site that may throw is every `throw` call **and** every call whose
-    callee declares `[Throw<M>]`; each is recorded in `Checked::may_throw`,
-    since taking the throw is the emitters' job.
+    callee declares `[Throw<M>]`. The `throw` itself is a call of its own
+    kind (`Callee::Throw`); a call that propagates one is the call it is,
+    its callee's `[Throw<M>]` being part of the callee's effects.
   * The message type must fit the landing site's: a `Str` throw inside a
     fn declaring `[Throw<Int>]` is an error naming both.
 * [throw-not-main] `main` may not declare `[Throw<M>]`: there is no caller
@@ -11434,7 +11434,7 @@ between endpoints and delivers what arrives into the scheduler.
     language server's definition sites, the check cache's per-file rows).
   * The checker's fn-keyed tables (`fn_lends`,
     `implicit_params`, `established_quals`, `param_mutations`,
-    `deductions`, `call_fn`, `fn_refs`, `replyto_tasks`,
+    `deductions`, `Callee::Fn`, `fn_refs`, `replyto_tasks`,
     `ImplicitArg::Resolved`, …) and the IR's references
     are keyed by it; a handler's member is its own declaration, so the facts
     of its nodes are keyed by its member id [node-id], and its IR `FnDecl`
@@ -12599,7 +12599,7 @@ replaced the working document TESTING.md).
   deterministic and fires once). Signatures are compared as *lowered* types,
   so two spellings of one type are the duplicate they are.
 * [effect-dispatch] **A call is an effect-member dispatch exactly when the
-  checker says so** (built 2026-10-06, `Checked::member_calls`): the call's
+  checker says so** (built 2026-10-06, `Callee::Member` in `Checked::calls`): the call's
   span maps to the effect and to the member's index in its declaration order,
   and the instance it goes through is its `effects_passed` receiver. A backend never asks
   whether a name *could* be a member — a fn-typed local, or an ordinary fn
@@ -12624,7 +12624,7 @@ replaced the working document TESTING.md).
     and an ambiguity are the call's errors, never a guess
     [backend-never-wrong].
   * The chosen overload is recorded per call
-    (`Checked::effect_member_calls`, the member's index in declaration
+    (`Callee::Member`'s and `Callee::Send`'s index, the member's in declaration
     order) because the emitters cannot re-derive it from a name.
   * **Emitted names**: each overload is suffixed by its parameter types
     [fn-emit-name] (`close__InStream`, `close__OutStream` —
@@ -12655,7 +12655,7 @@ replaced the working document TESTING.md).
   * **As a value** (R10 D3, 2026-10-28): at a fn-typed position, with an
     instance of the effect in scope, `m@E` is the member as a closure over
     that instance, selected among the effect's members of the name by
-    [fn-value-select]'s rule at the position's type (`Checked::member_values`,
+    [fn-value-select]'s rule at the position's type (`Checked::fn_values`,
     lowered as an implicit filled by a member is) — the remedy an ambiguous
     implicit names (`to_str = to_str@Fmt`). Anywhere else it is a call form
     only, and `let v = close@Fs` is refused.

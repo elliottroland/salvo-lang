@@ -241,7 +241,7 @@ pub(crate) fn infer<'p>(
         let inferred = infer_body(
             f,
             body,
-            &checked.call_fn,
+            &checked.calls,
             &fn_decls,
             &states,
             &provenance,
@@ -285,7 +285,7 @@ pub(crate) fn infer<'p>(
                 let inferred = infer_body(
                     &info,
                     body,
-                    &checked.call_fn,
+                    &checked.calls,
                     &fn_decls,
                     &states,
                     &provenance,
@@ -569,7 +569,7 @@ pub(crate) fn defaults(decl: &FnDecl) -> Vec<ParamDeduction> {
 fn infer_body<'a, 'p>(
     f: &FnInfo<'p>,
     body: &'p Block,
-    call_fn: &'a HashMap<Key, DeclId>,
+    calls: &'a HashMap<Key, crate::check::Call>,
     fn_decls: &'a HashMap<DeclId, &'p FnDecl>,
     states: &'a HashMap<DeclId, Vec<ParamDeduction>>,
     provenance: &'a HashSet<String>,
@@ -585,7 +585,7 @@ fn infer_body<'a, 'p>(
         file: f.file,
         decls,
         key_hint: std::cell::Cell::new(0),
-        call_fn,
+        calls,
         fn_decls,
         states,
         params: optimistic(f.decl),
@@ -696,7 +696,7 @@ struct Walk<'a, 'p> {
     /// [node-id] What the walk's keys are made with (`Walk::key`).
     decls: &'a crate::decl_id::DeclIndex,
     key_hint: std::cell::Cell<usize>,
-    call_fn: &'a HashMap<Key, DeclId>,
+    calls: &'a HashMap<Key, crate::check::Call>,
     fn_decls: &'a HashMap<DeclId, &'p FnDecl>,
     states: &'a HashMap<DeclId, Vec<ParamDeduction>>,
     params: Vec<ParamDeduction>,
@@ -1284,9 +1284,10 @@ impl<'p> Walk<'_, 'p> {
         arg_exprs.extend(args.iter());
 
         let resolved = self
-            .call_fn
+            .calls
             .get(&self.key(span))
-            .and_then(|key| Some((*key, self.fn_decls.get(key)?, self.states.get(key)?)));
+            .and_then(crate::check::Call::decl)
+            .and_then(|key| Some((key, self.fn_decls.get(&key)?, self.states.get(&key)?)));
         let Some((callee_key, callee_decl, callee_state)) = resolved else {
             // [call-resolve] An effect-member call: not keyed by its `DeclId`, but the
             // member's declared list is the contract the call site already

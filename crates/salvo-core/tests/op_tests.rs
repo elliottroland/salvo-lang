@@ -16,9 +16,7 @@ fn checked(src: &str) -> salvo_core::Checked {
     let mut c = out.checked;
     c.expr_ty.retain(|k, _| k.file() >= user);
     c.converts.retain(|k, _| k.file() >= user);
-    c.call_fn.retain(|k, _| k.file() >= user);
-    c.member_calls.retain(|k, _| k.file() >= user);
-    c.local_calls.retain(|k| k.file() >= user);
+    c.calls.retain(|k, _| k.file() >= user);
     c
 }
 
@@ -28,7 +26,7 @@ fn body(stmts: &str) -> String {
 
 /// The display of every declaration a call at some node went to.
 fn callees(out: &salvo_core::Checked) -> Vec<String> {
-    let mut v: Vec<String> = out.call_fn.values().map(|k| k.to_string()).collect();
+    let mut v: Vec<String> = out.calls.values().filter_map(|c| c.decl()).map(|k| k.to_string()).collect();
     v.sort();
     v
 }
@@ -85,7 +83,7 @@ fn an_enclosing_plus_takes_the_operator() {
          fn twice<T>(a: T, ?plus: (x: T, y: T) -> T) -> T {\n    return a + a\n}\n\n\
          fn probe() -> Int {\n    return add(1, 2) + twice(3)\n}\n",
     );
-    assert_eq!(out.local_calls.len(), 2, "both bodies' `+` go through their `?plus`");
+    assert_eq!(out.calls.values().filter(|c| matches!(c.callee, salvo_core::Callee::Local { .. })).count(), 2, "both bodies' `+` go through their `?plus`");
 }
 
 /// [op-arith] [effect-member-overload] R10 D3: an available effect's member
@@ -96,7 +94,7 @@ fn a_member_times_takes_the_operator() {
         "struct V {\n    x: Int\n}\n\neffect Scale {\n    fn times(a: V, b: V) -> V => a, b\n}\n\n\
          fn probe(a: V, b: V) [Scale] -> V {\n    return a * b\n}\n",
     );
-    assert_eq!(out.member_calls.len(), 1, "`a * b` is a call of the member");
+    assert_eq!(out.calls.values().filter(|c| matches!(c.callee, salvo_core::Callee::Member { .. })).count(), 1, "`a * b` is a call of the member");
 }
 
 /// [op-pow] `**` is `pow(a, b)` at the written types, std's four.

@@ -219,23 +219,22 @@ wrap, a `Promote`), applied in order around the value.
 **What did this name resolve to?**
 
 ```rust
-pub call_fn: HashMap<Key, DeclId>,     // call node → the fn declaration (an operator
-                                       //   too: `a < b` is the call `cmp(a, b)`, `a + b`
-                                       //   `plus(a, b)`, `a ** b` `pow(a, b)`)
-pub fn_refs: HashMap<Key, DeclId>,     // a fn used as a value
+pub calls: HashMap<Key, Call>,         // call node → what it is (a fn, a member, a local,
+                                       //   a send, `throw`…) and whether it was a dot call;
+                                       //   an operator too: `a < b` is the call `cmp(a, b)`,
+                                       //   `a + b` `plus(a, b)`, `a ** b` `pow(a, b)`
+pub fn_refs: HashMap<Key, DeclId>,     // a fn name → its declaration
 pub implicit_args: HashMap<Key, Vec<ImplicitArg>>,   // what fills ?cmp, ?hash…
-pub member_calls: HashMap<Key, MemberCall>,  // effect-member calls (new)
-pub dot_calls: HashSet<Key>,                 // `x.f(a)` read as `f(x, a)` (new)
 ```
 
-For `println("1. ${b.n} ${bumped(b)}")`: `call_fn` has an entry for the
+For `println("1. ${b.n} ${bumped(b)}")`: `calls` has a `Callee::Fn` for the
 `bumped(b)` call, and one for each `${…}` part's `to_str` call at the part's
 synthetic `Key::INTERP_TEXT` (both are scalars here, so they point at the
-intrinsic `to_str(Int)`); `member_calls` has an entry for `println` (it is a
+intrinsic `to_str(Int)`), and a `Callee::Member` for `println` (it is a
 member of the `Console` effect):
 
 ```rust
-pub struct MemberCall { pub effect: String /* symbol key */, pub index: usize }
+pub enum Callee { Fn { decl, type_args }, Member { effect /* symbol key */, index }, Local { name, contract }, Send { effect, index }, OwnSend { member }, Throw, … }
 ```
 
 **What does the flow analysis say about this read?**
@@ -461,9 +460,8 @@ asking `effect_of_fn` ("is this name a member of some effect?"), which cannot
 see scopes. Now they ask the checker's answer:
 
 ```rust
-if let Some(call) = self.checked.member_calls.get(&self.key(span)).cloned() {
-    let effect: &str = self.symbols.effects.get_key_value(call.effect.as_str()) …;
-    let member = self.symbols.effects.get(effect).and_then(|e| e.fns.get(call.index));
+if let Some(Callee::Member { effect, index }) = self.checked.call(self.key(span)).map(|c| &c.callee) {
+    let member = self.symbols.effects.get(effect.as_str()).and_then(|e| e.fns.get(*index));
     // handler expression comes from `effects_passed` (the receiver), args from the
     // member's parameter modes, …
 }

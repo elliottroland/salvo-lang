@@ -20,7 +20,7 @@ use salvo_syntax::ast::{Expr, FnDecl, Item, Module, NamedArg};
 use salvo_syntax::visit::{self, Visitor};
 use salvo_syntax::Span;
 
-use crate::check::{Checked, ImplicitArg};
+use crate::check::{Callee, Checked, FnValue, ImplicitArg};
 use crate::program::Symbols;
 use crate::types::Ty;
 use crate::Program;
@@ -108,16 +108,11 @@ fn ident_at(source: &str, span: Span, name: &str) -> bool {
 /// declaration's id, or an effect member as `Effect#index`) and the type
 /// arguments, when there are any. `None` for a call the round trip skips.
 fn choice(checked: &Checked, file: usize, span: Span) -> Option<String> {
-    let info = checked.call_info(checked.key_at(file, span));
-    if info.local_call || info.addr_call.is_some() || info.self_send.is_some() || info.facade_send.is_some() || info.field_call {
-        return None;
-    }
-    let callee = match (info.call_fn, info.member_call) {
-        (Some(k), _) => k.to_string(),
-        (None, Some(mc)) => format!("{}#{}", mc.effect, mc.index),
+    let (callee, targs) = match &checked.call(checked.key_at(file, span))?.callee {
+        Callee::Fn { decl, type_args } => (decl.to_string(), type_args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")),
+        Callee::Member { effect, index } => (format!("{effect}#{index}"), String::new()),
         _ => return None,
     };
-    let targs = info.call_type_args.map(|ts| ts.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
     Some(format!("{callee}<{targs}>"))
 }
 
@@ -145,16 +140,17 @@ pub fn write_out(program: &Program, symbols: &Symbols<'_>, checked: &Checked, fi
             continue;
         }
         let key = checked.key_at(file, *span);
-        let info = checked.call_info(key);
+        let Some(call) = checked.call(key) else { continue };
         if let Expr::Field { .. } = callee.as_ref() {
-            if !info.dot_call {
+            if !call.dot {
                 continue;
             }
         }
         let Some(want) = choice(checked, file, *span) else { continue };
         // The selector: a declaration's module, or a member's effect.
-        let selector = match (info.call_fn, info.member_call) {
-            (Some(k), _) => {
+        let selector = match &call.callee {
+            Callee::Fn { decl: k, .. } => {
+                let k = *k;
                 // A renamed name answers to its new name only, and `@` on it
                 // is refused [fn-rename].
                 if k.name() != name {
@@ -162,8 +158,8 @@ pub fn write_out(program: &Program, symbols: &Symbols<'_>, checked: &Checked, fi
                 }
                 k.module().to_string()
             }
-            (None, Some(mc)) => {
-                let Some(effect) = symbols.effects.get(mc.effect.as_str()) else { continue };
+            Callee::Member { effect, .. } => {
+                let Some(effect) = symbols.effects.get(effect.as_str()) else { continue };
                 if effect.name.name == crate::THROW_EFFECT {
                     continue;
                 }
@@ -175,8 +171,8 @@ pub fn write_out(program: &Program, symbols: &Symbols<'_>, checked: &Checked, fi
         // [call-type-args] The inferred type arguments, where the call wrote
         // none and every one has a spelling. A member's pin its instance, so
         // they are left to it.
-        if type_args.is_empty() && info.call_fn.is_some() {
-            if let Some(ts) = info.call_type_args.filter(|ts| !ts.is_empty()) {
+        if let (true, Callee::Fn { type_args: ts, .. }) = (type_args.is_empty(), &call.callee) {
+            if !ts.is_empty() {
                 if ts.iter().all(spellable) {
                     text.push_str(&format!("<{}>", ts.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")));
                 }
@@ -186,7 +182,7 @@ pub fn write_out(program: &Program, symbols: &Symbols<'_>, checked: &Checked, fi
         calls.entry(span.start).or_default().push(want);
         // [implicit-override] The implicit arguments, by name, before the
         // closing parenthesis — where the source has one.
-        let Some(filled) = info.implicit_args else { continue };
+        let Some(filled) = checked.implicit_args.get(&key) else { continue };
         let close = span.end.saturating_sub(1);
         if source.as_bytes().get(close as usize) != Some(&b')') || args.last().is_some_and(|a| matches!(a, Expr::ReplyTo { .. })) {
             continue;
@@ -273,9 +269,9 @@ pub fn compare(program: &Program, checked: &Checked, file: usize, rewrite: &Rewr
                 _ => continue,
             };
             let key = checked.key_at(file, id);
-            let got = match (checked.fn_refs.get(&key), checked.member_values.get(&key)) {
+            let got = match (checked.fn_refs.get(&key), checked.fn_values.get(&key)) {
                 (Some(k), _) => k.to_string(),
-                (None, Some(ImplicitArg::Member { effect, index, .. })) => format!("{effect}#{index}"),
+                (None, Some(FnValue::Member(ImplicitArg::Member { effect, index, .. }))) => format!("{effect}#{index}"),
                 _ => "nothing".to_string(),
             };
             values.insert((span.start, a.name.name.clone()), got);

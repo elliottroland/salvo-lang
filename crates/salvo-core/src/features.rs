@@ -118,12 +118,10 @@ pub fn module_features(
     }
     let mine = |k: &&crate::check::Key| k.file() == file_idx;
     if spawns_or_binds_addr(checked, file_idx, ast)
-        || checked.addr_calls.keys().any(|k| mine(&k))
+        || checked.calls.iter().any(|(k, c)| mine(&k) && matches!(c.callee, crate::check::Callee::Send { .. } | crate::check::Callee::OwnSend { .. }))
         || checked.replyto_tasks.keys().any(|k| mine(&k) && checked.effects_passed.contains_key(k))
         || checked.actor_gates.iter().any(|(_, k)| k.file() == file_idx)
-        || checked.facade_sends.keys().any(|k| mine(&k))
         || checked.replyto_members.keys().any(|k| mine(&k))
-        || checked.self_sends.keys().any(|k| mine(&k))
         || checked.waitfor_sites.iter().any(|(_, k)| k.file() == file_idx)
         || checked.actor_sends.iter().any(|(_, _, k)| k.file() == file_idx)
         || checked.task_sends.iter().any(|(_, _, k)| k.file() == file_idx)

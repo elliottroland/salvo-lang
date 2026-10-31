@@ -12,7 +12,7 @@
 //!   branch value — a `Mut` drop, a numeric promotion).
 //! * `tests`: how an `is` check (or `when` branch) lowers against a
 //!   union representation (which sealed arms to test / null checks).
-//! * `call_fn`: resolved fn targets for call sites (type-based overloads).
+//! * `calls`: what each call site resolved to (type-based overloads).
 //!
 //! The checker is deliberately lenient: anything it cannot type becomes
 //! `Ty::Unknown`, which is compatible with everything and never produces
@@ -227,15 +227,6 @@ impl StdCache {
     fn std_parking_handlers(&self) -> impl Iterator<Item = &String> {
         self.checked.parking_handlers.iter()
     }
-}
-
-/// [effect-dispatch] An effect-member call, resolved.
-#[derive(Clone, Debug, PartialEq)]
-pub struct MemberCall {
-    /// The effect's symbol key.
-    pub effect: String,
-    /// The member's index among the effect's `fns`.
-    pub index: usize,
 }
 
 /// [fn-overload-rank] One candidate of an overload set as a possible
@@ -502,8 +493,7 @@ fn merge_union_tests(mut a: UnionTest, b: UnionTest) -> Option<UnionTest> {
 /// checker beyond the calls it names: which arm of `next`'s result carries an
 /// element, and how the loop holds the iterator. The calls themselves — the
 /// `next` that advances it and, for a source, the `iter` that mints it — are
-/// ordinary call facts (`call_fn`, `implicit_args`, `local_calls`,
-/// `member_calls`, …) at `Key::FOR_NEXT` and `Key::FOR_ITER` of the subject's
+/// ordinary call facts (`calls`, `implicit_args`, …) at `Key::FOR_NEXT` and `Key::FOR_ITER` of the subject's
 /// node.
 #[derive(Clone, Debug)]
 pub struct PassDriver {
@@ -644,6 +634,78 @@ impl Convert {
 pub struct NarrowedRead {
     pub stored: Ty,
     pub by: NarrowBy,
+}
+
+/// [call-resolve] What a call resolved to (`Checked::calls`): the callee, and
+/// whether it was written `x.f(a)` and read as `f(x, a)` [fn-uniform].
+#[derive(Clone, Debug, PartialEq)]
+pub struct Call {
+    pub callee: Callee,
+    pub dot: bool,
+}
+
+/// [call-resolve] The one thing a call is (`Call::callee`): every kind is
+/// decided by one checker path, so no call is two.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Callee {
+    /// A declared fn, at the type arguments it resolved to, in its
+    /// declaration order [call-type-args].
+    Fn { decl: DeclId, type_args: Vec<Ty> },
+    /// [effect-dispatch] An effect's member: the effect by its symbol key,
+    /// the member's index among its `fns` (an overload included
+    /// [effect-member-overload]).
+    Member { effect: String, index: usize },
+    /// [qual-whynot] `Q.member(args)`: a qualifier's own fn, and the base its
+    /// `of` names (which declaration of an overloaded qualifier).
+    QualMember { qualifier: String, member: String, of: Option<String> },
+    /// A fn-typed local or parameter, or the fn's own implicit: the local it
+    /// went through when several implicits share the name
+    /// [implicit-same-name], and the per-argument contract [fn-contract].
+    Local { name: Option<String>, contract: Vec<FnParamContract> },
+    /// [fn-member-call] A fn-typed field of the receiver, read and called.
+    Field { contract: Vec<FnParamContract> },
+    /// A computed callee (`adder()(1)`): the value's contract [fn-contract].
+    Computed { contract: Vec<FnParamContract> },
+    /// [actor-use-addr] A send through an addr: the effect instance it
+    /// serves, and the member's index.
+    Send { effect: Ty, index: usize },
+    /// [actor-self-send] [actor-mixed-handler] A send to one of the
+    /// enclosing handler's own `send fn` members, by name: from a send
+    /// member (its own mailbox) or a mixed handler's sync member (the
+    /// façade's addr), which the backends tell apart where they emit.
+    OwnSend { member: String },
+    /// [throw] The `throw(message)` operation.
+    Throw,
+}
+
+impl Call {
+    /// The declared fn a call resolved to.
+    pub fn decl(&self) -> Option<DeclId> {
+        match &self.callee {
+            Callee::Fn { decl, .. } => Some(*decl),
+            _ => None,
+        }
+    }
+
+    /// The contract a call through a fn value applies [fn-contract].
+    pub fn contract(&self) -> Option<&[FnParamContract]> {
+        match &self.callee {
+            Callee::Local { contract, .. } | Callee::Field { contract } | Callee::Computed { contract } => Some(contract),
+            _ => None,
+        }
+    }
+}
+
+/// [fn-value] A function named as a value, at its name (`Checked::fn_values`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum FnValue {
+    /// A declared fn (which one is `fn_refs`'): the implicits it fills in
+    /// turn, as an implicit filled by it would [implicit-recursive].
+    Decl { nested: Vec<ImplicitArg> },
+    /// [effect-member-overload] [effect-at] An effect's member, `m@E` at a
+    /// fn-typed position: always an [`ImplicitArg::Member`], lowered to a
+    /// closure over the instance, as for a member that fills an implicit.
+    Member(ImplicitArg),
 }
 
 /// [proj-readonly-return] [proj-infer] What a call's result borrows of its
@@ -796,29 +858,6 @@ enum DotMember {
     Field(Ty),
 }
 
-/// One site that may throw [throw]: the `throw` operation itself, or a
-/// call to a fn declaring `[Throw<M>]` that propagates one.
-#[derive(Clone, Debug)]
-pub struct ThrowSite {
-    /// True for `throw(message)` itself; false for a call that merely
-    /// propagates a throw performed further down.
-    pub performs: bool,
-    /// The message type at this site.
-    pub message: Ty,
-    /// Where the throw lands: `Some(span)` is the enclosing `try`
-    /// expression's span (the innermost one [throw-try-innermost]); `None` means
-    /// it propagates out of the enclosing fn, which therefore declares
-    /// `[Throw<M>]`.
-    pub delimiter: Option<Span>,
-    /// The message type at the *landing* site: the delimiter's computed
-    /// `M`, or the fn's declared one. Equal to `message` unless the target
-    /// is a union of several message types (user decision 2026-09-04).
-    pub target: Ty,
-    /// The arm of `target` to wrap the message into, when `target` is a
-    /// wrapper union. `None` when no wrapping is needed.
-    pub arm: Option<usize>,
-}
-
 /// [effect-handle] One entry of the checker's effect environment: the
 /// instance, whether it is a *declared* availability (a signature's or a fn
 /// value's) rather than a lexical `use` binding, and whether it is spread
@@ -926,12 +965,15 @@ pub struct Checked {
     /// (`Str`, `None`, `"a"`, `Ok Int`). Empty when the `when` is exhaustive.
     /// What the language server offers as the arms still to write.
     pub when_arms: HashMap<Key, Vec<String>>,
-    /// [qual-whynot] `Q.member(args)` — a call to a qualifier's own fn
-    /// (`InRange.qualifies(n, 1, 65535)`): the qualifier, the member, and the
-    /// base its `of` names (which declaration of an overloaded qualifier).
-    pub qual_member_calls: HashMap<Key, (String, String, Option<String>)>,
-    /// Resolved fn declaration for call sites (keyed by call span).
-    pub call_fn: HashMap<Key, DeclId>,
+    /// [call-resolve] What each call resolved to, by the call (PIPELINE.md D2,
+    /// calls): one [`Callee`] — a declared fn at its type arguments, an
+    /// effect's member, a qualifier's fn, a fn value (a local, a field, a
+    /// computed callee, with its contract), a send, `throw` — and whether it
+    /// was written as a dot call. Also at a call no tree holds: an operator
+    /// (the call it names), the `next`/`iter` a `for` names (`Key::FOR_NEXT`,
+    /// `Key::FOR_ITER` of the subject), an interpolated part's `to_str`
+    /// (`Key::INTERP_TEXT`).
+    pub calls: HashMap<Key, Call>,
     /// [iter-protocol] How a `for` loop drives a **pass**, keyed by the span
     /// of its *subject*. Present only when the subject has a `next`, rather
     /// than being an array or a value with an `iter`. There is
@@ -979,13 +1021,6 @@ pub struct Checked {
     /// what identifies a continuation target; an overloaded send member is
     /// not expressible yet and will need the index instead.
     pub replyto_members: HashMap<Key, String>,
-    /// [actor-mixed-handler] Façade sends: a call inside a mixed handler's
-    /// sync member that names one of the handler's own `send fn` members —
-    /// bare, or spelled `k@self(…)` — mapped to that member's name. The
-    /// emitters lower each to an enqueue on the façade value's addr. (The
-    /// same call inside a **send** member is a self-send and lives in
-    /// `self_sends`: the servant enqueues on its own mailbox.)
-    pub facade_sends: HashMap<Key, String>,
     /// [actor-deadlock-cycle] Handlers whose members contain a `waitfor`
     /// expression, with the site: since SH-5(d) (user decision 2026-09-19)
     /// occupancy is **inferred**, not declared, and this is the graph's
@@ -1003,19 +1038,6 @@ pub struct Checked {
     /// resolved through the scope ladder and the emitters need the declaration
     /// the checker picked, not a name to re-resolve.
     pub replyto_tasks: HashMap<Key, DeclId>,
-    /// [actor-use-addr] Dot-calls that are **sends to an actor** rather than
-    /// dispatches through a handler in scope, keyed by the call span and
-    /// mapped to the effect instance the addr serves. The emitters need the
-    /// distinction: the same written call is a method call on a handler in one
-    /// case and an enqueue on a mailbox in the other.
-    pub addr_calls: HashMap<Key, Ty>,
-    /// [actor-self-send] `self.k(args)` sites, keyed by the call span and
-    /// mapped to the member's name: a message to the actor the enclosing
-    /// member belongs to. Distinct from `addr_calls` because there is no addr to
-    /// read — the target is "this actor", which each backend spells its own
-    /// way (an enqueue on the running activation's own mailbox, or, under a
-    /// synchronous binding, an ordinary member call).
-    pub self_sends: HashMap<Key, String>,
     /// [linear-container] Reads that **move a linear value**, keyed by the
     /// read's span: the emitters must hand the value over rather than copy
     /// it. Rust's narrowed-read path clones by default (`x.as_ref()
@@ -1101,29 +1123,6 @@ pub struct Checked {
     /// mint's `replyto` span, so a row belongs to the file it was written in
     /// [lsp-check-cache].
     pub task_mints: Vec<(String, String, Key)>,
-    /// [effect-member-overload] Which **overload** of an effect member a call
-    /// resolved to: the member's index in its effect's declaration order,
-    /// keyed by the call span. Recorded only where the effect declares the
-    /// name more than once (`close(InStream)` / `close(OutStream)`), because
-    /// that is exactly where the emitters' name-keyed lookup cannot answer —
-    /// they name an overloaded member positionally
-    /// (`salvo_core::effect_member_name`).
-    pub effect_member_calls: HashMap<Key, usize>,
-    /// [effect-dispatch] Every call the checker resolved to an effect member,
-    /// keyed by the call span: the effect (by its symbol key) and the
-    /// member's index in its declaration order. A call is a member dispatch
-    /// exactly when it is here; the emitters no longer ask the scope-blind
-    /// `Symbols::effect_of_fn`.
-    pub member_calls: HashMap<Key, MemberCall>,
-    /// [fn-uniform] Calls written `base.f(args)` that the checker read as
-    /// `f(base, args)`, keyed by the call span. The emitters normalize
-    /// exactly these; they no longer ask whether `f` could be a fn or a
-    /// member.
-    pub dot_calls: HashSet<Key>,
-    /// [fn-member-call] Calls written `base.f(args)` or `(base.f)(args)` that
-    /// call through a fn-typed **field** `f` of a struct `base`, keyed by the
-    /// call span: the IR reads the field and calls its value.
-    pub field_calls: HashSet<Key>,
     /// [ir-nodes] Every written type the checker lowered, keyed by the
     /// **address of the AST node** (`written_type_key`): what a declaration's
     /// parameters, fields and results *are*, so the IR builder copies the
@@ -1133,23 +1132,6 @@ pub struct Checked {
     /// where their spans collide with that file's own (found 2026-10-06:
     /// `add_node() -> Long` read as `Bool`).
     pub written_types: HashMap<usize, Ty>,
-    /// [call-resolve] Call sites whose callee resolved to a **fn-typed
-    /// local** (a parameter or `let`) rather than to a declaration, keyed
-    /// by the call span.
-    ///
-    /// The emitters need this because their own first question — "is this
-    /// name an effect member?" — is asked of a *program-wide* map
-    /// (`Symbols::effect_of_fn`), which knows nothing of scopes or locals,
-    /// while the checker resolves a local first. Without the record, a
-    /// program declaring `effect Sink { fn keep(...) }` made std's
-    /// `filter(it, keep: (T) -> Bool)` emit an effect dispatch for its own
-    /// parameter, reported as "no handler for effect `Sink`" from inside
-    /// `core/seq.sv` — the checker and the emitters disagreeing about what
-    /// a call *is*.
-    pub local_calls: HashSet<Key>,
-    /// [implicit-same-name] A local call through one of several implicits of
-    /// one name: the [`ImplicitParam::local`] it went through.
-    pub local_call_names: HashMap<Key, String>,
     /// [fn-effects] [effect-fn-deps] The leading effect parameters of the
     /// callable at a node (PIPELINE.md D2, effect lists): a fn's — every fn
     /// the checker lowered, handler and qualifier members included — at its
@@ -1174,23 +1156,6 @@ pub struct Checked {
     /// [effect-prereq] Each effect's direct prerequisites, by effect key,
     /// aliases flattened, its own generics unsubstituted.
     pub effect_prereqs: HashMap<String, Vec<Ty>>,
-    /// [call-type-args] The type arguments a generic call resolved to, in
-    /// the callee's declaration order (keyed by the call span). Inferred
-    /// from the arguments, an explicit type-argument list, or the expected
-    /// type. The backends' intrinsic lowerings render these
-    /// [backend-intrinsic].
-    pub call_type_args: HashMap<Key, Vec<Ty>>,
-    /// [fn-value] The implicits a function passed **by name** fills in turn,
-    /// at the name's span — the same `nested` an implicit filled by that
-    /// function records (`ImplicitArg::Resolved`), since the two are one
-    /// rule [fn-value]. Absent for a function with none.
-    pub fn_value_implicits: HashMap<Key, Vec<ImplicitArg>>,
-    /// Calls that may throw [throw], keyed by the call span: the `throw`
-    /// operation itself and every call whose callee declares `[Throw<M>]`.
-    /// The emitters need each one because the control transfer is *their*
-    /// job: a Rust `ControlFlow::Break` (or a labelled-block break), a
-    /// Kotlin `throw`.
-    pub may_throw: HashMap<Key, ThrowSite>,
     /// Per-fn deduction facts [deduce-infer]: for each parameter, whether
     /// a call gives the value back to the caller and which of its declared
     /// qualifiers are still known afterwards. Written lists are stored as
@@ -1289,14 +1254,6 @@ pub struct Checked {
     /// refinements; both emitters currently capture lexically, which is
     /// an alias on both backends).
     pub lambda_captures: HashMap<Key, Vec<LambdaCapture>>,
-    /// Calls *through fn-typed values* [fn-contract], keyed by the call
-    /// span: the effective per-argument contract (post-default), for the
-    /// Rust backend's argument rendering.
-    pub fn_value_calls: HashMap<Key, Vec<FnParamContract>>,
-    /// Lambdas checked against a *contracted* fn type [fn-contract],
-    /// keyed by the lambda span: the contract, for the Rust backend's
-    /// parameter-binding modes.
-    pub lambda_contracts: HashMap<Key, Vec<FnParamContract>>,
     /// The implicit parameters of each fn, expanded [implicit-param]
     /// [implicit-group]: the written `?name: FnType` ones in order, then each
     /// `?Group<T>` spread's members in declaration order. This is the single
@@ -1337,12 +1294,10 @@ pub struct Checked {
     /// the host skeleton — since an implicit is part of the member's
     /// signature like any other parameter.
     pub implicit_members: HashMap<Key, Vec<ImplicitParam>>,
-    /// [effect-member-overload] [effect-at] An effect's member written as a
-    /// value, `m@E` at a fn-typed position (R10 D3: the remedy an ambiguous
-    /// implicit names), keyed by the member name's span: always an
-    /// [`ImplicitArg::Member`], which the IR lowers to a closure over the
-    /// instance, as for a member that fills an implicit.
-    pub member_values: HashMap<Key, ImplicitArg>,
+    /// [fn-value] Every function named as a value, at its name (PIPELINE.md D2,
+    /// calls): a declared fn and the implicits it fills in turn, or an
+    /// effect's member `m@E` [effect-member-overload].
+    pub fn_values: HashMap<Key, FnValue>,
     /// Type errors, structured for CLI/LSP consumption [diag-structured].
     pub errors: Vec<FileDiagnostic>,
 }
@@ -1527,10 +1482,10 @@ pub struct ImplicitParam {
 pub enum ArmText {
     /// A scalar or `Str`, which the target renders natively.
     Native,
-    /// An implicit `to_str` of the enclosing fn (its local's name).
-    Own(String),
-    /// A `to_str` in scope, with the implicits it needs filled.
-    Fn { key: DeclId, implicits: Vec<ImplicitArg> },
+    /// The `to_str` call it takes, as a call's `Callee` (an implicit of the
+    /// enclosing fn, by its local's name; a declared fn), with the implicits
+    /// a declared one needs filled.
+    Call { callee: Callee, implicits: Vec<ImplicitArg> },
 }
 
 /// What a call site puts in an implicit parameter [implicit-resolve].
@@ -1571,7 +1526,7 @@ pub enum ImplicitArg {
     /// member, passed as a value (R10 D3): a closure over the instance it
     /// dispatches through, so it carries its handler and asks the position
     /// for no effect. `effect` is the effect's symbol key and `index` the
-    /// member's among its `fns`, as [`MemberCall`] names them; `instance` the
+    /// member's among its `fns`, as [`Callee::Member`] names them; `instance` the
     /// effect instance in scope; `nested` the member's own implicits
     /// [implicit-recursive]; `want` the fn type the position wanted.
     Member { name: String, effect: String, index: usize, instance: Ty, nested: Vec<ImplicitArg>, want: Ty },
@@ -1724,35 +1679,14 @@ impl Checked {
         self.expr_ty.get(&self.key_at(file, span))
     }
 
-    /// [unify-checker] The call-cluster facts at one call span, gathered in
-    /// one lookup: which kind of call this resolved to and its modifiers. The
-    /// IR builder reads this instead of consulting a dozen span-keyed tables
-    /// at every call node (COMPLETED.md's unify-checker entry, the call cluster). A borrowing
-    /// view over the underlying tables for now; the storage behind it is being
-    /// unified into one `HashMap<Key, CallFacts>` without re-touching the
-    /// builder. Every field is independently `None`/absent — a given call sets
-    /// exactly the ones that describe it.
-    pub fn call_info(&self, key: Key) -> CallInfo<'_> {
-        CallInfo {
-            may_throw: self.may_throw.get(&key),
-            addr_call: self.addr_calls.get(&key),
-            self_send: self.self_sends.get(&key),
-            facade_send: self.facade_sends.get(&key),
-            dot_call: self.dot_calls.contains(&key),
-            field_call: self.field_calls.contains(&key),
-            member_call: self.member_calls.get(&key),
-            effect_call: self.effects_passed.get(&key).and_then(EffectsPassed::receiver),
-            local_call: self.local_calls.contains(&key),
-            local_call_name: self.local_call_names.get(&key),
-            call_fn: self.call_fn.get(&key),
-            call_effects: self.effects_passed.get(&key).and_then(EffectsPassed::leading),
-            call_type_args: self.call_type_args.get(&key),
-            implicit_args: self.implicit_args.get(&key),
-            fn_value_call: self.fn_value_calls.get(&key),
-            moved_projection: self.moved_projections.contains(&key),
-            effect_member: self.effect_member_calls.get(&key).copied(),
-            qual_member: self.qual_member_calls.get(&key),
-        }
+    /// [call-resolve] What the call at `key` resolved to.
+    pub fn call(&self, key: Key) -> Option<&Call> {
+        self.calls.get(&key)
+    }
+
+    /// [call-resolve] The declared fn the call at `key` resolved to.
+    pub fn call_decl(&self, key: Key) -> Option<DeclId> {
+        self.calls.get(&key).and_then(Call::decl)
     }
 
     /// [unify-checker] A `replyto`'s facts at one span, in one lookup: a
@@ -1762,18 +1696,6 @@ impl Checked {
             replyto_task: self.replyto_tasks.get(&key),
             task_mint_effects: self.effects_passed.get(&key).and_then(EffectsPassed::leading),
             replyto_member: self.replyto_members.get(&key),
-        }
-    }
-
-    /// [unify-checker] A function named as a value, at its name: the effects
-    /// the fn type it is passed as threads, the implicits the function fills
-    /// in turn [fn-value], and — for an effect's member written as a value —
-    /// the member it is [effect-member-overload].
-    pub fn fn_value_info(&self, key: Key) -> FnValueInfo<'_> {
-        FnValueInfo {
-            effects: self.effects_taken.get(&key),
-            nested: self.fn_value_implicits.get(&key),
-            member: self.member_values.get(&key),
         }
     }
 
@@ -1806,13 +1728,11 @@ impl Checked {
     }
 
     /// [unify-checker] A lambda's facts, at its span: the effects it takes as
-    /// leading parameters [fn-effects], what it captures [fate-lambda], and
-    /// the contract it was checked against [fn-contract].
+    /// leading parameters [fn-effects] and what it captures [fate-lambda].
     pub fn lambda_info(&self, key: Key) -> LambdaInfo<'_> {
         LambdaInfo {
             effects: self.effects_taken.get(&key),
             captures: self.lambda_captures.get(&key),
-            contract: self.lambda_contracts.get(&key),
         }
     }
 
@@ -1821,13 +1741,6 @@ impl Checked {
     pub fn interp_info(&self, key: Key) -> InterpInfo<'_> {
         InterpInfo { union: self.interp_union.get(&key) }
     }
-}
-
-/// [unify-checker] A function named as a value, at its name.
-pub struct FnValueInfo<'c> {
-    pub effects: Option<&'c Vec<Ty>>,
-    pub nested: Option<&'c Vec<ImplicitArg>>,
-    pub member: Option<&'c ImplicitArg>,
 }
 
 /// [unify-checker] A place read's facts, at its span.
@@ -1851,7 +1764,6 @@ impl ReadInfo<'_> {
 pub struct LambdaInfo<'c> {
     pub effects: Option<&'c Vec<Ty>>,
     pub captures: Option<&'c Vec<LambdaCapture>>,
-    pub contract: Option<&'c Vec<FnParamContract>>,
 }
 
 /// [unify-checker] string-interpolation rendering facts at one span
@@ -1867,37 +1779,6 @@ pub struct ReplyToInfo<'c> {
     pub replyto_task: Option<&'c DeclId>,
     pub task_mint_effects: Option<&'c Vec<Ty>>,
     pub replyto_member: Option<&'c String>,
-}
-
-/// [unify-checker] The call-cluster facts at one call span (COMPLETED.md's unify-checker entry).
-/// A read-only view the IR builder assembles once per call node; the fields
-/// are borrows from the checker's tables. The discriminating facts
-/// (`may_throw`/`addr_call`/`member_call`/`local_call`/`call_fn`/…) are
-/// mutually exclusive in practice — a call is one kind — with the rest as
-/// modifiers (effects, type args, implicit args, consume contract).
-pub struct CallInfo<'c> {
-    pub may_throw: Option<&'c ThrowSite>,
-    pub addr_call: Option<&'c Ty>,
-    pub self_send: Option<&'c String>,
-    pub facade_send: Option<&'c String>,
-    pub dot_call: bool,
-    /// [fn-member-call] A call through a fn-typed field of the receiver.
-    pub field_call: bool,
-    pub member_call: Option<&'c MemberCall>,
-    pub effect_call: Option<&'c Ty>,
-    pub local_call: bool,
-    pub local_call_name: Option<&'c String>,
-    pub call_fn: Option<&'c DeclId>,
-    pub call_effects: Option<&'c Vec<Ty>>,
-    pub call_type_args: Option<&'c Vec<Ty>>,
-    pub implicit_args: Option<&'c Vec<ImplicitArg>>,
-    pub fn_value_call: Option<&'c Vec<FnParamContract>>,
-    pub moved_projection: bool,
-    /// [effect-member-overload] Which overload of an effect member the call
-    /// took, where the effect declares the name more than once.
-    pub effect_member: Option<usize>,
-    /// [qual-whynot] `Q.qualifies(…)`: the qualifier, its fn and its `of`.
-    pub qual_member: Option<&'c (String, String, Option<String>)>,
 }
 
 /// [platform-fn-value] [runtime-kept-fn] Whether platform fn `f` keeps its
@@ -3197,6 +3078,9 @@ struct Checker<'p, 'r> {
     /// coercion consults when an argument typed without an expected type (so
     /// as its base) lands in a slot listing the literal.
     lit_spans: HashMap<Key, TypeLit>,
+    /// [fn-uniform] The calls being checked as `x.f(a)` read as `f(x, a)`:
+    /// marked before the call resolves, so its `Call` records the spelling.
+    dot_keys: HashSet<Key>,
     /// [linear-group] The parameter name of the designated `close` currently
     /// being checked, if this fn is one: its obligation is discharged by
     /// being closed.
@@ -3613,6 +3497,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             value_expected: None,
             own_contract: None,
             lit_spans: HashMap::new(),
+            dot_keys: HashSet::new(),
             own_discharges: std::collections::HashSet::new(),
             own_written: Vec::new(),
             lambda_ctx: Vec::new(),
@@ -8013,7 +7898,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [effect-member-overload] [fn-value] An available effect's member that
     /// won a fn-typed position (R10 D3): a closure over its instance
-    /// (`Checked::member_values`, lowered as an implicit filled by a member
+    /// (`Checked::fn_values`, lowered as an implicit filled by a member
     /// is), with its own implicits filled where it is used
     /// [implicit-recursive]. `name@Effect` and a bare name both arrive here.
     fn member_as_value(&mut self, name: &str, name_span: Span, m: MemberCand<'p>, fit: FnFit, want: &Ty) -> Ty {
@@ -8042,7 +7927,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             nested,
             want: want.clone(),
         };
-        self.out.member_values.insert(self.key(name_span), arg);
+        self.out.fn_values.insert(self.key(name_span), FnValue::Member(arg));
         fit.ty
     }
 
@@ -8201,6 +8086,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         // [fn-ref-table]
         self.out.fn_refs.insert(self.key(name_span), entry.key);
+        self.out.fn_values.insert(self.key(name_span), FnValue::Decl { nested: Vec::new() });
         let decl = entry.decl;
         // [fn-effects] A named fn passed by value performs exactly the
         // effects it declares (inherited entries included) — its callers
@@ -8243,7 +8129,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return self.fn_value_ty(entry.key, decl);
         };
         if !value.nested.is_empty() {
-            self.out.fn_value_implicits.insert(self.key(name_span), value.nested);
+            self.out.fn_values.insert(self.key(name_span), FnValue::Decl { nested: value.nested });
         }
         // [linear-generics] The instantiation ban applies here as at any
         // call: an unopted generic cannot bind a linear type.
@@ -12350,11 +12236,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if params.len() == 1 && Self::arg_fits_fn_value(ty, &params[0]))
         };
         match self.pick_own_implicit("to_str", &fits) {
-            Ok(Some(own)) => return Some(ArmText::Own(own.local.clone())),
+            Ok(Some(own)) => return Some(ArmText::Call { callee: Callee::Local { name: Some(own.local.clone()), contract: Vec::new() }, implicits: Vec::new() }),
             Ok(None) => {}
             Err(tied) => {
                 self.own_implicit_tie("to_str", &tied, expr.span());
-                return Some(ArmText::Own("to_str".to_string()));
+                return Some(ArmText::Call { callee: Callee::Local { name: Some("to_str".to_string()), contract: Vec::new() }, implicits: Vec::new() });
             }
         }
         self.resolve_as_call = true;
@@ -12363,7 +12249,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Ok((key, _)) = resolved {
             // A `to_str` with implicits of its own is filled here too.
             let implicits = self.implicits_of_text_form(expr, key, ty);
-            return Some(ArmText::Fn { key, implicits });
+            return Some(ArmText::Call { callee: Callee::Fn { decl: key, type_args: Vec::new() }, implicits });
         }
         // [implicit-resolve] [fn-overload-ambiguous] Several fit and none is
         // more specific: refused as at a call, with an interpolation's remedies.
@@ -12446,8 +12332,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let site = ForSite { at, key, loc: span, call: format!("to_str({ty})"), subject: ty.clone(), interp: true };
         match self.pick_own_implicit("to_str", &fits) {
             Ok(Some(own)) => {
-                self.out.local_calls.insert(key);
-                self.out.local_call_names.insert(key, own.local.clone());
+                self.record_callee(key, Callee::Local { name: Some(own.local.clone()), contract: Vec::new() });
                 if let Some(v) = self.lookup_mut(&own.local) {
                     v.used = true;
                 }
@@ -13079,7 +12964,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [proj-anywhere] `constructed_qualifier` by the call's span.
     fn constructed_qualifier_at(&self, span: Span) -> Option<String> {
-        let key = *self.out.call_fn.get(&self.key(span))?;
+        let key = self.out.call_decl(self.key(span))?;
         self.scope
             .fns
             .values()
@@ -13291,7 +13176,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn call_args<'e>(&self, callee: &'e Expr, args: &'e [Expr], span: Span) -> Vec<&'e Expr> {
         let mut out: Vec<&'e Expr> = Vec::with_capacity(args.len() + 1);
         match callee {
-            Expr::Field { base, .. } if self.out.dot_calls.contains(&self.key(span)) => out.push(base),
+            Expr::Field { base, .. } if self.out.call(self.key(span)).is_some_and(|c| c.dot) => out.push(base),
             Expr::Scoped { base: Some(base), .. } | Expr::EffectScoped { base: Some(base), .. } => out.push(base),
             _ => {}
         }
@@ -13389,7 +13274,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             })
             .collect();
-        self.out.fn_value_calls.insert(self.key(span), effective.clone());
+        let key = self.key(span);
+        match self.out.calls.get_mut(&key).map(|c| &mut c.callee) {
+            Some(Callee::Local { contract, .. } | Callee::Field { contract } | Callee::Computed { contract }) => *contract = effective.clone(),
+            _ => self.record_callee(key, Callee::Computed { contract: effective.clone() }),
+        }
         // [ref-handle] A kept `Mut` position needs a handle: a plain `proj`
         // (read-only, even carrying `Mut`) does not fit it — the named-call
         // overload check's `NotHandle` refusal, for calls through fn values.
@@ -13899,13 +13788,12 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [op-equality] [op-order] `a == b` through the enclosing fn's own
     /// implicit `own`: the call through it [implicit-resolve-body], recorded
-    /// as a call through that local is (`local_calls`, and the local it is
+    /// as a call through that local is (`Callee::Local`, and the local it is
     /// for the IR), with its arguments checked as a fn value's are.
     /// [op-arith] Arithmetic alike. Answers what the implicit returns.
     fn operator_through_implicit(&mut self, own: &ImplicitParam, lhs: &'p Expr, rhs: &'p Expr, tys: &[Ty], span: Span) -> Ty {
         let key = self.key(span);
-        self.out.local_calls.insert(key);
-        self.out.local_call_names.insert(key, own.local.clone());
+        self.record_callee(key, Callee::Local { name: Some(own.local.clone()), contract: Vec::new() });
         let (params, got, contract, effects) = match self.lookup(&own.local).map(|v| v.narrowed.strip_quals().clone()) {
             Some(Ty::Fn { params, ret, contract, effects }) => (params, *ret, contract, effects),
             _ => match own.ty.strip_quals().clone() {
@@ -15287,19 +15175,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // wrap into its `M` is filled in once the body is checked.
             Some(ctx) => {
                 let _ = ctx.entry_depth;
-                ctx.sites.push((span, message.clone()));
-                self.out.may_throw.insert(
-                    self.key(span),
-                    ThrowSite {
-                        performs,
-                        message,
-                        // Filled in by `check_try` (the innermost `try` is
-                        // the one being checked) [throw-try-innermost].
-                        delimiter: None,
-                        target: Ty::Unknown,
-                        arm: None,
-                    },
-                );
+                ctx.sites.push((span, message));
                 // [ir-analyze] The throw-path linear leak check moved to the IR.
             }
             // Outside every `try`: the enclosing fn must declare it.
@@ -15308,19 +15184,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(span, messages::throw_no_receiver(&THROW_EFFECT, &message));
                     return;
                 };
-                let arm = self.throw_message_arm(span, &message, &target);
-                self.out.may_throw.insert(
-                    self.key(span),
-                    ThrowSite {
-                        performs,
-                        message,
-                        delimiter: None,
-                        target,
-                        arm,
-                    },
-                );
+                // The message must fit the declared one (reported there).
+                let _ = self.throw_message_arm(span, &message, &target);
                 // [ir-analyze] The throw-path linear leak check moved to the IR.
             }
+        }
+        // [throw] The operation itself is a call of its own kind; a call
+        // that only propagates one is the call it is.
+        if performs {
+            self.record_callee(self.key(span), Callee::Throw);
         }
     }
 
@@ -15448,15 +15320,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // servant through the façade value's addr — so it shares that
         // table and lowering (user decision 2026-09-19: `@self` is the
         // disambiguator, in both member kinds).
-        if self.facade_handler.is_some() {
-            self.out
-                .facade_sends
-                .insert(self.key(span), member.name.clone());
-        } else {
-            self.out
-                .self_sends
-                .insert(self.key(span), member.name.clone());
-        }
+        self.record_callee(self.key(span), Callee::OwnSend { member: member.name.clone() });
         // [actor-send-fn] A send answers nothing.
         Ty::none()
     }
@@ -15559,13 +15423,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Ty::none();
         };
         let target = best.decl;
-        if members.len() > 1 {
-            // [effect-member-overload] Which overload a call resolved to, for
-            // the emitters: they name an overloaded member positionally.
-            if let Some(idx) = crate::effect_member_index(effect, target) {
-                self.out.effect_member_calls.insert(self.key(span), idx);
-            }
-        }
+        // [effect-member-overload] Which member, by its index: an overload
+        // is named positionally.
+        let index = crate::effect_member_index(effect, target);
         // [actor-send-fn] Only a send member can be reached through an addr in
         // the first pass: an ordinary member answers, and answering across a
         // actor boundary is the call sugar that comes later.
@@ -15575,7 +15435,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [linear-defer] Forwarding a received reply to another actor
         // extends its dependency chain past this activation.
         self.send_payload(target, &best, &arg_refs, &arg_tys, named, "forwarding it to another actor", span);
-        self.out.addr_calls.insert(self.key(span), instance.clone());
+        if let Some(index) = index {
+            self.record_callee(self.key(span), Callee::Send { effect: instance.clone(), index });
+        }
         // [actor-deadlock-cycle] A send from inside a member body is an edge
         // in the wait-for graph: it blocks while the target's bounded mailbox
         // is full. Recorded with the handler doing the sending, so the graph
@@ -16161,13 +16023,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         if self.own_send_target(h, &id.name, &targets, args, &[], span).is_none() {
             return Some(Ty::none());
         }
-        if servant {
-            // [actor-self-send] A servant's bare sibling call *is* a
-            // self-send, so it shares the spelling's table and lowering.
-            self.out.self_sends.insert(self.key(span), id.name.clone());
-        } else {
-            self.out.facade_sends.insert(self.key(span), id.name.clone());
-        }
+        // [actor-self-send] A servant's bare sibling call *is* a self-send,
+        // and a façade's a send to the servant: the same callee, which each
+        // backend spells for where it is emitted.
+        let _ = servant;
+        self.record_callee(self.key(span), Callee::OwnSend { member: id.name.clone() });
         Some(Ty::none())
     }
 
@@ -17031,14 +16891,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         let message_ty = self.mk_union(messages);
-        // Fill in each site's landing information now that `M` is known.
+        // Each site's message must fit `M` (a mismatch is reported there).
         for (site_span, site_message) in &ctx.sites {
-            let arm = self.throw_message_arm(*site_span, site_message, &message_ty);
-            if let Some(site) = self.out.may_throw.get_mut(&self.key(*site_span)) {
-                site.delimiter = Some(span);
-                site.target = message_ty.clone();
-                site.arm = arm;
-            }
+            let _ = self.throw_message_arm(*site_span, site_message, &message_ty);
         }
         // The body's value is the `Ok` arm; a body that always exits
         // (`return`, an unconditional throw) contributes `Ok None`.
@@ -21173,7 +21028,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::Named { base, .. } => Some(base.name.name.clone()),
             _ => None,
         };
-        self.out.qual_member_calls.insert(self.key(span), (q.name.name.clone(), f.name.name.clone(), of));
+        self.record_callee(self.key(span), Callee::QualMember { qualifier: q.name.name.clone(), member: f.name.name.clone(), of });
         ret
     }
 
@@ -24527,14 +24382,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // value, whose element is the value's own.
                 let next_through_implicit = self
                     .out
-                    .local_calls
-                    .contains(&self.key(iterable.span()).synthetic(Key::FOR_NEXT));
+                    .call(self.key(iterable.span()).synthetic(Key::FOR_NEXT))
+                    .is_some_and(|c| matches!(c.callee, Callee::Local { .. }));
                 let drives_pass = !drives_origin
                     && !drives_in_place
                     && (iter_ty.quals().iter().any(|q| q.name == "once")
                         || recorded.as_ref().is_some_and(|d| {
                             if d.step_call {
-                                !self.out.call_fn.contains_key(&self.key(iterable.span()))
+                                self.out.call_decl(self.key(iterable.span())).is_none()
                             } else {
                                 d.mint.is_none() || next_through_implicit
                             }
@@ -24551,9 +24406,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let next_borrows = recorded.as_ref().is_some_and(|d| {
                     if d.step_call {
                         self.out
-                            .call_fn
-                            .get(&self.key(iterable.span()))
-                            .copied()
+                            .call_decl(self.key(iterable.span()))
                             .and_then(|k| self.fn_decl_by_key(k))
                             .and_then(|f| f.return_type.as_ref())
                             .is_some_and(|t| !proj_arm_indices(t).is_empty())
@@ -25080,7 +24933,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         // The callee's contract: every argument kept, so the call can repeat.
-        let callee_key = self.out.call_fn.get(&self.key(*call_span)).copied();
+        let callee_key = self.out.call_decl(self.key(*call_span));
         let callee_name = match callee.as_ref() {
             Expr::Ident(id) => id.name.clone(),
             Expr::Field { field, .. } => field.name.clone(),
@@ -25229,8 +25082,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let loc = subject.span();
         match self.pick_own_implicit(name, &|p: &ImplicitParam| Self::own_for_fit(p, name, ty)) {
             Ok(Some(own)) => {
-                self.out.local_calls.insert(key);
-                self.out.local_call_names.insert(key, own.local.clone());
+                self.record_callee(key, Callee::Local { name: Some(own.local.clone()), contract: Vec::new() });
                 let (ret, effects) = match self.lookup(&own.local).map(|v| v.narrowed.strip_quals().clone()) {
                     Some(Ty::Fn { ret, effects, .. }) => (*ret, effects),
                     _ => match own.ty.strip_quals().clone() {
@@ -25269,8 +25121,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// loop a backend writes for a container makes no call [iter-for-native],
     /// so nothing it would have reached is reached.
     fn forget_for_call(&mut self, key: Key) {
-        self.out.call_fn.remove(&key);
-        self.out.call_type_args.remove(&key);
+        self.out.calls.remove(&key);
         self.out.implicit_args.remove(&key);
         self.out.effects_passed.remove(&key);
     }
@@ -25278,14 +25129,16 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [iter-for] Whether the call a `for` recorded at `key` went to a
     /// declared fn — not the enclosing fn's implicit, not an effect member.
     fn for_call_is_decl(&self, key: Key) -> bool {
-        self.out.call_fn.contains_key(&key) && !self.out.local_calls.contains(&key) && !self.out.member_calls.contains_key(&key)
+        self.out.call_decl(key).is_some()
     }
 
     /// [iter-protocol] Whether the `next` a `for` resolved at `key` takes its
     /// state as `Mut`, and the state type to name when it does not: a
     /// declared fn's or member's first parameter, the implicit's parameter.
     fn for_next_state(&mut self, key: Key, pass: &Ty) -> (bool, Ty) {
-        if let Some(name) = self.out.local_call_names.get(&key).cloned() {
+        let callee = self.out.call(key).map(|c| c.callee.clone());
+        if let Some(Callee::Local { name: Some(name), .. }) = &callee {
+            let name = name.clone();
             let ty = self.lookup(&name).map(|v| v.narrowed.clone()).or_else(|| self.own_implicits.iter().find(|p| p.local == name).map(|p| p.ty.clone()));
             if let Some(Ty::Fn { params, .. }) = ty.map(|t| t.strip_quals().clone()) {
                 if let Some(p) = params.first() {
@@ -25294,9 +25147,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             return (true, pass.clone());
         }
-        if let Some(mc) = self.out.member_calls.get(&key).cloned() {
-            let Some(effect) = self.symbols.effects.get(mc.effect.as_str()).copied() else { return (true, pass.clone()) };
-            let Some(member) = effect.fns.get(mc.index) else { return (true, pass.clone()) };
+        if let Some(Callee::Member { effect, index }) = &callee {
+            let Some(effect) = self.symbols.effects.get(effect.as_str()).copied() else { return (true, pass.clone()) };
+            let Some(member) = effect.fns.get(*index) else { return (true, pass.clone()) };
             let Some(p) = member.params.iter().find(|p| !p.implicit) else { return (true, pass.clone()) };
             let saved = self.enter_generics(&effect.generics);
             self.enter_generics(&member.generics);
@@ -25304,7 +25157,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.generics = saved;
             return (pt.quals().iter().any(|q| q.name == "Mut"), pt.strip_quals().clone());
         }
-        let Some(decl) = self.out.call_fn.get(&key).copied().and_then(|k| self.fn_decl_by_key(k)) else { return (true, pass.clone()) };
+        let Some(decl) = self.out.call_decl(key).and_then(|k| self.fn_decl_by_key(k)) else { return (true, pass.clone()) };
         let Some(p) = decl.params.iter().find(|p| !p.implicit) else { return (true, pass.clone()) };
         let saved = self.enter_generics(&decl.generics);
         let pt = self.lower_type(&p.ty);
@@ -25514,10 +25367,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// whose written result emits a borrow [iter-yield-proj].
     fn for_next_borrows(&self, iterable: &'p Expr) -> bool {
         let key = self.key(iterable.span()).synthetic(Key::FOR_NEXT);
-        let Some(k) = self.out.call_fn.get(&key).copied() else { return false };
-        if self.out.local_calls.contains(&key) || self.out.member_calls.contains_key(&key) {
-            return false;
-        }
+        let Some(k) = self.out.call_decl(key) else { return false };
         self.fn_decl_by_key(k)
             .and_then(|d| d.return_type.as_ref())
             .is_some_and(|t| !proj_arm_indices(t).is_empty())
@@ -25575,11 +25425,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
             param_tys.push(ty);
-        }
-        // [fn-contract] Exported for the emitter's parameter-binding
-        // modes.
-        if let Some(c) = &exp_contract {
-            self.out.lambda_contracts.insert(self.key(span), c.clone());
         }
         let saved_ret = std::mem::replace(&mut self.ret_ty, exp_ret.clone().unwrap_or(Ty::Unknown));
         // [fn-effects] The body performs the effects the fn *type* declares
@@ -26175,7 +26020,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Expr::Call { args, .. } = cond else {
             return out;
         };
-        let Some(callee) = self.out.call_fn.get(&self.key(cond.span())).copied() else {
+        let Some(callee) = self.out.call_decl(self.key(cond.span())) else {
             return out;
         };
         // The callee's declaration: its FnEntry is in scope (the call
@@ -28876,7 +28721,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // or a fn-typed local of the name takes it first, as it takes
         // `name(x, args)` (R10 D12, D13).
         let key = self.key(span);
-        self.out.dot_calls.insert(key);
+        self.dot_keys.insert(key);
         if let Some(ty) = self.check_name_call(field, Some(base), type_args, args, named, expected, span) {
             return ty;
         }
@@ -28892,7 +28737,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if self.effect_members_here(name).is_some() || self.has_callable(name) {
             return self.resolve_named_call(name, field.span, type_args, &all_args, named, expected, None, span);
         }
-        self.out.dot_calls.remove(&key);
+        self.dot_keys.remove(&key);
         // Nothing of the name to call with the receiver first: a receiver
         // that is not a place may still have the member (`get(addrs, 0).bump(1)`,
         // `make().f(3)`), which only checking it can tell.
@@ -29009,7 +28854,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                     return Ty::Unknown;
                 }
-                self.out.field_calls.insert(self.key(span));
+                self.record_callee(self.key(span), Callee::Field { contract: Vec::new() });
                 if let (false, Some(callee)) = (base_checked, callee) {
                     return self.check_value_call(callee, args, span);
                 }
@@ -29076,6 +28921,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // call goes through is the local recorded for the emitters.
         let same = self.own_implicits.iter().filter(|p| p.name == id.name).count();
         let mut pre_tys: Option<Vec<Ty>> = None;
+        let mut same_name: Option<String> = None;
         let lname: String = if same > 1 {
             let tys: Vec<Ty> = all.iter().map(|a| self.check_expr(a, None)).collect();
             // [implicit-same-name] The one whose parameters the arguments
@@ -29095,7 +28941,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             };
             let chosen = pick.map(|p| p.local).unwrap_or_else(|| id.name.clone());
-            self.out.local_call_names.insert(self.key(span), chosen.clone());
+            same_name = Some(chosen.clone());
             pre_tys = Some(tys);
             chosen
         } else {
@@ -29156,7 +29002,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // an effect member included. Recorded for the emitters,
                 // whose own effect-member test is a program-wide name
                 // map that cannot see locals.
-                self.out.local_calls.insert(self.key(span));
+                self.record_callee(self.key(span), Callee::Local { name: same_name.clone(), contract: Vec::new() });
                 // Calling the local is a use of it.
                 if let Some(v) = self.lookup_mut(&lname) {
                     v.used = true;
@@ -30637,7 +30483,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             );
         }
         if let Some(key) = best.key {
-            self.out.call_fn.insert(self.key(span), key);
+            self.record_callee(self.key(span), Callee::Fn { decl: key, type_args: Vec::new() });
             // The callee name resolves to this declaration [fn-ref-table]. An
             // operator names nothing: its call is all there is [op-equality].
             if self.operator_site.is_none() && self.for_site.is_none() {
@@ -31629,7 +31475,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             .iter()
             .map(|g| subst.get(&g.name).cloned().unwrap_or(Ty::Unknown))
             .collect();
-        self.out.call_type_args.insert(self.key(span), recorded);
+        if let Some(Callee::Fn { type_args, .. }) = self.out.calls.get_mut(&self.key(span)).map(|c| &mut c.callee) {
+            *type_args = recorded;
+        }
         subst
     }
 
@@ -31784,11 +31632,16 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// an overloaded member positionally.
     fn record_member_call(&mut self, effect: &'p EffectDecl, member: &'p FnDecl, span: Span) {
         let Some(index) = crate::effect_member_index(effect, member) else { return };
-        if crate::effect_members_named(effect, &member.name.name).len() > 1 {
-            self.out.effect_member_calls.insert(self.key(span), index);
-        }
-        let key = self.symbols.key_or(effect, &effect.name.name).to_string();
-        self.out.member_calls.insert(self.key(span), MemberCall { effect: key, index });
+        let effect = self.symbols.key_or(effect, &effect.name.name).to_string();
+        self.record_callee(self.key(span), Callee::Member { effect, index });
+    }
+
+    /// [call-resolve] Records what the call at `key` is, with its spelling
+    /// (`dot_keys`), over anything recorded there before: a later path is a
+    /// more specific answer (`throw` is a member call first).
+    fn record_callee(&mut self, key: Key, callee: Callee) {
+        let dot = self.dot_keys.contains(&key);
+        self.out.calls.insert(key, Call { callee, dot });
     }
 
     /// [effect-member-call] A call whose selection chose an effect's member

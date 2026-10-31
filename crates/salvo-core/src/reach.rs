@@ -233,8 +233,8 @@ pub fn resolved_fn_keys(checked: &crate::check::Checked, file_idx: usize) -> Has
     let mine = |key: &&crate::check::Key| key.file() == file_idx;
     // Calls, and fn *names* used any other way (a fn passed by value, a
     // callee, a declaration site) [fn-ref-table].
-    for (_, fn_key) in checked.call_fn.iter().filter(|(k, _)| mine(k)) {
-        out.insert(*fn_key);
+    for (_, call) in checked.calls.iter().filter(|(k, _)| mine(k)) {
+        out.extend(call.decl());
     }
     for (_, fn_key) in checked.fn_refs.iter().filter(|(k, _)| mine(k)) {
         out.insert(*fn_key);
@@ -256,13 +256,13 @@ pub fn resolved_fn_keys(checked: &crate::check::Checked, file_idx: usize) -> Has
         }
     }
     // [interp-to-str] [interp-struct] The text form an interpolation resolved
-    // is a call fact like any (`call_fn` above, at the part's
+    // is a call fact like any (`calls` above, at the part's
     // `Key::INTERP_TEXT`).
     // [interp-union] The text form of each arm of an interpolated union.
     for (_, arms) in checked.interp_union.iter().filter(|(k, _)| mine(k)) {
         for arm in arms {
-            if let crate::check::ArmText::Fn { key, implicits } = arm {
-                out.insert(*key);
+            if let crate::check::ArmText::Call { callee: crate::check::Callee::Fn { decl, .. }, implicits } = arm {
+                out.insert(*decl);
                 for arg in implicits {
                     walk(arg, &mut out);
                 }
@@ -270,7 +270,7 @@ pub fn resolved_fn_keys(checked: &crate::check::Checked, file_idx: usize) -> Has
         }
     }
     // [iter-resolve] The `next` a `for` drives and the `iter` it mints with
-    // are call facts like any (`call_fn` above, at the subject's
+    // are call facts like any (`calls` above, at the subject's
     // `Key::FOR_NEXT`/`Key::FOR_ITER`).
     // [cmp-carry] An identity a keyed container carries reaches this answer
     // through `fn_refs`, where the checker records it at the span that names

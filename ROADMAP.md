@@ -376,8 +376,8 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
 10. ✅ **Imports and runtime features from core** (COMPLETED.md, 2026-10-06).
 11. ✅ **Effect dispatch and copy plans** (COMPLETED.md, 2026-10-06). Left,
     small: the dot-notation normalization still asks `effect_of_fn` (step 13
-    removes it), and the actor-send path (`a.send_fn(..)`) still reads
-    `effect_member_calls` for its overload index.
+    removes it); the actor-send path (`a.send_fn(..)`) reads its overload
+    index off `Callee::Send` since the D2 calls merge.
 12. **The ownership plan.** Done (COMPLETED.md, 2026-10-06): parameter modes
     (`salvo_core::param_mode`), the mutable-lend sets (`mut_lends`), the
     borrowed-result classification (`borrows`), and the unifications (effect
@@ -811,7 +811,7 @@ run-to-run spread and what it needs is large:
 - every span in a reused row re-derived from the current tree: a key's
   origin (by node id, a per-declaration node → span table built from
   `Module::node_ranges` and the numbering), and the positions inside values
-  (`DefSite`, `LocalDecl`, `ImplicitParam::span`, `ThrowSite::delimiter`,
+  (`DefSite`, `LocalDecl`, `ImplicitParam::span`,
   `handler_deps`, diagnostics) by the body's growth, as
   `remap` moves another file's definition sites today, and `Span::node`
   ordinals shifted by the edited declaration's node count;

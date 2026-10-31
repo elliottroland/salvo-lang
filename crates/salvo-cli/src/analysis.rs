@@ -1165,7 +1165,7 @@ mod tests {
             ("fn_refs", rows(&c.fn_refs, n, p)),
             ("def_refs", rows(&c.def_refs, n, p)),
             ("field_refs", rows(&c.field_refs, n, p)),
-            ("call_fn", rows(&c.call_fn, n, p)),
+            ("calls", rows(&c.calls, n, p)),
             ("local_decls", locals),
             ("errors", errors),
             ("ir diagnostics", ir),

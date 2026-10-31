@@ -2679,7 +2679,9 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      gone; E. `boundaries`, `platform_closure_all` out of `Checked`; F.
      `refs` for the navigation tables; G. `moves` for the read moves. Left
      out: the fate-link tables (D3), the actor rows (E1), the copy-key
-     tables (`Names`), `written_types`, `refinements`.
+     tables (`Names`), `written_types`, `refinements`. **Built so far:**
+     A (calls: seventeen tables and the `CallInfo`/`FnValueInfo` views
+     into `calls` and `fn_values`).
 - **D3. The IR builder becomes the lowering of the typed form**: erasure as
   its own sub-phase (qualifiers, effects to parameters, union wrapping),
   then flow. The builder's ~87 table reads go. **Decided (user,
