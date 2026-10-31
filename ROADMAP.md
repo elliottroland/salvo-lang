@@ -1133,6 +1133,20 @@ send does. Left for E1, whose per-declaration summaries replace these rows
 (PIPELINE.md); a repro with a two-actor cycle through such a lambda should
 land with the fix.
 
+### 0ba — Recorded, not scheduled: a reference's target by node (D2 navigation refs, 2026-10-30)
+
+`Checked::refs` (`Ref::Def`, `Ref::Field`) names a target as a `DefSite`,
+a file and a byte span. When an edit shifts the target in another file,
+the check cache moves every such span by the edits in the bodies
+(`check_cache::remap_sites`), and gives up the cached rows when one cannot
+be moved. A target held as the declaration's (or field's) name node
+instead, the way the declaration tables are keyed (`Key::name_of`), would
+not move with an edit, and `remap_sites` would go; the language server
+would turn the node into a position against the current tree when it
+answers. Recorded with the `refs` merge (user, 2026-10-30, item 10), not
+built: a field's name node needs its own identity, and the readers
+(hover, go-to-definition, rename) compare sites, so they change with it.
+
 ### 0as — What member calls and uniform calls left (B3.4, 2026-10-28)
 
 PIPELINE.md §II.10 P19 is built; these are its recorded leftovers.

@@ -144,6 +144,22 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — What a written name refers to, one table (user decision, PIPELINE.md D2 navigation refs, [lsp-definition] [doc-module])
+
+- **Decided (user, 2026-10-30, item 10)**: `def_refs`, `field_refs` and
+  `module_refs`, written by the checker for the language server and read
+  by it together, are `refs: HashMap<Key, Ref>` with `Ref::{Def(DefSite),
+  Field(DefSite), Module(ModulePath)}`. `fn_refs` stays its own: its
+  target is a `DeclId`, overload-exact, and a rename matches on it.
+  Holding a target as a node rather than a span, which would retire
+  `check_cache::remap_sites`, is recorded as ROADMAP 0ba, not built.
+- **What it took**: one writer, `Checker::record_ref`, which
+  debug-asserts that a name holds one kind of reference (the readers
+  chained `def_refs` and `field_refs`, so a key in both would have been
+  ambiguous already; the suite never trips it). The readers take
+  `Ref::site()` or `Ref::module()`; `remap_sites` moves `Ref::site_mut()`.
+- **Output**: nothing moved. 709 tests under nextest, warm run 1m35.
+
 ### 2026-10-30 — The host boundary at a node, one table (user decision, PIPELINE.md D2 host boundary, [platform-check] [platform-factory])
 
 - **Decided (user, 2026-10-30, item 9)**: `boundary_checks` and

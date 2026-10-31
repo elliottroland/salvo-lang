@@ -700,7 +700,7 @@ fn code_actions_offer_import_quickfix() {
 
 // [lsp-definition] `textDocument/definition` resolves fn names through
 // `fn_refs` (overload-precise) and every other declaration name — structs,
-// qualifiers, handlers, effect members, type aliases — through `def_refs`,
+// qualifiers, handlers, effect members, type aliases — through `refs`,
 // across files.
 #[test]
 fn goto_definition_resolves_names() {
@@ -1119,7 +1119,7 @@ fn f(p: Person) [Log] {
             && at_decl.contains("Field of struct `Person`."),
         "unexpected field hover: {at_decl}"
     );
-    // The same docs at a field *access* — `Checked::field_refs`.
+    // The same docs at a field *access* — `Checked::refs`.
     let at_use = hover(&mut lsp, 31, &uri, 28, 12);
     assert_eq!(at_use, at_decl, "field access hover differs: {at_use}");
     // A field's default renders as written.
@@ -1142,7 +1142,7 @@ fn f(p: Person) [Log] {
             && at_decl.contains("Member of effect `Log`."),
         "unexpected member hover: {at_decl}"
     );
-    // ...and at a call site, which resolves through `def_refs`.
+    // ...and at a call site, which resolves through `refs`.
     let at_call = hover(&mut lsp, 34, &uri, 28, 4);
     assert_eq!(at_call, at_decl, "member call hover differs: {at_call}");
 
@@ -1236,7 +1236,7 @@ fn read(r: Record) -> Int {
         "struct-typed field hover should list the struct's fields: {at_decl}"
     );
 
-    // At a field *access* (`r.meta`), the same expansion through `field_refs`.
+    // At a field *access* (`r.meta`), the same expansion through `refs`.
     let at_use = hover(&mut lsp, 41, &uri, 13, 13);
     assert!(
         at_use.contains("**`Metadata` fields**") && at_use.contains("- `created: Int`"),
@@ -3760,7 +3760,7 @@ fn goto_definition_works_inside_std() {
 // or call argument — a bare union arm (`type Type = Option.Int | ...`) and a
 // never-instantiated struct's field type (`type: Option.Type`) are both
 // `Type::Named` nodes validated only by `Checker::validate_type`, which used
-// to skip `lower_base_ref` (and so never recorded a `def_refs` entry) for an
+// to skip `lower_base_ref` (and so never recorded a `refs` entry) for an
 // unqualified reference — only a qualified one (`Mut Option.Int`) reached
 // it. Regression for the gap found 2026-10-19 via `namespace Option { ... }`
 // sharing its name with a struct of the same name [mod-namespace].

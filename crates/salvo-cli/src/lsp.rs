@@ -1322,10 +1322,10 @@ impl Server<'_> {
     ) -> Option<Hover> {
         let file_idx = view.file;
         // The name the cursor is on: a reference to a declaration
-        // (`def_refs`) or to a field (`field_refs`), else a declaration's
+        // or to a field (`refs`), else a declaration's
         // own name span in this file.
         let mut site: Option<(Span, DefSite)> = None;
-        for (k, target) in checked.def_refs.iter().chain(&checked.field_refs) {
+        for (k, target) in checked.refs.iter().filter_map(|(k, r)| Some((k, r.site()?))) {
             let (file, span) = (&k.file(), &k.span);
             if *file != file_idx {
                 continue;
@@ -1333,7 +1333,7 @@ impl Server<'_> {
             if span.holds(offset)
                 && site.is_none_or(|(b, _)| (span.len(), span.node) < (b.len(), b.node))
             {
-                site = Some((*span, *target));
+                site = Some((*span, target));
             }
         }
         let (span, target) = match site {
@@ -1679,7 +1679,7 @@ impl Server<'_> {
     /// Go-to-definition [lsp-definition]: a fn name resolves through
     /// `Checked::fn_refs` (overload-precise) to its declaration's name
     /// span; every other name (struct, effect, handler, qualifier, type
-    /// alias, effect member) through `Checked::def_refs`. Definitions in
+    /// alias, effect member) through `Checked::refs`. Definitions in
     /// the embedded std have no on-disk URI and yield `None`.
     fn goto_definition(&self, params: &GotoDefinitionParams) -> Option<GotoDefinitionResponse> {
         let doc = &params.text_document_position_params;
@@ -1712,12 +1712,12 @@ impl Server<'_> {
             }
         }
         // Declared names and fields alike [lsp-definition].
-        for (k, site) in checked.def_refs.iter().chain(&checked.field_refs) {
+        for (k, site) in checked.refs.iter().filter_map(|(k, r)| Some((k, r.site()?))) {
             let (file, span) = (&k.file(), &k.span);
             if *file != file_idx {
                 continue;
             }
-            consider(*span, *site, &mut best);
+            consider(*span, site, &mut best);
         }
 
         let (_, site) = match best {
@@ -2940,7 +2940,7 @@ fn fn_def_site(program: &Program, checked: &Checked, key: DeclId) -> Option<DefS
 /// [lsp-rename] What a rename affects: either a fn, identified precisely by
 /// its [`DeclId`] (overload-exact, since `fn_refs` already resolved it), or
 /// any other declaration, identified by its [`DefSite`]. Fns are kept
-/// separate from `def_refs`'/`field_refs`'s `DefSite`s for the same reason
+/// separate from `refs`' `DefSite`s for the same reason
 /// `goto_definition` keeps them separate: a fn's `DefSite` is derived
 /// (`fn_def_site`), not stored, so matching occurrences needs the key the
 /// table is actually keyed by.
@@ -2953,7 +2953,7 @@ enum RenameTarget {
 /// Resolves the cursor to the thing a rename would affect, exactly the way
 /// `Server::goto_definition` resolves it to a definition: the smallest
 /// reference span containing the cursor, in `fn_refs` first, then
-/// `def_refs`/`field_refs`; falling back, when the cursor sits on a
+/// `refs`; falling back, when the cursor sits on a
 /// declaration's own name rather than a use of it, to the top-level fn
 /// whose name span matches, else `decl_name_span_at` for every other
 /// declaration kind.
@@ -2978,12 +2978,12 @@ fn resolve_rename_target(
         }
         consider(*span, RenameTarget::Fn(*key), &mut best);
     }
-    for (k, site) in checked.def_refs.iter().chain(&checked.field_refs) {
+    for (k, site) in checked.refs.iter().filter_map(|(k, r)| Some((k, r.site()?))) {
         let (file, span) = (&k.file(), &k.span);
         if *file != file_idx {
             continue;
         }
-        consider(*span, RenameTarget::Def(*site), &mut best);
+        consider(*span, RenameTarget::Def(site), &mut best);
     }
     if let Some(found) = best {
         return Some(found);
@@ -3036,9 +3036,9 @@ fn rename_occurrences(
         }
         RenameTarget::Def(site) => {
             sites.push((site.file, site.span));
-            for (k, s) in checked.def_refs.iter().chain(&checked.field_refs) {
+            for (k, s) in checked.refs.iter().filter_map(|(k, r)| Some((k, r.site()?))) {
                 let (file, span) = (&k.file(), &k.span);
-                if *s == site && span.is_written() {
+                if s == site && span.is_written() {
                     sites.push((*file, *span));
                 }
             }
@@ -3323,7 +3323,7 @@ fn module_file(analysis: &Analysis, module: &ModulePath) -> Option<usize> {
 }
 
 /// [doc-module] The module *named* under the cursor, with the span of the
-/// name: an `@module` selector the checker resolved (`Checked::module_refs`
+/// name: an `@module` selector the checker resolved (`Checked::refs`
 /// [fn-overload-at]), or the module part of an `import` path — every
 /// segment of a whole-module import [mod-import-module], the segments before
 /// the item of a named one. The module part is one name however many
@@ -3336,7 +3336,7 @@ fn module_at(
     offset: u32,
 ) -> Option<(Span, ModulePath)> {
     let mut best: Option<(Span, ModulePath)> = None;
-    for (k, module) in &checked.module_refs {
+    for (k, module) in checked.refs.iter().filter_map(|(k, r)| Some((k, r.module()?))) {
         let (file, span) = (&k.file(), &k.span);
         if *file == file_idx
             && span.holds(offset)

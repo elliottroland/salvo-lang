@@ -201,10 +201,10 @@ fn module_selectors_are_recorded_with_their_resolved_module() {
     let text = |span: salvo_syntax::Span| &main[span.start as usize..span.end as usize];
     let mut refs: Vec<(String, String)> = out
         .checked
-        .module_refs
+        .refs
         .iter()
         .filter(|(k, _)| k.file() == main_idx)
-        .map(|(k, module)| (text(k.span).to_string(), module.to_string()))
+        .filter_map(|(k, r)| Some((text(k.span).to_string(), r.module()?.to_string())))
         .collect();
     refs.sort();
     assert_eq!(

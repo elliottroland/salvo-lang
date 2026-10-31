@@ -2687,7 +2687,9 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      `Key::name_of`, `implicit_members` into `implicit_params`); D
      (`when_exhaustive` + `when_arms` → `when_missing`, `PassDriver.origin`
      gone); E (`boundary_checks` + `factories` → `boundaries`,
-     `platform_closure_all` the walk's input).
+     `platform_closure_all` the walk's input); F (`def_refs` +
+     `field_refs` + `module_refs` → `refs`, the node-keyed target recorded
+     as ROADMAP 0ba).
 - **D3. The IR builder becomes the lowering of the typed form**: erasure as
   its own sub-phase (qualifiers, effects to parameters, union wrapping),
   then flow. The builder's ~87 table reads go. **Decided (user,

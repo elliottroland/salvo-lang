@@ -12961,8 +12961,8 @@ replaced the working document TESTING.md).
     segments before the item of a named one, *as one name* however many
     segments it has, so the hover covers `shop.shapes` whichever segment the
     cursor is on; an `@module` selector [fn-overload-at] [mod-suffix], which
-    the checker records at the selector's span as `Checked::module_refs`
-    mapped to the **full** path it resolved to (a selector that matched
+    the checker records at the selector's span as a `Ref::Module` in
+    `Checked::refs`, the **full** path it resolved to (a selector that matched
     nothing or two modules is not recorded — it has a diagnostic); and a `by`
     site, whose hover appends a **Module** section for the module its comptime
     fn came from (`CompHover.module`). The hover's code line is `module
@@ -13232,8 +13232,8 @@ replaced the working document TESTING.md).
     so hover and go-to-definition agree.
     * A struct adds a **Fields** section [doc-struct-fields].
     * A field renders as `name: Type = default` and names what declares
-      it ("Field of struct `Person`."). Reached at a *use* through
-      `Checked::field_refs`.
+      it ("Field of struct `Person`."). Reached at a *use* through a
+      `Ref::Field` in `Checked::refs`.
     * A member fn renders its signature from the declaration and names its
       owner ("Member of effect `Log`."). Members' facts are not keyed by
       `DeclId`, so no *inferred* deductions are shown — the declared list is
@@ -13485,10 +13485,12 @@ replaced the working document TESTING.md).
   `Checked::fn_refs` (overload-precise, so a call site lands on the
   overload the checker picked); every other name — struct, effect,
   handler, qualifier, type alias, opaque type, effect member — through
-  `Checked::def_refs`, fed by `ModuleScope::def_sites` (visible name ->
-  declaring file + identifier span, alias-aware); *field* accesses through
-  `Checked::field_refs`, keyed by the field name's node in `base.field`
-  (2026-09-03).
+  a `Ref::Def` in `Checked::refs`, fed by `ModuleScope::def_sites`
+  (visible name -> declaring file + identifier span, alias-aware); *field*
+  accesses through a `Ref::Field` there, keyed by the field name's node in
+  `base.field` (2026-09-03). `refs` is one table for what a written name
+  refers to — a declaration, a field, or a module (2026-10-30): a name
+  refers to one kind of thing, which the checker debug-asserts.
   * A field resolves to the struct's own declaration even when a predicate
     qualifier overrides its type [qual-field-override]: the override
     refines the field, it does not replace the declaration.
@@ -13509,7 +13511,7 @@ replaced the working document TESTING.md).
 * [lsp-rename] **`textDocument/rename` renames a name and every
   occurrence of it, across every file of the program** (2026-10-19, user
   request): the cursor resolves to a fn's `DeclId` through `fn_refs`, or to
-  any other declaration's `DefSite` through `def_refs`/`field_refs` —
+  any other declaration's `DefSite` through `refs` —
   exactly as [lsp-definition] resolves it — falling back to a declaration's
   own name span when the cursor sits on the declaration rather than a
   reference to it. The edit set is every stored reference matching that

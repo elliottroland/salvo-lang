@@ -712,6 +712,48 @@ impl Call {
     }
 }
 
+/// [lsp-definition] [doc-module] What a written name refers to
+/// (`Checked::refs`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Ref {
+    /// A type, struct, effect, handler, qualifier, type-alias or
+    /// effect-member name: where its declaration's identifier is written.
+    Def(DefSite),
+    /// The field *name* in `base.field`: where the field's declaration is
+    /// written. Doc hover on fields reads it too [doc-comment].
+    Field(DefSite),
+    /// A written `@module` selector (`size@list`, `describe@main`)
+    /// [fn-overload-at] [mod-suffix]: the **full path** of the one module it
+    /// resolved to. A selector that matched no module or two has none (it
+    /// has its own diagnostic).
+    Module(ModulePath),
+}
+
+impl Ref {
+    /// Where the declaration or field it names is written.
+    pub fn site(&self) -> Option<DefSite> {
+        match self {
+            Ref::Def(site) | Ref::Field(site) => Some(*site),
+            Ref::Module(_) => None,
+        }
+    }
+
+    pub fn site_mut(&mut self) -> Option<&mut DefSite> {
+        match self {
+            Ref::Def(site) | Ref::Field(site) => Some(site),
+            Ref::Module(_) => None,
+        }
+    }
+
+    /// The module a selector names.
+    pub fn module(&self) -> Option<&ModulePath> {
+        match self {
+            Ref::Module(m) => Some(m),
+            _ => None,
+        }
+    }
+}
+
 /// [fn-value] A function named as a value, at its name (`Checked::fn_values`).
 #[derive(Clone, Debug, PartialEq)]
 pub enum FnValue {
@@ -1175,11 +1217,10 @@ pub struct Checked {
     /// mapped to the declaration it resolves to. Drives the LSP's
     /// signature hover.
     pub fn_refs: HashMap<Key, DeclId>,
-    /// Non-fn name references [lsp-definition]: the span of a type,
-    /// struct, effect, handler, qualifier, type-alias, or effect-member
-    /// name mapped to where its declaration's identifier is written.
-    /// Drives go-to-definition for everything `fn_refs` does not cover.
-    pub def_refs: HashMap<Key, DefSite>,
+    /// [lsp-definition] [doc-module] What a written name refers to, for
+    /// navigation, other than a fn (`fn_refs`): a declaration, a field, or
+    /// a module. Drives hover, go-to-definition and rename.
+    pub refs: HashMap<Key, Ref>,
     /// [lsp-completion] Every local binding — parameter, `let`, `is`/`when`
     /// binding, `for` binder — declared in each file, keyed by file index,
     /// with its declaration span and the span of the fn body it belongs to.
@@ -1200,16 +1241,6 @@ pub struct Checked {
     /// item 13): how the IR names the handler it constructs. Derived from
     /// `Resolution::names`.
     pub value_span_keys: HashMap<crate::resolve::CopyKey, String>,
-    /// Field accesses [lsp-definition]: the span of the field *name* in
-    /// `base.field` mapped to where the field's declaration is written.
-    /// Drives go-to-definition and doc hover on fields [doc-comment].
-    pub field_refs: HashMap<Key, DefSite>,
-    /// [doc-module] Module references [fn-overload-at] [mod-suffix]: the span
-    /// of a written `@module` selector (`size@list`, `describe@main`), mapped
-    /// to the **full path** of the one module it resolved to. Drives the
-    /// module hover; a selector that matched no module or two is not
-    /// recorded (it has its own diagnostic).
-    pub module_refs: HashMap<Key, ModulePath>,
     /// Reads of fate-linked (derived) variables [fate-link], keyed by the
     /// identifier span: the roots the variable shares fate with, and
     /// where each link was bound. Presentation-only: tooling renders the
@@ -8007,7 +8038,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 // [doc-module] The one module the selector named, for hover.
                 if let (Some(module), Some(at_span)) = (modules.first(), sel.module_span()) {
-                    self.out.module_refs.insert(self.key(at_span), ModulePath::parse(module));
+                    self.record_ref(at_span, Ref::Module(ModulePath::parse(module)));
                 }
             }
             if named.is_empty() {
@@ -8452,7 +8483,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 // [doc-module] The one module the selector named, for hover.
                 if let (Some(module), Some(at_span)) = (modules.first(), sel.module_span()) {
-                    self.out.module_refs.insert(self.key(at_span), ModulePath::parse(module));
+                    self.record_ref(at_span, Ref::Module(ModulePath::parse(module)));
                 }
             }
             if selected.is_empty() {
@@ -11718,7 +11749,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         if let Some(site) = self.named(r).def {
-            self.out.def_refs.insert(self.key(r.name.span), site);
+            self.record_ref(r.name.span, Ref::Def(site));
         }
     }
 
@@ -11746,14 +11777,27 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let m = self.named(q);
         if let (true, Some(site)) = (m.is_qualifier(), m.def) {
-            self.out.def_refs.insert(self.key(q.name.span), site);
+            self.record_ref(q.name.span, Ref::Def(site));
         }
     }
 
     fn record_def_ref(&mut self, span: Span, name: &str) {
         if let Some(site) = self.scope.def_sites.get(name).copied() {
-            self.out.def_refs.insert(self.key(span), site);
+            self.record_ref(span, Ref::Def(site));
         }
+    }
+
+    /// [lsp-definition] What the name at `span` refers to. A name refers to
+    /// one kind of thing: a second entry of another kind at the same node
+    /// would be a lost row.
+    fn record_ref(&mut self, span: Span, r: Ref) {
+        let key = self.key(span);
+        debug_assert!(
+            self.out.refs.get(&key).is_none_or(|old| std::mem::discriminant(old) == std::mem::discriminant(&r)),
+            "two kinds of reference at one name: {:?} and {r:?}",
+            self.out.refs.get(&key)
+        );
+        self.out.refs.insert(key, r);
     }
 
     /// [op-no-none] Rejects a possibly-`None` operand of an arithmetic or
@@ -19080,7 +19124,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let name_span = base.name.span;
         if !self.foreign_ref(base) {
             if let Some(site) = meaning.def {
-                self.out.def_refs.insert(self.key(name_span), site);
+                self.record_ref(name_span, Ref::Def(site));
             }
         }
         // [generic-arity] A generic struct, opaque type, or alias referenced
@@ -20120,7 +20164,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 // [lsp-definition] Always lower the base — not only when
                 // qualifiers are written — so a plain (unqualified) type
-                // reference's `def_refs` entry is recorded too, the same
+                // reference's `refs` entry is recorded too, the same
                 // way `lower_base_ref` already records one for a qualified
                 // reference here and an alias's target in
                 // `QualifiedGroup` below. Without this, a bare union arm
@@ -24527,12 +24571,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(site) = self.scope.def_sites.get(crate::typekey::plain(name.as_str())).copied() else {
             return;
         };
-        self.out.field_refs.insert(
-            self.key(field.span),
-            DefSite {
+        self.record_ref(
+            field.span,
+            Ref::Field(DefSite {
                 file: site.file,
                 span: f.name.span,
-            },
+            }),
         );
     }
 

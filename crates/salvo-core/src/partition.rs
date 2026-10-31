@@ -234,7 +234,7 @@ impl Checked {
     pub(crate) fn route(&self, owners: &Owners, scope: Scope, sink: &mut dyn Sink) {
         let all = scope == Scope::All;
         let hint = std::cell::Cell::new(0);
-        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_targets, waitfor_sites, handler_constructs, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, written_types, effects_taken, effects_passed, handler_deps, effect_prereqs, deductions, fn_refs, def_refs, local_decls, type_ref_span_keys, value_span_keys, field_refs, module_refs, fate_reads, interp_union, borrows, fn_lends, handle_muts, param_mutations, moved_projections, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors } = self;
+        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_targets, waitfor_sites, handler_constructs, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, written_types, effects_taken, effects_passed, handler_deps, effect_prereqs, deductions, fn_refs, refs, local_decls, type_ref_span_keys, value_span_keys, fate_reads, interp_union, borrows, fn_lends, handle_muts, param_mutations, moved_projections, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors } = self;
         // A node-keyed map, by its key's declaration.
         macro_rules! by_key {
             ($($t:ident),* $(,)?) => {$(
@@ -294,7 +294,7 @@ impl Checked {
             fate_mutations, bind_facts, derived_uses, virtual_candidates,
             effects_taken, effects_passed, 
             fn_refs,
-            def_refs, field_refs, module_refs, fate_reads, interp_union, borrows,
+            refs, fate_reads, interp_union, borrows,
             boundaries, lambda_captures, 
             implicit_args, fn_values,
         );
@@ -358,7 +358,7 @@ impl Checked {
     /// `split_files`, or a declaration's, `split_decls`): the keyed tables;
     /// what `Scope::Keyed` leaves out is the caller's.
     pub(crate) fn insert_rows(&mut self, rows: &Checked) {
-        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_targets, waitfor_sites, handler_constructs, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, written_types, effects_taken, effects_passed, handler_deps, effect_prereqs, deductions, fn_refs, def_refs, local_decls, type_ref_span_keys, value_span_keys, field_refs, module_refs, fate_reads, interp_union, borrows, fn_lends, handle_muts, param_mutations, moved_projections, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors } = rows;
+        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_targets, waitfor_sites, handler_constructs, linear_moves, moved_reads, flow_moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, state_takes, actor_gates, actor_sends, task_sends, task_mints, written_types, effects_taken, effects_passed, handler_deps, effect_prereqs, deductions, fn_refs, refs, local_decls, type_ref_span_keys, value_span_keys, fate_reads, interp_union, borrows, fn_lends, handle_muts, param_mutations, moved_projections, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors } = rows;
         macro_rules! map {
             ($($t:ident),* $(,)?) => {$(
                 self.$t.extend($t.iter().map(|(k, v)| (k.clone(), v.clone())));
@@ -381,7 +381,7 @@ impl Checked {
             fate_mutations, bind_facts, derived_uses,
             virtual_candidates, effects_taken, effects_passed,
             handler_deps, effect_prereqs, 
-            fn_refs, def_refs, field_refs, module_refs, fate_reads,
+            fn_refs, refs, fate_reads,
             interp_union, borrows, fn_lends, boundaries, lambda_captures,
             implicit_params, established_quals,
             carried_identities, implicit_args, fn_values,

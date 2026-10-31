@@ -220,7 +220,7 @@ pub fn build_std_front(native_ext: &str) -> StdFront {
 /// *inside* a std file a user navigated into (the read-only copies
 /// `embedded_std_copy` writes under the temp dir). Checking std standalone
 /// (`check_program`, no cache) records the references within it
-/// (`fn_refs`/`def_refs`/`field_refs`), which the `StdCache` keeps hidden.
+/// (`fn_refs`/`refs`), which the `StdCache` keeps hidden.
 ///
 /// `root` is the temp directory the std copies live under, so a copy's path
 /// (`<root>/std/core/basic.sv`) equals `root.join(file.name)` — the pivot
@@ -1163,8 +1163,7 @@ mod tests {
             ("diagnostics", diags),
             ("expr_ty", rows(&c.expr_ty, n, p)),
             ("fn_refs", rows(&c.fn_refs, n, p)),
-            ("def_refs", rows(&c.def_refs, n, p)),
-            ("field_refs", rows(&c.field_refs, n, p)),
+            ("refs", rows(&c.refs, n, p)),
             ("calls", rows(&c.calls, n, p)),
             ("local_decls", locals),
             ("errors", errors),

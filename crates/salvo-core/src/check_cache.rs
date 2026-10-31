@@ -29,7 +29,7 @@ use salvo_syntax::ast::{self, Item, Module};
 use salvo_syntax::visit::{self as v, Visitor};
 use salvo_syntax::Span;
 
-use crate::check::{Checked, Key};
+use crate::check::{Checked, Key, Ref};
 use crate::diag::FileDiagnostic;
 use crate::program::Program;
 use crate::types::Ty;
@@ -478,10 +478,10 @@ fn node_map(old: &Module, old_bodies: &[(u32, u32)], new: &Module, new_bodies: &
 }
 
 /// [lsp-check-cache] Moves a cached file's definition sites into the changed
-/// files (`def_refs`, `field_refs`). False when one cannot be moved.
+/// files (`refs`). False when one cannot be moved.
 fn remap_sites(rows: &mut Checked, changed: &HashMap<usize, (Vec<(u32, u32)>, Vec<(u32, u32)>)>) -> bool {
     let mut ok = true;
-    for site in rows.def_refs.values_mut().chain(rows.field_refs.values_mut()) {
+    for site in rows.refs.values_mut().filter_map(Ref::site_mut) {
         let Some((old, new)) = changed.get(&site.file) else { continue };
         // [node-origin] A copied node's range is its template's: it does not move.
         if site.span.is_expanded() {
