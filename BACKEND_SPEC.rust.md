@@ -2093,7 +2093,7 @@ effects" keeps the history).
   ```
 
   The base is a value — the move itself when the base is a bare local the
-  checker consumes there (`moved_reads` [flow-use-after-move], so `let mut
+  checker consumes there (a consuming read [flow-use-after-move], so `let mut
   __spread_7: crate::P = p;`), else a clone — so the copy is deep where
   Kotlin's `.copy()` is shallow on `Mut` fields — which is
   unobservable, because the checker consumes the spread base

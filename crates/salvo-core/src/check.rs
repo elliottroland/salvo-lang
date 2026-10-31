@@ -754,6 +754,38 @@ impl Ref {
     }
 }
 
+/// [flow-use-after-move] What a read (or a call of a local) moves
+/// (`Checked::moves`). A row may set more than one: a linear value a call's
+/// contract consumes is all three.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Move {
+    /// The read hands the value over rather than copying it: a bare name a
+    /// store, `...` spread, `use` or spawn argument, `break`/`return`/`throw`
+    /// value, send or driven pass moves whole (`fate_move`); a linear value's
+    /// move; a handler **state field** drained of an obligation [linear-state]
+    /// (LC-4: the member puts something back before it returns, so a backend
+    /// that cannot move out of a field may take it); a projection moved out
+    /// of roots that were consumed [fate-move-mode] (a partial move rather
+    /// than a clone).
+    pub consume: bool,
+    /// The flow pass takes the root's move from here, where emission does
+    /// not hand the value over: an identifier a call's contract consumes (a
+    /// fn value, which `param_mode` lends whatever the contract, or a `once`
+    /// value passed on), a projection whose move took its root wholly (at
+    /// the projection [fate-partial-move]), and a call of a `once` local (at
+    /// the call [fn-once]).
+    pub takes_root: bool,
+    /// [linear-container] The moved value is linear: duplicating it would
+    /// duplicate an obligation. Always with `consume`.
+    pub linear: bool,
+}
+
+impl Move {
+    pub const CONSUME: Move = Move { consume: true, takes_root: false, linear: false };
+    pub const TAKES_ROOT: Move = Move { consume: false, takes_root: true, linear: false };
+    pub const LINEAR: Move = Move { consume: true, takes_root: false, linear: true };
+}
+
 /// [fn-value] A function named as a value, at its name (`Checked::fn_values`).
 #[derive(Clone, Debug, PartialEq)]
 pub enum FnValue {
@@ -1088,29 +1120,11 @@ pub struct Checked {
     /// waiting handler waits, which the deleted capability's propagation
     /// used to spell.
     pub handler_constructs: Vec<(String, String, Key)>,
-    /// [linear-container] Reads that **move a linear value**, keyed by the
-    /// read's span: the emitters must hand the value over rather than copy
-    /// it. Rust's narrowed-read path clones by default (`x.as_ref()
-    /// .unwrap().clone()`), which duplicates an obligation — harmless for a
-    /// handle type that happens to be `Clone`, impossible for one that is not
-    /// (a reply token), and wrong either way.
-    pub linear_moves: HashSet<Key>,
-    /// [flow-use-after-move] Reads of a bare identifier that **move the whole
-    /// variable** through `fate_move` — a literal store, a `...` spread, a
-    /// `use` or spawn constructor argument, a `break`/`return`/`throw`
-    /// value, a send, a driven pass — keyed by the identifier's span (as
-    /// `linear_moves` is). The IR reads them `consume: true`, so the flow
-    /// pass sees the move and the Rust emitter moves rather than clones
-    /// (the checker has consumed the variable: nothing reads it again).
-    pub moved_reads: HashSet<Key>,
-    /// [flow-use-after-move] The checker's moves the IR's emission does not
-    /// make, for the flow pass (`moved` on the IR node): an identifier a
-    /// call's contract consumes (keyed by the identifier — a fn value, which
-    /// `param_mode` lends whatever the contract, or a `once` value passed
-    /// on), a projection whose move took its root wholly (keyed by the
-    /// projection [fate-partial-move]), and a call of a `once` local
-    /// (keyed by the call [fn-once]).
-    pub flow_moves: HashSet<Key>,
+    /// [flow-use-after-move] [linear-container] What a read (or a call of
+    /// a local) moves, at its node: whether it hands the value over, whether
+    /// the flow pass takes the root's move from it, and whether the value is
+    /// linear (`Move`).
+    pub moves: HashMap<Key, Move>,
     /// [fate-poison] Every mutation event on a root (a `Mut` call
     /// argument, an assignment through a projection, a mutation through a
     /// handle), keyed by the span the checker gave it — the call, the
@@ -1140,13 +1154,6 @@ pub struct Checked {
     /// out of through a projection of the loop binding: they iterate by
     /// value, whatever any binding's mode.
     pub by_value_loops: HashSet<Key>,
-    /// [linear-state] Reads of a handler **state field** that *move* the
-    /// value out (LC-4's allowance: a container of obligations being drained),
-    /// keyed by the read's span. Rust cannot move out of a field behind
-    /// `&mut self`, so the emitter renders these as `std::mem::take` — which
-    /// is the semantics too, since the checker requires the member to put
-    /// something back before it returns.
-    pub state_takes: HashSet<Key>,
     /// [actor-deadlock-cycle] Gated mints (`replyto!`) inside a handler's
     /// continuation is outstanding the actor serves *nothing else*, so
     /// every gate is a wait-for edge's tail — which is why the graph is
@@ -1262,20 +1269,10 @@ pub struct Checked {
     /// (declared with `[p: proj]` or inferred from the body). Read by the
     /// Rust backend to name the lifetime on lent parameters and the return.
     pub fn_lends: HashMap<Key, Vec<usize>>,
-    /// [ref-handle] Bind events of **mutable element handles** (P-9, user
-    /// decision 2026-09-24: mode is inferred per binding): a `let` binding a
-    /// `proj Mut` value that some downstream use mutates. The Rust backend
-    /// renders such a binding as a captured-index path handle rather than a
-    /// `&` borrow, so the mutation reaches the container's storage.
-    pub handle_muts: HashSet<Key>,
     /// [deduce-syntax] [ref-handle] Per fn, the parameters its body
     /// mutates — directly, or through a handle into them (a generic
     /// container is lent mutably exactly when a handle into it is written).
     pub param_mutations: HashMap<Key, HashSet<String>>,
-    /// Projection expressions in *moved* positions whose provenance
-    /// roots were consumed [fate-move-mode]: the Rust backend may render
-    /// the place directly (a partial move) instead of cloning.
-    pub moved_projections: HashSet<Key>,
     /// [platform-check] [platform-factory] The host boundary at a node
     /// (PIPELINE.md D2): what crosses from host to Salvo and needs checking
     /// (ABI D7), and the factories of a union a host builds (ABI D5). At a
@@ -1736,15 +1733,10 @@ impl Checked {
         self.narrowed_reads.get(&key).filter(|n| n.by == NarrowBy::Flow).map(|n| &n.stored)
     }
 
-    pub fn read_info(&self, key: Key) -> ReadInfo<'_> {
-        ReadInfo {
-            linear_move: self.linear_moves.contains(&key),
-            moved_read: self.moved_reads.contains(&key),
-            state_take: self.state_takes.contains(&key),
-            moved_projection: self.moved_projections.contains(&key),
-            flow_move: self.flow_moves.contains(&key),
-            narrowed: self.narrowed_reads.get(&key),
-        }
+    /// [flow-use-after-move] What the read or call at `key` moves; nothing
+    /// when it has no row.
+    pub fn move_at(&self, key: Key) -> Move {
+        self.moves.get(&key).copied().unwrap_or_default()
     }
 
     /// [unify-checker] A lambda's facts, at its span: the effects it takes as
@@ -1760,23 +1752,6 @@ impl Checked {
     /// one lookup (COMPLETED.md's unify-checker entry).
     pub fn interp_info(&self, key: Key) -> InterpInfo<'_> {
         InterpInfo { union: self.interp_union.get(&key) }
-    }
-}
-
-/// [unify-checker] A place read's facts, at its span.
-pub struct ReadInfo<'c> {
-    pub linear_move: bool,
-    pub moved_read: bool,
-    pub state_take: bool,
-    pub moved_projection: bool,
-    pub flow_move: bool,
-    pub narrowed: Option<&'c NarrowedRead>,
-}
-
-impl ReadInfo<'_> {
-    /// Whether the read hands the value over.
-    pub fn consumes(&self) -> bool {
-        self.linear_move || self.moved_read || self.state_take || self.moved_projection
     }
 }
 
@@ -11800,6 +11775,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.out.refs.insert(key, r);
     }
 
+    /// [flow-use-after-move] Adds what the read or call at `span` moves.
+    fn record_move(&mut self, span: Span, m: Move) {
+        let row = self.out.moves.entry(self.key(span)).or_default();
+        row.consume |= m.consume;
+        row.takes_root |= m.takes_root;
+        row.linear |= m.linear;
+    }
+
     /// [op-no-none] Rejects a possibly-`None` operand of an arithmetic or
     /// comparison operator (user decision 2026-09-02). Nullability is
     /// tested with `is None`, so an optional reaching an operator is
@@ -13414,7 +13397,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // the flow pass takes the move from here. A later argument
                 // reading `name` is the pass's to report too (the IR reads a
                 // call's arguments in order) [deduce-same-call].
-                self.out.flow_moves.insert(self.key(id.span));
+                self.record_move(id.span, Move::TAKES_ROOT);
                 continue;
             }
             if mutable {
@@ -13470,7 +13453,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// projection is recorded for the emitter (a real partial move); a
     /// written-kept parameter root is an error (moving out of a borrow),
     /// remedy `copy`. A root
-    /// taken wholly is recorded in `flow_moves` at the projection, for the
+    /// taken wholly is recorded as `takes_root` at the projection, for the
     /// IR flow pass [flow-use-after-move] (which also reports a later
     /// argument of the same call reading it [deduce-same-call]).
     fn projection_move(&mut self, expr: &Expr, span: Span) {
@@ -13522,10 +13505,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             let mut loop_origin = None;
             // [fate-partial-move] A *proper* projection leaves the root
             // usable (the IR flow pass records what left, from the consuming
-            // projection read `moved_projections` makes, and reports a read
-            // overlapping it). Only a whole-value move (or a derivation the
-            // analysis could not place) takes the variable outright — the
-            // flow pass's move (`flow_moves`).
+            // projection read this records, and reports a read overlapping
+            // it). Only a whole-value move (or a derivation the analysis
+            // could not place) takes the variable outright — the flow
+            // pass's move (`Move::takes_root`).
             let partial = l.path.as_deref().is_some_and(|p| !p.is_empty());
             if partial {
                 if let Some(var) = self.var_by_id_mut(l.root_id) {
@@ -13542,8 +13525,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 loop_origin = var.for_origin;
                 // [flow-use-after-move] The IR marks the projection, not
                 // the root: the flow pass takes the root's move from here.
-                let at = self.key(expr.span());
-                self.out.flow_moves.insert(at);
+                self.record_move(expr.span(), Move::TAKES_ROOT);
             }
             // Moving data out of a `for`-loop binding means the loop
             // iterates by value [fate-move-mode].
@@ -13551,8 +13533,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.loop_by_value(self.key(origin));
             }
         }
-        let at = self.key(expr.span());
-        self.out.moved_projections.insert(at);
+        self.record_move(expr.span(), Move::CONSUME);
     }
 
     /// Whether a type's data is transitively mutable: `Mut` at any depth
@@ -17316,8 +17297,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                         l.elem_idx,
                         false,
                     );
-                    let at = self.key(l.bind_span);
-                    self.out.handle_muts.insert(at);
                 }
                 self.record_mutation(
                     id,
@@ -22449,9 +22428,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             // than the storage, so it is not a payload read: the emitters map
             // arm to arm. Recorded against the binding, which is where they
             // build it.
-            if self.ty_own_linear(&bty) {
-                self.out.linear_moves.insert(self.key(b.span));
-            }
             let links = self.links_for_value(subject, b.span);
             (b.clone(), bty, links, None)
         });
@@ -22971,7 +22947,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         });
         if live.is_some_and(|t| self.ty_own_linear(&t)) {
-            self.out.linear_moves.insert(self.key(span));
+            self.record_move(span, Move::LINEAR);
         }
     }
 
@@ -23083,7 +23059,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         self.note_linear_move(&name, id.span);
         // [flow-use-after-move] The IR reads this one as a move.
-        self.out.moved_reads.insert(self.key(id.span));
+        self.record_move(id.span, Move::CONSUME);
     }
     /// [effect-state-store] Is `name` one of the *enclosing handler's* stored
     /// values — a state field or a constructor parameter — being consumed?
@@ -23132,12 +23108,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         // *constructor parameter* stays refused: it is the handler's own
         // record of how it was built, and nothing can restore it.
         if linear && kind == "state field" {
-            // [linear-state] [rs-state-take] Recorded for the emitters: on
-            // Rust a field cannot simply be moved out of `&mut self`, so the
-            // read becomes a `std::mem::take` — which is also exactly the
-            // semantics (the field is empty until the member puts something
-            // back, and the checker made it).
-            self.out.state_takes.insert(self.key(span));
+            // [linear-state] A consuming read: the field is empty until the
+            // member puts something back, which the flow pass checks, so a
+            // backend that cannot move out of a field may take it.
+            self.record_move(span, Move::CONSUME);
             return false;
         }
         if linear {
@@ -26636,9 +26610,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             // obligation and does not even compile for a reply token (a
             // `SalvoReply` is not `Clone`), and this is the *binding* site, so
             // `note_linear_move`'s use-site path never sees it.
-            if self.ty_own_linear(&bty) {
-                self.out.linear_moves.insert(self.key(b.span));
-            }
             // The binding aliases the subject: they share fate
             // [fate-link].
             let links = self.links_for_value(subject, b.span);
@@ -29082,7 +29053,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         if links.is_empty() || self.note_derived_use(id.span, "call", &name, &links) {
                             // [flow-use-after-move] The IR has no read
                             // at a call of a local: the call is the move.
-                            self.out.flow_moves.insert(self.key(span));
+                            self.record_move(span, Move::TAKES_ROOT);
                         }
                     }
                 }
@@ -30981,7 +30952,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.note_linear_move(&name, id.span);
                     // [flow-use-after-move] The flow pass takes the move
                     // from here; see `apply_call_contract`.
-                    self.out.flow_moves.insert(self.key(id.span));
+                    self.record_move(id.span, Move::TAKES_ROOT);
                     continue;
                 }
                 // Kept. A parameter declared `Mut` gives the callee

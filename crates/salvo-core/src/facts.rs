@@ -111,7 +111,7 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, id:
         if part.by_value_loops.contains(key) {
             marks.push("by-value");
         }
-        if part.linear_moves.contains(key) {
+        if part.moves.get(key).is_some_and(|m| m.linear) {
             marks.push("linear-move");
         }
         // [ir-narrow] A read whose storage keeps another type: narrowed by

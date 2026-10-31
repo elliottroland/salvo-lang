@@ -2689,7 +2689,9 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      gone); E (`boundary_checks` + `factories` → `boundaries`,
      `platform_closure_all` the walk's input); F (`def_refs` +
      `field_refs` + `module_refs` → `refs`, the node-keyed target recorded
-     as ROADMAP 0ba).
+     as ROADMAP 0ba); G (`linear_moves` + `moved_reads` + `state_takes` +
+     `moved_projections` + `flow_moves` → `moves`, `handle_muts` and the
+     `ReadInfo` view gone).
 - **D3. The IR builder becomes the lowering of the typed form**: erasure as
   its own sub-phase (qualifiers, effects to parameters, union wrapping),
   then flow. The builder's ~87 table reads go. **Decided (user,

@@ -1,7 +1,7 @@
 //! Expressions (IR record §2): every construct lowered to the node set, every
 //! resolution copied from the checker.
 
-use crate::check::{Callee as CalleeKind, Constructed, Dep, EffectsPassed, FnValue, ImplicitArg, NarrowBy, UnionTest};
+use crate::check::{Callee as CalleeKind, Constructed, Dep, EffectsPassed, FnValue, ImplicitArg, Move, NarrowBy, UnionTest};
 use crate::param_mode::PassMode;
 use crate::types::Ty;
 use salvo_syntax::ast::{self, BinaryOp, Expr as AExpr, LambdaBody, Pattern, StrExprPart, UnaryOp};
@@ -13,7 +13,7 @@ use crate::ir::build::{apply_convert, erase, unsupported};
 use crate::ir::*;
 
 /// [flow-use-after-move] [fate-partial-move] A projection whose move took
-/// its root wholly (`Checked::flow_moves`, keyed by the projection — an
+/// its root wholly (`Move::takes_root`, keyed by the projection — an
 /// unwrap the analysis could not place, say): mark the first read of the
 /// root inside the lowered expression `moved`, so the flow pass sees the
 /// root consumed there. A place read already carries the flag (`read`).
@@ -89,7 +89,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 self.note_uses(id.span, e.span(), false);
             }
         }
-        if !matches!(e, AExpr::Ident(_)) && self.ctx.checked.flow_moves.contains(&self.key(e.span())) {
+        if !matches!(e, AExpr::Ident(_)) && self.ctx.checked.move_at(self.key(e.span())).takes_root {
             mark_root_move(e, &mut raw);
         }
         match self.ctx.checked.converts.get(&self.key(e.span())) {
@@ -537,14 +537,11 @@ impl<'a, 'p> Lower<'a, 'p> {
         let projected = !place.steps.is_empty();
         let aliased = projected.then(|| self.place_alias(&place).map(|a| a.ty)).flatten();
         let place = self.through_alias(place);
-        // [unify-checker] One lookup for the read's facts.
-        let (consume, moved, narrowed) = {
-            let info = self.ctx.checked.read_info(key);
-            // [flow-use-after-move] `moved`: a move the checker made that
-            // this read does not make for emission (a fn value consumed by
-            // a call's contract, a projection taking its root): flow-only.
-            (info.consumes(), info.flow_move, info.narrowed.map(|n| (erase(&n.stored), n.by)))
-        };
+        // [flow-use-after-move] `moved`: a move the checker made that this
+        // read does not make for emission (a fn value consumed by a call's
+        // contract, a projection taking its root): flow-only.
+        let Move { consume, takes_root: moved, .. } = self.ctx.checked.move_at(key);
+        let narrowed = self.ctx.checked.narrowed_reads.get(&key).map(|n| (erase(&n.stored), n.by));
         // [qual-field-override] A field a qualifier of the subject refines
         // is read through a narrowing binding justified by the claim.
         if let (AExpr::Field { .. }, Some((stored, NarrowBy::Claim))) = (e, &narrowed) {
@@ -1335,7 +1332,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             let rest = self.mark_consumed_by_contract(rest, &key);
             a.extend(rest);
             // [fn-once] [flow-use-after-move] A `once` local's call is its move.
-            let moved = self.ctx.checked.flow_moves.contains(&key);
+            let moved = self.ctx.checked.move_at(key).takes_root;
             return Some(Expr { ty, span, kind: ExprKind::Call { target: FnRef::Local(local), type_args: Vec::new(), args: a, moved } });
         }
         if let Some(CalleeKind::Fn { decl: k, .. }) = callee {
@@ -1570,7 +1567,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// checker's order, `fate_move` after the components' checks — so
     /// `(w, size(w))` and `Spec { ...base, name: base.name }` read before
     /// they move. When some component reads a local another component
-    /// stores (`moved_reads`), every component that is not such a move is
+    /// stores (a consuming read), every component that is not such a move is
     /// evaluated first, in order, into a temporary in `stmts`: reading a
     /// local has no effects, so only the moves change places. `asts` are the
     /// components as written, `comps` as built, one for one. Answers whether
@@ -1582,7 +1579,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 other => other,
             };
             match inner {
-                AExpr::Ident(id) if b.ctx.checked.moved_reads.contains(&b.key(id.span)) => Some(id.name.clone()),
+                AExpr::Ident(id) if b.ctx.checked.move_at(b.key(id.span)).consume => Some(id.name.clone()),
                 _ => None,
             }
         };

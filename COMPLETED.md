@@ -144,6 +144,28 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — What a read moves, one table (user decision, PIPELINE.md D2 read moves, [flow-use-after-move] [linear-container] [linear-state])
+
+- **Decided (user, 2026-10-30, item 11)**: the five sets the IR read as
+  one view (`ReadInfo`) are `moves: HashMap<Key, Move { consume,
+  takes_root, linear }>`: `consume` the read hands the value over
+  (`moved_reads`, `state_takes`, `moved_projections`, and a linear value's
+  move), `takes_root` the flow pass's move that emission does not make
+  (`flow_moves`), `linear` the moved value is linear (`linear_moves`, now
+  read only by the `linear-move` facts mark, and always with `consume`).
+  `hoist_past_stores` asks `consume` where it asked `moved_reads`.
+  `handle_muts`, which nothing read, is gone. The fate-link tables
+  (`bind_facts`, `fate_mutations`, `derived_uses`, `virtual_candidates`,
+  `lambda_captures`, `by_value_loops`) stay for D3.
+- **Dropped rows**: the `linear_moves` entries at an `is` lift's binding
+  and an `is`/`when` binding name had no reader (the IR reads moves at
+  reads; the Rust `is`-binding move is out of the subject's temporary), so
+  they went, and with them their `linear-move` facts marks (no snapshot
+  held one). The core-side `[rs-state-take]` citation went with the
+  `state_takes` comment.
+- **Output**: nothing moved: no snapshot, example or stamp changed. 709
+  tests under nextest, warm run 1m18.
+
 ### 2026-10-30 — What a written name refers to, one table (user decision, PIPELINE.md D2 navigation refs, [lsp-definition] [doc-module])
 
 - **Decided (user, 2026-10-30, item 10)**: `def_refs`, `field_refs` and

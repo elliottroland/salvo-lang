@@ -240,10 +240,9 @@ pub enum Callee { Fn { decl, type_args }, Member { effect /* symbol key */, inde
 **What does the flow analysis say about this read?**
 
 ```rust
-pub linear_moves: HashSet<Key>,      // this read consumes a linear value
-pub moved_reads: HashSet<Key>,       // this bare name is moved by a store, spread, `break`, …
-pub state_takes: HashSet<Key>,       // this read takes a handler's state field
-pub moved_projections: HashSet<Key>, // `s.field` moved out of a consumed root
+pub moves: HashMap<Key, Move>,       // this read hands the value over (`consume`: a store, spread,
+                                     // `break`, a drained state field, `s.field` out of a consumed root),
+                                     // the flow pass takes the root here (`takes_root`), it is linear
 pub bind_facts: HashMap<Key, BindFact>,  // a binding's fate links, and whether it may take ownership
 pub derived_uses: HashMap<Key, …>,   // a derived value moved or mutated here
 pub deductions: HashMap<Key, Vec<ParamDeduction>>,   // per fn (at its name), per parameter
@@ -273,7 +272,7 @@ cache, which reuses an unedited file's rows [lsp-check-cache]).
 
 ```rust
 pub borrows: HashMap<Key, Borrow>,   // a call's result: a view of, or holding borrows of, these arguments
-pub handle_muts, virtual_candidates, covered_calls …
+pub fn_lends, param_mutations, virtual_candidates …
 ```
 
 **Rule of thumb for finding one:** grep `pub .*: HashMap<Key` in
@@ -621,7 +620,7 @@ Applying it to every decision that is still in an emitter:
 | parameter moved / lent / lent mutably | ✔ (`PassMode`) | by value, `&T`, `&mut T`; scalars; fn values | core + Rust spell |
 | what `copy` duplicates | ✔ (`CopyPlan`) | the spelling | core + Kotlin render |
 | call → declaration, member, dot call | ✔ (tables) | the syntax of the call | core |
-| this read consumes / takes / moves a projection | ✔ (`linear_moves`, `state_takes`, `moved_projections`; a binding's mode, `ir::Decision`) | `mem::take`, move, `.unwrap()` | core tables, IR flow pass |
+| this read consumes / takes / moves a projection | ✔ (`moves`; a binding's mode, `ir::Decision`) | `mem::take`, move, `.unwrap()` | core tables, IR flow pass |
 | a call's result borrows from its arguments (`proj`) | ✔ (`borrows`) | `Option<&T>`, `Union2<&T, …>` | core + Rust |
 | **a `let` binds a borrow instead of a clone** | ✘ | an optimization: Salvo says a read is a copy | Rust `emit_let` |
 | **the kind of a local (`BindKind`)** | ✘ | what Rust type the local has | Rust `bindings` |

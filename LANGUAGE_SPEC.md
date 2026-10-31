@@ -9206,8 +9206,8 @@ between endpoints and delivers what arrives into the scheduler.
     written `if true { … }` is a branch like any other.
   * The moves the IR reads as moves: a call's moved argument, a `return`, a
     move-mode binding, a linear value's move, a lambda's consumed capture —
-    and, through the checker's **`moved_reads`** table (every bare
-    identifier `fate_move` consumes wholly: a literal store, a `...` spread,
+    and, through the checker's **`moves`** table (`Move::consume` at every
+    bare identifier `fate_move` consumes wholly: a literal store, a `...` spread,
     a `use`/spawn constructor argument, a `break`/`throw` value, a send, a
     `replyto` capture, a driven pass), the rest. The Rust emitter moves such
     a read instead of `.clone()`ing it [rs-read-mode].
@@ -9231,7 +9231,8 @@ between endpoints and delivers what arrives into the scheduler.
     changing. After a loop come its `break`s, joined; a `for` also leaves at
     the top; an unconditional loop with no `break` never falls through.
   * **The IR's `moved` flag** (R8 piece 3a) carries the checker's moves
-    that emission does not make, from `Checked::flow_moves`: on a `Read`, an
+    that emission does not make, from `Move::takes_root` in `Checked::moves`
+    (2026-10-30: one table with the consuming reads): on a `Read`, an
     identifier a call's contract consumed — a **fn value**, which
     [fn-param-mode] lends whatever the contract, or a `once` value passed on
     [fn-once] — and a projection whose move took its root wholly (an unwrap
@@ -9330,7 +9331,7 @@ between endpoints and delivers what arrives into the scheduler.
   * A parameter *not kept* is consumed — any later reference to the
     variable is a compile error, reported by the IR flow pass
     [flow-use-after-move] (the checker records the move for the IR —
-    `moved_reads`, `flow_moves`, the consuming read — and keeps no
+    `Checked::moves`, a consuming read or the flow pass's move — and keeps no
     consumption state of its own since R8 piece 8; a read of a moved value
     types as it is and is never the checker's error). Reassigning the variable revives it. **A Copy scalar is never consumed**: moving one is
     a copy [copy-scalar-free] (user decision 2026-10-20, reversing the
@@ -9580,7 +9581,7 @@ between endpoints and delivers what arrives into the scheduler.
     move-mode loops; tracked moved-position projections render as raw
     places) — the IR the decision builds (`ir::Decision::modes`, with the
     loops a projection move makes iterate by value, `Checked::by_value_loops`)
-    and `Checked::moved_projections`.
+    and the consuming projection reads in `Checked::moves`.
     Kotlin emission is unchanged: the consumption of the ancestors is
     what keeps alias-vs-move unobservable. `is`/`when` move-mode
     bindings still emit clones on Rust (restriction-valid; a faithful
@@ -9657,7 +9658,8 @@ between endpoints and delivers what arrives into the scheduler.
   R8 piece 3b (2026-10-20) the uses below are the IR flow pass's
   diagnostics [flow-use-after-move], built to agree with the checker's
   former `check_moved_place`; the checker records the move
-  (`moved_projections`, which the IR reads as a consuming projection read),
+  (`Move::consume` at the projection, which the IR reads as a consuming
+  projection read),
   and since R8 piece 7 no `moved_places` of its own — a linear container
   settled by decomposition is the IR ledger's [linear-container], a state
   field left with a hole the flow pass's [linear-state]:
@@ -9695,7 +9697,7 @@ between endpoints and delivers what arrives into the scheduler.
     wanted (it would be viral, and passing the field instead of the
     struct says the same thing).
   * On the Rust backend a moved projection emits as a real **partial
-    move** of the field (the existing `moved_projections` rendering), and
+    move** of the field (the consuming projection read's rendering), and
     a revival emits as rustc's reinitialization of a moved field; both are
     accepted by borrowck [rs-borrows]. Not through an index: `eatl(xs[0].tags)`
     of an owned `xs: Rec[]` emits a move out of an index, E0507 (an open
@@ -9857,7 +9859,8 @@ between endpoints and delivers what arrives into the scheduler.
     branches leaves it maybe-consumed (conservative), and zero calls is
     fine. Since R8 piece 3a the IR flow pass reports them
     [flow-use-after-move]: the checker records the consuming call in
-    `Checked::flow_moves`, and the IR's `Call` of the local carries
+    `Checked::moves` (`takes_root`, at the call), and the IR's `Call` of the
+    local carries
     `moved: true`.
   * **On any other data type**: using means consuming — a move into a
     consuming call, a store, a `return`. (`canbe once` opt-ins are no
@@ -10061,10 +10064,11 @@ between endpoints and delivers what arrives into the scheduler.
     did not move), and a parameter root is recorded as mutated so its
     inferred contract takes the exhaustive form [deduce-syntax].
   * **Mode is inferred per binding** (P-9, the [fate-move-mode] pattern):
-    a handle some downstream use mutates is recorded in
-    `Checked::handle_muts` at its bind event, for the Rust backend's
-    rendering [rs-elem-mut]; handles only read keep the borrow renderings,
-    so any number coexist.
+    a handle some downstream use mutates is a mutation event on its root
+    (`fate_mutations`), and the Rust backend renders a handle by its type,
+    as a position [rs-elem-mut]; handles only read keep the borrow
+    renderings, so any number coexist. (A table of mutated handles at their
+    bind events, `handle_muts`, had no reader; it went on 2026-10-30.)
   * **Declaration-site refusals stand**: a parameter written top-level
     `proj Mut` is still an error ([proj-readonly]'s declaration half);
     `ref(c) Mut` is the legal spelling. Destruction under a live handle
@@ -10073,7 +10077,7 @@ between endpoints and delivers what arrives into the scheduler.
   * Implementation: `arg_fits_param` (the acceptance, `ProjBlock::NotHandle`
     the refusal), `has_ref_arm`/`promote_proj_to_ref` (the mint),
     `fate_mutation_at` (the mutation event, with the acting handle exempted
-    from its own poison), `handle_muts` (the P-9 table). The projection
+    from its own poison). The projection
     lives in the lowered type ([proj-type]) *and* on the fate link —
     `FateLink.borrowed && !held` is a wholesale projection, `held` a borrow
     an owned object carries [proj-infer].
@@ -10672,9 +10676,9 @@ between endpoints and delivers what arrives into the scheduler.
       element still owes inside its container. What the runtime's actor
       table needs (runtime steps).
       * The **binding takes the obligation out**: `remove_at(pending, i) is
-        Reply<Fired> token` moves the payload rather than copying it, recorded
-        by the checker at the binding and honoured by the emitters
-        [rs-linear-move]. Before 2026-09-18 the Rust backend read a narrowed
+        Reply<Fired> token` moves the payload rather than copying it, out of
+        the subject's temporary [rs-linear-move] (the checker's row at the
+        binding had no reader and went on 2026-10-30). Before 2026-09-18 the Rust backend read a narrowed
         binding as `.as_ref().unwrap().clone()`, which duplicates an
         obligation for a `Clone` handle and does not compile at all for a
         reply token — found while writing [time-manual]'s deadline queue.
