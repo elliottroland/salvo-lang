@@ -258,7 +258,7 @@ fn build(
                 if !stateful {
                     continue;
                 }
-                let has_deps = !deps_of(out, symbols, h).is_empty();
+                let has_deps = !deps_of(out, symbols, file_idx, h).is_empty();
                 let waits = out
                     .waitfor_sites
                     .iter()
@@ -413,7 +413,7 @@ fn build(
                     .filter(|(_, any)| **any)
                     .filter_map(|(of, _)| face_key(symbols, of))
                     .collect();
-                let deps: Vec<(String, usize, Span, bool)> = deps_of(out, symbols, h)
+                let deps: Vec<(String, usize, Span, bool)> = deps_of(out, symbols, file_idx, h)
                     .into_iter()
                     .map(|(key, span, any)| (key, file_idx, span, any))
                     .collect();
@@ -469,7 +469,7 @@ fn build(
             // per mixed handler of the effect, since the graph cannot know
             // which one a binding will choose [actor-deadlock-cycle].
             let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
-            for (key, dep_span, any) in deps_of(out, symbols, h) {
+            for (key, dep_span, any) in deps_of(out, symbols, file_idx, h) {
                 let name = key.as_str();
                 if !is_actor(&key) {
                     if let Some(mixed_handlers) = mixed_of.get(name) {
@@ -614,7 +614,7 @@ fn build(
         let blocks = waits_of.get(h.name.name.as_str()).copied();
         let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
         let mut targets: Vec<(String, usize, Span)> = Vec::new();
-        for (key, dep_span, any) in deps_of(out, symbols, h) {
+        for (key, dep_span, any) in deps_of(out, symbols, file_idx, h) {
             let name = key.as_str();
             if own_faces.contains(&name) {
                 continue;
@@ -936,7 +936,7 @@ fn face_key<'a>(symbols: &'a Symbols<'_>, ty: &'a ast::Type) -> Option<&'a str> 
 /// by effect key, with the span each came from and whether it was written
 /// `any E` [effect-any] — an entry's span is its written type's, and an
 /// alias may not hold `any`, so the written `any` entries name them all.
-fn deps_of(out: &Checked, symbols: &Symbols<'_>, h: &ast::HandlerDecl) -> Vec<(String, Span, bool)> {
+fn deps_of(out: &Checked, _symbols: &Symbols<'_>, file_idx: usize, h: &ast::HandlerDecl) -> Vec<(String, Span, bool)> {
     let any_spans: Vec<Span> = h
         .effects
         .iter()
@@ -947,7 +947,7 @@ fn deps_of(out: &Checked, symbols: &Symbols<'_>, h: &ast::HandlerDecl) -> Vec<(S
         })
         .collect();
     out.handler_deps
-        .get(symbols.key_or(h, &h.name.name))
+        .get(&out.key_at(file_idx, h.name.span))
         .into_iter()
         .flatten()
         .filter_map(|(t, span)| match t.strip_quals() {

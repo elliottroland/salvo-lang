@@ -199,7 +199,7 @@ pub fn discharge_set(
     symbols: &Symbols,
     resolution: &crate::resolve::Resolution,
     scope: &crate::resolve::ModuleScope,
-    deductions: &std::collections::HashMap<crate::decl_id::DeclId, Vec<crate::deduce::ParamDeduction>>,
+    deductions: &dyn Contracts,
     type_name: &str,
 ) -> Vec<String> {
     use salvo_syntax::ast;
@@ -265,7 +265,7 @@ pub fn discharge_hint(
     symbols: &Symbols,
     resolution: &crate::resolve::Resolution,
     scope: &crate::resolve::ModuleScope,
-    deductions: &std::collections::HashMap<crate::decl_id::DeclId, Vec<crate::deduce::ParamDeduction>>,
+    deductions: &dyn Contracts,
     ty: &Ty,
 ) -> String {
     let name = match ty.strip_quals() {
@@ -287,7 +287,7 @@ pub fn discharge_hint(
 /// Whether a fn entry's written/inferred contract consumes `param`.
 fn param_consumed_by_entry(
     entry: &crate::resolve::FnEntry,
-    deductions: &std::collections::HashMap<crate::decl_id::DeclId, Vec<crate::deduce::ParamDeduction>>,
+    deductions: &dyn Contracts,
     param: &str,
 ) -> bool {
     use salvo_syntax::ast;
@@ -299,7 +299,7 @@ fn param_consumed_by_entry(
             return true;
         }
     }
-    if let Some(facts) = deductions.get(&entry.key) {
+    if let Some(facts) = deductions.contract(entry.key) {
         return facts.iter().any(|f| f.param == param && !f.kept);
     }
     false
@@ -336,5 +336,23 @@ pub fn linear_type_name(symbols: &Symbols, _own: &HashSet<String>, ty: &Ty) -> O
             _ => None,
         }),
         _ => None,
+    }
+}
+
+/// [deduce-default] Where a fn's contract is read: the checker's walk holds
+/// the contracts by declaration, `Checked::deductions` at each fn's name.
+pub trait Contracts {
+    fn contract(&self, id: crate::DeclId) -> Option<&Vec<crate::deduce::ParamDeduction>>;
+}
+
+impl Contracts for std::collections::HashMap<crate::DeclId, Vec<crate::deduce::ParamDeduction>> {
+    fn contract(&self, id: crate::DeclId) -> Option<&Vec<crate::deduce::ParamDeduction>> {
+        self.get(&id)
+    }
+}
+
+impl Contracts for std::collections::HashMap<crate::check::Key, Vec<crate::deduce::ParamDeduction>> {
+    fn contract(&self, id: crate::DeclId) -> Option<&Vec<crate::deduce::ParamDeduction>> {
+        self.get(&crate::check::Key::name_of(id))
     }
 }

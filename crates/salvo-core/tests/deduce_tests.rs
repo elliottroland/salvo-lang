@@ -40,7 +40,7 @@ fn fn_key(program: &Program, checked: &Checked, name: &str) -> DeclId {
 /// declared qualifiers [deduce-syntax].
 fn facts(program: &Program, checked: &Checked, fn_name: &str, param: &str) -> (bool, Vec<String>) {
     let key = fn_key(program, checked, fn_name);
-    let ded = checked.deductions[&key]
+    let ded = checked.deductions[&salvo_core::check::Key::name_of(key)]
         .iter()
         .find(|d| d.param == param)
         .unwrap_or_else(|| panic!("no deduction entry for `{param}` in `{fn_name}`"));
@@ -60,7 +60,7 @@ fn facts(program: &Program, checked: &Checked, fn_name: &str, param: &str) -> (b
 /// tests: `"keep-all"`, `"exhaustive: A B"`, or `"remove: A"`.
 fn effect_form(program: &Program, checked: &Checked, fn_name: &str, param: &str) -> String {
     let key = fn_key(program, checked, fn_name);
-    let ded = checked.deductions[&key]
+    let ded = checked.deductions[&salvo_core::check::Key::name_of(key)]
         .iter()
         .find(|d| d.param == param)
         .unwrap_or_else(|| panic!("no deduction entry for `{param}` in `{fn_name}`"));

@@ -93,7 +93,7 @@ pub(crate) fn contracts(
     let no_mutations: HashSet<String> = HashSet::new();
     let skip_below = cache.map(|c| c.std_files);
     let mut states: HashMap<DeclId, Vec<ParamDeduction>> = match cache {
-        Some(c) => c.std_deductions().map(|(k, d)| (*k, d.clone())).collect(),
+        Some(c) => c.std_deductions().map(|(k, d)| (k.decl, d.clone())).collect(),
         None => HashMap::new(),
     };
     for (file_idx, ast) in program.modules.iter().enumerate() {
@@ -212,8 +212,8 @@ pub(crate) fn infer<'p>(
     // calling one reads its contract from `states` by key.
     if let Some(n) = skip_below {
         for (key, ded) in &checked.deductions {
-            if checked.decls.loc(*key).is_some_and(|l| l.file < n) {
-                states.insert(*key, ded.clone());
+            if checked.decls.loc(key.decl).is_some_and(|l| l.file < n) {
+                states.insert(key.decl, ded.clone());
             }
         }
     }
@@ -303,7 +303,8 @@ pub(crate) fn infer<'p>(
     }
 
     checked.errors.extend(errors);
-    checked.deductions = states;
+    // [node-id] At each fn's name (`Key::name_of`).
+    checked.deductions = states.into_iter().map(|(k, d)| (crate::check::Key::name_of(k), d)).collect();
 }
 
 /// The qualifier names written on the outside of a parameter type, in

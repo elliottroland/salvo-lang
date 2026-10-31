@@ -61,7 +61,7 @@ impl<'a, 'p> Modes<'a, 'p> {
             return if key.is_some_and(|k| self.owns_callbacks(k)) { PassMode::Moved } else { PassMode::Lent };
         }
         let kept = key
-            .and_then(|k| self.checked.deductions.get(&k))
+            .and_then(|k| self.checked.deductions.get(&crate::check::Key::name_of(k)))
             .and_then(|ds| ds.iter().find(|d| d.param == param.name.name))
             .map(|d| d.kept)
             .unwrap_or(true); // default kept (lenient, like deduce.rs)
@@ -84,7 +84,7 @@ impl<'a, 'p> Modes<'a, 'p> {
             // Only a type-parameter container: any other type says itself
             // whether it is lent mutably.
             let generic = matches!(&param.ty, Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() && decl.generics.iter().any(|g| g.name == base.name.name));
-            let mutated = generic && key.is_some_and(|k| self.checked.param_mutations.get(&k).is_some_and(|m| m.contains(&param.name.name)));
+            let mutated = generic && key.is_some_and(|k| self.checked.param_mutations.get(&crate::check::Key::name_of(k)).is_some_and(|m| m.contains(&param.name.name)));
             if mints_from || anchors || mutated {
                 return PassMode::LentMut;
             }

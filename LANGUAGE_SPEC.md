@@ -11432,11 +11432,13 @@ between endpoints and delivers what arrives into the scheduler.
     item, member) and which id is at a position, for what still needs the
     file or the AST (emission order, a default's declaring file, the
     language server's definition sites, the check cache's per-file rows).
-  * The checker's fn-keyed tables (`fn_lends`,
-    `implicit_params`, `established_quals`, `param_mutations`,
-    `deductions`, `Callee::Fn`, `fn_refs`, `ReplyTarget::Task`,
-    `ImplicitArg::Resolved`, …) and the IR's references
-    are keyed by it; a handler's member is its own declaration, so the facts
+  * The checker's references to a declaration (`Callee::Fn`, `fn_refs`,
+    `ReplyTarget::Task`, `ImplicitArg::Resolved`, …) and the IR's name it by
+    id; its own facts (`fn_lends`, `implicit_params`, `established_quals`,
+    `param_mutations`, `deductions`, `handler_deps`, `effect_prereqs`) are
+    kept at its name's node, which `Key::name_of(id)` rebuilds from the id
+    alone — a declaration is numbered from its own span, so its name is its
+    second node (PIPELINE.md D2, 2026-10-30); a handler's member is its own declaration, so the facts
     of its nodes are keyed by its member id [node-id], and its IR `FnDecl`
     carries that id.
   * A type's identity in `Ty::Named` is its **key**, the id's spelling
@@ -11566,10 +11568,10 @@ between endpoints and delivers what arrives into the scheduler.
     file's tag never meets a std file's).
 * [decl-rows] **Every row of `Checked` belongs to one declaration**
   (PIPELINE.md §II.9 A4; `partition.rs`): a node-keyed row to its key's
-  declaration, a declaration-keyed row (`fn_lends`, `implicit_params`,
-  `deductions`, …) to that declaration, a row keyed by a handler's or an
-  effect's symbol key (`route_keys`, `handler_deps`, `effect_prereqs`,
-  `protocol_hashes`, `parking_handlers`) to that handler or effect, a row
+  declaration (a declaration's own facts — `fn_lends`, `implicit_params`,
+  `deductions`, `handler_deps`, … — are at its name's node), a row keyed by
+  a handler's or an effect's symbol key (`route_keys`, `protocol_hashes`,
+  `parking_handlers`) to that handler or effect, a row
   placed by its node's span (a local, a body's effects, a diagnostic, a
   `written_types` lowering) to the declaration that node is in, and a file's
   own rows (its carried identities) to its `DeclKind::File` id. The indexes

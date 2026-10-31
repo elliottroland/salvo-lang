@@ -77,11 +77,24 @@ impl Key {
     /// written node has, recorded in the fact that needs it or derived from
     /// the node's own key by both sides alike, so nothing recomputes it
     /// differently.
+    /// [node-id] The key of declaration `id`'s **name**, the node a
+    /// declaration's own facts are kept at (PIPELINE.md D2, declaration
+    /// facts): every declaration is numbered from its own span, so its name
+    /// is its second node. Made without a lookup, for a reader holding the
+    /// id; it carries no origin (a reader that places a fact iterates the
+    /// table's own keys).
+    pub fn name_of(id: DeclId) -> Key {
+        Key { decl: id, node: crate::decl_id::NodeId(NAME_NODE), file: 0, span: Span::default() }
+    }
+
     pub fn synthetic(self, n: u32) -> Key {
         debug_assert!(n < 64 && self.node.0 < (1 << 25), "[node-id] synthetic key out of range");
         Key { node: crate::decl_id::NodeId(0x8000_0000 | (self.node.0 << 6) | n), ..self }
     }
 }
+
+/// [node-id] The ordinal of a declaration's name within it (`Key::name_of`).
+pub const NAME_NODE: u32 = 1;
 
 impl PartialEq for Key {
     fn eq(&self, other: &Self) -> bool {
@@ -212,13 +225,13 @@ impl StdCache {
 
     /// std's `param_mutations` rows (all of them — the cache's `Checked` is
     /// std-only), for seeding the round accumulator.
-    fn std_param_mutations(&self) -> impl Iterator<Item = (&DeclId, &HashSet<String>)> {
+    fn std_param_mutations(&self) -> impl Iterator<Item = (&Key, &HashSet<String>)> {
         self.checked.param_mutations.iter()
     }
 
     /// std's contracts, for the contracts known before the first walk
     /// [deduce-default].
-    pub(crate) fn std_deductions(&self) -> impl Iterator<Item = (&DeclId, &Vec<crate::deduce::ParamDeduction>)> {
+    pub(crate) fn std_deductions(&self) -> impl Iterator<Item = (&Key, &Vec<crate::deduce::ParamDeduction>)> {
         self.checked.deductions.iter()
     }
 
@@ -1158,16 +1171,16 @@ pub struct Checked {
     /// [effect-handler-deps] [effect-prereq] Each handler's dependencies, by
     /// handler key: written ones with aliases flattened, then the
     /// prerequisites of its faces, each with the span it came from.
-    pub handler_deps: HashMap<String, Vec<(Ty, Span)>>,
+    pub handler_deps: HashMap<Key, Vec<(Ty, Span)>>,
     /// [effect-prereq] Each effect's direct prerequisites, by effect key,
     /// aliases flattened, its own generics unsubstituted.
-    pub effect_prereqs: HashMap<String, Vec<Ty>>,
+    pub effect_prereqs: HashMap<Key, Vec<Ty>>,
     /// Per-fn deduction facts [deduce-infer]: for each parameter, whether
     /// a call gives the value back to the caller and which of its declared
     /// qualifiers are still known afterwards. Written lists are stored as
     /// validated; unwritten lists are inferred from the body. The Rust
     /// backend's ownership/borrow contract (Kotlin ignores them).
-    pub deductions: HashMap<DeclId, Vec<crate::deduce::ParamDeduction>>,
+    pub deductions: HashMap<Key, Vec<crate::deduce::ParamDeduction>>,
     /// Fn-name references [fn-ref-table]: the span of a fn *name* — at
     /// its declaration, as a call-site callee, or a fn-by-name use —
     /// mapped to the declaration it resolves to. Drives the LSP's
@@ -1228,7 +1241,7 @@ pub struct Checked {
     /// [proj-infer] Per fn, the parameters its result holds borrows of
     /// (declared with `[p: proj]` or inferred from the body). Read by the
     /// Rust backend to name the lifetime on lent parameters and the return.
-    pub fn_lends: HashMap<DeclId, Vec<usize>>,
+    pub fn_lends: HashMap<Key, Vec<usize>>,
     /// [ref-handle] Bind events of **mutable element handles** (P-9, user
     /// decision 2026-09-24: mode is inferred per binding): a `let` binding a
     /// `proj Mut` value that some downstream use mutates. The Rust backend
@@ -1238,7 +1251,7 @@ pub struct Checked {
     /// [deduce-syntax] [ref-handle] Per fn, the parameters its body
     /// mutates — directly, or through a handle into them (a generic
     /// container is lent mutably exactly when a handle into it is written).
-    pub param_mutations: HashMap<DeclId, HashSet<String>>,
+    pub param_mutations: HashMap<Key, HashSet<String>>,
     /// Projection expressions in *moved* positions whose provenance
     /// roots were consumed [fate-move-mode]: the Rust backend may render
     /// the place directly (a partial move) instead of cloning.
@@ -1266,7 +1279,7 @@ pub struct Checked {
     /// ordered list both sides render — the callee's trailing parameters and
     /// the caller's trailing arguments — so neither emitter needs to know
     /// that groups exist.
-    pub implicit_params: HashMap<DeclId, Vec<ImplicitParam>>,
+    pub implicit_params: HashMap<Key, Vec<ImplicitParam>>,
     /// [deduce-reapply] The claims a fn's deduction clause says it
     /// **establishes** (`=> list: +Heap<T>(?cmp) Mut`), by (fn, parameter), each
     /// already lowered in the callee's generic scope — so a call site only has to
@@ -1274,7 +1287,7 @@ pub struct Checked {
     /// then add the qualifier to the caller's variable. Lowered here rather than
     /// at the call site because the callee's generics are in scope here and not
     /// there, exactly as for `implicit_params`.
-    pub established_quals: HashMap<(DeclId, String), Vec<Qual>>,
+    pub established_quals: HashMap<Key, Vec<(String, Vec<Qual>)>>,
     /// [cmp-carry] What each **carried identity** resolves to: the declaration
     /// behind the `by_age` in a `SortedSet<Person>(by_age)`, keyed by the
     /// identity and the type it orders.
@@ -1293,13 +1306,6 @@ pub struct Checked {
     /// What fills each implicit parameter at a call [implicit-resolve],
     /// keyed by the call span, in the callee's declared order.
     pub implicit_args: HashMap<Key, Vec<ImplicitArg>>,
-    /// The implicit parameters of each *effect member* [implicit-param]:
-    /// members are not keyed by their `DeclId`, so they are keyed by the span of the member's
-    /// name. The emitters read this where they render the member — the
-    /// interface or trait method, every handler's implementation of it, and
-    /// the host skeleton — since an implicit is part of the member's
-    /// signature like any other parameter.
-    pub implicit_members: HashMap<Key, Vec<ImplicitParam>>,
     /// [fn-value] Every function named as a value, at its name (PIPELINE.md D2,
     /// calls): a declared fn and the implicits it fills in turn, or an
     /// effect's member `m@E` [effect-member-overload].
@@ -1945,7 +1951,7 @@ fn check_std_deductions_total(program: &Program, out: &mut Checked) {
             let key = out.decls.fn_at(file_idx, item_idx);
             let suggestion = out
                 .deductions
-                .get(&key)
+                .get(&Key::name_of(key))
                 .map(|ded| total_deduction_clause(f, ded))
                 .filter(|s| !s.is_empty());
             let fix = match suggestion {
@@ -2059,7 +2065,7 @@ fn check_program_walk<'p>(
     // [deduce-syntax] Parameters whose data the body mutates, published for
     // the backends' pass modes (`param_mode`); they never feed back into
     // checking.
-    let mut mutations: HashMap<DeclId, HashSet<String>> = HashMap::new();
+    let mut mutations: HashMap<Key, HashSet<String>> = HashMap::new();
     // [actor-replyto] Handlers whose members mint a self-targeted
     // continuation, read off each handler's own text before anything is
     // walked (PIPELINE.md 4.5), so the `use` refusal it drives is right in
@@ -2183,7 +2189,7 @@ struct WalkCtx<'a, 'p> {
 /// one).
 fn check_once<'p>(
     ctx: &WalkCtx<'_, 'p>,
-    param_mutations: &mut HashMap<DeclId, HashSet<String>>,
+    param_mutations: &mut HashMap<Key, HashSet<String>>,
     parking_handlers: &mut HashSet<String>,
     check_cache: Option<(&mut crate::check_cache::CheckCache, &HashSet<String>)>,
 ) -> Checked {
@@ -2316,7 +2322,7 @@ impl Steps<'_> {
         f: usize,
         step: usize,
         out: &mut Checked,
-        param_mutations: &mut HashMap<DeclId, HashSet<String>>,
+        param_mutations: &mut HashMap<Key, HashSet<String>>,
         parking_handlers: &mut HashSet<String>,
     ) -> bool {
         let Some(rows) = self.cached(f) else { return false };
@@ -2346,7 +2352,7 @@ fn file_checker<'r, 'p>(
     file_idx: usize,
     pass: Pass,
     out: &'r mut Checked,
-    param_mutations: &'r mut HashMap<DeclId, HashSet<String>>,
+    param_mutations: &'r mut HashMap<Key, HashSet<String>>,
     parking_handlers: &'r mut HashSet<String>,
 ) -> Checker<'p, 'r> {
     let file = &ctx.program.files[file_idx];
@@ -2386,7 +2392,7 @@ fn walk_interfaces<'p>(
     ctx: &WalkCtx<'_, 'p>,
     files: &[usize],
     out: &mut Checked,
-    param_mutations: &mut HashMap<DeclId, HashSet<String>>,
+    param_mutations: &mut HashMap<Key, HashSet<String>>,
     parking_handlers: &mut HashSet<String>,
     ifaces: &mut [FileIface<'p>],
     steps: &mut Steps<'_>,
@@ -2437,7 +2443,7 @@ fn walk_bodies<'p>(
     ctx: &WalkCtx<'_, 'p>,
     files: &[usize],
     out: &mut Checked,
-    param_mutations: &mut HashMap<DeclId, HashSet<String>>,
+    param_mutations: &mut HashMap<Key, HashSet<String>>,
     parking_handlers: &mut HashSet<String>,
     ifaces: &mut [FileIface<'p>],
     steps: &mut Steps<'_>,
@@ -2972,7 +2978,7 @@ struct Checker<'p, 'r> {
     /// [deduce-syntax] Parameters whose data the body mutates — recorded
     /// for *every* fn (written lists included), since the written-list
     /// validation needs them.
-    param_mutations: &'r mut HashMap<DeclId, HashSet<String>>,
+    param_mutations: &'r mut HashMap<Key, HashSet<String>>,
     /// [actor-replyto] Handlers whose member bodies mint a **self**-targeted
     /// continuation, read off each handler's text before the walk
     /// (`syntactic_parking_handlers`), since a `use` may be checked before
@@ -3368,12 +3374,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// declare implicit parameters. They belong to the member's signature —
     /// the interface method takes them, every handler's implementation takes
     /// them, and the call site fills them — so the expansion is recorded
-    /// here, keyed by the member's name (a member is not keyed by its `DeclId`).
+    /// here, at the member's name, as every declaration's are.
     fn effect_member_implicits(&mut self, f: &'p FnDecl) {
         let implicits = self.collect_implicits(f);
         if !implicits.is_empty() {
             self.out
-                .implicit_members
+                .implicit_params
                 .insert(self.key(f.name.span), implicits);
         }
     }
@@ -3422,7 +3428,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         inferred: &'r HashMap<DeclId, Vec<crate::deduce::ParamDeduction>>,
         refinements: &'r crate::refine::Refinements,
         out: &'r mut Checked,
-            param_mutations: &'r mut HashMap<DeclId, HashSet<String>>,
+            param_mutations: &'r mut HashMap<Key, HashSet<String>>,
             parking_handlers: &'r mut HashSet<String>,
     ) -> Checker<'p, 'r> {
         Checker {
@@ -3539,6 +3545,18 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         self.out.decls.key(self.file_idx, span, &self.key_hint)
+    }
+
+    /// [node-id] The key of a declaration's name, which a reader holding only
+    /// the declaration's id rebuilds as `Key::name_of` — checked here, where
+    /// every declaration's facts are written.
+    fn name_key(&self, name: Span) -> Key {
+        let key = self.key(name);
+        debug_assert!(
+            !name.is_numbered() || key == Key::name_of(key.decl),
+            "[node-id] a declaration's name is not its node {NAME_NODE}"
+        );
+        key
     }
 
     /// An error, reported only when [report] (a check shared by the files of
@@ -4154,7 +4172,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.check_handler_conformance(h);
         let dep_list = self.handler_dep_list(h);
         self.out.handler_deps.insert(
-            self.symbols.key_or(h, &h.name.name).to_string(),
+            self.name_key(h.name.span),
             dep_list.iter().map(|e| (e.ty.clone(), e.span)).collect(),
         );
         let deps: Vec<EffectAvail> = dep_list
@@ -5900,25 +5918,16 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// grouping, and a call site overrides one by its own name.
     fn expand_implicits(&mut self, f: &'p FnDecl) -> Vec<ImplicitParam> {
         let out = self.collect_implicits(f);
-        match self.own_fn {
-            Some(key) => {
-                self.out.implicit_params.insert(key, out.clone());
-            }
-            // A *member* — a handler's implementation of an effect member —
-            // is not keyed by its `DeclId`, so it is keyed by its own name span, exactly
-            // as the effect member it implements is [implicit-param].
-            None if !out.is_empty() => {
-                self.out
-                    .implicit_members
-                    .insert(self.key(f.name.span), out.clone());
-            }
-            None => {}
+        // [implicit-param] At the declaration's name, a fn's, a member's or a
+        // qualifier fn's alike; a top-level fn's even when it has none.
+        if self.own_fn.is_some() || !out.is_empty() {
+            self.out.implicit_params.insert(self.name_key(f.name.span), out.clone());
         }
         out
     }
 
     /// The expansion itself, without recording it: shared by fns and by
-    /// effect members, which are not keyed by their `DeclId`.
+    /// effect members.
     ///
     /// Must be called with the declaration's generics in scope — for a member
     /// that means the effect's generics as well as its own, or the types
@@ -6255,7 +6264,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             decl.params.iter().filter(|p| p.implicit).map(|p| p.name.name.as_str()).collect();
         self.out
             .implicit_params
-            .get(&key)
+            .get(&Key::name_of(key))
             .map(|imps| {
                 imps.iter()
                     .filter(|i| !written.contains(i.name.as_str()))
@@ -6588,7 +6597,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let implicits = self
             .out
             .implicit_params
-            .get(&key)
+            .get(&Key::name_of(key))
             .cloned()
             .unwrap_or_default();
         self.fill_implicits(
@@ -6847,7 +6856,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         subst: &HashMap<String, Ty>,
         named: &'p [ast::NamedArg],
     ) -> Option<String> {
-        let implicits = self.out.implicit_params.get(&key).cloned().unwrap_or_default();
+        let implicits = self.out.implicit_params.get(&Key::name_of(key)).cloned().unwrap_or_default();
         let callee_generics: HashSet<String> = generics.iter().map(|g| g.name.clone()).collect();
         // What the implicits themselves determine first, as the call does
         // [implicit-infer]: `T` from `next`'s answer.
@@ -6858,7 +6867,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [implicit-fit] [`Self::unfillable_implicit`] over a known list, its
     /// type variables bound as far as `subst` says: an effect member's (R10
-    /// D3), whose implicits are not keyed by a `DeclId`.
+    /// D3).
     fn unfillable_in(&mut self, implicits: &[ImplicitParam], callee_generics: &HashSet<String>, subst: &HashMap<String, Ty>) -> Option<String> {
         self.unfillable_named(implicits, callee_generics, subst, &[])
     }
@@ -7428,13 +7437,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         generics: &HashSet<String>,
         want: &Ty,
     ) -> Result<Vec<ImplicitArg>, Unfilled> {
-        let implicits = self.out.implicit_params.get(&key).cloned().unwrap_or_default();
+        let implicits = self.out.implicit_params.get(&Key::name_of(key)).cloned().unwrap_or_default();
         self.try_nested_list(decl, &implicits, binding, generics, want)
     }
 
     /// [implicit-recursive] [`Self::try_nested`] over a known list: a fn's,
-    /// or an effect member's (R10 D3), whose implicits are not keyed by a
-    /// `DeclId`.
+    /// or an effect member's (R10 D3).
     fn try_nested_list(
         &mut self,
         decl: &'p FnDecl,
@@ -7699,7 +7707,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // [implicit-infer] Inference's probe asks the shape of
                         // what is known, without inferring again: one level.
                         ValueCand::Fn(e) if self.strict_select => {
-                            let implicits = self.out.implicit_params.get(&e.key).cloned().unwrap_or_default();
+                            let implicits = self.out.implicit_params.get(&Key::name_of(e.key)).cloned().unwrap_or_default();
                             self.unfillable_in(&implicits, &fit.generics, &fit.binding)
                         }
                         ValueCand::Fn(e) => self.unfillable_implicit(e.key, &e.decl.generics, &fit.binding, &[]),
@@ -9081,7 +9089,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         named: &[ast::NamedArg],
     ) {
         let Some(key) = key else { return };
-        let implicits = match self.out.implicit_params.get(&key) {
+        let implicits = match self.out.implicit_params.get(&Key::name_of(key)) {
             Some(list) if !list.is_empty() => list.clone(),
             _ => return,
         };
@@ -9497,9 +9505,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .iter()
                 .filter_map(|&i| f.params.get(i).map(|p| p.name.name.clone()))
                 .collect();
-            if let Some(key) = self.fn_key_of_decl(f) {
-                self.out.fn_lends.insert(key, lent.clone());
-            }
+            let at = self.name_key(f.name.span);
+            self.out.fn_lends.insert(at, lent.clone());
             if let Some(list) = &f.deductions {
                 // A parameter both consumed (`!p`) and named as a projection
                 // source: a borrow needs the caller to keep the value.
@@ -10393,7 +10400,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        self.out.effect_prereqs.insert(key, listed);
+        self.out.effect_prereqs.insert(self.name_key(e.name.span), listed);
     }
 
     /// [effect-prereq] Whether following prerequisites from effect [key]
@@ -12259,7 +12266,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// The implicits `key` (a `to_str` overload) needs to take a `ty`, filled
     /// at `expr`; empty for one with none.
     fn implicits_of_text_form(&mut self, expr: &'p Expr, key: DeclId, ty: &Ty) -> Vec<ImplicitArg> {
-        let implicits = self.out.implicit_params.get(&key).cloned().unwrap_or_default();
+        let implicits = self.out.implicit_params.get(&Key::name_of(key)).cloned().unwrap_or_default();
         if implicits.is_empty() {
             return Vec::new();
         }
@@ -12752,7 +12759,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let is_param = self.lookup(name).is_some_and(|var| var.is_param);
         if is_param {
             self.param_mutations
-                .entry(key)
+                .entry(Key::name_of(key))
                 .or_default()
                 .insert(name.to_string());
         }
@@ -13062,12 +13069,6 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// The resolver's key for a declaration, by identity.
-    fn fn_key_of_decl(&self, f: &FnDecl) -> Option<DeclId> {
-        self.scope
-            .fns
-            .get(f.name.name.as_str())
-            .and_then(|v| v.iter().find(|e| std::ptr::eq(e.decl, f)).map(|e| e.key))
-    }
 
     /// [proj-infer] The parameters `decl`'s result holds borrows of —
     /// declared (`[p: proj]`), inferred from its body, or every kept
@@ -20588,8 +20589,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(quals) = self
             .out
             .established_quals
-            .get(&(callee, param.to_string()))
-            .cloned()
+            .get(&Key::name_of(callee))
+            .and_then(|by_param| by_param.iter().find(|(p, _)| p == param))
+            .map(|(_, quals)| quals.clone())
         else {
             return;
         };
@@ -21408,12 +21410,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             // Recorded for the call sites, which substitute this call's type
             // arguments and identities into it.
-            if let Some(key) = self.own_fn {
-                if !established.is_empty() {
-                    self.out
-                        .established_quals
-                        .insert((key, param_name.name.clone()), established);
-                }
+            if self.own_fn.is_some() && !established.is_empty() {
+                self.out
+                    .established_quals
+                    .entry(self.name_key(f.name.span))
+                    .or_default()
+                    .push((param_name.name.clone(), established));
             }
         }
     }
@@ -31918,7 +31920,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.error(span, messages::effect_available_own_effect(&member.name.name, &of, &remedy))
             }
             None if self.facade_handler.is_some_and(|h| {
-                self.out.handler_deps.get(self.symbols.key_or(h, &h.name.name)).is_some_and(|deps| {
+                self.out.handler_deps.get(&self.key(h.name.span)).is_some_and(|deps| {
                     deps.iter().any(|(t, _)| matches!(t.strip_quals(), Ty::Named { name, .. } if *name == effect_key))
                 })
             }) =>

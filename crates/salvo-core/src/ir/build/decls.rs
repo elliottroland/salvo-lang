@@ -243,7 +243,7 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
     let prereqs: Vec<Ty> = ctx
         .checked
         .effect_prereqs
-        .get(ctx.symbols.key_or(e, &e.name.name))
+        .get(&ctx.checked.key_at(file_idx, e.name.span))
         .map(|l| l.iter().map(erase).collect())
         .unwrap_or_default();
     let members: Vec<Member> = e
@@ -266,7 +266,7 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
                 });
             }
             // [implicit-param] a member's implicits are trailing parameters.
-            if let Some(imps) = ctx.checked.implicit_members.get(&ctx.checked.key_at(file_idx, m.name.span)) {
+            if let Some(imps) = ctx.checked.implicit_params.get(&ctx.checked.key_at(file_idx, m.name.span)) {
                 for ip in imps {
                     params.push(Param { local: Local(ip.local.clone()), ty: erase(&ip.ty), mode: PassMode::Lent, variadic: false, check: None, span: ip.span });
                 }
@@ -322,7 +322,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
     let deps: Vec<Ty> = ctx
         .checked
         .handler_deps
-        .get(ctx.symbols.key_or(h, &h.name.name))
+        .get(&ctx.checked.key_at(file_idx, h.name.span))
         .map(|l| l.iter().map(|(t, _)| erase(t)).collect())
         .unwrap_or_default();
     let ctor_params: Vec<Param> = h
@@ -401,7 +401,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
             for p in &params {
                 lower.bind_owned(&p.local.0, p.ty.clone(), p.mode == PassMode::Moved);
             }
-            if let Some(imps) = ctx.checked.implicit_members.get(&ctx.checked.key_at(file_idx, f.name.span)) {
+            if let Some(imps) = ctx.checked.implicit_params.get(&ctx.checked.key_at(file_idx, f.name.span)) {
                 for ip in imps {
                     lower.bind(&ip.local, erase(&ip.ty));
                 }
@@ -516,18 +516,8 @@ fn fn_decl(
         params.push(Param { local: Local(p.name.name.clone()), ty, mode, variadic: p.variadic, check: None, span: p.span });
     }
     let mut implicit_params = 0;
-    if let Some(k) = key {
-        if let Some(imps) = ctx.checked.implicit_params.get(&k) {
-            for ip in imps {
-                let ty = erase(&ip.ty);
-                lower.bind(&ip.local, ty.clone());
-                lower.implicit_locals.insert(ip.name.clone(), Local(ip.local.clone()));
-                params.push(Param { local: Local(ip.local.clone()), ty, mode: PassMode::Lent, variadic: false, check: None, span: ip.span });
-                implicit_params += 1;
-            }
-        }
-    } else if let Some(imps) = ctx.checked.implicit_members.get(&ctx.checked.key_at(file_idx, f.name.span)) {
-        // A member or qualifier fn: keyed by its name span [implicit-param].
+    // [implicit-param] At the fn's name, a member's and a qualifier fn's too.
+    if let Some(imps) = ctx.checked.implicit_params.get(&ctx.checked.key_at(file_idx, f.name.span)) {
         for ip in imps {
             let ty = erase(&ip.ty);
             lower.bind(&ip.local, ty.clone());
@@ -537,8 +527,10 @@ fn fn_decl(
         }
     }
     let ret = f.return_type.as_ref().map(|t| ctx.written_ty(file_idx, t)).unwrap_or_else(Ty::none);
-    let mut borrows: Vec<usize> = table_key
-        .and_then(|k| ctx.checked.fn_lends.get(&k))
+    let mut borrows: Vec<usize> = ctx
+        .checked
+        .fn_lends
+        .get(&ctx.checked.key_at(file_idx, f.name.span))
         .map(|ls| ls.iter().map(|i| i + effect_params).collect())
         .unwrap_or_default();
     // [proj-anywhere] The sources a written `proj(…)` names, in the result

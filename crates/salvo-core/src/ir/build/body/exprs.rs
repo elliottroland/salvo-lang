@@ -1407,7 +1407,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 // deduction consumes the parameter [fn-variadic].
                 let tail_moves = is_tail
                     && match &callee {
-                        Some(Callee::Fn(k, _)) => self.ctx.checked.deductions.get(k).and_then(|ds| ds.iter().find(|d| d.param == p.name.name)).is_some_and(|d| !d.kept),
+                        Some(Callee::Fn(k, _)) => self.ctx.checked.deductions.get(&crate::check::Key::name_of(*k)).and_then(|ds| ds.iter().find(|d| d.param == p.name.name)).is_some_and(|d| !d.kept),
                         Some(Callee::Member(m)) => m.deductions.iter().flatten().any(|d| d.param_name().is_some_and(|n| n.name == p.name.name) && matches!(d.kind, ast::DeductionKind::Moved | ast::DeductionKind::Deferred)),
                         None => false,
                     };

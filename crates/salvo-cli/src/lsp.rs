@@ -2000,9 +2000,7 @@ impl Server<'_> {
             if let Some((f, h, _)) = innermost {
                 tys.extend(checked.effects_taken_by(view.file, f).into_iter().flatten().cloned());
                 if let Some(h) = h {
-                    let module = analysis.program.files.get(view.file).map(|file| file.module.to_string()).unwrap_or_default();
-                    let keyed = format!("{}{}{}", h.name.name, salvo_core::typekey::SEP, module);
-                    let deps = checked.handler_deps.get(&keyed).or_else(|| checked.handler_deps.get(&h.name.name));
+                    let deps = checked.handler_deps.get(&checked.key_at(view.file, h.name.span));
                     tys.extend(deps.into_iter().flatten().map(|(t, _)| t.clone()));
                 }
             }
@@ -3667,7 +3665,7 @@ fn fn_signature(program: &Program, checked: &Checked, key: DeclId) -> Option<Str
     // (PIPELINE.md R6): aliases flattened, prerequisites and the effects of
     // fn-typed parameters added.
     let expanded = checked.effects_taken_by(checked.decls.loc(key)?.file, decl).map(|v| v.as_slice());
-    Some(fn_decl_signature_with(decl, checked.deductions.get(&key).map(|d| d.as_slice()), expanded))
+    Some(fn_decl_signature_with(decl, checked.deductions.get(&salvo_core::check::Key::name_of(key)).map(|d| d.as_slice()), expanded))
 }
 
 /// [lsp-hover-iter-fn] Whether `f` is the `next` an `iter fn` became: it

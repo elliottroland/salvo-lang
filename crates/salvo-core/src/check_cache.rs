@@ -32,7 +32,6 @@ use salvo_syntax::Span;
 use crate::check::{Checked, Key};
 use crate::diag::FileDiagnostic;
 use crate::program::Program;
-use crate::decl_id::DeclId;
 use crate::types::Ty;
 
 /// The walk steps a file goes through, in order [decl-interface-pass].
@@ -289,7 +288,7 @@ impl CheckCache {
         first: usize,
         parking: &HashSet<String>,
         out: &Checked,
-        mutations: &HashMap<DeclId, HashSet<String>>,
+        mutations: &HashMap<crate::check::Key, HashSet<String>>,
         steps: Vec<(usize, [StepRows; 3])>,
         owners: &crate::partition::Owners,
     ) {
@@ -316,7 +315,7 @@ impl CheckCache {
             let mut rows = parts[f].take().unwrap_or_default();
             rows.param_mutations = mutations
                 .iter()
-                .filter(|(k, _)| out.decls.loc(**k).is_some_and(|l| l.file == f))
+                .filter(|(k, _)| out.decls.loc(k.decl).is_some_and(|l| l.file == f))
                 .map(|(k, v)| (*k, v.clone()))
                 .collect();
             let (bodies, iface) = interface_of(&program.files[f].content, &program.modules[f]);

@@ -246,7 +246,7 @@ pub state_takes: HashSet<Key>,       // this read takes a handler's state field
 pub moved_projections: HashSet<Key>, // `s.field` moved out of a consumed root
 pub bind_facts: HashMap<Key, BindFact>,  // a binding's fate links, and whether it may take ownership
 pub derived_uses: HashMap<Key, …>,   // a derived value moved or mutated here
-pub deductions: HashMap<DeclId, Vec<ParamDeduction>>, // per fn, per parameter
+pub deductions: HashMap<Key, Vec<ParamDeduction>>,   // per fn (at its name), per parameter
 ```
 
 For `consume(xs)` the fn's `deductions` say `items: kept = false` (the clause

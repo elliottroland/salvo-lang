@@ -144,6 +144,37 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A declaration's facts at its name (user decision, PIPELINE.md D2 declaration facts, [node-id] [implicit-param])
+
+- **Decided (user, 2026-10-30, items 6–7)**: no table is keyed by `DeclId`
+  or by a symbol-key string any more. `deductions`, `fn_lends`,
+  `param_mutations`, `implicit_params`, `established_quals` (now one entry
+  per fn, `Vec<(param, claims)>`), `handler_deps` and `effect_prereqs` are
+  kept at the declaration's **name node**. A reader holding only an id
+  rebuilds that key with `Key::name_of(id)`, no lookup: every declaration
+  is numbered from its own span, so its name is its second node
+  (`NAME_NODE`; the checker's `name_key` asserts it, in debug builds, at
+  every write). `implicit_members` joins `implicit_params` — the two were
+  one list split by whether `own_fn` was set. They stay separate tables
+  (written in the signature pass, by the body walk, and after it).
+  Rejected: one `FnFacts` struct (its writers run at three different
+  times).
+- **Built**: the readers by id (the checker's implicit resolution,
+  `establish_quals`, `param_mode`, the IR's variadic tail, `deduce`'s std
+  seeding, the language server's signature) use `Key::name_of`; the
+  readers with the declaration in hand (the IR's interface and handler
+  decls, the deadlock graph's `deps_of`, the façade-member diagnostic,
+  effect-member completion) use its name span. `linear::discharge_set`
+  takes a `Contracts` trait, since the walk's contracts are still by id
+  and `Checked::deductions` by name. `fn_key_of_decl` and partition's
+  `by_id!` are gone; `handler_deps` and `effect_prereqs` partition by key.
+  `fn_lends` is now written for every fn (qualifier fns and members
+  included); the IR reads it at the fn's name, so its `table_key` detour
+  through `fn_refs` for qualifier fns is gone from the lends.
+- **Output**: no emitted code, golden or snapshot moved — no qualifier fn
+  or member in the suite has a lend. 709 tests under nextest, warm run
+  1m21.
+
 ### 2026-10-30 — What a `replyto` mints for, one table (user decision, PIPELINE.md D2 replyto, [actor-replyto] [task-mint])
 
 - **Decided (user, 2026-10-30, item 5)**: `replyto_members` and
