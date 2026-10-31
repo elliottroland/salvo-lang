@@ -162,6 +162,13 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   shares, the first a lambda table doubling for fn values) and
   `lambda_info`. Every builder read of them goes through a view. Pure
   refactor: IR goldens and both codegen corpora unchanged, 708 tests.
+- **Then `test_info` and `read_info`**: an `is` check's three tables
+  (`is_tests`, `predicate_tests`, `widen_targets`), read at an `is`, a `^`,
+  a `when` head and the claim checks; and a place read's seven
+  (`linear_moves`, `moved_reads`, `state_takes`, `moved_projections`,
+  `flow_moves`, `field_casts`, `repr_ty`), which the read lowering consulted
+  one table at a time. `ReadInfo::consumes` names the four that make a read
+  hand its value over. Pure refactor, 708 tests.
 - **Not viewed, and why**: `use_handler_args` (a handler construction's, at
   three node kinds), `for_drivers`/`by_value_loops` and
   `project_effects`/`merge_effects` (one builder read each, at different

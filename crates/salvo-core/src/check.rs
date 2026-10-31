@@ -1820,6 +1820,34 @@ impl Checked {
         }
     }
 
+    /// [unify-checker] An `is` check's facts, at its span (an `is`, a `^`, a
+    /// `when` branch head): the union arm test, the predicate qualifiers it
+    /// calls instead, and the type a `^` widens its subject to.
+    pub fn test_info(&self, key: Key) -> TestInfo<'_> {
+        TestInfo {
+            union: self.is_tests.get(&key),
+            predicate: self.predicate_tests.get(&key),
+            widen: self.widen_targets.get(&key),
+        }
+    }
+
+    /// [unify-checker] A place read's facts, at its span: whether it moves
+    /// the value ([linear-container] [flow-use-after-move] [linear-state],
+    /// a projection taking its root), a move only the flow pass sees, the
+    /// type a predicate field override refines it to, and the type it is
+    /// stored at when it reads narrowed.
+    pub fn read_info(&self, key: Key) -> ReadInfo<'_> {
+        ReadInfo {
+            linear_move: self.linear_moves.contains(&key),
+            moved_read: self.moved_reads.contains(&key),
+            state_take: self.state_takes.contains(&key),
+            moved_projection: self.moved_projections.contains(&key),
+            flow_move: self.flow_moves.contains(&key),
+            field_cast: self.field_casts.get(&key),
+            repr: self.repr_ty.get(&key),
+        }
+    }
+
     /// [unify-checker] A lambda's facts, at its span: the effects it takes as
     /// leading parameters [fn-effects], what it captures [fate-lambda], and
     /// the contract it was checked against [fn-contract].
@@ -1853,6 +1881,31 @@ pub struct FnValueInfo<'c> {
     pub effects: Option<&'c Vec<Ty>>,
     pub nested: Option<&'c Vec<ImplicitArg>>,
     pub member: Option<&'c ImplicitArg>,
+}
+
+/// [unify-checker] An `is` check's facts, at its span.
+pub struct TestInfo<'c> {
+    pub union: Option<&'c UnionTest>,
+    pub predicate: Option<&'c Vec<PredicateCheck>>,
+    pub widen: Option<&'c Ty>,
+}
+
+/// [unify-checker] A place read's facts, at its span.
+pub struct ReadInfo<'c> {
+    pub linear_move: bool,
+    pub moved_read: bool,
+    pub state_take: bool,
+    pub moved_projection: bool,
+    pub flow_move: bool,
+    pub field_cast: Option<&'c Ty>,
+    pub repr: Option<&'c Ty>,
+}
+
+impl ReadInfo<'_> {
+    /// Whether the read hands the value over.
+    pub fn consumes(&self) -> bool {
+        self.linear_move || self.moved_read || self.state_take || self.moved_projection
+    }
 }
 
 /// [unify-checker] A lambda's facts, at its span.

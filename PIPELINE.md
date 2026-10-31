@@ -2574,6 +2574,12 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      `for_drivers`/`by_value_loops`, `project_effects`/`merge_effects` and
      the borrowed-result tables were not viewed: the builder reads each at
      one site of its own, or not at all, so a view reduces nothing.
+     Then `test_info` (an `is` check: `is_tests`, `predicate_tests`,
+     `widen_targets`, read together at `is`, `^` and `when` heads) and
+     `read_info` (a place read: `linear_moves`, `moved_reads`,
+     `state_takes`, `moved_projections`, `flow_moves`, `field_casts`,
+     `repr_ty` — seven tables the read lowering consulted one by one) —
+     done.
   2. **By node, still to merge**: expression facts (`expr_ty`, `repr_ty`,
      `coerce`, `promotions`, `field_casts`; ~44 checker readers), arm tests
      (`is_tests`, `predicate_tests`, `widen_targets`, `when_exhaustive`,

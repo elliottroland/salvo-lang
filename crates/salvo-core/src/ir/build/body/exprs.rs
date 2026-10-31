@@ -191,7 +191,10 @@ impl<'a, 'p> Lower<'a, 'p> {
                 // [qual-lift] the test is the same as `is`; the widening is
                 // erased with the qualifiers, so the binding is the subject
                 // under its widened type.
-                let test = self.ctx.checked.is_tests.get(&self.key(span)).cloned();
+                let (test, widen) = {
+                    let info = self.ctx.checked.test_info(self.key(span));
+                    (info.union.cloned(), info.widen.map(erase))
+                };
                 let s = self.expr_subject(subject);
                 let id = self.id();
                 if let Some(b) = binding {
@@ -202,7 +205,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let nid = self.id();
                     let from_ty = s.ty.clone();
                     self.pending_after_test.push(Stmt::Narrow { id: nid, local, ty, from, from_ty, because: Justification::Test { test: id } });
-                } else if let (Some(target), true) = (self.ctx.checked.widen_targets.get(&self.key(span)).map(erase), self.in_condition) {
+                } else if let (Some(target), true) = (widen, self.in_condition) {
                     // [qual-lift] A lift that peels a wrapper arm narrows the
                     // subject to the widened type for the branch.
                     if let Some(place) = self.stored_place_of(subject) {
@@ -514,17 +517,17 @@ impl<'a, 'p> Lower<'a, 'p> {
         let projected = !place.steps.is_empty();
         let aliased = projected.then(|| self.place_alias(&place).map(|a| a.ty)).flatten();
         let place = self.through_alias(place);
-        let consume = self.ctx.checked.linear_moves.contains(&key)
-            || self.ctx.checked.moved_reads.contains(&key)
-            || self.ctx.checked.state_takes.contains(&key)
-            || self.ctx.checked.moved_projections.contains(&key);
-        // [flow-use-after-move] A move the checker made that this read does
-        // not make for emission (a fn value consumed by a call's contract, a
-        // projection taking its root): flow-only.
-        let moved = self.ctx.checked.flow_moves.contains(&key);
+        // [unify-checker] One lookup for the read's facts.
+        let (consume, moved, field_cast, repr) = {
+            let info = self.ctx.checked.read_info(key);
+            // [flow-use-after-move] `moved`: a move the checker made that
+            // this read does not make for emission (a fn value consumed by
+            // a call's contract, a projection taking its root): flow-only.
+            (info.consumes(), info.flow_move, info.field_cast.map(erase), info.repr.map(erase))
+        };
         // [qual-field-override] A field a qualifier of the subject refines
         // is read through a narrowing binding justified by the claim.
-        if let (AExpr::Field { base, field, .. }, Some(over)) = (e, self.ctx.checked.field_casts.get(&key).map(erase)) {
+        if let (AExpr::Field { base, field, .. }, Some(over)) = (e, field_cast) {
             let base_ty = self.ty_of(base.span());
             let declared = match base_ty.strip_quals() {
                 Ty::Named { name, .. } => self.ctx.symbols.structs.get(name.as_str()).and_then(|sd| sd.fields.iter().find(|f| f.name.name == field.name).map(|f| match &f.ty {
@@ -544,7 +547,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // on it) is read through a narrowing binding, like a local.
         if projected {
             // A place read through a lifted view is narrowed from the view.
-            if let Some(declared) = aliased.clone().or_else(|| self.ctx.checked.repr_ty.get(&key).map(erase)) {
+            if let Some(declared) = aliased.clone().or_else(|| repr.clone()) {
                 if !ty.is_unknown() && declared != ty {
                     let local = self.fresh("__narrowed");
                     let because = match (self.current_test, self.last_branch) {
@@ -1718,7 +1721,11 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// `x is T [name]` as a condition.
     fn is_test(&mut self, subject: &AExpr, binding: Option<&ast::Ident>, span: Span) -> Expr {
         let bool_ty = Ty::named("Bool");
-        if let Some(checks) = self.ctx.checked.predicate_tests.get(&self.key(span)).cloned() {
+        let (predicate, union) = {
+            let info = self.ctx.checked.test_info(self.key(span));
+            (info.predicate.cloned(), info.union.cloned())
+        };
+        if let Some(checks) = predicate {
             // [qual-predicate] a conjunction of `qualifies` calls.
             let mut acc: Option<Expr> = None;
             for check in checks {
@@ -1739,7 +1746,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
             return acc.unwrap_or(Expr { ty: bool_ty, span, kind: ExprKind::Bool(true) });
         }
-        let Some(test) = self.ctx.checked.is_tests.get(&self.key(span)).cloned() else {
+        let Some(test) = union else {
             // A test the checker decided statically.
             return Expr { ty: bool_ty, span, kind: ExprKind::Bool(true) };
         };
@@ -2067,7 +2074,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             return unsupported(opt, span, "`whynot?` of a non-`is` test");
         };
         let none = Expr { ty: opt.clone(), span, kind: ExprKind::MakeNone };
-        let Some(checks) = self.ctx.checked.predicate_tests.get(&self.key(*is_span)).cloned() else {
+        let Some(checks) = self.ctx.checked.test_info(self.key(*is_span)).predicate.cloned() else {
             return none;
         };
         if checks.is_empty() {
@@ -2112,7 +2119,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// only on failure). With several checks, the first that fails says it.
     fn assert_whynot(&mut self, cond: &AExpr) -> Option<Expr> {
         let AExpr::Is { subject, span, .. } = cond else { return None };
-        let checks = self.ctx.checked.predicate_tests.get(&self.key(*span)).cloned()?;
+        let checks = self.ctx.checked.test_info(self.key(*span)).predicate.cloned()?;
         self.stored_place_of(subject)?;
         let (last, rest) = checks.split_last()?;
         let mut arms = Vec::new();
@@ -2787,7 +2794,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         };
         let mut arms = Vec::new();
         for (i, br) in branches.iter().enumerate() {
-            let test = self.ctx.checked.is_tests.get(&self.key(br.span)).cloned();
+            let test = self.ctx.checked.test_info(self.key(br.span)).union.cloned();
             let arm_test = match &test {
                 Some(t) => arm_test(t),
                 None if br.check.is_empty() => ArmTest::Else,
