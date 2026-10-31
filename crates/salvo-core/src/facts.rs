@@ -113,6 +113,19 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, id:
         if let Some(n) = &narrowed {
             marks.push(n);
         }
+        // [fn-effects] The effects the callable here takes, or a call gives.
+        let join = |v: &[crate::types::Ty]| v.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ");
+        let taken = part.effects_taken.get(key).filter(|v| !v.is_empty()).map(|v| format!("takes {}", join(v)));
+        if let Some(t) = &taken {
+            marks.push(t);
+        }
+        let passed = part.effects_passed.get(key).map(|e| match e {
+            crate::check::EffectsPassed::Receiver(t) => format!("receiver {t}"),
+            crate::check::EffectsPassed::Leading(v) => format!("passes {}", join(v)),
+        });
+        if let Some(p) = &passed {
+            marks.push(p);
+        }
         // [is-narrowing] A test this node asks.
         let test = part.tests.get(key).map(test_mark);
         if let Some(t) = &test {

@@ -176,11 +176,11 @@ pub(crate) fn infer<'p>(
     // dispatches through. Together those give the callee contract, so a
     // member that takes ownership is seen as moving its argument here too
     // (it already does at the call site, in `check_effect_call`).
-    // [type-identity] By symbol key, which is what `effect_calls` records:
+    // [type-identity] By symbol key, which is what `effects_passed` records for a receiver:
     // two modules may each declare an effect of one name.
     let effects: HashMap<String, &EffectDecl> =
         symbols.effects.iter().map(|(k, e)| (k.to_string(), *e)).collect();
-    let effect_calls = &checked.effect_calls;
+    let effect_calls = &checked.effects_passed;
     // [proj-field] Which struct fields are borrows: storing into one
     // lends the value, so the parameter it came from stays kept. By symbol
     // key [type-identity], which is what the literal's checked type names.
@@ -574,7 +574,7 @@ fn infer_body<'a, 'p>(
     states: &'a HashMap<DeclId, Vec<ParamDeduction>>,
     provenance: &'a HashSet<String>,
     effects: &'a HashMap<String, &'p EffectDecl>,
-    effect_calls: &'a HashMap<Key, Ty>,
+    effect_calls: &'a HashMap<Key, crate::check::EffectsPassed>,
     state_names: &'a HashSet<String>,
     refinements: &'a crate::refine::Refinements,
     proj_fields: &'a HashMap<String, HashSet<String>>,
@@ -709,8 +709,8 @@ struct Walk<'a, 'p> {
     /// [call-resolve].
     effects: &'a HashMap<String, &'p EffectDecl>,
     /// Which effect instance each member call dispatches through (checker
-    /// table `effect_calls`), keyed by call span.
-    effect_calls: &'a HashMap<Key, Ty>,
+    /// receivers in `effects_passed`), keyed by call span.
+    effect_calls: &'a HashMap<Key, crate::check::EffectsPassed>,
     /// Handler *state* field names when walking a handler member
     /// [effect-state-store]: assigning into one is a store (the handler
     /// takes ownership), not a binding. Empty for ordinary fns.
@@ -1436,7 +1436,7 @@ impl<'p> Walk<'_, 'p> {
             Expr::Field { field, .. } => field.name.as_str(),
             _ => return None,
         };
-        let instance = self.effect_calls.get(&self.key(span))?;
+        let instance = self.effect_calls.get(&self.key(span))?.receiver()?;
         let Ty::Named { name: effect, .. } = instance.strip_quals() else {
             return None;
         };

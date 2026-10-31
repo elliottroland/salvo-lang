@@ -213,7 +213,7 @@ Conventions:
   *parameter*). [op-convert] lowers to `toInt()`/`toLong()`/`toFloat()`/
   `toDouble()`, whose semantics match Rust's `as` pairwise.
 * [effect-at] Erased: the checker records the resolved effect per call
-  (`effect_calls`), and emission is the ordinary member dispatch through
+  (the `effects_passed` receiver), and emission is the ordinary member dispatch through
   the handler expression.
 * [kt-mut-str] `Mut Str` maps to `StringBuilder`, through the same
   `intrinsics::mut_type_name` hook `Mut List<T>` → `MutableList<T>` uses
@@ -741,7 +741,7 @@ Conventions:
     parameters and locals (pre-scan of declared names; collisions get a
     numeric suffix: `console2`).
   * Handler resolution prefers the checker's effect tables
-    (`use_effects`/`effect_calls`/`call_effects`) rendered through
+    (`use_effects`/`effects_passed`) rendered through
     `kotlin_ty` — which must agree with `emit_type` on the same source
     type, since the result keys the effect-environment lookup. The
     string-keyed environment with base-name matching is the fallback for
@@ -761,7 +761,7 @@ nothing but the monitor.
 
 * **A fn declaring `[A, B]`** is `fun f(a: A, b: B, …)`: one parameter per
   effect, typed by the effect's interface, **in the order of
-  `Checked::fn_effects`** — inherited effects (from fn-typed parameters,
+  `Checked::effects_taken`** — inherited effects (from fn-typed parameters,
   [fn-effects]) first, then the written list; a call passes the bindings in
   scope (`draw(random_int, random_string, console)`). The Rust backend's
   parameter list is the same list with `&mut __Handle_E` types [rs-handle],

@@ -193,7 +193,7 @@ fn broken() -> Int {\n    return nope\n}\n";
     assert_eq!(total, checked.expr_ty.len(), "every expression row in one part");
     for (id, part) in &rows.parts {
         assert!(part.expr_ty.keys().all(|k| k.decl == *id), "{id}: a row of another declaration");
-        assert!(part.fn_effects.keys().all(|k| k == id), "{id}: another declaration's effects");
+        assert!(part.effects_taken.keys().all(|k| k.decl == *id), "{id}: another declaration's effects");
     }
     let errors: usize = rows.parts.values().map(|p| p.errors.len()).sum::<usize>() + rows.rest.errors.len();
     assert_eq!(errors, checked.errors.len());
@@ -207,7 +207,7 @@ fn broken() -> Int {\n    return nope\n}\n";
     let broken = checked.decls.item(file, item("broken")).unwrap();
     assert!(rows.parts[&broken].errors.iter().any(|d| d.id == Some("name-ident-resolve:unknown")), "the error is `broken`'s");
     let twice = checked.decls.item(file, item("twice")).unwrap();
-    assert!(rows.parts[&twice].fn_effects.contains_key(&twice));
+    assert!(rows.parts[&twice].effects_taken.keys().any(|k| k.decl == twice));
     let handler = program.modules[file].items.iter().position(|i| matches!(i, salvo_syntax::ast::Item::Handler(_))).unwrap();
     let member = checked.decls.member(file, handler, 1).unwrap();
     assert!(rows.parts.get(&member).is_some_and(|p| !p.expr_ty.is_empty()), "the member's body rows are the member's");

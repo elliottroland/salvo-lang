@@ -3105,8 +3105,8 @@ Conventions:
     the same type"), is DECISION P15 (ROADMAP 0am). Declaring both obligations
     stays refused at the type [iter-group].
   * **The calls' facts.** Neither call has a node of its own, so their call
-    facts (`call_fn`, `implicit_args`, `call_effects`, `local_calls`/
-    `local_call_names`, `member_calls`/`effect_calls`) are keyed `Key::FOR_NEXT`
+    facts (`call_fn`, `implicit_args`, `effects_passed`, `local_calls`/
+    `local_call_names`, `member_calls`) are keyed `Key::FOR_NEXT`
     and `Key::FOR_ITER` of the subject's node [node-id]; `Checked::for_drivers`
     keeps what the loop needs beyond them (the `Emitted` arm, whether the
     iterator is driven in place, the type `iter` mints, a step call). What a
@@ -5018,8 +5018,8 @@ Conventions:
     declares it**. Nothing is written into the AST and no import is
     synthesised; an implied effect's members are callable because the effect
     is *available* in the body, not because its name is in scope. The
-    expanded lists are `Checked` tables — `fn_effects` (and `decl_effects`,
-    the written list expanded, before handler deps), `handler_deps`,
+    expanded lists are `Checked` tables — `effects_taken` (at each fn's
+    name: the written list expanded, before handler deps), `handler_deps`,
     `effect_prereqs` — and the IR builder and both emitters read them, so
     they agree by construction. LSP hover shows the expanded list (user
     decision R6, 2026-10-20: hover says what the code is interpreted as).
@@ -5065,7 +5065,7 @@ Conventions:
     `Checked` tables, the IR and LSP hover carry [backend-never-wrong].
   dependencies. Calling a fn requires each of its effects to be available
   in the caller (declared or `use`d) — validated by the checker at every
-  call site, recorded per-call (`call_effects`) in declaration order.
+  call site, recorded per-call (`effects_passed`, `Leading`) in declaration order.
 * [effect-with-clause] **`with` supplies specific dependency instances** to a `use`
   or a `spawn` (user decision 2026-09-20, superseding the never-built `using`
   rename of 2026-09-19 — and the clause's original `use` spelling, which
@@ -5330,9 +5330,10 @@ Conventions:
   * Repeats of *one* instance are not ambiguity: they are shadowing, and
     the innermost answers [effect-use-no-dup]. Only *different* instances of a
     generic effect can be ambiguous.
-  * The resolved instance is recorded per call site (`effect_calls`).
+  * The resolved instance is recorded per call site (`effects_passed`,
+    `Receiver`: the call's receiver, not an argument).
   * Emitter effect environments are keyed by the *checker's* effect types
-    (`fn_effects` for declared lists, `use_effects` for registrations,
+    (`effects_taken` for declared lists, `use_effects` for registrations,
     `effect_calls`/`call_effects` for lookups); the backend type
     rendering is a secondary key, used only where no checker type exists
     (unchecked contexts) and for the same-base-name fallback that matches
@@ -9409,7 +9410,7 @@ between endpoints and delivers what arrives into the scheduler.
   once per walk for its own half:
   1. *signature facts*, over every file: each fn's implicit parameters
      [implicit-param], the claims it establishes [deduce-reapply] and its
-     expanded effect list [fn-effects] (`decl_effects`, `fn_effects`), and
+     expanded effect list [fn-effects] (`effects_taken`), and
      each effect member's implicits — what other interfaces read out of
      tables, so they come first;
   2. *headers*, over every file: everything else a declaration says to
@@ -11436,7 +11437,7 @@ between endpoints and delivers what arrives into the scheduler.
     item, member) and which id is at a position, for what still needs the
     file or the AST (emission order, a default's declaring file, the
     language server's definition sites, the check cache's per-file rows).
-  * The checker's fn-keyed tables (`fn_effects`, `fn_lends`,
+  * The checker's fn-keyed tables (`fn_lends`,
     `implicit_params`, `established_quals`, `param_mutations`,
     `deductions`, `call_fn`, `fn_refs`, `replyto_tasks`,
     `ImplicitArg::Resolved`, …) and the IR's references
@@ -11570,7 +11571,7 @@ between endpoints and delivers what arrives into the scheduler.
     file's tag never meets a std file's).
 * [decl-rows] **Every row of `Checked` belongs to one declaration**
   (PIPELINE.md §II.9 A4; `partition.rs`): a node-keyed row to its key's
-  declaration, a declaration-keyed row (`fn_effects`, `implicit_params`,
+  declaration, a declaration-keyed row (`fn_lends`, `implicit_params`,
   `deductions`, …) to that declaration, a row keyed by a handler's or an
   effect's symbol key (`route_keys`, `handler_deps`, `effect_prereqs`,
   `protocol_hashes`, `parking_handlers`) to that handler or effect, a row
@@ -12605,7 +12606,7 @@ replaced the working document TESTING.md).
 * [effect-dispatch] **A call is an effect-member dispatch exactly when the
   checker says so** (built 2026-10-06, `Checked::member_calls`): the call's
   span maps to the effect and to the member's index in its declaration order,
-  and the instance it goes through is `effect_calls`. A backend never asks
+  and the instance it goes through is its `effects_passed` receiver. A backend never asks
   whether a name *could* be a member — a fn-typed local, or an ordinary fn
   sharing a member's name because no instance of the effect was in scope,
   is not one.
@@ -12643,7 +12644,7 @@ replaced the working document TESTING.md).
     and written parameter types (`salvo_core::effect_member_index`), which is
     what tells two overloads apart.
   * The emitters read the checker's per-call resolution
-    (`Checked::effect_calls`); the name-keyed fallback only answers when
+    (`Checked::effects_passed`, a receiver); the name-keyed fallback only answers when
     the name has a sole owner.
   * Known leftover: the LSP def-site table is name-keyed, so
     go-to-definition on a *shared* member name lands on one declaration
@@ -12667,7 +12668,7 @@ replaced the working document TESTING.md).
     (`Selector::Effect`): fns and the members of other effects do not
     compete.
   * The selector is a checker mechanism: it narrows what
-    `Checked::effect_calls` records, and emission is the ordinary member
+    `Checked::effects_passed` records as the receiver, and emission is the ordinary member
     call.
 * [backend-companion] A backend-native source file next to a module's
   sources (`complicated.kt` beside `complicated.sv`, using the backend's
@@ -13654,7 +13655,9 @@ replaced the working document TESTING.md).
   under its id [decl-id] (`total(#0) -> Int@main`; a file's own nodes under
   `(file)@module`), one line per node it typed in source order — its
   position and text, its type, the declaration a call resolved to, and the
-  marks `dot`, `by-value`, `linear-move`, `narrowed from T` (a flow
+  marks `dot`, `by-value`, `linear-move`, `takes E, F` (the effects a
+  callable takes as leading parameters), `passes E, F` / `receiver E` (what
+  a call gives of the effects in scope), `narrowed from T` (a flow
   narrowing, `T` the storage's type), `claimed from T` (a field claim
   [qual-field-override]) and the test a node asks: `test arms 0, 2`
   (an arm with a value condition as `0 is "a" | "b"` or `0 not "a"`),

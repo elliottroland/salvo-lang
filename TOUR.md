@@ -467,7 +467,7 @@ see scopes. Now they ask the checker's answer:
 if let Some(call) = self.checked.member_calls.get(&self.key(span)).cloned() {
     let effect: &str = self.symbols.effects.get_key_value(call.effect.as_str()) …;
     let member = self.symbols.effects.get(effect).and_then(|e| e.fns.get(call.index));
-    // handler expression comes from `effect_calls` (the instance), args from the
+    // handler expression comes from `effects_passed` (the receiver), args from the
     // member's parameter modes, …
 }
 ```

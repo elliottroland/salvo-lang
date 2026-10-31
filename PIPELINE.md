@@ -2636,8 +2636,19 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      `widen_targets` is gone (the IR narrows a `^` subject to the arm the
      test matched, as for an `is`; reads inside the branch are
      `narrowed_reads`), `test_info` is gone, and `salvo facts` marks
-     `test …`. `^Mut` became a conversion on the way. The rest: effect
-     lists as explicit arguments (ten tables), a
+     `test …`. `^Mut` became a conversion on the way. **Effect lists
+     built — done** (user, 2026-10-30): `fn_effects` + `decl_effects` +
+     `lambda_effects` are `effects_taken` (what the callable at a node
+     takes: a fn's name, a lambda, a fn named as a value; no lookup by
+     `DeclId` is left), `call_effects` + `effect_calls` +
+     `task_mint_effects` are `effects_passed` (`Receiver(Ty)` |
+     `Leading(Vec<Ty>)`), and the IR passes the checker's instances for a
+     call through a fn value too, instead of rebuilding them from the fn
+     type. Naming each argument's instance (which `use`, which parameter)
+     is D3's, with `effect_instance`'s search. The handle tables (`use_*`,
+     `spawn_effects`, `project_effects`, `merge_effects`) go with handler
+     construction, which also takes `handler_deps`, `effect_prereqs` and
+     `fn_body_effects` for overlap (user, 2026-10-30). The rest: a
      call's borrowed result, `Send` (`self_sends`, `facade_sends`,
      `addr_calls`, `replyto_*`, `actor_sends`, `task_sends`), handler
      construction (`use_deps`, `use_with_items`, `spawn_deps`,
@@ -2645,7 +2656,12 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      handoff last: explicit places and moves may retire it.
 - **D3. The IR builder becomes the lowering of the typed form**: erasure as
   its own sub-phase (qualifiers, effects to parameters, union wrapping),
-  then flow. The builder's ~87 table reads go.
+  then flow. The builder's ~87 table reads go. **Decided (user,
+  2026-10-30)**: each effect argument names its instance — a `use` at a
+  node, the enclosing fn's or lambda's effect parameter *i*, a handler
+  dependency *i* — so the IR reads it instead of searching its
+  environment by type and then by base name (`effect_instance`, whose
+  base-name fallback is a leniency).
 - **D4. The typed dump and the full round trip**: B4 extended to types,
   type arguments and narrowings (marked notation where Salvo has no
   spelling).

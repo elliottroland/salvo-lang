@@ -423,7 +423,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 info.nested.cloned().unwrap_or_default(),
             )
         };
-        let declared: Vec<Ty> = self.ctx.checked.fn_effects.get(&k).map(|v| crate::threaded_effects(v).iter().map(erase).collect()).unwrap_or_default();
+        let declared: Vec<Ty> = self.fn_taken(k).map(|v| crate::threaded_effects(&v).iter().map(erase).collect()).unwrap_or_default();
         if taken == declared && nested.is_empty() {
             return Expr { ty, span, kind: ExprKind::FnValue(FnRef::Decl(id)) };
         }
@@ -746,12 +746,10 @@ impl<'a, 'p> Lower<'a, 'p> {
         if info.local_call {
             let name = info.local_call_name.cloned().unwrap_or_default();
             let local = self.lookup(&name).map(|b| b.local.clone()).or_else(|| self.implicit_locals.get(&name).cloned()).unwrap_or(Local(name.clone()));
-            let mut a: Vec<Expr> = Vec::new();
-            if let Some(Ty::Fn { effects, .. }) = self.lookup(&local.0).map(|b| b.ty.clone()) {
-                for t in crate::threaded_effects(&effects) {
-                    a.push(self.effect_instance(&t, span));
-                }
-            }
+            let mut a: Vec<Expr> = match info.call_effects.cloned() {
+                Some(effs) => crate::threaded_effects(&effs).iter().map(|t| self.effect_instance(t, span)).collect(),
+                None => Vec::new(),
+            };
             a.extend(args);
             return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Local(local), type_args: Vec::new(), args: a, moved: false } };
         }
@@ -762,7 +760,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // Effects as values: the instances a callee declaring effects takes.
         let effects: Vec<Ty> = match info.call_effects {
             Some(effs) => effs.clone(),
-            None => self.ctx.checked.fn_effects.get(&k).cloned().unwrap_or_default(),
+            None => self.fn_taken(k).unwrap_or_default(),
         };
         let mut lowered: Vec<Expr> = Vec::new();
         for t in effects.iter().filter(|t| !matches!(t, Ty::Named { name, .. } if name == crate::THROW_EFFECT)) {
@@ -1143,6 +1141,13 @@ impl<'a, 'p> Lower<'a, 'p> {
         Expr { ty: want, span: at, kind: ExprKind::Lambda { params: ps, ret, body: Block { stmts: Vec::new(), value: Some(Box::new(call)), span: at }, captures } }
     }
 
+    /// [fn-effects] The effects the fn declaration `k` takes, at its name.
+    fn fn_taken(&self, k: crate::DeclId) -> Option<Vec<Ty>> {
+        let file = self.ctx.resolution.decls.loc(k)?.file;
+        let decl = self.ctx.fn_by_key(k)?;
+        self.ctx.checked.effects_taken_by(file, decl).cloned()
+    }
+
     /// The instance in scope for an effect type [effect-available].
     pub(crate) fn effect_instance(&mut self, ty: &Ty, span: Span) -> Expr {
         let want = erase(ty);
@@ -1249,7 +1254,10 @@ impl<'a, 'p> Lower<'a, 'p> {
         // its leading arguments (found beside B1 census D19, 2026-10-27 — a
         // computed callee with effects had none passed, and both target
         // compilers refused the call).
-        let mut a = self.fn_value_effect_args(&tt, span);
+        let mut a: Vec<Expr> = match info.call_effects.cloned() {
+            Some(effs) => crate::threaded_effects(&effs).iter().map(|t| self.effect_instance(t, span)).collect(),
+            None => Vec::new(),
+        };
         let rest: Vec<Expr> = all_args.iter().map(|x| self.expr(x)).collect();
         // [fn-contract] The checker applied the value's contract here too
         // (B1 census D19): a consumed position consumes its place.
@@ -1300,14 +1308,11 @@ impl<'a, 'p> Lower<'a, 'p> {
             };
             // [fn-effects] the effects the fn value performs are its leading
             // arguments; the contract says how each position is taken.
-            let mut a: Vec<Expr> = Vec::new();
-            if let Some(Ty::Fn { effects, .. }) = self.lookup(&local.0).map(|b| b.ty.clone()) {
-                // [throw] A throw is not a threaded instance: it goes to the
-                // delimiter, as a named callee's does.
-                for t in crate::threaded_effects(&effects) {
-                    a.push(self.effect_instance(&t, span));
-                }
-            }
+            let mut a: Vec<Expr> = match info.call_effects.cloned() {
+                // [fn-effects] The instances the checker resolved for the call.
+                Some(effs) => crate::threaded_effects(&effs).iter().map(|t| self.effect_instance(t, span)).collect(),
+                None => Vec::new(),
+            };
             let rest: Vec<Expr> = all_args.iter().map(|x| self.expr(x)).collect();
             let rest = self.mark_consumed_by_contract(rest, &key);
             a.extend(rest);
@@ -1906,7 +1911,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             .and_then(|l| match self.ctx.program.modules[l.file].items.get(l.item) {
                 // [effect-alias] [effect-prereq] As the checker expanded it.
                 Some(ast::Item::Qualifier(q)) => q.fns.get((l.sub as usize).wrapping_sub(1)).map(|f| {
-                    self.ctx.checked.decl_effects.get(&self.ctx.checked.key_at(l.file, f.name.span)).map(|l| l.iter().map(erase).collect()).unwrap_or_default()
+                    self.ctx.checked.effects_taken_by(l.file, f).map(|l| l.iter().map(erase).collect()).unwrap_or_default()
                 }),
                 _ => None,
             })
@@ -2253,19 +2258,6 @@ impl<'a, 'p> Lower<'a, 'p> {
             Some(ast::Item::Qualifier(q)) => q.fns.get((l.sub as usize).wrapping_sub(1)).map(|f| (l.file, f.clone())),
             _ => None,
         }
-    }
-
-    /// [fn-effects] The leading arguments of a call through a fn value of
-    /// type `fty`: the instances of the effects it performs. A throw is not
-    /// a threaded instance [throw].
-    fn fn_value_effect_args(&mut self, fty: &Ty, span: Span) -> Vec<Expr> {
-        let mut a = Vec::new();
-        if let Ty::Fn { effects, .. } = fty.strip_quals() {
-            for t in crate::threaded_effects(effects) {
-                a.push(self.effect_instance(&t, span));
-            }
-        }
-        a
     }
 
     /// [expr-pipe] `lhs |> rhs`: bind the left side to a temporary, make it the

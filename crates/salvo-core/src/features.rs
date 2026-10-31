@@ -120,7 +120,7 @@ pub fn module_features(
     if checked.spawn_effects.keys().any(|k| mine(&k))
         || checked.use_addrs.keys().any(|k| mine(&k))
         || checked.addr_calls.keys().any(|k| mine(&k))
-        || checked.task_mint_effects.keys().any(|k| mine(&k))
+        || checked.replyto_tasks.keys().any(|k| mine(&k) && checked.effects_passed.contains_key(k))
         || checked.actor_gates.iter().any(|(_, k)| k.file() == file_idx)
         || checked.facade_sends.keys().any(|k| mine(&k))
         || checked.replyto_members.keys().any(|k| mine(&k))

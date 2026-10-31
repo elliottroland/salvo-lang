@@ -471,21 +471,18 @@ fn fn_decl(
     // The tables are keyed by the fn's key; a qualifier fn has one through
     // its name span, a member none.
     let table_key = key.or_else(|| ctx.checked.fn_refs.get(&ctx.checked.key_at(file_idx, f.name.span)).copied());
-    // [effect-alias] [effect-prereq] A fn without a key (a qualifier's, a
-    // member) has its expanded list by name span.
-    let declared_effects: Vec<Ty> = ctx.checked.decl_effects.get(&ctx.checked.key_at(file_idx, f.name.span)).cloned().unwrap_or_default();
+    // [effect-alias] [effect-prereq] [effect-fn-deps] Effects as values:
+    // leading parameters, as the checker expanded them, at the fn's name
+    // (every fn has one there, a member's and a qualifier's included).
+    let taken: Vec<Ty> = ctx.checked.effects_taken_by(file_idx, f).cloned().unwrap_or_default();
     let mut params: Vec<Param> = Vec::new();
-    // [effect-fn-deps] Effects as values: leading parameters.
-    let effects: Vec<Ty> = table_key
-        .and_then(|k| ctx.checked.fn_effects.get(&k))
-        .cloned()
-        .unwrap_or(declared_effects)
-        .into_iter()
+    let effects: Vec<Ty> = taken
+        .iter()
         .filter(|t| !matches!(t, Ty::Named { name, .. } if name == crate::THROW_EFFECT))
-        .map(|t| erase(&t))
+        .map(erase)
         .collect();
-    let throws: Option<Ty> = table_key.and_then(|k| ctx.checked.fn_effects.get(&k)).and_then(|effs| {
-        effs.iter().find_map(|t| match t {
+    let throws: Option<Ty> = table_key.and_then(|_| {
+        taken.iter().find_map(|t| match t {
             Ty::Named { name, args } if name == crate::THROW_EFFECT => Some(args.first().map(erase).unwrap_or(Ty::Unknown)),
             _ => None,
         })

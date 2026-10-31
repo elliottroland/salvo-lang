@@ -646,6 +646,33 @@ pub struct NarrowedRead {
     pub by: NarrowBy,
 }
 
+/// [fn-effects] [effect-dispatch] What a call site gives of the effects in
+/// scope (`Checked::effects_passed`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum EffectsPassed {
+    /// The instance an effect-member call dispatches on, after generic
+    /// disambiguation: the call's receiver, not an argument.
+    Receiver(Ty),
+    /// The instances a call passes ahead of its arguments.
+    Leading(Vec<Ty>),
+}
+
+impl EffectsPassed {
+    pub fn receiver(&self) -> Option<&Ty> {
+        match self {
+            EffectsPassed::Receiver(t) => Some(t),
+            EffectsPassed::Leading(_) => None,
+        }
+    }
+
+    pub fn leading(&self) -> Option<&Vec<Ty>> {
+        match self {
+            EffectsPassed::Leading(v) => Some(v),
+            EffectsPassed::Receiver(_) => None,
+        }
+    }
+}
+
 /// What a [`NarrowedRead`] rests on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NarrowBy {
@@ -963,16 +990,6 @@ pub struct Checked {
     /// resolved through the scope ladder and the emitters need the declaration
     /// the checker picked, not a name to re-resolve.
     pub replyto_tasks: HashMap<Key, DeclId>,
-    /// [task-effects] The effect instances a **task mint** inherits from the
-    /// minting scope, keyed by the `replyto` span and in the target's declared
-    /// order — so the emitters pass one argument per entry, in the order the
-    /// target's parameters expect them.
-    ///
-    /// Resolved here rather than in the emitters for the reason
-    /// `spawn_dep_items` is: the scope ladder and the shareability rule are the
-    /// checker's, and a backend re-deriving them would be a second
-    /// implementation of [effect-handle].
-    pub task_mint_effects: HashMap<Key, Vec<Ty>>,
     /// [actor-use-addr] The effect each `use addr` statement binds, keyed by
     /// the statement's span: the emitters generate a forwarding stub over
     /// the addr rather than constructing a handler.
@@ -1088,9 +1105,6 @@ pub struct Checked {
     /// mint's `replyto` span, so a row belongs to the file it was written in
     /// [lsp-check-cache].
     pub task_mints: Vec<(String, String, Key)>,
-    /// The concrete effect instance an effect-member call dispatches
-    /// through (keyed by the call span), after generic disambiguation.
-    pub effect_calls: HashMap<Key, Ty>,
     /// [effect-member-overload] Which **overload** of an effect member a call
     /// resolved to: the member's index in its effect's declaration order,
     /// keyed by the call span. Recorded only where the effect declares the
@@ -1140,22 +1154,23 @@ pub struct Checked {
     /// [implicit-same-name] A local call through one of several implicits of
     /// one name: the [`ImplicitParam::local`] it went through.
     pub local_call_names: HashMap<Key, String>,
-    /// Concrete effect instances threaded as leading handler arguments for
-    /// a call to a fn that declares effect dependencies (keyed by the call
-    /// span, in the callee's declaration order).
-    pub call_effects: HashMap<Key, Vec<Ty>>,
-    /// The lowered declared effect list of each fn [effect-fn-deps], in
-    /// declaration order (duplicates and unresolved entries dropped) —
-    /// the primary source for the emitters' effect-parameter
-    /// environments, keyed by checker types rather than type renderings.
-    pub fn_effects: HashMap<DeclId, Vec<Ty>>,
-    /// [effect-alias] [effect-prereq] The same for **every** fn the checker
-    /// lowered — handler and qualifier members included, which are not keyed
-    /// by their `DeclId` — by the fn's name span, without a member's inherited
-    /// handler dependencies: the expanded list (aliases flattened,
-    /// prerequisites added) the IR and the language server read instead of
-    /// the written one (PIPELINE.md R6).
-    pub decl_effects: HashMap<Key, Vec<Ty>>,
+    /// [fn-effects] [effect-fn-deps] The leading effect parameters of the
+    /// callable at a node (PIPELINE.md D2, effect lists): a fn's — every fn
+    /// the checker lowered, handler and qualifier members included — at its
+    /// name, expanded (aliases flattened, prerequisites added, the effects of
+    /// fn-typed parameters first; a member's inherited handler dependencies
+    /// not); a lambda's, at the lambda (the declared set of the fn type it
+    /// was checked against, or the set inferred from its body); and a fn
+    /// named as a value's, at the name where it is used — the set the use
+    /// site expects it to take, which an adapter supplies when it differs
+    /// from the fn's own.
+    pub effects_taken: HashMap<Key, Vec<Ty>>,
+    /// [fn-effects] [effect-dispatch] [task-effects] What a call site gives
+    /// of the effects in scope (PIPELINE.md D2, effect lists): the instance
+    /// an effect-member call dispatches on, or the instances a call — named,
+    /// through a fn value, or a task mint — passes ahead of its arguments, in
+    /// the callee's declared order.
+    pub effects_passed: HashMap<Key, EffectsPassed>,
     /// [effect-handler-deps] [effect-prereq] Each handler's dependencies, by
     /// handler key: written ones with aliases flattened, then the
     /// prerequisites of its faces, each with the span it came from.
@@ -1177,12 +1192,6 @@ pub struct Checked {
     /// type. The backends' intrinsic lowerings render these
     /// [backend-intrinsic].
     pub call_type_args: HashMap<Key, Vec<Ty>>,
-    /// [fn-effects] The effect values a lambda takes as leading
-    /// parameters, in order (keyed by the lambda expression's span): the
-    /// declared set of the fn type it was checked against, or the set
-    /// inferred from its body. Both emitters thread these *into* the
-    /// closure instead of capturing them.
-    pub lambda_effects: HashMap<Key, Vec<Ty>>,
     /// [fn-value] The implicits a function passed **by name** fills in turn,
     /// at the name's span — the same `nested` an implicit filled by that
     /// function records (`ImplicitArg::Resolved`), since the two are one
@@ -1773,11 +1782,11 @@ impl Checked {
             dot_call: self.dot_calls.contains(&key),
             field_call: self.field_calls.contains(&key),
             member_call: self.member_calls.get(&key),
-            effect_call: self.effect_calls.get(&key),
+            effect_call: self.effects_passed.get(&key).and_then(EffectsPassed::receiver),
             local_call: self.local_calls.contains(&key),
             local_call_name: self.local_call_names.get(&key),
             call_fn: self.call_fn.get(&key),
-            call_effects: self.call_effects.get(&key),
+            call_effects: self.effects_passed.get(&key).and_then(EffectsPassed::leading),
             call_type_args: self.call_type_args.get(&key),
             implicit_args: self.implicit_args.get(&key),
             fn_value_call: self.fn_value_calls.get(&key),
@@ -1811,7 +1820,7 @@ impl Checked {
             spawn_dep_items: self.spawn_dep_items.get(&key),
             spawn_effects: self.spawn_effects.get(&key),
             replyto_task: self.replyto_tasks.get(&key),
-            task_mint_effects: self.task_mint_effects.get(&key),
+            task_mint_effects: self.effects_passed.get(&key).and_then(EffectsPassed::leading),
             replyto_member: self.replyto_members.get(&key),
         }
     }
@@ -1822,7 +1831,7 @@ impl Checked {
     /// the member it is [effect-member-overload].
     pub fn fn_value_info(&self, key: Key) -> FnValueInfo<'_> {
         FnValueInfo {
-            effects: self.lambda_effects.get(&key),
+            effects: self.effects_taken.get(&key),
             nested: self.fn_value_implicits.get(&key),
             member: self.member_values.get(&key),
         }
@@ -1833,6 +1842,12 @@ impl Checked {
     /// a projection taking its root), a move only the flow pass sees, the
     /// type a predicate field override refines it to, and the type it is
     /// stored at when it reads narrowed.
+    /// [fn-effects] The effects a fn declaration takes, at its name in the
+    /// file that declares it.
+    pub fn effects_taken_by(&self, file: usize, f: &FnDecl) -> Option<&Vec<Ty>> {
+        self.effects_taken.get(&self.key_at(file, f.name.span))
+    }
+
     /// [ir-narrow] The storage type of a read the *flow* narrowed (not a
     /// field claim, which a test subject reads through).
     pub fn flow_stored(&self, key: Key) -> Option<&Ty> {
@@ -1855,7 +1870,7 @@ impl Checked {
     /// the contract it was checked against [fn-contract].
     pub fn lambda_info(&self, key: Key) -> LambdaInfo<'_> {
         LambdaInfo {
-            effects: self.lambda_effects.get(&key),
+            effects: self.effects_taken.get(&key),
             captures: self.lambda_captures.get(&key),
             contract: self.lambda_contracts.get(&key),
         }
@@ -6452,6 +6467,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// return as a call sees it — the claim a constructor gains (`-> +Valid
     /// Range`), through [`Self::fn_return_ty`] — its contract and its effects. What a position
     /// makes of it is [`Self::fn_value_at`].
+    /// [fn-effects] The effects a fn declaration takes, from its name in the
+    /// file that declares it (`effects_taken`).
+    fn decl_effects_taken(&self, key: DeclId, decl: &FnDecl) -> Vec<Ty> {
+        self.out.decls.loc(key).and_then(|l| self.out.effects_taken_by(l.file, decl)).cloned().unwrap_or_default()
+    }
+
     fn fn_value_ty(&mut self, key: DeclId, decl: &'p FnDecl) -> Ty {
         let saved = self.enter_generics(&decl.generics);
         let mut params: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
@@ -6483,7 +6504,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 })
                 .collect()
         });
-        let effects = self.out.fn_effects.get(&key).cloned().unwrap_or_default();
+        let effects = self.decl_effects_taken(key, decl);
         Ty::Fn {
             params,
             ret: Box::new(ret),
@@ -8256,7 +8277,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [fn-effects] A named fn passed by value performs exactly the
         // effects it declares (inherited entries included) — its callers
         // supply them.
-        let effects = self.out.fn_effects.get(&entry.key).cloned().unwrap_or_default();
+        let effects = self.decl_effects_taken(entry.key, decl);
         // [fn-effects] What the *use site* expects the value to accept: a
         // pure fn passed where effects are expected must still take (and
         // ignore) them, so the emitters adapt against the expectation, not
@@ -8268,7 +8289,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }) => exp_effects.clone(),
             _ => effects.clone(),
         };
-        self.out.lambda_effects.insert(self.key(name_span), taken);
+        self.out.effects_taken.insert(self.key(name_span), taken);
         // [fn-value] At an expected fn type, the value is what the shared
         // rule makes of the declaration there — generics instantiated, its
         // own implicits filled — exactly as an implicit filled by it would
@@ -9503,10 +9524,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // builds its `Ty::Fn` from this table, whichever body names it
         // first (PIPELINE.md step 7).
         let tys: Vec<Ty> = effects.iter().map(|a| a.ty.clone()).collect();
-        self.out.decl_effects.insert(self.key(f.name.span), tys.clone());
-        if let Some(key) = self.own_fn {
-            self.out.fn_effects.insert(key, tys);
-        }
+        self.out.effects_taken.insert(self.key(f.name.span), tys);
         SigFacts { implicits, effects, can_use, can_spawn }
     }
 
@@ -9820,7 +9838,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // had declared them — which it may not
         // ([effect-member-no-effects]): the dependency belongs to the
         // implementation, so it is declared once on the handler. (The
-        // fn's own list went to `decl_effects`/`fn_effects` with its
+        // fn's own list went to `effects_taken` with its
         // signature facts; a top-level fn inherits no dependencies.)
         for dep in &self.handler_deps {
             if !fn_effects.iter().any(|a| a.ty == dep.ty) {
@@ -15346,7 +15364,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         if record {
-            self.out.call_effects.insert(self.key(span), resolved);
+            self.out.effects_passed.insert(self.key(span), EffectsPassed::Leading(resolved));
         }
     }
 
@@ -16591,7 +16609,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// the seam, and an ambiguity between two compatible instances is refused
     /// rather than guessed.
     ///
-    /// Recorded in `task_mint_effects` in the target's declared order; the
+    /// Recorded in `effects_passed` in the target's declared order; the
     /// emitters clone the scope's handles into the closure.
     fn resolve_task_effects(&mut self, target: &'p FnDecl, span: Span) {
         let declared: Vec<Ty> = self
@@ -16642,7 +16660,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             resolved.push(avail.ty.clone());
         }
         if resolved.len() == declared.len() {
-            self.out.task_mint_effects.insert(self.key(span), resolved);
+            self.out.effects_passed.insert(self.key(span), EffectsPassed::Leading(resolved));
         }
     }
 
@@ -25397,8 +25415,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.out.call_fn.remove(&key);
         self.out.call_type_args.remove(&key);
         self.out.implicit_args.remove(&key);
-        self.out.call_effects.remove(&key);
-        self.out.effect_calls.remove(&key);
+        self.out.effects_passed.remove(&key);
     }
 
     /// [iter-for] Whether the call a `for` recorded at `key` went to a
@@ -25793,7 +25810,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // What the emitters need: the effect values this lambda takes as
         // leading parameters, in order.
         self.out
-            .lambda_effects
+            .effects_taken
             .insert(self.key(span), effects.clone());
         let fn_ty = Ty::Fn {
             params: param_tys,
@@ -31835,7 +31852,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             //
             // **Order**: inherited requirements come *first*, as they do in
             // the callee's own environment (`check_effect_list`) and so in
-            // `fn_effects` — the emitters pass one argument per entry, so
+            // `effects_taken` — the emitters pass one argument per entry, so
             // the two lists must agree position by position.
             let mut inherited: Vec<(Ty, bool)> = Vec::new();
             // [fn-effects] Only a callee with no written list inherits.
@@ -31910,7 +31927,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         if !resolved.is_empty() {
-            self.out.call_effects.insert(self.key(span), resolved);
+            self.out.effects_passed.insert(self.key(span), EffectsPassed::Leading(resolved));
         }
     }
 
@@ -32172,7 +32189,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [fn-effects] Feeds an enclosing lambda's inferred set.
             let instance = instance.clone();
             self.note_effect_use(&instance);
-            self.out.effect_calls.insert(self.key(span), instance);
+            self.out.effects_passed.insert(self.key(span), EffectsPassed::Receiver(instance));
         }
         // [implicit-param] An effect member may declare implicit parameters:
         // they resolve at *this* call, with the instance's type arguments

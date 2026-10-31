@@ -3644,7 +3644,7 @@ fn fn_signature(program: &Program, checked: &Checked, key: DeclId) -> Option<Str
     // [effect-alias] [effect-prereq] The effects as the program means them
     // (PIPELINE.md R6): aliases flattened, prerequisites and the effects of
     // fn-typed parameters added.
-    let expanded = checked.fn_effects.get(&key).map(|v| v.as_slice());
+    let expanded = checked.effects_taken_by(checked.decls.loc(key)?.file, decl).map(|v| v.as_slice());
     Some(fn_decl_signature_with(decl, checked.deductions.get(&key).map(|d| d.as_slice()), expanded))
 }
 

@@ -144,6 +144,35 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Effects taken and effects passed, two tables (user decision, PIPELINE.md D2 effect lists, [fn-effects])
+
+- **Decided (user, 2026-10-30)**, on the write-up of the third D2 merge:
+  (1) effect arguments stay types for now (option (a)); naming each one's
+  instance is D3's (option (b), recorded there); (2) no lookup by
+  `DeclId` is left — every holder of one reaches the fn's name node — and
+  the tables are named for their purpose, `effects_taken` and
+  `effects_passed` (the user: "params" read too close to "args"), with
+  the member-dispatch case a `Receiver` (the user's name, over
+  `Through`); (3) the handle tables go with handler construction, which
+  also looks at `handler_deps`, `effect_prereqs` and `fn_body_effects`
+  for overlap; (4) the dump marks as proposed.
+- **Built**: `fn_effects` + `decl_effects` + `lambda_effects` are
+  `effects_taken: HashMap<Key, Vec<Ty>>` — what the callable at a node
+  takes, at a fn's name, a lambda, or a fn named as a value (the set the
+  use site expects); `Checked::effects_taken_by(file, decl)` is the hop
+  from a declaration. `call_effects` + `effect_calls` +
+  `task_mint_effects` are `effects_passed: HashMap<Key, EffectsPassed>`
+  (`Receiver(Ty)`, the instance a member call dispatches on;
+  `Leading(Vec<Ty>)`, what a call or task mint passes ahead of its
+  arguments). The IR now passes the checker's instances for a call
+  through a fn-typed local, an implicit, or a computed callee too, where
+  it rebuilt them from the fn type (`fn_value_effect_args` gone): the
+  checker's resolution is the only one. `salvo facts` marks `takes …`,
+  `passes …`, `receiver …`.
+- **Output**: no golden, example or emit pin moved, so the two
+  derivations agreed everywhere the suite reaches; the facts snapshot
+  gained `passes` marks. 709 tests under nextest, warm run 1m34.
+
 ### 2026-10-30 — An arm comparison evaluates both sides in order (user decision, [op-arm-eq], ROADMAP 0ay)
 
 - **Decided (user, 2026-10-30)**, option (b) of ROADMAP 0ay (recorded with
