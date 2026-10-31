@@ -627,25 +627,26 @@ Conventions:
   non-union receiver has one arm and nothing to guard, so `?.` on it is refused
   like a pointless `!`. It is a separate operator from `?:`, which supplies a
   default (`last_updated?.nanos ?: -1L`).
-  * **Checked through the ordinary path.** A field link types as `field_ty`
-    on the first arm; a call link resolves exactly as the dot call `base.m(args)`
-    would ([fn-member-call] [fn-uniform]), under a narrowing of the
-    receiver to its first arm. A link whose result already appears among the
-    other arms (it is optional, or its type equals a pass-through arm) is not
-    added again (no `Option<Option<T>>`, no duplicate arm).
-  * **A call link needs a place receiver** (a variable or field), because the
-    receiver is read twice (the arm test, then the call) and the call reads
-    it narrowed — the same twice-read rule a `when`/`!` subject obeys. A field
-    link needs no place, so a field chain `a?.b?.c` composes freely.
-  * **Lowered by reconstruction** ([ir-switch]): no dedicated IR node. The
-    receiver is bound once; the first arm is narrowed and the link performed on
-    it, the rest rewrapped through. For the `T | None` shape a two-arm `Switch`
-    yields `None` for the absent arm and the `Present`-lifted link for the
-    value arm — the present arm's `Narrow` carries `Justification::SafeNav`, the
-    hint a backend reads to reconstruct a native chain (`a?.b` on Kotlin,
-    `.and_then`/`.map` on Rust). A general union takes the rewrap shape (no
-    native reconstruction). The whole short-circuit is the same machinery
-    `!`/`?:` use; the linear check, narrowing and effects all apply unchanged.
+  * **It is a `when`** [when-lowered]: `base?.link` means
+    `when __navN = base { is #{first arm} { __navN.link } is #{rest} { __navN } }`,
+    so a field link types as the field of the narrowed first arm and a call
+    link resolves exactly as the dot call `__navN.m(args)` would
+    ([fn-member-call] [fn-uniform]). The join of the two arms is the result:
+    a link whose result already appears among the other arms (it is
+    optional, or its type equals a pass-through arm) is not added again (no
+    `Option<Option<T>>`, no duplicate arm).
+  * **Any receiver**, place or not: the receiver is bound once, so
+    `found(n)?.label()` needs no local. This fell out of the lowering
+    (2026-10-30): before it a call link read the receiver twice, and a
+    receiver that was not a place was `op-safe-nav:receiver-not-place`.
+  * **Backends**: no dedicated IR node. For the `T | None` shape the switch
+    has a first arm narrowing `__navN` and performing the link, `Present`-
+    lifted unless already optional, and an `else` yielding `None`; the first
+    arm's `Narrow` carries `Justification::SafeNav`, the hint a backend reads
+    to reconstruct a native chain (`a?.b` on Kotlin, `.and_then`/`.map` on
+    Rust; `ir::safe_nav::match_safe_nav`). A general union keeps the switch
+    (no native reconstruction). The linear check, narrowing and effects are
+    the `when`'s.
 * [type-none-unit] **A lambda answering `None` into an optional slot answers
   the slot's type** (2026-10-20): `(v: Int) -> None` passed as a `(v: Int)
   -> Str?` is typed `(Int) -> Str?`, not `(Int) -> None`, which Kotlin
@@ -2920,9 +2921,9 @@ Conventions:
     (`when-union-head:mixed-values`) rather than guessed. The IR's
     `ArmTest::Arms` already carried a multi-arm test (an alias head), so the
     backends needed nothing.
-  * The lowered `?:` uses it: the arms a pick leaves behind are one head
-    [when-lowered].
-* [when-lowered] **`?:` is sugar for a `when`** (user decision 2026-10-30,
+  * The lowered `?:` and `?.` use it: the arms a pick leaves behind are
+    one head [when-lowered].
+* [when-lowered] **`?:` and `?.` are sugar for a `when`** (user decision 2026-10-30,
   option (a) of PIPELINE.md D2's Convert write-up), lowered after parsing
   and before resolution, since it needs no names (`desugar::lower_picks`):
   * `s ?: rhs` becomes `when s { is #{first arm} { s } is #{rest} { rhs } }`
@@ -2935,16 +2936,24 @@ Conventions:
     subject's first declared arm, still left by nothing before it, and
     `#{rest}` is every arm the first one left. They exist only in lowered
     code (`ast::ArmHole`); written Salvo has no spelling for them.
-  * The `when` remembers its origin (`ast::WhenOrigin::Pick`), for the
-    diagnostics that are the operator's: `op-elvis:single-arm` on a one-arm
+  * `base?.link` becomes `when __navN = base { is #{first arm} {
+    __navN.link } is #{rest} { __navN } }`, always in the binding form
+    [op-safe-nav].
+  * The `when` remembers its origin (`ast::WhenOrigin::Pick`, `SafeNav`),
+    for the diagnostics that are the operator's: `op-elvis:single-arm` /
+    `op-safe-nav:single-arm` on a one-arm
     subject, a field-place subject the written `when` would refuse, the
     leniency of an unknown subject, and the call-return hint
     [fn-overload-return]. Nothing else consults it, except the IR: the
-    picked value moves out of a `__pickN` temporary, and the `#{rest}` arm
-    is the switch's `else`.
+    picked value moves out of a `__pickN` temporary, the `#{rest}` arm is
+    the switch's `else`, and a `?.`'s first arm narrows under
+    `Justification::SafeNav`. A local narrowed to `None` (the rest arm of a
+    `?.` on a `T?`) reads as `MakeNone`, since a `None`-typed binding is a
+    type no backend declares.
   * A parser test that wants the operator itself uses
     `parse_module_deferred`, which stops before the lowering; an unlowered
-    `?:` reaching the checker is `op-elvis:not-lowered`.
+    `?:` or `?.` reaching the checker is `op-elvis:not-lowered` /
+    `op-safe-nav:not-lowered`.
 * [when-exhaustive] `when` must be exhaustive over the subject's arms;
   arms are consumed sequentially (each branch matches what previous
   branches left), and a branch that can match nothing is an error. A

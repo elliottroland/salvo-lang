@@ -3,14 +3,15 @@
 //! `.and_then`/`.map` combinator chain on Rust) instead of emitting the raw
 //! `Switch`.
 //!
-//! `?.` lowers (in `build/body/exprs.rs::safe_nav`) to the same canonical
-//! "statements-then-value" shape as `!` and `?:`: a `block_expr` wrapper
-//! binding the receiver once into a temporary, then a two-arm `Switch` over
-//! that temporary — a `None` arm yielding `MakeNone`, and an `Else` arm whose
-//! first statement is a `Narrow` carrying [`Justification::SafeNav`] (the hint)
-//! and whose value is the link performed on the narrowed receiver. The
-//! `SafeNav` justification is what tells this shape apart from a hand-written
-//! `when`; everything else is matched structurally.
+//! `?.` is a `when` by the time the IR sees it [when-lowered]:
+//! `when __navN = base { is #{first arm} { __navN.link } is #{rest} { __navN } }`.
+//! On a `T?` receiver that builds a `block_expr` wrapper binding the receiver
+//! once into `__navN`, then a two-arm `Switch` over it — a first arm whose
+//! first statement is a `Narrow` carrying [`Justification::SafeNav`] (the
+//! hint) and whose value is the link performed on the narrowed receiver, and
+//! an `Else` arm yielding `MakeNone`. The `SafeNav` justification is what
+//! tells this shape apart from a hand-written `when`; everything else is
+//! matched structurally.
 
 use crate::ir::nodes::*;
 
@@ -72,11 +73,14 @@ pub fn match_safe_nav(e: &Expr) -> Option<SafeNav<'_>> {
     if bare_local(subject) != Some(safe) {
         return None;
     }
-    // Exactly two arms: `None` → a value, `Else` → narrow + link.
-    let [none_arm, else_arm] = sarms.as_slice() else {
+    // Exactly two arms: the first arm → narrow + link, `Else` → `None`.
+    let [present_arm, absent_arm] = sarms.as_slice() else {
         return None;
     };
-    if !matches!(none_arm.test, ArmTest::None) || !matches!(else_arm.test, ArmTest::Else) {
+    if matches!(present_arm.test, ArmTest::Else) || !matches!(absent_arm.test, ArmTest::Else) {
+        return None;
+    }
+    if !absent_arm.body.stmts.is_empty() || !matches!(absent_arm.body.value.as_deref().map(|v| &v.kind), Some(ExprKind::MakeNone)) {
         return None;
     }
     // The present arm opens with the SafeNav-justified narrow.
@@ -84,11 +88,11 @@ pub fn match_safe_nav(e: &Expr) -> Option<SafeNav<'_>> {
         local: nav,
         because: Justification::SafeNav { .. },
         ..
-    }] = else_arm.body.stmts.as_slice()
+    }] = present_arm.body.stmts.as_slice()
     else {
         return None;
     };
-    let value = else_arm.body.value.as_deref()?;
+    let value = present_arm.body.value.as_deref()?;
     // A `Present` wrapper means the link was lifted into the optional; peel it
     // so the caller sees the raw link, and remember it was not already
     // optional.

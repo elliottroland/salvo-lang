@@ -2617,12 +2617,13 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      **`?:` lowered — done** ([when-lowered], COMPLETED.md 2026-10-30):
      `pick_left`, `elvis_picks`, `elvis_tests`, `elvis_widen`, `PickTest`
      and `pick_info` are gone, with the checker's `check_elvis` /
-     `install_elvis_guard` and the IR's `elvis()`. **`?.` next**, the same
-     way (origin `SafeNav`, keeping the native-chain hint), then — if the
-     user agrees — `?>`. The rest: effect lists as explicit arguments (ten
-     tables), `Convert` (`coerce`, `promotions`, `field_casts`, `repr_ty`),
-     `Test` (`is_tests`, `arm_compares`, `safe_navs`, `widen_targets`,
-     `predicate_tests`), a
+     `install_elvis_guard` and the IR's `elvis()`. **`?.` lowered — done**
+     the same way (origin `SafeNav`, the first arm's narrow keeping the
+     native-chain hint): `safe_navs`/`SafeNavInfo`, `check_safe_nav` and the
+     IR's `safe_nav()` are gone. `?>` could follow (a DECISION for the
+     user). The rest: effect lists as explicit arguments (ten tables),
+     `Convert` (`coerce`, `promotions`, `field_casts`, `repr_ty`), `Test`
+     (`is_tests`, `arm_compares`, `widen_targets`, `predicate_tests`), a
      call's borrowed result, `Send` (`self_sends`, `facade_sends`,
      `addr_calls`, `replyto_*`, `actor_sends`, `task_sends`), handler
      construction (`use_deps`, `use_with_items`, `spawn_deps`,

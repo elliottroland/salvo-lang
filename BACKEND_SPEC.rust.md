@@ -191,8 +191,8 @@ Conventions:
   `return` inside a closure returns from the closure [expr-escape]. A pick
   that **widens** its result wraps the picked value into the join union
   [type-rewrap].
-* [op-safe-nav] [rs-safe-nav] `base?.link` lowers by reconstruction to a
-  short-circuiting block ([op-safe-nav], [ir-switch]). When every link is a
+* [op-safe-nav] [rs-safe-nav] `base?.link` is a lowered `when`, a
+  short-circuiting block ([op-safe-nav], [when-lowered]). When every link is a
   **field** read, the Rust backend renders it as an
   `.and_then(..)`/`.map(..)` combinator chain
   (`base.and_then(|x| x.inner.clone()).map(|y| y.nanos)`): an already-optional

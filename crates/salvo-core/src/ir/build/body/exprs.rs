@@ -233,7 +233,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                     None => Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(true) },
                 }
             }
-            AExpr::SafeNav { base, access, .. } => self.safe_nav(base, access, span),
+            // [when-lowered] Lowered to a `when` before checking.
+            AExpr::SafeNav { .. } => unsupported(self.ty_of(span), span, "unlowered `?.`"),
             AExpr::Assert { cond, message, .. } => {
                 let c = self.expr(cond);
                 let mut m = message.as_ref().map(|m| Box::new(self.expr(m)));
@@ -478,6 +479,14 @@ impl<'a, 'p> Lower<'a, 'p> {
     pub(crate) fn read(&mut self, e: &AExpr) -> Expr {
         let span = e.span();
         let ty = self.ty_of(span);
+        // [ir-narrow] A local narrowed to `None` reads as the `None` it
+        // holds: a binding at `None` is a type no backend declares (the rest
+        // arm of a lowered `?.` on a `T?` [when-lowered]).
+        if let AExpr::Ident(id) = e {
+            if ty.is_none_ty() && self.lookup(&id.name).is_some_and(|b| !b.ty.is_none_ty() && b.ty.has_none_arm()) {
+                return Expr { ty, span, kind: ExprKind::MakeNone };
+            }
+        }
         let Some(place) = self.place_of(e) else {
             // A projection of a non-place (`f().x`): read through a temp.
             return match e {
@@ -2225,103 +2234,6 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
-    /// [op-safe-nav] `base?.link`: switch on the receiver; `None` short-circuits
-    /// the whole expression to `None`; otherwise the link is performed on the
-    /// receiver narrowed to its non-`None` arm and lifted back into an
-    /// optional. The present arm's `Narrow` carries `Justification::SafeNav`,
-    /// the hint a backend reads to reconstruct a native optional chain. The
-    /// shape mirrors `!` (bind once, switch `None`/else), differing only in
-    /// the `None` arm (a value, not a trap) and the result being optional.
-    fn safe_nav(&mut self, base: &AExpr, access: &ast::SafeAccess, span: Span) -> Expr {
-        let ty = self.ty_of(span);
-        let info = self.ctx.checked.safe_navs.get(&self.key(span)).cloned();
-        let inner = info.as_ref().map(|i| i.inner.clone()).unwrap_or(Ty::Unknown);
-        let already_opt = info.as_ref().map(|i| i.already_opt).unwrap_or(false);
-        let optional = info.as_ref().map(|i| i.optional).unwrap_or(true);
-        let rest = info.as_ref().map(|i| i.rest.clone()).unwrap_or_else(Ty::none);
-        // Bind the receiver once, read as stored.
-        let s = self.expr_subject(base);
-        let subj_ty = s.ty.clone();
-        let id = self.id();
-        let safe = self.fresh("__safe");
-        let lid = self.id();
-        let bind = Stmt::Let { id: lid, local: safe.clone(), ty: subj_ty.clone(), value: s };
-        // The present arm: narrow the receiver to its first arm, perform the
-        // link on it, and lift the result into the result union unless it is
-        // already there ([op-safe-nav], the `Option<Option<T>>`/arm-collapse
-        // guard).
-        let nav = self.fresh("__nav");
-        let nid = self.id();
-        let narrow = Stmt::Narrow {
-            id: nid,
-            local: nav.clone(),
-            ty: inner.clone(),
-            from: Place { root: safe.clone(), steps: Vec::new() },
-            from_ty: subj_ty.clone(),
-            because: Justification::SafeNav { switch: id },
-        };
-        let link = self.safe_link(&nav, &inner, access, span);
-        if optional {
-            // [kt-safe-nav] [rs-safe-nav] The `T | None` shape the backends
-            // reconstruct as a native optional chain: a `None` arm yielding
-            // `MakeNone`, an `Else` arm with the link lifted by `Present`.
-            let present_value = if already_opt {
-                link
-            } else {
-                Expr { ty: ty.clone(), span, kind: ExprKind::Present { value: Box::new(link) } }
-            };
-            let present = Block { stmts: vec![narrow], value: Some(Box::new(present_value)), span };
-            let absent = Block {
-                stmts: Vec::new(),
-                value: Some(Box::new(Expr { ty: ty.clone(), span, kind: ExprKind::MakeNone })),
-                span,
-            };
-            let sw = Expr {
-                ty: ty.clone(),
-                span,
-                kind: ExprKind::Switch {
-                    id,
-                    subject: Box::new(Expr { ty: subj_ty, span, kind: ExprKind::Read { place: Place { root: safe, steps: Vec::new() }, consume: false, moved: false } }),
-                    arms: vec![
-                        SwitchArm { test: ArmTest::None, body: absent },
-                        SwitchArm { test: ArmTest::Else, body: present },
-                    ],
-                },
-            };
-            return self.block_expr(vec![bind], sw, span);
-        }
-        // General union: the present arm rewraps the link's result into the
-        // result union; the `Else` arm narrows the receiver to the arms left
-        // behind and rewraps those into the result. No native reconstruction.
-        let present_value = self.rewrap_into(link, &ty, span);
-        let present = Block { stmts: vec![narrow], value: Some(Box::new(present_value)), span };
-        let rest_local = self.fresh("__rest");
-        let rrid = self.id();
-        let rest_narrow = Stmt::Narrow {
-            id: rrid,
-            local: rest_local.clone(),
-            ty: rest.clone(),
-            from: Place { root: safe.clone(), steps: Vec::new() },
-            from_ty: subj_ty.clone(),
-            because: Justification::Arm { switch: id, arm: 1 },
-        };
-        let rest_read = Expr { ty: rest.clone(), span, kind: ExprKind::Read { place: Place { root: rest_local, steps: Vec::new() }, consume: true, moved: false } };
-        let rest_value = self.rewrap_into(rest_read, &ty, span);
-        let absent = Block { stmts: vec![rest_narrow], value: Some(Box::new(rest_value)), span };
-        // Test the subject's first value arm directly (arm 0).
-        let test = Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Test { id: self.id(), subject: Box::new(Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: safe.clone(), steps: Vec::new() }, consume: false, moved: false } }), test: ArmTest::Arm(0) } };
-        let br = Expr {
-            ty: ty.clone(),
-            span,
-            kind: ExprKind::Branch {
-                id,
-                arms: vec![(test, present)],
-                otherwise: Some(absent),
-            },
-        };
-        self.block_expr(vec![bind], br, span)
-    }
-
     /// [op-safe-nav] Rewrap a value into the result union `ty` when its type is
     /// narrower, so a picked first-arm result or a passed-through remainder
     /// takes the whole union's representation [type-rewrap]. A `None`-typed value
@@ -2344,19 +2256,6 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
-    /// [op-safe-nav] The link performed on the narrowed receiver local `nav`
-    /// (type `inner`): a field read, or a dot call built from the checker's
-    /// recorded resolution with `nav` as the receiver argument.
-    fn safe_link(&mut self, nav: &Local, inner: &Ty, access: &ast::SafeAccess, span: Span) -> Expr {
-        match access {
-            ast::SafeAccess::Field(field) => {
-                let fty = self.struct_field_ty(inner, &field.name).unwrap_or_else(|| self.ty_of(span));
-                Expr { ty: fty, span, kind: ExprKind::Read { place: Place { root: nav.clone(), steps: vec![Step::Field(field.name.clone())] }, consume: false, moved: false } }
-            }
-            ast::SafeAccess::Call { field, args, .. } => self.safe_call(nav, inner, field, args, span),
-        }
-    }
-
     /// [fn-effects] The leading arguments of a call through a fn value of
     /// type `fty`: the instances of the effects it performs. A throw is not
     /// a threaded instance [throw].
@@ -2368,100 +2267,6 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
         }
         a
-    }
-
-    /// The declared type of field `name` of the struct `ty`, when it is one.
-    fn struct_field_ty(&self, ty: &Ty, name: &str) -> Option<Ty> {
-        let Ty::Named { name: sname, .. } = ty.strip_quals() else { return None };
-        let sd = self.ctx.symbols.structs.get(sname.as_str())?;
-        let f = sd.fields.iter().find(|f| f.name.name == name)?;
-        Some(match &f.ty {
-            Some(t) => self.ctx.written_ty(self.file_idx, t),
-            None => self.ctx.ty_of(self.file_idx, f.name.span).unwrap_or(Ty::Unknown),
-        })
-    }
-
-    /// [op-safe-nav] A `base?.m(args)` call, built from `call_info` recorded under
-    /// the `SafeNav` span on the narrowed receiver `nav`: a member call — a
-    /// send through an `eff[E]`, or a call through a fn-typed field
-    /// [fn-member-call] — or a uniform call with `nav` as argument zero
-    /// [fn-uniform], to an effect member, a fn-typed local or implicit, or a
-    /// declared fn. Anything else is refused rather than emitted wrong
-    /// ([backend-never-wrong]).
-    fn safe_call(&mut self, nav: &Local, inner: &Ty, field: &ast::Ident, args: &[AExpr], span: Span) -> Expr {
-        let key = self.key(span);
-        let ty = self.ty_of(span);
-        let recv = Expr { ty: inner.clone(), span, kind: ExprKind::Read { place: Place { root: nav.clone(), steps: Vec::new() }, consume: false, moved: false } };
-        let info = self.ctx.checked.call_info(key);
-        // [fn-member-call] A send through the narrowed addr.
-        if let Some(effect) = info.addr_call.cloned() {
-            let a: Vec<Expr> = args.iter().map(|x| self.expr(x)).collect();
-            return match self.member_ref_by_name(&effect, &field.name, span) {
-                Some(member) => Expr { ty, span, kind: ExprKind::Send { addr: Box::new(recv), member, args: a } },
-                None => unsupported(ty, span, "safe-nav addr send"),
-            };
-        }
-        // [fn-member-call] A call through the narrowed struct's fn-typed field.
-        if info.field_call {
-            let fty = self.struct_field_ty(inner, &field.name).unwrap_or(Ty::Unknown);
-            let read = Expr { ty: fty.clone(), span, kind: ExprKind::Read { place: Place { root: nav.clone(), steps: vec![Step::Field(field.name.clone())] }, consume: false, moved: false } };
-            let tmp = self.fresh("__callee");
-            let id = self.id();
-            let mut a = self.fn_value_effect_args(&fty, span);
-            let rest: Vec<Expr> = args.iter().map(|x| self.expr(x)).collect();
-            a.extend(self.mark_consumed_by_contract(rest, &key));
-            let call = Expr { ty: ty.clone(), span, kind: ExprKind::Call { target: FnRef::Local(tmp.clone()), type_args: Vec::new(), args: a, moved: false } };
-            return self.block_expr(vec![Stmt::Let { id, local: tmp, ty: fty, value: read }], call, span);
-        }
-        // [fn-uniform] A fn-typed local or implicit, the receiver first.
-        if info.local_call {
-            let local_name = info.local_call_name.cloned().unwrap_or_else(|| field.name.clone());
-            let local = self
-                .lookup(&local_name)
-                .map(|b| b.local.clone())
-                .or_else(|| self.implicit_locals.get(&local_name).cloned())
-                .or_else(|| self.lookup(&field.name).map(|b| b.local.clone()));
-            let Some(local) = local else {
-                self.error(span, messages::call_resolve_lower_unknown_local(&field.name));
-                return unsupported(ty, span, "safe-nav local call");
-            };
-            let lty = self.lookup(&local.0).map(|b| b.ty.clone()).unwrap_or(Ty::Unknown);
-            let mut a = self.fn_value_effect_args(&lty, span);
-            let mut rest = vec![recv];
-            rest.extend(args.iter().map(|x| self.expr(x)));
-            a.extend(self.mark_consumed_by_contract(rest, &key));
-            let moved = self.ctx.checked.flow_moves.contains(&key);
-            return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Local(local), type_args: Vec::new(), args: a, moved } };
-        }
-        // Effect-member dot call.
-        if let Some(mc) = info.member_call.cloned() {
-            let Some(interface) = self.ctx.decl_of_effect(&mc.effect) else {
-                return unsupported(ty, span, "safe-nav member call");
-            };
-            let instance_ty = info.effect_call.cloned().unwrap_or_else(|| Ty::named(mc.effect.clone()));
-            let instance = self.effect_instance(&instance_ty, span);
-            let mut call_args = vec![recv];
-            call_args.extend(args.iter().map(|a| self.expr(a)));
-            let type_args = self.type_args_of(span);
-            return Expr { ty, span, kind: ExprKind::MemberCall { instance: Box::new(instance), member: MemberRef { interface, index: mc.index }, type_args, args: call_args } };
-        }
-        // Declared free fn (the common dot-call case).
-        if let Some(k) = info.call_fn.copied() {
-            let mut call_args: Vec<Expr> = Vec::new();
-            if let Some(effs) = info.call_effects.cloned() {
-                for t in effs {
-                    if matches!(&t, Ty::Named { name, .. } if name == crate::THROW_EFFECT) {
-                        continue;
-                    }
-                    call_args.push(self.effect_instance(&t, span));
-                }
-            }
-            call_args.push(recv);
-            call_args.extend(args.iter().map(|a| self.expr(a)));
-            let type_args = self.type_args_of(span);
-            return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(k), type_args, args: call_args, moved: false } };
-        }
-        unsupported(ty, span, "safe-nav call")
     }
 
     /// [expr-pipe] `lhs |> rhs`: bind the left side to a temporary, make it the
@@ -2725,7 +2530,11 @@ impl<'a, 'p> Lower<'a, 'p> {
             let mut stmts = Vec::new();
             if let (Some(t), Some(place)) = (&test, place.clone()) {
                 if let Some(arm_ty) = self.narrowed_ty_of_test(&subj_ty, t).filter(|t| !t.is_none_ty()) {
-                    let name = br.binding.as_ref().map(|b| b.name.clone()).or_else(|| match subject { AExpr::Ident(n) => Some(n.name.clone()), _ => None });
+                    let name = br.binding.as_ref().map(|b| b.name.clone()).or_else(|| match subject {
+                        // The binding form narrows its binding, not the expression it was bound from.
+                        AExpr::Ident(n) if binding.is_none() => Some(n.name.clone()),
+                        _ => None,
+                    });
                     if let Some(name) = name {
                         if br.binding.is_some() {
                             let local = Local(name.clone());
@@ -2739,7 +2548,14 @@ impl<'a, 'p> Lower<'a, 'p> {
                     }
                 }
             }
-            let mut b = self.with_test(Some(Justification::Arm { switch: id, arm: i }), |me| me.block(&br.body, value));
+            // [op-safe-nav] The first arm of a lowered `?.` narrows its
+            // receiver for the link: the hint a backend reads to write a
+            // native optional chain [kt-safe-nav] [rs-safe-nav].
+            let just = match (origin, br.hole) {
+                (Some(ast::WhenOrigin::SafeNav), Some(ast::ArmHole::First)) => Justification::SafeNav { switch: id },
+                _ => Justification::Arm { switch: id, arm: i },
+            };
+            let mut b = self.with_test(Some(just), |me| me.block(&br.body, value));
             // [when-lowered] [op-elvis] The value a `?:` picks moves out of
             // the temporary it was evaluated into: nothing else can read it.
             if origin == Some(ast::WhenOrigin::Pick) && binding.is_some() && br.hole == Some(ast::ArmHole::First) {

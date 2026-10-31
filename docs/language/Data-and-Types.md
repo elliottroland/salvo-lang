@@ -520,8 +520,9 @@ arm if it has one, otherwise a function taking it first; see
 hop: `notice.metadata.last_updated?.nanos` is a plain read of a non-optional
 `last_updated`, while `o?.inner?.nanos` guards both. It pairs with `?:` for a
 default — `last_updated?.nanos ?: -1L` — the two staying separate operators.
-A method-call link needs a variable or field as its receiver (it is read
-twice); bind a longer chain to a local first.
+Like a pick, it is a `when` underneath: the receiver is evaluated once, so
+any expression may stand before the `?.`, a call link included
+(`find(id)?.label()`).
 
 To feed the first arm through an arbitrary expression the same way, the
 null-safe pipe `?>` is the pipe analogue of `?.`: `number ?> to_str(_)` runs

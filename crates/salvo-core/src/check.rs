@@ -410,28 +410,6 @@ struct LeadCandidate {
     rung: crate::resolve::Rung,
 }
 
-/// [op-safe-nav] What the IR builder needs to lower `base?.link`.
-#[derive(Clone, Debug)]
-pub struct SafeNavInfo {
-    /// The subject's **first arm** — the type the link is checked against and
-    /// the narrowed receiver reads at. (For a `T?` this is `T`.)
-    pub inner: Ty,
-    /// The arms the pick leaves behind (every arm but the first), which pass
-    /// through into the result unchanged. Empty only when the subject is a
-    /// bare... it never is: `?.` requires ≥2 arms. For a `T?` this is `None`.
-    pub rest: Ty,
-    /// The link's own result already appears among the result arms (it is
-    /// optional, or its type equals a pass-through arm), so the builder must
-    /// not wrap/duplicate it — the `Option<Option<T>>` guard, generalized to
-    /// arm collapse [type-union-arm-identity].
-    pub already_opt: bool,
-    /// The subject is exactly `T | None` (first arm the value, rest just
-    /// `None`): the builder keeps the canonical `None`/`Else` + `Present`
-    /// shape so a backend reconstructs a native optional chain
-    /// [kt-safe-nav] [rs-safe-nav]. A general union takes the rewrap shape.
-    pub optional: bool,
-}
-
 /// How an `is` check (or `when` branch check) lowers at runtime against the
 /// subject's *declared* representation.
 #[derive(Clone, Debug)]
@@ -776,14 +754,6 @@ pub struct Checked {
     pub coerce: HashMap<Key, Coercion>,
     /// Keyed by the span of the `is` expression or the `when` branch.
     pub is_tests: HashMap<Key, UnionTest>,
-    /// [op-safe-nav] A `base?.link`, keyed by the `SafeNav` expression's span:
-    /// what the IR builder needs to lower it to a short-circuiting
-    /// `Switch`/`Branch` over the receiver. The checker typed the link on
-    /// the **non-`None`** receiver (recorded as `inner`); `already_opt` says
-    /// the link's own result is already optional, so the builder must not
-    /// wrap it a second time (the old `?.` produced `Option<Option<T>>`
-    /// otherwise).
-    pub safe_navs: HashMap<Key, SafeNavInfo>,
     /// [when-exhaustive] `when` expressions (keyed by the `when`'s span)
     /// the checker proved cover every runtime arm of their union subject
     /// without a written `else`. The IR builder reads this to give such a
@@ -23946,7 +23916,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.widen_info(subject, quals, binding.as_ref(), *span);
                 Ty::named("Bool")
             }
-            Expr::SafeNav { base, access, span } => self.check_safe_nav(base, access, *span, expected),
+            // [when-lowered] Lowered to a `when` after parsing.
+            Expr::SafeNav { span, .. } => {
+                self.error(*span, messages::op_safe_nav_not_lowered());
+                Ty::Unknown
+            }
             // [assert-fn] [assert-narrow] `assert!(cond)` / `assert!(cond, why)`
             // — a condition that must hold, checked in every build
             // [assert-trap]. When the condition is an `is` test its narrowing
@@ -27347,12 +27321,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.check_arms_unmatched(binding, &subj_ty, branches);
             return Ty::Unknown;
         }
-        // [op-elvis] A non-union subject has one arm, which leaves nothing
-        // for the other side — refused like a pointless pick. Asked before
+        // [op-elvis] [op-safe-nav] A non-union subject has one arm, which
+        // leaves nothing for the other side — refused like a pointless pick. Asked before
         // the subject's shape: a comptime copy can splice a value where the
         // `?:` was written over a place.
-        if origin == Some(ast::WhenOrigin::Pick) && !matches!(subj_ty, Ty::Union(_)) {
-            self.error(span, messages::op_elvis_single_arm(&subj_ty));
+        if origin.is_some() && !matches!(subj_ty, Ty::Union(_)) {
+            match origin {
+                Some(ast::WhenOrigin::SafeNav) => self.error(span, messages::op_safe_nav_single_arm(&subj_ty)),
+                _ => self.error(span, messages::op_elvis_single_arm(&subj_ty)),
+            }
             self.check_arms_unmatched(binding, &subj_ty, branches);
             return Ty::Unknown;
         }
@@ -27636,98 +27613,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.reset_assigned(&branch.body);
         }
         join
-    }
-
-    /// [op-safe-nav] `base?.field` / `base?.method(args)`. Picks the receiver's
-    /// **first arm** [type-union-arm-identity], performs the link on it, and
-    /// replaces that arm with the link's result in the union — the other arms
-    /// pass through unchanged. `(A | B | C)?.field` where `A.field: F` is
-    /// `F | B | C` (arms collapse when `F` equals a pass-through arm). A `T?`
-    /// (`T | None`) recovers the old behaviour: pick `T`, link to `F`, result
-    /// `F | None`. One `?.` guards one link, so a chain `a?.b?.c` is nested
-    /// `SafeNav` nodes, each checked here.
-    fn check_safe_nav(
-        &mut self,
-        base: &'p Expr,
-        access: &'p ast::SafeAccess,
-        span: Span,
-        expected: Option<&Ty>,
-    ) -> Ty {
-        let base_ty = self.check_expr(base, None);
-        if matches!(base_ty, Ty::Unknown) {
-            // [type-unknown-lenient] One mistake, one diagnostic.
-            return Ty::Unknown;
-        }
-        // The pick is over the subject's declared arms, in order. A non-union
-        // subject has one arm, leaving nothing to guard — refused, like a
-        // pointless `!`.
-        let declared: Vec<Ty> = match &base_ty {
-            Ty::Union(arms) => arms.clone(),
-            _ => vec![base_ty.clone()],
-        };
-        if declared.len() < 2 {
-            self.error(span, messages::op_safe_nav_single_arm(&base_ty));
-            return Ty::Unknown;
-        }
-        let inner = declared[0].clone();
-        let rest = self.mk_union(declared[1..].to_vec());
-        let optional = base_ty.has_none_arm() && declared.len() == 2 && rest.is_none_ty();
-        let link_ty = self.safe_access_ty(base, &base_ty, access, &inner, expected, span);
-        // [op-safe-nav] The result is the link's type joined with the arms left
-        // behind; `union_of` collapses the link's result into a pass-through
-        // arm of the same type (`(A | B | C)?.field` with `A.field: B` is
-        // `B | C`). `already_opt` records that the link's value needs no
-        // wrap/duplication — it is optional, or it lands on an existing arm.
-        let result = self.mk_union(vec![link_ty.clone(), rest.clone()]);
-        let already_opt = link_ty.has_none_arm()
-            || declared[1..].iter().any(|a| *a == link_ty || a.strip_quals() == link_ty.strip_quals());
-        self.out.safe_navs.insert(
-            self.key(span),
-            SafeNavInfo { inner: inner.clone(), rest, already_opt, optional },
-        );
-        result
-    }
-
-    /// [op-safe-nav] The type of the single link, given the receiver's non-`None`
-    /// type `inner`. A field reads directly off `inner`. A call resolves as
-    /// the dot call `base.m(args)` would, which needs the receiver to read at
-    /// `inner`: that is a narrowing, so a call receiver must be a place (a
-    /// chain `a?.b?.c` whose links are fields does not need one).
-    fn safe_access_ty(
-        &mut self,
-        base: &'p Expr,
-        base_ty: &Ty,
-        access: &'p ast::SafeAccess,
-        inner: &Ty,
-        expected: Option<&Ty>,
-        span: Span,
-    ) -> Ty {
-        match access {
-            ast::SafeAccess::Field(field) => {
-                self.record_field_ref(inner, field);
-                self.field_ty_or_error(inner, field)
-            }
-            ast::SafeAccess::Call { field, type_args, args, named } => {
-                // The receiver is read twice (the `None` test, then the call),
-                // and the call reads it at the non-`None` type, so a call
-                // receiver must be a place to carry the narrowing.
-                let Some(place) = Place::of_expr(base) else {
-                    self.error(span, messages::op_safe_nav_receiver_not_place());
-                    for a in args {
-                        self.check_expr(a, None);
-                    }
-                    return Ty::Unknown;
-                };
-                // [fn-member-call] [fn-uniform] The link is the dot call
-                // `base.m(args)` on the first arm, under the one rule: a member
-                // of `inner` is called, and anything else is `m(base, args)`.
-                let narrow = [Narrow { place, narrowed: inner.clone(), declared: base_ty.clone() }];
-                let inner = inner.clone();
-                self.with_narrows(&narrow, |c| {
-                    c.check_dot_call(None, base, field, false, Some(inner), type_args, args, named, expected, span)
-                })
-            }
-        }
     }
 
     // ================= coercions =================

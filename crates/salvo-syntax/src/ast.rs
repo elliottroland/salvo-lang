@@ -2475,6 +2475,9 @@ pub enum StructLitFieldKind {
 pub enum WhenOrigin {
     /// `subject ?: rhs` [op-elvis].
     Pick,
+    /// `base?.link` [op-safe-nav]: the first arm performs the link, the rest
+    /// pass through.
+    SafeNav,
 }
 
 /// [when-lowered] An arm head the type checker fills: the subject's first

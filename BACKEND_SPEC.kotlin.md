@@ -135,7 +135,7 @@ Conventions:
   nullable, so the test is a plain null check. A `return` on the right is
   legal there for the same reason it is in Salvo [expr-escape].
 * [op-safe-nav] [kt-safe-nav] A field-only `?.` chain renders as a **native Kotlin
-  optional chain**: the reconstruction `Switch` ([op-safe-nav], [ir-switch]) is
+  optional chain**: the lowered `when`'s `Switch` ([op-safe-nav], [when-lowered]) is
   recognized by its present arm's `Justification::SafeNav` and emitted as
   `receiver?.field?.field` — Kotlin's `?.` is already the whole short-circuit,
   so the `None` arm needs nothing. A `?.` **call** link does not fold into a

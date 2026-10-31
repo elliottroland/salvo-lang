@@ -144,6 +144,32 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — `?.` is a `when` too (user decision, [when-lowered], [op-safe-nav])
+
+- **Decided (user, 2026-10-30)** with the `?:` lowering: `?.` lowers the
+  same way. `desugar::lower_picks` rewrites `base?.link` into
+  `when __navN = base { is #{first arm} { __navN.link } is #{rest} { __navN } }`
+  (`ast::WhenOrigin::SafeNav`), always the binding form, so the backends
+  keep a fixed shape to recognize.
+- **Built**: the IR's `when_expr` justifies the first arm's narrowing
+  `Justification::SafeNav`; `ir::safe_nav::match_safe_nav` reads the new
+  shape (first arm narrow + link, `else` → `None`), so Kotlin's `a?.b?.c`
+  and Rust's `.and_then`/`.map` chains come out unchanged — no golden,
+  example or emit pin moved. A local narrowed to `None` now reads as
+  `MakeNone` in the IR (the rest arm of a `?.` on a `T?` would otherwise
+  declare `val x: Unit = null`), and a binding-form `when` no longer also
+  narrows the *expression* it bound when that is a variable (`when s = o`
+  narrowed `o` in each arm, which the checker never did). **Gone**:
+  `check_safe_nav`, `safe_access_ty`, `SafeNavInfo`/`safe_navs`, the IR's
+  `safe_nav`, `safe_link`, `safe_call`, `struct_field_ty`;
+  `op-safe-nav:receiver-not-place` became `op-safe-nav:not-lowered`.
+- **A relaxation fell out**, flagged to the user: a call link no longer
+  needs a place receiver (`found(n)?.label()`), since the lowering binds
+  the receiver once.
+- Tests: run data `operators/optional_chaining.sv`
+  `a_call_link_on_any_receiver` (both backends). 708 tests under nextest,
+  warm run 1m48.
+
 ### 2026-10-30 — `?:` is a `when` (user decision, [when-lowered], PIPELINE.md D2)
 
 - **Decided (user, 2026-10-30)**: `?:` lowers to the test it is (option (a)

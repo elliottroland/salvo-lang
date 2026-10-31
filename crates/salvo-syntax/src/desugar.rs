@@ -1617,6 +1617,9 @@ struct LowerPicks {
 
 impl crate::visit_mut::MutVisitor for LowerPicks {
     fn visit_expr(&mut self, expr: &mut Expr) {
+        if matches!(expr, Expr::SafeNav { .. }) {
+            return self.lower_safe_nav(expr);
+        }
         if !matches!(expr, Expr::Elvis { .. }) {
             return;
         }
@@ -1653,6 +1656,60 @@ impl crate::visit_mut::MutVisitor for LowerPicks {
             subject: Box::new(subject),
             branches: vec![branch(ArmHole::First, read, first_span), branch(ArmHole::Rest, rhs, rest_span)],
             origin: Some(WhenOrigin::Pick),
+            span,
+        };
+    }
+}
+
+impl LowerPicks {
+    /// [when-lowered] [op-safe-nav] `base?.link` is
+    /// `when __navN = base { is #{first arm} { __navN.link } is #{rest} { __navN } }`:
+    /// the link on the first arm, the other arms passed through. Always the
+    /// binding form, whatever the base: the backends recognize the shape to
+    /// write a native optional chain [kt-safe-nav] [rs-safe-nav].
+    fn lower_safe_nav(&mut self, expr: &mut Expr) {
+        let Expr::SafeNav { base, access, span } = std::mem::replace(expr, Expr::Placeholder { span: Span::default() }) else {
+            unreachable!()
+        };
+        let mut base = *base;
+        crate::visit_mut::walk_expr(self, &mut base);
+        self.next += 1;
+        let name = Ident { name: format!("__nav{}", self.next), span: base.span() };
+        let read = Expr::Ident(name.clone());
+        let link = match access {
+            SafeAccess::Field(field) => Expr::Field { base: Box::new(read.clone()), field, span, grouped: false },
+            SafeAccess::Call { field, type_args, mut args, mut named } => {
+                for a in &mut args {
+                    crate::visit_mut::walk_expr(self, a);
+                }
+                for n in &mut named {
+                    crate::visit_mut::walk_expr(self, &mut n.value);
+                }
+                let fspan = field.span;
+                Expr::Call {
+                    callee: Box::new(Expr::Field { base: Box::new(read.clone()), field, span: fspan, grouped: false }),
+                    type_args,
+                    args,
+                    named,
+                    span,
+                }
+            }
+        };
+        let branch = |hole: ArmHole, value: Expr, span: Span| WhenBranch {
+            check: Vec::new(),
+            or: Vec::new(),
+            hole: Some(hole),
+            binding: None,
+            widen: false,
+            body: Block { stmts: vec![Stmt::Expr(value)], span },
+            span,
+        };
+        let base_span = base.span();
+        *expr = Expr::When {
+            binding: Some(name),
+            subject: Box::new(base),
+            branches: vec![branch(ArmHole::First, link, span), branch(ArmHole::Rest, read, base_span)],
+            origin: Some(WhenOrigin::SafeNav),
             span,
         };
     }

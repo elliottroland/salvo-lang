@@ -3966,11 +3966,11 @@ messages! {
     );
 
     // [op-elvis]
-    /// `?:` on a value with one arm.
     /// [when-lowered] A `?:` that reached the checker unlowered: a driver
     /// skipped `desugar::lower_picks`, which every driver runs.
     op_elvis_not_lowered = "op-elvis:not-lowered" () =>
         "internal: this `?:` was not lowered to the `when` it is before checking";
+    /// `?:` on a value with one arm.
     op_elvis_single_arm = "op-elvis:single-arm" (subj_ty: &dyn std::fmt::Display) => format!(
         "`?:` on `{subj_ty}` keeps its only arm and leaves nothing for the right-hand \
          side: `?:` picks the first arm of a union with more than one (the same dead \
@@ -4008,10 +4008,9 @@ messages! {
         "`?.` guards the first arm of a union, but this receiver is `{base_ty}` — it has \
          only one arm, so write a plain `.`"
     );
-    /// A `?.` method call whose receiver is not a place.
-    op_safe_nav_receiver_not_place = "op-safe-nav:receiver-not-place" () =>
-        "`?.` on a method call needs a variable or field as its receiver; bind the chain \
-         so far to a local first";
+    /// [when-lowered] A `?.` that reached the checker unlowered.
+    op_safe_nav_not_lowered = "op-safe-nav:not-lowered" () =>
+        "internal: this `?.` was not lowered to the `when` it is before checking";
 
     // [platform-check]
     /// A `platform fn` returning a `proj` borrow.
