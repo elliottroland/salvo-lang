@@ -107,3 +107,54 @@ fn main() [use] {
 //= running 1
 //= running 3
 //= running 6
+
+// [is-narrow-guard] After an `if` or a `when`, the join of what the paths
+// that fall through narrow a place to holds (user decision 2026-10-30): the
+// then branch alone falls through, two branches do, and a `when` arm leaves.
+//--- narrowing_after_the_paths_that_fall_through
+struct A { n: Int }
+
+fn then_falls(x: A | Str) [] -> Int {
+    if x is A {
+        let _seen = 1
+    } else {
+        return 0
+    }
+    return x.n
+}
+
+fn two_fall(x: A | Str | Int) [] -> Str {
+    if x is A {
+        let _a = 1
+    } elif x is Int {
+        let _i = 2
+    } else {
+        return "str"
+    }
+    return when x {
+        is A { "a ${x.n}" }
+        is Int { "int ${x}" }
+    }
+}
+
+fn when_falls(v: A | Str | Int) [] -> Int {
+    when v {
+        is A | Int { }
+        is Str { return -1 }
+    }
+    return when v {
+        is A { v.n }
+        is Int { v }
+    }
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    println("${then_falls(A { n: 4 })} ${then_falls("s")}")
+    println("${two_fall(A { n: 1 })} ${two_fall(5)} ${two_fall("q")}")
+    println("${when_falls(A { n: 2 })} ${when_falls(7)} ${when_falls("q")}")
+}
+//= stdout
+//= 4 0
+//= a 1 int 5 str
+//= 2 7 -1

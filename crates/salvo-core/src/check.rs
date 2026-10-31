@@ -17941,6 +17941,40 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// Runs `f` with the given narrowings applied, restoring afterwards.
+    /// [is-narrow-guard] The narrowings that hold after a branch point whose
+    /// fall-through paths hold `paths`: a place every path narrows, at the
+    /// join of its narrowed types (the last fact of a place on a path is
+    /// the one in force). Empty when no path falls through.
+    fn join_path_facts(&mut self, paths: &[Vec<Narrow>]) -> Vec<Narrow> {
+        let last = |path: &[Narrow], place: &Place| path.iter().rev().find(|n| &n.place == place).cloned();
+        let Some(first) = paths.first() else { return Vec::new() };
+        let mut out: Vec<Narrow> = Vec::new();
+        for n in first.iter().rev() {
+            if out.iter().any(|o| o.place == n.place) {
+                continue;
+            }
+            let mut tys = vec![n.narrowed.clone()];
+            let mut everywhere = true;
+            for p in &paths[1..] {
+                match last(p, &n.place) {
+                    Some(m) => tys.push(m.narrowed),
+                    None => {
+                        everywhere = false;
+                        break;
+                    }
+                }
+            }
+            if everywhere {
+                let narrowed = self.mk_union(tys);
+                if narrowed != n.declared {
+                    out.push(Narrow { place: n.place.clone(), narrowed, declared: n.declared.clone() });
+                }
+            }
+        }
+        out.reverse();
+        out
+    }
+
     /// [is-narrow-guard] Applies narrowing facts **permanently** — the
     /// `with_narrows` application half without the restore. Used for the
     /// guard idiom: when every branch of an `if` exits (`return`, `break`,
@@ -27343,6 +27377,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         // and merged at the join — a branch that always exits never
         // contributes to the state after the `if`.
         let mut fallthrough: Vec<NarrowSnapshot> = Vec::new();
+        // [is-narrow-guard] The condition facts each path that falls through
+        // holds, and whether some path leaves.
+        let mut through_facts: Vec<Vec<Narrow>> = Vec::new();
+        let mut some_exit = false;
         for (i, (cond, block)) in branches.iter().enumerate() {
             // [is-bind-once] Only the first branch's condition can be hoisted
             // into a single evaluation; a later one would need the temporary
@@ -27362,6 +27400,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             });
             if !self.block_exits(block) {
                 fallthrough.push(self.snapshot_narrows());
+                through_facts.push(narrows.clone());
+            } else {
+                some_exit = true;
             }
             self.restore_narrows(&entry);
             branch_tys.push(ty);
@@ -27377,6 +27418,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 });
                 if !self.block_exits(block) {
                     fallthrough.push(self.snapshot_narrows());
+                    through_facts.push(acc_else.clone());
+                } else {
+                    some_exit = true;
                 }
                 self.restore_narrows(&entry);
                 branch_tys.push(ty);
@@ -27387,18 +27431,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // the current state. (What its else-narrows settle of a
                 // linear union [linear-union-arm] is the IR ledger's.)
                 fallthrough.push(self.snapshot_narrows());
+                through_facts.push(acc_else.clone());
                 branch_tys.push(Ty::none());
                 tails.push(None);
             }
         }
         self.merge_fallthrough(&fallthrough);
-        // [is-narrow-guard] The guard idiom: every branch leaves the block
-        // (`if e is None { return … }`), so whatever follows the `if` is on
-        // the else-path and every condition's else-narrows hold there.
-        // Installed *before* the assignment resets below, so a branch that
-        // reassigned the subject still wins [is-narrow-assign-reset].
-        if !branches.is_empty() && branches.iter().all(|(_, b)| self.block_exits(b)) {
-            let facts = acc_else.clone();
+        // [is-narrow-guard] What follows the `if` is on one of the paths that
+        // fall through, so a place every one of them narrows is narrowed to
+        // the join of what they narrow it to (user decision 2026-10-30,
+        // generalizing "every branch leaves"): `if e is None { return … }`
+        // leaves `e` its other arms, and `if x is A { … } else { return }`
+        // leaves `x` an `A`. Only where some path leaves — otherwise the
+        // paths cover the subject and the join says nothing. Installed
+        // *before* the assignment resets below, so a branch that reassigned
+        // the subject still wins [is-narrow-assign-reset].
+        if some_exit {
+            let facts = self.join_path_facts(&through_facts);
             self.install_narrows(&facts);
         }
         let join = self.mk_union(branch_tys);
@@ -27516,6 +27565,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut branch_tys = Vec::new();
         let mut tails: Vec<Option<TailInfo>> = Vec::new();
         let mut fallthrough: Vec<NarrowSnapshot> = Vec::new();
+        // [is-narrow-guard] The arms each branch that falls through took,
+        // and whether some branch leaves.
+        let mut through_arms: Vec<Ty> = Vec::new();
+        let mut some_exit = false;
         // A branch whose check named something unresolved cannot be
         // matched against the arms; its diagnostics — and the
         // exhaustiveness verdict, which the unmatched arms would falsify
@@ -27627,6 +27680,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 });
             if !self.block_exits(&branch.body) {
                 fallthrough.push(self.snapshot_narrows());
+                through_arms.extend(matched.iter().cloned());
+            } else {
+                some_exit = true;
             }
             self.restore_narrows(&entry);
             branch_tys.push(ty);
@@ -27634,6 +27690,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             remaining.retain(|arm| !matched.contains(arm));
         }
         self.merge_fallthrough(&fallthrough);
+        // [is-narrow-guard] After a `when` on a variable, the subject is one
+        // of the arms whose branches fall through (user decision
+        // 2026-10-30): a branch that leaves took its arms with it.
+        if some_exit && binding.is_none() && !through_arms.is_empty() && !unresolved_check {
+            let narrowed = self.mk_union(through_arms);
+            if narrowed != repr {
+                self.install_narrows(&[Narrow { place: Place::root(subject_name.to_string()), narrowed, declared: repr.clone() }]);
+            }
+        }
         if !unresolved_check {
             // [lsp-completion] The arms left to write, before the runtime-arm
             // rewrite collapses literals: spelled as the check would be.
@@ -27661,6 +27726,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.maybe_coerce(tail.span, &tail.logical, &tail.repr, &join);
         }
         for branch in branches {
+            // [is-narrow-assign-reset] A branch that leaves cannot be the
+            // path taken to the code below, as in an `if`.
+            if self.block_exits(&branch.body) {
+                continue;
+            }
             self.reset_assigned(&branch.body);
         }
         join

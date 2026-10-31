@@ -144,6 +144,26 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Narrowing after the paths that fall through (user decision, [is-narrow-guard])
+
+- **Decided (user, 2026-10-30)**, option (a) of the `?:` lowering
+  (PIPELINE.md D2): after an `if` or a `when`, a place every path that falls
+  through narrows is narrowed to the join of what they narrow it to. It
+  generalizes "every branch leaves" (2026-09-09), and is what makes a
+  leaving `?:` right side [op-elvis-guard] the rule a hand-written `if`
+  follows. Rejected: (b) a flag on the lowered form keeping the narrowing
+  special.
+- **Built**: `check_if` collects each fall-through path's condition facts
+  and installs `join_path_facts` where some path leaves; `check_when_body`
+  narrows a variable subject to the arms of its fall-through branches, and
+  its assignment resets now skip a branch that leaves, as an `if`'s did.
+  The IR needed nothing: a narrowed read after a branch is already lowered
+  as a `Narrow` justified `After` it. No golden, example or corpus output
+  changed: no existing program relied on the wider rule.
+- Tests: checker data `guard/fall_through_join.sv`; run data
+  `control/narrowing_and_terminal_scopes.sv`
+  `narrowing_after_the_paths_that_fall_through` (both backends).
+
 ### 2026-10-30 — A `when` arm head may be a union (user decision, [when-union-head])
 
 - **Decided (user, 2026-10-30)**, while settling how `?:` and `?.` lower

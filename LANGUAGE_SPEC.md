@@ -2765,10 +2765,21 @@ Conventions:
   * Everything it composes with comes free: `&&`/`||`, a `when` condition head,
     and the overload routing after the guard [fn-overload-rank].
 * [is-narrow-guard] A narrowing **survives a guard** (user decision
-  2026-09-09): when every branch of an `if` leaves the block, the code
-  after it is on the else-path, so each condition's else-narrows hold
-  there — the facts [is-narrowing] gives an `else` branch, carried past a
-  statement whose branches cannot fall through.
+  2026-09-09; generalized 2026-10-30): the code after an `if` or a `when` is
+  on one of the paths that fall through, so **a place every such path
+  narrows is narrowed there to the join of what they narrow it to**. When
+  every branch of an `if` leaves, that is the else-path, and each
+  condition's else-narrows hold — the facts [is-narrowing] gives an `else`
+  branch, carried past a statement whose branches cannot fall through. When
+  the then branch alone falls through (`if x is A { … } else { return }`),
+  `x` is an `A` below; when two do, the union of theirs. After a `when` on
+  a variable, the subject is one of the arms whose branches fall through
+  (user decision 2026-10-30, option (a) of the `?:` lowering, PIPELINE.md
+  D2: it is what makes a leaving `?:` right side [op-elvis-guard] the same
+  rule as a hand-written `if`).
+  * Only where some path leaves; otherwise the paths cover the subject and
+    the join says nothing (`Checker::join_path_facts`). A place one path
+    does not narrow is not narrowed below [flow-or-not].
   ```
   if e is None {
       return finished()
@@ -2782,10 +2793,14 @@ Conventions:
     narrowed.
   * An `elif` chain accumulates, so `if v is Int { return } elif v is Str
     { return }` leaves the third arm.
+  * Before 2026-10-30 only "every branch leaves" narrowed, so `if x is A {
+    … } else { return }` left `x` unnarrowed, and a `when` narrowed nothing
+    after it.
   * [is-narrow-assign-reset] still applies on the *surviving* path only: an
     assignment inside a branch that exits cannot be observed after the
-    `if`, so it resets nothing there (the same reason the fall-through
-    merge ignores that branch).
+    `if` or `when`, so it resets nothing there (the same reason the
+    fall-through merge ignores that branch; a `when` reset after every
+    branch until 2026-10-30).
   * Rationale: guarding the empty case and then using the value is how a
     `next` over a container is written, and requiring an `else` block or a
     two-armed `when` for it was a limitation of the analysis, not a rule

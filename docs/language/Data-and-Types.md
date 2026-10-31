@@ -399,8 +399,23 @@ fn next(p: Mut ListNext<T>) -> Emitted T | Finished => p: Mut {
 ```
 
 An `elif` chain accumulates the same way, so two exiting branches leave the
-third arm. One branch exiting is not enough: if any branch can fall through,
-either path may have been taken and nothing is narrowed.
+third arm. More generally, what follows an `if` or a `when` is on one of the
+paths that fall through, so a place every one of them narrows reads below as
+the union of what they narrow it to. When only the first branch falls
+through, that is its test:
+
+```
+if x is Point {
+    log("a point")
+} else {
+    return
+}
+draw(x)                         // `x` is a `Point` here
+```
+
+After a `when`, the subject is one of the arms whose branches fall through.
+A place some path does not narrow is not narrowed below, and when no branch
+leaves, the paths cover every case and nothing changes.
 
 A guard usually wants the *negative* test, and that is `!is`:
 
