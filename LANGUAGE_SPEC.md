@@ -2885,6 +2885,23 @@ Conventions:
   the local in a scope spanning the `when` and otherwise matches exactly as
   the plain form; the IR binds it once and switches on it, so no new node or
   backend rule is needed.
+* [when-union-head] **A `when` arm head may be a union**, `is A | B { … }`
+  (user decision 2026-10-30, option 1a of the `?:` lowering, PIPELINE.md
+  D2): the arm covers every alternative, and the subject is narrowed to their
+  union inside it, as `x is A | B` narrows in a condition [is-union]. Arms are
+  consumed in order, so an alternative an earlier arm took is no error, and a
+  head none of whose alternatives is left is dead [when-exhaustive]. Like
+  [is-union] it takes no binding and no `^` (`is-union:binding`,
+  `is-union:lift`).
+  * Lowered as one arm test over the alternatives' arms
+    (`merge_union_tests`): the arms of each, a `None` test of either, a value
+    test on a literal arm only where no alternative takes the arm whole. Two
+    value tests on one arm in opposite directions are refused
+    (`when-union-head:mixed-values`) rather than guessed. The IR's
+    `ArmTest::Arms` already carried a multi-arm test (an alias head), so the
+    backends needed nothing.
+  * The lowered `?:` and `?.` use it: the arms a pick leaves behind are one
+    head.
 * [when-exhaustive] `when` must be exhaustive over the subject's arms;
   arms are consumed sequentially (each branch matches what previous
   branches left), and a branch that can match nothing is an error. A

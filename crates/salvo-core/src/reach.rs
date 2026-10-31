@@ -741,7 +741,7 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
         } => {
             expr_names(subject, used);
             for b in branches {
-                for r in &b.check {
+                for r in b.check.iter().chain(b.or.iter().flatten()) {
                     type_ref_names(r, used);
                 }
                 block_names(&b.body, used);

@@ -456,6 +456,39 @@ pub struct UnionTest {
     pub values: Vec<(usize, bool, Vec<salvo_syntax::ast::TypeLit>)>,
 }
 
+/// [when-union-head] One arm test for `is A | B`: the arms of both, a `None`
+/// test of either, and a value test only where neither matches its arm
+/// whole. `None` where two value tests on one arm disagree in direction.
+fn merge_union_tests(mut a: UnionTest, b: UnionTest) -> Option<UnionTest> {
+    let whole = |t: &UnionTest, arm: usize| t.arms.contains(&arm) && !t.values.iter().any(|(i, ..)| *i == arm);
+    let mut values: Vec<(usize, bool, Vec<salvo_syntax::ast::TypeLit>)> = Vec::new();
+    let arms: std::collections::BTreeSet<usize> = a.arms.iter().chain(&b.arms).copied().collect();
+    for &arm in &arms {
+        if whole(&a, arm) || whole(&b, arm) {
+            continue;
+        }
+        let mut entries = a.values.iter().chain(&b.values).filter(|(i, ..)| *i == arm);
+        let Some((_, negate, lits)) = entries.next().cloned() else { continue };
+        let mut lits = lits;
+        for (_, n, more) in entries {
+            if *n != negate {
+                return None;
+            }
+            if !negate {
+                lits.extend(more.iter().cloned());
+            } else {
+                // Refusing each of two sets is refusing their intersection.
+                lits.retain(|l| more.contains(l));
+            }
+        }
+        values.push((arm, negate, lits));
+    }
+    a.arms = arms.into_iter().collect();
+    a.match_none |= b.match_none;
+    a.values = values;
+    Some(a)
+}
+
 /// [op-elvis] How a positional pick (`?:`, `??:`, `:?`, …) lowers against the
 /// subject's declared union: which arms are the **picked** side, expressed as
 /// indices into the subject's non-`None` value arms plus whether the `None`
@@ -27490,17 +27523,36 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut unresolved_check = false;
         for branch in branches {
             let pat = self.parse_check(&branch.check, Some(&subj_ty));
+            // [when-union-head] `is A | B`: every alternative's arms.
+            let alts: Vec<CheckPat> = branch.or.iter().map(|c| self.parse_check(c, Some(&subj_ty))).collect();
             let matched: Vec<Ty> = remaining
                 .iter()
-                .filter(|arm| self.arm_matches(arm, &pat))
+                .filter(|arm| self.arm_matches(arm, &pat) || alts.iter().any(|a| self.arm_matches(arm, a)))
                 .cloned()
                 .collect();
-            if pat.unresolved {
+            if pat.unresolved || alts.iter().any(|a| a.unresolved) {
                 unresolved_check = true;
             } else if matched.is_empty() {
                 self.error(branch.span, messages::when_exhaustive_dead_branch());
             }
-            if let Some(test) = self.union_test_for(&repr, &pat) {
+            let mut test = self.union_test_for(&repr, &pat);
+            for alt in &alts {
+                let more = self.union_test_for(&repr, alt);
+                test = match (test, more) {
+                    (Some(a), Some(b)) => match merge_union_tests(a, b) {
+                        Some(t) => Some(t),
+                        None => {
+                            // Two value tests on one arm that disagree in
+                            // direction: no test says both, so none is
+                            // guessed [backend-never-wrong].
+                            self.error(branch.span, messages::when_union_head_mixed_values());
+                            None
+                        }
+                    },
+                    (a, b) => a.or(b),
+                };
+            }
+            if let Some(test) = test {
                 self.out.is_tests.insert(self.key(branch.span), test);
             }
             // [qual-lift] A `^` branch tests the same arm and then reads the

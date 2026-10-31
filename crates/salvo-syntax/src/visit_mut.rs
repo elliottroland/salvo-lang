@@ -712,7 +712,7 @@ pub fn walk_expr<V: MutVisitor>(v: &mut V, e: &mut Expr) {
             walk_expr(v, subject);
             for br in branches {
                 v.visit_span(&mut br.span);
-                for c in &mut br.check {
+                for c in br.check.iter_mut().chain(br.or.iter_mut().flatten()) {
                     walk_type_ref(v, c);
                 }
                 if let Some(b) = &mut br.binding {

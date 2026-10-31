@@ -3815,6 +3815,7 @@ impl<'w> Expander<'w> {
                     let bspan = span.in_expansion(self.made().expn);
                     branches.push(WhenBranch {
                         check,
+                        or: Vec::new(),
                         binding: None,
                         widen: false,
                         body,

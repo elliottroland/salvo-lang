@@ -7639,10 +7639,34 @@ impl<'s> Parser<'s> {
             if widen && lifted != check.len() {
                 self.error(messages::qual_lift_partial_branch(), head_span);
             }
+            // [when-union-head] `is A | B { … }`: one arm for every
+            // alternative (user decision 2026-10-30, option 1a), as `x is A
+            // | B` is in a condition [is-union]: no binding, no lift.
+            let mut or = Vec::new();
+            while self.at(&TokenKind::Pipe) && self.same_line() {
+                let bar = self.bump().span;
+                let (more, b, l) = self.parse_is_check()?;
+                if let Some(b) = b {
+                    self.error(messages::is_union_binding(), b.span);
+                }
+                if l > 0 {
+                    self.error(messages::is_union_lift(), bar);
+                }
+                or.push(more);
+            }
+            if !or.is_empty() {
+                if let Some(b) = &binding {
+                    self.error(messages::is_union_binding(), b.span);
+                }
+                if widen {
+                    self.error(messages::is_union_lift(), head_span);
+                }
+            }
             let body = self.parse_block()?;
             let span = head_span.to(body.span);
             branches.push(WhenBranch {
                 check,
+                or,
                 binding,
                 widen,
                 body,

@@ -104,6 +104,15 @@ let value = when result {
 }
 ```
 
+An arm may cover several cases at once: `is A | B` matches either, as `x is A | B` does in a condition, and inside it the subject is the union of the two. It takes no binding and no `^`, since there is no single type to name:
+
+```
+let label = when v {           // v: Point | Circle | None
+    is Point { "point at ${v.x}" }
+    is Circle | None { "something else" }
+}
+```
+
 When the subject is an expression rather than a variable, the **binding form** `when name = subject { ... }` introduces `name` for it, so no outer `let` is needed and the arms refer to `name`:
 
 ```

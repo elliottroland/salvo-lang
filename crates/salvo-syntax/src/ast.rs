@@ -2471,6 +2471,10 @@ pub enum StructLitFieldKind {
 pub struct WhenBranch {
     /// The `is ...` check, with or without `^`-lifted qualifiers.
     pub check: Vec<TypeRef>,
+    /// [when-union-head] The further alternatives of a union head, `is A |
+    /// B`: the arm covers every one (`check` is the first). Empty for a
+    /// plain head.
+    pub or: Vec<Vec<TypeRef>>,
     pub binding: Option<Ident>,
     /// [qual-lift] Every qualifier in the check was `^`-marked: the same arm
     /// test, but the subject reads *without* them inside the branch.

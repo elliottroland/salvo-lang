@@ -144,6 +144,26 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A `when` arm head may be a union (user decision, [when-union-head])
+
+- **Decided (user, 2026-10-30)**, while settling how `?:` and `?.` lower
+  (PIPELINE.md D2, `Convert`): a `when` with a subject takes no `else`, so
+  the arms a pick leaves behind need to be one head. Options offered: (1a)
+  `is A | B` as an arm head everywhere, (1b) only in lowered code, (2) a
+  `!is` head, (3) an `else` allowed only in lowered code, (4) a subject-less
+  `when`. The user chose (1a).
+- **Built**: the parser reads `|`-separated alternatives after a branch's
+  `is` (`WhenBranch::or`), refusing a binding or a `^` as [is-union] does;
+  the checker matches an arm against any alternative and merges their arm
+  tests (`merge_union_tests`, refusing two value tests of one arm in
+  opposite directions, `when-union-head:mixed-values`). The IR's
+  `ArmTest::Arms` already carried multi-arm tests (an alias head), so the
+  builder and both backends needed nothing.
+- Tests: checker data `when/union_heads.sv` (covered, literal heads, a dead
+  head, a refused binding, a missing arm); run data
+  `types/literal_unions_and_narrowing.sv` `a_when_arm_head_may_be_a_union`
+  (both backends, the sub-union passed on).
+
 ### 2026-10-30 — P6 decided; the first D2 views (PIPELINE.md D1, D2 step 1, [unify-checker])
 
 - **Decided (user, 2026-10-30), P6 at D1**: the typed form is the AST plus

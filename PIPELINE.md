@@ -2592,7 +2592,27 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      `carried_identities`), the host boundary, navigation. Actor summaries
      are E1's; `type_ref_span_keys`/`value_span_keys` belong with `Names`.
   3. **By meaning, one node kind each in the typed form** (each written up
-     for the user before building): effect lists as explicit arguments (ten
+     for the user before building). **`Convert` decided (user, 2026-10-30):**
+     a conversion changes a value's representation (`coerce`,
+     `promotions`); a narrowing changes its static type and goes with the
+     narrowings (`field_casts`, `repr_ty`); the typed dump marks a
+     conversion `#{as T}` after the converted expression. `elvis_widen` is
+     not a kind of its own: it exists only because a pick's picked value has
+     no node (its coercion would collide with the operator's own), so it
+     goes when `?:` lowers to the test it is. **Decided (user,
+     2026-10-30): `?:` and `?.` lower to the test they are**, and
+     [is-narrow-guard] generalizes (option (a)): after an `if` (and a
+     `when`), what holds is the join of the branches that fall through, so
+     [op-elvis-guard] stops being a special case. Rejected: (b) a flag on
+     the lowered form keeping the narrowing special. **Shape and placement
+     (user, 2026-10-30):** phase-1 sugar (needs no names), into `when s =
+     subject { is #{first arm} { … } is #{rest} { … } }` — two holes type
+     fills, exhaustive with no `else` — and, so the rest of a three-arm
+     subject is one head, **a `when` arm head may be a union, `is A | B`
+     (option 1a)**, everywhere, as [is-union] gives `is`. Rejected: an
+     internal-only multi-arm head (1b), `!is` or an `else` allowed only in
+     lowered code, a subject-less `when` (an `if` under another name). The
+     rest: effect lists as explicit arguments (ten
      tables), `Convert` (`coerce`, `promotions`, `elvis_widen`,
      `field_casts`, `repr_ty`), `Test` (`is_tests`, `arm_compares`,
      `safe_navs`, `elvis_tests`, `widen_targets`, `predicate_tests`), a

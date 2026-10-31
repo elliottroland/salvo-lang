@@ -220,3 +220,44 @@ fn main() [use] {
 //= the other
 //= person Ada
 //= missing 400
+
+// [when-union-head] A `when` arm head may be a union (user decision
+// 2026-10-30): one arm for `B | Int`, the subject narrowed to that sub-union
+// inside (passed on to a fn that takes it), and a head of two literals.
+//--- a_when_arm_head_may_be_a_union
+struct A { n: Int }
+struct B { s: Str }
+
+fn inner(v: B | Int) [] -> Str {
+    return when v {
+        is B { v.s }
+        is Int { "${v}" }
+    }
+}
+
+fn describe(v: A | B | Int) [] -> Str {
+    return when v {
+        is A { "a ${v.n}" }
+        is B | Int { "other ${inner(v)}" }
+    }
+}
+
+fn level(s: "debug" | "info" | "warn") [] -> Int {
+    return when s {
+        is "debug" | "info" { 0 }
+        is "warn" { 1 }
+    }
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    println(describe(A { n: 1 }))
+    println(describe(B { s: "x" }))
+    println(describe(3))
+    println("${level("debug")} ${level("info")} ${level("warn")}")
+}
+//= stdout
+//= a 1
+//= other x
+//= other 3
+//= 0 0 1

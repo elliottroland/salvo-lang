@@ -1984,6 +1984,7 @@ Module {
                                                     span: 1566..1568,
                                                 },
                                             ],
+                                            or: [],
                                             binding: None,
                                             widen: true,
                                             body: Block {
@@ -2015,6 +2016,7 @@ Module {
                                                                             span: 1617..1619,
                                                                         },
                                                                     ],
+                                                                    or: [],
                                                                     binding: None,
                                                                     widen: false,
                                                                     body: Block {
@@ -2072,6 +2074,7 @@ Module {
                                                                             span: 1707..1710,
                                                                         },
                                                                     ],
+                                                                    or: [],
                                                                     binding: None,
                                                                     widen: false,
                                                                     body: Block {
@@ -2138,6 +2141,7 @@ Module {
                                                     span: 1820..1823,
                                                 },
                                             ],
+                                            or: [],
                                             binding: None,
                                             widen: false,
                                             body: Block {

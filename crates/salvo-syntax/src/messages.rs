@@ -595,6 +595,11 @@ messages! {
 
     // [is-union]
     /// A binding on an `is` over several tests.
+    /// [when-union-head] Two alternatives of a `when` head test values on
+    /// one arm in opposite directions.
+    when_union_head_mixed_values = "when-union-head:mixed-values" () =>
+        "these alternatives test values of one arm both ways, which no single arm test can say: \
+         give each its own branch";
     is_union_binding = "is-union:binding" () =>
         "an `is` over several tests binds nothing: bind the narrowed value with `let` \
          after the test";

@@ -1445,6 +1445,7 @@ Module {
                                                     span: 1333..1335,
                                                 },
                                             ],
+                                            or: [],
                                             binding: None,
                                             widen: false,
                                             body: Block {
@@ -1502,6 +1503,7 @@ Module {
                                                     span: 1400..1406,
                                                 },
                                             ],
+                                            or: [],
                                             binding: None,
                                             widen: false,
                                             body: Block {

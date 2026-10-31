@@ -1760,6 +1760,7 @@ Module {
                                                     span: 3282..3284,
                                                 },
                                             ],
+                                            or: [],
                                             binding: None,
                                             widen: false,
                                             body: Block {
@@ -1791,6 +1792,7 @@ Module {
                                                                             span: 3327..3329,
                                                                         },
                                                                     ],
+                                                                    or: [],
                                                                     binding: None,
                                                                     widen: false,
                                                                     body: Block {
@@ -1854,6 +1856,7 @@ Module {
                                                                             span: 3371..3375,
                                                                         },
                                                                     ],
+                                                                    or: [],
                                                                     binding: None,
                                                                     widen: false,
                                                                     body: Block {
@@ -1915,6 +1918,7 @@ Module {
                                                     span: 3430..3434,
                                                 },
                                             ],
+                                            or: [],
                                             binding: None,
                                             widen: false,
                                             body: Block {
@@ -1946,6 +1950,7 @@ Module {
                                                                             span: 3477..3479,
                                                                         },
                                                                     ],
+                                                                    or: [],
                                                                     binding: None,
                                                                     widen: false,
                                                                     body: Block {
@@ -1998,6 +2003,7 @@ Module {
                                                                             span: 3518..3522,
                                                                         },
                                                                     ],
+                                                                    or: [],
                                                                     binding: None,
                                                                     widen: false,
                                                                     body: Block {
@@ -2681,6 +2687,7 @@ Module {
                                                     span: 3928..3930,
                                                 },
                                             ],
+                                            or: [],
                                             binding: None,
                                             widen: false,
                                             body: Block {
@@ -2712,6 +2719,7 @@ Module {
                                                                             span: 3973..3975,
                                                                         },
                                                                     ],
+                                                                    or: [],
                                                                     binding: None,
                                                                     widen: false,
                                                                     body: Block {
@@ -2783,6 +2791,7 @@ Module {
                                                                             span: 4018..4022,
                                                                         },
                                                                     ],
+                                                                    or: [],
                                                                     binding: None,
                                                                     widen: false,
                                                                     body: Block {
@@ -2844,6 +2853,7 @@ Module {
                                                     span: 4077..4081,
                                                 },
                                             ],
+                                            or: [],
                                             binding: None,
                                             widen: false,
                                             body: Block {
@@ -2875,6 +2885,7 @@ Module {
                                                                             span: 4124..4126,
                                                                         },
                                                                     ],
+                                                                    or: [],
                                                                     binding: None,
                                                                     widen: false,
                                                                     body: Block {
@@ -2927,6 +2938,7 @@ Module {
                                                                             span: 4165..4169,
                                                                         },
                                                                     ],
+                                                                    or: [],
                                                                     binding: None,
                                                                     widen: false,
                                                                     body: Block {
