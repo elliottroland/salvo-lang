@@ -2,7 +2,7 @@
 //! backends (user decision 2026-10-05).
 //!
 //! Neither target resolves Salvo's overloads (Rust has none; Kotlin would use
-//! its own lattice [kt-fn-mangling]), so every overload a module emits needs a
+//! its own lattice), so every overload a module emits needs a
 //! name of its own. The rule is **per module and deterministic**: a fn whose
 //! name is unique in its module keeps it; overloads within one module are
 //! told apart by a suffix spelled from their parameter types, at the first

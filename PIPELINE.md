@@ -2691,7 +2691,9 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      `field_refs` + `module_refs` → `refs`, the node-keyed target recorded
      as ROADMAP 0ba); G (`linear_moves` + `moved_reads` + `state_takes` +
      `moved_projections` + `flow_moves` → `moves`, `handle_muts` and the
-     `ReadInfo` view gone).
+     `ReadInfo` view gone); and the closing sweep (no backend-prefixed label
+     left in `salvo-core`, `salvo-syntax` or `salvo-backend`). Every
+     approved merge is built.
 - **D3. The IR builder becomes the lowering of the typed form**: erasure as
   its own sub-phase (qualifiers, effects to parameters, union wrapping),
   then flow. The builder's ~87 table reads go. **Decided (user,

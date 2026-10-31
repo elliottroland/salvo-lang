@@ -81,7 +81,7 @@ pub fn module_features(
     if abi {
         return f;
     }
-    // The scheduler's own handle types and constructors [rs-actor]: an
+    // The scheduler's own handle types and constructors: an
     // `Addr`, `Pool` or `Reply` named anywhere in the module, or a `pool` /
     // `thread` intrinsic. A `Reply` also carries the wire.
     let refs = crate::reach::used_names(ast);

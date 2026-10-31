@@ -2451,7 +2451,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
             // [op-safe-nav] The first arm of a lowered `?.` narrows its
             // receiver for the link: the hint a backend reads to write a
-            // native optional chain [kt-safe-nav] [rs-safe-nav].
+            // native optional chain.
             let just = match (origin, br.hole) {
                 (Some(ast::WhenOrigin::SafeNav), Some(ast::ArmHole::First)) => Justification::SafeNav { switch: id },
                 _ => Justification::Arm { switch: id, arm: i },

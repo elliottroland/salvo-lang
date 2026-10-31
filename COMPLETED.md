@@ -144,6 +144,24 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — The D2 merges' closing sweep (user decision, PIPELINE.md D2, item 13)
+
+- **Decided (user, 2026-10-30, item 13)**: after the merges, one sweep of
+  what they left stale. Every backend-prefixed rule label in `salvo-core`,
+  `salvo-syntax` and `salvo-backend` went (`[kt-copy]`, `[rs-fn-field]`,
+  `[rs-loop-temp]`, `[rs-actor]`, `[kt-safe-nav]`/`[rs-safe-nav]`,
+  `[kt-fn-mangling]`, `[rs-fn-mangling]`, `[kt-std-library]`, `[rs-crate]`,
+  `[rs-borrows]`, `[rs-elem-mut]`; `[rs-loc]` became `[col-locate]`,
+  `param_mode`'s `[rs-fn-field]`/`[rs-fn-param-convention]` became
+  `[fn-param-mode]`, and a core test's `[kt-float-eq]`, a deleted rule,
+  became `[op-equality]`). The comments keep their reasoning; only the
+  citation of a backend rule left core. `salvo-cli`'s tests keep theirs:
+  they drive both backends.
+- **Stale docs fixed**: `check_self_send` spelled the self-send `self.k(args)`
+  (it is `k@self(args)`) and named the table it shared before the calls
+  merge; `actor_gates` read as a garbled sentence and now says what a row is.
+- **Output**: comments only. 709 tests under nextest, warm run 1m46.
+
 ### 2026-10-30 — What a read moves, one table (user decision, PIPELINE.md D2 read moves, [flow-use-after-move] [linear-container] [linear-state])
 
 - **Decided (user, 2026-10-30, item 11)**: the five sets the IR read as

@@ -55,7 +55,7 @@ impl<'a, 'p> Modes<'a, 'p> {
             return PassMode::Moved;
         }
         if matches!(param.ty, Type::Fn { .. }) {
-            // [rs-fn-field] A callback the callee **stores** is moved in: a
+            // [fn-param-mode] A callback the callee **stores** is moved in: a
             // composed pass calls it once per element, long after this
             // returns. Otherwise it is lent for the call [fn-contract].
             return if key.is_some_and(|k| self.owns_callbacks(k)) { PassMode::Moved } else { PassMode::Lent };
@@ -141,7 +141,7 @@ impl<'a, 'p> Modes<'a, 'p> {
         salvo_syntax::is_copy_scalar_name(&base.name.name)
     }
 
-    /// [rs-fn-field] Whether this fn **stores** a callback it is given: a
+    /// [fn-param-mode] Whether this fn **stores** a callback it is given: a
     /// fn-typed parameter (or an implicit group, which spreads fn
     /// parameters), and a struct with a fn-typed field as the result. That is
     /// the composed-pass shape, and nothing else in the language keeps a
@@ -155,7 +155,7 @@ impl<'a, 'p> Modes<'a, 'p> {
         self.symbols.structs.get(ret).is_some_and(|s| s.fields.iter().any(|f| matches!(f.ty.as_ref(), Some(Type::Fn { .. }))))
     }
 
-    /// [rs-fn-param-convention] How the *declaration* of a fn type takes its
+    /// [fn-param-mode] How the *declaration* of a fn type takes its
     /// `i`th parameter, so a lambda passed into that position binds the same
     /// way: kept and `Mut` is lent mutably, kept is lent, moved is moved.
     pub fn fn_type_position(
@@ -184,7 +184,7 @@ impl<'a, 'p> Modes<'a, 'p> {
 /// else lent.
 fn kept_mode(ty: &Type) -> PassMode {
     if type_has_mut(ty) || type_has_elem_mut(ty) {
-        // [rs-elem-mut] A container with `Mut` elements lends mutable
+        // A container with `Mut` elements lends mutable
         // handles, so it is lent mutably even without its own `Mut`
         // [ref-handle].
         PassMode::LentMut
@@ -198,7 +198,7 @@ pub fn is_fn_group(ty: &Type) -> bool {
     matches!(ty, Type::QualifiedGroup { base, .. } if matches!(base.as_ref(), Type::Fn { .. }))
 }
 
-/// Whether an AST type carries the `Mut` qualifier [rs-borrows].
+/// Whether an AST type carries the `Mut` qualifier.
 pub fn type_has_mut(ty: &Type) -> bool {
     match ty {
         Type::Named { qualifiers, .. } | Type::QualifiedGroup { qualifiers, .. } => {
@@ -212,7 +212,7 @@ pub fn type_has_mut(ty: &Type) -> bool {
     }
 }
 
-/// [rs-elem-mut] Whether a container type's **elements** carry `Mut` —
+/// Whether a container type's **elements** carry `Mut` —
 /// `List<Mut T>`, `Mut T[]` — which makes the container lend mutable handles
 /// [ref-handle]. Element depth only.
 pub fn type_has_elem_mut(ty: &Type) -> bool {

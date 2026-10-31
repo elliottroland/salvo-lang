@@ -74,7 +74,7 @@ fn is_scalar(t: &Ty) -> bool {
 }
 
 /// A fn type lending a handle answers one into its first non-scalar,
-/// non-fn parameter (the locator convention [rs-loc]); fixed throughout `ty`.
+/// non-fn parameter (the locator convention [col-locate]); fixed throughout `ty`.
 fn fix_fn_types(ty: &mut Ty) {
     match ty {
         Ty::Fn { params, ret, effects, .. } => {

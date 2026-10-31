@@ -86,7 +86,7 @@ pub trait Backend {
     /// point (`salvo run --main`), or `None` to let the backend discover
     /// it. It matters wherever the entry shapes the *output* and not just
     /// the launch command: Rust gives the `main`-declaring module the crate
-    /// root [rs-crate], so with several candidates the backend must be told
+    /// root, so with several candidates the backend must be told
     /// which one, while Kotlin emits a `MainKt` per module and needs
     /// nothing.
     fn emit(
@@ -172,7 +172,7 @@ pub trait Backend {
     }
 
     /// Readies what [`Backend::program_command`] will link besides the
-    /// emitted sources, for a build that is about to run [kt-std-library].
+    /// emitted sources, for a build that is about to run.
     /// Called by `run` and `test` after [`Backend::emit`]; nothing by default.
     fn prepare_run(&self, program: &Program, target_dir: &Path) -> Result<(), BackendError> {
         let _ = (program, target_dir);

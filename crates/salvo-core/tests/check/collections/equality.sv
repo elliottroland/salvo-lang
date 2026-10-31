@@ -139,7 +139,7 @@ struct KFloatOrd : Ordered<self> by auto {
     v: Double
 }
 
-// A float field is fine for **equality**, which Salvo owns [kt-float-eq].
+// A float field is fine for **equality**, which Salvo owns [op-equality].
 struct KFloatEq : Eq<self> by auto {
     v: Double
 }

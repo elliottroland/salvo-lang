@@ -1703,7 +1703,7 @@ impl LowerPicks {
     /// `when __navN = base { is #{first arm} { __navN.link } is #{rest} { __navN } }`:
     /// the link on the first arm, the other arms passed through. Always the
     /// binding form, whatever the base: the backends recognize the shape to
-    /// write a native optional chain [kt-safe-nav] [rs-safe-nav].
+    /// write a native optional chain.
     fn lower_safe_nav(&mut self, expr: &mut Expr) {
         let Expr::SafeNav { base, access, span } = std::mem::replace(expr, Expr::Placeholder { span: Span::default() }) else {
             unreachable!()

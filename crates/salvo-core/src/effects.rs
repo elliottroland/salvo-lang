@@ -5,7 +5,7 @@
 //! resolves the overload in the checker, and both target languages must be
 //! kept from having a second opinion — Rust cannot overload a trait method at
 //! all, and Kotlin would resolve by *Kotlin's* type lattice
-//! ([kt-fn-mangling] is the same hazard for top-level fns). So every overload
+//! (the same hazard for top-level fns, [fn-emit-name]). So every overload
 //! after the first gets a distinct emitted name.
 //!
 //! The rule lives here rather than twice in the emitters because the two must

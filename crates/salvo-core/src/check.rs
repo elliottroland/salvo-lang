@@ -1155,12 +1155,13 @@ pub struct Checked {
     /// value, whatever any binding's mode.
     pub by_value_loops: HashSet<Key>,
     /// [actor-deadlock-cycle] Gated mints (`replyto!`) inside a handler's
+    /// members: `(handler name, the mint's site)`. While a gated
     /// continuation is outstanding the actor serves *nothing else*, so
     /// every gate is a wait-for edge's tail — which is why the graph is
     /// keyed on these and not on `replyto`, whose continuation leaves the
     /// mailbox open.
     pub actor_gates: Vec<(String, Key)>,
-    /// [actor-deadlock-cycle] Sends from inside a handler's members to a
+    /// [actor-deadlock-cycle] Sends from inside a handler's members to an
     /// actor of another protocol: `(handler name, target effect name, the
     /// call's site)`. Recorded for dot-calls through an `Addr`; sends
     /// reached through the handler's *declared dependencies* are read off
@@ -4066,7 +4067,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // forced it: a generic handler that must `copy` a `T` —
         // `?copy: (v: T) -> T` is filled at `use Cyclic([1, 2])`
         // with the copy of `Int`, which the Kotlin backend can
-        // lower where a bare `copy` of `T` it cannot [kt-copy].
+        // lower where a bare `copy` of `T` it cannot.
         for p in &h.params {
             if p.implicit && !matches!(p.ty, ast::Type::Fn { .. }) {
                 self.error(p.span, messages::implicit_param_handler_not_fn_type());
@@ -5494,7 +5495,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// it may. A function value is fine here (user decision 2026-09-28): a
     /// Salvo lambda captures by value, and both backends store a handler's
     /// callback in a form that crosses threads (`Box<dyn FnMut + Send>` /
-    /// `Arc<dyn Fn + Send + Sync>` on Rust [rs-fn-field]). What stays refused
+    /// `Arc<dyn Fn + Send + Sync>` on Rust). What stays refused
     /// is a `proj` view — a borrow of a value the scope still owns.
     fn unshareable_reason(&self, ty: &Ty) -> Option<&'static str> {
         if self.ty_holds_proj(ty) {
@@ -15268,7 +15269,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         !self.lambda_ctx.is_empty()
     }
 
-    /// [actor-self-send] `self.k(args)` — send a message to **the actor this
+    /// [actor-self-send] `k@self(args)` — send a message to **the actor this
     /// member belongs to**: the one thing a member cannot say with an
     /// unqualified call, since that would be self-dispatch (a handler has no
     /// way to reach its own instance) rather than a message.
@@ -15321,9 +15322,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.record_def_ref(member.span, &member.name);
         // [actor-mixed-handler] Inside a mixed handler's **sync** member the
         // explicit spelling means what the bare call means — a send to the
-        // servant through the façade value's addr — so it shares that
-        // table and lowering (user decision 2026-09-19: `@self` is the
-        // disambiguator, in both member kinds).
+        // servant through the façade value's addr — so it is the same
+        // `Callee::OwnSend` and lowering (user decision 2026-09-19: `@self`
+        // is the disambiguator, in both member kinds).
         self.record_callee(self.key(span), Callee::OwnSend { member: member.name.clone() });
         // [actor-send-fn] A send answers nothing.
         Ty::none()
@@ -22955,7 +22956,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [proj-anywhere] Returning or storing a view of a temporary. Driving
         // one (`for x in iter(List(1, 2))`) is allowed — and the Rust
         // backend earns it by hoisting the temporary into a local in front of
-        // the loop [rs-loop-temp], since the loop *binds* the pass and a Rust
+        // the loop, since the loop *binds* the pass and a Rust
         // temporary would die at the end of the statement (E0716). The claim
         // this comment used to make — that the temporary lives for the whole
         // loop statement on both backends — was simply false, and the emitted
@@ -30503,7 +30504,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // lives — so a lambda carrying mutable state into such a position is
         // the same hazard as a mutable parameter, reached through a capture
         // instead. Rust refuses it structurally (a stored callback arrives as
-        // `impl Fn + 'static` [rs-fn-field], so neither a write nor a borrow of
+        // `impl Fn + 'static`, so neither a write nor a borrow of
         // outer mutable data compiles) while Kotlin runs it happily,
         // accumulating across passes: a checker-clean program only one backend
         // can build. Owned here rather than left to rustc.
