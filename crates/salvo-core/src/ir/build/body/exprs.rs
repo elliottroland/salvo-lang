@@ -374,15 +374,17 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
             AExpr::ReplyTo { member, captures, gated, pool, .. } => {
                 let key = self.key(span);
-                let info = self.ctx.checked.replyto_info(key);
+                let found = self.ctx.checked.replyto_targets.get(&key).cloned();
+                let task_effects: Vec<Ty> = self.ctx.checked.effects_passed.get(&key).and_then(EffectsPassed::leading).cloned().unwrap_or_default();
                 let caps: Vec<Expr> = captures.iter().map(|x| self.expr(x)).collect();
                 let pool = pool.as_ref().map(|p| Box::new(self.expr(p)));
-                let target = match info.replyto_task.copied() {
-                    Some(k) => {
-                        let effects: Vec<Expr> = info.task_mint_effects.cloned().unwrap_or_default().iter().map(|t| self.effect_instance(t, span)).collect();
+                let target = match found {
+                    Some(crate::check::ReplyTarget::Task(k)) => {
+                        let effects: Vec<Expr> = task_effects.iter().map(|t| self.effect_instance(t, span)).collect();
                         ReplyTarget::Task { target: k, effects }
                     }
-                    None => ReplyTarget::Member(info.replyto_member.cloned().unwrap_or(member.name.clone())),
+                    Some(crate::check::ReplyTarget::Member(m)) => ReplyTarget::Member(m),
+                    None => ReplyTarget::Member(member.name.clone()),
                 };
                 Expr { ty: self.ty_of(span), span, kind: ExprKind::ReplyTo { target, captures: caps, gated: *gated, pool } }
             }

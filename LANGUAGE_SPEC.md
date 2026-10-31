@@ -11434,7 +11434,7 @@ between endpoints and delivers what arrives into the scheduler.
     language server's definition sites, the check cache's per-file rows).
   * The checker's fn-keyed tables (`fn_lends`,
     `implicit_params`, `established_quals`, `param_mutations`,
-    `deductions`, `Callee::Fn`, `fn_refs`, `replyto_tasks`,
+    `deductions`, `Callee::Fn`, `fn_refs`, `ReplyTarget::Task`,
     `ImplicitArg::Resolved`, …) and the IR's references
     are keyed by it; a handler's member is its own declaration, so the facts
     of its nodes are keyed by its member id [node-id], and its IR `FnDecl`

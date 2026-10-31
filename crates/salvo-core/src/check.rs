@@ -636,6 +636,16 @@ pub struct NarrowedRead {
     pub by: NarrowBy,
 }
 
+/// [actor-replyto] [task-mint] What a `replyto` mints a continuation for
+/// (`Checked::replyto_targets`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum ReplyTarget {
+    /// A `send fn` member of the enclosing handler, by name.
+    Member(String),
+    /// A free `send fn`: the continuation is a detached task.
+    Task(DeclId),
+}
+
 /// [call-resolve] What a call resolved to (`Checked::calls`): the callee, and
 /// whether it was written `x.f(a)` and read as `f(x, a)` [fn-uniform].
 #[derive(Clone, Debug, PartialEq)]
@@ -1016,11 +1026,12 @@ pub struct Checked {
     /// both emitters carry the same constants and the handshake (step ④)
     /// compares what the compiler computed rather than what a runtime hashed.
     pub protocol_hashes: std::collections::BTreeMap<String, String>,
-    /// [actor-replyto] The enclosing handler's member each `replyto`
-    /// delivers to, keyed by the `replyto` span. The name, because that is
-    /// what identifies a continuation target; an overloaded send member is
-    /// not expressible yet and will need the index instead.
-    pub replyto_members: HashMap<Key, String>,
+    /// [actor-replyto] [task-mint] What each `replyto` mints a continuation
+    /// for, by the `replyto` (PIPELINE.md D2): a member of the enclosing
+    /// handler, by its written name, or a free `send fn` — a task — by the
+    /// declaration the scope ladder resolved; a task's effects are its
+    /// `effects_passed`.
+    pub replyto_targets: HashMap<Key, ReplyTarget>,
     /// [actor-deadlock-cycle] Handlers whose members contain a `waitfor`
     /// expression, with the site: since SH-5(d) (user decision 2026-09-19)
     /// occupancy is **inferred**, not declared, and this is the graph's
@@ -1033,11 +1044,6 @@ pub struct Checked {
     /// waiting handler waits, which the deleted capability's propagation
     /// used to spell.
     pub handler_constructs: Vec<(String, String, Key)>,
-    /// [task-mint] The free `send fn` each *task* mint targets, keyed by the
-    /// `replyto` span: a [`DeclId`] rather than a name, because a task target is
-    /// resolved through the scope ladder and the emitters need the declaration
-    /// the checker picked, not a name to re-resolve.
-    pub replyto_tasks: HashMap<Key, DeclId>,
     /// [linear-container] Reads that **move a linear value**, keyed by the
     /// read's span: the emitters must hand the value over rather than copy
     /// it. Rust's narrowed-read path clones by default (`x.as_ref()
@@ -1689,15 +1695,6 @@ impl Checked {
         self.calls.get(&key).and_then(Call::decl)
     }
 
-    /// [unify-checker] A `replyto`'s facts at one span, in one lookup: a
-    /// mint of a task (vs a member), and what the task is passed.
-    pub fn replyto_info(&self, key: Key) -> ReplyToInfo<'_> {
-        ReplyToInfo {
-            replyto_task: self.replyto_tasks.get(&key),
-            task_mint_effects: self.effects_passed.get(&key).and_then(EffectsPassed::leading),
-            replyto_member: self.replyto_members.get(&key),
-        }
-    }
 
     /// [unify-checker] A place read's facts, at its span: whether it moves
     /// the value ([linear-container] [flow-use-after-move] [linear-state],
@@ -1772,13 +1769,6 @@ pub struct LambdaInfo<'c> {
 /// `Key::INTERP_TEXT` (PIPELINE.md B3.2).
 pub struct InterpInfo<'c> {
     pub union: Option<&'c Vec<ArmText>>,
-}
-
-/// [unify-checker] A `replyto`'s facts at one span.
-pub struct ReplyToInfo<'c> {
-    pub replyto_task: Option<&'c DeclId>,
-    pub task_mint_effects: Option<&'c Vec<Ty>>,
-    pub replyto_member: Option<&'c String>,
 }
 
 /// [platform-fn-value] [runtime-kept-fn] Whether platform fn `f` keeps its
@@ -16512,7 +16502,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.out.task_mints.push((minter, member.name.clone(), self.key(span)));
         }
         let key = entry.key;
-        self.out.replyto_tasks.insert(self.key(span), key);
+        self.out.replyto_targets.insert(self.key(span), ReplyTarget::Task(key));
         // [lsp-definition] The mint names a function, so it is a reference
         // to it like any call.
         self.out.fn_refs.insert(self.key(member.span), key);
@@ -16688,8 +16678,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.fate_move(c, "capture", c.span());
         }
         self.out
-            .replyto_members
-            .insert(self.key(span), member.name.clone());
+            .replyto_targets
+            .insert(self.key(span), ReplyTarget::Member(member.name.clone()));
         // [actor-replyto] This handler parks, so it may only be spawned: the
         // continuation needs a mailbox to arrive on and a dispatcher to run
         // it, and a synchronously bound instance has neither. Refused at the

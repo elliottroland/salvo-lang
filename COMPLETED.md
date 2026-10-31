@@ -144,6 +144,19 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — What a `replyto` mints for, one table (user decision, PIPELINE.md D2 replyto, [actor-replyto] [task-mint])
+
+- **Decided (user, 2026-10-30, item 5)**: `replyto_members` and
+  `replyto_tasks`, exclusive per `replyto` node, are `replyto_targets:
+  HashMap<Key, ReplyTarget::{Member(String), Task(DeclId)}>` — the IR's own
+  shape. `ReplyToInfo` is gone; a task's effects stay its `effects_passed`.
+  The actor rows (`actor_sends`, `task_sends`, `task_mints`, `actor_gates`,
+  `waitfor_sites`, `parking_handlers`) are E1's. Found on the way and
+  recorded, not fixed: an addr send in a lambda inside a handler member
+  records no actor send (ROADMAP 0az).
+- **Output**: nothing moved. 709 tests under nextest, warm run 1m42 (the
+  machine was busy; 1m18 the run before).
+
 ### 2026-10-30 — What a call is, one table (user decision, PIPELINE.md D2 calls, [call-resolve] [effect-dispatch] [actor-use-addr] [throw])
 
 - **Decided (user, 2026-10-30, the remaining-merges write-up, items 1–4)**:

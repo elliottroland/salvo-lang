@@ -1110,6 +1110,29 @@ repros are over the real std.
   before B3.4 (the `shout` repro); a send under `?.` is not in the run data
   for this reason.
 
+### 0az — Open defect (E1): an addr send in a lambda inside a handler member records no actor send (found 2026-10-30, D2)
+
+Found by reading, not yet run: `check_lambda` clears `own_handler` for the
+body and restores it after (check.rs, `saved_own_handler`), but leaves
+`own_task` as it is. So in
+
+```
+handler H() of A {
+    send fn go(peer: eff[B]) => peer {
+        each(xs, x -> peer.ping(x))
+    }
+}
+```
+
+`check_addr_call` sees no handler and records no `actor_sends` row, and
+the deadlock graph has no `A → B` edge for the send; the same lambda inside
+a free `send fn` does record its `task_sends` row. Whether the lambda runs
+in the member's activation decides whether the edge is real: a lambda
+called before the member returns blocks the actor exactly as a direct
+send does. Left for E1, whose per-declaration summaries replace these rows
+(PIPELINE.md); a repro with a two-actor cycle through such a lambda should
+land with the fix.
+
 ### 0as — What member calls and uniform calls left (B3.4, 2026-10-28)
 
 PIPELINE.md §II.10 P19 is built; these are its recorded leftovers.
