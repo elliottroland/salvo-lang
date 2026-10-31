@@ -158,7 +158,7 @@ next(Mut BagIter) -> Emitted Int | Finished@main
   130:17  `bag`                          proj Bag
   130:28  `at`                           Int
   131:5   `if e is None {…`              None
-  131:8   `e is None`                    Bool
+  131:8   `e is None`                    Bool  [test None]
   131:8   `e`                            Int?
   132:9   `return finished()`            Never
   132:16  `finished()`                   Finished #{as Emitted Int | Finished}  -> std.core.iterator::finished

@@ -2009,3 +2009,19 @@ pub fn drop_mut_ty(from: &Ty) -> Ty {
         t => t.strip_quals().clone(),
     }
 }
+
+/// [qual-lift] [str-drop-mut] Whether `to` is `from` with only its `Mut`
+/// dropped (on the type, or on a union's arms): the one qualifier removal
+/// that is a conversion rather than a narrowing [ir-coerce].
+pub fn drops_only_mut(from: &Ty, to: &Ty) -> bool {
+    let m: HashSet<String> = ["Mut".to_string()].into_iter().collect();
+    let has_mut = |t: &Ty| t.quals().iter().any(|q| q.name == "Mut") || matches!(t, Ty::Union(arms) if arms.iter().any(|a| a.quals().iter().any(|q| q.name == "Mut")));
+    if from == to || !has_mut(from) {
+        return false;
+    }
+    let dropped = match from {
+        Ty::Union(arms) => Ty::Union(arms.iter().cloned().map(|a| a.remove_quals(&m)).collect()),
+        t => t.clone().remove_quals(&m),
+    };
+    &dropped == to
+}

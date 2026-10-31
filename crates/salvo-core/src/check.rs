@@ -10,7 +10,7 @@
 //! * `converts`: the representation changes an expression needs, in order
 //!   (a union wrap or rewrap at a boundary — let/assign/return/argument/
 //!   branch value — a `Mut` drop, a numeric promotion).
-//! * `is_tests`: how an `is` check (or `when` branch) lowers against a
+//! * `tests`: how an `is` check (or `when` branch) lowers against a
 //!   union representation (which sealed arms to test / null checks).
 //! * `call_fn`: resolved fn targets for call sites (type-based overloads).
 //!
@@ -436,6 +436,35 @@ pub struct UnionTest {
     pub values: Vec<(usize, bool, Vec<salvo_syntax::ast::TypeLit>)>,
 }
 
+/// [is-narrowing] A **test** at one node (an `is`, a `^`, a `when` branch
+/// head, an [op-arm-eq] comparison): what the program asks of a value at
+/// run time (PIPELINE.md D2, `Test`). A node asks one kind of question.
+#[derive(Clone, Debug)]
+pub enum Test {
+    /// The subject's union arm [is-narrowing] [is-precise].
+    Arms(UnionTest),
+    /// Its qualifiers hold: a conjunction of `qualifies` calls, on a
+    /// non-union subject [is-qualifies] [qual-depend] — `k is KeyOf(m)`
+    /// is `KeyOf.qualifies(k, m)`.
+    Holds(Vec<PredicateCheck>),
+}
+
+impl Test {
+    pub fn arms(&self) -> Option<&UnionTest> {
+        match self {
+            Test::Arms(t) => Some(t),
+            Test::Holds(_) => None,
+        }
+    }
+
+    pub fn holds(&self) -> Option<&Vec<PredicateCheck>> {
+        match self {
+            Test::Holds(c) => Some(c),
+            Test::Arms(_) => None,
+        }
+    }
+}
+
 /// [when-union-head] One arm test for `is A | B`: the arms of both, a `None`
 /// test of either, and a value test only where neither matches its arm
 /// whole. `None` where two value tests on one arm disagree in direction.
@@ -779,11 +808,11 @@ pub struct Checked {
     pub expr_ty: HashMap<Key, Ty>,
     /// [op-arm-eq] An equality whose one side is a union and whose other side
     /// is a value matching exactly one of its arms, keyed by the comparison's
-    /// span. The checker proved which arm, and the IR lowers it to
-    /// `subject is arm && arm == value` — so `x == -1L` on a `Long?` means
-    /// "present and equal to -1", a `None` (or any other arm) comparing
-    /// unequal (user decision 2026-10-12). `==` is the recorded form; `!=`
-    /// negates it.
+    /// span. The checker proved which arm — the test is the comparison's
+    /// entry in `tests` — and the IR lowers it to `subject is arm && arm ==
+    /// value`, so `x == -1L` on a `Long?` means "present and equal to -1",
+    /// a `None` (or any other arm) comparing unequal (user decision
+    /// 2026-10-12). `==` is the recorded form; `!=` negates it.
     pub arm_compares: HashMap<Key, ArmCompare>,
     /// [ir-narrow] The reads whose static type is not their storage's: a
     /// narrowed identifier, field or element place, or a field a
@@ -795,8 +824,10 @@ pub struct Checked {
     /// slot, an operator or a `Mut` drop requires of the value's
     /// representation.
     pub converts: HashMap<Key, Convert>,
-    /// Keyed by the span of the `is` expression or the `when` branch.
-    pub is_tests: HashMap<Key, UnionTest>,
+    /// [is-narrowing] The tests, by the node that asks them: an `is`, a
+    /// `^`, a `when` branch head, an [op-arm-eq] comparison. An `is` the
+    /// checker decided statically has none.
+    pub tests: HashMap<Key, Test>,
     /// [when-exhaustive] `when` expressions (keyed by the `when`'s span)
     /// the checker proved cover every runtime arm of their union subject
     /// without a written `else`. The IR builder reads this to give such a
@@ -810,12 +841,6 @@ pub struct Checked {
     /// (`Str`, `None`, `"a"`, `Ok Int`). Empty when the `when` is exhaustive.
     /// What the language server offers as the arms still to write.
     pub when_arms: HashMap<Key, Vec<String>>,
-    /// Predicate-qualifier `is` checks on non-union subjects, keyed by the
-    /// span of the `is` expression: the qualifier names whose `qualifies`
-    /// functions must be called (conjunction), each with the places filling
-    /// its value slots [qual-depend] — `k is KeyOf(m)` lowers to
-    /// `KeyOf.qualifies(k, m)`.
-    pub predicate_tests: HashMap<Key, Vec<PredicateCheck>>,
     /// [qual-whynot] `Q.member(args)` — a call to a qualifier's own fn
     /// (`InRange.qualifies(n, 1, 65535)`): the qualifier, the member, and the
     /// base its `of` names (which declaration of an overloaded qualifier).
@@ -1163,13 +1188,6 @@ pub struct Checked {
     /// function records (`ImplicitArg::Resolved`), since the two are one
     /// rule [fn-value]. Absent for a function with none.
     pub fn_value_implicits: HashMap<Key, Vec<ImplicitArg>>,
-    /// [qual-lift] The type a `^` check widens its subject to, keyed by the
-    /// check's span (a `^` expression, or a `^` branch head in a `when`).
-    /// Present only when the check *peels a wrapper arm*, which is when the
-    /// emitters must materialize the peel: they bind the widened value to a
-    /// shadowing local for the branch, so reads and any nested `when` see it
-    /// at this type.
-    pub widen_targets: HashMap<Key, Ty>,
     /// Calls that may throw [throw], keyed by the call span: the `throw`
     /// operation itself and every call whose callee declares `[Throw<M>]`.
     /// The emitters need each one because the control transfer is *their*
@@ -1473,12 +1491,6 @@ impl ForSite {
 /// `subject is <test> && (subject-narrowed-to-arm) == value`.
 #[derive(Clone, Debug)]
 pub struct ArmCompare {
-    /// The union-typed operand to test, as the arm test that selects the
-    /// matching arm (the IR turns it into an `ArmTest`).
-    pub test: UnionTest,
-    /// The type of the arm the value matches (what the narrowed subject reads
-    /// as, and the type the inner `==` compares at).
-    pub arm_ty: Ty,
     /// True when the **left** operand is the union (and the right is the
     /// value); false when they are swapped (`value == union`).
     pub subject_is_lhs: bool,
@@ -1816,17 +1828,6 @@ impl Checked {
         }
     }
 
-    /// [unify-checker] An `is` check's facts, at its span (an `is`, a `^`, a
-    /// `when` branch head): the union arm test, the predicate qualifiers it
-    /// calls instead, and the type a `^` widens its subject to.
-    pub fn test_info(&self, key: Key) -> TestInfo<'_> {
-        TestInfo {
-            union: self.is_tests.get(&key),
-            predicate: self.predicate_tests.get(&key),
-            widen: self.widen_targets.get(&key),
-        }
-    }
-
     /// [unify-checker] A place read's facts, at its span: whether it moves
     /// the value ([linear-container] [flow-use-after-move] [linear-state],
     /// a projection taking its root), a move only the flow pass sees, the
@@ -1872,13 +1873,6 @@ pub struct FnValueInfo<'c> {
     pub effects: Option<&'c Vec<Ty>>,
     pub nested: Option<&'c Vec<ImplicitArg>>,
     pub member: Option<&'c ImplicitArg>,
-}
-
-/// [unify-checker] An `is` check's facts, at its span.
-pub struct TestInfo<'c> {
-    pub union: Option<&'c UnionTest>,
-    pub predicate: Option<&'c Vec<PredicateCheck>>,
-    pub widen: Option<&'c Ty>,
 }
 
 /// [unify-checker] A place read's facts, at its span.
@@ -13861,10 +13855,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(test) = self.union_test_for(&repr, &pat) else {
             return false;
         };
-        self.out.arm_compares.insert(
-            self.key(span),
-            ArmCompare { test, arm_ty, subject_is_lhs },
-        );
+        let key = self.key(span);
+        self.out.tests.insert(key, Test::Arms(test));
+        self.out.arm_compares.insert(key, ArmCompare { subject_is_lhs });
         true
     }
 
@@ -17972,7 +17965,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(b.span, messages::qual_whynot_binding());
         }
         let key = self.key(*is_span);
-        if self.out.is_tests.contains_key(&key) {
+        if self.out.tests.get(&key).is_some_and(|t| t.arms().is_some()) {
             self.error(span, messages::qual_whynot_union_test());
         }
         self.whynot_text_form(subject, *is_span);
@@ -17985,7 +17978,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// text form is "the value" in the message: never an error, since the
     /// message is the qualifier's, not the site's.
     fn whynot_text_form(&mut self, subject: &'p Expr, is_span: Span) {
-        let Some(checks) = self.out.predicate_tests.get(&self.key(is_span)).cloned() else { return };
+        let Some(checks) = self.out.tests.get(&self.key(is_span)).and_then(Test::holds).cloned() else { return };
         let Some(ty) = self.expr_ty_recorded(subject) else { return };
         if ty.is_unknown() || Self::interp_native(&ty) {
             return;
@@ -22281,6 +22274,20 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
 
 /// Removes the named qualifiers from a type [qual-lift], or `None` when it
 /// does not carry all of them. `Qual T` with every qualifier removed is `T`.
+/// [qual-lift] [str-drop-mut] What a lifted arm is *stored* as inside the
+/// branch: the arm without the lifted qualifiers that erase. `Mut` is the
+/// one that does not [ir-types]: lifting it changes the representation on
+/// a backend that renders `Mut` as a type of its own (Kotlin's
+/// `StringBuilder`), so the storage keeps it and a read used as the plain
+/// type drops it there, a conversion [ir-coerce].
+fn lifted_storage(arm: &Ty, names: &[String]) -> Ty {
+    let erasable: Vec<String> = names.iter().filter(|n| n.as_str() != "Mut").cloned().collect();
+    if erasable.is_empty() {
+        return arm.clone();
+    }
+    strip_quals_named(arm, &erasable).unwrap_or_else(|| arm.clone())
+}
+
 fn strip_quals_named(ty: &Ty, names: &[String]) -> Option<Ty> {
     let Ty::Qualified { quals, base } = ty else {
         return None;
@@ -22618,9 +22625,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         // The same runtime test `is` would emit; absent for a tautology (the
         // qualifiers are statically present), where the check is `true`.
         if let Some(test) = self.union_test_for(&repr, &pat) {
-            self.out.is_tests.insert(self.key(span), test);
+            self.out.tests.insert(self.key(span), Test::Arms(test));
         }
         let mut multi_arm = false;
+        let mut storage: Option<Ty> = None;
         let (matched, remaining) = match &subj_ty {
             Ty::Union(arms) => {
                 let (m, r): (Vec<Ty>, Vec<Ty>) = arms
@@ -22652,6 +22660,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     );
                     return unchanged;
                 }
+                storage = Some(self.mk_union(m.iter().map(|arm| lifted_storage(arm, &pat.quals)).collect()));
                 (self.mk_union(stripped), Some(self.mk_union(r)))
             }
             other => match strip_quals_named(other, &pat.quals) {
@@ -22669,16 +22678,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             },
         };
-        // [qual-lift] Inside the branch the value is seen *at* the widened
-        // type: the arm test peeled the wrapper, so a further `is`/`when` on
-        // the subject must narrow relative to the stripped type, not to the
-        // storage it came out of. (The emitters materialize the peel as a
-        // branch-local temporary.)
-        let subject_repr = if self.out.is_tests.contains_key(&self.key(span)) {
-            self.out
-                .widen_targets
-                .insert(self.key(span), matched.clone());
-            matched.clone()
+        // [qual-lift] Inside the branch the value is stored as the arm the
+        // test matched, with the lifted qualifiers gone (they erase), so a
+        // further `is`/`when` on the subject narrows relative to that rather
+        // than to the union it came out of. A lifted `Mut` stays in the
+        // storage (`lifted_storage`). The IR narrows the subject to the
+        // matched arm at the test, as for an `is`.
+        let subject_repr = if self.out.tests.contains_key(&self.key(span)) {
+            storage.unwrap_or_else(|| matched.clone())
         } else {
             repr
         };
@@ -26550,7 +26557,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [is-qualifies] [qual-depend] Validates a predicate-qualifier check —
     /// applicability, the filled value slots (places resolved to fate roots,
     /// constants taken whole), the `qualifies` effects — records the runtime
-    /// lowering in `predicate_tests` at `span`, and answers the lowered
+    /// lowering in `tests` at `span`, and answers the lowered
     /// value arguments per qualifier for the then-narrow. Used by `is`
     /// predicate checks.
     fn check_predicate_quals(
@@ -26713,7 +26720,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             checks.push(PredicateCheck { name: q.clone(), args: rendered, implicits_at });
         }
-        self.out.predicate_tests.insert(self.key(span), checks);
+        self.out.tests.insert(self.key(span), Test::Holds(checks));
         // The `qualifies` call happens here at runtime: its declared
         // effects must be available in this scope
         // [is-qualifies-effects].
@@ -26738,7 +26745,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// Analyzes an `is` expression: checks the subject, records the runtime
-    /// lowering (`is_tests`), and computes matched/remaining types.
+    /// lowering (`tests`), and computes matched/remaining types.
     fn is_info(&mut self, is_expr: &'p Expr) -> IsInfo {
         let Expr::Is {
             subject,
@@ -26788,7 +26795,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else if let Some(test) = self.union_test_for(strip_proj_union(&repr), &pat) {
             // Runtime lowering against the declared union representation
             // [is-narrowing] [is-precise].
-            self.out.is_tests.insert(self.key(*span), test);
+            self.out.tests.insert(self.key(*span), Test::Arms(test));
         } else if let (Some(Ty::Lit(lit)), true, Ty::Named { name, args }) =
             (&pat.base, pat.quals.is_empty(), repr.strip_quals())
         {
@@ -26798,9 +26805,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             // IR read a missing test as decided statically — `true` — so the
             // test passed for every string.
             if args.is_empty() && name == lit.base() {
-                self.out.is_tests.insert(
+                self.out.tests.insert(
                     self.key(*span),
-                    UnionTest { size: 1, arms: vec![0], nullable: false, match_none: false, values: vec![(0, false, vec![lit.clone()])] },
+                    Test::Arms(UnionTest { size: 1, arms: vec![0], nullable: false, match_none: false, values: vec![(0, false, vec![lit.clone()])] }),
                 );
             } else {
                 self.error(*span, messages::type_literal_never_matches(&repr, &lit));
@@ -27484,7 +27491,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 };
             }
             if let Some(test) = test {
-                self.out.is_tests.insert(self.key(branch.span), test);
+                self.out.tests.insert(self.key(branch.span), Test::Arms(test));
             }
             // [qual-lift] A `^` branch tests the same arm and then reads the
             // subject *without* the qualifiers: the whole point is the
@@ -27530,15 +27537,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let links = self.links_for_value(subject, b.span);
                 bindings.push((b.clone(), narrow_ty.clone(), links, None));
             }
-            // [qual-lift] A `^` branch sees the subject at the widened
-            // type, so nested narrowing composes on that rather than on the
-            // storage the arm test peeled it out of.
-            let declared = if branch.widen && self.out.is_tests.contains_key(&self.key(branch.span))
-            {
-                self.out
-                    .widen_targets
-                    .insert(self.key(branch.span), narrow_ty.clone());
-                narrow_ty.clone()
+            // [qual-lift] A `^` branch stores the subject as the arm it
+            // matched, the lifted qualifiers gone (a `Mut` kept,
+            // `lifted_storage`), so nested narrowing composes on that rather
+            // than on the union the arm test peeled it out of.
+            let declared = if branch.widen && self.out.tests.contains_key(&self.key(branch.span)) {
+                self.mk_union(matched.iter().map(|arm| lifted_storage(arm, &pat.quals)).collect())
             } else {
                 repr.clone()
             };
@@ -27775,8 +27779,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// declined: `Mut List` is accepted everywhere else, so a rejection
     /// here would surprise.
     fn drop_mut_operand(&mut self, expr: &'p Expr, ty: &Ty) {
+        // [qual-lift] A read inside an `is ^Mut` branch is a plain value
+        // stored as a builder: the storage is what is dropped.
+        let stored = self.repr_of(expr, ty);
         if Self::carries_mut(ty) {
             self.record_mut_drop(expr.span(), ty.clone());
+        } else if Self::carries_mut(&stored) {
+            self.record_mut_drop(expr.span(), stored);
         }
     }
 

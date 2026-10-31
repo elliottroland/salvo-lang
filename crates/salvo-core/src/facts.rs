@@ -113,6 +113,11 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, id:
         if let Some(n) = &narrowed {
             marks.push(n);
         }
+        // [is-narrowing] A test this node asks.
+        let test = part.tests.get(key).map(test_mark);
+        if let Some(t) = &test {
+            marks.push(t);
+        }
         if !marks.is_empty() {
             row.push_str(&format!("  [{}]", marks.join(", ")));
         }
@@ -164,4 +169,31 @@ fn snippet(source: &str, span: Span) -> String {
         shown.push('…');
     }
     format!("`{shown}`")
+}
+
+/// [is-narrowing] A test's mark: the runtime arms it accepts (a literal
+/// arm with the values it accepts or refuses), `None`, or the qualifiers
+/// whose `qualifies` it calls.
+fn test_mark(t: &crate::check::Test) -> String {
+    match t {
+        crate::check::Test::Holds(checks) => {
+            format!("test qualifies {}", checks.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", "))
+        }
+        crate::check::Test::Arms(u) if u.match_none && u.arms.is_empty() => "test None".to_string(),
+        crate::check::Test::Arms(u) => {
+            let arms: Vec<String> = u
+                .arms
+                .iter()
+                .map(|a| match u.values.iter().find(|(i, ..)| i == a) {
+                    Some((_, negate, lits)) => {
+                        let lits: Vec<String> = lits.iter().map(|l| l.to_string()).collect();
+                        format!("{a} {} {}", if *negate { "not" } else { "is" }, lits.join(" | "))
+                    }
+                    None => a.to_string(),
+                })
+                .collect();
+            let none = if u.match_none { ", None" } else { "" };
+            format!("test arms {}{none}", arms.join(", "))
+        }
+    }
 }

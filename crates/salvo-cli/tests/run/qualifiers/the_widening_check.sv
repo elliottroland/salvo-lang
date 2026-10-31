@@ -72,3 +72,42 @@ fn main() [use] -> None {
 //= error zero
 //= thrown negative
 //= message number 9
+
+//--- lifting_mut_converts_the_builder
+// [qual-lift] [str-drop-mut] `^Mut` is the one lift that changes a
+// representation: Kotlin's `Mut Str` is a `StringBuilder`. A read of the
+// lifted subject, or a lifted binding, is the plain `Str` by a `Mut` drop
+// (PIPELINE.md D2 `Test`, 2026-10-30). Before, the `if` form cast the
+// builder to `String` (a `ClassCastException`) and the `when` form passed
+// the builder where a `String` was wanted (refused by kotlinc).
+
+fn size_of(s: Str) [] -> Int {
+    return size(s)
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    let m: Mut Str | Int = Mut Str("hi")
+    if m is ^Mut {
+        println("if ${size_of(m)} ${m == "hi"}")
+        let copied = m
+        println(copied)
+    }
+    when m {
+        is ^Mut { println("when ${size_of(m)} ${m == "hi"}") }
+        is Int { println("int") }
+    }
+    when m {
+        is ^Mut s { println("bound ${size_of(s)} ${s == "hi"}") }
+        is Int { println("int") }
+    }
+    if m is ^Mut t {
+        println("if bound ${size_of(t)}")
+    }
+}
+//= stdout
+//= if 2 true
+//= hi
+//= when 2 true
+//= bound 2 true
+//= if bound 2

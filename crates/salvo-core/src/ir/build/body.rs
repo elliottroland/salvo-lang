@@ -683,6 +683,12 @@ impl<'a, 'p> Lower<'a, 'p> {
         if logical.is_unknown() || erase(declared) == logical || bound.ty == logical {
             return bound.local.clone();
         }
+        // [qual-lift] [str-drop-mut] A builder read as the plain type (inside
+        // an `is ^Mut` branch) is no narrowing: the read is the builder, and
+        // the checker's `Mut` drop at the read converts it [ir-coerce].
+        if crate::types::drops_only_mut(&bound.ty, &logical) {
+            return bound.local.clone();
+        }
         // A narrowing binding for the whole declared type is in scope under
         // this name already when `bound.ty == logical`; otherwise make one.
         let local = self.fresh(name);
@@ -702,6 +708,25 @@ impl<'a, 'p> Lower<'a, 'p> {
         });
         self.rebind(name, local.clone(), logical);
         local
+    }
+
+    /// [qual-lift] [str-drop-mut] The statements binding `local` (at `ty`)
+    /// to the arm `arm_ty` of `from`: a narrowing, or — when the binding is
+    /// the arm with its `Mut` lifted (`is ^Mut s`) — a narrowing to the
+    /// builder and the `Mut` drop that makes the binding's plain value
+    /// [ir-coerce], since no narrowing changes a representation.
+    pub(crate) fn bind_arm(&mut self, local: Local, ty: Ty, from: Place, from_ty: Ty, arm_ty: Option<Ty>, because: Justification) -> Vec<Stmt> {
+        let id = self.id();
+        match arm_ty.filter(|a| crate::types::drops_only_mut(a, &ty)) {
+            Some(arm) => {
+                let held = self.fresh(&local.0);
+                let lid = self.id();
+                let read = Expr { ty: arm.clone(), span: Span::default(), kind: ExprKind::Read { place: Place { root: held.clone(), steps: Vec::new() }, consume: false, moved: false } };
+                let dropped = Expr { ty: ty.clone(), span: Span::default(), kind: ExprKind::DropMut { value: Box::new(read) } };
+                vec![Stmt::Narrow { id, local: held, ty: arm, from, from_ty, because }, Stmt::Let { id: lid, local, ty, value: dropped }]
+            }
+            None => vec![Stmt::Narrow { id, local, ty, from, from_ty, because }],
+        }
     }
 
     /// A narrowing binding at the top of an arm: `name` is the subject's

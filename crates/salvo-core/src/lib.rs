@@ -48,7 +48,7 @@ pub use check::{
     check_program, check_project, check_project_cached, Checked, Convert, ConvertStep, ImplicitArg, NarrowBy, NarrowedRead, ImplicitParam, PassDriver,
     StdCache,
     ThrowSite,
-    UnionTest, OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,
+    Test, UnionTest, OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,
 };
 pub use check_cache::CheckCache;
 pub use std_front::{FrontProgram, StdFront};

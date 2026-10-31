@@ -15,7 +15,7 @@ fn checked(src: &str) -> salvo_core::Checked {
     assert!(errors.is_empty(), "unexpected errors: {errors:#?}");
     let user = out.program.files.iter().position(|f| !f.is_std).expect("main.sv");
     let mut c = out.checked;
-    c.is_tests.retain(|k, _| k.file() >= user);
+    c.tests.retain(|k, _| k.file() >= user);
     c.converts.retain(|k, _| k.file() >= user);
     c
 }
@@ -39,8 +39,9 @@ fn g() [] -> Mixed {{
     );
     let out = checked(&src);
     let test = out
-        .is_tests
+        .tests
         .values()
+        .filter_map(|t| t.arms())
         .find(|t| !t.values.is_empty())
         .expect("a literal test");
     assert_eq!(test.size, 1);
@@ -77,12 +78,12 @@ fn a_qualified_literal_test_is_a_value_comparison() {
     let out = checked(&src);
     let want = vec![(0, false, vec![TypeLit::Str("port".into()), TypeLit::Str("verbose".into())])];
     assert!(
-        out.is_tests.values().any(|t| t.size == 1 && t.values == want),
+        out.tests.values().filter_map(|t| t.arms()).any(|t| t.size == 1 && t.values == want),
         "{:?}",
-        out.is_tests.values().map(|t| (t.size, t.values.clone())).collect::<Vec<_>>()
+        out.tests.values().filter_map(|t| t.arms()).map(|t| (t.size, t.values.clone())).collect::<Vec<_>>()
     );
     assert!(
-        out.is_tests.values().any(|t| t.size == 1 && t.values == vec![(0, false, vec![TypeLit::Str("host".into())])]),
+        out.tests.values().filter_map(|t| t.arms()).any(|t| t.size == 1 && t.values == vec![(0, false, vec![TypeLit::Str("host".into())])]),
         "the `when`'s `is \"host\"` arm is a value test too"
     );
     assert!(

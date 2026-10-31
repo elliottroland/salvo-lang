@@ -191,20 +191,22 @@ impl<'a, 'p> Lower<'a, 'p> {
                 // [qual-lift] the test is the same as `is`; the widening is
                 // erased with the qualifiers, so the binding is the subject
                 // under its widened type.
-                let (test, widen) = {
-                    let info = self.ctx.checked.test_info(self.key(span));
-                    (info.union.cloned(), info.widen.map(erase))
-                };
+                let test = self.ctx.checked.tests.get(&self.key(span)).and_then(|t| t.arms()).cloned();
                 let s = self.expr_subject(subject);
+                // [qual-lift] What the lift narrows its subject to: the arm the
+                // test matched, as stored (the lifted qualifiers erase; a
+                // lifted `Mut` is dropped at each read that needs the plain
+                // type [ir-coerce]).
+                let widen = test.as_ref().and_then(|t| self.narrowed_ty_of_test(&s.ty, t));
                 let id = self.id();
                 if let Some(b) = binding {
                     let ty = self.ty_of(b.span);
                     let from = self.stored_place_of(subject).unwrap_or(Place { root: Local("<subject>".into()), steps: Vec::new() });
                     let local = Local(b.name.clone());
                     self.rebind(&b.name, local.clone(), ty.clone());
-                    let nid = self.id();
                     let from_ty = s.ty.clone();
-                    self.pending_after_test.push(Stmt::Narrow { id: nid, local, ty, from, from_ty, because: Justification::Test { test: id } });
+                    let stmts = self.bind_arm(local, ty, from, from_ty, widen.clone(), Justification::Test { test: id });
+                    self.pending_after_test.extend(stmts);
                 } else if let (Some(target), true) = (widen, self.in_condition) {
                     // [qual-lift] A lift that peels a wrapper arm narrows the
                     // subject to the widened type for the branch.
@@ -520,6 +522,15 @@ impl<'a, 'p> Lower<'a, 'p> {
                 }
                 _ => unsupported(ty, span, "read of a non-place"),
             };
+        };
+        // [qual-lift] [str-drop-mut] A builder read as the plain type is read
+        // as the builder; the checker's `Mut` drop converts it [ir-coerce].
+        let ty = match (e, place.steps.is_empty()) {
+            (AExpr::Ident(id), true) => match self.lookup(&id.name) {
+                Some(b) if b.local == place.root && crate::types::drops_only_mut(&b.ty, &ty) => b.ty.clone(),
+                _ => ty,
+            },
+            _ => ty,
         };
         let key = self.key(span);
         // A projection whose prefix an enclosing safe call bound reads
@@ -881,8 +892,9 @@ impl<'a, 'p> Lower<'a, 'p> {
                 // [op-arm-eq] `union == value` reduced by the checker to an arm
                 // test plus a comparison of that arm: lower it to
                 // `subject is arm && arm == value`.
-                if let Some(ac) = self.ctx.checked.arm_compares.get(&self.key(span)).cloned() {
-                    return self.arm_compare(op, &ac, lhs, rhs, span);
+                let key = self.key(span);
+                if let (Some(ac), Some(test)) = (self.ctx.checked.arm_compares.get(&key).cloned(), self.ctx.checked.tests.get(&key).and_then(|t| t.arms()).cloned()) {
+                    return self.arm_compare(op, &ac, &test, lhs, rhs, span);
                 }
                 let equality = matches!(op, BinaryOp::Eq | BinaryOp::NotEq);
                 // `x == None` is a `None` test of the other side.
@@ -946,12 +958,13 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// `subject is arm && (subject narrowed to arm) == value`. The subject is
     /// bound once so it is read for the test and the comparison without
     /// re-evaluating; `!=` negates the whole thing.
-    fn arm_compare(&mut self, op: BinaryOp, ac: &crate::check::ArmCompare, lhs: &AExpr, rhs: &AExpr, span: Span) -> Expr {
+    fn arm_compare(&mut self, op: BinaryOp, ac: &crate::check::ArmCompare, test: &UnionTest, lhs: &AExpr, rhs: &AExpr, span: Span) -> Expr {
         let ty = self.ty_of(span);
         let bool_ty = Ty::named("Bool");
         let (subject_ast, value_ast) = if ac.subject_is_lhs { (lhs, rhs) } else { (rhs, lhs) };
         let s = self.expr_subject(subject_ast);
         let subj_ty = s.ty.clone();
+        let arm_ty = self.narrowed_ty_of_test(&subj_ty, test).unwrap_or(Ty::Unknown);
         // Bind the subject once.
         let tmp = self.fresh("__cmp");
         let lid = self.id();
@@ -961,7 +974,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let test = Expr {
             ty: bool_ty.clone(),
             span,
-            kind: ExprKind::Test { id: tid, subject: Box::new(Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false, moved: false } }), test: arm_test(&ac.test) },
+            kind: ExprKind::Test { id: tid, subject: Box::new(Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false, moved: false } }), test: arm_test(test) },
         };
         // The present arm: narrow the subject to the arm and compare with the
         // value by the host's `==` (the arm is a basic type).
@@ -970,13 +983,13 @@ impl<'a, 'p> Lower<'a, 'p> {
         let narrow = Stmt::Narrow {
             id: nid,
             local: nar.clone(),
-            ty: ac.arm_ty.clone(),
+            ty: arm_ty.clone(),
             from: Place { root: tmp.clone(), steps: Vec::new() },
             from_ty: subj_ty.clone(),
             because: Justification::Cond { branch: tid, arm: 0 },
         };
         let value = self.expr(value_ast);
-        let read_arm = Expr { ty: ac.arm_ty.clone(), span, kind: ExprKind::Read { place: Place { root: nar, steps: Vec::new() }, consume: false, moved: false } };
+        let read_arm = Expr { ty: arm_ty, span, kind: ExprKind::Read { place: Place { root: nar, steps: Vec::new() }, consume: false, moved: false } };
         let cmp = Expr { ty: bool_ty.clone(), span, kind: ExprKind::Op { op: Op::Eq, args: vec![read_arm, value] } };
         let present = Block { stmts: vec![narrow], value: Some(Box::new(cmp)), span };
         // `test && present`, as a branch (the narrow holds only in the arm).
@@ -1705,9 +1718,10 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// `x is T [name]` as a condition.
     fn is_test(&mut self, subject: &AExpr, binding: Option<&ast::Ident>, span: Span) -> Expr {
         let bool_ty = Ty::named("Bool");
-        let (predicate, union) = {
-            let info = self.ctx.checked.test_info(self.key(span));
-            (info.predicate.cloned(), info.union.cloned())
+        let (predicate, union) = match self.ctx.checked.tests.get(&self.key(span)) {
+            Some(crate::check::Test::Holds(c)) => (Some(c.clone()), None),
+            Some(crate::check::Test::Arms(t)) => (None, Some(t.clone())),
+            None => (None, None),
         };
         if let Some(checks) = predicate {
             // [qual-predicate] a conjunction of `qualifies` calls.
@@ -2058,7 +2072,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             return unsupported(opt, span, "`whynot?` of a non-`is` test");
         };
         let none = Expr { ty: opt.clone(), span, kind: ExprKind::MakeNone };
-        let Some(checks) = self.ctx.checked.test_info(self.key(*is_span)).predicate.cloned() else {
+        let Some(checks) = self.ctx.checked.tests.get(&self.key(*is_span)).and_then(|t| t.holds()).cloned() else {
             return none;
         };
         if checks.is_empty() {
@@ -2103,7 +2117,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// only on failure). With several checks, the first that fails says it.
     fn assert_whynot(&mut self, cond: &AExpr) -> Option<Expr> {
         let AExpr::Is { subject, span, .. } = cond else { return None };
-        let checks = self.ctx.checked.test_info(self.key(*span)).predicate.cloned()?;
+        let checks = self.ctx.checked.tests.get(&self.key(*span)).and_then(|t| t.holds()).cloned()?;
         self.stored_place_of(subject)?;
         let (last, rest) = checks.split_last()?;
         let mut arms = Vec::new();
@@ -2370,7 +2384,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         };
         let mut arms = Vec::new();
         for (i, br) in branches.iter().enumerate() {
-            let test = self.ctx.checked.test_info(self.key(br.span)).union.cloned();
+            let test = self.ctx.checked.tests.get(&self.key(br.span)).and_then(|t| t.arms()).cloned();
             // [when-lowered] A lowered form's `#{rest}` arm is whatever the
             // first arm left, so it is the switch's `else`.
             let arm_test = match &test {
@@ -2392,8 +2406,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                             let local = Local(name.clone());
                             let bty = self.ty_of(br.binding.as_ref().unwrap().span).or_unknown(Some(arm_ty.clone())).unwrap_or(arm_ty.clone());
                             self.rebind(&name, local.clone(), bty.clone());
-                            let nid = self.id();
-                            stmts.push(Stmt::Narrow { id: nid, local, ty: bty, from: place, from_ty: subj_ty.clone(), because: Justification::Arm { switch: id, arm: i } });
+                            stmts.extend(self.bind_arm(local, bty, place, subj_ty.clone(), Some(arm_ty.clone()), Justification::Arm { switch: id, arm: i }));
                         } else {
                             stmts.push(self.narrow_in_arm(&name, place, subj_ty.clone(), arm_ty, Justification::Arm { switch: id, arm: i }));
                         }

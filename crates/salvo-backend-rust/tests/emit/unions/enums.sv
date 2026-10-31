@@ -120,7 +120,7 @@ fn main() [use] -> None {
 //--- field_subject_is_lowers_to_union_test
 // [is-narrowing] [is-binding] Field subjects get the same union-test
 // lowering as identifier subjects, and narrow like them [flow-place];
-// both backends must agree with the checker's is_tests lowering.
+// both backends must agree with the checker's arm-test lowering.
 struct Holder {
     result: Ok Int | Err Str
 }

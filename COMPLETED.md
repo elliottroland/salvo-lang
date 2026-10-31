@@ -144,6 +144,44 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — One table of tests, and `^Mut` converts (user decision, PIPELINE.md D2 `Test`, [is-narrowing] [qual-lift])
+
+- **Decided (user, 2026-10-30)**, on the write-up of the second D2 merge:
+  (1) a `Test` enum, since a node asks one kind of test; (2) no table for
+  what a `^` sees — revised from a `narrowed_tests` table once the user
+  asked whether the lift belonged to the Convert step's mechanisms: it is
+  a narrowing the IR can derive from the test, as it already did for a
+  `when` `^` branch (whose `widen_targets` entries had no reader), and the
+  per-read half was already `narrowed_reads`; (3) the [op-arm-eq]
+  comparison's arm test moves into `tests`; (4) `salvo facts` marks the
+  test.
+- **Built**: `is_tests` + `predicate_tests` are `tests: HashMap<Key, Test>`
+  (`Test::Arms(UnionTest)` | `Test::Holds(Vec<PredicateCheck>)`, with
+  `arms()`/`holds()`); `test_info`/`TestInfo` and `widen_targets` are gone;
+  `ArmCompare` keeps only `subject_is_lhs`, the arm type coming from the
+  test (`narrowed_ty_of_test`) as for any narrowing. `salvo facts` writes
+  `test arms 0, 2` (a literal arm as `0 is "a" | "b"`), `test None`,
+  `test qualifies Q, R`.
+- **Fell out — `^Mut` was wrong code on Kotlin**, both forms: `if m is
+  ^Mut { … m … }` narrowed the `Mut Str` arm straight to `Str` (`(m as
+  U1).value as String`, a `ClassCastException`), and the `when` form
+  narrowed to `Mut Str`, ignoring the lift (kotlinc refused the builder
+  where a `String` was wanted). `Mut` is the one qualifier that survives
+  erasure, so lifting it is a conversion: the lifted subject is now stored
+  as the builder in the branch (`lifted_storage`) and a read used as the
+  plain type carries the `Mut` drop (`maybe_coerce`, and operands through
+  `drop_mut_operand`, which now asks the storage too); a lifted binding
+  is a narrowing to the builder plus the drop (`Lower::bind_arm`), and the
+  IR reads a builder as the builder (`types::drops_only_mut`). Rust was
+  right all along (`Mut` erases there).
+- **Recorded for the user**: the [op-arm-eq] lowering evaluates the union
+  operand first and the value only when the arm matches, so `f() == x`
+  skips `f()` when `x` is `None` (ROADMAP 0ay, a DECISION).
+- Tests: run data `qualifiers/the_widening_check.sv`
+  `lifting_mut_converts_the_builder` (both backends; failed on Kotlin
+  before). No golden, example or emit pin moved; the facts snapshot gained
+  one mark. 709 tests under nextest, warm run 1m38.
+
 ### 2026-10-30 — Conversions and narrowings, two tables (user decision, PIPELINE.md D2 `Convert`, [ir-coerce] [ir-narrow])
 
 - **Decided (user, 2026-10-30)**, on the write-up of the first D2 merge by
@@ -34944,7 +34982,7 @@ snapshot diffs.
   copy a use; there is no `else if` (write `when { c { } … else { } }`), and
   `when` needs a union subject.
 
-- **A missing `is_tests` entry lowers to `true`** (2026-10-20): the IR builder
+- **A missing `tests` entry lowers to `true`** (2026-10-20): the IR builder
   reads "no runtime test recorded" as "the checker decided it statically".
   Any new `is` shape the checker accepts must record a test (or a predicate
   test), or it passes for every value. A literal on a plain `Str` did exactly

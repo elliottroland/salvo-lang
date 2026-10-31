@@ -2628,9 +2628,16 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      `ConvertStep`s; `DropMut.then`, `WrapUnion.inner` and the IR's
      `promoted()` gone), `repr_ty` + `field_casts` are `narrowed_reads`
      (`NarrowedRead { stored, by: Flow | Claim }`), and `salvo facts`
-     writes `#{as T}`, `narrowed from T` and `claimed from T`. The rest:
-     effect lists as explicit arguments (ten tables), `Test`
-     (`is_tests`, `arm_compares`, `widen_targets`, `predicate_tests`), a
+     writes `#{as T}`, `narrowed from T` and `claimed from T`. **`Test`
+     built — done** (user, 2026-10-30): `is_tests` + `predicate_tests` are
+     `tests: HashMap<Key, Test>` (`Test::Arms(UnionTest)` |
+     `Test::Holds(Vec<PredicateCheck>)`), the [op-arm-eq] comparison's
+     arm test is its `tests` entry (`ArmCompare` keeps `subject_is_lhs`),
+     `widen_targets` is gone (the IR narrows a `^` subject to the arm the
+     test matched, as for an `is`; reads inside the branch are
+     `narrowed_reads`), `test_info` is gone, and `salvo facts` marks
+     `test …`. `^Mut` became a conversion on the way. The rest: effect
+     lists as explicit arguments (ten tables), a
      call's borrowed result, `Send` (`self_sends`, `facade_sends`,
      `addr_calls`, `replyto_*`, `actor_sends`, `task_sends`), handler
      construction (`use_deps`, `use_with_items`, `spawn_deps`,

@@ -340,7 +340,7 @@ Conventions:
     `collapse_ast`, `runtime_arm`).
   * The checker reasons over the *declared* union (narrowing and
     exhaustiveness are about the literals); the side tables a backend reads
-    (`converts`, `is_tests`, `narrowed_reads`) are in runtime arms —
+    (`converts`, `tests`, `narrowed_reads`) are in runtime arms —
     `literal::lower_tables` rewrites the coercions after the last round,
     and an `is` test is recorded in runtime arms with **value conditions**
     (`UnionTest.values`: the literals an arm must, or must not, equal).
@@ -1968,8 +1968,9 @@ Conventions:
   for predicate qualifiers: `x is Positive` on a non-union subject calls
   `Positive.qualifies(x)` at runtime and narrows the subject's type by
   adding the qualifier in the then-branch (no else information).
-  * Recorded in the checker's `predicate_tests` table (qualifier names,
-    conjunction); backends lower the check to `qualifies` calls.
+  * Recorded in the checker's `tests` table as `Test::Holds` (qualifier
+    names, conjunction) — a node asks one kind of test, so never with an
+    arm test beside it; backends lower the check to `qualifies` calls.
   * *Non-union* is load-bearing: a `Ty::Union` subject always takes the
     arm-matching path [is-narrowing], so a predicate qualifier cannot be
     tested against a union-typed value (`let x: Int | Str` then
@@ -2882,7 +2883,18 @@ Conventions:
     [rs-widen-shadow] / [kt-widen-shadow]. Without that materialization a
     nested `when` would scrutinize the wrapper it came out of, which is
     exactly the wrong-code bug the feature's own demo caught while it was
-    being built.
+    being built. The IR narrows the subject to the arm the test matched, as
+    it does for an `is`; no table says what the lift sees (PIPELINE.md D2,
+    `Test`: the per-read storage is in `narrowed_reads`).
+  * **`^Mut` converts** (2026-10-30): `Mut` is the one qualifier that
+    survives erasure [ir-types], so lifting it is a change of
+    representation where a backend renders `Mut` as a type of its own
+    (Kotlin's `StringBuilder` for `Mut Str`). The lifted subject is stored
+    as the builder inside the branch, and a read used as the plain type
+    carries the `Mut` drop [str-drop-mut] [ir-coerce]; a lifted binding
+    (`is ^Mut s`) is the dropped value. Before, the `if` form cast the
+    builder to `String` and the `when` form passed the builder where a
+    `String` was wanted.
 * [when-union-subject] `when` **with a subject** requires a union-typed
   *variable* subject, and takes no `else`: the arms are the cases and
   covering them is what is checked [when-exhaustive]. An `else` here is a
@@ -13638,8 +13650,10 @@ replaced the working document TESTING.md).
   `(file)@module`), one line per node it typed in source order — its
   position and text, its type, the declaration a call resolved to, and the
   marks `dot`, `by-value`, `linear-move`, `narrowed from T` (a flow
-  narrowing, `T` the storage's type) and `claimed from T` (a field claim
-  [qual-field-override]). A conversion is written after the type as
+  narrowing, `T` the storage's type), `claimed from T` (a field claim
+  [qual-field-override]) and the test a node asks: `test arms 0, 2`
+  (an arm with a value condition as `0 is "a" | "b"` or `0 not "a"`),
+  `test None`, or `test qualifies Q, R`. A conversion is written after the type as
   `#{as T}` [ir-coerce], `T` what its last step produces — the mark the
   typed dump puts after a converted expression (PIPELINE.md D2). A
   desugaring's synthesized node prints as `…`. `facts::dump` is the
