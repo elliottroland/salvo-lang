@@ -1590,3 +1590,131 @@ pub fn hoist_struct_fns(module: &mut Module) {
     }
     module.items.extend(generated);
 }
+
+/// [when-lowered] [op-elvis] Lowers every `subject ?: rhs` of `module` to the
+/// `when` it is (user decisions 2026-10-30, PIPELINE.md D2):
+///
+/// ```text
+/// when subject      { is #{first arm} { subject } is #{rest} { rhs[_ := subject] } }   // a place
+/// when __pickN = s  { is #{first arm} { __pickN } is #{rest} { rhs[_ := __pickN] } }   // anything else
+/// ```
+///
+/// The two heads are holes the type checker fills (`ArmHole`): the
+/// subject's first declared arm, and the arms left. A place subject (a
+/// variable, a field chain out of one) is matched where it is, so a leaving
+/// right side narrows it below as any `when` does [is-narrow-guard]; any
+/// other subject is bound once. `_` in the right side reads the subject; one
+/// a pipe's right side holds is the pipe's. Runs before numbering, over
+/// every node of the file, so nothing after it sees an `Elvis`.
+pub fn lower_picks(module: &mut Module) {
+    let mut l = LowerPicks { next: 0 };
+    crate::node_id::walk_module(&mut l, module);
+}
+
+struct LowerPicks {
+    next: u32,
+}
+
+impl crate::visit_mut::MutVisitor for LowerPicks {
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        if !matches!(expr, Expr::Elvis { .. }) {
+            return;
+        }
+        let Expr::Elvis { subject, rhs, span } = std::mem::replace(expr, Expr::Placeholder { span: Span::default() }) else {
+            unreachable!()
+        };
+        let (mut subject, mut rhs) = (*subject, *rhs);
+        // Inner picks first: what is left of `_` in `rhs` is then this one's.
+        crate::visit_mut::walk_expr(self, &mut subject);
+        crate::visit_mut::walk_expr(self, &mut rhs);
+        let place = is_pick_place(&subject);
+        let binding = (!place).then(|| {
+            self.next += 1;
+            Ident { name: format!("__pick{}", self.next), span: subject.span() }
+        });
+        let read = match &binding {
+            Some(b) => Expr::Ident(b.clone()),
+            None => subject.clone(),
+        };
+        substitute_placeholder(&mut rhs, &read);
+        let first_span = subject.span();
+        let rest_span = rhs.span();
+        let branch = |hole: ArmHole, value: Expr, span: Span| WhenBranch {
+            check: Vec::new(),
+            or: Vec::new(),
+            hole: Some(hole),
+            binding: None,
+            widen: false,
+            body: Block { stmts: vec![Stmt::Expr(value)], span },
+            span,
+        };
+        *expr = Expr::When {
+            binding,
+            subject: Box::new(subject),
+            branches: vec![branch(ArmHole::First, read, first_span), branch(ArmHole::Rest, rhs, rest_span)],
+            origin: Some(WhenOrigin::Pick),
+            span,
+        };
+    }
+}
+
+/// [when-lowered] A subject a lowered pick matches where it is: a variable,
+/// or a field (or tuple element) chain out of one — the places a `when`
+/// narrows.
+fn is_pick_place(e: &Expr) -> bool {
+    match e {
+        Expr::Ident(id) => id.name != "None",
+        Expr::Field { base, grouped: false, .. } | Expr::TupleIndex { base, .. } => is_pick_place(base),
+        _ => false,
+    }
+}
+
+/// [expr-placeholder] Replaces every `_` in `e` with `read`, except one a
+/// pipe's right side holds (`|>`, `?>`), which is the pipe's.
+fn substitute_placeholder(e: &mut Expr, read: &Expr) {
+    use crate::visit::Visitor;
+    struct Owned(Vec<Span>);
+    impl Visitor for Owned {
+        fn visit_expr(&mut self, expr: &Expr) {
+            if let Expr::Pipe { rhs, .. } | Expr::SafePipe { rhs, .. } = expr {
+                struct All<'a>(&'a mut Vec<Span>);
+                impl Visitor for All<'_> {
+                    fn visit_expr(&mut self, expr: &Expr) {
+                        if let Expr::Placeholder { span } = expr {
+                            self.0.push(*span);
+                        }
+                    }
+                }
+                crate::visit::walk_expr(&mut All(&mut self.0), rhs);
+            }
+        }
+    }
+    let mut owned = Owned(Vec::new());
+    crate::visit::walk_expr(&mut owned, e);
+    struct Sub<'a> {
+        read: &'a Expr,
+        skip: &'a [Span],
+    }
+    impl crate::visit_mut::MutVisitor for Sub<'_> {
+        fn visit_expr(&mut self, expr: &mut Expr) {
+            if let Expr::Placeholder { span } = expr {
+                if !self.skip.contains(span) {
+                    let mut r = self.read.clone();
+                    // The read stands where `_` was written.
+                    set_root_span(&mut r, *span);
+                    *expr = r;
+                }
+            }
+        }
+    }
+    crate::visit_mut::walk_expr(&mut Sub { read, skip: &owned.0 }, e);
+}
+
+/// The span of a read's outermost node, set to `span` (a `_` it replaces).
+fn set_root_span(e: &mut Expr, span: Span) {
+    match e {
+        Expr::Ident(id) => id.span = span,
+        Expr::Field { span: s, .. } | Expr::TupleIndex { span: s, .. } => *s = span,
+        _ => {}
+    }
+}

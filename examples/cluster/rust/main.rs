@@ -1149,71 +1149,71 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
         };
         let mut parts: Vec<String> = crate::std_core_string::split_platform(&answer, &String::from(":"));
         crate::std_core_list::add_platform::<String>(&mut shards, {
-            let mut __pick_1: Option<&String> = crate::std_core_list::get_platform::<String>(&parts, 0i32);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                (__picked_2).clone()
+            let mut __pick1: Option<&String> = crate::std_core_list::get_platform::<String>(&parts, 0i32);
+            if __pick1.is_some() {
+                let mut __pick1_1 = __pick1.unwrap();
+                (__pick1_1).clone()
             } else {
                 panic!("salvo: unreachable at main:228:43")
             }
         });
         crate::std_core_console::println(console, &format!("  {}: {} reserved on its shard so far", sku, {
-            let mut __pick_4: Option<&String> = crate::std_core_list::get_platform::<String>(&parts, 1i32);
-            if __pick_4.is_some() {
-                let mut __picked_5 = __pick_4.unwrap();
-                __picked_5
+            let mut __pick2: Option<&String> = crate::std_core_list::get_platform::<String>(&parts, 1i32);
+            if __pick2.is_some() {
+                let mut __pick2_2 = __pick2.unwrap();
+                __pick2_2
             } else {
                 panic!("salvo: unreachable at main:229:47")
             }
         }));
     }
     crate::std_core_console::println(console, &format!("  apple and apple on one shard: {}", (&{
-        let mut __pick_7: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 0i32);
-        if __pick_7.is_some() {
-            let mut __picked_8 = __pick_7.unwrap();
-            __picked_8
+        let mut __pick3: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 0i32);
+        if __pick3.is_some() {
+            let mut __pick3_3 = __pick3.unwrap();
+            __pick3_3
         } else {
             panic!("salvo: unreachable at main:231:69")
         }
     }[..] == &{
-        let mut __pick_10: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 2i32);
-        if __pick_10.is_some() {
-            let mut __picked_11 = __pick_10.unwrap();
-            __picked_11
+        let mut __pick4: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 2i32);
+        if __pick4.is_some() {
+            let mut __pick4_4 = __pick4.unwrap();
+            __pick4_4
         } else {
             panic!("salvo: unreachable at main:231:103")
         }
     }[..])));
     crate::std_core_console::println(console, &format!("  apple and fig on one shard: {}", (&{
-        let mut __pick_13: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 0i32);
-        if __pick_13.is_some() {
-            let mut __picked_14 = __pick_13.unwrap();
-            __picked_14
+        let mut __pick5: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 0i32);
+        if __pick5.is_some() {
+            let mut __pick5_5 = __pick5.unwrap();
+            __pick5_5
         } else {
             panic!("salvo: unreachable at main:232:67")
         }
     }[..] == &{
-        let mut __pick_16: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 3i32);
-        if __pick_16.is_some() {
-            let mut __picked_17 = __pick_16.unwrap();
-            __picked_17
+        let mut __pick6: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 3i32);
+        if __pick6.is_some() {
+            let mut __pick6_6 = __pick6.unwrap();
+            __pick6_6
         } else {
             panic!("salvo: unreachable at main:232:101")
         }
     }[..])));
     crate::std_core_console::println(console, &format!("  apple and pear on one shard: {}", (&{
-        let mut __pick_19: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 0i32);
-        if __pick_19.is_some() {
-            let mut __picked_20 = __pick_19.unwrap();
-            __picked_20
+        let mut __pick7: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 0i32);
+        if __pick7.is_some() {
+            let mut __pick7_7 = __pick7.unwrap();
+            __pick7_7
         } else {
             panic!("salvo: unreachable at main:233:68")
         }
     }[..] == &{
-        let mut __pick_22: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 1i32);
-        if __pick_22.is_some() {
-            let mut __picked_23 = __pick_22.unwrap();
-            __picked_23
+        let mut __pick8: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 1i32);
+        if __pick8.is_some() {
+            let mut __pick8_8 = __pick8.unwrap();
+            __pick8_8
         } else {
             panic!("salvo: unreachable at main:233:102")
         }

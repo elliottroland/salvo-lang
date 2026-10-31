@@ -6318,7 +6318,13 @@ Module {
                                                     ),
                                                     type_args: [],
                                                     args: [
-                                                        Elvis {
+                                                        When {
+                                                            binding: Some(
+                                                                Ident {
+                                                                    name: "__pick1",
+                                                                    span: 13504..13518,
+                                                                },
+                                                            ),
                                                             subject: Call {
                                                                 callee: Ident(
                                                                     Ident {
@@ -6338,10 +6344,55 @@ Module {
                                                                 named: [],
                                                                 span: 13504..13518,
                                                             },
-                                                            rhs: Unreachable {
-                                                                message: None,
-                                                                span: 13522..13536,
-                                                            },
+                                                            branches: [
+                                                                WhenBranch {
+                                                                    check: [],
+                                                                    or: [],
+                                                                    hole: Some(
+                                                                        First,
+                                                                    ),
+                                                                    binding: None,
+                                                                    widen: false,
+                                                                    body: Block {
+                                                                        stmts: [
+                                                                            Expr(
+                                                                                Ident(
+                                                                                    Ident {
+                                                                                        name: "__pick1",
+                                                                                        span: 13504..13518,
+                                                                                    },
+                                                                                ),
+                                                                            ),
+                                                                        ],
+                                                                        span: 13504..13518,
+                                                                    },
+                                                                    span: 13504..13518,
+                                                                },
+                                                                WhenBranch {
+                                                                    check: [],
+                                                                    or: [],
+                                                                    hole: Some(
+                                                                        Rest,
+                                                                    ),
+                                                                    binding: None,
+                                                                    widen: false,
+                                                                    body: Block {
+                                                                        stmts: [
+                                                                            Expr(
+                                                                                Unreachable {
+                                                                                    message: None,
+                                                                                    span: 13522..13536,
+                                                                                },
+                                                                            ),
+                                                                        ],
+                                                                        span: 13522..13536,
+                                                                    },
+                                                                    span: 13522..13536,
+                                                                },
+                                                            ],
+                                                            origin: Some(
+                                                                Pick,
+                                                            ),
                                                             span: 13504..13536,
                                                         },
                                                     ],
@@ -7775,7 +7826,13 @@ Module {
                             Expr(
                                 Return {
                                     value: Some(
-                                        Elvis {
+                                        When {
+                                            binding: Some(
+                                                Ident {
+                                                    name: "__pick2",
+                                                    span: 16442..16454,
+                                                },
+                                            ),
                                             subject: Call {
                                                 callee: Ident(
                                                     Ident {
@@ -7800,10 +7857,55 @@ Module {
                                                 named: [],
                                                 span: 16442..16454,
                                             },
-                                            rhs: Unreachable {
-                                                message: None,
-                                                span: 16458..16472,
-                                            },
+                                            branches: [
+                                                WhenBranch {
+                                                    check: [],
+                                                    or: [],
+                                                    hole: Some(
+                                                        First,
+                                                    ),
+                                                    binding: None,
+                                                    widen: false,
+                                                    body: Block {
+                                                        stmts: [
+                                                            Expr(
+                                                                Ident(
+                                                                    Ident {
+                                                                        name: "__pick2",
+                                                                        span: 16442..16454,
+                                                                    },
+                                                                ),
+                                                            ),
+                                                        ],
+                                                        span: 16442..16454,
+                                                    },
+                                                    span: 16442..16454,
+                                                },
+                                                WhenBranch {
+                                                    check: [],
+                                                    or: [],
+                                                    hole: Some(
+                                                        Rest,
+                                                    ),
+                                                    binding: None,
+                                                    widen: false,
+                                                    body: Block {
+                                                        stmts: [
+                                                            Expr(
+                                                                Unreachable {
+                                                                    message: None,
+                                                                    span: 16458..16472,
+                                                                },
+                                                            ),
+                                                        ],
+                                                        span: 16458..16472,
+                                                    },
+                                                    span: 16458..16472,
+                                                },
+                                            ],
+                                            origin: Some(
+                                                Pick,
+                                            ),
                                             span: 16442..16472,
                                         },
                                     ),
@@ -9384,7 +9486,13 @@ Module {
                                             ),
                                             type_args: [],
                                             args: [
-                                                Elvis {
+                                                When {
+                                                    binding: Some(
+                                                        Ident {
+                                                            name: "__pick3",
+                                                            span: 18181..18193,
+                                                        },
+                                                    ),
                                                     subject: Call {
                                                         callee: Ident(
                                                             Ident {
@@ -9410,10 +9518,55 @@ Module {
                                                         named: [],
                                                         span: 18181..18193,
                                                     },
-                                                    rhs: Unreachable {
-                                                        message: None,
-                                                        span: 18197..18211,
-                                                    },
+                                                    branches: [
+                                                        WhenBranch {
+                                                            check: [],
+                                                            or: [],
+                                                            hole: Some(
+                                                                First,
+                                                            ),
+                                                            binding: None,
+                                                            widen: false,
+                                                            body: Block {
+                                                                stmts: [
+                                                                    Expr(
+                                                                        Ident(
+                                                                            Ident {
+                                                                                name: "__pick3",
+                                                                                span: 18181..18193,
+                                                                            },
+                                                                        ),
+                                                                    ),
+                                                                ],
+                                                                span: 18181..18193,
+                                                            },
+                                                            span: 18181..18193,
+                                                        },
+                                                        WhenBranch {
+                                                            check: [],
+                                                            or: [],
+                                                            hole: Some(
+                                                                Rest,
+                                                            ),
+                                                            binding: None,
+                                                            widen: false,
+                                                            body: Block {
+                                                                stmts: [
+                                                                    Expr(
+                                                                        Unreachable {
+                                                                            message: None,
+                                                                            span: 18197..18211,
+                                                                        },
+                                                                    ),
+                                                                ],
+                                                                span: 18197..18211,
+                                                            },
+                                                            span: 18197..18211,
+                                                        },
+                                                    ],
+                                                    origin: Some(
+                                                        Pick,
+                                                    ),
                                                     span: 18181..18211,
                                                 },
                                             ],
@@ -9835,7 +9988,13 @@ Module {
                                             ),
                                             type_args: [],
                                             args: [
-                                                Elvis {
+                                                When {
+                                                    binding: Some(
+                                                        Ident {
+                                                            name: "__pick4",
+                                                            span: 18629..18646,
+                                                        },
+                                                    ),
                                                     subject: Call {
                                                         callee: Ident(
                                                             Ident {
@@ -9870,10 +10029,55 @@ Module {
                                                         named: [],
                                                         span: 18629..18646,
                                                     },
-                                                    rhs: Unreachable {
-                                                        message: None,
-                                                        span: 18650..18664,
-                                                    },
+                                                    branches: [
+                                                        WhenBranch {
+                                                            check: [],
+                                                            or: [],
+                                                            hole: Some(
+                                                                First,
+                                                            ),
+                                                            binding: None,
+                                                            widen: false,
+                                                            body: Block {
+                                                                stmts: [
+                                                                    Expr(
+                                                                        Ident(
+                                                                            Ident {
+                                                                                name: "__pick4",
+                                                                                span: 18629..18646,
+                                                                            },
+                                                                        ),
+                                                                    ),
+                                                                ],
+                                                                span: 18629..18646,
+                                                            },
+                                                            span: 18629..18646,
+                                                        },
+                                                        WhenBranch {
+                                                            check: [],
+                                                            or: [],
+                                                            hole: Some(
+                                                                Rest,
+                                                            ),
+                                                            binding: None,
+                                                            widen: false,
+                                                            body: Block {
+                                                                stmts: [
+                                                                    Expr(
+                                                                        Unreachable {
+                                                                            message: None,
+                                                                            span: 18650..18664,
+                                                                        },
+                                                                    ),
+                                                                ],
+                                                                span: 18650..18664,
+                                                            },
+                                                            span: 18650..18664,
+                                                        },
+                                                    ],
+                                                    origin: Some(
+                                                        Pick,
+                                                    ),
                                                     span: 18629..18664,
                                                 },
                                             ],
@@ -10442,7 +10646,13 @@ Module {
                                                             ),
                                                             type_args: [],
                                                             args: [
-                                                                Elvis {
+                                                                When {
+                                                                    binding: Some(
+                                                                        Ident {
+                                                                            name: "__pick5",
+                                                                            span: 19300..19312,
+                                                                        },
+                                                                    ),
                                                                     subject: Call {
                                                                         callee: Ident(
                                                                             Ident {
@@ -10468,10 +10678,55 @@ Module {
                                                                         named: [],
                                                                         span: 19300..19312,
                                                                     },
-                                                                    rhs: Unreachable {
-                                                                        message: None,
-                                                                        span: 19316..19330,
-                                                                    },
+                                                                    branches: [
+                                                                        WhenBranch {
+                                                                            check: [],
+                                                                            or: [],
+                                                                            hole: Some(
+                                                                                First,
+                                                                            ),
+                                                                            binding: None,
+                                                                            widen: false,
+                                                                            body: Block {
+                                                                                stmts: [
+                                                                                    Expr(
+                                                                                        Ident(
+                                                                                            Ident {
+                                                                                                name: "__pick5",
+                                                                                                span: 19300..19312,
+                                                                                            },
+                                                                                        ),
+                                                                                    ),
+                                                                                ],
+                                                                                span: 19300..19312,
+                                                                            },
+                                                                            span: 19300..19312,
+                                                                        },
+                                                                        WhenBranch {
+                                                                            check: [],
+                                                                            or: [],
+                                                                            hole: Some(
+                                                                                Rest,
+                                                                            ),
+                                                                            binding: None,
+                                                                            widen: false,
+                                                                            body: Block {
+                                                                                stmts: [
+                                                                                    Expr(
+                                                                                        Unreachable {
+                                                                                            message: None,
+                                                                                            span: 19316..19330,
+                                                                                        },
+                                                                                    ),
+                                                                                ],
+                                                                                span: 19316..19330,
+                                                                            },
+                                                                            span: 19316..19330,
+                                                                        },
+                                                                    ],
+                                                                    origin: Some(
+                                                                        Pick,
+                                                                    ),
                                                                     span: 19300..19330,
                                                                 },
                                                             ],
@@ -12192,7 +12447,13 @@ Module {
                                                                 ),
                                                                 type_args: [],
                                                                 args: [
-                                                                    Elvis {
+                                                                    When {
+                                                                        binding: Some(
+                                                                            Ident {
+                                                                                name: "__pick6",
+                                                                                span: 20818..20830,
+                                                                            },
+                                                                        ),
                                                                         subject: Call {
                                                                             callee: Ident(
                                                                                 Ident {
@@ -12218,10 +12479,55 @@ Module {
                                                                             named: [],
                                                                             span: 20818..20830,
                                                                         },
-                                                                        rhs: Unreachable {
-                                                                            message: None,
-                                                                            span: 20834..20848,
-                                                                        },
+                                                                        branches: [
+                                                                            WhenBranch {
+                                                                                check: [],
+                                                                                or: [],
+                                                                                hole: Some(
+                                                                                    First,
+                                                                                ),
+                                                                                binding: None,
+                                                                                widen: false,
+                                                                                body: Block {
+                                                                                    stmts: [
+                                                                                        Expr(
+                                                                                            Ident(
+                                                                                                Ident {
+                                                                                                    name: "__pick6",
+                                                                                                    span: 20818..20830,
+                                                                                                },
+                                                                                            ),
+                                                                                        ),
+                                                                                    ],
+                                                                                    span: 20818..20830,
+                                                                                },
+                                                                                span: 20818..20830,
+                                                                            },
+                                                                            WhenBranch {
+                                                                                check: [],
+                                                                                or: [],
+                                                                                hole: Some(
+                                                                                    Rest,
+                                                                                ),
+                                                                                binding: None,
+                                                                                widen: false,
+                                                                                body: Block {
+                                                                                    stmts: [
+                                                                                        Expr(
+                                                                                            Unreachable {
+                                                                                                message: None,
+                                                                                                span: 20834..20848,
+                                                                                            },
+                                                                                        ),
+                                                                                    ],
+                                                                                    span: 20834..20848,
+                                                                                },
+                                                                                span: 20834..20848,
+                                                                            },
+                                                                        ],
+                                                                        origin: Some(
+                                                                            Pick,
+                                                                        ),
                                                                         span: 20818..20848,
                                                                     },
                                                                     Ident(
@@ -12811,7 +13117,13 @@ Module {
                                                                     ),
                                                                     type_args: [],
                                                                     args: [
-                                                                        Elvis {
+                                                                        When {
+                                                                            binding: Some(
+                                                                                Ident {
+                                                                                    name: "__pick7",
+                                                                                    span: 21370..21382,
+                                                                                },
+                                                                            ),
                                                                             subject: Call {
                                                                                 callee: Ident(
                                                                                     Ident {
@@ -12837,10 +13149,55 @@ Module {
                                                                                 named: [],
                                                                                 span: 21370..21382,
                                                                             },
-                                                                            rhs: Unreachable {
-                                                                                message: None,
-                                                                                span: 21386..21400,
-                                                                            },
+                                                                            branches: [
+                                                                                WhenBranch {
+                                                                                    check: [],
+                                                                                    or: [],
+                                                                                    hole: Some(
+                                                                                        First,
+                                                                                    ),
+                                                                                    binding: None,
+                                                                                    widen: false,
+                                                                                    body: Block {
+                                                                                        stmts: [
+                                                                                            Expr(
+                                                                                                Ident(
+                                                                                                    Ident {
+                                                                                                        name: "__pick7",
+                                                                                                        span: 21370..21382,
+                                                                                                    },
+                                                                                                ),
+                                                                                            ),
+                                                                                        ],
+                                                                                        span: 21370..21382,
+                                                                                    },
+                                                                                    span: 21370..21382,
+                                                                                },
+                                                                                WhenBranch {
+                                                                                    check: [],
+                                                                                    or: [],
+                                                                                    hole: Some(
+                                                                                        Rest,
+                                                                                    ),
+                                                                                    binding: None,
+                                                                                    widen: false,
+                                                                                    body: Block {
+                                                                                        stmts: [
+                                                                                            Expr(
+                                                                                                Unreachable {
+                                                                                                    message: None,
+                                                                                                    span: 21386..21400,
+                                                                                                },
+                                                                                            ),
+                                                                                        ],
+                                                                                        span: 21386..21400,
+                                                                                    },
+                                                                                    span: 21386..21400,
+                                                                                },
+                                                                            ],
+                                                                            origin: Some(
+                                                                                Pick,
+                                                                            ),
                                                                             span: 21370..21400,
                                                                         },
                                                                     ],
@@ -13186,7 +13543,13 @@ Module {
                                                                 ),
                                                                 type_args: [],
                                                                 args: [
-                                                                    Elvis {
+                                                                    When {
+                                                                        binding: Some(
+                                                                            Ident {
+                                                                                name: "__pick8",
+                                                                                span: 21702..21714,
+                                                                            },
+                                                                        ),
                                                                         subject: Call {
                                                                             callee: Ident(
                                                                                 Ident {
@@ -13212,10 +13575,55 @@ Module {
                                                                             named: [],
                                                                             span: 21702..21714,
                                                                         },
-                                                                        rhs: Unreachable {
-                                                                            message: None,
-                                                                            span: 21718..21732,
-                                                                        },
+                                                                        branches: [
+                                                                            WhenBranch {
+                                                                                check: [],
+                                                                                or: [],
+                                                                                hole: Some(
+                                                                                    First,
+                                                                                ),
+                                                                                binding: None,
+                                                                                widen: false,
+                                                                                body: Block {
+                                                                                    stmts: [
+                                                                                        Expr(
+                                                                                            Ident(
+                                                                                                Ident {
+                                                                                                    name: "__pick8",
+                                                                                                    span: 21702..21714,
+                                                                                                },
+                                                                                            ),
+                                                                                        ),
+                                                                                    ],
+                                                                                    span: 21702..21714,
+                                                                                },
+                                                                                span: 21702..21714,
+                                                                            },
+                                                                            WhenBranch {
+                                                                                check: [],
+                                                                                or: [],
+                                                                                hole: Some(
+                                                                                    Rest,
+                                                                                ),
+                                                                                binding: None,
+                                                                                widen: false,
+                                                                                body: Block {
+                                                                                    stmts: [
+                                                                                        Expr(
+                                                                                            Unreachable {
+                                                                                                message: None,
+                                                                                                span: 21718..21732,
+                                                                                            },
+                                                                                        ),
+                                                                                    ],
+                                                                                    span: 21718..21732,
+                                                                                },
+                                                                                span: 21718..21732,
+                                                                            },
+                                                                        ],
+                                                                        origin: Some(
+                                                                            Pick,
+                                                                        ),
                                                                         span: 21702..21732,
                                                                     },
                                                                 ],
@@ -13783,7 +14191,13 @@ Module {
                                                     },
                                                 ),
                                                 ty: None,
-                                                value: Elvis {
+                                                value: When {
+                                                    binding: Some(
+                                                        Ident {
+                                                            name: "__pick9",
+                                                            span: 22254..22266,
+                                                        },
+                                                    ),
                                                     subject: Call {
                                                         callee: Ident(
                                                             Ident {
@@ -13809,10 +14223,55 @@ Module {
                                                         named: [],
                                                         span: 22254..22266,
                                                     },
-                                                    rhs: Unreachable {
-                                                        message: None,
-                                                        span: 22270..22284,
-                                                    },
+                                                    branches: [
+                                                        WhenBranch {
+                                                            check: [],
+                                                            or: [],
+                                                            hole: Some(
+                                                                First,
+                                                            ),
+                                                            binding: None,
+                                                            widen: false,
+                                                            body: Block {
+                                                                stmts: [
+                                                                    Expr(
+                                                                        Ident(
+                                                                            Ident {
+                                                                                name: "__pick9",
+                                                                                span: 22254..22266,
+                                                                            },
+                                                                        ),
+                                                                    ),
+                                                                ],
+                                                                span: 22254..22266,
+                                                            },
+                                                            span: 22254..22266,
+                                                        },
+                                                        WhenBranch {
+                                                            check: [],
+                                                            or: [],
+                                                            hole: Some(
+                                                                Rest,
+                                                            ),
+                                                            binding: None,
+                                                            widen: false,
+                                                            body: Block {
+                                                                stmts: [
+                                                                    Expr(
+                                                                        Unreachable {
+                                                                            message: None,
+                                                                            span: 22270..22284,
+                                                                        },
+                                                                    ),
+                                                                ],
+                                                                span: 22270..22284,
+                                                            },
+                                                            span: 22270..22284,
+                                                        },
+                                                    ],
+                                                    origin: Some(
+                                                        Pick,
+                                                    ),
                                                     span: 22254..22284,
                                                 },
                                                 span: 22246..22284,
@@ -20938,7 +21397,13 @@ Module {
                                     },
                                 ),
                                 ty: None,
-                                value: Elvis {
+                                value: When {
+                                    binding: Some(
+                                        Ident {
+                                            name: "__pick10",
+                                            span: 34130..34163,
+                                        },
+                                    ),
                                     subject: Call {
                                         callee: Ident(
                                             Ident {
@@ -20970,17 +21435,62 @@ Module {
                                         named: [],
                                         span: 34130..34163,
                                     },
-                                    rhs: Return {
-                                        value: Some(
-                                            Ident(
-                                                Ident {
-                                                    name: "None",
-                                                    span: 34174..34178,
-                                                },
+                                    branches: [
+                                        WhenBranch {
+                                            check: [],
+                                            or: [],
+                                            hole: Some(
+                                                First,
                                             ),
-                                        ),
-                                        span: 34167..34178,
-                                    },
+                                            binding: None,
+                                            widen: false,
+                                            body: Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Ident(
+                                                            Ident {
+                                                                name: "__pick10",
+                                                                span: 34130..34163,
+                                                            },
+                                                        ),
+                                                    ),
+                                                ],
+                                                span: 34130..34163,
+                                            },
+                                            span: 34130..34163,
+                                        },
+                                        WhenBranch {
+                                            check: [],
+                                            or: [],
+                                            hole: Some(
+                                                Rest,
+                                            ),
+                                            binding: None,
+                                            widen: false,
+                                            body: Block {
+                                                stmts: [
+                                                    Expr(
+                                                        Return {
+                                                            value: Some(
+                                                                Ident(
+                                                                    Ident {
+                                                                        name: "None",
+                                                                        span: 34174..34178,
+                                                                    },
+                                                                ),
+                                                            ),
+                                                            span: 34167..34178,
+                                                        },
+                                                    ),
+                                                ],
+                                                span: 34167..34178,
+                                            },
+                                            span: 34167..34178,
+                                        },
+                                    ],
+                                    origin: Some(
+                                        Pick,
+                                    ),
                                     span: 34130..34178,
                                 },
                                 span: 34118..34178,

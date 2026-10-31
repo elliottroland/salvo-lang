@@ -488,25 +488,31 @@ fun bumpIn(versions: salvo.platform.std.core.map.MutMap<Int, Long>, waiters: sal
             break
         }
         if ((kotlin.run {
-            val __proj_4: ViewWaiter = kotlin.run {
-                val __pick_1: ViewWaiter? = salvo.std.core.list.getPlatform(waiters, i)
-                (if ((__pick_1 != null)) {
-                    val __picked_2: ViewWaiter = __pick_1!!
-                    __picked_2
-                } else {
-                    throw AssertionError("salvo: unreachable at std.runtime.routing:184:32")
-                })
+            val __proj_2: ViewWaiter = kotlin.run {
+                val __pick1: ViewWaiter? = salvo.std.core.list.getPlatform(waiters, i)
+                when {
+                    (__pick1 != null) -> {
+                        val __pick1_1: ViewWaiter = __pick1!!
+                        __pick1_1
+                    }
+                    else -> {
+                        throw AssertionError("salvo: unreachable at std.runtime.routing:184:32")
+                    }
+                }
             }
-            __proj_4.group
+            __proj_2.group
         } == group)) {
             val w: ViewWaiter = kotlin.run {
-                val __pick_5: ViewWaiter? = salvo.std.core.list.removeAtPlatform(waiters, i)
-                (if ((__pick_5 != null)) {
-                    val __picked_6: ViewWaiter = __pick_5!!
-                    __picked_6
-                } else {
-                    throw AssertionError("salvo: unreachable at std.runtime.routing:185:52")
-                })
+                val __pick2: ViewWaiter? = salvo.std.core.list.removeAtPlatform(waiters, i)
+                when {
+                    (__pick2 != null) -> {
+                        val __pick2_3: ViewWaiter = __pick2!!
+                        __pick2_3
+                    }
+                    else -> {
+                        throw AssertionError("salvo: unreachable at std.runtime.routing:185:52")
+                    }
+                }
             }
             salvo.std.runtime.unparkPlatform(w.parker)
         } else {
@@ -653,13 +659,16 @@ class Routes : RouteTable {
                 break
             }
             salvo.std.core.list.addPlatform(out, kotlin.run {
-                val __pick_1: Staged? = salvo.std.core.list.removeAtPlatform(outbox, 0)
-                (if ((__pick_1 != null)) {
-                    val __picked_2: Staged = __pick_1!!
-                    __picked_2
-                } else {
-                    throw AssertionError("salvo: unreachable at std.runtime.routing:344:46")
-                })
+                val __pick3: Staged? = salvo.std.core.list.removeAtPlatform(outbox, 0)
+                when {
+                    (__pick3 != null) -> {
+                        val __pick3_1: Staged = __pick3!!
+                        __pick3_1
+                    }
+                    else -> {
+                        throw AssertionError("salvo: unreachable at std.runtime.routing:344:46")
+                    }
+                }
             })
         }
         return out
@@ -737,13 +746,16 @@ class Routes : RouteTable {
                 break
             }
             if ((kotlin.run {
-                val __pick_1: Long? = salvo.std.core.list.getPlatform(taskKeys, i)
-                (if ((__pick_1 != null)) {
-                    val __picked_2: Long = __pick_1!!
-                    __picked_2
-                } else {
-                    throw AssertionError("salvo: unreachable at std.runtime.routing:418:38")
-                })
+                val __pick4: Long? = salvo.std.core.list.getPlatform(taskKeys, i)
+                when {
+                    (__pick4 != null) -> {
+                        val __pick4_1: Long = __pick4!!
+                        __pick4_1
+                    }
+                    else -> {
+                        throw AssertionError("salvo: unreachable at std.runtime.routing:418:38")
+                    }
+                }
             } == key)) {
                 val _k: Long? = salvo.std.core.list.removeAtPlatform(taskKeys, i)
                 return salvo.std.core.list.removeAtPlatform(tasks, i)
@@ -836,16 +848,19 @@ class Routes : RouteTable {
                 break
             }
             if ((kotlin.run {
-                val __proj_4: ViewWaiter = kotlin.run {
-                    val __pick_1: ViewWaiter? = salvo.std.core.list.getPlatform(viewWaiters, i)
-                    (if ((__pick_1 != null)) {
-                        val __picked_2: ViewWaiter = __pick_1!!
-                        __picked_2
-                    } else {
-                        throw AssertionError("salvo: unreachable at std.runtime.routing:513:41")
-                    })
+                val __proj_2: ViewWaiter = kotlin.run {
+                    val __pick5: ViewWaiter? = salvo.std.core.list.getPlatform(viewWaiters, i)
+                    when {
+                        (__pick5 != null) -> {
+                            val __pick5_1: ViewWaiter = __pick5!!
+                            __pick5_1
+                        }
+                        else -> {
+                            throw AssertionError("salvo: unreachable at std.runtime.routing:513:41")
+                        }
+                    }
                 }
-                __proj_4.id
+                __proj_2.id
             } == id)) {
                 val _w: ViewWaiter? = salvo.std.core.list.removeAtPlatform(viewWaiters, i)
                 return
@@ -904,13 +919,16 @@ fun wakeSenders(waiters: salvo.platform.std.core.list.MutList<salvo.platform.std
             break
         }
         salvo.std.runtime.unparkPlatform(kotlin.run {
-            val __pick_1: salvo.platform.std.runtime.Parker? = salvo.std.core.list.removeAtPlatform(waiters, 0)
-            (if ((__pick_1 != null)) {
-                val __picked_2: salvo.platform.std.runtime.Parker = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime.routing:572:41")
-            })
+            val __pick6: salvo.platform.std.runtime.Parker? = salvo.std.core.list.removeAtPlatform(waiters, 0)
+            when {
+                (__pick6 != null) -> {
+                    val __pick6_1: salvo.platform.std.runtime.Parker = __pick6!!
+                    __pick6_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime.routing:572:41")
+                }
+            }
         })
     }
 }
@@ -934,13 +952,16 @@ fun restage(routes: salvo.platform.std.core.map.Map<Long, salvo.platform.std.cor
             break
         }
         salvo.std.core.list.addPlatform(waiting, kotlin.run {
-            val __pick_1: Parked? = salvo.std.core.list.removeAtPlatform(parked, 0)
-            (if ((__pick_1 != null)) {
-                val __picked_2: Parked = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime.routing:595:46")
-            })
+            val __pick7: Parked? = salvo.std.core.list.removeAtPlatform(parked, 0)
+            when {
+                (__pick7 != null) -> {
+                    val __pick7_1: Parked = __pick7!!
+                    __pick7_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime.routing:595:46")
+                }
+            }
         })
     }
     for (p in salvo.platform.std.core.list.each(waiting)) {
@@ -1268,34 +1289,43 @@ fun viewMembers(group: Int): List<Int> {
                 break
             }
             if (salvo.std.runtime.routing.before(salvo.std.runtime.routing.identity(kotlin.run {
-                val __pick_1: Int? = salvo.std.core.list.getPlatform(left, i)
-                (if ((__pick_1 != null)) {
-                    val __picked_2: Int = __pick_1!!
-                    __picked_2
-                } else {
-                    throw AssertionError("salvo: unreachable at std.runtime.routing:983:53")
-                })
+                val __pick8: Int? = salvo.std.core.list.getPlatform(left, i)
+                when {
+                    (__pick8 != null) -> {
+                        val __pick8_1: Int = __pick8!!
+                        __pick8_1
+                    }
+                    else -> {
+                        throw AssertionError("salvo: unreachable at std.runtime.routing:983:53")
+                    }
+                }
             }), salvo.std.runtime.routing.identity(kotlin.run {
-                val __pick_4: Int? = salvo.std.core.list.getPlatform(left, best)
-                (if ((__pick_4 != null)) {
-                    val __picked_5: Int = __pick_4!!
-                    __picked_5
-                } else {
-                    throw AssertionError("salvo: unreachable at std.runtime.routing:983:104")
-                })
+                val __pick9: Int? = salvo.std.core.list.getPlatform(left, best)
+                when {
+                    (__pick9 != null) -> {
+                        val __pick9_2: Int = __pick9!!
+                        __pick9_2
+                    }
+                    else -> {
+                        throw AssertionError("salvo: unreachable at std.runtime.routing:983:104")
+                    }
+                }
             }))) {
                 best = i
             }
             i = (i + 1)
         }
         salvo.std.core.list.addPlatform(out, kotlin.run {
-            val __pick_7: Int? = salvo.std.core.list.removeAtPlatform(left, best)
-            (if ((__pick_7 != null)) {
-                val __picked_8: Int = __pick_7!!
-                __picked_8
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime.routing:988:43")
-            })
+            val __pick10: Int? = salvo.std.core.list.removeAtPlatform(left, best)
+            when {
+                (__pick10 != null) -> {
+                    val __pick10_3: Int = __pick10!!
+                    __pick10_3
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime.routing:988:43")
+                }
+            }
         })
     }
     return out.toMutableList()

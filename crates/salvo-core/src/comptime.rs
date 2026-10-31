@@ -3816,6 +3816,7 @@ impl<'w> Expander<'w> {
                     branches.push(WhenBranch {
                         check,
                         or: Vec::new(),
+                        hole: None,
                         binding: None,
                         widen: false,
                         body,
@@ -3827,6 +3828,7 @@ impl<'w> Expander<'w> {
                     binding: None,
                     subject: Box::new(value),
                     branches,
+                    origin: None,
                     span: when_span,
                 }));
             }

@@ -100,13 +100,16 @@ fun<T> drain(d: kotlin.collections.ArrayDeque<T>, each: (T) -> Unit) {
             break
         }
         each(kotlin.run {
-            val __pick_1: T? = salvo.std.core.deque.removeFirstPlatform(m)
-            (if ((__pick_1 != null)) {
-                val __picked_2: T = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.core.deque:144:33")
-            })
+            val __pick1: T? = salvo.std.core.deque.removeFirstPlatform(m)
+            when {
+                (__pick1 != null) -> {
+                    val __pick1_1: T = __pick1!!
+                    __pick1_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.core.deque:144:33")
+                }
+            }
         })
     }
     salvo.std.core.deque.endEmptyPlatform(m)

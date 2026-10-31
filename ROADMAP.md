@@ -393,7 +393,8 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
     belong in the IR (consistency between backends against their tie to the
     `UnionN` layout); (b) ✅ the IR builder's reads of the span-keyed `Checked`
     tables are now unified behind five view accessors (`call_info`, `use_info`,
-    `spawn_info`, `pick_info`, `interp_info` — 2026-10-10, COMPLETED.md
+    `spawn_info`, `pick_info` — since gone with the `?:` lowering —,
+    `interp_info` — 2026-10-10, COMPLETED.md
     `[unify-checker]`), one lookup per node per concern; eliminating the tables
     outright was judged not worth it (the IR is already self-contained, so they
     are builder-private handoff state, and collapsing their storage fights the

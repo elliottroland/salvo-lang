@@ -374,9 +374,34 @@ fn walk_expr(e: &Expr, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnostic>) 
             if let ExprKind::Read { place, .. } = &subject.kind {
                 base.remove(&place_key(place));
             }
+            // An arm that never narrows the subject (its body does not read
+            // it) still holds the subject's arms its test admits: the subject
+            // stays owed there, less the arms the test rules out — an `else`
+            // rules out what the arms before it took.
+            let subject_key = match &subject.kind {
+                ExprKind::Read { place, .. } => Some(place_key(place)),
+                _ => None,
+            };
             let mut falls: Vec<Owed> = Vec::new();
-            for arm in arms {
-                let mut path = base.clone();
+            for (i, arm) in arms.iter().enumerate() {
+                let narrows = subject_key.as_ref().is_some_and(|k| arm.body.stmts.iter().any(|s| matches!(s, Stmt::Narrow { from, .. } if place_key(from) == *k)));
+                let mut path = match &subject_key {
+                    Some(k) if !narrows => {
+                        let mut p = before.clone();
+                        match held_arms(&arm.test) {
+                            Some(held) => discharge_complement(&mut p, k, &held),
+                            None => {
+                                for earlier in &arms[..i] {
+                                    if let Some(taken) = held_arms(&earlier.test).filter(|_| covers_whole_arms(&earlier.test)) {
+                                        discharge_arms(&mut p, k, &taken);
+                                    }
+                                }
+                            }
+                        }
+                        p
+                    }
+                    _ => base.clone(),
+                };
                 if walk_block(&arm.body, &mut path, ctx, out) == Flow::FallsThrough {
                     falls.push(path);
                 }
@@ -637,6 +662,23 @@ fn join_paths(base: &Owed, falls: Vec<Owed>, span: Span, ctx: &Ctx, out: &mut Ve
     joined
 }
 
+/// A place as written: every rebinding suffix (`x~2.f`) dropped.
+fn written_place(key: &str) -> String {
+    let mut out = String::with_capacity(key.len());
+    let mut skipping = false;
+    for c in key.chars() {
+        match c {
+            '~' => skipping = true,
+            c if skipping && c.is_ascii_digit() => {}
+            c => {
+                skipping = false;
+                out.push(c);
+            }
+        }
+    }
+    out
+}
+
 /// A local's name as written: the builder suffixes a rebinding (`x~2`).
 fn written_name(key: &str) -> &str {
     match key.find('~') {
@@ -680,7 +722,7 @@ fn report_one(place: &str, o: &Outstanding, out: &mut Vec<IrDiagnostic>, leak: L
     // A synthetic local (a desugaring temporary like `__pick~1`) has no
     // user-facing name; describe it as the value rather than exposing the
     // internal name.
-    let subject = if place.starts_with("__") { "this value".to_string() } else { format!("`{place}`") };
+    let subject = if place.starts_with("__") { "this value".to_string() } else { format!("`{}`", written_place(place)) };
     let arms = match &o.arms {
         Some(arms) if !arms.is_empty() => {
             // Name each live linear arm by its type (`the `Checked<FsError>`
@@ -719,6 +761,27 @@ fn positive_arm_test(cond: &Expr) -> Option<(Key, Vec<usize>)> {
         _ => return None,
     };
     Some((place_key(place), arms))
+}
+
+/// The union arms a switch arm's test admits (`None` admits no value arm);
+/// an `else` is `None` here — it holds what the arms before it left.
+fn held_arms(test: &ArmTest) -> Option<Vec<usize>> {
+    match test {
+        ArmTest::Arm(k) => Some(vec![*k]),
+        ArmTest::Arms(ks) => Some(ks.clone()),
+        ArmTest::None => Some(Vec::new()),
+        ArmTest::Lit(arms) => Some(arms.iter().map(|a| a.arm).collect()),
+        ArmTest::Else => None,
+    }
+}
+
+/// Whether a test takes the whole of each arm it admits: a literal test on
+/// some of an arm's values leaves the rest of that arm to the arms after it.
+fn covers_whole_arms(test: &ArmTest) -> bool {
+    match test {
+        ArmTest::Lit(arms) => arms.iter().all(|a| a.lits.is_empty() && !a.negate),
+        _ => true,
+    }
 }
 
 /// Discharge `tested` arms of `subject`'s obligation on this path: the arms are

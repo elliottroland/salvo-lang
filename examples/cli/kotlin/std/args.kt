@@ -313,14 +313,14 @@ fun mergeGroup(opts: salvo.platform.std.core.list.MutList<OptSpec>, groups: salv
     if (!(salvo.std.core.list.isEmpty(child.args))) {
         throw AssertionError(("salvo: " + ("`${key}` is a group of options, and `${child.name}` takes positionals") + " at std.args:233:9"))
     }
-    salvo.std.core.list.addPlatform(groups, GroupSpec(key = key, kind = kind, required = false, heading = kotlin.run {
-        val __pick_1: String? = heading
-        (if ((__pick_1 != null)) {
-            val __picked_2: String = __pick_1!!
-            __picked_2
-        } else {
+    salvo.std.core.list.addPlatform(groups, GroupSpec(key = key, kind = kind, required = false, heading = when {
+        (heading != null) -> {
+            val heading_1: String = heading!!
+            heading_1
+        }
+        else -> {
             child.about
-        })
+        }
     }))
     for (g in salvo.platform.std.core.list.each(child.groups)) {
         salvo.std.core.list.addPlatform(groups, GroupSpec(key = "${key}/${g.key}", kind = g.kind, required = g.required, heading = g.heading))
@@ -329,8 +329,8 @@ fun mergeGroup(opts: salvo.platform.std.core.list.MutList<OptSpec>, groups: salv
         val group: String = (if ((o.group == null)) {
             key
         } else {
-            val __narrowed_4: String = o.group!!
-            "${key}/${__narrowed_4}"
+            val __narrowed_2: String = o.group!!
+            "${key}/${__narrowed_2}"
         })
         salvo.std.core.list.addPlatform(opts, OptSpec(field = o.field, short = o.short, takesValue = o.takesValue, repeats = o.repeats, required = o.required, help = o.help, defaultText = o.defaultText, choices = o.choices, group = group))
     }
@@ -437,82 +437,88 @@ fun scan(spec: Spec, args: List<String>): Found {
             break
         }
         val t: Union4<salvo.std.args.lex.LongToken, salvo.std.args.lex.ShortToken, salvo.std.args.lex.WordToken, salvo.std.args.lex.EndToken> = kotlin.run {
-            val __pick_1: Union4<salvo.std.args.lex.LongToken, salvo.std.args.lex.ShortToken, salvo.std.args.lex.WordToken, salvo.std.args.lex.EndToken>? = salvo.std.core.list.getPlatform(tokens, i)
-            (if ((__pick_1 != null)) {
-                val __picked_2: Union4<salvo.std.args.lex.LongToken, salvo.std.args.lex.ShortToken, salvo.std.args.lex.WordToken, salvo.std.args.lex.EndToken> = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.args:357:40")
-            })
+            val __pick1: Union4<salvo.std.args.lex.LongToken, salvo.std.args.lex.ShortToken, salvo.std.args.lex.WordToken, salvo.std.args.lex.EndToken>? = salvo.std.core.list.getPlatform(tokens, i)
+            when {
+                (__pick1 != null) -> {
+                    val __pick1_1: Union4<salvo.std.args.lex.LongToken, salvo.std.args.lex.ShortToken, salvo.std.args.lex.WordToken, salvo.std.args.lex.EndToken> = __pick1!!
+                    __pick1_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.args:357:40")
+                }
+            }
         }
         i = (i + 1)
         when {
             (t is Union4.U4<*, *, *, *>) -> {
-                val t_4: salvo.std.args.lex.EndToken = ((t as Union4.U4<*, *, *, *>).value as salvo.std.args.lex.EndToken)
+                val t_2: salvo.std.args.lex.EndToken = ((t as Union4.U4<*, *, *, *>).value as salvo.std.args.lex.EndToken)
             }
             (t is Union4.U3<*, *, *, *>) -> {
-                val t_5: salvo.std.args.lex.WordToken = ((t as Union4.U3<*, *, *, *>).value as salvo.std.args.lex.WordToken)
+                val t_3: salvo.std.args.lex.WordToken = ((t as Union4.U3<*, *, *, *>).value as salvo.std.args.lex.WordToken)
                 if (((!(salvo.std.core.list.isEmpty(spec.commands)) && (command == null)) && !(failedCommand))) {
-                    if (salvo.std.args.hasCommand(spec, t_5.value)) {
-                        command = t_5.value
+                    if (salvo.std.args.hasCommand(spec, t_3.value)) {
+                        command = t_3.value
                         while (true) {
                             if (!((i < n))) {
                                 break
                             }
                             salvo.std.core.list.addPlatform(rest, kotlin.run {
-                                val __pick_6: String? = salvo.std.core.list.getPlatform(args, i)
-                                (if ((__pick_6 != null)) {
-                                    val __picked_7: String = __pick_6!!
-                                    __picked_7
-                                } else {
-                                    throw AssertionError("salvo: unreachable at std.args:368:60")
-                                })
+                                val __pick2: String? = salvo.std.core.list.getPlatform(args, i)
+                                when {
+                                    (__pick2 != null) -> {
+                                        val __pick2_4: String = __pick2!!
+                                        __pick2_4
+                                    }
+                                    else -> {
+                                        throw AssertionError("salvo: unreachable at std.args:368:60")
+                                    }
+                                }
                             })
                             i = (i + 1)
                         }
                     } else {
-                        salvo.std.core.list.addPlatform(errors, Union11.U10<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(UnknownCommand(name = t_5.value)))
+                        salvo.std.core.list.addPlatform(errors, Union11.U10<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(UnknownCommand(name = t_3.value)))
                         failedCommand = true
                         i = n
                     }
                 } else {
-                    salvo.std.core.list.addPlatform(words, t_5.value)
+                    salvo.std.core.list.addPlatform(words, t_3.value)
                 }
             }
             (t is Union4.U1<*, *, *, *>) -> {
-                val t_9: salvo.std.args.lex.LongToken = ((t as Union4.U1<*, *, *, *>).value as salvo.std.args.lex.LongToken)
-                if (((t_9.name) == ("help"))) {
+                val t_5: salvo.std.args.lex.LongToken = ((t as Union4.U1<*, *, *, *>).value as salvo.std.args.lex.LongToken)
+                if (((t_5.name) == ("help"))) {
                     help = true
                 } else {
-                    val o: OptSpec? = salvo.std.args.longOpt(spec, t_9.name)
+                    val o: OptSpec? = salvo.std.args.longOpt(spec, t_5.name)
                     if ((o == null)) {
-                        salvo.std.core.list.addPlatform(errors, Union11.U1<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(UnknownOption(option = "--${t_9.name}")))
+                        salvo.std.core.list.addPlatform(errors, Union11.U1<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(UnknownOption(option = "--${t_5.name}")))
                     } else {
-                        val o_10: OptSpec = o!!
-                        val flag: String = salvo.std.args.longName(o_10.field)
-                        val attached: String? = t_9.value
-                        if ((!(o_10.takesValue) && (attached == null))) {
-                            salvo.std.core.list.addPlatform(hits, Hit(field = o_10.field, value = ""))
-                        } else if (!(o_10.takesValue)) {
-                            salvo.std.core.list.addPlatform(errors, Union11.U4<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Invalid(what = flag, value = kotlin.run {
-                                val __pick_11: String? = attached
-                                (if ((__pick_11 != null)) {
-                                    val __picked_12: String = __pick_11!!
-                                    __picked_12
-                                } else {
+                        val o_6: OptSpec = o!!
+                        val flag: String = salvo.std.args.longName(o_6.field)
+                        val attached: String? = t_5.value
+                        if ((!(o_6.takesValue) && (attached == null))) {
+                            salvo.std.core.list.addPlatform(hits, Hit(field = o_6.field, value = ""))
+                        } else if (!(o_6.takesValue)) {
+                            salvo.std.core.list.addPlatform(errors, Union11.U4<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Invalid(what = flag, value = when {
+                                (attached != null) -> {
+                                    val attached_7: String = attached!!
+                                    attached_7
+                                }
+                                else -> {
                                     ""
-                                })
+                                }
                             }, reason = "the option takes no value")))
                         } else if (!((attached == null))) {
-                            val attached_14: String = attached!!
-                            salvo.std.core.list.addPlatform(hits, Hit(field = o_10.field, value = attached_14))
+                            val attached_8: String = attached!!
+                            salvo.std.core.list.addPlatform(hits, Hit(field = o_6.field, value = attached_8))
                         } else {
                             val v: String? = salvo.std.args.wordAt(tokens, i)
                             if ((v == null)) {
                                 salvo.std.core.list.addPlatform(errors, Union11.U2<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(MissingValue(option = flag)))
                             } else {
-                                val v_15: String = v!!
-                                salvo.std.core.list.addPlatform(hits, Hit(field = o_10.field, value = v_15))
+                                val v_9: String = v!!
+                                salvo.std.core.list.addPlatform(hits, Hit(field = o_6.field, value = v_9))
                                 i = (i + 1)
                             }
                         }
@@ -520,8 +526,8 @@ fun scan(spec: Spec, args: List<String>): Found {
                 }
             }
             (t is Union4.U2<*, *, *, *>) -> {
-                val t_16: salvo.std.args.lex.ShortToken = ((t as Union4.U2<*, *, *, *>).value as salvo.std.args.lex.ShortToken)
-                val letters: String = t_16.letters
+                val t_10: salvo.std.args.lex.ShortToken = ((t as Union4.U2<*, *, *, *>).value as salvo.std.args.lex.ShortToken)
+                val letters: String = t_10.letters
                 var k: Int = 0
                 val len: Int = salvo.std.core.string.sizePlatform(letters)
                 while (true) {
@@ -529,13 +535,16 @@ fun scan(spec: Spec, args: List<String>): Found {
                         break
                     }
                     val c: Char = kotlin.run {
-                        val __pick_17: Char? = salvo.std.core.string.charAtPlatform(letters, k)
-                        (if ((__pick_17 != null)) {
-                            val __picked_18: Char = __pick_17!!
-                            __picked_18
-                        } else {
-                            throw AssertionError("salvo: unreachable at std.args:418:52")
-                        })
+                        val __pick3: Char? = salvo.std.core.string.charAtPlatform(letters, k)
+                        when {
+                            (__pick3 != null) -> {
+                                val __pick3_11: Char = __pick3!!
+                                __pick3_11
+                            }
+                            else -> {
+                                throw AssertionError("salvo: unreachable at std.args:418:52")
+                            }
+                        }
                     }
                     k = (k + 1)
                     if ((c == 'h')) {
@@ -545,21 +554,24 @@ fun scan(spec: Spec, args: List<String>): Found {
                         if ((o == null)) {
                             salvo.std.core.list.addPlatform(errors, Union11.U1<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(UnknownOption(option = "-${c}")))
                         } else {
-                            val o_20: OptSpec = o!!
-                            if (!(o_20.takesValue)) {
-                                val o_21: OptSpec = o!!
-                                salvo.std.core.list.addPlatform(hits, Hit(field = o_21.field, value = ""))
+                            val o_12: OptSpec = o!!
+                            if (!(o_12.takesValue)) {
+                                val o_13: OptSpec = o!!
+                                salvo.std.core.list.addPlatform(hits, Hit(field = o_13.field, value = ""))
                             } else {
                                 if ((k < len)) {
-                                    val o_22: OptSpec = o!!
-                                    salvo.std.core.list.addPlatform(hits, Hit(field = o_22.field, value = kotlin.run {
-                                        val __pick_23: String? = salvo.std.core.string.substrPlatform(letters, k, len)
-                                        (if ((__pick_23 != null)) {
-                                            val __picked_24: String = __pick_23!!
-                                            __picked_24
-                                        } else {
-                                            throw AssertionError("salvo: unreachable at std.args:434:105")
-                                        })
+                                    val o_14: OptSpec = o!!
+                                    salvo.std.core.list.addPlatform(hits, Hit(field = o_14.field, value = kotlin.run {
+                                        val __pick4: String? = salvo.std.core.string.substrPlatform(letters, k, len)
+                                        when {
+                                            (__pick4 != null) -> {
+                                                val __pick4_15: String = __pick4!!
+                                                __pick4_15
+                                            }
+                                            else -> {
+                                                throw AssertionError("salvo: unreachable at std.args:434:105")
+                                            }
+                                        }
                                     }))
                                     k = len
                                 } else {
@@ -567,9 +579,9 @@ fun scan(spec: Spec, args: List<String>): Found {
                                     if ((v == null)) {
                                         salvo.std.core.list.addPlatform(errors, Union11.U2<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(MissingValue(option = "-${c}")))
                                     } else {
-                                        val o_26: OptSpec = o!!
-                                        val v_27: String = v!!
-                                        salvo.std.core.list.addPlatform(hits, Hit(field = o_26.field, value = v_27))
+                                        val o_16: OptSpec = o!!
+                                        val v_17: String = v!!
+                                        salvo.std.core.list.addPlatform(hits, Hit(field = o_16.field, value = v_17))
                                         i = (i + 1)
                                     }
                                 }
@@ -600,8 +612,8 @@ fun scan(spec: Spec, args: List<String>): Found {
         if (((count == 0) && o.required)) {
             val why: String? = salvo.std.args.unmetGroup(spec, hits, o.group)
             if ((why != null)) {
-                val why_28: String = why!!
-                salvo.std.core.list.addPlatform(errors, Union11.U7<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Requires(option = why_28, needs = flag)))
+                val why_18: String = why!!
+                salvo.std.core.list.addPlatform(errors, Union11.U7<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Requires(option = why_18, needs = flag)))
             } else if (salvo.std.args.live(spec, hits, o.group)) {
                 salvo.std.core.list.addPlatform(errors, Union11.U3<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Missing(what = flag)))
             } else {
@@ -618,12 +630,12 @@ fun scan(spec: Spec, args: List<String>): Found {
                     val here: String? = salvo.std.args.givenIn(spec, hits, a.key)
                     if (!((here == null))) {
                         if ((first == null)) {
-                            val here_29: String = here!!
-                            first = here_29
+                            val here_19: String = here!!
+                            first = here_19
                         } else {
-                            val here_30: String = here!!
-                            val first_31: String = first!!
-                            salvo.std.core.list.addPlatform(errors, Union11.U8<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Conflict(option = here_30, other = first_31)))
+                            val here_20: String = here!!
+                            val first_21: String = first!!
+                            salvo.std.core.list.addPlatform(errors, Union11.U8<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Conflict(option = here_20, other = first_21)))
                         }
                     }
                 }
@@ -645,26 +657,32 @@ fun scan(spec: Spec, args: List<String>): Found {
                     break
                 }
                 salvo.std.core.list.addPlatform(hits, Hit(field = a.field, value = kotlin.run {
-                    val __pick_32: String? = salvo.std.core.list.getPlatform(words, w)
-                    (if ((__pick_32 != null)) {
-                        val __picked_33: String = __pick_32!!
-                        __picked_33
-                    } else {
-                        throw AssertionError("salvo: unreachable at std.args:510:84")
-                    })
+                    val __pick5: String? = salvo.std.core.list.getPlatform(words, w)
+                    when {
+                        (__pick5 != null) -> {
+                            val __pick5_22: String = __pick5!!
+                            __pick5_22
+                        }
+                        else -> {
+                            throw AssertionError("salvo: unreachable at std.args:510:84")
+                        }
+                    }
                 }))
                 w = (w + 1)
             }
         } else {
             if ((w < nw)) {
                 salvo.std.core.list.addPlatform(hits, Hit(field = a.field, value = kotlin.run {
-                    val __pick_35: String? = salvo.std.core.list.getPlatform(words, w)
-                    (if ((__pick_35 != null)) {
-                        val __picked_36: String = __pick_35!!
-                        __picked_36
-                    } else {
-                        throw AssertionError("salvo: unreachable at std.args:516:88")
-                    })
+                    val __pick6: String? = salvo.std.core.list.getPlatform(words, w)
+                    when {
+                        (__pick6 != null) -> {
+                            val __pick6_23: String = __pick6!!
+                            __pick6_23
+                        }
+                        else -> {
+                            throw AssertionError("salvo: unreachable at std.args:516:88")
+                        }
+                    }
                 }))
                 w = (w + 1)
             } else if (a.required) {
@@ -678,13 +696,16 @@ fun scan(spec: Spec, args: List<String>): Found {
             break
         }
         salvo.std.core.list.addPlatform(errors, Union11.U5<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>(Unexpected(value = kotlin.run {
-            val __pick_38: String? = salvo.std.core.list.getPlatform(words, w)
-            (if ((__pick_38 != null)) {
-                val __picked_39: String = __pick_38!!
-                __picked_39
-            } else {
-                throw AssertionError("salvo: unreachable at std.args:527:63")
-            })
+            val __pick7: String? = salvo.std.core.list.getPlatform(words, w)
+            when {
+                (__pick7 != null) -> {
+                    val __pick7_24: String = __pick7!!
+                    __pick7_24
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.args:527:63")
+                }
+            }
         })))
         w = (w + 1)
     }
@@ -1045,22 +1066,28 @@ fun oneLine(text: String?): String {
 fun helpRows(out: salvo.platform.std.core.string.MutStr, lefts: List<String>, rights: List<String>, rows: List<Int>, width: Int) {
     for (i in salvo.platform.std.core.list.each(rows)) {
         val l: String = kotlin.run {
-            val __pick_1: String? = salvo.std.core.list.getPlatform(lefts, i)
-            (if ((__pick_1 != null)) {
-                val __picked_2: String = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.args:880:34")
-            })
+            val __pick8: String? = salvo.std.core.list.getPlatform(lefts, i)
+            when {
+                (__pick8 != null) -> {
+                    val __pick8_1: String = __pick8!!
+                    __pick8_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.args:880:34")
+                }
+            }
         }
         val r: String = kotlin.run {
-            val __pick_4: String? = salvo.std.core.list.getPlatform(rights, i)
-            (if ((__pick_4 != null)) {
-                val __picked_5: String = __pick_4!!
-                __picked_5
-            } else {
-                throw AssertionError("salvo: unreachable at std.args:881:35")
-            })
+            val __pick9: String? = salvo.std.core.list.getPlatform(rights, i)
+            when {
+                (__pick9 != null) -> {
+                    val __pick9_2: String = __pick9!!
+                    __pick9_2
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.args:881:35")
+                }
+            }
         }
         if (salvo.std.core.string.isEmpty(r)) {
             salvo.std.core.string.appendPlatform(out, "  ${l}\n")

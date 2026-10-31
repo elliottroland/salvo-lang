@@ -3967,6 +3967,10 @@ messages! {
 
     // [op-elvis]
     /// `?:` on a value with one arm.
+    /// [when-lowered] A `?:` that reached the checker unlowered: a driver
+    /// skipped `desugar::lower_picks`, which every driver runs.
+    op_elvis_not_lowered = "op-elvis:not-lowered" () =>
+        "internal: this `?:` was not lowered to the `when` it is before checking";
     op_elvis_single_arm = "op-elvis:single-arm" (subj_ty: &dyn std::fmt::Display) => format!(
         "`?:` on `{subj_ty}` keeps its only arm and leaves nothing for the right-hand \
          side: `?:` picks the first arm of a union with more than one (the same dead \

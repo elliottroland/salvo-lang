@@ -213,74 +213,98 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
       member reserve@Inventory(read inventory, call copy@std.core.basic<Str>(read sku), 1, !read out)
     }
     bind#4 let parts: Mut List<Str> = call split@std.core.string(read answer, ":")
-    call add@std.core.list<Str>(read shards, call copy@std.core.basic<Str>(branch#10 cond#0 true {
-      bind#5 let __pick~1: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read parts), 0)
-      value branch#6 cond#0 check#9 (read __pick~1 is arm 0) {
-        narrow#7[branch#6.cond#0] __picked~2: proj Str = __pick~1
-        value !read __picked~2
-      } else {
-        value unreachable() at main:228:43
+    call add@std.core.list<Str>(read shards, call copy@std.core.basic<Str>(branch#8 cond#0 true {
+      bind#6 let __pick1: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read parts), 0)
+      value switch#5 read __pick1 {
+        arm#0 (arm 0) {
+          narrow#7[switch#5.arm#0] __pick1~1: proj Str = __pick1
+          value !read __pick1~1
+        }
+        arm#1 (else) {
+          value unreachable() at main:228:43
+        }
       }
     }))
-    call println@std.core.console(read console, concat("  ", read sku, ": ", branch#16 cond#0 true {
-      bind#11 let __pick~4: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read parts), 1)
-      value branch#12 cond#0 check#15 (read __pick~4 is arm 0) {
-        narrow#13[branch#12.cond#0] __picked~5: proj Str = __pick~4
-        value !read __picked~5
-      } else {
-        value unreachable() at main:229:47
+    call println@std.core.console(read console, concat("  ", read sku, ": ", branch#12 cond#0 true {
+      bind#10 let __pick2: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read parts), 1)
+      value switch#9 read __pick2 {
+        arm#0 (arm 0) {
+          narrow#11[switch#9.arm#0] __pick2~2: proj Str = __pick2
+          value !read __pick2~2
+        }
+        arm#1 (else) {
+          value unreachable() at main:229:47
+        }
       }
     }, " reserved on its shard so far"))
   }
-  call println@std.core.console(read console, concat("  apple and apple on one shard: ", call to_str(Bool)@std.core.basic(call eq@std.core.string(borrow_as[proj Str -> Str](branch#22 cond#0 true {
-    bind#17 let __pick~7: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read shards), 0)
-    value branch#18 cond#0 check#21 (read __pick~7 is arm 0) {
-      narrow#19[branch#18.cond#0] __picked~8: proj Str = __pick~7
-      value !read __picked~8
-    } else {
-      value unreachable() at main:231:69
+  call println@std.core.console(read console, concat("  apple and apple on one shard: ", call to_str(Bool)@std.core.basic(call eq@std.core.string(borrow_as[proj Str -> Str](branch#16 cond#0 true {
+    bind#14 let __pick3: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read shards), 0)
+    value switch#13 read __pick3 {
+      arm#0 (arm 0) {
+        narrow#15[switch#13.arm#0] __pick3~3: proj Str = __pick3
+        value !read __pick3~3
+      }
+      arm#1 (else) {
+        value unreachable() at main:231:69
+      }
+    }
+  }), borrow_as[proj Str -> Str](branch#20 cond#0 true {
+    bind#18 let __pick4: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read shards), 2)
+    value switch#17 read __pick4 {
+      arm#0 (arm 0) {
+        narrow#19[switch#17.arm#0] __pick4~4: proj Str = __pick4
+        value !read __pick4~4
+      }
+      arm#1 (else) {
+        value unreachable() at main:231:103
+      }
+    }
+  })))))
+  call println@std.core.console(read console, concat("  apple and fig on one shard: ", call to_str(Bool)@std.core.basic(call eq@std.core.string(borrow_as[proj Str -> Str](branch#24 cond#0 true {
+    bind#22 let __pick5: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read shards), 0)
+    value switch#21 read __pick5 {
+      arm#0 (arm 0) {
+        narrow#23[switch#21.arm#0] __pick5~5: proj Str = __pick5
+        value !read __pick5~5
+      }
+      arm#1 (else) {
+        value unreachable() at main:232:67
+      }
     }
   }), borrow_as[proj Str -> Str](branch#28 cond#0 true {
-    bind#23 let __pick~10: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read shards), 2)
-    value branch#24 cond#0 check#27 (read __pick~10 is arm 0) {
-      narrow#25[branch#24.cond#0] __picked~11: proj Str = __pick~10
-      value !read __picked~11
-    } else {
-      value unreachable() at main:231:103
+    bind#26 let __pick6: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read shards), 3)
+    value switch#25 read __pick6 {
+      arm#0 (arm 0) {
+        narrow#27[switch#25.arm#0] __pick6~6: proj Str = __pick6
+        value !read __pick6~6
+      }
+      arm#1 (else) {
+        value unreachable() at main:232:101
+      }
     }
   })))))
-  call println@std.core.console(read console, concat("  apple and fig on one shard: ", call to_str(Bool)@std.core.basic(call eq@std.core.string(borrow_as[proj Str -> Str](branch#34 cond#0 true {
-    bind#29 let __pick~13: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read shards), 0)
-    value branch#30 cond#0 check#33 (read __pick~13 is arm 0) {
-      narrow#31[branch#30.cond#0] __picked~14: proj Str = __pick~13
-      value !read __picked~14
-    } else {
-      value unreachable() at main:232:67
+  call println@std.core.console(read console, concat("  apple and pear on one shard: ", call to_str(Bool)@std.core.basic(call eq@std.core.string(borrow_as[proj Str -> Str](branch#32 cond#0 true {
+    bind#30 let __pick7: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read shards), 0)
+    value switch#29 read __pick7 {
+      arm#0 (arm 0) {
+        narrow#31[switch#29.arm#0] __pick7~7: proj Str = __pick7
+        value !read __pick7~7
+      }
+      arm#1 (else) {
+        value unreachable() at main:233:68
+      }
     }
-  }), borrow_as[proj Str -> Str](branch#40 cond#0 true {
-    bind#35 let __pick~16: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read shards), 3)
-    value branch#36 cond#0 check#39 (read __pick~16 is arm 0) {
-      narrow#37[branch#36.cond#0] __picked~17: proj Str = __pick~16
-      value !read __picked~17
-    } else {
-      value unreachable() at main:232:101
-    }
-  })))))
-  call println@std.core.console(read console, concat("  apple and pear on one shard: ", call to_str(Bool)@std.core.basic(call eq@std.core.string(borrow_as[proj Str -> Str](branch#46 cond#0 true {
-    bind#41 let __pick~19: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read shards), 0)
-    value branch#42 cond#0 check#45 (read __pick~19 is arm 0) {
-      narrow#43[branch#42.cond#0] __picked~20: proj Str = __pick~19
-      value !read __picked~20
-    } else {
-      value unreachable() at main:233:68
-    }
-  }), borrow_as[proj Str -> Str](branch#52 cond#0 true {
-    bind#47 let __pick~22: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read shards), 1)
-    value branch#48 cond#0 check#51 (read __pick~22 is arm 0) {
-      narrow#49[branch#48.cond#0] __picked~23: proj Str = __pick~22
-      value !read __picked~23
-    } else {
-      value unreachable() at main:233:102
+  }), borrow_as[proj Str -> Str](branch#36 cond#0 true {
+    bind#34 let __pick8: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read shards), 1)
+    value switch#33 read __pick8 {
+      arm#0 (arm 0) {
+        narrow#35[switch#33.arm#0] __pick8~8: proj Str = __pick8
+        value !read __pick8~8
+      }
+      arm#1 (else) {
+        value unreachable() at main:233:102
+      }
     }
   })))))
 }

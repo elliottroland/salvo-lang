@@ -1002,7 +1002,8 @@ Module {
                                                     "Surname is ",
                                                 ),
                                                 Interp(
-                                                    Elvis {
+                                                    When {
+                                                        binding: None,
                                                         subject: Field {
                                                             base: Ident(
                                                                 Ident {
@@ -1017,10 +1018,63 @@ Module {
                                                             span: 731..745,
                                                             grouped: false,
                                                         },
-                                                        rhs: Unreachable {
-                                                            message: None,
-                                                            span: 749..763,
-                                                        },
+                                                        branches: [
+                                                            WhenBranch {
+                                                                check: [],
+                                                                or: [],
+                                                                hole: Some(
+                                                                    First,
+                                                                ),
+                                                                binding: None,
+                                                                widen: false,
+                                                                body: Block {
+                                                                    stmts: [
+                                                                        Expr(
+                                                                            Field {
+                                                                                base: Ident(
+                                                                                    Ident {
+                                                                                        name: "person",
+                                                                                        span: 731..737,
+                                                                                    },
+                                                                                ),
+                                                                                field: Ident {
+                                                                                    name: "surname",
+                                                                                    span: 738..745,
+                                                                                },
+                                                                                span: 731..745,
+                                                                                grouped: false,
+                                                                            },
+                                                                        ),
+                                                                    ],
+                                                                    span: 731..745,
+                                                                },
+                                                                span: 731..745,
+                                                            },
+                                                            WhenBranch {
+                                                                check: [],
+                                                                or: [],
+                                                                hole: Some(
+                                                                    Rest,
+                                                                ),
+                                                                binding: None,
+                                                                widen: false,
+                                                                body: Block {
+                                                                    stmts: [
+                                                                        Expr(
+                                                                            Unreachable {
+                                                                                message: None,
+                                                                                span: 749..763,
+                                                                            },
+                                                                        ),
+                                                                    ],
+                                                                    span: 749..763,
+                                                                },
+                                                                span: 749..763,
+                                                            },
+                                                        ],
+                                                        origin: Some(
+                                                            Pick,
+                                                        ),
                                                         span: 731..763,
                                                     },
                                                 ),

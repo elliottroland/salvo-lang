@@ -245,3 +245,13 @@ fn ok_hold() {
     let h = hold(open_file(9))
     close(h)
 }
+
+// [linear-obligation] An `if` or `when` branch's tail is the branch's value,
+// carried on by the expression: it is not dropped there (found 2026-10-30).
+// The whole expression in statement position still is.
+fn branch_tails_are_values(c: Bool) {
+    let h = if c { open_file(1) } else { open_file(2) }
+    close(h)
+    //~ error[linear-obligation:dropped-statement]
+    if c { open_file(3) } else { open_file(4) }
+}

@@ -84,13 +84,16 @@ fun<K, V> toStr__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>, 
         salvo.std.core.string.appendPlatform(out, toStr(k))
         salvo.std.core.string.appendPlatform(out, ": ")
         salvo.std.core.string.appendPlatform(out, toStr__1(kotlin.run {
-            val __pick_1: V? = salvo.std.core.sorted.getPlatform(map, k, cmp)
-            (if ((__pick_1 != null)) {
-                val __picked_2: V = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.core.sorted:163:43")
-            })
+            val __pick1: V? = salvo.std.core.sorted.getPlatform(map, k, cmp)
+            when {
+                (__pick1 != null) -> {
+                    val __pick1_1: V = __pick1!!
+                    __pick1_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.core.sorted:163:43")
+                }
+            }
         }))
         i = (i + 1)
     }
@@ -119,16 +122,19 @@ fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.std.core.sorted.SortedMap<K,
         if ((theirs == null)) {
             return false
         }
-        val theirs_4: V = theirs!!
+        val theirs_2: V = theirs!!
         if (!(eq(kotlin.run {
-            val __pick_1: V? = salvo.std.core.sorted.getPlatform(a, k, cmp)
-            (if ((__pick_1 != null)) {
-                val __picked_2: V = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.core.sorted:198:29")
-            })
-        }, theirs_4))) {
+            val __pick2: V? = salvo.std.core.sorted.getPlatform(a, k, cmp)
+            when {
+                (__pick2 != null) -> {
+                    val __pick2_1: V = __pick2!!
+                    __pick2_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.core.sorted:198:29")
+                }
+            }
+        }, theirs_2))) {
             return false
         }
     }
@@ -149,49 +155,61 @@ fun<K, V> NonEmpty_qualifies(map: salvo.platform.std.core.sorted.SortedMap<K, V>
 
 fun<T> min(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
     return kotlin.run {
-        val __pick_1: T? = salvo.std.core.sorted.minPlatform(set)
-        (if ((__pick_1 != null)) {
-            val __picked_2: T = __pick_1!!
-            __picked_2
-        } else {
-            throw AssertionError("salvo: unreachable at std.core.sorted:257:28")
-        })
+        val __pick3: T? = salvo.std.core.sorted.minPlatform(set)
+        when {
+            (__pick3 != null) -> {
+                val __pick3_1: T = __pick3!!
+                __pick3_1
+            }
+            else -> {
+                throw AssertionError("salvo: unreachable at std.core.sorted:257:28")
+            }
+        }
     }
 }
 
 fun<T> max(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
     return kotlin.run {
-        val __pick_1: T? = salvo.std.core.sorted.maxPlatform(set)
-        (if ((__pick_1 != null)) {
-            val __picked_2: T = __pick_1!!
-            __picked_2
-        } else {
-            throw AssertionError("salvo: unreachable at std.core.sorted:261:28")
-        })
+        val __pick4: T? = salvo.std.core.sorted.maxPlatform(set)
+        when {
+            (__pick4 != null) -> {
+                val __pick4_1: T = __pick4!!
+                __pick4_1
+            }
+            else -> {
+                throw AssertionError("salvo: unreachable at std.core.sorted:261:28")
+            }
+        }
     }
 }
 
 fun<K, V> firstKey(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K {
     return kotlin.run {
-        val __pick_1: K? = salvo.std.core.sorted.firstKeyPlatform(map)
-        (if ((__pick_1 != null)) {
-            val __picked_2: K = __pick_1!!
-            __picked_2
-        } else {
-            throw AssertionError("salvo: unreachable at std.core.sorted:265:34")
-        })
+        val __pick5: K? = salvo.std.core.sorted.firstKeyPlatform(map)
+        when {
+            (__pick5 != null) -> {
+                val __pick5_1: K = __pick5!!
+                __pick5_1
+            }
+            else -> {
+                throw AssertionError("salvo: unreachable at std.core.sorted:265:34")
+            }
+        }
     }
 }
 
 fun<K, V> lastKey(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K {
     return kotlin.run {
-        val __pick_1: K? = salvo.std.core.sorted.lastKeyPlatform(map)
-        (if ((__pick_1 != null)) {
-            val __picked_2: K = __pick_1!!
-            __picked_2
-        } else {
-            throw AssertionError("salvo: unreachable at std.core.sorted:269:33")
-        })
+        val __pick6: K? = salvo.std.core.sorted.lastKeyPlatform(map)
+        when {
+            (__pick6 != null) -> {
+                val __pick6_1: K = __pick6!!
+                __pick6_1
+            }
+            else -> {
+                throw AssertionError("salvo: unreachable at std.core.sorted:269:33")
+            }
+        }
     }
 }
 

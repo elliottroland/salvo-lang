@@ -256,13 +256,16 @@ class Breaking : Fragile {
     override fun crash() {
         val empty: List<Int> = listOf<Int>()
         val boom: Int = kotlin.run {
-            val __pick_1: Int? = salvo.std.core.list.getPlatform(empty, 7)
-            (if ((__pick_1 != null)) {
-                val __picked_2: Int = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at main:149:37")
-            })
+            val __pick1: Int? = salvo.std.core.list.getPlatform(empty, 7)
+            when {
+                (__pick1 != null) -> {
+                    val __pick1_1: Int = __pick1!!
+                    __pick1_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at main:149:37")
+                }
+            }
         }
         kotlin.run { boom; Unit }
     }

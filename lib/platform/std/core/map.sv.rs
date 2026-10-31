@@ -136,10 +136,10 @@ pub fn to_str<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, to_str: 
         crate::std_core_string::append_platform(&mut out, &to_str(&k));
         crate::std_core_string::append_platform(&mut out, &String::from(": "));
         crate::std_core_string::append_platform(&mut out, &to_str__1({
-            let mut __pick_1: Option<&V> = crate::std_core_map::get_platform::<K, V>(map, &k, &mut *hash, &mut *eq);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick1: Option<&V> = crate::std_core_map::get_platform::<K, V>(map, &k, &mut *hash, &mut *eq);
+            if __pick1.is_some() {
+                let mut __pick1_1 = __pick1.unwrap();
+                __pick1_1
             } else {
                 panic!("salvo: unreachable at std.core.map:201:43")
             }
@@ -159,16 +159,16 @@ pub fn eq<K: Clone, V: Clone>(a: &crate::std_core_map::Map<K, V>, b: &crate::std
         if theirs.is_none() {
             return false;
         };
-        let mut theirs_4 = theirs.unwrap();
+        let mut theirs_2 = theirs.unwrap();
         if !(eq({
-            let mut __pick_1: Option<&V> = crate::std_core_map::get_platform::<K, V>(a, &k, &mut *hash, &mut *eq__1);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick2: Option<&V> = crate::std_core_map::get_platform::<K, V>(a, &k, &mut *hash, &mut *eq__1);
+            if __pick2.is_some() {
+                let mut __pick2_1 = __pick2.unwrap();
+                __pick2_1
             } else {
                 panic!("salvo: unreachable at std.core.map:224:29")
             }
-        }, theirs_4)) {
+        }, theirs_2)) {
             return false;
         };
     }

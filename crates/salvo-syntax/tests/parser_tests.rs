@@ -145,10 +145,11 @@ fn snapshot_corpus_imports() {
 
 // --- Tuple indexing [expr-tuple-index] ---
 
-/// Parses one expression statement out of a function body.
+/// Parses one expression statement out of a function body, as the parser
+/// wrote it: before `?:` is lowered [when-lowered].
 fn parse_expr_stmt(src: &str) -> salvo_syntax::ast::Expr {
     let source = format!("fn f() -> None {{\n    let x = {src}\n}}\n");
-    let (module, diagnostics) = salvo_syntax::parse_module(&source);
+    let (module, diagnostics) = salvo_syntax::parse_module_deferred(&source);
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "parse errors in `{src}`: {errors:?}");
     let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else {
@@ -675,7 +676,7 @@ fn docs_keep_indentation_after_the_marker() {
 #[test]
 fn a_forward_elvis_may_wrap_to_the_next_line() {
     use salvo_syntax::ast::{Expr, Stmt};
-    let (module, diagnostics) = salvo_syntax::parse_module(
+    let (module, diagnostics) = salvo_syntax::parse_module_deferred(
         "fn f(x: Int?) -> Int {\n    return x\n        ?: 0\n}\n",
     );
     assert!(!diagnostics.iter().any(|d| d.is_error()), "{diagnostics:?}");
@@ -691,7 +692,7 @@ fn a_forward_elvis_may_wrap_to_the_next_line() {
     // Left-associative, with a `return` right side bracketed by the newline:
     // `x ?: return 1\n    ?: 2` is `(x ?: return 1) ?: 2` — the outer node is
     // the second `?:`, whose subject is the first elvis.
-    let (module2, d2) = salvo_syntax::parse_module(
+    let (module2, d2) = salvo_syntax::parse_module_deferred(
         "fn g(x: Int | Str | None) -> Int {\n    return x ?: return 1\n        ?: 2\n}\n",
     );
     assert!(!d2.iter().any(|d| d.is_error()), "{d2:?}");
@@ -708,7 +709,7 @@ fn a_forward_elvis_may_wrap_to_the_next_line() {
     // `x ?: return 1 ?: return 2` is `(x ?: return 1) ?: return 2`, not
     // `x ?: (return 1 ?: return 2)`. The outer node is the second `?:`, its
     // subject the first.
-    let (module_sl, dsl) = salvo_syntax::parse_module(
+    let (module_sl, dsl) = salvo_syntax::parse_module_deferred(
         "fn s(x: Int | Str | None) -> Int {\n    return x ?: return 1 ?: return 2\n}\n",
     );
     assert!(!dsl.iter().any(|d| d.is_error()), "{dsl:?}");
@@ -725,7 +726,7 @@ fn a_forward_elvis_may_wrap_to_the_next_line() {
     // `read()\n    ?: return done()\n    .emit()` is
     // `(read() ?: return done()).emit()`. So the return value is a Call whose
     // callee is a Field whose base is the Elvis (not `done().emit()`).
-    let (module3, d3) = salvo_syntax::parse_module(
+    let (module3, d3) = salvo_syntax::parse_module_deferred(
         "fn h(x: Int?) -> Int {\n    return x\n        ?: return 0\n        .plus_one()\n}\n",
     );
     assert!(!d3.iter().any(|d| d.is_error()), "{d3:?}");

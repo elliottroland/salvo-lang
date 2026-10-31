@@ -23,7 +23,7 @@ fn main() [use] {
     // Non-Copy payload: borrowed, unwrapped, cloned — so the second read still
     // has something to read.
     // Two reads of the same local, both of them borrowing the `Option`.
-    //~ emits 2: = &maybe;
+    //~ emits 2: = maybe.as_ref().unwrap();
     // A read moved the local.
     //~ !emits: maybe.unwrap()
     println("once ${size(maybe ?: "")}")
@@ -31,21 +31,21 @@ fn main() [use] {
     let kept: Str? = "hello"
     // [rs-read-mode] A **kept** parameter is a read: the unwrap answers the
     // `&String` straight into the position — no clone, and no second `&`.
-    //~ emits: crate::len_of({
-    //~ emits: let mut __picked_10 = __pick_9.as_ref().unwrap();
-    //~|             __picked_10
+    //~ emits: crate::len_of(if kept.is_some() {
+    //~ emits: let mut kept_5 = kept.as_ref().unwrap();
+    //~|         kept_5
     //~|
     println("kept ${len_of(kept ?: unreachable!())}")
     let owned: Str? = "hello"
     // …and a *consuming* one still gets a value of its own.
-    //~ emits: let mut __picked_13 = __pick_12.as_ref().unwrap();
-    //~|             __picked_13.clone()
+    //~ emits: let mut owned_6 = owned.as_ref().unwrap();
+    //~|         owned_6.clone()
     //~|
     println("owned ${shout(owned ?: unreachable!())}")
     let n: Int? = 3
     // A Copy payload needs none of it: the `Option` is Copy, so `.unwrap`
     // moves nothing.
-    //~ emits: let mut __picked_16 = __pick_15.unwrap();
+    //~ emits: let mut n_7 = n.unwrap();
     println("copy ${(n ?: 0) + (n ?: 0)}")
 }
 
@@ -61,11 +61,10 @@ fn main() [use] {
     let maybe: Str? = "hello"
     if contains(maybe ?: unreachable!(), "ell") { println("found") }
     // A kept parameter: the unwrap's `&String` goes straight into the template.
-    //~ emits: let mut __picked_4 = __pick_3.as_ref().unwrap();
-    //~|             __picked_4
-    //~|         } else {
-    //~|             panic!("salvo: unreachable at main:10:26")
-    //~|         }
+    //~ emits: let mut maybe_3 = maybe.as_ref().unwrap();
+    //~|         maybe_3
+    //~|     } else {
+    //~|         panic!("salvo: unreachable at main:10:26")
     //~|     }, &String::from("ell"))
     // A kept intrinsic argument or receiver is not cloned.
     //~ !emits: .clone().contains(
@@ -78,9 +77,8 @@ fn main() [use] {
     // owned (as it was until 2026-09-23) this read
     // `xs.as_ref().expect(…).clone().push(3)`, which appends to the clone and
     // prints `xs 1` where Kotlin prints `xs 2`.
-    //~ emits: let mut __pick_9 = &mut xs;
-    //~ emits: let mut __picked_10 = __pick_9.as_mut().unwrap();
-    //~|             &mut *__picked_10
+    //~ emits: let mut xs_5 = xs.as_mut().unwrap();
+    //~|         &mut *xs_5
     //~|
     //~ !emits: .clone()
     add(xs ?: unreachable!(), 3)

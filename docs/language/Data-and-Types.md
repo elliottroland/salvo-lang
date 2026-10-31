@@ -433,10 +433,9 @@ fn describe(s: Str?) -> Str {
 binds nothing and takes no `^`: a failed test tells you nothing about the value
 on the branch it guards, so there is nothing to name or to lift.
 
-`?:` is `!` with a path instead of a panic. It is the **positional pick**: a run
-of `?`s names how many arms of the subject's union it keeps, counted from the
-front, and the picked value is the subject when it holds one of them — otherwise
-the right side runs. On an optional, `?:` keeps the one value arm:
+`?:` is `!` with a path instead of a panic. It is the **first-arm pick**: the
+value is the subject when it holds its union's first arm — otherwise the right
+side runs. On an optional, `?:` keeps the one value arm:
 
 ```
 fn greet(p: Person) -> Str {
@@ -459,21 +458,23 @@ A right side that leaves contributes nothing to the type, so `nick` above is a
 plain `Str`.
 
 The pick selects by **position** over the subject's declared arm order, not by
-name. `?:` keeps the first arm; `:?` keeps the last; a run of `?`s keeps that
-many. On `Ok Int | Err Str`:
+name: it keeps the first arm. On `Ok Int | Err Str`:
 
 ```
-fn tail(text: Str) -> Ok Int | Err Str {
-    let e: Err Str = parse(text) :? return _   // keep the last arm, Err Str
-    return e
+fn twice(text: Str) -> Ok Int | Err Str {
+    let n: Ok Int = parse(text) ?: return _   // keep the first arm, Ok Int
+    return ok(n * 2)
 }
 ```
 
-`_` is **the arms the pick left behind**, tags and all — the sub-union on the
-opposite side from the pick's direction. In `?: return _` on `Ok Int | Err Str`,
-`_` is the `Err Str`, so the right side can hand it to something that expects an
-error. That is the one place the placeholder is needed, and it reads only inside
-a pick's right-hand side.
+`_` is **the arms the pick left behind**, tags and all — every arm but the
+first. In `?: return _` on `Ok Int | Err Str`, `_` is the `Err Str`, so the
+right side can hand it to something that expects an error. That is the one place
+the placeholder is needed, and it reads only inside a pick's right-hand side.
+
+A pick is a `when` underneath: `s ?: rhs` means "when `s` is its first arm,
+`s`; otherwise `rhs`, with `_` as `s`". Everything a `when` does follows —
+narrowing, the checks on what each path moves, and the code a backend writes.
 
 A pick whose right side leaves also **narrows its subject** below, because the
 subject must have been one of the picked arms for the code to be running:
@@ -486,15 +487,15 @@ let r2: Ok Int = r ?: return    // `r` reads as `Ok Int` — the picked arm
 A right side that yields a value narrows nothing, since that is the path where
 the subject was not picked.
 
-The subject is evaluated once, so it can be a call. A pick that keeps **every**
-arm (so the right side is unreachable) is an error — the same dead-scaffolding
-refusal a throw-free `try` gets.
+The subject is evaluated once, so it can be a call. A pick on a subject with
+only **one** arm (so the right side is unreachable) is an error — the same
+dead-scaffolding refusal a throw-free `try` gets.
 
 **Widening is allowed**: a right side whose type is outside the subject's arms
 joins into the result, so `n ?: "none"` on an `Int?` is an `Int | Str`.
 
-The operator works on any union: `??:` on `Str | Int | None` keeps the first two
-arms, `Str | Int`. Its precedence is Kotlin's — tighter than `is` and comparison,
+The operator works on any union: on `Str | Int | None` it keeps the `Str`, and
+`_` is `Int | None`. Its precedence is Kotlin's — tighter than `is` and comparison,
 looser than arithmetic — and it is **left-associative**, so `count ?: 0 > 3`
 reads as `(count ?: 0) > 3` and `a ?: b ?: 0` is `(a ?: b) ?: 0`, each pick
 handling the arms the last left behind. Either form may start a continuation

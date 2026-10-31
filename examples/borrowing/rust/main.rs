@@ -209,10 +209,10 @@ pub fn main() {
     let mut roster: Vec<crate::Fighter> = vec![crate::Fighter { name: String::from("Ada"), hp: 30i32, energy: 4i32 }, crate::Fighter { name: String::from("Bo"), hp: 8i32, energy: 9i32 }];
     let mut ada: &crate::Fighter = {
         let mut __tmp1 = String::from("Ada");
-        let mut __pick_3: Option<&crate::Fighter> = crate::named(&roster, &__tmp1);
-        if __pick_3.is_some() {
-            let mut __picked_4 = __pick_3.unwrap();
-            __picked_4
+        let mut __pick2: Option<&crate::Fighter> = crate::named(&roster, &__tmp1);
+        if __pick2.is_some() {
+            let mut __pick2_3 = __pick2.unwrap();
+            __pick2_3
         } else {
             panic!("salvo: unreachable at main:191:39")
         }
@@ -224,16 +224,16 @@ pub fn main() {
     let mut w: crate::Window<'_> = crate::window(&roster);
     w.at = 1i32;
     crate::std_core_console::println(&__handle_2, &format!("1. window at {}: {}", w.at, {
-        let mut __proj_9: &crate::Fighter = {
-            let mut __pick_6: Option<&crate::Fighter> = crate::peek(&w);
-            if __pick_6.is_some() {
-                let mut __picked_7 = __pick_6.unwrap();
-                __picked_7
+        let mut __proj_5: &crate::Fighter = {
+            let mut __pick3: Option<&crate::Fighter> = crate::peek(&w);
+            if __pick3.is_some() {
+                let mut __pick3_4 = __pick3.unwrap();
+                __pick3_4
             } else {
                 panic!("salvo: unreachable at main:205:50")
             }
         };
-        __proj_9.name.clone()
+        __proj_5.name.clone()
     }));
     let mut pass: crate::std_core_list::ListNext<'_, crate::Fighter> = crate::std_core_list::iter::<crate::Fighter>(&roster);
     let mut standing = crate::std_core_seq::filter::<crate::std_core_list::ListNext<'_, crate::Fighter>, &crate::Fighter>(&mut pass, &mut |mut f| -> bool {
@@ -244,16 +244,16 @@ pub fn main() {
     let mut bench: Vec<crate::Fighter> = vec![crate::Fighter { name: String::from("Cy"), hp: 12i32, energy: 2i32 }];
     crate::std_core_list::add_platform::<crate::Fighter>(&mut bench, crate::Fighter { name: String::from("Dee"), hp: 6i32, energy: 7i32 });
     crate::std_core_console::println(&__handle_2, &format!("2. bench {}, front {} (a reading, not a handle)", crate::std_core_list::size_platform::<crate::Fighter>(&bench), {
-        let mut __proj_13: &crate::Fighter = {
-            let mut __pick_10: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&bench, 0i32);
-            if __pick_10.is_some() {
-                let mut __picked_11 = __pick_10.unwrap();
-                __picked_11
+        let mut __proj_7: &crate::Fighter = {
+            let mut __pick4: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&bench, 0i32);
+            if __pick4.is_some() {
+                let mut __pick4_6 = __pick4.unwrap();
+                __pick4_6
             } else {
                 panic!("salvo: unreachable at main:220:65")
             }
         };
-        __proj_13.name.clone()
+        __proj_7.name.clone()
     }));
     let mut squad: Vec<crate::Fighter> = vec![crate::Fighter { name: String::from("Ada"), hp: 30i32, energy: 4i32 }, crate::Fighter { name: String::from("Bo"), hp: 8i32, energy: 9i32 }];
     let __h2: usize = crate::std_core_list::at_platform(&squad, 0i32).expect("salvo: value is absent at main:231:32");
@@ -261,27 +261,27 @@ pub fn main() {
     let mut n: i32 = crate::std_core_list::size_platform::<crate::Fighter>(&squad);
     squad[__h2].hp = i32::wrapping_add(squad[__h2].hp, n);
     crate::std_core_console::println(&__handle_2, &format!("2. {} at {} after a read in the middle", {
-        let mut __proj_20: &crate::Fighter = {
-            let mut __pick_17: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&squad, 0i32);
-            if __pick_17.is_some() {
-                let mut __picked_18 = __pick_17.unwrap();
-                __picked_18
+        let mut __proj_10: &crate::Fighter = {
+            let mut __pick6: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&squad, 0i32);
+            if __pick6.is_some() {
+                let mut __pick6_9 = __pick6.unwrap();
+                __pick6_9
             } else {
                 panic!("salvo: unreachable at main:235:37")
             }
         };
-        __proj_20.name.clone()
+        __proj_10.name.clone()
     }, {
-        let mut __proj_24: &crate::Fighter = {
-            let mut __pick_21: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&squad, 0i32);
-            if __pick_21.is_some() {
-                let mut __picked_22 = __pick_21.unwrap();
-                __picked_22
+        let mut __proj_12: &crate::Fighter = {
+            let mut __pick7: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&squad, 0i32);
+            if __pick7.is_some() {
+                let mut __pick7_11 = __pick7.unwrap();
+                __pick7_11
             } else {
                 panic!("salvo: unreachable at main:235:82")
             }
         };
-        __proj_24.hp
+        __proj_12.hp
     }));
     crate::heal({
         let __h3: Option<usize> = crate::wounded(&squad);
@@ -294,27 +294,27 @@ pub fn main() {
     });
     crate::rally_at::<i32>(&mut squad, &1i32, &mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::std_core_list::at_platform(__a0, *__a1));
     crate::std_core_console::println(&__handle_2, &format!("2. after the searches: {} {}", {
-        let mut __proj_31: &crate::Fighter = {
-            let mut __pick_28: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&squad, 0i32);
-            if __pick_28.is_some() {
-                let mut __picked_29 = __pick_28.unwrap();
-                __picked_29
+        let mut __proj_15: &crate::Fighter = {
+            let mut __pick9: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&squad, 0i32);
+            if __pick9.is_some() {
+                let mut __pick9_14 = __pick9.unwrap();
+                __pick9_14
             } else {
                 panic!("salvo: unreachable at main:243:57")
             }
         };
-        __proj_31.hp
+        __proj_15.hp
     }, {
-        let mut __proj_35: &crate::Fighter = {
-            let mut __pick_32: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&squad, 1i32);
-            if __pick_32.is_some() {
-                let mut __picked_33 = __pick_32.unwrap();
-                __picked_33
+        let mut __proj_17: &crate::Fighter = {
+            let mut __pick10: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&squad, 1i32);
+            if __pick10.is_some() {
+                let mut __pick10_16 = __pick10.unwrap();
+                __pick10_16
             } else {
                 panic!("salvo: unreachable at main:243:97")
             }
         };
-        __proj_35.hp
+        __proj_17.hp
     }));
     let mut i: i32 = 0i32;
     let mut j: i32 = 1i32;
@@ -333,63 +333,63 @@ pub fn main() {
                 f.energy = i32::wrapping_add(f.energy, 1i32);
             });
             crate::std_core_console::println(&__handle_2, &format!("3. {} {} (total reads: `Idx` survived)", {
-                let mut __proj_42: &crate::Fighter = crate::std_core_list::get::<crate::Fighter>(&squad, i);
-                __proj_42.energy
+                let mut __proj_20: &crate::Fighter = crate::std_core_list::get::<crate::Fighter>(&squad, i);
+                __proj_20.energy
             }, {
-                let mut __proj_43: &crate::Fighter = crate::std_core_list::get::<crate::Fighter>(&squad, j);
-                __proj_43.energy
+                let mut __proj_21: &crate::Fighter = crate::std_core_list::get::<crate::Fighter>(&squad, j);
+                __proj_21.energy
             }));
         };
     };
     { let __q11 = crate::std_core_list::at_platform(&squad, i).expect("salvo: value is absent at main:282:35"); let __c12 = __q11; let __q13 = crate::std_core_list::at_platform(&squad, j).expect("salvo: value is absent at main:282:67"); let __c14 = __q13; crate::strike(&mut squad, __c12, __c14) };
     { let __q15 = crate::std_core_list::at_platform(&squad, i).expect("salvo: value is absent at main:285:35"); let __c16 = __q15; let __q17 = crate::std_core_list::at_platform(&squad, i).expect("salvo: value is absent at main:285:67"); let __c18 = __q17; crate::strike(&mut squad, __c16, __c18) };
     crate::std_core_console::println(&__handle_2, &format!("4. {} hp / {} energy after striking itself", {
-        let mut __proj_59: &crate::Fighter = {
-            let mut __pick_56: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&squad, 0i32);
-            if __pick_56.is_some() {
-                let mut __picked_57 = __pick_56.unwrap();
-                __picked_57
+        let mut __proj_27: &crate::Fighter = {
+            let mut __pick17: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&squad, 0i32);
+            if __pick17.is_some() {
+                let mut __pick17_26 = __pick17.unwrap();
+                __pick17_26
             } else {
                 panic!("salvo: unreachable at main:286:37")
             }
         };
-        __proj_59.hp
+        __proj_27.hp
     }, {
-        let mut __proj_63: &crate::Fighter = {
-            let mut __pick_60: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&squad, 0i32);
-            if __pick_60.is_some() {
-                let mut __picked_61 = __pick_60.unwrap();
-                __picked_61
+        let mut __proj_29: &crate::Fighter = {
+            let mut __pick18: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&squad, 0i32);
+            if __pick18.is_some() {
+                let mut __pick18_28 = __pick18.unwrap();
+                __pick18_28
             } else {
                 panic!("salvo: unreachable at main:286:82")
             }
         };
-        __proj_63.energy
+        __proj_29.energy
     }));
     let mut team: crate::Squad = crate::Squad { banner: String::from("Red"), members: vec![crate::Fighter { name: String::from("Cy"), hp: 12i32, energy: 2i32 }, crate::Fighter { name: String::from("Dee"), hp: 6i32, energy: 7i32 }] };
     { let __q19 = crate::std_core_list::at_platform(&team.members, i).expect("salvo: value is absent at main:293:49"); let __c20 = __q19; let __q21 = crate::std_core_list::at_platform(&team.members, j).expect("salvo: value is absent at main:293:88"); let __c22 = __q21; crate::rotate(&mut team.members, __c20, __c22) };
     crate::std_core_console::println(&__handle_2, &format!("4. {}: {} {}", team.banner, {
-        let mut __proj_73: &crate::Fighter = {
-            let mut __pick_70: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&team.members, 0i32);
-            if __pick_70.is_some() {
-                let mut __picked_71 = __pick_70.unwrap();
-                __picked_71
+        let mut __proj_33: &crate::Fighter = {
+            let mut __pick21: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&team.members, 0i32);
+            if __pick21.is_some() {
+                let mut __pick21_32 = __pick21.unwrap();
+                __pick21_32
             } else {
                 panic!("salvo: unreachable at main:294:60")
             }
         };
-        __proj_73.energy
+        __proj_33.energy
     }, {
-        let mut __proj_77: &crate::Fighter = {
-            let mut __pick_74: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&team.members, 1i32);
-            if __pick_74.is_some() {
-                let mut __picked_75 = __pick_74.unwrap();
-                __picked_75
+        let mut __proj_35: &crate::Fighter = {
+            let mut __pick22: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&team.members, 1i32);
+            if __pick22.is_some() {
+                let mut __pick22_34 = __pick22.unwrap();
+                __pick22_34
             } else {
                 panic!("salvo: unreachable at main:294:111")
             }
         };
-        __proj_77.energy
+        __proj_35.energy
     }));
     let mut camp: crate::Camp = crate::Camp { supplies: 10i32, banners: vec![String::from("red")] };
     crate::spend(&mut camp, 3i32);

@@ -726,13 +726,16 @@ class Scheduler : SchedTable {
             return Union4.U2<Sent, Dead, Full, Remote>(Dead())
         }
         var a: ActorRec = kotlin.run {
-            val __pick_1: ActorRec? = salvo.std.core.list.atPlatform(actors, addr)
-            (if ((__pick_1 != null)) {
-                val __picked_2: ActorRec = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:560:37")
-            })
+            val __pick1: ActorRec? = salvo.std.core.list.atPlatform(actors, addr)
+            when {
+                (__pick1 != null) -> {
+                    val __pick1_1: ActorRec = __pick1!!
+                    __pick1_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:560:37")
+                }
+            }
         }
         if (a.dead) {
             salvo.std.runtime.dropDynPlatform(msg)
@@ -762,13 +765,16 @@ class Scheduler : SchedTable {
             return false
         }
         var a: ActorRec = kotlin.run {
-            val __pick_1: ActorRec? = salvo.std.core.list.atPlatform(actors, addr)
-            (if ((__pick_1 != null)) {
-                val __picked_2: ActorRec = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:588:37")
-            })
+            val __pick2: ActorRec? = salvo.std.core.list.atPlatform(actors, addr)
+            when {
+                (__pick2 != null) -> {
+                    val __pick2_1: ActorRec = __pick2!!
+                    __pick2_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:588:37")
+                }
+            }
         }
         if (a.dead) {
             salvo.std.runtime.dropDynPlatform(msg)
@@ -787,13 +793,16 @@ class Scheduler : SchedTable {
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun kill(addr: Int, reason: String) {
         var a: ActorRec = kotlin.run {
-            val __pick_1: ActorRec? = salvo.std.core.list.atPlatform(actors, addr)
-            (if ((__pick_1 != null)) {
-                val __picked_2: ActorRec = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:605:37")
-            })
+            val __pick3: ActorRec? = salvo.std.core.list.atPlatform(actors, addr)
+            when {
+                (__pick3 != null) -> {
+                    val __pick3_1: ActorRec = __pick3!!
+                    __pick3_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:605:37")
+                }
+            }
         }
         if (a.dead) {
             return
@@ -801,28 +810,28 @@ class Scheduler : SchedTable {
         a.dead = true
         a.exitReason = reason
         while (true) {
-            val __subject_4: salvo.platform.std.runtime.Parker? = salvo.std.core.list.removeFirstPlatform((a.blocked as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>))
-            if (!((__subject_4 != null))) {
+            val __subject_2: salvo.platform.std.runtime.Parker? = salvo.std.core.list.removeFirstPlatform((a.blocked as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>))
+            if (!((__subject_2 != null))) {
                 break
             }
-            val b: salvo.platform.std.runtime.Parker = __subject_4!!
+            val b: salvo.platform.std.runtime.Parker = __subject_2!!
             salvo.std.runtime.unparkPlatform(b)
         }
         val watchers: salvo.platform.std.core.list.MutList<Token> = mutableListOf<Token>()
         while (true) {
-            val __subject_5: Token? = salvo.std.core.list.removeFirstPlatform((a.watchers as salvo.platform.std.core.list.MutList<Token>))
-            if (!((__subject_5 != null))) {
+            val __subject_3: Token? = salvo.std.core.list.removeFirstPlatform((a.watchers as salvo.platform.std.core.list.MutList<Token>))
+            if (!((__subject_3 != null))) {
                 break
             }
-            val t: Token = __subject_5!!
+            val t: Token = __subject_3!!
             salvo.std.core.list.addPlatform(watchers, t)
         }
         while (true) {
-            val __subject_6: Token? = salvo.std.core.list.removeFirstPlatform(watchers)
-            if (!((__subject_6 != null))) {
+            val __subject_4: Token? = salvo.std.core.list.removeFirstPlatform(watchers)
+            if (!((__subject_4 != null))) {
                 break
             }
-            val t: Token = __subject_6!!
+            val t: Token = __subject_4!!
             salvo.std.runtime.deliverTo(actors, waiters, pools, t, salvo.std.runtime.erasePlatform(salvo.std.core.actor.Exit(reason = reason)))
         }
         salvo.std.core.list.drain(watchers, fun(t: Token) {
@@ -833,13 +842,16 @@ class Scheduler : SchedTable {
         nextSlot = (nextSlot + 1L)
         val slot: Long = nextSlot
         var a: ActorRec = kotlin.run {
-            val __pick_1: ActorRec? = salvo.std.core.list.atPlatform(actors, addr)
-            (if ((__pick_1 != null)) {
-                val __picked_2: ActorRec = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:627:37")
-            })
+            val __pick4: ActorRec? = salvo.std.core.list.atPlatform(actors, addr)
+            when {
+                (__pick4 != null) -> {
+                    val __pick4_1: ActorRec = __pick4!!
+                    __pick4_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:627:37")
+                }
+            }
         }
         if (gated) {
             a.gate = slot
@@ -850,26 +862,32 @@ class Scheduler : SchedTable {
     override fun mintTask(pool: Int, body: salvo.platform.std.runtime.Body): Token {
         nextSlot = (nextSlot + 1L)
         var p: PoolRec = kotlin.run {
-            val __pick_1: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
-            (if ((__pick_1 != null)) {
-                val __picked_2: PoolRec = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:637:36")
-            })
+            val __pick5: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
+            when {
+                (__pick5 != null) -> {
+                    val __pick5_1: PoolRec = __pick5!!
+                    __pick5_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:637:36")
+                }
+            }
         }
         p.owed = (p.owed + 1)
         return Token(target = Union3.U3<ToActor, ToWaiter, ToTask>(ToTask(pool = pool, body = body)), slot = nextSlot, tracked = true)
     }
     override fun mintWaiter(pool: Int): WaiterMint {
         var p: PoolRec = kotlin.run {
-            val __pick_1: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
-            (if ((__pick_1 != null)) {
-                val __picked_2: PoolRec = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:643:36")
-            })
+            val __pick6: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
+            when {
+                (__pick6 != null) -> {
+                    val __pick6_1: PoolRec = __pick6!!
+                    __pick6_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:643:36")
+                }
+            }
         }
         p.owed = (p.owed + 1)
         nextSlot = (nextSlot + 1L)
@@ -884,13 +902,16 @@ class Scheduler : SchedTable {
     override fun watchActor(addr: Int, t: Token) {
         val watch: Token = salvo.std.runtime.untrack(actors, waiters, pools, t)
         val a: ActorRec = kotlin.run {
-            val __pick_1: ActorRec? = salvo.std.core.list.atPlatform(actors, addr)
-            (if ((__pick_1 != null)) {
-                val __picked_2: ActorRec = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:657:37")
-            })
+            val __pick7: ActorRec? = salvo.std.core.list.atPlatform(actors, addr)
+            when {
+                (__pick7 != null) -> {
+                    val __pick7_1: ActorRec = __pick7!!
+                    __pick7_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:657:37")
+                }
+            }
         }
         if (a.dead) {
             val reason: String = a.exitReason
@@ -910,16 +931,19 @@ class Scheduler : SchedTable {
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun nextWork(pool: Int, idle: salvo.platform.std.runtime.Parker): Union3<RunActor, RunTask, Retire>? {
         if (kotlin.run {
-            val __proj_4: PoolRec = kotlin.run {
-                val __pick_1: PoolRec? = salvo.std.core.list.getPlatform(pools, pool)
-                (if ((__pick_1 != null)) {
-                    val __picked_2: PoolRec = __pick_1!!
-                    __picked_2
-                } else {
-                    throw AssertionError("salvo: unreachable at std.runtime:677:33")
-                })
+            val __proj_2: PoolRec = kotlin.run {
+                val __pick8: PoolRec? = salvo.std.core.list.getPlatform(pools, pool)
+                when {
+                    (__pick8 != null) -> {
+                        val __pick8_1: PoolRec = __pick8!!
+                        __pick8_1
+                    }
+                    else -> {
+                        throw AssertionError("salvo: unreachable at std.runtime:677:33")
+                    }
+                }
             }
-            __proj_4.retired
+            __proj_2.retired
         }) {
             retired = (retired + 1)
             return Union3.U3<RunActor, RunTask, Retire>(Retire())
@@ -936,13 +960,16 @@ class Scheduler : SchedTable {
             return Union3.U2<RunActor, RunTask, Retire>(rt)
         }
         val p: PoolRec = kotlin.run {
-            val __pick_5: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
-            (if ((__pick_5 != null)) {
-                val __picked_6: PoolRec = __pick_5!!
-                __picked_6
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:690:36")
-            })
+            val __pick9: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
+            when {
+                (__pick9 != null) -> {
+                    val __pick9_3: PoolRec = __pick9!!
+                    __pick9_3
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:690:36")
+                }
+            }
         }
         salvo.std.core.list.addPlatform((p.idle as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>), idle)
         if (((active == parkedFrames) && salvo.std.runtime.quiet(actors, waiters, pools, externals))) {
@@ -959,13 +986,16 @@ class Scheduler : SchedTable {
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun waitStep(wid: Int, pool: Int, own: Int, frame: Int, me: salvo.platform.std.runtime.Parker): Union6<Got, RunActor, RunTask, Sleep, Again, Stuck> {
         var w: WaiterRec = kotlin.run {
-            val __pick_1: WaiterRec? = salvo.std.core.list.atPlatform(waiters, wid)
-            (if ((__pick_1 != null)) {
-                val __picked_2: WaiterRec = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:711:37")
-            })
+            val __pick10: WaiterRec? = salvo.std.core.list.atPlatform(waiters, wid)
+            when {
+                (__pick10 != null) -> {
+                    val __pick10_1: WaiterRec = __pick10!!
+                    __pick10_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:711:37")
+                }
+            }
         }
         if ((w.waiting == 0)) {
             w.waiting = frame
@@ -1016,23 +1046,29 @@ class Scheduler : SchedTable {
             return Union6.U6<Got, RunActor, RunTask, Sleep, Again, Stuck>(Stuck(report = salvo.std.runtime.deadlockReport(actors, waiters, own)))
         }
         var parked: WaiterRec = kotlin.run {
-            val __pick_4: WaiterRec? = salvo.std.core.list.atPlatform(waiters, wid)
-            (if ((__pick_4 != null)) {
-                val __picked_5: WaiterRec = __pick_4!!
-                __picked_5
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:770:42")
-            })
+            val __pick11: WaiterRec? = salvo.std.core.list.atPlatform(waiters, wid)
+            when {
+                (__pick11 != null) -> {
+                    val __pick11_2: WaiterRec = __pick11!!
+                    __pick11_2
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:770:42")
+                }
+            }
         }
         parked.parker = me
         val p: PoolRec = kotlin.run {
-            val __pick_7: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
-            (if ((__pick_7 != null)) {
-                val __picked_8: PoolRec = __pick_7!!
-                __picked_8
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:772:36")
-            })
+            val __pick12: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
+            when {
+                (__pick12 != null) -> {
+                    val __pick12_3: PoolRec = __pick12!!
+                    __pick12_3
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:772:36")
+                }
+            }
         }
         salvo.std.core.list.addPlatform((p.idle as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>), me)
         return Union6.U4<Got, RunActor, RunTask, Sleep, Again, Stuck>(Sleep())
@@ -1041,13 +1077,16 @@ class Scheduler : SchedTable {
     override fun finish(addr: Int, body: salvo.platform.std.runtime.Body, fault: String?) {
         active = (active - 1)
         var a: ActorRec = kotlin.run {
-            val __pick_1: ActorRec? = salvo.std.core.list.atPlatform(actors, addr)
-            (if ((__pick_1 != null)) {
-                val __picked_2: ActorRec = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:779:37")
-            })
+            val __pick13: ActorRec? = salvo.std.core.list.atPlatform(actors, addr)
+            when {
+                (__pick13 != null) -> {
+                    val __pick13_1: ActorRec = __pick13!!
+                    __pick13_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:779:37")
+                }
+            }
         }
         a.running = false
         if ((fault == null)) {
@@ -1056,8 +1095,8 @@ class Scheduler : SchedTable {
             return
         }
         salvo.std.runtime.dropBodyPlatform(body)
-        val fault_4: String = fault!!
-        val reason: String = fault_4
+        val fault_2: String = fault!!
+        val reason: String = fault_2
         a.dead = true
         a.exitReason = reason
         a.gate = null
@@ -1068,8 +1107,8 @@ class Scheduler : SchedTable {
             }
             val entry: Union3<Delivered, Answered, Reported>? = salvo.std.core.deque.removeFirstPlatform((a.queue as salvo.platform.std.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>))
             (if (!(!((entry == null)))) throw AssertionError("salvo: assertion failed at std.runtime:796:13") else Unit)
-            val entry_5: Union3<Delivered, Answered, Reported> = entry!!
-            salvo.std.runtime.dropEntry(entry_5)
+            val entry_3: Union3<Delivered, Answered, Reported> = entry!!
+            salvo.std.runtime.dropEntry(entry_3)
         }
         while (true) {
             if (!((salvo.std.core.deque.sizePlatform((a.slots as salvo.platform.std.core.deque.MutDeque<Long>)) > 0))) {
@@ -1078,32 +1117,32 @@ class Scheduler : SchedTable {
             val _s: Long? = salvo.std.core.deque.removeFirstPlatform((a.slots as salvo.platform.std.core.deque.MutDeque<Long>))
         }
         while (true) {
-            val __subject_6: salvo.platform.std.runtime.Parker? = salvo.std.core.list.removeFirstPlatform((a.blocked as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>))
-            if (!((__subject_6 != null))) {
+            val __subject_4: salvo.platform.std.runtime.Parker? = salvo.std.core.list.removeFirstPlatform((a.blocked as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>))
+            if (!((__subject_4 != null))) {
                 break
             }
-            val b: salvo.platform.std.runtime.Parker = __subject_6!!
+            val b: salvo.platform.std.runtime.Parker = __subject_4!!
             salvo.std.runtime.unparkPlatform(b)
         }
         val pool: Int = a.pool
         val watchers: salvo.platform.std.core.list.MutList<Token> = mutableListOf<Token>()
         while (true) {
-            val __subject_7: Token? = salvo.std.core.list.removeFirstPlatform((a.watchers as salvo.platform.std.core.list.MutList<Token>))
-            if (!((__subject_7 != null))) {
+            val __subject_5: Token? = salvo.std.core.list.removeFirstPlatform((a.watchers as salvo.platform.std.core.list.MutList<Token>))
+            if (!((__subject_5 != null))) {
                 break
             }
-            val t: Token = __subject_7!!
+            val t: Token = __subject_5!!
             salvo.std.core.list.addPlatform(watchers, t)
         }
         if ((salvo.std.core.list.sizePlatform(watchers) == 0)) {
             salvo.std.runtime.reportFault(actors, pools, pool, reason)
         }
         while (true) {
-            val __subject_8: Token? = salvo.std.core.list.removeFirstPlatform(watchers)
-            if (!((__subject_8 != null))) {
+            val __subject_6: Token? = salvo.std.core.list.removeFirstPlatform(watchers)
+            if (!((__subject_6 != null))) {
                 break
             }
-            val t: Token = __subject_8!!
+            val t: Token = __subject_6!!
             salvo.std.runtime.deliverTo(actors, waiters, pools, t, salvo.std.runtime.erasePlatform(salvo.std.core.actor.Exit(reason = reason)))
         }
         salvo.std.core.list.drain(watchers, fun(t: Token) {
@@ -1122,82 +1161,100 @@ class Scheduler : SchedTable {
     }
     override fun poolOfActor(addr: Int): Int {
         return kotlin.run {
-            val __proj_4: ActorRec = kotlin.run {
-                val __pick_1: ActorRec? = salvo.std.core.list.getPlatform(actors, addr)
-                (if ((__pick_1 != null)) {
-                    val __picked_2: ActorRec = __pick_1!!
-                    __picked_2
-                } else {
-                    throw AssertionError("salvo: unreachable at std.runtime:832:43")
-                })
+            val __proj_2: ActorRec = kotlin.run {
+                val __pick14: ActorRec? = salvo.std.core.list.getPlatform(actors, addr)
+                when {
+                    (__pick14 != null) -> {
+                        val __pick14_1: ActorRec = __pick14!!
+                        __pick14_1
+                    }
+                    else -> {
+                        throw AssertionError("salvo: unreachable at std.runtime:832:43")
+                    }
+                }
             }
-            __proj_4.pool
+            __proj_2.pool
         }
     }
     override fun setProxy(addr: Int) {
         var a: ActorRec = kotlin.run {
-            val __pick_1: ActorRec? = salvo.std.core.list.atPlatform(actors, addr)
-            (if ((__pick_1 != null)) {
-                val __picked_2: ActorRec = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:836:37")
-            })
+            val __pick15: ActorRec? = salvo.std.core.list.atPlatform(actors, addr)
+            when {
+                (__pick15 != null) -> {
+                    val __pick15_1: ActorRec = __pick15!!
+                    __pick15_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:836:37")
+                }
+            }
         }
         a.proxy = true
     }
     override fun poolOfWaiter(wid: Int): Int {
         return kotlin.run {
-            val __proj_4: WaiterRec = kotlin.run {
-                val __pick_1: WaiterRec? = salvo.std.core.list.getPlatform(waiters, wid)
-                (if ((__pick_1 != null)) {
-                    val __picked_2: WaiterRec = __pick_1!!
-                    __picked_2
-                } else {
-                    throw AssertionError("salvo: unreachable at std.runtime:841:43")
-                })
+            val __proj_2: WaiterRec = kotlin.run {
+                val __pick16: WaiterRec? = salvo.std.core.list.getPlatform(waiters, wid)
+                when {
+                    (__pick16 != null) -> {
+                        val __pick16_1: WaiterRec = __pick16!!
+                        __pick16_1
+                    }
+                    else -> {
+                        throw AssertionError("salvo: unreachable at std.runtime:841:43")
+                    }
+                }
             }
-            __proj_4.pool
+            __proj_2.pool
         }
     }
     override fun room(addr: Int): Int {
         val a: ActorRec = kotlin.run {
-            val __pick_1: ActorRec? = salvo.std.core.list.getPlatform(actors, addr)
-            (if ((__pick_1 != null)) {
-                val __picked_2: ActorRec = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:845:38")
-            })
+            val __pick17: ActorRec? = salvo.std.core.list.getPlatform(actors, addr)
+            when {
+                (__pick17 != null) -> {
+                    val __pick17_1: ActorRec = __pick17!!
+                    __pick17_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:845:38")
+                }
+            }
         }
         return (a.bound - a.userLen)
     }
     override fun isDead(addr: Int): Boolean {
         return kotlin.run {
-            val __proj_4: ActorRec = kotlin.run {
-                val __pick_1: ActorRec? = salvo.std.core.list.getPlatform(actors, addr)
-                (if ((__pick_1 != null)) {
-                    val __picked_2: ActorRec = __pick_1!!
-                    __picked_2
-                } else {
-                    throw AssertionError("salvo: unreachable at std.runtime:850:43")
-                })
+            val __proj_2: ActorRec = kotlin.run {
+                val __pick18: ActorRec? = salvo.std.core.list.getPlatform(actors, addr)
+                when {
+                    (__pick18 != null) -> {
+                        val __pick18_1: ActorRec = __pick18!!
+                        __pick18_1
+                    }
+                    else -> {
+                        throw AssertionError("salvo: unreachable at std.runtime:850:43")
+                    }
+                }
             }
-            __proj_4.dead
+            __proj_2.dead
         }
     }
     override fun queued(addr: Int): Int {
         return kotlin.run {
-            val __proj_4: ActorRec = kotlin.run {
-                val __pick_1: ActorRec? = salvo.std.core.list.getPlatform(actors, addr)
-                (if ((__pick_1 != null)) {
-                    val __picked_2: ActorRec = __pick_1!!
-                    __picked_2
-                } else {
-                    throw AssertionError("salvo: unreachable at std.runtime:854:43")
-                })
+            val __proj_2: ActorRec = kotlin.run {
+                val __pick19: ActorRec? = salvo.std.core.list.getPlatform(actors, addr)
+                when {
+                    (__pick19 != null) -> {
+                        val __pick19_1: ActorRec = __pick19!!
+                        __pick19_1
+                    }
+                    else -> {
+                        throw AssertionError("salvo: unreachable at std.runtime:854:43")
+                    }
+                }
             }
-            __proj_4.userLen
+            __proj_2.userLen
         }
     }
     override fun external(delta: Int) {
@@ -1286,13 +1343,16 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
             break
         }
         var a: ActorRec = kotlin.run {
-            val __pick_1: ActorRec? = salvo.std.core.list.atPlatform(actors, k)
-            (if ((__pick_1 != null)) {
-                val __picked_2: ActorRec = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:956:34")
-            })
+            val __pick20: ActorRec? = salvo.std.core.list.atPlatform(actors, k)
+            when {
+                (__pick20 != null) -> {
+                    val __pick20_1: ActorRec = __pick20!!
+                    __pick20_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:956:34")
+                }
+            }
         }
         k = (k + 1)
         a.dead = true
@@ -1307,8 +1367,8 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
             }
             val entry: Union3<Delivered, Answered, Reported>? = salvo.std.core.deque.removeFirstPlatform((a.queue as salvo.platform.std.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>))
             (if (!(!((entry == null)))) throw AssertionError("salvo: assertion failed at std.runtime:966:13") else Unit)
-            val entry_4: Union3<Delivered, Answered, Reported> = entry!!
-            salvo.std.runtime.dropEntry(entry_4)
+            val entry_2: Union3<Delivered, Answered, Reported> = entry!!
+            salvo.std.runtime.dropEntry(entry_2)
         }
         while (true) {
             if (!((salvo.std.core.deque.removeFirstPlatform((a.slots as salvo.platform.std.core.deque.MutDeque<Long>)) != null))) {
@@ -1316,11 +1376,11 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
             }
         }
         while (true) {
-            val __subject_5: Token? = salvo.std.core.list.removeFirstPlatform((a.watchers as salvo.platform.std.core.list.MutList<Token>))
-            if (!((__subject_5 != null))) {
+            val __subject_3: Token? = salvo.std.core.list.removeFirstPlatform((a.watchers as salvo.platform.std.core.list.MutList<Token>))
+            if (!((__subject_3 != null))) {
                 break
             }
-            val t: Token = __subject_5!!
+            val t: Token = __subject_3!!
             salvo.std.runtime.dropToken(t)
         }
         while (true) {
@@ -1328,9 +1388,9 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                 break
             }
         }
-        val __subject_6: salvo.platform.std.runtime.Body? = salvo.std.runtime.slotTakePlatform(a.body)
-        if ((__subject_6 != null)) {
-            val b: salvo.platform.std.runtime.Body = __subject_6!!
+        val __subject_4: salvo.platform.std.runtime.Body? = salvo.std.runtime.slotTakePlatform(a.body)
+        if ((__subject_4 != null)) {
+            val b: salvo.platform.std.runtime.Body = __subject_4!!
             salvo.std.runtime.dropBodyPlatform(b)
         }
     }
@@ -1340,20 +1400,23 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
             break
         }
         var p: PoolRec = kotlin.run {
-            val __pick_7: PoolRec? = salvo.std.core.list.atPlatform(pools, i)
-            (if ((__pick_7 != null)) {
-                val __picked_8: PoolRec = __pick_7!!
-                __picked_8
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:982:33")
-            })
+            val __pick21: PoolRec? = salvo.std.core.list.atPlatform(pools, i)
+            when {
+                (__pick21 != null) -> {
+                    val __pick21_5: PoolRec = __pick21!!
+                    __pick21_5
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:982:33")
+                }
+            }
         }
         while (true) {
-            val __subject_10: TaskRun? = salvo.std.core.deque.removeFirstPlatform((p.tasks as salvo.platform.std.core.deque.MutDeque<TaskRun>))
-            if (!((__subject_10 != null))) {
+            val __subject_6: TaskRun? = salvo.std.core.deque.removeFirstPlatform((p.tasks as salvo.platform.std.core.deque.MutDeque<TaskRun>))
+            if (!((__subject_6 != null))) {
                 break
             }
-            val t: TaskRun = __subject_10!!
+            val t: TaskRun = __subject_6!!
             salvo.std.runtime.dropTaskRun(t)
         }
         while (true) {
@@ -1368,19 +1431,19 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
         i = (i + 1)
     }
     while (true) {
-        val __subject_11: IdleHook? = salvo.std.core.list.removeFirstPlatform(idleHooks)
-        if (!((__subject_11 != null))) {
+        val __subject_7: IdleHook? = salvo.std.core.list.removeFirstPlatform(idleHooks)
+        if (!((__subject_7 != null))) {
             break
         }
-        val h: IdleHook = __subject_11!!
+        val h: IdleHook = __subject_7!!
         salvo.std.runtime.dropIdleHook(h)
     }
     while (true) {
-        val __subject_12: Token? = salvo.std.core.list.removeFirstPlatform(clockHooks)
-        if (!((__subject_12 != null))) {
+        val __subject_8: Token? = salvo.std.core.list.removeFirstPlatform(clockHooks)
+        if (!((__subject_8 != null))) {
             break
         }
-        val t: Token = __subject_12!!
+        val t: Token = __subject_8!!
         salvo.std.runtime.dropToken(t)
     }
 }
@@ -1433,13 +1496,16 @@ fun release(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: sal
     if ((target is Union3.U1<*, *, *>)) {
         val to: ToActor = ((target as Union3.U1<*, *, *>).value as ToActor)
         var a: ActorRec = kotlin.run {
-            val __pick_1: ActorRec? = salvo.std.core.list.atPlatform(actors, to.addr)
-            (if ((__pick_1 != null)) {
-                val __picked_2: ActorRec = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1050:40")
-            })
+            val __pick22: ActorRec? = salvo.std.core.list.atPlatform(actors, to.addr)
+            when {
+                (__pick22 != null) -> {
+                    val __pick22_1: ActorRec = __pick22!!
+                    __pick22_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:1050:40")
+                }
+            }
         }
         if ((a.owed > 0)) {
             a.owed = (a.owed - 1)
@@ -1447,39 +1513,48 @@ fun release(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: sal
     } else if ((target is Union3.U2<*, *, *>)) {
         val tw: ToWaiter = ((target as Union3.U2<*, *, *>).value as ToWaiter)
         val pool: Int = kotlin.run {
-            val __proj_7: WaiterRec = kotlin.run {
-                val __pick_4: WaiterRec? = salvo.std.core.list.getPlatform(waiters, tw.wid)
-                (if ((__pick_4 != null)) {
-                    val __picked_5: WaiterRec = __pick_4!!
-                    __picked_5
-                } else {
-                    throw AssertionError("salvo: unreachable at std.runtime:1055:50")
-                })
+            val __proj_3: WaiterRec = kotlin.run {
+                val __pick23: WaiterRec? = salvo.std.core.list.getPlatform(waiters, tw.wid)
+                when {
+                    (__pick23 != null) -> {
+                        val __pick23_2: WaiterRec = __pick23!!
+                        __pick23_2
+                    }
+                    else -> {
+                        throw AssertionError("salvo: unreachable at std.runtime:1055:50")
+                    }
+                }
             }
-            __proj_7.pool
+            __proj_3.pool
         }
         var p: PoolRec = kotlin.run {
-            val __pick_8: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
-            (if ((__pick_8 != null)) {
-                val __picked_9: PoolRec = __pick_8!!
-                __picked_9
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1056:36")
-            })
+            val __pick24: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
+            when {
+                (__pick24 != null) -> {
+                    val __pick24_4: PoolRec = __pick24!!
+                    __pick24_4
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:1056:36")
+                }
+            }
         }
         if ((p.owed > 0)) {
             p.owed = (p.owed - 1)
         }
     } else {
-        val target_11: ToTask = ((target as Union3.U3<*, *, *>).value as ToTask)
+        val target_5: ToTask = ((target as Union3.U3<*, *, *>).value as ToTask)
         var p: PoolRec = kotlin.run {
-            val __pick_12: PoolRec? = salvo.std.core.list.atPlatform(pools, target_11.pool)
-            (if ((__pick_12 != null)) {
-                val __picked_13: PoolRec = __pick_12!!
-                __picked_13
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1061:43")
-            })
+            val __pick25: PoolRec? = salvo.std.core.list.atPlatform(pools, target_5.pool)
+            when {
+                (__pick25 != null) -> {
+                    val __pick25_6: PoolRec = __pick25!!
+                    __pick25_6
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:1061:43")
+                }
+            }
         }
         if ((p.owed > 0)) {
             p.owed = (p.owed - 1)
@@ -1492,13 +1567,16 @@ fun reuseWaiter(waiters: salvo.platform.std.core.list.MutList<WaiterRec>, free: 
     if ((__subject_1 != null)) {
         val wid: Int = __subject_1!!
         var w: WaiterRec = kotlin.run {
-            val __pick_2: WaiterRec? = salvo.std.core.list.atPlatform(waiters, wid)
-            (if ((__pick_2 != null)) {
-                val __picked_3: WaiterRec = __pick_2!!
-                __picked_3
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1075:37")
-            })
+            val __pick26: WaiterRec? = salvo.std.core.list.atPlatform(waiters, wid)
+            when {
+                (__pick26 != null) -> {
+                    val __pick26_2: WaiterRec = __pick26!!
+                    __pick26_2
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:1075:37")
+                }
+            }
         }
         w.pool = pool
         w.filled = false
@@ -1524,13 +1602,16 @@ fun deliverTo(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: s
     if ((target is Union3.U1<*, *, *>)) {
         val to: ToActor = ((target as Union3.U1<*, *, *>).value as ToActor)
         val a: ActorRec = kotlin.run {
-            val __pick_2: ActorRec? = salvo.std.core.list.atPlatform(actors, to.addr)
-            (if ((__pick_2 != null)) {
-                val __picked_3: ActorRec = __pick_2!!
-                __picked_3
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1098:40")
-            })
+            val __pick27: ActorRec? = salvo.std.core.list.atPlatform(actors, to.addr)
+            when {
+                (__pick27 != null) -> {
+                    val __pick27_2: ActorRec = __pick27!!
+                    __pick27_2
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:1098:40")
+                }
+            }
         }
         if (a.dead) {
             salvo.std.runtime.dropDynPlatform(value)
@@ -1546,13 +1627,16 @@ fun deliverTo(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: s
     } else if ((target is Union3.U2<*, *, *>)) {
         val tw: ToWaiter = ((target as Union3.U2<*, *, *>).value as ToWaiter)
         var w: WaiterRec = kotlin.run {
-            val __pick_5: WaiterRec? = salvo.std.core.list.atPlatform(waiters, tw.wid)
-            (if ((__pick_5 != null)) {
-                val __picked_6: WaiterRec = __pick_5!!
-                __picked_6
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1111:40")
-            })
+            val __pick28: WaiterRec? = salvo.std.core.list.atPlatform(waiters, tw.wid)
+            when {
+                (__pick28 != null) -> {
+                    val __pick28_3: WaiterRec = __pick28!!
+                    __pick28_3
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:1111:40")
+                }
+            }
         }
         if (((w.slot != slot) || w.filled)) {
             salvo.std.runtime.dropDynPlatform(value)
@@ -1565,18 +1649,21 @@ fun deliverTo(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: s
             salvo.std.runtime.unparkPlatform(p)
         }
     } else {
-        val target_8: ToTask = ((target as Union3.U3<*, *, *>).value as ToTask)
-        val __destructured_9: ToTask = target_8
-        val pool: Int = __destructured_9.pool
-        val body: salvo.platform.std.runtime.Body = __destructured_9.body
+        val target_4: ToTask = ((target as Union3.U3<*, *, *>).value as ToTask)
+        val __destructured_5: ToTask = target_4
+        val pool: Int = __destructured_5.pool
+        val body: salvo.platform.std.runtime.Body = __destructured_5.body
         val p: PoolRec = kotlin.run {
-            val __pick_10: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
-            (if ((__pick_10 != null)) {
-                val __picked_11: PoolRec = __pick_10!!
-                __picked_11
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1123:36")
-            })
+            val __pick29: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
+            when {
+                (__pick29 != null) -> {
+                    val __pick29_6: PoolRec = __pick29!!
+                    __pick29_6
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:1123:36")
+                }
+            }
         }
         salvo.std.core.deque.addLastPlatform((p.tasks as salvo.platform.std.core.deque.MutDeque<TaskRun>), TaskRun(body = body, value = value))
         salvo.std.runtime.wakePool(pools, pool)
@@ -1586,26 +1673,32 @@ fun deliverTo(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: s
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun reportFault(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salvo.platform.std.core.list.MutList<PoolRec>, pool: Int, reason: String) {
     val sink: Int = kotlin.run {
-        val __proj_4: PoolRec = kotlin.run {
-            val __pick_1: PoolRec? = salvo.std.core.list.getPlatform(pools, pool)
-            (if ((__pick_1 != null)) {
-                val __picked_2: PoolRec = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1135:42")
-            })
+        val __proj_2: PoolRec = kotlin.run {
+            val __pick30: PoolRec? = salvo.std.core.list.getPlatform(pools, pool)
+            when {
+                (__pick30 != null) -> {
+                    val __pick30_1: PoolRec = __pick30!!
+                    __pick30_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:1135:42")
+                }
+            }
         }
-        __proj_4.sink
+        __proj_2.sink
     }
     if ((sink >= 0)) {
         val s: ActorRec = kotlin.run {
-            val __pick_5: ActorRec? = salvo.std.core.list.atPlatform(actors, sink)
-            (if ((__pick_5 != null)) {
-                val __picked_6: ActorRec = __pick_5!!
-                __picked_6
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1137:37")
-            })
+            val __pick31: ActorRec? = salvo.std.core.list.atPlatform(actors, sink)
+            when {
+                (__pick31 != null) -> {
+                    val __pick31_3: ActorRec = __pick31!!
+                    __pick31_3
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:1137:37")
+                }
+            }
         }
         if (!(s.dead)) {
             val e: Union3<Delivered, Answered, Reported> = Union3.U3<Delivered, Answered, Reported>(Reported(reason = reason))
@@ -1656,16 +1749,19 @@ fun fireIdle(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: sa
         val token: Token = __destructured_2.token
         var gates: Int = 0
         var tokens: Int = kotlin.run {
-            val __proj_6: PoolRec = kotlin.run {
-                val __pick_3: PoolRec? = salvo.std.core.list.getPlatform(pools, pool)
-                (if ((__pick_3 != null)) {
-                    val __picked_4: PoolRec = __pick_3!!
-                    __picked_4
-                } else {
-                    throw AssertionError("salvo: unreachable at std.runtime:1189:48")
-                })
+            val __proj_4: PoolRec = kotlin.run {
+                val __pick32: PoolRec? = salvo.std.core.list.getPlatform(pools, pool)
+                when {
+                    (__pick32 != null) -> {
+                        val __pick32_3: PoolRec = __pick32!!
+                        __pick32_3
+                    }
+                    else -> {
+                        throw AssertionError("salvo: unreachable at std.runtime:1189:48")
+                    }
+                }
             }
-            __proj_6.owed
+            __proj_4.owed
         }
         for (a in salvo.platform.std.core.list.each(actors)) {
             if ((a.pool == pool)) {
@@ -1717,36 +1813,42 @@ fun deadlockReport(actors: salvo.platform.std.core.list.MutList<ActorRec>, waite
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun takeWork(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salvo.platform.std.core.list.MutList<PoolRec>, pool: Int, exclude: Int): Union2<RunActor, RunTask>? {
     val p: PoolRec = kotlin.run {
-        val __pick_1: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
-        (if ((__pick_1 != null)) {
-            val __picked_2: PoolRec = __pick_1!!
-            __picked_2
-        } else {
-            throw AssertionError("salvo: unreachable at std.runtime:1240:32")
-        })
+        val __pick33: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
+        when {
+            (__pick33 != null) -> {
+                val __pick33_1: PoolRec = __pick33!!
+                __pick33_1
+            }
+            else -> {
+                throw AssertionError("salvo: unreachable at std.runtime:1240:32")
+            }
+        }
     }
     val task: TaskRun? = salvo.std.core.deque.removeFirstPlatform((p.tasks as salvo.platform.std.core.deque.MutDeque<TaskRun>))
     if ((task != null)) {
         val t: TaskRun = task!!
-        val __destructured_4: TaskRun = t
-        val body: salvo.platform.std.runtime.Body = __destructured_4.body
-        val value: salvo.platform.std.runtime.Dyn = __destructured_4.value
+        val __destructured_2: TaskRun = t
+        val body: salvo.platform.std.runtime.Body = __destructured_2.body
+        val value: salvo.platform.std.runtime.Dyn = __destructured_2.value
         return Union2.U2<RunActor, RunTask>(RunTask(pool = pool, body = body, value = value))
     }
     while (true) {
-        val __subject_5: Int? = salvo.std.core.deque.removeFirstPlatform((p.ready as salvo.platform.std.core.deque.MutDeque<Int>))
-        if (!((__subject_5 != null))) {
+        val __subject_3: Int? = salvo.std.core.deque.removeFirstPlatform((p.ready as salvo.platform.std.core.deque.MutDeque<Int>))
+        if (!((__subject_3 != null))) {
             break
         }
-        val i: Int = __subject_5!!
+        val i: Int = __subject_3!!
         var a: ActorRec = kotlin.run {
-            val __pick_6: ActorRec? = salvo.std.core.list.atPlatform(actors, i)
-            (if ((__pick_6 != null)) {
-                val __picked_7: ActorRec = __pick_6!!
-                __picked_7
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1247:34")
-            })
+            val __pick34: ActorRec? = salvo.std.core.list.atPlatform(actors, i)
+            when {
+                (__pick34 != null) -> {
+                    val __pick34_4: ActorRec = __pick34!!
+                    __pick34_4
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:1247:34")
+                }
+            }
         }
         a.ready = false
         if ((((i != exclude) && !(a.running)) && !(a.dead))) {
@@ -1758,16 +1860,19 @@ fun takeWork(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                 (if (!(!((e == null)))) throw AssertionError("salvo: assertion failed at std.runtime:1254:17") else Unit)
                 a.running = true
                 val body: salvo.platform.std.runtime.Body = kotlin.run {
-                    val __pick_9: salvo.platform.std.runtime.Body? = salvo.std.runtime.slotTakePlatform(a.body)
-                    (if ((__pick_9 != null)) {
-                        val __picked_10: salvo.platform.std.runtime.Body = __pick_9!!
-                        __picked_10
-                    } else {
-                        throw AssertionError("salvo: unreachable at std.runtime:1256:49")
-                    })
+                    val __pick35: salvo.platform.std.runtime.Body? = salvo.std.runtime.slotTakePlatform(a.body)
+                    when {
+                        (__pick35 != null) -> {
+                            val __pick35_5: salvo.platform.std.runtime.Body = __pick35!!
+                            __pick35_5
+                        }
+                        else -> {
+                            throw AssertionError("salvo: unreachable at std.runtime:1256:49")
+                        }
+                    }
                 }
-                val e_12: Union3<Delivered, Answered, Reported> = e!!
-                return salvo.std.runtime.workOf(a, i, e_12, body)
+                val e_6: Union3<Delivered, Answered, Reported> = e!!
+                return salvo.std.runtime.workOf(a, i, e_6, body)
             }
         }
     }
@@ -1784,13 +1889,16 @@ fun markReady(a: ActorRec, pools: salvo.platform.std.core.list.MutList<PoolRec>,
     }
     a.ready = true
     val p: PoolRec = kotlin.run {
-        val __pick_1: PoolRec? = salvo.std.core.list.atPlatform(pools, a.pool)
-        (if ((__pick_1 != null)) {
-            val __picked_2: PoolRec = __pick_1!!
-            __picked_2
-        } else {
-            throw AssertionError("salvo: unreachable at std.runtime:1275:40")
-        })
+        val __pick36: PoolRec? = salvo.std.core.list.atPlatform(pools, a.pool)
+        when {
+            (__pick36 != null) -> {
+                val __pick36_1: PoolRec = __pick36!!
+                __pick36_1
+            }
+            else -> {
+                throw AssertionError("salvo: unreachable at std.runtime:1275:40")
+            }
+        }
     }
     salvo.std.core.deque.addLastPlatform((p.ready as salvo.platform.std.core.deque.MutDeque<Int>), addr)
     return true
@@ -1845,16 +1953,19 @@ fun deliverable(slots: kotlin.collections.ArrayDeque<Long>, gate: Long?): Int? {
         if (!((i < salvo.std.core.deque.sizePlatform(slots)))) {
             break
         }
-        val gate_4: Long = gate!!
+        val gate_2: Long = gate!!
         if ((kotlin.run {
-            val __pick_1: Long? = salvo.std.core.deque.getPlatform(slots, i)
-            (if ((__pick_1 != null)) {
-                val __picked_2: Long = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.runtime:1323:30")
-            })
-        } == gate_4)) {
+            val __pick37: Long? = salvo.std.core.deque.getPlatform(slots, i)
+            when {
+                (__pick37 != null) -> {
+                    val __pick37_1: Long = __pick37!!
+                    __pick37_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.runtime:1323:30")
+                }
+            }
+        } == gate_2)) {
             return i
         }
         i = (i + 1)
@@ -1865,17 +1976,20 @@ fun deliverable(slots: kotlin.collections.ArrayDeque<Long>, gate: Long?): Int? {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun wakePool(pools: salvo.platform.std.core.list.MutList<PoolRec>, pool: Int) {
     val p: PoolRec = kotlin.run {
-        val __pick_1: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
-        (if ((__pick_1 != null)) {
-            val __picked_2: PoolRec = __pick_1!!
-            __picked_2
-        } else {
-            throw AssertionError("salvo: unreachable at std.runtime:1338:32")
-        })
+        val __pick38: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
+        when {
+            (__pick38 != null) -> {
+                val __pick38_1: PoolRec = __pick38!!
+                __pick38_1
+            }
+            else -> {
+                throw AssertionError("salvo: unreachable at std.runtime:1338:32")
+            }
+        }
     }
-    val __subject_4: salvo.platform.std.runtime.Parker? = salvo.std.core.list.removeFirstPlatform((p.idle as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>))
-    if ((__subject_4 != null)) {
-        val w: salvo.platform.std.runtime.Parker = __subject_4!!
+    val __subject_2: salvo.platform.std.runtime.Parker? = salvo.std.core.list.removeFirstPlatform((p.idle as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>))
+    if ((__subject_2 != null)) {
+        val w: salvo.platform.std.runtime.Parker = __subject_2!!
         salvo.std.runtime.unparkPlatform(w)
     }
 }
@@ -1883,20 +1997,23 @@ fun wakePool(pools: salvo.platform.std.core.list.MutList<PoolRec>, pool: Int) {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun wakeEvery(pools: salvo.platform.std.core.list.MutList<PoolRec>, pool: Int) {
     val p: PoolRec = kotlin.run {
-        val __pick_1: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
-        (if ((__pick_1 != null)) {
-            val __picked_2: PoolRec = __pick_1!!
-            __picked_2
-        } else {
-            throw AssertionError("salvo: unreachable at std.runtime:1346:32")
-        })
+        val __pick39: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
+        when {
+            (__pick39 != null) -> {
+                val __pick39_1: PoolRec = __pick39!!
+                __pick39_1
+            }
+            else -> {
+                throw AssertionError("salvo: unreachable at std.runtime:1346:32")
+            }
+        }
     }
     while (true) {
-        val __subject_4: salvo.platform.std.runtime.Parker? = salvo.std.core.list.removeFirstPlatform((p.idle as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>))
-        if (!((__subject_4 != null))) {
+        val __subject_2: salvo.platform.std.runtime.Parker? = salvo.std.core.list.removeFirstPlatform((p.idle as salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker>))
+        if (!((__subject_2 != null))) {
             break
         }
-        val w: salvo.platform.std.runtime.Parker = __subject_4!!
+        val w: salvo.platform.std.runtime.Parker = __subject_2!!
         salvo.std.runtime.unparkPlatform(w)
     }
 }
@@ -1913,13 +2030,16 @@ fun wakeWaiters(waiters: salvo.platform.std.core.list.MutList<WaiterRec>) {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun retireIfDone(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salvo.platform.std.core.list.MutList<PoolRec>, pool: Int) {
     var p: PoolRec = kotlin.run {
-        val __pick_1: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
-        (if ((__pick_1 != null)) {
-            val __picked_2: PoolRec = __pick_1!!
-            __picked_2
-        } else {
-            throw AssertionError("salvo: unreachable at std.runtime:1370:32")
-        })
+        val __pick40: PoolRec? = salvo.std.core.list.atPlatform(pools, pool)
+        when {
+            (__pick40 != null) -> {
+                val __pick40_1: PoolRec = __pick40!!
+                __pick40_1
+            }
+            else -> {
+                throw AssertionError("salvo: unreachable at std.runtime:1370:32")
+            }
+        }
     }
     if ((((!(p.dedicated) || p.retired) || (salvo.std.core.deque.sizePlatform((p.tasks as salvo.platform.std.core.deque.MutDeque<TaskRun>)) > 0)) || (p.owed > 0))) {
         return

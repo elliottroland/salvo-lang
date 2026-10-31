@@ -61,8 +61,10 @@ fn routed(t: Str) [] -> Ok Int | Err Str
 
 // [op-elvis] A pick on a multi-arm subject keeps the **first** arm and leaves
 // the rest to `_`. On `Ok Int | Ok Str | Err Str` it picks `Ok Int` and `_`
-// is `Ok Str | Err Str`.
-fn multi_arm(r: Ok Int | Ok Str | Err Str) [] -> Ok Int | Ok Str | Err Str {
+// is `Ok Str | Err Str`. Either way the value returned is `r`'s, so the fn
+// declares the move.
+fn multi_arm(r: Ok Int | Ok Str | Err Str) [] -> Ok Int | Ok Str | Err Str
+=> !r {
     let kept: Ok Int = r ?: return _
     return kept
 }

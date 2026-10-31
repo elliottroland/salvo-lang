@@ -126,20 +126,99 @@ pub fn number(module: &mut Module) {
     module.node_ranges = ranges;
 }
 
-fn idents(n: &mut Numberer, ids: &mut [Ident]) {
+/// Walks every node of `module` with `v`, in the order [`number`] numbers
+/// them: what a pass that rewrites a whole file before numbering uses
+/// (`desugar::lower_picks`).
+pub fn walk_module<V: MutVisitor>(v: &mut V, module: &mut Module) {
+    for item in &mut module.items {
+        match item {
+            Item::Import(i) => import(v, i),
+            Item::Refn(r) => refn(v, r),
+            Item::Rename(r) => rename(v, r),
+            Item::Namespace(ns) => namespace(v, ns),
+            Item::Test(t) => test(v, t),
+            _ => {}
+        }
+    }
+    for u in &mut module.uses {
+        let ModuleUse { handler, span } = u;
+        v.visit_span(span);
+        vm::walk_expr(v, handler);
+    }
+    for item in module.items.iter_mut() {
+        match item {
+            Item::Fn(f) => fn_decl(v, f),
+            Item::Struct(s) => struct_decl(v, s),
+            Item::Type(t) => type_decl(v, t),
+            Item::EffectAlias(a) => {
+                let EffectAliasDecl { docs: _, exported: _, name, effects, span } = a;
+                v.visit_span(span);
+                v.visit_ident(name);
+                for e in effects {
+                    vm::walk_effect_ref(v, e);
+                }
+            }
+            Item::Effect(e) => {
+                let mut fns = std::mem::take(&mut e.fns);
+                effect_decl(v, e);
+                for f in fns.iter_mut() {
+                    fn_decl(v, f);
+                }
+                e.fns = fns;
+            }
+            Item::Handler(h) => {
+                let mut fns = std::mem::take(&mut h.fns);
+                let mut init = h.init.take();
+                handler_decl(v, h);
+                for f in fns.iter_mut().chain(init.iter_mut()) {
+                    fn_decl(v, f);
+                }
+                h.fns = fns;
+                h.init = init;
+            }
+            Item::Qualifier(q) => {
+                let mut fns = std::mem::take(&mut q.fns);
+                qualifier_decl(v, q);
+                for f in fns.iter_mut() {
+                    fn_decl(v, f);
+                }
+                q.fns = fns;
+            }
+            Item::Fns(g) => {
+                let mut fns = std::mem::take(&mut g.fns);
+                let FnsDecl { docs: _, exported: _, name, generics, fns: _, deductions, span } = g;
+                v.visit_span(span);
+                v.visit_ident(name);
+                for g in generics {
+                    v.visit_ident(g);
+                }
+                for d in deductions {
+                    vm::walk_deduction(v, d);
+                }
+                for f in fns.iter_mut() {
+                    fn_decl(v, f);
+                }
+                g.fns = fns;
+            }
+            Item::Import(_) | Item::Refn(_) | Item::Rename(_) | Item::Namespace(_) | Item::Test(_) => {}
+        }
+    }
+}
+
+fn idents<V: MutVisitor>(n: &mut V, ids: &mut [Ident]) {
     for i in ids {
         n.visit_ident(i);
     }
 }
 
-fn canbe(n: &mut Numberer, gs: &mut [(Ident, TypeRef)]) {
+fn canbe<V: MutVisitor>(n: &mut V, gs: &mut [(Ident, TypeRef)]) {
     for (g, q) in gs {
         n.visit_ident(g);
         vm::walk_type_ref(n, q);
     }
 }
 
-fn slots(n: &mut Numberer, ss: &mut [SlotDecl]) {
+fn slots<V: MutVisitor>(n: &mut V, ss: &mut [SlotDecl]) {
     for s in ss {
         match s {
             SlotDecl::One(FnSlot { name, ty, span }) => {
@@ -152,7 +231,7 @@ fn slots(n: &mut Numberer, ss: &mut [SlotDecl]) {
     }
 }
 
-fn by_ref(n: &mut Numberer, by: &mut ByRef) {
+fn by_ref<V: MutVisitor>(n: &mut V, by: &mut ByRef) {
     let ByRef { path, at, span } = by;
     n.visit_span(span);
     idents(n, path);
@@ -163,7 +242,7 @@ fn by_ref(n: &mut Numberer, by: &mut ByRef) {
     }
 }
 
-fn obligations(n: &mut Numberer, os: &mut [Obligation]) {
+fn obligations<V: MutVisitor>(n: &mut V, os: &mut [Obligation]) {
     for o in os {
         let Obligation { by, group } = o;
         vm::walk_type_ref(n, group);
@@ -173,7 +252,7 @@ fn obligations(n: &mut Numberer, os: &mut [Obligation]) {
     }
 }
 
-fn field(n: &mut Numberer, f: &mut FieldDecl) {
+fn field<V: MutVisitor>(n: &mut V, f: &mut FieldDecl) {
     let FieldDecl { docs: _, annotations, name, ty, canbe_mut: _, default, span } = f;
     n.visit_span(span);
     for a in annotations {
@@ -188,7 +267,7 @@ fn field(n: &mut Numberer, f: &mut FieldDecl) {
     }
 }
 
-fn param(n: &mut Numberer, p: &mut Param) {
+fn param<V: MutVisitor>(n: &mut V, p: &mut Param) {
     let Param { name, ty, variadic: _, implicit: _, default, span } = p;
     n.visit_span(span);
     n.visit_ident(name);
@@ -198,7 +277,7 @@ fn param(n: &mut Numberer, p: &mut Param) {
     }
 }
 
-fn responses(n: &mut Numberer, rs: &mut [ConditionalResponse]) {
+fn responses<V: MutVisitor>(n: &mut V, rs: &mut [ConditionalResponse]) {
     for r in rs {
         let ConditionalResponse { subject, negated: _, qual, span } = r;
         n.visit_span(span);
@@ -207,7 +286,7 @@ fn responses(n: &mut Numberer, rs: &mut [ConditionalResponse]) {
     }
 }
 
-fn fn_decl(n: &mut Numberer, f: &mut FnDecl) {
+fn fn_decl<V: MutVisitor>(n: &mut V, f: &mut FnDecl) {
     let FnDecl {
         docs: _,
         exported: _,
@@ -300,7 +379,7 @@ fn fn_decl(n: &mut Numberer, f: &mut FnDecl) {
     }
 }
 
-fn struct_decl(n: &mut Numberer, s: &mut StructDecl) {
+fn struct_decl<V: MutVisitor>(n: &mut V, s: &mut StructDecl) {
     let StructDecl {
         docs: _,
         annotations,
@@ -341,7 +420,7 @@ fn struct_decl(n: &mut Numberer, s: &mut StructDecl) {
     }
 }
 
-fn type_decl(n: &mut Numberer, t: &mut TypeDecl) {
+fn type_decl<V: MutVisitor>(n: &mut V, t: &mut TypeDecl) {
     let TypeDecl {
         docs: _,
         exported: _,
@@ -375,7 +454,7 @@ fn type_decl(n: &mut Numberer, t: &mut TypeDecl) {
     obligations(n, obls);
 }
 
-fn effect_decl(n: &mut Numberer, e: &mut EffectDecl) {
+fn effect_decl<V: MutVisitor>(n: &mut V, e: &mut EffectDecl) {
     let EffectDecl { docs: _, exported: _, is_actor: _, name, generics, prereqs, fns: _, span } = e;
     n.visit_span(span);
     n.visit_ident(name);
@@ -385,7 +464,7 @@ fn effect_decl(n: &mut Numberer, e: &mut EffectDecl) {
     }
 }
 
-fn handler_decl(n: &mut Numberer, h: &mut HandlerDecl) {
+fn handler_decl<V: MutVisitor>(n: &mut V, h: &mut HandlerDecl) {
     let HandlerDecl {
         docs: _,
         exported: _,
@@ -430,7 +509,7 @@ fn handler_decl(n: &mut Numberer, h: &mut HandlerDecl) {
     }
 }
 
-fn qualifier_decl(n: &mut Numberer, q: &mut QualifierDecl) {
+fn qualifier_decl<V: MutVisitor>(n: &mut V, q: &mut QualifierDecl) {
     let QualifierDecl {
         docs: _,
         exported: _,
@@ -468,7 +547,7 @@ fn qualifier_decl(n: &mut Numberer, q: &mut QualifierDecl) {
     }
 }
 
-fn import(n: &mut Numberer, i: &mut ImportDecl) {
+fn import<V: MutVisitor>(n: &mut V, i: &mut ImportDecl) {
     let ImportDecl { path, alias, span } = i;
     n.visit_span(span);
     idents(n, path);
@@ -477,7 +556,7 @@ fn import(n: &mut Numberer, i: &mut ImportDecl) {
     }
 }
 
-fn refn(n: &mut Numberer, r: &mut RefnDecl) {
+fn refn<V: MutVisitor>(n: &mut V, r: &mut RefnDecl) {
     let RefnDecl { docs: _, name, at, generics, params, wildcard: _, deductions, response, span } = r;
     n.visit_span(span);
     n.visit_ident(name);
@@ -501,7 +580,7 @@ fn refn(n: &mut Numberer, r: &mut RefnDecl) {
     }
 }
 
-fn rename(n: &mut Numberer, r: &mut RenameDecl) {
+fn rename<V: MutVisitor>(n: &mut V, r: &mut RenameDecl) {
     let RenameDecl { docs: _, name, target, generics, params, span } = r;
     n.visit_span(span);
     n.visit_ident(name);
@@ -514,7 +593,7 @@ fn rename(n: &mut Numberer, r: &mut RenameDecl) {
 
 /// Flattened before resolution [mod-namespace]; a module numbered before that
 /// holds its declarations here, among the file's own nodes.
-fn namespace(n: &mut Numberer, ns: &mut NamespaceDecl) {
+fn namespace<V: MutVisitor>(n: &mut V, ns: &mut NamespaceDecl) {
     let NamespaceDecl { docs: _, exported: _, name, items, terminal: _, span } = ns;
     n.visit_span(span);
     n.visit_ident(name);
@@ -570,7 +649,7 @@ fn namespace(n: &mut Numberer, ns: &mut NamespaceDecl) {
 
 /// Expanded into a fn in a test annex, dropped elsewhere (`expand_file`); a
 /// module numbered before that holds it among the file's own nodes.
-fn test(n: &mut Numberer, t: &mut TestDecl) {
+fn test<V: MutVisitor>(n: &mut V, t: &mut TestDecl) {
     let TestDecl { docs: _, name: _, name_span, kind: _, body, span } = t;
     n.visit_span(span);
     n.visit_span(name_span);

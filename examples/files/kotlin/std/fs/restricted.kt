@@ -15,13 +15,16 @@ fun fsResolve(root: String, path: String): String? {
             break
         }
         val seg: String = kotlin.run {
-            val __pick_1: String? = salvo.std.core.list.getPlatform(segs, i)
-            (if ((__pick_1 != null)) {
-                val __picked_2: String = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.fs.restricted:36:35")
-            })
+            val __pick1: String? = salvo.std.core.list.getPlatform(segs, i)
+            when {
+                (__pick1 != null) -> {
+                    val __pick1_1: String = __pick1!!
+                    __pick1_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.fs.restricted:36:35")
+                }
+            }
         }
         if (((seg) == (".."))) {
             skip = (skip + 1)
@@ -47,13 +50,16 @@ fun fsResolve(root: String, path: String): String? {
             break
         }
         salvo.std.core.list.addPlatform(parts, kotlin.run {
-            val __pick_4: String? = salvo.std.core.list.getPlatform(kept, j)
-            (if ((__pick_4 != null)) {
-                val __picked_5: String = __pick_4!!
-                __picked_5
-            } else {
-                throw AssertionError("salvo: unreachable at std.fs.restricted:59:40")
-            })
+            val __pick2: String? = salvo.std.core.list.getPlatform(kept, j)
+            when {
+                (__pick2 != null) -> {
+                    val __pick2_2: String = __pick2!!
+                    __pick2_2
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.fs.restricted:59:40")
+                }
+            }
         })
         j = (j - 1)
     }

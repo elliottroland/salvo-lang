@@ -506,8 +506,8 @@ Conventions:
     `Err Thrown Str`.
   * **Widening is allowed**: a `rhs` whose type is outside the subject's arms
     joins into the result, so `Int? ?: "none"` is `Int | Str`. Both sides are
-    coerced into the join — the right side at its own span, the picked value
-    at the operator's span [type-rewrap].
+    coerced into the join, each at its own span, as the arms of any value
+    `when` are [type-rewrap] [when-lowered].
   * **Precedence is Kotlin's** for binding tightness: tighter than
     `is`/comparison/equality, looser than additive. `m[k] ?: 0 > 3` is
     `(m[k] ?: 0) > 3`; `a ?: b + 1` is `a ?: (b + 1)`. It is
@@ -537,8 +537,9 @@ Conventions:
     newline-leading one brackets left. (A wrapped method chain
     `x\n    .a()\n    .b()` reads `((x).a()).b()` by the same rule.)
   * **The subject is evaluated once**, and the form needs no position
-    restriction (unlike a call subject in an `is` [loop-while-is]): the
-    temporary is internal to the lowering.
+    restriction (unlike a call subject in an `is` [loop-while-is]): a subject
+    that is not a place is bound to a temporary internal to the lowering
+    [when-lowered].
   * **The right side is an ordinary expression**, which since [expr-escape]
     includes `return`/`break`/`continue` — that is what step 2 was for. A
     diverging right side contributes nothing to the type, so
@@ -548,11 +549,11 @@ Conventions:
     scaffolding" a throw-free `try` gets [throw-try].
   * **The placeholder `_`** reads only in a pick's right-hand side, where it is
     the arms left behind; reading it anywhere else is an error [expr-placeholder].
-  * Backends: the pick lowers to a conditional (`if`/`when`) testing whether
-    the subject holds one of the picked arms — the picked value in the then
-    branch, `rhs` in the else — on both backends [kt-elvis] [rs-elvis]. The
-    `T?` representation *is* a Kotlin nullable, so a `?:` on a `T?`
-    is a plain null test there.
+  * **It is a `when`** [when-lowered]: `s ?: rhs` means
+    `when s { is #{first arm} { s } is #{rest} { rhs } }`, `_` reading the
+    rest arm's narrowed subject. Its errors are its own (a one-arm subject,
+    below), its checking and its IR are the `when`'s, and the backends see a
+    switch [kt-elvis] [rs-elvis].
 * [op-elvis-guard] **A leaving right side takes its flow effects with it**: a
   `return elem` there moves `elem` on a path the fall-through never shares,
   so its consumptions are restored at the join (found on `std.heap`'s
@@ -561,15 +562,19 @@ Conventions:
   ever, since both paths continue.
 * [op-elvis-guard] A pick whose right side **leaves** narrows its subject on the
   path below (user decision 2026-09-21): the subject was one of the picked
-  arms, or the code would not be running. The same facts an `is` guard leaves
-  [is-narrow-guard], reached from an expression rather than a condition, and
-  installed only when the subject is a narrowable place [flow-place].
+  arms, or the code would not be running. Since the `?:` became a `when`
+  [when-lowered] this is no rule of its own: it is [is-narrow-guard]'s join
+  over the arms that fall through, of which the picked arm is the only one.
+  It holds only when the subject is a narrowable place [flow-place]; any
+  other subject was bound to a temporary nothing below can name.
   * **Only when the right side diverges.** One that yields a value leaves the
     subject possibly-unpicked, since that is the path it took.
   * **It narrows to the picked arms.** `r ?: return` on an `Ok Int | Err Str`
     leaves `r` an `Ok Int` below.
-  * Consequence for the lowering: the picked value is **read** out of the
-    subject, not moved out of it, since the subject is still live below.
+  * Consequence for the lowering: the picked value is **read** out of a
+    place subject, not moved out of it, since the subject is still live
+    below. Out of the temporary a non-place subject was bound to, it is
+    moved: nothing else can read it.
 * [type-rewrap] A value spanning **fewer arms than its storage** is produced by
   mapping arm to arm: each source arm to the target arm of the same type, and a
   source arm the target does not have to an unreachable. This is what
@@ -2915,8 +2920,31 @@ Conventions:
     (`when-union-head:mixed-values`) rather than guessed. The IR's
     `ArmTest::Arms` already carried a multi-arm test (an alias head), so the
     backends needed nothing.
-  * The lowered `?:` and `?.` use it: the arms a pick leaves behind are one
-    head.
+  * The lowered `?:` uses it: the arms a pick leaves behind are one head
+    [when-lowered].
+* [when-lowered] **`?:` is sugar for a `when`** (user decision 2026-10-30,
+  option (a) of PIPELINE.md D2's Convert write-up), lowered after parsing
+  and before resolution, since it needs no names (`desugar::lower_picks`):
+  * `s ?: rhs` becomes `when s { is #{first arm} { s } is #{rest} { rhs } }`
+    when `s` is a place — a variable or a field path, which the arms narrow
+    where it is [flow-place] — and `when __pickN = s { … }` otherwise, the
+    arms reading `__pickN`. `_` in `rhs` is replaced by the subject (or
+    `__pickN`); a `_` inside a nested `|>` or `?>` right side is that form's
+    own.
+  * The two heads are **holes the checker fills**: `#{first arm}` is the
+    subject's first declared arm, still left by nothing before it, and
+    `#{rest}` is every arm the first one left. They exist only in lowered
+    code (`ast::ArmHole`); written Salvo has no spelling for them.
+  * The `when` remembers its origin (`ast::WhenOrigin::Pick`), for the
+    diagnostics that are the operator's: `op-elvis:single-arm` on a one-arm
+    subject, a field-place subject the written `when` would refuse, the
+    leniency of an unknown subject, and the call-return hint
+    [fn-overload-return]. Nothing else consults it, except the IR: the
+    picked value moves out of a `__pickN` temporary, and the `#{rest}` arm
+    is the switch's `else`.
+  * A parser test that wants the operator itself uses
+    `parse_module_deferred`, which stops before the lowering; an unlowered
+    `?:` reaching the checker is `op-elvis:not-lowered`.
 * [when-exhaustive] `when` must be exhaustive over the subject's arms;
   arms are consumed sequentially (each branch matches what previous
   branches left), and a branch that can match nothing is an error. A

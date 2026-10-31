@@ -95,18 +95,21 @@ class Deadlines : DeadlineTable {
                 break
             }
             if ((kotlin.run {
-                val __pick_1: Long? = salvo.std.core.list.getPlatform(ats, i)
-                (if ((__pick_1 != null)) {
-                    val __picked_2: Long = __pick_1!!
-                    __picked_2
-                } else {
-                    throw AssertionError("salvo: unreachable at std.runtime.timers:75:32")
-                })
+                val __pick1: Long? = salvo.std.core.list.getPlatform(ats, i)
+                when {
+                    (__pick1 != null) -> {
+                        val __pick1_1: Long = __pick1!!
+                        __pick1_1
+                    }
+                    else -> {
+                        throw AssertionError("salvo: unreachable at std.runtime.timers:75:32")
+                    }
+                }
             } <= now)) {
                 val _at: Long? = salvo.std.core.list.removeAtPlatform(ats, i)
-                val __subject_4: salvo.SalvoReply? = salvo.std.core.list.removeAtPlatform(dones, i)
-                if ((__subject_4 != null)) {
-                    val r: salvo.SalvoReply = __subject_4!!
+                val __subject_2: salvo.SalvoReply? = salvo.std.core.list.removeAtPlatform(dones, i)
+                if ((__subject_2 != null)) {
+                    val r: salvo.SalvoReply = __subject_2!!
                     salvo.std.core.list.addPlatform(due, r)
                 }
             } else {

@@ -304,13 +304,16 @@ fun memFindNewline(data: salvo.platform.std.core.bytes.Bytes, from: Int): Int {
             break
         }
         if (((kotlin.run {
-            val __pick_1: UByte? = salvo.std.core.bytes.getPlatform(data, i)
-            (if ((__pick_1 != null)) {
-                val __picked_2: UByte = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.fs.mem:328:35")
-            })
+            val __pick1: UByte? = salvo.std.core.bytes.getPlatform(data, i)
+            when {
+                (__pick1 != null) -> {
+                    val __pick1_1: UByte = __pick1!!
+                    __pick1_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.fs.mem:328:35")
+                }
+            }
         }).toInt() == 10)) {
             return i
         }
@@ -359,13 +362,16 @@ fun memReadLine(reads: salvo.platform.std.core.map.MutMap<Long, MemRead>, handle
     }
     val stop: Int = salvo.std.fs.mem.memFindNewline(bytes, at)
     val line: salvo.platform.std.core.bytes.Bytes = kotlin.run {
-        val __pick_1: salvo.platform.std.core.bytes.Bytes? = salvo.std.core.bytes.slicePlatform(bytes, at, stop)
-        (if ((__pick_1 != null)) {
-            val __picked_2: salvo.platform.std.core.bytes.Bytes = __pick_1!!
-            __picked_2
-        } else {
-            throw AssertionError("salvo: unreachable at std.fs.mem:388:42")
-        })
+        val __pick2: salvo.platform.std.core.bytes.Bytes? = salvo.std.core.bytes.slicePlatform(bytes, at, stop)
+        when {
+            (__pick2 != null) -> {
+                val __pick2_1: salvo.platform.std.core.bytes.Bytes = __pick2!!
+                __pick2_1
+            }
+            else -> {
+                throw AssertionError("salvo: unreachable at std.fs.mem:388:42")
+            }
+        }
     }
     var nextAt: Int = stop
     if ((stop < end)) {
@@ -377,8 +383,8 @@ fun memReadLine(reads: salvo.platform.std.core.map.MutMap<Long, MemRead>, handle
         return null
     }
     salvo.std.core.map.putPlatform(reads, handle, MemRead(source = open.source, data = bytes, at = nextAt, failed = false), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    val text_4: String = text!!
-    return salvo.std.core.string.trimSuffixPlatform(text_4, "\r")
+    val text_2: String = text!!
+    return salvo.std.core.string.trimSuffixPlatform(text_2, "\r")
 }
 
 fun memReadAll(reads: salvo.platform.std.core.map.MutMap<Long, MemRead>, handle: Long): Union2<String, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> {
@@ -390,13 +396,16 @@ fun memReadAll(reads: salvo.platform.std.core.map.MutMap<Long, MemRead>, handle:
     val bytes: salvo.platform.std.core.bytes.Bytes = open.data
     val end: Int = salvo.std.core.bytes.sizePlatform(bytes)
     val rest: salvo.platform.std.core.bytes.Bytes = kotlin.run {
-        val __pick_1: salvo.platform.std.core.bytes.Bytes? = salvo.std.core.bytes.slicePlatform(bytes, open.at, end)
-        (if ((__pick_1 != null)) {
-            val __picked_2: salvo.platform.std.core.bytes.Bytes = __pick_1!!
-            __picked_2
-        } else {
-            throw AssertionError("salvo: unreachable at std.fs.mem:412:46")
-        })
+        val __pick3: salvo.platform.std.core.bytes.Bytes? = salvo.std.core.bytes.slicePlatform(bytes, open.at, end)
+        when {
+            (__pick3 != null) -> {
+                val __pick3_1: salvo.platform.std.core.bytes.Bytes = __pick3!!
+                __pick3_1
+            }
+            else -> {
+                throw AssertionError("salvo: unreachable at std.fs.mem:412:46")
+            }
+        }
     }
     val text: String? = salvo.std.core.bytes.strOfBytesPlatform(rest)
     if ((text == null)) {
@@ -404,8 +413,8 @@ fun memReadAll(reads: salvo.platform.std.core.map.MutMap<Long, MemRead>, handle:
         return Union2.U2<String, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(Union2.U1<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>(salvo.std.stream.InvalidUtf8(source = source)))))
     }
     salvo.std.core.map.putPlatform(reads, handle, MemRead(source = source, data = bytes, at = end, failed = false), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    val text_4: String = text!!
-    return Union2.U1<String, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.ok(text_4))
+    val text_2: String = text!!
+    return Union2.U1<String, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.ok(text_2))
 }
 
 fun memReadBytes(reads: salvo.platform.std.core.map.MutMap<Long, MemRead>, handle: Long, max: Int): Union2<salvo.platform.std.core.bytes.Bytes, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> {
@@ -424,13 +433,16 @@ fun memReadBytes(reads: salvo.platform.std.core.map.MutMap<Long, MemRead>, handl
         stop = end
     }
     val taken: salvo.platform.std.core.bytes.Bytes = kotlin.run {
-        val __pick_1: salvo.platform.std.core.bytes.Bytes? = salvo.std.core.bytes.slicePlatform(bytes, open.at, stop)
-        (if ((__pick_1 != null)) {
-            val __picked_2: salvo.platform.std.core.bytes.Bytes = __pick_1!!
-            __picked_2
-        } else {
-            throw AssertionError("salvo: unreachable at std.fs.mem:438:48")
-        })
+        val __pick4: salvo.platform.std.core.bytes.Bytes? = salvo.std.core.bytes.slicePlatform(bytes, open.at, stop)
+        when {
+            (__pick4 != null) -> {
+                val __pick4_1: salvo.platform.std.core.bytes.Bytes = __pick4!!
+                __pick4_1
+            }
+            else -> {
+                throw AssertionError("salvo: unreachable at std.fs.mem:438:48")
+            }
+        }
     }
     salvo.std.core.map.putPlatform(reads, handle, MemRead(source = source, data = bytes, at = stop, failed = false), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     return Union2.U1<salvo.platform.std.core.bytes.Bytes, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.ok(taken))

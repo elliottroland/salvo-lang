@@ -118,37 +118,37 @@ fun describe(t: Tool): String {
                 val tls_2: Tls = tls!!
                 "tls ${tls_2.cert}"
             })
-            return "serve ${salvo.std.core.string.joinPlatform(c_1.files, ",")} on ${c_1.net.host}:${c_1.port} as ${c_1.output}, ${secure}, ${kotlin.run {
-                val __pick_3: Int? = c_1.net.workers
-                (if ((__pick_3 != null)) {
-                    val __picked_4: Int = __pick_3!!
-                    __picked_4
-                } else {
+            return "serve ${salvo.std.core.string.joinPlatform(c_1.files, ",")} on ${c_1.net.host}:${c_1.port} as ${c_1.output}, ${secure}, ${when {
+                (c_1.net.workers != null) -> {
+                    val __narrowed_3: Int = c_1.net.workers!!
+                    __narrowed_3
+                }
+                else -> {
                     1
-                })
+                }
             }} worker(s)"
         }
         (c is Union2.U2<*, *>) -> {
-            val c_6: Fetch = ((c as Union2.U2<*, *>).value as Fetch)
-            val s: Union3<FromUrl, FromFile, FromStdin> = c_6.source
+            val c_4: Fetch = ((c as Union2.U2<*, *>).value as Fetch)
+            val s: Union3<FromUrl, FromFile, FromStdin> = c_4.source
             val from: String = when {
                 (s is Union3.U1<*, *, *>) -> {
-                    val s_7: FromUrl = ((s as Union3.U1<*, *, *>).value as FromUrl)
-                    "${s_7.url} (timeout ${s_7.timeout}s)"
+                    val s_5: FromUrl = ((s as Union3.U1<*, *, *>).value as FromUrl)
+                    "${s_5.url} (timeout ${s_5.timeout}s)"
                 }
                 (s is Union3.U2<*, *, *>) -> {
-                    val s_8: FromFile = ((s as Union3.U2<*, *, *>).value as FromFile)
-                    "file ${s_8.file}"
+                    val s_6: FromFile = ((s as Union3.U2<*, *, *>).value as FromFile)
+                    "file ${s_6.file}"
                 }
                 (s is Union3.U3<*, *, *>) -> {
-                    val s_9: FromStdin = ((s as Union3.U3<*, *, *>).value as FromStdin)
+                    val s_7: FromStdin = ((s as Union3.U3<*, *, *>).value as FromStdin)
                     "standard input"
                 }
                 else -> {
                     throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:104:24"))
                 }
             }
-            return "fetch ${from} with ${salvo.std.core.list.sizePlatform(c_6.header)} header(s)"
+            return "fetch ${from} with ${salvo.std.core.list.sizePlatform(c_4.header)} header(s)"
         }
         (c == null) -> {
             return "nothing to do"

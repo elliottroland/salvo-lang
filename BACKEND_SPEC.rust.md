@@ -167,28 +167,30 @@ Conventions:
 
 ## Type mappings
 
-* [op-elvis] [rs-elvis] `subject ?: rhs` is a block that
-  evaluates the subject once into a temporary and tests whether it holds one of
-  the **picked** arms — the picked value when it does, `rhs` when it does not:
+* [op-elvis] [rs-elvis] `subject ?: rhs` is a `when` by the time a backend
+  sees it [when-lowered], rendered as any two-arm switch with an `else` is:
+  an `if` on the first-arm test, the picked value when it holds and `rhs`
+  when it does not. A place subject is tested where it is; any other is
+  bound once to the lowering's temporary, out of which the picked value
+  moves:
 
   ```rust
   {
-      let mut __pick_1: Option<i32> = search(list, elem);
-      if __pick_1.is_some() {
-          let mut __picked_2 = __pick_1.unwrap();
-          __picked_2
+      let mut __pick10: Option<i32> = search(list, elem);
+      if __pick10.is_some() {
+          let mut __pick10_1 = __pick10.unwrap();
+          __pick10_1
       } else {
-          return None
+          return None;
       }
   }
   ```
 
-  The subject is bound by reference when it is a place and by value when it is
-  a call's result, and the picked arms are read as a narrowed read
-  [rs-read-mode]. An `if` rather than `unwrap_or_else` because the right side
-  may be an **escape**: a `return` inside a closure returns from the closure
-  [expr-escape]. A pick that **widens** its result wraps the picked value into
-  the join union [type-rewrap].
+  The picked arm is read as a narrowed read [rs-read-mode]. An `if` rather
+  than `unwrap_or_else` because the right side may be an **escape**: a
+  `return` inside a closure returns from the closure [expr-escape]. A pick
+  that **widens** its result wraps the picked value into the join union
+  [type-rewrap].
 * [op-safe-nav] [rs-safe-nav] `base?.link` lowers by reconstruction to a
   short-circuiting block ([op-safe-nav], [ir-switch]). When every link is a
   **field** read, the Rust backend renders it as an

@@ -667,6 +667,7 @@ Module {
                                                 },
                                             ],
                                             or: [],
+                                            hole: None,
                                             binding: None,
                                             widen: false,
                                             body: Block {
@@ -702,6 +703,7 @@ Module {
                                                 },
                                             ],
                                             or: [],
+                                            hole: None,
                                             binding: None,
                                             widen: false,
                                             body: Block {
@@ -758,6 +760,7 @@ Module {
                                             span: 517..602,
                                         },
                                     ],
+                                    origin: None,
                                     span: 450..608,
                                 },
                                 span: 438..608,

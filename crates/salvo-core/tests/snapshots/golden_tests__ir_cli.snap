@@ -56,37 +56,37 @@ fn describe@main(lent t: Tool@main) -> Str {
         narrow#7[after branch#0.cond#0] tls~2: Tls@main = tls
         value concat("tls ", read tls~2.cert)
       }
-      return concat("serve ", call join@std.core.string(read c~1.files, ","), " on ", read c~1.net.host, ":", call to_str(Int)@std.core.basic(read c~1.port), " as ", read c~1.output, ", ", read secure, ", ", call to_str(Int)@std.core.basic(branch#14 cond#0 true {
-        bind#9 let __pick~3: Int? = read c~1.net.workers
-        value branch#10 cond#0 check#13 (read __pick~3 is arm 0) {
-          narrow#11[branch#10.cond#0] __picked~4: Int = __pick~3
-          value !read __picked~4
-        } else {
+      return concat("serve ", call join@std.core.string(read c~1.files, ","), " on ", read c~1.net.host, ":", call to_str(Int)@std.core.basic(read c~1.port), " as ", read c~1.output, ", ", read secure, ", ", call to_str(Int)@std.core.basic(switch#9 read c~1.net.workers {
+        arm#0 (arm 0) {
+          narrow#10[switch#9.arm#0] __narrowed~3: Int = c~1.net.workers
+          value read __narrowed~3
+        }
+        arm#1 (else) {
           value 1
         }
       }), " worker(s)")
     }
     arm#1 (arm 1) {
-      narrow#15[switch#2.arm#1] c~6: Fetch@main = c
-      bind#16 let s: FromUrl@main | FromFile@main | FromStdin@main = read c~6.source
-      bind#21 let from: Str = switch#17 read s {
+      narrow#11[switch#2.arm#1] c~4: Fetch@main = c
+      bind#12 let s: FromUrl@main | FromFile@main | FromStdin@main = read c~4.source
+      bind#17 let from: Str = switch#13 read s {
         arm#0 (arm 0) {
-          narrow#18[switch#17.arm#0] s~7: FromUrl@main = s
-          value concat(read s~7.url, " (timeout ", call to_str(Int)@std.core.basic(read s~7.timeout), "s)")
+          narrow#14[switch#13.arm#0] s~5: FromUrl@main = s
+          value concat(read s~5.url, " (timeout ", call to_str(Int)@std.core.basic(read s~5.timeout), "s)")
         }
         arm#1 (arm 1) {
-          narrow#19[switch#17.arm#1] s~8: FromFile@main = s
-          value concat("file ", read s~8.file)
+          narrow#15[switch#13.arm#1] s~6: FromFile@main = s
+          value concat("file ", read s~6.file)
         }
         arm#2 (arm 2) {
-          narrow#20[switch#17.arm#2] s~9: FromStdin@main = s
+          narrow#16[switch#13.arm#2] s~7: FromStdin@main = s
           value "standard input"
         }
         arm#3 (else) {
           unreachable("unhandled union arm") at main:104:24
         }
       }
-      return concat("fetch ", read from, " with ", call to_str(Int)@std.core.basic(call size@std.core.list<Str>(read c~6.header)), " header(s)")
+      return concat("fetch ", read from, " with ", call to_str(Int)@std.core.basic(call size@std.core.list<Str>(read c~4.header)), " header(s)")
     }
     arm#2 (none) {
       return "nothing to do"

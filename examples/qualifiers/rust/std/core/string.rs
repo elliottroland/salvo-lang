@@ -139,10 +139,10 @@ pub fn SpanOf__Span_qualifies(span: &crate::std_core_string::Span, str: &String)
 
 pub fn substr(str: &String, at: &crate::std_core_string::Span) -> String {
     return {
-        let mut __pick_1: Option<String> = crate::std_core_string::substr_platform(str, at.start, at.end);
-        if __pick_1.is_some() {
-            let mut __picked_2 = __pick_1.unwrap();
-            __picked_2
+        let mut __pick1: Option<String> = crate::std_core_string::substr_platform(str, at.start, at.end);
+        if __pick1.is_some() {
+            let mut __pick1_1 = __pick1.unwrap();
+            __pick1_1
         } else {
             panic!("salvo: unreachable at std.core.string:162:45")
         }
@@ -249,19 +249,19 @@ pub fn split_once(str: &String, sep: &String) -> Option<(String, String)> {
     if at.is_some() {
         let mut i = at.unwrap();
         let mut before: String = {
-            let mut __pick_1: Option<String> = crate::std_core_string::substr_platform(str, 0i32, i);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick2: Option<String> = crate::std_core_string::substr_platform(str, 0i32, i);
+            if __pick2.is_some() {
+                let mut __pick2_1 = __pick2.unwrap();
+                __pick2_1
             } else {
                 String::from("")
             }
         };
         let mut after: String = {
-            let mut __pick_4: Option<String> = crate::std_core_string::substr_platform(str, i32::wrapping_add(i, crate::std_core_string::size_platform(sep)), crate::std_core_string::size_platform(str));
-            if __pick_4.is_some() {
-                let mut __picked_5 = __pick_4.unwrap();
-                __picked_5
+            let mut __pick3: Option<String> = crate::std_core_string::substr_platform(str, i32::wrapping_add(i, crate::std_core_string::size_platform(sep)), crate::std_core_string::size_platform(str));
+            if __pick3.is_some() {
+                let mut __pick3_2 = __pick3.unwrap();
+                __pick3_2
             } else {
                 String::from("")
             }
@@ -276,19 +276,19 @@ pub fn split_last(str: &String, sep: &String) -> Option<(String, String)> {
     if at.is_some() {
         let mut i = at.unwrap();
         let mut before: String = {
-            let mut __pick_1: Option<String> = crate::std_core_string::substr_platform(str, 0i32, i);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick4: Option<String> = crate::std_core_string::substr_platform(str, 0i32, i);
+            if __pick4.is_some() {
+                let mut __pick4_1 = __pick4.unwrap();
+                __pick4_1
             } else {
                 String::from("")
             }
         };
         let mut after: String = {
-            let mut __pick_4: Option<String> = crate::std_core_string::substr_platform(str, i32::wrapping_add(i, crate::std_core_string::size_platform(sep)), crate::std_core_string::size_platform(str));
-            if __pick_4.is_some() {
-                let mut __picked_5 = __pick_4.unwrap();
-                __picked_5
+            let mut __pick5: Option<String> = crate::std_core_string::substr_platform(str, i32::wrapping_add(i, crate::std_core_string::size_platform(sep)), crate::std_core_string::size_platform(str));
+            if __pick5.is_some() {
+                let mut __pick5_2 = __pick5.unwrap();
+                __pick5_2
             } else {
                 String::from("")
             }

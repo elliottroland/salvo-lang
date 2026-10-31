@@ -2167,6 +2167,9 @@ pub enum Expr {
         binding: Option<Ident>,
         subject: Box<Expr>,
         branches: Vec<WhenBranch>,
+        /// [when-lowered] The operator this `when` was lowered from (`?:`),
+        /// for its diagnostics; `None` for a written `when`.
+        origin: Option<WhenOrigin>,
         span: Span,
     },
     /// `when { cond { } cond { } else { } }` — the subject-less form
@@ -2467,6 +2470,21 @@ pub enum StructLitFieldKind {
     },
 }
 
+/// [when-lowered] The operator a lowered `when` stands for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WhenOrigin {
+    /// `subject ?: rhs` [op-elvis].
+    Pick,
+}
+
+/// [when-lowered] An arm head the type checker fills: the subject's first
+/// declared arm, or every arm the branches before it left.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArmHole {
+    First,
+    Rest,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct WhenBranch {
     /// The `is ...` check, with or without `^`-lifted qualifiers.
@@ -2475,6 +2493,9 @@ pub struct WhenBranch {
     /// B`: the arm covers every one (`check` is the first). Empty for a
     /// plain head.
     pub or: Vec<Vec<TypeRef>>,
+    /// [when-lowered] A head the type checker fills (`check` is then empty):
+    /// only in a `when` lowered from an operator.
+    pub hole: Option<ArmHole>,
     pub binding: Option<Ident>,
     /// [qual-lift] Every qualifier in the check was `^`-marked: the same arm
     /// test, but the subject reads *without* them inside the branch.
@@ -2536,17 +2557,24 @@ impl Expr {
     /// was removed (user decision 2026-10-20), so an analysis that follows a
     /// value's provenance reads through it to `subject`.
     pub fn presence_unwrapped(&self) -> Option<&Expr> {
+        let escape = |e: &Expr| {
+            matches!(e, Expr::Unreachable { .. } | Expr::Todo { .. } | Expr::Return { .. } | Expr::Break { .. } | Expr::Continue { .. })
+        };
         match self {
-            Expr::Elvis { subject, rhs, .. }
-                if matches!(
-                    rhs.as_ref(),
-                    Expr::Unreachable { .. } | Expr::Todo { .. } | Expr::Return { .. } | Expr::Break { .. } | Expr::Continue { .. }
-                ) =>
-            {
-                Some(subject)
-            }
+            Expr::Elvis { subject, rhs, .. } if escape(rhs) => Some(subject),
+            // [when-lowered] The `when` a `?:` lowers to: its rest arm is
+            // the right side.
+            Expr::When { origin: Some(WhenOrigin::Pick), subject, branches, .. } => match branches.as_slice() {
+                [_, rest] if matches!(rest.body.stmts.as_slice(), [Stmt::Expr(e)] if escape(e)) => Some(subject),
+                _ => None,
+            },
             _ => None,
         }
+    }
+
+    /// [when-lowered] The `when` a `?:` was lowered to.
+    pub fn is_lowered_pick(&self) -> bool {
+        matches!(self, Expr::When { origin: Some(WhenOrigin::Pick), .. })
     }
 
     pub fn span(&self) -> Span {

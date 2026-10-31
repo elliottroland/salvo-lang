@@ -47,7 +47,7 @@ fn annotate_fn(f: &mut FnDecl, symbols: &Symbols) {
     // of one carries no obligation, however linear its type.
     let borrowed: HashSet<String> = f.params.iter().filter(|p| p.mode != PassMode::Moved).map(|p| p.local.0.clone()).collect();
     let tys = std::cell::RefCell::new(f.params.iter().map(|p| (p.local.0.clone(), p.ty.clone())).collect());
-    let a = Annotator { symbols, own: &own, borrowed: &borrowed, assigns: &f.fate.assign_spans, state: &f.fate.linear_state, binds: &f.fate.binds, tys };
+    let a = Annotator { symbols, own: &own, borrowed: &borrowed, assigns: &f.fate.assign_spans, state: &f.fate.linear_state, binds: &f.fate.binds, tys, spans: Default::default() };
 
     // [ir-obligation] GainParams: declared params (not effects/implicits)
     // that are linear and moved into the fn. A lent/kept parameter's
@@ -78,6 +78,10 @@ struct Annotator<'a, 'p> {
     state: &'a [String],
     /// Each local's type, as its binding declares it (met in order).
     tys: std::cell::RefCell<std::collections::HashMap<String, Ty>>,
+    /// Where each local's obligation was gained: a narrowing of it inherits
+    /// the place, so a leak through the narrowed binding points at the
+    /// value it came from (a `Narrow` has no span of its own).
+    spans: std::cell::RefCell<std::collections::HashMap<String, Span>>,
 }
 
 impl Annotator<'_, '_> {
@@ -126,7 +130,13 @@ impl Annotator<'_, '_> {
                 _ => {}
             }
             let gain = self.gain_of(&s);
-            let span = stmt_span(&s);
+            let span = match &s {
+                Stmt::Narrow { from, .. } => self.spans.borrow().get(&from.root.0).copied().unwrap_or_default(),
+                _ => stmt_span(&s),
+            };
+            if let Stmt::Let { local, .. } | Stmt::Narrow { local, .. } = &s {
+                self.spans.borrow_mut().insert(local.0.clone(), span);
+            }
 
             // [ir-obligation] A `Narrow` of a linear source transfers its
             // obligation to the narrowed binding: the source leaves the path's

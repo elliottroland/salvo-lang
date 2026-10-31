@@ -1269,16 +1269,14 @@ class LeastLoaded(private val preferLocal: Boolean, private val config: RouteCon
                 }
             }
         }
-        val chosen: RouteMember = kotlin.run {
-            val __pick_2: RouteMember? = best
-            (if ((__pick_2 != null)) {
-                val __picked_3: RouteMember = __pick_2!!
-                __picked_3
-            } else {
-                kotlin.run {
-                    return null
-                }
-            })
+        val chosen: RouteMember = when {
+            (best != null) -> {
+                val best_2: RouteMember = best!!
+                best_2
+            }
+            else -> {
+                return null
+            }
         }
         return chosen.addr
     }
@@ -1295,14 +1293,14 @@ class Sharded(private val config: RouteConfig) : RouteSelector {
         if ((n == 0)) {
             return null
         }
-        val k: Long = kotlin.run {
-            val __pick_1: Long? = key
-            (if ((__pick_1 != null)) {
-                val __picked_2: Long = __pick_1!!
-                __picked_2
-            } else {
+        val k: Long = when {
+            (key != null) -> {
+                val key_1: Long = key!!
+                key_1
+            }
+            else -> {
                 0L
-            })
+            }
         }
         val magnitude: Long = (if ((k < 0L)) {
             (0L - k)
@@ -1311,15 +1309,16 @@ class Sharded(private val config: RouteConfig) : RouteSelector {
         })
         val slot: Int = ((magnitude % (n).toLong())).toInt()
         val picked: RouteMember = kotlin.run {
-            val __pick_4: RouteMember? = salvo.std.core.list.getPlatform(view.members, slot)
-            (if ((__pick_4 != null)) {
-                val __picked_5: RouteMember = __pick_4!!
-                __picked_5
-            } else {
-                kotlin.run {
+            val __pick1: RouteMember? = salvo.std.core.list.getPlatform(view.members, slot)
+            when {
+                (__pick1 != null) -> {
+                    val __pick1_2: RouteMember = __pick1!!
+                    __pick1_2
+                }
+                else -> {
                     return null
                 }
-            })
+            }
         }
         return picked.addr
     }
@@ -1354,15 +1353,16 @@ class Elected(private val config: RouteConfig, private val __dep0: Leader) : Rou
     override fun changed(view: RouteView) {
         chosen = null
         val l: NodeId = kotlin.run {
-            val __pick_1: NodeId? = __dep0.leader()
-            (if ((__pick_1 != null)) {
-                val __picked_2: NodeId = __pick_1!!
-                __picked_2
-            } else {
-                kotlin.run {
+            val __pick2: NodeId? = __dep0.leader()
+            when {
+                (__pick2 != null) -> {
+                    val __pick2_1: NodeId = __pick2!!
+                    __pick2_1
+                }
+                else -> {
                     return
                 }
-            })
+            }
         }
         for (a in salvo.platform.std.core.list.each(view.members)) {
             if (salvo.std.net.eq__NodeId_NodeId(salvo.std.net.nodeOf(a.addr), l)) {

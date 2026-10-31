@@ -209,12 +209,12 @@ fn main() [use] -> None {
     let vs = filter(iter(ws), s -> size(s) > 1)
     // The repro (ROADMAP 0z).
     // A `for` loop's `next`, whose instantiation the arguments state.
-    //~ emits: = (match crate::std_core_list::next__ListNext(&mut __pass_6) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) });
+    //~ emits: = (match crate::std_core_list::next__ListNext(&mut __pass_3) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) });
     for v in vs {
         println("list for ${v}")
     }
     // `get` and `last` copy the outer reference out of the optional.
-    //~ emits: let mut __pick_3: Option<&String> = crate::std_core_list::get_platform(&vs, 0i32).copied();
+    //~ emits: let mut __pick2: Option<&String> = crate::std_core_list::get_platform(&vs, 0i32).copied();
     let h = get(vs, 0) ?: unreachable!()
     println("get ${h}")
     for v in iter(vs) {
@@ -251,7 +251,7 @@ fn main() [use] -> None {
     // Nested: a `List<proj List<Str>>`.
     let ls = List(List("p", "q"), List("r"))
     let big = filter(iter(ls), x -> size(x) > 0)
-    //~ emits: let mut __pick_25: Option<&Vec<String>> = crate::std_core_list::get_platform(&big, 0i32).copied();
+    //~ emits: let mut __pick7: Option<&Vec<String>> = crate::std_core_list::get_platform(&big, 0i32).copied();
     let fst = get(big, 0) ?: unreachable!()
     println("nested get ${size(fst)}")
     for b in iter(big) {
@@ -274,8 +274,8 @@ fn main() [use] {
     // is deref'd for the cast — which goes through `i64`, so a negative
     // literal index stays an *answer* rather than rustc's E0600 [col-bounds].
     //~ emits: &mut |mut i| -> &String {
-    //~ emits: let mut __pick_3: Option<&String> = crate::std_core_list::get_platform::<String>(&all, *i);
-    //~ !emits: __picked_4.clone()
+    //~ emits: let mut __pick1: Option<&String> = crate::std_core_list::get_platform::<String>(&all, *i);
+    //~ !emits: __pick1_3.clone()
     let picked = map(indices, i -> (get(all, i) ?: unreachable!()))
     for w in picked {
         println(w)

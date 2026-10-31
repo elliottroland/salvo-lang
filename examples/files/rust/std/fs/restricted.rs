@@ -35,10 +35,10 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
             break;
         };
         let mut seg: &String = {
-            let mut __pick_1: Option<&String> = crate::std_core_list::get_platform::<String>(&segs, i);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick1: Option<&String> = crate::std_core_list::get_platform::<String>(&segs, i);
+            if __pick1.is_some() {
+                let mut __pick1_1 = __pick1.unwrap();
+                __pick1_1
             } else {
                 panic!("salvo: unreachable at std.fs.restricted:36:35")
             }
@@ -67,10 +67,10 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
             break;
         };
         crate::std_core_list::add_platform::<String>(&mut parts, {
-            let mut __pick_4: Option<&String> = crate::std_core_list::get_platform::<String>(&kept, j);
-            if __pick_4.is_some() {
-                let mut __picked_5 = __pick_4.unwrap();
-                (__picked_5).clone()
+            let mut __pick2: Option<&String> = crate::std_core_list::get_platform::<String>(&kept, j);
+            if __pick2.is_some() {
+                let mut __pick2_2 = __pick2.unwrap();
+                (__pick2_2).clone()
             } else {
                 panic!("salvo: unreachable at std.fs.restricted:59:40")
             }

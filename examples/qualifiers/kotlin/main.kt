@@ -8,14 +8,14 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
 
 fun head(list: List<Int>): Int {
     val first: Int? = salvo.std.core.list.getPlatform(list, 0)
-    return kotlin.run {
-        val __pick_1: Int? = first
-        (if ((__pick_1 != null)) {
-            val __picked_2: Int = __pick_1!!
-            __picked_2
-        } else {
+    return when {
+        (first != null) -> {
+            val first_1: Int = first!!
+            first_1
+        }
+        else -> {
             throw AssertionError("salvo: unreachable at main:30:21")
-        })
+        }
     }
 }
 

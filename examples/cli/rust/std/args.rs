@@ -473,14 +473,11 @@ pub fn merge_group(opts: &mut Vec<crate::std_args::OptSpec>, groups: &mut Vec<cr
     if !(crate::std_core_list::is_empty::<crate::std_args::ArgSpec>(&child.args)) {
         panic!("salvo: {} at std.args:233:9", format!("`{}` is a group of options, and `{}` takes positionals", key, child.name));
     };
-    crate::std_core_list::add_platform::<crate::std_args::GroupSpec>(&mut *groups, crate::std_args::GroupSpec { key: (key).clone(), kind: (kind).clone(), required: false, heading: {
-        let mut __pick_1 = &heading;
-        if __pick_1.is_some() {
-            let mut __picked_2 = __pick_1.as_ref().unwrap();
-            Some(__picked_2.clone())
-        } else {
-            (child.about).clone()
-        }
+    crate::std_core_list::add_platform::<crate::std_args::GroupSpec>(&mut *groups, crate::std_args::GroupSpec { key: (key).clone(), kind: (kind).clone(), required: false, heading: if heading.is_some() {
+        let mut heading_1 = heading.as_ref().unwrap();
+        Some(heading_1.clone())
+    } else {
+        (child.about).clone()
     } });
     for mut g in child.groups.iter() {
         crate::std_core_list::add_platform::<crate::std_args::GroupSpec>(&mut *groups, crate::std_args::GroupSpec { key: format!("{}/{}", key, g.key), kind: (g.kind).clone(), required: g.required, heading: (g.heading).clone() });
@@ -489,8 +486,8 @@ pub fn merge_group(opts: &mut Vec<crate::std_args::OptSpec>, groups: &mut Vec<cr
         let mut group: String = if o.group.is_none() {
             (key).clone()
         } else {
-            let mut __narrowed_4 = o.group.as_ref().unwrap();
-            format!("{}/{}", key, __narrowed_4)
+            let mut __narrowed_2 = o.group.as_ref().unwrap();
+            format!("{}/{}", key, __narrowed_2)
         };
         crate::std_core_list::add_platform::<crate::std_args::OptSpec>(&mut *opts, crate::std_args::OptSpec { field: (o.field).clone(), short: o.short.clone(), takes_value: o.takes_value, repeats: o.repeats, required: o.required, help: (o.help).clone(), default_text: (o.default_text).clone(), choices: (o.choices).clone(), group: Some(group) });
     }
@@ -612,31 +609,31 @@ pub fn scan(spec: &crate::std_args::Spec, args: &Vec<String>) -> crate::std_args
             break;
         };
         let mut t: crate::unions::Union4<crate::std_args_lex::LongToken, crate::std_args_lex::ShortToken, crate::std_args_lex::WordToken, crate::std_args_lex::EndToken> = {
-            let mut __pick_1: Option<&crate::unions::Union4<crate::std_args_lex::LongToken, crate::std_args_lex::ShortToken, crate::std_args_lex::WordToken, crate::std_args_lex::EndToken>> = crate::std_core_list::get_platform::<crate::unions::Union4<crate::std_args_lex::LongToken, crate::std_args_lex::ShortToken, crate::std_args_lex::WordToken, crate::std_args_lex::EndToken>>(&tokens, i);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                (__picked_2).clone()
+            let mut __pick1: Option<&crate::unions::Union4<crate::std_args_lex::LongToken, crate::std_args_lex::ShortToken, crate::std_args_lex::WordToken, crate::std_args_lex::EndToken>> = crate::std_core_list::get_platform::<crate::unions::Union4<crate::std_args_lex::LongToken, crate::std_args_lex::ShortToken, crate::std_args_lex::WordToken, crate::std_args_lex::EndToken>>(&tokens, i);
+            if __pick1.is_some() {
+                let mut __pick1_1 = __pick1.unwrap();
+                (__pick1_1).clone()
             } else {
                 panic!("salvo: unreachable at std.args:357:40")
             }
         };
         i = i32::wrapping_add(i, 1i32);
         if matches!(t, crate::unions::Union4::U4(_)) {
-            let mut t_4 = match &t { crate::unions::Union4::U4(__v) => __v, _ => unreachable!() };
+            let mut t_2 = match &t { crate::unions::Union4::U4(__v) => __v, _ => unreachable!() };
         } else if matches!(t, crate::unions::Union4::U3(_)) {
-            let mut t_5 = match &t { crate::unions::Union4::U3(__v) => __v, _ => unreachable!() };
+            let mut t_3 = match &t { crate::unions::Union4::U3(__v) => __v, _ => unreachable!() };
             if ((!(crate::std_core_list::is_empty::<crate::std_args::CmdSpec>(&spec.commands)) && command.is_none()) && !(failed_command)) {
-                if crate::std_args::has_command(spec, &t_5.value) {
-                    command = Some((t_5.value).clone());
+                if crate::std_args::has_command(spec, &t_3.value) {
+                    command = Some((t_3.value).clone());
                     loop {
                         if !((i < n)) {
                             break;
                         };
                         crate::std_core_list::add_platform::<String>(&mut rest, {
-                            let mut __pick_6: Option<&String> = crate::std_core_list::get_platform::<String>(args, i);
-                            if __pick_6.is_some() {
-                                let mut __picked_7 = __pick_6.unwrap();
-                                (__picked_7).clone()
+                            let mut __pick2: Option<&String> = crate::std_core_list::get_platform::<String>(args, i);
+                            if __pick2.is_some() {
+                                let mut __pick2_4 = __pick2.unwrap();
+                                (__pick2_4).clone()
                             } else {
                                 panic!("salvo: unreachable at std.args:368:60")
                             }
@@ -644,55 +641,52 @@ pub fn scan(spec: &crate::std_args::Spec, args: &Vec<String>) -> crate::std_args
                         i = i32::wrapping_add(i, 1i32);
                     }
                 } else {
-                    crate::std_core_list::add_platform::<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>(&mut errors, crate::unions::Union11::U10(crate::std_args::UnknownCommand { name: (t_5.value).clone() }));
+                    crate::std_core_list::add_platform::<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>(&mut errors, crate::unions::Union11::U10(crate::std_args::UnknownCommand { name: (t_3.value).clone() }));
                     failed_command = true;
                     i = n;
                 };
             } else {
-                crate::std_core_list::add_platform::<String>(&mut words, t_5.value.clone());
+                crate::std_core_list::add_platform::<String>(&mut words, t_3.value.clone());
             };
         } else if matches!(t, crate::unions::Union4::U1(_)) {
-            let mut t_9 = match t { crate::unions::Union4::U1(__v) => __v, _ => unreachable!() };
-            if (&t_9.name[..] == &String::from("help")[..]) {
+            let mut t_5 = match t { crate::unions::Union4::U1(__v) => __v, _ => unreachable!() };
+            if (&t_5.name[..] == &String::from("help")[..]) {
                 help = true;
             } else {
-                let mut o: Option<crate::std_args::OptSpec> = crate::std_args::long_opt(spec, &t_9.name);
+                let mut o: Option<crate::std_args::OptSpec> = crate::std_args::long_opt(spec, &t_5.name);
                 if o.is_none() {
-                    crate::std_core_list::add_platform::<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>(&mut errors, crate::unions::Union11::U1(crate::std_args::UnknownOption { option: format!("--{}", t_9.name) }));
+                    crate::std_core_list::add_platform::<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>(&mut errors, crate::unions::Union11::U1(crate::std_args::UnknownOption { option: format!("--{}", t_5.name) }));
                 } else {
-                    let mut o_10 = o.as_ref().unwrap();
-                    let mut flag: String = crate::std_args::long_name(&o_10.field);
-                    let mut attached: Option<String> = t_9.value;
-                    if (!(o_10.takes_value) && attached.is_none()) {
-                        crate::std_core_list::add_platform::<crate::std_args::Hit>(&mut hits, crate::std_args::Hit { field: (o_10.field).clone(), value: String::from("") });
-                    } else if !(o_10.takes_value) {
-                        crate::std_core_list::add_platform::<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>(&mut errors, crate::unions::Union11::U4(crate::std_args::Invalid { what: flag, value: {
-                            let mut __pick_11 = &attached;
-                            if __pick_11.is_some() {
-                                let mut __picked_12 = __pick_11.as_ref().unwrap();
-                                __picked_12.clone()
-                            } else {
-                                String::from("")
-                            }
+                    let mut o_6 = o.as_ref().unwrap();
+                    let mut flag: String = crate::std_args::long_name(&o_6.field);
+                    let mut attached: Option<String> = t_5.value;
+                    if (!(o_6.takes_value) && attached.is_none()) {
+                        crate::std_core_list::add_platform::<crate::std_args::Hit>(&mut hits, crate::std_args::Hit { field: (o_6.field).clone(), value: String::from("") });
+                    } else if !(o_6.takes_value) {
+                        crate::std_core_list::add_platform::<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>(&mut errors, crate::unions::Union11::U4(crate::std_args::Invalid { what: flag, value: if attached.is_some() {
+                            let mut attached_7 = attached.as_ref().unwrap();
+                            attached_7.clone()
+                        } else {
+                            String::from("")
                         }, reason: String::from("the option takes no value") }));
                     } else if !(attached.is_none()) {
-                        let mut attached_14 = attached.unwrap();
-                        crate::std_core_list::add_platform::<crate::std_args::Hit>(&mut hits, crate::std_args::Hit { field: (o_10.field).clone(), value: attached_14 });
+                        let mut attached_8 = attached.unwrap();
+                        crate::std_core_list::add_platform::<crate::std_args::Hit>(&mut hits, crate::std_args::Hit { field: (o_6.field).clone(), value: attached_8 });
                     } else {
                         let mut v: Option<String> = crate::std_args::word_at(&tokens, i);
                         if v.is_none() {
                             crate::std_core_list::add_platform::<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>(&mut errors, crate::unions::Union11::U2(crate::std_args::MissingValue { option: flag }));
                         } else {
-                            let mut v_15 = v.unwrap();
-                            crate::std_core_list::add_platform::<crate::std_args::Hit>(&mut hits, crate::std_args::Hit { field: (o_10.field).clone(), value: v_15 });
+                            let mut v_9 = v.unwrap();
+                            crate::std_core_list::add_platform::<crate::std_args::Hit>(&mut hits, crate::std_args::Hit { field: (o_6.field).clone(), value: v_9 });
                             i = i32::wrapping_add(i, 1i32);
                         };
                     };
                 };
             };
         } else if matches!(t, crate::unions::Union4::U2(_)) {
-            let mut t_16 = match &t { crate::unions::Union4::U2(__v) => __v, _ => unreachable!() };
-            let mut letters = &t_16.letters;
+            let mut t_10 = match &t { crate::unions::Union4::U2(__v) => __v, _ => unreachable!() };
+            let mut letters = &t_10.letters;
             let mut k: i32 = 0i32;
             let mut len: i32 = crate::std_core_string::size_platform(letters);
             loop {
@@ -700,10 +694,10 @@ pub fn scan(spec: &crate::std_args::Spec, args: &Vec<String>) -> crate::std_args
                     break;
                 };
                 let mut c: char = {
-                    let mut __pick_17: Option<char> = crate::std_core_string::char_at_platform(letters, k);
-                    if __pick_17.is_some() {
-                        let mut __picked_18 = __pick_17.unwrap();
-                        __picked_18
+                    let mut __pick3: Option<char> = crate::std_core_string::char_at_platform(letters, k);
+                    if __pick3.is_some() {
+                        let mut __pick3_11 = __pick3.unwrap();
+                        __pick3_11
                     } else {
                         panic!("salvo: unreachable at std.args:418:52")
                     }
@@ -716,18 +710,18 @@ pub fn scan(spec: &crate::std_args::Spec, args: &Vec<String>) -> crate::std_args
                     if o.is_none() {
                         crate::std_core_list::add_platform::<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>(&mut errors, crate::unions::Union11::U1(crate::std_args::UnknownOption { option: format!("-{}", c) }));
                     } else {
-                        let mut o_20 = o.as_ref().unwrap();
-                        if !(o_20.takes_value) {
-                            let mut o_21 = o.as_ref().unwrap();
-                            crate::std_core_list::add_platform::<crate::std_args::Hit>(&mut hits, crate::std_args::Hit { field: (o_21.field).clone(), value: String::from("") });
+                        let mut o_12 = o.as_ref().unwrap();
+                        if !(o_12.takes_value) {
+                            let mut o_13 = o.as_ref().unwrap();
+                            crate::std_core_list::add_platform::<crate::std_args::Hit>(&mut hits, crate::std_args::Hit { field: (o_13.field).clone(), value: String::from("") });
                         } else {
                             if (k < len) {
-                                let mut o_22 = o.as_ref().unwrap();
-                                crate::std_core_list::add_platform::<crate::std_args::Hit>(&mut hits, crate::std_args::Hit { field: (o_22.field).clone(), value: {
-                                    let mut __pick_23: Option<String> = crate::std_core_string::substr_platform(letters, k, len);
-                                    if __pick_23.is_some() {
-                                        let mut __picked_24 = __pick_23.unwrap();
-                                        __picked_24
+                                let mut o_14 = o.as_ref().unwrap();
+                                crate::std_core_list::add_platform::<crate::std_args::Hit>(&mut hits, crate::std_args::Hit { field: (o_14.field).clone(), value: {
+                                    let mut __pick4: Option<String> = crate::std_core_string::substr_platform(letters, k, len);
+                                    if __pick4.is_some() {
+                                        let mut __pick4_15 = __pick4.unwrap();
+                                        __pick4_15
                                     } else {
                                         panic!("salvo: unreachable at std.args:434:105")
                                     }
@@ -738,9 +732,9 @@ pub fn scan(spec: &crate::std_args::Spec, args: &Vec<String>) -> crate::std_args
                                 if v.is_none() {
                                     crate::std_core_list::add_platform::<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>(&mut errors, crate::unions::Union11::U2(crate::std_args::MissingValue { option: format!("-{}", c) }));
                                 } else {
-                                    let mut o_26 = o.as_ref().unwrap();
-                                    let mut v_27 = v.unwrap();
-                                    crate::std_core_list::add_platform::<crate::std_args::Hit>(&mut hits, crate::std_args::Hit { field: (o_26.field).clone(), value: v_27 });
+                                    let mut o_16 = o.as_ref().unwrap();
+                                    let mut v_17 = v.unwrap();
+                                    crate::std_core_list::add_platform::<crate::std_args::Hit>(&mut hits, crate::std_args::Hit { field: (o_16.field).clone(), value: v_17 });
                                     i = i32::wrapping_add(i, 1i32);
                                 };
                             };
@@ -769,8 +763,8 @@ pub fn scan(spec: &crate::std_args::Spec, args: &Vec<String>) -> crate::std_args
         if ((count == 0i32) && o.required) {
             let mut why: Option<String> = crate::std_args::unmet_group(spec, &hits, (&o.group).as_ref());
             if why.is_some() {
-                let mut why_28 = why.unwrap();
-                crate::std_core_list::add_platform::<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>(&mut errors, crate::unions::Union11::U7(crate::std_args::Requires { option: why_28, needs: (flag).clone() }));
+                let mut why_18 = why.unwrap();
+                crate::std_core_list::add_platform::<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>(&mut errors, crate::unions::Union11::U7(crate::std_args::Requires { option: why_18, needs: (flag).clone() }));
             } else if crate::std_args::live(spec, &hits, (&o.group).as_ref()) {
                 crate::std_core_list::add_platform::<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>(&mut errors, crate::unions::Union11::U3(crate::std_args::Missing { what: (flag).clone() }));
             } else {
@@ -787,12 +781,12 @@ pub fn scan(spec: &crate::std_args::Spec, args: &Vec<String>) -> crate::std_args
                     let mut here: Option<String> = crate::std_args::given_in(spec, &hits, &a.key);
                     if !(here.is_none()) {
                         if first.is_none() {
-                            let mut here_29 = here.as_ref().unwrap();
-                            first = Some(here_29.clone());
+                            let mut here_19 = here.as_ref().unwrap();
+                            first = Some(here_19.clone());
                         } else {
-                            let mut here_30 = here.unwrap();
-                            let mut first_31 = first.as_ref().unwrap();
-                            crate::std_core_list::add_platform::<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>(&mut errors, crate::unions::Union11::U8(crate::std_args::Conflict { option: here_30, other: (first_31).clone() }));
+                            let mut here_20 = here.unwrap();
+                            let mut first_21 = first.as_ref().unwrap();
+                            crate::std_core_list::add_platform::<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>(&mut errors, crate::unions::Union11::U8(crate::std_args::Conflict { option: here_20, other: (first_21).clone() }));
                         };
                     };
                 };
@@ -814,10 +808,10 @@ pub fn scan(spec: &crate::std_args::Spec, args: &Vec<String>) -> crate::std_args
                     break;
                 };
                 crate::std_core_list::add_platform::<crate::std_args::Hit>(&mut hits, crate::std_args::Hit { field: (a.field).clone(), value: {
-                    let mut __pick_32: Option<&String> = crate::std_core_list::get_platform::<String>(&words, w);
-                    if __pick_32.is_some() {
-                        let mut __picked_33 = __pick_32.unwrap();
-                        (__picked_33).clone()
+                    let mut __pick5: Option<&String> = crate::std_core_list::get_platform::<String>(&words, w);
+                    if __pick5.is_some() {
+                        let mut __pick5_22 = __pick5.unwrap();
+                        (__pick5_22).clone()
                     } else {
                         panic!("salvo: unreachable at std.args:510:84")
                     }
@@ -827,10 +821,10 @@ pub fn scan(spec: &crate::std_args::Spec, args: &Vec<String>) -> crate::std_args
         } else {
             if (w < nw) {
                 crate::std_core_list::add_platform::<crate::std_args::Hit>(&mut hits, crate::std_args::Hit { field: (a.field).clone(), value: {
-                    let mut __pick_35: Option<&String> = crate::std_core_list::get_platform::<String>(&words, w);
-                    if __pick_35.is_some() {
-                        let mut __picked_36 = __pick_35.unwrap();
-                        (__picked_36).clone()
+                    let mut __pick6: Option<&String> = crate::std_core_list::get_platform::<String>(&words, w);
+                    if __pick6.is_some() {
+                        let mut __pick6_23 = __pick6.unwrap();
+                        (__pick6_23).clone()
                     } else {
                         panic!("salvo: unreachable at std.args:516:88")
                     }
@@ -847,10 +841,10 @@ pub fn scan(spec: &crate::std_args::Spec, args: &Vec<String>) -> crate::std_args
             break;
         };
         crate::std_core_list::add_platform::<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>(&mut errors, crate::unions::Union11::U5(crate::std_args::Unexpected { value: {
-            let mut __pick_38: Option<&String> = crate::std_core_list::get_platform::<String>(&words, w);
-            if __pick_38.is_some() {
-                let mut __picked_39 = __pick_38.unwrap();
-                (__picked_39).clone()
+            let mut __pick7: Option<&String> = crate::std_core_list::get_platform::<String>(&words, w);
+            if __pick7.is_some() {
+                let mut __pick7_24 = __pick7.unwrap();
+                (__pick7_24).clone()
             } else {
                 panic!("salvo: unreachable at std.args:527:63")
             }
@@ -1213,19 +1207,19 @@ pub fn one_line(mut text: Option<&String>) -> String {
 pub fn help_rows(out: &mut String, lefts: &Vec<String>, rights: &Vec<String>, rows: &Vec<i32>, mut width: i32) {
     for mut i in rows.iter().copied() {
         let mut l: &String = {
-            let mut __pick_1: Option<&String> = crate::std_core_list::get_platform::<String>(lefts, i);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick8: Option<&String> = crate::std_core_list::get_platform::<String>(lefts, i);
+            if __pick8.is_some() {
+                let mut __pick8_1 = __pick8.unwrap();
+                __pick8_1
             } else {
                 panic!("salvo: unreachable at std.args:880:34")
             }
         };
         let mut r: &String = {
-            let mut __pick_4: Option<&String> = crate::std_core_list::get_platform::<String>(rights, i);
-            if __pick_4.is_some() {
-                let mut __picked_5 = __pick_4.unwrap();
-                __picked_5
+            let mut __pick9: Option<&String> = crate::std_core_list::get_platform::<String>(rights, i);
+            if __pick9.is_some() {
+                let mut __pick9_2 = __pick9.unwrap();
+                __pick9_2
             } else {
                 panic!("salvo: unreachable at std.args:881:35")
             }

@@ -128,12 +128,12 @@ Conventions:
 
 ## Type mappings
 
-* [op-elvis] [kt-elvis] `subject ?: rhs` lowers to a Kotlin
-  `if` testing whether the subject holds its **first** arm — the picked
-  value in the then branch, `rhs` in the else. For a `?:` on a `T?`
-  the `T?` representation is a Kotlin nullable, so the test is a plain null
-  check. A `return` on the right is legal there for the same reason it is in
-  Salvo [expr-escape].
+* [op-elvis] [kt-elvis] `subject ?: rhs` is a `when` by the time a backend
+  sees it [when-lowered], so it renders as any switch does: a Kotlin
+  `when { test -> { … } else -> { … } }`, the first-arm test in the first
+  branch and `rhs` in the `else`. On a `T?` the representation is a Kotlin
+  nullable, so the test is a plain null check. A `return` on the right is
+  legal there for the same reason it is in Salvo [expr-escape].
 * [op-safe-nav] [kt-safe-nav] A field-only `?.` chain renders as a **native Kotlin
   optional chain**: the reconstruction `Switch` ([op-safe-nav], [ir-switch]) is
   recognized by its present arm's `Justification::SafeNav` and emitted as

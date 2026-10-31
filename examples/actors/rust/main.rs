@@ -541,10 +541,10 @@ impl crate::__Stateless_Fragile for Breaking {
     fn crash(&self) {
         let mut empty: Vec<i32> = vec![];
         let mut boom: i32 = {
-            let mut __pick_1: Option<i32> = crate::std_core_list::get_platform::<i32>(&empty, 7i32).copied();
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick1: Option<i32> = crate::std_core_list::get_platform::<i32>(&empty, 7i32).copied();
+            if __pick1.is_some() {
+                let mut __pick1_1 = __pick1.unwrap();
+                __pick1_1
             } else {
                 panic!("salvo: unreachable at main:149:37")
             }

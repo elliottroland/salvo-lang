@@ -2559,13 +2559,15 @@ lowering before typing, then the checker's special paths deleted. Needs A2
 - **D2. The checker writes the typed form** (§II.3.3) instead of `Checked`'s
   span tables, one table cluster per piece — the clusters the IR builder's
   view accessors already group (`call_info`, `use_info`, `spawn_info`,
-  `pick_info`, `interp_info`, COMPLETED.md 2026-10-10), then the rest. The
+  `interp_info`, COMPLETED.md 2026-10-10; `pick_info` went with the `?:`
+  lowering), then the rest. The
   checker reads its own facts back from the typed form (`call_fn` alone has
   13 readers inside the checker; the hard part). From C3: a stamped fn's parameters bound to the
   template's names by position, which retires `h__p` and `hidden_free_name`.
   The clusters left after the five views (survey 2026-10-30, 107 fields):
   1. **Stragglers into views** — done: `effect_member_calls` and
-     `qual_member_calls` into `call_info`, `elvis_widen` into `pick_info`;
+     `qual_member_calls` into `call_info` (and `elvis_widen` into
+     `pick_info`, both since gone with the `?:` lowering);
      new `fn_value_info` (a fn named as a value: `lambda_effects` at its
      name, `fn_value_implicits`, `member_values`) and `lambda_info`
      (`lambda_effects`, `lambda_captures`, `lambda_contracts`).
@@ -2611,11 +2613,16 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      subject is one head, **a `when` arm head may be a union, `is A | B`
      (option 1a)**, everywhere, as [is-union] gives `is`. Rejected: an
      internal-only multi-arm head (1b), `!is` or an `else` allowed only in
-     lowered code, a subject-less `when` (an `if` under another name). The
-     rest: effect lists as explicit arguments (ten
-     tables), `Convert` (`coerce`, `promotions`, `elvis_widen`,
-     `field_casts`, `repr_ty`), `Test` (`is_tests`, `arm_compares`,
-     `safe_navs`, `elvis_tests`, `widen_targets`, `predicate_tests`), a
+     lowered code, a subject-less `when` (an `if` under another name).
+     **`?:` lowered — done** ([when-lowered], COMPLETED.md 2026-10-30):
+     `pick_left`, `elvis_picks`, `elvis_tests`, `elvis_widen`, `PickTest`
+     and `pick_info` are gone, with the checker's `check_elvis` /
+     `install_elvis_guard` and the IR's `elvis()`. **`?.` next**, the same
+     way (origin `SafeNav`, keeping the native-chain hint), then — if the
+     user agrees — `?>`. The rest: effect lists as explicit arguments (ten
+     tables), `Convert` (`coerce`, `promotions`, `field_casts`, `repr_ty`),
+     `Test` (`is_tests`, `arm_compares`, `safe_navs`, `widen_targets`,
+     `predicate_tests`), a
      call's borrowed result, `Send` (`self_sends`, `facade_sends`,
      `addr_calls`, `replyto_*`, `actor_sends`, `task_sends`), handler
      construction (`use_deps`, `use_with_items`, `spawn_deps`,

@@ -147,10 +147,10 @@ pub fn to_str__SortedMap<K: Clone, V: Clone>(map: &crate::std_core_sorted::Sorte
         crate::std_core_string::append_platform(&mut out, &to_str(&k));
         crate::std_core_string::append_platform(&mut out, &String::from(": "));
         crate::std_core_string::append_platform(&mut out, &to_str__1({
-            let mut __pick_1: Option<&V> = crate::std_core_sorted::get_platform::<K, V>(map, &k, &mut *cmp);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick1: Option<&V> = crate::std_core_sorted::get_platform::<K, V>(map, &k, &mut *cmp);
+            if __pick1.is_some() {
+                let mut __pick1_1 = __pick1.unwrap();
+                __pick1_1
             } else {
                 panic!("salvo: unreachable at std.core.sorted:163:43")
             }
@@ -182,16 +182,16 @@ pub fn eq__SortedMap_SortedMap<K: Clone, V: Clone>(a: &crate::std_core_sorted::S
         if theirs.is_none() {
             return false;
         };
-        let mut theirs_4 = theirs.unwrap();
+        let mut theirs_2 = theirs.unwrap();
         if !(eq({
-            let mut __pick_1: Option<&V> = crate::std_core_sorted::get_platform::<K, V>(a, &k, &mut *cmp);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick2: Option<&V> = crate::std_core_sorted::get_platform::<K, V>(a, &k, &mut *cmp);
+            if __pick2.is_some() {
+                let mut __pick2_1 = __pick2.unwrap();
+                __pick2_1
             } else {
                 panic!("salvo: unreachable at std.core.sorted:198:29")
             }
-        }, theirs_4)) {
+        }, theirs_2)) {
             return false;
         };
     }
@@ -212,10 +212,10 @@ pub fn NonEmpty__SortedMap_qualifies<K: Clone, V: Clone>(map: &crate::std_core_s
 
 pub fn min<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> T {
     return {
-        let mut __pick_1: Option<T> = crate::std_core_sorted::min_platform::<T>(set);
-        if __pick_1.is_some() {
-            let mut __picked_2 = __pick_1.unwrap();
-            __picked_2
+        let mut __pick3: Option<T> = crate::std_core_sorted::min_platform::<T>(set);
+        if __pick3.is_some() {
+            let mut __pick3_1 = __pick3.unwrap();
+            __pick3_1
         } else {
             panic!("salvo: unreachable at std.core.sorted:257:28")
         }
@@ -224,10 +224,10 @@ pub fn min<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> T {
 
 pub fn max<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> T {
     return {
-        let mut __pick_1: Option<T> = crate::std_core_sorted::max_platform::<T>(set);
-        if __pick_1.is_some() {
-            let mut __picked_2 = __pick_1.unwrap();
-            __picked_2
+        let mut __pick4: Option<T> = crate::std_core_sorted::max_platform::<T>(set);
+        if __pick4.is_some() {
+            let mut __pick4_1 = __pick4.unwrap();
+            __pick4_1
         } else {
             panic!("salvo: unreachable at std.core.sorted:261:28")
         }
@@ -236,10 +236,10 @@ pub fn max<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> T {
 
 pub fn first_key<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> K {
     return {
-        let mut __pick_1: Option<K> = crate::std_core_sorted::first_key_platform::<K, V>(map);
-        if __pick_1.is_some() {
-            let mut __picked_2 = __pick_1.unwrap();
-            __picked_2
+        let mut __pick5: Option<K> = crate::std_core_sorted::first_key_platform::<K, V>(map);
+        if __pick5.is_some() {
+            let mut __pick5_1 = __pick5.unwrap();
+            __pick5_1
         } else {
             panic!("salvo: unreachable at std.core.sorted:265:34")
         }
@@ -248,10 +248,10 @@ pub fn first_key<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, 
 
 pub fn last_key<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> K {
     return {
-        let mut __pick_1: Option<K> = crate::std_core_sorted::last_key_platform::<K, V>(map);
-        if __pick_1.is_some() {
-            let mut __picked_2 = __pick_1.unwrap();
-            __picked_2
+        let mut __pick6: Option<K> = crate::std_core_sorted::last_key_platform::<K, V>(map);
+        if __pick6.is_some() {
+            let mut __pick6_1 = __pick6.unwrap();
+            __pick6_1
         } else {
             panic!("salvo: unreachable at std.core.sorted:269:33")
         }

@@ -278,7 +278,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 }
             }
             AExpr::If { branches, else_block, .. } => self.if_expr(branches, else_block.as_ref(), span, true),
-            AExpr::When { binding, subject, branches, .. } => self.when_expr(binding.as_ref(), subject, branches, span, true),
+            AExpr::When { binding, subject, branches, origin, .. } => self.when_expr(binding.as_ref(), subject, branches, *origin, span, true),
             AExpr::WhenCond { branches, else_block, .. } => self.when_cond_expr(branches, Some(else_block), span, true),
             AExpr::While { cond, body, else_block, .. } => {
                 let ty = self.ty_of(span);
@@ -323,7 +323,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let b = self.block(body, true);
                 Expr { ty: self.ty_of(span), span, kind: ExprKind::Try { body: b } }
             }
-            AExpr::Elvis { subject, rhs, .. } => self.elvis(subject, rhs, span),
+            // [when-lowered] Lowered to a `when` before checking.
+            AExpr::Elvis { .. } => unsupported(self.ty_of(span), span, "unlowered `?:`"),
             AExpr::Pipe { lhs, rhs, .. } => self.pipe(lhs, rhs, span),
             AExpr::SafePipe { lhs, rhs, .. } => self.safe_pipe(lhs, rhs, span),
             AExpr::Placeholder { .. } => match self.placeholder.clone() {
@@ -2581,88 +2582,6 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.block_expr(vec![bind], br, span)
     }
 
-    fn elvis(&mut self, subject: &AExpr, rhs: &AExpr, span: Span) -> Expr {
-        // [op-elvis] `s ?…?: r` / `s :?…? r`: evaluate `s` once into a temporary,
-        // test whether it holds one of the **picked** arms; if so the value is
-        // the subject narrowed to the picked type (widened into the result when
-        // the right side widened it [type-rewrap]); otherwise `r`, with `_` bound to
-        // the subject narrowed to the arms left behind.
-        let ty = self.ty_of(span);
-        // [unify-checker] Pull every fact out of the view up front, before any
-        // `&mut self` call, so no shared borrow of `checked` is held.
-        let (pick, picked_ty, rest_ty, widen) = {
-            let info = self.ctx.checked.pick_info(self.key(span));
-            (
-                info.elvis_test.cloned(),
-                info.elvis_pick.map(erase).unwrap_or(Ty::Unknown),
-                info.pick_left.map(erase).unwrap_or(Ty::Unknown),
-                info.elvis_widen.cloned(),
-            )
-        };
-        let s = self.expr_subject(subject);
-        let subj_ty = s.ty.clone();
-        let tmp = self.fresh("__pick");
-        let lid = self.id();
-        let bind = Stmt::Let { id: lid, local: tmp.clone(), ty: subj_ty.clone(), value: s };
-        let id = self.id();
-        // The picked value: the subject narrowed to the picked type, consumed,
-        // and widened into the result if the pick widened.
-        let nar = self.fresh("__picked");
-        let nid = self.id();
-        let narrow = Stmt::Narrow { id: nid, local: nar.clone(), ty: picked_ty.clone(), from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::Cond { branch: id, arm: 0 } };
-        let read_picked = Expr { ty: picked_ty.clone(), span, kind: ExprKind::Read { place: Place { root: nar, steps: Vec::new() }, consume: true, moved: false } };
-        let value = match &widen {
-            Some(c) => apply_coercion(c, read_picked, span),
-            None => read_picked,
-        };
-        // The right side: `_` bound to the subject narrowed to the arms left.
-        let rest = self.fresh("__rest");
-        let rid = self.id();
-        let rest_narrow = Stmt::Narrow { id: rid, local: rest.clone(), ty: rest_ty, from: Place { root: tmp.clone(), steps: Vec::new() }, from_ty: subj_ty.clone(), because: Justification::After { branch: id, arm: 0 } };
-        let saved = self.placeholder.replace(rest.clone());
-        let r = self.expr(rhs);
-        self.placeholder = saved;
-        // The `_` binding is dead unless the right side actually read it (a
-        // plain `?:` that only supplies a default never does) — and binding it
-        // to the arms left behind can produce a `None`-typed local the backends
-        // reject (`val __rest: Unit = null`). So emit it only when used.
-        let mut uses_rest = false;
-        visit_reads(&r, &mut |l: &Local| {
-            if *l == rest {
-                uses_rest = true;
-            }
-        });
-        let otherwise_stmts = if uses_rest { vec![rest_narrow] } else { Vec::new() };
-        // The condition: the subject is one of the picked arms. A disjunction
-        // of `Test` nodes — one per picked value arm, plus a `None` test when
-        // the pick keeps the `None` arm. Testing the picked side directly
-        // handles any mix of value arms and `None`.
-        let read_tmp = || Expr { ty: subj_ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false, moved: false } };
-        let mut tests: Vec<Expr> = Vec::new();
-        if let Some(p) = &pick {
-            for arm in &p.value_arms {
-                tests.push(Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Test { id: self.id(), subject: Box::new(read_tmp()), test: ArmTest::Arm(*arm) } });
-            }
-            if p.picks_none {
-                tests.push(Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Test { id: self.id(), subject: Box::new(read_tmp()), test: ArmTest::None } });
-            }
-        }
-        let cond = tests
-            .into_iter()
-            .reduce(|prev, t| Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Op { op: Op::Or, args: vec![prev, t] } })
-            .unwrap_or(Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(true) });
-        let br = Expr {
-            ty: ty.clone(),
-            span,
-            kind: ExprKind::Branch {
-                id,
-                arms: vec![(cond, Block { stmts: vec![narrow], value: Some(Box::new(value)), span })],
-                otherwise: Some(Block { stmts: otherwise_stmts, value: Some(Box::new(r)), span }),
-            },
-        };
-        self.block_expr(vec![bind], br, span)
-    }
-
     // --------------------------------------------------------- branching --
 
     pub(crate) fn if_expr(&mut self, branches: &[(AExpr, ast::Block)], else_block: Option<&ast::Block>, span: Span, value: bool) -> Expr {
@@ -2770,7 +2689,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.if_expr(branches, else_block, span, value)
     }
 
-    pub(crate) fn when_expr(&mut self, binding: Option<&ast::Ident>, subject: &AExpr, branches: &[ast::WhenBranch], span: Span, value: bool) -> Expr {
+    pub(crate) fn when_expr(&mut self, binding: Option<&ast::Ident>, subject: &AExpr, branches: &[ast::WhenBranch], origin: Option<ast::WhenOrigin>, span: Span, value: bool) -> Expr {
         let ty = if value { self.ty_of(span) } else { Ty::none() };
         let s = self.expr_subject(subject);
         let subj_ty = s.ty.clone();
@@ -2795,9 +2714,11 @@ impl<'a, 'p> Lower<'a, 'p> {
         let mut arms = Vec::new();
         for (i, br) in branches.iter().enumerate() {
             let test = self.ctx.checked.test_info(self.key(br.span)).union.cloned();
+            // [when-lowered] A lowered form's `#{rest}` arm is whatever the
+            // first arm left, so it is the switch's `else`.
             let arm_test = match &test {
+                _ if br.hole == Some(ast::ArmHole::Rest) => ArmTest::Else,
                 Some(t) => arm_test(t),
-                None if br.check.is_empty() => ArmTest::Else,
                 None => ArmTest::Else,
             };
             self.push_scope();
@@ -2819,6 +2740,13 @@ impl<'a, 'p> Lower<'a, 'p> {
                 }
             }
             let mut b = self.with_test(Some(Justification::Arm { switch: id, arm: i }), |me| me.block(&br.body, value));
+            // [when-lowered] [op-elvis] The value a `?:` picks moves out of
+            // the temporary it was evaluated into: nothing else can read it.
+            if origin == Some(ast::WhenOrigin::Pick) && binding.is_some() && br.hole == Some(ast::ArmHole::First) {
+                if let Some(v) = b.value.as_mut() {
+                    consume_under_coercions(v);
+                }
+            }
             stmts.append(&mut b.stmts);
             b.stmts = stmts;
             self.pop_scope();
@@ -3722,4 +3650,18 @@ fn literal_arg(text: &str) -> Option<Expr> {
 /// only `break`), and so is anything of type `None`.
 fn loop_body_value(v: &Expr) -> bool {
     !v.ty.is_none_ty() && !matches!(&v.kind, ExprKind::Branch { otherwise: None, arms, .. } if !(arms.len() == 1 && matches!(arms[0].0.kind, ExprKind::Bool(true))))
+}
+
+/// [when-lowered] Marks the read under a value's coercions consuming: a `?:`
+/// pick moves its value out of the temporary the subject was bound to, so
+/// the wrappers the checker put round it (an optional or union arm, a
+/// rewrap, a widen, a dropped `Mut`) forward that move to the read. Unlike
+/// `consume_if_owned`, this descends `Present`/`MakeUnion`: the temporary
+/// is the expression's own, so the read is never a borrow being returned.
+fn consume_under_coercions(e: &mut Expr) {
+    match &mut e.kind {
+        ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::Present { value } | ExprKind::Widen { value } => consume_under_coercions(value),
+        ExprKind::Read { place, consume, .. } if place.steps.is_empty() => *consume = true,
+        _ => {}
+    }
 }

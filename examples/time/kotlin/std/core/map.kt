@@ -69,13 +69,16 @@ fun<K, V> toStr(map: salvo.platform.std.core.map.Map<K, V>, toStr: (K) -> String
         salvo.std.core.string.appendPlatform(out, toStr(k))
         salvo.std.core.string.appendPlatform(out, ": ")
         salvo.std.core.string.appendPlatform(out, toStr__1(kotlin.run {
-            val __pick_1: V? = salvo.std.core.map.getPlatform(map, k, hash, eq)
-            (if ((__pick_1 != null)) {
-                val __picked_2: V = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.core.map:201:43")
-            })
+            val __pick1: V? = salvo.std.core.map.getPlatform(map, k, hash, eq)
+            when {
+                (__pick1 != null) -> {
+                    val __pick1_1: V = __pick1!!
+                    __pick1_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.core.map:201:43")
+                }
+            }
         }))
         i = (i + 1)
     }
@@ -92,16 +95,19 @@ fun<K, V> eq(a: salvo.platform.std.core.map.Map<K, V>, b: salvo.platform.std.cor
         if ((theirs == null)) {
             return false
         }
-        val theirs_4: V = theirs!!
+        val theirs_2: V = theirs!!
         if (!(eq(kotlin.run {
-            val __pick_1: V? = salvo.std.core.map.getPlatform(a, k, hash, eq__1)
-            (if ((__pick_1 != null)) {
-                val __picked_2: V = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.core.map:224:29")
-            })
-        }, theirs_4))) {
+            val __pick2: V? = salvo.std.core.map.getPlatform(a, k, hash, eq__1)
+            when {
+                (__pick2 != null) -> {
+                    val __pick2_1: V = __pick2!!
+                    __pick2_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.core.map:224:29")
+                }
+            }
+        }, theirs_2))) {
             return false
         }
     }

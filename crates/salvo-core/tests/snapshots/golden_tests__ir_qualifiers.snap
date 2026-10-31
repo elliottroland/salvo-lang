@@ -10,12 +10,12 @@ qualifies fn NonEmpty.qualifies@main<T>(lent list: List<T>) -> Bool {
 
 fn head@main(lent list: List<Int>) -> Int {
   bind#1 let first: Int? = call get(List<T>, Int)@std.core.list<Int>(read list, 0)
-  return branch#7 cond#0 true {
-    bind#2 let __pick~1: Int? = read first
-    value branch#3 cond#0 check#6 (read __pick~1 is arm 0) {
-      narrow#4[branch#3.cond#0] __picked~2: Int = __pick~1
-      value !read __picked~2
-    } else {
+  return switch#2 read first {
+    arm#0 (arm 0) {
+      narrow#3[switch#2.arm#0] first~1: Int = first
+      value read first~1
+    }
+    arm#1 (else) {
       value unreachable() at main:30:21
     }
   }

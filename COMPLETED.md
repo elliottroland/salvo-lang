@@ -144,6 +144,61 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — `?:` is a `when` (user decision, [when-lowered], PIPELINE.md D2)
+
+- **Decided (user, 2026-10-30)**: `?:` lowers to the test it is (option (a)
+  of the `Convert` write-up), as phase-1 sugar with two holes the checker
+  fills, onto union arm heads (option 1a) and the generalized
+  [is-narrow-guard] (both committed before it). Rejected on the way: an
+  `else` allowed only in lowered code, a `!is` head, a subject-less `when`,
+  a flag keeping the guard narrowing special.
+- **Built**: `desugar::lower_picks` rewrites `s ?: rhs` after parsing
+  (`parse_module`, `expand::expand_file`) into `when s { is #{first arm}
+  { s } is #{rest} { rhs } }` for a place subject, `when __pickN = s { … }`
+  otherwise, `_` in `rhs` replaced by the subject. `ast::WhenOrigin::Pick`
+  keeps the operator's own diagnostics (`op-elvis:single-arm`, now asked
+  before the subject's shape, since a comptime copy can splice a value
+  over a written place) and the call-return hint; `ast::ArmHole` heads
+  become `CheckPat { exact }` arms. In the IR the `#{rest}` arm is the
+  switch's `else`, and the picked value moves out of a `__pickN`
+  temporary (`consume_under_coercions`). **Gone**: `check_elvis`,
+  `install_elvis_guard`, the IR's `elvis()`, `pick_left`, `elvis_picks`,
+  `elvis_tests`, `elvis_widen`, `PickTest`, `PickInfo`/`pick_info`. An
+  unlowered `?:` reaching the checker is `op-elvis:not-lowered`.
+- **Two defects in `when` itself fell out**, both pre-existing and both
+  closed here:
+  1. **An arm that never read its subject dropped its share of the
+     subject's linear obligation.** The IR ledger hands a switch subject's
+     obligation to the arms' narrows, and an arm with no read has none, so
+     `when s = attempt() { is Ok Int { s } is Err Problem { return 0 } }`
+     leaked the `Problem` silently (the old `?:` lowering, a branch on a
+     test, did not). `ir::check` now keeps the subject owed in such an arm,
+     less the arms its test rules out (an `else`: less what the arms before
+     it took). A leak through a narrowed binding now points at the value it
+     came from (the `Narrow` inherits its source's gain span) and names it
+     as written (`r`, not `r~1`), where it pointed at line 1.
+  2. **A linear `if`/`when` branch tail was "dropped immediately"**:
+     `let m = if c { mint(4) } else { mint(5) }` was refused. A branch's
+     tail is its value, which the expression's type carries on, so the
+     check is the expression's: the same `if` in statement position is
+     still refused, on the whole `if`.
+- **Spec fix**: `docs/language/Data-and-Types.md` still described the
+  positional pick (`:?`, `??:`, "a run of `?`s") retired 2026-10-14; it now
+  describes the first-arm pick, and says a pick is a `when`.
+- **Churn**: parser snapshots show the lowered form (the parser tests that
+  check the operator's shape read `parse_module_deferred`); the Rust and
+  Kotlin goldens, examples and host files renamed `__pick_N`/`__picked_N`
+  to `__pickN`/`__pickN_M` and lost the temporary for a place subject
+  (`if maybe.is_some() { maybe.as_ref().unwrap() … }`); Kotlin renders the
+  pick as a `when { … else -> … }` rather than an `if`. Rust emit pins in
+  `types/optional_reads.sv`, `deductions/views.sv` and Kotlin's
+  `control/loops.sv` follow. One check case (`elvis.sv` `multi_arm`) now
+  declares `=> !r`: it returns `r`'s value either way, which the old
+  lowering hid.
+- Tests: checker data `linear/union_arm.sv` (an arm that leaves without
+  reading, and the same through a `?:`), `linear/obligations.sv`
+  (`branch_tails_are_values`). 708 tests under nextest, warm run 2m12.
+
 ### 2026-10-30 — Narrowing after the paths that fall through (user decision, [is-narrow-guard])
 
 - **Decided (user, 2026-10-30)**, option (a) of the `?:` lowering
@@ -34179,6 +34234,20 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A switch arm that never reads its subject still holds part of it**
+  (2026-10-30, [when-lowered]). The IR builder emits an arm's `Narrow` only
+  when something will read the narrowed name, and the obligation ledger
+  used to hand the subject's obligation *only* to those narrows. Any IR
+  pass reasoning per arm about the subject must treat a narrow-less arm as
+  holding the arms its test admits (`held_arms` in `ir::check`).
+- **A parser test that checks an operator's shape reads
+  `parse_module_deferred`** (2026-10-30): `parse_module` lowers `?:` to a
+  `when`, so the tree it returns no longer has the operator in it.
+- **A comptime copy can turn a place into a value** (2026-10-30): a lowered
+  form chosen at parse time on the subject's *shape* (a place → the plain
+  `when`) may meet a spliced constant after stamping. Ask the operator's
+  own questions (a one-arm subject) before the shape's.
 
 - **A span's file tag is where a node sits, not where it was copied from**
   (C3.1, 2026-10-30, [node-file]). `node_id::number` runs over a file after

@@ -104,7 +104,7 @@ fn main() [use] -> None {
     // Loop values join into unions and re-wrap to the declared type.
     let n = 0
     // A union-typed loop value keeps the declared arm order.
-    //~ emits: var __loop_22: Union2<String, Int>? = null
+    //~ emits: var __loop_20: Union2<String, Int>? = null
     let verdict: Ok Int | Err Str = while n < 3 {
         if n == 2 {
             break ok(n)

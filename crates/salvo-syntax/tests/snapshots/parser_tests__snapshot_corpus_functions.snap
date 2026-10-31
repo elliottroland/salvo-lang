@@ -2951,7 +2951,13 @@ Module {
                             Expr(
                                 Return {
                                     value: Some(
-                                        Elvis {
+                                        When {
+                                            binding: Some(
+                                                Ident {
+                                                    name: "__pick1",
+                                                    span: 1834..1845,
+                                                },
+                                            ),
                                             subject: Call {
                                                 callee: Field {
                                                     base: Ident(
@@ -2978,10 +2984,55 @@ Module {
                                                 named: [],
                                                 span: 1834..1845,
                                             },
-                                            rhs: Unreachable {
-                                                message: None,
-                                                span: 1849..1863,
-                                            },
+                                            branches: [
+                                                WhenBranch {
+                                                    check: [],
+                                                    or: [],
+                                                    hole: Some(
+                                                        First,
+                                                    ),
+                                                    binding: None,
+                                                    widen: false,
+                                                    body: Block {
+                                                        stmts: [
+                                                            Expr(
+                                                                Ident(
+                                                                    Ident {
+                                                                        name: "__pick1",
+                                                                        span: 1834..1845,
+                                                                    },
+                                                                ),
+                                                            ),
+                                                        ],
+                                                        span: 1834..1845,
+                                                    },
+                                                    span: 1834..1845,
+                                                },
+                                                WhenBranch {
+                                                    check: [],
+                                                    or: [],
+                                                    hole: Some(
+                                                        Rest,
+                                                    ),
+                                                    binding: None,
+                                                    widen: false,
+                                                    body: Block {
+                                                        stmts: [
+                                                            Expr(
+                                                                Unreachable {
+                                                                    message: None,
+                                                                    span: 1849..1863,
+                                                                },
+                                                            ),
+                                                        ],
+                                                        span: 1849..1863,
+                                                    },
+                                                    span: 1849..1863,
+                                                },
+                                            ],
+                                            origin: Some(
+                                                Pick,
+                                            ),
                                             span: 1834..1863,
                                         },
                                     ),

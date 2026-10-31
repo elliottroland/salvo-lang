@@ -7667,6 +7667,7 @@ impl<'s> Parser<'s> {
             branches.push(WhenBranch {
                 check,
                 or,
+                hole: None,
                 binding,
                 widen,
                 body,
@@ -7678,6 +7679,7 @@ impl<'s> Parser<'s> {
             binding,
             subject: Box::new(subject),
             branches,
+            origin: None,
             span: start.to(end),
         })
     }

@@ -1985,6 +1985,7 @@ Module {
                                                 },
                                             ],
                                             or: [],
+                                            hole: None,
                                             binding: None,
                                             widen: true,
                                             body: Block {
@@ -2017,6 +2018,7 @@ Module {
                                                                         },
                                                                     ],
                                                                     or: [],
+                                                                    hole: None,
                                                                     binding: None,
                                                                     widen: false,
                                                                     body: Block {
@@ -2075,6 +2077,7 @@ Module {
                                                                         },
                                                                     ],
                                                                     or: [],
+                                                                    hole: None,
                                                                     binding: None,
                                                                     widen: false,
                                                                     body: Block {
@@ -2116,6 +2119,7 @@ Module {
                                                                     span: 1704..1784,
                                                                 },
                                                             ],
+                                                            origin: None,
                                                             span: 1583..1798,
                                                         },
                                                     ),
@@ -2142,6 +2146,7 @@ Module {
                                                 },
                                             ],
                                             or: [],
+                                            hole: None,
                                             binding: None,
                                             widen: false,
                                             body: Block {
@@ -2183,6 +2188,7 @@ Module {
                                             span: 1817..1881,
                                         },
                                     ],
+                                    origin: None,
                                     span: 1539..1887,
                                 },
                             ),

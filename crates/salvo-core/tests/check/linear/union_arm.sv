@@ -67,3 +67,33 @@ fn an_unnarrowed_linear_union_leaks(flag: Bool, n: Str) -> None
     //~ error[ir-linear-check:leak-at-exit]
     let _r = open(flag, n)
 }
+
+// An arm that never reads the subject still holds the arms its test admits:
+// leaving from the `Ok` arm without closing leaks the handle, though nothing
+// in the arm names `r` (found 2026-10-30 lowering `?:` to `when`: the arm's
+// share of the subject went with the narrowing it never made).
+fn an_arm_that_leaves_without_reading_still_owes(flag: Bool, n: Str) -> Int
+=> !n {
+    //~ error[ir-linear-check:leak-at-exit]
+    let r = open(flag, n)
+    when r {
+        is Ok { return 1 }
+        is Err { return 0 }
+    }
+}
+
+// The same through a `?:`, whose right side holds what the pick left.
+fn open_rev(flag: Bool, n: Str) -> Err Str | Ok Lines
+=> !n {
+    if flag {
+        return ok(open_lines(n))
+    }
+    return err("empty")
+}
+
+fn a_pick_that_leaves_on_the_linear_arm_leaks(flag: Bool, n: Str) -> Str
+=> !n {
+    //~ error[ir-linear-check:leak-at-exit]
+    let e = open_rev(flag, n) ?: return "open"
+    return "${e}"
+}

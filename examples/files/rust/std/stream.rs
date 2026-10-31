@@ -513,10 +513,10 @@ pub fn fixed_bytes(mut v: i64, mut width: i32) -> crate::std_core_bytes::Bytes {
             break;
         };
         crate::std_core_bytes::add_platform(&mut back, {
-            let mut __pick_1: Option<u8> = crate::std_core_bytes::get_platform(&out, j);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick1: Option<u8> = crate::std_core_bytes::get_platform(&out, j);
+            if __pick1.is_some() {
+                let mut __pick1_1 = __pick1.unwrap();
+                __pick1_1
             } else {
                 panic!("salvo: unreachable at std.stream:441:34")
             }
@@ -541,10 +541,10 @@ pub fn read_fixed(streams: &crate::std_stream::Streams, s: &crate::std_stream::I
         return crate::unions::Union3::U3(crate::std_core_result::err::<crate::std_core_checked::Checked<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>>(crate::std_core_checked::checked::<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>(crate::unions::Union2::U2(crate::std_stream::StreamFailed { source: String::from("read"), message: String::from("the stream ended inside a number") }))));
     };
     let mut first: i64 = (((({
-        let mut __pick_3: Option<u8> = crate::std_core_bytes::get_platform(data, 0i32);
-        if __pick_3.is_some() {
-            let mut __picked_4 = __pick_3.unwrap();
-            __picked_4
+        let mut __pick2: Option<u8> = crate::std_core_bytes::get_platform(data, 0i32);
+        if __pick2.is_some() {
+            let mut __pick2_3 = __pick2.unwrap();
+            __pick2_3
         } else {
             panic!("salvo: unreachable at std.stream:460:48")
         }
@@ -559,10 +559,10 @@ pub fn read_fixed(streams: &crate::std_stream::Streams, s: &crate::std_stream::I
             break;
         };
         v = i64::wrapping_add(i64::wrapping_mul(v, 256i64), (((({
-            let mut __pick_6: Option<u8> = crate::std_core_bytes::get_platform(data, i);
-            if __pick_6.is_some() {
-                let mut __picked_7 = __pick_6.unwrap();
-                __picked_7
+            let mut __pick3: Option<u8> = crate::std_core_bytes::get_platform(data, i);
+            if __pick3.is_some() {
+                let mut __pick3_4 = __pick3.unwrap();
+                __pick3_4
             } else {
                 panic!("salvo: unreachable at std.stream:467:55")
             }

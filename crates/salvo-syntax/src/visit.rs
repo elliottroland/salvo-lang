@@ -711,6 +711,7 @@ pub fn walk_expr<V: Visitor>(v: &mut V, e: &Expr) {
             subject,
             branches,
             span,
+            origin: _,
         } => {
             v.visit_span(span);
             if let Some(b) = binding {

@@ -489,23 +489,6 @@ fn merge_union_tests(mut a: UnionTest, b: UnionTest) -> Option<UnionTest> {
     Some(a)
 }
 
-/// [op-elvis] How a positional pick (`?:`, `??:`, `:?`, …) lowers against the
-/// subject's declared union: which arms are the **picked** side, expressed as
-/// indices into the subject's non-`None` value arms plus whether the `None`
-/// arm itself is picked. The emitters build a test for the picked side and
-/// route the rest to `rhs`.
-#[derive(Clone, Debug)]
-pub struct PickTest {
-    /// Number of non-`None` arms in the subject's declared union.
-    pub size: usize,
-    /// Indices (into the non-`None` value arms) the pick keeps.
-    pub value_arms: Vec<usize>,
-    /// Whether the subject's `None` arm is on the picked side.
-    pub picks_none: bool,
-    /// Whether the subject has a `None` arm at all.
-    pub nullable: bool,
-}
-
 /// [iter-protocol] [iter-for] What a `for` over an **iterator** needs from the
 /// checker beyond the calls it names: which arm of `next`'s result carries an
 /// element, and how the loop holds the iterator. The calls themselves — the
@@ -1178,23 +1161,6 @@ pub struct Checked {
     /// shadowing local for the branch, so reads and any nested `when` see it
     /// at this type.
     pub widen_targets: HashMap<Key, Ty>,
-    /// [op-elvis] The **unpicked** arms at each positional pick — the type `_`
-    /// reads as on the right-hand side, tags and all. Keyed by the operator's
-    /// span.
-    pub pick_left: HashMap<Key, Ty>,
-    /// [op-elvis] The **picked** type at each `?:` — the subject's arms the run of
-    /// `?`s selected (a sub-union, by `[type-rewrap]`). Keyed by the operator's
-    /// span; the emitters read it to know what the left branch yields.
-    pub elvis_picks: HashMap<Key, Ty>,
-    /// [op-elvis] How a positional pick lowers at runtime, keyed by the
-    /// operator's span: which of the subject's arms are the *picked* side.
-    pub elvis_tests: HashMap<Key, PickTest>,
-    /// [op-elvis] [type-rewrap] When a pick's result **widens** past its picked arms
-    /// (`Int? ?: "none"` is `Int | Str`), the coercion that lifts the picked
-    /// value into the join, keyed by the operator's span. The emitters wrap
-    /// the picked value (only); the right side carries its own coercion at
-    /// its own span.
-    pub elvis_widen: HashMap<Key, Coercion>,
     /// Calls that may throw [throw], keyed by the call span: the `throw`
     /// operation itself and every call whose callee declares `[Throw<M>]`.
     /// The emitters need each one because the control transfer is *their*
@@ -1829,18 +1795,6 @@ impl Checked {
         }
     }
 
-    /// [unify-checker] The positional-pick / elvis facts at one span, in one
-    /// lookup (COMPLETED.md's unify-checker entry): the runtime test, and the
-    /// picked and left arm types.
-    pub fn pick_info(&self, key: Key) -> PickInfo<'_> {
-        PickInfo {
-            elvis_test: self.elvis_tests.get(&key),
-            elvis_pick: self.elvis_picks.get(&key),
-            pick_left: self.pick_left.get(&key),
-            elvis_widen: self.elvis_widen.get(&key),
-        }
-    }
-
     /// [unify-checker] A function named as a value, at its name: the effects
     /// the fn type it is passed as threads, the implicits the function fills
     /// in turn [fn-value], and — for an effect's member written as a value —
@@ -1897,16 +1851,6 @@ impl Checked {
     pub fn interp_info(&self, key: Key) -> InterpInfo<'_> {
         InterpInfo { union: self.interp_union.get(&key) }
     }
-}
-
-/// [unify-checker] positional-`pick` / elvis facts at one span (COMPLETED.md's unify-checker entry).
-pub struct PickInfo<'c> {
-    pub elvis_test: Option<&'c PickTest>,
-    pub elvis_pick: Option<&'c Ty>,
-    pub pick_left: Option<&'c Ty>,
-    /// [op-elvis] [type-rewrap] The coercion lifting the picked value into
-    /// the join, when the right side widens it.
-    pub elvis_widen: Option<&'c Coercion>,
 }
 
 /// [unify-checker] A function named as a value, at its name.
@@ -3286,6 +3230,12 @@ struct Checker<'p, 'r> {
     /// [fn-overload-return] The expected type of a value `if`/`when`, handed
     /// to the branch block about to be checked for its tail (R-3).
     tail_hint: Option<Ty>,
+    /// [linear-obligation] The next `check_branch_block` is a branch of an
+    /// `if` or `when`: its tail is the branch's value, which the enclosing
+    /// expression's type carries on, so a linear tail is not dropped there.
+    value_tail: bool,
+    /// Set for the one statement that is such a tail.
+    tail_is_value: bool,
     /// [fn-overload-return] The expected type of the value `if`/`when` being
     /// checked, which each of its branch blocks receives as `tail_hint`.
     value_expected: Option<Ty>,
@@ -3708,6 +3658,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             copy_unused: HashMap::new(),
             select_hint: None,
             tail_hint: None,
+            value_tail: false,
+            tail_is_value: false,
             value_expected: None,
             own_contract: None,
             lit_spans: HashMap::new(),
@@ -13891,6 +13843,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             base: Some(arm_ty.strip_quals().clone()),
             is_none: false,
             unresolved: false,
+            exact: None,
         };
         let Some(test) = self.union_test_for(&repr, &pat) else {
             return false;
@@ -17722,7 +17675,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut unwrap_span: Option<Span> = None;
         loop {
             match e {
-                Expr::Elvis { span, .. } if e.presence_unwrapped().is_some() => {
+                Expr::Elvis { span, .. } | Expr::When { span, .. } if e.presence_unwrapped().is_some() => {
                     unwrap_span = Some(*span);
                     e = e.presence_unwrapped().unwrap();
                 }
@@ -17975,36 +17928,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         out
     }
 
-    /// [is-narrow-guard] Applies narrowing facts **permanently** — the
-    /// `with_narrows` application half without the restore. Used for the
-    /// guard idiom: when every branch of an `if` exits (`return`, `break`,
-    /// `continue`, or a diverging call), the code after it is on the
-    /// else-path, so the else-narrows of every condition hold there.
-    ///
-    /// A variable already consumed keeps that fact — a flow fact outranks a
-    /// narrowing, exactly as the restore half has it [deduce-consume].
-    /// [op-elvis-guard] A `?:` whose right side **leaves** has proved something
-    /// about its subject on the path that follows: the value was there. So the
-    /// subject's place narrows to the picked type, exactly as the branch of an
-    /// `is` guard does [is-narrow-guard] — the same facts, reached from an
-    /// expression instead of a condition.
-    ///
-    /// Only when the right side diverges: one that yields a value leaves the
-    /// subject possibly-unpicked afterwards, since that is the path it took.
-    fn install_elvis_guard(&mut self, subject: &'p Expr, picked: &Ty, subj_repr: &Ty) {
-        let Some(place) = Place::of_expr(subject)
-            .filter(|p| p.narrowable() && self.lookup(&p.root).is_some())
-        else {
-            return;
-        };
-        let narrow = Narrow {
-            place,
-            narrowed: picked.clone(),
-            declared: subj_repr.clone(),
-        };
-        self.install_narrows(&[narrow]);
-    }
-
     /// The type the checker recorded for an expression it has already walked —
     /// `analyze_cond` checks the condition itself, so re-checking it here would
     /// write its side tables twice.
@@ -18076,6 +17999,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [is-narrow-guard] Applies narrowing facts **permanently** — the
+    /// `with_narrows` application half without the restore. Used for the
+    /// guard idiom: when every branch of an `if` exits (`return`, `break`,
+    /// `continue`, or a diverging call), the code after it is on the
+    /// else-path, so the else-narrows of every condition hold there.
+    ///
+    /// A variable already consumed keeps that fact — a flow fact outranks a
+    /// narrowing, exactly as the restore half has it [deduce-consume].
     fn install_narrows(&mut self, narrows: &[Narrow]) {
         for n in narrows {
             if n.place.is_root() {
@@ -22551,6 +22482,7 @@ struct LoopCtx {
 }
 
 /// A parsed `is` check: qualifiers + optional base type (or `None`).
+#[derive(Clone)]
 struct CheckPat {
     quals: Vec<String>,
     /// [qual-depend] Per-qualifier value arguments, indexed as `quals` is:
@@ -22562,6 +22494,9 @@ struct CheckPat {
     /// A name in the check resolved to nothing and was reported
     /// [name-resolve]: downstream match diagnostics are suppressed.
     unresolved: bool,
+    /// [when-lowered] A hole's arms, matched by identity: what the type
+    /// checker filled a lowered `when`'s head with.
+    exact: Option<Vec<Ty>>,
 }
 
 /// The outcome of analyzing one `is` expression.
@@ -22582,109 +22517,6 @@ struct IsInfo {
 
 impl<'p, 'r> Checker<'p, 'r> {
     // ================= widening checks [qual-lift] =================
-
-    /// [op-elvis] `subject ?: rhs` — the first-arm pick (user decision
-    /// 2026-10-14). The subject's **first** declared arm becomes the value (a
-    /// one-arm sub-union by `[type-rewrap]`) when the subject holds it; `rhs` runs
-    /// otherwise with `_` bound to the arms left behind. Widening is allowed —
-    /// a `rhs` outside the subject's arms joins into the result — and a
-    /// diverging `rhs` narrows the subject to the first arm below
-    /// [op-elvis-guard].
-    fn check_elvis(
-        &mut self,
-        subject: &'p Expr,
-        rhs: &'p Expr,
-        span: Span,
-    ) -> Ty {
-        let subj_ty = self.check_expr(subject, None);
-        if subj_ty.is_unknown() {
-            // [type-unknown-lenient] One mistake, one diagnostic.
-            let _ = self.check_expr(rhs, None);
-            return Ty::Unknown;
-        }
-        // [op-elvis] The pick keeps the subject's **first arm**, in declared
-        // order [type-union-arm-identity]; the rest go to `_`. A non-union subject
-        // has one arm, which leaves nothing for the other side — refused like
-        // a pointless pick, the same "dead scaffolding" a throw-free `try`
-        // gets.
-        let declared: Vec<Ty> = match &subj_ty {
-            Ty::Union(arms) => arms.clone(),
-            _ => vec![subj_ty.clone()],
-        };
-        if declared.len() < 2 {
-            self.error(span, messages::op_elvis_single_arm(&subj_ty));
-            let _ = self.check_expr(rhs, None);
-            return Ty::Unknown;
-        }
-        let picked_arms = vec![declared[0].clone()];
-        let left_arms = declared[1..].to_vec();
-        let picked = self.mk_union(picked_arms.clone());
-        let left = self.mk_union(left_arms.clone());
-        // The runtime test the emitters need: which of the subject's value
-        // arms are on the picked side, and whether the `None` arm is. Only the
-        // checker knows the subject's arm identity, and a *call* subject has no
-        // recorded representation for an emitter to rebuild it from.
-        let value_arms: Vec<&Ty> = subj_ty.value_arms();
-        let value_arm_index = |arm: &Ty| -> Option<usize> {
-            value_arms.iter().position(|a| *a == arm)
-        };
-        let picked_value_arms: Vec<usize> =
-            picked_arms.iter().filter_map(|a| value_arm_index(a)).collect();
-        let picks_none = picked_arms.iter().any(|a| a.is_none_ty());
-        self.out.elvis_tests.insert(
-            self.key(span),
-            PickTest {
-                size: value_arms.len(),
-                value_arms: picked_value_arms,
-                picks_none,
-                nullable: subj_ty.has_none_arm(),
-            },
-        );
-        self.out.elvis_picks.insert(self.key(span), picked.clone());
-        self.out.pick_left.insert(self.key(span), left.clone());
-        // [expr-placeholder] `_` reads as the arms the pick left behind, tags and
-        // all.
-        let saved = self.placeholder_ty.replace(left.clone());
-        // [op-elvis-guard] A leaving right side takes its flow effects with it:
-        // a `return elem` there moves `elem` on a path the fall-through never
-        // shares, so the consumption must not poison it.
-        let entry = self.snapshot_narrows();
-        let rhs_ty = self.check_expr(rhs, None);
-        self.placeholder_ty = saved;
-        // A diverging right side contributes nothing to the type [type-any-never]
-        // and *proves* the subject was the picked arm, so the place
-        // narrows [op-elvis-guard].
-        if matches!(rhs_ty, Ty::Never) {
-            self.restore_narrows(&entry);
-            let repr = self.repr_of(subject, &subj_ty);
-            self.install_elvis_guard(subject, &picked, &repr);
-            return picked;
-        }
-        // Both sides join. The right side is coerced into the join exactly as
-        // an `if`'s branches are — and widening past the subject's arms is
-        // allowed (`Int? ?: "none"` is `Int | Str`): the picked value is also
-        // coerced into the join at the operator's span.
-        let join = self.mk_union(vec![picked.clone(), rhs_ty.clone()]);
-        let rhs_repr = self.repr_of(rhs, &rhs_ty);
-        self.maybe_coerce(rhs.span(), &rhs_ty, &rhs_repr, &join);
-        // [type-rewrap] The picked value widens into the join too when `rhs` widened
-        // it. Compute that coercion into `elvis_widen` (not the ordinary
-        // `coerce` table, whose entry at this span is the Elvis node's own
-        // outer coercion): temporarily borrow the `coerce` slot, record, and
-        // move the result across.
-        if join != picked {
-            let key = self.key(span);
-            let saved = self.out.coerce.remove(&key);
-            self.maybe_coerce(span, &picked, &picked, &join);
-            if let Some(c) = self.out.coerce.remove(&key) {
-                self.out.elvis_widen.insert(key, c);
-            }
-            if let Some(outer) = saved {
-                self.out.coerce.insert(key, outer);
-            }
-        }
-        join
-    }
 
     /// [expr-pipe] `lhs |> rhs` (user decision 2026-10-14). The left side is
     /// evaluated once and bound to `_`; the right side reads it. The pipe's
@@ -22995,6 +22827,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [fn-overload-return] R-3: a value branch's tail is where the value
         // goes, so its call may be chosen by the branch's expected type.
         let tail_hint = self.tail_hint.take();
+        let value_tail = std::mem::take(&mut self.value_tail);
         let last = block.stmts.len().saturating_sub(1);
         for (si, stmt) in block.stmts.iter().enumerate() {
             if diverged && !self.is_std {
@@ -23011,7 +22844,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.select_hint = Some(h.clone());
                 }
             }
+            self.tail_is_value = value_tail && si == last;
             value = self.check_stmt(stmt);
+            self.tail_is_value = false;
             self.select_hint = None;
             if matches!(value, Ty::Never) {
                 diverged = true;
@@ -23292,10 +23127,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Ty::none()
             }
             Stmt::Expr(e) => {
+                let is_value = std::mem::take(&mut self.tail_is_value);
                 let ty = self.check_expr(e, None);
                 // [linear-obligation] A linear value in statement
-                // position is dropped on the spot.
-                if self.ty_own_linear(&ty) {
+                // position is dropped on the spot. A read of a place drops
+                // nothing — the place still holds it (a lowered `?:`'s first
+                // arm reads its subject [when-lowered]); nor does an `if` or
+                // `when` branch's tail, which is the branch's value.
+                if self.ty_own_linear(&ty) && Place::of_expr(e).is_none() && !is_value {
                     self.error(e.span(), messages::linear_obligation_dropped_statement());
                 }
                 ty
@@ -24226,9 +24065,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 subject,
                 branches,
                 span,
+                origin,
             } => {
                 let saved = std::mem::replace(&mut self.value_expected, expected.cloned());
-                let t = self.check_when(binding.as_ref(), subject, branches, *span);
+                let t = self.check_when(binding.as_ref(), subject, branches, *origin, *span);
                 self.value_expected = saved;
                 t
             }
@@ -24253,17 +24093,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             // union it keeps, counted from the declared **front** (`Forward`)
             // or **back** (`Backward`); those arms become the value, and `rhs`
             // runs otherwise with `_` bound to the arms left behind.
-            Expr::Elvis {
-                subject,
-                rhs,
-                span,
-            } => {
-                // [fn-overload-return] `f(s) ?: d` where a `T` is expected asks
-                // `f` for a `T?`: the pick keeps the subject's first arm.
-                if let (Some(e), Expr::Call { .. }) = (expected, subject.as_ref()) {
-                    self.select_hint = Some(self.mk_union(vec![e.clone(), Ty::none()]));
-                }
-                self.check_elvis(subject, rhs, *span)
+            // [when-lowered] A `?:` is the `when` it lowers to before
+            // resolution (`desugar::lower_picks`); reaching one means a
+            // driver skipped the lowering, which every driver runs.
+            Expr::Elvis { span, .. } => {
+                self.error(*span, messages::op_elvis_not_lowered());
+                Ty::Unknown
             }
             // [expr-pipe] `lhs |> rhs` — the left side evaluated once, bound to
             // `_`, read in the right side. The result is the right side's type.
@@ -27149,6 +26984,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 base: None,
                 is_none: true,
                 unresolved: false,
+                exact: None,
             };
         }
         let mut quals = Vec::new();
@@ -27248,6 +27084,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             base,
             is_none: false,
             unresolved,
+            exact: None,
         }
     }
 
@@ -27262,6 +27099,9 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// Whether a union arm matches an `is` check pattern.
     fn arm_matches(&self, arm: &Ty, pat: &CheckPat) -> bool {
+        if let Some(exact) = &pat.exact {
+            return exact.contains(arm);
+        }
         if pat.is_none {
             return arm.is_none_ty();
         }
@@ -27280,6 +27120,15 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// The runtime lowering of a check against a union representation.
     fn union_test_for(&mut self, repr: &Ty, pat: &CheckPat) -> Option<UnionTest> {
         let Ty::Union(_) = repr else { return None };
+        // [when-lowered] A hole holding `None` tests it as well as its value
+        // arms.
+        if pat.exact.as_ref().is_some_and(|e| e.iter().any(|a| a.is_none_ty())) {
+            let mut value_only = CheckPat { exact: pat.exact.as_ref().map(|e| e.iter().filter(|a| !a.is_none_ty()).cloned().collect()), ..pat.clone() };
+            value_only.is_none = false;
+            let mut t = self.union_test_for(repr, &value_only)?;
+            t.match_none = true;
+            return Some(t);
+        }
         if crate::literal::mentions_lit(repr) {
             return self.literal_union_test(repr, pat);
         }
@@ -27396,6 +27245,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             narrows.extend(info.then_narrows.iter().cloned());
             let (ty, tail) = self.with_narrows(&narrows, |c| {
                 c.tail_hint = c.value_expected.clone();
+                c.value_tail = true;
                 c.check_branch_block(block, info.bindings.clone())
             });
             if !self.block_exits(block) {
@@ -27414,6 +27264,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let entry = self.snapshot_narrows();
                 let (ty, tail) = self.with_narrows(&acc_else.clone(), |c| {
                     c.tail_hint = c.value_expected.clone();
+                    c.value_tail = true;
                     c.check_branch_block(block, Vec::new())
                 });
                 if !self.block_exits(block) {
@@ -27481,9 +27332,30 @@ impl<'p, 'r> Checker<'p, 'r> {
         binding: Option<&'p Ident>,
         subject: &'p Expr,
         branches: &'p [WhenBranch],
+        origin: Option<ast::WhenOrigin>,
         span: Span,
     ) -> Ty {
+        // [fn-overload-return] `f(s) ?: d` where a `T` is expected asks `f`
+        // for a `T?`: the pick keeps the subject's first arm.
+        if let (Some(ast::WhenOrigin::Pick), Some(e), Expr::Call { .. }) = (origin, self.value_expected.clone(), subject) {
+            self.select_hint = Some(self.mk_union(vec![e, Ty::none()]));
+        }
         let subj_ty = self.check_expr(subject, None);
+        // [type-unknown-lenient] One mistake, one diagnostic: a lowered
+        // operator over a subject nothing could type says nothing more.
+        if origin.is_some() && subj_ty.is_unknown() {
+            self.check_arms_unmatched(binding, &subj_ty, branches);
+            return Ty::Unknown;
+        }
+        // [op-elvis] A non-union subject has one arm, which leaves nothing
+        // for the other side — refused like a pointless pick. Asked before
+        // the subject's shape: a comptime copy can splice a value where the
+        // `?:` was written over a place.
+        if origin == Some(ast::WhenOrigin::Pick) && !matches!(subj_ty, Ty::Union(_)) {
+            self.error(span, messages::op_elvis_single_arm(&subj_ty));
+            self.check_arms_unmatched(binding, &subj_ty, branches);
+            return Ty::Unknown;
+        }
         // [when-bind] `when name = subject { … }` introduces `name`, a fresh
         // local bound to the subject and scoped to the `when`, and then
         // matches on it. The plain form requires the subject to already be a
@@ -27492,13 +27364,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         if scoped {
             self.locals.push(HashMap::new());
         }
-        let subject_name: String = match binding {
+        let subject_place: Place = match binding {
             Some(name) => {
                 self.declare(name, subj_ty.clone());
-                name.name.clone()
+                Place::root(name.name.clone())
             }
-            None => match subject {
-                Expr::Ident(id) => id.name.clone(),
+            None => match (subject, Place::of_expr(subject)) {
+                (Expr::Ident(id), _) => Place::root(id.name.clone()),
+                // [when-lowered] A lowered `?:` matches a field place where it
+                // is, as an `is` test narrows one [flow-place].
+                (_, Some(place)) if origin.is_some() => place,
                 _ => {
                     if scoped {
                         self.locals.pop();
@@ -27511,11 +27386,25 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             },
         };
-        let result = self.check_when_body(binding, subject, &subject_name, &subj_ty, branches, span);
+        let result = self.check_when_body(binding, subject, &subject_place, &subj_ty, branches, origin, span);
         if scoped {
             self.locals.pop();
         }
         result
+    }
+
+    /// [type-unknown-lenient] A `when` refused before its arms are matched:
+    /// the arms are still checked, for their own errors, with the binding
+    /// form's name in scope.
+    fn check_arms_unmatched(&mut self, binding: Option<&'p Ident>, subj_ty: &Ty, branches: &'p [WhenBranch]) {
+        self.locals.push(HashMap::new());
+        if let Some(name) = binding {
+            self.declare(name, subj_ty.clone());
+        }
+        for b in branches {
+            self.check_branch_block(&b.body, Vec::new());
+        }
+        self.locals.pop();
     }
 
     /// The body of a `when` once the subject's name and type are fixed (the
@@ -27524,9 +27413,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         &mut self,
         binding: Option<&'p Ident>,
         subject: &'p Expr,
-        subject_name: &str,
+        subject_place: &Place,
         subj_ty: &Ty,
         branches: &'p [WhenBranch],
+        origin: Option<ast::WhenOrigin>,
         span: Span,
     ) -> Ty {
         // For the binding form the subject reads at its declared type; for the
@@ -27575,7 +27465,18 @@ impl<'p, 'r> Checker<'p, 'r> {
         // — are suppressed [name-resolve].
         let mut unresolved_check = false;
         for branch in branches {
-            let pat = self.parse_check(&branch.check, Some(&subj_ty));
+            // [when-lowered] A hole is the subject's first declared arm, or
+            // every arm left.
+            let pat = match branch.hole {
+                Some(hole) => {
+                    let exact = match hole {
+                        ast::ArmHole::First => all_arms.iter().take(1).filter(|a| remaining.contains(a)).cloned().collect(),
+                        ast::ArmHole::Rest => remaining.clone(),
+                    };
+                    CheckPat { quals: Vec::new(), qual_args: Vec::new(), base: None, is_none: false, unresolved: false, exact: Some(exact) }
+                }
+                None => self.parse_check(&branch.check, Some(&subj_ty)),
+            };
             // [when-union-head] `is A | B`: every alternative's arms.
             let alts: Vec<CheckPat> = branch.or.iter().map(|c| self.parse_check(c, Some(&subj_ty))).collect();
             let matched: Vec<Ty> = remaining
@@ -27665,7 +27566,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 repr.clone()
             };
             let narrows = vec![Narrow {
-                place: Place::root(subject_name.to_string()),
+                place: subject_place.clone(),
                 narrowed: narrow_ty,
                 declared,
             }];
@@ -27676,6 +27577,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let (ty, tail) =
                 self.with_narrows(&narrows, |c| {
                     c.tail_hint = c.value_expected.clone();
+                    c.value_tail = true;
                     c.check_branch_block(&branch.body, bindings)
                 });
             if !self.block_exits(&branch.body) {
@@ -27696,10 +27598,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         if some_exit && binding.is_none() && !through_arms.is_empty() && !unresolved_check {
             let narrowed = self.mk_union(through_arms);
             if narrowed != repr {
-                self.install_narrows(&[Narrow { place: Place::root(subject_name.to_string()), narrowed, declared: repr.clone() }]);
+                self.install_narrows(&[Narrow { place: subject_place.clone(), narrowed, declared: repr.clone() }]);
             }
         }
-        if !unresolved_check {
+        if !unresolved_check && origin.is_none() {
             // [lsp-completion] The arms left to write, before the runtime-arm
             // rewrite collapses literals: spelled as the check would be.
             let key = self.key(span);

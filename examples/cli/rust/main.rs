@@ -270,31 +270,28 @@ pub fn describe(t: &crate::Tool) -> String {
             let mut tls_2 = tls.as_ref().unwrap();
             format!("tls {}", tls_2.cert)
         };
-        return format!("serve {} on {}:{} as {}, {}, {} worker(s)", crate::std_core_string::join_platform(&c_1.files, &String::from(",")), c_1.net.host, c_1.port, c_1.output, secure, {
-            let mut __pick_3 = &c_1.net.workers;
-            if __pick_3.is_some() {
-                let mut __picked_4 = __pick_3.unwrap();
-                __picked_4
-            } else {
-                1i32
-            }
+        return format!("serve {} on {}:{} as {}, {}, {} worker(s)", crate::std_core_string::join_platform(&c_1.files, &String::from(",")), c_1.net.host, c_1.port, c_1.output, secure, if c_1.net.workers.is_some() {
+            let mut __narrowed_3 = c_1.net.workers.unwrap();
+            __narrowed_3
+        } else {
+            1i32
         });
     } else if matches!(c, Some(crate::unions::Union2::U2(_))) {
-        let mut c_6 = match &c { Some(crate::unions::Union2::U2(__v)) => __v, _ => unreachable!() };
-        let mut s = &c_6.source;
+        let mut c_4 = match &c { Some(crate::unions::Union2::U2(__v)) => __v, _ => unreachable!() };
+        let mut s = &c_4.source;
         let mut from: String = if matches!(s, crate::unions::Union3::U1(_)) {
-            let mut s_7 = match &s { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };
-            format!("{} (timeout {}s)", s_7.url, s_7.timeout)
+            let mut s_5 = match &s { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };
+            format!("{} (timeout {}s)", s_5.url, s_5.timeout)
         } else if matches!(s, crate::unions::Union3::U2(_)) {
-            let mut s_8 = match &s { crate::unions::Union3::U2(__v) => __v, _ => unreachable!() };
-            format!("file {}", s_8.file)
+            let mut s_6 = match &s { crate::unions::Union3::U2(__v) => __v, _ => unreachable!() };
+            format!("file {}", s_6.file)
         } else if matches!(s, crate::unions::Union3::U3(_)) {
-            let mut s_9 = match &s { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
+            let mut s_7 = match &s { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
             String::from("standard input")
         } else {
             panic!("salvo: unhandled union arm at main:104:24");
         };
-        return format!("fetch {} with {} header(s)", from, crate::std_core_list::size_platform::<String>(&c_6.header));
+        return format!("fetch {} with {} header(s)", from, crate::std_core_list::size_platform::<String>(&c_4.header));
     } else if c.is_none() {
         return String::from("nothing to do");
     } else {
