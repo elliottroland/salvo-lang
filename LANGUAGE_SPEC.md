@@ -11576,7 +11576,7 @@ between endpoints and delivers what arrives into the scheduler.
   `written_types` lowering) to the declaration that node is in, and a file's
   own rows (its carried identities) to its `DeclKind::File` id. The indexes
   resolution builds (`type_ref_keys`, `type_ref_span_keys`, `value_keys`,
-  `value_span_keys`, `platform_closure_all`, `refinements`) are
+  `value_span_keys`, `refinements`) are
   program-wide.
   * One router, an exhaustive destructure of `Checked`, partitions the rows
     into a sink: by declaration (`Checked::split_decls`, which `salvo facts`
@@ -12314,7 +12314,7 @@ replaced the working document TESTING.md).
     boundary and is refused, and so is a recursive type with fields to check.
   * A check that walks a collection **warns** on the declaration, naming the
     cost (D10 C3).
-  * The plan is the checker's (`Checked::boundary_checks`,
+  * The plan is the checker's (`Checked::boundaries`' `check`,
     `salvo_core::abi::BoundaryCheck`), so both backends check the same
     thing; a host project's adapters carry no checks (it only type-checks
     the implementation files).

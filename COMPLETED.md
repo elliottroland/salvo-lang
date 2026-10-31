@@ -144,6 +144,24 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — The host boundary at a node, one table (user decision, PIPELINE.md D2 host boundary, [platform-check] [platform-factory])
+
+- **Decided (user, 2026-10-30, item 9)**: `boundary_checks` and
+  `factories`, written at the same name node for the same type and read
+  together by the IR, are `boundaries: HashMap<Key, abi::Boundary { check,
+  factories }>` (a type alias's entry has factories alone).
+  `platform_closure_all`, read only by the checker's own boundary walk, is
+  no `Checked` table: `check_once` computes it once the names are seeded
+  and hands it to the walk (`WalkCtx::platform_closure`,
+  `Checker::platform_closure`).
+- **What it took**: computing the closure where the table used to be —
+  before the walk, in `check_program_walk` — panicked in 366 tests
+  (`Symbols::ref_key before seed_ref_keys`): the closure resolves type
+  names, and the names are seeded inside `check_once`. It is computed there,
+  after the refinements are copied out, and the walk's context is rebound
+  with it.
+- **Output**: nothing moved. 709 tests under nextest, warm run 1m38.
+
 ### 2026-10-30 — A `when`'s missing arms, one table (user decision, PIPELINE.md D2 `when` facts, [when-exhaustive])
 
 - **Decided (user, 2026-10-30, item 8)**: `when_exhaustive` and

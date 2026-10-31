@@ -96,7 +96,7 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                             exported: t.exported,
                             type_params: type_params(&t.generics, &t.generic_canbe),
                             ty: ctx.written_ty(file_idx, alias),
-                            factories: ctx.checked.factories.get(&ctx.checked.key_at(file_idx, t.name.span)).cloned(),
+                            factories: ctx.checked.boundaries.get(&ctx.checked.key_at(file_idx, t.name.span)).and_then(|b| b.factories.clone()),
                             span: t.span,
                         }));
                     }
@@ -261,7 +261,7 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
                     mode: modes.member_param(m, p),
                     variadic: p.variadic,
                     // [platform-check] a `Reply<T>` the host answers on.
-                    check: ctx.checked.boundary_checks.get(&ctx.checked.key_at(file_idx, p.name.span)).cloned(),
+                    check: ctx.checked.boundaries.get(&ctx.checked.key_at(file_idx, p.name.span)).and_then(|b| b.check.clone()),
                     span: p.span,
                 });
             }
@@ -274,11 +274,11 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
             // [platform-check] [platform-factory] the host boundary of a
             // platform-handled member: its result check, and the factories of
             // its result and reply payloads.
-            let result_check = ctx.checked.boundary_checks.get(&ctx.checked.key_at(file_idx, m.name.span)).cloned();
+            let result_check = ctx.checked.boundaries.get(&ctx.checked.key_at(file_idx, m.name.span)).and_then(|b| b.check.clone());
             let mut factories: Vec<crate::abi::Factories> = Vec::new();
-            factories.extend(ctx.checked.factories.get(&ctx.checked.key_at(file_idx, m.name.span)).cloned());
+            factories.extend(ctx.checked.boundaries.get(&ctx.checked.key_at(file_idx, m.name.span)).and_then(|b| b.factories.clone()));
             for p in &m.params {
-                factories.extend(ctx.checked.factories.get(&ctx.checked.key_at(file_idx, p.name.span)).cloned());
+                factories.extend(ctx.checked.boundaries.get(&ctx.checked.key_at(file_idx, p.name.span)).and_then(|b| b.factories.clone()));
             }
             Member {
                 name: m.name.name.clone(),
@@ -603,8 +603,8 @@ fn fn_decl(
         holds,
         ref_anchors,
         throws,
-        result_check: if f.platform { ctx.checked.boundary_checks.get(&ctx.checked.key_at(file_idx, f.name.span)).cloned() } else { None },
-        factories: if f.platform { ctx.checked.factories.get(&ctx.checked.key_at(file_idx, f.name.span)).cloned() } else { None },
+        result_check: if f.platform { ctx.checked.boundaries.get(&ctx.checked.key_at(file_idx, f.name.span)).and_then(|b| b.check.clone()) } else { None },
+        factories: if f.platform { ctx.checked.boundaries.get(&ctx.checked.key_at(file_idx, f.name.span)).and_then(|b| b.factories.clone()) } else { None },
         body,
         span: f.span,
         fate,

@@ -176,6 +176,15 @@ impl Walk<'_, '_> {
 /// the host type cannot say. Computed by the checker over the *runtime*
 /// shape ([type-union-arm-identity]: a base's literals are one arm), so both
 /// backends render the same plan; a value that needs no check has no plan.
+/// [platform-check] [platform-factory] The host boundary at one node
+/// (`Checked::boundaries`): the check of what the host hands over, and the
+/// factories of the union it builds — either may be absent.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Boundary {
+    pub check: Option<BoundaryCheck>,
+    pub factories: Option<Factories>,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum BoundaryCheck {
     /// A closed literal arm: the value is one of these.

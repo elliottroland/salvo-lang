@@ -1245,18 +1245,15 @@ pub struct Checked {
     /// roots were consumed [fate-move-mode]: the Rust backend may render
     /// the place directly (a partial move) instead of cloning.
     pub moved_projections: HashSet<Key>,
-    /// [platform-check] What crosses from host to Salvo and needs checking
-    /// (ABI D7): keyed by a platform fn's name span (its result), an
-    /// effect member's name span (its result, for a platform-handled effect),
-    /// or a `Reply<T>` parameter's name span (the value the host sends).
-    pub boundary_checks: HashMap<Key, crate::abi::BoundaryCheck>,
-    /// [platform-factory] The factories of each union a host builds (the ABI decisions
-    /// D5): keyed by a type alias's name span (a named union reached from a
-    /// platform signature), a platform fn's or platform-handled member's name
-    /// span (its result), or a `Reply<T>` parameter's name span.
-    pub factories: HashMap<Key, crate::abi::Factories>,
-    /// [platform-factory] What every module's platform signatures reach.
-    pub platform_closure_all: std::collections::BTreeSet<String>,
+    /// [platform-check] [platform-factory] The host boundary at a node
+    /// (PIPELINE.md D2): what crosses from host to Salvo and needs checking
+    /// (ABI D7), and the factories of a union a host builds (ABI D5). At a
+    /// platform fn's name (its result), a platform-handled effect member's
+    /// name (its result) or a `Reply<T>` parameter's name (what the host
+    /// sends) — the check and the factories of one type — and, factories
+    /// alone, at a type alias's name (a named union a platform signature
+    /// reaches).
+    pub boundaries: HashMap<Key, crate::abi::Boundary>,
     /// The captured outer locals of each lambda [fate-lambda], keyed by
     /// the lambda expression's span (for tooling and future emission
     /// refinements; both emitters currently capture lexically, which is
@@ -2092,12 +2089,15 @@ fn check_program_walk<'p>(
     let contracts = crate::deduce::contracts(program, &resolution.decls, cache);
     drop(t);
 
+    // [platform-factory] Computed by `check_once`, once the names are seeded.
+    let no_closure = std::collections::BTreeSet::new();
     let ctx = WalkCtx {
         program,
         resolution,
         symbols,
         inferred: &contracts,
         refinements: &refinements,
+        platform_closure: &no_closure,
         cache,
     };
     let t = crate::timing::phase("check: walk");
@@ -2170,6 +2170,7 @@ struct WalkCtx<'a, 'p> {
     symbols: &'a Symbols<'p>,
     inferred: &'a HashMap<DeclId, Vec<crate::deduce::ParamDeduction>>,
     refinements: &'a crate::refine::Refinements,
+    platform_closure: &'a std::collections::BTreeSet<String>,
     cache: Option<&'a StdCache>,
 }
 
@@ -2236,9 +2237,13 @@ fn check_once<'p>(
     out.errors.extend(refinements.errors.iter().cloned());
     out.refinements = refinements.clone();
     drop(t);
+    // [platform-factory] What every module's platform signatures reach:
+    // the walk's input for which type aliases get factories (the names are
+    // seeded above).
     let t = crate::timing::phase("  check: platform closure");
-    out.platform_closure_all = crate::abi::platform_closure_all(program, symbols);
+    let platform_closure = crate::abi::platform_closure_all(program, symbols);
     drop(t);
+    let ctx = &WalkCtx { platform_closure: &platform_closure, ..*ctx };
     let first = cache.map_or(0, |c| c.std_files);
     let files: Vec<usize> = (first..program.files.len()).collect();
     let mut ifaces: Vec<FileIface<'p>> = (0..program.files.len()).map(|_| FileIface::default()).collect();
@@ -2354,6 +2359,7 @@ fn file_checker<'r, 'p>(
         ctx.symbols,
         ctx.inferred,
         ctx.refinements,
+        ctx.platform_closure,
         out,
         param_mutations,
         parking_handlers,
@@ -2834,6 +2840,8 @@ struct Checker<'p, 'r> {
     /// [qual-refn] Refinements applying per (file, callee), resolved once
     /// for the whole program.
     refinements: &'r crate::refine::Refinements,
+    /// [platform-factory] What every module's platform signatures reach.
+    platform_closure: &'r std::collections::BTreeSet<String>,
     symbols: &'r Symbols<'p>,
     file_idx: usize,
     /// Every source file, for which module a declaration's file is
@@ -3408,6 +3416,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         symbols: &'r Symbols<'p>,
         inferred: &'r HashMap<DeclId, Vec<crate::deduce::ParamDeduction>>,
         refinements: &'r crate::refine::Refinements,
+        platform_closure: &'r std::collections::BTreeSet<String>,
         out: &'r mut Checked,
             param_mutations: &'r mut HashMap<Key, HashSet<String>>,
             parking_handlers: &'r mut HashSet<String>,
@@ -3422,6 +3431,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             symbols,
             inferred,
             refinements,
+            platform_closure,
             file_idx,
             files,
             out,
@@ -4281,7 +4291,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.plan_factories(&ty, f.name.span);
                     }
                 }
-                Item::Type(t) if t.alias.is_some() && self.out.platform_closure_all.contains(self.symbols.key_or(t, &t.name.name)) => {
+                Item::Type(t) if t.alias.is_some() && self.platform_closure.contains(self.symbols.key_or(t, &t.name.name)) => {
                     if t.generics.is_empty() {
                         let ty = self.lower_type(t.alias.as_ref().unwrap());
                         self.plan_factories(&ty, t.name.span);
@@ -4367,10 +4377,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         made.retain(|f| !dropped.contains(&f.name));
         let union = crate::literal::collapse_ty(ty.strip_quals());
-        self.out.factories.insert(
-            self.key(key),
-            Factories { arity: groups.len(), nullable, union, arms: made, dropped },
-        );
+        self.out.boundaries.entry(self.key(key)).or_default().factories =
+            Some(Factories { arity: groups.len(), nullable, union, arms: made, dropped });
     }
 
     /// [platform-check] Whether every identity a keyed collection type names —
@@ -4420,7 +4428,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.warn(span, messages::platform_check_element_cost(&what, &ty));
         }
         let at = self.key(key);
-        self.out.boundary_checks.insert(at, plan);
+        self.out.boundaries.entry(at).or_default().check = Some(plan);
     }
 
     /// [platform-check] The check a value of `ty` needs when the host hands it
