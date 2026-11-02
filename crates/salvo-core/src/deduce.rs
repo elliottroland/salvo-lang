@@ -1439,7 +1439,7 @@ impl<'p> Walk<'_, 'p> {
             _ => return None,
         };
         let instance = self.effect_calls.get(&self.key(span))?.receiver()?;
-        let Ty::Named { name: effect, .. } = instance.strip_quals() else {
+        let Ty::Named { name: effect, .. } = instance.ty.strip_quals() else {
             return None;
         };
         let decl = self.effects.get(effect.as_str())?;

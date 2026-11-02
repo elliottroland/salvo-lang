@@ -2726,8 +2726,30 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   2026-10-30)**: each effect argument names its instance — a `use` at a
   node, the enclosing fn's or lambda's effect parameter *i*, a handler
   dependency *i* — so the IR reads it instead of searching its
-  environment by type and then by base name (`effect_instance`, whose
-  base-name fallback is a leniency).
+  environment by type and then by base name. **The pieces (user,
+  2026-10-30)**, in order: D3.1 effect arguments name their instance; D3.2
+  pass modes as per-declaration facts (`param_mode::Modes` a reader); D3.3
+  the builder's re-derivations go (the `is_primitive_operator` /
+  `intrinsic_fn` / `decl_of_effect` scans, `construct_handler`'s handler
+  checks, the `use` classification, `approx_keyed`, the lambda
+  `returned_ty` fallback, the `fn_value` adapter decision, the name
+  fallbacks of `CalleeKind::Local` and `ImplicitArg::Forwarded`); D3.4
+  erasure stays per node but goes through one layer (option (a); a
+  separate pass over an unerased IR was rejected); D3.5(a) `by_value_loops`
+  into the flow pass's `Decision` and the fate shapes tidied; D3.6 rebuild
+  per declaration rather than per module; then D3.5(b), the fate links
+  into the flow pass so one thing owns every path-dependent ownership
+  question, behind a differential harness like R8 piece 8's. **D3.1 built
+  — done** (2026-10-30): the checker records an `Instance { ty, binder }`
+  (`Fn`, `Lambda`, `Dep`, `Use`, `Clause`) in `effects_passed`,
+  `constructions` (`Dep` is gone), `ImplicitArg::Member` and
+  `PredicateCheck::effects`, and at `eff[*]`; an un-annotated lambda
+  records the instances its inferred parameters stand for
+  (`EffectsPassed::Inferred`). The IR's `effect_env` is keyed by instance
+  and `effect_instance` reads the one named: the type search, the
+  base-name fallback, and the member-call and `for` fallbacks
+  (`Ty::named(effect)`, the callee's own list) are gone, the last two now
+  lowering errors. Emitted code is unchanged.
 - **D4. The typed dump and the full round trip**: B4 extended to types,
   type arguments and narrowings (marked notation where Salvo has no
   spelling).

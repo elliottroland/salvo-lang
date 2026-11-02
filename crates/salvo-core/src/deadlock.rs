@@ -584,7 +584,7 @@ fn build(
             .get(&at)
             .into_iter()
             .flat_map(|c| &c.deps)
-            .filter_map(|d| match d.instance.strip_quals() {
+            .filter_map(|d| match d.ty.strip_quals() {
                 crate::types::Ty::Named { name, .. } => Some((name.clone(), file, span, false)),
                 _ => None,
             })

@@ -1,7 +1,7 @@
 //! Expressions (IR record §2): every construct lowered to the node set, every
 //! resolution copied from the checker.
 
-use crate::check::{Callee as CalleeKind, Constructed, Dep, EffectsPassed, FnValue, ImplicitArg, Move, NarrowBy, UnionTest};
+use crate::check::{Binder, Callee as CalleeKind, Constructed, EffectsPassed, FnValue, ImplicitArg, Instance, Move, NarrowBy, UnionTest};
 use crate::param_mode::PassMode;
 use crate::types::Ty;
 use salvo_syntax::ast::{self, BinaryOp, Expr as AExpr, LambdaBody, Pattern, StrExprPart, UnaryOp};
@@ -362,7 +362,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             AExpr::Merge { items, all, span } => self.merge_expr(items, *all, *span),
             AExpr::Spawn { handler, with_items, pool, join, .. } => {
                 let key = self.key(span);
-                let deps: Vec<Dep> = self.ctx.checked.constructions.get(&key).map(|c| c.deps.clone()).unwrap_or_default();
+                let deps: Vec<Instance> = self.ctx.checked.constructions.get(&key).map(|c| c.deps.clone()).unwrap_or_default();
                 let h = match self.construct_handler(handler, &deps, with_items, span) {
                     Some(h) => h,
                     None => self.expr(handler),
@@ -375,7 +375,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             AExpr::ReplyTo { member, captures, gated, pool, .. } => {
                 let key = self.key(span);
                 let found = self.ctx.checked.replyto_targets.get(&key).cloned();
-                let task_effects: Vec<Ty> = self.ctx.checked.effects_passed.get(&key).and_then(EffectsPassed::leading).cloned().unwrap_or_default();
+                let task_effects: Vec<Instance> = self.ctx.checked.effects_passed.get(&key).and_then(EffectsPassed::leading).cloned().unwrap_or_default();
                 let caps: Vec<Expr> = captures.iter().map(|x| self.expr(x)).collect();
                 let pool = pool.as_ref().map(|p| Box::new(self.expr(p)));
                 let target = match found {
@@ -743,8 +743,11 @@ impl<'a, 'p> Lower<'a, 'p> {
                     self.error(span, messages::effect_dispatch_lower_no_declaration(&effect));
                     return unsupported(ty, span, "member call");
                 };
-                let instance_ty = receiver.unwrap_or_else(|| Ty::named(effect.clone()));
-                let instance = self.effect_instance(&instance_ty, span);
+                let Some(receiver) = receiver else {
+                    self.error(span, messages::effect_available_lower_no_instance(&Ty::named(effect.clone())));
+                    return unsupported(ty, span, "member call");
+                };
+                let instance = self.effect_instance(&receiver, span);
                 let mut lowered = args;
                 lowered.extend(self.implicit_list(&implicits, &[], span));
                 return Expr { ty, span, kind: ExprKind::MemberCall { instance: Box::new(instance), member: MemberRef { interface, index }, type_args: Vec::new(), args: lowered } };
@@ -754,7 +757,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let name = name.unwrap_or_default();
                 let local = self.lookup(&name).map(|b| b.local.clone()).or_else(|| self.implicit_locals.get(&name).cloned()).unwrap_or(Local(name.clone()));
                 let mut a: Vec<Expr> = match leading {
-                    Some(effs) => crate::threaded_effects(&effs).iter().map(|t| self.effect_instance(t, span)).collect(),
+                    Some(effs) => self.leading_instances(&effs, span),
                     None => Vec::new(),
                 };
                 a.extend(args);
@@ -766,15 +769,18 @@ impl<'a, 'p> Lower<'a, 'p> {
                 return unsupported(ty, span, "for");
             }
         };
-        // Effects as values: the instances a callee declaring effects takes.
-        let effects: Vec<Ty> = match leading {
-            Some(effs) => effs,
-            None => self.fn_taken(k).unwrap_or_default(),
+        // Effects as values: the instances a callee declaring effects takes,
+        // as the checker resolved them [effect-instance]. A callee taking
+        // one with none recorded is refused rather than called short.
+        let mut lowered: Vec<Expr> = match leading {
+            Some(effs) => self.leading_instances(&effs, span),
+            None => {
+                if let Some(t) = self.fn_taken(k).unwrap_or_default().into_iter().find(|t| !crate::types::is_throw_effect(t)) {
+                    self.error(span, messages::effect_available_lower_no_instance(&erase(&t)));
+                }
+                Vec::new()
+            }
         };
-        let mut lowered: Vec<Expr> = Vec::new();
-        for t in effects.iter().filter(|t| !matches!(t, Ty::Named { name, .. } if name == crate::THROW_EFFECT)) {
-            lowered.push(self.effect_instance(&erase(t), span));
-        }
         lowered.extend(args);
         lowered.extend(self.implicit_list(&implicits, &[], span));
         Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(k), type_args: Vec::new(), args: lowered, moved: false } }
@@ -1117,7 +1123,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// it — so it carries its handler, and its type is the position's, with no
     /// effects of its own. Its own implicits follow the arguments, as at a
     /// member call [implicit-recursive].
-    pub(crate) fn member_value(&mut self, effect: &str, index: usize, instance: &Ty, nested: &[ImplicitArg], want: &Ty, at: Span) -> Expr {
+    pub(crate) fn member_value(&mut self, effect: &str, index: usize, instance: &Instance, nested: &[ImplicitArg], want: &Ty, at: Span) -> Expr {
         let want = erase(want);
         let Some(interface) = self.ctx.decl_of_effect(effect) else {
             self.error(at, messages::effect_member_overload_lower_no_declaration(&effect));
@@ -1160,23 +1166,25 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.ctx.checked.effects_taken_by(file, decl).cloned()
     }
 
-    /// The instance in scope for an effect type [effect-available].
-    pub(crate) fn effect_instance(&mut self, ty: &Ty, span: Span) -> Expr {
-        let want = erase(ty);
-        let found = self
-            .effect_env
-            .iter()
-            .rev()
-            .find(|(t, _)| *t == want)
-            .or_else(|| self.effect_env.iter().rev().find(|(t, _)| base_of(t) == base_of(&want)))
-            .map(|(t, l)| (t.clone(), l.clone()));
+    /// [effect-instance] The local the instance the checker named is
+    /// reached through: its binding's, by binder and type — the innermost,
+    /// where an inferred lambda's parameter stands for it.
+    pub(crate) fn effect_instance(&mut self, want: &Instance, span: Span) -> Expr {
+        let ty = erase(&want.ty);
+        let found = self.effect_env.iter().rev().find(|(i, _)| i.binder == want.binder && i.ty == ty).map(|(_, l)| l.clone());
         match found {
-            Some((t, l)) => Expr { ty: t, span, kind: ExprKind::Read { place: Place { root: l, steps: Vec::new() }, consume: false, moved: false } },
+            Some(l) => Expr { ty, span, kind: ExprKind::Read { place: Place { root: l, steps: Vec::new() }, consume: false, moved: false } },
             None => {
-                self.error(span, messages::effect_available_lower_no_instance(&want));
-                unsupported(want, span, "effect instance")
+                self.error(span, messages::effect_available_lower_no_instance(&ty));
+                unsupported(ty, span, "effect instance")
             }
         }
+    }
+
+    /// [effect-instance] The instances a call passes ahead of its arguments,
+    /// the throw effect left out [throw].
+    fn leading_instances(&mut self, passed: &[Instance], span: Span) -> Vec<Expr> {
+        passed.iter().filter(|i| !crate::types::is_throw_effect(&i.ty)).map(|i| self.effect_instance(i, span)).collect()
     }
 
     fn call(&mut self, callee: &AExpr, args: &[AExpr], named: &[ast::NamedArg], span: Span) -> Expr {
@@ -1187,14 +1195,19 @@ impl<'a, 'p> Lower<'a, 'p> {
             Some(c) => (Some(c.callee.clone()), c.dot),
             None => (None, false),
         };
-        let leading: Option<Vec<Ty>> = checked.effects_passed.get(&key).and_then(EffectsPassed::leading).cloned();
+        let leading: Option<Vec<Instance>> = checked.effects_passed.get(&key).and_then(EffectsPassed::leading).cloned();
         // [qual-whynot] `InRange.qualifies(n, 1, 65535)`: a qualifier's own fn.
         if let Some(CalleeKind::QualMember { qualifier: q, member, of }) = callee_kind.clone() {
             let subject = match &of {
                 Some(base) => Ty::named(base.clone()),
                 None => Ty::Unknown,
             };
-            let a: Vec<Expr> = args.iter().map(|x| self.expr(x)).collect();
+            let mut a: Vec<Expr> = match &leading {
+                // [effect-instance] its effects lead, as at any call.
+                Some(effs) => self.leading_instances(effs, span),
+                None => Vec::new(),
+            };
+            a.extend(args.iter().map(|x| self.expr(x)));
             return match self.qual_fn_ref(&q, &subject, &member) {
                 Some(target) => Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(target), type_args: Vec::new(), args: a, moved: false } },
                 None => unsupported(ty, span, format!("`{q}.{member}`")),
@@ -1268,7 +1281,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // computed callee with effects had none passed, and both target
         // compilers refused the call).
         let mut a: Vec<Expr> = match leading {
-            Some(effs) => crate::threaded_effects(&effs).iter().map(|t| self.effect_instance(t, span)).collect(),
+            Some(effs) => self.leading_instances(&effs, span),
             None => Vec::new(),
         };
         let rest: Vec<Expr> = all_args.iter().map(|x| self.expr(x)).collect();
@@ -1297,8 +1310,11 @@ impl<'a, 'p> Lower<'a, 'p> {
                 self.error(span, messages::effect_dispatch_lower_no_declaration(effect));
                 return Some(unsupported(ty, span, "member call"));
             };
-            let instance_ty = receiver.unwrap_or_else(|| Ty::named(effect.clone()));
-            let instance = self.effect_instance(&instance_ty, span);
+            let Some(receiver) = receiver else {
+                self.error(span, messages::effect_available_lower_no_instance(&Ty::named(effect.clone())));
+                return Some(unsupported(ty, span, "member call"));
+            };
+            let instance = self.effect_instance(&receiver, span);
             let decl = self.ctx.symbols.effects.get(effect.as_str()).copied();
             let member_decl = decl.and_then(|d| d.fns.get(*index));
             let (args_lowered, prelude) = self.args_for(member_decl.map(Callee::Member), &all_args, named, span);
@@ -1325,7 +1341,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             // arguments; the contract says how each position is taken.
             let mut a: Vec<Expr> = match leading {
                 // [fn-effects] The instances the checker resolved for the call.
-                Some(effs) => crate::threaded_effects(&effs).iter().map(|t| self.effect_instance(t, span)).collect(),
+                Some(effs) => self.leading_instances(&effs, span),
                 None => Vec::new(),
             };
             let rest: Vec<Expr> = all_args.iter().map(|x| self.expr(x)).collect();
@@ -1337,16 +1353,11 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
         if let Some(CalleeKind::Fn { decl: k, .. }) = callee {
             let decl = self.ctx.fn_by_key(k);
-            let mut lowered: Vec<Expr> = Vec::new();
             // Effects as values: the instances a callee declaring effects takes.
-            if let Some(effs) = leading {
-                for t in effs {
-                    if matches!(&t, Ty::Named { name, .. } if name == crate::THROW_EFFECT) {
-                        continue;
-                    }
-                    lowered.push(self.effect_instance(&t, span));
-                }
-            }
+            let mut lowered: Vec<Expr> = match leading {
+                Some(effs) => self.leading_instances(&effs, span),
+                None => Vec::new(),
+            };
             let (args_lowered, prelude) = self.args_for(decl.map(|d| Callee::Fn(k, d)), &all_args, named, span);
             lowered.extend(args_lowered);
             lowered.extend(self.implicit_list(&implicits, named, span));
@@ -1709,11 +1720,19 @@ impl<'a, 'p> Lower<'a, 'p> {
         };
         // [fn-effects] the effects a lambda takes as leading parameters.
         if let Some(effs) = lambda_effects {
+            let key = self.key(span);
+            // [effect-instance] An inferred parameter stands for the instance
+            // in scope here that the body's facts name.
+            let stands: Vec<Instance> = self.ctx.checked.effects_passed.get(&key).and_then(EffectsPassed::inferred).cloned().unwrap_or_default();
             // [throw] A throw is not threaded in [`crate::is_throw_effect`].
-            for (i, t) in crate::threaded_effects(&effs).iter().enumerate() {
+            let threaded = effs.iter().enumerate().filter(|(_, t)| !crate::types::is_throw_effect(t));
+            for (i, (j, t)) in threaded.enumerate() {
                 let local = Local(format!("__leff{i}"));
                 let t = erase(t);
-                self.effect_env.push((t.clone(), local.clone()));
+                self.effect_env.push((Instance { ty: t.clone(), binder: Binder::Lambda(key) }, local.clone()));
+                if let Some(outer) = stands.get(j).filter(|o| o.binder != Binder::Missing) {
+                    self.effect_env.push((Instance { ty: erase(&outer.ty), binder: outer.binder }, local.clone()));
+                }
                 ps.push(Param { local, ty: t, mode: PassMode::Lent, variadic: false, check: None, span });
             }
         }
@@ -1912,8 +1931,10 @@ impl<'a, 'p> Lower<'a, 'p> {
             self.error(span, messages::qual_whynot_lower_no_member(&check.name, &member));
             return unsupported(bool_ty, span, member.to_string());
         };
-        // [is-qualifies-effects] the effects a `qualifies` performs lead.
-        let mut args: Vec<Expr> = Vec::new();
+        // [is-qualifies-effects] [effect-instance] the effects a `qualifies`
+        // performs lead, the instances the checker gave the test; one it gave
+        // none (a default's check the lowering adds) is refused.
+        let mut args: Vec<Expr> = self.leading_instances(&check.effects, span);
         let effects: Vec<Ty> = self
             .ctx
             .resolution
@@ -1927,8 +1948,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                 _ => None,
             })
             .unwrap_or_default();
-        for t in &effects {
-            args.push(self.effect_instance(t, span));
+        if let Some(t) = effects.iter().filter(|t| !crate::types::is_throw_effect(t)).nth(args.len()) {
+            self.error(span, messages::effect_available_lower_no_instance(&t));
         }
         args.push(subject);
         for a in &check.args {
@@ -2063,7 +2084,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     other => crate::check::PredicateArg { path: other.to_string(), copy: true },
                 })
                 .collect();
-            let check = crate::check::PredicateCheck { name: q.name.clone(), args, implicits_at: None };
+            let check = crate::check::PredicateCheck { name: q.name.clone(), args, implicits_at: None, effects: Vec::new() };
             let cond = self.qualifies_call(&check, read(false), span);
             let shown = Ty::Qualified { quals: vec![q.clone()], base: Box::new(slot.strip_quals().clone()) };
             let message = Expr {
@@ -2743,8 +2764,10 @@ impl<'a, 'p> Lower<'a, 'p> {
             .map(|v| v.iter().map(erase).collect())
             .unwrap_or_default();
         if all {
-            // Each result effect is read from its handle bound in scope.
-            let reads: Vec<Expr> = effects.iter().map(|e| self.effect_instance(e, span)).collect();
+            // Each result effect is read from its handle bound in scope, as
+            // the checker named it [effect-instance].
+            let read: Vec<Instance> = self.ctx.checked.effects_passed.get(&self.key(span)).and_then(EffectsPassed::leading).cloned().unwrap_or_default();
+            let reads: Vec<Expr> = read.iter().map(|i| self.effect_instance(i, span)).collect();
             let value = match reads.len() {
                 0 => unsupported(ty.clone(), span, "eff[*] with no handle in scope"),
                 1 => reads.into_iter().next().unwrap(),
@@ -2874,7 +2897,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let local = self.fresh("__use");
                 let id = self.id();
                 out.push(Stmt::Let { id, local: local.clone(), ty: effect.clone(), value: inst });
-                self.effect_env.push((effect.clone(), local.clone()));
+                self.effect_env.push((Instance { ty: effect.clone(), binder: Binder::Use(key) }, local.clone()));
                 bound.push((effect, local));
             }
             return (out, bound);
@@ -2885,7 +2908,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             let a = self.expr(handler);
             let local = self.fresh("__use");
             let id = self.id();
-            self.effect_env.push((effect.clone(), local.clone()));
+            self.effect_env.push((Instance { ty: effect.clone(), binder: Binder::Use(key) }, local.clone()));
             let inst = Expr { ty: effect.clone(), span, kind: ExprKind::AddrInstance { addr: Box::new(a) } };
             return (
                 vec![Stmt::Let { id, local: local.clone(), ty: effect.clone(), value: inst }],
@@ -2893,7 +2916,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             );
         }
         // `use H(args)`: a construct, then one instance per face.
-        let deps: Vec<Dep> = construction.map(|c| c.deps.clone()).unwrap_or_default();
+        let deps: Vec<Instance> = construction.map(|c| c.deps.clone()).unwrap_or_default();
         // [actor-route-stub] `use any group`: the route derived for the protocol
         // (`actors::generate`), over the group and the selector in scope.
         let routed = construction.and_then(|c| match &c.handler {
@@ -2903,7 +2926,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let route = routed.map(|effect| {
             let module = self.ctx.symbols.key_modules.get(effect.as_str()).map(|m| (*m).clone()).unwrap_or(crate::ModulePath(Vec::new()));
             let group = self.expr(handler);
-            let selector = deps.first().map(|d| self.effect_instance(&erase(&d.instance), span));
+            let selector = deps.first().map(|d| self.effect_instance(d, span));
             let mut fields = vec![("group".to_string(), group)];
             fields.extend(selector.map(|s| ("__dep0".to_string(), s)));
             Expr { ty: Ty::Named { name: crate::ir::build::actors::route_key(&effect, &module), args: Vec::new() }, span, kind: ExprKind::Construct { fields } }
@@ -2930,7 +2953,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             let read = Expr { ty: handler_ty.clone(), span, kind: ExprKind::Read { place: Place { root: inst.clone(), steps: Vec::new() }, consume: false, moved: false } };
             let value = if threadsafe { Expr { ty: f.clone(), ..read } } else { Expr { ty: f.clone(), span, kind: ExprKind::Handle { instance: Box::new(read) } } };
             out.push(Stmt::Let { id: hid, local: h.clone(), ty: f.clone(), value });
-            self.effect_env.push((f.clone(), h.clone()));
+            self.effect_env.push((Instance { ty: f.clone(), binder: Binder::Use(key) }, h.clone()));
             bound.push((f, h));
         }
         (out, bound)
@@ -2965,7 +2988,7 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     /// `H(args) [with …]` as a `Construct` of the handler: written arguments,
     /// resolved implicits, then one field per dependency [effect-handler-deps].
-    pub(crate) fn construct_handler(&mut self, handler: &AExpr, deps: &[Dep], with_items: &[AExpr], span: Span) -> Option<Expr> {
+    pub(crate) fn construct_handler(&mut self, handler: &AExpr, deps: &[Instance], with_items: &[AExpr], span: Span) -> Option<Expr> {
         let (written, args, named): (&ast::Ident, Vec<&AExpr>, Vec<ast::NamedArg>) = match handler {
             AExpr::Call { callee, args, named, .. } => match callee.as_ref() {
                 AExpr::Ident(id) => (id, args.iter().collect(), named.clone()),
@@ -3052,10 +3075,16 @@ impl<'a, 'p> Lower<'a, 'p> {
         // The dependencies, as the checker resolved them (a `with` item has
         // none: the checker refuses one that would).
         for (i, dep) in deps.iter().enumerate() {
-            let d = erase(&dep.instance);
-            let mut v = match dep.from_clause.and_then(|w| with_items.get(w)) {
-                Some(item) => self.with_item(item),
-                None => self.effect_instance(&d, span),
+            let d = erase(&dep.ty);
+            let mut v = match dep.binder {
+                Binder::Clause(w) => match with_items.get(w) {
+                    Some(item) => self.with_item(item),
+                    None => {
+                        self.error(span, messages::effect_available_lower_no_instance(&d));
+                        unsupported(d.clone(), span, "with item")
+                    }
+                },
+                _ => self.effect_instance(dep, span),
             };
             // [actor-use-addr] an addr given where an instance is wanted.
             if matches!(v.ty.strip_quals(), Ty::Named { name, .. } if name == "Addr") {
@@ -3136,13 +3165,6 @@ trait OrUnknown {
 impl OrUnknown for Ty {
     fn or_unknown(self, other: Option<Ty>) -> Option<Ty> {
         if self.is_unknown() { other } else { Some(self) }
-    }
-}
-
-fn base_of(t: &Ty) -> Option<&str> {
-    match t.strip_quals() {
-        Ty::Named { name, .. } => Some(name.as_str()),
-        _ => None,
     }
 }
 

@@ -144,6 +144,45 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Effect arguments name their instance (user decision, PIPELINE.md D3.1, [effect-instance])
+
+- **Decided (user, 2026-10-30)**: each effect argument the checker resolves
+  names the binding that put its instance in scope, so the IR reads it
+  instead of searching its effect environment by type and then by base
+  name.
+- **Built**: `check::Instance { ty, binder }`, the binder one of `Fn`
+  (the fn's name), `Lambda`, `Dep` (the handler's name), `Use` (its node,
+  module-level included), `Clause` (a `with` item's written index) or
+  `Missing` (reported where the fact was made). Every availability the
+  checker pushes carries its binder, and it records instances in
+  `effects_passed` (`Receiver`, `Leading`, and a `Leading` at `eff[*]`),
+  `constructions` (`Dep` and its `from_clause` are gone: a clause item is
+  `Binder::Clause`), `ImplicitArg::Member`, task mints and
+  `PredicateCheck::effects` (the `qualifies` call of an `is` test, which had
+  only checked availability by name). The IR's `effect_env` is keyed by
+  instance; `effect_instance` takes one and reads its local. `salvo facts`
+  shows each instance's binder (`passes Console (use 206:5)`).
+- **What fell out of building it**: the checker and the IR disagreed on
+  lambdas. With a declared effect list the checker *replaces* the
+  environment while the IR pushed onto it; with an inferred one the checker
+  resolves the body's calls against the enclosing scope while the IR read
+  the lambda's own parameter by type. The second needed a fact: an
+  inferred lambda records the instance each parameter stands for
+  (`EffectsPassed::Inferred`), and the IR binds that instance to the
+  parameter for the body. A member call under explicit type arguments had
+  recorded the written type rather than the instance it matched; it records
+  the instance now. Two fallbacks became lowering errors rather than a
+  short call: a member call with no receiver recorded (it used
+  `Ty::named(effect)`), and a `for` callee with no effects recorded (it
+  re-read the callee's own list). The base-name fallback never fired (a
+  probe over the full suite and every example, before removing it).
+  Emitted code is unchanged: every example and golden is identical.
+- **A defect found on the way**: a direct `Q.qualifies(…)` call of a
+  `qualifies` that declares effects was neither checked for them nor given
+  them, so both target compilers refused the generated call. It is checked
+  and given its instances as any call is now (`dependent/whynot.sv`, and the
+  `dependent_handlers_in_anger` run case calls `Loud.qualifies` by hand).
+
 ### 2026-10-30 — Comptime between the interfaces and the bodies (user decision, PIPELINE.md C4 B, [comptime-instantiate] [decl-id])
 
 - **Decided (user, 2026-10-30)**: the third C4 piece, after A and C: comptime
@@ -34781,6 +34820,16 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **The checker and the IR scope a lambda's effects differently**
+  (2026-10-30, D3.1, [effect-instance]). A lambda with a declared effect
+  list *replaces* the checker's environment, while the IR pushes its
+  parameters onto the enclosing one; an un-annotated lambda leaves the
+  checker's environment as it was (its calls resolve to the enclosing
+  instances), while the IR binds the inferred parameters. Matching by type
+  hid both. A fact about an instance inside a lambda names the instance the
+  checker saw, so the IR binds an inferred parameter under the instance it
+  stands for (`EffectsPassed::Inferred`).
 
 - **A switch arm that never reads its subject still holds part of it**
   (2026-10-30, [when-lowered]). The IR builder emits an arm's `Narrow` only

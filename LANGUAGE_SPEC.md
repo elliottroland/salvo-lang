@@ -2014,7 +2014,10 @@ Conventions:
     a failing predicate default [default-predicate] keeps its own message.
 * [is-qualifies-effects] `qualifies` may declare effects; at each
   predicate `is` site those effects must be available in the caller's
-  scope like any call.
+  scope like any call — and at a direct `Q.qualifies(…)` call, which is
+  one (fixed 2026-10-30: the checker had not asked for them there, and the
+  lowering passed none, so both target compilers refused the call). The
+  instances are given as at any call [effect-instance].
 * [qual-field-override] A predicate qualifier on a struct may re-declare
   fields with more specific types; these are *not* proven by the checker
   but cast-and-asserted at direct access sites (runtime exception risk is
@@ -5337,14 +5340,34 @@ Conventions:
     the innermost answers [effect-use-no-dup]. Only *different* instances of a
     generic effect can be ambiguous.
   * The resolved instance is recorded per call site (`effects_passed`,
-    `Receiver`: the call's receiver, not an argument).
-  * Emitter effect environments are keyed by the *checker's* effect types
-    (`effects_taken` for declared lists, `handles` for registrations,
-    `effect_calls`/`call_effects` for lookups); the backend type
-    rendering is a secondary key, used only where no checker type exists
-    (unchecked contexts) and for the same-base-name fallback that matches
-    a generic callee effect (`Random<T>`) against a concrete instance in
-    scope.
+    `Receiver`: the call's receiver, not an argument), as the binding that
+    put it in scope [effect-instance].
+* [effect-instance] **Every effect argument names its instance** (PIPELINE.md
+  D3, user decision 2026-10-30): wherever the checker resolves an effect
+  against the scope — a call's leading effects and a member call's receiver
+  (`effects_passed`), a construction's dependencies (`constructions`), a
+  member filling a fn position (`ImplicitArg::Member`), a task mint's
+  effects, an `is` test's `qualifies` effects (`PredicateCheck::effects`) and
+  the handles `eff[*]` gathers — it records an `Instance { ty, binder }`,
+  where the binder is what bound it: the enclosing fn's effect parameters
+  (`Fn`, at the fn's name), a lambda's (`Lambda`), the enclosing handler's
+  dependencies (`Dep`, at the handler's name), a `use` (`Use`, at its node,
+  a module-level one included), or a construction's `with` item (`Clause`,
+  by its written index). One binder binds a type once [effect-no-dup], so
+  the binder and the type name one instance.
+  * The lowering keeps its environment under the same instances and reads
+    the one named: no search by type, and no base-name fallback (the
+    leniency it replaced matched a generic requirement against any
+    instance of the effect; it never fired).
+  * An **un-annotated lambda**'s inferred effect parameters stand for the
+    instances of their types in scope at the lambda (`effects_passed`
+    `Inferred`, parallel to its `effects_taken`): the body's facts name
+    those instances, and inside the lambda they are reached through the
+    parameter.
+  * What has no instance recorded where one is needed — a callee taking an
+    effect with none passed, a check the lowering adds for a default that
+    calls a `qualifies` with effects — is a lowering error, never a call
+    made short [backend-never-wrong].
 * [effect-scope] `use` registrations are block-scoped: they expire at the
   end of the enclosing block — a shadowing one included, so the handler it
   shadowed answers again afterwards [effect-use-no-dup].

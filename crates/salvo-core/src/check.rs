@@ -820,8 +820,9 @@ pub struct Construction {
     /// Neither target can infer one from an empty argument list.
     pub type_args: Vec<Ty>,
     /// The instance each declared dependency is given, in the handler's
-    /// declaration order.
-    pub deps: Vec<Dep>,
+    /// declaration order: one in scope, or a `with` item
+    /// (`Binder::Clause`).
+    pub deps: Vec<Instance>,
 }
 
 /// What a [`Construction`] builds.
@@ -834,14 +835,49 @@ pub enum Constructed {
     Route(String),
 }
 
-/// [effect-handler-deps] [effect-with-clause] [actor-spawn-inherit] One
-/// dependency of a [`Construction`]: the instance it is given, and the
-/// written `with` item that supplied it (by its written index), or `None`
-/// for one resolved from the scope.
+/// [effect-instance] An effect instance a fact reads: its type, and the
+/// binding that put it in scope (PIPELINE.md D3, user decision 2026-10-30).
+/// The lowering reaches the binding's local by it rather than searching
+/// its environment by type.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Dep {
-    pub instance: Ty,
-    pub from_clause: Option<usize>,
+pub struct Instance {
+    pub ty: Ty,
+    pub binder: Binder,
+}
+
+/// [effect-instance] What bound an effect instance. One binder binds an
+/// effect type once ([effect-no-dup]), so the binder and the type name one
+/// instance.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Binder {
+    /// An effect parameter of the fn declared at this name — a handler
+    /// member and a qualifier fn included.
+    Fn(Key),
+    /// An effect parameter of the lambda at this node.
+    Lambda(Key),
+    /// A dependency of the handler declared at this name, inside its
+    /// members.
+    Dep(Key),
+    /// The `use` at this node, a module-level one included.
+    Use(Key),
+    /// [effect-with-clause] The `with` item at this written index of the
+    /// construction (a [`Construction`] dependency only).
+    Clause(usize),
+    /// Nothing in scope: the checker reported it where the fact was made.
+    Missing,
+}
+
+impl std::fmt::Display for Instance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.binder {
+            Binder::Fn(_) => write!(f, "{} (param)", self.ty),
+            Binder::Lambda(_) => write!(f, "{} (lambda param)", self.ty),
+            Binder::Dep(_) => write!(f, "{} (dep)", self.ty),
+            Binder::Use(_) => write!(f, "{} (use)", self.ty),
+            Binder::Clause(i) => write!(f, "{} (clause {i})", self.ty),
+            Binder::Missing => write!(f, "{} (missing)", self.ty),
+        }
+    }
 }
 
 /// [fn-effects] [effect-dispatch] What a call site gives of the effects in
@@ -850,23 +886,36 @@ pub struct Dep {
 pub enum EffectsPassed {
     /// The instance an effect-member call dispatches on, after generic
     /// disambiguation: the call's receiver, not an argument.
-    Receiver(Ty),
-    /// The instances a call passes ahead of its arguments.
-    Leading(Vec<Ty>),
+    Receiver(Instance),
+    /// The instances a call passes ahead of its arguments — or, at an
+    /// `eff[*]`, the handles it gathers.
+    Leading(Vec<Instance>),
+    /// [fn-effects] At an un-annotated lambda: the instance in scope at the
+    /// lambda each of its inferred effect parameters stands for, parallel
+    /// to its `effects_taken`. The body's facts name that instance; inside
+    /// the lambda it is reached through the parameter.
+    Inferred(Vec<Instance>),
 }
 
 impl EffectsPassed {
-    pub fn receiver(&self) -> Option<&Ty> {
+    pub fn receiver(&self) -> Option<&Instance> {
         match self {
             EffectsPassed::Receiver(t) => Some(t),
-            EffectsPassed::Leading(_) => None,
+            _ => None,
         }
     }
 
-    pub fn leading(&self) -> Option<&Vec<Ty>> {
+    pub fn leading(&self) -> Option<&Vec<Instance>> {
         match self {
             EffectsPassed::Leading(v) => Some(v),
-            EffectsPassed::Receiver(_) => None,
+            _ => None,
+        }
+    }
+
+    pub fn inferred(&self) -> Option<&Vec<Instance>> {
+        match self {
+            EffectsPassed::Inferred(v) => Some(v),
+            _ => None,
         }
     }
 }
@@ -944,11 +993,20 @@ enum DotMember {
 #[derive(Clone, Debug)]
 struct EffectAvail {
     ty: Ty,
+    /// [effect-instance] What bound it.
+    binder: Binder,
     declared: bool,
     /// [effect-any] The binding is spread over many instances (a `use` of
     /// a handler `of any E`, or a `[any E]` declaration): it satisfies a
     /// `[any E]` requirement only.
     any: bool,
+}
+
+impl EffectAvail {
+    /// [effect-instance] The instance a fact resolved here names.
+    fn instance(&self) -> Instance {
+        Instance { ty: self.ty.clone(), binder: self.binder }
+    }
 }
 
 /// [effect-alias] [effect-prereq] Where an entry of an expanded effect list
@@ -987,6 +1045,10 @@ pub struct PredicateCheck {
     /// synthetic key at the first value argument, one per qualifier
     /// (`Key::synthetic`) [node-id].
     pub implicits_at: Option<Key>,
+    /// [is-qualifies-effects] [effect-instance] The instances the
+    /// `qualifies` call is given, in its expanded effect list's order
+    /// (the throw effect left out).
+    pub effects: Vec<Instance>,
 }
 
 /// [qual-depend] A place handed to a dependent `qualifies`: the source
@@ -1544,7 +1606,7 @@ pub enum ImplicitArg {
     /// member's among its `fns`, as [`Callee::Member`] names them; `instance` the
     /// effect instance in scope; `nested` the member's own implicits
     /// [implicit-recursive]; `want` the fn type the position wanted.
-    Member { name: String, effect: String, index: usize, instance: Ty, nested: Vec<ImplicitArg>, want: Ty },
+    Member { name: String, effect: String, index: usize, instance: Instance, nested: Vec<ImplicitArg>, want: Ty },
 }
 
 /// [lsp-completion] One local binding declared in a file, for completion: its
@@ -4146,9 +4208,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.name_key(h.name.span),
             dep_list.iter().map(|e| (e.ty.clone(), e.span)).collect(),
         );
+        let binder = Binder::Dep(self.name_key(h.name.span));
         let deps: Vec<EffectAvail> = dep_list
             .into_iter()
-            .map(|e| EffectAvail { ty: e.ty, declared: true, any: e.any })
+            .map(|e| EffectAvail { ty: e.ty, binder, declared: true, any: e.any })
             .collect();
         // [actor-spawn-effect] [actor-replyto] The handler its
         // members belong to: `spawn` in its dependency list is a
@@ -6385,7 +6448,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// The effect's generics bound by a member candidate's instance.
     fn instance_binding(m: &MemberCand<'p>) -> (HashMap<String, Ty>, HashSet<String>) {
         let names: HashSet<String> = m.effect.generics.iter().map(|g| g.name.clone()).collect();
-        let bind: HashMap<String, Ty> = match &m.instance {
+        let bind: HashMap<String, Ty> = match &m.instance.ty {
             Ty::Named { args, .. } => m.effect.generics.iter().map(|g| g.name.clone()).zip(args.iter().cloned()).collect(),
             _ => HashMap::new(),
         };
@@ -6962,8 +7025,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// no handler to carry.
     fn available_members(&self, name: &str) -> Vec<MemberCand<'p>> {
         let mut out: Vec<MemberCand<'p>> = Vec::new();
-        for instance in self.visible_effects() {
-            let Ty::Named { name: key, .. } = &instance else { continue };
+        for avail in self.visible_avail() {
+            let instance = avail.instance();
+            let Ty::Named { name: key, .. } = &instance.ty else { continue };
             let Some(effect) = self.symbols.effects.get(key.as_str()).copied() else { continue };
             if effect.name.name == THROW_EFFECT {
                 continue;
@@ -7238,7 +7302,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let found = match self.resolve_implicit_value(&imp.name, &want, !imp.binder) {
                 Ok(Filled::Member(m, nested)) => {
                     // [fn-effects] The value calls through the instance: a use of it.
-                    self.note_effect_use(&m.instance);
+                    self.note_effect_use(&m.instance.ty);
                     return Some((
                         ImplicitArg::Member {
                             name: imp.name.clone(),
@@ -7885,7 +7949,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        self.note_effect_use(&m.instance);
+        self.note_effect_use(&m.instance.ty);
         let arg = ImplicitArg::Member {
             name: name.to_string(),
             effect: self.symbols.key_or(m.effect, &m.effect.name.name).to_string(),
@@ -10119,6 +10183,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut env: Vec<EffectAvail> = Vec::new();
         let mut can_use = false;
         let mut can_spawn = false;
+        // [effect-instance] The fn's effect parameters, at its name.
+        let binder = Binder::Fn(self.key(f.name.span));
         // [fn-effects] A fn-typed parameter's effects are the enclosing fn's
         // too (user decision 2026-09-04): the only reason to take `f` is to
         // call it, and calling it needs those effects here — so they are
@@ -10136,7 +10202,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             for p in &f.params {
                 for ty in self.inherited_fn_effects(&p.ty) {
                     if !env.iter().any(|a| a.ty == ty) {
-                        env.push(EffectAvail { ty, declared: true, any: false });
+                        env.push(EffectAvail { ty, binder, declared: true, any: false });
                     }
                 }
             }
@@ -10169,7 +10235,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // may call `E` and callees declaring `[any E]`, never a callee
             // that assumes one instance.
             if !env.iter().any(|a| a.ty == e.ty) {
-                env.push(EffectAvail { ty: e.ty, declared: true, any: e.any });
+                env.push(EffectAvail { ty: e.ty, binder, declared: true, any: e.any });
             }
         }
         (env, can_use, can_spawn)
@@ -10630,16 +10696,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(span, messages::actor_route_stub_no_selector(&shown));
             // The route is refused, but it still says what it binds: the calls
             // after it are not a second mistake [type-unknown-lenient].
-            self.effect_env.push(EffectAvail { ty: effect, declared: false, any: true });
+            self.effect_env.push(EffectAvail { ty: effect, binder: Binder::Use(self.key(span)), declared: false, any: true });
             return;
         };
         self.out.constructions.insert(
             self.key(span),
-            Construction { handler: Constructed::Route(effect_key.clone()), type_args: Vec::new(), deps: vec![Dep { instance: selector.ty, from_clause: None }] },
+            Construction { handler: Constructed::Route(effect_key.clone()), type_args: Vec::new(), deps: vec![selector.instance()] },
         );
         self.out.handles.insert(self.key(span), vec![effect.clone()]);
         // [effect-any] A route promises no order: it binds the weak face.
-        self.effect_env.push(EffectAvail { ty: effect, declared: false, any: true });
+        self.effect_env.push(EffectAvail { ty: effect, binder: Binder::Use(self.key(span)), declared: false, any: true });
     }
 
     /// Checks a `use Handler(...)` statement [effect-use]: resolves the
@@ -10679,6 +10745,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.out.handles.insert(self.key(span), vec![effect.clone()]);
             self.effect_env.push(EffectAvail {
                 ty: effect,
+                binder: Binder::Use(self.key(span)),
                 declared: false,
                 any: false,
             });
@@ -10821,7 +10888,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         visible: &[EffectAvail],
         id: &'p Ident,
         span: Span,
-    ) -> Option<Ty> {
+    ) -> Option<Instance> {
         let exact = visible.iter().find(|c| c.ty == *want).cloned();
         let found = match exact {
             Some(avail) => Some(avail),
@@ -10855,7 +10922,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(span, messages::actor_spawn_inherit_missing_dep(&id.name, &want));
             return None;
         };
-        Some(avail.ty)
+        Some(avail.instance())
     }
 
     /// [actor-use-addr] `use addr` — bind the effect an actor serves in this
@@ -10872,7 +10939,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let mut effects: Vec<Ty> = Vec::new();
             if self.collect_handle_tuple(&ty, &mut effects) && !effects.is_empty() {
                 for effect in &effects {
-                    self.effect_env.push(EffectAvail { ty: effect.clone(), declared: false, any: false });
+                    self.effect_env.push(EffectAvail { ty: effect.clone(), binder: Binder::Use(self.key(span)), declared: false, any: false });
                 }
                 self.out.handles.insert(self.key(span), effects);
                 return;
@@ -10894,6 +10961,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.out.handles.insert(self.key(span), vec![effect.clone()]);
         self.effect_env.push(EffectAvail {
             ty: effect,
+            binder: Binder::Use(self.key(span)),
             declared: false,
             any: false,
         });
@@ -11223,6 +11291,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .iter()
             .map(|d| EffectAvail {
                 ty: substitute_vars(&d.ty, &subst, &generic_set),
+                binder: d.binder,
                 declared: d.declared,
                 any: d.any,
             })
@@ -11253,7 +11322,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // recorded for the emitters, in declaration order. The lookup runs
         // *before* this `use` is registered, which is exactly the
         // binds-outward rule for a self-dependency [effect-intercept].
-        let mut resolved_deps: Vec<Ty> = Vec::new();
+        let mut resolved_deps: Vec<Instance> = Vec::new();
         // [effect-with-clause] The written clause items, typed once, each carrying
         // the index the program wrote it at: the matching below drains them,
         // so a matched dep remembers *which* item satisfied it and the
@@ -11266,8 +11335,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         // One entry per declared dependency, in declaration order: the
-        // clause item that satisfied it, or `None` for a scope-resolved one.
-        let mut items: Vec<Option<usize>> = Vec::new();
+        // clause item that satisfied it, or the instance in scope.
         let visible = self.visible_avail();
         for want in &deps {
             let want = want.ty.clone();
@@ -11287,8 +11355,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 });
             if let Some(i) = from_clause {
                 let (eff, _, at) = supplied.remove(i);
-                resolved_deps.push(eff);
-                items.push(Some(at));
+                resolved_deps.push(Instance { ty: eff, binder: Binder::Clause(at) });
                 continue;
             }
             let found = visible
@@ -11310,8 +11377,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // [actor-spawn-inherit] [effect-handle] A capture over a
                     // **signature-supplied** effect is legal: the effect
                     // parameter *is* a handle.
-                    resolved_deps.push(avail.ty);
-                    items.push(None);
+                    resolved_deps.push(avail.instance());
                 }
                 // [effect-intercept] A self-dependency binds *outward*, so
                 // "nothing in scope" means there is nothing to intercept —
@@ -11355,7 +11421,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (eff, sp, _) in &supplied {
             self.error(*sp, messages::effect_with_clause_not_a_dep(&id.name, &eff));
         }
-        self.set_construction_deps(span, resolved_deps, items);
+        self.set_construction_deps(span, resolved_deps);
         // [effect-handler-multi] Every face is registered, in declaration
         // order: one instance, one binding per effect it implements, so a
         // caller reaches whichever face its own effect list names.
@@ -11375,6 +11441,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (i, effect) in concrete.into_iter().enumerate() {
             self.effect_env.push(EffectAvail {
                 ty: effect,
+                binder: Binder::Use(self.key(span)),
                 declared: false,
                 any: of_any.get(i).copied().unwrap_or(false),
             });
@@ -15077,9 +15144,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         if effects.is_empty() {
             return;
         }
-        let mut resolved: Vec<Ty> = Vec::new();
+        let mut resolved: Vec<Instance> = Vec::new();
         // [effect-use-no-dup] Innermost first, shadowed duplicates hidden.
-        let visible = self.visible_effects();
+        let visible = self.visible_avail();
         for want in effects {
             // [throw] [fn-effects] A function value that may throw needs a
             // delimiter, not a handler, exactly as a named callee that may
@@ -15089,18 +15156,18 @@ impl<'p, 'r> Checker<'p, 'r> {
             // nothing that could throw).
             if record {
                 if let Ty::Named { name: eff, args } = want {
-                    if eff == THROW_EFFECT && !visible.iter().any(|c| c == want) {
+                    if eff == THROW_EFFECT && !visible.iter().any(|c| c.ty == *want) {
                         let message = args.first().cloned().unwrap_or(Ty::Unknown);
                         self.record_throw(span, message, false);
                         continue;
                     }
                 }
             }
-            let found = visible.iter().find(|c| *c == want).cloned();
+            let found = visible.iter().find(|c| c.ty == *want).cloned();
             let found = found.or_else(|| {
-                let compatible: Vec<&Ty> = visible
+                let compatible: Vec<&EffectAvail> = visible
                     .iter()
-                    .filter(|c| unify(want, c, &mut HashMap::new()))
+                    .filter(|c| unify(want, &c.ty, &mut HashMap::new()))
                     .collect();
                 match compatible.len() {
                     1 => Some(compatible[0].clone()),
@@ -15108,13 +15175,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             });
             match found {
-                Some(instance) => {
-                    self.note_effect_use(&instance);
-                    resolved.push(instance);
+                Some(avail) => {
+                    self.note_effect_use(&avail.ty);
+                    resolved.push(avail.instance());
                 }
                 None => {
                     self.error(span, messages::effect_available_fn_value(&want));
-                    resolved.push(want.clone());
+                    resolved.push(Instance { ty: want.clone(), binder: Binder::Missing });
                 }
             }
         }
@@ -15635,8 +15702,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 supplied.push((eff, u.span(), at));
             }
         }
-        let mut resolved: Vec<Ty> = Vec::new();
-        let mut items: Vec<Option<usize>> = Vec::new();
+        let mut resolved: Vec<Instance> = Vec::new();
         let visible = self.visible_avail();
         for want in &declared {
             let want = &want.ty;
@@ -15651,8 +15717,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             match found {
                 Some(i) => {
                     let (eff, _, at) = supplied.remove(i);
-                    resolved.push(eff);
-                    items.push(Some(at));
+                    resolved.push(Instance { ty: eff, binder: Binder::Clause(at) });
                 }
                 // [actor-spawn-inherit] **Synthesis** (user decision 2026-09-20):
                 // a declared dependency the clause does not cover is
@@ -15661,13 +15726,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // signature guarantees is shareable can be captured as a
                 // handle and cross the seam. An ambiguity between two
                 // compatible instances is an error rather than a guess.
-                None => match self.synthesized_spawn_dep(want, &visible, id, span) {
-                    Some(ty) => {
-                        resolved.push(ty);
-                        items.push(None);
+                None => {
+                    if let Some(instance) = self.synthesized_spawn_dep(want, &visible, id, span) {
+                        resolved.push(instance);
                     }
-                    None => {}
-                },
+                }
             }
         }
         // Anything left over was supplied for nothing — a mistake worth
@@ -15675,7 +15738,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (eff, sp, _) in &supplied {
             self.error(*sp, messages::actor_spawn_inherit_not_a_dep(&id.name, &eff));
         }
-        self.set_construction_deps(span, resolved, items);
+        self.set_construction_deps(span, resolved);
         self.out.handles.insert(self.key(span), effects.clone());
         // [effect-handler-multi] One addr per implemented effect: a single face
         // answers the bare `Addr<E>` it always did, and several answer a tuple
@@ -15696,12 +15759,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [effect-handler-deps] The dependencies a construction at `span` is
-    /// given, each with the `with` item that supplied it (parallel lists, in
-    /// the handler's declaration order).
-    fn set_construction_deps(&mut self, span: Span, instances: Vec<Ty>, items: Vec<Option<usize>>) {
+    /// given, in the handler's declaration order: each an instance in scope
+    /// or the `with` item that supplied it [effect-instance].
+    fn set_construction_deps(&mut self, span: Span, instances: Vec<Instance>) {
         let key = self.key(span);
         if let Some(c) = self.out.constructions.get_mut(&key) {
-            c.deps = instances.into_iter().zip(items).map(|(instance, from_clause)| Dep { instance, from_clause }).collect();
+            c.deps = instances;
         }
     }
 
@@ -15711,7 +15774,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// it is captured into the instance as an owned handle. Recorded in
     /// as the spawn's construction dependencies for the emitters.
     fn resolve_monitor_deps(&mut self, id: &Ident, declared: &[EffectAvail], span: Span) {
-        let mut resolved_deps: Vec<Ty> = Vec::new();
+        let mut resolved_deps: Vec<Instance> = Vec::new();
         let visible = self.visible_avail();
         for want in declared {
             let want = want.ty.clone();
@@ -15730,15 +15793,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 });
             match found {
-                Some(avail) => resolved_deps.push(avail.ty),
+                Some(avail) => resolved_deps.push(avail.instance()),
                 None => self.error(
                     span,
                     messages::actor_monitor_handler_missing_dep(&id.name, &want),
                 ),
             }
         }
-        let items = vec![None; resolved_deps.len()];
-        self.set_construction_deps(span, resolved_deps, items);
+        self.set_construction_deps(span, resolved_deps);
     }
 
     /// [actor-monitor-handler] The monitor spawn (SH-3, user decision 2026-09-19):
@@ -16354,7 +16416,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         let visible = self.visible_avail();
-        let mut resolved: Vec<Ty> = Vec::new();
+        let mut resolved: Vec<Instance> = Vec::new();
         for want in &declared {
             let exact = visible.iter().find(|c| c.ty == *want).cloned();
             let found = match exact {
@@ -16389,7 +16451,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.error(span, messages::task_effects_missing(&target.name.name, &want));
                 continue;
             };
-            resolved.push(avail.ty.clone());
+            resolved.push(avail.instance());
         }
         if resolved.len() == declared.len() {
             self.out.effects_passed.insert(self.key(span), EffectsPassed::Leading(resolved));
@@ -19475,9 +19537,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `use` and `Throw` are refused — a handler registers nothing, and a
     /// throw needs a delimiter rather than a handler [throw].
     fn handler_dep_effects(&mut self, h: &'p ast::HandlerDecl) -> Vec<EffectAvail> {
+        let binder = Binder::Dep(self.name_key(h.name.span));
         self.handler_dep_list(h)
             .into_iter()
-            .map(|e| EffectAvail { ty: e.ty, declared: true, any: e.any })
+            .map(|e| EffectAvail { ty: e.ty, binder, declared: true, any: e.any })
             .collect()
     }
 
@@ -20982,6 +21045,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             None => Ty::none(),
         };
         self.generics = saved;
+        // [is-qualifies-effects] [effect-instance] Its effects are needed
+        // here, and given as at any call.
+        self.check_callee_effects(&f.name.name, f, &subst, &gens, span);
         let of = match &q.of {
             ast::Type::Named { base, .. } => Some(base.name.name.clone()),
             _ => None,
@@ -24141,6 +24207,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 }
                 self.out.handles.insert(self.key(*span), effects.clone());
+                if *all {
+                    // [effect-instance] The handle `eff[*]` reads for each.
+                    let visible = self.visible_avail();
+                    let read: Vec<Instance> = effects
+                        .iter()
+                        .map(|e| match visible.iter().find(|a| a.ty == *e) {
+                            Some(a) => a.instance(),
+                            None => Instance { ty: e.clone(), binder: Binder::Missing },
+                        })
+                        .collect();
+                    self.out.effects_passed.insert(self.key(*span), EffectsPassed::Leading(read));
+                }
                 match effects.len() {
                     0 => Ty::Unknown,
                     1 => Ty::Named { name: ADDR_TYPE.to_string(), args: effects },
@@ -25367,6 +25445,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // expected type the set is *inferred* from the body, which is what
         // `effect_uses` collects; the enclosing environment stands in for
         // the duration so the calls resolve.
+        let lambda_binder = Binder::Lambda(self.key(span));
         let saved_effects = match &exp_effects {
             // Transitional (ROADMAP §2b): a fn value's effects arrive as its
             // effect parameters, which the emitters cannot mint a handle
@@ -25377,6 +25456,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .iter()
                     .map(|ty| EffectAvail {
                         ty: ty.clone(),
+                        binder: lambda_binder,
                         declared: true,
                         any: false,
                     })
@@ -25436,6 +25516,19 @@ impl<'p, 'r> Checker<'p, 'r> {
         let used = self.effect_uses.pop().unwrap_or_default();
         if let Some(saved) = saved_effects {
             self.effect_env = saved;
+        } else if !used.is_empty() {
+            // [effect-instance] An inferred parameter stands for the instance
+            // of its type in scope here: the one the body's calls resolved
+            // to, now reached through the parameter.
+            let visible = self.visible_avail();
+            let stands: Vec<Instance> = used
+                .iter()
+                .map(|t| match visible.iter().find(|a| a.ty == *t) {
+                    Some(a) => a.instance(),
+                    None => Instance { ty: t.clone(), binder: Binder::Missing },
+                })
+                .collect();
+            self.out.effects_passed.insert(self.key(span), EffectsPassed::Inferred(stands));
         }
         let ctx = self.lambda_ctx.pop().expect("lambda ctx pushed above");
         let consumes_captures = ctx.captures.iter().any(|c| c.moved);
@@ -26240,7 +26333,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let slots: &'p [ast::ValueSlot] = decl.map(|d| d.value_slots.as_slice()).unwrap_or(&[]);
             if slots.is_empty() && !args.is_empty() {
                 self.error(args[0].1, messages::qual_depend_no_value_args(&q));
-                checks.push(PredicateCheck { name: q.clone(), args: Vec::new(), implicits_at: None });
+                checks.push(PredicateCheck { name: q.clone(), args: Vec::new(), implicits_at: None, effects: Vec::new() });
                 continue;
             }
             if slots.len() != args.len() {
@@ -26250,7 +26343,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     span,
                     messages::qual_depend_unfilled(&q, &slots.len(), &filled.join(", ")),
                 );
-                checks.push(PredicateCheck { name: q.clone(), args: Vec::new(), implicits_at: None });
+                checks.push(PredicateCheck { name: q.clone(), args: Vec::new(), implicits_at: None, effects: Vec::new() });
                 continue;
             }
             let mut rendered = Vec::new();
@@ -26372,17 +26465,36 @@ impl<'p, 'r> Checker<'p, 'r> {
                     implicits_at = Some(at);
                 }
             }
-            checks.push(PredicateCheck { name: q.clone(), args: rendered, implicits_at });
+            checks.push(PredicateCheck { name: q.clone(), args: rendered, implicits_at, effects: Vec::new() });
         }
-        self.out.tests.insert(self.key(span), Test::Holds(checks));
         // The `qualifies` call happens here at runtime: its declared
         // effects must be available in this scope
         // [is-qualifies-effects].
-        for (q, decl) in pat.quals.iter().zip(resolved) {
+        for (i, (q, decl)) in pat.quals.iter().zip(resolved).enumerate() {
             let Some(decl) = *decl else { continue };
             let Some(qf) = decl.fns.iter().find(|f| f.name.name == "qualifies") else {
                 continue;
             };
+            // [effect-instance] The instance each effect of its expanded
+            // list is given: the one of its type, else the one compatible
+            // instance; a missing one is the error below.
+            let visible = self.visible_avail();
+            let taken: Vec<Ty> = self.out.effects_taken.get(&self.key(qf.name.span)).cloned().unwrap_or_default();
+            let given: Vec<Instance> = taken
+                .into_iter()
+                .filter(|t| !crate::types::is_throw_effect(t))
+                .map(|t| {
+                    let compatible: Vec<&EffectAvail> = visible.iter().filter(|c| unify(&t, &c.ty, &mut HashMap::new())).collect();
+                    match visible.iter().find(|c| c.ty == t) {
+                        Some(a) => a.instance(),
+                        None if compatible.len() == 1 => compatible[0].instance(),
+                        None => Instance { ty: t, binder: Binder::Missing },
+                    }
+                })
+                .collect();
+            if let Some(c) = checks.get_mut(i) {
+                c.effects = given;
+            }
             for eff in qf.effects.iter().flatten() {
                 let (EffectRef::Effect(r) | EffectRef::AnyEffect(r)) = eff else { continue };
                 let ename = r.name.name.as_str();
@@ -26395,6 +26507,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
+        self.out.tests.insert(self.key(span), Test::Holds(checks));
         dependent_args
     }
 
@@ -31440,7 +31553,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         callee_generics: &HashSet<String>,
         span: Span,
     ) {
-        let mut resolved: Vec<Ty> = Vec::new();
+        let mut resolved: Vec<Instance> = Vec::new();
         // [actor-spawn-effect] The `spawn` capability **propagates like any
         // other effect**: `pool` and `watch` declare it, and std's own
         // documentation says declaring it is "what makes creating one a
@@ -31560,11 +31673,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     // [fn-effects] Feeds an enclosing lambda's inferred set.
                     self.note_effect_use(&avail.ty);
-                    resolved.push(avail.ty);
+                    resolved.push(avail.instance());
                 }
                 None => {
                     self.error(span, messages::effect_available_callee_no_handler(&want, &name));
-                    resolved.push(want);
+                    resolved.push(Instance { ty: want, binder: Binder::Missing });
                 }
             }
         }
@@ -31651,11 +31764,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Instances of this effect currently available — innermost first,
         // with a shadowed registration hidden by the one that shadows it
         // [effect-use-no-dup], so interception does not read as ambiguity.
-        let candidates: Vec<Ty> = self
-            .visible_effects()
+        let avails: Vec<EffectAvail> = self
+            .visible_avail()
             .into_iter()
-            .filter(|t| matches!(t, Ty::Named { name, .. } if *name == effect_key))
+            .filter(|a| matches!(&a.ty, Ty::Named { name, .. } if *name == effect_key))
             .collect();
+        let candidates: Vec<Ty> = avails.iter().map(|a| a.ty.clone()).collect();
         let resolved: Option<Ty> = if !type_args.is_empty() {
             // Explicit type arguments pin the instance.
             let targs: Vec<Ty> = type_args.iter().map(|t| self.lower_type(t)).collect();
@@ -31836,7 +31950,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [fn-effects] Feeds an enclosing lambda's inferred set.
             let instance = instance.clone();
             self.note_effect_use(&instance);
-            self.out.effects_passed.insert(self.key(span), EffectsPassed::Receiver(instance));
+            // [effect-instance] The candidate the resolution chose: the one
+            // of its type, or — under explicit type arguments that still
+            // leave parts open — the one it unified with.
+            let chosen = avails
+                .iter()
+                .find(|a| a.ty == instance)
+                .or_else(|| avails.iter().find(|a| unify(&a.ty, &instance, &mut HashMap::new())))
+                .map(EffectAvail::instance)
+                .unwrap_or(Instance { ty: instance, binder: Binder::Missing });
+            self.out.effects_passed.insert(self.key(span), EffectsPassed::Receiver(chosen));
         }
         // [implicit-param] An effect member may declare implicit parameters:
         // they resolve at *this* call, with the instance's type arguments
@@ -32578,7 +32701,8 @@ struct MemberCand<'p> {
     decl: &'p FnDecl,
     /// The member's index among the effect's `fns` [effect-member-overload].
     index: usize,
-    instance: Ty,
+    /// [effect-instance] The instance in scope it calls through.
+    instance: Instance,
 }
 
 /// [fn-value-select] A candidate for a fn-typed position: a declared fn, or

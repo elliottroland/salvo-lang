@@ -130,8 +130,9 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, id:
             marks.push(t);
         }
         let passed = part.effects_passed.get(key).map(|e| match e {
-            crate::check::EffectsPassed::Receiver(t) => format!("receiver {t}"),
-            crate::check::EffectsPassed::Leading(v) => format!("passes {}", join(v)),
+            crate::check::EffectsPassed::Receiver(t) => format!("receiver {}", instance_mark(source, t)),
+            crate::check::EffectsPassed::Leading(v) => format!("passes {}", instances_mark(source, v)),
+            crate::check::EffectsPassed::Inferred(v) => format!("stands for {}", instances_mark(source, v)),
         });
         if let Some(p) = &passed {
             marks.push(p);
@@ -148,7 +149,7 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, id:
         if let Some(h) = &handles {
             marks.push(h);
         }
-        let built = part.constructions.get(key).map(construction_mark);
+        let built = part.constructions.get(key).map(|c| construction_mark(source, c));
         if let Some(c) = &built {
             marks.push(c);
         }
@@ -193,6 +194,22 @@ fn fn_name(program: &Program, decls: &crate::decl_id::DeclIndex, key: DeclId) ->
     }
 }
 
+/// [effect-instance] An instance as the binding that put it in scope: a
+/// `use` by where it is written.
+fn instance_mark(source: &str, i: &crate::check::Instance) -> String {
+    match i.binder {
+        crate::check::Binder::Use(k) if !k.span.is_expanded() => {
+            let (line, col) = line_col(source, k.span.start);
+            format!("{} (use {line}:{col})", i.ty)
+        }
+        _ => i.to_string(),
+    }
+}
+
+fn instances_mark(source: &str, v: &[crate::check::Instance]) -> String {
+    v.iter().map(|i| instance_mark(source, i)).collect::<Vec<_>>().join(", ")
+}
+
 fn line_col(source: &str, at: u32) -> (usize, usize) {
     let at = (at as usize).min(source.len());
     let before = &source[..at];
@@ -220,7 +237,7 @@ fn snippet(source: &str, span: Span) -> String {
 /// [effect-handler-deps] A construction's mark: what it builds (a declared
 /// handler at its type arguments, or a `use any` route), then each
 /// dependency's instance, with the `with` item that supplied it.
-fn construction_mark(c: &crate::check::Construction) -> String {
+fn construction_mark(source: &str, c: &crate::check::Construction) -> String {
     let built = match &c.handler {
         crate::check::Constructed::Handler(h) => crate::typekey::shown_text(h).into_owned(),
         crate::check::Constructed::Route(e) => format!("route {}", crate::typekey::shown_text(e)),
@@ -230,15 +247,7 @@ fn construction_mark(c: &crate::check::Construction) -> String {
     } else {
         format!("<{}>", c.type_args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", "))
     };
-    let deps: Vec<String> = c
-        .deps
-        .iter()
-        .map(|d| match d.from_clause {
-            Some(i) => format!("{} (clause {i})", d.instance),
-            None => d.instance.to_string(),
-        })
-        .collect();
-    let with = if deps.is_empty() { String::new() } else { format!(" with {}", deps.join(", ")) };
+    let with = if c.deps.is_empty() { String::new() } else { format!(" with {}", instances_mark(source, &c.deps)) };
     format!("constructs {built}{args}{with}")
 }
 

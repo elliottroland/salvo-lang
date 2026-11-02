@@ -49,3 +49,17 @@ fn calls_qualifies_wrongly(n: Int) [] -> Bool => n {
     //~ error[qual-whynot:call-arg-mismatch]
     return Below.qualifies(n) || Below.qualifies("x", 3)
 }
+
+// [is-qualifies-effects] A `qualifies` that performs effects needs them
+// where it is called by hand, as any fn does.
+qualifier Noisy of Int {
+    fn qualifies(n: Int) [Console] -> Bool {
+        println("checking ${n}")
+        return n > 0
+    }
+}
+
+fn calls_noisy_without_console(n: Int) [] -> Bool => n {
+    //~ error[effect-available:callee-no-handler]
+    return Noisy.qualifies(n)
+}

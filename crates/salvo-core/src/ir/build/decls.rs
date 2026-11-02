@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 use crate::param_mode::{Modes, PassMode};
 use crate::source::SourceFile;
+use crate::check::{Binder, Instance};
 use crate::types::{is_proj_name, Ty};
 use crate::DeclId;
 use salvo_syntax::ast::{self, Item};
@@ -23,11 +24,11 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
     };
     let mut errors = Vec::new();
     // [mod-use] Module-level instances, in scope for every fn below.
-    let mut statics: Vec<(Ty, Local)> = Vec::new();
+    let mut statics: Vec<(Instance, Local)> = Vec::new();
     for (i, u) in module.uses.iter().enumerate() {
         let mut lower = Lower::new(ctx, file_idx, None);
         let stmts = lower.use_stmt(&u.handler, &[], u.span);
-        let bound: Vec<(Ty, Local)> = lower.effect_env.clone();
+        let bound: Vec<(Instance, Local)> = lower.effect_env.clone();
         errors.extend(lower.finish());
         // The instance is one static; each face's handle [effect-handle] is
         // another, over it (`use addr` binds no handle: the one `Let` is the
@@ -314,7 +315,7 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
     }
 }
 
-fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, statics: &[(Ty, Local)], errors: &mut Vec<String>) -> ImplDecl {
+fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, statics: &[(Instance, Local)], errors: &mut Vec<String>) -> ImplDecl {
     let modes = Modes { symbols: ctx.symbols, checked: ctx.checked, program: ctx.program };
     let faces: Vec<Ty> = h.of.iter().map(|t| ctx.written_ty(file_idx, t)).collect();
     // [effect-handler-deps] [effect-prereq] As the checker expanded them:
@@ -347,8 +348,10 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
         .map(|p| (p.local.0.clone(), p.ty.clone()))
         .chain(state.iter().map(|f| (f.name.clone(), f.ty.clone())))
         .collect();
-    let dep_locals: Vec<(Ty, Local)> =
-        deps.iter().enumerate().map(|(i, t)| (t.clone(), Local(format!("__dep{i}")))).collect();
+    // [effect-instance] A member reaches dependency *i* as `__dep{i}`.
+    let dep_binder = Binder::Dep(ctx.checked.key_at(file_idx, h.name.span));
+    let dep_locals: Vec<(Instance, Local)> =
+        deps.iter().enumerate().map(|(i, t)| (Instance { ty: t.clone(), binder: dep_binder }, Local(format!("__dep{i}")))).collect();
     let face_decls: Vec<&ast::EffectDecl> = h
         .of
         .iter()
@@ -461,7 +464,7 @@ fn fn_decl(
     f: &ast::FnDecl,
     kind: FnKind,
     qualifier: Option<&ast::QualifierDecl>,
-    statics: &[(Ty, Local)],
+    statics: &[(Instance, Local)],
     errors: &mut Vec<String>,
 ) -> FnDecl {
     let modes = Modes { symbols: ctx.symbols, checked: ctx.checked, program: ctx.program };
@@ -501,7 +504,8 @@ fn fn_decl(
         }
         used.push(name.clone());
         let local = Local(name);
-        lower.effect_env.push((t.clone(), local.clone()));
+        // [effect-instance] Effect parameter of the fn at its name.
+        lower.effect_env.push((Instance { ty: t.clone(), binder: Binder::Fn(ctx.checked.key_at(file_idx, f.name.span)) }, local.clone()));
         params.push(Param { local, ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None, span: f.span });
     }
     let effect_params = params.len();

@@ -36,8 +36,9 @@ pub struct Lower<'a, 'p> {
     /// state fields, in scope as locals.
     pub self_fields: Vec<(String, Ty)>,
     /// The effect instances in scope, innermost last: effect parameters,
-    /// `use` bindings, a handler's dependencies.
-    pub effect_env: Vec<(Ty, Local)>,
+    /// `use` bindings, a handler's dependencies — each under the instance
+    /// the checker names it by [effect-instance], its type erased.
+    pub effect_env: Vec<(crate::check::Instance, Local)>,
     /// [implicit-param] the enclosing fn's implicits by resolution name.
     pub implicit_locals: HashMap<String, Local>,
     pub in_handler: Option<String>,

@@ -201,6 +201,11 @@ fn main() [use] -> None {
     if text is Loud {
         note("loud")
     }
+    // [is-qualifies-effects] [effect-instance] Called by hand, its effects
+    // lead as at any call.
+    if Loud.qualifies("hi there") {
+        note("loud by hand")
+    }
 }
 //= stdout
 //= LOG: note 1: first
@@ -210,6 +215,8 @@ fn main() [use] -> None {
 //= LOG: n=7
 //= checking hello
 //= LOG: note 2: loud
+//= checking hi there
+//= LOG: note 3: loud by hand
 
 //--- cross_module_fusion
 // FILE: logging.sv

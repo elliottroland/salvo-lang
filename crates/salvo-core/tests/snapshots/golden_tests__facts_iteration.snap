@@ -13,7 +13,7 @@ describe_container(List<Int>) -> None@main
   17:15   `sum + n`                      Int  -> std.core.basic::plus(Int, Int)
   17:15   `sum`                          Int
   17:21   `n`                            Int
-  19:5    `println("1. list of ${size…`  None  -> std.core.console::println  [passes Console]
+  19:5    `println("1. list of ${size…`  None  -> std.core.console::println  [passes Console (param)]
   19:13   `"1. list of ${size(xs)} su…`  Str
   19:27   `size(xs)`                     Int  -> std.core.list::size
   19:32   `xs`                           List<Int>
@@ -27,7 +27,7 @@ describe_container(List<Int>) -> None@main
   23:16   `letters`                      Mut Str
   23:25   `"${c}."`                      Str
   23:28   `c`                            Char
-  25:5    `println("1. string: ${lett…`  None  -> std.core.console::println  [passes Console]
+  25:5    `println("1. string: ${lett…`  None  -> std.core.console::println  [passes Console (param)]
   25:13   `"1. string: ${letters}"`      Str
   25:27   `letters`                      Mut Str #{as Str}
   27:9    `arr`                          Int[]
@@ -43,7 +43,7 @@ describe_container(List<Int>) -> None@main
   30:22   `from_array + n`               Int  -> std.core.basic::plus(Int, Int)
   30:22   `from_array`                   Int
   30:35   `n`                            Int
-  32:5    `println("1. array sums to …`  None  -> std.core.console::println  [passes Console]
+  32:5    `println("1. array sums to …`  None  -> std.core.console::println  [passes Console (param)]
   32:13   `"1. array sums to ${from_a…`  Str
   32:33   `from_array`                   Int
 countdown(Int) -> Mut Countdown@main
@@ -103,7 +103,7 @@ take(Mut Countdown, Int) -> None@main
   79:5    `for n in p {…`                None
   79:9    `n`                            Int
   79:14   `p`                            Mut Countdown
-  80:9    `println("2. got ${n}")`       None  -> std.core.console::println  [passes Console]
+  80:9    `println("2. got ${n}")`       None  -> std.core.console::println  [passes Console (param)]
   80:17   `"2. got ${n}"`                Str
   80:27   `n`                            Int
   81:16   `seen + 1`                     Int  -> std.core.basic::plus(Int, Int)
@@ -185,7 +185,7 @@ next(Mut Fibs) -> Emitted Int | Finished@main
   148:8   `made >= count`                Bool  -> std.core.basic::cmp(Int, Int)
   148:8   `made`                         Int
   148:16  `count`                        Int
-  149:9   `println("3. finished")`       None  -> std.core.console::println  [passes Console]
+  149:9   `println("3. finished")`       None  -> std.core.console::println  [passes Console (param)]
   149:17  `"3. finished"`                Str
   150:9   `return finished()`            Never
   150:16  `finished()`                   Finished #{as Emitted Int | Finished}  -> std.core.iterator::finished
@@ -269,15 +269,15 @@ main() -> None@main
   208:22  `2`                            Int
   208:25  `3`                            Int
   208:28  `4`                            Int
-  209:5   `describe_container(xs)`       None  -> main::describe_container  [passes Console]
+  209:5   `describe_container(xs)`       None  -> main::describe_container  [passes Console (use 206:5)]
   209:24  `xs`                           NonEmpty List<Int>
   213:9   `p`                            Mut Countdown
   213:13  `countdown(5)`                 Mut Countdown  -> main::countdown
   213:23  `5`                            Int
-  214:5   `take(p, 2)`                   None  -> main::take  [passes Console]
+  214:5   `take(p, 2)`                   None  -> main::take  [passes Console (use 206:5)]
   214:10  `p`                            Mut Countdown
   214:13  `2`                            Int
-  215:5   `println("2. rest sums to $…`  None  -> std.core.console::println  [passes Console]
+  215:5   `println("2. rest sums to $…`  None  -> std.core.console::println  [passes Console (use 206:5)]
   215:13  `"2. rest sums to ${sum_of(…`  Str
   215:32  `sum_of(p)`                    Int  -> main::sum_of
   215:39  `p`                            Mut Countdown
@@ -288,24 +288,24 @@ main() -> None@main
   217:9   `n`                            Int
   217:14  `skip(q)`                      Emitted Int | Finished  -> main::skip
   217:19  `q`                            Mut Countdown
-  218:9   `println("2. skip ${n}")`      None  -> std.core.console::println  [passes Console]
+  218:9   `println("2. skip ${n}")`      None  -> std.core.console::println  [passes Console (use 206:5)]
   218:17  `"2. skip ${n}"`               Str
   218:28  `n`                            Int
   223:5   `for n in halving(20) {…`      None
   223:9   `n`                            Int
   223:14  `halving(20)`                  Mut Halving  -> main::halving
   223:22  `20`                           Int
-  224:9   `println("2b. halving ${n}"…`  None  -> std.core.console::println  [passes Console]
+  224:9   `println("2b. halving ${n}"…`  None  -> std.core.console::println  [passes Console (use 206:5)]
   224:17  `"2b. halving ${n}"`           Str
   224:32  `n`                            Int
   226:9   `hp`                           Mut Halving
   226:14  `halving(20)`                  Mut Halving  -> main::halving
   226:22  `20`                           Int
-  227:5   `println("2b. summed from a…`  None  -> std.core.console::println  [passes Console]
+  227:5   `println("2b. summed from a…`  None  -> std.core.console::println  [passes Console (use 206:5)]
   227:13  `"2b. summed from a held it…`  Str
   227:49  `sum_of(hp)`                   Int  -> main::sum_of
   227:56  `hp`                           Mut Halving
-  228:5   `println("2b. first from a …`  None  -> std.core.console::println  [passes Console]
+  228:5   `println("2b. first from a …`  None  -> std.core.console::println  [passes Console (use 206:5)]
   228:13  `"2b. first from a fn retur…`  Str
   228:51  `first(halving_from_ten())`    Int  -> main::first
   228:57  `halving_from_ten()`           Mut Halving  -> main::halving_from_ten
@@ -317,10 +317,10 @@ main() -> None@main
   233:5   `for n in bag {…`              None
   233:9   `n`                            Int
   233:14  `bag`                          Bag
-  234:9   `println("2c. bag ${n}")`      None  -> std.core.console::println  [passes Console]
+  234:9   `println("2c. bag ${n}")`      None  -> std.core.console::println  [passes Console (use 206:5)]
   234:17  `"2c. bag ${n}"`               Str
   234:28  `n`                            Int
-  236:5   `println("2c. total of a ba…`  None  -> std.core.console::println  [passes Console]
+  236:5   `println("2c. total of a ba…`  None  -> std.core.console::println  [passes Console (use 206:5)]
   236:13  `"2c. total of a bag ${tota…`  Str
   236:35  `total(bag)`                   Int  -> main::total
   236:41  `bag`                          Bag
@@ -330,7 +330,7 @@ main() -> None@main
   241:9   `n`                            Int
   241:14  `fibs(6)`                      Mut Fibs  -> main::fibs
   241:19  `6`                            Int
-  242:9   `println("3. fib ${n}")`       None  -> std.core.console::println  [passes Console]
+  242:9   `println("3. fib ${n}")`       None  -> std.core.console::println  [passes Console (use 206:5)]
   242:17  `"3. fib ${n}"`                Str
   242:27  `n`                            Int
   246:5   `for n in naturals(10) {…`     None
@@ -342,7 +342,7 @@ main() -> None@main
   247:12  `n`                            Int
   247:16  `12`                           Int
   248:13  `break`                        Never
-  250:9   `println("3. natural ${n}")`   None  -> std.core.console::println  [passes Console]
+  250:9   `println("3. natural ${n}")`   None  -> std.core.console::println  [passes Console (use 206:5)]
   250:17  `"3. natural ${n}"`            Str
   250:31  `n`                            Int
   258:9   `doubled`                      Mut List<Int>
@@ -373,7 +373,7 @@ main() -> None@main
   260:43  `acc + n`                      Int  -> std.core.basic::plus(Int, Int)
   260:43  `acc`                          Int
   260:49  `n`                            Int
-  261:5   `println("5. list: ${size(d…`  None  -> std.core.console::println  [passes Console]
+  261:5   `println("5. list: ${size(d…`  None  -> std.core.console::println  [passes Console (use 206:5)]
   261:13  `"5. list: ${size(doubled)}…`  Str
   261:25  `size(doubled)`                Int  -> std.core.list::size
   261:30  `doubled`                      Mut List<Int> #{as List<Int>}
@@ -393,7 +393,7 @@ main() -> None@main
   264:36  `w`                            proj Str
   264:41  `size(w)`                      Int  -> std.core.string::size
   264:46  `w`                            proj Str #{as Str}
-  265:5   `println("5. lengths: ${red…`  None  -> std.core.console::println  [passes Console]
+  265:5   `println("5. lengths: ${red…`  None  -> std.core.console::println  [passes Console (use 206:5)]
   265:13  `"5. lengths: ${reduce(iter…`  Str
   265:28  `reduce(iter(lengths), 0, (…`  Int  -> std.core.seq::reduce(Mut It, A, (A, T) -> A)
   265:35  `iter(lengths)`                Mut ListNext<Int>  -> std.core.list::iter  [holds arg 0]
@@ -420,11 +420,11 @@ main() -> None@main
   270:54  `c == 'o'`                     Bool  -> std.core.basic::eq(Char, Char)
   270:54  `c`                            Char
   270:59  `'o'`                          Char
-  271:5   `println("5. vowels: ${size…`  None  -> std.core.console::println  [passes Console]
+  271:5   `println("5. vowels: ${size…`  None  -> std.core.console::println  [passes Console (use 206:5)]
   271:13  `"5. vowels: ${size(vowels)…`  Str
   271:27  `size(vowels)`                 Int  -> std.core.list::size
   271:32  `vowels`                       Mut List<Char> #{as List<Char>}
-  274:5   `println("5. halving total …`  None  -> std.core.console::println  [passes Console]
+  274:5   `println("5. halving total …`  None  -> std.core.console::println  [passes Console (use 206:5)]
   274:13  `"5. halving total ${reduce…`  Str
   274:33  `reduce(halving(20), 0, (ac…`  Int  -> std.core.seq::reduce(Mut It, A, (A, T) -> A)
   274:40  `halving(20)`                  Mut Halving  -> main::halving
@@ -446,7 +446,7 @@ main() -> None@main
   281:71  `n * 10`                       Int  -> std.core.basic::times(Int, Int)
   281:71  `n`                            Int
   281:75  `10`                           Int
-  282:5   `println("6. collected ${si…`  None  -> std.core.console::println  [passes Console]
+  282:5   `println("6. collected ${si…`  None  -> std.core.console::println  [passes Console (use 206:5)]
   282:13  `"6. collected ${size(colle…`  Str
   282:29  `size(collected)`              Int  -> std.core.list::size
   282:34  `collected`                    Mut List<Int> #{as List<Int>}
@@ -462,6 +462,6 @@ main() -> None@main
   290:16  `evens`                        Mut Str
   290:23  `"${i} "`                      Str
   290:26  `i`                            Int
-  292:5   `println("7. evens ${evens}…`  None  -> std.core.console::println  [passes Console]
+  292:5   `println("7. evens ${evens}…`  None  -> std.core.console::println  [passes Console (use 206:5)]
   292:13  `"7. evens ${evens}"`          Str
   292:25  `evens`                        Mut Str #{as Str}
