@@ -205,7 +205,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let local = Local(b.name.clone());
                     self.rebind(&b.name, local.clone(), ty.clone());
                     let from_ty = s.ty.clone();
-                    let stmts = self.bind_arm(local, ty, from, from_ty, widen.clone(), Justification::Test { test: id });
+                    let stmts = self.bind_arm(local, ty, from, from_ty, widen.clone(), Justification::Test { test: id }, b);
                     self.pending_after_test.extend(stmts);
                 } else if let (Some(target), true) = (widen, self.in_condition) {
                     // [qual-lift] A lift that peels a wrapper arm narrows the
@@ -1814,6 +1814,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             let local = Local(b.name.clone());
             self.rebind(&b.name, local.clone(), ty.clone());
             let nid = self.id();
+            self.note_narrow_bind(nid, b);
             let from_ty = s.ty.clone();
             self.pending_after_test.push(Stmt::Narrow { id: nid, local, ty, from, from_ty, because: Justification::Test { test: id } });
         } else if let (Some(place), AExpr::Ident(name)) = (place, subject) {
@@ -2438,7 +2439,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                             let local = Local(name.clone());
                             let bty = self.ty_of(br.binding.as_ref().unwrap().span).or_unknown(Some(arm_ty.clone())).unwrap_or(arm_ty.clone());
                             self.rebind(&name, local.clone(), bty.clone());
-                            stmts.extend(self.bind_arm(local, bty, place, subj_ty.clone(), Some(arm_ty.clone()), Justification::Arm { switch: id, arm: i }));
+                            let b = br.binding.as_ref().unwrap();
+                            stmts.extend(self.bind_arm(local, bty, place, subj_ty.clone(), Some(arm_ty.clone()), Justification::Arm { switch: id, arm: i }, b));
                         } else {
                             stmts.push(self.narrow_in_arm(&name, place, subj_ty.clone(), arm_ty, Justification::Arm { switch: id, arm: i }));
                         }

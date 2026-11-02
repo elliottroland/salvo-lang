@@ -9604,12 +9604,14 @@ between endpoints and delivers what arrives into the scheduler.
     a derived return, every live ancestor owned, none outside an enclosing
     lambda — `may_take_ownership`, a typing and scope fact), the loops whose
     binding is one of its roots, and every move or mutation of a derived
-    variable (`Checked::derived_uses`, with the S1 message), which then goes
+    variable (`Checked::derived_uses`: the event and its action), which then goes
     on as the move of an owned value. `ir::build_program` builds the bodies
     with every binding borrow-mode; `ir::flow::decide` walks each: at a
-    derived use, every binding behind it — the variable's own, then back
-    along the chain as the links stand on that path — that may take
-    ownership does; and the declarations with a decision are built again from it
+    derived use, every binding behind it — the ones the links standing for
+    the variable on that path were made by (an `is` or `when` binding's
+    own, from its `Narrow`: `FateFacts::narrow_binds`), then back along the
+    chain — that may take ownership does (a use with no links standing on
+    a path is not derived there, since PIPELINE.md D3.5(b)); and the declarations with a decision are built again from it
     (`ir::Decision`, on `ir::Program::decision`): a move-mode binding's value
     is read as a move, the loops it takes a binding of iterate by value, and
     its links are what it took ownership through (`FateFacts::bound`), with
@@ -11568,7 +11570,7 @@ between endpoints and delivers what arrives into the scheduler.
   * **Stable**: an edit above a declaration moves its spans, not its keys —
     what a per-declaration cache of facts stands on (A4). Every identity a
     row holds is a key too: the binding stamps (`BindFact::stamp` and
-    `origins`, `FlowLink::stamp`, `DerivedUse::own`,
+    `origins`, `FlowLink::stamp`,
     `VirtualCandidate::stamp`, `FateRead::bind`), which the IR flow pass
     and its `Decision` compare. The spans left in rows (a key's origin,
     `DefSite`, `LocalDecl`, `handler_deps`, a diagnostic) are positions only.

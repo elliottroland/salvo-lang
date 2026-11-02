@@ -1421,7 +1421,8 @@ log current so the work can resume after a context reset). Newest last.
     each stamped by the binding that made it; whether it may take
     ownership, `may_take_ownership` at the binding; the `for` loops whose
     binding is a root), `derived_uses` (every move or mutation of a derived
-    variable, with the S1 message and the stamps of its own links; the use
+    variable, with the S1 message and the stamps of its own links — since
+    D3.5(b) only the event and its action, the links being the path's; the use
     then goes on as an owned value's move), `virtual_candidates` and
     `by_value_loops` (the last gone since D3.5(b): the flow pass finds those
     loops). `ir::build_program` builds the bodies with every
@@ -2743,9 +2744,10 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   question, behind a differential harness like R8 piece 8's. (Redefined by
   the user, 2026-10-30: the checker keeps the fate links, the mutation
   events and narrowing, which are facts about values and operations; the
-  flow pass takes by-value loops, derived uses and the S1 error, virtual
-  candidates and eligibility, which are path questions —
-  docs/compiler/Phases.md.) **D3.1 built
+  flow pass takes by-value loops, the links a derived use stands on, and
+  virtual candidates, which are path questions — docs/compiler/Phases.md;
+  then, on the derived-uses survey, the event stays the checker's and so
+  does eligibility, both facts about values and bindings.) **D3.1 built
   — done** (2026-10-30): the checker records an `Instance { ty, binder }`
   (`Fn`, `Lambda`, `Dep`, `Use`, `Clause`) in `effects_passed`,
   `constructions` (`Dep` is gone), `ImplicitArg::Member` and
@@ -2820,8 +2822,19 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   are gone; the checker still records the consuming read. A differential
   (`SALVO_XP_LINKS`) over the suite, std's tests and the examples found the
   same loops on both sides once the IR keyed on projection moves rather
-  than any move the checker took a root by. Left: derived uses and the S1
-  error, virtual candidates, eligibility, each the same way.
+  than any move the checker took a root by. **D3.5(b), derived uses built — done**
+  (2026-10-30, the user's option A): the checker records only the event
+  (`DerivedUse { name, action }`: a move or mutation of a variable it holds
+  links for, less a Copy scalar's move); the flow pass derives each use
+  through the links standing for the local on that path — an `is` or
+  `when` binding's own links ride on its `Narrow` (`FateFacts::narrow_binds`),
+  since the IR's binding is the subject's storage — and builds the S1 error
+  from them (`FlowLink` gained `borrowed` and `held`). The differential
+  agreed on every use's bindings and every refusal; the one message that
+  differed lost its root's name to a rebinding on an earlier iteration, so
+  a link to a gone binding keeps its written name (`x~gone`). Eligibility
+  stays the checker's (user, 2026-10-30: "may take ownership" is a fact
+  about the binding, judged where it is). Left: virtual candidates.
 - **D4. The typed dump and the full round trip**: B4 extended to types,
   type arguments and narrowings (marked notation where Salvo has no
   spelling).

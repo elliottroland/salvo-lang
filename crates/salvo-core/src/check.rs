@@ -1709,6 +1709,11 @@ pub struct FlowLink {
     /// of an ancestor's link carries the ancestor's), by its node: what the
     /// IR flow pass and its `Decision` know a binding by [node-id].
     pub stamp: Key,
+    /// [proj-readonly] A link through a `proj` (the root's own data seen
+    /// through a view), and [proj-infer] one a held view carries: what the
+    /// S1 error says, and whether a move is a derived use at all.
+    pub borrowed: bool,
+    pub held: bool,
 }
 
 /// [fate-move-mode] One link-carrying binding (`Checked::bind_facts`).
@@ -1727,14 +1732,9 @@ pub struct BindFact {
 #[derive(Clone, Debug, PartialEq)]
 pub struct DerivedUse {
     pub name: String,
+    /// What the use does (`move`, `mutate`, `return`, …): what the S1 error
+    /// says, should the flow pass report one.
     pub action: String,
-    /// [fate-derived-readonly] The S1 error, should the binding stay
-    /// borrow-mode.
-    pub message: Message,
-    /// The bindings (by stamp) the variable's own links were made by, as the
-    /// walk holds them there: the use is the S1 error unless one of them may
-    /// take ownership.
-    pub own: Vec<Key>,
 }
 
 /// [deduce-field] A binding a mutation event may leave as a virtual place
@@ -12849,12 +12849,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// A move or a `Mut` operation on a fate-linked (derived) variable
-    /// [fate-derived-readonly] [fate-move-mode]: recorded for the IR flow
-    /// pass (`Checked::derived_uses`), which decides whether a binding behind
-    /// it takes ownership — and reports the S1 error when none may. The use
-    /// then goes on as the move of an owned value (answers `true`), except
-    /// for a Copy scalar, whose move is a copy (answers `false`).
-    fn note_derived_use(&mut self, span: Span, action: &str, name: &str, links: &[FateLink]) -> bool {
+    /// [fate-derived-readonly] [fate-move-mode]: the event, recorded for the
+    /// IR flow pass (`Checked::derived_uses`), which reads the links that
+    /// stand there on each path — deciding whether a binding behind it takes
+    /// ownership, and reporting the S1 error when none may. The use then
+    /// goes on as the move of an owned value (answers `true`), except for a
+    /// Copy scalar, whose move is a copy (answers `false`).
+    fn note_derived_use(&mut self, span: Span, action: &str, name: &str) -> bool {
         // [copy-scalar-free] Moving a derived *Copy scalar* is a read: an
         // `Int` taken out of a borrow is the value itself on both backends,
         // so nothing can observe the difference and no `copy` is owed.
@@ -12871,33 +12872,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         if scalar {
             return false;
         }
-        let message = Self::derived_message(action, name, links);
-        let mut own: Vec<Key> = Vec::new();
-        for l in links {
-            let stamp = self.key(l.bind_span);
-            if !own.contains(&stamp) {
-                own.push(stamp);
-            }
-        }
-        let use_ = DerivedUse { name: name.to_string(), action: action.to_string(), message, own };
+        let use_ = DerivedUse { name: name.to_string(), action: action.to_string() };
         let at = self.out.derived_uses.entry(self.key(span)).or_default();
         if !at.contains(&use_) {
             at.push(use_);
         }
         true
-    }
-
-    /// [fate-derived-readonly] [proj-readonly] The S1 error for moving or
-    /// mutating the derived variable `name` with `links` in borrow-mode.
-    fn derived_message(action: &str, name: &str, links: &[FateLink]) -> Message {
-        let root = &links[0].root_name;
-        // [proj-readonly] A wholesale projection is the root's own data seen
-        // through `proj`: read-only whatever its `Mut` says, and `copy` is
-        // the way to a value of one's own.
-        if links.iter().any(|l| l.borrowed && !l.held) {
-            return messages::proj_readonly_projection_use(action, &name, root);
-        }
-        messages::fate_derived_readonly_shares_fate(&action, &name, root)
     }
 
     /// [deduce-syntax] Records that the enclosing fn invalidates one of
@@ -13001,7 +12981,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (at, (bind_span, links)) in std::mem::take(&mut self.fate_log) {
             let links: Vec<FlowLink> = links
                 .iter()
-                .map(|l| FlowLink { root: l.root_name.clone(), path: l.path.clone(), crosses: l.crosses, stamp: self.key(l.bind_span) })
+                .map(|l| FlowLink { root: l.root_name.clone(), path: l.path.clone(), crosses: l.crosses, stamp: self.key(l.bind_span), borrowed: l.borrowed, held: l.held })
                 .collect();
             if links.is_empty() {
                 continue;
@@ -13502,7 +13482,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 };
                 if !links.is_empty() {
                     let name = id.name.clone();
-                    if !self.note_derived_use(id.span, "move", &name, &links) {
+                    if !self.note_derived_use(id.span, "move", &name) {
                         continue;
                     }
                 }
@@ -17412,7 +17392,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 return;
             }
-            if !self.note_derived_use(span, "mutate", name, &links) {
+            if !self.note_derived_use(span, "mutate", name) {
                 return;
             }
         }
@@ -23162,7 +23142,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if action == "return" {
                     self.check_returned_view_roots(&links, id.span);
                 }
-            } else if !self.note_derived_use(id.span, action, &name, &links) {
+            } else if !self.note_derived_use(id.span, action, &name) {
                 return;
             }
         }
@@ -29236,7 +29216,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let links = self.lookup(&lname).map(|var| var.links.clone());
                     if let Some(links) = links {
                         let name = id.name.clone();
-                        if links.is_empty() || self.note_derived_use(id.span, "call", &name, &links) {
+                        if links.is_empty() || self.note_derived_use(id.span, "call", &name) {
                             // [flow-use-after-move] The IR has no read
                             // at a call of a local: the call is the move.
                             self.record_move(span, Move::TAKES_ROOT);
@@ -31143,7 +31123,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     };
                     if !links.is_empty() {
                         let name = id.name.clone();
-                        if !self.note_derived_use(id.span, "move", &name, &links) {
+                        if !self.note_derived_use(id.span, "move", &name) {
                             continue;
                         }
                     }

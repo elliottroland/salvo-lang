@@ -347,6 +347,10 @@ struct Moved {
     /// take ownership (by stamp) — from there on they hold no links, so no
     /// mutation can leave them a virtual place [deduce-field].
     decided_here: std::collections::BTreeSet<crate::check::Key>,
+    /// [fate-move-mode] The `is` and `when` bindings in scope on this path,
+    /// with their own links (`FateFacts::narrow_binds`): a use of one is
+    /// derived through these, not through its subject's storage.
+    own_links: BTreeMap<String, Vec<FlowLink>>,
 }
 
 /// Why a local is unusable, and where it happened: moved, poisoned
@@ -406,15 +410,16 @@ impl Moved {
         self.whole.remove(local);
         self.parts.remove(local);
         self.links.remove(local);
+        self.own_links.remove(local);
         // A link names the variable it was made to: the checker's links are
         // by variable, so one to an earlier binding of this name (an earlier
         // iteration's `let`) is not to this one. It stays as a link to no
-        // local (`GONE`), poisoning nothing, for the binding that made it
+        // local (its name, `GONE`-suffixed), poisoning nothing, for the binding that made it
         // [fate-move-mode]: a use of the descendant decides it too.
         for ls in self.links.values_mut() {
             for l in ls.iter_mut() {
                 if l.root == local {
-                    l.root = GONE.to_string();
+                    l.root = format!("{local}{GONE}");
                 }
             }
             dedupe_links(ls);
@@ -806,9 +811,10 @@ impl<'f> Walker<'f> {
     }
 
     /// [fate-move-mode] [fate-derived-readonly] Moves and mutations of
-    /// derived locals at `span`. Deciding: every binding behind each — the
-    /// local's own (the checker's links at the use), then back along the
-    /// chain as the links stand on this path — that may take ownership does.
+    /// derived locals at `span`, each derived through the links that stand
+    /// for it on this path (`use_links`) — not derived at all where none
+    /// do. Deciding: every binding behind each — the ones those links were
+    /// made by, then back along the chain — that may take ownership does.
     /// Checking: a local none of whose own bindings may take ownership stays
     /// borrow-mode, and the use is the S1 error; its move is then not made.
     /// Answers the refused locals.
@@ -817,8 +823,18 @@ impl<'f> Walker<'f> {
         for u in uses {
             let Some(fate) = self.fate else { continue };
             let eligible = |s: &crate::check::Key| fate.eligible.contains(s);
+            let links = self.use_links(&u.local, moved);
+            if links.is_empty() {
+                continue;
+            }
+            let mut own: Vec<crate::check::Key> = Vec::new();
+            for l in &links {
+                if !own.contains(&l.stamp) {
+                    own.push(l.stamp);
+                }
+            }
             if self.deciding {
-                let mut chain = u.own.clone();
+                let mut chain = own;
                 for s in self.chain(&u.local, moved) {
                     if !chain.contains(&s) {
                         chain.push(s);
@@ -834,17 +850,36 @@ impl<'f> Walker<'f> {
             }
             // Its own binding took ownership when one of them may: every
             // binding behind a use that may, does.
-            if u.own.iter().any(eligible) {
+            if own.iter().any(eligible) {
                 continue;
             }
             refused.push(u.local.clone());
             self.refused.insert(span);
             if self.reported.insert(u.at) {
                 let local = written_name(&u.local).to_string();
-                self.out.push(FlowDiagnostic { readonly: true, ..FlowDiagnostic::new(u.at, u.message.clone(), local, u.at) });
+                let message = derived_message(&u.action, &local, &links);
+                self.out.push(FlowDiagnostic { readonly: true, ..FlowDiagnostic::new(u.at, message, local, u.at) });
             }
         }
         refused
+    }
+
+    /// [fate-move-mode] An `is` or `when` binding's own links, from here on
+    /// this path (`FateFacts::narrow_binds`).
+    fn note_own_links(&self, id: NodeId, local: &str, moved: &mut Moved) {
+        if let Some(links) = self.fate.and_then(|f| f.narrow_binds.get(&id.0)) {
+            moved.own_links.insert(local.to_string(), links.clone());
+        }
+    }
+
+    /// [fate-move-mode] [fate-derived-readonly] The links a use of `local`
+    /// is derived through on this path: an `is` or `when` binding's own, or
+    /// its storage's.
+    fn use_links(&self, local: &str, moved: &Moved) -> Vec<FlowLink> {
+        if let Some(own) = moved.own_links.get(local) {
+            return own.clone();
+        }
+        moved.links.get(self.storage(local)).cloned().unwrap_or_default()
     }
 
     /// [deduce-field] Deciding: the virtual-place candidates of a mutation
@@ -1000,6 +1035,7 @@ impl<'f> Walker<'f> {
                 moved.forget(&local.0);
                 // [fate-link] A borrow-mode binding shares fate with its roots.
                 moved.set_links(&local.0, self.bind_links(*id));
+                self.note_own_links(*id, &local.0, moved);
                 flow
             }
             Stmt::Alias { id, local, ty, place } => {
@@ -1012,10 +1048,11 @@ impl<'f> Walker<'f> {
                 }
                 Flow::FallsThrough
             }
-            Stmt::Narrow { local, ty, from, because, .. } => {
+            Stmt::Narrow { id, local, ty, from, because, .. } => {
                 self.walk_steps(from, moved);
                 let fresh = from.steps.is_empty() && self.tested_here(because, &from.root.0);
                 self.bind_view(&local.0, ty, from, fresh, true, moved);
+                self.note_own_links(*id, &local.0, moved);
                 Flow::FallsThrough
             }
             Stmt::Unpack { locals, from, .. } => {
@@ -1474,15 +1511,16 @@ fn join_into(acc: &mut Moved, other: Moved) {
     acc.decided_here.extend(other.decided_here);
 }
 
-/// [fate-move-mode] The root of a link to a binding no longer in scope (an
-/// earlier binding of the name): no local is named so, so it poisons
-/// nothing, but its stamp still names the binding that made it.
+/// [fate-move-mode] The suffix of a link's root naming a binding no longer
+/// in scope (an earlier binding of the name): no local is named so, so it
+/// poisons nothing, but its stamp still names the binding that made it,
+/// and its written name what it was bound from (the S1 error says so).
 const GONE: &str = "~gone";
 
 /// Two links to the same root, as the checker's links are by variable: a
 /// link to a binding gone from scope is its own, by the binding that made it.
 fn same_link_root(a: &FlowLink, b: &FlowLink) -> bool {
-    a.root == b.root && (a.root != GONE || a.stamp == b.stamp)
+    a.root == b.root && (!a.root.ends_with(GONE) || a.stamp == b.stamp)
 }
 
 fn dedupe_links(ls: &mut Vec<FlowLink>) {
@@ -1496,6 +1534,19 @@ fn dedupe_links(ls: &mut Vec<FlowLink>) {
 }
 
 /// A local's name as written: the builder suffixes a rebinding (`x~2`).
+/// [fate-derived-readonly] [proj-readonly] The S1 error for a use (`action`)
+/// of the derived local written `name`, derived through `links` (not
+/// empty): a wholesale projection is the root's own data seen through
+/// `proj`, read-only whatever its `Mut` says, and `copy` is the way to a
+/// value of one's own.
+fn derived_message(action: &str, name: &str, links: &[FlowLink]) -> Message {
+    let root = written_name(&links[0].root);
+    if links.iter().any(|l| l.borrowed && !l.held) {
+        return messages::proj_readonly_projection_use(action, &name, &root);
+    }
+    messages::fate_derived_readonly_shares_fate(&action, &name, &root)
+}
+
 fn written_name(local: &str) -> &str {
     match local.find('~') {
         Some(i) => &local[..i],

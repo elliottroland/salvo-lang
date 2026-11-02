@@ -59,6 +59,22 @@ When moving a decision from one phase to another, compare both answers
 over the suite with a temporary differential before deleting the old one,
 and confirm on a probe that the comparison runs at all.
 
+An event can be the checker's while what it means on a path is the flow
+pass's. "This variable is moved here, for a `return`" is a fact about the
+operation, and recording it needs types (a Copy scalar's move is a copy, a
+`Mut` handle's mutation goes to its roots). Whether that variable is still
+derived at that point, and from which bindings, depends on the path, so
+the flow pass reads it off the links that stand there (PIPELINE.md D3.5(b)).
+Likewise, whether a binding *may* take ownership is judged where the
+binding is (its roots, a lambda around it), so it is the checker's; whether
+it *does* is the flow pass's.
+
+When the IR represents something differently from the source, a fact the
+checker keeps about the source thing has to travel with the IR node that
+stands for it. An `is` binding is the subject's own storage in the IR (a
+`Narrow`), so the links the checker gave the binding ride on the `Narrow`;
+reading the storage's links instead would answer for the subject.
+
 ### The builder lowers; it does not decide
 
 The IR builder reads what the checker recorded and builds nodes from it. When

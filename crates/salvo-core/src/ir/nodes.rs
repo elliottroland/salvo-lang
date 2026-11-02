@@ -398,22 +398,27 @@ pub struct FateFacts {
     /// [fate-move-mode] The reads that move data out of a projection, by
     /// span, each with the root local of the place it projects.
     pub projection_moves: std::collections::HashMap<Span, String>,
+    /// [fate-move-mode] An `is` or `when` binding's own links (the
+    /// checker's), by the statement binding it: its `Narrow`, or the `Let`
+    /// dropping the narrowed value's `Mut`. The binding is the subject's
+    /// storage in the IR, so they are not that storage's links (nothing is
+    /// poisoned through them): only what a move of the binding is derived
+    /// through. Empty when it holds none: a use of it is never one of the
+    /// subject's.
+    pub narrow_binds: std::collections::HashMap<u32, Vec<crate::check::FlowLink>>,
 }
 
-/// [fate-move-mode] A move or mutation of a derived local (`FateFacts::uses`).
+/// [fate-move-mode] A move or mutation of a derived local (`FateFacts::uses`):
+/// the event, as the checker saw it. The links it is derived through are the
+/// flow pass's, as they stand on each path.
 #[derive(Clone, Debug)]
 pub struct DerivedUseAt {
     /// The local, as the IR names it.
     pub local: String,
+    /// What the use does, for the S1 error.
     pub action: String,
-    /// [diag-id] The S1 error, with its id.
-    pub message: salvo_syntax::messages::Message,
     /// Where the checker placed the use: where the S1 error points.
     pub at: Span,
-    /// The bindings the local's own links were made by (the checker's, at
-    /// the use: an `is` binding is the same storage as its subject in the
-    /// IR, so its link is not a local's here), by stamp [node-id].
-    pub own: Vec<crate::check::Key>,
 }
 
 /// [deduce-field] A binding a mutation event may leave as a virtual place:

@@ -144,6 +144,42 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A derived use is derived through the links on its path (user decision, PIPELINE.md D3.5(b) option A, [fate-move-mode] [fate-derived-readonly])
+
+- **Decided (user, 2026-10-30)**: of a derived use, only what depends on
+  the path moves to the flow pass (option A): the links it stands on and,
+  from them, the bindings behind it and the S1 error's wording. The event
+  (a move or mutation of a variable the checker holds links for, and its
+  action) stays the checker's: recording it needs the action, whether the
+  variable is a Copy scalar after narrowing, a `Mut` handle, or holds only
+  held views, all type facts. Moving the event too (option B) would have
+  had the checker record the action on every move plus scalar and handle
+  flags, the same table for every variable instead of the derived ones.
+  **Eligibility stays in the checker** (user): "may take ownership" is
+  judged where the binding is (owned roots, a kept lambda parameter, a
+  capture across a lambda), a fact about the binding; whether it does take
+  ownership was already the flow pass's. That piece of the D3.5(b) plan is
+  dropped.
+- **Built**: `DerivedUse` is `{ name, action }` (the S1 message and `own`
+  are gone, with `derived_message` and `note_derived_use`'s links
+  parameter). `FlowLink` carries `borrowed` and `held`. The flow pass
+  derives a use through `use_links`: an `is` or `when` binding's own links,
+  which the builder puts on its `Narrow` (or the `Let` dropping its `Mut`)
+  from the checker's bind fact (`FateFacts::narrow_binds`, empty once the
+  binding took ownership), since the IR's binding is the subject's storage
+  and has no links of its own; else its storage's. A use with no links
+  standing on a path is not derived there. It builds the S1 error from the
+  links (`flow::derived_message`).
+- **The differential** (temporary, removed): the checker's `own` against the
+  path's at every use while deciding, both sides' refusals while checking,
+  and the two messages, over the suite, std's tests and the examples. Before
+  the `Narrow` carried its binding's links, every `is` binding's use differed
+  (path: no links). After, bindings and refusals agreed everywhere; one
+  message named no root, because a rebinding on an earlier iteration had
+  turned its link's root into the bare `~gone`. A gone link now keeps its
+  local's name (`x~gone`), so the error still says what it was bound from.
+  The IR, every diagnostic and every example are unchanged.
+
 ### 2026-10-30 — The flow pass decides which loops iterate by value; the checker owns facts, the flow pass owns paths (user decision, PIPELINE.md D3.5(b), [fate-move-mode])
 
 - **Decided (user, 2026-10-30)**: the placement criterion is what a fact is

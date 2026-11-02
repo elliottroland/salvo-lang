@@ -249,7 +249,7 @@ pub moves: HashMap<Key, Move>,       // this read hands the value over (`consume
                                      // `break`, a drained state field, `s.field` out of a consumed root),
                                      // the flow pass takes the root here (`takes_root`), it is linear
 pub bind_facts: HashMap<Key, BindFact>,  // a binding's fate links, and whether it may take ownership
-pub derived_uses: HashMap<Key, …>,   // a derived value moved or mutated here
+pub derived_uses: HashMap<Key, …>,   // a derived value moved or mutated here, and how
 pub deductions: HashMap<Key, Vec<ParamDeduction>>,   // per fn (at its name), per parameter
 ```
 
@@ -260,7 +260,7 @@ IR flow pass's error (`ir::flow`, run by `ir::analyze`). The checker keeps no
 consumption state of its own; which `let`s take ownership of what they bind
 (move-mode) is the flow pass's decision too (`ir::flow::decide`, read by the
 builder as `ir::Decision`), from the checker's `bind_facts` and
-`derived_uses`. A binding is known there by its node key, its *stamp*
+`derived_uses`, reading each use through the links that stand on its path. A binding is known there by its node key, its *stamp*
 (`BindFact::stamp`, `FlowLink::stamp`): `Decision` holds keys, so the flow
 pass and the builder compare the same identity [node-id].
 

@@ -231,6 +231,19 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
+    /// [fate-move-mode] An `is` or `when` binding's own links, from the
+    /// checker's facts, onto the statement that binds it
+    /// (`FateFacts::narrow_binds`): its `Narrow`, or the `Let` dropping the
+    /// narrowed value's `Mut`. None when it took ownership, or was bound
+    /// from nothing it shares fate with.
+    pub(crate) fn note_narrow_bind(&mut self, id: NodeId, name: &salvo_syntax::ast::Ident) {
+        let links = match self.ctx.bind_links(self.file_idx, name.span) {
+            Some((false, links)) => links,
+            _ => Vec::new(),
+        };
+        self.fate.narrow_binds.insert(id.0, links);
+    }
+
     /// [fate-move-mode] What the flow pass's decision reads off a binding:
     /// whether it may take ownership, and the loops its roots are bound by.
     pub(crate) fn note_fact(&mut self, fact: &crate::check::BindFact) {
@@ -257,7 +270,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 .iter()
                 .filter_map(|u| {
                     let local = self.lookup(&u.name)?.local.0.clone();
-                    Some(DerivedUseAt { local, action: u.action.clone(), message: u.message.clone(), at: span, own: u.own.clone() })
+                    Some(DerivedUseAt { local, action: u.action.clone(), at: span })
                 })
                 .collect();
             let table = if assign { &mut self.fate.assign_uses } else { &mut self.fate.uses };
@@ -716,17 +729,21 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// the arm with its `Mut` lifted (`is ^Mut s`) — a narrowing to the
     /// builder and the `Mut` drop that makes the binding's plain value
     /// [ir-coerce], since no narrowing changes a representation.
-    pub(crate) fn bind_arm(&mut self, local: Local, ty: Ty, from: Place, from_ty: Ty, arm_ty: Option<Ty>, because: Justification) -> Vec<Stmt> {
+    pub(crate) fn bind_arm(&mut self, local: Local, ty: Ty, from: Place, from_ty: Ty, arm_ty: Option<Ty>, because: Justification, binding: &salvo_syntax::ast::Ident) -> Vec<Stmt> {
         let id = self.id();
         match arm_ty.filter(|a| crate::types::drops_only_mut(a, &ty)) {
             Some(arm) => {
                 let held = self.fresh(&local.0);
                 let lid = self.id();
+                self.note_narrow_bind(lid, binding);
                 let read = Expr { ty: arm.clone(), span: Span::default(), kind: ExprKind::Read { place: Place { root: held.clone(), steps: Vec::new() }, consume: false, moved: false } };
                 let dropped = Expr { ty: ty.clone(), span: Span::default(), kind: ExprKind::DropMut { value: Box::new(read) } };
                 vec![Stmt::Narrow { id, local: held, ty: arm, from, from_ty, because }, Stmt::Let { id: lid, local, ty, value: dropped }]
             }
-            None => vec![Stmt::Narrow { id, local, ty, from, from_ty, because }],
+            None => {
+                self.note_narrow_bind(id, binding);
+                vec![Stmt::Narrow { id, local, ty, from, from_ty, because }]
+            }
         }
     }
 
