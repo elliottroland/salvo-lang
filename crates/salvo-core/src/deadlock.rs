@@ -64,11 +64,11 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use salvo_syntax::ast::{self, Item};
 use salvo_syntax::messages;
 use salvo_syntax::span::Span;
 
-use crate::check::Checked;
+use crate::check::{Checked, HandlerShape, Key};
+use crate::DeclId;
 use crate::diag::FileDiagnostic;
 use crate::program::{Program, Symbols};
 
@@ -118,7 +118,7 @@ struct Edge {
 /// close.
 pub(crate) fn check(program: &Program, symbols: &Symbols<'_>, out: &mut Checked) {
     let before = out.errors.len();
-    check_graph(program, symbols, out);
+    check_graph(symbols, out);
     // [node-origin] An edge in copied code is reported where its origin says,
     // attributed to the stamped fn, as the checker's diagnostics are.
     let decls = out.decls.clone();
@@ -132,8 +132,8 @@ pub(crate) fn check(program: &Program, symbols: &Symbols<'_>, out: &mut Checked)
     }
 }
 
-fn check_graph(program: &Program, symbols: &Symbols<'_>, out: &mut Checked) {
-    let graph = build(program, symbols, out);
+fn check_graph(symbols: &Symbols<'_>, out: &mut Checked) {
+    let graph = build(symbols, out);
     if graph.is_empty() {
         return;
     }
@@ -188,9 +188,9 @@ fn check_graph(program: &Program, symbols: &Symbols<'_>, out: &mut Checked) {
 /// [actor-deadlock-cycle] For tests: the graph's edges as `from → to (Kind,
 /// handler)` lines, sorted, so a test can pin a node's edges (a route's,
 /// [actor-route-stub]) where no diagnostic would show them.
-pub fn edges(program: &Program, symbols: &Symbols<'_>, out: &Checked) -> Vec<String> {
+pub fn edges(symbols: &Symbols<'_>, out: &Checked) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
-    for (from, tos) in build(program, symbols, out) {
+    for (from, tos) in build(symbols, out) {
         for (to, e) in tos {
             lines.push(crate::typekey::shown_text(&format!("{from} → {to} ({:?}, {})", e.kind, e.handler)).into_owned());
         }
@@ -202,7 +202,6 @@ pub fn edges(program: &Program, symbols: &Symbols<'_>, out: &Checked) -> Vec<Str
 /// strongest one, at its first site — because the diagnostic names a cycle,
 /// not every way of writing it.
 fn build(
-    program: &Program,
     symbols: &Symbols<'_>,
     out: &Checked,
 ) -> BTreeMap<String, BTreeMap<String, Edge>> {
@@ -237,70 +236,46 @@ fn build(
     // thread with nothing held, so the caller's own edges already price
     // them; a pure monitor (no deps, no waits) adds nothing. Neither gets a
     // node.
+    let handlers = handlers(out);
     let mut mixed_of: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut monitor_like: Vec<(usize, &ast::HandlerDecl)> = Vec::new();
+    let mut monitor_like: Vec<&Handler> = Vec::new();
     let mut monitor_of: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for (file_idx, ast) in program.modules.iter().enumerate() {
-        for item in &ast.items {
-            let Item::Handler(h) = item else { continue };
-            let plain_faces = !h.of.is_empty()
-                && h.of
-                    .iter()
-                    .all(|of| face_key(symbols, of).is_some_and(is_plain));
-            if !plain_faces {
+    for h in &handlers {
+        let plain_faces = !h.shape.faces.is_empty() && h.shape.faces.iter().all(|(of, _)| is_plain(of));
+        if !plain_faces {
+            continue;
+        }
+        if !h.shape.sends {
+            if !h.stateful(out) {
                 continue;
             }
-            if !h.fns.iter().any(|f| f.is_send) {
-                let stateful = crate::handler_is_stateful(
-                    h,
-                    out.parking_handlers.contains(symbols.key_or(h, &h.name.name)),
-                );
-                if !stateful {
-                    continue;
-                }
-                let has_deps = !deps_of(out, symbols, file_idx, h).is_empty();
-                let waits = out
-                    .waitfor_sites
-                    .iter()
-                    .any(|(handler, _)| *handler == h.name.name);
-                if has_deps || waits {
-                    monitor_like.push((file_idx, h));
-                    for of in &h.of {
-                        if let Some(n) = face_key(symbols, of) {
-                            monitor_of
-                                .entry(n.to_string())
-                                .or_default()
-                                .push(h.name.name.clone());
-                        }
-                    }
-                }
-                continue;
-            }
-            for of in &h.of {
-                if let Some(n) = face_key(symbols, of) {
-                    mixed_of
-                        .entry(n.to_string())
-                        .or_default()
-                        .push(h.name.name.clone());
+            let has_deps = !deps_of(out, h).is_empty();
+            let waits = out.waitfor_sites.iter().any(|(handler, _)| *handler == h.id);
+            if has_deps || waits {
+                monitor_like.push(h);
+                for (of, _) in &h.shape.faces {
+                    monitor_of.entry(of.clone()).or_default().push(h.shape.name.clone());
                 }
             }
+            continue;
+        }
+        for (of, _) in &h.shape.faces {
+            mixed_of.entry(of.clone()).or_default().push(h.shape.name.clone());
         }
     }
     // [actor-waitfor] Which handlers *wait*: directly (a member contains a
     // `waitfor` expression) or transitively (a member binds — constructs — a
     // handler that waits, running its members inline). A fixpoint over the
     // recorded constructions, anchored at whatever brought the wait in.
-    let mut waits_of: BTreeMap<&str, (usize, Span)> = BTreeMap::new();
+    let mut waits_of: BTreeMap<DeclId, (usize, Span)> = BTreeMap::new();
     for (handler, k) in &out.waitfor_sites {
-        waits_of.entry(handler.as_str()).or_insert((k.file(), k.span));
+        waits_of.entry(*handler).or_insert((k.file(), k.span));
     }
     loop {
         let mut grew = false;
         for (owner, constructed, k) in &out.handler_constructs {
-            if waits_of.contains_key(constructed.as_str())
-                && !waits_of.contains_key(owner.as_str())
-            {
-                waits_of.insert(owner.as_str(), (k.file(), k.span));
+            if waits_of.contains_key(constructed) && !waits_of.contains_key(owner) {
+                waits_of.insert(*owner, (k.file(), k.span));
                 grew = true;
             }
         }
@@ -331,20 +306,13 @@ fn build(
         }
     }
     let mut routers_of: BTreeMap<String, Vec<Router>> = BTreeMap::new();
-    for ast in program.modules.iter() {
-        for item in &ast.items {
-            let Item::Handler(h) = item else { continue };
-            let occupies = crate::handler_is_stateful(
-                h,
-                out.parking_handlers.contains(symbols.key_or(h, &h.name.name)),
-            ) || waits_of.contains_key(h.name.name.as_str());
-            for (of, any) in h.of.iter().zip(h.of_any.iter()) {
-                let Some(name) = face_key(symbols, of).filter(|n| *any && is_actor(n)) else { continue };
-                routers_of
-                    .entry(name.to_string())
-                    .or_default()
-                    .push(Router { node: servant_node(&h.name.name), occupies });
+    for h in &handlers {
+        let occupies = h.stateful(out) || waits_of.contains_key(&h.id);
+        for (of, any) in &h.shape.faces {
+            if !*any || !is_actor(of) {
+                continue;
             }
+            routers_of.entry(of.clone()).or_default().push(Router { node: servant_node(&h.shape.name), occupies });
         }
     }
     for effect in routed.keys() {
@@ -356,19 +324,14 @@ fn build(
     }
     // Every handler of an actor effect: the protocol it serves, whether any
     // of its members gates, and what it can send to.
-    for (file_idx, ast) in program.modules.iter().enumerate() {
-        for item in &ast.items {
-            let Item::Handler(h) = item else { continue };
+    for h in &handlers {
+        {
+            let file_idx = h.file;
             // [effect-handler-multi] A handler may serve several protocols, and
             // each is its own node: two nodes that happen to be one actor is
             // the same conservative approximation the type-level graph already
             // makes, so every edge below is added from every face.
-            let served: Vec<&str> = h
-                .of
-                .iter()
-                .filter_map(|of| face_key(symbols, of))
-                .filter(|name| is_actor(name))
-                .collect();
+            let served: Vec<&str> = h.shape.faces.iter().map(|(of, _)| of.as_str()).filter(|name| is_actor(name)).collect();
             // [actor-mixed-handler] A mixed handler's servant is a node of its
             // own: it serves no actor effect, but its send members can send
             // through the `Addr` values it holds, and those are the edges
@@ -384,11 +347,7 @@ fn build(
             // mixed or wait-capable shareable handlers is an occupancy edge,
             // exactly as from an actor handler. Its own face is skipped:
             // interception binds outward, so it closes no cycle.
-            let mixed = h.fns.iter().any(|f| f.is_send)
-                && !h.of.is_empty()
-                && h.of
-                    .iter()
-                    .all(|of| face_key(symbols, of).is_some_and(is_plain));
+            let mixed = h.shape.sends && !h.shape.faces.is_empty() && h.shape.faces.iter().all(|(of, _)| is_plain(of));
             // [effect-any] A router `of any E` is a servant too: it is not a
             // member of `E` but a forwarder in front of them, so it is a node
             // of its own, and what leaves it is what it does *besides*
@@ -397,33 +356,27 @@ fn build(
             // with the same edge into `E`, so a cycle through the forward
             // would re-spell the cycle through that edge — reported twice,
             // and as an occupancy where the router locks.
-            let router = h.of_any.iter().any(|any| *any);
+            let router = h.shape.faces.iter().any(|(_, any)| *any);
             if mixed || router {
                 let gate = out
                     .actor_gates
                     .iter()
-                    .find(|(handler, _)| *handler == h.name.name)
+                    .find(|(handler, _)| *handler == h.id)
                     .map(|(_, key)| (key.file(), key.span));
-                let blocks = waits_of.get(h.name.name.as_str()).copied();
-                let own_faces: Vec<&str> = h.of.iter().filter_map(|of| face_key(symbols, of)).collect();
-                let forwards: Vec<&str> = h
-                    .of
-                    .iter()
-                    .zip(h.of_any.iter())
-                    .filter(|(_, any)| **any)
-                    .filter_map(|(of, _)| face_key(symbols, of))
-                    .collect();
-                let deps: Vec<(String, usize, Span, bool)> = deps_of(out, symbols, file_idx, h)
+                let blocks = waits_of.get(&h.id).copied();
+                let own_faces: Vec<&str> = h.shape.faces.iter().map(|(of, _)| of.as_str()).collect();
+                let forwards: Vec<&str> = h.shape.faces.iter().filter(|(_, any)| *any).map(|(of, _)| of.as_str()).collect();
+                let deps: Vec<(String, usize, Span, bool)> = deps_of(out, h)
                     .into_iter()
                     .map(|(key, span, any)| (key, file_idx, span, any))
                     .collect();
                 let mut sends: Vec<(String, usize, Span)> = Vec::new();
                 for (handler, target, k) in &out.actor_sends {
-                    if *handler == h.name.name {
+                    if *handler == h.id {
                         sends.push((target.clone(), k.file(), k.span));
                     }
                 }
-                for task in tasks_reached(out, &h.name.name) {
+                for task in tasks_reached(out, h.id) {
                     for (owner, target, k) in &out.task_sends {
                         if *owner == task {
                             sends.push((target.clone(), k.file(), k.span));
@@ -431,7 +384,7 @@ fn build(
                     }
                 }
                 let servant = Servant {
-                    handler: &h.name.name,
+                    handler: &h.shape.name,
                     own_faces: &own_faces,
                     forwards: &forwards,
                     deps,
@@ -448,7 +401,7 @@ fn build(
             let gate = out
                 .actor_gates
                 .iter()
-                .find(|(handler, _)| *handler == h.name.name)
+                .find(|(handler, _)| *handler == h.id)
                 .map(|(_, key)| (key.file(), key.span));
             // [actor-waitfor] The occupancy half, **inferred** since SH-5(d)
             // deleted the `[waitfor]` declaration (user decision 2026-09-19):
@@ -456,7 +409,7 @@ fn build(
             // expression, or when it binds a handler that waits — the
             // propagation the deleted capability used to spell, computed
             // here over the recorded sites and constructions instead.
-            let blocks = waits_of.get(h.name.name.as_str()).copied();
+            let blocks = waits_of.get(&h.id).copied();
             // Declared dependencies: any member may call any of them, and a
             // helper fn declaring `[Q]` is reachable only if the handler
             // declares `Q` too — so the declaration covers the whole call
@@ -469,7 +422,7 @@ fn build(
             // per mixed handler of the effect, since the graph cannot know
             // which one a binding will choose [actor-deadlock-cycle].
             let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
-            for (key, dep_span, any) in deps_of(out, symbols, file_idx, h) {
+            for (key, dep_span, any) in deps_of(out, h) {
                 let name = key.as_str();
                 if !is_actor(&key) {
                     if let Some(mixed_handlers) = mixed_of.get(name) {
@@ -504,7 +457,7 @@ fn build(
             // Sends through an addr the handler holds: the peer half of the
             // graph, and the only place an own-protocol edge survives.
             for (handler, target, k) in &out.actor_sends {
-                if *handler == h.name.name && is_actor(target) {
+                if *handler == h.id && is_actor(target) {
                     targets.push((target.clone(), k.file(), k.span));
                 }
             }
@@ -512,7 +465,7 @@ fn build(
             // reach, transitively — FC-6's conservative tracing. The site
             // blamed is the send inside the task body, which is the line that
             // closes the cycle.
-            for task in tasks_reached(out, &h.name.name) {
+            for task in tasks_reached(out, h.id) {
                 for (owner, target, k) in &out.task_sends {
                     if *owner == task && is_actor(target) {
                         targets.push((target.clone(), k.file(), k.span));
@@ -522,7 +475,7 @@ fn build(
             for (target, file, span) in occupancies {
                 let edge = Edge {
                     kind: EdgeKind::Occupancy,
-                    handler: h.name.name.clone(),
+                    handler: h.shape.name.clone(),
                     file,
                     span,
                 };
@@ -548,7 +501,7 @@ fn build(
                 };
                 let edge = Edge {
                     kind,
-                    handler: h.name.name.clone(),
+                    handler: h.shape.name.clone(),
                     file,
                     span,
                 };
@@ -608,13 +561,14 @@ fn build(
     // dependents' business (every loop above already points occupancy edges
     // at `monitor_of` nodes). Interception is skipped like an actor's
     // own-face dependency: it binds strictly outward, so it closes no cycle.
-    for (file_idx, h) in monitor_like {
-        let from = monitor_node(&h.name.name);
-        let own_faces: Vec<&str> = h.of.iter().filter_map(|of| face_key(symbols, of)).collect();
-        let blocks = waits_of.get(h.name.name.as_str()).copied();
+    for h in monitor_like {
+        let file_idx = h.file;
+        let from = monitor_node(&h.shape.name);
+        let own_faces: Vec<&str> = h.shape.faces.iter().map(|(of, _)| of.as_str()).collect();
+        let blocks = waits_of.get(&h.id).copied();
         let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
         let mut targets: Vec<(String, usize, Span)> = Vec::new();
-        for (key, dep_span, any) in deps_of(out, symbols, file_idx, h) {
+        for (key, dep_span, any) in deps_of(out, h) {
             let name = key.as_str();
             if own_faces.contains(&name) {
                 continue;
@@ -627,7 +581,7 @@ fn build(
                 }
                 if let Some(monitors) = monitor_of.get(name) {
                     for mh in monitors {
-                        if *mh != h.name.name {
+                        if *mh != h.shape.name {
                             occupancies.push((monitor_node(mh), file_idx, dep_span));
                         }
                     }
@@ -639,7 +593,7 @@ fn build(
                 router_targets(&routers_of, name, &from, file_idx, dep_span, &mut occupancies, &mut targets);
             }
         }
-        for task in tasks_reached(out, &h.name.name) {
+        for task in tasks_reached(out, h.id) {
             for (owner, target, k) in &out.task_sends {
                 if *owner == task && is_actor(target) {
                     targets.push((target.clone(), k.file(), k.span));
@@ -649,7 +603,7 @@ fn build(
         for (target, file, span) in occupancies {
             let edge = Edge {
                 kind: EdgeKind::Occupancy,
-                handler: h.name.name.clone(),
+                handler: h.shape.name.clone(),
                 file,
                 span,
             };
@@ -668,7 +622,7 @@ fn build(
             };
             let edge = Edge {
                 kind,
-                handler: h.name.name.clone(),
+                handler: h.shape.name.clone(),
                 file,
                 span,
             };
@@ -689,21 +643,16 @@ fn build(
 /// `task_mints`, so a chain of continuations is one traced unit — and
 /// terminating, because the set only grows and is bounded by the program's
 /// send fns.
-fn tasks_reached(out: &Checked, minter: &str) -> BTreeSet<String> {
-    let mut reached: BTreeSet<String> = BTreeSet::new();
-    let mut queue: Vec<String> = out
-        .task_mints
-        .iter()
-        .filter(|(who, _, _)| who == minter)
-        .map(|(_, task, _)| task.clone())
-        .collect();
+fn tasks_reached(out: &Checked, minter: DeclId) -> BTreeSet<DeclId> {
+    let mut reached: BTreeSet<DeclId> = BTreeSet::new();
+    let mut queue: Vec<DeclId> = out.task_mints.iter().filter(|(who, _, _)| *who == minter).map(|(_, task, _)| *task).collect();
     while let Some(task) = queue.pop() {
-        if !reached.insert(task.clone()) {
+        if !reached.insert(task) {
             continue;
         }
         for (who, next, _) in &out.task_mints {
             if *who == task {
-                queue.push(next.clone());
+                queue.push(*next);
             }
         }
     }
@@ -921,14 +870,29 @@ fn monitor_node(handler: &str) -> String {
     format!("{handler}'s lock")
 }
 
-/// [type-identity] [decl-id] The key of a written type, for a handler's
-/// `of` clause: what the graph's protocol nodes are named by, so two
-/// modules' protocols of one name are two nodes.
-fn face_key<'a>(symbols: &'a Symbols<'_>, ty: &'a ast::Type) -> Option<&'a str> {
-    match ty {
-        ast::Type::Named { base, .. } => Some(symbols.ref_key(base)),
-        _ => None,
+/// [actor-deadlock-cycle] A handler as the graph reads it: its declaration,
+/// the file it is written in, and its shape (`Checked::handler_shapes`).
+struct Handler<'c> {
+    id: DeclId,
+    key: Key,
+    file: usize,
+    shape: &'c HandlerShape,
+}
+
+impl Handler<'_> {
+    /// [effect-handle] `crate::handler_is_stateful`, with what the walk found
+    /// it parks (`parking_handlers`).
+    fn stateful(&self, out: &Checked) -> bool {
+        self.shape.stateful || (!self.shape.intrinsic && out.parking_handlers.contains(&self.shape.key))
     }
+}
+
+/// Every handler the program declares, in declaration order: the order the
+/// graph's first sites are taken in.
+fn handlers(out: &Checked) -> Vec<Handler<'_>> {
+    let mut all: Vec<Handler<'_>> = out.handler_shapes.iter().map(|(k, shape)| Handler { id: k.decl, key: *k, file: k.file(), shape }).collect();
+    all.sort_by_key(|h| out.decls.loc(h.id).map(|l| (l.file, l.item, l.sub)));
+    all
 }
 
 /// [effect-handler-deps] [effect-prereq] A handler's dependencies as the
@@ -936,22 +900,13 @@ fn face_key<'a>(symbols: &'a Symbols<'_>, ty: &'a ast::Type) -> Option<&'a str> 
 /// by effect key, with the span each came from and whether it was written
 /// `any E` [effect-any] — an entry's span is its written type's, and an
 /// alias may not hold `any`, so the written `any` entries name them all.
-fn deps_of(out: &Checked, _symbols: &Symbols<'_>, file_idx: usize, h: &ast::HandlerDecl) -> Vec<(String, Span, bool)> {
-    let any_spans: Vec<Span> = h
-        .effects
-        .iter()
-        .flatten()
-        .filter_map(|e| match e {
-            ast::EffectRef::AnyEffect(r) => Some(r.span),
-            _ => None,
-        })
-        .collect();
+fn deps_of(out: &Checked, h: &Handler<'_>) -> Vec<(String, Span, bool)> {
     out.handler_deps
-        .get(&out.key_at(file_idx, h.name.span))
+        .get(&h.key)
         .into_iter()
         .flatten()
         .filter_map(|(t, span)| match t.strip_quals() {
-            crate::types::Ty::Named { name, .. } => Some((name.clone(), *span, any_spans.contains(span))),
+            crate::types::Ty::Named { name, .. } => Some((name.clone(), *span, h.shape.any_deps.contains(span))),
             _ => None,
         })
         .collect()

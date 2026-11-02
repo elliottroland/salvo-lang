@@ -2913,7 +2913,12 @@ compaction loses nothing. Progress:
 - D4: done (commit "Print the type-check phase and round-trip operators,
   interpolation and types").
 - D4.5, the `parse-ast` and `generate-ir` phases: done (commit "Dump the
-  parse and IR phases through salvo dump"). Next: E1.
+  parse and IR phases through salvo dump").
+- E1, per-declaration inputs: done (commit "Give the deadlock graph
+  per-declaration inputs"). Chosen: checker facts, the graph stays the
+  end-of-check combine (COMPLETED.md for why); the IR half is not needed.
+  Next: 0az (actor_owner through lambdas, the repro is in
+  tmp/deadlock_with_0az.sv's last case), then the spawned-router gap, then E2.
 
 ### Order, and what can overlap
 

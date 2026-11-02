@@ -234,7 +234,7 @@ impl Checked {
     pub(crate) fn route(&self, owners: &Owners, scope: Scope, sink: &mut dyn Sink) {
         let all = scope == Scope::All;
         let hint = std::cell::Cell::new(0);
-        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_targets, waitfor_sites, handler_constructs, moves, fate_mutations, bind_facts, derived_uses, actor_gates, actor_sends, task_sends, task_mints, written_types, effects_taken, effects_passed, handler_deps, effect_prereqs, deductions, param_modes, primitives, fn_refs, refs, local_decls, type_ref_span_keys, value_span_keys, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors } = self;
+        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_targets, waitfor_sites, handler_constructs, moves, fate_mutations, bind_facts, derived_uses, actor_gates, actor_sends, task_sends, task_mints, written_types, effects_taken, effects_passed, handler_deps, handler_shapes, effect_prereqs, deductions, param_modes, primitives, fn_refs, refs, local_decls, type_ref_span_keys, value_span_keys, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors } = self;
         // A node-keyed map, by its key's declaration.
         macro_rules! by_key {
             ($($t:ident),* $(,)?) => {$(
@@ -288,7 +288,7 @@ impl Checked {
             boundaries, lambda_captures, 
             implicit_args, fn_values, moves,
         );
-        by_key!(fn_lends, implicit_params, established_quals, handler_deps, effect_prereqs);
+        by_key!(fn_lends, implicit_params, established_quals, handler_deps, handler_shapes, effect_prereqs);
         by_name!(route_keys);
         // [decl-rows] A local, by the node it is declared at.
         for (f, locals) in local_decls {
@@ -344,7 +344,7 @@ impl Checked {
     /// `split_files`, or a declaration's, `split_decls`): the keyed tables;
     /// what `Scope::Keyed` leaves out is the caller's.
     pub(crate) fn insert_rows(&mut self, rows: &Checked) {
-        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_targets, waitfor_sites, handler_constructs, moves, fate_mutations, bind_facts, derived_uses, actor_gates, actor_sends, task_sends, task_mints, written_types, effects_taken, effects_passed, handler_deps, effect_prereqs, deductions, param_modes, primitives, fn_refs, refs, local_decls, type_ref_span_keys, value_span_keys, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors } = rows;
+        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_targets, waitfor_sites, handler_constructs, moves, fate_mutations, bind_facts, derived_uses, actor_gates, actor_sends, task_sends, task_mints, written_types, effects_taken, effects_passed, handler_deps, handler_shapes, effect_prereqs, deductions, param_modes, primitives, fn_refs, refs, local_decls, type_ref_span_keys, value_span_keys, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors } = rows;
         macro_rules! map {
             ($($t:ident),* $(,)?) => {$(
                 self.$t.extend($t.iter().map(|(k, v)| (k.clone(), v.clone())));
@@ -361,7 +361,7 @@ impl Checked {
             replyto_targets, 
             fate_mutations, bind_facts, derived_uses,
             effects_taken, effects_passed,
-            handler_deps, effect_prereqs, 
+            handler_deps, handler_shapes, effect_prereqs, 
             fn_refs, refs, fate_reads,
             interp_union, borrows, fn_lends, boundaries, lambda_captures,
             implicit_params, established_quals,
@@ -384,12 +384,12 @@ impl Checked {
 trait RowKey {
     fn key(&self) -> &crate::check::Key;
 }
-impl RowKey for (String, crate::check::Key) {
+impl<A> RowKey for (A, crate::check::Key) {
     fn key(&self) -> &crate::check::Key {
         &self.1
     }
 }
-impl RowKey for (String, String, crate::check::Key) {
+impl<A, B> RowKey for (A, B, crate::check::Key) {
     fn key(&self) -> &crate::check::Key {
         &self.2
     }

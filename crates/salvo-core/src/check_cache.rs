@@ -50,12 +50,12 @@ pub(crate) struct StepRows {
     /// node into the file's new module after an edit (`node_map`).
     pub written: Vec<(usize, usize, Ty, bool)>,
     pub parking: Vec<String>,
-    pub waitfor_sites: Vec<(String, Key)>,
-    pub handler_constructs: Vec<(String, String, Key)>,
-    pub actor_gates: Vec<(String, Key)>,
-    pub actor_sends: Vec<(String, String, Key)>,
-    pub task_sends: Vec<(String, String, Key)>,
-    pub task_mints: Vec<(String, String, Key)>,
+    pub waitfor_sites: Vec<(crate::DeclId, Key)>,
+    pub handler_constructs: Vec<(crate::DeclId, crate::DeclId, Key)>,
+    pub actor_gates: Vec<(crate::DeclId, Key)>,
+    pub actor_sends: Vec<(crate::DeclId, String, Key)>,
+    pub task_sends: Vec<(crate::DeclId, String, Key)>,
+    pub task_mints: Vec<(crate::DeclId, crate::DeclId, Key)>,
 }
 
 impl StepRows {

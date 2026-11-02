@@ -8047,6 +8047,16 @@ docs/language/ remains the source of truth for everything that does.
     fallbacks (a timeout form, a per-edge reentrant opt-in) are the recorded
     answers, deliberately unbuilt until the false positives are *observed*
     rather than predicted.
+  * **Its inputs are per-declaration facts** (PIPELINE.md E1, 2026-10-30):
+    the graph reads what the checker recorded per handler and per free
+    `send fn`, by declaration — each handler's shape (`Checked::
+    handler_shapes`: faces with their `any`, `send` members, statefulness
+    before parking, the `any` dependencies), its expanded dependencies
+    (`handler_deps`), and the sites its bodies wrote (gates, waits, sends,
+    constructions, task mints, each row owned by a `DeclId`) — and scans no
+    tree; it is the combining step at the end of checking, over the merged
+    rows, so an unedited file's rows are reused [lsp-check-cache]. Nodes and
+    messages still read the written names.
 * **Built so far, and what is refused meanwhile.** The surface **runs**, and as
   of 2026-09-15 it runs **without `main` in the loop**: a program can spawn a
   handler — a **dependent** one included, its dependencies supplied by its own

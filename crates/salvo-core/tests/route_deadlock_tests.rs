@@ -92,7 +92,7 @@ fn check(src: &str) -> (Vec<Diag>, Vec<String>) {
             }
         })
         .collect();
-    let edges = salvo_core::deadlock::edges(&program, &symbols, &checked);
+    let edges = salvo_core::deadlock::edges(&symbols, &checked);
     (diags, edges)
 }
 

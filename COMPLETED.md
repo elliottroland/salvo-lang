@@ -144,6 +144,42 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Deadlock reads per-declaration facts; the graph stays the end-of-check combine (PIPELINE.md E1, user decision P25, [actor-deadlock-cycle])
+
+- **Decided (user, P25)**: whether the inputs come from the IR or are
+  checker facts was left to the code ("whichever makes the most sense"),
+  with deadlock errors allowed to depend on other errors being fixed.
+- **Chosen: checker facts, the graph unmoved.** Every input is a fact about
+  a declaration or an operation, which the placement criterion gives the
+  checker (docs/compiler/Phases.md). The IR offered no input the checker
+  lacks: `ImplDecl.deps` carries no spans or `any` flags, the user modules'
+  IR excludes std's handlers (the graph needs `Elected's lock` and the
+  `RouteSelector` handlers), and the derived route is built from the same
+  `Constructed::Route` rows. Moving the combine into the IR stage would
+  have needed a call on every front (the CLI's analysis, the LSP, emission's
+  gate, the test fronts) for no change in what it computes; at the end of
+  checking it has one call site, over merged per-declaration rows. So the
+  "deadlock onto 03-generate-03-link over the IR" half of E1 is not done,
+  and is not needed for what E1 was for (no tree scan, rows that belong to
+  declarations).
+- **Built**: `Checked::handler_shapes` (per handler, by its name key:
+  written name, key, faces with `any`, `send` members, statefulness before
+  parking, `intrinsic`, the `any` dependencies' spans), recorded where the
+  interface pass records `handler_deps`. The site tables own their rows by
+  `DeclId` instead of written name (`actor_gates`, `waitfor_sites`,
+  `actor_sends`, `task_sends`, `task_mints` — a task by its declaration —
+  and `handler_constructs`, both ends). `deadlock::build` reads only these
+  and the symbol table; its AST scans (`face_key`, the handler loops) are
+  gone, and handlers inside namespaces now take part. The checker's
+  `own_task` is a `DeclId`; a new `actor_owner` carries the handler or task
+  a body's work is attributed to (for now cleared in a handler member's
+  lambda, as `own_handler` is, so nothing changes; the next commit is
+  ROADMAP 0az).
+- **The differential** (temporary `SALVO_XP_DEADLOCK`, removed): every
+  checked program's edge list and cycle reports, before and after, over
+  the suite run fresh, std's tests and the examples: 1,556 programs,
+  identical.
+
 ### 2026-10-30 — `salvo dump` has every phase: `parse-ast` and `generate-ir` replace `compile --emit-ast` and `salvo ir` (user decisions P7, P24, [cli-dump] [dump-parse-ast] [dump-generate-ir])
 
 - **Built** (decided in P7, scheduled in P24.5): `--phase parse-ast` prints

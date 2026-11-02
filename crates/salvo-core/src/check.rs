@@ -1205,17 +1205,18 @@ pub struct Checked {
     /// `effects_passed`.
     pub replyto_targets: HashMap<Key, ReplyTarget>,
     /// [actor-deadlock-cycle] Handlers whose members contain a `waitfor`
-    /// expression, with the site: since SH-5(d) (user decision 2026-09-19)
-    /// occupancy is **inferred**, not declared, and this is the graph's
-    /// input where the deleted `[waitfor]` declaration used to be.
-    pub waitfor_sites: Vec<(String, Key)>,
+    /// expression, by the handler's declaration, with the site: since SH-5(d)
+    /// (user decision 2026-09-19) occupancy is **inferred**, not declared,
+    /// and this is the graph's input where the deleted `[waitfor]`
+    /// declaration used to be.
+    pub waitfor_sites: Vec<(DeclId, Key)>,
     /// [actor-deadlock-cycle] Handler constructions inside handlers: the
     /// owner (the handler whose members will run the constructed one
-    /// inline), the constructed handler's name, and the site. What lets the
-    /// graph propagate "may wait" through bindings — a handler that binds a
-    /// waiting handler waits, which the deleted capability's propagation
-    /// used to spell.
-    pub handler_constructs: Vec<(String, String, Key)>,
+    /// inline), the constructed handler, both by declaration, and the site.
+    /// What lets the graph propagate "may wait" through bindings — a handler
+    /// that binds a waiting handler waits, which the deleted capability's
+    /// propagation used to spell.
+    pub handler_constructs: Vec<(DeclId, DeclId, Key)>,
     /// [flow-use-after-move] [linear-container] What a read (or a call of
     /// a local) moves, at its node: whether it hands the value over, whether
     /// the flow pass takes the root's move from it, and whether the value is
@@ -1242,32 +1243,34 @@ pub struct Checked {
     /// and the message the IR reports when its binding stays borrow-mode.
     pub derived_uses: HashMap<Key, Vec<DerivedUse>>,
     /// [actor-deadlock-cycle] Gated mints (`replyto!`) inside a handler's
-    /// members: `(handler name, the mint's site)`. While a gated
+    /// members: `(the handler's declaration, the mint's site)`. While a gated
     /// continuation is outstanding the actor serves *nothing else*, so
     /// every gate is a wait-for edge's tail — which is why the graph is
     /// keyed on these and not on `replyto`, whose continuation leaves the
     /// mailbox open.
-    pub actor_gates: Vec<(String, Key)>,
+    pub actor_gates: Vec<(DeclId, Key)>,
     /// [actor-deadlock-cycle] Sends from inside a handler's members to an
-    /// actor of another protocol: `(handler name, target effect name, the
-    /// call's site)`. Recorded for dot-calls through an `Addr`; sends
+    /// actor of another protocol: `(the handler's declaration, target effect
+    /// key, the call's site)` — a lambda's in a member too, which runs in the
+    /// member's activation when it is called before the member returns
+    /// (ROADMAP 0az). Recorded for dot-calls through an `Addr`; sends
     /// reached through the handler's *declared dependencies* are read off
     /// the declaration instead, and a `k@self(…)` is not here at all — a
     /// self-send waits for no other actor.
-    pub actor_sends: Vec<(String, String, Key)>,
+    pub actor_sends: Vec<(DeclId, String, Key)>,
     /// [task-mint] The same for a **free `send fn`**'s body: `(the send fn's
-    /// name, the target effect, the site)`. A task belongs to no handler, so
+    /// declaration, the target effect, the site)`. A task belongs to no handler, so
     /// its sends are attributed to whoever *mints* it — which is what
     /// `task_mints` records.
-    pub task_sends: Vec<(String, String, Key)>,
+    pub task_sends: Vec<(DeclId, String, Key)>,
     /// [task-mint] Who mints which task: `(the minter, the target `send fn`)`,
-    /// where the minter is the enclosing handler's name or — for a task that
-    /// mints another task — the enclosing free `send fn`'s. Whole-program and
+    /// both by declaration, where the minter is the enclosing handler or —
+    /// for a task that mints another task — the enclosing free `send fn`. Whole-program and
     /// conservative, exactly as coarse as the type-level graph already is
     /// (FC-6: a real cycle class would otherwise go unreported). With the
     /// mint's `replyto` span, so a row belongs to the file it was written in
     /// [lsp-check-cache].
-    pub task_mints: Vec<(String, String, Key)>,
+    pub task_mints: Vec<(DeclId, DeclId, Key)>,
     /// [ir-nodes] Every written type the checker lowered, keyed by the
     /// **address of the AST node** (`written_type_key`): what a declaration's
     /// parameters, fields and results *are*, so the IR builder copies the
@@ -1298,6 +1301,12 @@ pub struct Checked {
     /// handler key: written ones with aliases flattened, then the
     /// prerequisites of its faces, each with the span it came from.
     pub handler_deps: HashMap<Key, Vec<(Ty, Span)>>,
+    /// [actor-deadlock-cycle] Each handler's shape as the deadlock graph
+    /// reads it, by the handler's name (PIPELINE.md E1, its per-declaration
+    /// summary): its name and key, its faces, whether it has `send` members,
+    /// whether it is stateful before parking says so, and which of its
+    /// dependencies are written `any E`.
+    pub handler_shapes: HashMap<Key, HandlerShape>,
     /// [effect-prereq] Each effect's direct prerequisites, by effect key,
     /// aliases flattened, its own generics unsubstituted.
     pub effect_prereqs: HashMap<Key, Vec<Ty>>,
@@ -1720,6 +1729,27 @@ pub struct BindFact {
     pub eligible: bool,
     /// The `for` loops its roots are bound by, by their iterables' nodes.
     pub origins: Vec<Key>,
+}
+
+/// [actor-deadlock-cycle] A handler as the deadlock graph reads it
+/// (`Checked::handler_shapes`): what its declaration says, so the graph scans
+/// no tree.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HandlerShape {
+    /// The written name, which the graph's nodes and messages read.
+    pub name: String,
+    /// [type-identity] Its key, which `parking_handlers` holds.
+    pub key: String,
+    /// Each face, by effect key, with whether it is `of any E` [effect-any].
+    pub faces: Vec<(String, bool)>,
+    /// Whether a member is a `send fn` [actor-mixed-handler].
+    pub sends: bool,
+    /// `handler_is_stateful` without parking (which `parking_handlers`
+    /// adds), and whether it is `intrinsic` (never stateful).
+    pub stateful: bool,
+    pub intrinsic: bool,
+    /// [effect-any] The spans of the dependencies written `any E`.
+    pub any_deps: Vec<Span>,
 }
 
 /// [fate-move-mode] A move or mutation of a derived variable
@@ -3025,7 +3055,13 @@ struct Checker<'p, 'r> {
     handler_spawns: bool,
     /// [task-mint] The **free `send fn`** whose body is being checked, if any:
     /// what its sends and its own mints are attributed to.
-    own_task: Option<String>,
+    own_task: Option<DeclId>,
+    /// [actor-deadlock-cycle] The handler or free `send fn` whose body is
+    /// being checked: what a send or a task mint in it is attributed to — a
+    /// lambda's in it too (ROADMAP 0az: `own_handler` is cleared for a
+    /// lambda, which may not mint or wait, but a send in one that runs in the
+    /// member's activation blocks the actor as a direct send does).
+    actor_owner: Option<DeclId>,
     /// [actor-mixed-handler] The handler whose **sync member** is being checked,
     /// when that handler is mixed (plain faces + `send fn` members, SH-1):
     /// the member is the façade, running on the caller's thread over the
@@ -3572,6 +3608,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             confined_state: Vec::new(),
             servant_reply_params: None,
             own_task: None,
+            actor_owner: None,
             can_use: false,
             placeholder_ty: None,
             placeholder_read: false,
@@ -3909,8 +3946,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [task-mint] What this body's sends are attributed to in
         // the deadlock graph.
-        self.own_task = (body && f.is_send).then(|| f.name.name.clone());
+        self.own_task = (body && f.is_send).then(|| self.name_key(f.name.span).decl);
+        let saved_owner = std::mem::replace(&mut self.actor_owner, self.own_task);
         self.check_fn(f, &[], &[]);
+        self.actor_owner = saved_owner;
         self.flush_copy_warnings();
         self.scope = saved_scope;
         self.own_task = None;
@@ -3972,6 +4011,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             std::mem::replace(&mut self.handler_deps, handler_deps);
         let saved_spawns = std::mem::replace(&mut self.handler_spawns, spawns);
         let saved_own_handler = std::mem::replace(&mut self.own_handler, Some(h));
+        let owner = self.name_key(h.name.span).decl;
+        let saved_owner = std::mem::replace(&mut self.actor_owner, Some(owner));
         let saved_of = std::mem::replace(&mut self.handler_ofs, of_tys.clone());
         // [actor-mailbox] The actor settings slot, before the
         // state fields: it is the one part of a handler that is
@@ -4164,6 +4205,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.handler_deps = saved_deps;
         self.handler_spawns = saved_spawns;
         self.own_handler = saved_own_handler;
+        self.actor_owner = saved_owner;
         self.handler_ofs = saved_of;
         self.generics = saved;
     }
@@ -4288,6 +4330,35 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.name_key(h.name.span),
             dep_list.iter().map(|e| (e.ty.clone(), e.span)).collect(),
         );
+        // [actor-deadlock-cycle] The handler's shape, for the graph.
+        let faces: Vec<(String, bool)> = h
+            .of
+            .iter()
+            .zip(h.of_any.iter())
+            .filter_map(|(of, any)| match of {
+                ast::Type::Named { base, .. } => Some((self.symbols.ref_key(base).to_string(), *any)),
+                _ => None,
+            })
+            .collect();
+        let any_deps: Vec<Span> = h
+            .effects
+            .iter()
+            .flatten()
+            .filter_map(|e| match e {
+                EffectRef::AnyEffect(r) => Some(r.span),
+                _ => None,
+            })
+            .collect();
+        let shape = HandlerShape {
+            name: h.name.name.clone(),
+            key: self.symbols.key_or(h, &h.name.name).to_string(),
+            faces,
+            sends: h.fns.iter().any(|f| f.is_send),
+            stateful: crate::handler_is_stateful(h, false),
+            intrinsic: h.intrinsic,
+            any_deps,
+        };
+        self.out.handler_shapes.insert(self.name_key(h.name.span), shape);
         let binder = Binder::Dep(self.name_key(h.name.span));
         let deps: Vec<EffectAvail> = dep_list
             .into_iter()
@@ -10900,12 +10971,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [actor-deadlock-cycle] A construction inside a handler's member
         // runs the constructed handler's members inline, so "may wait"
         // propagates through it — the record the graph's fixpoint reads.
-        if let Some(h) = self.own_handler {
-            self.out.handler_constructs.push((
-                h.name.name.clone(),
-                id.name.clone(),
-                self.key(span),
-            ));
+        if let (Some(h), Some(u)) = (self.own_handler, used) {
+            let (owner, built) = (self.name_key(h.name.span).decl, self.name_key(u.name.span).decl);
+            self.out.handler_constructs.push((owner, built, self.key(span)));
         }
         let _ = mixed;
         self.finish_use(id, concrete, deps, with_items, span);
@@ -15502,19 +15570,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         // in the wait-for graph: it blocks while the target's bounded mailbox
         // is full. Recorded with the handler doing the sending, so the graph
         // pass can key it on the protocol that handler serves.
-        if let (Some(h), Ty::Named { name, .. }) = (self.own_handler, instance.strip_quals()) {
-            self.out
-                .actor_sends
-                .push((h.name.name.clone(), name.clone(), self.key(span)));
-        } else if let (Some(task), Ty::Named { name, .. }) =
-            (self.own_task.clone(), instance.strip_quals())
-        {
-            // [task-mint] A send from a *task* body: the graph attributes it to
-            // every actor whose mints reach this task (FC-6's conservative
-            // tracing), so it is recorded against the `send fn` here.
-            self.out
-                .task_sends
-                .push((task, name.clone(), self.key(span)));
+        if let (Some(owner), Ty::Named { name, .. }) = (self.actor_owner, instance.strip_quals()) {
+            if self.own_task == Some(owner) {
+                // [task-mint] A send from a *task* body: the graph attributes
+                // it to every actor whose mints reach this task (FC-6's
+                // conservative tracing), so it is recorded against the `send
+                // fn` here.
+                self.out.task_sends.push((owner, name.clone(), self.key(span)));
+            } else {
+                self.out.actor_sends.push((owner, name.clone(), self.key(span)));
+            }
         }
         // [actor-send-fn] A send answers nothing.
         Ty::none()
@@ -15698,27 +15763,18 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [actor-deadlock-cycle] A clause construction is built *on the
             // child*: its members run inline in the child's activations, so
             // "may wait" propagates child-ward — recorded for the graph's
-            // fixpoint, keyed on the child handler's name.
+            // fixpoint, keyed on the child handler.
             let constructed = match u {
-                Expr::Ident(cid) if self.scope.handlers.contains_key(cid.name.as_str()) => {
-                    Some(cid.name.clone())
-                }
+                Expr::Ident(cid) => self.scope.handlers.get(cid.name.as_str()).copied(),
                 Expr::Call { callee, .. } => match callee.as_ref() {
-                    Expr::Ident(cid)
-                        if self.scope.handlers.contains_key(cid.name.as_str()) =>
-                    {
-                        Some(cid.name.clone())
-                    }
+                    Expr::Ident(cid) => self.scope.handlers.get(cid.name.as_str()).copied(),
                     _ => None,
                 },
                 _ => None,
             };
-            if let Some(constructed) = constructed {
-                self.out.handler_constructs.push((
-                    id.name.clone(),
-                    constructed,
-                    self.key(u.span()),
-                ));
+            if let (Some(child), Some(constructed)) = (self.scope.handlers.get(id.name.as_str()).copied(), constructed) {
+                let (owner, built) = (self.name_key(child.name.span).decl, self.name_key(constructed.name.span).decl);
+                self.out.handler_constructs.push((owner, built, self.key(u.span())));
             }
             if let Some(eff) = self.check_spawn_dep(u) {
                 supplied.push((eff, u.span(), at));
@@ -16559,14 +16615,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [task-mint] Who minted it, for FC-6's tracing: a handler, or another
         // task (a task minting a task chains the attribution).
-        if let Some(minter) = self
-            .own_handler
-            .map(|h| h.name.name.clone())
-            .or_else(|| self.own_task.clone())
-        {
-            self.out.task_mints.push((minter, member.name.clone(), self.key(span)));
-        }
         let key = entry.key;
+        if let Some(minter) = self.actor_owner {
+            self.out.task_mints.push((minter, key, self.key(span)));
+        }
         self.out.replyto_targets.insert(self.key(span), ReplyTarget::Task(key));
         // [lsp-definition] The mint names a function, so it is a reference
         // to it like any call.
@@ -16760,9 +16812,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // waiting on *it*. A bare `replyto` leaves the mailbox open and
         // contributes nothing.
         if gated {
-            self.out
-                .actor_gates
-                .push((h.name.name.clone(), self.key(span)));
+            let owner = self.name_key(h.name.span).decl;
+            self.out.actor_gates.push((owner, self.key(span)));
         }
         let answer = param_tys
             .last()
@@ -16881,9 +16932,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [actor-deadlock-cycle] The graph's input: this handler's members
         // wait, which the deleted `[waitfor]` declaration used to say.
         if let Some(h) = self.own_handler {
-            self.out
-                .waitfor_sites
-                .push((h.name.name.clone(), self.key(span)));
+            let owner = self.name_key(h.name.span).decl;
+            self.out.waitfor_sites.push((owner, self.key(span)));
         }
         let token = match ty {
             Some(written) => {
@@ -25496,6 +25546,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // minted it — none of which travels with a function value.
         let saved_can_spawn = std::mem::replace(&mut self.can_spawn, false);
         let saved_own_handler = self.own_handler.take();
+        // (0az: a lambda in a handler member attributes nothing.)
+        let saved_owner = if saved_own_handler.is_some() { self.actor_owner.take() } else { self.actor_owner };
         let ret = match body {
             // [type-none-unit] `(v: Int) -> None` into a `(v: Int) -> Str?` slot
             // answers the slot's optional: typed as answering `None` alone,
@@ -25528,6 +25580,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.loop_stack = saved_loops;
         self.can_spawn = saved_can_spawn;
         self.own_handler = saved_own_handler;
+        self.actor_owner = saved_owner;
         self.ret_ty = saved_ret;
         // [ir-analyze] A lambda parameter's linear-obligation leak check
         // moved to the IR analysis.
