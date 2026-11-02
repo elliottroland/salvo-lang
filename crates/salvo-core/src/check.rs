@@ -323,15 +323,6 @@ impl<'p> CallCand<'p> {
         }
     }
 
-    /// [fn-overload-scope] A member leads a call on the footing of the
-    /// module's own fns: neither types the other's lambdas by scope.
-    fn rung(&self) -> crate::resolve::Rung {
-        match self {
-            CallCand::Fn(e) => e.rung,
-            CallCand::Member { .. } | CallCand::Own { .. } => crate::resolve::Rung::Own,
-        }
-    }
-
     /// Where it comes from, as diagnostics and the `name@…` remedy name it: a
     /// fn's module, a member's effect, a handler's own member's handler.
     fn origin(&self) -> String {
@@ -411,9 +402,6 @@ struct LeadCandidate {
     rank: crate::types::RankedCandidate,
     generics: HashSet<String>,
     subst: HashMap<String, Ty>,
-    /// [fn-overload-scope] Which rung it came in on: the lead is picked from
-    /// the most specific rung, like the winner.
-    rung: crate::resolve::Rung,
 }
 
 /// How an `is` check (or `when` branch check) lowers at runtime against the
@@ -8919,7 +8907,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     patterns,
                     variadic: false,
                 },
-                rung: cand.rung(),
                 generics: cand.generic_names(),
                 subst,
             });
@@ -8983,23 +8970,19 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// one whose parameter patterns dominate every other's on the
     /// specificity axis. `None` when none dominates — expected types from an
     /// arbitrary candidate really would be a bias, so the arguments keep the
-    /// untyped probe.
+    /// untyped probe. [fn-overload-scope] Where a candidate comes from plays
+    /// no part, as in choosing the winner: a module's own overload does not
+    /// type the arguments of a call `std.core`'s or an import's competes for.
     fn dominant_lead(pool: &[LeadCandidate]) -> Option<usize> {
-        if pool.is_empty() {
-            return None;
-        }
-        // [fn-overload-scope] The most specific rung first, exactly as the
-        // winner is chosen — otherwise a `std.core` candidate would be typing
-        // the arguments of a call that resolves in this module.
-        let top = pool.iter().map(|c| c.rung).max()?;
-        let at_top: Vec<usize> = (0..pool.len()).filter(|&i| pool[i].rung == top).collect();
-        if at_top.len() == 1 {
-            return Some(at_top[0]);
+        match pool.len() {
+            0 => return None,
+            1 => return Some(0),
+            _ => {}
         }
         // [fn-overload-return] Overloads whose parameters are identical type
         // the arguments identically: one of them leads for all.
         let mut distinct: Vec<usize> = Vec::new();
-        for &i in &at_top {
+        for i in 0..pool.len() {
             if !distinct.iter().any(|&d| pool[d].rank.patterns == pool[i].rank.patterns) {
                 distinct.push(i);
             }
@@ -28215,6 +28198,19 @@ fn ty_mentions_vars(ty: &Ty, vars: &HashSet<String>) -> bool {
     vars.iter().any(|v| ty_mentions_var(ty, v))
 }
 
+/// [fn-overload-rank] Whether a parameter pattern can hold a lambda: a fn
+/// type (qualified too: `once (T) -> U`), a bare type variable, `Any`, a type
+/// nothing inferred, or a union with an arm that can. A qualified variable
+/// (`Ok A`) cannot: a lambda carries no qualifier.
+fn could_hold_fn(ty: &Ty) -> bool {
+    match ty {
+        Ty::Fn { .. } | Ty::Var(_) | Ty::Any | Ty::Unknown => true,
+        Ty::Qualified { base, .. } => matches!(base.strip_quals(), Ty::Fn { .. }),
+        Ty::Union(arms) => arms.iter().any(could_hold_fn),
+        _ => false,
+    }
+}
+
 /// Does `ty` contain an un-inferred part? [type-unknown-lenient] An
 /// argument like this fits *every* candidate, so overload ranking must not
 /// turn one un-inferred value into a second diagnostic
@@ -29809,6 +29805,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (i, a) in args.iter().enumerate() {
             if typed_already {
                 break;
+            }
+            // [fn-overload-rank] A lambda fits only a position that can hold
+            // a fn value: a candidate whose parameter here cannot is out of
+            // the running before the lambda is typed, so it neither leads
+            // nor keeps another candidate from leading. (Its argument would
+            // drop it from the pool below anyway; the lead is chosen first.)
+            if matches!(a, Expr::Lambda { .. }) {
+                pool.retain(|c| c.rank.patterns.get(i).is_none_or(could_hold_fn));
             }
             let lead = Self::dominant_lead(&pool);
             let exp: Option<Ty> = match lead {

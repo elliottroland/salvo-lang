@@ -3321,7 +3321,12 @@ Conventions:
     subtyping, not a ranking rule.
   * The ranking also decides which candidate **leads**: expected types flow
     into the arguments from the most specific candidate *still compatible
-    with the arguments typed so far*, on the most specific rung. That is what
+    with the arguments typed so far*, wherever it comes from (2026-10-30:
+    until then the most specific rung went first, so a module's own overload
+    typed a lambda the call meant for an import's). At a lambda, a
+    candidate whose parameter there cannot hold a fn value (`v: Int`,
+    `Ok A`) is out of the running before the lambda is typed, so it does not
+    keep another from leading. That is what
     gives a bare lambda an expected type when the name is overloaded
     (`map(xs, n -> n * 2)` with a `List` fast path beside the generic
     overload), and the per-argument re-narrowing is what keeps the subject
@@ -5313,10 +5318,10 @@ Conventions:
     * `@module` skips the members whole: it names a module's overloads,
       which no member is. That is how a fn shadowed by an equally specific
       member is called by hand.
-    * The arguments are typed by the lead candidate as for any overloads.
-      A member leads on the footing of the module's own fns (`Rung::Own`),
-      so it types a lambda over std's fns of the name and neither it nor an
-      own fn types the other's; with no lead, a lambda with an unwritten
+    * The arguments are typed by the lead candidate as for any overloads,
+      wherever each comes from: a member types a lambda only when its
+      signature dominates every fn's of the name (2026-10-30: until then it
+      led as a module's own fn, over std's); with no lead, a lambda with an unwritten
       parameter type takes the type every candidate declares at its
       position, and is refused otherwise (B1 census D16).
     * With no instance of any owning effect available, the fns of the name

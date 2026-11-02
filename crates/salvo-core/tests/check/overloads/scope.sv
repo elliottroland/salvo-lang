@@ -163,3 +163,39 @@ fn probe() [] -> None {
     //~ error[fn-overload-at:ambiguous-suffix]
     let _n = size@list(xs)
 }
+
+//--- an own overload does not type the lambda of an import's
+// FILE: lib.sv
+// [fn-overload-rank] Where a candidate comes from does not decide which one
+// types the arguments either: the module's own `apply` and the imported one
+// take different fn types, neither is more specific, so the lambda has no
+// type to take. Until 2026-10-30 the nearer scope's led, the lambda took
+// `(Int) -> Int`, and the call quietly resolved to `apply@main`.
+export fn apply(f: (Str) -> Int) [] -> Str { return "imported" }
+// FILE: main.sv
+import lib.apply
+
+fn apply(f: (Int) -> Int) [] -> Str { return "own" }
+
+fn probe() [] -> None {
+    //~ error[fn-overload-rank:lambda-untyped]
+    let _s = apply(x -> 1)
+    let _t = apply((x: Int) -> 1)
+}
+
+//--- a candidate that cannot take a lambda does not keep another from leading
+// FILE: lib.sv
+// [fn-overload-rank] The imported `apply` takes an `Int` where the lambda is,
+// so it cannot be the call's: the own one leads alone and types the lambda.
+// (The case `std.core.result`'s `both` meets beside a program's own `both`
+// taking a callback.)
+export fn apply(v: Int) [] -> Str { return "imported" }
+// FILE: main.sv
+import lib.apply
+
+fn apply(f: (Int) -> Int) [] -> Str { return "own" }
+
+fn probe() [] -> None {
+    let _s = apply(x -> x + 1)
+    let _t = apply(1)
+}

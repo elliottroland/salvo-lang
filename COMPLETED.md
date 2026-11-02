@@ -144,6 +144,29 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Which overload types the arguments is chosen by signature alone (user decision, [fn-overload-scope] [fn-overload-rank])
+
+- **Decided (user, 2026-10-30)**: the lead candidate, whose parameter types
+  type a call's arguments before it resolves (a lambda's parameters, a
+  nested call's expected type), is chosen as the winner is: by signature,
+  wherever the candidate comes from. `dominant_lead` had kept the ladder
+  [fn-overload-scope] retired on 2026-09-26: the most specific rung led, so
+  a module's own `apply(f: (Int) -> Int)` typed `apply(x -> 1)` beside an
+  imported `apply(f: (Str) -> Int)`, and the call quietly resolved to the
+  own one. It is now `fn-overload-rank:lambda-untyped`, as any two
+  overloads none of which is more specific are. `LeadCandidate::rung` and
+  `CallCand::rung` are gone; the rung stays on a scope entry as provenance
+  (diagnostics, `fn_name_clash`).
+- **What it took**: one more rule, found by the suite. A program's own
+  `both(f: (Int, Int) [Console] -> Int, x: Int)` beside `std.core.result`'s
+  `both(a: Ok A | Errs …, …)` had been typed by the rung; by signature
+  neither dominates. At a lambda, a candidate whose parameter cannot hold a
+  fn value (`could_hold_fn`: not a fn type, a bare variable, `Any`, or a
+  union with such an arm; `Ok A` cannot) now leaves the lead pool before the
+  lambda is typed, which it would have left after anyway.
+- **Output**: nothing else moved. Two cases in
+  `check/overloads/scope.sv`. 709 tests under nextest, warm run 1m44.
+
 ### 2026-10-30 — The D2 merges' closing sweep (user decision, PIPELINE.md D2, item 13)
 
 - **Decided (user, 2026-10-30, item 13)**: after the merges, one sweep of
