@@ -32,6 +32,12 @@ fn a_type_named_like_a_type_parameter_leaves_the_hash_alone() {
         own_group("import grp\n\nstruct E { hp: Int }\n"),
         "the parameter, not the struct"
     );
+    // ROADMAP 0ab: and in the effect's own file, where the written name
+    // resolves to the file's `struct E`.
+    let boxed = "actor effect Holder<E> {\n    send fn put(to: eff[E]) => !to\n}\n";
+    let holder = salvo_core::typekey::keyed("Holder", "main");
+    let own_file = |extra: &str| hash_of(&[("main.sv", &format!("{extra}{boxed}"))], &holder);
+    assert_eq!(own_file(""), own_file("struct E { hp: Int }\n"), "the parameter, not the struct");
 }
 
 /// [actor-protocol-hash] The hash is over the protocol's *shape*: a struct renamed

@@ -8635,6 +8635,11 @@ between endpoints and delivers what arrives into the scheduler.
     constants as a value it was handed [actor-group]. The name and the hash
     are the struct's fields; there are no separate accessors (the private
     `protocol_name`/`protocol_hash` were deleted 2026-09-28, unused).
+  * **A type parameter is a parameter** in the canonical form (ROADMAP 0ab,
+    2026-10-30): the effect's and the member's own, whatever type of the
+    name the effect's file (or any other) declares — the written-key table
+    skips a reference the name table marks as a type parameter, and the
+    canonical form substitutes them.
 * [net-addr-routable] **An `eff[E]` is a routable identity** (step ③, user
   decisions 2026-09-26): in generated code still a scheduler index, but every
   entry carries the **node** it lives on and its **bits**, so its wire form is

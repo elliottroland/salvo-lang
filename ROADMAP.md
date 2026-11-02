@@ -73,7 +73,9 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
 - 0q: a DECISION already (which fix is a language question): skipped.
   0r: parked by the user: skipped. 0aa: closed, does not reproduce
   (COMPLETED.md).
-- Next: 0ab.
+- 0ab: done (commit "Keep a type parameter out of the written keys and the
+  protocol hash").
+- Next: 0ad.
 
 ## The sequence
 
@@ -699,28 +701,6 @@ chooses", [fn-value-select]).
 
 Record in COMPLETED.md ("A written fn value fits contravariantly in erased
 qualifiers", [fn-erased-variance]).
-
-### 0ab — Open defect: a written type parameter resolves as a same-named type of its file (found 2026-10-27)
-
-`resolve::written_keys` (what `Symbols::ref_key` and `Checked::type_ref_keys`
-answer) resolves every written type name in its file's scope and does not
-know a declaration's type parameters, so in
-
-```
-struct E { hp: Int }
-actor effect Box<E> { send fn put(to: eff[E]) => !to }
-```
-
-the `E` of `eff[E]` is keyed as the struct: `Box`'s protocol hash
-(`wire::approx_ty` reads through `ref_key`) is `64edd63100c29cc6` with the
-struct and `301f9c3c37e1d078` without it. The checker's own lowering knows
-the parameters, so typing is right; what reads written keys (the protocol
-hash, the ABI closure, an emitter rendering a written type) is not. The
-cross-file case (a user `struct E` beside std's `ActorGroup<E>`) was fixed
-with A1 (`a_type_named_like_a_type_parameter_leaves_the_hash_alone`); this
-same-file case was not. Fix: skip a reference whose name is a type
-parameter of an enclosing declaration when gathering written keys
-(`for_each_type_ref_from` would have to carry the generics in scope).
 
 ### 0ac — Closed 2026-10-28: a location computed from a copied node lands where a diagnostic would
 

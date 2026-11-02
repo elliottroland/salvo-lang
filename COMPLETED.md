@@ -144,6 +144,22 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A type parameter stays a parameter in written keys and protocol hashes (ROADMAP 0ab, [actor-protocol-hash] [decl-id])
+
+- **Built**: `resolve::span_keys_from` (what `Symbols::ref_key` and the
+  written-key table answer) skips a reference the name table marks as a
+  type parameter (`Written::generic`), and `wire::protocol_canonical`
+  substitutes the effect's and each member's type parameters (as
+  `Ty::Var`, which the canonical form writes by name, as an unknown name
+  always was, so no existing hash moves). Before, `struct E` beside
+  `actor effect Box<E> { send fn put(to: eff[E]) … }` keyed the `E` as the
+  struct and changed the protocol's hash (`301f9c3c37e1d078` →
+  `64edd63100c29cc6`). `wire_tests.rs`
+  `a_type_named_like_a_type_parameter_leaves_the_hash_alone` covers the
+  same-file case beside the cross-file one A1 fixed; either change alone
+  fixes the hash, and both are kept, since other readers of written keys
+  (the ABI closure, an emitter rendering a written type) read the first.
+
 ### 2026-10-30 — ROADMAP 0aa closed: no IR build differs between two runs
 
 - **Checked**: a temporary hook in `build_program_gated` hashed the dump of

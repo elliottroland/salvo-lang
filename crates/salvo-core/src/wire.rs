@@ -348,6 +348,11 @@ pub fn protocol_canonical(symbols: &Symbols<'_>, effect: &EffectDecl) -> String 
         if !f.is_send {
             continue;
         }
+        // [decl-id] The effect's and the member's type parameters are
+        // parameters, whatever type of the name the file declares (ROADMAP
+        // 0ab: a `struct E` beside `actor effect Box<E>` changed `Box`'s
+        // hash); hashed by name, as an unknown name always was.
+        let generics: HashMap<String, Ty> = effect.generics.iter().chain(f.generics.iter()).map(|g| (g.name.clone(), Ty::Var(g.name.clone()))).collect();
         out.push_str(&f.name.name);
         out.push('(');
         let mut first = true;
@@ -359,7 +364,7 @@ pub fn protocol_canonical(symbols: &Symbols<'_>, effect: &EffectDecl) -> String 
                 out.push(',');
             }
             first = false;
-            match approx_ty(&p.ty, &HashMap::new(), symbols) {
+            match approx_ty(&p.ty, &generics, symbols) {
                 Some(ty) => canonical_ty(symbols, &ty, &mut out, 0),
                 None => out.push('?'),
             }

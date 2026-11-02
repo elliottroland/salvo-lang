@@ -2430,7 +2430,9 @@ pub fn span_keys_from<'p>(
 ) {
     let names = &resolution.names;
     for w in names.refs().iter().filter(|w| w.file as usize >= first) {
-        if !w.span.is_numbered() {
+        // [decl-id] A type parameter is the parameter, whatever type of its
+        // name the file declares (ROADMAP 0ab).
+        if !w.span.is_numbered() || w.generic {
             continue;
         }
         let name = names.name(w);
