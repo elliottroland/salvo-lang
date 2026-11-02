@@ -13,9 +13,56 @@ use salvo_syntax::ast::{self, Item};
 use super::{body::Lower, AModule, Ctx};
 use crate::ir::*;
 
-/// Builds one module. Also answers the items whose build reported an error
-/// (all of them when a module-level `use` did) [ir-analyze].
-pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &AModule) -> (Module, Vec<String>, Vec<usize>) {
+/// [fate-move-mode] One module's build, with what each item made: its
+/// declarations' range in `module.decls` and its errors, so the builder can
+/// build one item again from the flow pass's decision (PIPELINE.md D3.6).
+pub struct ModuleBuild {
+    pub module: Module,
+    /// [mod-use] The module-level instances every item is built over.
+    statics: Vec<(Instance, Local)>,
+    static_errors: Vec<String>,
+    /// By item: its index, the declarations it made, its errors.
+    items: Vec<(usize, std::ops::Range<usize>, Vec<String>)>,
+}
+
+impl ModuleBuild {
+    /// Every error the build reported, the module-level `use`s' first.
+    pub fn errors(&self) -> Vec<String> {
+        self.static_errors.iter().chain(self.items.iter().flat_map(|(_, _, e)| e)).cloned().collect()
+    }
+
+    /// [ir-analyze] The items whose build reported an error (all of them
+    /// when a module-level `use` did).
+    pub fn failed(&self) -> Vec<usize> {
+        let all = !self.static_errors.is_empty();
+        self.items.iter().filter(|(_, _, e)| all || !e.is_empty()).map(|(i, _, _)| *i).collect()
+    }
+
+    /// The item the declaration at `decl` (an index into `module.decls`) was
+    /// built from.
+    pub fn item_of(&self, decl: usize) -> Option<usize> {
+        self.items.iter().find(|(_, r, _)| r.contains(&decl)).map(|(i, _, _)| *i)
+    }
+
+    /// [fate-move-mode] Builds the item `item_idx` again (from the decision
+    /// now in `ctx`), in place.
+    pub fn rebuild_item(&mut self, ctx: &Ctx<'_>, file_idx: usize, module: &AModule, item_idx: usize) {
+        let Some(at) = self.items.iter().position(|(i, _, _)| *i == item_idx) else { return };
+        let mut errors = Vec::new();
+        let decls = build_item(ctx, file_idx, item_idx, &module.items[item_idx], &self.statics, &mut errors);
+        let range = self.items[at].1.clone();
+        let (old, new) = (range.len(), decls.len());
+        self.module.decls.splice(range.clone(), decls);
+        self.items[at] = (item_idx, range.start..range.start + new, errors);
+        // A different count shifts every later item's range.
+        for (_, r, _) in self.items.iter_mut().skip(at + 1) {
+            *r = (r.start + new - old)..(r.end + new - old);
+        }
+    }
+}
+
+/// Builds one module [ir-analyze].
+pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &AModule) -> ModuleBuild {
     let mut out = Module {
         path: file.module.clone(),
         file_name: file.name.clone(),
@@ -80,18 +127,29 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
         out.decls.push(Decl::Static(StaticDecl { id: DeclId::static_use(&file.module, &inst_local.0), local: inst_local, ty: inst_ty, stmts: own, span: u.span }));
         out.decls.extend(faces.into_iter().map(Decl::Static));
     }
-    let statics_failed = !errors.is_empty();
-    let mut failed: Vec<usize> = Vec::new();
+    let mut items = Vec::new();
     for (item_idx, item) in module.items.iter().enumerate() {
-        let Some(id) = ctx.item_id(file_idx, item_idx) else { continue };
-        let before = errors.len();
+        let mut item_errors = Vec::new();
+        let start = out.decls.len();
+        out.decls.extend(build_item(ctx, file_idx, item_idx, item, &statics, &mut item_errors));
+        items.push((item_idx, start..out.decls.len(), item_errors));
+    }
+    ModuleBuild { module: out, statics, static_errors: errors, items }
+}
+
+/// The declarations one item makes (none for most items that are not
+/// declarations of code or types).
+fn build_item(ctx: &Ctx<'_>, file_idx: usize, item_idx: usize, item: &Item, statics: &[(Instance, Local)], errors: &mut Vec<String>) -> Vec<Decl> {
+    let mut out: Vec<Decl> = Vec::new();
+    let Some(id) = ctx.item_id(file_idx, item_idx) else { return out };
+    {
         match item {
             Item::Struct(s) if s.comptime => {}
-            Item::Struct(s) => out.decls.push(Decl::Struct(struct_decl(ctx, file_idx, id, s, &mut errors))),
+            Item::Struct(s) => out.push(Decl::Struct(struct_decl(ctx, file_idx, id, s, errors))),
             Item::Type(t) => {
                 if let Some(alias) = &t.alias {
                     if matches!(alias, ast::Type::Union { .. } | ast::Type::Nullable { .. }) {
-                        out.decls.push(Decl::Union(UnionDecl {
+                        out.push(Decl::Union(UnionDecl {
                             id,
                             name: t.name.name.clone(),
                             exported: t.exported,
@@ -102,7 +160,7 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                         }));
                     }
                 } else if t.platform || t.intrinsic {
-                    out.decls.push(Decl::PlatformType(PlatformTypeDecl {
+                    out.push(Decl::PlatformType(PlatformTypeDecl {
                         id,
                         name: t.name.name.clone(),
                         exported: t.exported,
@@ -125,8 +183,8 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                 }
             }
             Item::Effect(e) if e.name.name == crate::THROW_EFFECT => {}
-            Item::Effect(e) => out.decls.push(Decl::Interface(interface_decl(ctx, file_idx, id, e))),
-            Item::Handler(h) => out.decls.push(Decl::Impl(impl_decl(ctx, file_idx, id, h, &statics, &mut errors))),
+            Item::Effect(e) => out.push(Decl::Interface(interface_decl(ctx, file_idx, id, e))),
+            Item::Handler(h) => out.push(Decl::Impl(impl_decl(ctx, file_idx, id, h, statics, errors))),
             Item::Fn(f) if f.body.is_some() || f.platform || f.intrinsic => {
                 let key = id;
                 let kind = if f.intrinsic {
@@ -136,7 +194,7 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                 } else {
                     FnKind::Plain
                 };
-                out.decls.push(Decl::Fn(fn_decl(ctx, file_idx, id, Some(key), f, kind, None, &statics, &mut errors)));
+                out.push(Decl::Fn(fn_decl(ctx, file_idx, id, Some(key), f, kind, None, statics, errors)));
             }
             Item::Fn(_) => {}
             Item::Qualifier(q) => {
@@ -145,7 +203,7 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
                         continue;
                     }
                     let Some(qid) = ctx.resolution.decls.member(file_idx, item_idx, i + 1) else { continue };
-                    out.decls.push(Decl::Fn(fn_decl(ctx, file_idx, qid, None, f, FnKind::Qualifies, Some(q), &statics, &mut errors)));
+                    out.push(Decl::Fn(fn_decl(ctx, file_idx, qid, None, f, FnKind::Qualifies, Some(q), statics, errors)));
                 }
             }
             Item::Import(_) | Item::Fns(_) | Item::Refn(_) | Item::Rename(_) | Item::Test(_) => {}
@@ -154,11 +212,8 @@ pub fn build_module(ctx: &Ctx<'_>, file_idx: usize, file: &SourceFile, module: &
             // [effect-alias] Expanded away before the IR is built.
             Item::EffectAlias(_) => {}
         }
-        if statics_failed || errors.len() > before {
-            failed.push(item_idx);
-        }
     }
-    (out, errors, failed)
+    out
 }
 
 fn type_params(generics: &[ast::Ident], canbe: &[(ast::Ident, ast::TypeRef)]) -> Vec<TypeParam> {

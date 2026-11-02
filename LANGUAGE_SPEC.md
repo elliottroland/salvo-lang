@@ -9588,7 +9588,7 @@ between endpoints and delivers what arrives into the scheduler.
     with every binding borrow-mode; `ir::flow::decide` walks each: at a
     derived use, every binding behind it — the variable's own, then back
     along the chain as the links stand on that path — that may take
-    ownership does; and the modules with a decision are built again from it
+    ownership does; and the declarations with a decision are built again from it
     (`ir::Decision`, on `ir::Program::decision`): a move-mode binding's value
     is read as a move, the loops it takes a binding of iterate by value, and
     its links are what it took ownership through (`FateFacts::bound`), with

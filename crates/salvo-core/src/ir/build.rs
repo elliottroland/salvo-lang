@@ -253,7 +253,7 @@ pub fn build_program_gated<'p>(
     let mut out = Program { modules: Vec::new(), names: HashMap::new(), member_names: Ctx::compute_member_names(program, &resolution.decls), decision: Decision::default() };
     let mut errors = Vec::new();
     let mut failed: HashSet<(usize, usize)> = HashSet::new();
-    let mut built: Vec<usize> = Vec::new();
+    let mut built: Vec<(usize, decls::ModuleBuild)> = Vec::new();
     let t = crate::timing::phase("  ir build: bodies");
     for (file_idx, (file, module)) in program.files.iter().zip(&program.modules).enumerate() {
         if let Some(wanted) = modules {
@@ -264,41 +264,42 @@ pub fn build_program_gated<'p>(
         if gate.files.contains(&file_idx) {
             continue;
         }
-        let (m, errs, failed_items) = decls::build_module(&ctx, file_idx, file, module);
-        failed.extend(failed_items.into_iter().map(|i| (file_idx, i)));
-        out.modules.push(m);
-        built.push(file_idx);
-        errors.push(errs.into_iter().map(|e| format!("{}: {e}", file.name)).collect::<Vec<_>>());
+        built.push((file_idx, decls::build_module(&ctx, file_idx, file, module)));
     }
     // [fate-move-mode] The flow pass decides, over the bodies built with
     // every binding borrow-mode, which bindings take ownership (and which
-    // stay virtual places [deduce-field]); a module with any is built
-    // again from the decision, which is what the emitters and the flow
-    // pass's own check read.
+    // stay virtual places [deduce-field]); a declaration it decided anything
+    // in is built again from the decision (PIPELINE.md D3.6: the item, not
+    // its module), which is what the emitters and the flow pass's own check
+    // read.
     drop(t);
     {
         let t = crate::timing::phase("  ir build: decide");
-        let mut redo: Vec<usize> = Vec::new();
-        for (i, m) in out.modules.iter().enumerate() {
-            let mut any = false;
-            for decl in &m.decls {
-                any |= super::flow::decide(decl, &mut ctx.decision);
-            }
-            if any {
-                redo.push(i);
+        let mut redo: Vec<(usize, usize)> = Vec::new();
+        for (i, (_, mb)) in built.iter().enumerate() {
+            for (d, decl) in mb.module.decls.iter().enumerate() {
+                if super::flow::decide(decl, &mut ctx.decision) {
+                    if let Some(item) = mb.item_of(d) {
+                        if !redo.contains(&(i, item)) {
+                            redo.push((i, item));
+                        }
+                    }
+                }
             }
         }
         drop(t);
         let _t = crate::timing::phase("  ir build: again");
-        for i in redo {
-            let file_idx = built[i];
-            let (m, errs, failed_items) = decls::build_module(&ctx, file_idx, &program.files[file_idx], &program.modules[file_idx]);
-            failed.extend(failed_items.into_iter().map(|i| (file_idx, i)));
-            out.modules[i] = m;
-            errors[i] = errs.into_iter().map(|e| format!("{}: {e}", program.files[file_idx].name)).collect();
+        for (i, item) in redo {
+            let (file_idx, mb) = &mut built[i];
+            mb.rebuild_item(&ctx, *file_idx, &program.modules[*file_idx], item);
         }
     }
-    let errors: Vec<String> = errors.into_iter().flatten().collect();
+    for (file_idx, mb) in built {
+        let name = &program.files[file_idx].name;
+        errors.extend(mb.errors().into_iter().map(|e| format!("{name}: {e}")));
+        failed.extend(mb.failed().into_iter().map(|i| (file_idx, i)));
+        out.modules.push(mb.module);
+    }
     let generated = actors::generate(&ctx, &mut out);
     // [ref-handle] Every `ref` names its container's type.
     refs::annotate(&mut out);

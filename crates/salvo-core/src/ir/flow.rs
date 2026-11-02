@@ -100,7 +100,7 @@
 //! behind it — the local's own, then its roots' back along the chain as the
 //! links stand on that path — that may take ownership (`FateFacts::eligible`,
 //! the checker's judgment at the binding) does. The builder then builds the
-//! module again from that `Decision`: a move-mode binding's value is read as
+//! declaration again from that `Decision`: a move-mode binding's value is read as
 //! a move, the loops whose binding it takes iterate by value, and its links
 //! are what it took ownership through (`FateFacts::bound`). `decide` also
 //! keeps the virtual places [deduce-field]: a candidate at a mutation event
@@ -284,7 +284,7 @@ fn check_fn(f: &FnDecl, out: &mut Vec<FlowDiagnostic>) {
 /// borrow-mode there), and, for a fields-declaring call's survivor, whose
 /// local is still live. Adds to `out` (the bindings by their stamps, nodes
 /// [node-id]); answers whether it decided anything, so the builder knows to
-/// build the module again.
+/// build the declaration again (PIPELINE.md D3.6).
 pub fn decide(decl: &Decl, out: &mut Decision) -> bool {
     let mut any = false;
     let mut one = |f: &FnDecl| {

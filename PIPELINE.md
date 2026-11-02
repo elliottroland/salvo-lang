@@ -2795,7 +2795,13 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   `Decision` is the builder's one answer to "lowered as a move": it is
   seeded with the checker's `by_value_loops` before the first build, and
   `Ctx::mode` reads nothing else. Moving that loop decision itself into the
-  flow pass is D3.5(b)'s, with the fate links.
+  flow pass is D3.5(b)'s, with the fate links. **D3.6 built — done** (2026-10-30): a
+  module's build keeps what each item made (`decls::ModuleBuild`: its
+  declarations' range and its errors, over the module's statics), and the
+  builder builds again only the items the flow pass decided something in
+  (`rebuild_item`), not their whole modules. On `examples/cluster` the
+  second build went from 13.7ms to about 6.5ms of a ~37ms IR build (was
+  45ms).
 - **D4. The typed dump and the full round trip**: B4 extended to types,
   type arguments and narrowings (marked notation where Salvo has no
   spelling).

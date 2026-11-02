@@ -144,6 +144,19 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — The decided declarations are built again, not their modules (user decision, PIPELINE.md D3.6, [fate-move-mode])
+
+- **Decided (user, 2026-10-30)**: rebuild per declaration rather than per
+  module.
+- **Built**: `decls::build_module` answers a `ModuleBuild` — the module,
+  the module-level statics, and per item the range of declarations it made
+  and its errors — built item by item through `build_item`; after the flow
+  pass decides, `rebuild_item` builds each item it decided something in
+  again, in place (shifting later ranges if the count changed), and the
+  errors and failed items are read off the builds at the end. The IR is
+  unchanged. On `examples/cluster`, the second build fell from 13.7ms to
+  ~6.5ms, the whole IR build from 45ms to ~37ms.
+
 ### 2026-10-30 — The flow decision is the one answer to a move (PIPELINE.md D3.5(a), [fate-move-mode])
 
 - **Built** (the order the user approved: (a) now, (b) later): the
