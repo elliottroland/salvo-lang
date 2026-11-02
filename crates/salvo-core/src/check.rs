@@ -663,9 +663,10 @@ pub enum Callee {
     /// `of` names (which declaration of an overloaded qualifier).
     QualMember { qualifier: String, member: String, of: Option<String> },
     /// A fn-typed local or parameter, or the fn's own implicit: the local it
-    /// went through when several implicits share the name
-    /// [implicit-same-name], and the per-argument contract [fn-contract].
-    Local { name: Option<String>, contract: Vec<FnParamContract> },
+    /// goes through, by its name in the body — an implicit's own local where
+    /// several share the name [implicit-same-name] — and the per-argument
+    /// contract [fn-contract].
+    Local { local: String, contract: Vec<FnParamContract> },
     /// [fn-member-call] A fn-typed field of the receiver, read and called.
     Field { contract: Vec<FnParamContract> },
     /// A computed callee (`adder()(1)`): the value's contract [fn-contract].
@@ -970,6 +971,33 @@ pub const DEDICATED_QUALIFIER: &str = "Dedicated";
 /// [actor-spawn-expr] The effect an `Addr<E>` serves, or `None` for anything
 /// that is not an addr. What `use addr`, a dot-call through an addr, and a spawn's
 /// `use` clause all ask.
+/// [effect-eff-handle] The single handles a tuple of them holds, flattened
+/// through nested tuples in order: each one's path of tuple indices and its
+/// effect. `None` when a leaf is not a single handle. One definition for the
+/// checker (what a `use` of the tuple binds) and the lowering (where each
+/// element is read from).
+pub fn handle_leaves(ty: &Ty) -> Option<Vec<(Vec<usize>, Ty)>> {
+    fn walk(ty: &Ty, path: &mut Vec<usize>, out: &mut Vec<(Vec<usize>, Ty)>) -> bool {
+        match ty.strip_quals() {
+            Ty::Tuple(elems) => elems.iter().enumerate().all(|(i, e)| {
+                path.push(i);
+                let ok = walk(e, path, out);
+                path.pop();
+                ok
+            }),
+            other => match addr_effect(other) {
+                Some(effect) => {
+                    out.push((path.clone(), effect));
+                    true
+                }
+                None => false,
+            },
+        }
+    }
+    let mut out = Vec::new();
+    walk(ty, &mut Vec::new(), &mut out).then_some(out)
+}
+
 fn addr_effect(ty: &Ty) -> Option<Ty> {
     match ty.strip_quals() {
         Ty::Named { name, args } if name == ADDR_TYPE && args.len() == 1 => Some(args[0].clone()),
@@ -10979,15 +11007,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// recursing through nested tuples. Returns false if any leaf is not a
     /// single-effect handle (then `use` of it is not meaningful).
     fn collect_handle_tuple(&self, ty: &Ty, out: &mut Vec<Ty>) -> bool {
-        match ty.strip_quals() {
-            Ty::Tuple(elems) => elems.iter().all(|e| self.collect_handle_tuple(e, out)),
-            other => match addr_effect(other) {
-                Some(effect) => {
-                    out.push(effect);
-                    true
-                }
-                None => false,
-            },
+        match handle_leaves(ty) {
+            Some(leaves) => {
+                out.extend(leaves.into_iter().map(|(_, e)| e));
+                true
+            }
+            None => false,
         }
     }
 
@@ -12290,11 +12315,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if params.len() == 1 && Self::arg_fits_fn_value(ty, &params[0]))
         };
         match self.pick_own_implicit("to_str", &fits) {
-            Ok(Some(own)) => return Some(ArmText::Call { callee: Callee::Local { name: Some(own.local.clone()), contract: Vec::new() }, implicits: Vec::new() }),
+            Ok(Some(own)) => return Some(ArmText::Call { callee: Callee::Local { local: own.local.clone(), contract: Vec::new() }, implicits: Vec::new() }),
             Ok(None) => {}
             Err(tied) => {
                 self.own_implicit_tie("to_str", &tied, expr.span());
-                return Some(ArmText::Call { callee: Callee::Local { name: Some("to_str".to_string()), contract: Vec::new() }, implicits: Vec::new() });
+                return Some(ArmText::Call { callee: Callee::Local { local: "to_str".to_string(), contract: Vec::new() }, implicits: Vec::new() });
             }
         }
         self.resolve_as_call = true;
@@ -12386,7 +12411,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let site = ForSite { at, key, loc: span, call: format!("to_str({ty})"), subject: ty.clone(), interp: true };
         match self.pick_own_implicit("to_str", &fits) {
             Ok(Some(own)) => {
-                self.record_callee(key, Callee::Local { name: Some(own.local.clone()), contract: Vec::new() });
+                self.record_callee(key, Callee::Local { local: own.local.clone(), contract: Vec::new() });
                 if let Some(v) = self.lookup_mut(&own.local) {
                     v.used = true;
                 }
@@ -13839,7 +13864,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [op-arith] Arithmetic alike. Answers what the implicit returns.
     fn operator_through_implicit(&mut self, own: &ImplicitParam, lhs: &'p Expr, rhs: &'p Expr, tys: &[Ty], span: Span) -> Ty {
         let key = self.key(span);
-        self.record_callee(key, Callee::Local { name: Some(own.local.clone()), contract: Vec::new() });
+        self.record_callee(key, Callee::Local { local: own.local.clone(), contract: Vec::new() });
         let (params, got, contract, effects) = match self.lookup(&own.local).map(|v| v.narrowed.strip_quals().clone()) {
             Some(Ty::Fn { params, ret, contract, effects }) => (params, *ret, contract, effects),
             _ => match own.ty.strip_quals().clone() {
@@ -25103,7 +25128,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let loc = subject.span();
         match self.pick_own_implicit(name, &|p: &ImplicitParam| Self::own_for_fit(p, name, ty)) {
             Ok(Some(own)) => {
-                self.record_callee(key, Callee::Local { name: Some(own.local.clone()), contract: Vec::new() });
+                self.record_callee(key, Callee::Local { local: own.local.clone(), contract: Vec::new() });
                 let (ret, effects) = match self.lookup(&own.local).map(|v| v.narrowed.strip_quals().clone()) {
                     Some(Ty::Fn { ret, effects, .. }) => (*ret, effects),
                     _ => match own.ty.strip_quals().clone() {
@@ -25158,7 +25183,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// declared fn's or member's first parameter, the implicit's parameter.
     fn for_next_state(&mut self, key: Key, pass: &Ty) -> (bool, Ty) {
         let callee = self.out.call(key).map(|c| c.callee.clone());
-        if let Some(Callee::Local { name: Some(name), .. }) = &callee {
+        if let Some(Callee::Local { local: name, .. }) = &callee {
             let name = name.clone();
             let ty = self.lookup(&name).map(|v| v.narrowed.clone()).or_else(|| self.own_implicits.iter().find(|p| p.local == name).map(|p| p.ty.clone()));
             if let Some(Ty::Fn { params, .. }) = ty.map(|t| t.strip_quals().clone()) {
@@ -28981,7 +29006,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         // call goes through is the local recorded for the emitters.
         let same = self.own_implicits.iter().filter(|p| p.name == id.name).count();
         let mut pre_tys: Option<Vec<Ty>> = None;
-        let mut same_name: Option<String> = None;
         let lname: String = if same > 1 {
             let tys: Vec<Ty> = all.iter().map(|a| self.check_expr(a, None)).collect();
             // [implicit-same-name] The one whose parameters the arguments
@@ -29001,7 +29025,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             };
             let chosen = pick.map(|p| p.local).unwrap_or_else(|| id.name.clone());
-            same_name = Some(chosen.clone());
             pre_tys = Some(tys);
             chosen
         } else {
@@ -29062,7 +29085,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // an effect member included. Recorded for the emitters,
                 // whose own effect-member test is a program-wide name
                 // map that cannot see locals.
-                self.record_callee(self.key(span), Callee::Local { name: same_name.clone(), contract: Vec::new() });
+                self.record_callee(self.key(span), Callee::Local { local: lname.clone(), contract: Vec::new() });
                 // Calling the local is a use of it.
                 if let Some(v) = self.lookup_mut(&lname) {
                     v.used = true;

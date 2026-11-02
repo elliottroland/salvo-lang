@@ -4192,7 +4192,11 @@ Conventions:
     Before, any two that fit were refused ("could go through more than one
     implicit of that name"). The checker binds the second and later as
     `to_str__1`, … (`ImplicitParam::local`) and records the one a call took
-    (`Callee::Local::name`), which is the name the backends declare and call.
+    (`Callee::Local::local`), which is the name the backends declare and call.
+    Every call through a local records the local it goes through, the
+    written name included, and the lowering reads it with no fallback
+    (PIPELINE.md D3.3, 2026-10-30): before, an unrecorded name fell back to
+    the written one and then to the implicits by resolution name.
   * **At a call site** each is filled on its own — a binder from the
     argument's type, the rest by name and type. The bare override `to_str = f`
     cannot say which it fills and is refused; the typed spelling (`to_str:
@@ -4916,7 +4920,11 @@ Conventions:
     flat multi-face handle to represent. A multi-face `use H()` as a value
     yields that tuple (one shared instance, wrapped per face); it destructures,
     and `use e` over a (possibly nested) tuple binds every effect in it —
-    `use e.0; use e.1`. A single-effect handle stays the `Addr`-named marker
+    `use e.0; use e.1`, `e.0.1` for a nested one: the checker and the
+    lowering flatten it with one definition (`check::handle_leaves`). Fixed
+    2026-10-30 (PIPELINE.md D3.3): the lowering read a nested tuple's
+    handles by their flattened index (`e.1` for `((a, b), c)`'s `b`), which
+    both target compilers refused. A single-effect handle stays the `Addr`-named marker
     (it carries the plain-vs-actor distinction the emitters read).
   * **Projection `e[A, B]` / `e[alias]`** is a non-consuming copy of the
     sub-handle carrying the named effects — a subset of what `e` carries,

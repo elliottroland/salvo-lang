@@ -2756,7 +2756,35 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   reads the table for a declaration's parameters and a call's arguments.
   A handler member's declaration now takes its parameters as the member it
   implements declares, as its body already bound them, so the ledger sees a
-  moved `Reply` it must answer.
+  moved `Reply` it must answer. **D3.3, first part built — done**
+  (2026-10-30): a call through a local records the local it goes through
+  (`Callee::Local { local }`, the written name included), and the IR reads
+  it with no fallback (the written-name retry, the implicits by resolution
+  name and `Local(name)` are gone; `ImplicitArg::Forwarded` likewise); a
+  construction is lowered from the handler the checker recorded
+  (`Constructed::Handler`) rather than the written name, and a `with` item
+  from whether the checker recorded a construction at it (a private
+  handler, behind its handle unless `threadsafe`) or not (an addr), not
+  from the lowered value's type name; and `use` of a nested tuple of
+  handles reads each at its path (`check::handle_leaves`, the checker's
+  flattening), which fixed a defect. **D3.3, what is left** (a probe over
+  the suite and the examples counted each fallback): (a) the primitive
+  operator test (`Ctx::is_primitive_operator`) is decided only in the IR,
+  the checker deferring to it — a fact to record, not a disagreement; (b)
+  `intrinsic_fn` finds std's `to_str` for a native interpolated part, an
+  `ArmText::Native` union arm and the slot text of an `@whynot` message,
+  which the IR builds from the doc template itself; (c) `decl_of_effect` is
+  a key-to-id lookup, removable by carrying the `DeclId` on
+  `Callee::Member`; (f) `approx_keyed` fires for ~280k written types per
+  suite run, nearly all std's (std is not walked, so `written_types` lacks
+  them): making the table total needs std's rows in the std cache; (h) the
+  `fn_value` adapter compares two checker facts, and could be recorded in
+  `FnValue::Decl`. **DECISION (g)**: a block lambda with no expected fn
+  type is typed by the checker as returning `Unknown`, and the IR infers
+  the return from the first `return` it lowers (58 lambdas in the suite).
+  Inferring it in the checker would change what call sites see of such a
+  lambda (its return type becomes known, so mismatches surface), which is a
+  language-visible change.
 - **D4. The typed dump and the full round trip**: B4 extended to types,
   type arguments and narrowings (marked notation where Salvo has no
   spelling).

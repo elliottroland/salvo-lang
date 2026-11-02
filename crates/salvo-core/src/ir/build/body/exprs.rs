@@ -692,10 +692,10 @@ impl<'a, 'p> Lower<'a, 'p> {
         for (arm_ty, text) in runtime.iter().zip(arms) {
             let fn_ty = Ty::Fn { params: vec![arm_ty.clone()], ret: Box::new(str_ty.clone()), contract: None, effects: Vec::new() };
             let f = match text {
-                ArmText::Call { callee: CalleeKind::Local { name, .. }, .. } => {
-                    let name = name.clone().unwrap_or_else(|| "to_str".into());
-                    Expr { ty: fn_ty, span, kind: ExprKind::FnValue(FnRef::Local(Local(name))) }
-                }
+                ArmText::Call { callee: CalleeKind::Local { local, .. }, .. } => match self.local_callee(local, span) {
+                    Some(l) => Expr { ty: fn_ty, span, kind: ExprKind::FnValue(FnRef::Local(l)) },
+                    None => unsupported(fn_ty, span, "interpolation"),
+                },
                 ArmText::Call { callee: CalleeKind::Fn { decl, .. }, implicits } => {
                     let arg = ImplicitArg::Resolved { name: "to_str".into(), key: *decl, nested: implicits.clone(), want: fn_ty };
                     self.implicit_list(&[arg], &[], span).pop().unwrap()
@@ -753,9 +753,10 @@ impl<'a, 'p> Lower<'a, 'p> {
                 return Expr { ty, span, kind: ExprKind::MemberCall { instance: Box::new(instance), member: MemberRef { interface, index }, type_args: Vec::new(), args: lowered } };
             }
             // [implicit-resolve-body] Through the fn's own implicit.
-            Some(CalleeKind::Local { name, .. }) => {
-                let name = name.unwrap_or_default();
-                let local = self.lookup(&name).map(|b| b.local.clone()).or_else(|| self.implicit_locals.get(&name).cloned()).unwrap_or(Local(name.clone()));
+            Some(CalleeKind::Local { local, .. }) => {
+                let Some(local) = self.local_callee(&local, span) else {
+                    return unsupported(ty, span, "local call");
+                };
                 let mut a: Vec<Expr> = match leading {
                     Some(effs) => self.leading_instances(&effs, span),
                     None => Vec::new(),
@@ -893,7 +894,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     BinaryOp::Div => "divide",
                     _ => "pow",
                 };
-                match self.call_named(member, vec![lhs, rhs], &[], span, ty.clone()) {
+                match self.call_named(vec![lhs, rhs], &[], span, ty.clone()) {
                     Some(call) => call,
                     None => {
                         self.error(span, messages::op_arith_lower_no_member(&op, &member));
@@ -950,7 +951,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     return Expr { ty, span, kind: ExprKind::Op { op: o, args: vec![l, r] } };
                 }
                 let (member, call_ty) = if equality { ("eq", Ty::named("Bool")) } else { ("cmp", Ty::named("Int")) };
-                let Some(call) = self.call_named(member, vec![lhs, rhs], &[], span, call_ty) else {
+                let Some(call) = self.call_named(vec![lhs, rhs], &[], span, call_ty) else {
                     self.error(span, messages::op_equality_lower_no_member(&op, &member));
                     return unsupported(ty, span, "comparison");
                 };
@@ -1080,8 +1081,9 @@ impl<'a, 'p> Lower<'a, 'p> {
                     Some(a) => out.push(self.expr(&a.value)),
                     None => out.push(unsupported(Ty::Unknown, at, format!("given implicit `{name}` without a value"))),
                 },
-                ImplicitArg::Forwarded { name } => match self.lookup(name).map(|b| b.local.clone()).or_else(|| self.implicit_locals.get(name).cloned()) {
-                    Some(l) => out.push(Expr { ty: self.lookup(&l.0).map(|b| b.ty.clone()).unwrap_or(Ty::Unknown), span: at, kind: ExprKind::FnValue(FnRef::Local(l)) }),
+                // [implicit-forward] The enclosing fn's implicit, by its local.
+                ImplicitArg::Forwarded { name } => match self.lookup(name).map(|b| (b.local.clone(), b.ty.clone())) {
+                    Some((l, ty)) => out.push(Expr { ty, span: at, kind: ExprKind::FnValue(FnRef::Local(l)) }),
                     None => {
                         self.error(at, messages::implicit_forward_lower_not_in_scope(name));
                         out.push(unsupported(Ty::Unknown, at, "forwarded implicit"));
@@ -1181,6 +1183,20 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
+    /// [call-resolve] [implicit-same-name] The local a call through a fn
+    /// value goes through, by the name the checker recorded (an implicit's
+    /// own local where several share a name); refused when nothing in scope
+    /// has it.
+    fn local_callee(&mut self, local: &str, span: Span) -> Option<Local> {
+        match self.lookup(local) {
+            Some(b) => Some(b.local.clone()),
+            None => {
+                self.error(span, messages::call_resolve_lower_unknown_local(&local));
+                None
+            }
+        }
+    }
+
     /// [effect-instance] The instances a call passes ahead of its arguments,
     /// the throw effect left out [throw].
     fn leading_instances(&mut self, passed: &[Instance], span: Span) -> Vec<Expr> {
@@ -1257,16 +1273,8 @@ impl<'a, 'p> Lower<'a, 'p> {
             all_args.push(base);
         }
         all_args.extend(args.iter());
-        let name = match callee {
-            AExpr::Ident(id) => id.name.clone(),
-            AExpr::Field { field, .. } => field.name.clone(),
-            // [comptime-hygiene] A template's `name@[site]` may reach a
-            // local (the stamped fn's implicit), as the bare name would.
-            AExpr::Scoped { name, .. } => name.name.clone(),
-            _ => String::new(),
-        };
         if !matches!(callee_kind, Some(CalleeKind::Field { .. })) {
-            if let Some(call) = self.call_named(&name, all_args.clone(), named, span, ty.clone()) {
+            if let Some(call) = self.call_named(all_args.clone(), named, span, ty.clone()) {
                 return call;
             }
         }
@@ -1297,7 +1305,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// checker resolved the node at `span`. `None` when it recorded none of
     /// them (a computed callee). [op-equality] [op-order] A comparison
     /// operator is lowered through here as the call it names.
-    fn call_named(&mut self, name: &str, all_args: Vec<&AExpr>, named: &[ast::NamedArg], span: Span, ty: Ty) -> Option<Expr> {
+    fn call_named(&mut self, all_args: Vec<&AExpr>, named: &[ast::NamedArg], span: Span, ty: Ty) -> Option<Expr> {
         let key = self.key(span);
         let checked = self.ctx.checked;
         let callee = checked.call(key).map(|c| c.callee.clone());
@@ -1324,17 +1332,8 @@ impl<'a, 'p> Lower<'a, 'p> {
             return Some(if prelude.is_empty() { call } else { self.block_expr(prelude, call, span) });
         }
         // A fn-typed local, or the fn's own implicit [call-resolve].
-        if let Some(CalleeKind::Local { name: chosen, .. }) = &callee {
-            let local_name = chosen.clone().unwrap_or(name.to_string());
-            // By the chosen local's own name first: two implicits may share
-            // a resolution name [implicit-same-name].
-            let local = self
-                .lookup(&local_name)
-                .map(|b| b.local.clone())
-                .or_else(|| self.implicit_locals.get(&local_name).cloned())
-                .or_else(|| self.lookup(name).map(|b| b.local.clone()));
-            let Some(local) = local else {
-                self.error(span, messages::call_resolve_lower_unknown_local(&name));
+        if let Some(CalleeKind::Local { local, .. }) = &callee {
+            let Some(local) = self.local_callee(local, span) else {
                 return Some(unsupported(ty, span, "local call"));
             };
             // [fn-effects] the effects the fn value performs are its leading
@@ -2882,23 +2881,29 @@ impl<'a, 'p> Lower<'a, 'p> {
         let construction = self.ctx.checked.constructions.get(&key);
         // A `use` that constructs nothing binds handles it is given: a tuple
         // of them, or one.
-        let binds_tuple = construction.is_none() && !faces.is_empty() && matches!(self.ty_of(handler.span()).strip_quals(), Ty::Tuple(_));
+        let operand = self.ty_of(handler.span());
+        let binds_tuple = construction.is_none() && !faces.is_empty() && matches!(operand.strip_quals(), Ty::Tuple(_));
         let binds_one = construction.is_none() && !faces.is_empty() && !binds_tuple;
-        // [effect-eff-handle] `use <tuple>`: bind one effect per tuple element, in
-        // order, each `instance_at(tuple.i)` — `use e.0; use e.1`.
+        // [effect-eff-handle] `use <tuple>`: bind one effect per single handle
+        // the tuple holds, in order, each read at its path — `use e.0; use
+        // e.1`, a nested tuple's `e.0.1` too (`check::handle_leaves`, the
+        // checker's own flattening).
         if binds_tuple {
-            let effects = faces;
+            let Some(leaves) = crate::check::handle_leaves(&operand).filter(|l| l.len() == faces.len()) else {
+                self.error(span, messages::effect_use_lower_not_construction());
+                return (vec![Stmt::Expr(unsupported(Ty::Unknown, span, "use"))], Vec::new());
+            };
             let tup = self.expr(handler);
             let tup_ty = tup.ty.clone();
             let base = self.fresh("__use");
             let bid = self.id();
             let mut out = vec![Stmt::Let { id: bid, local: base.clone(), ty: tup_ty.clone(), value: tup }];
             let mut bound: Vec<(Ty, Local)> = Vec::new();
-            for (i, effect) in effects.into_iter().enumerate() {
+            for ((path, _), effect) in leaves.into_iter().zip(faces) {
                 let elem = Expr {
-                    ty: effect.clone(),
+                    ty: Ty::Named { name: "Addr".into(), args: vec![effect.clone()] },
                     span,
-                    kind: ExprKind::Read { place: Place { root: base.clone(), steps: vec![Step::Tuple(i)] }, consume: false, moved: false },
+                    kind: ExprKind::Read { place: Place { root: base.clone(), steps: path.into_iter().map(Step::Tuple).collect() }, consume: false, moved: false },
                 };
                 let inst = Expr { ty: effect.clone(), span, kind: ExprKind::AddrInstance { addr: Box::new(elem) } };
                 let local = self.fresh("__use");
@@ -2949,10 +2954,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // [effect-handle] one handle per face, over the one instance — the
         // instance itself for a `threadsafe platform handler`, which promises
         // its own synchronization [platform-threadsafe].
-        let threadsafe = match handler_ty.strip_quals() {
-            Ty::Named { name, .. } => self.ctx.symbols.handlers.get(name.as_str()).is_some_and(|h| h.threadsafe),
-            _ => false,
-        };
+        let threadsafe = self.handler_threadsafe(&handler_ty);
         let mut bound: Vec<(Ty, Local)> = Vec::new();
         for f in faces {
             let h = self.fresh("__handle");
@@ -2996,22 +2998,21 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// `H(args) [with …]` as a `Construct` of the handler: written arguments,
     /// resolved implicits, then one field per dependency [effect-handler-deps].
     pub(crate) fn construct_handler(&mut self, handler: &AExpr, deps: &[Instance], with_items: &[AExpr], span: Span) -> Option<Expr> {
-        let (written, args, named): (&ast::Ident, Vec<&AExpr>, Vec<ast::NamedArg>) = match handler {
-            AExpr::Call { callee, args, named, .. } => match callee.as_ref() {
-                AExpr::Ident(id) => (id, args.iter().collect(), named.clone()),
-                _ => return None,
-            },
-            AExpr::Ident(id) => (id, Vec::new(), Vec::new()),
+        // The written arguments; which handler it builds is the checker's.
+        let (args, named): (Vec<&AExpr>, Vec<ast::NamedArg>) = match handler {
+            AExpr::Call { callee, args, named, .. } if matches!(callee.as_ref(), AExpr::Ident(_)) => (args.iter().collect(), named.clone()),
+            AExpr::Ident(_) => (Vec::new(), Vec::new()),
             _ => return None,
         };
         let key = self.key(span);
-        let hkey = self.ctx.checked.value_key(written).to_string();
+        // [effect-handler-deps] The handler the checker resolved the
+        // construction to, by key.
+        let construction = self.ctx.checked.constructions.get(&key)?;
+        let Constructed::Handler(hkey) = &construction.handler else { return None };
+        let hkey = hkey.clone();
         let decl = self.ctx.symbols.handlers.get(hkey.as_str()).copied()?;
         let call_span = handler.span();
-        let handler_ty = Ty::Named {
-            name: hkey.clone(),
-            args: self.ctx.checked.constructions.get(&key).map(|c| c.type_args.iter().map(erase).collect()).unwrap_or_default(),
-        };
+        let handler_ty = Ty::Named { name: hkey.clone(), args: construction.type_args.iter().map(erase).collect() };
         let mut fields: Vec<(String, Expr)> = Vec::new();
         let value_params: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
         for (i, a) in args.iter().enumerate() {
@@ -3083,9 +3084,9 @@ impl<'a, 'p> Lower<'a, 'p> {
         // none: the checker refuses one that would).
         for (i, dep) in deps.iter().enumerate() {
             let d = erase(&dep.ty);
-            let mut v = match dep.binder {
+            let v = match dep.binder {
                 Binder::Clause(w) => match with_items.get(w) {
-                    Some(item) => self.with_item(item),
+                    Some(item) => self.with_item(item, &d),
                     None => {
                         self.error(span, messages::effect_available_lower_no_instance(&d));
                         unsupported(d.clone(), span, "with item")
@@ -3093,40 +3094,35 @@ impl<'a, 'p> Lower<'a, 'p> {
                 },
                 _ => self.effect_instance(dep, span),
             };
-            // [actor-use-addr] an addr given where an instance is wanted.
-            if matches!(v.ty.strip_quals(), Ty::Named { name, .. } if name == "Addr") {
-                let vspan = v.span;
-                v = Expr { ty: d.clone(), span: vspan, kind: ExprKind::AddrInstance { addr: Box::new(v) } };
-            }
-            // [effect-with-clause] [effect-handle] a private instance built for this
-            // binding alone is bound behind its handle, like any `use`.
-            if let Ty::Named { name, .. } = v.ty.strip_quals() {
-                if let Some(h) = self.ctx.symbols.handlers.get(name.as_str()) {
-                    if !h.threadsafe {
-                        let vspan = v.span;
-                        v = Expr { ty: d.clone(), span: vspan, kind: ExprKind::Handle { instance: Box::new(v) } };
-                    }
-                }
-            }
             fields.push((format!("__dep{i}"), v));
         }
         Some(Expr { ty: handler_ty, span, kind: ExprKind::Construct { fields } })
     }
 
-    /// [effect-with-clause] A `with` item: an instance in scope, or a private handler
-    /// constructed for this binding alone.
-    fn with_item(&mut self, item: &AExpr) -> Expr {
-        let is_handler = match item {
-            AExpr::Call { callee, .. } => matches!(callee.as_ref(), AExpr::Ident(id) if self.ctx.symbols.handlers.contains_key(self.ctx.checked.value_key(id))),
-            AExpr::Ident(id) => self.lookup(&id.name).is_none() && self.ctx.symbols.handlers.contains_key(self.ctx.checked.value_key(id)),
-            _ => false,
-        };
-        if is_handler {
-            if let Some(c) = self.construct_handler(item, &[], &[], item.span()) {
+    /// [effect-with-clause] A `with` item, supplying the dependency `d`: a
+    /// private handler constructed for this binding alone (the checker
+    /// recorded its construction at the item), bound behind its handle like
+    /// any `use` — the instance itself for a `threadsafe` one — or else an
+    /// addr, an instance another actor serves [actor-use-addr].
+    fn with_item(&mut self, item: &AExpr, d: &Ty) -> Expr {
+        let span = item.span();
+        if let Some(c) = self.construct_handler(item, &[], &[], span) {
+            if self.handler_threadsafe(&c.ty) {
                 return c;
             }
+            return Expr { ty: d.clone(), span, kind: ExprKind::Handle { instance: Box::new(c) } };
         }
-        self.expr(item)
+        let addr = self.expr(item);
+        Expr { ty: d.clone(), span, kind: ExprKind::AddrInstance { addr: Box::new(addr) } }
+    }
+
+    /// [platform-threadsafe] Whether the handler a construction builds
+    /// promises its own synchronization, so its instance is its own handle.
+    fn handler_threadsafe(&self, handler_ty: &Ty) -> bool {
+        match handler_ty.strip_quals() {
+            Ty::Named { name, .. } => self.ctx.symbols.handlers.get(name.as_str()).is_some_and(|h| h.threadsafe),
+            _ => false,
+        }
     }
 }
 

@@ -144,6 +144,31 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — The IR reads a local callee and a construction as recorded (PIPELINE.md D3.3, first part, [call-resolve] [effect-with-clause] [effect-eff-handle])
+
+- **Built**: `Callee::Local { local, contract }` — every call through a
+  local records the local it goes through, the written name included (it
+  was `None` there, 57k times a suite run) — and the IR's `local_callee`
+  reads it or reports the call; the fallbacks to the written name, to
+  `implicit_locals` by resolution name and to a bare `Local(name)` are
+  gone, with `ImplicitArg::Forwarded`'s. `salvo facts` shows the local
+  (`-> local f`). `construct_handler` takes the handler from the
+  construction the checker recorded, and a `with` item is a private
+  handler exactly when the checker recorded a construction at it (bound
+  behind its handle unless `threadsafe`), otherwise an addr — the type-name
+  tests on the lowered value (`Addr`, a handler's name) are gone.
+- **A defect found on the way**: `use e` over a *nested* tuple of handles
+  (`((eff[A], eff[B]), eff[C])`) read each handle by its flattened index
+  (`e.1` for `b`), so both target compilers refused the program; the flat
+  case worked and no test built either. `check::handle_leaves` is now the
+  one flattening, the checker's (`collect_handle_tuple`) and the lowering's
+  (each handle read at its path); `run/effects/handle_tuples.sv` runs both.
+- **Probed and left** (PIPELINE.md D3.3 lists them): the primitive-operator
+  test, `intrinsic_fn` (std's `to_str` for native text, union arms and the
+  `@whynot` message the IR builds), `decl_of_effect`, `approx_keyed` (std's
+  written types, ~280k lowerings a run), the `fn_value` adapter, and the
+  lambda return type, which is a language decision.
+
 ### 2026-10-30 — Pass modes are per-declaration facts (PIPELINE.md D3.2, [fn-param-mode])
 
 - **Built** (the plan the user approved for D3): `param_mode::record` runs

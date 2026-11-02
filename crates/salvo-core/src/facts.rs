@@ -93,7 +93,7 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, id:
             Some(Callee::Fn { decl, .. }) => row.push_str(&format!("  -> {}", fn_name(program, &checked.decls, *decl))),
             Some(Callee::Member { effect, index }) => row.push_str(&format!("  -> {}.#{index}", crate::typekey::plain(effect))),
             Some(Callee::QualMember { qualifier, member, .. }) => row.push_str(&format!("  -> {qualifier}.{member}")),
-            Some(Callee::Local { name, .. }) => row.push_str(&format!("  -> local {}", name.as_deref().unwrap_or("value"))),
+            Some(Callee::Local { local, .. }) => row.push_str(&format!("  -> local {local}")),
             Some(Callee::Field { .. }) => row.push_str("  -> field"),
             Some(Callee::Computed { .. }) => row.push_str("  -> computed"),
             Some(Callee::Send { effect, index }) => row.push_str(&format!("  -> send {}.#{index}", crate::typekey::shown_text(&effect.to_string()))),
