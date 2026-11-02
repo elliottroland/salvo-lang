@@ -144,6 +144,19 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Erasure goes through one layer (user decision, PIPELINE.md D3.4 option (a), [ir-types])
+
+- **Decided (user, 2026-10-30)**: erasure stays per node, as the builder
+  lowers each one, through one layer; a separate pass over an unerased IR
+  (option (b)) was rejected.
+- **Built**: `ir/build/erased.rs` holds `erase`, the conversions' nodes
+  (`apply_convert`), `written_ty` with its `approx_keyed` fallback, and the
+  accessors the builder reads checker types through (`ty_of`,
+  `handles_at`, `ir_ty`, `ir_tys`). The 33 direct `erase` calls in
+  `body.rs`, `decls.rs` and `exprs.rs` are gone, and those modules no
+  longer import it. A pure move: the IR is unchanged. `erase` stays public
+  for the Rust backend, which erases a platform alias's expansion itself.
+
 ### 2026-10-30 — The IR reads a local callee and a construction as recorded (PIPELINE.md D3.3, first part, [call-resolve] [effect-with-clause] [effect-eff-handle])
 
 - **Built**: `Callee::Local { local, contract }` — every call through a

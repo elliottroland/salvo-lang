@@ -10,7 +10,7 @@ use crate::types::{is_proj_name, Ty};
 use crate::DeclId;
 use salvo_syntax::ast::{self, Item};
 
-use super::{body::Lower, erase, AModule, Ctx};
+use super::{body::Lower, AModule, Ctx};
 use crate::ir::*;
 
 /// Builds one module. Also answers the items whose build reported an error
@@ -245,7 +245,7 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
         .checked
         .effect_prereqs
         .get(&ctx.checked.key_at(file_idx, e.name.span))
-        .map(|l| l.iter().map(erase).collect())
+        .map(|l| ctx.ir_tys(l))
         .unwrap_or_default();
     let members: Vec<Member> = e
         .fns
@@ -269,7 +269,7 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
             // [implicit-param] a member's implicits are trailing parameters.
             if let Some(imps) = ctx.checked.implicit_params.get(&ctx.checked.key_at(file_idx, m.name.span)) {
                 for ip in imps {
-                    params.push(Param { local: Local(ip.local.clone()), ty: erase(&ip.ty), mode: PassMode::Lent, variadic: false, check: None, span: ip.span });
+                    params.push(Param { local: Local(ip.local.clone()), ty: ctx.ir_ty(&ip.ty), mode: PassMode::Lent, variadic: false, check: None, span: ip.span });
                 }
             }
             // [platform-check] [platform-factory] the host boundary of a
@@ -323,7 +323,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
         .checked
         .handler_deps
         .get(&ctx.checked.key_at(file_idx, h.name.span))
-        .map(|l| l.iter().map(|(t, _)| erase(t)).collect())
+        .map(|l| l.iter().map(|(t, _)| ctx.ir_ty(t)).collect())
         .unwrap_or_default();
     let ctor_params: Vec<Param> = h
         .params
@@ -392,7 +392,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
             }
             if let Some(imps) = ctx.checked.implicit_params.get(&ctx.checked.key_at(file_idx, f.name.span)) {
                 for ip in imps {
-                    lower.bind(&ip.local, erase(&ip.ty));
+                    lower.bind(&ip.local, ctx.ir_ty(&ip.ty));
                 }
             }
             let ret = f.return_type.as_ref().map(|t| ctx.written_ty(file_idx, t)).unwrap_or_else(Ty::none);
@@ -467,11 +467,11 @@ fn fn_decl(
     let effects: Vec<Ty> = taken
         .iter()
         .filter(|t| !matches!(t, Ty::Named { name, .. } if name == crate::THROW_EFFECT))
-        .map(erase)
+        .map(|t| ctx.ir_ty(t))
         .collect();
     let throws: Option<Ty> = table_key.and_then(|_| {
         taken.iter().find_map(|t| match t {
-            Ty::Named { name, args } if name == crate::THROW_EFFECT => Some(args.first().map(erase).unwrap_or(Ty::Unknown)),
+            Ty::Named { name, args } if name == crate::THROW_EFFECT => Some(args.first().map(|t| ctx.ir_ty(t)).unwrap_or(Ty::Unknown)),
             _ => None,
         })
     });
@@ -504,7 +504,7 @@ fn fn_decl(
     // [implicit-param] At the fn's name, a member's and a qualifier fn's too.
     if let Some(imps) = ctx.checked.implicit_params.get(&ctx.checked.key_at(file_idx, f.name.span)) {
         for ip in imps {
-            let ty = erase(&ip.ty);
+            let ty = ctx.ir_ty(&ip.ty);
             lower.bind(&ip.local, ty.clone());
             lower.implicit_locals.insert(ip.name.clone(), Local(ip.local.clone()));
             params.push(Param { local: Local(ip.local.clone()), ty, mode: PassMode::Lent, variadic: false, check: None, span: ip.span });

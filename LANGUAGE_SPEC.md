@@ -12795,6 +12795,13 @@ replaced the working document TESTING.md).
   renders it as a borrow). A union arm keeps its qualifier tag only when
   erasure would merge two arms, a tagged `None` keeps its tag, and literal
   types collapse into their base [type-literal].
+  * **One layer** (PIPELINE.md D3.4, option (a), user decision 2026-10-30):
+    erasure stays per node, as the builder lowers each one, but every type
+    the builder takes from the checker passes through `ir/build/erased.rs`
+    — `Ctx::ty_of`, `written_ty`, `handles_at`, and `ir_ty`/`ir_tys` for a
+    type a fact carries — and the recorded conversions become their nodes
+    there too ([ir-coerce]). Nothing else in the builder calls `erase`. A
+    separate pass over an unerased IR was considered and rejected.
 * [ir-coerce] A slot's coercion is explicit nodes around the value:
   `MakeUnion`, `Present`, `Rewrap`, `Widen`, `DropMut`, `BorrowAs`, `Unit`.
   The checker records one **conversion** per expression (`Checked::converts`,

@@ -9,7 +9,7 @@ use salvo_syntax::messages;
 use salvo_syntax::Span;
 
 use super::Lower;
-use crate::ir::build::{apply_convert, erase, unsupported};
+use crate::ir::build::{apply_convert, unsupported};
 use crate::ir::*;
 
 /// [flow-use-after-move] [fate-partial-move] A projection whose move took
@@ -369,7 +369,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 };
                 let pool = pool.as_ref().map(|p| Box::new(self.expr(p)));
                 let join = join.as_ref().map(|j| Box::new(self.expr(j)));
-                let effects: Vec<Ty> = self.ctx.checked.handles.get(&key).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
+                let effects: Vec<Ty> = self.ctx.handles_at(key);
                 Expr { ty: self.ty_of(span), span, kind: ExprKind::Spawn { handler: Box::new(h), deps: Vec::new(), pool, join, effects } }
             }
             AExpr::ReplyTo { member, captures, gated, pool, .. } => {
@@ -417,12 +417,12 @@ impl<'a, 'p> Lower<'a, 'p> {
         // [throw] Neither side threads a throw [`crate::is_throw_effect`].
         // [unify-checker] One lookup for the value's facts.
         let key = self.key(name_span);
-        let taken: Vec<Ty> = self.ctx.checked.effects_taken.get(&key).map(|v| crate::threaded_effects(v).iter().map(erase).collect()).unwrap_or_default();
+        let taken: Vec<Ty> = self.ctx.checked.effects_taken.get(&key).map(|v| self.ctx.ir_tys(&crate::threaded_effects(v))).unwrap_or_default();
         let nested: Vec<ImplicitArg> = match self.ctx.checked.fn_values.get(&key) {
             Some(FnValue::Decl { nested }) => nested.clone(),
             _ => Vec::new(),
         };
-        let declared: Vec<Ty> = self.fn_taken(k).map(|v| crate::threaded_effects(&v).iter().map(erase).collect()).unwrap_or_default();
+        let declared: Vec<Ty> = self.fn_taken(k).map(|v| self.ctx.ir_tys(&crate::threaded_effects(&v))).unwrap_or_default();
         if taken == declared && nested.is_empty() {
             return Expr { ty, span, kind: ExprKind::FnValue(FnRef::Decl(id)) };
         }
@@ -541,7 +541,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // read does not make for emission (a fn value consumed by a call's
         // contract, a projection taking its root): flow-only.
         let Move { consume, takes_root: moved, .. } = self.ctx.checked.move_at(key);
-        let narrowed = self.ctx.checked.narrowed_reads.get(&key).map(|n| (erase(&n.stored), n.by));
+        let narrowed = self.ctx.checked.narrowed_reads.get(&key).map(|n| (self.ctx.ir_ty(&n.stored), n.by));
         // [qual-field-override] A field a qualifier of the subject refines
         // is read through a narrowing binding justified by the claim.
         if let (AExpr::Field { .. }, Some((stored, NarrowBy::Claim))) = (e, &narrowed) {
@@ -777,7 +777,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             Some(effs) => self.leading_instances(&effs, span),
             None => {
                 if let Some(t) = self.fn_taken(k).unwrap_or_default().into_iter().find(|t| !crate::types::is_throw_effect(t)) {
-                    self.error(span, messages::effect_available_lower_no_instance(&erase(&t)));
+                    self.error(span, messages::effect_available_lower_no_instance(&self.ctx.ir_ty(&t)));
                 }
                 Vec::new()
             }
@@ -790,7 +790,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// The std intrinsic `name` declared over exactly these parameter types.
     pub(crate) fn intrinsic_fn(&self, name: &str, params: &[Ty]) -> Option<DeclId> {
         let fns = self.ctx.symbols.intrinsic_fns.get(name)?;
-        let want: Vec<String> = params.iter().map(|t| erase(t).strip_quals().to_string()).collect();
+        let want: Vec<String> = params.iter().map(|t| self.ctx.ir_ty(t).strip_quals().to_string()).collect();
         for f in fns {
             if !f.intrinsic || f.params.iter().filter(|p| !p.implicit).count() != params.len() {
                 continue;
@@ -1061,7 +1061,7 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     pub(crate) fn type_args_of(&mut self, span: Span) -> Vec<Ty> {
         match self.ctx.checked.call(self.key(span)).map(|c| &c.callee) {
-            Some(CalleeKind::Fn { type_args, .. }) => type_args.iter().map(erase).collect(),
+            Some(CalleeKind::Fn { type_args, .. }) => self.ctx.ir_tys(type_args),
             _ => Vec::new(),
         }
     }
@@ -1091,7 +1091,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 },
                 ImplicitArg::Resolved { key, nested, want, .. } => {
                     let id = *key;
-                    let want = erase(want);
+                    let want = self.ctx.ir_ty(want);
                     if nested.is_empty() {
                         out.push(Expr { ty: want, span: at, kind: ExprKind::FnValue(FnRef::Decl(id)) });
                     } else {
@@ -1126,7 +1126,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// effects of its own. Its own implicits follow the arguments, as at a
     /// member call [implicit-recursive].
     pub(crate) fn member_value(&mut self, effect: &str, index: usize, instance: &Instance, nested: &[ImplicitArg], want: &Ty, at: Span) -> Expr {
-        let want = erase(want);
+        let want = self.ctx.ir_ty(want);
         let Some(interface) = self.ctx.decl_of_effect(effect) else {
             self.error(at, messages::effect_member_overload_lower_no_declaration(&effect));
             return unsupported(want, at, "member value");
@@ -1172,7 +1172,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// reached through: its binding's, by binder and type — the innermost,
     /// where an inferred lambda's parameter stands for it.
     pub(crate) fn effect_instance(&mut self, want: &Instance, span: Span) -> Expr {
-        let ty = erase(&want.ty);
+        let ty = self.ctx.ir_ty(&want.ty);
         let found = self.effect_env.iter().rev().find(|(i, _)| i.binder == want.binder && i.ty == ty).map(|(_, l)| l.clone());
         match found {
             Some(l) => Expr { ty, span, kind: ExprKind::Read { place: Place { root: l, steps: Vec::new() }, consume: false, moved: false } },
@@ -1734,10 +1734,10 @@ impl<'a, 'p> Lower<'a, 'p> {
             let threaded = effs.iter().enumerate().filter(|(_, t)| !crate::types::is_throw_effect(t));
             for (i, (j, t)) in threaded.enumerate() {
                 let local = Local(format!("__leff{i}"));
-                let t = erase(t);
+                let t = self.ctx.ir_ty(t);
                 self.effect_env.push((Instance { ty: t.clone(), binder: Binder::Lambda(key) }, local.clone()));
                 if let Some(outer) = stands.get(j).filter(|o| o.binder != Binder::Missing) {
-                    self.effect_env.push((Instance { ty: erase(&outer.ty), binder: outer.binder }, local.clone()));
+                    self.effect_env.push((Instance { ty: self.ctx.ir_ty(&outer.ty), binder: outer.binder }, local.clone()));
                 }
                 ps.push(Param { local, ty: t, mode: PassMode::Lent, variadic: false, check: None, span });
             }
@@ -1863,7 +1863,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let span = subject.span();
         if let AExpr::Ident(id) = subject {
             if let Some(b) = self.lookup(&id.name).cloned() {
-                let ty = self.ctx.checked.flow_stored(self.key(span)).map(erase).unwrap_or(b.ty.clone());
+                let ty = self.ctx.checked.flow_stored(self.key(span)).map(|t| self.ctx.ir_ty(t)).unwrap_or(b.ty.clone());
                 return Expr { ty, span, kind: ExprKind::Read { place: Place { root: b.local, steps: Vec::new() }, consume: false, moved: false } };
             }
         }
@@ -1874,7 +1874,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 if let Some(alias) = self.place_alias(&place) {
                     return alias;
                 }
-                if let Some(declared) = self.ctx.checked.flow_stored(self.key(span)).map(erase) {
+                if let Some(declared) = self.ctx.checked.flow_stored(self.key(span)).map(|t| self.ctx.ir_ty(t)) {
                     return Expr { ty: declared, span, kind: ExprKind::Read { place, consume: false, moved: false } };
                 }
             }
@@ -1949,7 +1949,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             .and_then(|l| match self.ctx.program.modules[l.file].items.get(l.item) {
                 // [effect-alias] [effect-prereq] As the checker expanded it.
                 Some(ast::Item::Qualifier(q)) => q.fns.get((l.sub as usize).wrapping_sub(1)).map(|f| {
-                    self.ctx.checked.effects_taken_by(l.file, f).map(|l| l.iter().map(erase).collect()).unwrap_or_default()
+                    self.ctx.checked.effects_taken_by(l.file, f).map(|l| self.ctx.ir_tys(l)).unwrap_or_default()
                 }),
                 _ => None,
             })
@@ -2643,7 +2643,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let minted = match &d.mint {
                     // [iter-mint] `next(iter(c))`: the `iter`, once.
                     Some(pass_ty) => {
-                        self.for_call(node.synthetic(crate::check::Key::FOR_ITER), vec![subject], erase(pass_ty), span)
+                        self.for_call(node.synthetic(crate::check::Key::FOR_ITER), vec![subject], self.ctx.ir_ty(pass_ty), span)
                     }
                     None => subject,
                 };
@@ -2762,13 +2762,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// from the merged handle values, matched by effect.
     pub(crate) fn merge_expr(&mut self, items: &[AExpr], all: bool, span: Span) -> Expr {
         let ty = self.ty_of(span);
-        let effects: Vec<Ty> = self
-            .ctx
-            .checked
-            .handles
-            .get(&self.key(span))
-            .map(|v| v.iter().map(erase).collect())
-            .unwrap_or_default();
+        let effects: Vec<Ty> = self.ctx.handles_at(self.key(span));
         if all {
             // Each result effect is read from its handle bound in scope, as
             // the checker named it [effect-instance].
@@ -2833,13 +2827,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// bound once so a computed base is not re-evaluated.
     pub(crate) fn project_expr(&mut self, base: &AExpr, span: Span) -> Expr {
         let ty = self.ty_of(span);
-        let want: Vec<Ty> = self
-            .ctx
-            .checked
-            .handles
-            .get(&self.key(span))
-            .map(|v| v.iter().map(erase).collect())
-            .unwrap_or_default();
+        let want: Vec<Ty> = self.ctx.handles_at(self.key(span));
         let b = self.expr(base);
         let base_ty = b.ty.clone();
         let single = !matches!(base_ty.strip_quals(), Ty::Tuple(_));
@@ -2877,7 +2865,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// expression form ([effect-eff-handle]) reads them back as its value.
     pub(crate) fn use_stmt_bound(&mut self, handler: &AExpr, with_items: &[AExpr], span: Span) -> (Vec<Stmt>, Vec<(Ty, Local)>) {
         let key = self.key(span);
-        let faces: Vec<Ty> = self.ctx.checked.handles.get(&key).map(|v| v.iter().map(erase).collect()).unwrap_or_default();
+        let faces: Vec<Ty> = self.ctx.handles_at(key);
         let construction = self.ctx.checked.constructions.get(&key);
         // A `use` that constructs nothing binds handles it is given: a tuple
         // of them, or one.
@@ -3012,7 +3000,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let hkey = hkey.clone();
         let decl = self.ctx.symbols.handlers.get(hkey.as_str()).copied()?;
         let call_span = handler.span();
-        let handler_ty = Ty::Named { name: hkey.clone(), args: construction.type_args.iter().map(erase).collect() };
+        let handler_ty = Ty::Named { name: hkey.clone(), args: self.ctx.ir_tys(&construction.type_args) };
         let mut fields: Vec<(String, Expr)> = Vec::new();
         let value_params: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
         for (i, a) in args.iter().enumerate() {
@@ -3083,7 +3071,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // The dependencies, as the checker resolved them (a `with` item has
         // none: the checker refuses one that would).
         for (i, dep) in deps.iter().enumerate() {
-            let d = erase(&dep.ty);
+            let d = self.ctx.ir_ty(&dep.ty);
             let v = match dep.binder {
                 Binder::Clause(w) => match with_items.get(w) {
                     Some(item) => self.with_item(item, &d),

@@ -9,7 +9,7 @@ use salvo_syntax::ast::{self, Expr as AExpr, Pattern, Stmt as AStmt};
 use salvo_syntax::messages::{self, Message};
 use salvo_syntax::Span;
 
-use super::{erase, unsupported, Ctx};
+use super::{unsupported, Ctx};
 use crate::ir::*;
 
 mod exprs;
@@ -681,7 +681,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             return bound.local.clone();
         };
         let logical = self.ty_of(span);
-        if logical.is_unknown() || erase(declared) == logical || bound.ty == logical {
+        if logical.is_unknown() || self.ctx.ir_ty(declared) == logical || bound.ty == logical {
             return bound.local.clone();
         }
         // [qual-lift] [str-drop-mut] A builder read as the plain type (inside

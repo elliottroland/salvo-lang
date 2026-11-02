@@ -2784,7 +2784,14 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   the return from the first `return` it lowers (58 lambdas in the suite).
   Inferring it in the checker would change what call sites see of such a
   lambda (its return type becomes known, so mismatches surface), which is a
-  language-visible change.
+  language-visible change. **D3.4 built — done** (2026-10-30, option (a)): erasure and the
+  conversions' nodes live in `ir/build/erased.rs`, the one layer every
+  checker type enters the IR through (`ty_of`, `written_ty`, `handles_at`,
+  `ir_ty`/`ir_tys` for a type a fact carries); the builder's 33 direct
+  `erase` calls are gone. `erase` stays public for one reader outside the
+  builder, the Rust backend's platform-alias expansion
+  (`ir_emit/mod.rs`, `ir_emit/decls.rs`) — a backend erasing a type itself,
+  left as found.
 - **D4. The typed dump and the full round trip**: B4 extended to types,
   type arguments and narrowings (marked notation where Salvo has no
   spelling).
