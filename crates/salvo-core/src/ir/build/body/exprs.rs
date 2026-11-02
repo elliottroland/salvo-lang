@@ -1788,7 +1788,35 @@ impl<'a, 'p> Lower<'a, 'p> {
             return acc.unwrap_or(Expr { ty: bool_ty, span, kind: ExprKind::Bool(true) });
         }
         let Some(test) = union else {
-            // A test the checker decided statically.
+            // [is-narrowing] A test the checker decided statically is `true`,
+            // but its subject is still evaluated — a call in it still runs —
+            // and its binding still binds: the subject itself, at the type
+            // the checker gave the binding (ROADMAP 0p).
+            match (binding, self.stored_place_of(subject)) {
+                (Some(b), Some(place)) if self.in_condition => {
+                    let ty = self.ty_of(b.span);
+                    let local = self.bind(&b.name, ty.clone());
+                    let id = self.id();
+                    self.note_bind(id, b);
+                    self.pending_after_test.push(Stmt::Let { id, local, ty: ty.clone(), value: Expr { ty, span, kind: ExprKind::Read { place, consume: false, moved: false } } });
+                }
+                // The branch the test guards always runs, so the subject is
+                // evaluated where the branch starts, in the condition's order.
+                (Some(b), None) if self.in_condition => {
+                    let value = self.expr(subject);
+                    let ty = self.ty_of(b.span);
+                    let local = self.bind(&b.name, ty.clone());
+                    let id = self.id();
+                    self.note_bind(id, b);
+                    self.pending_after_test.push(Stmt::Let { id, local, ty, value });
+                }
+                (_, None) => {
+                    let value = self.expr(subject);
+                    let truth = Expr { ty: bool_ty, span, kind: ExprKind::Bool(true) };
+                    return self.block_expr(vec![Stmt::Expr(value)], truth, span);
+                }
+                _ => {}
+            }
             return Expr { ty: bool_ty, span, kind: ExprKind::Bool(true) };
         };
         let mut s = self.expr_subject(subject);

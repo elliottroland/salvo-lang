@@ -2834,6 +2834,11 @@ Conventions:
   variable in the matched branch (and per-iteration in `while`).
   * Parse heuristic: uppercase idents in the check are type refs; a
     trailing lowercase ident is the binding.
+  * **A test the checker decides statically** (the subject's type already
+    is the arm) is `true`, and its binding still binds the subject at the
+    binding's type, its subject still evaluated (a call in it runs, in the
+    condition's order); the IR lowered the binding to nothing until
+    2026-10-30 (ROADMAP 0p), so such a program did not build.
 * [is-precise] Checks may include qualifiers and generics:
   `is Err Str` matches only the `Err Str` arm; `is Err` matches every
   `Err`-qualified arm; overlapping matches infer the smaller union.

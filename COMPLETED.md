@@ -144,6 +144,22 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A statically decided `is` test keeps its binding and its subject (ROADMAP 0p, closing 0l, [is-binding])
+
+- **Built**: the IR builder lowered an `is` the checker decided statically
+  (no `Test` row: the subject's type already is the arm) to `true` and
+  dropped the rest, so its binding read as `UNSUPPORTED(ident h)` and the
+  program failed to build ("unresolved identifier `h`"). Now a binding
+  binds the subject (a `Let` of a read of its place, or of the subject's
+  value at the start of the guarded branch, which always runs, so the
+  condition's order holds), and a subject that is no place is still
+  evaluated (`{ subject; true }`). Run data
+  `types/a_statically_decided_is_test.sv`: the 0p repro, a call subject
+  with and without a binding, and a short-circuited one.
+- **0l closed**: its repro (a braced lambda with a written return type) is
+  reported by the checker since the lambda decision of 2026-10-30; nothing
+  to build.
+
 ### 2026-10-30 — PIPELINE.md and IR_CHECKER.md retired (the pipeline record's E2, user 2026-10-03 rule)
 
 - **Done**: both documents are design records below ("Design record: the

@@ -67,7 +67,10 @@ pushes; `demo/`, `.vscode/`, `SLICES.md`, `OPERATOR_OVERLOAD.md` and
 `DATA_STACKS.md` are not touched. **Keep this list current as each piece
 lands or stalls** (user), so a context compaction loses nothing. Progress:
 - D4, the dump phases, E1, 0az, E2: done (COMPLETED.md, 2026-10-30).
-- Next: 0p.
+- 0l: closed, already fixed by the lambda decision (COMPLETED.md
+  2026-10-30). 0p: done (commit "Keep a statically decided is test's
+  binding and subject").
+- Next: 0q.
 
 ## The sequence
 
@@ -549,24 +552,6 @@ list to be complete.
   it was so under the globs too). Worth a check that a resolved Salvo fn the
   program calls is always emitted.
 
-### 0l — Open defect: a braced lambda's return type is not inferred (found 2026-10-06)
-
-With no expected type, `check_lambda` gives a block-bodied lambda the
-return type `Unknown` (an expression-bodied one is inferred). The unknown
-then passes the checker silently ([type-unknown-lenient]) and fails later:
-
-```
-let twice = (k: Int) -> Int { return k * 2 }
-let r: Str = twice(5)       // accepted by the checker; rustc E0308
-println("${twice(5)}")      // IR builder: no `to_str` for `?` in an interpolation
-```
-
-No wrong code is emitted, but the error comes from the wrong layer. Fix:
-infer the return type from the body's `return`s, or require an
-annotation. Choosing between
-the two is a language decision (**DECISION**: infer, or reject an
-un-annotated braced lambda whose result is used).
-
 ### 0m — Open defect: `copy` of a `Map` is unsupported on the Kotlin backend (found 2026-10-17)
 
 `copy(m)` for `m: Map<K, V>` fails the Kotlin emitter with "cannot `copy` a
@@ -659,32 +644,6 @@ fn idx(xs: Rec[]) -> Int => !xs {
     return eatl(xs[0].tags)
 }
 ```
-
-### 0p — Open defect: a statically decided `is` test with a binding loses the binding (found 2026-10-20)
-
-When the checker decides an `is` test statically (the subject's type already
-is the arm), the IR builder lowers the test to `true`, and the binding it
-names to `UNSUPPORTED(ident h)`; compiling then fails with "unresolved
-identifier `h`" (no wrong code, but a program the checker accepts does not
-build). Found in R8 piece 3c: `first` of a `Mut List(…)` literal answers a
-`proj Person` (the `NonEmpty` overload), so `if head is Person h { return
-h.age }` is always true. With the test gone the IR has no read of `head`,
-so a poison on it is not reported there (the checker used to report it at
-the test). Repro, `struct Person { name: Str, age: Int }`:
-
-```
-fn g() -> Int {
-    let people = Mut List(Person {name: "Ada", age: 36})
-    let head = first(people)
-    if head is Person h {
-        return h.age
-    }
-    return 0
-}
-```
-
-The fix is in the builder: a statically true test with a binding still binds
-(a `Let` of the subject, or an `Alias` of its place).
 
 ### 0r — Open defect: an inferred state field read by another inferred one declared earlier (found 2026-10-20)
 
