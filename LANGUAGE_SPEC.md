@@ -6399,6 +6399,13 @@ Conventions:
     rows, a language-server range, and the deadlock check's reports (which
     are also prefixed and attributed to the stamped fn, as the checker's
     diagnostics are). Until 2026-10-28 these were at the end of the file.
+  * **A copy's field or arm is in the file that declares it**
+    (`origin::file_of`, ROADMAP 0ad, 2026-10-30): the `Copy` record's
+    target keeps its file's tag [node-file], so a stamp's diagnostic, trap
+    location or `--rows` row for a field of an imported type names that
+    file (a `--rows` row by its name, a language-server range of the
+    stamping file its `by` site). Before, every renderer paired the field's
+    offsets with the stamping file.
   * What the `iter fn` desugaring makes has its declaration's own span (the
     generated `next` its name, the rest the whole `iter fn`); it was given
     distinct one-byte spans inside the declaration to keep span keys apart

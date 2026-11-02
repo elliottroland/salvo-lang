@@ -12,19 +12,36 @@
 
 use salvo_syntax::ast::{ExpansionKind, Item, Module, Stamp};
 use salvo_syntax::Span;
+use std::sync::Arc;
 
-/// [node-origin] Where a node of `module`'s file is shown outside a diagnostic
-/// (a trap's `module:line:col`, a "moved at line N", a `--rows` dump row,
-/// an editor range): a written span is where it is; a copied one lands
-/// where a diagnostic about it would ([`render`]), through the stamp of the
-/// fn of the file whose expansions include it — a file's expansion ids are
-/// its own, so the id finds the fn. A copied span no stamp of the file
-/// records stays as it is.
-pub fn landing(module: &Module, span: Span) -> Span {
-    match stamp_of(module, span) {
-        Some((_, stamp)) => render(stamp, span, String::new()).0,
-        None => span,
+/// [node-origin] Where a node of the file `here` of `modules` is shown outside
+/// a diagnostic (a trap's `module:line:col`, a "moved at line N", a
+/// `--rows` dump row, an editor range), as the file and the span there: a
+/// written span is where it is; a copied one lands where a diagnostic about
+/// it would ([`render`], [`file_of`]), through the stamp of the fn of the
+/// file whose expansions include it — a file's expansion ids are its own,
+/// so the id finds the fn. A copied span no stamp of the file records stays
+/// as it is.
+pub fn landing(modules: &[Arc<Module>], here: usize, span: Span) -> (usize, Span) {
+    match modules.get(here).and_then(|m| stamp_of(m, span)) {
+        Some((_, stamp)) => {
+            let at = render(stamp, span, String::new()).0;
+            (file_of(modules, here, at), at)
+        }
+        None => (here, span),
     }
+}
+
+/// [node-origin] [node-file] The file of `modules` a span [`render`] answered
+/// for a fn of the file `here` is in: a copy's field or arm keeps the tag of
+/// the file that declares it — another file than the fn's when the type is
+/// imported — and anything else (the `by` site, the written code an
+/// in-place copy stands for) is in `here`.
+pub fn file_of(modules: &[Arc<Module>], here: usize, at: Span) -> usize {
+    if at.file == salvo_syntax::span::NO_FILE || modules.get(here).is_some_and(|m| m.file_tag == at.file) {
+        return here;
+    }
+    modules.iter().position(|m| m.file_tag == at.file).unwrap_or(here)
 }
 
 /// [node-origin] The stamped fn of `module`'s file a copied `span` is in — its
@@ -50,7 +67,8 @@ pub fn stamp_of(module: &Module, span: Span) -> Option<(usize, &Stamp)> {
 ///   `groups` (`Map<Str, ArgGroup>`): …";
 /// - in a stamp, a node of a copy lands on the field or arm the copy was
 ///   for, prefixed with what was being stamped: "in `cmp` from `auto` for
-///   `Point.y: Double`: …";
+///   `Point.y: Double`: …" — in the file that declares it, which the span's
+///   tag names ([`file_of`]);
 /// - anything else the expansion copied or made lands on the `by` site,
 ///   "in `cmp` from `auto` for `Point`: …".
 pub fn render(stamp: &Stamp, span: Span, msg: String) -> (Span, String) {

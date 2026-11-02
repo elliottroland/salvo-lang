@@ -89,17 +89,19 @@ pub fn analyze_full(
             let report = |span: Span, message: Message| match stamped {
                 Some((id, stamp)) if span.is_expanded() => {
                     let (span, text) = crate::origin::render(stamp, span, message.text);
-                    FileDiagnostic::error(file, span, Message { text, ..message }).in_decl(Some(id))
+                    let at = crate::origin::file_of(&program.modules, file, span);
+                    FileDiagnostic::error(at, span, Message { text, ..message }).in_decl(Some(id))
                 }
                 _ => FileDiagnostic::error(file, span, message),
             };
             // [flow-use-after-move] A use of a moved value, naming the move.
             for mut d in super::flow::check_one(decl) {
-                // [node-origin] A move in copied code is named where it lands.
-                if let Some(m) = program.modules.get(file) {
-                    d.moved_at = crate::origin::landing(m, d.moved_at);
-                }
-                out.push(report(d.span, d.render(content)));
+                // [node-origin] A move in copied code is named where it lands,
+                // its line counted in the file it lands in.
+                let (moved_file, moved_at) = crate::origin::landing(&program.modules, file, d.moved_at);
+                d.moved_at = moved_at;
+                let moved_content = program.files.get(moved_file).map_or(content, |f| f.content.as_str());
+                out.push(report(d.span, d.render(moved_content)));
             }
             let linear_diags = if linear {
                 super::check::check_one(decl, &throws)

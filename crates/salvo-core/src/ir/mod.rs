@@ -70,11 +70,20 @@ pub fn dump_program_over(
     // appended after its module.
     let throws = check::throws_map(&ir);
     let file_content = |file_name: &str| -> Option<&str> { program.files.iter().find(|f| f.name == file_name).map(|f| f.content.as_str()) };
-    // [node-origin] A copied node's location is where it lands (`origin::landing`).
-    let landing = |file_name: &str, span: Span| -> Span {
-        match program.files.iter().position(|f| f.name == file_name) {
-            Some(i) => crate::origin::landing(&program.modules[i], span),
-            None => span,
+    // [node-origin] A copied node's location is where it lands (`origin::landing`):
+    // the file and the span there.
+    let landing = |file_name: &str, span: Span| -> Option<(&crate::source::SourceFile, Span)> {
+        let i = program.files.iter().position(|f| f.name == file_name)?;
+        let (at, span) = crate::origin::landing(&program.modules, i, span);
+        Some((&program.files[at], span))
+    };
+    let locate = |m: &nodes::Module, span: Span| -> String {
+        match landing(&m.file_name, span) {
+            Some((f, at)) => {
+                let (line, col) = salvo_syntax::span::span_line_col(&f.content, at);
+                format!("{}:{line}:{col}", f.module)
+            }
+            None => format!("{}:{}", m.path.0.join("."), span.start),
         }
     };
     let mut text = String::new();
@@ -88,27 +97,14 @@ pub fn dump_program_over(
         let mut inline: Vec<(Span, String)> = Vec::new();
         for decl in &m.decls {
             for d in check::check_one(decl, &throws) {
-                let loc = match content {
-                    Some(c) => {
-                        let (line, col) = salvo_syntax::span::span_line_col(c, landing(&m.file_name, d.span));
-                        format!("{}:{line}:{col}", m.path.0.join("."))
-                    }
-                    None => format!("{}:{}", m.path.0.join("."), d.span.start),
-                };
-                inline.push((d.span, format!("{loc}: {}", d.message)));
+                inline.push((d.span, format!("{}: {}", locate(m, d.span), d.message)));
             }
             // [flow-use-after-move] A use of a moved value, inline the same way.
             for mut d in flow::check_one(decl) {
-                d.moved_at = landing(&m.file_name, d.moved_at);
-                let message = d.render(content.unwrap_or("")).text;
-                let loc = match content {
-                    Some(c) => {
-                        let (line, col) = salvo_syntax::span::span_line_col(c, landing(&m.file_name, d.span));
-                        format!("{}:{line}:{col}", m.path.0.join("."))
-                    }
-                    None => format!("{}:{}", m.path.0.join("."), d.span.start),
-                };
-                inline.push((d.span, format!("{loc}: {message}")));
+                let moved = landing(&m.file_name, d.moved_at);
+                d.moved_at = moved.map_or(d.moved_at, |(_, at)| at);
+                let message = d.render(moved.map_or(content.unwrap_or(""), |(f, _)| f.content.as_str())).text;
+                inline.push((d.span, format!("{}: {message}", locate(m, d.span))));
             }
         }
         let module_text = dump::Dumper::module_with_leaks(&ir, m, &inline);

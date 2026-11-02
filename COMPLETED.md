@@ -144,6 +144,27 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A stamp's copy for an imported type's field lands in that type's file (ROADMAP 0ad, [node-origin] [node-file])
+
+- **Built**: `origin::file_of` reads the file a rendered span is in from
+  its tag: a `Copy` record's target is the field or arm's own span, which
+  keeps the tag of the file that declares it (the stamp records are not
+  renumbered), and anything else `render` answers (the `by` site, an
+  in-place copy's written code) is the stamped fn's file. `origin::landing`
+  now answers the file with the span. Every renderer uses it: the
+  checker's `error`, `error_unresolved` and copy warnings (through the
+  resolution's `DeclIndex::file_of`), the deduction pass's
+  `redirect_stamped`, the deadlock check, `ir::analyze` (whose "moved at
+  line N" counts lines in the file the move lands in), the IR dump's
+  notes, both trap locations, `--rows` rows (prefixed with the file's name
+  when it is another) and the language server's navigation. A language
+  server range must stay in its document, so one that lands elsewhere is
+  the stamp's `by` site. `fn cmp(a: P, b: P) -> Int by auto` with `P`
+  imported from `shapes.sv` now reports its `Double` field at
+  `shapes.sv:3:5` instead of `main.sv:2:19`; `compare_tests.rs`
+  `a_stamped_error_for_an_imported_types_field_lands_in_its_file` covers it
+  (the repro also gets the coherence error, which is expected).
+
 ### 2026-10-30 — A type parameter stays a parameter in written keys and protocol hashes (ROADMAP 0ab, [actor-protocol-hash] [decl-id])
 
 - **Built**: `resolve::span_keys_from` (what `Symbols::ref_key` and the
@@ -277,7 +298,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 - **Also fixed**: docs/language/The-IR.md pointed at `crates/salvo-ir`,
   merged into salvo-core long ago (`ir/nodes.rs`).
 - **Tests**: `dump_prints_the_parse_ast_and_generate_ir_phases`; the
-  `--src` refusal loop covers both phases. 712 tests.
+  `--src` refusal loop covers both phases. 712 tests (713 with 0ad's test).
 
 ### 2026-10-30 — The typed dump, and a round trip over operators, interpolation and types (user decision P24, the pipeline record D4, [dump-type-check] [dump-rows] [round-trip])
 
@@ -3337,7 +3358,7 @@ copy is for (`main:36:16`, `main:49:16`, `main:73:5`, `main:75:5`) in
 **Snapshots**: the parser's for `iter fn` expansions (spans only) and
 `facts_iteration` (the desugaring's rows at the declaration). **Found, not
 fixed**: ROADMAP 0ad (a stamp's copy for a field of another file's type
-renders in the stamping file; before A3 too).
+renders in the stamping file; before A3 too; fixed 2026-10-30).
 
 **Tests**: 2,111 (+6: `node_id_tests` in salvo-syntax — every node numbered
 once and each declaration one run; an ordinal outside a span's equality —

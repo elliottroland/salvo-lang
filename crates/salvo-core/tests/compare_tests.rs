@@ -543,3 +543,25 @@ fn a_stamped_error_names_the_stamped_fn() {
     assert!(gate.bodies.contains(&(file, loc.item)), "{gate:?}");
     assert!(gate.interfaces.is_empty() && gate.files.is_empty(), "{gate:?}");
 }
+
+/// [node-origin] [node-file] A stamp's copy for a field of a type another file
+/// declares lands on that field *in that file*: the copy's target keeps the
+/// tag of the file it was declared in (before 2026-10-30 the error was
+/// printed at the field's offsets in the stamping file).
+#[test]
+fn a_stamped_error_for_an_imported_types_field_lands_in_its_file() {
+    let shapes = "export struct P {\n    x: Int,\n    y: Double\n}\n";
+    let main = "import shapes.P\nfn cmp(a: P, b: P) -> Int by auto\n";
+    checked_in(&[("shapes.sv", shapes), ("main.sv", main)], |program, _, diagnostics| {
+        let d = diagnostics
+            .iter()
+            .find(|d| d.message.starts_with("in `cmp` from `auto` for `P.y: Double`"))
+            .unwrap_or_else(|| panic!("{diagnostics:?}"));
+        assert_eq!(program.files[d.file].name, "shapes.sv", "{d:?}");
+        assert_eq!(&shapes[d.span.start as usize..d.span.end as usize], "y: Double");
+        // Attributed to the stamped fn, which is main's.
+        let resolution = salvo_core::resolve(program);
+        let loc = resolution.decls.loc(d.decl.expect("the stamped fn")).unwrap();
+        assert_eq!(program.files[loc.file].name, "main.sv");
+    });
+}

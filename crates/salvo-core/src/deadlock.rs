@@ -126,9 +126,10 @@ pub(crate) fn check(program: &Program, symbols: &Symbols<'_>, out: &mut Checked)
         let Some(module) = program.modules.get(e.file) else { continue };
         let Some((item, stamp)) = crate::origin::stamp_of(module, e.span) else { continue };
         let (span, message) = crate::origin::render(stamp, e.span, std::mem::take(&mut e.message));
+        e.decl = decls.item(e.file, item);
+        e.file = crate::origin::file_of(&program.modules, e.file, span);
         e.span = span;
         e.message = message;
-        e.decl = decls.item(e.file, item);
     }
 }
 

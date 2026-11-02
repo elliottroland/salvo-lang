@@ -77,10 +77,16 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, id:
         let span = key.span;
         // [node-origin] A copied node is listed where a diagnostic about it would
         // land (`origin::landing`): its field or arm, the `by` site, or the
-        // written code an in-place copy stands for.
-        let at = crate::origin::landing(&program.modules[file], span);
-        let (line, col) = line_col(source, if at.is_expanded() { source.len() as u32 } else { at.start });
-        let mut row = format!("  {:<8}{:<30} {ty}", format!("{line}:{col}"), snippet(source, at));
+        // written code an in-place copy stands for — named by its file when
+        // that is another (a field of an imported type).
+        let (at_file, at) = crate::origin::landing(&program.modules, file, span);
+        let at_source = program.files[at_file].content.as_str();
+        let (line, col) = line_col(at_source, if at.is_expanded() { at_source.len() as u32 } else { at.start });
+        let place = match at_file == file {
+            true => format!("{line}:{col}"),
+            false => format!("{}:{line}:{col}", program.files[at_file].name),
+        };
+        let mut row = format!("  {:<8}{:<30} {ty}", place, snippet(at_source, at));
         // [ir-coerce] A conversion is marked after the type, `#{as T}`, as
         // the typed dump marks one after the converted expression.
         if let Some(to) = part.converts.get(key).and_then(|c| c.to_ty()) {

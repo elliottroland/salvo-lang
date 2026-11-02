@@ -3187,7 +3187,7 @@ struct Checker<'p, 'r> {
     /// [comptime-copy-warn] Warnings raised inside the current fn's copies,
     /// redirected and held until the fn is done, so each is reported once
     /// (`flush_copy_warnings`).
-    copy_warnings: Vec<(Span, Option<&'static str>, String)>,
+    copy_warnings: Vec<(usize, Span, Option<&'static str>, String)>,
     /// [comptime-copy-warn] Per written declaration in an expanded-in-place
     /// fn's copies: how many copies declared it, and how many left it unused
     /// (with the message). Reported only when every copy left it unused.
@@ -3728,10 +3728,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             Some(site) => (if site.at == span { site.loc } else { span }, site.reword(msg)),
             None => (span, msg),
         };
-        let (span, msg, decl) = self.render_origin(span, msg);
+        let (file, span, msg, decl) = self.render_origin(span, msg);
         self.out
             .errors
-            .push(FileDiagnostic::error(self.file_idx, span, (id, msg)).in_decl(decl));
+            .push(FileDiagnostic::error(file, span, (id, msg)).in_decl(decl));
     }
 
     /// [node-origin] [comptime-instantiate] A diagnostic at a node a stamp copied
@@ -3739,15 +3739,16 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// arm the failing copy was for (or on the `by` site), prefixed with the
     /// compfn, its scope and the type — so a missing `cmp` for a `Double`
     /// field reads "in `cmp` from `auto` for `Point.y: Double`: …" at the
-    /// field declaration — and is attributed to the stamped fn. A written
-    /// span stays.
-    fn render_origin(&self, span: Span, msg: String) -> (Span, String, Option<DeclId>) {
+    /// field declaration, in the file that declares the field (the span's
+    /// tag, as `crate::origin::file_of` reads it) — and is attributed to the stamped fn. A
+    /// written span stays, in this file.
+    fn render_origin(&self, span: Span, msg: String) -> (usize, Span, String, Option<DeclId>) {
         match self.own_stamp {
             Some(stamp) if span.is_expanded() => {
                 let (at, msg) = crate::origin::render(stamp, span, msg);
-                (at, msg, self.own_fn)
+                (self.resolution.decls.file_of(at).unwrap_or(self.file_idx), at, msg, self.own_fn)
             }
-            _ => (span, msg, None),
+            _ => (self.file_idx, span, msg, None),
         }
     }
 
@@ -3761,8 +3762,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // file, before 2026-10-20), and is held so a warning every copy
         // raises alike is reported once.
         if self.own_stamp.is_some() && span.is_expanded() {
-            let (at, msg, _) = self.render_origin(span, msg);
-            self.copy_warnings.push((at, id, msg));
+            let (file, at, msg, _) = self.render_origin(span, msg);
+            self.copy_warnings.push((file, at, id, msg));
             return;
         }
         self.out
@@ -3794,10 +3795,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         self.copy_decls.clear();
-        let mut seen: HashSet<(u32, u32, String)> = HashSet::new();
-        for (at, id, msg) in std::mem::take(&mut self.copy_warnings) {
-            if seen.insert((at.start, at.end, msg.clone())) {
-                self.out.errors.push(FileDiagnostic::warning(self.file_idx, at, (id, msg)));
+        let mut seen: HashSet<(usize, u32, u32, String)> = HashSet::new();
+        for (file, at, id, msg) in std::mem::take(&mut self.copy_warnings) {
+            if seen.insert((file, at.start, at.end, msg.clone())) {
+                self.out.errors.push(FileDiagnostic::warning(file, at, (id, msg)));
             }
         }
     }
@@ -3837,10 +3838,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         // [node-origin] At a copied node, where its origin says.
-        let (span, msg, decl) = self.render_origin(span, msg);
+        let (file, span, msg, decl) = self.render_origin(span, msg);
         self.out
             .errors
-            .push(FileDiagnostic::error(self.file_idx, span, (id, msg)).with_imports(imports).in_decl(decl));
+            .push(FileDiagnostic::error(file, span, (id, msg)).with_imports(imports).in_decl(decl));
     }
 
     // ================= module / function traversal =================

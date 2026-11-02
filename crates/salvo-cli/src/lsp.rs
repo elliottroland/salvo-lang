@@ -1292,9 +1292,10 @@ impl Server<'_> {
     /// [manifest-discovery], which is the workspace root only when no
     /// manifest was found.
     fn site_location(&self, analysis: &Analysis, file: usize, span: Span) -> Option<(Url, Range)> {
+        // [node-origin] A copied node is where it lands (`origin::landing`),
+        // in the file it lands in.
+        let (file, span) = salvo_core::origin::landing(&analysis.program.modules, file, span);
         let target = analysis.program.files.get(file)?;
-        // [node-origin] A copied node is where it lands (`origin::landing`).
-        let span = analysis.program.modules.get(file).map_or(span, |m| salvo_core::origin::landing(m, span));
         if target.is_std && !target.is_shadow {
             let path = embedded_std_copy(&target.name, &target.content)?;
             let uri = Url::from_file_path(&path).ok()?;
@@ -1980,7 +1981,7 @@ impl Server<'_> {
             // it is a member of: a member also has its handler's
             // dependencies [effect-handler-deps].
             let mut bodies: Vec<(&salvo_syntax::ast::FnDecl, Option<&salvo_syntax::ast::HandlerDecl>)> = Vec::new();
-            if let Some(module) = view.module {
+            if let Some(module) = view.module() {
                 for item in &module.items {
                     match item {
                         Item::Fn(f) => bodies.push((f, None)),
@@ -4041,8 +4042,9 @@ fn file_path(uri: &Url) -> Option<PathBuf> {
 struct DocView<'a> {
     file: usize,
     content: &'a str,
-    /// [node-origin] The file's module, where a copied node's stamp is.
-    module: Option<&'a salvo_syntax::ast::Module>,
+    /// [node-origin] The program's modules, the file's among them: where a
+    /// copied node's stamp is.
+    modules: &'a [std::sync::Arc<salvo_syntax::ast::Module>],
 }
 
 impl DocView<'_> {
@@ -4051,11 +4053,22 @@ impl DocView<'_> {
         position_to_offset(self.content, position)
     }
 
+    /// The file's module.
+    fn module(&self) -> Option<&salvo_syntax::ast::Module> {
+        self.modules.get(self.file).map(|m| &**m)
+    }
+
     /// A span of the file as a range of this document: [node-origin] a copied
-    /// node's where it lands (`origin::landing`).
+    /// node's where it lands (`origin::landing`) — or, when that is another
+    /// file (a stamp's copy for a field of an imported type), the `by` site
+    /// the copy was stamped at.
     fn range(&self, span: Span) -> Range {
-        let span = self.module.map_or(span, |m| salvo_core::origin::landing(m, span));
-        span_to_range(self.content, span)
+        let (file, at) = salvo_core::origin::landing(self.modules, self.file, span);
+        let at = match self.module().and_then(|m| salvo_core::origin::stamp_of(m, span)) {
+            Some((_, stamp)) if file != self.file => stamp.site,
+            _ => at,
+        };
+        span_to_range(self.content, at)
     }
 }
 
@@ -4080,7 +4093,7 @@ fn doc_view<'a>(analysis: &'a Analysis, path: &Path) -> Option<DocView<'a>> {
         .position(|f| (!f.is_std || f.is_shadow) && exact(f))
         .or_else(|| files.iter().position(exact))
     {
-        return Some(DocView { file, content: &files[file].content, module: analysis.program.modules.get(file).map(|m| &**m) });
+        return Some(DocView { file, content: &files[file].content, modules: &analysis.program.modules });
     }
     // [lsp-std-source] Fallback for a std-copy path: the opened URI may be
     // canonicalized (macOS resolves `/var` to `/private/var`) while
@@ -4090,7 +4103,7 @@ fn doc_view<'a>(analysis: &'a Analysis, path: &Path) -> Option<DocView<'a>> {
     let file = files
         .iter()
         .position(|f| analysis.root.join(&f.name).canonicalize().ok() == Some(want.clone()))?;
-    Some(DocView { file, content: &files[file].content, module: analysis.program.modules.get(file).map(|m| &**m) })
+    Some(DocView { file, content: &files[file].content, modules: &analysis.program.modules })
 }
 
 /// `diag` as the LSP sees it, at `span` of `content`.

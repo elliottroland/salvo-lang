@@ -75,7 +75,9 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
   (COMPLETED.md).
 - 0ab: done (commit "Keep a type parameter out of the written keys and the
   protocol hash").
-- Next: 0ad.
+- 0ad: done (commit "Land a stamp's copy for an imported type's field in
+  that type's file").
+- Next: 0al.
 
 ## The sequence
 
@@ -709,34 +711,6 @@ declaration and node"): traps, "moved at line N", the IR dump's notes,
 `--rows` dump rows, language-server ranges and the deadlock check's reports.
 The trap strings of `examples/cli` moved from the end of `main.sv` to the
 fields their copies were for.
-
-### 0ad — Open defect: a stamp's copy for a field of another file's type lands in the stamping file (found 2026-10-28, A3)
-
-A `fn cmp(a: P, b: P) -> Int by auto` whose `P` is declared in another file
-stamps one copy per field of `P`, and each copy's `ExpansionKind::Copy`
-records the field's span (`target`) but not its file. `origin::render`
-returns that span, and every renderer pairs it with the *stamping* file
-(the checker's `error`, the deduction pass, `ir::analyze`, the deadlock
-check, `origin::landing`), so the diagnostic is printed at the field's
-offsets in the wrong file:
-
-```
-// shapes.sv
-export struct P {
-    x: Int,
-    y: Double
-}
-// main.sv
-import shapes.P
-fn cmp(a: P, b: P) -> Int by auto
-```
-
-reports `in `cmp` from `auto` for `P.y: Double`: no matching overload for
-`cmp(Double, Double)` --> main.sv:3:18`, underlining `P) -> Int` (the same
-before A3). Fix: the copy's target carries its file (an `Origin` that is a
-`(file, Span)`, or the target declaration's id), and `render` answers the
-file with the span; a `by` clause on the type's own declaration never
-reaches it.
 
 ### 0bb — Leftovers of the pipeline record's stage D (2026-10-30)
 

@@ -458,9 +458,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     pub fn location(&self, span: salvo_syntax::Span) -> String {
         match self.s.program.files.iter().position(|f| f.module == self.module.path) {
             Some(i) => {
-                let file = &self.s.program.files[i];
-                // [node-origin] Copied code is named where it lands.
-                let span = salvo_core::origin::landing(&self.s.program.modules[i], span);
+                // [node-origin] Copied code is named where it lands, in the file
+                // it lands in.
+                let (at, span) = salvo_core::origin::landing(&self.s.program.modules, i, span);
+                let file = &self.s.program.files[at];
                 let (line, col) = salvo_syntax::span::span_line_col(&file.content, span);
                 format!("{}:{line}:{col}", file.module)
             }
