@@ -50,6 +50,15 @@ enum Phase {
     /// binding is written), `#{@a, @b}` for a name several declarations
     /// answer, `#{???}` for a name nothing does. std's own names stay bare.
     Resolve,
+    /// Each file's text with every choice the checker made written out:
+    /// callees as `name@module`, inferred type arguments, implicit arguments
+    /// by name, operators as the calls they resolved to, interpolated parts
+    /// as their `to_str` calls, the types of unannotated bindings and
+    /// lambdas. What Salvo cannot spell is marked: `#{as T}` a coercion,
+    /// `#{narrowed from T}` a narrowing, `#{next@…}` the calls a `for`
+    /// names. `--expr-types` adds every expression's type, `#{: T}`;
+    /// `--rows` prints the checker's facts per node instead.
+    TypeCheck,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -225,6 +234,16 @@ enum Command {
         /// Dump only this module (dotted path).
         #[arg(long)]
         module: Option<String>,
+        /// [dump-type-check] With `--phase type-check`: every expression's
+        /// type, `#{: T}`.
+        #[arg(long)]
+        expr_types: bool,
+        /// [dump-rows] With `--phase type-check`: the checker's facts per
+        /// declaration and node (each expression's type, what each call
+        /// resolved to, the marks of moves, narrowings, effects, tests,
+        /// handles, constructions and borrows), not the file's text.
+        #[arg(long)]
+        rows: bool,
     },
     /// Print the IR of the program's modules [cli-ir]: the decided form the
     /// backends read (IR record). Every user module, or with `--all` every module
@@ -235,16 +254,6 @@ enum Command {
         /// Also dump the std modules the program reaches.
         #[arg(long)]
         all: bool,
-        /// Dump only this module (dotted path).
-        #[arg(long)]
-        module: Option<String>,
-    },
-    /// Print the checker's facts about each body [cli-facts]: every
-    /// expression's type and the declaration each call resolved to, before
-    /// the IR is built. Every user module, or only `--module`.
-    Facts {
-        #[arg(long)]
-        src: Option<PathBuf>,
         /// Dump only this module (dotted path).
         #[arg(long)]
         module: Option<String>,
@@ -338,8 +347,7 @@ fn main() -> ExitCode {
         } => build_command(backend, src, main_file, out, skip_tests),
         Command::Analyze { src, format } => analyze(src, format),
         Command::Ir { src, all, module } => ir_command(src, all, module),
-        Command::Facts { src, module } => facts_command(src, module),
-        Command::Dump { phase, src, all, module } => dump_command(phase, src, all, module),
+        Command::Dump { phase, src, all, module, expr_types, rows } => dump_command(phase, src, all, module, expr_types, rows),
         Command::Test {
             backend,
             src,
@@ -578,43 +586,14 @@ fn analyze(src: Option<PathBuf>, format: Format) -> ExitCode {
     }
 }
 
-/// [cli-ir] Builds the IR of the checked program and prints each module's dump.
-fn facts_command(src: Option<PathBuf>, module: Option<String>) -> ExitCode {
-    let inputs = match resolve_inputs(src, None, None, "rust", false) {
-        Ok(i) => i,
-        Err(msg) => {
-            eprintln!("error: {msg}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let program = match analysis::analyze_sources(&inputs.layout.src, inputs.project.clone(), "", &Default::default()) {
-        Ok(a) => a.program,
-        Err(msg) => {
-            eprintln!("error: {msg}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let symbols = salvo_core::Symbols::collect(&program);
-    let resolution = salvo_core::resolve(&program);
-    let checked = salvo_core::check_program(&program, &resolution, &symbols);
-    let wanted = |f: usize| {
-        let file = &program.files[f];
-        match &module {
-            Some(m) => file.module.0.join(".") == *m,
-            None => !file.is_std && !file.is_test,
-        }
-    };
-    print!("{}", salvo_core::facts::dump(&program, &symbols, &checked, &wanted));
-    for line in salvo_core::diag::render_shown(checked.errors.iter().filter(|d| d.is_error() && wanted(d.file)), &program.files) {
-        eprintln!("{line}");
-    }
-    ExitCode::SUCCESS
-}
-
 /// [cli-dump] [dump-resolve] Prints a phase's output for the wanted modules;
 /// the program's errors there go to stderr (a dump shows what the phase
 /// made of a program, a broken one included).
-fn dump_command(phase: Phase, src: Option<PathBuf>, all: bool, module: Option<String>) -> ExitCode {
+fn dump_command(phase: Phase, src: Option<PathBuf>, all: bool, module: Option<String>, expr_types: bool, rows: bool) -> ExitCode {
+    if (expr_types || rows) && phase != Phase::TypeCheck {
+        eprintln!("error: `--expr-types` and `--rows` are the type-check phase's");
+        return ExitCode::FAILURE;
+    }
     let inputs = match resolve_inputs(src, None, None, "rust", false) {
         Ok(i) => i,
         Err(msg) => {
@@ -650,6 +629,27 @@ fn dump_command(phase: Phase, src: Option<PathBuf>, all: bool, module: Option<St
                 let file = &program.files[f];
                 println!("// {} — module {}", file.name, file.module);
                 print!("{}", salvo_core::names::dump::dump_file(program, &resolution, &symbols, f, all));
+            }
+        }
+        // [dump-type-check] The program checked again here, every file's rows
+        // whole (the analysis's own `Checked` has drained its errors).
+        Phase::TypeCheck => {
+            let symbols = salvo_core::Symbols::collect(program);
+            let resolution = salvo_core::resolve(program);
+            let checked = salvo_core::check_program(program, &resolution, &symbols);
+            if rows {
+                print!("{}", salvo_core::facts::dump(program, &symbols, &checked, &wanted));
+            } else {
+                let mut first = true;
+                for f in (0..program.files.len()).filter(|f| wanted(*f)) {
+                    if !first {
+                        println!();
+                    }
+                    first = false;
+                    let file = &program.files[f];
+                    println!("// {} — module {}", file.name, file.module);
+                    print!("{}", salvo_core::round_trip::dump_file(program, &symbols, &checked, f, expr_types));
+                }
             }
         }
     }

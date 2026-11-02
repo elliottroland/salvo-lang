@@ -2850,7 +2850,33 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   taken, virtual places, by-value loops, the links a use stands on).
 - **D4. The typed dump and the full round trip**: B4 extended to types,
   type arguments and narrowings (marked notation where Salvo has no
-  spelling).
+  spelling). **Decided (user, 2026-10-30), P24:**
+  1. `salvo dump --phase type-check` prints the file's text with every
+     choice written out as B4's `write_out` writes calls (callee
+     `name@module`, type arguments, implicits), a type only where Salvo
+     writes one (an unannotated `let`, lambda parameters and returns,
+     constructor type arguments), narrowings and coercions marked `#{…}`;
+     `--expr-types` adds every expression's type, `#{: T}`.
+  2. `salvo facts` goes; its per-node rows (linear moves, "narrowed from",
+     effects taken) become `salvo dump --phase type-check --rows`.
+  3. Operators are written as the call they resolve to
+     (`plus@std.core.basic(a, b)`), checked by the round trip;
+     interpolation parts as their `to_str@…` inside `${}` (until
+     OPERATOR_OVERLOAD.md makes interpolation a specific function); `for`
+     is marked.
+  4. The round trip compares the type of every binding it writes an
+     annotation for, and type arguments; marked forms are skipped. A
+     divergence is fixed where the docs decide it, else recorded as a
+     DECISION (ROADMAP.md), as B4 did with P21.
+  5. Then two small pieces: `--phase parse-ast` (absorbing `salvo compile
+     --emit-ast`) and `--phase generate-ir` (absorbing `salvo ir`).
+  **D4 built — done** (2026-10-30): `round_trip.rs` is one writer with two
+  readings (`write_out` Salvo only, `dump_file` with the marks); operators
+  and interpolated parts are written as calls, binding/lambda/struct-literal
+  types as annotations; the round trip covers 1,152 calls and 165 types
+  (floors 900, 100) and found no checker divergence; `salvo facts` is
+  `--rows`. Skipped by the round trip: a promoted operand's operator,
+  qualified types other than `Mut T`, `for`.
 
 ### Stage E — The link stage, and retiring the documents
 
@@ -2858,10 +2884,34 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   statefulness, the mixed and monitor classification, `parking_handlers`,
   task mints, `handler_constructs` — left out of D2's construction merge,
   user 2026-10-30), then deadlock onto 03-generate-03-link over the IR; the
-  checker-table graph and its router synthesis go.
+  checker-table graph and its router synthesis go. **Decided (user,
+  2026-10-30), P25:** whether the summaries come from the IR or are checker
+  facts is an engineering call ("whichever makes the most sense in the
+  code"); deadlock errors may depend on other errors being fixed (the user
+  may drop deadlock from the LSP run entirely, undecided). The differential
+  requires the same cycles with the same messages and locations. Then, each
+  in its own commit with its repro, the two gaps it would close: ROADMAP
+  0az (a send in a lambda inside a handler member records no edge) and a
+  cycle closing through a router never seen.
 - **E2. Retire**: this document into COMPLETED.md's design
   record, open items to ROADMAP.md, rules (origins, the core call,
-  phase dumps) to LANGUAGE_SPEC.md.
+  phase dumps) to LANGUAGE_SPEC.md. **IR_CHECKER.md is retired the same way**
+  (user, 2026-10-30: PIPELINE.md grew out of it).
+
+### The unattended run (user, 2026-10-30)
+
+D4, its two dump pieces, E1 and E2, then ROADMAP.md's open defects that need
+no decision, in order (0p, 0q, 0r, 0aa, 0ab, 0ad, 0al, …). A new DECISION is
+recorded in ROADMAP.md (options, recommendation), left unbuilt, and the run
+goes on with the next unblocked piece; it stops only when nothing unblocked
+is left. A differential showing a behavior change is fixed when the docs
+call it a bug, else the old behavior is kept and the change recorded. One
+commit per piece after a warm nextest; no pushes. Never touch `demo/`,
+`.vscode/`, `SLICES.md`, `OPERATOR_OVERLOAD.md`, `DATA_STACKS.md`. **Keep
+this document current as each piece lands or stalls** (user), so a context
+compaction loses nothing. Progress:
+- D4: done (commit "Print the type-check phase and round-trip operators,
+  interpolation and types").
 
 ### Order, and what can overlap
 

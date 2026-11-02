@@ -144,6 +144,44 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — The typed dump, and a round trip over operators, interpolation and types (user decision P24, PIPELINE.md D4, [dump-type-check] [dump-rows] [round-trip])
+
+- **Decided (user, 2026-10-30, P24)**: `salvo dump --phase type-check` is
+  the file's text with every choice written out as the round trip writes
+  calls; types only where Salvo writes one; narrowings and coercions marked
+  `#{…}`; `--expr-types` (the user's name) adds every expression's type;
+  `salvo facts` goes, its rows becoming `--rows`; operators are written as
+  the call they resolve to, interpolated parts as `to_str` inside `${}`
+  (until OPERATOR_OVERLOAD.md makes interpolation a function of its own),
+  `for` marked; the round trip compares the written binding types and type
+  arguments.
+- **Built**: `round_trip.rs` is one writer with two readings. The round
+  trip's (`write_out`) writes only Salvo; the dump's (`dump_file`) adds the
+  marks. Both write: callees with their selectors, inferred type arguments
+  and implicits (as B4 did); operators as calls (`plus@…(a, b)`,
+  `eq@…`, `!eq@…` for `!=`, `cmp@…(a, b) < 0`), keeping grouping
+  parentheses — the parser keeps a grouped expression's own span, so an
+  operand's extent is found from the parentheses written round it; an
+  interpolated part as its `to_str`; the type of an unannotated `let`, a
+  lambda's parameters and block return, a generic struct literal's type
+  arguments. Edits are insertions and one replacement (the operator symbol
+  with the space before it), ordered at one offset by what ends there
+  (inner first), then the replacement, then what starts there (outer
+  first). The program's own types are spelled `Name@module` in both
+  readings, so the round trip writes them too. `salvo facts` is gone;
+  `facts::dump` is `--rows`.
+- **The round trip** now covers 1,152 calls (816 before: operators and
+  interpolated parts are calls now) and 165 types over the examples, with
+  floors of 900 and 100. Its first run found nothing the checker decides
+  differently on the spelled-out form; the one failure was the writer's (an
+  interpolated comparison's `to_str` closed before the ` > 0`). Skipped: an
+  operator whose operand widens [op-promote] (a written call widens
+  nothing), qualified types other than `Mut T`, `for`, and what B4 skipped.
+- **Tests**: `example_type_check_dump_is_stable` (snapshot of
+  examples/iteration), `the_type_check_dump_spells_each_kind_of_choice`,
+  `dump_prints_the_type_check_phase` (the CLI, its flags, and their refusal
+  with another phase). 711 tests.
+
 ### 2026-10-30 — The flow pass finds the virtual-place candidates; D3.5(b) is done (PIPELINE.md D3.5(b), [deduce-field] [fate-move-mode])
 
 - **Built**: the checker no longer collects the bindings a mutation event

@@ -633,7 +633,7 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   | `defer-deduction` | `linear-defer` |
   | `eff-handle` | `effect-eff-handle` |
   | `elem-distinct` | `fate-elem-distinct` |
-  | `facts-dump` | `cli-facts` |
+  | `facts-dump` | `dump-rows` |
   | `free-send-fn` | `actor-free-send-fn` |
   | `ident-resolve` | `name-ident-resolve` |
   | `if-else-none` | `expr-if-else-none` |

@@ -51,7 +51,7 @@ struct or the arms of any union).
 Twelve worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print; the first dependency, `modules/aws/`, keeps
 its four (`profile`, `sqs`, `s3`, `ddb`) and its own checks (`modules/aws/check.sh`)
-outside the compiler's tests. 704 tests green (nextest); std's own Salvo tests run inside one of them.
+outside the compiler's tests. 711 tests green (nextest); std's own Salvo tests run inside one of them.
 
 ## The sequence
 
@@ -760,7 +760,7 @@ parameter of an enclosing declaration when gathering written keys
 
 Fixed with A3 (`origin::landing`; COMPLETED.md "Every fact is keyed by its
 declaration and node"): traps, "moved at line N", the IR dump's notes,
-`salvo facts` rows, language-server ranges and the deadlock check's reports.
+`--rows` dump rows, language-server ranges and the deadlock check's reports.
 The trap strings of `examples/cli` moved from the end of `main.sv` to the
 fields their copies were for.
 
@@ -1218,13 +1218,15 @@ PIPELINE.md B4 built [round-trip] over the examples and the corpus (P5 (b)).
   caller's own binder agrees). Alternatives: (b) the written value wins
   (a set hashed with one fn probed with another); (c) refuse any written
   override where an identity is carried, the agreeing one too.
-- **What the printer skips**, having no surface spelling: operators,
-  interpolation parts and `for` (the calls they name are not written);
-  calls through a local or a field; sends, mints and a call whose last
-  argument is a `replyto`; a renamed name; `throw`; a forwarded implicit;
-  a type argument with no source form; desugared or stamped spans. D4
-  extends the check to types, and Stage C's dump is where operators and
-  `for` get a written form.
+- **What the printer skips**, having no surface spelling (D4 added
+  operators, interpolated parts and inferred types, COMPLETED.md
+  2026-10-30): `for` (the calls it names are marked in the typed dump,
+  not written); calls through a local or a field (an operator or a part
+  through the enclosing fn's own implicit too); sends, mints and a call
+  whose last argument is a `replyto`; a renamed name; `throw`; a forwarded
+  implicit; a type with no source form (qualified other than `Mut T`, a
+  borrow, a fn type); an operator whose operand widens [op-promote], since a
+  written call widens nothing (P11); desugared or stamped spans.
 - **Where it does not run**: 5 of
   the corpus's 6 files do not check (it is the parser's corpus of
   language-page examples: unknown effects, missing type arguments, an

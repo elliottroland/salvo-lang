@@ -37,7 +37,7 @@ use crate::types::{is_subtype, FnId, FnParamContract, Qual, QualEffect, Ty};
 /// [node-id] A fact's key: the declaration the node is in and the node's id
 /// within it. Identity is `(decl, node)` alone; the file and the span ride
 /// along as the node's origin, for a reader that places the fact (the
-/// language server, `salvo facts`, a diagnostic) — they take no part in `==`
+/// language server, a `--rows` dump, a diagnostic) — they take no part in `==`
 /// or `Hash`, so a key does not move when code above its declaration does.
 #[derive(Clone, Copy)]
 pub struct Key {
@@ -32058,7 +32058,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 /// the code *after* a branching construct [deduce-consume]. Same shape as
 /// [fn-must-return]'s walker, with loop exits counted too.
 /// The source symbol of a binary operator, for diagnostics [op-no-none].
-fn op_symbol(op: BinaryOp) -> &'static str {
+pub(crate) fn op_symbol(op: BinaryOp) -> &'static str {
     use BinaryOp::*;
     match op {
         Add => "+",

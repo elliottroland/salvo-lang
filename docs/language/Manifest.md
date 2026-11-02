@@ -54,7 +54,7 @@ modules under it would take new paths (`src/app/util.sv` would become `util`,
 and the project's own `import app.util` would break). So is a `--src` around
 the root: the manifest's own directory, when `[build] src` names a
 subdirectory, would make `salvo/main.sv` the module `salvo.main`. To look at
-one module, `salvo ir` and `salvo facts` take `--module`, and `salvo test`
+one module, `salvo ir` and `salvo dump` take `--module`, and `salvo test`
 takes a filter.
 
 `[project] std = true` marks the standard library's own tree, so its files are

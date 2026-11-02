@@ -14,7 +14,7 @@ use salvo_syntax::ast::{ExpansionKind, Item, Module, Stamp};
 use salvo_syntax::Span;
 
 /// [node-origin] Where a node of `module`'s file is shown outside a diagnostic
-/// (a trap's `module:line:col`, a "moved at line N", a `salvo facts` row,
+/// (a trap's `module:line:col`, a "moved at line N", a `--rows` dump row,
 /// an editor range): a written span is where it is; a copied one lands
 /// where a diagnostic about it would ([`render`]), through the stamp of the
 /// fn of the file whose expansions include it — a file's expansion ids are

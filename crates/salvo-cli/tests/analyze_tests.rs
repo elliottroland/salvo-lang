@@ -625,7 +625,7 @@ fn a_src_inside_the_projects_source_root_is_refused() {
         &["analyze", "--src", inner][..],
         &["test", "--src", inner],
         &["ir", "--src", inner],
-        &["facts", "--src", inner],
+        &["dump", "--phase", "type-check", "--src", inner],
         &["dump", "--phase", "resolve", "--src", inner],
         &["run", "--src", inner],
         &["compile", "--backend", "rust", "--src", inner, "--target", target],
@@ -969,4 +969,33 @@ fn dump_prints_the_resolve_phase() {
     assert!(stdout.contains("println(\"${p#{5:9}.x} ${missing#{???}}\")"), "{stdout}");
     assert!(!stdout.contains("shapes.sv"), "only the module asked for: {stdout}");
     assert!(stderr.contains("missing"), "the error is reported: {stderr}");
+}
+
+/// [cli-dump] [dump-type-check] [dump-rows] `salvo dump --phase type-check`
+/// prints each file with the checker's choices written out (`--expr-types`
+/// adds every expression's type), `--rows` the checker's facts per node,
+/// and the flags belong to that phase alone.
+#[test]
+fn dump_prints_the_type_check_phase() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("analyze_dump_type_check");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("main.sv"), "fn main() [use] {\n    use StdConsole()\n    let n = 1 + 2\n    println(\"${n}\")\n}\n").unwrap();
+    let src = dir.to_str().unwrap();
+    let out = salvo(&["dump", "--phase", "type-check", "--src", src]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(stdout.starts_with("// main.sv — module main\n"), "{stdout}");
+    assert!(stdout.contains("let n: Int = plus@std.core.basic(1, 2)"), "{stdout}");
+    assert!(stdout.contains("println@std.core.console(\"${to_str@std.core.basic(n)}\")"), "{stdout}");
+    let out = salvo(&["dump", "--phase", "type-check", "--expr-types", "--src", src]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("plus@std.core.basic(1#{: Int}, 2#{: Int})#{: Int}"), "{stdout}");
+    let out = salvo(&["dump", "--phase", "type-check", "--rows", "--src", src]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.starts_with("module main (main.sv)\n"), "{stdout}");
+    assert!(stdout.contains("`1 + 2`"), "{stdout}");
+    let out = salvo(&["dump", "--phase", "resolve", "--rows", "--src", src]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("type-check phase"));
 }

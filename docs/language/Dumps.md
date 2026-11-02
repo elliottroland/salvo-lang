@@ -93,3 +93,115 @@ So `[Time]`, an alias of `Clock` from another module, makes `now()` read
 decides only where a type says what is available: a `use` of a handle
 rather than a named handler, or a lambda's body. A name nothing else answers
 there reads `#{deferred}`.
+
+## The type-check phase
+
+Type checking decides everything resolution left open: which overload each
+call means, the type arguments it was called at, what fills each implicit
+parameter, what each operator and interpolated value calls, and the type of
+everything you left unannotated. The type-check dump is your file's own text
+with each of those decisions written out as Salvo, so it reads as the program
+you would have written had you spelled everything yourself:
+
+```bash
+salvo dump --phase type-check --src ./my_project                 # the decisions
+salvo dump --phase type-check --src ./my_project --expr-types    # and every expression's type
+salvo dump --phase type-check --src ./my_project --rows          # the checker's facts, node by node
+```
+
+For this program:
+
+```
+struct Box<T> {
+    v: T
+}
+
+fn least<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> Bool {
+    return cmp(a, b) < 0
+}
+
+fn f(x: Int?, n: Long) -> Int {
+    let b = Box { v: 1 }
+    let s = (2 + 3) * b.v
+    if x is Int {
+        return s + x
+    }
+    for y in range(0, 2) {
+        let z = "${y + 1}"
+    }
+    let w = n + 1
+    return s
+}
+
+fn g() -> Bool {
+    return least(1, 2)
+}
+```
+
+the dump reads:
+
+```
+struct Box<T> {
+    v: T
+}
+
+fn least<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> Bool {
+    return cmp@std.core.basic(cmp(a, b), 0) < 0
+}
+
+fn f(x: Int?, n: Long) -> Int {
+    let b: Box@main<Int> = Box<Int> { v: 1 }
+    let s: Int = times@std.core.basic((plus@std.core.basic(2, 3)), b.v)
+    if x is Int {
+        return plus@std.core.basic(s, x#{narrowed from Int?})
+    }
+    for y in range@std.core.range(0, 2) #{next@std.core.range} {
+        let z: Str = "${to_str@std.core.basic(plus@std.core.basic(y, 1))}"
+    }
+    let w: Long = plus@std.core.basic(n, 1#{as Long})
+    return s
+}
+
+fn g() -> Bool {
+    return least@main<Int>(1, 2, cmp = cmp@std.core.basic)
+}
+```
+
+What it writes out:
+
+| Decision | In the dump |
+|---|---|
+| the overload a call means | its module after the name: `least@main(…)`, a member `now@Clock()` |
+| the type arguments a call inferred | `least@main<Int>(…)` |
+| what filled an implicit parameter | the argument by name: `cmp = cmp@std.core.basic` |
+| an operator | the call it names: `plus@…(a, b)` for `a + b`, `eq@…(a, b)` for `==`, `!eq@…(a, b)` for `!=`, `cmp@…(a, b) < 0` for `<` (your parentheses stay) |
+| an interpolated value | its `to_str` call, inside the `${}` |
+| the type of an unannotated `let` | `let s: Int = …` |
+| a lambda's parameter and return types | `(a: Int) -> Int { … }` |
+| a generic struct literal's type arguments | `Box<Int> { v: 1 }` |
+
+std's callees are written with their module too (`plus@std.core.basic`), since
+the point is to see which one was meant. Types are spelled as everywhere else
+in the dumps: a type of your own with its module.
+
+Some decisions have no Salvo spelling, and are marked after the expression
+they are about:
+
+| Mark | Means |
+|---|---|
+| `#{as T}` | the value is converted to `T` here: wrapped into a union, widened to a wider number, its `Mut` dropped |
+| `#{narrowed from T}` | the read sees a narrower type than its variable is stored at (`T`), because a test said so |
+| `#{claimed from T}` | a field read at the type a qualifier's claim refines it to |
+| `#{next@…}` | the calls a `for` makes (`#{iter@…, next@…}` for a source) |
+| `#{: T}` | with `--expr-types`: the expression's type |
+
+The compiler checks that this dump says what it means: for the examples, it
+writes each program out this way (marks left out), checks the result again,
+and requires the same decisions and the same types. A rule that decided
+differently on the spelled-out form than on what you wrote would show up
+there.
+
+`--rows` prints the same facts as a table instead of your text: per
+declaration, one line per expression, with its type, what a call resolved
+to, and marks for moves, narrowings, effects, tests, handles,
+constructions and borrows.

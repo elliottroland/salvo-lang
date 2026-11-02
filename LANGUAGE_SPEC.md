@@ -6373,7 +6373,7 @@ Conventions:
     (`origin::stamp_of`).
   * **A location outside a diagnostic lands where a diagnostic would**
     (`origin::landing`, A3, ROADMAP 0ac): a trap's `module:line:col`
-    [assert-trap], "moved at line N" and the IR dump's notes, `salvo facts`'
+    [assert-trap], "moved at line N" and the IR dump's notes, `--rows`'
     rows, a language-server range, and the deadlock check's reports (which
     are also prefixed and attributed to the stamped fn, as the checker's
     diagnostics are). Until 2026-10-28 these were at the end of the file.
@@ -11552,7 +11552,7 @@ between endpoints and delivers what arrives into the scheduler.
   `use`s, its `DeclKind::File` id) and the node's ordinal within it, in walk
   order. The span is not the key: it is the node's origin [node-origin], carried
   in the key for a reader that places a fact (the language server,
-  `salvo facts`, a diagnostic), and takes no part in its equality.
+  a `--rows` dump, a diagnostic), and takes no part in its equality.
   * **Numbered on the tree, once, after its last rewrite**
     (`salvo_syntax::node_id::number`): the parse, each file's expansions and
     the comptime stamping of a file each number what they produced, so the
@@ -11676,8 +11676,8 @@ between endpoints and delivers what arrives into the scheduler.
   `value_span_keys`, `refinements`) are
   program-wide.
   * One router, an exhaustive destructure of `Checked`, partitions the rows
-    into a sink: by declaration (`Checked::split_decls`, which `salvo facts`
-    prints [cli-facts]) or by the file the index places each declaration
+    into a sink: by declaration (`Checked::split_decls`, which `salvo dump
+    --phase type-check --rows` prints [dump-rows]) or by the file the index places each declaration
     in (`Checked::split_files`, the check cache's [lsp-check-cache]);
     `Checked::insert_rows` puts a part back. A new table is a compile error
     there until it says where its rows go.
@@ -11753,16 +11753,21 @@ replaced the working document TESTING.md).
   `//~ refused[id]` annotations must be exactly the ids emission fails with.
   An annotation sits by the construct it is about; only its program, not its
   line, is checked. The format is `salvo_testkit::data`.
-* [round-trip] **Every call's choice survives being written out**
-  (PIPELINE.md B4, §II.7; user decision P5 (b): the examples and the
-  corpus). `salvo_core::round_trip` prints a checked file back with each
-  call's choices spelled out — the callee as `name@module` (`name@Effect`
-  for a member), the inferred type arguments where each has a source form,
-  the implicit arguments by name (`cmp = cmp@main`) — and the re-check must
-  check clean and make the same choices (`round_trip_tests.rs`, with a floor
-  on the number of calls written). Skipped, having no surface spelling:
-  operators, interpolation parts and `for`, calls through a local or a
-  field, sends and mints, a renamed name, `throw`, a forwarded implicit, and
+* [round-trip] **Every choice survives being written out** (PIPELINE.md B4
+  and D4, §II.7; user decisions P5 (b): the examples and the corpus, and
+  P24). `salvo_core::round_trip` prints a checked file back with each
+  choice spelled out as the typed dump does [dump-type-check], Salvo only:
+  the callee as `name@module` (`name@Effect` for a member), the inferred
+  type arguments where each has a source form (a type the program declares
+  as `Name@module`), the implicit arguments by name (`cmp = cmp@main`), an
+  operator as its call, an interpolated part as its `to_str`, and the types
+  of unannotated bindings, lambdas and generic struct literals — and the
+  re-check must check clean, make the same choices and give the written
+  bindings the same types (`round_trip_tests.rs`, with floors on the calls
+  and types written). Skipped, having no surface spelling: `for`, calls
+  through a local or a field, sends and mints, a renamed name, `throw`, a
+  forwarded implicit, an operator whose operand widens [op-promote] (a
+  written call widens nothing), a qualified type other than `Mut T`, and
   what a desugaring or stamp made. Examples with `[dependencies]` need the
   CLI's loader and are not run; the corpus is a parser corpus, and only the
   files that check clean are.
@@ -13738,11 +13743,13 @@ replaced the working document TESTING.md).
 * [cli-dump] `salvo dump --phase <phase> [--src DIR] [--module PATH]
   [--all]` prints what one phase made of every user module, of one module, or
   (`--all`) of every module the program reaches, std included, with every
-  candidate listed (PIPELINE.md P7). One phase so far, `resolve`
-  [dump-resolve]; `salvo ir`, `salvo facts` and `compile --emit-ast` join as
-  `generate-ir`, `type-check` and `parse-ast` in the pieces that add those
-  phases. A program's errors in the dumped modules go to stderr; the dump is
-  printed regardless.
+  candidate listed (PIPELINE.md P7). The phases so far: `resolve`
+  [dump-resolve] and `type-check` [dump-type-check] (with `--expr-types`, and
+  `--rows` [dump-rows], which replaced `salvo facts`); `salvo ir` and
+  `compile --emit-ast` join as `generate-ir` and `parse-ast` in the pieces
+  that add those phases. `--expr-types` and `--rows` with another phase are
+  an error. A program's errors in the dumped modules go to stderr; the dump
+  is printed regardless.
 * [dump-resolve] The **resolve dump** (`names::dump::dump_file`) is each
   file's own text with what resolution bound every written name to spelled
   in place [dump-spelling] [name-table]: `Point@app.shapes` for a declaration
@@ -13761,13 +13768,31 @@ replaced the working document TESTING.md).
   [ir-dump] of every user module, of one module, or (`--all`) of every
   module the program reaches, std included. It builds the IR exactly as the
   backends do, so it is the point to bisect when they disagree.
-* [cli-facts] `salvo facts [--src DIR] [--module PATH]` prints the
+* [dump-type-check] The **typed dump** (`salvo dump --phase type-check`,
+  `round_trip::dump_file`, PIPELINE.md D4, user decision P24) is each file's
+  own text with every choice the checker made written out by the writer the
+  round trip uses [round-trip]: a callee as `name@module` (`name@Effect`),
+  its inferred type arguments, its implicit arguments by name; an operator
+  as the call it resolved to (`plus@std.core.basic(a, b)`, `eq@…(a, b)`,
+  `!eq@…(a, b)` for `!=`, `cmp@…(a, b) < 0` for a comparison; grouping
+  parentheses kept); an interpolated part as its `to_str` call inside `${}`
+  (until interpolation is a function of its own, OPERATOR_OVERLOAD.md); the
+  type of an unannotated `let`, a lambda's parameters and block return, and
+  a generic struct literal's type arguments. Types are spelled as the dumps
+  spell them [dump-spelling], std's callees written with their module too.
+  What Salvo cannot spell is marked after its expression: `#{as T}` a
+  coercion [ir-coerce], `#{narrowed from T}` / `#{claimed from T}` a
+  narrowing, `#{next@…}` (`#{iter@…, next@…}`) the calls a `for` names
+  [iter-for]; `--expr-types` adds every expression's type, `#{: T}`.
+  `the_type_check_dump_spells_each_kind_of_choice` pins the spellings;
+  `example_type_check_dump_is_stable` snapshots one example.
+* [dump-rows] `salvo dump --phase type-check --rows` prints the
   checker's facts before the IR is built (PIPELINE.md D1, the pre-IR), by
   declaration [decl-rows]: each declaration of a file in declaration order,
   under its id [decl-id] (`total(#0) -> Int@main`; a file's own nodes under
   `(file)@module`), one line per node it typed in source order — its
   position and text, its type, the declaration a call resolved to, and the
-  marks `dot`, `by-value`, `linear-move`, `takes E, F` (the effects a
+  marks `dot`, `linear-move`, `takes E, F` (the effects a
   callable takes as leading parameters), `passes E, F` / `receiver E` (what
   a call gives of the effects in scope), `narrowed from T` (a flow
   narrowing, `T` the storage's type), `claimed from T` (a field claim
@@ -13775,6 +13800,7 @@ replaced the working document TESTING.md).
   (an arm with a value condition as `0 is "a" | "b"` or `0 not "a"`),
   `test None`, or `test qualifies Q, R`. A conversion is written after the type as
   `#{as T}` [ir-coerce], `T` what its last step produces — the mark the
-  typed dump puts after a converted expression (PIPELINE.md D2). A
+  typed dump puts after a converted expression [dump-type-check]. A
   desugaring's synthesized node prints as `…`. `facts::dump` is the
-  library form; `example_facts_are_stable` snapshots one example.
+  library form; `example_facts_are_stable` snapshots one example. (It was
+  the `salvo facts` command until D4, user decision P24.)

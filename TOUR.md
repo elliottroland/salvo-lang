@@ -172,7 +172,7 @@ By what you would come looking for.
   types are represented in a union. `wire.rs`: what may cross a machine.
 * `partition.rs`: which declaration each row of `Checked` belongs to
   [decl-rows] (`split_decls`, `split_files`, `insert_rows`); `facts.rs`
-  prints the rows by declaration (`salvo facts`), `check_cache.rs` keeps an
+  prints the rows by declaration (`salvo dump --phase type-check --rows`), `check_cache.rs` keeps an
   unedited file's rows across language-server edits [lsp-check-cache].
 
 **Tables derived *from* `Checked` for the backends**
@@ -204,7 +204,7 @@ node's ordinal within it*, numbered on the tree after its last rewrite
 `Span::node`, so `Checker::key(span)` and `Lower::key(span)` read the same
 field). The key also carries the node's file and span as origin data, which
 take no part in its equality: a reader that places a fact (the language
-server, `salvo facts`) reads `key.file()` and `key.span`. A few kinds, with
+server, a `--rows` dump) reads `key.file()` and `key.span`. A few kinds, with
 examples of what they say about the sample program.
 
 **What is this expression's type?**
@@ -268,7 +268,7 @@ pass and the builder compare the same identity [node-id].
 (`partition.rs`): a keyed row to its key's `decl`, a `DeclId`-keyed row to
 that id, a handler's or effect's row (by symbol key) to that declaration,
 a local, a body's effects or a diagnostic to the declaration its node is
-in. `Checked::split_decls` partitions the rows that way (what `salvo facts`
+in. `Checked::split_decls` partitions the rows that way (what `salvo dump --phase type-check --rows`
 prints, one block per declaration id), and `Checked::split_files` by the
 file the index places each declaration in (the language server's check
 cache, which reuses an unedited file's rows [lsp-check-cache]).

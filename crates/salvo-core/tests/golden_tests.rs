@@ -30,9 +30,9 @@ fn example_ir_is_stable() {
     }
 }
 
-/// [cli-facts] The checker's facts about one example's bodies — every
+/// [dump-rows] The checker's facts about one example's bodies — every
 /// expression's type, the declaration each call resolved to, coercions and
-/// moves — as the pre-IR dump (`salvo facts`, PIPELINE.md D1) prints them.
+/// moves — as `salvo dump --phase type-check --rows` prints them.
 #[test]
 fn example_facts_are_stable() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/iteration");
@@ -74,6 +74,61 @@ export fn drops_it() -> Int { return attempt() ?: return 0 }\n";
         .lines()
         .any(|l| l.contains("let __pick") && l.contains("!!! main:"));
     assert!(on_line, "the leak note is on the line that produced it:\n{text}");
+}
+
+/// [dump-type-check] One example's typed dump (`salvo dump --phase
+/// type-check`), as a golden snapshot: every choice the checker made
+/// written out, and what Salvo cannot spell marked.
+#[test]
+fn example_type_check_dump_is_stable() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/iteration");
+    let program = example_program(&dir);
+    let symbols = salvo_core::Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
+    let text: String = (0..program.files.len())
+        .filter(|f| !program.files[*f].is_std)
+        .map(|f| format!("// {}\n{}", program.files[f].name, salvo_core::round_trip::dump_file(&program, &symbols, &checked, f, false)))
+        .collect();
+    insta::assert_snapshot!("type_check_iteration", text);
+}
+
+/// [dump-type-check] [round-trip] What each kind of choice reads as in the
+/// typed dump: a callee with its selector and inferred type arguments, an
+/// implicit by name, an operator as its call (a comparison as `cmp(…) < 0`,
+/// `!=` as `!eq(…)`, grouping parentheses kept), an interpolated part as its
+/// `to_str`, an unannotated binding's and a lambda's types, a generic
+/// struct literal's type arguments; and, marked, a coercion, a narrowing,
+/// the calls a `for` names and, with `--expr-types`, every type.
+#[test]
+fn the_type_check_dump_spells_each_kind_of_choice() {
+    let main = "struct Box<T> {\n    v: T\n}\n\n\
+                fn least<T>(a: T, b: T, ?cmp: (T, T) -> Int) -> Bool {\n    return cmp(a, b) < 0\n}\n\n\
+                fn f(x: Int?, n: Long) -> Int {\n    let b = Box { v: 1 }\n    let k: (Int) -> Int = (a) -> { return a * 2 }\n    let s = (2 + 3) * b.v\n    if x is Int {\n        return k(x)\n    }\n    for y in range(0, 2) {\n        let z = \"${y + 1}\"\n    }\n    let w = n + 1\n    return s\n}\n\n\
+                fn g() -> Bool {\n    return least(1, 2)\n}\n";
+    let program = salvo_testkit::front::clean_program("kt", &[("main.sv", main)]);
+    let symbols = salvo_core::Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
+    let errors: Vec<String> = checked.errors.iter().filter(|d| d.is_error()).map(|d| d.render(&program.files)).collect();
+    assert!(errors.is_empty(), "{errors:?}");
+    let file = program.files.iter().position(|f| f.name == "main.sv").unwrap();
+    let text = salvo_core::round_trip::dump_file(&program, &symbols, &checked, file, false);
+    for want in [
+        "let b: Box@main<Int> = Box<Int> { v: 1 }",
+        "return cmp@std.core.basic(cmp(a, b), 0) < 0",
+        "= (a: Int) -> Int { return times@std.core.basic(a, 2) }",
+        "let s: Int = times@std.core.basic((plus@std.core.basic(2, 3)), b.v)",
+        "return k(x#{narrowed from Int?})",
+        "for y in range@std.core.range(0, 2) #{next@std.core.range}",
+        "let z: Str = \"${to_str@std.core.basic(plus@std.core.basic(y, 1))}\"",
+        "let w: Long = plus@std.core.basic(n, 1#{as Long})",
+        "return least@main<Int>(1, 2, cmp = cmp@std.core.basic)",
+    ] {
+        assert!(text.contains(want), "missing `{want}` in:\n{text}");
+    }
+    let typed = salvo_core::round_trip::dump_file(&program, &symbols, &checked, file, true);
+    assert!(typed.contains("return s#{: Int}"), "{typed}");
 }
 
 /// [dump-resolve] One example's resolve dump (`salvo dump --phase resolve`),
