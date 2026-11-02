@@ -1902,7 +1902,7 @@ pub enum Stmt {
         with_items: Vec<Expr>,
         /// [actor-route-stub] `use any group`: `handler` is a group handle
         /// (`eff[ActorGroup<E>]`), bound as `any E` through a route the
-        /// compiler derives (user decision R7, PIPELINE.md).
+        /// compiler derives (user decision R7, the pipeline record).
         any: bool,
         span: Span,
     },
@@ -2372,7 +2372,7 @@ pub enum Expr {
     ReplyTo {
         member: Ident,
         /// [task-mint] [fn-overload-at] `replyto k@module(…)`: the module whose
-        /// `send fn` is meant, where several are visible (PIPELINE.md B3.7).
+        /// `send fn` is meant, where several are visible (the pipeline record B3.7).
         module: Option<Vec<Ident>>,
         captures: Vec<Expr>,
         /// Written `replyto!`: the gated mint.

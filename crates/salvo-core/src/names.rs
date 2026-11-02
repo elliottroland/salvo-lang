@@ -1,5 +1,5 @@
 //! [name-table] The resolved form of every written type-position name
-//! (PIPELINE.md C1.2): what each name a program writes where a type, a
+//! (the pipeline record C1.2): what each name a program writes where a type, a
 //! qualifier, an effect or a group goes means, bound once by resolution in
 //! the file that wrote it.
 //!

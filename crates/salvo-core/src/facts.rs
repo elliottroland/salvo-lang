@@ -1,4 +1,4 @@
-//! [cli-facts] The pre-IR dumper (PIPELINE.md D1): the checker's facts,
+//! [cli-facts] The pre-IR dumper (the pipeline record D1): the checker's facts,
 //! declaration by declaration — each expression's type, the declaration a
 //! call or a name resolved to, and the coercions, moves and dot-calls the
 //! checker recorded. It is the readable form of what the walks hand the IR

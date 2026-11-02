@@ -3,7 +3,7 @@
 // interpolation's function, declared only in `List`'s file, so no module can
 // put a second one beside it — whether or not anything uses it. Before, it
 // sat beside std's and every interpolation and implicit of a list was an
-// ambiguity (PIPELINE.md §II.13 D2, dissolved). The error names the type's
+// ambiguity (the pipeline record §II.13 D2, dissolved). The error names the type's
 // file and the remedy.
 //
 // [op-unique-shape] The refused declaration is a candidate nowhere, so its

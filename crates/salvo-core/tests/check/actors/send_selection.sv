@@ -1,5 +1,5 @@
 // [fn-overload] [actor-send-fn] Every send and mint target is chosen by the
-// call's rule (PIPELINE.md B3.7, user decisions 2026-10-28): D18 (a), D24 (a),
+// call's rule (the pipeline record B3.7, user decisions 2026-10-28): D18 (a), D24 (a),
 // and a handler's own `send fn` reached by a uniform call.
 
 actor effect Counter {

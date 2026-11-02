@@ -1465,7 +1465,7 @@ thread_local! {
 }
 
 /// [dump-spelling] Runs `f` with every keyed type a `Ty` prints spelled
-/// `Name@module`, as the dumps spell a declaration (PIPELINE.md §II.10 P22).
+/// `Name@module`, as the dumps spell a declaration (the pipeline record §II.10 P22).
 /// A plain key — std's first declaration of a name — stays bare.
 pub fn with_keys_shown<R>(f: impl FnOnce() -> R) -> R {
     let was = SHOW_KEYS.with(|s| s.replace(true));

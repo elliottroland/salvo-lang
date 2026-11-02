@@ -4,7 +4,7 @@
 //! expansion [iter-fn] and the `test` expansion [test-decl], which needs to
 //! know whether a file is a test annex [test-file]. Per program
 //! ([`expand_program`]): comptime stamping. Effect aliases and
-//! prerequisites are resolved, not expanded (PIPELINE.md R6), and routes are
+//! prerequisites are resolved, not expanded (the pipeline record R6), and routes are
 //! derived in the IR (R7). Every driver needs both, so [`expand`] is the one call
 //! that does both, and a driver caching parses calls the halves.
 
@@ -68,7 +68,7 @@ pub struct FileTest {
     pub kind: salvo_syntax::ast::TestKind,
 }
 
-/// The expansions one file needs and nothing else (PIPELINE.md step 6): the
+/// The expansions one file needs and nothing else (the pipeline record step 6): the
 /// struct-body hoist [fn-attached], every `iter fn` [iter-fn], and the `test`
 /// blocks [test-decl] — expanded in a test annex, refused and dropped in a
 /// production file [test-file]. A function of the file's text, its module path
@@ -211,10 +211,10 @@ pub fn program_expansion(per_file: Vec<Vec<FileTest>>, comptime: crate::comptime
     out.comptime_when_arms = comptime.when_arms;
     out.interfaces = Some(Arc::new(comptime.interfaces));
     // [actor-route-stub] Routes are not an expansion: the IR derives one per
-    // routed protocol (PIPELINE.md R7).
+    // routed protocol (the pipeline record R7).
     // [effect-alias] [effect-prereq] Aliases and prerequisites are not
     // expansions: aliases resolve in scope and both are expanded where an
-    // effect list is lowered (PIPELINE.md R6).
+    // effect list is lowered (the pipeline record R6).
     out
 }
 

@@ -297,7 +297,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
             let mut parking: Vec<&FnDecl> = Vec::new();
             for i in &faces {
                 // [actor-send-fn] An overloaded send member cannot be a mint's
-                // target (the checker refuses it, PIPELINE.md B3.7), so it has
+                // target (the checker refuses it, the pipeline record B3.7), so it has
                 // no continuation — and a plain-named one would collide. The
                 // backends' resume tables skip it alike.
                 let sends = &ifaces[*i].sends;

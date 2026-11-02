@@ -444,7 +444,7 @@ struct Server<'c> {
     /// [lsp-analysis-reuse] The analyses made since the last document event,
     /// by (project root, hash of the overlay analysed): a hover, a completion
     /// and a go-to-definition between two edits answer from one analysis
-    /// instead of re-running the pipeline each (PIPELINE.md §7 step 1).
+    /// instead of re-running the pipeline each (the pipeline record §7 step 1).
     /// Cleared on every document notification, which is also what re-reads
     /// the disk. A few entries, since completion analyses a patched buffer.
     analyses: std::cell::RefCell<Vec<(PathBuf, u64, std::rc::Rc<Analysis>)>>,
@@ -2579,7 +2579,7 @@ fn struct_lit_at(program: &salvo_core::Program, checked: &Checked, file_idx: usi
 /// [lsp-completion] The fields of the struct whose type key is `key`, as
 /// `(name, type)` [type-identity]: `Name§module` is that module's `Name`,
 /// a plain key std's first. (By written name, the first struct of the name
-/// in the program answered, another module's included — PIPELINE.md C1.)
+/// in the program answered, another module's included — the pipeline record C1.)
 fn struct_fields(program: &salvo_core::Program, key: &str, viewer: usize) -> Vec<(String, String)> {
     let name = salvo_core::typekey::plain(key);
     let declaring = salvo_core::typekey::module_of(key);
@@ -3662,7 +3662,7 @@ fn fn_signature(program: &Program, checked: &Checked, key: DeclId) -> Option<Str
         return Some(sig);
     }
     // [effect-alias] [effect-prereq] The effects as the program means them
-    // (PIPELINE.md R6): aliases flattened, prerequisites and the effects of
+    // (the pipeline record R6): aliases flattened, prerequisites and the effects of
     // fn-typed parameters added.
     let expanded = checked.effects_taken_by(checked.decls.loc(key)?.file, decl).map(|v| v.as_slice());
     Some(fn_decl_signature_with(decl, checked.deductions.get(&salvo_core::check::Key::name_of(key)).map(|d| d.as_slice()), expanded))

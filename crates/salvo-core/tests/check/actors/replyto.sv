@@ -237,7 +237,7 @@ fn a_remote_mint_target_is_refused_by_name() [use, spawn] {
 // [actor-replyto] [type-identity] Which handlers park is known by handler
 // key, not written name: a parking `Srv` of another module, not even
 // imported, does not refuse the `use` of this module's own `Srv` (found
-// 2026-10-29, PIPELINE.md C1: the set held written names).
+// 2026-10-29, the pipeline record C1: the set held written names).
 export actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
@@ -274,7 +274,7 @@ fn main() [use] {
 
 // [fn-param-mode] A handler member takes its parameters as the member it
 // implements declares (`=> !out` moves the token in), so leaving one of its
-// paths without answering is the leak it is (found 2026-10-30, PIPELINE.md
+// paths without answering is the leak it is (found 2026-10-30, the pipeline record
 // D3.2: the member's declaration took `out` as kept, and nothing asked).
 actor effect Tally {
     send fn tally(out: Reply<Int>) => !out

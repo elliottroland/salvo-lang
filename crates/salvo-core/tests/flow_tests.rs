@@ -1,4 +1,4 @@
-//! [flow-use-after-move] The IR's use-after-move pass (`ir::flow`, PIPELINE.md
+//! [flow-use-after-move] The IR's use-after-move pass (`ir::flow`, the pipeline record
 //! R8), the only use-after-move diagnostic since piece 3a and the only
 //! partial-move one since piece 3b [fate-partial-move], and the only
 //! poisoned-read one since piece 3c [fate-poison]: over a corpus of

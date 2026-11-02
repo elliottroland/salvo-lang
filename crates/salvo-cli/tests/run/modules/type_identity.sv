@@ -162,7 +162,7 @@ fn main() [use, spawn] {
 // [type-identity] Two effects named `Log` — a plain one declared first,
 // keeping the plain key, and an actor one keyed by its module — and two
 // structs named `View`, one borrowing. Every lookup goes by key or through
-// the file's scope (PIPELINE.md step 5): the deduction tables, the runtime
+// the file's scope (the pipeline record step 5): the deduction tables, the runtime
 // features' actor test, both emitters' interface lookups, which until then
 // fell back to the plain name and could answer the other module's `Log`.
 //--- two_effects_of_one_name_stay_apart

@@ -1,7 +1,7 @@
 //! [ir-linear-check] The IR-level linear-obligation check (`ir::check`) must
 //! report **zero** leaks on known-good code (std + every example the AST
 //! checker accepts) — a false positive there would break a valid program once
-//! the check gates the build (IR_CHECKER.md Phase 1). It must also *catch* a
+//! the check gates the build (the IR-checker record Phase 1). It must also *catch* a
 //! genuine leak the AST checker misses: a linear union arm dropped by an elvis
 //! pick (noticeboard #2).
 
@@ -151,7 +151,7 @@ export fn peek(h: Holder) -> Int {\n\
 }
 
 /// [fate-move-mode] A binding of a linear value takes ownership when a later
-/// use moves what it bound, decided at that use in the one walk (PIPELINE.md
+/// use moves what it bound, decided at that use in the one walk (the pipeline record
 /// R8 piece 4): the root is consumed *at the binding* on every path through
 /// it, so assigning the root again before the use drops nothing, and a path
 /// that skips the use owes nothing for the root. Neither the checker's linear

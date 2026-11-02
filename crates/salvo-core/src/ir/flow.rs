@@ -1,5 +1,5 @@
 //! [flow-use-after-move] The IR's use-after-move pass (03-generate-02-flow,
-//! PIPELINE.md R8): per path, the set of wholly moved locals, and the places
+//! the pipeline record R8): per path, the set of wholly moved locals, and the places
 //! moved *out of* each local [fate-partial-move]; a later read of either is
 //! the error. It is the only use-after-move diagnostic (since piece 3a the
 //! checker reports no consumed read, since piece 3b no partial-move use,
@@ -284,7 +284,7 @@ fn check_fn(f: &FnDecl, out: &mut Vec<FlowDiagnostic>) {
 /// borrow-mode there), and, for a fields-declaring call's survivor, whose
 /// local is still live. Adds to `out` (the bindings by their stamps, nodes
 /// [node-id]); answers whether it decided anything, so the builder knows to
-/// build the declaration again (PIPELINE.md D3.6).
+/// build the declaration again (the pipeline record D3.6).
 pub fn decide(decl: &Decl, out: &mut Decision) -> bool {
     let mut any = false;
     let mut one = |f: &FnDecl| {

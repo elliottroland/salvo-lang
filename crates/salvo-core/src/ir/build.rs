@@ -46,7 +46,7 @@ pub struct Ctx<'p> {
 impl<'p> Ctx<'p> {
     /// [fate-move-mode] Whether the binding statement (or the loop, by its
     /// iterable) at `key` takes ownership: lowered as a move. The flow
-    /// pass's decision is the one answer (PIPELINE.md D3.5).
+    /// pass's decision is the one answer (the pipeline record D3.5).
     pub fn mode(&self, key: crate::check::Key) -> bool {
         self.decision.modes.contains(&key)
     }
@@ -98,7 +98,7 @@ impl<'p> Ctx<'p> {
         self.resolution.decls.loc(id).map_or(usize::MAX, |l| l.item)
     }
 
-    /// [dump-spelling] Every declaration's dump name (PIPELINE.md §II.10
+    /// [dump-spelling] Every declaration's dump name (the pipeline record §II.10
     /// P22): `name@module`, with its parameter types — `to_str(Int)@std.core.basic`
     /// — when its file declares the name more than once.
     fn compute_names(program: &CoreProgram, decls: &crate::decl_id::DeclIndex) -> HashMap<DeclId, String> {
@@ -238,7 +238,7 @@ pub fn build_program_gated<'p>(
     // every binding borrow-mode and every loop by reference, which bindings
     // take ownership (and which stay virtual places [deduce-field]) and
     // which loops iterate by value; a declaration it decided anything
-    // in is built again from the decision (PIPELINE.md D3.6: the item, not
+    // in is built again from the decision (the pipeline record D3.6: the item, not
     // its module), which is what the emitters and the flow pass's own check
     // read.
     drop(t);

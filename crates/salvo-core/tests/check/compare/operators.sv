@@ -74,7 +74,7 @@ fn same_p(a: P, b: P) [] -> Bool => a, b {
 // [op-order] Ordering `Double`s keeps the host's IEEE order where no `cmp` is
 // in reach (std declares none: a sorted container of them has no total
 // order), and an enclosing `?cmp` takes it as it takes the call
-// [implicit-resolve-body] (PIPELINE.md §II.10 P12).
+// [implicit-resolve-body] (the pipeline record §II.10 P12).
 fn plain(a: Double, b: Double) [] -> Bool => a, b {
     return a < b
 }

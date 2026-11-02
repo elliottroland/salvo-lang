@@ -5,7 +5,7 @@
 //!
 //! This is the home for analyses that are about *what happens as the code runs*
 //! — flow, consumption, control-leaves — as opposed to the typing/resolution/
-//! declaration-shape checks that stay in `check.rs` (IR_CHECKER.md Phase 2).
+//! declaration-shape checks that stay in `check.rs` (the IR-checker record Phase 2).
 //! Its tenants are the linear-obligation check (`ir::check`, on the user's own
 //! modules) and the use-after-move pass (`ir::flow` [flow-use-after-move], on
 //! those and their test files); the fate/release, loop-totality,

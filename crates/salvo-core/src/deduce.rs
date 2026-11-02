@@ -83,7 +83,7 @@ struct FnInfo<'p> {
 /// [deduce-default] Every top-level `fn`'s contract, from its signature
 /// alone: the written entries over the per-parameter defaults. Known before
 /// any body is walked, which is what lets the first checking walk be a real
-/// one (PIPELINE.md step 2). std's come from the cache when there is one.
+/// one (the pipeline record step 2). std's come from the cache when there is one.
 /// Shape errors in written lists are reported by [`infer`], not here.
 pub(crate) fn contracts(
     program: &Program,

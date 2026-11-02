@@ -621,7 +621,7 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
     // once over the unstamped program. A scope that took in no module the
     // stamping changed (added a clause's members to, or took a template out
     // of) is the same over the stamped program, so it is viewed; the rest
-    // are built (PIPELINE.md C4 B).
+    // are built (the pipeline record C4 B).
     if let Some(interfaces) = &program.interfaces {
         let given: Vec<Option<GivenScope>> = interfaces
             .scope_ids
@@ -662,7 +662,7 @@ pub struct GivenScope {
 }
 
 /// [comptime-instantiate] [decl-id] The interfaces of an unstamped program
-/// (PIPELINE.md C4 B): every file's scope by id and what building it
+/// (the pipeline record C4 B): every file's scope by id and what building it
 /// reported, over the program's declarations as written. What comptime
 /// looks names up in, and what the stamped program's resolution views
 /// again; `changed` is the modules stamping changed the declarations of.
@@ -1136,7 +1136,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     // module (if any) the file is in: added at `Level::Core` into an empty
     // scope, with no diagnostic (core-core collisions were reported
     // globally). So it is built once per such module and cloned into each
-    // file's scope (PIPELINE.md step 8: building it per file was most of
+    // file's scope (the pipeline record step 8: building it per file was most of
     // resolution). Should building it ever report something, every file
     // builds its own, so each diagnostic stays with its file.
     type CoreBase<'p> = (ModuleScope<'p>, HashMap<(NameKind, &'p str, Option<String>), (Level, &'p ModulePath)>);
@@ -1363,7 +1363,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     }
 
     // [decl-id] The scopes by declaration id, and the pointer scopes as their
-    // view over this program (PIPELINE.md C4): what outlives the program.
+    // view over this program (the pipeline record C4): what outlives the program.
     let scope_ids: Vec<std::sync::Arc<crate::scope_ids::ScopeIds>>;
     {
         let t = crate::timing::phase("    resolve: scope ids");
@@ -1935,7 +1935,7 @@ fn add_items<'p>(
             }
         }
     }
-    // [effect-alias] Resolved like a type alias (PIPELINE.md R6): visible
+    // [effect-alias] Resolved like a type alias (the pipeline record R6): visible
     // by declaration, import and `std.core.*`, expanded where a list is lowered.
     for (file, a) in &items.effect_aliases {
         if want(&a.name.name) {

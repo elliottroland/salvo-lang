@@ -1,5 +1,5 @@
 //! [decl-rows] The checker's rows, partitioned by the declaration that owns
-//! them (PIPELINE.md §II.9 A4).
+//! them (the pipeline record §II.9 A4).
 //!
 //! Every row of `Checked` belongs to one declaration: a node-keyed row to
 //! its key's declaration (`Key::decl` [node-id]), a declaration-keyed row

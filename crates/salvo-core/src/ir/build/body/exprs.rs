@@ -656,7 +656,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     }
 
     /// [interp-to-str] The text of `value`: the call `to_str(value)` the
-    /// checker resolved at the part's `Key::INTERP_TEXT` (PIPELINE.md B3.2),
+    /// checker resolved at the part's `Key::INTERP_TEXT` (the pipeline record B3.2),
     /// or a union's per-arm dispatch; else natively. `None` when it has none.
     fn text_of(&mut self, value: Expr, span: Span) -> Option<Expr> {
         let str_ty = Ty::named("Str");

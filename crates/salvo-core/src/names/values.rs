@@ -1,4 +1,4 @@
-//! [name-table] Value-position names (PIPELINE.md C1.3): every name a body
+//! [name-table] Value-position names (the pipeline record C1.3): every name a body
 //! writes where a value goes — a variable read, a callee, a handler in a
 //! `use`, a selector — bound by resolution where it is written: to the
 //! binding it reads (a `let`, a parameter, a state field, an `is` binding, a

@@ -110,7 +110,7 @@ fn work_picked() [Store] -> Str {
 // parameter type in a call where member and fn collide (B1 census D16): the
 // member and the fn are one candidate set, so the lambda is typed as for any
 // overloads — by the lead candidate, or, with none, by the type every
-// candidate declares at its position (PIPELINE.md B3.5). When they disagree
+// candidate declares at its position (the pipeline record B3.5). When they disagree
 // nothing can type it, and the call is refused — before 2026-10-27 the
 // lambda's parameter stayed `?`, the analysis was clean, and rustc and
 // kotlinc both refused the generated code.

@@ -1,5 +1,5 @@
 // [effect-member-overload] [fn-value-select] An available effect's member is
-// a value by its bare name, as a fn is (R10 D3, PIPELINE.md B3.6): at a
+// a value by its bare name, as a fn is (R10 D3, the pipeline record B3.6): at a
 // fn-typed position its members compete with the fns of the name, and the
 // winner is a closure over the instance in scope. Before, only `name@Effect`
 // made a member a value.

@@ -76,7 +76,7 @@ pub struct ComptimeOutput {
     pub hovers: Vec<CompHover>,
     pub when_arms: Vec<CompWhenArms>,
     /// [comptime-instantiate] [decl-id] The interfaces the stamping read
-    /// (PIPELINE.md C4 B), with the modules it changed the declarations of:
+    /// (the pipeline record C4 B), with the modules it changed the declarations of:
     /// what the stamped program's resolution views again.
     pub interfaces: crate::resolve::Interfaces,
 }
@@ -211,7 +211,7 @@ fn run<M: crate::expand::ModuleSlot>(
     }
     // [comptime-instantiate] [decl-id] The program's interfaces, over the
     // declarations as written: what every name the stamping reads means
-    // (PIPELINE.md C4 B). The stamped program's resolution views them again.
+    // (the pipeline record C4 B). The stamped program's resolution views them again.
     let t = crate::timing::phase("  expand: comptime interfaces");
     let mut interfaces = crate::resolve::interfaces(files, &*modules, given);
     drop(t);

@@ -77,7 +77,7 @@ fn main() [use] -> None {
 // [qual-lift] [str-drop-mut] `^Mut` is the one lift that changes a
 // representation: Kotlin's `Mut Str` is a `StringBuilder`. A read of the
 // lifted subject, or a lifted binding, is the plain `Str` by a `Mut` drop
-// (PIPELINE.md D2 `Test`, 2026-10-30). Before, the `if` form cast the
+// (the pipeline record D2 `Test`, 2026-10-30). Before, the `if` form cast the
 // builder to `String` (a `ClassCastException`) and the `when` form passed
 // the builder where a `String` was wanted (refused by kotlinc).
 

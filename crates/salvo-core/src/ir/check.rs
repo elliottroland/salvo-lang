@@ -1,6 +1,6 @@
 //! [ir-linear-check] The IR-level linear-obligation check: a per-path balance
 //! over the obligation ledger (`ir::obligations`) and the control-flow
-//! structure. It is the "real" check moved onto the IR (IR_CHECKER.md): where
+//! structure. It is the "real" check moved onto the IR (the IR-checker record): where
 //! the AST checker re-derived each sugar's meaning to decide linearity, this
 //! reads the directives the IR builder placed and reports a linear obligation
 //! that is still outstanding when a path exits.

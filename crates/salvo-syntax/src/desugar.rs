@@ -1592,7 +1592,7 @@ pub fn hoist_struct_fns(module: &mut Module) {
 }
 
 /// [when-lowered] [op-elvis] Lowers every `subject ?: rhs` of `module` to the
-/// `when` it is (user decisions 2026-10-30, PIPELINE.md D2):
+/// `when` it is (user decisions 2026-10-30, the pipeline record D2):
 ///
 /// ```text
 /// when subject      { is #{first arm} { subject } is #{rest} { rhs[_ := subject] } }   // a place

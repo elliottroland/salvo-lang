@@ -314,7 +314,7 @@ fn a_waitfor_stops_at_a_lambda() [use, spawn] {
 }
 
 // [effect-member-overload] An overloaded send member reached through an addr
-// is chosen by the call's rule (PIPELINE.md B3.7, D24 (a)): the arguments
+// is chosen by the call's rule (the pipeline record B3.7, D24 (a)): the arguments
 // typed once, the overloads ranked by them — by arity here, by type below.
 actor effect Sink {
     send fn put(a: Int)

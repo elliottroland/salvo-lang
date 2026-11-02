@@ -1,4 +1,4 @@
-//! [ir-analyze] Per-declaration gating (PIPELINE.md R8): the IR is built, and
+//! [ir-analyze] Per-declaration gating (the pipeline record R8): the IR is built, and
 //! the flow and linear checks run, for every declaration whose own checking
 //! produced no error, whatever the rest of the program holds. A declaration
 //! with an error of its own reports that error and nothing from the IR, so a

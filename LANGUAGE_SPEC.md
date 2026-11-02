@@ -222,7 +222,7 @@ Conventions:
   * Floats are not `Set` elements or `Map` keys [col-key-eligible], so only
     the *value* half of a map needs the rule.
   * **Every part is the call `to_str(part)`** (user decision 2026-10-28,
-    PIPELINE.md §II.10 P4 option (a); built in B3.2), resolved *at the
+    the pipeline record §II.10 P4 option (a); built in B3.2), resolved *at the
     interpolation site* as that call written in the body would be: the
     enclosing fn's own implicit `to_str` first [implicit-resolve-body] —
     at a scalar or a `Str` too (census D1: there was a native fast path
@@ -239,7 +239,7 @@ Conventions:
     type's `to_str` is declared in the type's own file [op-unique-shape],
     so a module's `to_str(List<T>)` beside std's, or a catch-all
     `to_str<T>(x: T)`, is refused where it is written (the 2026-10-14
-    hazard of PIPELINE.md §II.10 P5).
+    hazard of the pipeline record §II.10 P5).
     * The format fn is the IR's `concat` node, not a std declaration:
       nothing calls it by name.
   * **std provides** `fn to_str<T>(list: List<T>, ?to_str: (x: T) -> Str)
@@ -2442,7 +2442,7 @@ Conventions:
     skipped. A value side is held in a temporary unless nothing could tell:
     a literal, or a read when the subject is a read too.
 * [op-arith] **Arithmetic operators are the calls they name** (B3.3e,
-  2026-10-28; OPERATOR_OVERLOAD.md O1, PIPELINE.md §3 R10): `a + b` is
+  2026-10-28; OPERATOR_OVERLOAD.md O1, the pipeline record §3 R10): `a + b` is
   `plus(a, b)`, `a - b` `minus(a, b)`, `a * b` `times(a, b)` and `a / b`
   `divide(a, b)`, resolved exactly as the written call is, as the comparisons
   are [op-order]:
@@ -2451,7 +2451,7 @@ Conventions:
     D1), several ranked like overloads [implicit-same-name]. By **name**, as
     the call sees it (no binder-alias slot, unlike `<`'s [cmp-binder]); a
     fn-typed local or ordinary parameter named `plus` does not take `+`
-    (PIPELINE.md §II.10 P14, as for `==`).
+    (the pipeline record §II.10 P14, as for `==`).
   * **Then the visible declarations and the available effects' members**
     (R10 D3), ranked as the call ranks them; a tie is the call's ambiguity
     (`m@E` its remedy for a member). Under [op-unique-shape] a concrete type has
@@ -2495,7 +2495,7 @@ Conventions:
   * **`%`, unary `-` and `++`/`--` name no function** (O1's table has none):
     they stay the host's operators on the numeric scalars (`%` with the
     same widening; `++`/`--` on an `Int` place [op-inc-dec]), and a struct gets
-    none of them. Their names, if any, are PIPELINE.md §II.10 P16 (open).
+    none of them. Their names, if any, are the pipeline record §II.10 P16 (open).
     Compound assignment is the binary operator it desugars to
     [op-compound], so `v += w` is `v = plus(v, w)`.
   * The checker records the operator as the call (`calls`: `Callee::Fn`,
@@ -2550,7 +2550,7 @@ Conventions:
     The call rule has no widening of its own — `cmp(i, l)` written out is
     refused, as `f(i)` into a `Long` parameter is — so the operator keeps the
     meaning it had; whether that stays a lowering or becomes something the
-    call expresses is PIPELINE.md §II.10 P11 (open, ROADMAP 0ai). A
+    call expresses is the pipeline record §II.10 P11 (open, ROADMAP 0ai). A
     mixed-class pair is refused before any call.
   * **At an arithmetic operator likewise** (B3.3e): `i + l` is
     `plus(widen(i), l)`, at std's `plus(Long, Long)`. `**` widens nothing
@@ -2580,7 +2580,7 @@ Conventions:
 * [op-order] **Ordering is `cmp`**: `a < b` is `cmp(a, b) < 0`, and likewise
   for `<=`, `>` and `>=` (user decision 2026-09-21, superseding the
   2026-09-14 surface), and since B3.3c (2026-10-28; OPERATOR_OVERLOAD.md O1,
-  PIPELINE.md §3 R10) **the operator is the call it names**, resolved exactly
+  the pipeline record §3 R10) **the operator is the call it names**, resolved exactly
   as the written call `cmp(a, b)` is — one rule, no semantic fast path:
   * **The enclosing fn's own implicit first** [implicit-resolve-body]: an
     implicit named `cmp` whose parameters the operands fit takes the operator,
@@ -2794,7 +2794,7 @@ Conventions:
   the then branch alone falls through (`if x is A { … } else { return }`),
   `x` is an `A` below; when two do, the union of theirs. After a `when` on
   a variable, the subject is one of the arms whose branches fall through
-  (user decision 2026-10-30, option (a) of the `?:` lowering, PIPELINE.md
+  (user decision 2026-10-30, option (a) of the `?:` lowering, the pipeline record
   D2: it is what makes a leaving `?:` right side [op-elvis-guard] the same
   rule as a hand-written `if`).
   * Only where some path leaves; otherwise the paths cover the subject and
@@ -2892,7 +2892,7 @@ Conventions:
     nested `when` would scrutinize the wrapper it came out of, which is
     exactly the wrong-code bug the feature's own demo caught while it was
     being built. The IR narrows the subject to the arm the test matched, as
-    it does for an `is`; no table says what the lift sees (PIPELINE.md D2,
+    it does for an `is`; no table says what the lift sees (the pipeline record D2,
     `Test`: the per-read storage is in `narrowed_reads`).
   * **`^Mut` converts** (2026-10-30): `Mut` is the one qualifier that
     survives erasure [ir-types], so lifting it is a change of
@@ -2932,7 +2932,7 @@ Conventions:
   the plain form; the IR binds it once and switches on it, so no new node or
   backend rule is needed.
 * [when-union-head] **A `when` arm head may be a union**, `is A | B { … }`
-  (user decision 2026-10-30, option 1a of the `?:` lowering, PIPELINE.md
+  (user decision 2026-10-30, option 1a of the `?:` lowering, the pipeline record
   D2): the arm covers every alternative, and the subject is narrowed to their
   union inside it, as `x is A | B` narrows in a condition [is-union]. Arms are
   consumed in order, so an alternative an earlier arm took is no error, and a
@@ -2949,7 +2949,7 @@ Conventions:
   * The lowered `?:` and `?.` use it: the arms a pick leaves behind are
     one head [when-lowered].
 * [when-lowered] **`?:`, `?.` and `?>` are sugar for a `when`** (user decision 2026-10-30,
-  option (a) of PIPELINE.md D2's Convert write-up), lowered after parsing
+  option (a) of the pipeline record D2's Convert write-up), lowered after parsing
   and before resolution, since it needs no names (`desugar::lower_picks`):
   * `s ?: rhs` becomes `when s { is #{first arm} { s } is #{rest} { rhs } }`
     when `s` is a place — a variable or a field path, which the arms narrow
@@ -3481,7 +3481,7 @@ Conventions:
   a bare name does (2026-10-14: before, `apply(tag@main, 1)` with a generic
   `tag<T>` reached the call as `(T) -> Str` and found no overload).
   * **An available effect's members are candidates too** (R10 D3, built
-    2026-10-28, PIPELINE.md B3.6): at a fn-typed position the members of the
+    2026-10-28, the pipeline record B3.6): at a fn-typed position the members of the
     name of every effect with an instance in scope compete with the fns, and
     a member winner is a closure over its instance (`Checked::fn_values`,
     as for `m@E` [effect-at]). Detached from a fn-typed position a member is
@@ -3520,7 +3520,7 @@ Conventions:
     by-name selection compared the claim-less type while the chosen value
     carried the claim.
 * [effect-member-call] An effect member call is a call: it is selected and
-  checked by the call's rule (PIPELINE.md B3.5, census D17 and D25,
+  checked by the call's rule (the pipeline record B3.5, census D17 and D25,
   2026-10-28) — the fit [fn-overload-rank], arity with defaults and named
   arguments [fn-param-default], a variadic tail [fn-variadic], literal
   adoption, the lead candidate typing its lambdas — and a member no argument
@@ -3616,7 +3616,7 @@ Conventions:
   guesses from the name (built 2026-10-06).
   * A handler's own `send fn` is reached by a uniform call as by the plain
     call: `x.k(a)` inside a mixed handler is the servant send `k(x, a)`
-    [actor-mixed-handler] (user decision 2026-10-28, PIPELINE.md B3.7
+    [actor-mixed-handler] (user decision 2026-10-28, the pipeline record B3.7
     question 3 (a): the handler's members are in scope for it).
 * [name-ident-resolve] Every **identifier reference** must resolve to something
   declared — a local, a parameter, a handler, or a fn passed by name.
@@ -3659,6 +3659,23 @@ Conventions:
     A computed callee used to be typed against its parameters and nothing
     else, so rustc and kotlinc found its mistakes; a claim through a local
     was dropped, and an empty list reached a `NonEmpty` parameter.
+* [call-one] **Every call-like form is one call** (the pipeline record
+  §II.6, R10, built through B3; user principle 2026-10-27: "implicits are
+  automatically selected lambdas"). A written call, a dot call
+  [fn-uniform], an effect member's call, an operator (the call it names
+  [op-equality] [op-order] [op-arith]), an interpolated part's `to_str`
+  [interp-to-str], the `next`/`iter` a `for` names [iter-for], an implicit
+  argument's fill [implicit-resolve], a fn named as a value [fn-value], and
+  a send or a mint's target [actor-send-fn] are selected by the one rule a
+  written call is (`resolve_named_call` → `select_overload`, with
+  `fn_value_fit` at a fn-typed position), checked by its contract, and
+  recorded as one `Call` in `Checked::calls` — a form with no node of its
+  own at a synthetic key of the node that implies it (`Key::INTERP_TEXT`,
+  `Key::FOR_NEXT`, `Key::FOR_ITER`). A rule about calls is written once,
+  against that node; a form that judged its call by its own code is how the
+  census (the pipeline record §II.13) found its 25 divergences. The round
+  trip checks the unity [round-trip]: each form written as the call it
+  resolved to must choose the same.
 * [struct-field-resolve] Only structs have fields, and only the ones they declare
   (predicate-qualifier overrides refine them [qual-field-override]).
   A field on any other known type — an `intrinsic type`, an array, a fn
@@ -4087,7 +4104,7 @@ Conventions:
     [effect-at]) or `to_str = to_str@main`. Its own implicits are filled as
     a fn's are [implicit-recursive]. Not at a **binder** [cmp-binder]: what
     fills a binder is an identity a type carries, and only a named top-level
-    fn has one [cmp-carry] (a **DECISION** recorded, PIPELINE.md §II.10: the
+    fn has one [cmp-carry] (a **DECISION** recorded, the pipeline record §II.10: the
     safe reading, refusing no program; the alternative is to rank members
     there too and refuse a member that wins). Interpolation parts and
     operators reach members in B3 pieces 2–3, and a bare member name as a
@@ -4195,7 +4212,7 @@ Conventions:
     (`Callee::Local::local`), which is the name the backends declare and call.
     Every call through a local records the local it goes through, the
     written name included, and the lowering reads it with no fallback
-    (PIPELINE.md D3.3, 2026-10-30): before, an unrecorded name fell back to
+    (the pipeline record D3.3, 2026-10-30): before, an unrecorded name fell back to
     the written one and then to the implicits by resolution name.
   * **At a call site** each is filled on its own — a binder from the
     argument's type, the rest by name and type. The bare override `to_str = f`
@@ -4566,7 +4583,7 @@ Conventions:
     answers its expression. Before, a block lambda with no expected type
     was typed as returning `Unknown`, so a mismatch at its call was left
     to the target compiler, and the IR inferred the return from the first
-    `return` it lowered (PIPELINE.md D3.3(g)).
+    `return` it lowered (the pipeline record D3.3(g)).
   * **An expected return a type parameter only the result binds**
     (`eval<Q>(f: once () -> Q) -> Q` called where a `Str` is wanted): the
     lead candidate's type parameters are bound from the call's expected type
@@ -4943,7 +4960,7 @@ Conventions:
     and `use e` over a (possibly nested) tuple binds every effect in it —
     `use e.0; use e.1`, `e.0.1` for a nested one: the checker and the
     lowering flatten it with one definition (`check::handle_leaves`). Fixed
-    2026-10-30 (PIPELINE.md D3.3): the lowering read a nested tuple's
+    2026-10-30 (the pipeline record D3.3): the lowering read a nested tuple's
     handles by their flattened index (`e.1` for `((a, b), c)`'s `b`), which
     both target compilers refused. A single-effect handle stays the `Addr`-named marker
     (it carries the plain-vs-actor distinction the emitters read).
@@ -5046,7 +5063,7 @@ Conventions:
     (`of Fs, Streams`). A `use` without a `Streams` bound reports the
     prerequisite by name (`handler \`MemFs\` implements \`Fs\`, which needs
     \`Streams\` in scope`), recognised by the entry's `Prereq` origin.
-  * **Expanded where effect lists are lowered** (2026-10-20, PIPELINE.md
+  * **Expanded where effect lists are lowered** (2026-10-20, the pipeline record
     step 6, replacing an AST rewrite that ran before resolution). One checker
     helper, `expand_effect_refs`, turns a written list into the effects it
     means: aliases flattened [effect-alias], prerequisites added with generic
@@ -5088,7 +5105,7 @@ Conventions:
   * **Usable wherever a named effect is**, including as or within a
     prerequisite. `any Alias` at a *site* is refused for the same reason `any`
     is refused in the declaration: `any` is about one instance of one effect.
-  * **A name, resolved like a type alias** (2026-10-20, PIPELINE.md step 6,
+  * **A name, resolved like a type alias** (2026-10-20, the pipeline record step 6,
     replacing an AST rewrite that ran before resolution). An alias is a module
     item: exported, imported (`import caps.App`) and found by the resolver's
     ordinary ladder. Where an effect list is lowered, the checker's
@@ -5333,7 +5350,7 @@ Conventions:
       Tally { fn add(n: Int) }`, and `to_upper@core.string("hi")` running the
       member; both are history.)
   * **One overload set where the effect *is* available** (user decision
-    2026-09-14; one selection since 2026-10-28, R10 P4, PIPELINE.md B3.5):
+    2026-09-14; one selection since 2026-10-28, R10 P4, the pipeline record B3.5):
     the members of every available effect declaring the name and the fn
     overloads of it are **one candidate set**, ranked by the order two fn
     overloads use [fn-overload-rank], and the more specific signature wins —
@@ -5371,7 +5388,7 @@ Conventions:
   * The resolved instance is recorded per call site (`effects_passed`,
     `Receiver`: the call's receiver, not an argument), as the binding that
     put it in scope [effect-instance].
-* [effect-instance] **Every effect argument names its instance** (PIPELINE.md
+* [effect-instance] **Every effect argument names its instance** (the pipeline record
   D3, user decision 2026-10-30): wherever the checker resolves an effect
   against the scope — a call's leading effects and a member call's receiver
   (`effects_passed`), a construction's dependencies (`constructions`), a
@@ -5543,7 +5560,7 @@ Conventions:
   * **Covered and exempt (D-4).** Covered: top-level fns, fns written in a
     struct's body, stamped fns (a stamp outside the type's file — `fn eq(a:
     Pt, b: Pt) -> Bool by auto` in another module — is refused like a written
-    fn), effect members (functions in scope, PIPELINE.md §II.10 P4), a
+    fn), effect members (functions in scope, the pipeline record §II.10 P4), a
     qualifier's fns. Exempt: a `fns` group's member signatures (they state a
     shape and implement nothing), comptime templates (a `comptime fn` with a
     kind bound; what it stamps is checked where it lands), and a handler's
@@ -5555,14 +5572,14 @@ Conventions:
     `std.core.array`; an `eff[E]` handle is the type `Addr`, whose home is
     `std.core.actor`, where it is declared. These were the doc's obvious
     candidates; the anonymous unions' home was not named and is
-    `std.core.basic` (2026-10-27, recorded in PIPELINE.md §II.12). A
+    `std.core.basic` (2026-10-27, recorded in the pipeline record §II.12). A
     program without std (a test fixture) has no structural homes and the
     check skips them. **A bare type parameter has no home**, so a shape on `T`
     is refused: the catch-all `fn to_str<T>(x: T)`.
   * **Aliases** (O4, [type-alias]): a union alias is a declared union, its own
     home (`type Shape = A | B` may declare `to_str(s: Shape)` in its file);
     any other alias names the type it expands to, so `type Grid = List<Int>`
-    gives `to_str(g: Grid)` `List`'s home. **DECISION** (open, PIPELINE.md
+    gives `to_str(g: Grid)` `List`'s home. **DECISION** (open, the pipeline record
     §II.10 P10, ROADMAP 0ah): built as the reading of D-2's "base type",
     recorded for confirmation with the two below.
   * **std follows it (D-7)**: `cmp`/`eq` for the scalars and the tuples are in
@@ -5578,7 +5595,7 @@ Conventions:
   * The rule does not select: the comparison operators are the calls they
     name [op-order] [op-equality]; interpolation [interp-to-str] and `for`
     [iter-resolve] are lowered to their calls in their own pieces
-    (PIPELINE.md §II.9 B3).
+    (the pipeline record §II.9 B3).
 * [obligation-by] **`by X` on an obligation clause stamps every member of the
   group from `X`'s `comptime fn`s** (user decisions 2026-09-28, the comptime
   rounds; replaces `auto`, which is deleted from the grammar):
@@ -6039,7 +6056,7 @@ Conventions:
   compiled wherever `c` held.
   * The expansion splices each copy and kept body into the enclosing block
     and records it as a scope by its first and last statement
-    (`Stamp::scopes`, PIPELINE.md C3.2, 2026-10-30): resolution, the checker
+    (`Stamp::scopes`, the pipeline record C3.2, 2026-10-30): resolution, the checker
     and the IR builder open a scope there (`origin::SpliceScopes`), so two
     copies' `let c` are two bindings and neither is visible after its copy,
     with no local renamed. A copy's local that would hide a visible one is
@@ -6289,7 +6306,7 @@ Conventions:
   source set, between the program's interfaces and its bodies
   (`salvo_core::comptime`), so a `by auto` in any file reads `std.core.auto`
   and the target's declaration.
-  * **Names are looked up through each file's scope** (2026-10-20, PIPELINE.md
+  * **Names are looked up through each file's scope** (2026-10-20, the pipeline record
     step 6; by id since 2026-10-30, C4 B): the program's **interfaces** are
     resolved first, over the declarations as written (`resolve::interfaces`:
     every file's scope by id [decl-id], and what building it reported), and
@@ -6343,7 +6360,7 @@ Conventions:
     resolution, the duplicate check, mangling, export, both emitters. Its
     signature is the declaration's, never the template's [fn-by].
 * [node-origin] **Every copied node keeps its origin; nothing invents a source
-  position** (PIPELINE.md §II.4, A2, 2026-10-27). A node an expansion copied
+  position** (the pipeline record §II.4, A2, 2026-10-27). A node an expansion copied
   keeps the span it has in the code it was copied from (a template's, which
   may be another file's) and carries the expansion's id (`Span::expn`; 0 for
   code as written). The declaration's `Stamp` records each expansion
@@ -6513,7 +6530,7 @@ Conventions:
     signature carries the binder is an error rather than a silently dropped
     claim.
   * [cmp-carry-override] **A carried binder written as well must name the
-    carried identity** (PIPELINE.md B4, 2026-10-28; DECISION open, §II.10
+    carried identity** (the pipeline record B4, 2026-10-28; DECISION open, §II.10
     P21): `contains(s, x, hash = my_hash)` with `s` built with `my_hash` is
     checked like any override and accepted; `hash = other_hash`, a lambda or
     a member is refused (`cmp-carry:override-disagrees`), since the structure
@@ -7026,7 +7043,7 @@ docs/language/ remains the source of truth for everything that does.
       in a send member, which sees the dependencies; a sync member does not,
       so a bare name there is the servant send.
   * **Dependencies are the servant's** (the first-slice cut lifted
-    2026-10-20, user decision R6 of PIPELINE.md: one experience for every
+    2026-10-20, user decision R6 of the pipeline record: one experience for every
     handler). `handler H [Clock] of E` with send members declares what its
     `send fn` members may call, written or implied by a face's
     prerequisite [effect-prereq]; the spawn resolves them exactly as an
@@ -7534,7 +7551,7 @@ docs/language/ remains the source of truth for everything that does.
   * **Resolution is lexical-member-first**: the enclosing handler's members are
     tried first (the existing rule, unchanged), then the free `send fn`s of the
     name by the call's rule over what a mint knows (user decision 2026-10-28,
-    census D18 (a), PIPELINE.md B3.7): every visible one competes, whatever
+    census D18 (a), the pipeline record B3.7): every visible one competes, whatever
     rung brought it into scope [fn-overload-scope], renames respected; one
     fits when it takes the captures plus one more parameter, the token, and
     — where the position fixes the token's type — that parameter takes it;
@@ -7649,7 +7666,7 @@ docs/language/ remains the source of truth for everything that does.
     a `let` first makes it one regardless.
   * An overloaded send member is chosen by **the call's rule**
     [effect-member-overload] [fn-overload-rank] (user decision 2026-10-28,
-    census D24 (a), PIPELINE.md B3.7): the arguments typed once, the lead's
+    census D24 (a), the pipeline record B3.7): the arguments typed once, the lead's
     parameter types flowing in, the overloads ranked by them; each lowers to
     its own message variant (`effect_member_name`). Before, the pick was by
     arity alone and a same-arity pair was refused. A self-send and a servant
@@ -7752,7 +7769,7 @@ docs/language/ remains the source of truth for everything that does.
     mailbox for the answer to arrive on and no dispatcher to run it, leaving
     the continuation silently dead. Refused at the `use` site, naming `spawn`.
     * Which handlers park is read off each handler's text before anything
-      is checked (2026-10-20, PIPELINE.md step 2): a member body holding
+      is checked (2026-10-20, the pipeline record step 2): a member body holding
       `replyto k(…)` with `k` one of the handler's own members, or `self@F`
       with `F` one of its faces (`syntactic_parking_handlers`). It
       over-approximates only for programs refused anyway.
@@ -8047,7 +8064,7 @@ docs/language/ remains the source of truth for everything that does.
     fallbacks (a timeout form, a per-edge reentrant opt-in) are the recorded
     answers, deliberately unbuilt until the false positives are *observed*
     rather than predicted.
-  * **Its inputs are per-declaration facts** (PIPELINE.md E1, 2026-10-30):
+  * **Its inputs are per-declaration facts** (the pipeline record E1, 2026-10-30):
     the graph reads what the checker recorded per handler and per free
     `send fn`, by declaration — each handler's shape (`Checked::
     handler_shapes`: faces with their `any`, `send` members, statefulness
@@ -8890,7 +8907,7 @@ between endpoints and delivers what arrives into the scheduler.
     for routes) for the actors; `eff[E]` keeps its name.
 * [actor-route-stub] **`use any group` binds `any E` to whichever member a
   selector chooses, per send** (names user decision 2026-10-03: the route,
-  `RouteSelector`; respelled 2026-10-20, user decision R7 of PIPELINE.md,
+  `RouteSelector`; respelled 2026-10-20, user decision R7 of the pipeline record,
   from `use route_any(group)`, so the statement reads like the availability
   it binds). `group` is an `eff[ActorGroup<E>]` for a non-generic actor
   effect `E`; `use any` on anything else is an error. `any` is contextual
@@ -9224,7 +9241,7 @@ between endpoints and delivers what arrives into the scheduler.
     kept parameter is a compile error at that function, never a silent change to
     what callers depend on.
 * [deduce-ownership-audit] **Ownership never changes what an accepted program
-  means** (the user's expectation, PIPELINE.md R5; made evidence 2026-10-20,
+  means** (the user's expectation, the pipeline record R5; made evidence 2026-10-20,
   step 7 piece 2). Where ownership feeds typing it is the *callee's
   signature* speaking — a contract dropping `NonEmpty`, a `Mut` argument
   invalidating narrowings [flow-place-invalidate], a mutation stripping
@@ -9243,7 +9260,7 @@ between endpoints and delivers what arrives into the scheduler.
   with nothing left to switch off, both walks were the same walk, and the
   audit was retired with the switch.
 * [flow-use-after-move] **The IR's use-after-move pass** (`ir::flow`,
-  03-generate-02-flow; PIPELINE.md R8 pieces 1–3c and 8, 2026-10-20) **is
+  03-generate-02-flow; the pipeline record R8 pieces 1–3c and 8, 2026-10-20) **is
   the only use-after-move diagnostic** — the checker reports no consumed
   read at all, no read of a place moved out [fate-partial-move], and no
   poisoned read [fate-poison] [fate-move-mode] — and since R8 piece 8 it
@@ -9474,7 +9491,7 @@ between endpoints and delivers what arrives into the scheduler.
   * Variadic parameters and non-identifier arguments are not tracked.
 
 * [deduce-fixpoint] **Every body is walked once** (decision L3a, 2026-09-02;
-  reshaped 2026-10-20, PIPELINE.md steps 2 and 5; the last re-walk removed
+  reshaped 2026-10-20, the pipeline record steps 2 and 5; the last re-walk removed
   2026-10-20, R8 piece 4). Every contract is known before the walk
   [deduce-default] (`deduce::contracts`), parking handlers are read off the
   handlers' text [actor-replyto], parameter mutations are only read after
@@ -9488,7 +9505,7 @@ between endpoints and delivers what arrives into the scheduler.
   `rewalk_files` / `Checked::drop_files` / `ErrorMarks` machinery and its
   four-walk cap went with it.)
 * [decl-interface-pass] **Every declaration's interface is checked before any
-  body** (2026-10-20, PIPELINE.md step 7 piece 3; 02-resolve-03-interfaces).
+  body** (2026-10-20, the pipeline record step 7 piece 3; 02-resolve-03-interfaces).
   The checker walks each file three times, each declaration's text read
   once per walk for its own half:
   1. *signature facts*, over every file: each fn's implicit parameters
@@ -9624,7 +9641,7 @@ between endpoints and delivers what arrives into the scheduler.
     the variable on that path were made by (an `is` or `when` binding's
     own, from its `Narrow`: `FateFacts::narrow_binds`), then back along the
     chain — that may take ownership does (a use with no links standing on
-    a path is not derived there, since PIPELINE.md D3.5(b)); and the declarations with a decision are built again from it
+    a path is not derived there, since the pipeline record D3.5(b)); and the declarations with a decision are built again from it
     (`ir::Decision`, on `ir::Program::decision`): a move-mode binding's value
     is read as a move, the loops it takes a binding of iterate by value, and
     its links are what it took ownership through (`FateFacts::bound`), with
@@ -9664,7 +9681,7 @@ between endpoints and delivers what arrives into the scheduler.
     data was moved out of through their binding, which the flow pass finds
     from the consuming projection reads the checker records in
     `Checked::moves` — a fact about the operation — and the bindings'
-    links along each path, since PIPELINE.md D3.5(b)).
+    links along each path, since the pipeline record D3.5(b)).
     Kotlin emission is unchanged: the consumption of the ancestors is
     what keeps alias-vs-move unobservable. `is`/`when` move-mode
     bindings still emit clones on Rust (restriction-valid; a faithful
@@ -9861,7 +9878,7 @@ between endpoints and delivers what arrives into the scheduler.
   capability the value carries (user decision 2026-09-04). The effects are
   *threaded into* the call on both backends; nothing is captured.
   * **A named fn's effects are part of its signature**, recorded with the
-    implicits before any body is checked (2026-10-20, PIPELINE.md step 7):
+    implicits before any body is checked (2026-10-20, the pipeline record step 7):
     `apply(shout)` above `fn shout(s: Str) [Console]` builds the value's
     type from `shout`'s list wherever `shout` is declared. Before, a fn
     declared later than the reference read no effects, and the Rust emitter
@@ -10275,7 +10292,7 @@ between endpoints and delivers what arrives into the scheduler.
     body performs on the parameter must be covered by a declared path, or
     the promise the callers rely on is a lie — an error naming the widening
     remedy.
-  * **Unwritten means anywhere** (user decision 2026-10-20, PIPELINE.md 4.3):
+  * **Unwritten means anywhere** (user decision 2026-10-20, the pipeline record 4.3):
     a callee with no field entry for a `Mut` parameter mutates it anywhere,
     exactly as a written `=> h: Mut` does. The precision is a callee's to
     state. (From 2026-09-25 to 2026-10-20 the field set was read off the
@@ -10293,7 +10310,7 @@ between endpoints and delivers what arrives into the scheduler.
     linked to the root at a field path; and the contents spares below),
     and keeps the ones still live after the event and whose binding has
     not taken ownership on that path [fate-move-mode]. (The checker
-    recorded the candidates until PIPELINE.md D3.5(b), and the walk's
+    recorded the candidates until the pipeline record D3.5(b), and the walk's
     consumption marking said which survived until R8 piece 8.) (The first attempt at
     this rung relaxed poison for *any* field path and broke that parity;
     COMPLETED.md's log (rung ⑤) keeps the probe.)
@@ -10370,7 +10387,7 @@ between endpoints and delivers what arrives into the scheduler.
     `=> v.items: proj(other)` [proj-infer], and Rust renders the
     assignment as a borrow with the struct's lifetime tied to `other`.
 * [proj-infer] **Which parameters a result holds borrows of is part of the
-  signature** (user decision 2026-10-20, PIPELINE.md 4.2, replacing the
+  signature** (user decision 2026-10-20, the pipeline record 4.2, replacing the
   2026-09-11 body inference): the written statements decide (`-> T holds
   proj(c)` after the return type, `=> .items: proj(c)` per field — fn types
   carry the return form too), else **every kept parameter that is not a Copy
@@ -10506,7 +10523,7 @@ between endpoints and delivers what arrives into the scheduler.
   target makes of the mode is its own ([backend-core-layers]): Rust passes a scalar by
   value whatever the mode, spells a lent fn value `&mut impl FnMut`
   ([rs-borrows]).
-  * **A per-declaration fact** (PIPELINE.md D3.2, 2026-10-30): once the
+  * **A per-declaration fact** (the pipeline record D3.2, 2026-10-30): once the
     deductions and the parameter mutations are known, `param_mode::record`
     records every declaration's modes at its name (`Checked::param_modes`,
     one per written parameter, an implicit one lent) — a fn, an effect
@@ -11466,7 +11483,7 @@ between endpoints and delivers what arrives into the scheduler.
   emitters and the hosts name directly), and **every other declaration is
   `Name§module`**, whether or not another module declares the name — so no
   key changes when a file declaring the same name is added (2026-10-27,
-  PIPELINE.md §II.9 A1; until then the first declarer of any name kept it
+  the pipeline record §II.9 A1; until then the first declarer of any name kept it
   plain). `Ty::Named` carries the key of the declaration the
   resolver chose, the program-wide tables in `Symbols` are keyed by it, and
   a written name is resolved in the scope of **the file that wrote it**
@@ -11504,7 +11521,7 @@ between endpoints and delivers what arrives into the scheduler.
     runtime's field `token: Token` by runtime's own `Token`. A protocol's
     canonical form spells a name plain, so its hash does not depend on which
     module holds the plain key.
-* [decl-id] **Every declaration has one stable id** (PIPELINE.md §II.9
+* [decl-id] **Every declaration has one stable id** (the pipeline record §II.9
   A1; user decision P1, 2026-10-27): its **module path**, its **kind** (fn,
   struct, `type`, effect, effect member, handler, handler member, qualifier,
   qualifier fn, `fns` group, group member, effect alias, and the IR's
@@ -11527,13 +11544,13 @@ between endpoints and delivers what arrives into the scheduler.
     goes on past the error.
   * **Representation** (`decl_id.rs`): interned for the process, so a
     `DeclId` is one pointer, hashed and compared as such; its order is by
-    content. It displays as `name(sig)@module` (PIPELINE.md §II.7).
+    content. It displays as `name(sig)@module` (the pipeline record §II.7).
   * **Position is derived, never the key**: `Resolution::decls` and
     `Checked::decls` (a `DeclIndex`) answer where an id is declared (file,
     item, member) and which id is at a position, for what still needs the
     file or the AST (emission order, a default's declaring file, the
     language server's definition sites, the check cache's per-file rows).
-  * **A file's scope is held by id** (2026-10-30, PIPELINE.md C4): a
+  * **A file's scope is held by id** (2026-10-30, the pipeline record C4): a
     `ScopeIds` is a `ModuleScope` with every declaration its id, names and
     module paths interned for the process, a refinement or rename the module
     it came from, and a definition site the declaration whose name it is
@@ -11548,7 +11565,7 @@ between endpoints and delivers what arrives into the scheduler.
     `param_mutations`, `deductions`, `handler_deps`, `effect_prereqs`) are
     kept at its name's node, which `Key::name_of(id)` rebuilds from the id
     alone — a declaration is numbered from its own span, so its name is its
-    second node (PIPELINE.md D2, 2026-10-30); a handler's member is its own declaration, so the facts
+    second node (the pipeline record D2, 2026-10-30); a handler's member is its own declaration, so the facts
     of its nodes are keyed by its member id [node-id], and its IR `FnDecl`
     carries that id.
   * A type's identity in `Ty::Named` is its **key**, the id's spelling
@@ -11558,7 +11575,7 @@ between endpoints and delivers what arrives into the scheduler.
   * The IR's generated declarations (message, continuation and private
     enums, stubs, routes, dispatchers) are identified by their module and
     generated name, a module-level `use`'s statics by their local.
-* [node-id] **A fact is keyed by its declaration and node** (PIPELINE.md
+* [node-id] **A fact is keyed by its declaration and node** (the pipeline record
   §II.9 A3; user decision P2, 2026-10-27): `check::Key` is `(DeclId,
   NodeId)` — the declaration the node is in [decl-id] (a member its own; a
   file's own nodes, its imports, renames, refinements and module-level
@@ -11590,7 +11607,7 @@ between endpoints and delivers what arrives into the scheduler.
     and its `Decision` compare. The spans left in rows (a key's origin,
     `DefSite`, `LocalDecl`, `handler_deps`, a diagnostic) are positions only.
 * [name-table] **A written type-position name is resolved once, where it
-  is written** (PIPELINE.md §II.9 C1.2; `salvo_core::names`): resolution
+  is written** (the pipeline record §II.9 C1.2; `salvo_core::names`): resolution
   binds every name a program writes where a type, a qualifier, an effect or
   a group goes — every `TypeRef` the complete walk reaches
   (`check_cache::walk_module`) — to what it means in the scope of the file
@@ -11654,7 +11671,7 @@ between endpoints and delivers what arrives into the scheduler.
     and lambda parameters [qual-depend]; its constants are not names.
   * Still the checker's: a handler's own `send` members and the
     unresolved-name diagnostics [name-resolve] [name-ident-resolve].
-* [node-file] **A node carries its file** (PIPELINE.md §II.9 C1.4): every
+* [node-file] **A node carries its file** (the pipeline record §II.9 C1.4): every
   span a program's tree numbers holds, beside its ordinal, the **tag** of the
   file whose tree it is in (`Span::file`, from `Module::file_tag`, which
   `expand::expand_file` sets from `source::file_tag` before numbering; the
@@ -11677,7 +11694,7 @@ between endpoints and delivers what arrives into the scheduler.
     are gone; the std cache's raw span keys with them, since a project
     file's tag never meets a std file's).
 * [decl-rows] **Every row of `Checked` belongs to one declaration**
-  (PIPELINE.md §II.9 A4; `partition.rs`): a node-keyed row to its key's
+  (the pipeline record §II.9 A4; `partition.rs`): a node-keyed row to its key's
   declaration (a declaration's own facts — `fn_lends`, `implicit_params`,
   `deductions`, `handler_deps`, … — are at its name's node), a row keyed by
   a handler's or an effect's symbol key (`route_keys`, `protocol_hashes`,
@@ -11766,7 +11783,7 @@ replaced the working document TESTING.md).
   `//~ refused[id]` annotations must be exactly the ids emission fails with.
   An annotation sits by the construct it is about; only its program, not its
   line, is checked. The format is `salvo_testkit::data`.
-* [round-trip] **Every choice survives being written out** (PIPELINE.md B4
+* [round-trip] **Every choice survives being written out** (the pipeline record B4
   and D4, §II.7; user decisions P5 (b): the examples and the corpus, and
   P24). `salvo_core::round_trip` prints a checked file back with each
   choice spelled out as the typed dump does [dump-type-check], Salvo only:
@@ -12802,7 +12819,7 @@ replaced the working document TESTING.md).
   backend never renders a guess [backend-never-wrong]. Both backends read
   the IR only; the checker's node-keyed tables [node-id] are the builder's inputs.
 * [ir-analyze] **The IR analyses run per declaration** (`ir::analyze`,
-  `ir::gate`; PIPELINE.md R8 piece 9, 2026-10-20): the IR is built, and the
+  `ir::gate`; the pipeline record R8 piece 9, 2026-10-20): the IR is built, and the
   flow pass [flow-use-after-move] and the linear check [ir-linear-check] run,
   for every declaration whose own checking produced no error, whatever the
   rest of the program holds. A declaration with an error reports that error
@@ -12841,7 +12858,7 @@ replaced the working document TESTING.md).
   renders it as a borrow). A union arm keeps its qualifier tag only when
   erasure would merge two arms, a tagged `None` keeps its tag, and literal
   types collapse into their base [type-literal].
-  * **One layer** (PIPELINE.md D3.4, option (a), user decision 2026-10-30):
+  * **One layer** (the pipeline record D3.4, option (a), user decision 2026-10-30):
     erasure stays per node, as the builder lowers each one, but every type
     the builder takes from the checker passes through `ir/build/erased.rs`
     — `Ctx::ty_of`, `written_ty`, `handles_at`, and `ir_ty`/`ir_tys` for a
@@ -12851,7 +12868,7 @@ replaced the working document TESTING.md).
 * [ir-coerce] A slot's coercion is explicit nodes around the value:
   `MakeUnion`, `Present`, `Rewrap`, `Widen`, `DropMut`, `BorrowAs`, `Unit`.
   The checker records one **conversion** per expression (`Checked::converts`,
-  PIPELINE.md D2): a chain of steps, each applied to what the steps before
+  the pipeline record D2): a chain of steps, each applied to what the steps before
   it made — a `Mut` drop always first, a numeric promotion always last
   [op-promote]. A conversion changes how a value is stored; a change of its
   static type alone is a narrowing [ir-narrow], recorded apart
@@ -12921,7 +12938,7 @@ replaced the working document TESTING.md).
   operation parenthesized, and a unary operand too unless it is a binary
   operation, so `!(read x)` never reads as `!read x` (user request
   2026-10-06). Names are spelled as every dump spells them [dump-spelling].
-* [dump-spelling] **How a dump names a declaration** (PIPELINE.md §II.10 P22,
+* [dump-spelling] **How a dump names a declaration** (the pipeline record §II.10 P22,
   user decisions 2026-10-29): Salvo's own spelling where Salvo has one,
   `#{…}` where it has not.
   * A declaration is `name@module` — Salvo's selector — with its written
@@ -12948,7 +12965,7 @@ replaced the working document TESTING.md).
   the built IR — but only on the dump/check path, never in the IR a backend
   emits, since the directives would perturb a backend's statement-shape
   analysis. One directive marks each of the four points where a fn's
-  outstanding-obligation set changes (user decision 2026-10-12, IR_CHECKER.md
+  outstanding-obligation set changes (user decision 2026-10-12, the IR-checker record
   D3): `GainParams` (linear parameters moved in), `Gain` (a binding of a linear
   value — including a synthetic one, with its linear union *arms* named),
   `Release` (a consuming read moves the value on), and `Discharge` (a `Narrow`
@@ -12979,7 +12996,7 @@ replaced the working document TESTING.md).
     when its value is an owned linear value — a call result, a construction, or
     a consuming (`!read`) move-out.
   * **The flow rules** (R8 piece 7, 2026-10-20 — the checker's until then,
-    PIPELINE.md §8; checked against it on a corpus, `linear_flow_tests`):
+    the pipeline record §8; checked against it on a corpus, `linear_flow_tests`):
     * **Consumed on some paths but not others** [linear-obligation]: where
       paths come back together — an `if`'s or a `when`'s arms that fall
       through (an else-less `if`'s skip path included), and a loop's exits
@@ -13205,7 +13222,7 @@ replaced the working document TESTING.md).
     the platform closure, `check: interfaces`, with its two steps
     `interfaces: facts` and `interfaces: headers` [decl-interface-pass], then
     `check: bodies`) and the deduction pass, and the IR analysis
-    (`salvo_core::timing`; 2026-10-20, PIPELINE.md step 1).
+    (`salvo_core::timing`; 2026-10-20, the pipeline record step 1).
     `tools/lsp-timing.py` drives the language server through a few edits
     and prints the same timings for each edit's analysis.
 * [diag-std-hidden] **Diagnostics located in the embedded standard library
@@ -13513,20 +13530,20 @@ replaced the working document TESTING.md).
   waiting, so a completion asked for after several keystrokes is answered
   after one analysis rather than one per keystroke.
 * [lsp-analysis-reuse] **Requests between edits share one analysis**
-  (2026-10-20, PIPELINE.md step 1): the server keeps the analyses it made
+  (2026-10-20, the pipeline record step 1): the server keeps the analyses it made
   since the last document event, keyed by project root and the open buffers
   analysed, so hover, completion, go-to-definition and signature help after
   one edit run the pipeline once (completion's patched probe buffer is its own
   entry). Every document notification drops them. The standalone std analysis
   is built once per server.
 * [lsp-index-viewable] **The indexes behind hover overloads and completion
-  are built only for files a view can show** (2026-10-20, PIPELINE.md step
+  are built only for files a view can show** (2026-10-20, the pipeline record step
   8): a project's files and std shadows. An embedded std file is viewed
   through the standalone std analysis, which builds them for every file, so
   a project analysis leaves std's entries empty (it was 17ms of every edit's
   ~85ms, debug, `examples/cluster`).
 * [lsp-std-front] **std's front half is shared across analyses** (2026-10-20,
-  PIPELINE.md step 8): the server parses, expands and checks the embedded std
+  the pipeline record step 8): the server parses, expands and checks the embedded std
   once (`salvo_core::StdFront`, `std_front.rs` since 2026-10-28, with the
   `StdCache` check), and every analysis
   whose leading files are exactly that std, unshadowed, with nothing after it
@@ -13554,7 +13571,7 @@ replaced the working document TESTING.md).
   cache and computes the project's, merging the by-span keys as gathering
   them together would. An analysis through the front reports what one
   without it reports (`std_front_matches_an_analysis_without_it`).
-  * **std's scopes are the front's** (2026-10-30, PIPELINE.md C4): the front
+  * **std's scopes are the front's** (2026-10-30, the pipeline record C4): the front
     keeps std's scopes by id [decl-id], and an analysis over it views them
     instead of building them (`StdFront::resolve`, `resolve::resolve_over`);
     std's duplicate-overload check is not repeated either. std sees only
@@ -13574,7 +13591,7 @@ replaced the working document TESTING.md).
     callback `each: (x: T)` emitted `FnMut(&T)`). The CLI's own compile path
     still checks std whole.
 * [lsp-check-cache] **A file an edit left alone is not checked again**
-  (2026-10-20, PIPELINE.md step 8): the server keeps one `CheckCache`, every
+  (2026-10-20, the pipeline record step 8): the server keeps one `CheckCache`, every
   project file's checker rows as its last walks left them, and checks through
   the std cache with `check_project_cached`. A file whose module is the `Arc`
   its rows were checked from (a parse-cache hit comptime did not stamp into)
@@ -13597,7 +13614,7 @@ replaced the working document TESTING.md).
   A program with one project file skips the cache (it would walk that file
   anyway). A file's rows are its declarations' (`Checked::split_files`
   [decl-rows]). **Per file, not per declaration** (measured 2026-10-28,
-  PIPELINE.md §II.12 A4): reusing an edited file's unedited declarations
+  the pipeline record §II.12 A4): reusing an edited file's unedited declarations
   would save under ~2.5ms of a ~43ms edit on `examples/cluster` and ~1ms on
   `modules/aws`, ~12ms of ~76ms on a 1,654-line one-file project, against
   re-deriving every span in the reused rows and splitting the file's walk
@@ -13756,11 +13773,11 @@ replaced the working document TESTING.md).
 * [cli-dump] `salvo dump --phase <phase> [--src DIR] [--module PATH]
   [--all]` prints what one phase made of every user module, of one module, or
   (`--all`) of every module the program reaches, std included, with every
-  candidate listed (PIPELINE.md P7). The phases so far: `resolve`
+  candidate listed (the pipeline record P7). The phases so far: `resolve`
   `parse-ast` [dump-parse-ast], `resolve` [dump-resolve], `type-check`
   [dump-type-check] (with `--expr-types`, and `--rows` [dump-rows]) and
   `generate-ir` [dump-generate-ir]; they replaced `salvo compile
-  --emit-ast`, `salvo facts` and `salvo ir` (PIPELINE.md D4). `--expr-types`
+  --emit-ast`, `salvo facts` and `salvo ir` (the pipeline record D4). `--expr-types`
   and `--rows` with another phase are an error. A program's errors in the dumped modules go to stderr; the dump
   is printed regardless.
 * [dump-resolve] The **resolve dump** (`names::dump::dump_file`) is each
@@ -13787,7 +13804,7 @@ replaced the working document TESTING.md).
   with errors that keep the IR from being built has none (exit 1), while an
   IR-reliant error is inlined as `!!! …` [ir-linear-check].
 * [dump-type-check] The **typed dump** (`salvo dump --phase type-check`,
-  `round_trip::dump_file`, PIPELINE.md D4, user decision P24) is each file's
+  `round_trip::dump_file`, the pipeline record D4, user decision P24) is each file's
   own text with every choice the checker made written out by the writer the
   round trip uses [round-trip]: a callee as `name@module` (`name@Effect`),
   its inferred type arguments, its implicit arguments by name; an operator
@@ -13805,7 +13822,7 @@ replaced the working document TESTING.md).
   `the_type_check_dump_spells_each_kind_of_choice` pins the spellings;
   `example_type_check_dump_is_stable` snapshots one example.
 * [dump-rows] `salvo dump --phase type-check --rows` prints the
-  checker's facts before the IR is built (PIPELINE.md D1, the pre-IR), by
+  checker's facts before the IR is built (the pipeline record D1, the pre-IR), by
   declaration [decl-rows]: each declaration of a file in declaration order,
   under its id [decl-id] (`total(#0) -> Int@main`; a file's own nodes under
   `(file)@module`), one line per node it typed in source order — its

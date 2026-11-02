@@ -1,5 +1,5 @@
 // [fn-overload] [actor-send-fn] Every send and mint target is chosen by the
-// call's rule (PIPELINE.md B3.7, user decisions 2026-10-28).
+// call's rule (the pipeline record B3.7, user decisions 2026-10-28).
 //
 // Compile-and-run data ([test-run-data]).
 

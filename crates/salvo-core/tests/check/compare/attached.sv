@@ -246,7 +246,7 @@ fn probe() [] -> Int {
 // FILE: a.sv
 // [type-identity] [obligation-by] The group a clause names is the one its
 // file sees: two modules each declare `fns Shown<T>` with different members,
-// and the clause stamps the imported one's (PIPELINE.md step 6).
+// and the clause stamps the imported one's (the pipeline record step 6).
 export fns Shown<T> {
     fn cmp(x: T, y: T) -> Int
 }

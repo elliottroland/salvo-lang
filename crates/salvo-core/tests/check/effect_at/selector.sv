@@ -35,7 +35,7 @@ fn shut(h: Int) [Fs] -> Str {
 }
 
 // With both effects in scope their members are ranked like overloads
-// (PIPELINE.md B3.5, R10 P4): one signature on both sides is the ordinary
+// (the pipeline record B3.5, R10 P4): one signature on both sides is the ordinary
 // ambiguity, naming the selector forms (`close@Fs(...)`, `close@Net(...)`).
 fn both(h: Int) [Fs, Net] -> Str {
     //~ error[fn-overload-ambiguous:call]
@@ -91,7 +91,7 @@ fn draw() [Random<Int>, Random<Str>, Dice] -> Str {
 
 //--- two effects ranked by the arguments
 // [effect-member-overload] [fn-overload-rank] Members of two available
-// effects that take different types are one overload set (PIPELINE.md B3.5,
+// effects that take different types are one overload set (the pipeline record B3.5,
 // census D15): `put(1)` is `Ints`', `put("s")` is `Strs`'. Before, two
 // available owners were refused whatever the arguments.
 effect Ints {

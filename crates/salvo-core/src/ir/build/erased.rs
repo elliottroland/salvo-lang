@@ -1,4 +1,4 @@
-//! [ir-types] The typed form's one way into the IR (PIPELINE.md D3.4, option
+//! [ir-types] The typed form's one way into the IR (the pipeline record D3.4, option
 //! (a), user decision 2026-10-30): every type the builder takes from the
 //! checker — an expression's, a written one's, the types a fact carries —
 //! passes erasure here, and every conversion the checker recorded becomes

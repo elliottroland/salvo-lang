@@ -3194,7 +3194,7 @@ fn main() [Console] {
 /// [lsp-completion] [type-identity] Two modules' structs of one name: after
 /// the dot, and in a literal, the fields offered are those of the struct the
 /// value's type (or the written name) means — by key, where the first struct
-/// of the name in the program answered (PIPELINE.md C1, 2026-10-29).
+/// of the name in the program answered (the pipeline record C1, 2026-10-29).
 #[test]
 fn completion_offers_the_fields_of_the_struct_meant() {
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_completion_same_name");

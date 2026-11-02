@@ -1,4 +1,4 @@
-// [interp-to-str] An interpolated part is the call `to_str(part)` (PIPELINE.md
+// [interp-to-str] An interpolated part is the call `to_str(part)` (the pipeline record
 // §II.10 P4, option (a), user decision 2026-10-28; built in B3.2), resolved as
 // a written `to_str` call is.
 //

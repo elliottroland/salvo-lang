@@ -103,7 +103,7 @@ fn assigns_a_field(e: Mut Entity, n: Int) [] -> Int => e.hp: Mut, n {
     return next
 }
 
-// [deduce-field] **No inference** (since 2026-10-20, PIPELINE.md 4.3): a
+// [deduce-field] **No inference** (since 2026-10-20, the pipeline record 4.3): a
 // callee that writes no field entry mutates its parameter *anywhere*, as a
 // written `=> e: Mut` does — the field set is the callee's interface, never
 // read off its body. (From 2026-09-25 until then it was inferred.)

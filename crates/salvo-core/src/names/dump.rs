@@ -1,5 +1,5 @@
 //! [dump-resolve] The resolve phase's dump (`salvo dump --phase resolve`,
-//! PIPELINE.md C2, P7, P22): each file's own text with what resolution bound
+//! the pipeline record C2, P7, P22): each file's own text with what resolution bound
 //! every written name to spelled in place.
 //!
 //! Salvo where Salvo can spell it, `#{…}` where it cannot [dump-spelling]:

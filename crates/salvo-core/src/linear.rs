@@ -3,7 +3,7 @@
 //! (`check.rs`) and the IR-level linear check (`ir::check`) decide
 //! linearity identically. The `Checker` methods `has_auto_linear`,
 //! `opaque_linear`, `linear_opt_in_positions`, and `ty_own_linear` delegate
-//! here; see IR_CHECKER.md.
+//! here; see the IR-checker record.
 
 use std::collections::HashSet;
 

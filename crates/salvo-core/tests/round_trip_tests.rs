@@ -1,4 +1,4 @@
-//! [round-trip] The round-trip check (PIPELINE.md B4 and D4, user decisions
+//! [round-trip] The round-trip check (the pipeline record B4 and D4, user decisions
 //! P5 (b) and P24: the corpus and the examples). Every example and every
 //! corpus program that checks clean is written back with its choices spelled
 //! out (`salvo_core::round_trip`: callees, type arguments, implicits,

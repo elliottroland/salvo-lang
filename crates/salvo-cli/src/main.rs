@@ -41,7 +41,7 @@ struct Cli {
     verbose: bool,
 }
 
-/// [cli-dump] The phase `salvo dump` prints the output of (PIPELINE.md P7).
+/// [cli-dump] The phase `salvo dump` prints the output of (the pipeline record P7).
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Phase {
     /// Each module's syntax tree as the parser built it, after the comptime

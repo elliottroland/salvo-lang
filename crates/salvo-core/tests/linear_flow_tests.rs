@@ -1,5 +1,5 @@
 //! [linear-obligation] [linear-state] The linear rules that depend on paths
-//! and moves, which the IR reports since R8 piece 7 (PIPELINE.md §8): a value
+//! and moves, which the IR reports since R8 piece 7 (the pipeline record §8): a value
 //! consumed (moved, discharged, decomposed, narrowed to a non-linear arm) on
 //! some paths that come back together but not on the others — at the `if`,
 //! the `when` or the loop where they join (`ir::check`) — an assignment over a

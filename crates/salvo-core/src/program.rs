@@ -68,7 +68,7 @@ impl TypeDeclaration for TypeDecl {}
 /// declaration determines alone, and the few by name that a name settles —
 /// std's intrinsics [intrinsic-std-only], and qualifiers, which types carry
 /// by name. Everything a *written* name means is a file's scope's question
-/// (`resolve::ModuleScope`), never these tables' (PIPELINE.md C1).
+/// (`resolve::ModuleScope`), never these tables' (the pipeline record C1).
 #[derive(Default)]
 pub struct Symbols<'p> {
     /// [intrinsic-std-only] std's `intrinsic fn`s, by name: an intrinsic is

@@ -1,5 +1,5 @@
 //! [lsp-check-cache] The per-file checker rows, kept across a language
-//! server's analyses (PIPELINE.md step 8, piece 3).
+//! server's analyses (the pipeline record step 8, piece 3).
 //!
 //! A file's walks (its signature facts, its headers, its bodies) write rows
 //! keyed by that file and read only its own text and other declarations'
@@ -176,7 +176,7 @@ pub struct CheckCache {
     modules: Vec<Arc<Module>>,
     /// The first file the walks cover (std's are the `StdCache`'s).
     first: usize,
-    /// The syntactic parking handlers (PIPELINE.md 4.5), read off bodies.
+    /// The syntactic parking handlers (the pipeline record 4.5), read off bodies.
     parking: HashSet<String>,
     entries: HashMap<usize, FileRows>,
     /// Which file's module holds each `ast::Type` node, by address, for every

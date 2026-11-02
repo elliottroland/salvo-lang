@@ -144,6 +144,29 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — PIPELINE.md and IR_CHECKER.md retired (the pipeline record's E2, user 2026-10-03 rule)
+
+- **Done**: both documents are design records below ("Design record: the
+  compiler pipeline", "Design record: checking on the IR"), and code, specs,
+  tests and docs cite them as "the pipeline record" and "the IR-checker
+  record" (70 files swept). Kept from PIPELINE.md: the terms, Part I's
+  target pipeline, decisions R1–R10, body-derived facts, sweeps, caching
+  and plan; Part II's goal, principles, phases, origins, comptime, call
+  unity, dumps, representation, plan, decisions P1–P25, rounds and the
+  call census. Not kept: the 2026-10-20 survey of the old pipeline, the two
+  work logs (their entries are this log's), and the unattended-run notes,
+  which moved to ROADMAP.md ("The unattended run"). IR_CHECKER.md is kept
+  whole after its status paragraph.
+- **Moved to ROADMAP.md**: stage D's leftovers (0bb: `erase` public for the
+  Rust backend, `approx_keyed`'s 16 hits, the `@whynot` message, what the
+  round trip skips); a DECISION found on the way (0bc: the lambdas page
+  says lambdas can declare effects and deductions, with no syntax for it).
+  The open P-decisions were already there (0af–0aq, 0av).
+- **Rules**: [call-one] is new in LANGUAGE_SPEC.md (§II.6's call unity, as
+  built through B3); origins, keys, rows, interfaces and the phase dumps
+  already had theirs. docs/compiler/Phases.md carries the placement
+  criteria.
+
 ### 2026-10-30 — A send in a member's lambda is the handler's edge (ROADMAP 0az, [actor-deadlock-cycle])
 
 - **Built**: the checker's `actor_owner` (the handler or free `send fn` a
@@ -156,12 +179,12 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   side's send is in a lambda the member calls; unseen before (the test
   fails on the previous commit), a `gate-cycle` error now.
 - **Left, as a DECISION** (ROADMAP "what an `eff[E]` send may reach"): the
-  spawned written router behind an `eff[E]`, which PIPELINE.md E1 listed as
+  spawned written router behind an `eff[E]`, which the pipeline record E1 listed as
   "a cycle closing through a router never seen". The router in-edges of
   2026-10-26 closed the `any E` dependency case; what is left needs a call
   on what a plain addr may reach (options and a recommendation recorded).
 
-### 2026-10-30 — Deadlock reads per-declaration facts; the graph stays the end-of-check combine (PIPELINE.md E1, user decision P25, [actor-deadlock-cycle])
+### 2026-10-30 — Deadlock reads per-declaration facts; the graph stays the end-of-check combine (the pipeline record E1, user decision P25, [actor-deadlock-cycle])
 
 - **Decided (user, P25)**: whether the inputs come from the IR or are
   checker facts was left to the code ("whichever makes the most sense"),
@@ -212,7 +235,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 - **Tests**: `dump_prints_the_parse_ast_and_generate_ir_phases`; the
   `--src` refusal loop covers both phases. 712 tests.
 
-### 2026-10-30 — The typed dump, and a round trip over operators, interpolation and types (user decision P24, PIPELINE.md D4, [dump-type-check] [dump-rows] [round-trip])
+### 2026-10-30 — The typed dump, and a round trip over operators, interpolation and types (user decision P24, the pipeline record D4, [dump-type-check] [dump-rows] [round-trip])
 
 - **Decided (user, 2026-10-30, P24)**: `salvo dump --phase type-check` is
   the file's text with every choice written out as the round trip writes
@@ -250,7 +273,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   `dump_prints_the_type_check_phase` (the CLI, its flags, and their refusal
   with another phase). 711 tests.
 
-### 2026-10-30 — The flow pass finds the virtual-place candidates; D3.5(b) is done (PIPELINE.md D3.5(b), [deduce-field] [fate-move-mode])
+### 2026-10-30 — The flow pass finds the virtual-place candidates; D3.5(b) is done (the pipeline record D3.5(b), [deduce-field] [fate-move-mode])
 
 - **Built**: the checker no longer collects the bindings a mutation event
   may leave as virtual places. The flow pass takes them at each event from
@@ -275,7 +298,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   loops, the links a use stands on). `docs/compiler/Phases.md` records the
   criterion and the observations the pieces made.
 
-### 2026-10-30 — A derived use is derived through the links on its path (user decision, PIPELINE.md D3.5(b) option A, [fate-move-mode] [fate-derived-readonly])
+### 2026-10-30 — A derived use is derived through the links on its path (user decision, the pipeline record D3.5(b) option A, [fate-move-mode] [fate-derived-readonly])
 
 - **Decided (user, 2026-10-30)**: of a derived use, only what depends on
   the path moves to the flow pass (option A): the links it stands on and,
@@ -311,7 +334,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   local's name (`x~gone`), so the error still says what it was bound from.
   The IR, every diagnostic and every example are unchanged.
 
-### 2026-10-30 — The flow pass decides which loops iterate by value; the checker owns facts, the flow pass owns paths (user decision, PIPELINE.md D3.5(b), [fate-move-mode])
+### 2026-10-30 — The flow pass decides which loops iterate by value; the checker owns facts, the flow pass owns paths (user decision, the pipeline record D3.5(b), [fate-move-mode])
 
 - **Decided (user, 2026-10-30)**: the placement criterion is what a fact is
   *about*, not who reads it (every checker fact is for the IR in the end).
@@ -357,7 +380,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   which the checker never counted; keyed on projection moves, none differ.
   The IR and every example are unchanged.
 
-### 2026-10-30 — The rest of the builder's re-derivations become checker facts (PIPELINE.md D3.3, [backend-core-layers] [effect-dispatch] [fn-effects] [ir-types])
+### 2026-10-30 — The rest of the builder's re-derivations become checker facts (the pipeline record D3.3, [backend-core-layers] [effect-dispatch] [fn-effects] [ir-types])
 
 - **Built**: `Checked::primitives` (std's intrinsic operators at basic types
   and its native `to_str`s, recomputed every check, `partition`'s
@@ -374,7 +397,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   element, three signature types). It stays, for those. The IR and every
   example are unchanged.
 
-### 2026-10-30 — A block lambda answers its written return type, else `None`; lambda parameters are always parenthesized (user decision, PIPELINE.md D3.3(g), [fn-lambda])
+### 2026-10-30 — A block lambda answers its written return type, else `None`; lambda parameters are always parenthesized (user decision, the pipeline record D3.3(g), [fn-lambda])
 
 - **Decided (user, 2026-10-30)**: a block lambda with no expected fn type
   is treated like a fn: it returns `None` unless it writes its return type,
@@ -399,7 +422,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   lambda's type carries it; the IR's `returned_ty` fallback is deleted.
   Rewritten: 209 shorthand lambdas in `.sv` files (std, examples, tests,
   benches), 13 in Rust test sources, the snippets in `docs/language/`,
-  LANGUAGE_SPEC.md, PIPELINE.md, ROADMAP.md and the decision log above, one
+  LANGUAGE_SPEC.md, the pipeline record, ROADMAP.md and the decision log above, one
   brace lambda (`case.rs`), and the let-bound block lambdas that return a
   value (annotated). `check/syntax/lambda_returns.sv` covers the forms.
 - **What fell out of building it**: a lambda passed where the return is a
@@ -414,7 +437,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   (`kept -> &`), and COMPLETED.md's mention of the long-deleted `Int[n] {
   i -> … }` form.
 
-### 2026-10-30 — The decided declarations are built again, not their modules (user decision, PIPELINE.md D3.6, [fate-move-mode])
+### 2026-10-30 — The decided declarations are built again, not their modules (user decision, the pipeline record D3.6, [fate-move-mode])
 
 - **Decided (user, 2026-10-30)**: rebuild per declaration rather than per
   module.
@@ -427,7 +450,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   unchanged. On `examples/cluster`, the second build fell from 13.7ms to
   ~6.5ms, the whole IR build from 45ms to ~37ms.
 
-### 2026-10-30 — The flow decision is the one answer to a move (PIPELINE.md D3.5(a), [fate-move-mode])
+### 2026-10-30 — The flow decision is the one answer to a move (the pipeline record D3.5(a), [fate-move-mode])
 
 - **Built** (the order the user approved: (a) now, (b) later): the
   builder's `Ctx::mode` read the flow pass's `Decision` *or* the checker's
@@ -436,7 +459,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   moves. The IR is unchanged. D3.5(b) moves the decision that a loop
   iterates by value (and the fate links) into the flow pass.
 
-### 2026-10-30 — Erasure goes through one layer (user decision, PIPELINE.md D3.4 option (a), [ir-types])
+### 2026-10-30 — Erasure goes through one layer (user decision, the pipeline record D3.4 option (a), [ir-types])
 
 - **Decided (user, 2026-10-30)**: erasure stays per node, as the builder
   lowers each one, through one layer; a separate pass over an unerased IR
@@ -449,7 +472,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   longer import it. A pure move: the IR is unchanged. `erase` stays public
   for the Rust backend, which erases a platform alias's expansion itself.
 
-### 2026-10-30 — The IR reads a local callee and a construction as recorded (PIPELINE.md D3.3, first part, [call-resolve] [effect-with-clause] [effect-eff-handle])
+### 2026-10-30 — The IR reads a local callee and a construction as recorded (the pipeline record D3.3, first part, [call-resolve] [effect-with-clause] [effect-eff-handle])
 
 - **Built**: `Callee::Local { local, contract }` — every call through a
   local records the local it goes through, the written name included (it
@@ -468,13 +491,13 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   case worked and no test built either. `check::handle_leaves` is now the
   one flattening, the checker's (`collect_handle_tuple`) and the lowering's
   (each handle read at its path); `run/effects/handle_tuples.sv` runs both.
-- **Probed and left** (PIPELINE.md D3.3 lists them): the primitive-operator
+- **Probed and left** (the pipeline record D3.3 lists them): the primitive-operator
   test, `intrinsic_fn` (std's `to_str` for native text, union arms and the
   `@whynot` message the IR builds), `decl_of_effect`, `approx_keyed` (std's
   written types, ~280k lowerings a run), the `fn_value` adapter, and the
   lambda return type, which is a language decision.
 
-### 2026-10-30 — Pass modes are per-declaration facts (PIPELINE.md D3.2, [fn-param-mode])
+### 2026-10-30 — Pass modes are per-declaration facts (the pipeline record D3.2, [fn-param-mode])
 
 - **Built** (the plan the user approved for D3): `param_mode::record` runs
   after `deduce::infer` and records, at every declaration's name, how it
@@ -498,7 +521,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   `time` show the moved parameters and their `gain-params`; emitted code is
   unchanged.
 
-### 2026-10-30 — Effect arguments name their instance (user decision, PIPELINE.md D3.1, [effect-instance])
+### 2026-10-30 — Effect arguments name their instance (user decision, the pipeline record D3.1, [effect-instance])
 
 - **Decided (user, 2026-10-30)**: each effect argument the checker resolves
   names the binding that put its instance in scope, so the IR reads it
@@ -537,7 +560,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   and given its instances as any call is now (`dependent/whynot.sv`, and the
   `dependent_handlers_in_anger` run case calls `Loud.qualifies` by hand).
 
-### 2026-10-30 — Comptime between the interfaces and the bodies (user decision, PIPELINE.md C4 B, [comptime-instantiate] [decl-id])
+### 2026-10-30 — Comptime between the interfaces and the bodies (user decision, the pipeline record C4 B, [comptime-instantiate] [decl-id])
 
 - **Decided (user, 2026-10-30)**: the third C4 piece, after A and C: comptime
   reads the program's own interfaces instead of resolving the unstamped
@@ -575,7 +598,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   interfaces are read by id only, so they are not viewed.
 - **Output**: nothing moved. 708 tests under nextest.
 
-### 2026-10-30 — A file's scope by declaration id, and std's kept by the front (user decision, PIPELINE.md C4 A and C, [decl-id] [lsp-std-front])
+### 2026-10-30 — A file's scope by declaration id, and std's kept by the front (user decision, the pipeline record C4 A and C, [decl-id] [lsp-std-front])
 
 - **Decided (user, 2026-10-30)**: C4 is three pieces, all next — A.
   scopes by `DeclId`, the pointer scopes their view; B. comptime between
@@ -612,7 +635,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 - **C4's survey parts, closed**: the per-file `iter fn` expansion looks no
   name up — two decisions go by spelling (a Copy scalar parameter, the
   `Emitted T | Finished` shape), left for the planned rework of `iter fn`s —
-  and nothing rewrites an effect list. Stale text fixed: PIPELINE.md §1 and
+  and nothing rewrites an effect list. Stale text fixed: the pipeline record §1 and
   §5, `main.rs`'s comment on the expansions.
 - **Output**: nothing moved. 708 tests under nextest, warm run 1m58.
 
@@ -622,7 +645,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   member, must name each parameter as the template does at its position,
   "for now until we discover a very compelling case to put effort into
   generalizing it. It also makes things more predictable and standardized."
-  It replaces the positional binding PIPELINE.md had moved from C3 to D2,
+  It replaces the positional binding the pipeline record had moved from C3 to D2,
   whose premise (the typed form identifying parameters by id) the D2 merges
   had not built; the three designs that binding needed (rename the
   signature, alias the body's names, read locals by binding) are not needed.
@@ -676,7 +699,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 - **Output**: nothing else moved. Two cases in
   `check/overloads/scope.sv`. 709 tests under nextest, warm run 1m44.
 
-### 2026-10-30 — The D2 merges' closing sweep (user decision, PIPELINE.md D2, item 13)
+### 2026-10-30 — The D2 merges' closing sweep (user decision, the pipeline record D2, item 13)
 
 - **Decided (user, 2026-10-30, item 13)**: after the merges, one sweep of
   what they left stale. Every backend-prefixed rule label in `salvo-core`,
@@ -694,7 +717,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   merge; `actor_gates` read as a garbled sentence and now says what a row is.
 - **Output**: comments only. 709 tests under nextest, warm run 1m46.
 
-### 2026-10-30 — What a read moves, one table (user decision, PIPELINE.md D2 read moves, [flow-use-after-move] [linear-container] [linear-state])
+### 2026-10-30 — What a read moves, one table (user decision, the pipeline record D2 read moves, [flow-use-after-move] [linear-container] [linear-state])
 
 - **Decided (user, 2026-10-30, item 11)**: the five sets the IR read as
   one view (`ReadInfo`) are `moves: HashMap<Key, Move { consume,
@@ -716,7 +739,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 - **Output**: nothing moved: no snapshot, example or stamp changed. 709
   tests under nextest, warm run 1m18.
 
-### 2026-10-30 — What a written name refers to, one table (user decision, PIPELINE.md D2 navigation refs, [lsp-definition] [doc-module])
+### 2026-10-30 — What a written name refers to, one table (user decision, the pipeline record D2 navigation refs, [lsp-definition] [doc-module])
 
 - **Decided (user, 2026-10-30, item 10)**: `def_refs`, `field_refs` and
   `module_refs`, written by the checker for the language server and read
@@ -732,7 +755,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   `Ref::site()` or `Ref::module()`; `remap_sites` moves `Ref::site_mut()`.
 - **Output**: nothing moved. 709 tests under nextest, warm run 1m35.
 
-### 2026-10-30 — The host boundary at a node, one table (user decision, PIPELINE.md D2 host boundary, [platform-check] [platform-factory])
+### 2026-10-30 — The host boundary at a node, one table (user decision, the pipeline record D2 host boundary, [platform-check] [platform-factory])
 
 - **Decided (user, 2026-10-30, item 9)**: `boundary_checks` and
   `factories`, written at the same name node for the same type and read
@@ -750,7 +773,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   with it.
 - **Output**: nothing moved. 709 tests under nextest, warm run 1m38.
 
-### 2026-10-30 — A `when`'s missing arms, one table (user decision, PIPELINE.md D2 `when` facts, [when-exhaustive])
+### 2026-10-30 — A `when`'s missing arms, one table (user decision, the pipeline record D2 `when` facts, [when-exhaustive])
 
 - **Decided (user, 2026-10-30, item 8)**: `when_exhaustive` and
   `when_arms`, written in one place for one `when`, are `when_missing:
@@ -763,7 +786,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   `iter-fn:origin-mutated`; `check_when_body` lost its unused `origin`.
 - **Output**: nothing moved. 709 tests under nextest, warm run 1m42.
 
-### 2026-10-30 — A declaration's facts at its name (user decision, PIPELINE.md D2 declaration facts, [node-id] [implicit-param])
+### 2026-10-30 — A declaration's facts at its name (user decision, the pipeline record D2 declaration facts, [node-id] [implicit-param])
 
 - **Decided (user, 2026-10-30, items 6–7)**: no table is keyed by `DeclId`
   or by a symbol-key string any more. `deductions`, `fn_lends`,
@@ -794,7 +817,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   or member in the suite has a lend. 709 tests under nextest, warm run
   1m21.
 
-### 2026-10-30 — What a `replyto` mints for, one table (user decision, PIPELINE.md D2 replyto, [actor-replyto] [task-mint])
+### 2026-10-30 — What a `replyto` mints for, one table (user decision, the pipeline record D2 replyto, [actor-replyto] [task-mint])
 
 - **Decided (user, 2026-10-30, item 5)**: `replyto_members` and
   `replyto_tasks`, exclusive per `replyto` node, are `replyto_targets:
@@ -807,7 +830,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 - **Output**: nothing moved. 709 tests under nextest, warm run 1m42 (the
   machine was busy; 1m18 the run before).
 
-### 2026-10-30 — What a call is, one table (user decision, PIPELINE.md D2 calls, [call-resolve] [effect-dispatch] [actor-use-addr] [throw])
+### 2026-10-30 — What a call is, one table (user decision, the pipeline record D2 calls, [call-resolve] [effect-dispatch] [actor-use-addr] [throw])
 
 - **Decided (user, 2026-10-30, the remaining-merges write-up, items 1–4)**:
   every call node is exactly one kind, so `call_fn`, `call_type_args`,
@@ -838,7 +861,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 - **Output**: no emitted code, golden or facts snapshot moved. 709 tests
   under nextest, warm run 1m18.
 
-### 2026-10-30 — A call's borrowed result, one table (user decision, PIPELINE.md D2 borrowed result, [proj-readonly-return] [proj-infer] [proj-anywhere])
+### 2026-10-30 — A call's borrowed result, one table (user decision, the pipeline record D2 borrowed result, [proj-readonly-return] [proj-infer] [proj-anywhere])
 
 - **Decided (user, 2026-10-30)**, on the write-up of the fifth D2 merge:
   (1) `lending_calls`, `derived_calls` and `temp_views` are one table,
@@ -878,7 +901,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 - **Output**: no emitted code moved; the facts snapshot gained the
   borrow marks. 709 tests under nextest, warm run 1m16.
 
-### 2026-10-30 — Handles and handler constructions, two tables (user decision, PIPELINE.md D2 handles, [effect-handle] [effect-handler-deps])
+### 2026-10-30 — Handles and handler constructions, two tables (user decision, the pipeline record D2 handles, [effect-handle] [effect-handler-deps])
 
 - **Decided (user, 2026-10-30)**, on the write-up of the fourth D2 merge
   (the user's order: this, then a call's borrowed result, then `Send`):
@@ -912,7 +935,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   0)` at the expressions that hold them (a spawn, a `use` expression, a
   projection, a merge).
 - **Deferred, and where**: naming each effect argument's instance is
-  D3's (PIPELINE.md); `handler_constructs` is E1's (PIPELINE.md); the IR's
+  D3's (the pipeline record); `handler_constructs` is E1's (the pipeline record); the IR's
   `Spawn.deps`, always empty now, and the Kotlin spelling of lowered
   picks wait for the emitter decisions pass (ROADMAP.md "Recorded, not
   scheduled"; the user postponed emitter polish, 2026-10-30).
@@ -920,7 +943,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   not miss: the generated code is byte-identical, the monitor spawns'
   included). 709 tests under nextest, warm run 1m42.
 
-### 2026-10-30 — Effects taken and effects passed, two tables (user decision, PIPELINE.md D2 effect lists, [fn-effects])
+### 2026-10-30 — Effects taken and effects passed, two tables (user decision, the pipeline record D2 effect lists, [fn-effects])
 
 - **Decided (user, 2026-10-30)**, on the write-up of the third D2 merge:
   (1) effect arguments stay types for now (option (a)); naming each one's
@@ -966,7 +989,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 - Tests: run data `operators/union_value_picks_the_arm_by_the_value_s_type.sv`
   `arm_equality_evaluates_both_sides_in_order` (both backends).
 
-### 2026-10-30 — One table of tests, and `^Mut` converts (user decision, PIPELINE.md D2 `Test`, [is-narrowing] [qual-lift])
+### 2026-10-30 — One table of tests, and `^Mut` converts (user decision, the pipeline record D2 `Test`, [is-narrowing] [qual-lift])
 
 - **Decided (user, 2026-10-30)**, on the write-up of the second D2 merge:
   (1) a `Test` enum, since a node asks one kind of test; (2) no table for
@@ -1004,7 +1027,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   before). No golden, example or emit pin moved; the facts snapshot gained
   one mark. 709 tests under nextest, warm run 1m38.
 
-### 2026-10-30 — Conversions and narrowings, two tables (user decision, PIPELINE.md D2 `Convert`, [ir-coerce] [ir-narrow])
+### 2026-10-30 — Conversions and narrowings, two tables (user decision, the pipeline record D2 `Convert`, [ir-coerce] [ir-narrow])
 
 - **Decided (user, 2026-10-30)**, on the write-up of the first D2 merge by
   meaning: (1) a conversion is a **chain of steps**, applied in order;
@@ -1084,7 +1107,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   `a_call_link_on_any_receiver` (both backends). 708 tests under nextest,
   warm run 1m48.
 
-### 2026-10-30 — `?:` is a `when` (user decision, [when-lowered], PIPELINE.md D2)
+### 2026-10-30 — `?:` is a `when` (user decision, [when-lowered], the pipeline record D2)
 
 - **Decided (user, 2026-10-30)**: `?:` lowers to the test it is (option (a)
   of the `Convert` write-up), as phase-1 sugar with two holes the checker
@@ -1142,7 +1165,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 ### 2026-10-30 — Narrowing after the paths that fall through (user decision, [is-narrow-guard])
 
 - **Decided (user, 2026-10-30)**, option (a) of the `?:` lowering
-  (PIPELINE.md D2): after an `if` or a `when`, a place every path that falls
+  (the pipeline record D2): after an `if` or a `when`, a place every path that falls
   through narrows is narrowed to the join of what they narrow it to. It
   generalizes "every branch leaves" (2026-09-09), and is what makes a
   leaving `?:` right side [op-elvis-guard] the rule a hand-written `if`
@@ -1162,7 +1185,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 ### 2026-10-30 — A `when` arm head may be a union (user decision, [when-union-head])
 
 - **Decided (user, 2026-10-30)**, while settling how `?:` and `?.` lower
-  (PIPELINE.md D2, `Convert`): a `when` with a subject takes no `else`, so
+  (the pipeline record D2, `Convert`): a `when` with a subject takes no `else`, so
   the arms a pick leaves behind need to be one head. Options offered: (1a)
   `is A | B` as an arm head everywhere, (1b) only in lowered code, (2) a
   `!is` head, (3) an `else` allowed only in lowered code, (4) a subject-less
@@ -1179,7 +1202,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   `types/literal_unions_and_narrowing.sv` `a_when_arm_head_may_be_a_union`
   (both backends, the sub-union passed on).
 
-### 2026-10-30 — P6 decided; the first D2 views (PIPELINE.md D1, D2 step 1, [unify-checker])
+### 2026-10-30 — P6 decided; the first D2 views (the pipeline record D1, D2 step 1, [unify-checker])
 
 - **Decided (user, 2026-10-30), P6 at D1**: the typed form is the AST plus
   per-declaration fact tables keyed by node, merged cluster by cluster
@@ -1187,7 +1210,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   pre-IR, and consolidating everything that looks similar in it". The
   comptime signature/body split moved from C3 to D/C4 with the user's
   agreement.
-- **Survey** (PIPELINE.md D2): 107 `Checked` fields, 31 in the five views;
+- **Survey** (the pipeline record D2): 107 `Checked` fields, 31 in the five views;
   the rest grouped by the node they key on and, separately, by the fact
   they state (ten effect-list tables, five conversions, six arm tests, five
   borrowed-result tables, seven sends, six handler-construction tables).
@@ -1210,14 +1233,14 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   sites), the borrowed-result tables (no builder reads). They go with the
   meaning merges.
 
-### 2026-10-30 — C3 closed: the `by`-at-a-call workaround documented, two leftovers moved (PIPELINE.md C3.3c)
+### 2026-10-30 — C3 closed: the `by`-at-a-call workaround documented, two leftovers moved (the pipeline record C3.3c)
 
 - **Documented** (§II.5.1, user decision 2026-10-27): Compile-Time-Functions
   "Stamping for one call" — no `by` at a call site; declare `fn
   point_hash(p: Point) -> Long by hash@auto` and pass it. The page's example
   was compiled and run (a `Mut Set(hash = point_hash, eq = point_eq)` holding
   one of two equal points).
-- **Moved, with the reasons in PIPELINE.md C3**: binding a stamped fn's
+- **Moved, with the reasons in the pipeline record C3**: binding a stamped fn's
   parameters by position (which retires `h__p` and `hidden_free_name`) to
   D2 — a parameter is identified by name across the checker's contract,
   `deduce`, `lends` and the IR builder, and the typed form identifies it by
@@ -1228,7 +1251,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   user's (b) on `@[site]` and parameters, C3.2 copies as scopes, C3.3a
   lookups where written, C3.3b splices where written (entries below).
 
-### 2026-10-30 — A spliced type reads where it was written (PIPELINE.md C3.3b, [comptime-hygiene])
+### 2026-10-30 — A spliced type reads where it was written (the pipeline record C3.3b, [comptime-hygiene])
 
 - **Built**: every type the expansion puts in place of a splice — a
   `[field.type]`, a pattern binder's type, the bound `T`, a field default's
@@ -1264,7 +1287,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   rename the two are one spelling — C3.3's positional binding is what ends
   that.
 
-### 2026-10-30 — The expansion looks each name up where it is written (PIPELINE.md C3.3a, [comptime-instantiate] [comptime-pattern])
+### 2026-10-30 — The expansion looks each name up where it is written (the pipeline record C3.3a, [comptime-instantiate] [comptime-pattern])
 
 - **Built**: every lookup the expansion makes — struct, `type`, group,
   qualifier, the kind of a type, its `canbe`, its docs, a pattern's names —
@@ -1276,7 +1299,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   std flags it read. A later run over a base std reads std's names from the
   base's tables (`Tables::scoped`).
 - **`[if f.type is Item]` compares declarations** (`World::decl_of`): the
-  latent bug PIPELINE.md §II.5 named — a template's `Item` matched any
+  latent bug the pipeline record §II.5 named — a template's `Item` matched any
   struct spelled `Item` — is gone; `check/comptime/hygiene.sv`
   `a_pattern_names_a_declaration` is the case (a site `Item` beside
   `deriv`'s: by spelling the branch was kept and its call did not check).
@@ -1287,7 +1310,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   checker after.
 - 708 tests under nextest.
 
-### 2026-10-30 — Comptime copies are scopes, not renamed locals (PIPELINE.md C3.2, [comptime-scope])
+### 2026-10-30 — Comptime copies are scopes, not renamed locals (the pipeline record C3.2, [comptime-scope])
 
 - **Built**: the expansion records every copy and kept `[if]`/`[when]` body
   it splices flat as a scope, by its first and last statement
@@ -1316,7 +1339,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   inside `eval(() -> { … })`, and its copies' `let s` collided until then.
 - 708 tests under nextest, warm run 1m51.
 
-### 2026-10-30 — A template's names mean what they mean where it is written (PIPELINE.md C3.1, P23, [comptime-hygiene])
+### 2026-10-30 — A template's names mean what they mean where it is written (the pipeline record C3.1, P23, [comptime-hygiene])
 
 - **Decided (user, 2026-10-30), P23**: offered "the template's names, the
   site's for what it cannot see", the user chose explicit places over a
@@ -1392,7 +1415,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 - **Not moved**: the checker keeps its own `effect_env`, since where a type
   decides availability resolution cannot answer.
 
-### 2026-10-29 — `salvo dump --phase resolve`, and one spelling for every dump (PIPELINE.md C2, P22, [dump-resolve] [dump-spelling])
+### 2026-10-29 — `salvo dump --phase resolve`, and one spelling for every dump (the pipeline record C2, P22, [dump-resolve] [dump-spelling])
 
 - **Decided (user, 2026-10-29), P22**: dumps use Salvo where it can spell a
   thing and `#{…}` where it cannot; a declaration is `name@module` (types
@@ -1420,7 +1443,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 - **Docs**: Dumps.md (new page, indexed), The-IR.md's examples and prose,
   LANGUAGE_SPEC [cli-dump], [dump-resolve], [dump-spelling].
 
-### 2026-10-29 — Keys and file lookups come from the tag; address-keyed key maps go (PIPELINE.md C1.4b)
+### 2026-10-29 — Keys and file lookups come from the tag; address-keyed key maps go (the pipeline record C1.4b)
 
 - **Probe first** (temporary, over the whole suite): whenever
   `DeclIndex::key` was asked for a node of another file than the one passed.
@@ -1435,12 +1458,12 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   `Symbols::seed_ref_keys` takes one map; `resolve_for_emission` reuses the
   checked program's keys, the erased copy's nodes keeping their tags; the std
   cache's raw span keys went with the merge they served.
-- **Still by address**, each recorded in PIPELINE.md §II.9 C1.4b with its
+- **Still by address**, each recorded in the pipeline record §II.9 C1.4b with its
   reason: `Names`' address index (a fast path), the comptime stamp maps (made
   before the stamped body is numbered in its new file), and the checker's
   `written_types` (the check cache remaps it across an edit).
 
-### 2026-10-29 — A node carries its file's tag (PIPELINE.md C1.4a, [node-file])
+### 2026-10-29 — A node carries its file's tag (the pipeline record C1.4a, [node-file])
 
 - **The scheduled "real fix", first half**: `Span::file`, set with
   `Span::node` by numbering from `Module::file_tag`; `expand::expand_file`
@@ -1458,7 +1481,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   recorded at another file's node belongs to, which the row partition and
   the check cache must agree on — and the by-address maps stay.
 
-### 2026-10-29 — Value names are bound by resolution too (PIPELINE.md C1.3, [name-table])
+### 2026-10-29 — Value names are bound by resolution too (the pipeline record C1.3, [name-table])
 
 - **Built**: `names/values.rs`, a binder over every body with the checker's
   scopes stated once (its module doc lists them); `Names::value` answers a
@@ -1488,14 +1511,14 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   with std (types ~3.5ms, values ~3ms; debug build), reported as
   `names: types` / `names: values` under `SALVO_TIMINGS`.
 
-### 2026-10-29 — Written type names are resolved once, where they are written (PIPELINE.md C1.2, [name-table])
+### 2026-10-29 — Written type names are resolved once, where they are written (the pipeline record C1.2, [name-table])
 
 - **Asked (user, 2026-10-29)**: "Ok, I like this plan. Let's proceed with
   implementing it. Schedule the real fix you mention somewhere in the
   sequence" — the plan being a table resolution builds, every written type,
   qualifier, effect and group name to what it means where written; the
   "real fix" being node identity that survives a copy without the tree.
-  Scheduled as C1.4 (PIPELINE.md §II.9): a span carries its file, after
+  Scheduled as C1.4 (the pipeline record §II.9): a span carries its file, after
   C1.3 and before C2's dump.
 - **Built**: `salvo_core::names` — `Names` (every written `TypeRef`, by
   address and by node + span + name for copies) and `Meaning` (the name in
@@ -1543,9 +1566,9 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   example with std (47 files); the written-keys derivation dropped from
   4.5ms to 2.3ms per check.
 
-### 2026-10-29 — Written names stop being looked up program-wide (PIPELINE.md C1.1)
+### 2026-10-29 — Written names stop being looked up program-wide (the pipeline record C1.1)
 
-- **Stage C, first piece.** C1 is split in three (PIPELINE.md §II.9): the
+- **Stage C, first piece.** C1 is split in three (the pipeline record §II.9): the
   remaining program-wide lookups by name (this), type-position names resolved
   by resolution (C1.2), value-position names (C1.3).
 - **What the census found**: of PIPELINE §5's "~21 checker sites", A1's keys
@@ -1725,7 +1748,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   whole manifest since `aws.ddb` was added (ROADMAP 0aw).
 - Fresh suite: about 360s summed less (the glue test alone was 158s).
 
-### 2026-10-28 — Every call's choice survives being written out (PIPELINE.md B4, [round-trip])
+### 2026-10-28 — Every call's choice survives being written out (the pipeline record B4, [round-trip])
 
 - **Built under P5 (b)** (user, 2026-10-27: the corpus and the examples).
   `salvo_core::round_trip::write_out` prints a checked file back with each
@@ -1764,7 +1787,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   names, `throw`, forwarded implicits, desugared or stamped spans.
 - **Stage B is complete.** Next is Stage C, C1.
 
-### 2026-10-28 — Sends and mints choose their targets as calls do (PIPELINE.md B3.7, P20)
+### 2026-10-28 — Sends and mints choose their targets as calls do (the pipeline record B3.7, P20)
 
 - **Decided (user, 2026-10-28)**: a mint ranks the visible `send fn`s of its
   name by the captures and the token's wanted type, a tie naming `replyto
@@ -1799,7 +1822,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   `actors/self_send.sv` updated; run data
   `actors/send_targets_are_selected_as_calls.sv` (both backends).
 
-### 2026-10-28 — An interpolated part is the call `to_str(part)` (PIPELINE.md B3.2)
+### 2026-10-28 — An interpolated part is the call `to_str(part)` (the pipeline record B3.2)
 
 - **Under the user's P4 decision (option (a), 2026-10-28)**: each `${part}`
   is the call `to_str(part)`, resolved as that call written in the body is.
@@ -1824,7 +1847,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 - Tests: checker data `strings/interpolation_calls.sv`; run data
   `types/interpolation_is_a_to_str_call.sv` (both backends).
 
-### 2026-10-28 — An effect member is a value by its bare name (PIPELINE.md B3.6)
+### 2026-10-28 — An effect member is a value by its bare name (the pipeline record B3.6)
 
 - **Under R10 D3 (decided)**: at a fn-typed position the members of the name
   of every available effect compete with the fns (`on_point(show, p)`), and
@@ -1843,12 +1866,12 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   `"a ${x} b"` as `concat("a ", to_str(x), " b")`, each part's `to_str` an
   ordinary call at the site, a `Str` part included; `interp_union` stays
   until D4. Rejected: values with a `?to_str` per part, a string builder.
-  PIPELINE.md §II.10 P4.
+  the pipeline record §II.10 P4.
 - Tests: checker data `effect_at/member_values.sv`; run data
   `effects/member_calls_are_calls.sv#a_member_passed_by_name` (both
   backends).
 
-### 2026-10-28 — Effect members are selected as calls (PIPELINE.md B3.5)
+### 2026-10-28 — Effect members are selected as calls (the pipeline record B3.5)
 
 - **Under R10 P4 (decided)**: the members of every available effect that
   declares a name and the fns of it are **one candidate set**, chosen by the
@@ -1883,7 +1906,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   `effect_at/selector.sv`; run data `effects/member_calls_are_calls.sv`
   (both backends).
 
-### 2026-10-28 — Member calls and uniform calls (PIPELINE.md B3.4, P19)
+### 2026-10-28 — Member calls and uniform calls (the pipeline record B3.4, P19)
 
 - **Decided (user, 2026-10-28), replacing R10 D14**: `x.name(args)` is a
   **member call** when `x`'s type has a member `name` (a struct's visible
@@ -2397,7 +2420,7 @@ and SLICES.md alone. One proposed name collided (`eff-handle` →
 ### 2026-10-28 — Tests check over one std per process (TESTS.md T3, C2, T6)
 
 **std's front half moved from the language server into salvo-core, and the
-tests build and check their programs over it.** The user paused PIPELINE.md
+tests build and check their programs over it.** The user paused the pipeline record
 Part II to rethink testing (TESTS.md, rounds 1 and 2: rule-label ids
 `feature-rule:diagnostic-name`, annotations above the line, one messages file,
 ids shown only under `-v`, shared data files, real std as the default fixture,
@@ -2435,7 +2458,7 @@ This is the sequence's first code step.
   `ir::analyze` that said std's tables are "not populated" under the cache
   was wrong and is corrected: they are seeded whole.
 - **T6** (user, round 1 TD6): AGENTS.md now asks for one final run, the warm
-  nextest before a commit (else `cargo test`), not both; PIPELINE.md's method
+  nextest before a commit (else `cargo test`), not both; the pipeline record's method
   runs its differential over the data corpus, not two fresh suites.
 - **What it bought.** Under `cargo test` (one process per binary): Rust
   codegen 18s → 6.3s, Kotlin codegen 16s → 5.5s, corpus 15s → 2.8s (fresh),
@@ -2453,7 +2476,7 @@ This is the sequence's first code step.
 
 **`a + b` is `plus(a, b)`, `a - b` `minus(a, b)`, `a * b` `times(a, b)`, `a /
 b` `divide(a, b)`, and the new `a ** b` is `pow(a, b)`** (OPERATOR_OVERLOAD.md
-O1's name table and the brief's `**`; PIPELINE.md §3 R10; [op-arith],
+O1's name table and the brief's `**`; the pipeline record §3 R10; [op-arith],
 [op-pow]), each resolved exactly as the written call is, the way B3.3c made the
 comparisons calls. `check_arith_call` runs the one lowering that stays before
 the call ([op-promote]) and then the enclosing fn's own implicit step and
@@ -2571,7 +2594,7 @@ of the summed top-level phases: `examples/cluster` 62.0/64.2/58.8 →
 ### 2026-10-28 — A `for` is the `next` and `iter` it names (B3 piece 3d, R10 D10, D3; census D8–D11)
 
 **`for x in e` is `next(e)` when a `next` takes `e`, and `next(iter(e))`
-otherwise** (OPERATOR_OVERLOAD.md O1; PIPELINE.md §3 R10 D10; [iter-for]),
+otherwise** (OPERATOR_OVERLOAD.md O1; the pipeline record §3 R10 D10; [iter-for]),
 each call resolved exactly as it would be written: the enclosing fn's own
 implicit of the name first, ranked like overloads ([implicit-resolve-body],
 [implicit-same-name]), then `resolve_named_call` over the available effects'
@@ -2701,7 +2724,7 @@ does not re-check std.
 
 **`a == b` is `eq(a, b)`, `a != b` is `!eq(a, b)`, `a < b` is `cmp(a, b) <
 0`** (`>`, `<=`, `>=` alike), selected by the call rule
-(OPERATOR_OVERLOAD.md O1; PIPELINE.md §3 R10; [op-order], [op-equality]).
+(OPERATOR_OVERLOAD.md O1; the pipeline record §3 R10; [op-order], [op-equality]).
 `check_comparison_operands` no longer resolves anything of its own: it runs
 the two lowerings that stay before the call and then `resolve_named_call`
 with the operands pre-typed, so the call's selection, its effect members,
@@ -2833,7 +2856,7 @@ O1-B (an operator is the call it names) it makes the name-based call *the*
 type's one operator: for a concrete type there is never a competitor, so no
 import or local fn can change what `==`, `<`, interpolation or `for` means.
 Built as the user decided it; what the decision did not name is P10
-(PIPELINE.md §II.10, ROADMAP 0ah).
+(the pipeline record §II.10, ROADMAP 0ah).
 
 - **The check** (`salvo_core::unique_shape`, called from `resolve_impl` once
   every file's scope is built, so a written type resolves as the checker
@@ -2923,7 +2946,7 @@ Built as the user decided it; what the decision did not name is P10
   its signature) in every example's `rust/` and `kotlin/` trees, the
   goldens and the `lib/platform` and `modules/aws` ABI mirrors, plus a
   comment in the Kotlin runtime's `compare.kt`. No user module's code
-  changed; `expected.txt` unchanged on both backends. PIPELINE.md §II.13 D2
+  changed; `expected.txt` unchanged on both backends. the pipeline record §II.13 D2
   is dissolved.
 
 Tests: 2,134 (+12: `unique_shape_tests` 11, the codegen catch-all refusal 1),
@@ -2934,7 +2957,7 @@ all green; `salvo test --src lib` 150.
 **Two renames the user kept from the operator brief** (OPERATOR_OVERLOAD.md
 O1, user decision 2026-10-27: "kept from the brief: … the `params` → `fns`
 and `Yield` → `Next` renames"), made first in B3 piece 3 so the operator and
-`for` lowering that follow speak the new names (PIPELINE.md §II.12, §II.13
+`for` lowering that follow speak the new names (the pipeline record §II.12, §II.13
 "Order for B3"). No semantics changed.
 
 - **`params` → `fns`** [implicit-group]: `export fns Hashed<T> => eq with
@@ -2987,7 +3010,7 @@ Tests: 2,122 (renames only), all green; `salvo test --src lib` 150.
 
 **The user's census decisions applied to the implicit positions** (R10,
 2026-10-27: *follow the one-rule principle in all cases where we can*;
-PIPELINE.md §II.9 Stage B piece B3.1, §II.13 D3, D21, D22, D23). An implicit
+the pipeline record §II.9 Stage B piece B3.1, §II.13 D3, D21, D22, D23). An implicit
 argument was already filled by the call rule (b6436d24); four places still
 had rules of their own, and each now follows the call:
 
@@ -3034,7 +3057,7 @@ had rules of their own, and each now follows the call:
   a new table in `partition.rs`'s router and `insert_rows`), lowered the same
   way. Inference reads a member as it fills (D22). Not at a binder
   [cmp-binder]: its fill is an identity a type carries, which a member's
-  handler is not — a **DECISION** recorded (PIPELINE.md §II.10, ROADMAP), the
+  handler is not — a **DECISION** recorded (the pipeline record §II.10, ROADMAP), the
   safe reading taken.
 - **D21, two implicits of one name** [implicit-same-name]: ranked like
   overloads (`pick_own_implicit`, by their parameter types), at a call
@@ -3078,7 +3101,7 @@ examples/cluster/salvo`: check 190–193ms before, 188–196 after.
 ### 2026-10-28 — The checker's facts are stored by declaration (A4)
 
 **Every row of `Checked` belongs to one declaration** ([decl-rows],
-PIPELINE.md §II.9 Stage A piece A4): a node-keyed row to `Key::decl`, a
+the pipeline record §II.9 Stage A piece A4): a node-keyed row to `Key::decl`, a
 `DeclId`-keyed row to its id, a row keyed by a handler's or effect's symbol
 key (`route_keys`, `handler_deps`, `effect_prereqs`, `protocol_hashes`,
 `parking_handlers`) to that declaration, a row placed by its node's span (a
@@ -3166,7 +3189,7 @@ each: check 179.7–193.4ms before, 190.7–194.7 after; IR build ~2.2 both.
 
 ### 2026-10-28 — Every fact is keyed by its declaration and node (A3)
 
-**`Key = (file, Span)` became `(DeclId, NodeId)`** ([node-id], PIPELINE.md
+**`Key = (file, Span)` became `(DeclId, NodeId)`** ([node-id], the pipeline record
 §II.9 Stage A piece A3; user decision P2): every `Checked` table, the IR
 builder's reads and the IR flow pass's `Decision` are keyed by the
 declaration a node is in ([decl-id]; a handler's or effect's member its own,
@@ -3289,7 +3312,7 @@ Warm `cargo nextest run`: 2,111 passed in 3m17 after the core change.
 
 ### 2026-10-27 — Every copied node keeps its origin (A2)
 
-**Origins replace synthetic spans** ([node-origin], PIPELINE.md §II.4, Stage A
+**Origins replace synthetic spans** ([node-origin], the pipeline record §II.4, Stage A
 piece A2). A comptime copy used to be given spans past the end of its file,
 one region per unrolled copy (`StampRegion`), and its errors were moved back
 by two redirects (the checker's `redirect_stamped`, and
@@ -3386,7 +3409,7 @@ of one binary spread 30–65ms).
 
 ### 2026-10-27 — Every declared callee is named past locals, and calls through fn values are checked (B1 bugs)
 
-The five divergences of the call census (PIPELINE.md §II.13) that are wrong
+The five divergences of the call census (the pipeline record §II.13) that are wrong
 whatever P3 decides, fixed without deciding any of the ten questions §II.13
 leaves to the user; where a fix touched one, it kept the checker's current
 choice or refused.
@@ -3488,7 +3511,7 @@ computed callee with and without an effect, the agreeing lambdas): two
 
 ### 2026-10-27 — Every type is keyed by its module (A1, second part)
 
-The second half of A1 ([decl-id], PIPELINE.md §II.9): a type's key, the
+The second half of A1 ([decl-id], the pipeline record §II.9): a type's key, the
 string `Ty::Named` carries, is now the spelling of its declaration's id, a
 function of the declaration alone. **std's first declaration of a name is
 the name; every other declaration is `Name§module`**, whether or not another
@@ -3577,8 +3600,8 @@ of four edits, medians of the summed top-level phases: `examples/cluster`
 
 ### 2026-10-27 — Every fn is identified by module, name and signature (A1, first part)
 
-**Part II folded into PIPELINE.md.** PIPELINE2.md, the per-phase lowering
-design the user worked out with another agent, is PIPELINE.md's Part II
+**Part II folded into the pipeline record.** PIPELINE2.md, the per-phase lowering
+design the user worked out with another agent, is the pipeline record's Part II
 (`# Part II — Per-phase lowering`, §II.1–§II.12), summarized in §3 as R9.
 **User decisions R9 (2026-10-27)**: per-phase lowering for structural unity
 (no surface spelling grows semantics of its own); P1 (a declaration id
@@ -3591,7 +3614,7 @@ P6 (representation at D1), P7 (one `salvo dump --phase …`), P8 (comptime's
 signature/body split only in C3); `by` at a call is not supported.
 
 **A1, first part: one stable declaration id for fns and the IR**
-([decl-id], PIPELINE.md §II.9 Stage A). `FnKey { file, item }` and the IR's
+([decl-id], the pipeline record §II.9 Stage A). `FnKey { file, item }` and the IR's
 `DeclId { module, item, sub }` are gone; both are now
 `salvo_core::DeclId` (`decl_id.rs`): module path, kind, name path
 (`Counter.get`), a fn-like declaration's signature as overload identity (the
@@ -4133,7 +4156,7 @@ dropped and another could win (the near miss).
 
 - **Census** (a temporary `SALVO_IMPLICIT_CENSUS` switch ran both rules side
   by side, the old one live, and logged every resolution whose result or
-  nested fill differed; PIPELINE.md §8 has the run): over the whole
+  nested fill differed; the pipeline record §8 has the run): over the whole
   `cargo test` (every program the suite checks, std's own tests and the e2e
   programs included) **6 resolutions in 5 tests** changed, and `salvo
   analyze` of every example, `modules/aws/salvo`, `bench/*/salvo` and `demo/`
@@ -4298,7 +4321,7 @@ on a write); each now writes under its own name.
 
 ### 2026-10-14 — Fate links stay the checker's facts (option C)
 
-User decision, after weighing the last R8 leftover (PIPELINE.md §8, "Fate
+User decision, after weighing the last R8 leftover (the pipeline record §8, "Fate
 links stay the checker's"). The checker keeps tracking links through flow;
 the IR flow pass keeps consuming them as recorded facts (`bind_facts`,
 `derived_uses`, `virtual_candidates`, `by_value_loops`, `fate_mutations`).
@@ -4518,7 +4541,7 @@ deductions govern callers (`=> !a` consumes); a template's effect and move
 the member lacks are errors at the clause with the stamp prefix; a written
 declaration may grant them; a generic target; and the clause and its
 per-member `fn … by auto` spelling build the same IR, fn for fn. Left: the
-signature/body split itself (PIPELINE.md §5) still waits on step 8's stable
+signature/body split itself (the pipeline record §5) still waits on step 8's stable
 ids and declaration-relative spans; it now needs no template to know a
 signature. Also left (ROADMAP §2c): a written `fn … by X` at a generic type,
 and a group member with type parameters of its own, which `member_decl`
@@ -4526,7 +4549,7 @@ clears as the old path cleared the template's.
 
 ### 2026-10-14 — Static move-site rules stay in the checker (R8 amended)
 
-User decision, option (b) of the question left at R8's end (PIPELINE.md §3
+User decision, option (b) of the question left at R8's end (the pipeline record §3
 R8, "Amended"): the IR flow pass owns every path-dependent ownership question
 (use after move, partial moves, poison, bound-away, move-mode, linear flow),
 and the checker keeps the rules that read no flow state — a lambda moving or
@@ -4724,14 +4747,14 @@ instead:
   and if it ever did, every file would build its own. Pass 2 on cluster
   ~7.4ms → ~4.6, for every compile too.
 
-What is left of an edit's cost is listed in PIPELINE.md §8 (piece 4) and
+What is left of an edit's cost is listed in the pipeline record §8 (piece 4) and
 ROADMAP: std's scopes per analysis, the std seed's clone, `ddb.sv`'s
 platform-boundary recursion, a stamped module walked every time, and the
 cache's insert.
 
 ### 2026-10-20 — A language-server edit re-checks only the files it changed
 
-PIPELINE.md step 8, piece 3 [lsp-check-cache]. With std's front shared, a
+the pipeline record step 8, piece 3 [lsp-check-cache]. With std's front shared, a
 body edit in one file of a multi-file project still walked every project
 file: on `modules/aws` (7 files) the check was ~30ms of an edit's ~57ms, and
 `ddb.sv`'s platform boundary alone ~10ms of it, for a file nobody touched.
@@ -4788,7 +4811,7 @@ record 0.6). A program with one project file skips the cache, so
 
 ### 2026-10-20 — The language server parses and expands std once
 
-PIPELINE.md step 8, piece 2 [lsp-std-front]. Every analysis the language
+the pipeline record step 8, piece 2 [lsp-std-front]. Every analysis the language
 server made re-parsed std through the parse cache (a clone of ~65 ASTs),
 re-ran the comptime expansion over it, and resolved the whole unstamped
 program again for comptime's scoped names. Now std's front half is built once,
@@ -4840,12 +4863,12 @@ idle, not work (see the gotcha). 2048 tests.
 
 ### 2026-10-20 — A language-server edit builds less of the program
 
-PIPELINE.md step 8 began by measuring what an edit costs the language server
+the pipeline record step 8 began by measuring what an edit costs the language server
 (`tools/lsp-timing.py`, new: it drives `salvo lsp` through edits with
 `SALVO_TIMINGS=1`). One body edit of `examples/cluster` with the std cache in
 force cost ~85ms (debug), and the checker's body walk, which the step planned
 to cache per declaration, was ~5ms of it. The rest was program-wide work over
-std on every edit. Step 8 was reordered from that (the plan is in PIPELINE.md
+std on every edit. Step 8 was reordered from that (the plan is in the pipeline record
 §8): std's front half first, the per-file checker rows second, per
 declaration only if the numbers then call for it. This first piece removes
 two costs outright:
@@ -4865,7 +4888,7 @@ them. No behavior changed; no test changed.
 
 ### 2026-10-20 — Every declaration's interface is checked before any body
 
-PIPELINE.md §7 step 7, piece 3 [decl-interface-pass] [implicit-param]
+the pipeline record §7 step 7, piece 3 [decl-interface-pass] [implicit-param]
 [fn-effects] [handler-state-infer] [cli-phase-timings]. 02-resolve-03-interfaces is its
 own pass, with its own diagnostics. Until now `walk_signatures` recorded
 implicits, established claims and effect lists and dropped its
@@ -4944,7 +4967,7 @@ walk that owns its check, at the span it always had.
 
 ### 2026-10-20 — Ownership is checked per declaration, beside type errors elsewhere
 
-PIPELINE.md R8 piece 9 [ir-analyze] [flow-use-after-move] [cli-analyze].
+the pipeline record R8 piece 9 [ir-analyze] [flow-use-after-move] [cli-analyze].
 The IR is built, and the flow pass and the linear check run, for every
 declaration whose own checking produced no error, whatever errors the rest
 of the program has. Until now a checker error anywhere hid every IR
@@ -5009,7 +5032,7 @@ the IR. Emission is unchanged: a program with any error emits nothing.
 
 ### 2026-10-20 — A binding's mode is decided in the IR, and the walk keeps no consumption state
 
-PIPELINE.md R8 piece 8 [fate-move-mode] [fate-derived-readonly]
+the pipeline record R8 piece 8 [fate-move-mode] [fate-derived-readonly]
 [deduce-fixpoint] [deduce-ownership-audit] [flow-use-after-move] [deduce-field].
 The IR flow pass decides which borrow-mode bindings take ownership and
 reports the S1 error for the rest. The checker's walk keeps every binding
@@ -5131,7 +5154,7 @@ test went too: with no marking left, both walks were one walk.
 
 ### 2026-10-20 — Linear flow errors are reported from the IR
 
-PIPELINE.md R8 piece 7 [linear-obligation] [linear-state] [linear-union-arm]
+the pipeline record R8 piece 7 [linear-obligation] [linear-state] [linear-union-arm]
 [ir-linear-check] [ir-obligation]. The checker no longer reports any linear
 rule that depends on paths or moves. The IR's ledger (`ir::check`) reports a
 value consumed on some paths but not others, at the `if`, `when` or loop
@@ -5206,7 +5229,7 @@ all-arms-left settling), `linear_settled`, `pending_drops`,
   variables out of `virtual_place_binds` (the Rust virtual-place
   rendering); and `check_loop_body` re-walks a loop when the state changed.
   The read and call paths' `consumed_ty` typing, and the join dropping a
-  consumed variable's place narrowings, are neutral by the audit. PIPELINE.md
+  consumed variable's place narrowings, are neutral by the audit. the pipeline record
   §8 has the details.
 - **Tests:** `linear_flow_tests` (new, 71 cases in one program, real std):
   the checker reports nothing, and the gate reports each case's pinned
@@ -5218,7 +5241,7 @@ all-arms-left settling), `linear_settled`, `pending_drops`,
 
 ### 2026-10-20 — A derived route has its node in the deadlock graph
 
-PIPELINE.md R8 piece 6 [actor-deadlock-cycle] [actor-route-stub] [effect-any].
+the pipeline record R8 piece 6 [actor-deadlock-cycle] [actor-route-stub] [effect-any].
 When routes moved into the IR (`__Route_X`, step 6 piece 5), the deadlock
 graph lost the router servant node the AST stub (`__Route_X of any X`) had
 got, since the graph reads AST handlers. The node is back, built from the
@@ -5264,7 +5287,7 @@ mixed handler's, an `of any X` router's, a route's) now share one builder,
 
 ### 2026-10-20 — The flow pass tracks moves path by path
 
-PIPELINE.md R8 piece 5, ROADMAP 0o [flow-use-after-move]
+the pipeline record R8 piece 5, ROADMAP 0o [flow-use-after-move]
 [fate-partial-move] [fate-poison] [copy-scalar-free]. The IR flow pass had
 mirrored the checker's join, loop and revival rules exactly, so the
 checker's diagnostics could be switched off one by one (pieces 1–3c). Its
@@ -5344,7 +5367,7 @@ programs, one program with one output). Emitted code did not change.
 
 ### 2026-10-20 — A binding's mode is decided at its first moving use, and every body is walked once
 
-PIPELINE.md R8 piece 4 [fate-move-mode] [deduce-fixpoint]. The checker's
+the pipeline record R8 piece 4 [fate-move-mode] [deduce-fixpoint]. The checker's
 re-walk loop is gone. A derived binding used to become move-mode in a second
 walk: the first walk recorded it as a candidate when a later use moved or
 mutated what it bound, and the files with new candidates were walked again,
@@ -5361,7 +5384,7 @@ and, at the derived variable's later move sites, `moved_reads`, `flow_moves`,
 diagnostics in std ("`e` owns a linear value that is consumed on some paths
 but not others", "assigning to `r` drops the linear value it still owns"),
 because a move-mode binding consumes its ancestors and the checker's linear
-joins read that. This is why the decision did not go to the IR (PIPELINE.md's
+joins read that. This is why the decision did not go to the IR (the pipeline record's
 preferred option): the walk's linear joins run on whatever state the walk
 has, so the decision must be made where they can see it, until linearity's
 checker half moves to the IR too. A per-body re-walk would still walk those
@@ -5414,7 +5437,7 @@ cases), and `a_linear_binding_takes_ownership_where_it_is_made` in
 
 ### 2026-10-20 — Poisoned and bound-away reads are reported from the IR
 
-PIPELINE.md R8 piece 3c [fate-poison] [fate-move-mode] [flow-use-after-move].
+the pipeline record R8 piece 3c [fate-poison] [fate-move-mode] [flow-use-after-move].
 The IR flow pass now reports the checker's last two use diagnostics: a read
 of a value derived from a root that was then moved, mutated or reassigned
 ("`ys` cannot be used here: it was bound from `xs` and shares its fate, and
@@ -5500,7 +5523,7 @@ with the field.
 
 ### 2026-10-20 — Partial moves are reported from the IR
 
-PIPELINE.md R8 piece 3b [fate-partial-move] [flow-use-after-move]. The IR
+the pipeline record R8 piece 3b [fate-partial-move] [flow-use-after-move]. The IR
 flow pass now tracks partial moves, and the checker's partial-move
 diagnostic (`check_moved_place`, with its two messages) is gone. Per path,
 beside the wholly moved locals, the pass keeps the places moved out of each
@@ -5553,7 +5576,7 @@ hides the flow pass's diagnostics.
 
 ### 2026-10-20 — Every move the checker made is carried into the IR
 
-PIPELINE.md R8 piece 3a [flow-use-after-move]. The checker no longer reports
+the pipeline record R8 piece 3a [flow-use-after-move]. The checker no longer reports
 a consumed read at all; the IR flow pass reports every one. Piece 2 left
 three moves with the checker because the IR could not see them: a fn value
 handed to a consuming parameter (`param_mode` lends fn-typed parameters
@@ -5589,7 +5612,7 @@ pass's diagnostics; it asserts the moves' lines now.
 
 ### 2026-10-20 — Use-after-move is reported from the IR
 
-PIPELINE.md R8 piece 2 [flow-use-after-move]. The IR flow pass is now the
+the pipeline record R8 piece 2 [flow-use-after-move]. The IR flow pass is now the
 gate's use-after-move diagnostic: `ir::analyze` runs `ir::flow::check_one`
 per declaration next to the linear check, and every gate that calls it on a
 clean program reports it — `salvo analyze` and the LSP, compile/run/build/
@@ -5644,7 +5667,7 @@ checks analyze, both compiles, `salvo ir` and a test file.
 
 ### 2026-10-20 — The IR's use-after-move pass, checked against the checker
 
-PIPELINE.md R8 (route b), piece 1 [flow-use-after-move]. `ir/flow.rs`
+the pipeline record R8 (route b), piece 1 [flow-use-after-move]. `ir/flow.rs`
 (`check`, `check_one`) walks each fn body of the IR keeping, per path, the
 wholly moved locals; a later read of one is the error. It is run by tests
 only. `tests/flow_tests.rs` is the differential: 36 small programs, the
@@ -5675,7 +5698,7 @@ never showed them.
 
 ### 2026-10-20 — The ownership audit, as a test
 
-PIPELINE.md §7 step 7, piece 2: the audit the phase split waits on, turned
+the pipeline record §7 step 7, piece 2: the audit the phase split waits on, turned
 from a reading into evidence [deduce-ownership-audit]. Reading the checker found
 ownership feeding typing in two ways. **Signature-level** (a callee's
 contract dropping a qualifier, `invalidate_place_narrows`,
@@ -5694,7 +5717,7 @@ ownership error, or let typing carry on.
 
 ### 2026-10-20 — A fn's effects are recorded with the signatures
 
-PIPELINE.md §7 step 7, piece 1. The survey of the checker's staging found
+the pipeline record §7 step 7, piece 1. The survey of the checker's staging found
 that `fn_effects` — a fn's expanded effect list — was written as `check_fn`
 reached each fn, while a body naming a fn *as a value* built its `Ty::Fn`
 from the table: a fn declared later read no effects. `apply(shout)` with
@@ -5707,7 +5730,7 @@ step 2, and the ~25 `inferred.is_some()`/`is_none()` gates that tested it.
 
 ### 2026-10-20 — `use any group`, and routes derived per protocol in the IR
 
-User decisions R7 (PIPELINE.md §3), PIPELINE §7 step 6's last sweep. `use
+User decisions R7 (the pipeline record §3), PIPELINE §7 step 6's last sweep. `use
 route_any(group)` is respelled **`use any group`** (the statement reads like
 the `any E` it binds; `use any` on anything but an `eff[ActorGroup<E>]` is an
 error), and the route behind it is no longer an AST handler `route.rs` wrote
@@ -5738,7 +5761,7 @@ a derived route has none, so a route's forwards count as its callers' sends
 
 ### 2026-10-20 — A handler's constructor parameters may have defaults
 
-User-approved, PIPELINE.md §3 R7: the prerequisite of R7's route config on
+User-approved, the pipeline record §3 R7: the prerequisite of R7's route config on
 the selector. [fn-param-default] now covers a handler's constructor:
 `handler Span(lo: Int, hi: Int = lo + 10, step: Int = 1)` is checked at the
 declaration (`check_module`'s `Item::Handler` branch: the parameter's type, no
@@ -5784,7 +5807,7 @@ declaration parsed and every omitting construction was refused with
 
 ### 2026-10-20 — The comptime expansion looks names up through each file's scope
 
-PIPELINE.md §7 step 6, the engineering half of "comptime after interfaces"
+the pipeline record §7 step 6, the engineering half of "comptime after interfaces"
 (step A of two). The expansion still runs before the program's resolution,
 but it now resolves the unstamped program first (`resolve::resolve_sources`,
 the resolver over files and ASTs that are not yet a `Program`) and keeps per
@@ -5808,7 +5831,7 @@ effect aliases, R6). Left, with the signature/body split and its
 
 ### 2026-10-20 — A mixed handler may declare dependencies
 
-User decision R6 (PIPELINE.md §3): "drop the refusal, and make a more uniform
+User decision R6 (the pipeline record §3): "drop the refusal, and make a more uniform
 experience". The first-slice cut [actor-mixed-handler] is gone; a mixed handler's
 dependencies — written, or implied by a face's prerequisite — are its
 **servant's**. Nearly everything was already in place: the mixed spawn fell
@@ -5837,7 +5860,7 @@ Tests: `a_mixed_handlers_dependencies_belong_to_the_servant`,
 
 ### 2026-10-20 — Effect aliases and prerequisites resolve where effect lists are lowered
 
-PIPELINE.md §7 step 6, piece 2, under the user's R6 answers (hover shows the
+the pipeline record §7 step 6, piece 2, under the user's R6 answers (hover shows the
 expanded list; the mixed-handler refusal is to go). `alias.rs` and
 `prereq.rs`, two AST rewrites that ran before resolution, are deleted. An
 `effects` alias is a module item the resolver finds like a type alias
@@ -5870,7 +5893,7 @@ list).
 
 ### 2026-10-20 — A file's own expansions are cached with its parse
 
-PIPELINE.md §7 step 6, its first piece: the expansions that read one file —
+the pipeline record §7 step 6, its first piece: the expansions that read one file —
 the struct-body hoist [fn-attached], `iter fn`s [iter-fn] and `test` blocks
 [test-decl] — are `expand::expand_file`, a function of the file's text, its
 module path and whether it is an annex. The language server's parse cache
@@ -5882,7 +5905,7 @@ expansion is 3ms where the whole was 10ms.
 
 ### 2026-10-20 — Linear discharge sets are keyed by type key
 
-Found by trying always-qualified type keys (PIPELINE.md step 5, piece 4,
+Found by trying always-qualified type keys (the pipeline record step 5, piece 4,
 deferred): a fn's or an effect member's discharge set was built from the
 *written* parameter type name and checked with `linear_capable`, which reads
 the keyed struct table, and `discard` compared it against the value's
@@ -5893,7 +5916,7 @@ keys, the member's resolved in the effect's own file [linear-group]
 
 ### 2026-10-20 — `salvo facts`, the pre-IR dump
 
-PIPELINE.md §7 step 5, piece 3 (D1): the checker's facts about each body,
+the pipeline record §7 step 5, piece 3 (D1): the checker's facts about each body,
 printed before anything lowers them [cli-facts] — per declaration, one line
 per expression with its type, the call's resolved declaration, and the
 coercion, dot-call, move and narrowing marks. It reads `Checked` as it is
@@ -5904,7 +5927,7 @@ one byte of their declaration, print as `…`.
 
 ### 2026-10-20 — A re-walk covers only the files that need it, and lookups go by key
 
-PIPELINE.md §7 step 5, its first two pieces. **The second walk is per file**
+the pipeline record §7 step 5, its first two pieces. **The second walk is per file**
 [deduce-fixpoint]: a move-mode candidate is a bind span of the file whose
 walk found it, and no other file's walk reads it, so after a walk only the
 files with new candidates are walked again. `check_once` became phases
@@ -5936,7 +5959,7 @@ overload set (scoping the IR's `qual_fn_ref` picked `main::NonEmpty` for a
 
 ### 2026-10-20 — Iterator structs are named, and `iter T` is gone
 
-PIPELINE.md §7 step 4, the user's decisions R3–R5 (PIPELINE.md §3). **Every
+the pipeline record §7 step 4, the user's decisions R3–R5 (the pipeline record §3). **Every
 `iter fn` names its struct** in a `state Name { … }` block, declared in the
 scope the fn is declared in, so it is an ordinary struct there: `fn range(end:
 Int) -> Mut Range` names what `-> iter Int` used to fill from the body, and a
@@ -5994,7 +6017,7 @@ test went, four for the named state came).
 
 ### 2026-10-20 — The first checking walk is a real one, and no interface is read off a body
 
-PIPELINE.md §7 steps 2 and 3, landed together (both rewrite the round driver,
+the pipeline record §7 steps 2 and 3, landed together (both rewrite the round driver,
 `check_program_rounds`). Step 2: the facts that drove the checker's rounds and need no
 language change. Every contract is signature-only since 2026-10-11, so
 `deduce::contracts` computes them **before** the first walk, and that walk
@@ -6012,13 +6035,13 @@ is right in the first walk [actor-replyto].
 Measured ([cli-phase-timings], `demo/`, `examples/actors`, `examples/borrowing`):
 three rounds became two. The second now runs for the inferred field paths
 (any program with a field-mutating callee), which step 3 removes. The
-per-body second walk for move-mode candidates that PIPELINE.md 4.4 describes
+per-body second walk for move-mode candidates that the pipeline record 4.4 describes
 is deferred to step 5: today a walk writes one shared `Checked`, so walking
 one body again would leave its first walk's rows behind; with facts stored
 per declaration a body is re-walked by replacing its own rows. Until then a
 candidate re-walks the program, as before.
 
-Step 3, the two user decisions of PIPELINE.md R2: **result lends** are the
+Step 3, the two user decisions of the pipeline record R2: **result lends** are the
 signature's [proj-infer] — written `holds proj(…)`, else every kept parameter
 that is not a Copy scalar (`lends::kept_params` now skips those) — and a body
 is only validated against a written statement, reading each callee's
@@ -6036,14 +6059,14 @@ now writes the callee's `=> e.hp: Mut`.
 
 ### 2026-10-20 — Phase timings, and one analysis per edit in the language server
 
-PIPELINE.md §7 step 1, the first of the pipeline plan (PIPELINE.md records
+the pipeline record §7 step 1, the first of the pipeline plan (the pipeline record records
 the design and its decision rounds R1–R5). [cli-phase-timings]: `SALVO_TIMINGS`
 prints each phase's wall time (`salvo_core::timing::phase`, a drop guard).
 The first numbers, `salvo analyze` on `demo/` and on `examples/actors`
 (debug build): parse ~22ms, expand ~10ms, resolve ~17ms, the check ~500ms, of
 which each **round** is ~160ms and there are **three** (both programs: a
 third round runs although nothing a user wrote changes the facts; claims are
-the suspect, PIPELINE.md 4.4), each round's body walk ~145ms, the signature
+the suspect, the pipeline record 4.4), each round's body walk ~145ms, the signature
 pre-pass ~5ms and each deduction pass ~5ms. So the rounds are about two
 thirds of the whole analysis, which is what steps 2–4 remove.
 
@@ -9595,7 +9618,7 @@ asked for it back, and chose the design in discussion:
   lexer removal note rewritten. **This reverses the dated 2026-10-11 removal
   below** — recorded here rather than left stale in prose.
 
-### 2026-10-12 — Checker/IR merge polish: named-discharger hint restored on IR leaks + synthetic-local message cleanup (IR_CHECKER.md)
+### 2026-10-12 — Checker/IR merge polish: named-discharger hint restored on IR leaks + synthetic-local message cleanup (the IR-checker record)
 
 The two optional message-quality follow-ups left after the merge are done.
 `discharge_set` (+ `discharge_hint`, `param_consumed_by_entry`,
@@ -9608,7 +9631,7 @@ message also now says "this value" instead of exposing a desugaring temporary's
 name (`__pick~1`). The linear/actor test assertions loosened during the merge
 are tightened back to name the discharger. 1764 tests green.
 
-### 2026-10-12 — Checker/IR merge concluded: Steps 1–4 investigated, none migrates; the merge is complete at Step 0 (IR_CHECKER.md)
+### 2026-10-12 — Checker/IR merge concluded: Steps 1–4 investigated, none migrates; the merge is complete at Step 0 (the IR-checker record)
 
 After the linear-obligation flow check landed on the IR and became the enforcer
 (Step 0), the remaining planned IR tenants were each examined for separability
@@ -9634,15 +9657,15 @@ reads the desugared IR. The IR flow check and the AST's ownership tracking are
 complementary, not duplicative. No further migration is planned; only two
 optional message-quality follow-ups remain (named-discharger hint; synthetic
 local/span polish for the desugared-pick leak). Full reasoning in
-IR_CHECKER.md's decision log.
+the IR-checker record's decision log.
 
-### 2026-10-12 — Checker/IR merge, Phase 2 Step 0: the IR linear check becomes the enforcer; AST path-exit/throw enforcement deleted (user decisions; IR_CHECKER.md)
+### 2026-10-12 — Checker/IR merge, Phase 2 Step 0: the IR linear check becomes the enforcer; AST path-exit/throw enforcement deleted (user decisions; the IR-checker record)
 
 The IR-level linear check now **gates the build**: `salvo build`/`analyze`/the
 LSP fail on a path-exit, throw-path, or `waitfor`-token linear leak, and the
 AST checker no longer does that enforcement. This is the first tenant of a new
 IR-analysis stage that later flow analyses (fate/release, loop-totality,
-exhaustiveness, deadlock) will join (IR_CHECKER.md §4, restructured).
+exhaustiveness, deadlock) will join (the IR-checker record §4, restructured).
 
 - **`salvo_core::ir::analyze::analyze(program, symbols, resolution, checked) ->
   Vec<FileDiagnostic>`**: builds the IR (scoped to **non-std** user modules —
@@ -9678,18 +9701,18 @@ exhaustiveness, deadlock) will join (IR_CHECKER.md §4, restructured).
   own clean program (`l6_path_exit_leaks`, `l7a_opted_body_leaks`), the
   multi-error program keeps its structural assertions (and `an_fs` now asserts
   the surviving fate-conflict message). Leak wording is the uniform IR phrasing.
-- **Deferred follow-ups** (IR_CHECKER.md decision log): the named-discharger
+- **Deferred follow-ups** (the IR-checker record decision log): the named-discharger
   hint ("discharge it with `drain`/`close`/…"), which needs `discharge_set`
   extracted to `crate::linear`; and the synthetic local name / span polish for
   the desugared-pick leak (`__pick~1`). Both are message quality, not
   correctness — every leak is caught. 1764 tests green warm.
 
-### 2026-10-12 — Checker/IR merge, Phase 1: linear-obligation ledger on the IR + a per-path check that catches noticeboard #2 (user decisions; IR_CHECKER.md)
+### 2026-10-12 — Checker/IR merge, Phase 1: linear-obligation ledger on the IR + a per-path check that catches noticeboard #2 (user decisions; the IR-checker record)
 
 The IR now carries a **linear-obligation ledger** and a **per-path check** reads
 it; the check catches a dropped linear union arm the AST checker misses
 (noticeboard #2) and reports **zero false positives** on all of std and the
-examples. Full design and the iteration log are in IR_CHECKER.md; the four
+examples. Full design and the iteration log are in the IR-checker record; the four
 design decisions (D1–D4) are recorded there. This is the substrate for Phase 2
 (moving linear enforcement off `check.rs`).
 
@@ -9712,7 +9735,7 @@ design decisions (D1–D4) are recorded there. This is the substrate for Phase 2
   `linear_arms`, `linear_fields`, extracted from `check.rs`, which now delegates
   to it — one definition both the AST checker and the IR check use.
 - **Driving false positives 4131 → 0** took a sequence of soundness fixes, each
-  grounded in a real flow pattern (full log in IR_CHECKER.md): narrow-transfer;
+  grounded in a real flow pattern (full log in the IR-checker record): narrow-transfer;
   container decomposition (settle a struct when its linear fields are moved
   out); borrows (`ref`/`proj`, lent params, nullable borrows) owe nothing;
   positive/negative arm-test discharge; switch-dispatches-its-subject;
@@ -9727,12 +9750,12 @@ design decisions (D1–D4) are recorded there. This is the substrate for Phase 2
   AST-side `check_linear_frame_drop`/`check_linear_exit`/`linear_settled`, so
   the two don't double-report.
 
-### 2026-10-12 — Checker/IR merge, Phase 0: `salvo-ir` folded into `salvo_core::ir`, spans on `Block`/`Param` (user decision; IR_CHECKER.md)
+### 2026-10-12 — Checker/IR merge, Phase 0: `salvo-ir` folded into `salvo_core::ir`, spans on `Block`/`Param` (user decision; the IR-checker record)
 
 First phase of merging the IR builder and the semantic checker so sugar is
 desugared **once** and the "real" checks (linear obligations, deductions) run on
 the IR rather than re-derived on the AST. Full design + the four decisions are
-in IR_CHECKER.md; this entry records Phase 0, which is pure plumbing (no
+in the IR-checker record; this entry records Phase 0, which is pure plumbing (no
 behaviour change — all 1759 tests green, dump byte-identical).
 
 - **The `salvo-ir` crate is gone; the IR is now `salvo_core::ir`.** Rationale
@@ -9758,7 +9781,7 @@ behaviour change — all 1759 tests green, dump byte-identical).
   is deliberate: `Expr` already carries a span and most statements wrap an
   `Expr`/`Block`, so this is what the Phase 1 obligation checker needs without
   retrofitting ~213 `Stmt` + ~90 `Place` sites across both emitters. See
-  IR_CHECKER.md §4 Phase 0.
+  the IR-checker record §4 Phase 0.
 
 ### 2026-10-11 — LSP: completion offers in-scope locals, hover expands struct-typed fields (noticeboard TODOs)
 
@@ -33872,6 +33895,3329 @@ since 2026-10-06. The open decisions:
 8. **Tooling and emission**: LSP hover/go-to on `auto`, one hidden stamp per
    (fn, type, module) with stable mangling, the IR dump. Identities are
    erased from emitted types, so no runtime representation is involved.
+
+## Design record: the compiler pipeline (PIPELINE.md, retired 2026-10-30)
+
+PIPELINE.md was the working document for organizing the compiler into named
+phases and sub-phases, each defined by its inputs and outputs, so that each
+phase's output can be dumped and tested on its own, results are cached per file
+or per declaration, and the whole program is visited at one point only
+(2026-10-20 to 2026-10-30). Part I (the R1–R8 rounds) made every interface a
+function of its declaration's text and other interfaces, removed the
+program-wide sweeps, and built the per-file and std caches; Part II (R9, R10,
+P1–P25) lowered each call-like form to one call, keyed every fact by its
+declaration and node, made the resolve phase a lowering, moved path questions
+into the flow pass, and gave every phase a dump. Every piece was built; each
+has its own entry in the decision log above (which cites it as "the pipeline
+record" with the piece's name: step 6, R8 piece 8, B3.7, C3.2, D3.5(b), …).
+The rules are LANGUAGE_SPEC.md's ([node-id], [node-origin], [decl-id],
+[decl-rows], [decl-interface-pass], [call-resolve], [call-one],
+[backend-core-layers], [cli-dump], [dump-spelling], [dump-parse-ast],
+[dump-resolve], [dump-type-check], [dump-rows], [dump-generate-ir],
+[round-trip], [lsp-check-cache], [fate-move-mode]), and
+docs/compiler/Phases.md states what each phase is for and where a piece of
+work belongs. What it left open moved to ROADMAP.md (the DECISIONs P9–P18 and
+P21 as 0af–0aq and 0av, the leftovers of its stages under their own items).
+This section keeps the terms, the decisions with their reasoning, the plans
+(whose piece names the code and the log cite) and the call census. Not kept:
+the 2026-10-20 survey of the pipeline as it was, and the two work logs, whose
+entries are the decision log's. A section number (§n, §II.n) inside the
+quoted text refers to the retired document.
+
+**Terms used here.**
+- **Interface** of a declaration: what other declarations may know about it
+  (a fn's signature, deduction contract, effects, implicits, lends; a struct's
+  fields; an effect's members and prerequisites). The rule this design is
+  built on: *an interface is computed from the declaration's own text and
+  other interfaces, never by type-checking a body.*
+- **Body**: everything else (a fn's statements). Checking a body reads
+  interfaces only.
+- **Index**: a lookup structure over every declaration's *header* (name →
+  declaration id), rebuilt cheaply from per-file declaration lists. An index
+  is program-wide but is not a **sweep** (a pass that walks bodies or does
+  real work over every declaration).
+- **Early cutoff**: when a declaration is edited and its re-derived interface
+  is unchanged, nothing that depends on it is recomputed.
+
+### 2. The target pipeline
+
+| phase | scope | contents | output |
+|---|---|---|---|
+| 01-parse-01-lex | file | tokens, comments | `Vec<Token>` |
+| 01-parse-02-ast | file | AST, syntactic sugar, namespace flattening, struct-fn hoist, tests | AST |
+| 02-resolve-01-declare | file | each declaration's header and stable id | per-file declaration list |
+| 02-resolve-02-scopes | file | imports, aliases, renames, rungs, against an index of headers | per-file scope |
+| 02-resolve-03-interfaces | declaration | signature types lowered, default deductions, effects (aliases and prerequisites resolved here), implicits, refinements, lends, `iter fn` structs, `by` member signatures | interface |
+| 02-resolve-04-comptime | `by` site | stamped bodies, after resolution (D3) | bodies |
+| 02-resolve-05-bodies | declaration | local binding, type inference, overloads, narrowing, picks; reads interfaces only | per-declaration facts (the pre-IR, D1) |
+| 03-generate-01-lower | declaration | pre-IR → IR: effects as parameters, pass modes, union wrapping, narrows as nodes | IR declaration |
+| 03-generate-02-flow | declaration | ownership, borrows, linearity, contract validation | diagnostics, IR annotations |
+| 03-generate-03-link | program | indexes for actor glue, `ref` containers, throws; **deadlock** | program IR |
+| 04-emit | | per backend | target source |
+
+Each declaration-scoped step records which interfaces it read; a step is
+recomputed when its own text, or one of those interfaces, changed (early
+cutoff, §6).
+
+### 3. Decisions
+
+#### R1 (2026-10-20)
+
+- **D1. The pre-IR is per-declaration facts plus a dumper (option a).** The
+  AST stays; the checker's facts are stored per declaration, keyed by
+  declaration id and a span *relative to the declaration*, and a dumper prints
+  the AST with types and targets filled in. A real typed tree (option b) is
+  not ruled out later. The relative key is what makes a body's facts survive
+  edits elsewhere in its file, and what lets the language server find the
+  declaration under the cursor first and search only its facts.
+- **D3. Comptime moves later in the pipeline, and the early whole-program
+  sweeps are removed, as part of this design** (not deferred). Everything
+  stays file- or declaration-scoped as long as possible; §5 is the plan per
+  sweep.
+
+#### R2 (2026-10-20)
+
+- **D2, lends (4.2): written, with a sound default (option a).** An unwritten
+  bodied fn lends every kept, non-Copy parameter; `holds proj(…)` narrows it;
+  the body is validated, never consulted. The desugaring writes `holds` for
+  `iter fn` minters.
+- **D2, mutated fields (4.3): the inference is dropped (option a).** Unwritten
+  means "mutated anywhere".
+- **D2, move-mode and parking (4.4, 4.5)** need no language change and go ahead
+  as recommended.
+- **D4: hand-rolled caching first (option H)**, written so salsa stays
+  possible (§6).
+
+#### R3 (2026-10-20)
+
+- **4.1: option (f). `iter T` is removed from the language**; `iter fn` stays.
+  The user's reading: `iter T` existed mostly so that `Iter<C, T>` need not
+  write the iterator parameter, making `C` look like the iterator, and that
+  is unnecessary.
+- **Every `iter fn` names its struct** (the simpler rule).
+- **An obligation writes the iterator type**: `struct Bag : Iter<self,
+  BagIter, Int>`, not inferred from the `iter` that fulfils it, at least
+  until a better way is found. Spreads write the generic too: `fn total<C,
+  It>(c: C, ?Iter<C, It, Int>)`.
+
+#### R4 (2026-10-20)
+
+- **The state struct is declared by its owner, in a `state` block**, which
+  brings it into scope the way `use`, `spawn` and `try` bring theirs: not in
+  the effect list, which says what a *caller* provides, and a minter's or a
+  handler's caller provides no state. An `iter fn`'s block runs once, at the
+  mint, where an ordinary body's `state` statement would run where written;
+  the `iter` on the declaration says so.
+- **An `iter fn` names its state struct**: `state Range { i: Int = start }`.
+  The name is declared in the scope the fn itself is declared in (its module,
+  or its namespace), so two `state Range` there collide, as two `struct Range`
+  would, and so does a `state Range` beside a type `Range`.
+- **A handler's state is named by the handler** (`[state Counting]`) when that
+  is unambiguous, and must be named explicitly (`state Tally { … }`) when the
+  handler shares its name with a type.
+- **One namespace of bare names per declaration**: a handler's constructor
+  parameters and state fields, and an `iter fn`'s parameters and state
+  fields, all differ, and a member's (or the step's) parameters and locals
+  reuse none of them. A clash is an error naming both; the remedy is a
+  rename. It follows the language's refusal of shadowing.
+- **The handler defects of ROADMAP §2d item 9d are fixed with the state
+  work.**
+
+#### R5 (2026-10-20)
+
+- **A named state holds every parameter** of its `iter fn`: Copy scalars
+  copied, the rest borrowed whole. The struct's shape is then a function of
+  the header; the per-field snapshot (`Hold::Fields`) and its cross-file
+  struct lookup go.
+- **Inferred `iter fn` state field types stay (4.6, option b)**: initializers
+  are checked in 02-resolve-03-interfaces against interfaces only, as
+  parameter defaults are.
+- **The general `state` effect** (a `state` statement in any body, `[state
+  S]` helpers) is a language feature of its own, not a pipeline question: a
+  `[state S]` entry is part of a signature like an effect, resolved in
+  02-resolve-03 and lowered to a leading parameter in 03-generate-01, so the
+  plan does not wait on it. Recorded in ROADMAP §2d for the user's design.
+  Step 4's forms (named states, the bare-name rule) are written so that it
+  can extend them.
+- **Ownership does not change a type or an overload** (the user's
+  expectation); step 7 verifies it before moving ownership out of the body
+  walk.
+
+#### R6 (2026-10-20)
+
+- **Hover shows what the code is interpreted as**: an effect list (and
+  anything else the resolve phase expands) is shown expanded and resolved —
+  aliases flattened, prerequisites added — read from the resolved output,
+  not the text as written.
+- **The refusal of a mixed handler whose face has a prerequisite is
+  dropped**, for a uniform rule: an implied dependency is a dependency like
+  a written one, wherever it is allowed.
+
+#### R7 (2026-10-20)
+
+Route stubs, derived per effect in the IR (step 6, piece 5):
+
+- **The "no route stub for `X` in this module" refusal is dropped**: a
+  `use` routes whatever protocol its group's resolved type names.
+- **A protocol member marking more than one `Key` is refused at the effect
+  declaration**, whether or not anything routes it.
+- **One stub per routed protocol, in the protocol's module**, and only for
+  protocols something routes.
+- **`spawn` of a route stays unsupported** (the addr would bind a strong
+  `X`; ROADMAP ⑥).
+- **Respelled as a modifier on `use`**: `use any stock` (a group handle,
+  `eff[ActorGroup<X>]`) replaces `use route_any(stock)`, so the statement
+  reads like the availability it binds, `any X`; `use any` on anything but
+  a group handle is an error.
+- **The wait settings live with the policy (option A)**: `RouteSelector<E>`
+  gains `fn config() -> RouteConfig`, and std's policies take `config:
+  RouteConfig = default_route_config()` as a constructor parameter, so
+  `use Sharded<Inventory>(config = RouteConfig { … })` overrides them. Needs
+  defaults on handler constructor parameters ([fn-param-default] extended),
+  built first as its own piece.
+
+#### R8 (2026-10-20)
+
+- **Ownership leaves the body walk straight for the IR (route b).** Typing
+  runs ownership-blind (a consumed value keeps its declared type), and
+  03-generate-02-flow on the IR owns fate, poison, partial moves,
+  move-mode, lends validation and linearity; the checker's re-walk loop
+  goes. Ownership errors exist where the IR exists — per declaration that
+  type-checks — so a body with a type error reports its ownership errors
+  once the type error is fixed.
+- **Amended (user, 2026-10-14): static move-site rules stay in the
+  checker.** A rule that reads no flow state — a lambda moving or mutating a
+  capture it may not, a value stored into handler state, a written lend list
+  checked against what the body visibly lends — is judged where the checker
+  already sees the lambda boundary, the call contract and the handler's
+  declaration. What those rules consume reaches the flow pass as moves
+  (`lambda_captures`, `moved_reads`, `flow_moves`), so the flow pass owns
+  every *path-dependent* ownership question and nothing else.
+
+#### R9 (2026-10-27): per-phase lowering (Part II)
+
+Six rounds the same day, in full in §II.11. **Direction:** per-phase lowering
+for structural unity (no surface spelling grows semantics of its own), the
+representation secondary, origins kept through every lowering. **Decided:**
+P1 (overloads in a declaration id disambiguated by the written parameter
+types), P2 (facts keyed `(DeclId, NodeId)`, the span kept as origin data;
+amends R1's relative-span key), P3 (call resolution is the reference; every
+other spelling behaves like the call it lowers to), P4 case by case
+(effect members compete with fns; interpolation and operators per
+OPERATOR_OVERLOAD.md O1: an operator is the call it names, and each operator
+shape on a type is declared in the type's file, `[op-unique-shape]`), P5 (the
+round trip on the corpus and examples), P6 (representation decided at D1),
+P7 (one `salvo dump --phase parse-ast|resolve|type-check|generate-ir`), P8
+(comptime's signature/body split only in C3); `by` at a call is not
+supported (a named fn is the workaround). Recommended, not decided: resolve
+and type stay separate (§II.3.1).
+
+#### R10 (2026-10-27): the census decisions (B2)
+
+The user's answers to §II.13's "Decisions needed beyond P3", recorded as
+**B2**. The guiding rule, the user's words: *follow the one-rule principle in
+all cases where we can.*
+
+- **D3: effect members fill every position a fn does.** An effect introduces
+  function names into the declaring function's scope, so its members are
+  visible in all the ways a normal function is: calls, interpolation parts,
+  operators, implicits (a member as a value carries its handler), fn values.
+  Ambiguity is always an error, with disambiguation (`m@E`) as the remedy.
+- **D4: a general union `to_str`, not a lowering to `when`.** Lowering each
+  part to a `when` gets out of hand for several union parts in one string;
+  the ideal is a general `to_str` over unions that a call reaches like any
+  other. **Deferred** if not easy now (then `interp_union` stays a fact until
+  it lands).
+- **D5: follow the call.** No "operators compare the data" exception: `xs ==
+  ys` is `eq(xs, ys)` with the qualified argument types.
+- **D6: drop the same-type rule** for `==` and `<`; a mixed `eq(Meters, Feet)`
+  is an operator, placed with its left type (OPERATOR_OVERLOAD.md D-2).
+- **D7: [op-arm-eq] stays a lowering before the call, for now.** Recorded
+  for later (not now): a general way for more complicated cases, perhaps
+  generating helper functions over the unions.
+- **D10: no `: Next` / `: Iter` gate.** With `next()` and `iter()`
+  operators (O1), `for x in c` is `next(c)` when a `next` fits, otherwise
+  `next(iter(c))`, resolved as those calls are; the declarations are not
+  needed.
+- **D13: a dot call sees fn-typed locals.** `x.f(a)` is `f(x, a)`, literally.
+- **D14: replaced (user, 2026-10-28) by member calls and uniform calls**
+  (§II.10 P19). `x.name(args)` is a member call `(x.name)(args)` when `x`'s
+  type has a member `name` (a struct's field, an `eff[E]`'s member, which
+  sends), and otherwise the uniform call `name(x, args)`. A bare
+  `bump(c, 1)` is not a send. The earlier reading (a send member takes
+  `self: eff[E]` first and ranks with fns taking `eff[E]`) was dropped: it
+  would have put every member of every `eff[E]` variable in scope into the
+  function space.
+- **D18: a mint ranks by its captures**, like a partial call, and refuses a
+  tie naming `k@m`.
+- **D21: implicits of one name are ranked** like overloads.
+- **D1: no semantic fast path.** `"${n}"` and `==` on scalars are the calls
+  they name (an enclosing `?to_str` or `?eq` applies); the backends emit the
+  native spelling exactly when the call resolves to std's intrinsic.
+  OPERATOR_OVERLOAD.md O5's text is to be corrected accordingly.
+
+### 4. Body-derived interface facts (D2)
+
+Six facts a declaration's callers read today come from type-checking its
+body. They are why the checker runs whole-program rounds (§1), and each
+violates the interface rule. Findings and options per fact:
+
+#### 4.1 `-> iter T` return patterns [iter-type] (decided R3, R4)
+
+**The problem.** An `iter fn` declares a minter and a step, and the desugaring
+writes the iterator struct, which had no name a program could write
+(`__Iter_range_Int_Int_Int`). A fn handing such an iterator out wrote `->
+iter Int`, filled from its body:
+
+```
+fn range(end: Int) -> iter Int { return range(0, end) }
+for i in range(5) { … }
+```
+
+`for` needs `range(5)`'s concrete struct to find its `next`, so every caller
+depended on `range`'s body: the iter-return pre-pass, repeated until nothing
+changed. Three such fns in the tree, all one-line delegations.
+
+**The root cause** (R3): `iter T` was one spelling for three answers to *who
+picks the struct*: the caller (a parameter, a hidden generic per occurrence),
+the implementation once per spread or obligation (a group member, a hidden
+group parameter), or the callee (a return, a state-field pattern, which a
+caller can learn only from the body). The last needs a name; the first two
+only hid a type parameter, so that `Iter<C, T>` read as if `C` were the
+iterator. `iter T` appeared on 6 lines of the tree against about 100 lines of
+compiler machinery, an early sweep (`hoist_iter_types`) and a body-derived
+interface with its own fixpoint. A probe (`tmp/itergrp`) showed the group
+itself was sound: one hidden generic per spread, and a mismatched pair is a
+type error. It also found ROADMAP §2d item 9c.
+
+Options weighed and set aside: reading the struct off the `return`s
+syntactically (restricting `return` to a call decided by name and arity); an
+opaque type at the interface, like Rust's `impl Iterator`; removing only the
+delegating form; and placing the name in the effect list (`[state Range]`),
+a deduction (`=> state Range`), as a curried return, or as a separate
+top-level `state struct`.
+
+**The decided surface.**
+
+```
+iter fn range(start: Int, end: Int, step: Int) -> Emitted Int | Finished {
+    state Range {
+        i: Int = start
+    }
+    …
+}
+fn range(start: Int, end: Int) -> Mut Range {
+    let step = when { start < end { 1 } start > end { -1 } else { 0 } }
+    return range(start, end, step)
+}
+fn range(end: Int) -> Mut Range { return range(0, end) }
+
+fns Iter<C, It, T> => iter with next {
+    fn iter(collection: C) -> Mut It
+    fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut
+}
+struct Bag : Iter<self, BagIter, Int> { items: List<Int> }
+iter fn iter(bag: Bag) -> Emitted Int | Finished {
+    state BagIter { at: Int = 0 }
+    …
+}
+fn total<C, It>(c: C, ?Iter<C, It, Int>) -> Int => c { … }
+fn first<It>(it: Mut It, ?Next<It, Int>) -> Int => it: Mut { … }   // was `it: iter Int`
+
+handler Counting() of Counter {
+    state {                       // named `Counting`
+        n: Int = 0
+    }
+    …
+}
+```
+
+- `iter T` is gone from every position, and with it the marker type, the
+  hidden generics (`desugar::hoist_iter_types`), the iter-return pre-pass and
+  its fixpoint, and the lends special case.
+- Every `iter fn` names its struct; the struct's interface is a function of
+  the declaration's header (its parameters, see below, and its state fields'
+  written types or header-checked initializers, 4.6).
+- `[state S]` stays available for helpers that need a caller's state (the
+  general form, below).
+
+**Holding the parameters (decided R5: every parameter).** Today an `iter fn`'s struct holds a
+parameter only if the step body reads it (copied when a Copy scalar, else
+borrowed, or borrowed per field read). With a named state, a helper `fn
+skip_spaces() [state Lexer]` reading `src` needs `Lexer` to hold `src`
+whatever `tokens`' own body reads, and the shape would otherwise depend on a
+body. **Recommended: a named state holds every parameter**, Copy scalars
+copied and the rest borrowed whole; the cost is an iterator borrowing a
+parameter it never reads for as long as it lives. (The per-field snapshot of
+a struct parameter, `Hold::Fields`, then goes too, unless kept for the
+fields the declaration names.)
+
+**The general form (a separate feature, ROADMAP §2d; R5).** The ways a state reaches a body:
+
+| form | where | who builds the value | lifetime |
+|---|---|---|---|
+| an `iter fn`'s `state S { … }` | the declaration | the minter, once | the iterator's |
+| a handler's `state { … }` | the handler body | construction, once | the handler's |
+| a `state` statement, `state Cursor { src: text, at: 0 }` | any body | that statement | the rest of the block |
+| `[state S]` on a fn | the signature | a caller with an `S` in scope | the call |
+
+Uses, each standing on its own: helpers of an `iter fn`'s step (`fn
+skip_spaces() [state Lexer]`, called from `tokens`'s step); helpers of a
+handler's members (`fn record(k: Int) [state Tally]`); threading a cursor or
+a machine in an ordinary body (a parser's `parse_expr() [state Cursor]`), the
+classic state effect (Koka's `state<s>`, Haskell's `State s`). Only `iter fn`s
+and handlers *declare* a state struct; the general form uses ordinary structs.
+To decide: two states of one type in scope (refused, as [effect-use-no-dup]); a
+lambda reaching a state (its type carries `[state S]`, as with effects);
+states and actors (not shareable); reading the final state after a `state`
+statement's block.
+
+#### 4.2 Inferred result lends [proj-infer] (decided R2: option a)
+
+**Today.** Which parameters a result holds borrows of (a struct with `proj`
+fields, `List<proj T>`, `iter T`) is inferred from the body when no `holds
+proj(…)` is written (`lends.rs`). The inference is syntactic, but it walks
+**callee bodies** transitively, and is memoised per file (so a callee is
+re-walked once per file). Consumers: the caller's fate links (`borrows`, formerly `lending_calls` and
+`temp_views`) and the Rust lifetimes (`FnDecl.borrows`).
+
+**Uses.** 5 std container minters (`iter` over list, array, bytes, deque, str;
+each `return Mut XNext { items: p, at: 0 }`), `window` in
+`examples/borrowing`, the 16 `iter fn` minters (the desugaring writes no
+`holds`), and the 3 pattern fns of 4.1 (the only cross-body walks).
+
+**Options.**
+- (a) **Written, with a sound default** (the shape [deduce-default] gave
+  contracts on 2026-10-11): an unwritten bodied fn lends every kept,
+  non-Copy parameter; a written `holds proj(…)` narrows it; the body is
+  validated against the interface ("declared covers inferred", as today) but
+  never changes it. The desugaring writes `holds` for `iter fn` minters (it
+  knows what the struct holds); the 5 std minters and `window` already have
+  exactly one non-Copy parameter, so the default is exact for them. A
+  language change: [proj-infer]'s "infer what can be inferred" stops for
+  interfaces.
+- (b) **Keep inference, read callee interfaces instead of callee bodies**: a
+  per-declaration summary computed from its own body plus callees' summaries,
+  in call-graph order. No language change; a body edit can change its
+  interface, so its callers are rechecked (early cutoff limits it).
+
+**Recommendation:** (a). Note `kept_params` must skip Copy scalars for the
+default to be right for `range(0, n)` (today it does not).
+
+#### 4.3 Inferred mutated field paths [deduce-field] (decided R2: option a)
+
+**Today.** A callee with no written field entry (`=> h.tags: Mut`) has the
+fields it mutates read off its body, and callers use them for
+[fate-field-disjoint] and [qual-field-place] precision. This is the one fact
+that genuinely needs the cross-declaration fixpoint (one more round per level
+of call depth; a fact still changing at round 4 is silently dropped).
+
+**Uses.** std writes no field entries, and under the std cache std callees
+already get the whole-value default (their paths are never re-inferred), so a
+cached and an uncached check can differ in precision today. The two field
+entries in `examples/borrowing` are written. The inference has two tests in
+`deduce_tests.rs`.
+
+**Options.**
+- (a) **Drop the inference**: unwritten means "mutated anywhere", the meaning a
+  written `=> h: Mut` already has. Only precision is lost; no wrong program is
+  accepted. A language change (the "Inferred where unwritten" bullet of
+  [deduce-field] goes).
+- (b) Call-graph-ordered body summaries (as 4.2 (b)).
+- (c) Move field-precise fate to 03-generate-02-flow, after all bodies; the
+  checker would have to defer the poison errors that precision can spare.
+
+**Recommendation:** (a).
+
+#### 4.4 Move-mode candidates, claims, mutations [fate-move-mode]
+
+**Findings.**
+- **Candidates are intra-body**: produced and consumed by the same body (bind
+  spans of its own locals), and every input they need is signature-only since
+  2026-10-11. A per-body second walk replaces the program round, as the
+  iter-return pre-pass already does with a scratch `Checked`.
+- **Claims are dead**: `deduce::infer` ignores them (`let _ = (&claims,
+  &mutations)`), nothing else reads them, and they can still force a useless
+  third round through the stability test.
+- **Mutations** are read only after checking, by `param_mode` (a mutated
+  generic `c: C` passes `LentMut`), and through the std cache. They never feed
+  back into checking.
+
+**Recommendation** (no language change): a local two-pass per body for
+candidates; delete claims; publish mutations from the final body check for
+03-generate.
+
+#### 4.5 `parking_handlers` [actor-replyto]
+
+**Today.** Handlers whose members mint a continuation to their own member
+(`replyto k(…)`, `self@Face`) are found while checking those bodies, and read by
+other bodies' `use` refusal, deadlock, and the IR (`stateful`). It relies on
+round 2 having seen every handler.
+
+**Finding.** Decidable from the handler declaration's own text by name lookup:
+`replyto k` resolves lexically against the handler's own members, and
+`self@Face` against its `of` list. The syntactic version over-approximates only
+for programs that are in error anyway.
+
+**Recommendation** (no language change): an interface fact of the handler,
+computed syntactically. The spec already describes the gate as syntactic.
+
+#### 4.6 `iter fn` state field types [handler-state-infer] (decided R5: option b)
+
+**What is left.** A state field writes its type (`at: Int = from`) or has it
+inferred from the initializer (`at = from`), as `let at = from` infers (user
+decision 2026-10-20, for handlers and `iter fn`s alike). The pattern form
+(`inner: iter Int = …`) went with `iter T` (R3). A handler's state types stay
+inside the handler, so only an `iter fn`'s matter here: they are the fields of
+a struct other declarations read (its lends, wire form, linearity, emitted
+shape), and today they are found by checking the minter's body.
+
+```
+iter fn chunks(xs: List<Int>, n: Int) -> Emitted List<Int> | Finished {
+    state Chunks {
+        at = 0                       // inferred: Int
+        buf = Mut List<Int>()        // inferred: Mut List<Int>
+    }
+    …
+}
+```
+
+**Uses.** None in std, examples or modules: all 113 state fields write a
+type. Only tests use the inferred form.
+
+**Options.**
+- (a) Require a written type on `iter fn` state. Nothing to rewrite; takes
+  back part of the 2026-10-20 decision, and the two `state` blocks differ.
+- (b) **Keep inference, and check initializers in 02-resolve-03-interfaces**
+  against interfaces only, as a parameter default is checked
+  (`check_default`): an initializer reads only the parameters and calls
+  functions, with no effects, so it is a header expression, not body code. A
+  cycle is an error.
+- (c) As (a), for handlers too.
+
+**Recommendation:** (b).
+
+#### 4.7 What removing them buys
+
+With 4.1–4.6 settled as recommended, no interface depends on a checked body
+(an `iter fn`'s state initializers are header expressions, 4.6),
+the program rounds go away (`check_program_rounds`, `MAX_ROUNDS`,
+[deduce-fixpoint]), and every body is checked once, plus a local second walk
+where move-mode needs it. Today every body is checked at least twice, plus the
+iter pre-pass. The `self.inferred.is_some()` gates (about 30) become "final
+walk of this body".
+
+### 5. Whole-program sweeps, and where each goes (D3)
+
+Ratings: **(A)** already file/declaration-scoped; **(B)** becomes so with an
+index; **(C)** needs a design change; **(D)** inherently whole-program.
+
+| sweep | today | plan | rating |
+|---|---|---|---|
+| `hoist_struct_fns`, `expand_tests` | per file, in `expand` | move into 01-parse | A |
+| `hoist_iter_types` | needs every `fns` group (one bit: does a member mention `iter T`), by plain name | removed with `iter T` (R3) | — |
+| `iter fn` expansion | needs the subject struct's fields from any file (plain name, first match), for per-field snapshots | expand per file; if a named state holds every parameter (4.1), the snapshot and its lookup go — done: per file, and it looks no name up (C4) | B |
+| comptime | flat `World` of every struct, type, compfn, group, qualifier; writes stamps into the site's module | the `by` clause declares the member signatures (group members with `self` substituted) at 02-resolve-01; bodies stamped per site in 02-resolve-04 from resolved declarations — done otherwise in C4 B: stamping between the interfaces (scopes by id) and the bodies, members added by building again the scopes that see them | C |
+| route stubs | unscoped effect table, exported-name index, synthetic imports | `use route_any(g)` checked as "a handler of the resolved `X`"; the stub derived per effect in 03-generate (where `actors::generate` already derives stubs) | C → B |
+| effect aliases | rewrites every effect list, synthetic imports | resolved in scope like type aliases; flattened in 02-resolve-03 | B |
+| prerequisites | rewrites every effect list, synthetic imports | a per-effect closure over effect headers, applied in 02-resolve-03 | B |
+| `Symbols::collect` keys | `Name§module` by first declarer | module-qualified ids always; clashes decided when rendering | B |
+| `resolve` | pass 1 by module, pass 2 per file | header index + per-file scopes | B |
+| `written_keys`, `_by_span` | walk every type reference, each round; by-span map has no file index | per file (part of interface/body resolution); drop the by-span map | A/B |
+| protocol hashes | over all actor effects | per effect interface | B |
+| `refine::collect` | once, program-wide | per file, through scopes | B |
+| `platform_closure_all` | closure over declarations | closure over interfaces | B |
+| implicit-signature pre-pass | every fn, before bodies | *is* 02-resolve-03 | A |
+| `check_module_uses`, `check_runtime_layers`, intrinsic rule | per-file loops | per file | A |
+| `deduce::infer` | plain-name tables (provenance, effects, proj fields); body validation reads checked facts | interfaces per declaration (signature-only); validation moves to 03-generate-02 | B |
+| IR `compute_names`, `throws_map`, `refs::annotate` | per module / summary + index | unchanged | A |
+| IR `actors::generate` | interfaces across modules, plain-name fallback | index by key; drop the fallback | B |
+| deadlock | gates and sends of every handler | 03-generate-03-link | D |
+
+Also: about 21 checker sites, the `deduce` tables, comptime's and the
+desugaring's first-match tables, and the IR's fallback look names up
+**program-wide by plain name**, ignoring scopes. They make one declaration's
+result depend on unrelated same-named declarations, and some are latent bugs
+(two modules each declaring `Token`). Each becomes a lookup through the
+file's scope or by id.
+
+#### What stays program-wide
+
+After the plan, **deadlock is the only whole-program *analysis***, with these
+qualifications:
+
+- **Indexes.** The header index name resolution reads, the module list, and
+  the set of clashing names are program-wide *data*, built from per-file
+  declaration lists and updated when a file's list changes; no body is read.
+- **Combining steps over per-declaration summaries** in 03-generate-03-link:
+  the throws map, `ref` container types, and the actor message enums (a
+  handler implements faces declared in other modules). Each reads summaries
+  the declarations produced, so a change re-runs only the cheap combine.
+  Deadlock has this shape too: per-handler gates and sends, then one graph
+  pass.
+- **One interface closure in 02**: `abi::platform_closure_all`, the types
+  reachable from platform declarations, read by the checker to plan factories
+  for type aliases. It walks signatures, not bodies; it can become
+  per-declaration by planning the factories at each platform declaration for
+  the types its own signature reaches.
+- **Emission (04)** is whole-program by nature, outside the language server's
+  path: which modules are reached [mod-used-only], which union wrapper types
+  and runtime features (scheduler, codecs) to write, the ABI closure, and the
+  lock file's protocol hashes. All read interfaces or IR summaries.
+
+### 6. Caching (D4, decided R2: H)
+
+**What both options need first** (the prerequisites are the same):
+
+1. Stable ids: module path + name + overload ordinal (or signature), not item
+   index or address.
+2. Spans relative to their declaration (D1).
+3. Owned data: no `'p` borrows of the `Program` in what is cached.
+4. Per-declaration outputs instead of one shared `&mut Checked`; the checker's
+   per-fn state already resets per fn, but writes into global tables.
+5. Phases as functions of their inputs (§2), with no hidden program walks
+   (`Symbols::ref_key` re-runs `resolve()` today).
+
+**Option H: hand-rolled.** Two cache levels, matching the existing
+`ParseCache`/`StdCache` style: per file (tokens, AST, declaration list, scope)
+by content hash; per declaration (interface, body facts, IR) keyed by the
+hash of its text plus the hashes of the interfaces it read. Early cutoff by
+comparing interface hashes.
+
+**Option S: salsa** ([salsa-rs/salsa](https://github.com/salsa-rs/salsa),
+the incremental framework rust-analyzer is built on). Phases become tracked
+queries over inputs; salsa records every dependency as a query runs, reuses
+results whose inputs are unchanged, and cuts off early when a recomputed
+result is equal to the old one. rust-analyzer moved to the rewritten salsa in
+2025, citing future parallel evaluation and persistence
+([changelog #277](https://rust-analyzer.github.io/thisweek/2025/03/17/changelog-277.html)).
+
+| | H | S |
+|---|---|---|
+| dependency tracking | by hand: each step lists what it read | automatic, exact, per query |
+| early cutoff | interface hashes we compare | built in (output equality) |
+| granularity | the two levels we choose | whatever the queries are |
+| migration | per phase, behind today's API | the data model must be salsa's (interned ids, `'db` lifetimes, outputs `Eq + Hash`) before anything is incremental |
+| extra | nothing | parallel queries and cancellation are available later |
+| risk | a missed dependency is a stale result | pre-1.0 API, proc macros through a 33k-line checker, build time |
+
+**Decided (R2): H first, written so S stays possible.** The
+prerequisites above are most of the work either way, and salsa cannot be
+adopted until they are done; two levels are enough for the language server's
+need (one declaration edited at a time); and H keeps the change incremental
+behind today's API. Switch to S if hand-kept dependency lists grow past two
+or three levels or produce stale-result bugs.
+
+### 7. The plan
+
+In order; each step lands as one piece of work (one commit) with its spec,
+docs and records, and leaves the suite green. Steps 1–2 need no open decision.
+
+1. **Measure and keep.** Per-phase timings for `salvo analyze` (expand,
+   resolve, each check round, IR); the language server keeps its last
+   analysis per project until the overlay changes.
+2. **The rounds' no-language-change facts** (4.4, 4.5): delete claims;
+   move-mode candidates as a per-body second walk; parking as a syntactic
+   handler fact; mutations published from the final check.
+3. **Lends and mutated fields** (4.2, 4.3, decided): the written-with-default
+   lends (`kept_params` skipping Copy scalars, the desugaring writing `holds`
+   for `iter fn` minters) and the end of field-path inference.
+4. **The iterator and state redesign** (4.1, 4.6, R3–R5): `iter T` removed; named `iter fn` state structs and
+   handler-named state; `Iter<C, It, T>` with obligations and spreads writing
+   `It`; the bare-name rule; ROADMAP §2d items 9c and 9d. With 2–4 the program
+   rounds and the iter-return pre-pass go, and every body is checked once.
+5. **Identity and storage**: stable ids (module path, name, overload
+   ordinal), spans relative to their declaration, the checker's facts stored
+   per declaration, and the pre-IR dumper (D1); module-qualified type keys;
+   scoped lookups for the plain-name sites (§5).
+6. **The sweeps, in pipeline order** (§5, D3): the struct-fn hoist and tests
+   into parse; effect aliases and prerequisites resolved in scope; the `iter
+   fn` expansion per file; comptime after interfaces, with `by` declaring its
+   member signatures; route stubs derived per effect in the IR.
+7. **The phase split**: 02-resolve-03-interfaces as its own pass; bodies
+   reading interfaces only; ownership out of the body walk into
+   03-generate-02-flow, after the audit (§3 "Open"). ~~**Do not forget**: the
+   deadlock graph reads the AST, so the IR-derived `__Route_X` (step 6,
+   piece 5) has no router node~~ — **done** (R8 piece 6, §8): the graph,
+   still on the checker's tables, builds every routed protocol's router
+   servant node from `route_uses`, with its selector dependency's edges,
+   and `route_deadlock_tests` has a cycle through a route. When deadlock
+   moves to 03-generate-03-link over the IR (step 8), the route is an
+   ordinary `face_any` impl there and the synthesis goes.
+8. **Caching (H)**: per file, then per declaration with early cutoff; the
+   language server recomputes the edited declaration and what read its
+   interface.
+
+The general `state` effect (4.1) is a separate feature (ROADMAP §2d); the
+plan does not wait on it.
+
+
+### Part II — Per-phase lowering (decided 2026-10-27)
+
+Folded in from PIPELINE2.md (2026-10-27), the user's design with another
+agent while Part I's leftovers were finished. Part I's §7 plan is built; Part
+II is what comes after it. Its rounds are summarized in §3 as R9 and kept in
+full in §II.11; its sequence is §II.9, and its work log is §II.12. Operator
+overloading, which decides Part II's interpolation and operator rows (P4), is
+designed in OPERATOR_OVERLOAD.md.
+
+### II.1. Goal
+
+**Structural unity: surface syntax must not grow semantics of its own.**
+Several rules have been found applied inconsistently across spellings of one
+thing. The latest: implicit resolution selected overloads differently from
+call resolution (`resolve_implicit_fn_in` beside `select_overload` in
+`check.rs`, sharing the fit test `fn_value_at` but not the selection). The
+cause is structural: wherever the compiler treats two spellings as different
+constructs, each grows its own code path, and a rule changed on one is not
+changed on the other.
+
+The remedy is **per-phase lowering**: each phase lowers the program to a
+simpler form, every spelling of one concept becomes the *same* node before
+any rule about that concept runs, and the next phase works only on the
+simpler form. The IR is the last of these forms.
+
+- Each phase's output is **complete** (nothing the phase is responsible for
+  is left for later) and **dumpable** in one consistent way.
+- **The representation is secondary.** Side tables or trees, what matters is
+  that the lowered form exists, is the only input of the next phase, and
+  has one node per concept. (User, 2026-10-27.)
+- **Every lowered node keeps its origin in the user's code** (§II.4), so errors
+  from any later phase still land where the user wrote the thing.
+
+### II.2. Principles
+
+- **Placement rule.** A feature is interpreted in the earliest phase whose
+  output has every fact it reads. It may wait later only while its output
+  feeds nothing earlier.
+- **One-way boundaries.** A phase boundary is worth keeping where the
+  dependency runs one way: the earlier phase never needs anything the later
+  one computes. Where a fact must cross back (the fate links claims need,
+  R8 option C), it stays in the earlier phase and is handed on.
+- **Lower before judging.** A rule (overload selection, contract fit,
+  claims, ownership) is written against the core node, and every surface
+  form reaches it as that node.
+- **Origins, not fake spans.** Synthesized nodes carry where they came from;
+  nothing invents source positions.
+
+### II.3. The phases
+
+| phase | output | contents |
+|---|---|---|
+| 1 `parse-ast` | AST | tokens, AST, sugar that needs no names (namespace flattening, struct-fn hoist, tests) |
+| 2 `resolve` | resolved tree | declaration ids, per-file scopes, interfaces (signature types, default deductions, effects with aliases and prerequisites, implicits, lends, `by` member signatures), then comptime (§II.5), then body name binding |
+| 3 `type-check` | typed partial IR | every callee picked, type arguments, implicit arguments explicit, call-like forms as calls, narrowings as bindings, coercions as nodes, each expression's type, claim links |
+| 4 `generate-ir` | valid IR | erasure (qualifiers dropped, effects as parameters, union wrapping), ownership flow, linearity, contract validation; then the program-wide link stage (actor glue, `ref` containers, throws, deadlock) |
+| 5 emit (no dump) | target source | per backend |
+
+#### II.3.1 Resolve and type stay separate
+
+Recommended (2026-10-27), on the one-way rule: resolution can be made to
+never need a type, provided it stops short of every decision that does.
+Resolution leaves these to typing, as a **candidate set** or an unresolved
+name:
+
+- which overload a call means (chosen by argument types and claims);
+- a field read `x.f`, a dot call `x.f(a)`, an effect member (`println`), a
+  leading-dot `.Variant` — each needs the receiver's or the expected type.
+
+Everything else is lexical and resolved in phase 2: locals and shadowing,
+imports, aliases, renames, module paths, names in signatures, effect
+prerequisites, `by` paths.
+
+What the boundary buys: interfaces computed without typed bodies (the rule
+R1–R5 established, and what early cutoff rests on); name errors
+reported whether or not a body type-checks; go-to-definition without typing;
+a dump answering "what does this name refer to". Merging them would inline
+lexical lookup into the type walk, which is how the program-wide plain-name
+lookups (§5) appeared.
+
+#### II.3.2 The resolved tree
+
+The program as if every name had been written fully qualified: every
+reference an absolute declaration id, no imports or aliases left,
+prerequisites and default deductions written into signatures, comptime
+expanded. It does **not** write out what needs a type: `size(xs)` is still a
+call to one of a set of `size`s.
+
+#### II.3.3 The typed partial IR
+
+The program as if the user had also written everything the type checker
+decides: callees as `name@module`, every type argument, every implicit
+argument passed (`to_str = to_str@main`), every interpolation part, operator,
+dot call and effect-member call an ordinary call, narrowings as explicit
+bindings, coercions as explicit wrap nodes, each expression's type, and the
+claim links.
+
+**Partial** in two senses: a declaration with errors keeps holes (unknown
+types, unpicked calls) so the language server can read it; and phase 4 still
+adds ownership decisions (which reads consume, which `let`s move), verified
+linearity, erasure, actor glue, routes and deadlock.
+
+#### II.3.4 Narrowing (type) and flow (generate)
+
+Both are path-sensitive analyses over one body; they answer different
+questions. Narrowing: *what is this value* (after `if x is Int`, `x` is an
+`Int`); it changes types, types choose overloads, so it is typing's. Flow:
+*is this value still there, and who may use it* — use after move, partial
+moves, poison, move mode, linearity, the ownership half of lends
+validation (`ir/flow.rs`, `ir/check.rs`).
+
+The split is legal because of R5: ownership must not change
+types or overloads, so typing runs ownership-blind. The exception is the
+fate links claims need, which stay in typing (R8 option C). Flow running on
+the IR also has a smaller language to cover: one `Loop`, two branch forms,
+narrowing as bindings, every operator a call.
+
+### II.4. Origins
+
+Built for comptime copies in A2 (§II.12, [node-origin]): a copied node keeps
+its template's span and carries an expansion id the stamped fn's `Stamp`
+records. Before it, copies got synthetic spans past the end of the file, a
+`StampRegion` map, and `comptime::redirect_stamped` to move their errors
+back; the past-EOF spans are also what kept step 8 piece 4 from
+partitioning cached rows by declaration.
+
+The general form (as macro systems do it; rustc gives each node a span plus
+an expansion id): every lowered node carries an **origin** — its span in the
+code it was copied or lowered from, plus an optional link to the expansion
+step that produced it:
+
+- comptime: the `by` site, the root, the field;
+- desugaring: which surface form the node came from (an interpolation part,
+  an operator, a dot call, an implicit argument).
+
+Errors render by walking the chain: today's messages ("in `cmp` from `auto`
+for `Point.x`", "in this interpolation") with no fake spans. The same origin
+is what lets the unified call node (§II.6) still name the spelling the user
+wrote.
+
+### II.5. Comptime
+
+**Placement: after interfaces, before body typing** (phase 2, after the
+interface sub-phase). Comptime reads only interface facts about its root —
+fields, their declared types, qualifiers, docs, defaults, visible modules
+for a `by` path — and produces bodies only, because a stamped member takes
+the signature it is declared with (user decision 2026-10-14). Without that
+rule stamping would create signatures and the phases would form a cycle.
+
+After it, **phase 3 sees no comptime**: stamped members are the declared
+signature filled with the template's body, `[for]`/`[if]`/`[when]` unrolled
+and splices filled; in-place expansions are unrolled where written over the
+root named there. One residue is not really comptime: `field.default`
+(`Expr::FieldDefault`) is an ordinary node, "this field's declared default",
+typed in the declaring file ([default-scope]).
+
+**Expanding a resolved template.** Resolve the template once in its own
+module, then copy it with substitutions. Hygiene then follows from the
+representation instead of being kept by hand:
+
+- no `__c<N>` / `h__p` renaming of locals;
+- the `hidden_free_name` error ("parameter `cmp` hides the function `cmp`
+  that `auto`'s `cmp` calls") cannot arise: the template's call already
+  refers to a declaration or candidate set, and declared parameters bind to
+  template parameters by position;
+- no `pick_decl` fallback;
+- `[if f.type is Str]` compares declaration ids, not names (today's flat
+  `World` matches by plain name, a latent bug with same-named types in two
+  modules).
+
+What stays open until expansion is exactly what comptime supplies: a
+`[field.type]` splice is a hole filled with a type id; `v.[field]` is a field
+read, resolved by typing like every field read.
+
+Comptime ran in `expand`, before resolution, over a flat `World` (since C4
+B, 2026-10-30, between the program's interfaces and its bodies, reading the
+interfaces by id)
+(§5, rated C). Moving it is the comptime "signature/body split"
+Part I and ROADMAP §2c have waiting on stable ids and relative spans.
+
+#### II.5.1 `by` at a call: not supported (user, 2026-10-27)
+
+A call-site stamp whose root came from the call's argument types would need
+typing, so comptime would have to run on demand inside phase 3 and the
+one-way boundary would break. Decided: not supported directly. The user
+writes a named fn in the same module and passes that name:
+
+```
+fn my_hash(p: P) -> Long by hash@auto
+… hash = my_hash …
+```
+
+(`fn my_hash(p: P) -> Long by auto` does not work: a `by` path names the
+template fn after the declared fn, `my_hash`, so the template must be named
+when the names differ.)
+
+Recorded, not chosen: a call-site `by` that names its root explicitly
+(something like `hash = hash by auto for P`), which would keep expansion an
+interface-level fact. It is the named-fn workaround without the name, and
+not needed while the workaround is acceptable.
+
+### II.6. Call-like forms lower to one call
+
+The first concrete target. `Checked` has about 15 tables that each record a
+different kind of call: `call_fn`, `fn_refs`, `fn_value_calls`,
+`member_calls`, `effect_member_calls`, `qual_member_calls`, `dot_calls`,
+`local_calls`, `interp_to_str`, `interp_implicit`, `implicit_args`,
+`fn_value_implicits`, `implicit_members`, `addr_calls`, `effect_calls`. Each
+is a place where "a call" may be judged by its own code. The IR already
+collapses them into one resolved call — after typing, when the rules have
+already run N times.
+
+Plan: lower interpolation parts, operators, dot calls, effect-member calls
+and implicit arguments to ordinary call nodes (with origins, §II.4) *before*
+typing, so selection, contracts and claims are written once. "Implicits are
+automatically selected lambdas" (user principle) becomes a fact of the
+representation. This can start on today's AST and tables: an AST-to-AST
+rewrite, then the checker's special paths deleted one table at a time.
+
+Before deciding its size: a **census** of the ~15 tables — for each, does it
+go through `select_overload` and `fn_value_at`, or have its own selection or
+fit code. That lists the divergences still in the code.
+
+### II.7. Dumps
+
+One printer per lowered form, a dump at every sub-phase boundary (extending
+`salvo ir`).
+
+**Dumps as Salvo, where possible.** Print anything that has surface syntax
+in that syntax (`name@module`, explicit implicit arguments, explicit type
+arguments). Then re-checking a dump must reproduce the same picks: a rule
+that behaves differently by spelling fails the round trip. Not total —
+narrowing bindings, coercions and stamped origins have no surface spelling,
+so they print in a marked notation the round trip skips.
+
+### II.8. Representation (decided at D1: P6, the AST plus per-declaration fact tables)
+
+Three ways to build a form that fills in phase by phase:
+
+- **A. A tree per phase** (nanopass; rustc's HIR → THIR → MIR). The type says
+  what is known; an unfilled slot cannot be read. Cost: near-duplicate node
+  definitions, conversions, several printers.
+- **B. One tree, optional slots filled in place** (Swift's type checker).
+  One printer, one walker; an unfilled read is a runtime bug, and "is this
+  set yet" checks creep in.
+- **C. One node shape parameterized by phase** ("trees that grow", GHC):
+  `Expr<P>` holds a candidate set in phase 2, a declaration id in phase 3.
+  One walker and printer, filling enforced by types. Cost: generic noise
+  through a 34k-line checker.
+
+Recommendation (not decided): C only for the slots that change across
+phases (callee, type, narrowing), plain fields elsewhere, and the
+post-erasure IR kept as its own tree, since erasure changes the shape
+(effects become parameters).
+
+### II.9. The plan
+
+Five stages, in order. Each numbered piece is one piece of work (one
+commit, AGENTS.md) with its spec, docs and records, and leaves the suite
+green. The method that worked for every Part I piece applies
+throughout: build the new side, run a temporary differential against the
+old, then delete the old. The differential runs over the test-data corpus
+(TESTS.md T1 and C3), a dump per file, old against new — not over two fresh
+full suites (user decision 2026-10-28, TESTS.md TD6). Where a piece
+needs a decision of yours, it names it (§II.10).
+
+**Gates that apply to every piece:** IR goldens and both codegen corpora
+unchanged unless the piece says otherwise; `salvo facts` snapshots reviewed;
+the warm suite no slower (ROADMAP §0h's budget); language-server edit cost
+(`tools/lsp-timing.py`, medians) no worse than step 8's numbers (~28–39ms
+`examples/cluster`, ~40ms `modules/aws`).
+
+#### Stage A — Per-declaration identity (the queued work)
+
+What every later stage stands on. No language change.
+
+**What is there today.** Three identities, all positional or by name:
+`FnKey { file, item }` (resolve.rs) for fns, `DeclId { module, item, sub }`
+(ir/nodes.rs) in the IR, and plain or `Name§module` string keys for types
+and effects (the module-qualified attempt was deferred with 58 sites that
+assume key == written name, §8 step 5 piece 4). Facts are keyed
+`Key = (file, Span)` (check.rs), with `Checker::key`/`Lower::key` the choke
+points; the checker's variable ids are per file; stamps and route stubs
+synthesize spans past the end of the file, so a declaration does not own
+its rows by containment.
+
+- **A1. One stable declaration id** for every declaration kind (fns,
+  structs, unions, effects and their members, handlers, qualifiers and their
+  fns, define fns, aliases): module path + name + a disambiguator for
+  overloads: the written parameter types (P1). Replaces `FnKey`, the IR's `DeclId`, and the
+  string keys; every `FnKey`-keyed table moves over. Includes the 58 sites
+  that render or compare keys as written names: rendering goes through the
+  id's display name, clashes decided when rendering (§5).
+- **A2. Origins** (§II.4) replace synthetic spans: `Origin { span, via }`
+  with an expansion record for comptime stamps and route stubs.
+  `StampRegion` and `redirect_stamped` become renderings of the chain.
+  Needed before A3: it is what makes a stamped body's facts belong to its
+  declaration.
+- **A3. Per-declaration node keys.** `Key = (file, Span)` becomes
+  `(DeclId, NodeId)`, the span kept as origin data (P2); variable ids per declaration, not
+  per file (header expressions can then leave the body walk). Diagnostics
+  and the language server map back through origins.
+- **A4. Facts stored per declaration.** `Checked`'s rows partitioned by the
+  declaration that wrote them; the per-*file* re-walk (`rewalk_files`) and
+  the language server's per-file check cache become per declaration where
+  that is cheaper (step 8 measured the cache level not worth it
+  alone; with A1–A3 it is a partition, not a project). `salvo facts` prints
+  by declaration.
+- **A5. Dropped (P8):** comptime's signature/body split is built once, in
+  C3, on the resolved form.
+
+#### Stage B — Call unification
+
+The largest unity win, and it does not wait on a new tree: an AST-to-AST
+lowering before typing, then the checker's special paths deleted. Needs A2
+(origins carry "in this interpolation" to the error).
+
+- **B1. The census** (read-only, can run now): for each of the ~15
+  call-like tables (§II.6), which code selects the callee, which tests fit and
+  contracts, and how it differs from `select_overload` + `fn_value_at` on:
+  the visibility ladder, specificity ranking, ambiguity, implicit filling,
+  effect members vs fns of the same name, claims, generics. Output: a table
+  *form → core call it should lower to → divergences found, each with a
+  probe program run on both backends*.
+- **B2. Decide the divergences** (decision **P3**): for each, which
+  behaviour is the language's. The census also proposes what each form
+  lowers to (decision **P4**).
+- **B3. The core call node and its lowering**, one surface form per piece,
+  each deleting its table(s) and checker path:
+  1. implicit arguments (after the other agent's implicit-selection work
+     lands, which already routes selection through call rules);
+  2. interpolation parts (`interp_to_str`, `interp_implicit`; `interp_union`
+     is per-arm rendering and may stay a fact). **Waits on the user's
+     operator-overloading design** (P4): interpolation is an operator on
+     that model, and the candidate lowering is a call to a std format fn
+     that backends may spell as native interpolation;
+  3. operators (with the same design);
+  4. dot calls (`x.f(a)` → `f(x, a)`, `dot_calls`);
+  5. effect-member and qualifier-member calls (`member_calls`,
+     `effect_member_calls`, `qual_member_calls`). **A language change**
+     (P4): effect members join the call's candidate set and compete with
+     fns, instead of taking the name first;
+  6. fn values, local calls and fn-value calls (`fn_refs`, `local_calls`,
+     `local_call_names`, `fn_value_calls`, `fn_value_implicits`);
+  7. `addr_calls`, `effect_calls`, whatever the census adds.
+
+  Each piece may change behaviour only where P3 said so, with tests at the
+  changed sites; elsewhere the differential must show no difference.
+- **B4. Round-trip check** (§II.7), for calls: print the lowered calls as Salvo
+  (`name@module`, explicit implicit arguments, explicit type arguments),
+  re-check, and require the same picks. Where it runs is decision **P5**.
+  **Done (2026-10-28, §II.12).**
+
+#### Stage C — The resolve phase as a lowering
+
+- **C1. The resolved form.** Every lexical name bound to a declaration id or
+  a candidate set, per file; the program-wide plain-name lookups (~21
+  checker sites, `deduce`'s tables, comptime's and the desugaring's
+  first-match tables, the IR's fallback; §5) become reads of
+  it. `Symbols::ref_key` stops re-running `resolve()`. Whether this is a
+  tree or a table is decision **P6** (via §II.8). In three pieces
+  (2026-10-29), since A1's keys had already taken most of the ~21 lookups:
+  1. **The remaining program-wide lookups by name, to keys** — done
+     (§II.12).
+  2. **Type-position names resolved by resolution** — done (§II.12): every
+     written type, qualifier, effect and group name bound, in every
+     namespace, where it is written (`salvo_core::names`, [name-table]);
+     the checker's type, effect, qualifier and group lookups of a written
+     reference read it, and `written_keys*` and `Symbols::ref_key` are
+     derived from it. Two parts of the plan moved to C1.3: `visible_keys`
+     (its readers are value-position names) and the "unknown type"
+     diagnostics.
+  3. **Value-position names** — done (§II.12): every variable read,
+     callee, `use`d handler and selector bound by resolution — to its
+     binding, or to its declaration meaning (fns, effect members, …) —
+     with a debug check against the checker's scopes at every read;
+     `visible_keys` replaced by keys derived per name. Two parts did not
+     move, recorded in ROADMAP 0ax: **the checker still reads locals by
+     name** (its flow state is per name; reading it by binding is what C3
+     needs, when stamped copies stop being renamed, so it goes there), and
+     **the unresolved-name diagnostics** stay the checker's — C1.2's
+     differential found the checker validates fewer type positions than a
+     complete walk reaches (a group's arguments `: Ordered<self>`, names in
+     patterns, value blocks), and a value name's verdict needs what only
+     the checker has (the effects available in the body, the handler's own
+     `send` members, the façade's confined state).
+  4. **Node identity without a file** (scheduled 2026-10-29, the user: "the
+     real fix"): a span — or every node — carries its file, so any node, a
+     copy included, finds its key [node-id] without the tree it was copied
+     from. In two halves:
+     - **a. Spans carry their file's tag** [node-file] — done (§II.12): a
+       copy of a written reference finds its entry in the resolved form by
+       tag and node.
+     - **b. Keys and maps from it** — done (§II.12): `DeclIndex::key`
+       reads the tag; `handler_files`, `decl_files`, `type_ref_keys` and
+       `value_keys` are gone. Left by address, for a reason each:
+       `Names`' address index (the fast path; a copy finds its entry by
+       tag and node), `fn_stamp_scope` and the comptime stamp map (keyed
+       before a stamped body is numbered in its new file), and the
+       checker's `written_types` (the check cache remaps it between an
+       edited file's old and new trees, `check_cache::node_map`: keying it
+       by node is that cache's rework, not this).
+- **C2. The resolve dump** (`salvo dump --phase …`, P7), as Salvo
+  with every name qualified — done (§II.12; spelling P22).
+- **C3. Comptime on the resolved form** (§II.5), in three pieces:
+  - **C3.1. A template's names** (P23) — done: a template's text resolves
+    where it is written; a fn name it can see says `@module` or `@[site]`,
+    one it cannot see is the site's; types are the template's. The site-wins
+    stamp scope and `Rung::Template` went.
+  - **C3.2. Copies are scopes** — done: the expansion records each copy and
+    kept body it splices flat (`Stamp::scopes`) and resolution, the checker
+    and the IR open a scope there, so `__c<N>` renaming and
+    `shadows_by_written_name` went; the IR names a later copy's local apart
+    in its emitted block (`c~3`). Built that way rather than by reading
+    locals by binding: with the scopes the name-keyed frames are right, and
+    resolution's debug check still compares the two. The `h__p` apart
+    rename and `hidden_free_name` stay for C3.3, where a resolved template's
+    parameters bind by position (a `name@[site]` no longer meets the
+    declared parameters, P23 item 6; a bare site name still can).
+  - **C3.3a. Lookups where written** — done: every name the expansion
+    looks up is looked up in the file that wrote it, by the node's tag; the
+    program-wide ladder (`pick_decl`, the std-only filter) went, and `[if]`
+    type patterns compare declarations.
+  - **C3.3b. Splices read where written** — done: a type put in place of
+    a splice is an expansion of its own naming the file that wrote it
+    (`ExpansionKind::Splice`), which resolution reads it in.
+  - **C3.3c. The `by`-at-a-call workaround** (§II.5.1) — documented in
+    the language pages (Compile-Time-Functions, "Stamping for one call").
+  - **Moved out of C3 (2026-10-30), with the reason:**
+    - *Parameters bound by position* (`h__p` and `hidden_free_name` go) →
+      **D2**, where it was settled by requiring the template's names instead
+      (user, 2026-10-30). A parameter is identified by its name across the checker's
+      contract (`param_owned`, `own_contract`), `deduce`, `lends` and the IR
+      builder, so binding a template's names to the declared parameters
+      means an alias in each; the typed form identifies parameters by id,
+      which is where this is one change. Until then the textual rename
+      stands, and a `name@[site]` no longer meets the parameters (P23
+      item 6), so only a bare site name can be captured.
+    - *One resolution, and the `World`'s cloned tables* → **C4**. The
+      expansion still resolves the unstamped program itself (now only to
+      read each name where it is written); running it after the program's
+      own resolution is the signature/body split (P8), which needs the
+      stamped bodies resolved after stamping — so it is a phase move, not a
+      hygiene one.
+- **C4. The remaining early sweeps to their phases**: what is left of
+  `expand` that reads names moves after C1 (the `iter fn` expansion per
+  file; effect aliases and prerequisites already in scope after Part I
+  step 6 — confirm nothing still rewrites effect lists program-wide); and
+  from C3, comptime after the program's resolution, without its own
+  resolution and cloned tables. **The user's order (2026-10-30)**: A.
+  scopes by `DeclId`, the pointer scopes their view; C. the `StdFront`
+  keeping std's scopes; B. comptime between interfaces and bodies (clause
+  members added to built scopes by replaying `add_items` over what each
+  scope took from each module; the checks that read generated fns after
+  stamping; `World` reading declarations by id). **Done so far**: the
+  survey's parts — the `iter fn` expansion looks no name up (two decisions
+  go by spelling: a Copy scalar parameter, and the `Emitted T | Finished`
+  shape; left to the planned rework of `iter fn`s as operators), and
+  nothing rewrites an effect list — A and C (`scope_ids.rs`,
+  `resolve::resolve_over`, `StdFront::resolve`), and B (`resolve::interfaces`,
+  `Program::interfaces`; comptime's own resolution, `resolve_scopes_where`,
+  `FileNames`' maps and `Tables`' copies of structs, types, groups and
+  qualifiers gone). C4 is done. Left, recorded in ROADMAP: adding a clause's
+  members to built scopes (`add_items` replayed over what each scope took
+  from a module) rather than building every scope that sees a changed
+  module — in a program without the std front that is every scope, since
+  std's core modules gain members.
+
+#### Stage D — The typed partial IR
+
+- **D1. Representation** (decision **P6**, §II.8) — decided: the AST plus
+  per-declaration fact tables keyed by node (P6 (T)).
+- **D2. The checker writes the typed form** (§II.3.3) instead of `Checked`'s
+  span tables, one table cluster per piece — the clusters the IR builder's
+  view accessors already group (`call_info`, `use_info`, `spawn_info`,
+  `interp_info`, COMPLETED.md 2026-10-10; `pick_info` went with the `?:`
+  lowering), then the rest. The
+  checker reads its own facts back from the typed form (`call_fn` alone has
+  13 readers inside the checker; the hard part). From C3: a stamped fn's
+  parameters bound to the template's names by position — settled otherwise
+  (user, 2026-10-30): a declaration names its parameters as the template
+  does, so nothing is renamed, and `h__p` and `hidden_free_name` went
+  without a positional binding.
+  The clusters left after the five views (survey 2026-10-30, 107 fields):
+  1. **Stragglers into views** — done: `effect_member_calls` and
+     `qual_member_calls` into `call_info` (and `elvis_widen` into
+     `pick_info`, both since gone with the `?:` lowering);
+     new `fn_value_info` (a fn named as a value: `lambda_effects` at its
+     name, `fn_value_implicits`, `member_values`) and `lambda_info`
+     (`lambda_effects`, `lambda_captures`, `lambda_contracts`).
+     `use_handler_args` stays out of `use_info`: it is a handler
+     construction's, keyed at a `use`, a spawn and a `with` item alike.
+     `for_drivers`/`by_value_loops`, `project_effects`/`merge_effects` and
+     the borrowed-result tables were not viewed: the builder reads each at
+     one site of its own, or not at all, so a view reduces nothing.
+     Then `test_info` (an `is` check: `is_tests`, `predicate_tests`,
+     `widen_targets`, read together at `is`, `^` and `when` heads) and
+     `read_info` (a place read: `linear_moves`, `moved_reads`,
+     `state_takes`, `moved_projections`, `flow_moves`, `field_casts`,
+     `repr_ty` — seven tables the read lowering consulted one by one) —
+     done.
+  2. **By node, still to merge**: expression facts (`expr_ty`, `repr_ty`,
+     `coerce`, `promotions`, `field_casts`; ~44 checker readers), arm tests
+     (`is_tests`, `predicate_tests`, `widen_targets`, `when_exhaustive`,
+     `when_arms`, `safe_navs`, `arm_compares`), a call's borrowed result
+     (`lending_calls`, `derived_calls`, `mut_lend_calls`, `distinct_pairs`,
+     `temp_views`), the flow handoff (reads that move, bindings,
+     mutations), declaration facts (`deductions`, `fn_effects`,
+     `decl_effects`, `fn_body_effects`, `fn_lends`, `param_mutations`,
+     `implicit_params`, `implicit_members`, `established_quals`,
+     `carried_identities`), the host boundary, navigation. Actor summaries
+     are E1's; `type_ref_span_keys`/`value_span_keys` belong with `Names`.
+  3. **By meaning, one node kind each in the typed form** (each written up
+     for the user before building). **`Convert` decided (user, 2026-10-30):**
+     a conversion changes a value's representation (`coerce`,
+     `promotions`); a narrowing changes its static type and goes with the
+     narrowings (`field_casts`, `repr_ty`); the typed dump marks a
+     conversion `#{as T}` after the converted expression. `elvis_widen` is
+     not a kind of its own: it exists only because a pick's picked value has
+     no node (its coercion would collide with the operator's own), so it
+     goes when `?:` lowers to the test it is. **Decided (user,
+     2026-10-30): `?:` and `?.` lower to the test they are**, and
+     [is-narrow-guard] generalizes (option (a)): after an `if` (and a
+     `when`), what holds is the join of the branches that fall through, so
+     [op-elvis-guard] stops being a special case. Rejected: (b) a flag on
+     the lowered form keeping the narrowing special. **Shape and placement
+     (user, 2026-10-30):** phase-1 sugar (needs no names), into `when s =
+     subject { is #{first arm} { … } is #{rest} { … } }` — two holes type
+     fills, exhaustive with no `else` — and, so the rest of a three-arm
+     subject is one head, **a `when` arm head may be a union, `is A | B`
+     (option 1a)**, everywhere, as [is-union] gives `is`. Rejected: an
+     internal-only multi-arm head (1b), `!is` or an `else` allowed only in
+     lowered code, a subject-less `when` (an `if` under another name).
+     **`?:` lowered — done** ([when-lowered], COMPLETED.md 2026-10-30):
+     `pick_left`, `elvis_picks`, `elvis_tests`, `elvis_widen`, `PickTest`
+     and `pick_info` are gone, with the checker's `check_elvis` /
+     `install_elvis_guard` and the IR's `elvis()`. **`?.` lowered — done**
+     the same way (origin `SafeNav`, the first arm's narrow keeping the
+     native-chain hint): `safe_navs`/`SafeNavInfo`, `check_safe_nav` and the
+     IR's `safe_nav()` are gone. **`?>` lowered — done** (user,
+     2026-10-30), the same way: `check_safe_pipe` and the IR's
+     `safe_pipe()` are gone. **`Convert` built — done** (user, 2026-10-30:
+     a chain, `repr_of` reading the narrowing back, the dump marks):
+     `coerce` + `promotions` are `converts` (a `Convert`, a chain of
+     `ConvertStep`s; `DropMut.then`, `WrapUnion.inner` and the IR's
+     `promoted()` gone), `repr_ty` + `field_casts` are `narrowed_reads`
+     (`NarrowedRead { stored, by: Flow | Claim }`), and `salvo facts`
+     writes `#{as T}`, `narrowed from T` and `claimed from T`. **`Test`
+     built — done** (user, 2026-10-30): `is_tests` + `predicate_tests` are
+     `tests: HashMap<Key, Test>` (`Test::Arms(UnionTest)` |
+     `Test::Holds(Vec<PredicateCheck>)`), the [op-arm-eq] comparison's
+     arm test is its `tests` entry (`ArmCompare` keeps `subject_is_lhs`),
+     `widen_targets` is gone (the IR narrows a `^` subject to the arm the
+     test matched, as for an `is`; reads inside the branch are
+     `narrowed_reads`), `test_info` is gone, and `salvo facts` marks
+     `test …`. `^Mut` became a conversion on the way. **Effect lists
+     built — done** (user, 2026-10-30): `fn_effects` + `decl_effects` +
+     `lambda_effects` are `effects_taken` (what the callable at a node
+     takes: a fn's name, a lambda, a fn named as a value; no lookup by
+     `DeclId` is left), `call_effects` + `effect_calls` +
+     `task_mint_effects` are `effects_passed` (`Receiver(Ty)` |
+     `Leading(Vec<Ty>)`), and the IR passes the checker's instances for a
+     call through a fn value too, instead of rebuilding them from the fn
+     type. Naming each argument's instance (which `use`, which parameter)
+     is D3's, with `effect_instance`'s search. **Handles and handler
+     construction built — done** (user, 2026-10-30): `use_effects`,
+     `spawn_effects`, `project_effects` + `merge_effects` are `handles`
+     (the handles a node puts in scope or yields, in order), and
+     `use_deps`, `use_with_items`, `spawn_deps`, `spawn_dep_items`,
+     `use_handler_args` + `route_uses` are `constructions` (a
+     `Construction { handler: Handler(key) | Route(effect), type_args,
+     deps: Vec<Dep { instance, from_clause }> }`, at a `use`, a spawn and a
+     `with` item alike). `use_addrs` and `use_addr_tuples` are gone: a
+     `use` with handles and no construction binds handles it is given, a
+     tuple of them when the operand's type is a tuple. A monitor spawn's
+     dependencies are its construction's, so the IR's fallback to the
+     declaration's `handler_deps` is gone; `fn_body_effects` is gone (the
+     language server takes a body's `effects_taken` plus its handler's
+     `handler_deps`). `handler_deps` and `effect_prereqs` stay, being
+     declaration facts; `handler_constructs` is E1's (an actor summary).
+     `salvo facts` marks `handles …` and `constructs H<T> with E (clause
+     0)`. **A call's borrowed result built — done** (user, 2026-10-30):
+     `lending_calls` + `derived_calls` + `temp_views` are `borrows:
+     HashMap<Key, Borrow { kind: View | Held, from, temporary }>`, by
+     argument position (a dot call's receiver 0) through one helper,
+     `call_args`, which fixed a dot-call minting pass losing its claim's
+     root; `distinct_pairs` and `mut_lend_calls` (no readers) are gone, with
+     `borrows.rs` and the dead half of `mut_lends.rs`. **The remaining
+     merges (user, 2026-10-30, all approved in one write-up), in order:**
+     A. calls, the sends included (`calls: HashMap<Key, Call { callee:
+     Callee, dot }>`; `implicit_args` stays its own; `may_throw` keeps only
+     the throw op; `fn_values` for a fn named as a value, `fn_refs` kept);
+     B. `replyto_targets`; C. every declaration table keyed at the
+     declaration's name node (`Key::name_of`), `implicit_params` and
+     `implicit_members` one table; D. `when_missing`, `PassDriver.origin`
+     gone; E. `boundaries`, `platform_closure_all` out of `Checked`; F.
+     `refs` for the navigation tables; G. `moves` for the read moves. Left
+     out: the fate-link tables (D3), the actor rows (E1), the copy-key
+     tables (`Names`), `written_types`, `refinements`. **Built so far:**
+     A (calls: seventeen tables and the `CallInfo`/`FnValueInfo` views
+     into `calls` and `fn_values`); B (`replyto_members` + `replyto_tasks`
+     → `replyto_targets`, the lambda asymmetry recorded as ROADMAP 0az);
+     C (every declaration table at the declaration's name node through
+     `Key::name_of`, `implicit_members` into `implicit_params`); D
+     (`when_exhaustive` + `when_arms` → `when_missing`, `PassDriver.origin`
+     gone); E (`boundary_checks` + `factories` → `boundaries`,
+     `platform_closure_all` the walk's input); F (`def_refs` +
+     `field_refs` + `module_refs` → `refs`, the node-keyed target recorded
+     as ROADMAP 0ba); G (`linear_moves` + `moved_reads` + `state_takes` +
+     `moved_projections` + `flow_moves` → `moves`, `handle_muts` and the
+     `ReadInfo` view gone); and the closing sweep (no backend-prefixed label
+     left in `salvo-core`, `salvo-syntax` or `salvo-backend`). Every
+     approved merge is built; with the C3 leftover settled by the exact-names
+     rule, D2 is done.
+- **D3. The IR builder becomes the lowering of the typed form**: erasure as
+  its own sub-phase (qualifiers, effects to parameters, union wrapping),
+  then flow. The builder's ~87 table reads go. **Decided (user,
+  2026-10-30)**: each effect argument names its instance — a `use` at a
+  node, the enclosing fn's or lambda's effect parameter *i*, a handler
+  dependency *i* — so the IR reads it instead of searching its
+  environment by type and then by base name. **The pieces (user,
+  2026-10-30)**, in order: D3.1 effect arguments name their instance; D3.2
+  pass modes as per-declaration facts (`param_mode::Modes` a reader); D3.3
+  the builder's re-derivations go (the `is_primitive_operator` /
+  `intrinsic_fn` / `decl_of_effect` scans, `construct_handler`'s handler
+  checks, the `use` classification, `approx_keyed`, the lambda
+  `returned_ty` fallback, the `fn_value` adapter decision, the name
+  fallbacks of `CalleeKind::Local` and `ImplicitArg::Forwarded`); D3.4
+  erasure stays per node but goes through one layer (option (a); a
+  separate pass over an unerased IR was rejected); D3.5(a) `by_value_loops`
+  into the flow pass's `Decision` and the fate shapes tidied; D3.6 rebuild
+  per declaration rather than per module; then D3.5(b), the path questions
+  into the flow pass so one thing owns every path-dependent ownership
+  question, behind a differential harness like R8 piece 8's. (Redefined by
+  the user, 2026-10-30: the checker keeps the fate links, the mutation
+  events and narrowing, which are facts about values and operations; the
+  flow pass takes by-value loops, the links a derived use stands on, and
+  virtual candidates, which are path questions — docs/compiler/Phases.md;
+  then, on the derived-uses survey, the event stays the checker's and so
+  does eligibility, both facts about values and bindings.) **D3.1 built
+  — done** (2026-10-30): the checker records an `Instance { ty, binder }`
+  (`Fn`, `Lambda`, `Dep`, `Use`, `Clause`) in `effects_passed`,
+  `constructions` (`Dep` is gone), `ImplicitArg::Member` and
+  `PredicateCheck::effects`, and at `eff[*]`; an un-annotated lambda
+  records the instances its inferred parameters stand for
+  (`EffectsPassed::Inferred`). The IR's `effect_env` is keyed by instance
+  and `effect_instance` reads the one named: the type search, the
+  base-name fallback, and the member-call and `for` fallbacks
+  (`Ty::named(effect)`, the callee's own list) are gone, the last two now
+  lowering errors. Emitted code is unchanged. **D3.2 built — done**
+  (2026-10-30): `param_mode::record` records every declaration's modes at
+  its name once the deductions are known (`Checked::param_modes`, a
+  recomputed table like `deductions`); `Modes` is private to it, and the IR
+  reads the table for a declaration's parameters and a call's arguments.
+  A handler member's declaration now takes its parameters as the member it
+  implements declares, as its body already bound them, so the ledger sees a
+  moved `Reply` it must answer. **D3.3, first part built — done**
+  (2026-10-30): a call through a local records the local it goes through
+  (`Callee::Local { local }`, the written name included), and the IR reads
+  it with no fallback (the written-name retry, the implicits by resolution
+  name and `Local(name)` are gone; `ImplicitArg::Forwarded` likewise); a
+  construction is lowered from the handler the checker recorded
+  (`Constructed::Handler`) rather than the written name, and a `with` item
+  from whether the checker recorded a construction at it (a private
+  handler, behind its handle unless `threadsafe`) or not (an addr), not
+  from the lowered value's type name; and `use` of a nested tuple of
+  handles reads each at its path (`check::handle_leaves`, the checker's
+  flattening), which fixed a defect. **D3.3, the rest built — done**
+  (2026-10-30): (a) and (b) std's primitives are a checker fact
+  (`Checked::primitives`: `Operator` for the intrinsic `eq`/`cmp`/`plus`/…
+  at basic types, `Text(T)` for the intrinsic `to_str` of a basic type or
+  `Str`), which `Ctx::is_primitive_operator` and `native_to_str` read — the
+  IR's AST and symbol scans are gone; (c) `Callee::Member`, `Callee::Send`
+  and `ImplicitArg::Member` carry the effect's `interface` declaration, so
+  `decl_of_effect` and `member_ref` are gone (with two unreachable
+  messages); (f) the checker records every struct field's, `state` field's,
+  union alias's and handler constructor parameter's written type at its
+  declaration (`record_written_type`, quietly: validation reported what was
+  wrong), and `approx_keyed` fell from ~280k lowerings a suite run to 16 —
+  a variadic tail's element type (12), an `Iter` obligation's element and
+  three signature types — so the fallback stays, small; (h) a fn named as a
+  value records its adapter (`FnValue::Decl { adapter }`: each effect it
+  takes by its index among the position's), and the IR builds the lambda
+  from it. Not moved: the `@whynot` message, which the IR still assembles
+  from the doc template (a presentation question, not a re-derivation). **(g) decided and built** (user, 2026-10-30): a block
+  lambda answers its written return type (`(n: Int) -> Int { … }`), else
+  the expected fn type's, else `None`, as a fn does; the IR's
+  `returned_ty` inference is gone ([fn-lambda]). **D3.4 built — done** (2026-10-30, option (a)): erasure and the
+  conversions' nodes live in `ir/build/erased.rs`, the one layer every
+  checker type enters the IR through (`ty_of`, `written_ty`, `handles_at`,
+  `ir_ty`/`ir_tys` for a type a fact carries); the builder's 33 direct
+  `erase` calls are gone. `erase` stays public for one reader outside the
+  builder, the Rust backend's platform-alias expansion
+  (`ir_emit/mod.rs`, `ir_emit/decls.rs`) — a backend erasing a type itself,
+  left as found. **D3.5(a) built — done** (2026-10-30): the flow pass's
+  `Decision` is the builder's one answer to "lowered as a move": it is
+  seeded with the checker's `by_value_loops` before the first build, and
+  `Ctx::mode` reads nothing else. Moving that loop decision itself into the
+  flow pass is D3.5(b)'s, with the fate links. **D3.6 built — done** (2026-10-30): a
+  module's build keeps what each item made (`decls::ModuleBuild`: its
+  declarations' range and its errors, over the module's statics), and the
+  builder builds again only the items the flow pass decided something in
+  (`rebuild_item`), not their whole modules. On `examples/cluster` the
+  second build went from 13.7ms to about 6.5ms of a ~37ms IR build (was
+  45ms). **D3.5(b), by-value loops built — done** (2026-10-30): the flow
+  pass finds the loops data is moved out of through their binding — a
+  consuming projection read (`FateFacts::projection_moves`, the place's
+  root, kept through a narrowing binding) whose root is, or derives along
+  the path's links from, a `for` binding (`FateFacts::for_bindings`) — and
+  adds them to `Decision::modes`; the first build iterates every loop by
+  reference. `Checked::by_value_loops` and the checker's `loop_by_value`
+  are gone; the checker still records the consuming read. A differential
+  (`SALVO_XP_LINKS`) over the suite, std's tests and the examples found the
+  same loops on both sides once the IR keyed on projection moves rather
+  than any move the checker took a root by. **D3.5(b), derived uses built — done**
+  (2026-10-30, the user's option A): the checker records only the event
+  (`DerivedUse { name, action }`: a move or mutation of a variable it holds
+  links for, less a Copy scalar's move); the flow pass derives each use
+  through the links standing for the local on that path — an `is` or
+  `when` binding's own links ride on its `Narrow` (`FateFacts::narrow_binds`),
+  since the IR's binding is the subject's storage — and builds the S1 error
+  from them (`FlowLink` gained `borrowed` and `held`). The differential
+  agreed on every use's bindings and every refusal; the one message that
+  differed lost its root's name to a rebinding on an earlier iteration, so
+  a link to a gone binding keeps its written name (`x~gone`). Eligibility
+  stays the checker's (user, 2026-10-30: "may take ownership" is a fact
+  about the binding, judged where it is). **D3.5(b), virtual candidates
+  built — done** (2026-10-30): the flow pass takes the candidates at each
+  mutation event from the links standing on that path
+  (`flow::virtual_candidates`): a contents spare (the poison rule's own
+  exception), and, at a call whose callee declared which fields it
+  mutates (`FlowMutation::fields`, the one fact the checker adds), every
+  link to the root at a field path. `Checked::virtual_candidates`,
+  `VirtualCandidate`, `FateFacts::virtual_at` and the checker's two
+  collections are gone. The differential agreed at all 63 sites the suite
+  exercises, field survivors and contents spares both. **D3.5(b) is
+  done**: the checker records facts about values, operations and bindings
+  (links, mutation events, the derived-use events, eligibility, narrowing);
+  the flow pass answers every path question (moved, poisoned, ownership
+  taken, virtual places, by-value loops, the links a use stands on).
+- **D4. The typed dump and the full round trip**: B4 extended to types,
+  type arguments and narrowings (marked notation where Salvo has no
+  spelling). **Decided (user, 2026-10-30), P24:**
+  1. `salvo dump --phase type-check` prints the file's text with every
+     choice written out as B4's `write_out` writes calls (callee
+     `name@module`, type arguments, implicits), a type only where Salvo
+     writes one (an unannotated `let`, lambda parameters and returns,
+     constructor type arguments), narrowings and coercions marked `#{…}`;
+     `--expr-types` adds every expression's type, `#{: T}`.
+  2. `salvo facts` goes; its per-node rows (linear moves, "narrowed from",
+     effects taken) become `salvo dump --phase type-check --rows`.
+  3. Operators are written as the call they resolve to
+     (`plus@std.core.basic(a, b)`), checked by the round trip;
+     interpolation parts as their `to_str@…` inside `${}` (until
+     OPERATOR_OVERLOAD.md makes interpolation a specific function); `for`
+     is marked.
+  4. The round trip compares the type of every binding it writes an
+     annotation for, and type arguments; marked forms are skipped. A
+     divergence is fixed where the docs decide it, else recorded as a
+     DECISION (ROADMAP.md), as B4 did with P21.
+  5. Then two small pieces: `--phase parse-ast` (absorbing `salvo compile
+     --emit-ast`) and `--phase generate-ir` (absorbing `salvo ir`).
+  **D4 built — done** (2026-10-30): `round_trip.rs` is one writer with two
+  readings (`write_out` Salvo only, `dump_file` with the marks); operators
+  and interpolated parts are written as calls, binding/lambda/struct-literal
+  types as annotations; the round trip covers 1,152 calls and 165 types
+  (floors 900, 100) and found no checker divergence; `salvo facts` is
+  `--rows`. Skipped by the round trip: a promoted operand's operator,
+  qualified types other than `Mut T`, `for`.
+
+#### Stage E — The link stage, and retiring the documents
+
+- **E1. Per-declaration summaries for deadlock's inputs** (handler
+  statefulness, the mixed and monitor classification, `parking_handlers`,
+  task mints, `handler_constructs` — left out of D2's construction merge,
+  user 2026-10-30), then deadlock onto 03-generate-03-link over the IR; the
+  checker-table graph and its router synthesis go. **Decided (user,
+  2026-10-30), P25:** whether the summaries come from the IR or are checker
+  facts is an engineering call ("whichever makes the most sense in the
+  code"); deadlock errors may depend on other errors being fixed (the user
+  may drop deadlock from the LSP run entirely, undecided). The differential
+  requires the same cycles with the same messages and locations. Then, each
+  in its own commit with its repro, the two gaps it would close: ROADMAP
+  0az (a send in a lambda inside a handler member records no edge) and a
+  cycle closing through a router never seen.
+- **E2. Retire**: this document into COMPLETED.md's design
+  record, open items to ROADMAP.md, rules (origins, the core call,
+  phase dumps) to LANGUAGE_SPEC.md. **the IR-checker record is retired the same way**
+  (user, 2026-10-30: the pipeline record grew out of it).
+
+#### Order, and what can overlap
+
+A → B → C → D → E. B before C because it is the unity goal and needs only
+A2; C before D because the typed form is smaller once B and C have removed
+tables. B1 (the census) and the B2/P3 decisions can run during Stage A.
+B3's interpolation and operator pieces wait on the operator-overloading
+design (P4); the other B3 pieces do not.
+
+### II.10. Decisions
+
+Outcomes of the 2026-10-27 round first; what is still open says so.
+
+- **P1. What disambiguates overloads in a declaration id** (A1).
+  **Decided (user, 2026-10-27): the written parameter types** (text, before
+  lowering): stable under reordering and body edits; changes when the
+  signature does, which is an interface change anyway. Rejected: ordinal
+  among same-named declarations (adding or reordering an overload shifts
+  the later ones' ids). An ordinal remains the tie-break for textually
+  identical signatures (whether those are already refused is to check).
+- **P2. Node keys** (A3). **Decided (user, 2026-10-27): a `NodeId` per
+  declaration**, assigned in walk order, as the key facts are stored under;
+  uniform for written and synthesized nodes (the IR already has `NodeId`).
+  The span is kept on every node as origin data (§II.4): language-server
+  lookups and compile errors read it, it is just not the key. This amends
+  R1's "span relative to the declaration" key. Rejected:
+  relative spans as the key (a copy has no position of its own).
+- **P3. Call divergences** (B2). **Decided (user, 2026-10-27): call
+  resolution is the reference; every other spelling behaves like the call
+  it lowers to.** The census lists each divergence with a probe and its
+  consequence (programs newly refused or accepted); the user may name a
+  divergence to keep as an exception. (The 2026-10-14 implicit decision,
+  applied to every form.)
+- **P4. What each form lowers to** (B2). **Case by case** (user,
+  2026-10-27), from the census table. Two directions given:
+  - **Interpolation and operators wait on the user's operator-overloading
+    design** (OPERATOR_OVERLOAD.md; discussion and decisions O1–O6 recorded
+    there; O1 decided 2026-10-27: an operator is the call it names, resolved by name like any call, and each operator on a type is declared once, in the type's module), its interaction with implicits and generics; interpolation is an operator on that model. Candidate direction (user):
+    `"a ${x} b"` lowers to a call of a std **format fn**, which a backend may
+    emit as its native interpolation ([backend-core-layers]: core states the call,
+    the backend spells it). **The shape, decided (user, 2026-10-28,
+    option (a)):** `"a ${x} b"` lowers to `concat("a ", to_str(x), " b")`,
+    a std intrinsic `concat(...parts: Str[]) -> Str`; each part becomes
+    text **at the call site**, through an ordinary `to_str(part)` call
+    resolved as a written one (so an enclosing `?to_str`, a member or the
+    module's own fn takes it, D1 and D3), and a `Str` part too (an enclosing
+    `?to_str` covering `Str` applies; the backends drop the call when it is
+    std's identity). A backend writes native interpolation when `concat` and
+    every part's `to_str` are std's intrinsics. A union part keeps
+    `interp_union`'s per-arm rendering until D4's general union `to_str`
+    exists. Rejected: (b) the format fn taking the values with a
+    `?to_str` per part (needs variadic generics, and picks the part's
+    `to_str` at the format fn's implicit instead of where it is written);
+    (c) a `Mut StrBuilder` with an `append` per part (more IR for no
+    semantic gain).
+  - **Effect members compete with fns** (user, 2026-10-27): an effect in a
+    fn's effect list is a namespace of additional functions in scope, so its
+    members join the call's candidate set and are ranked with fns
+    ([fn-overload-rank]). **This changes the language:** today
+    [effect-member-overload] says "an effect member takes the name before
+    any fn does" (it shadows, it does not compete), and a bare member call
+    across effects resolves through the *one available* effect, two
+    available being an error naming [effect-at]. Under the new rule two
+    same-named members of available effects are ranked by argument types
+    like any overloads, and ambiguity is the ordinary overload ambiguity.
+    Unchanged: fn-typed locals, parameters and implicits still shadow (they
+    *are* the function the caller chose). The census must list what changes:
+    programs where a fn now beats a member, or a member-vs-fn tie becomes an
+    ambiguity error.
+- **P5. Where the round-trip check runs** (B4, D4). **Decided (user,
+  2026-10-27): (b), the corpus and the examples only.** The round-trip check: take a phase's dump
+  printed as Salvo, with every choice the compiler made written out (callee
+  as `name@module`, implicit arguments passed, type arguments given), feed
+  it back to the compiler as a program, check it, and require the same
+  choices. A rule that fires differently on the implicit spelling than on
+  the explicit one fails it. Example (found 2026-10-14): with a module's
+  catch-all `fn to_str<T>(x: T) -> Str`, `"${List(Foo{n:1})}"` printed `?`
+  because implicit selection fell back past std's list overload; the dump
+  would show the pick, the re-check of the explicit form would pick
+  differently, and the check would report the mismatch. It also catches a
+  dumper that prints wrong. Cost: every program it covers is checked
+  twice. Options: (a) every program the suite checks — strongest, adds to
+  ROADMAP §0h's warm-run excess; (b) the corpus and examples only;
+  (c) (b) plus a debug flag for any project.
+- **P6. Representation** (§II.8; C1, D1). **Decided (user, 2026-10-27):
+  decide at D1.** B and C are built on tables keyed by A3's node keys.
+  **Decided at D1 (user, 2026-10-30): (T), the AST plus per-declaration
+  fact tables keyed by node**, merged cluster by cluster behind typed reads;
+  "the main wins are a distinct dumpable pre-IR, and consolidating
+  everything that looks similar in it". Rejected: (A) a tree per phase, (B)
+  one tree with optional slots filled in place (a mutable AST against the
+  language server's shared modules), (C) one node shape parameterized by
+  phase.
+- **P7. Dump command surface** (C2, D4). **Decided (user, 2026-10-27): one
+  `salvo dump --phase <name>`**, absorbing `salvo facts`, `salvo ir` and
+  `salvo compile --emit-ast` (the parse phase's AST; its `=MODULE` form,
+  which prints one module including std's, becomes a module filter on the
+  dump). No compatibility shims (AGENTS.md). Phase names (user, 2026-10-27): `parse-ast`, `resolve`, `type-check`,
+  `generate-ir` (§II.3's table); the language docs and `salvo dump --help`
+  explain what each phase's output contains. Each old command goes in the
+  piece that first adds its phase to `dump`.
+- **P8. A5's placement.** **Decided (user, 2026-10-27): only in C3.**
+  Comptime's signature/body split is built once, on the resolved form. A5
+  is dropped from Stage A.
+- **P9. DECISION (open, B3.1, 2026-10-28): does an effect member fill a
+  binder position?** R10 D3 puts members at every implicit position; a
+  binder's fill is an identity a type carries [cmp-binder], and only a
+  named, top-level, capture-free fn is one [cmp-carry], while a member's
+  value is a closure over its handler. (a) **fns only at a binder** — built,
+  the safe reading: no program newly refused, one exception to the one
+  rule; (b) rank members there too and refuse a member that wins, as a
+  lambda written there is refused. Recommendation (a). ROADMAP 0af.
+
+- **P10. DECISION (open, B3.3b, 2026-10-28): three readings of
+  [op-unique-shape].** D-1 to D-7 decide the rule; three cases they do not name
+  were built on the reading that follows from them: (1) a **non-union alias
+  names its target** (`type Grid = List<Int>` puts `to_str(g: Grid)` on
+  `List`, since aliases are structural [type-alias] and D-2 says "base type";
+  a union alias is its own home, O4) — the alternative, every alias its own
+  home, would let an alias give a concrete type a second operator; (2) a
+  **handler's members are exempt** (they implement the effect's member, which
+  is the covered declaration); (3) a **qualifier's fns are covered**, like
+  effect members. Recommendation: as built. ROADMAP 0ah. Recorded, not a
+  decision (the doc's obvious candidate, as instructed): the anonymous
+  unions' std home is `std.core.basic`, with tuples and fn types.
+
+- **P11. DECISION (open, B3.3c, 2026-10-28): numeric widening at a
+  comparison.** `i < l` (`Int`, `Long`) compares at `Long` [op-promote], but
+  the call it names, `cmp(i, l)`, is refused written out (a call widens no
+  variable). Built: **(a)** a lowering before the call, as [op-arm-eq] (D7):
+  widen the narrower operand, then call at the wide type; (b) declare the
+  mixed overloads in std; (c) let every call widen within a numeric class.
+  Recommendation (a). ROADMAP 0ai.
+  Extended by B3.3e: the arithmetic operators widen the same way (`i + l` is
+  `plus(widen(i), l)`); `**` widens nothing.
+- **P12. DECISION (open, B3.3c, 2026-10-28): float ordering.** std has no
+  `cmp(Double, Double)` (no total order), so `a < b` on floats names no call.
+  Built: **(a)** the host's IEEE order when no `cmp` is in reach (an enclosing
+  `?cmp` takes it); (b) declare a total-order intrinsic `cmp` for floats;
+  (c) refuse `<` on floats without one. Recommendation (a). ROADMAP 0aj.
+- **P13. DECISION (open, B3.3c, 2026-10-28): a binder alias at an
+  operator.** `?cmp: cmp2` counts as a `cmp` for `<` ([cmp-binder], user
+  2026-09-22: two orderings in scope are ambiguous whatever they are called),
+  while the call `cmp(x, y)` sees only `cmp`. Built: (a) keep; (b) the
+  operator by name only; (c) the call by slot too. Recommendation (c).
+  ROADMAP 0ak.
+- **P14. DECISION (open, B3.3c, 2026-10-28): a fn-typed local or ordinary
+  parameter named `eq`/`cmp`** takes the call `eq(a, b)` but not `==`.
+  Built: (a) keep (only implicits shadow an operator); (b) follow the call
+  (a body with `cmp: (T, T) -> Int` comparing `Int`s with `<` would be
+  refused). Recommendation (a). ROADMAP 0ak.
+  Extended by B3.3d: a local `next`/`iter` does not take a `for` either.
+  Extended by B3.3e: a local `plus`… `pow` does not take `+`… `**`; and the
+  arithmetic operators ask their implicit by name only (no binder slot, P13).
+- **P15. DECISION (open, B3.3d, 2026-10-28): a type with both a `next` and
+  an `iter`.** `for x in e` is `next(e)` when a `next` takes `e`, so such a
+  type is driven and its `iter` never called by a `for`; the brief suggests
+  an error, R10 did not decide, and only the obligation pair (`: Iter` beside
+  `: Next`) is refused today. Built: **(a)** accept, `next` wins; (b) refuse
+  at the type, a per-declaration check beside [op-unique-shape]; (c) accept and
+  drop the obligation-pair refusal too. Recommendation (b). ROADMAP 0am.
+- **P16. DECISION (open, B3.3e, 2026-10-28): names for `%`, unary `-` and
+  `++`/`--`.** O1's table names `+ - * /` and `**` only. Built: **(a)** keep
+  them the host's operators on the numeric scalars (a struct gets none);
+  (b) name them (`rem`, `neg`; `++` as `plus(x, 1)`), two more rows of D-3's
+  table; (c) (b) for `%` and unary `-` only. Recommendation (c), the names
+  the user's. Compound assignment needs nothing (it desugars to the binary
+  operator). ROADMAP 0ao.
+- **P17. DECISION (open, B3.3e, 2026-10-28): what `**` means.** Built: std
+  declares `pow(Int, Int)`, `pow(Long, Int)`, `pow(Double, Int)`,
+  `pow(Double, Double)`; no widening; a **negative integer exponent traps**
+  (the host's exception, as a zero divisor); integer powers wrap [op-wrap];
+  `Double ** Int` is squaring in one order on both backends (same bits);
+  `Double ** Double` is the host's `pow` (last-ulp parity not guaranteed);
+  no `Float` or `Long ** Long`. Alternatives per question in ROADMAP 0ap
+  (truncated result for a negative exponent; no `Double ** Double` until a
+  shared implementation). Recommendation: as built.
+- **P18. DECISION (open, B3.3e, 2026-10-28): the precedence of `**`.** The
+  brief says nothing. Built: tighter than `*` and a prefix operator on its
+  left, right-associative, exponent possibly unary (`-2 ** 2` is `-4`,
+  `2 ** 3 ** 2` is `512`); no `**=`. Alternatives: unary minus tighter; refuse
+  `-a ** b` unparenthesized. Recommendation: as built. ROADMAP 0aq.
+
+- **P19. Member calls and uniform calls** (B3.4, replacing D14).
+  **Decided (user, 2026-10-28).** `x.name(args)` is a **member call** when
+  `x`'s type has a member `name`, lowered as `(x.name)(args)` (for an
+  `eff[E]`, still the send); otherwise a **uniform call**, the plain call
+  `name(x, args)` exactly, so D12 and D13 hold. Labels `[fn-member-call]`
+  and `[fn-uniform]` (the label was fn-dot). The parts:
+  1. The names "member call" and "uniform call" (user's choice).
+  2. **(a) any member shadows**: a non-fn member makes `x.name()` an error
+     suggesting `name(x)`. Rejected (b), only callable members shadow.
+  3. A member that hides a function is called, **with a warning** naming
+     `(x.name)(…)` and `name(x, …)`; the grouped callee is the explicit
+     member call and does not warn (the parser keeps the parentheses).
+  4. **Member values** (`c.bump` as a fn value that sends): a future change,
+     in ROADMAP.md.
+  5. `?.`: the same rule on the narrowed first arm, **option (a)**: its
+     shadow warning is silenced only by writing the narrowing out.
+     Rejected (b) no warning under `?.`, (c) a new spelling.
+  6. `x.(F)(a)` for `(F)(x, a)`: **left out**, recorded in ROADMAP.md.
+  Engineering under it: a non-place receiver's member is looked up only
+  when nothing of the name could take a uniform call (its type needs a
+  check), so with both it takes the function (ROADMAP.md); a handler's own
+  `send fn` is not reached by a uniform call (piece 7); an `eff[E]` with no
+  such member and nothing to take it first reports
+  `actor-use-addr:no-member`.
+
+- **P20. Sends and mints** (B3.7, census D18, D24). **Decided (user,
+  2026-10-28).**
+  1. **D18 (a):** a mint ranks the visible `send fn`s of its name like a
+     partial call — by the captures, and by the token's type where the
+     position fixes it; a tie is the ordinary ambiguity, naming `replyto
+     k@module(…)` (a new module selector on `replyto`). Rejected: (b) refuse
+     whenever more than one is visible.
+  2. **D24 (a):** send members may overload, and every send target is
+     chosen by the call's rule. Rejected: (b) forbid overloading send members.
+  3. **(a):** a uniform call reaches a handler's own `send fn` as the plain
+     call does ("the members of a handler are in scope for it"). Rejected:
+     (b) the dot form never reaches a servant send.
+
+- **P21. DECISION (open, B4, 2026-10-28): a carried binder written as
+  well.** `contains(s, x, hash = h)` where `s`'s type carries its `hash`:
+  the written value was never checked. Built: (a) check it, accept the
+  carried identity and refuse any other (`cmp-carry:override-disagrees`;
+  forwarded, only the caller's own binder agrees). Alternatives: (b) the
+  written value wins (breaks the structure's invariant: a set hashed with
+  one fn probed with another); (c) refuse any written override where an
+  identity is carried, even the agreeing one (the round trip could then not
+  write carried binders out). Recommendation (a). [cmp-carry-override],
+  ROADMAP 0av. **Settled for now (user, 2026-10-29): "I'm happy with your
+  choice of (a) there."**
+- **P22. How dumps spell names** (C2). **Decided (user, 2026-10-29):**
+  1. One spelling across the dumps: a declaration is `name@module` (Salvo's
+     selector), with its parameter types where its file overloads the name
+     (`to_str(Int)@std.core.basic`); an effect member `member@Effect`. The IR
+     dump moves from `module::name` to it.
+  2. A name stays bare when its key is plain (std's first declaration of
+     it); a keyed type reads `Name@module` in the IR dump too.
+  3. What Salvo cannot spell is marked `#{…}` (ASCII, not Salvo syntax, and
+     of the IR's `#`-for-compiler-ids family; a non-ASCII `⟨…⟩` was
+     refused for looking like round brackets). A name nothing answers is
+     `#{???}`, since a lone `?` is Salvo's optional (user).
+  4. A variable names its binding by line and column, `p#{12:9}`. The IR's
+     `#n` node ids stay (the IR refers to them), and its reads of locals
+     stay plain.
+  5. A long candidate set shows three and `… N more`; `--all` lists every
+     one.
+  6. The resolve dump is the file's own text with marks inserted (the round
+     trip's technique), not a new AST printer; the spelling functions are
+     what the dumps share.
+- **P23. Whose names a template's text means** (C3.1). **Decided (user,
+  2026-10-30)**, refining the recommendation "the template's names, the
+  site's for what the template cannot see" into explicit choices instead of
+  a ranked fallback, as calls already are [fn-overload-scope]:
+  1. A fn name the template's file cannot see is the site's. One it can see
+     is an error unless it says which: `name@module` (the suffixed form,
+     `to_str@basic`, where it is unambiguous) or `name@[site]`, a comptime
+     place of its own.
+  2. Positions a template writes no name for (an interpolation, an
+     operator, a `for`) are the site's; operator overloading
+     (OPERATOR_OVERLOAD.md) will lower them to calls a template can select.
+  3. Types, effects and qualifiers are the template file's only.
+  4. A type's name called as a constructor follows the type.
+  5. An expanded-in-place comptime fn has ordinary names; `@[site]` is an
+     error in it.
+  6. **(user, 2026-10-30)** A `name@[site]` sees the stamped fn's implicits
+     but not its declared parameters, whose names are the user's: `fn
+     cmp(cmp: P, b: P) -> Int by auto` stamps. Rejected: seeing them too,
+     which kept `fn-by:param-hides-name` for every `@[site]` call.
+  Rejected: the site wins (the 2026-10-20 rule: a site's `shout` replaced a
+  derive's private helper); the template wins with the site filling gaps, by
+  rank; an ambiguity checked per stamp (it lands on the derive's user, who
+  cannot edit the template).
+
+### II.11. Rounds
+
+#### 2026-10-29, C2
+
+- P22 decided (§II.10). Facts' `DeclId` spelling (`name(sig) -> Ret@module`)
+  is left until `salvo facts` joins `dump` as `type-check`.
+
+#### 2026-10-28, B4
+
+- P21 raised and built as its recommendation (a), open.
+
+#### 2026-10-28, B3.7
+
+- P20 decided: D18 (a), D24 (a), question 3 (a).
+
+#### 2026-10-28
+
+- D14's knock-ons: the user proposed the fn-typed-field parallel for
+  `eff[E]` and a unified rule; decided as P19 (names, 2a, warning with the
+  grouped form, member values later, `?.` option (a), no `.(`).
+
+#### 2026-10-27, first
+
+- **Direction:** per-phase lowering for structural unity; representation
+  secondary; origins kept through every lowering (user).
+- **`by` at a call:** not supported directly; a named fn in the same module
+  is the workaround (user). Explicit-root form recorded, not chosen.
+- **Plan drafted** (§II.9) with decisions P1–P8. Recommended, not yet
+  decided: keep resolve and type separate (§II.3.1).
+
+#### 2026-10-27, second
+
+- P1 (written parameter types), P2 (`NodeId` key, span kept as origin), P3
+  (calls are the reference), P6 (at D1), P7 (one `dump` command, including
+  the AST), P8 (comptime split in C3 only): decided as in §II.10.
+- P4: case by case; interpolation and operators wait on the user's
+  operator-overloading design (format-fn lowering the candidate); effect
+  members compete with fns (a change to [effect-member-overload]).
+- Open: P5 (explained in §II.10), P7's phase names, §II.3.1.
+
+#### 2026-10-27, third
+
+- P5: (b), corpus and examples. P7's phase names: `parse-ast`, `resolve`,
+  `type-check`, `generate-ir`, documented in the language docs.
+- The user's operator-overloading design (OPERATOR_OVERLOAD.md, untracked)
+  shared for P4's interpolation and operator rows; under discussion.
+
+#### 2026-10-27, fourth
+
+- Operators (OPERATOR_OVERLOAD.md O1, user): **an operator is the call it
+  names**, resolved by name exactly like that call (option B); no fixed
+  operator fn, no `operator` keyword, no generic exclusion. So B3's
+  operator piece lowers `a < b` to `cmp(a, b) < 0` and `a == b` to
+  `eq(a, b)` as ordinary calls, and the interpolation piece lowers to a
+  std format fn over `to_str(part)` calls. Still open inside the
+  interpolation row: the format fn's shape.
+
+#### 2026-10-27, fifth
+
+- Operators, revised (OPERATOR_OVERLOAD.md O1, user): B **plus D**: every
+  fn matching an operator pattern on `T` (or a qualified `T`) is declared
+  in `T`'s module, so a concrete type has one candidate per operator and
+  the name-based call is that operator. Lowering unchanged from the fourth
+  round; adds a per-declaration placement check (an interface fact, in
+  `resolve`). D's details D-1 to D-7 open in OPERATOR_OVERLOAD.md.
+
+#### 2026-10-27, sixth
+
+- D's details decided (OPERATOR_OVERLOAD.md): the class is **unique
+  function shapes** (operators its first members); placement is the
+  type's declaring *file*; "on `T`" is the first explicit parameter's base
+  type; a shape is name + explicit arity, plus the return type for `eq`
+  (`Bool`), `cmp` (`Int`) and `next` (`Emitted T | Finished`); `fns` group
+  members and comptime templates exempt, effect members covered;
+  structural types get a std home, a bare `T` none. The check is a
+  `resolve`-phase interface fact.
+
+
+### II.13. The call census (B1, 2026-10-27)
+
+Kept here, not in `tmp/`, because B2 and B3 work from it. The probe programs
+it names were run from `tmp/b1/probes/` (gitignored; each section states its
+probe's program and output, so they can be rebuilt). Line numbers are
+`check.rs` at `c33b86d3`, before A1; search by function name.
+
+the pipeline record §II.9 B1. For each call-like table in `struct Checked`, and each
+other place the checker picks a callee, this records which surface form
+writes it, which code selects the callee and tests the fit, how that differs
+from the reference (a plain call `f(x)`: `resolve_named_call` →
+`select_overload`, with `fn_value_fit`/`fn_value_at` at fn-typed positions),
+and what the form should lower to under P3 (call resolution is the
+reference) and O1 (an operator is the call it names). The probes are in
+`tmp/b1/probes/<name>/main.sv`. Each probe was run with `salvo
+analyze` and with `salvo run` on the Rust and on the Kotlin backend, one at a
+time so the outputs are labelled (`--backend '*'` runs both but does not say
+which output is which). The outputs are in `<name>/out.txt` and gathered in
+`tmp/b1/all-probes.txt`. Runner: `tmp/b1/run.sh [probe…]`.
+
+The binary was built from a `git archive` of HEAD `c33b86d3` in
+`tmp/b1/head`, with `CARGO_TARGET_DIR=tmp/b1_target_head`, so the other
+agent's uncommitted A1 edits are not in it. File:line references are to
+`crates/salvo-core/src/check.rs` at HEAD; that file is being edited in the
+working tree, so search by function name if a line has moved.
+The fixed divergences from b6436d24 (implicits resolved the way calls are)
+and 550669ad (a fn passed by name chosen the way a call chooses) are not
+repeated here.
+
+**Totals:** 27 forms and 25 divergences (D1–D25), with 28 probe programs.
+D1–D23 each have a probe of their own. D24 and D25 are read from the code,
+next to the nearest probe (`addr-dot-fn`, and the `member-vs-fn` baseline).
+Five of the divergences are wrong today whatever P3 decides:
+
+- two silent Kotlin miscompiles (D11, D13), plus a wrong warning (D13);
+- two programs the checker accepts and rustc and kotlinc then refuse (D16,
+  D19);
+- a claim dropped silently at run time (D20).
+
+Ten need a decision from you beyond P3, and D1 optionally; they are listed
+after the divergences.
+
+#### The reference
+
+A plain call `f(args)` (`check_call` 30161 → `resolve_named_call` 30974):
+
+1. **Shadowing, before any candidate set.** A fn-typed local or parameter
+   named `f` takes the call (30432, `local_calls`). An enclosing implicit
+   named `f` takes it when the arguments fit it, and otherwise the call falls
+   through to the declared fns (30406, [implicit-resolve-body]). Two
+   implicits of one name are told apart by fit (30357, `local_call_names`).
+   Inside a mixed handler, a handler's own `send fn` comes next (`check_servant_send`).
+2. **Effect members** (31004). An available effect's members, plus the
+   members `effect_members_here` sees, take the name. Two owning effects
+   that are both available is an error naming `@Effect`. Where the name is
+   also a fn, the chosen effect's members and the fns are ranked as one set
+   (`route_member_or_fn` 8625, `fitting_members` 32899, `fitting_fns`
+   8810). With no instance available, the call goes to the fns.
+3. **Fn overloads.** `overloads_of` (8104) applies renames. A lead
+   candidate gives each argument its expected type, with type variables
+   bound progressively. The fit is unify plus `arg_fits_param` (8560) under
+   the callee's contract, together with dependent claims, literal adoption,
+   numeric adoption and the variadic and default shapes. Then
+   [implicit-fit]'s shape drop, then `select_overload` (8174): the `@`
+   selector, dedupe by declaration, the template fallback, `most_specific`
+   over the declared patterns, and `pick_by_return` within a class of
+   identical parameter types. No single winner is an error. The winner's
+   implicits are then filled (`fill_implicit_list`).
+
+At a fn-typed position (an implicit, a fn passed by name) the same rule runs
+with the wanted fn type in place of the argument list (`select_fn_value`
+7529, fitting with `fn_value_fit` 6594: contravariant in parameters,
+covariant in the result, contract included).
+
+#### The census
+
+| # | form | table(s) | selection / fit code | lowers to | divergences |
+|---|---|---|---|---|---|
+| 1 | `f(x)` | `call_fn`, `fn_refs`, `call_type_args`, `implicit_args`, `call_effects` | `resolve_named_call` 30974 → `select_overload` 8174 | itself: `f@m(x, imp = …)` | none: this is the reference |
+| 2 | `f@mod(x)`, `f@Type(x)` | as 1 | `check_call` 30324 (`Scoped`) / 30255 (`EffectScoped` naming a type) → `select_overload` step 1 | `f@m(x)` | D13 (a wrong "`@` not needed" warning, and a Kotlin miscompile) |
+| 3 | `A.B.f(x)` (namespace) | as 1 | `check_call` 30202 → `resolve_named_call` on the flat name | `f@A.B(x)` | none |
+| 4 | `x.f(a)` | `dot_calls` (+ 1's tables or the member tables) | `check_call` 30221: qualifier call, namespace, addr receiver, then `resolve_named_call(f, [x, a…])` | `f(x, a)` | D12, D13, D14 |
+| 5 | `x?.f(a)` | `dot_calls`, `safe_navs` | `check_safe_nav` 28713 → `resolve_named_call` under the narrowing | `x is T ? f(x, a) : None` | as 4 (D12, D13); it does no addr check |
+| 6 | bare effect member `m(x)` | `member_calls`, `effect_member_calls`, `effect_calls`, `implicit_args` | `resolve_named_call` step 1 → `route_member_or_fn` / `pick_effect_member` 32951 / `check_effect_call` 33053 | `m@E(x)` plus the handler argument (an effect parameter after erasure) | D15, D16, D17 |
+| 7 | `m@E(x)`, `x.m@E()` | as 6 | `check_call` 30255 → `check_effect_call` | `m@E(x)` | D17; otherwise as designed (members only) |
+| 8 | call through a fn-typed local or parameter `f(x)` | `local_calls`, `fn_value_calls`, `derived_calls`, `lending_calls` | `check_call` 30432: `arg_fits_fn_value` 30967 per argument, then `apply_fn_value_contract` 13430 | `f(x)` with `f` a local | D20 |
+| 9 | call through the enclosing implicit `cmp(a, b)` | `local_calls`, `local_call_names` | `check_call` 30357–30431 | `cmp(a, b)` with `cmp` the parameter | D21 |
+| 10 | computed callee `e(x)` (`adder()(1)`, `fs[0](x)`) | (none of its own) | `check_call` 30630: `check_expr(a, params.get(i))` only | `let t = e; t(x)` | D19 |
+| 11 | fn passed by name `apply(f)`, `f@m` | `fn_refs`, `fn_value_implicits`, `lambda_effects` | `fn_value_by_name` 7758 → `choose_by_name` 7938 → `select_fn_value` | the value `f@m` with its implicits filled | fixed by 550669ad; none left |
+| 12 | implicit argument `?name` at a call | `implicit_args` (`implicit_params`, and `implicit_members` for members) | `fill_one_implicit` 7062 → `resolve_implicit_fn_at` → `select_fn_value` | `name = name@m` written out | D3 (effect members); fixed by b6436d24 otherwise |
+| 13 | type inference from an implicit ([implicit-infer]) | `call_type_args` | `extend_subst_from_implicits` 9044: its own matcher | (inference inside 1) | D22 |
+| 14 | identity written in a type `SortedSet<Str>(by_len)` | `carried_identities`, `fn_refs` | `written_fn_id` → `written_declaration` 19588, then `resolve_identity` 14388 | `SortedSet<Str>(by_len@m)` | D23 |
+| 15 | keyed slot filled by name (`Set<Person>` uses Person's `hash`) | (read: `keyed_canonically` 4352) | `resolve_implicit_fn_at` | as 12 | none found |
+| 16 | interpolation part `"${x}"` | `interp_to_str`, `interp_implicit`, `implicit_args` (at the zero-width span after the part) | `check_interpolable` 12467 → `interp_native` 12326 / `interp_text_form` 12381 (own implicit by shape, then `resolve_implicit_fn_at("to_str")` at `(T) -> Str`) | a std format fn over `to_str(x)` parts (O1; the format fn's shape is open) | D1, D2, D3 |
+| 17 | interpolated union `"${u}"` | `interp_union` | `check_interpolable`: one `interp_text_form` per arm | open (P4) | D4 |
+| 18 | `a < b`, `a <= b`, `a == b`, `a != b` | `comparisons`, `promotions` | `check_comparison_operands` 13897 | `cmp(a, b) < 0`, `eq(a, b)`, `!eq(a, b)` (O1) | D1, D2, D5, D6 |
+| 19 | `x == v` with `x` a union and `v` matching one arm | `arm_compares` | `try_arm_compare` 13820 | `x is A && eq(x, v)` | D7 (a rule to keep) |
+| 20 | `a + b`, `- * /` | `promotions` | `check_arith` 14148: numeric operands only; nothing is resolved | `plus(a, b)` … (O1 adds these names; not a call today) | none yet: O1 adds the feature |
+| 21 | `for x in it` (a pass), `for x in c` (a source) | `for_drivers` | `iter_elem_ty` 26708 → `pass_elem_ty` / `find_next_driver` 26184, `generic_pass_elem_ty` 26454, `iter_pass_for` 26370 | `loop { when next(it) … }`, with `it = iter(c)` (O1) | D8, D9, D10, D11 (all fixed, B3.3d: the calls at `Key::FOR_NEXT`/`FOR_ITER`) |
+| 22 | `for x in next(p)` (a step call) | `for_drivers` (`step_call`), `call_fn` | `step_call_elem_ty` 26602: the call's own resolution | itself | none (kept as is by B3.3d) |
+| 23 | `a.m(x)` with `a: eff[E]` (a send) | `addr_calls`, `effect_member_calls` | `addr_receiver` 15645 (the receiver must be a place) → `check_addr_call` 15689: members picked by arity; type arguments and named arguments ignored | `m@E(a, x)` as a send | D14, D24 |
+| 24 | `m@self(x)`, and a servant's bare call to a sibling `send fn` | `self_sends`, `facade_sends` | `check_self_send` 15531, `check_servant_send` 16491: the first member of that name | `m@self(x)` | D24 |
+| 25 | `replyto k(c…)`, `k` a free `send fn` | `replyto_tasks`, `fn_refs`, `task_mint_effects` | `check_replyto` 17003 → `free_send_target` 16761 (scope rungs) | a mint of `k@m` with captures `c…` | D18 |
+| 26 | `replyto m(c…)`, `m` a member of the own handler | `replyto_members` | `check_replyto`: the first member of that name | a mint of `m@self` | D24 |
+| 27 | `Q.f(x)` (a qualifier's own fn), and `x is Q` (→ `Q.qualifies(x, …)`) | `qual_member_calls`, `predicate_tests` | `check_qual_member_call` 21806 (the first fn of that name; implicits refused), `check_predicate_quals` 27728 | `f@Q(x, slots…)` | none found (qualifier fns are not overloaded) |
+
+Places that pick a function without being a call (inputs to inference or to
+diagnostics): `some_fn_accepts` 7040 (the [implicit-fit] shape probe, by
+design); `has_member_for` 14245 (whether a type is hashable or orderable:
+the raw scope table and the first parameter's base name, not a selection);
+`infer_waitfor_ty` 17237 (scans declared `Reply<T>` positions, deliberately
+not overload resolution); and the `: Next`/`: Iter` obligation check
+`check_obligation_list` 4971, which reads the raw `scope.fns` table, so a
+renamed-away `next` still satisfies it (part of D9). Effect-instance
+choice at a member call ([effect-disambiguation], `check_effect_call`)
+chooses a handler, not a callee; it is the implicit-like effect argument
+and outside P3.
+
+#### Divergences
+
+Each section gives what differs, the probe and its output, and what
+happens under P3: which programs would newly be refused, newly be accepted,
+or behave differently. "Decision" says whether it needs a call from you
+beyond P3.
+
+##### D1. The native fast path runs before the enclosing implicit (interpolation, `==`, `<`)
+
+`check_interpolable` returns at once for a scalar or `Str` (`interp_native`)
+without looking for an enclosing `?to_str`. `check_comparison_operands`
+returns before its implicit step for numerics (every operator) and for
+`==`/`!=` on the intrinsic types. A call `to_str(n)` or `eq(a, b)` in the
+same body goes through the implicit [implicit-resolve-body].
+
+- `interp-native-implicit`: inside `show(n: Int, ?to_str: (x: Int) -> Str)`
+  called with `to_str = hex`. Rust and Kotlin both print `interp: 7` and
+  `call:   #7`.
+- `op-eq-native-implicit`: inside `check(a: Str, b: Str, ?eq: …)` called
+  with `eq = same_len`, on `"ab"` and `"cd"`. Rust and Kotlin both print
+  `op:   false` and `call: true`.
+
+**Under P3** `"${n}"` → `to_str(n)` → the implicit, and `a == b` →
+`eq(a, b)` → the implicit. Programs whose fn has an implicit `to_str`, `eq`
+or `cmp` covering a scalar or `Str`, and which interpolate or compare such
+a value directly, would behave differently. None would newly be refused.
+The backends can keep the native spelling exactly when the call resolves
+to std's intrinsic. **Decision:** none beyond P3, but OPERATOR_OVERLOAD.md
+O5 is wrong today. O5 says `"${n}"` inside `show(…, ?to_str: (x: Int) ->
+Str)` "uses the enclosing implicit". That holds only for elements nested
+inside a std container's `to_str` (the 2026-10-14 test); a direct `${n}`
+does not use it. You may want the native fast path kept as an exception.
+
+Fixed, the operator half (commit "Resolve comparison operators as the calls they name"): `==`, `!=` and `<`… are the calls they name,
+so an enclosing `?eq`/`?cmp` takes them on a scalar or `Str`; the probe prints
+`op:   true` on both backends. The backends write the host's operator exactly
+when the selected callee is std's intrinsic `eq`/`cmp` at a basic type
+(`Ctx::is_primitive_compare`). Interpolation waits for piece 2. **Built in
+B3.2 (2026-10-28):** `${n}` goes through the enclosing `?to_str` too; the
+probe prints `interp: #7` beside `call:   #7`.
+
+##### D2. The native fast path skips resolution altogether
+
+The same early returns mean a module's own `eq(Str, Str)` or `to_str(Int)`
+is never consulted by `==` or `${}`. The call meets std's overload with the
+same signature and is ambiguous.
+
+- `native-overload`: the analysis reports only the two calls, as ambiguous
+  between `main` and `std.core.compare` (and `std.core.basic`). The operator
+  and the interpolation pass.
+
+**Under P3** the operator and the interpolation would be ambiguous too, so
+such programs would newly be refused. **Under O1-D** these declarations are
+refused where they are written (a shape on a type declared elsewhere), so D2
+dissolves once D's placement check exists. **Decision:** none.
+
+Dissolved (commit "Declare each operator shape in its type's file", B3.3b):
+a module's `eq(Str, Str)` or `to_str(Int)` is refused at its declaration
+[op-unique-shape], naming `std.core.string`'s or `std.core.basic`'s file.
+
+##### D3. Effect members never fill interpolation, operator or implicit positions
+
+`interp_text_form`, `check_comparison_operands` and `fill_one_implicit` all
+resolve through `overloads_of`, which holds fns only. A call `to_str(p)`
+reaches an available member.
+
+- `interp-effect-member`: `effect Fmt { fn to_str(p: Point) -> Str }` with
+  a handler in scope. The call `to_str(p)` is accepted; `"${p}"` is refused
+  with "`Point` has no text form"; `render(p)` with `?to_str: (p: Point) ->
+  Str` is refused with "no `to_str` fits".
+
+**Under P3 + P4** the interpolation lowers to `to_str(p)`, so it would reach
+the member and newly be accepted. A member beside a fn of the same
+signature would become an ambiguity at `${}` where today the fn wins
+silently. **Decision: yes.** P4 decided that members compete at calls. It
+did not decide whether a member can fill an implicit (passed as a value,
+which captures the handler) or an operator position. P3 implies yes for
+interpolation and operators, since they lower to calls. For implicits it is
+new: a member as a fn value carries its effect.
+
+Fixed, the implicit half (commit "Select every implicit argument as a call selects"): an available member fills an implicit position, passed as a closure over the handler, and `m@E` is the value that names it; `render(p)` in the probe prints `<1, 2>` on both backends. Interpolation and operators wait for pieces 2–3.
+
+Fixed, the operator half (commit "Resolve comparison operators as the calls they name"): an available member `eq`/`cmp` is a candidate
+for `==`/`<` as for the call; beside a fn of the same signature the operator
+is the call's ambiguity (`eq@Same(…)` or `eq@main(…)`). Interpolation waits
+for piece 2. **Built in B3.2 (2026-10-28):** `"${p}"` reaches the member, and
+beside a fn of the same signature it is the call's ambiguity, said "in this
+interpolation".
+
+##### D4. A union interpolates arm by arm; the call has no overload
+
+- `interp-union`: `u: Point | Int`, with `to_str(Point)` declared.
+  `"${u}"` is accepted. `to_str(u)` is refused: "no matching overload for
+  `to_str(Point | Int)`".
+
+**Under P3** a plain `to_str(u)` lowering would refuse every interpolated
+union that has no `to_str` of its own. **Decision: yes**, and it is already
+open in P4 ("what becomes of `interp_union`'s per-arm rendering"). The
+candidate answer is that the format fn's part lowering becomes `when u { is
+Point → to_str(u) … }`: a lowering written before the call, as D7 is.
+
+##### D5. Comparison operands lose their qualifiers before `eq`/`cmp` is resolved
+
+`check_comparison_operands` builds the wanted type from `lb`/`rb` with the
+qualifiers stripped ("a comparison is about the data"). The call ranks the
+qualified argument types.
+
+- `op-qualified-operands`: `fn eq(a: NonEmpty List<Int>, b: NonEmpty
+  List<Int>) -> Bool { true }`, with `xs = List(1, 2)` and `ys = List(3,
+  4)`. Rust and Kotlin both print `op:   false` (std's `eq(List<T>)`) and
+  `call: true` (the more specific `NonEmpty` overload).
+
+**Under P3** `xs == ys` → `eq(xs, ys)` → the qualified overload, so the
+behaviour changes and nothing is refused. This survives O1-D: a qualified
+overload in the type's own file is legal ("several overloads of one shape
+in the type's own file stay legal"). **Decision: maybe.** The stripping is
+deliberate, so you may want "operators compare the data" kept as an
+exception. Then the lowering would be `eq(strip(xs), strip(ys))`, which is
+not a plain call.
+
+Fixed (commit "Resolve comparison operators as the calls they name"): the operands are the call's arguments, qualifiers included. The
+probe is rebuilt with a user type, since [op-unique-shape] puts both overloads in
+the type's file: `Bag<T>` with `eq<T>(Bag<T>, Bag<T>, ?eq)` and `eq(Packed
+Bag<Int>, Packed Bag<Int>)` in `bag.sv`; `xs == ys` on two `Packed Bag<Int>`s
+prints `op:   true` on both backends, like the call.
+
+##### D6. `==` and `<` require the same base type on both sides
+
+- `op-mixed-types`: with `fn eq(a: Meters, b: Feet) -> Bool` declared,
+  `eq(m, f)` is accepted and `m == f` is refused: "the operands of a
+  comparison must be the same type".
+
+**Under P3** `m == f` would newly be accepted. The O1 D-3 shape for `eq`
+(two parameters, `Bool`) does not require one type, and D-2 puts the fn
+with `Meters`. **Decision: yes.** Either drop the same-type rule (P3), or
+keep it as an operator-only exception, and if kept, add it to D-3's shape so
+that a mixed `eq` is not an operator at all.
+
+Fixed (commit "Resolve comparison operators as the calls they name"): no same-type rule; `m == f` is `eq(m, f)` and prints `op:   true`
+on both backends. Two types with no `eq` taking the pair are refused as the
+call is, said of the operator ("no `eq` for `==` on `A` and `B`").
+
+##### D7. An arm comparison lowers to a test and a comparison, not to the call
+
+- `op-arm-compare`: `x: Long? = -1L`. `x == -1L` and `y == -1L` (with `y =
+  None`) are accepted. `eq(x, -1L)` is refused: "no matching overload for
+  `eq(Long?, Long)`".
+
+**Under P3** this is a lowering written before the call: `x is Long &&
+eq(x, -1L)`. Nothing would change. **Decision:** confirm that [op-arm-eq]
+(user decision 2026-10-12) stays as such a pre-call lowering; it is not a
+selection divergence.
+
+Kept (commit "Resolve comparison operators as the calls they name", R10 D7): [op-arm-eq] runs before the call; `op-arm-compare` prints
+`op:   true false` on both backends, unchanged. (Rebuilt with `let n = -1L;
+let x: Long? = n`: the probe's `let x: Long? = -1L` miscompiles on Rust at
+f1c17831, ROADMAP 0al.) [op-promote]'s widening is the same kind of
+lowering (P11).
+
+##### D8. `for` drives the first `next` in scope order, with no ranking or ambiguity
+
+`find_next_driver` and `iter_pass_for` walk `scope.fns.get("next")` (and
+`"iter"`) and take the first entry whose state parameter unifies.
+
+- `for-first-next`: `next<T>(c: Mut Ctr<T>)` is declared before `next(c:
+  Mut Ctr<Str>)`, which yields ×100. Rust and Kotlin both print `for:  1`,
+  `for:  2` (the generic `next`) and `call: 100` (the specific one).
+
+**Under P3** the `for` would drive the specific `next` (100, 200), so the
+behaviour changes. Two same-signature `next`s from different modules would
+become an ambiguity error where today the earlier one wins silently. This
+survives O1-D: both overloads are in `Ctr`'s file. `iter` has the same
+first-match rule (not probed separately). **Decision:** none.
+
+Fixed (commit "Drive a for loop through the next and iter it names"): `for x in c` is the call `next(c)`, ranked as the call
+ranks; `for-first-next` prints `for:  100`, `for:  200` on both backends.
+Two same-signature `next`s cannot meet at a concrete type any more
+([op-unique-shape] puts both in the type's file, where [fn-overload-duplicate]
+refuses the second); the probe's generic-beside-specific pair is ranked.
+
+##### D9. `for` ignores `rename fn`
+
+Both the driver scan and the `: Next` obligation check read `scope.fns`
+directly, not `overloads_of`.
+
+- `for-renamed-next`: after `rename fn advance = next(c: Mut Ctr)`, Rust
+  and Kotlin both print `for:  1`, `for:  2` and `advance: 1`.
+- `for-renamed-next-call`: the same program with `next(d)` is refused with
+  "no matching overload for `next(Mut Ctr)`", while its `for` is accepted.
+
+**Under P3** such a `for` would newly be refused, and so would the `: Next`
+obligation, since it is no longer satisfied by a `next`. [fn-rename] already
+says a renamed overload leaves the old name "in calls, in fn values and in
+implicit resolution". **Decision:** none.
+
+Fixed (commit "Drive a for loop through the next and iter it names"): the `for` resolves `next` through the call's candidate
+set, so a renamed overload answers only to its new name; the `: Next`
+obligation's member match skips it too. `for-renamed-next` is refused at the
+struct (the obligation) and the loop stays quiet (one mistake, one
+diagnostic); without the clause the loop is refused as not iterable, and with
+an `iter` beside it the loop mints from that instead (the run test's
+`Steps`).
+
+##### D10. `for` needs a `: Next` declaration that `next(c)` does not
+
+- `for-no-yield`: `Ctr` declares no `: Next`. `next(d)` is accepted;
+  `for x in c` is refused with "`Ctr` is not iterable … declare `: Next<self,
+  Int>`".
+
+**Under a plain P3 lowering** (`for x in c` → `next(c)` when a `next` fits,
+otherwise `next(iter(c))`) the declaration would stop being needed, and
+such programs would newly be accepted. **Decision: yes.** O1 lowers `for`
+to `next`/`iter`, but whether the obligation stays as the gate on which of
+the two forms is meant ("a type declares `: Iter` or `: Next`, never
+both") is yours. Keeping the gate is an exception to P3 that reads a
+declaration, not a resolution.
+
+Fixed (commit "Drive a for loop through the next and iter it names", R10 D10): no `: Next` / `: Iter` gate; `for-no-yield`
+prints `call: 1`, `for:  1`, `for:  2` on both backends. The obligations stay
+promises checked at the declaration [group-obligation].
+
+##### D11. At a concrete pass type, `for` ignores the enclosing `?next`, and Kotlin does not
+
+`generic_pass_elem_ty` consults implicits only when the subject is a type
+variable. At a concrete type the declared `next` is recorded
+(`PassMember::Fn`). The call `next(d)` goes through the implicit.
+
+- `for-own-implicit`: `walk(c, d, ?next: (c: Mut Ctr) -> …)` is called with
+  `next = by_tens`.
+  - **Rust:** `for:  1`, `for:  2`, `call: 10`.
+  - **Kotlin:** `for:  10`, `for:  20`, `call: 10`.
+
+  The Kotlin emitter writes the driving call as a bare `next(c)`, and the
+  parameter named `next` shadows the top-level fun
+  (`tmp/b1/out/for-own-implicit-ktsrc/main.kt`: `val __step_2 … = next(c)`).
+  **This is silently wrong code today** [backend-never-wrong], whatever P3
+  decides.
+
+**Under P3** the loop drives the implicit (10, 20) on both backends, so the
+behaviour changes on Rust. **Decision:** none for P3. The Kotlin bug needs
+fixing now: either qualify every top-level call the checker resolved, or
+let P3's core call node do it.
+
+Fixed (commit "Qualify every declared callee in Kotlin and check fn-value calls"): every declared call is
+package-qualified on Kotlin; both backends print 1, 2 and 10.
+
+Fixed, the P3 half (commit "Drive a for loop through the next and iter it names"): the enclosing `?next` takes the loop at a
+concrete type as it takes the call; `for-own-implicit` prints `for:  10`,
+`for:  20`, `call: 10` on both backends.
+
+##### D12. A dot call ignores enclosing implicits
+
+`check_call`'s dot path goes straight to `resolve_named_call`, which never
+consults `own_implicits`. Only the bare-identifier path does.
+
+- `dot-implicit`: inside `order_dot<T>(a: T, b: T, ?cmp: …)`, `a.cmp(b)` is
+  refused with "no matching overload for `cmp(T, T)`". `cmp(a, b)` in the
+  same shape (`order`) is accepted.
+
+**Under P3** `a.cmp(b)` → `cmp(a, b)` → the implicit, so it would newly be
+accepted. The operator-overloading brief itself writes `a.cmp(b) < 0` as
+the generic spelling. **Decision:** none.
+
+##### D13. A dot call ignores fn-typed locals; Kotlin miscompiles it, and a wrong `@` warning
+
+`5.show()` resolves among the declared fns even when a local `show`
+shadows them at `show(5)`.
+
+- `dot-local`, with `fn show(n: Int)` declared and `let show = (n: Int) ->
+  "local ${n}"` in scope:
+  - **Rust:** `call: local 5`, `dot:  decl 5`, `at:   decl 5`.
+  - **Kotlin:** `call: local 5`, `dot:  local 5`, `at:   local 5`.
+
+  The Kotlin emitter writes `show(5)` for all three, and the local wins
+  (`tmp/b1/out/dot-local-ktsrc/main.kt` lines 15–17). So both `5.show()`
+  and the explicit `show@main(5)` silently call the local on Kotlin.
+- The checker also warns at `show@main(5)` that "this `@main` is not needed:
+  `show(Int)` resolves to the same function without it". That is wrong:
+  without it the call takes the local. `unqualified_winner` (8517) does not
+  know about locals. [fn-overload-at] calls `@` "the way out of a shadowed
+  name".
+
+**Under P3** `5.show()` → `show(5)` → the local, so the dot call changes
+behaviour on Rust. **Decision: yes.** [fn-uniform] (then fn-dot) says `base.f(args)` is
+`f(base, args)`, which P3 makes literal. You may prefer dot calls to name
+declared functions only, so that a local `show` cannot capture `x.show()`.
+Either way, the Kotlin miscompile and the warning are bugs now.
+
+Fixed, the bugs half (commit "Qualify every declared callee in Kotlin and check fn-value calls"): Kotlin names the
+declaration (`salvo.main.show(5)`), and the warning is withheld where a
+local, a `send fn` or an effect member takes the bare name. The decision is
+still open: the dot call keeps ignoring locals. **Built in B3.4
+(2026-10-28):** a uniform call is the plain call, so `5.show()` takes the
+local on both backends, and `5.show@main()` beside it is not warned about.
+
+##### D14. A dot call on an `eff[E]` place is always a send
+
+**Replaced by P19 (user, 2026-10-28), built in B3.4.** `counter.describe()`
+is now `describe(counter)` (E has no member `describe`); a fn beside a send
+member of the same name is not an ambiguity: the member is called, with a
+warning. A non-place receiver can be a send now, when nothing of the name
+takes a uniform call. The census text below is the state before.
+
+`addr_receiver` peeks at the receiver. If it is a place of type `eff[E]`,
+the call is `check_addr_call` with E's members only, and fns are never
+candidates. A receiver that is not a place (`get(addrs, 0).bump(1)`) is not
+treated as a send at all.
+
+- `addr-dot-fn`: with `fn describe(c: eff[Counter]) -> Str` declared,
+  `describe(counter)` is accepted. `counter.describe()` is refused: "actor
+  `Counter` serves effect `Counter`, which has no member named `describe`".
+
+**Under P3** `counter.describe()` → `describe(counter)` would newly be
+accepted, and a fn beside a send member of the same name would become an
+ambiguity. **Decision: yes.** Should an addr receiver's dot call rank E's
+send members together with fns that take `eff[E]` first (P3/P4), or stay
+"a dot call on an addr is a send" (an exception)? Whether a non-place
+receiver can be a send is the same question.
+
+##### D15. Two available effects with the same member name are refused, not ranked (P4)
+
+**Built in B3.5 (2026-10-28):** ranked; `put(1)` is `Ints.put`. The census
+text below is the state before.
+
+- `member-two-effects`: `Ints.put(x: Int)` and `Strs.put(x: Str)`, both
+  available. `put@Ints(1)` is accepted. `put(1)` is refused: "`put` is a
+  member of `Ints`, `Strs` — more than one is in scope, so the call must
+  pick its effect".
+
+**Under P4 (decided)** the call ranks by argument types and `put(1)` →
+`Ints.put`, so it would newly be accepted. A tie stays an ambiguity, now
+the ordinary overload one. **Decision:** none; this is the change P4 already
+names.
+
+##### D16. A call where member and fn collide types its arguments without expected types
+
+**Built in B3.5 (2026-10-28):** one lead pool over members and fns; a member
+leads on the footing of the module's own fns (`Rung::Own`). The stopgap in
+`route_member_or_fn` went with it.
+
+`route_member_or_fn` types every argument with no expected type, as its
+recorded cut says. A bare lambda's parameter is then `Unknown`, and nothing
+reports it.
+
+- `member-collide-lambda`: an available member `apply(f: (x: Int) -> Int)`
+  beside `fn apply(f: (x: Str) -> Str)`, called as `apply((x) -> x + 1)`. The
+  analysis is clean. Rust: "a value of type `?` reached rust code
+  generation". kotlinc: "unresolved reference 'plus'". The fn-only overload
+  set `twice((x) -> x + 1)` in the same program types the lambda through the
+  lead candidate.
+
+**Under P3 + P4** members and fns form one candidate set with one lead
+pool, so the lambda would be typed from the lead candidate and the call checked; it would newly be accepted, or refused with an ordinary diagnostic. **Today
+it is a [backend-never-wrong] / "one mistake, one diagnostic" gap**: a
+checker-clean program fails in both target compilers. **Decision:** none.
+
+Fixed (commit "Qualify every declared callee in Kotlin and check fn-value calls"): a lambda with an unwritten
+parameter type takes the type every candidate declares at its position when
+they agree, and is refused otherwise ("cannot type this lambda … write the
+lambda's parameter types"). **Correction:** the probe's `twice((x) -> x + 1)`
+did not type its lambda either (its output has two kotlinc errors, one per
+lambda): with no dominant lead the fn path typed it `Unknown` and took the
+first overload. The same rule covers it now.
+
+##### D17. An effect member's parameter defaults are accepted but cannot be used
+
+**Built in B3.5 (2026-10-28):** usable, and named arguments and a variadic
+tail with them.
+
+`check_effect_call` and `pick_effect_member` require `args.len() == fixed`.
+A member call has no [fn-param-default] shape (`call_shape_fits`) and no
+named fixed arguments.
+
+- `member-default`: `effect Log { fn log(msg: Str, level: Int = 1) }`.
+  `note("hi")`, a fn of the same shape, is accepted. `log("hi")` is
+  refused: "`log` takes 2 argument(s), found 1".
+
+**Under P3** member calls are ordinary calls, so `log("hi")` would newly be
+accepted. The alternative is to refuse defaults on members at their
+declaration. **Decision:** none beyond P3, unless you prefer refusing the
+declaration.
+
+##### D18. A task mint resolves its target by the old scope ladder
+
+**Built in B3.7 (2026-10-28), P20 1 (a):** ranked by the captures and the
+token; a tie names `replyto k@module(…)`. The census text below is the
+state before.
+
+`free_send_target` keeps the most specific rung that has a `send fn` of
+that name, and refuses only a tie within that rung. That is the rule calls
+dropped on 2026-09-26. It also reads `scope.fns` raw (renames ignored) and
+takes no `@` selector. [task-mint]'s text ("by the ordinary scope ladder
+[fn-overload-scope]") describes the old rule.
+
+- `mint-rung`: `import lib.formatted` beside this module's own `send fn
+  formatted` with the same signature. The analysis is clean, and Rust and
+  Kotlin both print `mint: main: sum = 5` (this module's).
+- `mint-rung-call`: the same import-beside-own pair as plain fns (`label`)
+  is refused at the call as ambiguous.
+
+**Under P3** the mint would be ambiguous and so newly refused, with
+`formatted@main` as the remedy. **Decision: yes.** A mint has only a
+prefix of the arguments (its captures, without the answer). Should a mint
+rank its candidates by the capture types and the `Reply` position like a
+partial call, or refuse whenever more than one `send fn` of the name is
+visible?
+
+##### D19. A computed callee checks neither the arity nor the argument types
+
+The computed-callee path (30630) checks each argument against the
+parameter type as an *expected* type only. It reports no mismatch and no
+arity error. It also applies no contract, unlike a call through a local.
+
+- `computed-callee`: `adder()("x")` and `adder()(1, 2)` pass the analysis.
+  rustc refuses them (E0308, E0057), and so does kotlinc ("argument type
+  mismatch", "too many arguments").
+
+**Under P3** it is one call node, checked like a local call: newly refused,
+at the checker instead of the target compiler. **Today it is a
+[backend-never-wrong] gap.** **Decision:** none.
+
+Fixed (commit "Qualify every declared callee in Kotlin and check fn-value calls"): checked like a call through a
+local (fit, claims, count, contract); the IR also passes a computed
+callee's effects, which it did not (rustc E0057, kotlinc "no value passed").
+
+##### D20. A call through a fn-typed local does not check claims
+
+`arg_fits_fn_value` compares base shapes ("what a qualifier or a `Mut`
+demands is the contract's business"), and `apply_fn_value_contract` checks
+only kept, `Mut` and projection rules. So a claim the parameter demands is
+dropped.
+
+- `local-call-claims`: inside `through(f: (xs: NonEmpty List<Int>) -> Int,
+  ys: List<Int>)`, `f(ys)` is accepted. The same argument to the declared
+  fn (`head1(ys)` in `direct`) is refused: "no matching overload for
+  `head1(List<Int>)`".
+- `local-call-claims-run`: `through(head1, List())`. Rust and Kotlin both
+  print `local: size of a NonEmpty list = 0`. The claim is violated
+  silently.
+
+**Under P3** such programs would newly be refused (`arg_fits_param`,
+qualifiers included). **Decision:** none.
+
+Fixed (commit "Qualify every declared callee in Kotlin and check fn-value calls"): `f(ys)` is refused ("does not
+carry what the parameter claims"); a dependent claim (`Idx(xs) Int`) is
+about this call's argument, as at a declared call.
+
+##### D21. Two implicits of one name are told apart by fit, not ranked
+
+- `implicit-same-name-rank`: `both(n: Int, ?tag: (x: Int) -> Str, ?tag: (x:
+  Int | Str) -> Str)`. `tag(n)` inside it is refused: "could go through
+  more than one implicit of that name". Two declared overloads with those
+  parameter types are ranked: `tag(1)` → `int`.
+
+**Under P3** they would be ranked as overloads and so newly accepted. The
+comparison operator's own-implicit step has the same rule: it refuses
+when more than one fits ([cmp-binder]). **Decision: maybe.** Implicits shadow as
+locals do, and two locals of one name cannot coexist, so ranking among
+shadowing implicits is a rule P3 does not settle by itself.
+
+Fixed (commit "Select every implicit argument as a call selects"): ranked like overloads; the probe prints `implicit: int` on both backends, and a tie is still refused.
+
+##### D22. Inference from an implicit uses its own unranked matcher
+
+`extend_subst_from_implicits` learns the callee's type arguments from an
+implicit's candidates only when exactly one candidate fits. It skips any
+candidate with implicits or a variadic tail.
+
+- `implicit-infer-unranked`: with `f(x: Int) -> Str` and `f<T>(x: T) ->
+  Str`, and `conv<B>(x: Int, ?f: (x: Int) -> B)`. `f(1)` resolves.
+  `let s: Str = conv(1)` is accepted. `conv(1)` alone is refused: "cannot
+  infer type argument `B` of `conv`".
+
+**Under P3** inference runs selection (`select_fn_value` at `(Int) -> B`
+with `B` open, the most specific winner) and reads `B` off the winner, so
+the call would newly be accepted. **Decision:** none.
+
+Fixed (commit "Select every implicit argument as a call selects"): inference selects and reads `B` off the winner; the probe prints `inferred:  int` on both backends.
+
+##### D23. A written identity falls back to the most specific rung
+
+`written_declaration` resolves the name at the slot's fn type, discards
+the diagnostics, and when resolution fails (for example by ambiguity) takes
+`max_by_key(rung)`: the old ladder. `resolve_identity` then looks only in
+that module.
+
+- `carry-rung`: `import lib.by_len` beside this module's own `by_len`.
+  `let l: Mut SortedSet<Str>(by_len) = … cmp = by_len@lib` is refused:
+  "expected `Mut SortedSet<Str>(by_len@main)`, found …(by_len@lib)". So the
+  written `by_len` silently means `by_len@main`, while the call
+  `by_len(a, b)` is ambiguous (the `mint-rung-call` shape).
+
+**Under P3** the written type would be ambiguous and newly refused, with
+`(by_len@main)` as the remedy. **Decision:** none.
+
+Fixed (commit "Select every implicit argument as a call selects"): the written `SortedSet<Str>(by_len)` is ambiguous, an error naming `by_len@lib` and `by_len@main`; `SortedSet<Str>(by_len@main)` settles it.
+
+##### D24. Send-member and own-handler targets are picked by arity or by first name
+
+**Built in B3.7 (2026-10-28), P20 2 (a):** chosen by the call's rule; an
+overloaded name at a self-send, servant send or member mint is refused
+until the lowering names the overload (ROADMAP 0au).
+
+`check_addr_call` picks among overloaded send members by arity only and
+refuses a tie. It also ignores the call's type arguments and named
+arguments, and drops implicit parameters from the member's list.
+`check_self_send`, `check_servant_send` and the member mint in
+`check_replyto` take the first member with the name. The arguments are
+checked with `is_subtype`, not `arg_fits_param`.
+
+- Probe: `addr-dot-fn` covers the addr path. The overload cases are not
+  probed: std and the examples overload no send member, so nothing changes
+  for existing programs.
+
+**Under P3** these calls would rank by type, and an implicit on a send
+member would be filled or refused explicitly. The probe for D14 is the
+evidence here. **Decision:** none, but piece 7 of B3 should decide whether
+send members may overload at all.
+
+##### D25. Effect-member selection is a weaker copy of call selection (P4)
+
+**Built in B3.5 (2026-10-28):** one selection; `pick_effect_member`,
+`fitting_members`, `fitting_fns` and `route_member_or_fn` are gone.
+
+These are differences inside `pick_effect_member` and `fitting_members`,
+read from the code. They change results only for overloaded members:
+
+- arity is checked first, and a single member of that arity is taken
+  untested;
+- the fit is `is_subtype || unify`, so there is no projection leniency, no
+  literal, numeric or dependent-claim handling, and no contract
+  (`arg_fits_param` is used only later, for the error message);
+- there is no [implicit-fit] drop and no [fn-overload-return] tiebreak;
+- an ambiguity is reported, and the check then continues as the first
+  member.
+
+The member-versus-fn comparison uses each side's best only, through
+`fitting_fns`, which sees no named arguments, no defaults beyond
+positional ones, no dependent claims and no literal adoption.
+
+- `member-vs-fn` (the P4 baseline, no divergence): an available `show(x:
+  Int | Str)` member beside `fn show(x: Int)`. Rust and Kotlin both print
+  `show(1):   fn` and `show("s"): member`. So with one available effect,
+  members **already compete with fns** (since 2026-09-14,
+  [effect-available]). The [fn-overload-scope] bullet "an effect member
+  takes the name before any fn does" and P4's "today … it shadows, it does
+  not compete" describe the multi-effect case (D15), not this one.
+
+**Under P4** all of this becomes one candidate set and one selection.
+**Decision:** none.
+
+#### What P4's "effect members compete with fns" changes
+
+- **D15:** newly accepted. A bare call across two available effects is
+  ranked by arguments.
+- **D16:** newly accepted. One lead pool types lambdas in colliding calls;
+  today this is a codegen failure.
+- **D17:** newly accepted. Member defaults become usable.
+- **D25:** behaviour changes only where an overloaded member set was
+  arity-picked or recovered as the first member.
+- **D3** (if members also fill interpolation, operator and implicit
+  positions): newly accepted where only a member fits. **Newly refused**
+  where an available member and a fn have the same signature at `${}` or
+  at an operator: today the fn wins there silently, while the call is
+  already an ambiguity.
+- **A fn that now beats a member:** none, because the single-effect case
+  already ranks the two (`member-vs-fn`). **A member-versus-fn tie that
+  becomes an ambiguity:** none new at calls, since a tie is already refused.
+  New only at the D3 positions.
+- No std effect declares a member named `to_str`, `eq`, `cmp`, `hash`,
+  `next` or `iter` (checked in `lib/std`), so std programs are unaffected
+  by the D3 half.
+
+#### Decisions needed beyond P3
+
+- **D3:** may an effect member fill an implicit, an interpolation part or an
+  operator?
+- **D4:** a union's per-arm rendering (already open in P4).
+- **D5:** keep "operators compare the data" (qualifiers stripped) as an
+  exception?
+- **D6:** keep the same-type rule for `==` and `<`, and if so, add it to
+  O1 D-3's shape?
+- **D7:** confirm [op-arm-eq] stays as a lowering before the call.
+- **D10:** does the `: Next`/`: Iter` declaration stay as the `for` gate?
+- **D13:** does a dot call see fn-typed locals?
+- **D14:** does an addr receiver's dot call rank fns beside its send
+  members?
+- **D18:** how does a mint rank candidates when it has only a prefix of the
+  arguments?
+- **D21:** do implicits of one name rank among themselves?
+- **D1:** optional; you may want to keep the native fast path as an
+  exception. If not, O5's text needs correcting.
+
+#### Bugs to fix whatever P3 decides
+
+All fixed (commit "Qualify every declared callee in Kotlin and check fn-value calls"); kept for B3's reference.
+
+- **D11, D13 (Kotlin):** a bare top-level call is shadowed by a same-named
+  local or parameter. This affects the `for` driver, the dot call and
+  `f@m(…)`.
+- **D13 (warning):** "`@` not needed" when a local shadows the name.
+- **D16, D19:** checker-clean programs that rustc and kotlinc refuse.
+- **D20:** a claim is dropped through a fn-typed local.
+
+#### Order for B3
+
+This follows §II.9 B3's list, with the census's additions in place:
+
+0. **Before B3:** the bugs above. The Kotlin shadowing (D11, D13) and the
+   wrong `@` warning are small fixes in the emitter and in
+   `unqualified_winner`. D19 and D20 become part of piece 6 if they wait.
+   Done (2026-10-27, §II.12 "B1 bugs").
+1. **Implicit arguments:** D22 (inference through selection) and D23 (no
+   rung fallback for a written identity). Both are mechanical under P3.
+   D3's implicit half waits on its decision.
+2. **Interpolation** (waits on P4's format fn): D1, D2 (dissolved by O1-D's
+   placement check, so build that check first or together), D3, D4.
+3. **Operators,** with **`for` as their second half**. O1 names `iter` and
+   `next` as operators, and `for_drivers` is the table the census adds to
+   this piece. Operators: D1, D2, D5, D6, with D7 as a pre-call lowering.
+   `for`: D8, D9, D10, D11. The arithmetic names (`plus` …) are new
+   features that land here.
+4. **Dot calls:** D12, D13 (after its decision). `?.` goes with them.
+5. **Effect-member and qualifier-member calls** (P4): D15, D16, D17, D25,
+   and D3's member half. The qualifier calls (`qual_member_calls`,
+   `predicate_tests`) show no divergence and only move tables.
+   D16's fix is a stopgap to replace here: a lambda the candidates do not
+   type alike (different types, or one generic type) is refused, where one
+   lead pool over members and fns would type it.
+6. **Fn values, local calls, fn-value calls:** D21 (D19 and D20 are fixed;
+   the calls share `check_fn_value_args`). `fn_refs` by name has nothing
+   left (550669ad).
+7. **`addr_calls`, `self_sends`, `facade_sends`, mints**
+   (`replyto_tasks`, `replyto_members`), **`effect_calls`:** D14, D18, D24.
+   `effect_calls` is handler choice, not callee choice; it moves with
+   erasure (effects as parameters), not with P3.
+
+## Design record: checking on the IR (IR_CHECKER.md, retired 2026-10-30)
+
+IR_CHECKER.md was the working document for merging the checker and the IR
+builder so that sugar is desugared once, during lowering, and the checks that
+depend on paths run on the IR (2026-10-12). Its decisions D1–D4 were the
+user's; all of it was built (the crate merge, the linear-obligation ledger and
+per-path check, the `Never`/leave model, the IR check as the build's gate, the
+exhaustiveness fallthrough) and its Phase 4 was closed as already done. The
+pipeline record above grew out of it, and docs/compiler/Phases.md carries its
+placement lessons forward. Code cites it as "the IR-checker record" (§3 D3,
+Phase 1, …). The rules are LANGUAGE_SPEC.md's ([ir-analyze],
+[ir-linear-check], [linear-obligation], [flow-use-after-move]). A section
+number inside the quoted text refers to the retired document.
+
+### 1. Why — the problem this solves
+
+The immediate trigger is noticeboard TODO #2: a `read_value<Str>() ?: ...` that
+discards an `Err Checked<StreamError>` is **not** flagged, even though reading a
+`Checked` value and dropping it is exactly what the `Checked` obligation exists
+to catch. It slips through because:
+
+- The **checker** (`check.rs` + `deduce.rs`) walks the **AST**. It decides what
+  each sugar means (an elvis pick, a terminal scope, a `when`) and enforces the
+  obligations as it goes.
+- The **IR builder** (`salvo-ir`, `build_program`) walks the **AST again** and
+  *re-derives* the same sugar's meaning to lower it, copying the checker's
+  span-keyed answers (`ty_of`, `coerce`, `linear_moves`, `deductions`, …).
+
+So **every new piece of sugar is implemented twice**: once in the checker (to
+check it) and once in the builder (to lower it), against two different mental
+models of what the construct desugars to. #2 is the case where the two models
+disagree about whether a value is consumed — the builder lowers the pick fine,
+but the checker's obligation walk never sees the discarded arm as a *read of a
+`Checked`* and so never fires.
+
+The fix the user proposed: **lower once, check on the lowered form.** The IR
+becomes the single desugared representation; the obligation/deduction checks
+read the IR, where a pick is already a `Branch`/`Switch` with explicit `Read {
+consume }` nodes and there is nothing left to re-interpret.
+
+### 2. The target architecture (user-stated)
+
+> the (today's) checker used as a sort of 'working memory' used when lowering
+> the AST down to the IR. The IR itself should encode the results of the
+> checker, as well as serve as the basis on which to do the 'real' checking and
+> validation (such as linear obligations, checking deductions, etc.). … the IR
+> [must] store the source spans … so that any checker errors can be surfaced …
+> This will also allow me to generate an IR of something which doesn't check.
+> It possibly also means that we might need extra directives in the IR which
+> encode when certain obligations are met.
+
+Decomposed into four properties the end state must have:
+
+- **(A) Checker as working memory.** Type inference, overload resolution, trait
+  obligation solving, flow narrowing — the *inference* that figures out what
+  each AST node means — stays. Its output drives lowering. What changes is that
+  its results are consumed to **build the IR**, and the IR, not the AST, is what
+  the *semantic* checks then run against.
+- **(B) IR encodes the checker's results.** Already largely true: every `Expr`
+  carries its `Ty`, every narrowing is a `Narrow` with a `Justification`, every
+  coercion is an explicit node, every call names the resolved `FnRef`. The gap
+  is the *obligation* side (below).
+- **(C) IR is the substrate for real validation.** The linear-obligation walk,
+  the deduction validation, consume/fate, totality — move from AST walks in
+  `check.rs` to IR walks in (a new crate or module). This is the point.
+- **(D) IR can represent a program that does not check.** Lowering must not
+  assume a clean check; it must produce an IR even where an obligation is
+  violated, so the IR-level checker can *find* the violation and point at it.
+
+#### What already lines up
+
+The IR is closer to this than it looks. The builder's own header says it
+"copie[s] every answer the checker recorded … Nothing here infers." And the IR
+**already encodes proof**: a `Stmt::Narrow` carries a `Justification` —
+`Test`/`Arm`/`Cond`/`After`/`LoopValue`/`Claim` — saying *why* the narrowing is
+sound. That is precisely the shape property (C) and the "obligation discharge"
+directives need: a node that records *that a check was discharged, and by what*.
+`ExprKind::Read { place, consume }` already marks where a value's life ends. So
+the move node and the proof node both exist; what is missing is the obligation
+bookkeeping and the spans to report on.
+
+#### The gaps (what must change in the IR)
+
+1. **Spans are incomplete.** `Expr` and the top-level decls carry a `Span`.
+   `Stmt`, `Block`, `Place`, `Step`, `SwitchArm`, `ArmTest`, `Param`, `Field`,
+   `Variant` do **not**. A linear error ("this `Ticket` is dropped here") is
+   about a *statement* or a *scope exit*, not an expression, so the IR cannot
+   yet point at it. Stmts do carry a `NodeId`, but that is an internal handle,
+   not a source location.
+2. **No obligation state in the IR.** There is no node or flag that says "a
+   linear obligation is created here" / "discharged here" / "must be discharged
+   by the end of this scope." Today that lives only in `check.rs`'s transient
+   `linear_settled` flags and frame walks.
+3. **Lowering is gated behind a clean check.** `build_program` is only ever
+   called on a program the checker passed (gated in `salvo-backend/driver.rs`
+   `check_for_emission`, `salvo_ir::dump_program`, the `salvo ir` CLI, and the
+   golden tests). `Unsupported`/`Diagnostics` exist for *un-lowerable* nodes,
+   not for *semantically invalid* ones. Property (D) needs lowering to be
+   total over checked-shape ASTs regardless of obligation violations.
+
+### 3. Design decisions (DECIDED — user, 2026-10-12)
+
+#### D1. Where do the IR-level checks live? → **Merge `salvo-ir` into `salvo-core`.**
+
+The IR moves into `salvo-core` as the `salvo_core::ir` module (a submodule tree
+mirroring today's `salvo-ir/src/`: `ir/mod.rs` the node set, `ir/build/…` the
+builder, `ir/dump.rs`, `ir/walk.rs`, `ir/check/…` the new validation).
+`salvo-core` becomes **the one place checking is done** — AST inference *and* IR
+validation under one roof, no cross-crate cycle (checking reads the IR; the IR
+reads `Checked`; both now live together).
+
+- **Rationale (user):** avoid crate proliferation; make core the single home of
+  checking. The alternative (a `salvo-ir-check` crate) was rejected — it would
+  force either a dependency cycle or a third crate for what is one pipeline.
+- **Fallout:** `salvo-backend-kotlin` and `salvo-backend-rust` depend on
+  `salvo-ir` today; they re-point `use salvo_ir::…` → `use salvo_core::ir::…`.
+  The `salvo-ir` crate and its `Cargo.toml` entry are deleted from the
+  workspace. `salvo ir` CLI, `dump_program`, golden tests follow the move.
+
+#### D2. What stays in `check.rs` as "working memory"? → **Inference stays; validation moves.**
+
+- **Stays (inference / resolution):** type inference and `expr_ty`; overload and
+  member resolution (`fn_refs`, `call_fn`); coercion synthesis (`coerce`,
+  `widen_targets`, `field_casts`); narrowing/fate *derivation*; deduction
+  *inference* (`deduce::infer` — the builder needs each fn's contract to lower a
+  call, so inference cannot move).
+- **Moves to the IR checker:** linear-obligation enforcement
+  (`check_linear_frame_drop`, `check_linear_exit`, `linear_settled`); deduction
+  *validation* (does the body honour its declared contract); consume-after-move
+  and fate-conflict reporting; `when`/totality violation reporting.
+
+#### D3. How are obligations represented in the IR? → **One `Obligation` directive marking every change to the outstanding-obligation set.**
+
+The IR carries **explicit directives, always** (no deriving from `consume` +
+types): the dump becomes a running ledger of what a function currently owes, and
+every mutation of that ledger is a visible line. One directive kind with a
+transition variant marks the **four points** where the set changes:
+
+1. **GainParams** — at the top of a fn body: the obligations entering from
+   linear parameters (concrete linear) and `canbe linear` generic parameters.
+2. **Gain** — after a binding (`Let`/`Alias`) whose value, or named arms of it,
+   carries an obligation (this is the **return-value** case the user asked for:
+   a value received from a call is linear, or has one or more linear arms, which
+   are named).
+3. **Release** — after a value is moved out: the obligations that are *no longer
+   ours*. (A plain move is thus still the thing that transfers an obligation; the
+   Release directive makes the transfer explicit rather than leaving it implied
+   by a `Read { consume: true }`.)
+4. **Discharge** — when an obligation is settled **without** moving (consumed in
+   place).
+
+Sketch (final shape settled in Phase 1):
+
+```
+Obligation { transition: GainParams | Gain | Release | Discharge,
+             obligations: Vec<ObligationRef> }
+ObligationRef { place: Place, arms: Option<Vec<usize>> }   // arms: for a union, which arms are linear
+```
+
+The IR-level checker is then a **balance check**: walk the directives
+maintaining the outstanding set; at every scope exit the set must be empty — a
+leftover is the violation. **`Checked<T>` needs nothing special**: it is a
+linear struct, so a `Checked` value is Gained at its binding and the error for
+#2 is simply "an obligation was neither Released nor Discharged by scope end."
+
+Settled during Phase 1 implementation (will record the outcome here):
+- Whether Release is a standalone directive or attached to the `Read`/`Stmt`
+  that moves. Default per the "always explicit" rule: a standalone directive,
+  with the `consume` flag as the *lowering input* that produces it.
+- Conditional moves (moved on one branch, not another): a Release inside the arm
+  that moves, so the per-path balance sees it.
+
+#### D4. Error reporting from the IR. → **Hard-fail the build; `salvo ir` dumps and annotates inline.**
+
+- IR-check failures are **hard build errors**, same gate as type errors. The
+  emission gate changes from "AST check clean" to "AST check **and** IR check
+  clean." A dropped linear obligation is exactly what `[backend-never-wrong]`
+  forbids, so it must block.
+- `salvo ir` **dumps and reports**: it still lowers and prints an invalid
+  program (the point of property D — see the IR even when it is wrong), with
+  each error embedded **in the dump itself** as `!!! <error text>`, trailing the
+  offending IR line (or on its own line where no single line fits). `salvo build`
+  is what fails; `salvo ir` stays runnable (exit 0) as the debugging view.
+
+### 4. Phased plan (each phase builds + warm `cargo nextest run` green, then a commit)
+
+**Phase 2 restructured (user decision 2026-10-12): a dedicated IR-analysis
+stage, migrated into one analysis at a time.** The IR is the home for
+"what happens as this code runs" — flow, consumption, control-leaves, the actor
+graph — while `check.rs` stays the typing/resolution/declaration-shape pass. The
+natural IR tenants are: linear obligations (done); the fate/release/
+consume-after-move family (shares linear's flow bookkeeping); loop-totality
+(`Justification::LoopValue`); exhaustiveness-at-use (`Unreachable`
+revalidation); and deadlock (whole-program actor graph). These migrate behind
+one seam, one at a time, each landing green against std+examples as its oracle.
+
+- **Step 0 — stand up the seam, linear-only.** Add
+  `salvo_core::ir::analyze(program, symbols, resolution, checked) ->
+  Vec<FileDiagnostic>`: build the IR, run the obligation annotation + the linear
+  check, map `IrDiagnostic` → `FileDiagnostic`. Call it at the emission gate
+  (`check_for_emission`), the CLI `analyze` path, and the LSP, after a clean
+  type-check (the IR assumes no type errors). Delete the AST-side linear
+  path-exit/throw enforcement (`check_linear_frame_drop`, `check_linear_exit`,
+  `check_linear_throw`, `linear_settled`) in the same change. Rewrite the linear
+  tests to go through the seam. Land green. This pays the test-rewrite cost once
+  and gives every later tenant a stable home. **DONE** (commit 9bb42362).
+- **Step 1 — fate / release / consume-after-move. DROPPED (inextricable).**
+  Investigated per its own charter; the consume/move analysis is load-bearing
+  for type-checking (`fate_move` sets `narrowed = Never`, read by `check_expr`
+  to reject later uses), not a separable flow pass. Stays in `check.rs`. See the
+  decision log (2026-10-12 Step 1 FINDING).
+- **Step 2 — loop-totality. DROPPED (TYPING).** `may_skip_value` feeds the
+  loop's value *type*; it is type inference, not a flow check.
+- **Step 3 — exhaustiveness-at-use. DROPPED (TYPING).** Computed while typing
+  the `when`; needs the subject's arm set; not sugar-sensitive.
+- **Step 4 — deadlock. DROPPED (graph, not flow).** A whole-program cycle check
+  over the actor wait-for graph at the handler/effect level; the IR's per-path
+  structure buys it nothing. Stays in `deadlock.rs`.
+
+**Outcome: the merge is complete at Step 0.** The one desugar-sensitive flow
+analysis that needed the IR — linear obligations — is migrated and gating the
+build; the rest correctly stay in the checker. See the decision log for the
+full separability reassessment (2026-10-12 Steps 2–4).
+
+#### Earlier phase history (superseded by the restructure above)
+
+
+Each phase is one commit per AGENTS.md (feature + tests + spec + docs + the
+COMPLETED.md decision-log entry land together). No stop between phases unless a
+new decision is needed from the user. Spec labels to add as they land:
+`[ir-obligation]` (the directive), `[ir-linear-check]` (the balance check).
+
+- **Phase 0 — merge `salvo-ir` into `salvo-core`, then add spans.**
+  1. Move `crates/salvo-ir/src/*` under `crates/salvo-core/src/ir/`; delete the
+     `salvo-ir` crate and its workspace/`Cargo.toml` entries. Re-point every
+     `use salvo_ir::…` (both backend crates, the CLI, tests) to
+     `salvo_core::ir::…`. The `salvo ir` subcommand, `dump_program`, and golden
+     tests move with it. No behaviour change — the suite is the proof.
+  2. Add `span: Span` where a semantic error must point and no child `Expr`
+     already carries it. Every `Expr` *already* has a span, and most `Stmt`
+     variants wrap an `Expr`/`Block`, so the minimal, low-risk set is: **`Block`**
+     (a scope-exit span, for "obligation outstanding at end of scope" — the #2
+     case) and **`Param`** (for the GainParams directive). `Place`, `SwitchArm`,
+     `ArmTest`, and a general per-`Stmt` span are **deferred**: their errors are
+     reachable through a child `Expr`/`Block` span, and retrofitting all ~213
+     `Stmt` sites + ~90 `Place` sites across both emitters is precision not yet
+     needed (revisit if a ported check wants it). The obligation directives
+     added in Phase 1 carry their own spans directly. Keep the default dump
+     **byte-identical** (spans not shown) so goldens are untouched. Verifies:
+     whole suite unchanged.
+
+- **Phase 1 — the `Obligation` directive + the first IR check (#2).** Add the
+  `Obligation` directive (§3 D3) and emit it at the four transition points
+  during lowering, driven by the checker's working-memory linearity facts. Add
+  the IR-level balance check (`ir/check/`), emitting a diagnostic at the span of
+  any obligation outstanding at a scope exit. First real client: the linear
+  balance that catches noticeboard #2 (a dropped `Err Checked<…>` arm). Add a
+  focused corpus `.sv` reproducing it. Resolves noticeboard #2.
+
+  **Soundness-before-gating (refinement, 2026-10-12).** The balance check
+  hard-gates the build (D4a) — so a *false positive* would break a
+  currently-valid program (std and every example carry correctly-discharged
+  linear values). To de-risk, within Phase 1: (1) emit all four directives from
+  the *same* checker signals that already make the AST check correct — Release
+  from `consume` (`linear_moves ∪ state_takes ∪ moved_projections`), Discharge
+  from narrow-to-non-linear (the `linear_settled` logic); (2) validate the
+  balance check against the whole corpus (std + examples + the backend codegen
+  cases) and iterate to **zero false positives** on known-good code *before* it
+  gates; (3) only then wire the hard gate and add the #2 positive test. If a
+  class of false positive cannot be resolved cleanly in Phase 1, the IR check
+  ships **advisory (warn, no gate)** in Phase 1 and the hard gate moves to
+  Phase 2, where the AST enforcement is deleted and the two can be diffed
+  directly. The AST check stays live throughout Phase 1, so real leaks are still
+  caught meanwhile.
+
+- **Phase 2 — move linear-obligation enforcement onto the IR.** Make the balance
+  check the *sole* enforcer of linearity; delete the AST-side
+  `check_linear_frame_drop` / `check_linear_exit` / `linear_settled` in the
+  **same commit** (no double diagnostics). Verifies: every existing linear test
+  still fires (spans may improve).
+
+- **Phase 3 — move deduction *validation* onto the IR.** `deduce::infer`
+  (inference) stays in `check.rs`; the "body honours the declared contract"
+  check moves to the IR, where consume/borrow are explicit directives.
+
+- **Phase 4 — consolidate.** Revisit whether `check.rs` can shed the
+  now-duplicated obligation bookkeeping, and whether any of the ~15 span-keyed
+  `Checked` tables the builder reads can be dropped in favour of IR structure.
+  (Ties into memory `checked-unify-options` / ROADMAP §13(b).)
+
+### 5. Risks / open questions
+
+- **Double diagnostics.** During phases 1–3 a check briefly exists in both
+  places; each ported check must be deleted from `check.rs` in the *same* commit
+  that adds it to the IR.
+- **Span fidelity.** Phase 0 must thread *source* spans, not synthesised ones,
+  or ported checks point at the wrong place. The AST nodes the builder lowers
+  from still have their spans at lowering time; the work is plumbing.
+- **Generated decls have no source span.** Actor dispatch fns, message enums,
+  stubs (`actors::generate`) are built, not parsed. Their IR nodes need a
+  sentinel span (or the enclosing decl's span) so the IR checker attributes or
+  skips them sensibly.
+- **Gate ordering.** The build gate becomes "AST clean AND IR-check clean."
+  `salvo ir` must *not* gate (it reports inline and exits 0); the four gate sites
+  (`driver.rs::check_for_emission`, `dump_program`, the CLI, golden tests) each
+  need the right one.
+
+---
+
+### Decision log (this doc)
+
+- **2026-10-12 — Exhaustiveness is now an explicit IR fact (DONE).** The one
+  genuinely-new IR-enrichment candidate the Phase 4 survey left open — "record
+  the checker's exhaustiveness conclusion in the IR rather than have each
+  backend re-derive it" — is implemented and committed.
+  - **The fact:** when `check_when` proves a subject `when` covers every runtime
+    arm and no branch wrote an `else`, it records the verdict in
+    `Checked::when_exhaustive` (a `HashSet<Key>` keyed by the `when`'s span).
+    The IR builder (`when_expr`) reads it and, when no arm is already `Else`,
+    appends an explicit `Else` arm whose body is an `Unreachable` trap
+    (`unreachable("unhandled union arm") at …`) — the same node `x!` already
+    uses for a proven-dead point. So "the fallthrough is dead" is in the IR.
+  - **Why this and not the dropped Step-3 "move exhaustiveness *checking* to the
+    IR":** the distinction surfaced earlier in this log. Checking exhaustiveness
+    is typing (it needs the union's arms and the `^`/qualifier match logic) and
+    stays in the checker. Recording the *conclusion* is the IR enrichment: it is
+    small, additive, and removes a re-derivation from both backends.
+  - **Backends:** no logic change needed — both already emit an `Else` arm body
+    verbatim. Kotlin now prints `else -> { throw AssertionError("salvo:
+    unhandled union arm at …") }` instead of its synthesized
+    `else -> throw IllegalStateException("salvo: unreachable arm")`; Rust gives
+    the previously-untested final arm its own `matches!` test and ends the chain
+    in `else { panic!("salvo: unhandled union arm at …") }`. Each backend's own
+    synthetic fallback is now a dead safety net for a hypothetical future
+    else-less value-switch, and is documented as such in the backend specs.
+    (Confirmed: the only else-less `Switch` shape was the exhaustive `when`;
+    `non_null`, pass-loops and actor dispatch all supply their own `Else`.)
+  - **Spec/tests:** `[when-exhaustive]` in LANGUAGE_SPEC.md gained the IR-fact
+    sub-bullet; `[ir-switch]` notes the explicit arm; both backend specs'
+    `[when-union-subject]` rules updated. `unions_emit_sealed_wrappers`
+    (Kotlin) now asserts the explicit `else -> { … unhandled union arm }` and
+    the absence of the old `IllegalStateException` string. All five IR goldens
+    and the loops/unions backend goldens + 8 regenerated example directories
+    updated. Warm `cargo nextest run`: 1764 passed.
+  - **This was the last blocker to retiring the IR-checker record** (per AGENTS.md's
+    "a finished project's working document is retired").
+
+- **2026-10-12 — Phase 4 survey: reconfirms the Oct-2026 conclusion; no net-new
+  candidate; Phase 4 is effectively CLOSED.** Surveyed what "consolidate /
+  shed redundant `Checked`-table reads" could achieve, grounded in the current
+  code and the `checked-unify-options` memory (which already did this survey
+  once). Findings:
+  - **The framing "the IR encodes it, so drop the table" is a category error.**
+    Nothing downstream of the IR builder reads `Checked` — backends, the refs
+    pass, the dump, and both emitters read only the IR; the IR nodes are
+    self-contained. So the ~30+ span-keyed tables the builder reads are
+    **builder-private handoff state**, read *to produce* the IR node. The node
+    encoding the fact does not remove the need to read the table that created
+    it.
+  - **The new merge consumers do NOT add surface.** `ir::obligations` and
+    `ir::check`/`ir::analyze` read the *IR* (plus `symbols`/`resolution`/
+    `deductions` for the discharger hint), not the span-keyed `Checked` tables —
+    consistent with the "nothing downstream reads `Checked`" invariant. The
+    discharger-hint extraction (`discharge_set` → `crate::linear`) is a small
+    net *reduction* (one shared definition).
+  - **Direction 1 — ergonomic view accessors: DONE and exhausted** (the
+    `[unify-checker]` work: `call_info`/`use_info`/`spawn_info`/`pick_info`/
+    `interp_info`). Remaining builder reads are single-table-per-site
+    (`comparisons`, `for_drivers`, `promotions`, `is_tests`, `expr_ty`/`repr_ty`
+    via `ty_of`/`repr_of`); a view there groups nothing. Nothing more to add.
+  - **Direction 2 — collapse table *storage* into per-cluster maps: REJECTED**
+    (needs a user decision to revisit). It fights the checker's own many
+    readers — `call_fn` has 13 readers across overload resolution and `deduce`;
+    `self_sends`/`facade_sends`/`addr_calls` are also read by `features.rs`.
+    Wide, risky, low value.
+  - **Direction 3 — merge checker + builder into one pass: REJECTED.** A huge
+    rewrite with no backend-visible benefit (IR already self-contained); and the
+    fate/consume analysis is inextricable from type-checking anyway, so the
+    checker stays a full pass regardless.
+  - **Conclusion:** Phase 4's worthwhile work (view accessors) is already done;
+    the rest is not worthwhile or deliberately rejected. **Phase 4 is closed.**
+    After the exhaustiveness-in-IR addition (next), the IR-checker record can be retired
+    per the AGENTS.md rule.
+
+- **2026-10-12 — Both deferred message-quality follow-ups DONE.** (1) The
+  **named-discharger hint** is restored: `discharge_set`/`discharge_hint` (plus
+  `param_consumed_by_entry`, `member_consumes_type`, `linear_type_name`) were
+  extracted from `check.rs` into `crate::linear` as free functions over
+  `(symbols, resolution, scope, deductions, …)`; `check.rs`'s `discharge_set`
+  method now delegates (and the dead `file_declaring`/`param_consumed_by_entry`
+  methods + the `member_consumes_type` free fn were removed). `ir::analyze`
+  computes the hint per leak from `IrDiagnostic.discharge_type` (a new field
+  carrying the leaked type's name, set by the annotator via `linear_type_name`
+  into `ObligationRef.ty_name`) using the leak file's resolution scope +
+  `checked.deductions`, and appends ` with \`close\` / \`drain\`` to the
+  remedy. The ~8 linear/actor test assertions loosened earlier are tightened
+  back to name the discharger. (2) **Synthetic local polish:** a leaked place
+  whose name starts with `__` (a desugaring temporary like `__pick~1`) is
+  reported as "this value" rather than exposing the internal name. The #2 case
+  now reads: "this value still owns a linear value (arm 1) when the path
+  leaves; … or discharge it with `close`". 1764 tests green warm. One
+  definition of `discharge_set` is now shared by the checker and the IR
+  analysis. Nothing open remains but the speculative Phase 4 idea.
+
+- **2026-10-12 — Could the four dropped analyses still *contribute information*
+  to the IR (vs moving their *checks*)? Mostly already present; one small
+  candidate (exhaustiveness); none is "Phase 4".** Separating two independent
+  questions the Steps 1–4 analysis conflated: (a) recording a checker
+  *conclusion* as an IR fact, vs (b) moving the *check* onto the IR (what Steps
+  1–4 were, dropped). (a) is still worth asking per analysis:
+  - **Consume / `Never` (Step 1): already in the IR.** `ExprKind::Read {
+    consume: true }` is exactly "this read ends the value's life" (from
+    `linear_moves`). Use-after-move can't appear in a valid IR (it is rejected
+    before the IR is built), so there is nothing more to add.
+  - **Loop-totality (Step 2): already in the IR.** `Justification::LoopValue`
+    records "the loop assigns its value on every path out," the checker's
+    totality conclusion, carried for narrowing. Nothing to add.
+  - **Exhaustiveness (Step 3): a real (small, optional) candidate.** The IR's
+    `Switch`/`ArmTest` records the handled arms but not an explicit "the checker
+    proved this `when` exhaustive, no implicit fallthrough." Backends re-derive
+    it from arm structure today. Making it explicit — e.g. an `Unreachable`
+    fallthrough arm for an else-less exhaustive `when`, consistent with the
+    existing `ExprKind::Unreachable` for proven-dead points — would make the IR
+    self-describing. Not needed (backends cope); a "would be cleaner."
+  - **Deadlock (Step 4): nothing node-shaped.** A whole-program graph property;
+    there is no IR *node* to attach it to.
+  - **This is NOT Phase 4.** Phase 4 "consolidate" is the opposite direction:
+    *removing* now-redundant `Checked`-table lookups the IR builder makes
+    because the IR structure already encodes the same thing. Making a checker
+    conclusion explicit in the IR (the exhaustiveness idea) is a third category
+    (self-describing-ness), separate from both adding-missing-facts and
+    table-consolidation. No hidden Phase-4 work lurks in the four steps.
+
+- **2026-10-12 — Phase 2 Steps 2–4 reassessed with the separability lens: none
+  is worth migrating. The IR-merge is effectively COMPLETE at Step 0.** Having
+  found Step 1 (fate/consume) inextricable, I examined the other planned IR
+  tenants the same way. Conclusion: the linear-obligation flow check (done in
+  Steps 0–1) was the one analysis that genuinely belonged on the IR; the rest
+  are type-system-integrated or whole-program-graph work that the IR does not
+  express better, so moving them would be re-deriving, not simplifying — the
+  "worse layering" the narrow Phase 2 was chosen to avoid.
+  - **Step 2 — loop-totality (`while-value`): TYPING, drop.** `LoopCtx`'s
+    `may_skip_value` makes "`None` join the loop's value *type*" (check.rs
+    ~20763) and `break_states` merge flow state that drives subsequent
+    type-checking. It is type inference of the loop expression, not a separable
+    flow check. The IR's `Justification::LoopValue` is a *record* of the
+    checker's conclusion (consumed for narrowing), not something the IR would
+    re-derive.
+  - **Step 3 — exhaustiveness-at-use (`when`): mostly TYPING, drop.**
+    "non-exhaustive `when`: unhandled union arm" (check.rs ~25954) is computed
+    while typing the `when` (its result type depends on which arms exit /
+    whether it is exhaustive) and needs the subject's full arm set (a type
+    fact). It is not desugar-sensitive and is already integrated with type
+    inference; re-deriving it from `Switch`/`ArmTest` on the IR gains nothing.
+  - **Step 4 — deadlock: a whole-program graph analysis, not a flow pass; drop
+    as an IR migration.** `deadlock.rs` is a cycle check over the actor
+    wait-for/effect graph, built from `Symbols`/`Checked` at the handler/effect
+    level — not a per-path, per-expression property. The IR's control-flow
+    structure (branches, narrows) buys it nothing; rebuilding its graph from IR
+    `Send`/`ReplyTo` nodes would be a lateral move. It stays where it is.
+  - **Bottom line.** The checker/IR merge's goal — "stop re-deriving *sugar*
+    meaning twice; run the desugar-sensitive flow check on the lowered form" —
+    is met by the linear-obligation check (Steps 0–1), which catches what the
+    AST missed (#2) precisely because it reads the desugared IR. The remaining
+    checks are not sugar-sensitive flow properties; they are the type system's
+    own ownership/typing/graph reasoning and correctly stay in `check.rs` /
+    `deadlock.rs`. **No further migration is planned.** What remains are the two
+    deferred *message-quality* follow-ups (named-discharger hint; synthetic
+    local/span polish) — optional, not architectural.
+
+- **2026-10-12 — Phase 2 Step 1 FINDING: fate/release/consume-after-move is
+  inextricable from type-checking; do NOT migrate it. Step 1 is dropped.**
+  Investigated how separable the consume/move analysis in `check.rs` is (the
+  Step 1 charter was "discover how separable, report back rather than force").
+  Conclusion: it is load-bearing for *type-checking itself*, not just a set of
+  flow diagnostics, so moving it to the IR would not simplify anything — the
+  checker must track moves regardless.
+  - **The decisive fact:** `fate_move` (check.rs ~21633) ends by setting
+    `var.narrowed = Ty::Never` (+ `consumed_by`). That `narrowed == Never`
+    marker is **read inside `check_expr` when resolving an `Ident`**
+    (check.rs ~21989): a later use of a moved variable is caught *there* and
+    returns `Ty::Unknown` to stop the cascade. So the move state is how the
+    checker type-checks subsequent expressions — remove it and later uses of a
+    moved value would type-check as their original type (wrong). The
+    branch-merge of this state (`narrowed`/`links`/`moved_places`) likewise
+    drives both the "consumed on some paths but not others" diagnostic *and*
+    the narrowed types used for subsequent checking.
+  - **Classification of the family** (FLOW = IR-movable; TYPING = must stay):
+    - use-after-move (`consumed (moved) … type is Never`): TYPING (the
+      `narrowed=Never` read above).
+    - consumed-on-some-paths (merge): TYPING (branch-merge of the same state).
+    - derived-variable poison / "shares its fate, … was moved after": TYPING
+      (fate links feed `check_expr`).
+    - assignment-overwrite drops linear (`owes_linear` at assign): TYPING
+      (reads the same move/own state).
+    - **dropped-immediately** (an expression statement whose result type is
+      linear, check.rs ~21489): FLOW and cleanly IR-expressible — but it is a
+      single, already-correct, non-sugar-sensitive, non-duplicated check;
+      moving it buys nothing and is pure churn. **Left in the checker.**
+  - **Consequence for the plan:** the consume/move analysis stays in
+    `check.rs`. This matches the Phase 2 scope finding (the structural/typing
+    linear checks stay) — fate/consume is the type-system's ownership tracking,
+    not a flow pass layered on top. The IR flow check (linear obligations) and
+    the AST consume tracking are *complementary*, not duplicative: the IR
+    catches "a linear value reaches a scope exit still owed" (desugar-sensitive,
+    which the AST missed — #2); the AST catches "a moved value is used again"
+    (needs the type-state). Keeping both is correct, not a failure to finish.
+  - **Remaining steps re-scoped:** Step 2 (loop-totality / `LoopValue`), Step 3
+    (exhaustiveness-at-use / `Unreachable` revalidation), Step 4 (deadlock) are
+    re-examined next with the same separability lens before migrating; each only
+    moves if it is genuinely a flow property the IR expresses better. If a step
+    turns out TYPING-bound like Step 1, it is dropped with this same reasoning.
+
+- **2026-10-12 — Phase 2 Step 0 behavior decision (user, option 1): the IR
+  flow analysis runs only on an otherwise-clean program; tests that bundled a
+  path-exit leak with structural linear errors are split.** The IR builder
+  reads the checker's tables (`linear_moves`, coercions, …), which are complete
+  only when the check found no errors — so running the flow analysis on an
+  erroneous program risks false positives (observed: valid fns `ok_return`/
+  `ok_alias` flagged when the moves table was incomplete). Therefore
+  `analyze_project` gates the IR analysis on a clean check (whole-program,
+  coarse — one erroneous fn suppresses flow analysis for all), and
+  `ir::analyze` scopes to **non-std** modules (the std-cache path does not walk
+  std bodies, so std's tables are absent). Consequence: a program with
+  structural linear errors reports those; its path-exit leaks surface once they
+  are fixed — "fix errors top-down," not "all at once." The three CLI tests
+  that encoded the old all-at-once behavior (`l6_linear_obligations`,
+  `l7a_generic_linear_opt_in`, `an_fs_failure_must_be_acknowledged`) are split
+  (option 1): the path-exit-leak case moves to its own clean program where the
+  flow analysis runs; the multi-error program keeps only its structural
+  assertions. Per-fn gating (option 2 — report clean fns' leaks even amid other
+  fns' errors) was considered and deferred as a larger, separately-scoped
+  change. Leak wording is now the uniform IR phrasing ("still owns a linear
+  value when the path leaves").
+
+- **2026-10-12 — Phase 2 Step 0 in progress: IR-analysis seam built, AST
+  path-exit/throw enforcement deleted, with ONE deferred follow-up (the
+  named-discharger hint).** Done: `salvo_core::ir::analyze::analyze(program,
+  symbols, resolution, checked) -> Vec<FileDiagnostic>` builds the IR, annotates
+  obligations, runs the linear check, and attributes each leak to its file (via
+  `Module.file_name` → `program.files` index). Wired into `check_for_emission`
+  (gates emission) and `analyze_project` (CLI + LSP, run only when the
+  type-check is clean). Deleted the AST-side `check_linear_frame_drop`,
+  `check_linear_exit`, `check_linear_throw`, and `error_once` (and their 10 call
+  sites, leaving the co-located `check_state_whole` calls). KEPT `owes_linear`,
+  `linear_settled`, and the branch-merge machinery — the surviving
+  assignment-overwrite check (`owes_linear` at check.rs ~21409) still uses them.
+  Added `WaitFor` handling to the obligation annotator + check: the reply token
+  a `waitfor` mints is gained at the body start and must be sent to before the
+  body ends (catches the `waitfor`-token leak). The `Never`/throw model carried
+  over from Step (1).
+  - **DEFERRED follow-up — the named-discharger hint.** The AST leak messages
+    named the specific discharger (`discharge it with \`drain\`/\`close\`/
+    \`send\``), computed by `Checker::discharge_set`/`linear_discharge_hint`,
+    which depend on per-file `scope`/`inferred` Checker state. The IR message is
+    currently the generic "move it onward (pass, return, or store it) or
+    discharge it". Porting `discharge_set` cleanly means extracting it (and
+    `param_consumed_by_entry`, `file_declaring`, `member_consumes_type`) into
+    `crate::linear` as free functions over `(symbols, resolution, deductions)`,
+    callable from both the surviving checker uses (check.rs ~23823, ~28643) and
+    `ir::analyze` — a ~60-line extraction deferred to keep the seam landing. The
+    ~11 linear/actor tests that asserted the specific discharger name are
+    updated to assert the leak itself ("still owns a linear value"); when the
+    hint is ported, tighten them back. The hint is a message-quality
+    refinement, not a correctness gap — the leaks are all caught.
+
+- **2026-10-12 — Phase 2 step (1) done: the IR check leaves on `Never`, which
+  subsumes the throw path (user model).** The user's framing: `return`,
+  `break`, `continue`, `throw`, and a diverging call all produce `Never`, so
+  "control leaves here, nothing may be outstanding" is one invariant, not five
+  special cases. Rebuilt `ir::check` around it:
+  - A `throw` (and the `return`/`break`/`continue` statements) is a
+    **propagating** leave: the outstanding set must be empty for the
+    destination scope (whole set at a fn leave; only loop-gained at a
+    `break`/`continue`).
+  - An **`unreachable` trap** and a **diverging call** (`exit_process`, a
+    `-> Never` fn that terminates) are **terminal**: control never continues,
+    there is no "after" to leak into, so they end the path with no discharge
+    requirement.
+  - A call to a **`throws` fn** is a **conditional** leave: on the throw edge
+    the set must be empty (reported as "across a call that may throw"), on the
+    normal edge evaluation continues. A `try` body catches throws, so inside it
+    a throwing call is not a fn leave (`Ctx.in_try`).
+  This closed the one flow false-negative (the throw path) as a consequence of
+  the model, not a bolt-on. Still **zero false positives** on std+examples; the
+  dropped-arm (#2) and throw-path cases are both caught. Tests in
+  `ir_linear_tests.rs` (3 now). Steps (2) oracle + (3) gate/delete next.
+
+- **2026-10-12 — Phase 2 scope finding: "linear enforcement" on the AST side
+  is ~15–20 distinct checks, not one; moving *all* of it is a large,
+  heterogeneous project. Recommend narrowing Phase 2 to the flow/obligation
+  check only.** Starting Phase 2 (wire the gate + delete AST enforcement), the
+  oracle step surfaced that the AST checker's linear diagnostics are many and
+  varied, and only one of them is the per-path "obligation outstanding at exit"
+  check the IR models today. Enumerated from the linear test assertions:
+  - **Flow/obligation (what the IR check already does):** a value still owed at
+    a path exit (`still owns a linear value`), including `break`/`continue` and
+    fall-through.
+  - **Throw paths (flow, but the IR check does NOT model yet):** `across a call
+    that may throw` — a call to a `throws` fn is an implicit exit; any obligation
+    outstanding there leaks on the throw path. The IR has the data
+    (`FnDecl.throws` on the callee, `ExprKind::Try` for the catch scope) but the
+    check does not consult it. **This is a false negative** — the IR check would
+    miss it today.
+  - **Not flow at all** — structural/typing checks done during AST checking:
+    `discard cannot drop a linear value` (discard-site); `[linear-composite]`
+    storage refusals (struct field, tuple component, array element, type
+    argument); `cannot instantiate generic parameter T … with linear type`;
+    `no discharger` / `declare linear struct` (declaration-site); `alias cannot
+    be linear`; `all-or-none` decomposition; `cannot be given away`.
+
+  **Implication:** moving *all* linear enforcement onto the IR is far larger
+  than the per-path check suggested, and several of those checks are a poor fit
+  for an IR flow pass — they are AST-shape or type-system checks the checker is
+  the right place for; reimplementing them on the IR would be re-deriving, not
+  simplifying.
+
+  **Recommendation (awaiting user call):** scope Phase 2 to the **flow
+  obligation check only**. (1) add throw-path modeling to the IR check; (2)
+  prove via an oracle that the IR check fires on every AST "still owns … at
+  exit" / "across a call that may throw" case; (3) wire the gate (D4a) for those
+  diagnostics and delete *only* the AST path-exit/throw enforcement
+  (`check_linear_frame_drop`, `check_linear_exit`, `check_linear_throw`,
+  `linear_settled`), leaving the structural/typing linear checks in `check.rs`.
+  Defer any further migration to a later, separately-scoped phase.
+
+- **2026-10-12 — Phase 1 status: directives + per-path check built; the check
+  is NOT yet sound enough to gate (needs the Phase 2 flow work).** The
+  `Obligation` directive, the shared `crate::linear` predicate, the
+  annotation pass (`ir::obligations`), and the per-path balance check
+  (`ir::check`) are all built and compile. The ledger dumps correctly, and the
+  #2 case shows exactly the intended shape — `gain [__pick~1.arms{1}]`,
+  `discharge` on the kept (narrowed-to-`Int`) path, and nothing on the `else`
+  path where `return 0` drops the `Problem` arm.
+
+  **But validating the check against known-good code (std + examples) found
+  ~4131 false positives**, so it CANNOT gate the build yet (per the
+  Soundness-before-gating refinement, a false positive breaks a valid program).
+  The false positives are **not** random — they are a few flow patterns the
+  coarse directive placement does not yet model, the same patterns the AST
+  checker's `linear_settled`/`with_narrows` flow analysis handles:
+  - **Per-arm narrowing (`is`/`when`/`if … is Err`).** A `Ok A | Err Checked<E>`
+    value handled by narrowing each arm and consuming/returning it per branch:
+    the discharge happens *through* the narrow-and-consume in each arm, which
+    the current `discharge_of` (only a `Narrow` that drops to a wholly
+    non-linear type) and `releases_in` (only a direct `Read{consume}` in the
+    same statement) do not jointly capture. Dominant class (`opened`, `closed`,
+    `content`, `got.arms{…}`, `__subject~1`).
+  - **A linear value returned by `return x`** is a release, now ordered before
+    the leave — fixed — but a value consumed deeper (passed to a consuming
+    call whose result is returned) still needs the release attributed to the
+    leaving statement.
+  - **Loop-carried and reassigned linear locals** (`out`, `done`, `m`): a
+    value re-bound each iteration, or moved then rebound.
+
+  **Resolution (chosen, within the pre-approved fallback):** Phase 1 ships the
+  **directives + the ledger in the dump** (correct, and the point of D3's
+  "make the IR reason visibly"), plus `ir::check` present but **not wired as a
+  gate and not run by default**. The hard gate (D4a), the `salvo ir` `!!!`
+  inline annotation (D4b), and driving the false-positive count to zero move to
+  **Phase 2**, where the AST enforcement is deleted and the IR check is iterated
+  against the AST checker's behaviour as the reference oracle — the natural
+  place to get the flow analysis exactly right, rather than guessing twice. The
+  AST checker stays the sole enforcer through Phase 1, so nothing regresses and
+  real leaks (including the std ones, which are *not* real — they are false
+  positives) stay correctly handled.
+
+  **Open question deferred to Phase 2 (noticeboard #2):** the whole merge was
+  motivated by #2, which the AST checker misses. Phase 1 makes #2 *visible in
+  the dump* but does not yet *fail the build* on it. Catching #2 as an error
+  requires the sound per-arm flow check — so #2's fix lands with Phase 2, not
+  Phase 1. (If the user wants #2 enforced sooner, the alternative is a narrow,
+  special-cased check for exactly "a linear union arm dropped by a pick with no
+  narrow/consume on the dropped path" — smaller, but it is the thin end of the
+  flow analysis Phase 2 does properly.)
+
+- **2026-10-12 — Phase 1 progress: directives + per-path check built; false
+  positives driven from 4131 → ~45 on std; check unwired pending the rest.**
+  Built and committed as a checkpoint (user: committing mid-solution is fine):
+  the `Obligation` directive, the shared `crate::linear` predicate, the
+  annotation pass (`ir::obligations`), and the per-path balance check
+  (`ir::check`). The ledger dumps correctly and the #2 case shows the intended
+  shape (gain the `Problem` arm, discharge on the narrowed-to-`Int` path,
+  nothing on the `else` path that drops it).
+
+  **Key architecture fix: the ledger lives only on the dump/check path, never
+  in the IR the backends emit.** Inserting directives into `build_program`'s
+  output changed what the Rust emitter's handle analysis (`paths.rs`) saw and
+  regressed `runtime.rs` codegen. So `obligations::annotate` now runs *only* in
+  `dump_program` (for `salvo ir`) and before `ir::check` — the emitters get the
+  un-annotated IR and generate byte-identical code. Golden snapshots updated to
+  show the ledger; the Rust/Kotlin codegen goldens are unchanged.
+
+  **Validating the check against known-good code (std + examples) drove a
+  sequence of soundness fixes**, each grounded in a real flow pattern seen in
+  the dump (4131 → 2071 → 180 → 147 → 101 → 64 → 17 → ~45):
+  - **Narrow-transfer:** a `Narrow` of a linear source transfers its obligation
+    to the narrowed binding (source discharged on the path, binding gains).
+  - **Container decomposition:** a linear struct is settled once all its linear
+    fields are moved out (`ObligationRef.container_fields`); a field-release
+    `x.f` decrements the container's pending fields.
+  - **Borrows owe nothing:** a `ref`/`proj`-qualified type (and borrowed union
+    arms) carry no obligation.
+  - **Negative/positive arm tests:** falling past `x is arm k` (or guarding an
+    arm with `!(x is arm k)`) proves the arm absent and discharges it.
+  - **Switch dispatches its subject:** the subject leaves the set on entry
+    (distributed to per-arm narrows).
+  - **Actor expression forms** (`Send`/`ReplyTo`/`SelfSend`/`HandlerCall`/
+    `Spawn`) carry consuming reads that release — traversed now.
+  - **Generic container fields:** `linear_fields` resolves a field's bare
+    generic type through the struct's instantiation (fixed `detach`).
+
+  **Remaining 7 are one coherent cluster** (down from ~45 after fixing a
+  `bare_name` bug that misread any argument-less named type as a generic, and
+  after making `break`/`continue` leave only the *loop* — reporting obligations
+  gained inside the loop, not those inherited and settled after it). All 7 are
+  in the actor runtime (`runtime::*`) and share a root cause: a **struct field
+  whose type is a union with linear arms** (e.g. `Token { target: ToActor |
+  ToWaiter | ToTask }` where `ToTask` is linear). The AST-based
+  `linear::linear_fields`/`approx_ty` does not resolve such a field's union
+  linearity, so the container's `container_fields` misses it and decomposition
+  never settles the container. The fix is to compute a field's linearity from
+  the IR builder's already-resolved `StructDecl.fields` types rather than
+  re-approximating from the AST — a clean next step. Tracked by the harness.
+
+- **2026-10-12 — Phase 1 implementation finding: the balance must be
+  per-arm and path-sensitive, and Gain must fire on synthetic bindings.**
+  Building the directive emission surfaced two things the flat model missed,
+  and the second needs a user call on the obligation *semantics*:
+  1. **Gain must fire on synthetic bindings, not just source `let`s.** The
+     elvis `?:` pick desugars to a synthetic `let __pick~1: Int | Problem`
+     built inside `exprs.rs`, bypassing `let_stmt` — so a Gain hook placed only
+     in `let_stmt` misses exactly the #2 case. Fix (mechanical): emit Gain
+     centrally for every `Stmt::Let` whose type is linear, wherever built. Not
+     a semantics question.
+  2. **The #2 leak is per-arm and path-sensitive — the flat per-scope balance
+     cannot express it.** For `attempt() ?: return 0` where `attempt()` returns
+     `Ok Int | Err Problem` (Problem linear): the pick binds `__pick~1`
+     (gains the Problem-arm obligation), narrows to `Int` on the kept path
+     (the Problem arm is proven *absent* there — so the obligation is
+     discharged-by-narrowing on that path), and on the else path the value
+     still holds the `Problem` arm and `return 0` drops it — the leak. A flat
+     "gained once, released once per scope" counter cannot see this: the
+     obligation is live on one path and gone on another, and the drop is at a
+     path exit. The IR already carries what's needed — `Stmt::Narrow` with a
+     `Justification` says which arm is live where, and `Switch`/`Branch` arms
+     delimit the paths — so the balance check must walk the control-flow arms
+     and track the outstanding set **per path**, discharging an arm-obligation
+     when a narrow proves that arm absent and reporting it when a path exits
+     (return/break/fall-through) with the arm still possible.
+
+  **This is a refinement of the D3 obligation model; the user signed it off
+  (2026-10-12).** The directive node already
+  supports per-arm refs (`ObligationRef.arms`); the confirmed checker reasoning
+  is: (a) a `Discharge` is emitted when a `Narrow` removes a
+  linear arm from a value's live type (arm proven absent on that path); (b) the
+  balance check is per-path over the `Branch`/`Switch` arm structure, and an
+  obligation (or a still-possible linear arm) outstanding at a path exit is the
+  leak.
+
+- **2026-10-12 — all four design decisions made (user).** D1: merge `salvo-ir`
+  into `salvo_core::ir`, making core the single home of checking (no new crate).
+  D2: inference stays in `check.rs`/`deduce.rs`, validation moves onto the IR.
+  D3: one `Obligation` directive, always explicit, marking the four transitions
+  of a fn's outstanding-obligation set (GainParams / Gain / Release / Discharge),
+  with per-arm granularity for unions; the IR checker is a balance check and
+  `Checked<T>` needs no special case. D4: IR-check failures hard-fail the build;
+  `salvo ir` dumps invalid programs and annotates errors inline as `!!! …`,
+  exit 0.
 
 ## Test inventory (all green: 2156 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 

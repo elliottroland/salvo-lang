@@ -1,5 +1,5 @@
 //! [round-trip] [dump-type-check] A checked file printed back as Salvo with
-//! every choice the checker made written out (PIPELINE.md B4 and D4, §II.7;
+//! every choice the checker made written out (the pipeline record B4 and D4, §II.7;
 //! user decisions P5 (b) and P24). One writer, two readings:
 //!
 //! * **The round trip** (`write_out`, `compare`): only what Salvo can say,

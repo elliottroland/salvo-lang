@@ -88,7 +88,7 @@ struct Tagged canbe Tag {
 // it is written: `show`'s `Item` is this module's struct wherever `show` is
 // called. A caller with a `fns` group of that name lowered it as the group
 // (to `Unknown`), so `show(5)` passed and rustc refused the output (found
-// 2026-10-29, PIPELINE.md C1.2).
+// 2026-10-29, the pipeline record C1.2).
 export struct Item {
     n: Int
 }

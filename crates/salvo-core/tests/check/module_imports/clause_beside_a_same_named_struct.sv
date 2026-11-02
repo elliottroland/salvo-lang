@@ -3,7 +3,7 @@
 // whole-module import, `beta`'s own union `Token` was stamped as that struct
 // — the comptime expansion looked the name up program-wide, struct first —
 // and reported "`Str | Int` is not a `Union`". It reads each file's names
-// through the resolver's scope (PIPELINE.md step 6). Clean, warnings
+// through the resolver's scope (the pipeline record step 6). Clean, warnings
 // included: std's union `to_str` by auto ended in an unreachable `return ""`
 // until 2026-10-28, which warned in every stamped copy.
 // FILE: alpha.sv

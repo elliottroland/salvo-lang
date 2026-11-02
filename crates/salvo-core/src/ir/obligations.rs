@@ -1,6 +1,6 @@
 //! [ir-obligation] The obligation-annotation pass: after the IR is built, walk
 //! every fn body and insert `Obligation` directives at the four points where a
-//! fn's outstanding linear-obligation set changes (IR_CHECKER.md §3 D3):
+//! fn's outstanding linear-obligation set changes (the IR-checker record §3 D3):
 //!
 //! - `GainParams` at the top of the body: linear parameters moved into the fn.
 //! - `Gain` after a binding (`Let`/`Unpack`/`ForEach`) of a linear value.

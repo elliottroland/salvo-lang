@@ -15,7 +15,7 @@ use crate::ir::*;
 
 /// [fate-move-mode] One module's build, with what each item made: its
 /// declarations' range in `module.decls` and its errors, so the builder can
-/// build one item again from the flow pass's decision (PIPELINE.md D3.6).
+/// build one item again from the flow pass's decision (the pipeline record D3.6).
 pub struct ModuleBuild {
     pub module: Module,
     /// [mod-use] The module-level instances every item is built over.

@@ -13,7 +13,7 @@
 //!
 //! The id is a function of the declaration's own text and module: it does not
 //! change when a body is edited, when declarations are reordered, or when
-//! another file is added or removed (PIPELINE.md §II.10 P1). It is interned
+//! another file is added or removed (the pipeline record §II.10 P1). It is interned
 //! for the process, so it is a pointer: hashing and comparing it is one word,
 //! and the same declaration has the same id in every program that contains it
 //! (std's in the language server's std cache and in each analysis).
@@ -164,7 +164,7 @@ impl DeclId {
 }
 
 /// `Counter.get(Int) -> None@main`, `#1` after it for a second identical
-/// signature: the `name@module` form dumps use (PIPELINE.md §II.7).
+/// signature: the `name@module` form dumps use (the pipeline record §II.7).
 impl fmt::Display for DeclId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let p = self.0;

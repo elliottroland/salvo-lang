@@ -2,7 +2,7 @@
 //
 // [effect-eff-handle] `use` of a tuple of handles binds each single handle it
 // holds, a nested tuple's included: each read at its path (found 2026-10-30,
-// PIPELINE.md D3.3: a nested tuple was read by its flattened index, which
+// the pipeline record D3.3: a nested tuple was read by its flattened index, which
 // both target compilers refused).
 
 //--- handle_tuples

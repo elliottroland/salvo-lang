@@ -185,7 +185,7 @@ export intrinsic fn divide(a: Double, b: Double) [] -> Double => a, b
 // `a ** b` is `pow(a, b)`, at the written types (no widening: an
 // exponent is not a base). An integer power wraps like the other integer
 // arithmetic, and a **negative exponent traps** (the host's
-// arithmetic exception, as a division by zero does; PIPELINE.md §II.10 P17).
+// arithmetic exception, as a division by zero does; the pipeline record §II.10 P17).
 // A `Double` to an `Int` power is repeated squaring, the same multiplications
 // in the same order on both backends, so the same bits (a negative exponent
 // is the reciprocal); a `Double` to a `Double` power is the host's `pow`.

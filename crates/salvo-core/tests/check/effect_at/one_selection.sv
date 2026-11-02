@@ -1,5 +1,5 @@
 // [effect-member-overload] [fn-param-default] [fn-variadic] A member call is
-// selected and checked by the call's own rule (PIPELINE.md B3.5, census D17
+// selected and checked by the call's own rule (the pipeline record B3.5, census D17
 // and D25): parameter defaults and named arguments fill a member's
 // parameters as a fn's, a variadic member collects its tail, and a member
 // with the wrong argument types is the call's no-overload error.

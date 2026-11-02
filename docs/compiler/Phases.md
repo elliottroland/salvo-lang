@@ -51,7 +51,7 @@ data out of `p.tags` is a fact about the operation, so the checker records
 it (a consuming read at the projection). That the move makes `for p in ps`
 iterate by value depends on what `p` is derived from on that path, so the
 flow pass decides it, and the builder lowers the loop from the decision
-(PIPELINE.md D3.5(b)). The IR is built first with every binding
+(the pipeline record D3.5(b)). The IR is built first with every binding
 borrow-mode and every loop by reference; the flow pass decides over that
 build, and the items it decided something in are built again.
 
@@ -64,7 +64,7 @@ pass's. "This variable is moved here, for a `return`" is a fact about the
 operation, and recording it needs types (a Copy scalar's move is a copy, a
 `Mut` handle's mutation goes to its roots). Whether that variable is still
 derived at that point, and from which bindings, depends on the path, so
-the flow pass reads it off the links that stand there (PIPELINE.md D3.5(b)).
+the flow pass reads it off the links that stand there (the pipeline record D3.5(b)).
 Likewise, whether a binding *may* take ownership is judged where the
 binding is (its roots, a lambda around it), so it is the checker's; whether
 it *does* is the flow pass's.
@@ -81,7 +81,7 @@ The IR builder reads what the checker recorded and builds nodes from it. When
 the builder searches a symbol table by name, matches types to find something,
 or inspects a declaration's source to answer a question, it is re-deriving a
 decision, and the two copies can disagree. Record the answer where it is
-decided instead, keyed by identity (PIPELINE.md D3):
+decided instead, keyed by identity (the pipeline record D3):
 
 - effect arguments name their instance's binder (`Instance`), not a type to
   search for;

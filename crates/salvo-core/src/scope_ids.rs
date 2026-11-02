@@ -6,7 +6,7 @@
 //! module paths, so it outlives any one program: the same declarations have
 //! the same ids in every program holding them (`decl_id`). [`ScopeIds::view`]
 //! turns it back into a `ModuleScope` over a program's modules — one lookup
-//! per entry, none of the visibility work that built it (PIPELINE.md C4).
+//! per entry, none of the visibility work that built it (the pipeline record C4).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;

@@ -65,7 +65,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let mut out = Vec::new();
         for face in faces {
             // [actor-send-fn] An overloaded send member cannot be a mint's
-            // target (the checker refuses it, PIPELINE.md B3.7), so it has no
+            // target (the checker refuses it, the pipeline record B3.7), so it has no
             // continuation — and a plain-named one would collide.
             let overloaded = |name: &str| face.members.iter().filter(|o| o.send && o.name == name).count() > 1;
             for fm in face.members.iter().filter(|m| m.send && !overloaded(&m.name)) {

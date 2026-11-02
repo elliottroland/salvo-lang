@@ -208,7 +208,7 @@ pub fn declared_lends(decl: &FnDecl) -> Option<Vec<usize>> {
     Some(out)
 }
 
-/// The lent parameters of `decl`, from its signature alone (PIPELINE.md 4.2,
+/// The lent parameters of `decl`, from its signature alone (the pipeline record 4.2,
 /// user decision 2026-10-20): the written `holds proj(…)` / `=> .f: proj(…)`
 /// entries, else every kept non-Copy parameter, and nothing when the result
 /// cannot hold a borrow at all. A body is never read: it is *validated*

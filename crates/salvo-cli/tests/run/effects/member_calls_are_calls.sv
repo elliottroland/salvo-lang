@@ -1,5 +1,5 @@
 // [effect-member-overload] [fn-param-default] [fn-variadic] A member call is
-// selected by the call's own rule (PIPELINE.md B3.5, census D15, D16, D17,
+// selected by the call's own rule (the pipeline record B3.5, census D15, D16, D17,
 // D25): defaults, named arguments and a variadic tail fill a member as they
 // fill a fn, two available effects' members are ranked by the arguments, and
 // a lambda is typed by the candidate that leads.
@@ -97,7 +97,7 @@ fn main() [use] {
 
 //--- a_member_passed_by_name
 // [effect-member-overload] [fn-value-select] A member is a value by its bare
-// name at a fn-typed position (R10 D3, PIPELINE.md B3.6): the position's type
+// name at a fn-typed position (R10 D3, the pipeline record B3.6): the position's type
 // picks it over a fn of the name, and it runs through the instance in scope.
 // `m@E` passed as an argument is the same value.
 

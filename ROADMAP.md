@@ -53,6 +53,22 @@ targets and the output they print; the first dependency, `modules/aws/`, keeps
 its four (`profile`, `sqs`, `s3`, `ddb`) and its own checks (`modules/aws/check.sh`)
 outside the compiler's tests. 712 tests green (nextest); std's own Salvo tests run inside one of them.
 
+## The unattended run (user, 2026-10-30)
+
+The user let the work run unattended through the pipeline record's last
+stages (D4, E1, E2, all done 2026-10-30) and then through this file's open
+defects that need no decision, in order (0p, 0q, 0r, 0aa, 0ab, 0ad, 0al,
+…). The rules: a new DECISION is recorded here (options, recommendation),
+left unbuilt, and the run goes on with the next unblocked item, stopping
+only when nothing unblocked is left; a differential showing a behavior
+change is fixed when the docs call it a bug, else the old behavior is kept
+and the change recorded; one commit per piece after a warm nextest, no
+pushes; `demo/`, `.vscode/`, `SLICES.md`, `OPERATOR_OVERLOAD.md` and
+`DATA_STACKS.md` are not touched. **Keep this list current as each piece
+lands or stalls** (user), so a context compaction loses nothing. Progress:
+- D4, the dump phases, E1, 0az, E2: done (COMPLETED.md, 2026-10-30).
+- Next: 0p.
+
 ## The sequence
 
 ### N — Namespaces: done (2026-10-16)
@@ -675,7 +691,7 @@ The fix is in the builder: a statically true test with a binding still binds
 An `iter fn`'s inferred state field types are interfaces [handler-state-infer]
 [decl-interface-pass]: the minter whose state infers one is checked with the
 interfaces, before any body, so any *body* reads the type wherever it is
-declared (PIPELINE.md step 7 piece 3). The minters themselves are checked
+declared (the pipeline record step 7 piece 3). The minters themselves are checked
 in declaration order, though, so an inferred initializer that reads another
 `iter fn`'s inferred field declared *later* sees `Unknown`, its own field
 infers `Unknown`, and a mismatch passes unchecked (a [backend-never-wrong]
@@ -792,6 +808,33 @@ before A3). Fix: the copy's target carries its file (an `Origin` that is a
 file with the span; a `by` clause on the type's own declaration never
 reaches it.
 
+### 0bb — Leftovers of the pipeline record's stage D (2026-10-30)
+
+- **`erase` is still public** for one reader outside the IR builder, the
+  Rust backend's platform-alias expansion (`ir_emit/mod.rs`,
+  `ir_emit/decls.rs`): a backend erasing a type itself (D3.4 left it as
+  found). The builder's erasure goes through `ir/build/erased.rs` only.
+- **`approx_keyed` stays, small**: 16 lowerings a suite run (a variadic
+  tail's element type, an `Iter` obligation's element, three signature
+  types) where the checker recorded no written type (D3.3(f)).
+- **The `@whynot` message** is assembled by the IR from the doc template,
+  a presentation question rather than a re-derivation (D3.3).
+- **What the round trip still skips** [round-trip]: `for` (its calls are
+  only marked in the typed dump), an operator whose operand widens
+  [op-promote], qualified types other than `Mut T`; see 0av.
+
+### 0bc — DECISION: lambdas "can declare effects and deductions" (found 2026-10-30)
+
+docs/language/Lambdas-and-Variadics.md says "Lambdas can declare effects …
+and deductions …, just like normal functions", but the parser has no syntax
+for either on a lambda: a lambda's effects come from the fn type it is
+checked against or are inferred from its body (the same page, further
+down), and its parameters' contract is the expected fn type's [fn-contract].
+Options: (a) correct the page to say that; (b) add the syntax, a lambda
+writing `[E]` and `=> …` between its parameters and `->` as a fn does.
+Recommendation (a): nothing has needed it, and an inferred set fits where
+the written one would.
+
 ### 0ae — Recorded, not scheduled: per-declaration reuse in the check cache (measured 2026-10-28, A4)
 
 The language server's `CheckCache` [lsp-check-cache] reuses an unedited
@@ -846,9 +889,9 @@ is a closure over a handler. Options:
   whose effect declares an `eq` or `hash` member).
 
 Recommendation: (a), since a binder's fill is a different kind of thing
-(an identity, not a value). Also recorded in PIPELINE.md §II.10.
+(an identity, not a value). Also recorded in the pipeline record §II.10.
 
-Left by B3.1 for later pieces (PIPELINE.md §II.13 "Order for B3"): a bare
+Left by B3.1 for later pieces (the pipeline record §II.13 "Order for B3"): a bare
 member name as a value (`apply(to_str, p)`, piece 6); members at
 interpolation parts (piece 2; at the comparison operators done in piece 3c);
 and at implicit positions
@@ -865,7 +908,7 @@ scope's fns and members, so its uses report nothing beyond the refusal.
 
 OPERATOR_OVERLOAD.md D-1 to D-7 decide the rule; three cases it does not name
 were built on the reading that follows from it, and are yours to confirm
-(PIPELINE.md §II.10 P10):
+(the pipeline record §II.10 P10):
 
 1. **A non-union alias names its target.** `type Grid = List<Int>` makes
    `to_str(g: Grid)` a shape on `List` (refused outside `list.sv`), since an
@@ -894,7 +937,7 @@ a variable (`f(i)` into a `Long` parameter is refused too; only literals adopt
 [type-lit-adopt]). The call rule cannot express the widening, so B3.3c kept it as a
 **lowering before the call**, as [op-arm-eq] is (R10 D7): the narrower operand
 is widened, then `cmp(Long, Long)` is called; an integer and a float operand
-are refused before any call. Options (PIPELINE.md §II.10 P11):
+are refused before any call. Options (the pipeline record §II.10 P11):
 
 - **(a) A lowering before the call** (built): the operator's meaning is
   unchanged; operator and written call differ for mixed widths, as for an arm
@@ -925,7 +968,7 @@ them (a sorted container of floats has no total order), so the call `a < b`
 names does not exist at a `Double`. B3.3c kept the host's IEEE order there
 (`NaN` neither less nor greater) **when no `cmp` is in reach**; an enclosing
 `?cmp` over `Double`s takes the operator, as it takes the call (R10 D1).
-Options (PIPELINE.md §II.10 P12):
+Options (the pipeline record §II.10 P12):
 
 - **(a) Host order when nothing answers** (built): the one fast path left, and
   only where the call finds no candidate.
@@ -942,7 +985,7 @@ Recommendation: (a).
 
 ### 0ak — DECISION: two places a comparison and its call still differ (B3.3c, 2026-10-28)
 
-Built as before B3.3c, since R10 did not name them (PIPELINE.md §II.10 P13,
+Built as before B3.3c, since R10 did not name them (the pipeline record §II.10 P13,
 P14):
 
 1. **A binder alias counts for the operator** (P13): `?cmp: cmp2` fills the
@@ -1067,7 +1110,7 @@ repros are over the real std.
   call (`draw(out)`) needs no `defer`, through a held handle it does.
 - **From the run data (TESTS.md C3)**:
   - **An out-of-range subscript traps with a Salvo message** (user, 2026-10-28:
-    fix it, after the PIPELINE.md work): today it is the host's panic —
+    fix it, after the the pipeline record work): today it is the host's panic —
     Rust prints `index out of bounds: the len is 3 but the index is 10`
     (exit 101), Kotlin throws `ArrayIndexOutOfBoundsException` (exit 1)
     (`run_tests::the_programs_exit_code_is_the_commands`) — and it should be a
@@ -1126,7 +1169,7 @@ built: a field's name node needs its own identity, and the readers
 
 ### 0as — What member calls and uniform calls left (B3.4, 2026-10-28)
 
-PIPELINE.md §II.10 P19 is built; these are its recorded leftovers.
+the pipeline record §II.10 P19 is built; these are its recorded leftovers.
 
 - **Member values** (user, 2026-10-28: a future change): `c.bump` without a
   call, as a fn value that sends to `c`, and generally `x.f` read for a
@@ -1137,7 +1180,7 @@ PIPELINE.md §II.10 P19 is built; these are its recorded leftovers.
   with a `fn bump(c: eff[Counter], n: Int)` in scope is the uniform call, where
   a `let` first makes it the send, with the shadow warning. Fixing it means
   typing the receiver before choosing (a speculative check, or the typed
-  pass of PIPELINE.md's stage C).
+  pass of the pipeline record's stage C).
 - **The shadow warning under `?.`** can only be silenced by writing the
   narrowing out (`if a is T { (a.f)(x) }`): `?.(f)` is not syntax (user's
   option (a)).
@@ -1160,7 +1203,7 @@ PIPELINE.md §II.10 P19 is built; these are its recorded leftovers.
 
 ### 0au — What one selection for sends and mints left (B3.7, 2026-10-28)
 
-PIPELINE.md B3.7 built D18 (a), D24 (a) and the uniform call reaching a
+the pipeline record B3.7 built D18 (a), D24 (a) and the uniform call reaching a
 handler's own `send fn`. Cut, each refused with a diagnostic rather than
 emitted wrong:
 
@@ -1186,9 +1229,9 @@ emitted wrong:
 
 ### 0av — What the round-trip check for calls left (B4, 2026-10-28)
 
-PIPELINE.md B4 built [round-trip] over the examples and the corpus (P5 (b)).
+the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (b)).
 
-- **DECISION (PIPELINE.md §II.10 P21): a carried binder written as well.**
+- **DECISION (the pipeline record §II.10 P21): a carried binder written as well.**
   `contains(s, x, hash = h)` where `s`'s type carries its `hash` was never
   checked. Built, as recommended: (a) check it, accept the carried identity,
   refuse any other (`cmp-carry:override-disagrees`; forwarded, only the
@@ -1220,7 +1263,7 @@ They skipped the same way in the compiler's test before the move. `ONLINE=1
 modules/aws/check.sh` fetches the crates; until someone runs it once, the Rust
 glue is unchecked against the SDK.
 
-### 0ax — Names still read program-wide (PIPELINE.md C1.1, 2026-10-29)
+### 0ax — Names still read program-wide (the pipeline record C1.1, 2026-10-29)
 
 C1.1 moved the last program-wide lookups of a *written* name to keys. Three
 remain, each a design question rather than a lookup to swap:
@@ -1251,7 +1294,7 @@ the checker's own scopes:
 - **Locals, by name.** The checker's `LocalVar` frames are keyed by name and
   its flow state (narrowing, fate links, captures) follows them; resolution's
   binding for each read is checked against them in a debug build. Stamped
-  copies no longer need it (PIPELINE.md C3.2 made them scopes, 2026-10-30);
+  copies no longer need it (the pipeline record C3.2 made them scopes, 2026-10-30);
   reading by binding is now D2's, when the checker writes the typed form.
 - **Unresolved-name diagnostics**, type and value. The checker reports them
   at declaration sites and positions it validates; a complete walk reaches
@@ -1284,7 +1327,7 @@ therefore driven by its `next`, and its `iter` is never called by a `for`.
 OPERATOR_OVERLOAD.md's brief: "I suppose it should be an error for _both_ next
 and iter to be defined on the same type"; R10 did not decide it. What the code
 refuses today is only the *obligation* pair (`: Iter<…>` beside `: Next<…>` on
-one struct, [iter-group]); the fns alone are accepted. Options (PIPELINE.md
+one struct, [iter-group]); the fns alone are accepted. Options (the pipeline record
 §II.10 P15):
 
 - **(a) Accept, `next` wins** (built): a value some `next` takes is already a
@@ -1310,7 +1353,7 @@ links, temporary-view checks) is not applied at them — driving keeps its own
 rules for the subject ([iter-drive-in-place], [proj-type], [iter-for-elem-write]).
 They agree on every program the suite checks (the differential); folding the
 loop's rules into the call's contract would make the header a written
-`let it = Mut e; loop { when next(it) … }` (PIPELINE.md §II.6), and belongs to
+`let it = Mut e; loop { when next(it) … }` (the pipeline record §II.6), and belongs to
 the typed partial IR (Stage D).
 
 ### 0ao — DECISION: names for `%`, unary `-` and `++`/`--` (B3.3e, 2026-10-28)
@@ -1322,7 +1365,7 @@ scalars only**, as they were ([op-arith]): `%` with [op-promote]'s widening,
 unary `-` on a number, `++`/`--` on an `Int` place [op-inc-dec]; a struct gets
 none of them, and no name for them is a shape [op-unique-shape]. Compound
 assignment needs nothing: `v += w` is `v = v + w` [op-compound], which is
-`plus`. Options (PIPELINE.md §II.10 P16):
+`plus`. Options (the pipeline record §II.10 P16):
 
 - **(a) Keep them numeric-only** (built).
 - **(b) Name them**: `a % b` is `rem(a, b)` and `-a` is `neg(a)` (two more
@@ -1337,7 +1380,7 @@ while a step of one on a struct has no obvious meaning. The names `rem` and
 
 ### 0ap — DECISION: what `**` means, and what std declares for it (B3.3e, 2026-10-28)
 
-Built ([op-pow]; PIPELINE.md §II.10 P17): std declares `pow(Int, Int) ->
+Built ([op-pow]; the pipeline record §II.10 P17): std declares `pow(Int, Int) ->
 Int`, `pow(Long, Int) -> Long`, `pow(Double, Int) -> Double` and
 `pow(Double, Double) -> Double`, and the operator widens nothing. The
 questions:
@@ -1372,7 +1415,7 @@ parity of float results is to stay a promise without exceptions.
 ### 0aq — DECISION: the precedence of `**` (B3.3e, 2026-10-28)
 
 The brief and OPERATOR_OVERLOAD.md say nothing about it. Built ([op-pow];
-PIPELINE.md §II.10 P18) as most languages with the operator do (Python's
+the pipeline record §II.10 P18) as most languages with the operator do (Python's
 rule): **tighter than `*` and than a prefix operator on its left,
 right-associative, its exponent possibly unary**. So `-2 ** 2` is `-4`,
 `2 ** 3 ** 2` is `512`, `2 ** -1` is `2 ** (-1)` and `a * b ** c` is
@@ -1679,7 +1722,7 @@ narrowed to `Manual`) make `${value}` ambiguous at the interpolation while
 `to_str@[site](value)` rather than interpolating an arm. Pre-existing
 [implicit-resolve] locality, not a comptime defect.
 
-**Left by PIPELINE.md step 6's scoped lookups (2026-10-20).** The expansion
+**Left by the pipeline record step 6's scoped lookups (2026-10-20).** The expansion
 resolves the unstamped program and reads each name through the scope of the
 file that wrote it (C3.3a, 2026-10-30, which retired the program-wide
 ladder); these stay open:
@@ -1695,7 +1738,7 @@ ladder); these stay open:
 - **Defect, found writing the tests**: `type T = Str | Int : ToStr<self> by
   auto` warns "this code is unreachable" in the stamped `to_str` — `std.core.auto`'s
   union template ends in `return ""` after an exhaustive `[when value]`.
-- **The signature/body split** (PIPELINE.md §5: `by` declares the member
+- **The signature/body split** (the pipeline record §5: `by` declares the member
   signatures in 02-resolve-03, bodies stamped in 02-resolve-04) waits on step
   8's stable ids and declaration-relative spans. **Decided (user,
   2026-10-14): a stamped member has the signature it is declared with, never
@@ -1802,14 +1845,14 @@ reproduced in a scratch project; the repros are below.
    owned value fitting it.
 
 9c. ✅ **Writing both members of a `with` pair with another struct** — done
-    2026-10-20 with PIPELINE.md step 4 ([iter-group], COMPLETED.md).
+    2026-10-20 with the pipeline record step 4 ([iter-group], COMPLETED.md).
 
 9d. ✅ **A handler's state initializer reads a constructor parameter, and its
-    names may not clash** — done 2026-10-20 with PIPELINE.md step 4
+    names may not clash** — done 2026-10-20 with the pipeline record step 4
     ([name-bare], [handler-state-name], COMPLETED.md).
 
 9e. **A general `state` effect (DECISION, to design).** Found 2026-10-20 while
-   designing named iterator state (PIPELINE.md 4.1, "The general form"): a
+   designing named iterator state (the pipeline record 4.1, "The general form"): a
    `state` statement that brings a struct into scope for the rest of a block,
    like `use` (`state Cursor { src: text, at: 0 }`), and `[state S]` on a fn
    that needs a caller's state, read bare as a step body reads its own.
@@ -2576,7 +2619,7 @@ backends**.
 
 ### 5 — LSP responsiveness: debounce, per-file parse cache, and a cached std front-half (user decisions 2026-10-10; phases 1–3 built, 4 recorded, 5 open)
 
-**Superseding design in progress:** PIPELINE.md (2026-10-20) reorganizes the
+**Superseding design in progress:** the pipeline record (2026-10-20) reorganizes the
 compiler into phases with per-file and per-declaration caching and early
 cutoff, which would replace phase 4's std-only summary with the general
 mechanism. Decided (rounds R1–R5); its §7 is the plan of work.
@@ -2587,7 +2630,7 @@ event with no incremental state (`crates/salvo-cli/src/lsp.rs`,
 parsed, resolved and checked from scratch on each keystroke. The cost is
 `check_program`'s walk over every body (`crates/salvo-core/src/check.rs`; a
 whole-program fixpoint of up to four walks when this was written, one walk
-since 2026-10-20, PIPELINE.md R8 piece 4), not parsing. And
+since 2026-10-20, the pipeline record R8 piece 4), not parsing. And
 because the server is single-threaded with no debounce or cancellation, a full
 analysis runs to completion before the next batch of events is read, so an
 analysis in flight reflects a buffer from several keystrokes ago and the
@@ -2685,11 +2728,11 @@ it would save only the cheap transcription and inherit every coupling of the
   spelling that calls an arbitrary fn expression with the receiver first,
   e.g. `x.(e.something)()`. Today it is written `(e.something)(x)`.
 
-- **What a language-server edit still costs** (PIPELINE.md step 8, measured
+- **What a language-server edit still costs** (the pipeline record step 8, measured
   2026-10-20, debug, `tools/lsp-timing.py`; ~28–39ms on `examples/cluster`,
   ~40ms on `modules/aws`), largest first:
   1. std's resolution, redone every analysis. Its scopes are the front's
-     since 2026-10-30 (by id, viewed: PIPELINE.md C4); left of it, measured
+     since 2026-10-30 (by id, viewed: the pipeline record C4); left of it, measured
      the same day on `examples/cluster` (debug): the name binding over std's
      bodies and signatures (`resolve: names`, ~11ms of ~12), the core base a
      project file's scope starts from (built from std's modules per
@@ -2698,7 +2741,7 @@ it would save only the cheap transcription and inherit every coupling of the
      names needs `Names<'p>` by id too.
   1b. A program's resolution builds again every scope that took in a module
      comptime changed (gained a clause's members, lost its templates:
-     PIPELINE.md C4 B). Without the std front that is every scope (std's
+     the pipeline record C4 B). Without the std front that is every scope (std's
      core modules gain members), so a one-shot build resolves its scopes
      twice, once for the interfaces and once after stamping (~14 and ~16ms
      on `examples/cluster`, debug). Adding the members to the built scopes
@@ -2715,7 +2758,7 @@ it would save only the cheap transcription and inherit every coupling of the
      is always walked (`modules/aws`'s `aws.sv`); a stamped module equal to the
      last one could keep its `Arc`.
   5. The per-file cache's insert clones every cached row (~1.6ms on aws).
-- **Per-declaration checker caching** (PIPELINE.md §7 step 8's second level):
+- **Per-declaration checker caching** (the pipeline record §7 step 8's second level):
   measured not worth building yet — it saves at most the edited file's own
   walk (~6ms on cluster, ~4ms on aws) and needs rows partitioned by
   declaration inside a file (stamps and route stubs sit past the file's end),

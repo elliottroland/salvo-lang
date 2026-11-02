@@ -3,7 +3,7 @@
 //! Moved into `salvo-core` from the former `salvo-ir` crate on 2026-10-12 so
 //! that core is the single home of checking: the IR is built from the checked
 //! AST here, and the "real" semantic validation (linear obligations,
-//! deductions) runs on this IR. See IR_CHECKER.md.
+//! deductions) runs on this IR. See the IR-checker record.
 
 pub mod analyze;
 pub mod build;

@@ -78,7 +78,7 @@ impl Key {
     /// the node's own key by both sides alike, so nothing recomputes it
     /// differently.
     /// [node-id] The key of declaration `id`'s **name**, the node a
-    /// declaration's own facts are kept at (PIPELINE.md D2, declaration
+    /// declaration's own facts are kept at (the pipeline record D2, declaration
     /// facts): every declaration is numbered from its own span, so its name
     /// is its second node. Made without a lookup, for a reader holding the
     /// id; it carries no origin (a reader that places a fact iterates the
@@ -275,13 +275,13 @@ struct Viable<'p> {
     module: String,
     /// [effect-member-overload] The effect whose member this is, for a member
     /// candidate (`key` is then `None`): members and fns are one set
-    /// (PIPELINE.md B3.5).
+    /// (the pipeline record B3.5).
     effect: Option<&'p EffectDecl>,
 }
 
 /// [fn-overload] [effect-member-overload] A candidate for a call by name: a
 /// declared fn, or a member of an effect, ranked as **one set** by one rule
-/// (R10 P4, PIPELINE.md B3.5): members compete with fns, and with each other
+/// (R10 P4, the pipeline record B3.5): members compete with fns, and with each other
 /// across effects.
 #[derive(Clone)]
 enum CallCand<'p> {
@@ -296,7 +296,7 @@ enum CallCand<'p> {
     },
     /// [actor-self-send] [actor-mixed-handler] A member of the enclosing
     /// handler itself — the target of a self-send, a servant send or a member
-    /// mint (PIPELINE.md B3.7). Its handler's generics are the context's,
+    /// mint (the pipeline record B3.7). Its handler's generics are the context's,
     /// not the call's to infer.
     Own { handler: &'p ast::HandlerDecl, decl: &'p FnDecl },
 }
@@ -430,7 +430,7 @@ pub struct UnionTest {
 
 /// [is-narrowing] A **test** at one node (an `is`, a `^`, a `when` branch
 /// head, an [op-arm-eq] comparison): what the program asks of a value at
-/// run time (PIPELINE.md D2, `Test`). A node asks one kind of question.
+/// run time (the pipeline record D2, `Test`). A node asks one kind of question.
 #[derive(Clone, Debug)]
 pub enum Test {
     /// The subject's union arm [is-narrowing] [is-precise].
@@ -534,7 +534,7 @@ pub struct PassDriver {
 }
 
 /// [ir-coerce] A **conversion** at one expression: the representation
-/// changes a backend applies to the value, in order (PIPELINE.md D2,
+/// changes a backend applies to the value, in order (the pipeline record D2,
 /// `Convert`). A conversion changes how a value is stored; a change of its
 /// static type alone is a narrowing ([`NarrowedRead`]).
 ///
@@ -855,7 +855,7 @@ pub enum Constructed {
 }
 
 /// [effect-instance] An effect instance a fact reads: its type, and the
-/// binding that put it in scope (PIPELINE.md D3, user decision 2026-10-30).
+/// binding that put it in scope (the pipeline record D3, user decision 2026-10-30).
 /// The lowering reaches the binding's local by it rather than searching
 /// its environment by type.
 #[derive(Clone, Debug, PartialEq)]
@@ -1068,7 +1068,7 @@ enum EffectOrigin {
 }
 
 /// [effect-alias] [effect-prereq] One effect of a list as the program means
-/// it: aliases flattened, prerequisites added (PIPELINE.md R6).
+/// it: aliases flattened, prerequisites added (the pipeline record R6).
 #[derive(Clone, Debug)]
 struct ListedEffect {
     ty: Ty,
@@ -1126,7 +1126,7 @@ pub struct Checked {
     pub arm_compares: HashMap<Key, ArmCompare>,
     /// [ir-narrow] The reads whose static type is not their storage's: a
     /// narrowed identifier, field or element place, or a field a
-    /// qualifier's claim refines (PIPELINE.md D2, the narrowing half of
+    /// qualifier's claim refines (the pipeline record D2, the narrowing half of
     /// `Convert`). The checker reads the flow entries back for the physical
     /// type a coercion starts from (`repr_of`).
     pub narrowed_reads: HashMap<Key, NarrowedRead>,
@@ -1147,7 +1147,7 @@ pub struct Checked {
     /// than have each backend re-derive it; the language server offers the
     /// rest as the arms still to write.
     pub when_missing: HashMap<Key, Vec<String>>,
-    /// [call-resolve] What each call resolved to, by the call (PIPELINE.md D2,
+    /// [call-resolve] What each call resolved to, by the call (the pipeline record D2,
     /// calls): one [`Callee`] — a declared fn at its type arguments, an
     /// effect's member, a qualifier's fn, a fn value (a local, a field, a
     /// computed callee, with its contract), a send, `throw` — and whether it
@@ -1173,13 +1173,13 @@ pub struct Checked {
     /// language server's merged documentation [qual-refn-docs].
     pub refinements: crate::refine::Refinements,
     /// [effect-handle] [effect-handler-multi] [effect-eff-handle] The effects
-    /// of the handle or handles a node binds or yields, in order (PIPELINE.md
+    /// of the handle or handles a node binds or yields, in order (the pipeline record
     /// D2, handles): a `use` (every face it binds, a tuple's every element),
     /// a `spawn` (the faces its child serves: its `Addr`s), a projection
     /// `e[A, B]`, a merge `eff[a, b]` / `eff[*]`.
     pub handles: HashMap<Key, Vec<Ty>>,
     /// [effect-handler-deps] [effect-with-clause] [effect-handler-generics]
-    /// A handler built at a node (PIPELINE.md D2, handler construction): a
+    /// A handler built at a node (the pipeline record D2, handler construction): a
     /// `use H()`, a `spawn H()`, a `with` item, and the route a `use any`
     /// derives [actor-route-stub]. A `use` with handles and no construction
     /// binds an existing handle (`use addr`, a tuple of them).
@@ -1199,7 +1199,7 @@ pub struct Checked {
     /// compares what the compiler computed rather than what a runtime hashed.
     pub protocol_hashes: std::collections::BTreeMap<String, String>,
     /// [actor-replyto] [task-mint] What each `replyto` mints a continuation
-    /// for, by the `replyto` (PIPELINE.md D2): a member of the enclosing
+    /// for, by the `replyto` (the pipeline record D2): a member of the enclosing
     /// handler, by its written name, or a free `send fn` — a task — by the
     /// declaration the scope ladder resolved; a task's effects are its
     /// `effects_passed`.
@@ -1281,7 +1281,7 @@ pub struct Checked {
     /// `add_node() -> Long` read as `Bool`).
     pub written_types: HashMap<usize, Ty>,
     /// [fn-effects] [effect-fn-deps] The leading effect parameters of the
-    /// callable at a node (PIPELINE.md D2, effect lists): a fn's — every fn
+    /// callable at a node (the pipeline record D2, effect lists): a fn's — every fn
     /// the checker lowered, handler and qualifier members included — at its
     /// name, expanded (aliases flattened, prerequisites added, the effects of
     /// fn-typed parameters first; a member's inherited handler dependencies
@@ -1292,7 +1292,7 @@ pub struct Checked {
     /// from the fn's own.
     pub effects_taken: HashMap<Key, Vec<Ty>>,
     /// [fn-effects] [effect-dispatch] [task-effects] What a call site gives
-    /// of the effects in scope (PIPELINE.md D2, effect lists): the instance
+    /// of the effects in scope (the pipeline record D2, effect lists): the instance
     /// an effect-member call dispatches on, or the instances a call — named,
     /// through a fn value, or a task mint — passes ahead of its arguments, in
     /// the callee's declared order.
@@ -1302,7 +1302,7 @@ pub struct Checked {
     /// prerequisites of its faces, each with the span it came from.
     pub handler_deps: HashMap<Key, Vec<(Ty, Span)>>,
     /// [actor-deadlock-cycle] Each handler's shape as the deadlock graph
-    /// reads it, by the handler's name (PIPELINE.md E1, its per-declaration
+    /// reads it, by the handler's name (the pipeline record E1, its per-declaration
     /// summary): its name and key, its faces, whether it has `send` members,
     /// whether it is stateful before parking says so, and which of its
     /// dependencies are written `any E`.
@@ -1357,7 +1357,7 @@ pub struct Checked {
     /// on the arm the value is.
     pub interp_union: HashMap<Key, Vec<ArmText>>,
     /// [proj-readonly-return] [proj-infer] [proj-anywhere] What each call's
-    /// result borrows of its arguments, by the call (PIPELINE.md D2, a call's
+    /// result borrows of its arguments, by the call (the pipeline record D2, a call's
     /// borrowed result): a view of them or a value holding borrows of them,
     /// which arguments, and whether one is a temporary. The checker links
     /// the result to those arguments [fate-link].
@@ -1371,16 +1371,16 @@ pub struct Checked {
     /// container is lent mutably exactly when a handle into it is written).
     pub param_mutations: HashMap<Key, HashSet<String>>,
     /// [fn-param-mode] Per declaration, at its name, how it takes each
-    /// written parameter (`param_mode::record`, PIPELINE.md D3.2): moved,
+    /// written parameter (`param_mode::record`, the pipeline record D3.2): moved,
     /// lent, or lent mutably. Recomputed every check, from `deductions` and
     /// `param_mutations`.
     pub param_modes: HashMap<Key, Vec<crate::param_mode::PassMode>>,
     /// [backend-core-layers] std's declarations, at their names, that *are*
-    /// a primitive the backends spell natively (PIPELINE.md D3.3(a), (b)):
+    /// a primitive the backends spell natively (the pipeline record D3.3(a), (b)):
     /// recomputed every check.
     pub primitives: HashMap<Key, Primitive>,
     /// [platform-check] [platform-factory] The host boundary at a node
-    /// (PIPELINE.md D2): what crosses from host to Salvo and needs checking
+    /// (the pipeline record D2): what crosses from host to Salvo and needs checking
     /// (ABI D7), and the factories of a union a host builds (ABI D5). At a
     /// platform fn's name (its result), a platform-handled effect member's
     /// name (its result) or a `Reply<T>` parameter's name (what the host
@@ -1426,7 +1426,7 @@ pub struct Checked {
     /// What fills each implicit parameter at a call [implicit-resolve],
     /// keyed by the call span, in the callee's declared order.
     pub implicit_args: HashMap<Key, Vec<ImplicitArg>>,
-    /// [fn-value] Every function named as a value, at its name (PIPELINE.md D2,
+    /// [fn-value] Every function named as a value, at its name (the pipeline record D2,
     /// calls): a declared fn and the implicits it fills in turn, or an
     /// effect's member `m@E` [effect-member-overload].
     pub fn_values: HashMap<Key, FnValue>,
@@ -1526,7 +1526,7 @@ struct ForSite {
     call: String,
     subject: Ty,
     /// [interp-to-str] The site is an interpolated part, whose call is
-    /// `to_str(part)` (PIPELINE.md §II.10 P4), not a `for`.
+    /// `to_str(part)` (the pipeline record §II.10 P4), not a `for`.
     interp: bool,
 }
 
@@ -1882,7 +1882,7 @@ pub struct LambdaInfo<'c> {
 /// [unify-checker] string-interpolation rendering facts at one span
 /// (COMPLETED.md's unify-checker entry): a union's per-arm dispatch. Any other
 /// part is the call `to_str(part)`, whose facts are the call's, at the part's
-/// `Key::INTERP_TEXT` (PIPELINE.md B3.2).
+/// `Key::INTERP_TEXT` (the pipeline record B3.2).
 pub struct InterpInfo<'c> {
     pub union: Option<&'c Vec<ArmText>>,
 }
@@ -2164,7 +2164,7 @@ fn check_program_walk<'p>(
     let mut mutations: HashMap<Key, HashSet<String>> = HashMap::new();
     // [actor-replyto] Handlers whose members mint a self-targeted
     // continuation, read off each handler's own text before anything is
-    // walked (PIPELINE.md 4.5), so the `use` refusal it drives is right in
+    // walked (the pipeline record 4.5), so the `use` refusal it drives is right in
     // the first walk.
     let syntactic = syntactic_parking_handlers(program, symbols);
     let mut parking: HashSet<String> = syntactic.clone();
@@ -2194,7 +2194,7 @@ fn check_program_walk<'p>(
     drop(t);
     // [deduce-default] Every fn's contract is a function of its signature
     // (user decision 2026-10-11), so it is known before any body is walked
-    // (PIPELINE.md step 2): the first walk is a real one.
+    // (the pipeline record step 2): the first walk is a real one.
     let t = crate::timing::phase("check: contracts");
     let contracts = crate::deduce::contracts(program, &resolution.decls, cache);
     drop(t);
@@ -2266,9 +2266,9 @@ fn record_primitives(program: &Program, out: &mut Checked) {
 /// [actor-replyto] The handlers whose members mint a continuation into the
 /// handler itself — `replyto k(…)` naming one of its own members, or
 /// `self@Face` naming one of its faces — read off each handler's text
-/// (PIPELINE.md 4.5), by handler key [type-identity]: by written name, a
+/// (the pipeline record 4.5), by handler key [type-identity]: by written name, a
 /// parking `Srv` of one module refused the `use` of another module's `Srv`
-/// that does not park (found 2026-10-29, PIPELINE.md C1). The walk resolves
+/// that does not park (found 2026-10-29, the pipeline record C1). The walk resolves
 /// the same names and refuses a wrong one, so this over-approximates only for
 /// a program already in error.
 fn syntactic_parking_handlers(program: &Program, symbols: &Symbols<'_>) -> HashSet<String> {
@@ -2890,7 +2890,7 @@ type NarrowSnapshot = Vec<HashMap<String, VarState>>;
 type Binding = (Ident, Ty, Vec<FateLink>, Option<Span>);
 
 /// [decl-interface-pass] Which half of each declaration a checking walk does
-/// (PIPELINE.md §2, 02-resolve-03-interfaces). Every file's interfaces are
+/// (the pipeline record §2, 02-resolve-03-interfaces). Every file's interfaces are
 /// checked, with their diagnostics, before any body: `Interface` runs over
 /// each file twice (signature facts, then the rest of every header), and
 /// `Body` over each file once, reading what `Interface` recorded.
@@ -8142,7 +8142,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let entries: Vec<crate::resolve::FnEntry<'p>> = self.overloads_in(written, name);
         // [effect-member-overload] [fn-value-select] An available effect's
         // members of the name compete with the fns at a fn-typed position
-        // (R10 D3, PIPELINE.md B3.6), as `name@Effect` does; a `@module` or
+        // (R10 D3, the pipeline record B3.6), as `name@Effect` does; a `@module` or
         // `@Type` selector names declarations, which a member never is.
         let want: Option<Ty> = expected.filter(|t| matches!(t.strip_quals(), Ty::Fn { .. })).cloned();
         let members: Vec<MemberCand<'p>> = if at.is_none() { self.available_members(name) } else { Vec::new() };
@@ -9469,7 +9469,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// state initializers, and the types they give are the iterator
     /// struct's fields, which other declarations read
     /// (`declared_field_ty`): an interface, so the minter is checked, body
-    /// and all, with the interfaces (PIPELINE.md 4.6, R5 option b). Read
+    /// and all, with the interfaces (the pipeline record 4.6, R5 option b). Read
     /// off a body walk, a fn declared above the `iter fn` saw the field as
     /// `Unknown`, and `return c.at` from a `-> Str` passed (found
     /// 2026-10-20).
@@ -9524,7 +9524,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let (effects, can_use, can_spawn) = self.check_effect_list(f);
         // [fn-effects] The fn's own list, expanded: a fn named as a *value*
         // builds its `Ty::Fn` from this table, whichever body names it
-        // first (PIPELINE.md step 7).
+        // first (the pipeline record step 7).
         let tys: Vec<Ty> = effects.iter().map(|a| a.ty.clone()).collect();
         self.out.effects_taken.insert(self.key(f.name.span), tys);
         SigFacts { implicits, effects, can_use, can_spawn }
@@ -9683,7 +9683,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .unwrap_or_default();
         // [proj-infer] What this fn's result holds borrows of: declared with
         // `holds proj(p)`, else every kept non-Copy parameter — from the
-        // signature alone (PIPELINE.md 4.2). A written list is checked against
+        // signature alone (the pipeline record 4.2). A written list is checked against
         // what the body visibly lends (`check_written_lends_against_body`, in
         // the body pass); the default covers every kept parameter by
         // construction.
@@ -10383,7 +10383,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [effect-handle] A named effect: an availability every binding of
         // which is a handle. [effect-alias] [effect-prereq] Aliases and
         // prerequisites are expanded here, the one place a fn's list is
-        // lowered (PIPELINE.md R6).
+        // lowered (the pipeline record R6).
         let mut written: Vec<Ty> = Vec::new();
         for e in self.expand_effect_refs(f.effects.as_deref().unwrap_or(&[]), true) {
             if e.origin == EffectOrigin::Written {
@@ -10620,7 +10620,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [effect-alias] [effect-prereq] An effect list as the program means it
-    /// (PIPELINE.md R6, replacing the AST rewrites that ran before
+    /// (the pipeline record R6, replacing the AST rewrites that ran before
     /// resolution): every alias replaced by its members, resolved in the
     /// alias's own file, and — with [prereqs] — every effect's prerequisites
     /// added, resolved in the effect's own file with its type arguments
@@ -11851,7 +11851,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [name-table] That the binding resolution gave a variable read is the
     /// one this checker's scopes find (both by its name's span) — or that
     /// neither finds one. The two state one scoping rule twice until the
-    /// checker reads locals by binding (PIPELINE.md C3).
+    /// checker reads locals by binding (the pipeline record C3).
     #[cfg(debug_assertions)]
     fn check_value_binding(&self, id: &Ident) {
         let Some(w) = self.resolution.names.value(id) else { return };
@@ -12514,7 +12514,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [interp-to-str] An interpolated part is the call `to_str(part)`
-    /// (PIPELINE.md §II.10 P4, option (a), user decision 2026-10-28), resolved
+    /// (the pipeline record §II.10 P4, option (a), user decision 2026-10-28), resolved
     /// as that call written in the body is: the enclosing fn's own implicit
     /// `to_str` first [implicit-resolve-body] (at a scalar or a `Str` too,
     /// census D1), then the visible fns and the available effects' members of
@@ -13804,7 +13804,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///   several are ranked like overloads [implicit-same-name] (D21).
     ///   [cmp-binder] A binder alias counts by the slot it fills
     ///   (`?cmp: cmp2` is a `cmp` here), as decided 2026-09-22; the call
-    ///   `cmp(a, b)` does not see it (PIPELINE.md §II.10 P13, open).
+    ///   `cmp(a, b)` does not see it (the pipeline record §II.10 P13, open).
     /// * **Then the visible declarations and the available effects' members**,
     ///   by `resolve_named_call` (R10 D3: a member competes; a tie is the
     ///   ordinary ambiguity, `m@E` its remedy). Under [op-unique-shape] a
@@ -13986,7 +13986,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [op-arith] [op-pow] An arithmetic operator is **the call it names**
-    /// (OPERATOR_OVERLOAD.md O1, PIPELINE.md §3 R10): `a + b` is `plus(a, b)`,
+    /// (OPERATOR_OVERLOAD.md O1, the pipeline record §3 R10): `a + b` is `plus(a, b)`,
     /// `-` `minus`, `*` `times`, `/` `divide`, and `a ** b` is `pow(a, b)`,
     /// resolved exactly as the written call is, as the comparisons are
     /// (B3.3c): the enclosing fn's own implicit of the name first, by name as
@@ -14121,7 +14121,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [op-arith] `%`'s operand typing, the one arithmetic operator that names
-    /// no function (PIPELINE.md §II.10 P16; `+ - * /` and `**` are
+    /// no function (the pipeline record §II.10 P16; `+ - * /` and `**` are
     /// [`Checker::check_arith_call`]). Numeric operands only (user decision
     /// 2026-09-14), with implicit widening *within* a class
     /// (`Int % Long → Long`; the narrower side records a promotion
@@ -15436,7 +15436,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(span, messages::actor_self_send_not_send(&member.name));
         }
         // [fn-overload] The target and its arguments by the call's rule
-        // (PIPELINE.md B3.7, D24 (a)).
+        // (the pipeline record B3.7, D24 (a)).
         let arg_refs: Vec<&'p Expr> = args.iter().collect();
         if self.own_send_target(h, &member.name, &targets, &arg_refs, &[], span).is_none() {
             return Ty::none();
@@ -15538,7 +15538,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         self.record_def_ref(member.span, &member.name);
         // [effect-member-overload] [fn-overload] The overload and its
-        // arguments by the call's rule (PIPELINE.md B3.7, D24 (a)): typed
+        // arguments by the call's rule (the pipeline record B3.7, D24 (a)): typed
         // once, the lead's parameter types flowing in, ranked like any
         // overloads; the instance the addr names binds the effect's generics.
         let cands: Vec<CallCand<'p>> = members
@@ -16130,7 +16130,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         self.record_def_ref(id.span, &id.name);
         // [fn-overload] The target and the arguments by the call's rule
-        // (PIPELINE.md B3.7, user decision 2026-10-28: D24 (a)).
+        // (the pipeline record B3.7, user decision 2026-10-28: D24 (a)).
         if self.own_send_target(h, &id.name, &targets, args, &[], span).is_none() {
             return Some(Ty::none());
         }
@@ -16177,7 +16177,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// sender gives it up [deduce-consume]. A message carries its arguments as
     /// written, so a send that leaves a defaulted parameter out, names one, or
     /// reaches implicit or variadic parameters is refused until the lowering
-    /// can fill them (PIPELINE.md B3.7; ROADMAP 0au).
+    /// can fill them (the pipeline record B3.7; ROADMAP 0au).
     #[allow(clippy::too_many_arguments)]
     fn send_payload(
         &mut self,
@@ -16345,7 +16345,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [task-mint] [fn-overload] Which free `send fn` a mint `replyto
     /// k(captures)` targets, by the call's rule over what a mint knows
-    /// (PIPELINE.md B3.7, user decision 2026-10-28: D18 (a)): every visible
+    /// (the pipeline record B3.7, user decision 2026-10-28: D18 (a)): every visible
     /// `send fn` of the name competes, whatever rung brought it into scope
     /// (renames respected, `k@module` narrowing it); a candidate fits when it
     /// takes the captures and one more parameter, the token, and — where the
@@ -16685,7 +16685,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         let targets: Vec<&'p FnDecl> = h.fns.iter().filter(|f| f.name.name == member.name).collect();
         // [fn-overload] A member mint names its member, which cannot say which
-        // overload yet (PIPELINE.md B3.7; ROADMAP 0au).
+        // overload yet (the pipeline record B3.7; ROADMAP 0au).
         if targets.len() > 1 {
             for c in captures {
                 self.check_expr(c, None);
@@ -18041,7 +18041,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// without a diagnostic of its own (what is wrong with it was reported
     /// where it was validated), so the IR has the checker's lowering for
     /// every declaration — a struct field no body reads included
-    /// (PIPELINE.md D3.3(f)).
+    /// (the pipeline record D3.3(f)).
     fn record_written_type(&mut self, ty: &ast::Type) {
         let (errors, warnings) = (self.out.errors.len(), self.copy_warnings.len());
         let _ = self.lower_type(ty);
@@ -23237,7 +23237,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// and for a narrowed projection place the type its storage keeps
     /// [flow-place] — inside a `^` branch, the widened type [qual-lift]. It
     /// is what the read recorded when it was checked (`narrowed_reads`,
-    /// PIPELINE.md D2): the checker reads its own fact back rather than
+    /// the pipeline record D2): the checker reads its own fact back rather than
     /// deriving it a second time from the flow state, which may have moved
     /// on since the read.
     fn repr_of(&self, expr: &Expr, logical: &Ty) -> Ty {
@@ -23649,7 +23649,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         if matches!(op, Rem) {
                             // [op-arith] `%` names no function (O1's table has
                             // none): numeric operands, widening within a
-                            // class, promoted result type (PIPELINE.md §II.10
+                            // class, promoted result type (the pipeline record §II.10
                             // P16).
                             self.check_arith(*op, expr.span(), lhs, rhs, &l, &r)
                         } else if refused {
@@ -29748,7 +29748,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Its functions: the fns of its module whose first parameter is it —
         // its module's own, as one of the module's files sees them (by written
         // name across the program, another module's fns about a type of the
-        // same name were offered, PIPELINE.md C1).
+        // same name were offered, the pipeline record C1).
         let home = declaring.and_then(|m| self.files.iter().position(|f| f.module == *m));
         let own: Vec<&'p FnDecl> = match (home, declaring) {
             (Some(fi), Some(m)) => self.resolution.scopes[fi]
@@ -29903,7 +29903,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [fn-overload] [fn-overload-rank] The call's selection, over any
-    /// candidate set (PIPELINE.md B3.7: a call by name, and every send and
+    /// candidate set (the pipeline record B3.7: a call by name, and every send and
     /// mint target, choose by this one rule): the arguments typed once, the
     /// lead candidate's parameter types flowing into them; every candidate
     /// fitted by arity with defaults and named arguments, the fit test and
@@ -30108,7 +30108,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // accept decides the value's shape (a pure fn passed
                 // where effects are expected still takes them).
                 // [effect-member-overload] …and so does an available effect's
-                // member passed by name (R10 D3, PIPELINE.md B3.6).
+                // member passed by name (R10 D3, the pipeline record B3.6).
                 Expr::Ident(id)
                     if self.lookup(&id.name).is_none()
                         && (self.scope.fns.contains_key(id.name.as_str())
@@ -30497,7 +30497,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let written = self.written_fns.take();
         // 1. The candidates [fn-overload] [effect-member-overload]: the
         // visible fns of the name and the members of the available effects
-        // declaring it, as **one set** ranked by one rule (R10 P4, PIPELINE.md
+        // declaring it, as **one set** ranked by one rule (R10 P4, the pipeline record
         // B3.5): a member competes with the fns and with the members of other
         // effects, and a tie is the ordinary ambiguity, whose remedies name
         // the place (`m@E(…)`, `m@module(…)`).
@@ -31168,7 +31168,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // mutates (`=> h.tags: Mut`, `=> !h.tags`).
                     // No written entry means mutated anywhere: the field set
                     // is the callee's interface, never read off its body
-                    // (PIPELINE.md 4.3, 2026-10-20).
+                    // (the pipeline record 4.3, 2026-10-20).
                     let decl_field_paths = Self::declared_mut_paths(decl, &param.name.name);
                     let preserved = self.preserved_claims(
                         best.key,
@@ -31795,7 +31795,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [effect-member-call] A call whose selection chose an effect's member
-    /// (PIPELINE.md B3.5: one candidate set with the fns, so the fit, the
+    /// (the pipeline record B3.5: one candidate set with the fns, so the fit, the
     /// arity with defaults and named arguments [fn-param-default], and the
     /// ranking are the call's). What is left is the member's own: the
     /// instance it dispatches through — available, and disambiguated among
@@ -32130,7 +32130,7 @@ pub(crate) fn op_symbol(op: BinaryOp) -> &'static str {
 
 /// [op-arith] [op-pow] The function an arithmetic operator names (O1's
 /// table): `+` `plus`, `-` `minus`, `*` `times`, `/` `divide`, `**` `pow`.
-/// `%` names none (PIPELINE.md §II.10 P16).
+/// `%` names none (the pipeline record §II.10 P16).
 fn arith_member(op: BinaryOp) -> &'static str {
     match op {
         BinaryOp::Add => "plus",

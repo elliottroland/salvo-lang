@@ -47,7 +47,7 @@ struct Modes<'a, 'p> {
 }
 
 /// [fn-param-mode] Records every declaration's parameter modes at its name
-/// (`Checked::param_modes`, PIPELINE.md D3.2), one per written parameter in
+/// (`Checked::param_modes`, the pipeline record D3.2), one per written parameter in
 /// order, an implicit one lent: a top-level fn's from its deductions, an
 /// effect member's from its clause, a handler member's from the effect
 /// member it implements (a send member's from its own clause), and a

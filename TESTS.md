@@ -5,11 +5,11 @@ Sequence steps 1 (T6), 2 (T3 with C2), 3 (T2: the label rename,
 `@compilerrules`, diagnostic ids) and 4 (T1, check data files) are done
 (§7); step 5 (C3 with C1, the run-data runner) is next.
 Started at
-the user's request while PIPELINE.md Part II was paused (its §II.12 "Where it
+the user's request while the pipeline record Part II was paused (its §II.12 "Where it
 stands"): this run spent about half its logged time on tests (since Part II's
 A1: 6.3 of 13.1 hours).
 
-**Charter.** As with PIPELINE.md: the calls are the user's, recorded as
+**Charter.** As with the pipeline record: the calls are the user's, recorded as
 dated rounds in §6. When the work lands, the reasoning goes to COMPLETED.md's
 decision log, what is undecided to ROADMAP.md, the rules (diagnostic ids, the
 test-data format) to LANGUAGE_SPEC.md and AGENTS.md, and this file is
@@ -100,7 +100,7 @@ not consistently; about 1,000–1,300 test assertions match message text
 (about 2,500 `contains`/`starts_with` calls in all, many on emitted code), and
 only 57 match a label.
 
-**The per-piece method** (AGENTS.md and PIPELINE.md's practice) adds to
+**The per-piece method** (AGENTS.md and the pipeline record's practice) adds to
 this: a temporary differential running two fresh full suites (old and new),
 then a warm nextest before each commit (3.5–7 minutes after a core or std
 change, since every stamp misses), then a final `cargo test` that repeats
@@ -585,7 +585,7 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   test_command_tests, both codegen files and `salvo-testkit`'s stamps; the
   binary-keyed stamps (C1) were the main finding.
 - **T6 (2026-10-28).** AGENTS.md: one final run (the warm nextest before a
-  commit, else `cargo test`); PIPELINE.md's method: the differential over
+  commit, else `cargo test`); the pipeline record's method: the differential over
   the data corpus. Committed with step 2.
 - **C1 re-sequenced (2026-10-28)**, see T5: it cannot land before the
   tests generate ahead of their stamp check.
@@ -797,4 +797,4 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   the LSP feature tests per nextest process (~20s summed, ~2s wall), and
   content keys for `salvo test` / `platform generate` CLI tests (needs
   `compile` to emit annexes and host files). Next: the defects of ROADMAP
-  §0ar, then PIPELINE.md Part II.
+  §0ar, then the pipeline record Part II.

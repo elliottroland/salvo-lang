@@ -1,5 +1,5 @@
 // [interp-to-str] An interpolated part is the call `to_str(part)`, resolved as
-// that call written in the body is (PIPELINE.md §II.10 P4, option (a), user
+// that call written in the body is (the pipeline record §II.10 P4, option (a), user
 // decision 2026-10-28; built in B3.2): the enclosing fn's own implicit first,
 // then the fns and the available effects' members of the name as one set.
 
