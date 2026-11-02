@@ -28,7 +28,7 @@ fn program(files: &[(&str, &str)]) -> Program {
         modules.push(ast);
     }
     let _ = salvo_core::expand(&sources.files, &mut modules);
-    Program { files: sources.files, modules: Program::share(modules), companions: Vec::new() }
+    Program { files: sources.files, modules: Program::share(modules), companions: Vec::new(), interfaces: None }
 }
 
 /// Every declaration's id, as `Display` renders it, with its kind.

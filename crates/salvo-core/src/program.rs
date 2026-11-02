@@ -26,6 +26,11 @@ pub struct Program {
     /// Backend-native companion files, copied into the output when their
     /// module is reachable [backend-companion].
     pub companions: Vec<CompanionFile>,
+    /// [comptime-instantiate] [decl-id] The interfaces comptime stamped this
+    /// program's modules against (`Expansion::interfaces`): its resolution
+    /// views the scopes the stamping left as they were. `None` for a
+    /// program put together otherwise, which is resolved in full.
+    pub interfaces: Option<std::sync::Arc<crate::resolve::Interfaces>>,
 }
 
 /// A single parsed unit (file + AST).

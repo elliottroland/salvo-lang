@@ -87,6 +87,7 @@ impl StdFront {
             files: std.files.clone(),
             modules: modules.clone(),
             companions: std.companions.clone(),
+            interfaces: expansion.interfaces.clone(),
         };
         let symbols = Symbols::collect(&program);
         let resolution = crate::resolve(&program);
@@ -142,8 +143,9 @@ impl StdFront {
     /// `per_file`, aligned with `files`) — merged with std's expansion
     /// output, which is not recomputed.
     pub fn expand_after(&self, files: &[SourceFile], modules: &mut [Arc<Module>], per_file: Vec<Vec<FileTest>>) -> Expansion {
-        let rest = crate::expand::expand_program_after(files, modules, per_file, &self.comptime);
+        let rest = crate::expand::expand_program_after(files, modules, per_file, &self.comptime, &self.scopes);
         let mut expansion = Expansion {
+            interfaces: rest.interfaces,
             tests: rest.tests,
             diagnostics: self.expansion.diagnostics.clone(),
             comptime_hovers: self.expansion.comptime_hovers.clone(),
@@ -179,7 +181,8 @@ impl StdFront {
         diagnostics.sort_by_key(|d| (d.file, d.span.expn, d.span.start));
         let mut companions = self.companions.clone();
         companions.extend(extra_companions);
-        FrontProgram { program: Program { files, modules, companions }, diagnostics, expansion }
+        let interfaces = expansion.interfaces.clone();
+        FrontProgram { program: Program { files, modules, companions, interfaces }, diagnostics, expansion }
     }
 
     /// [lsp-std-front] [decl-id] Resolves `program`, viewing std's scopes from

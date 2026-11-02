@@ -244,6 +244,7 @@ pub fn analyze_std() -> Analysis {
         files: sources.files,
         modules: Program::share(modules),
         companions: sources.companions,
+        interfaces: expansion.interfaces,
     };
     let symbols = Symbols::collect(&program);
     let resolution = salvo_core::resolve(&program);
@@ -463,6 +464,7 @@ fn analyze_project_with(
         files: sources.files,
         modules,
         companions: sources.companions,
+        interfaces: expansion.interfaces,
     };
 
     // Resolve + check always run — a parse error in one file must not

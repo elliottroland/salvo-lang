@@ -58,6 +58,7 @@ fn std_diagnostics(std_files: &[(&str, &str)]) -> Vec<salvo_core::FileDiagnostic
         files: sources.files,
         modules: Program::share(modules),
         companions: Vec::new(),
+        interfaces: None,
     };
     let resolution = resolve(&program);
     let mut out = resolution.errors.clone();

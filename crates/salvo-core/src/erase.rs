@@ -307,5 +307,7 @@ pub fn erase_effect_generics(program: &Program, erased: &Erased) -> Program {
         files: program.files.clone(),
         modules: Program::share(modules),
         companions: program.companions.clone(),
+        // Erasing changes signatures, so declarations' ids: resolved in full.
+        interfaces: None,
     }
 }

@@ -6234,14 +6234,29 @@ Conventions:
   §2c) — for a stamped fn; an expanded-in-place fn is its own one
   instantiation [comptime-bound]. One specialization per (comptime fn, type), pushed into the target's
   module beside the type on both backends. The expansion runs over the whole
-  source set before resolution (`salvo_core::comptime`), so a `by auto` in any
-  file reads `std.core.auto` and the target's declaration.
+  source set, between the program's interfaces and its bodies
+  (`salvo_core::comptime`), so a `by auto` in any file reads `std.core.auto`
+  and the target's declaration.
   * **Names are looked up through each file's scope** (2026-10-20, PIPELINE.md
-    step 6): the expansion resolves the unstamped program first
-    (`resolve::resolve_sources`) and keeps, per file, which module's struct,
-    `type`, group and qualifier each name means — a `type` outranking a
-    struct of the same name, as in the checker [type-identity]. A clause
-    stamps the declaration it is written on and the group its own file sees.
+    step 6; by id since 2026-10-30, C4 B): the program's **interfaces** are
+    resolved first, over the declarations as written (`resolve::interfaces`:
+    every file's scope by id [decl-id], and what building it reported), and
+    the expansion reads each struct, `type`, group and qualifier a name
+    means off the file's scope — a `type` outranking a struct of the same
+    name, as in the checker [type-identity] — and the declaration from the
+    unstamped modules by its id. A clause stamps the declaration it is
+    written on and the group its own file sees.
+  * **The stamped program's resolution reuses the interfaces**
+    (`Program::interfaces`, `resolve::resolve`): stamping changes bodies,
+    adds a clause's members and takes the generic templates out, so a scope
+    that took in no module whose declarations it changed
+    (`Interfaces::changed`) is the same over the stamped program and is
+    viewed, with what building it reported; the rest are built. The debug
+    build checks the result against building every scope. Each file is
+    stamped into a copy of its module, which replaces it once all are
+    stamped, so the expansion reads the declarations as written throughout;
+    only the generic templates are kept aside (`Tables::compfns`), since
+    stamping removes them.
   * **Each name is looked up in the file that wrote it** (C3.3a,
     2026-10-30): a template's text in the template's file, a field's type
     where its struct is declared, a clause in the site's — read off the
@@ -13424,8 +13439,9 @@ replaced the working document TESTING.md).
   cloned nor expanded again, and the cache's address-keyed rows are keyed by
   the addresses the analysis sees (the cache keeps the modules alive). Only
   the files after std are parsed and comptime-expanded: the world reads
-  std's tables as they were before std was stamped, scopes are built for the
-  stamped files only, and std's own expansion output (diagnostics, hovers,
+  std's templates as they were before std was stamped and std's scopes from
+  the front (C4), scopes are built for the later files only, and std's own
+  expansion output (diagnostics, hovers,
   `[when]` arms) is the front's. There is **no comptime gate** (since
   2026-10-14): std sees only std [obligation-by] [comptime-instantiate] — a
   `by` path names only the modules its file can see, a name std's scope does

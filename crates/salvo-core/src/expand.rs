@@ -53,6 +53,9 @@ pub struct Expansion {
     pub comptime_hovers: Vec<crate::comptime::CompHover>,
     /// [lsp-completion] The arms each comptime `[when …]` has yet to cover.
     pub comptime_when_arms: Vec<crate::comptime::CompWhenArms>,
+    /// [comptime-instantiate] [decl-id] The interfaces the stamping read,
+    /// for the program's resolution (`Program::interfaces`).
+    pub interfaces: Option<Arc<crate::resolve::Interfaces>>,
 }
 
 /// [test-run] A test as one file's expansion finds it: a [`TestCase`]
@@ -123,17 +126,25 @@ pub fn expand_file(file: &SourceFile, module: &mut Module) -> (Vec<FileTest>, Ve
 /// cache keeps the parsed module; `Arc::make_mut`).
 pub trait ModuleSlot: crate::decl_id::ModuleRef {
     fn module_mut(&mut self) -> &mut Module;
+    /// Puts `module` in the slot's place.
+    fn set(&mut self, module: Module);
 }
 
 impl ModuleSlot for Module {
     fn module_mut(&mut self) -> &mut Module {
         self
     }
+    fn set(&mut self, module: Module) {
+        *self = module;
+    }
 }
 
 impl ModuleSlot for Arc<Module> {
     fn module_mut(&mut self) -> &mut Module {
         Arc::make_mut(self)
+    }
+    fn set(&mut self, module: Module) {
+        *self = Arc::new(module);
     }
 }
 
@@ -174,8 +185,9 @@ pub fn expand_program_after(
     modules: &mut [Arc<Module>],
     per_file: Vec<Vec<FileTest>>,
     prefix: &crate::comptime::StdComptime,
+    std_scopes: &[Arc<crate::scope_ids::ScopeIds>],
 ) -> Expansion {
-    let comptime = crate::comptime::expand_comptime_after(files, modules, prefix);
+    let comptime = crate::comptime::expand_comptime_after(files, modules, prefix, std_scopes);
     program_expansion(per_file, comptime)
 }
 
@@ -197,6 +209,7 @@ pub fn program_expansion(per_file: Vec<Vec<FileTest>>, comptime: crate::comptime
     }
     out.comptime_hovers = comptime.hovers;
     out.comptime_when_arms = comptime.when_arms;
+    out.interfaces = Some(Arc::new(comptime.interfaces));
     // [actor-route-stub] Routes are not an expansion: the IR derives one per
     // routed protocol (PIPELINE.md R7).
     // [effect-alias] [effect-prereq] Aliases and prerequisites are not

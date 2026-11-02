@@ -132,6 +132,7 @@ fn diagnostics_with_ids(src: &str) -> Vec<(bool, Option<&'static str>)> {
         files: sources.files,
         modules: Program::share(modules),
         companions: Vec::new(),
+        interfaces: None,
     };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);

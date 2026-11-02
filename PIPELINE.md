@@ -560,7 +560,7 @@ index; **(C)** needs a design change; **(D)** inherently whole-program.
 | `hoist_struct_fns`, `expand_tests` | per file, in `expand` | move into 01-parse | A |
 | `hoist_iter_types` | needs every `fns` group (one bit: does a member mention `iter T`), by plain name | removed with `iter T` (R3) | — |
 | `iter fn` expansion | needs the subject struct's fields from any file (plain name, first match), for per-field snapshots | expand per file; if a named state holds every parameter (4.1), the snapshot and its lookup go — done: per file, and it looks no name up (C4) | B |
-| comptime | flat `World` of every struct, type, compfn, group, qualifier; writes stamps into the site's module | the `by` clause declares the member signatures (group members with `self` substituted) at 02-resolve-01; bodies stamped per site in 02-resolve-04 from resolved declarations | C |
+| comptime | flat `World` of every struct, type, compfn, group, qualifier; writes stamps into the site's module | the `by` clause declares the member signatures (group members with `self` substituted) at 02-resolve-01; bodies stamped per site in 02-resolve-04 from resolved declarations — done otherwise in C4 B: stamping between the interfaces (scopes by id) and the bodies, members added by building again the scopes that see them | C |
 | route stubs | unscoped effect table, exported-name index, synthetic imports | `use route_any(g)` checked as "a handler of the resolved `X`"; the stub derived per effect in 03-generate (where `actors::generate` already derives stubs) | C → B |
 | effect aliases | rewrites every effect list, synthetic imports | resolved in scope like type aliases; flattened in 02-resolve-03 | B |
 | prerequisites | rewrites every effect list, synthetic imports | a per-effect closure over effect headers, applied in 02-resolve-03 | B |
@@ -2280,7 +2280,9 @@ What stays open until expansion is exactly what comptime supplies: a
 `[field.type]` splice is a hole filled with a type id; `v.[field]` is a field
 read, resolved by typing like every field read.
 
-Today comptime runs in `expand`, before resolution, over a flat `World`
+Comptime ran in `expand`, before resolution, over a flat `World` (since C4
+B, 2026-10-30, between the program's interfaces and its bodies, reading the
+interfaces by id)
 (§5, rated C). Moving it is the comptime "signature/body split"
 Part I and ROADMAP §2c have waiting on stable ids and relative spans.
 
@@ -2562,8 +2564,15 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   survey's parts — the `iter fn` expansion looks no name up (two decisions
   go by spelling: a Copy scalar parameter, and the `Emitted T | Finished`
   shape; left to the planned rework of `iter fn`s as operators), and
-  nothing rewrites an effect list — and A and C (`scope_ids.rs`,
-  `resolve::resolve_over`, `StdFront::resolve`).
+  nothing rewrites an effect list — A and C (`scope_ids.rs`,
+  `resolve::resolve_over`, `StdFront::resolve`), and B (`resolve::interfaces`,
+  `Program::interfaces`; comptime's own resolution, `resolve_scopes_where`,
+  `FileNames`' maps and `Tables`' copies of structs, types, groups and
+  qualifiers gone). C4 is done. Left, recorded in ROADMAP: adding a clause's
+  members to built scopes (`add_items` replayed over what each scope took
+  from a module) rather than building every scope that sees a changed
+  module — in a program without the std front that is every scope, since
+  std's core modules gain members.
 
 ### Stage D — The typed partial IR
 

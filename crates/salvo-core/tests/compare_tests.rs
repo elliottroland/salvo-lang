@@ -132,6 +132,7 @@ fn checked_in<R>(files: &[(&str, &str)], f: impl FnOnce(&Program, &salvo_core::R
         files: sources.files,
         modules: Program::share(modules),
         companions: Vec::new(),
+        interfaces: None,
     };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
@@ -386,6 +387,7 @@ fn errors_in_std_file(src: &str) -> Vec<&'static str> {
         files: sources.files,
         modules: Program::share(modules),
         companions: Vec::new(),
+        interfaces: None,
     };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);

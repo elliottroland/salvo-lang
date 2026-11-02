@@ -73,7 +73,8 @@ The pipeline, in the order the code runs it:
     │  salvo-syntax: lexer → parser → desugar (iter fn → struct + minter + next)
     ▼
  Module ASTs ──► Program (source.rs, program.rs): all files, flat symbol tables
-    │  salvo-core: expand (comptime stamping, by-auto), resolve (per-file scopes)
+    │  salvo-core: expand (per file), interfaces (scopes by id), comptime
+    │              stamping (by-auto), resolve (the stamped program's scopes)
     ▼
  check_program ──► Checked        ← the whole output of the front half:
     │                               about 100 side tables, mostly keyed by (declaration, node)
@@ -125,13 +126,17 @@ By what you would come looking for.
   global tables: `fns`, `structs`, `effects`, `handlers`, `type_aliases`,
   `intrinsic_types`, `effect_of_fn`, …). Names that several modules declare
   get a *key* (`Node§main`); `typekey.rs` is that scheme [type-identity].
-* `expand.rs`, `comptime.rs`: the pre-resolution expansions. `comptime.rs`
-  stamps a `comptime fn` at a concrete type and unrolls `[for]`/`[when]`/`[if]`
-  into an ordinary fn. Every stamped node keeps its span in the template and
+* `expand.rs`, `comptime.rs`: the expansions. `expand.rs` runs the per-file
+  ones before resolution; `comptime.rs` runs between the program's interfaces
+  (`resolve::interfaces`: every file's scope by id) and its bodies, reading
+  names off the interfaces. It stamps a `comptime fn` at a concrete type and
+  unrolls `[for]`/`[when]`/`[if]` into an ordinary fn. Every stamped node keeps its span in the template and
   carries a fresh expansion id (`Span::expn`, recorded on the fn's `Stamp`)
   and every node has an id of its own [node-id], so the tables tell copies apart; `origin.rs` renders a
   diagnostic at a copied node through that chain [node-origin].
 * `resolve.rs`: per-file scopes (`ModuleScope`): what names a file sees.
+  `scope_ids.rs` holds a scope by declaration id (`ScopeIds`), which
+  outlives the program it was built over; a `ModuleScope` is its view.
 * `names.rs`: every written type-position name, resolved where it is
   written (`Names`, `Meaning`) [name-table]. The checker asks it what a
   `TypeRef`'s name means (`Checker::named`), never the checking file's

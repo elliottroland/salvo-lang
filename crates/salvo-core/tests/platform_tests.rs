@@ -59,6 +59,7 @@ fn check_files(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
         files: sources.files,
         modules: Program::share(modules),
         companions: Vec::new(),
+        interfaces: None,
     };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);

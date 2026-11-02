@@ -429,7 +429,7 @@ fn check_std_tree(src: &str) -> Vec<(Option<&'static str>, String)> {
         modules.push(module);
     }
     let _expansion = salvo_core::expand(&sources.files, &mut modules);
-    let program = Program { files: sources.files, modules: Program::share(modules), companions: Vec::new() };
+    let program = Program { files: sources.files, modules: Program::share(modules), companions: Vec::new(), interfaces: None };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);

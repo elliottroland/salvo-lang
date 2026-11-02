@@ -131,6 +131,7 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
         files: sources.files,
         modules: Program::share(modules),
         companions: sources.companions,
+        interfaces: None,
     };
     let files = emit(&program)
         .unwrap_or_else(|errors| panic!("codegen errors:\n{}", errors.join("\n")));

@@ -62,7 +62,7 @@ fn checked_with_errors(main: &str) -> (Program, Checked) {
     }
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     assert!(expansion.diagnostics.iter().all(|d| !d.is_error()), "{:?}", expansion.diagnostics);
-    let program = Program { files: sources.files, modules: Program::share(modules), companions: Vec::new() };
+    let program = Program { files: sources.files, modules: Program::share(modules), companions: Vec::new(), interfaces: None };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);
     let checked = check_program(&program, &resolution, &symbols);

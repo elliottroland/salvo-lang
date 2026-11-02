@@ -1004,6 +1004,7 @@ fn assemble(
         files: sources.files,
         modules: Program::share(modules),
         companions: sources.companions,
+        interfaces: expansion.interfaces,
     };
     // [platform-root] Platform declarations need a platform root for every
     // backend in play — the one being built, and every one the manifest

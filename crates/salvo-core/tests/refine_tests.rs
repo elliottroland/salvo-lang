@@ -63,6 +63,7 @@ fn diagnostics(files: &[(&str, &str)]) -> Vec<&'static str> {
         files: sources.files,
         modules: Program::share(modules),
         companions: Vec::new(),
+        interfaces: None,
     };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);

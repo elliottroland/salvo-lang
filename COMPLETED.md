@@ -144,6 +144,44 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Comptime between the interfaces and the bodies (user decision, PIPELINE.md C4 B, [comptime-instantiate] [decl-id])
+
+- **Decided (user, 2026-10-30)**: the third C4 piece, after A and C: comptime
+  reads the program's own interfaces instead of resolving the unstamped
+  program itself, and keeps no copies of declarations it can read in place.
+- **Built**: `resolve::interfaces` resolves the unstamped program's scopes,
+  by id, with what building each reported (`Interfaces`;
+  `resolve_scopes_where` is gone). Comptime's `World` reads a name's struct,
+  `type`, group or qualifier off the scope of the file that wrote it and the
+  declaration from the unstamped modules by its id; `Tables` keeps only the
+  generic templates (stamping removes them) and their site names, and
+  `FileNames` only a template file's fn names, read off its scope. Each file
+  is stamped into a copy of its module (`ModuleSlot::set` puts it back once
+  all are stamped), so the world reads the declarations as written. The
+  interfaces travel with the program (`Expansion::interfaces`,
+  `Program::interfaces`, set by every driver that expands); `resolve` views
+  each scope that took in no module stamping changed
+  (`Interfaces::changed`: a module that gained a clause's members or lost a
+  template) and builds the rest. A program put together otherwise (most
+  Rust tests, `erase`) has none and is resolved in full. The debug build
+  compares every resolution through the interfaces with building every
+  scope — scopes and diagnostics — and the suite passed it first time.
+- **The trade taken**: building again a scope that sees a changed module,
+  rather than adding the members to it by replaying `add_items` over what
+  each scope took from the module. The replay would have to put each fn
+  entry where a build would (the entries' order is visible: the first at a
+  rung, the order of name origins); rebuilding is right by construction.
+  Without the std front every scope sees a changed module (std's core
+  modules gain members), so a one-shot build resolves its scopes twice
+  (interfaces ~14ms, after stamping ~16ms, on `examples/cluster` in debug,
+  against comptime's own resolution and the program's before); through the
+  front no scope is built twice (interfaces 1.4ms, resolve 14.9 against 16.1
+  per edit). The replay is ROADMAP's item 1b.
+- **Found building it**: viewing the given scopes inside `interfaces` cost
+  more than building the project's (it viewed std's 46 files every edit);
+  interfaces are read by id only, so they are not viewed.
+- **Output**: nothing moved. 708 tests under nextest.
+
 ### 2026-10-30 — A file's scope by declaration id, and std's kept by the front (user decision, PIPELINE.md C4 A and C, [decl-id] [lsp-std-front])
 
 - **Decided (user, 2026-10-30)**: C4 is three pieces, all next — A.

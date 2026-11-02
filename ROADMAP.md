@@ -2717,6 +2717,15 @@ it would save only the cheap transcription and inherit every coupling of the
      analysis), and the address and id maps over std's declarations
      (`resolve: scope ids`, ~3ms with the debug build's check). Sharing the
      names needs `Names<'p>` by id too.
+  1b. A program's resolution builds again every scope that took in a module
+     comptime changed (gained a clause's members, lost its templates:
+     PIPELINE.md C4 B). Without the std front that is every scope (std's
+     core modules gain members), so a one-shot build resolves its scopes
+     twice, once for the interfaces and once after stamping (~14 and ~16ms
+     on `examples/cluster`, debug). Adding the members to the built scopes
+     instead — `add_items` replayed over what each scope took from the
+     module, the fn entries put where a build would put them — would build
+     them once. Through the front no scope is built twice.
   2. The std seed: `check_once` clones std's whole `Checked` (~5ms) to add the
      project's rows. Needs a layered `Checked` (std's rows read through), or
      a cache that hands its rows out without copying.

@@ -63,6 +63,7 @@ fn errors_with_std_module(token_src: &str, main_src: &str) -> Vec<&'static str> 
         files: sources.files,
         modules: Program::share(modules),
         companions: Vec::new(),
+        interfaces: None,
     };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);

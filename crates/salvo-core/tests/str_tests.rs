@@ -239,6 +239,7 @@ fn prelude_checked(src: &str) -> (Program, salvo_core::Checked) {
         files: sources.files,
         modules: Program::share(modules),
         companions: Vec::new(),
+        interfaces: None,
     };
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);

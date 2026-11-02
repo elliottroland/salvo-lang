@@ -68,6 +68,7 @@ pub fn std_library_files(program: &Program) -> Result<Vec<EmittedFile>, Vec<Stri
             .filter(|c| keep.iter().any(|&i| program.files[i].module == c.module))
             .cloned()
             .collect(),
+            interfaces: None,
     };
     crate::emit::emit_program(&std_program)
 }

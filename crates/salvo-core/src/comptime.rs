@@ -75,38 +75,28 @@ pub struct ComptimeOutput {
     pub diagnostics: Vec<(usize, Diagnostic)>,
     pub hovers: Vec<CompHover>,
     pub when_arms: Vec<CompWhenArms>,
+    /// [comptime-instantiate] [decl-id] The interfaces the stamping read
+    /// (PIPELINE.md C4 B), with the modules it changed the declarations of:
+    /// what the stamped program's resolution views again.
+    pub interfaces: crate::resolve::Interfaces,
 }
 
-/// [comptime-instantiate] What the world looks declarations up in: every
-/// comptime fn, and every struct, `type`, `fns` group and qualifier by
-/// name, as the files declared them **before** any was stamped (stamping
-/// removes the generic compfns). Names are flat here — the resolver's
-/// visibility rules run later on what this produces — and a collision between
-/// two modules' same-named types is the resolver's error, not a reason to
-/// stamp nothing.
+/// [comptime-instantiate] What the world keeps of its own: every comptime fn
+/// as the files declared it, since stamping removes the generic ones, and
+/// each template's site names. Everything else it looks up in the program's
+/// interfaces (`resolve::Interfaces`), over the declarations as written.
 #[derive(Default)]
 struct Tables {
     compfns: Vec<CompFnDecl>,
-    structs: HashMap<String, Vec<(ModulePath, StructDecl)>>,
-    types: HashMap<String, Vec<(ModulePath, TypeDecl)>>,
-    groups: HashMap<String, Vec<(ModulePath, FnsDecl)>>,
-    /// [comptime-qualifier] Every qualifier, by name: a head tests for the
-    /// comptime ones, and an arm's constructor reads an ordinary one's
-    /// generics [comptime-arm].
-    quals: HashMap<String, Vec<(ModulePath, QualifierDecl)>>,
     /// [comptime-hygiene] Each template's site names (`Stamp::site_names`),
     /// by its file and its name's start.
     site_names: HashMap<(usize, u32), Vec<String>>,
-    /// [comptime-hygiene] What each of the run's files sees (empty for a
-    /// file before the run's start), which a later run reads the base's
-    /// files' names through.
-    scoped: Vec<FileNames>,
 }
 
 /// [lsp-std-front] The comptime expansion of the embedded std on its own,
 /// kept so a language server can expand a project over std's already
-/// expanded modules ([`expand_comptime_after`]): std's tables as they were
-/// before std was stamped.
+/// expanded modules ([`expand_comptime_after`]): std's comptime fns as they
+/// were before std was stamped.
 pub struct StdComptime {
     /// How many leading files of a program the std is.
     files: usize,
@@ -136,7 +126,7 @@ fn stamps_anything(module: &Module) -> bool {
 
 /// Runs the expansion. `modules` is aligned with `files`.
 pub fn expand_comptime<M: crate::expand::ModuleSlot>(files: &[SourceFile], modules: &mut [M]) -> ComptimeOutput {
-    run(files, modules, None).0
+    run(files, modules, None, &[]).0
 }
 
 /// [lsp-std-front] Runs the expansion over a std on its own (`files` is the
@@ -146,7 +136,7 @@ pub fn expand_comptime_prefix<M: crate::expand::ModuleSlot>(
     files: &[SourceFile],
     modules: &mut [M],
 ) -> (ComptimeOutput, StdComptime) {
-    let (out, tables) = run(files, modules, None);
+    let (out, tables) = run(files, modules, None, &[]);
     let prefix = StdComptime {
         files: files.len(),
         tables: std::sync::Arc::new(tables),
@@ -168,8 +158,12 @@ pub fn expand_comptime_after(
     files: &[SourceFile],
     modules: &mut [std::sync::Arc<Module>],
     prefix: &StdComptime,
+    std_scopes: &[std::sync::Arc<crate::scope_ids::ScopeIds>],
 ) -> ComptimeOutput {
-    run(files, modules, Some((prefix.tables.clone(), prefix.files))).0
+    // [decl-id] std's scopes are the front's, as for the program's own
+    // resolution (`resolve::std_given`).
+    let given = crate::resolve::std_given(files, std_scopes).unwrap_or_default();
+    run(files, modules, Some((prefix.tables.clone(), prefix.files)), &given).0
 }
 
 /// The expansion: the files from `start` on (every file without a `base`)
@@ -180,6 +174,7 @@ fn run<M: crate::expand::ModuleSlot>(
     files: &[SourceFile],
     modules: &mut [M],
     base: Option<(std::sync::Arc<Tables>, usize)>,
+    given: &[Option<crate::resolve::GivenScope>],
 ) -> (ComptimeOutput, Tables) {
     let mut out = Vec::new();
     let mut hovers: Vec<CompHover> = Vec::new();
@@ -210,39 +205,28 @@ fn run<M: crate::expand::ModuleSlot>(
                         decl,
                     });
                 }
-                // [type-identity] Every declaration of a name, by module: one
-                // stamped in a module reads that module's own first.
-                Item::Struct(s) => {
-                    tables.structs.entry(s.name.name.clone()).or_default().push((file.module.clone(), s.clone()));
-                }
-                Item::Type(t) => {
-                    tables.types.entry(t.name.name.clone()).or_default().push((file.module.clone(), t.clone()));
-                }
-                Item::Fns(g) => {
-                    tables.groups.entry(g.name.name.clone()).or_default().push((file.module.clone(), g.clone()));
-                }
-                // [comptime-qualifier] Comptime qualifiers, which a head tests
-                // for (`[if field is Short]`).
-                Item::Qualifier(q) => {
-                    tables.quals.entry(q.name.name.clone()).or_default().push((file.module.clone(), q.clone()));
-                }
                 _ => {}
             }
         }
     }
-    let t = crate::timing::phase("  expand: comptime scopes");
-    let scoped = scoped_names(files, modules, start);
+    // [comptime-instantiate] [decl-id] The program's interfaces, over the
+    // declarations as written: what every name the stamping reads means
+    // (PIPELINE.md C4 B). The stamped program's resolution views them again.
+    let t = crate::timing::phase("  expand: comptime interfaces");
+    let mut interfaces = crate::resolve::interfaces(files, &*modules, given);
     drop(t);
+    let pre: Vec<&Module> = modules.iter().map(|m| m.borrow()).collect();
+    let decls = interfaces.decls.clone();
     // [comptime-hygiene] Each comptime fn's written names, once, where it is
     // written: a template says which place each fn name it can see means, and
     // the bare ones it cannot see are the site's — by template, its file and
     // its name's start.
     for idx in start..files.len() {
-        let Some(names) = scoped.get(idx) else { continue };
-        for item in &modules[idx].borrow().items {
+        let names = callables(&interfaces.scope_ids[idx], &decls, &pre);
+        for item in &pre[idx].items {
             if let Item::Fn(f) = item {
                 if let Some(cf) = &f.compfn {
-                    let (diags, site) = template_names(f, names, cf.bound.is_some());
+                    let (diags, site) = template_names(f, &names, cf.bound.is_some());
                     out.extend(diags.into_iter().map(|d| (idx, d)));
                     tables.site_names.insert((idx, f.name.span.start), site);
                 }
@@ -251,15 +235,16 @@ fn run<M: crate::expand::ModuleSlot>(
     }
 
     let _stamp = crate::timing::phase("  expand: comptime stamps");
-    let tag_files: HashMap<u32, usize> = modules
+    let tag_files: HashMap<u32, usize> = pre
         .iter()
         .enumerate()
-        .map(|(i, m)| (m.borrow().file_tag, i))
+        .map(|(i, m)| (m.file_tag, i))
         .filter(|(tag, _)| *tag != salvo_syntax::span::NO_FILE)
         .collect();
     let world = World {
-        scoped,
-        start,
+        scopes: &interfaces.scope_ids,
+        decls: &decls,
+        pre: &pre,
         tag_files,
         here: std::cell::Cell::new(0),
         base: base.map(|(tables, _)| tables),
@@ -268,12 +253,17 @@ fn run<M: crate::expand::ModuleSlot>(
         module_paths: files.iter().map(|f| f.module.clone()).collect(),
     };
 
+    // [decl-id] Each file is stamped into a copy of its module, which takes
+    // the module's place once every file is stamped: until then the world
+    // reads the declarations as written.
+    let mut stamped: Vec<(usize, Module)> = Vec::new();
     for file_idx in start..files.len() {
-        if !stamps_anything(modules[file_idx].borrow()) {
+        if !stamps_anything(pre[file_idx]) {
             continue;
         }
         let file = &files[file_idx];
-        let module = modules[file_idx].module_mut();
+        let mut copy: Module = pre[file_idx].clone();
+        let module = &mut copy;
         *world.own.borrow_mut() = file.module.clone();
         world.here.set(file_idx);
         let mut diags: Vec<Diagnostic> = Vec::new();
@@ -532,22 +522,33 @@ fn run<M: crate::expand::ModuleSlot>(
 
         // Generic compfns leave the program: nothing downstream could type
         // them, and every use of one has been stamped above.
+        let before = module.items.len();
         module
             .items
             .retain(|item| !matches!(item, Item::Fn(f) if f.compfn.as_ref().is_some_and(|c| c.bound.is_some())));
+        // [decl-id] A module that gained or lost a declaration: a scope that
+        // took it in is built again over the stamped program, the rest are
+        // viewed (`resolve::resolve`).
+        if module.items.len() != before || !generated.is_empty() {
+            interfaces.changed.insert(file.module.clone());
+        }
         module.items.extend(generated);
         // [node-id] The file's tree is final.
         salvo_syntax::node_id::number(module);
         out.extend(diags.into_iter().map(|d| (file_idx, d)));
+        stamped.push((file_idx, copy));
     }
-    let World { mut tables, scoped, .. } = world;
-    // [lsp-std-front] A later run over this one's files reads their names.
-    tables.scoped = scoped;
+    let World { tables, .. } = world;
+    drop(pre);
+    for (file_idx, module) in stamped {
+        modules[file_idx].set(module);
+    }
     (
         ComptimeOutput {
             diagnostics: out,
             hovers,
             when_arms,
+            interfaces,
         },
         tables,
     )
@@ -1286,110 +1287,59 @@ impl Target {
     }
 }
 
-/// [type-identity] What one file's names mean, as the resolver's scope for
-/// that file says: the module declaring each visible struct, `type`, group
-/// and qualifier. Owned, so the resolution that produced it can be dropped
-/// before the modules are stamped into.
+/// [comptime-hygiene] What the names a template's file sees as fns are: every
+/// fn and effect member name, with the selectors that name each place it
+/// comes from (`cmp@compare`, `println@Console`) — what a template written
+/// there must choose between. A comptime fn is no place: it is stamped, not
+/// called.
 #[derive(Default)]
 struct FileNames {
-    structs: HashMap<String, ModulePath>,
-    types: HashMap<String, ModulePath>,
-    groups: HashMap<String, ModulePath>,
-    quals: HashMap<String, ModulePath>,
-    /// [obligation-by] The modules the file can see (`ModuleScope::modules`):
-    /// what its `by` paths name.
-    modules: Vec<ModulePath>,
-    /// [comptime-hygiene] Every fn and effect member name the file sees, with
-    /// the selectors that name each place it comes from (`cmp@compare`,
-    /// `println@Console`): what a template written here must choose between.
     callables: HashMap<String, Vec<String>>,
 }
 
-/// [comptime-instantiate] [type-identity] Resolves the unstamped program, and
-/// keeps of it what the expansion looks names up by: per file, which module's
-/// declaration each name means. The expansion still runs before the
-/// program's own resolution (PIPELINE.md step 6), so this is a second,
-/// read-only one, over what the files declare before stamping. Only the
-/// files from `start` on are stamped, so only their scopes are built
-/// [lsp-std-front]; the files before keep an empty entry.
-fn scoped_names<M: crate::decl_id::ModuleRef>(files: &[SourceFile], modules: &[M], start: usize) -> Vec<FileNames> {
-    let mut module_of: HashMap<usize, ModulePath> = HashMap::new();
-    for (file, module) in files.iter().zip(modules) {
-        for item in &module.borrow().items {
-            let addr = match item {
-                Item::Struct(s) => s as *const StructDecl as usize,
-                Item::Type(t) => t as *const TypeDecl as usize,
-                Item::Fns(g) => g as *const FnsDecl as usize,
-                Item::Qualifier(q) => q as *const QualifierDecl as usize,
-                _ => continue,
-            };
-            module_of.insert(addr, file.module.clone());
+/// [comptime-hygiene] [decl-id] A file's [`FileNames`], read off its scope by
+/// id over the program as written.
+fn callables(ids: &crate::scope_ids::ScopeIds, decls: &crate::decl_id::DeclIndex, pre: &[&Module]) -> FileNames {
+    let mut out: HashMap<String, Vec<String>> = HashMap::new();
+    let is_compfn = |id: crate::decl_id::DeclId| {
+        decls.fn_decl(pre, id).is_some_and(|f| f.compfn.is_some())
+    };
+    for (name, entries) in &ids.fns {
+        let places = out.entry(name.to_string()).or_default();
+        for e in entries.iter().filter(|e| !is_compfn(e.key)) {
+            let place = format!("`{name}@{}`", e.module.0.last().map(String::as_str).unwrap_or(""));
+            if !places.contains(&place) {
+                places.push(place);
+            }
         }
     }
-    let t = crate::timing::phase("    comptime: resolve");
-    let resolution = crate::resolve::resolve_scopes_where(files, modules, &|i| i >= start);
-    drop(t);
-    let _t = crate::timing::phase("    comptime: names");
-    let of = |addr: usize| module_of.get(&addr).cloned();
-    resolution
-        .scopes
-        .iter()
-        .map(|s| FileNames {
-            structs: s.structs.iter().filter_map(|(n, d)| Some((n.to_string(), of(*d as *const StructDecl as usize)?))).collect(),
-            types: s
-                .type_aliases
-                .iter()
-                .chain(s.opaque_types.iter())
-                .filter_map(|(n, d)| Some((n.to_string(), of(*d as *const TypeDecl as usize)?)))
-                .collect(),
-            groups: s.fn_groups.iter().filter_map(|(n, d)| Some((n.to_string(), of(*d as *const FnsDecl as usize)?))).collect(),
-            quals: s
-                .qualifiers
-                .iter()
-                .filter_map(|(n, ds)| Some((n.to_string(), of(*ds.first()? as *const QualifierDecl as usize)?)))
-                .collect(),
-            modules: s.modules.iter().map(|m| (*m).clone()).collect(),
-            callables: {
-                let mut out: HashMap<String, Vec<String>> = HashMap::new();
-                for (name, entries) in &s.fns {
-                    let places = out.entry(name.to_string()).or_default();
-                    // A comptime fn is no candidate: it is stamped, not called.
-                    for e in entries.iter().filter(|e| e.decl.compfn.is_none()) {
-                        let place = format!("`{name}@{}`", e.module.0.last().map(String::as_str).unwrap_or(""));
-                        if !places.contains(&place) {
-                            places.push(place);
-                        }
-                    }
-                }
-                for (name, members) in &s.effect_members {
-                    let places = out.entry(name.to_string()).or_default();
-                    for (e, _) in members {
-                        let place = format!("`{name}@{}`", e.name.name);
-                        if !places.contains(&place) {
-                            places.push(place);
-                        }
-                    }
-                }
-                out
-            },
-        })
-        .collect()
+    for (name, members) in &ids.effect_members {
+        let places = out.entry(name.to_string()).or_default();
+        for (e, _) in members {
+            let place = format!("`{name}@{}`", e.name());
+            if !places.contains(&place) {
+                places.push(place);
+            }
+        }
+    }
+    FileNames { callables: out }
 }
 
-struct World {
-    /// [type-identity] Per file, what its names mean; `here` is the file
-    /// being expanded. The files before `start` are the base's
-    /// (`Tables::scoped`).
-    scoped: Vec<FileNames>,
-    start: usize,
+struct World<'a> {
+    /// [type-identity] [decl-id] Per file, what its names mean: its scope by
+    /// id in the program's interfaces; `here` is the file being expanded.
+    scopes: &'a [std::sync::Arc<crate::scope_ids::ScopeIds>],
+    /// [decl-id] The program's declarations as written, and where each is.
+    decls: &'a crate::decl_id::DeclIndex,
+    pre: &'a [&'a Module],
     /// [comptime-hygiene] Each file by its node tag [node-file]: a name is
     /// looked up in the file that wrote it, which a copy keeps until its
     /// file is numbered again after stamping.
     tag_files: HashMap<u32, usize>,
     here: std::cell::Cell<usize>,
-    /// [lsp-std-front] The tables of the files before the ones stamped (an
-    /// already expanded std), which come first in every lookup, as their
-    /// files come first in the program.
+    /// [lsp-std-front] The comptime fns of the files before the ones stamped
+    /// (an already expanded std), which come first, as their files come
+    /// first in the program.
     base: Option<std::sync::Arc<Tables>>,
     tables: Tables,
     /// [struct-opaque] The module being expanded: where the stamped code
@@ -1398,7 +1348,7 @@ struct World {
     module_paths: Vec<ModulePath>,
 }
 
-impl World {
+impl<'a> World<'a> {
     /// [comptime-hygiene] The bare names a template writes that its own file
     /// does not see.
     fn site_names_of(&self, file: Option<usize>, template: &FnDecl) -> Vec<String> {
@@ -1411,32 +1361,34 @@ impl World {
             .unwrap_or_default()
     }
 
-    /// Every declaration of `name` in one of the tables, the base's first.
-    fn entries<'s, D>(
-        &'s self,
-        name: &str,
-        table: impl Fn(&'s Tables) -> &'s HashMap<String, Vec<(ModulePath, D)>>,
-    ) -> Vec<&'s (ModulePath, D)> {
-        let mut out = Vec::new();
-        if let Some(base) = &self.base {
-            out.extend(table(base).get(name).into_iter().flatten());
-        }
-        out.extend(table(&self.tables).get(name).into_iter().flatten());
-        out
-    }
-
-    fn structs_of(&self, name: &str) -> Vec<&(ModulePath, StructDecl)> {
-        self.entries(name, |t| &t.structs)
-    }
-
-    fn types_of(&self, name: &str) -> Vec<&(ModulePath, TypeDecl)> {
-        self.entries(name, |t| &t.types)
+    /// [decl-id] The item `id` is, as written.
+    fn item(&self, id: crate::decl_id::DeclId) -> Option<&'a Item> {
+        let loc = self.decls.loc(id)?;
+        let module: &'a Module = self.pre.get(loc.file)?;
+        module.items.get(loc.item)
     }
 
     /// [comptime-root-visible] Whether the file that wrote `at` sees a struct
     /// or a `type` named `name`.
     fn declares_type(&self, name: &str, at: Span) -> bool {
-        self.names_at(at).is_some_and(|h| h.structs.contains_key(name) || h.types.contains_key(name))
+        self.names_at(at).is_some_and(|h| h.structs.contains_key(name) || h.type_aliases.contains_key(name) || h.opaque_types.contains_key(name))
+    }
+
+    /// [diag-import-suggest] Every module declaring a struct or a `type` named
+    /// `name`, wherever it is visible: what an unknown name suggests importing.
+    fn homes_of(&self, name: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for (module, ast) in self.module_paths.iter().zip(self.pre) {
+            let declares = ast.items.iter().any(|item| match item {
+                Item::Struct(s) => s.name.name == name,
+                Item::Type(t) => t.name.name == name,
+                _ => false,
+            });
+            if declares {
+                out.push(module.to_string());
+            }
+        }
+        out
     }
 
     /// Every comptime fn, the base's first.
@@ -1447,7 +1399,7 @@ impl World {
     /// [obligation-by] Whether the file being expanded can see `module`: its
     /// own, an imported one, or one implicitly visible.
     fn sees_module(&self, module: &ModulePath) -> bool {
-        self.names_here().is_some_and(|h| h.modules.contains(module))
+        self.names_here().is_some_and(|h| h.modules.iter().any(|m| *m == module))
     }
 
     /// [struct-opaque] Whether `name` is an opaque struct whose fields the
@@ -1468,78 +1420,79 @@ impl World {
     }
 
     /// [type-identity] The names of the file being expanded.
-    fn names_here(&self) -> Option<&FileNames> {
-        self.names_of(self.here.get())
-    }
-
-    fn names_of(&self, file: usize) -> Option<&FileNames> {
-        if file < self.start {
-            self.base.as_ref().and_then(|b| b.scoped.get(file))
-        } else {
-            self.scoped.get(file)
-        }
+    fn names_here(&self) -> Option<&'a crate::scope_ids::ScopeIds> {
+        self.scopes.get(self.here.get()).map(|s| &**s)
     }
 
     /// [comptime-hygiene] [type-identity] The names of the file that wrote
     /// `at` — a template's text, a field's type where its struct is declared
     /// — or, for a span no file tagged, of the file being expanded.
-    fn names_at(&self, at: Span) -> Option<&FileNames> {
+    fn names_at(&self, at: Span) -> Option<&'a crate::scope_ids::ScopeIds> {
         match self.tag_files.get(&at.file) {
-            Some(&f) => self.names_of(f),
+            Some(&f) => self.scopes.get(f).map(|s| &**s),
             None => self.names_here(),
         }
     }
 
-    /// A name's declaration as the file that wrote it resolves it, through
-    /// its scope (imports, renames, rungs): `visible` is the module it
-    /// sees declaring the name; `None` means nothing (no program-wide
-    /// fallback since 2026-10-30, C3.3a).
-    fn scoped_decl<'a, D>(all: &[&'a (ModulePath, D)], visible: Option<&ModulePath>) -> Option<&'a (ModulePath, D)> {
-        let m = visible?;
-        all.iter().find(|(dm, _)| dm == m).copied()
+    /// The type a file sees by `name` — an alias or an opaque `type` — by id.
+    fn type_id(here: &crate::scope_ids::ScopeIds, name: &str) -> Option<crate::decl_id::DeclId> {
+        here.type_aliases.get(name).or_else(|| here.opaque_types.get(name)).copied()
     }
 
     /// A `type` the file sees outranks a struct of the same name, as in the
-    /// checker, which expands an alias before it reads a nominal.
-    fn struct_decl(&self, name: &str, at: Span) -> Option<&(ModulePath, StructDecl)> {
-        let all = self.structs_of(name);
+    /// checker, which expands an alias before it reads a nominal. A name's
+    /// declaration is the one the file that wrote it resolves it to, through
+    /// its scope (imports, renames, rungs) — nothing else (no program-wide
+    /// fallback since 2026-10-30, C3.3a).
+    fn struct_decl(&self, name: &str, at: Span) -> Option<(&'static ModulePath, &'a StructDecl)> {
         let here = self.names_at(at)?;
-        if here.types.contains_key(name) {
+        if Self::type_id(here, name).is_some() {
             return None;
         }
-        Self::scoped_decl(&all, here.structs.get(name))
+        let id = *here.structs.get(name)?;
+        match self.item(id)? {
+            Item::Struct(s) => Some((id.module(), s)),
+            _ => None,
+        }
     }
 
-    fn struct_named(&self, name: &str, at: Span) -> Option<&StructDecl> {
+    fn struct_named(&self, name: &str, at: Span) -> Option<&'a StructDecl> {
         self.struct_decl(name, at).map(|(_, d)| d)
     }
 
-    fn type_decl(&self, name: &str, at: Span) -> Option<&(ModulePath, TypeDecl)> {
-        let all = self.types_of(name);
-        let here = self.names_at(at)?;
-        Self::scoped_decl(&all, here.types.get(name))
+    fn type_decl(&self, name: &str, at: Span) -> Option<(&'static ModulePath, &'a TypeDecl)> {
+        let id = Self::type_id(self.names_at(at)?, name)?;
+        match self.item(id)? {
+            Item::Type(t) => Some((id.module(), t)),
+            _ => None,
+        }
     }
 
-    fn type_named(&self, name: &str, at: Span) -> Option<&TypeDecl> {
+    fn type_named(&self, name: &str, at: Span) -> Option<&'a TypeDecl> {
         self.type_decl(name, at).map(|(_, d)| d)
     }
 
     /// [type-identity] The `fns` group a clause names, in its file.
-    fn group_named(&self, name: &str, at: Span) -> Option<&FnsDecl> {
-        let all = self.entries(name, |t| &t.groups);
-        Self::scoped_decl(&all, self.names_at(at)?.groups.get(name)).map(|(_, d)| d)
+    fn group_named(&self, name: &str, at: Span) -> Option<&'a FnsDecl> {
+        match self.item(*self.names_at(at)?.fn_groups.get(name)?)? {
+            Item::Fns(g) => Some(g),
+            _ => None,
+        }
     }
 
     /// [comptime-qualifier] The comptime qualifier `name` means where `at`
     /// is written.
-    fn comptime_qual(&self, name: &str, at: Span) -> Option<&QualifierDecl> {
+    fn comptime_qual(&self, name: &str, at: Span) -> Option<&'a QualifierDecl> {
         self.qual_named(name, at).filter(|q| q.comptime)
     }
 
-    /// The qualifier `name` means where `at` is written, comptime or not.
-    fn qual_named(&self, name: &str, at: Span) -> Option<&QualifierDecl> {
-        let all = self.entries(name, |t| &t.quals);
-        Self::scoped_decl(&all, self.names_at(at)?.quals.get(name)).map(|(_, d)| d)
+    /// The qualifier `name` means where `at` is written, comptime or not:
+    /// the first of the name the file sees.
+    fn qual_named(&self, name: &str, at: Span) -> Option<&'a QualifierDecl> {
+        match self.item(*self.names_at(at)?.qualifiers.get(name)?.first()?)? {
+            Item::Qualifier(q) => Some(q),
+            _ => None,
+        }
     }
 
     /// [comptime-pattern] The declaration a named type means where it is
@@ -1548,7 +1501,8 @@ impl World {
     fn decl_of(&self, base: &TypeRef) -> Option<(ModulePath, String)> {
         let name = base.name.name.as_str();
         let here = self.names_at(base.name.span)?;
-        here.types.get(name).or_else(|| here.structs.get(name)).map(|m| (m.clone(), name.to_string()))
+        let id = Self::type_id(here, name).or_else(|| here.structs.get(name).copied())?;
+        Some((id.module().clone(), name.to_string()))
     }
 
     /// [comptime-docs] The doc comment of the declaration a type names — a
@@ -1930,7 +1884,7 @@ impl World {
 
 /// One `by` site's stamping of one compfn at one target.
 struct Stamper<'w> {
-    world: &'w World,
+    world: &'w World<'w>,
     target: &'w Target,
     template: &'w FnDecl,
     by: &'w ByRef,
@@ -1940,7 +1894,7 @@ struct Stamper<'w> {
 
 impl<'w> Stamper<'w> {
     fn new(
-        world: &'w World,
+        world: &'w World<'w>,
         target: &'w Target,
         template: &'w FnDecl,
         by: &'w ByRef,
@@ -2522,7 +2476,7 @@ fn doc_text(docs: &[String]) -> Option<String> {
 
 /// The body rewriter: unrolls, selects, refuses, and substitutes.
 struct Expander<'w> {
-    world: &'w World,
+    world: &'w World<'w>,
     /// The bound parameter and what it stands for, or `None` in a concrete
     /// compfn.
     bound: Option<(String, Target)>,
@@ -2578,7 +2532,7 @@ struct Expander<'w> {
 }
 
 impl<'w> Expander<'w> {
-    fn new(world: &'w World, bound: Option<(String, Target)>, site: Span, next_expn: &'w mut u32) -> Self {
+    fn new(world: &'w World<'w>, bound: Option<(String, Target)>, site: Span, next_expn: &'w mut u32) -> Self {
         Expander {
             world,
             bound,
@@ -2728,13 +2682,7 @@ impl<'w> Expander<'w> {
         }
         // [comptime-root-visible] A type the program declares where this file
         // cannot see it is an unknown type name here, as anywhere else.
-        let mut homes: Vec<String> = self
-            .world
-            .structs_of(&ct.root.name)
-            .iter()
-            .map(|(m, _)| m.to_string())
-            .chain(self.world.types_of(&ct.root.name).iter().map(|(m, _)| m.to_string()))
-            .collect();
+        let mut homes: Vec<String> = self.world.homes_of(&ct.root.name);
         homes.sort();
         homes.dedup();
         if homes.is_empty() {

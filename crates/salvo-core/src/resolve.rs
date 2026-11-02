@@ -189,6 +189,9 @@ pub struct Resolution<'p> {
     /// [decl-id] The same scopes by declaration id (empty for a scopes-only
     /// resolution): `scopes` is their view over this program.
     pub scope_ids: Vec<std::sync::Arc<crate::scope_ids::ScopeIds>>,
+    /// [decl-id] What building each file's scope reported (handed in with
+    /// a scope given by id).
+    pub scope_errors: Vec<std::sync::Arc<Vec<FileDiagnostic>>>,
     /// [name-table] Every written type-position name, resolved where it is
     /// written: the file and scope of each reference, and what it means there.
     pub names: crate::names::Names<'p>,
@@ -613,7 +616,81 @@ pub const TEST_MODULE: &str = "test";
 pub const THROW_MODULE: &str = "throw";
 
 pub fn resolve(program: &Program) -> Resolution<'_> {
+    // [comptime-instantiate] [decl-id] An expanded program comes with the
+    // interfaces comptime stamped against: every file's scope by id, built
+    // once over the unstamped program. A scope that took in no module the
+    // stamping changed (added a clause's members to, or took a template out
+    // of) is the same over the stamped program, so it is viewed; the rest
+    // are built (PIPELINE.md C4 B).
+    if let Some(interfaces) = &program.interfaces {
+        let given: Vec<Option<GivenScope>> = interfaces
+            .scope_ids
+            .iter()
+            .zip(&interfaces.scope_errors)
+            .map(|(ids, errors)| {
+                let changed = ids.modules.iter().any(|m| interfaces.changed.contains(*m));
+                (!changed).then(|| GivenScope { ids: ids.clone(), errors: errors.clone() })
+            })
+            .collect();
+        if given.len() == program.files.len() {
+            let r = resolve_impl(&program.files, &program.modules, &|_| true, false, &given);
+            // [decl-id] What a resolution viewing the interfaces gives is what
+            // building every scope over the stamped program gives.
+            #[cfg(debug_assertions)]
+            {
+                let full = resolve_sources(&program.files, &program.modules);
+                for (i, (a, b)) in r.scopes.iter().zip(&full.scopes).enumerate() {
+                    if let Err(e) = crate::scope_ids::same(a, b) {
+                        panic!("[decl-id] the scope of `{}` through the interfaces is not the scope built: {e}", program.files[i].name);
+                    }
+                }
+                let shown = |r: &Resolution<'_>| r.errors.iter().map(|d| (d.file, d.span, d.message.clone())).collect::<Vec<_>>();
+                assert_eq!(shown(&r), shown(&full), "[decl-id] resolution through the interfaces reports otherwise");
+            }
+            return r;
+        }
+    }
     resolve_sources(&program.files, &program.modules)
+}
+
+/// [decl-id] A file's scope handed to resolution rather than built: by id,
+/// with the diagnostics building it reported.
+#[derive(Clone)]
+pub struct GivenScope {
+    pub ids: std::sync::Arc<crate::scope_ids::ScopeIds>,
+    pub errors: std::sync::Arc<Vec<FileDiagnostic>>,
+}
+
+/// [comptime-instantiate] [decl-id] The interfaces of an unstamped program
+/// (PIPELINE.md C4 B): every file's scope by id and what building it
+/// reported, over the program's declarations as written. What comptime
+/// looks names up in, and what the stamped program's resolution views
+/// again; `changed` is the modules stamping changed the declarations of.
+pub struct Interfaces {
+    pub scope_ids: Vec<std::sync::Arc<crate::scope_ids::ScopeIds>>,
+    pub scope_errors: Vec<std::sync::Arc<Vec<FileDiagnostic>>>,
+    pub decls: std::sync::Arc<crate::decl_id::DeclIndex>,
+    pub changed: HashSet<ModulePath>,
+}
+
+/// [comptime-instantiate] The interfaces of `modules` before stamping, with
+/// the leading files' scopes `given` (a std front's).
+pub fn interfaces<M: crate::decl_id::ModuleRef>(files: &[crate::source::SourceFile], modules: &[M], given: &[Option<GivenScope>]) -> Interfaces {
+    let r = resolve_impl(files, modules, &|_| true, true, given);
+    Interfaces { scope_ids: r.scope_ids, scope_errors: r.scope_errors, decls: r.decls, changed: HashSet::new() }
+}
+
+/// [lsp-std-front] What a std front may hand a program's resolution: its
+/// files' scopes, when the program's leading files are that std and no
+/// later file claims a module under `std` (refused [std-root], but its
+/// declarations still join the module they name). `None`: build them all.
+pub fn std_given(files: &[crate::source::SourceFile], std: &[std::sync::Arc<crate::scope_ids::ScopeIds>]) -> Option<Vec<Option<GivenScope>>> {
+    let n = std.len();
+    if n > files.len() || !files[..n].iter().all(|f| f.is_std && !f.is_shadow) || files[n..].iter().any(|f| f.module.is_std_rooted()) {
+        return None;
+    }
+    let none = std::sync::Arc::new(Vec::new());
+    Some(std.iter().map(|ids| Some(GivenScope { ids: ids.clone(), errors: none.clone() })).chain(std::iter::repeat_n(None, files.len() - n)).collect())
 }
 
 /// [lsp-std-front] [decl-id] [`resolve`] over a program whose leading files
@@ -623,12 +700,13 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
 /// project file claims a module under `std` (refused, but its declarations
 /// still join the module they name): then everything is built.
 pub fn resolve_over<'p>(program: &'p Program, std: &[std::sync::Arc<crate::scope_ids::ScopeIds>]) -> Resolution<'p> {
-    let n = std.len();
-    let claims_std = program.files[n.min(program.files.len())..].iter().any(|f| f.module.is_std_rooted());
-    if claims_std || n > program.files.len() || !program.files[..n].iter().all(|f| f.is_std && !f.is_shadow) {
+    if program.interfaces.is_some() {
         return resolve(program);
     }
-    resolve_impl(&program.files, &program.modules, &|i| i >= n, false, std)
+    match std_given(&program.files, std) {
+        Some(given) => resolve_impl(&program.files, &program.modules, &|_| true, false, &given),
+        None => resolve(program),
+    }
 }
 
 /// The files and their ASTs, aligned: what resolution reads of a program.
@@ -648,27 +726,12 @@ pub fn resolve_sources<'p, M: crate::decl_id::ModuleRef>(
     resolve_impl(files, modules, &|_| true, false, &[])
 }
 
-/// [lsp-std-front] The scopes of the files `scoped` accepts, and nothing
-/// else: every other file's scope is left empty, and of the rest of a
-/// `Resolution` only what building a scope reads is computed (no
-/// program-wide diagnostics, no reference tables). Every file still
-/// contributes its declarations, so a scope that is built is the one
-/// [`resolve_sources`] builds. What the comptime expansion looks names up
-/// by, for the files it stamps.
-pub fn resolve_scopes_where<'p, M: crate::decl_id::ModuleRef>(
-    files: &'p [crate::source::SourceFile],
-    modules: &'p [M],
-    scoped: &dyn Fn(usize) -> bool,
-) -> Resolution<'p> {
-    resolve_impl(files, modules, scoped, true, &[])
-}
-
 fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     files: &'p [crate::source::SourceFile],
     modules: &'p [M],
     scoped: &dyn Fn(usize) -> bool,
     scopes_only: bool,
-    given: &[std::sync::Arc<crate::scope_ids::ScopeIds>],
+    given: &[Option<GivenScope>],
 ) -> Resolution<'p> {
     let modules_in = modules;
     let modules: Vec<&'p salvo_syntax::ast::Module> = modules.iter().map(|m| m.borrow()).collect();
@@ -1079,11 +1142,26 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     type CoreBase<'p> = (ModuleScope<'p>, HashMap<(NameKind, &'p str, Option<String>), (Level, &'p ModulePath)>);
     let mut core_bases: HashMap<Option<&ModulePath>, Option<CoreBase<'_>>> = HashMap::new();
     let mut scopes = Vec::with_capacity(program.files.len());
+    // [decl-id] What building each file's scope reported, for a later
+    // resolution handed the scope by id.
+    let mut scope_errors: Vec<std::sync::Arc<Vec<FileDiagnostic>>> = Vec::with_capacity(program.files.len());
+    let no_errors = std::sync::Arc::new(Vec::new());
     for (file_idx, (file, ast)) in program.files.iter().zip(program.modules).enumerate() {
-        if !scoped(file_idx) {
+        // [decl-id] A scope handed in by id is viewed below, once every
+        // declaration has its id; what building it reported is reported here,
+        // where building it would have.
+        if let Some(Some(g)) = given.get(file_idx) {
+            errors.extend(g.errors.iter().cloned());
+            scope_errors.push(g.errors.clone());
             scopes.push(ModuleScope::default());
             continue;
         }
+        if !scoped(file_idx) {
+            scopes.push(ModuleScope::default());
+            scope_errors.push(no_errors.clone());
+            continue;
+        }
+        let errors_before = errors.len();
         let own_core = core_modules.iter().copied().find(|m| **m == file.module);
         let base = core_bases.entry(own_core).or_insert_with(|| {
             let mut scope = ModuleScope::default();
@@ -1244,6 +1322,18 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
         // here (own module, core, imports).
         check_dot_names(&scope, ast, file, file_idx, &mut errors);
         scopes.push(scope);
+        scope_errors.push(std::sync::Arc::new(errors[errors_before..].to_vec()));
+    }
+    // [decl-id] The scopes handed in, viewed over this program (interfaces
+    // alone are read by id: `interfaces`).
+    let view_decls = crate::scope_ids::Decls::new(&decls, files, modules_in);
+    let given_ids = |i: usize| given.get(i).and_then(|g| g.as_ref()).map(|g| &g.ids);
+    if !scopes_only {
+        for (i, scope) in scopes.iter_mut().enumerate() {
+            if let Some(ids) = given_ids(i) {
+                *scope = ids.view(&view_decls);
+            }
+        }
     }
 
     // [op-unique-shape] Each operator (unique function shape) on a type is
@@ -1274,15 +1364,17 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
 
     // [decl-id] The scopes by declaration id, and the pointer scopes as their
     // view over this program (PIPELINE.md C4): what outlives the program.
-    let mut scope_ids: Vec<std::sync::Arc<crate::scope_ids::ScopeIds>> = Vec::new();
-    if !scopes_only {
+    let scope_ids: Vec<std::sync::Arc<crate::scope_ids::ScopeIds>>;
+    {
         let t = crate::timing::phase("    resolve: scope ids");
         let addrs = crate::scope_ids::Addrs::of(&decls, &modules);
         scope_ids = scopes
             .iter()
             .enumerate()
             .map(|(i, scope)| {
-                if let Some(ids) = given.get(i) {
+                // A scope handed in is its ids, unless a refused shape was
+                // taken out of its view.
+                if let (Some(ids), true) = (given_ids(i), refused_shapes.is_empty()) {
                     return ids.clone();
                 }
                 // [qual-refn-scope] [fn-rename] [test-visibility] Whose
@@ -1290,7 +1382,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                 // and an annex's tested module's.
                 let file = &program.files[i];
                 let mut taken: Vec<&ModulePath> = Vec::new();
-                if scoped(i) {
+                if scoped(i) || given_ids(i).is_some() {
                     taken.push(&file.module);
                     if file.is_test {
                         let tested = ModulePath(file.module.0[..file.module.0.len().saturating_sub(1)].to_vec());
@@ -1302,21 +1394,26 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                 std::sync::Arc::new(crate::scope_ids::ScopeIds::of(scope, &addrs, &taken, &taken))
             })
             .collect();
-        let view_decls = crate::scope_ids::Decls::new(&decls, files, modules_in);
-        let views: Vec<ModuleScope<'p>> = scope_ids.iter().map(|s| s.view(&view_decls)).collect();
-        #[cfg(debug_assertions)]
-        for (i, (built, view)) in scopes.iter().zip(&views).enumerate().skip(given.len()) {
-            if let Err(e) = crate::scope_ids::same(built, view) {
+        // The built scopes become their views: the debug build checks that
+        // nothing was lost on the way.
+        for (i, scope) in scopes.iter_mut().enumerate() {
+            if given_ids(i).is_some() || scopes_only {
+                continue;
+            }
+            let view = scope_ids[i].view(&view_decls);
+            #[cfg(debug_assertions)]
+            if let Err(e) = crate::scope_ids::same(scope, &view) {
                 panic!("[decl-id] the scope of `{}` by id is not the scope built: {e}", program.files[i].name);
             }
+            *scope = view;
         }
-        scopes = views;
         drop(t);
     }
     if scopes_only {
         return Resolution {
             scopes,
             scope_ids,
+            scope_errors,
             names: crate::names::Names::default(),
             declared_in,
             private_in,
@@ -1335,6 +1432,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     Resolution {
         scopes,
         scope_ids,
+        scope_errors,
         names,
         declared_in,
         private_in,
