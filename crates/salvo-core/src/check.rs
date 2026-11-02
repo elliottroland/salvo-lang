@@ -1246,10 +1246,6 @@ pub struct Checked {
     /// spares, and those a fields-declaring call leaves linked at a field
     /// path. The IR keeps the ones its flow says are still live there.
     pub virtual_candidates: HashMap<Key, Vec<VirtualCandidate>>,
-    /// [fate-move-mode] The `for` loops (by iterable span) data was moved
-    /// out of through a projection of the loop binding: they iterate by
-    /// value, whatever any binding's mode.
-    pub by_value_loops: HashSet<Key>,
     /// [actor-deadlock-cycle] Gated mints (`replyto!`) inside a handler's
     /// members: `(handler name, the mint's site)`. While a gated
     /// continuation is outstanding the actor serves *nothing else*, so
@@ -2736,7 +2732,7 @@ struct LocalVar {
     /// For `for`-loop bindings: the span of the iterable expression.
     /// When a move-mode binding takes ownership through such a root, the
     /// loop iterates by value, keyed by this span [fate-move-mode]
-    /// (`BindFact::origins`, `Checked::by_value_loops`).
+    /// (`BindFact::origins`).
     for_origin: Option<Span>,
     /// Where the variable was declared (for linear-obligation
     /// diagnostics [linear-obligation]).
@@ -12967,12 +12963,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         true
     }
 
-    /// [fate-move-mode] A `for` loop data was moved out of through its
-    /// binding iterates by value.
-    fn loop_by_value(&mut self, key: Key) {
-        self.out.by_value_loops.insert(key);
-    }
-
     /// [fate-poison] [fate-move-mode] Records a binding's fate links, keyed
     /// by the bound name or the assignment's target, with whether it may
     /// take ownership (judged here, where the binding is) and the `for`
@@ -13021,13 +13011,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             let at = self.key(at);
             self.out.bind_facts.insert(at, BindFact { stamp: self.key(bind_span), links, eligible, origins });
         }
-    }
-
-    fn var_by_id_mut(&mut self, id: u32) -> Option<&mut LocalVar> {
-        self.locals
-            .iter_mut()
-            .rev()
-            .find_map(|frame| frame.values_mut().find(|v| v.id == id))
     }
 
     /// The scope-frame index a variable id lives in [fate-lambda].
@@ -13642,35 +13625,19 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         for l in &links {
-            let mut loop_origin = None;
             // [fate-partial-move] A *proper* projection leaves the root
             // usable (the IR flow pass records what left, from the consuming
             // projection read this records, and reports a read overlapping
             // it). Only a whole-value move (or a derivation the analysis
             // could not place) takes the variable outright — the flow
-            // pass's move (`Move::takes_root`).
+            // pass's move (`Move::takes_root`). (Data moved out of a `for`
+            // binding makes its loop iterate by value: the flow pass's
+            // decision, from this consuming read [fate-move-mode].)
             let partial = l.path.as_deref().is_some_and(|p| !p.is_empty());
-            if partial {
-                if let Some(var) = self.var_by_id_mut(l.root_id) {
-                    loop_origin = var.for_origin;
-                }
-                // Moving data out of a `for`-loop binding means the loop
-                // iterates by value [fate-move-mode].
-                if let Some(origin) = loop_origin {
-                    self.loop_by_value(self.key(origin));
-                }
-                continue;
-            }
-            if let Some(var) = self.var_by_id_mut(l.root_id) {
-                loop_origin = var.for_origin;
+            if !partial && self.var_by_id(l.root_id).is_some() {
                 // [flow-use-after-move] The IR marks the projection, not
                 // the root: the flow pass takes the root's move from here.
                 self.record_move(expr.span(), Move::TAKES_ROOT);
-            }
-            // Moving data out of a `for`-loop binding means the loop
-            // iterates by value [fate-move-mode].
-            if let Some(origin) = loop_origin {
-                self.loop_by_value(self.key(origin));
             }
         }
         self.record_move(expr.span(), Move::CONSUME);

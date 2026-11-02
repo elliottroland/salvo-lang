@@ -9644,9 +9644,12 @@ between endpoints and delivers what arrives into the scheduler.
   * Emission: the Rust backend emits move-mode bind events as real
     moves (partial moves for projections; by-value iteration for
     move-mode loops; tracked moved-position projections render as raw
-    places) — the IR the decision builds (`ir::Decision::modes`, with the
-    loops a projection move makes iterate by value, `Checked::by_value_loops`)
-    and the consuming projection reads in `Checked::moves`.
+    places) — the IR the decision builds (`ir::Decision::modes`: the
+    move-mode bindings, the loops they take a binding of, and the loops
+    data was moved out of through their binding, which the flow pass finds
+    from the consuming projection reads the checker records in
+    `Checked::moves` — a fact about the operation — and the bindings'
+    links along each path, since PIPELINE.md D3.5(b)).
     Kotlin emission is unchanged: the consumption of the ancestors is
     what keeps alias-vs-move unobservable. `is`/`when` move-mode
     bindings still emit clones on Rust (restriction-valid; a faithful

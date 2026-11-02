@@ -144,6 +144,52 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — The flow pass decides which loops iterate by value; the checker owns facts, the flow pass owns paths (user decision, PIPELINE.md D3.5(b), [fate-move-mode])
+
+- **Decided (user, 2026-10-30)**: the placement criterion is what a fact is
+  *about*, not who reads it (every checker fact is for the IR in the end).
+  The checker owns facts about values and operations: types and claims,
+  fate links, call contracts, mutation events, `NotSame` proofs, and
+  narrowing, `is` bindings included ("type information about `a`"). The
+  flow pass owns path questions: moved, poisoned, ownership, virtual places,
+  by-value loops, derived uses and the S1 error. So D3.5(b) was redefined:
+  the links and mutation events stay in the checker, and four pieces move,
+  one commit each behind a differential, deleting the checker's recording
+  as each lands: by-value loops, derived uses with the S1 error, virtual
+  candidates, eligibility. Recorded in a new page,
+  `docs/compiler/Phases.md`: each phase's purpose and the placement
+  criteria (this one; the builder lowers and does not decide; two phases
+  that must agree share one definition; core states, a backend spells;
+  interfaces before bodies).
+- **Rejected**: the IR computing its own copy of the links (two definitions
+  that must agree); moving the links out of the checker (claim roots are
+  needed while typing); moving `is` narrowing into the IR (a type fact).
+  The user's question whether the checker's loop-body second walk could
+  hand its results over rather than the IR recomputing them: it already
+  does (the final links); the flow pass's loop fixpoint computes only path
+  state, which the checker never computes.
+- **Built, by-value loops**: the builder records each consuming read of a
+  projection with its place's root (`FateFacts::projection_moves`, by the
+  read's span, so a read through a `__narrowed`/`__claimed` binding still
+  counts) and each `for` loop's binding locals (`FateFacts::for_bindings`);
+  the flow pass's deciding walk marks a loop by value when such a read's
+  root is, or derives along the links on that path from, its binding, and
+  adds it to `Decision::modes`. The first build iterates every loop by
+  reference and the decided items are built again, as for bindings.
+  `Checked::by_value_loops`, `loop_by_value`, `var_by_id_mut` and
+  `partition`'s two set macros are gone, and so is `salvo facts`'
+  `by-value` mark (a loop's mode is not a checker fact). The checker still
+  records the consuming read (`Move::CONSUME` at the projection), which is
+  the fact about the operation.
+- **The differential** (temporary `SALVO_XP_LINKS`, removed with this
+  piece; the next piece adds its own comparison): the checker's loops
+  against the flow pass's over the suite, std's tests and the examples. The
+  first version keyed on *any* move the checker made (`Read.moved` too) and
+  found IR-only loops (7 distinct, reported 141 times) — whole moves by a
+  call's contract and fn values,
+  which the checker never counted; keyed on projection moves, none differ.
+  The IR and every example are unchanged.
+
 ### 2026-10-30 — The rest of the builder's re-derivations become checker facts (PIPELINE.md D3.3, [backend-core-layers] [effect-dispatch] [fn-effects] [ir-types])
 
 - **Built**: `Checked::primitives` (std's intrinsic operators at basic types
@@ -34961,6 +35007,14 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A differential that writes only differences cannot tell "agree" from
+  "never ran"** (2026-10-30, D3.5(b)). The first by-value probe did not
+  parse (`let mut` is not Salvo), and an empty diff directory looked like
+  agreement. Before trusting an empty result, make the harness print a
+  count or an "agree" line once on a probe that must exercise it. And a
+  span's offsets are bytes: Python's `str` indexing reads them wrong in a
+  file with an em-dash before the span (use `bytes`).
 
 - **The checker and the IR scope a lambda's effects differently**
   (2026-10-30, D3.1, [effect-instance]). A lambda with a declared effect

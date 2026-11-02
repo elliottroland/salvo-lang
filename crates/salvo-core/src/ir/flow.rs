@@ -307,6 +307,13 @@ pub fn decide(decl: &Decl, out: &mut Decision) -> bool {
             any = true;
             out.virtual_binds.insert(stamp, place);
         }
+        // The loops data was moved out of through their binding iterate by
+        // value: the build reads a loop's mode by its iterable's node.
+        for k in w.by_value {
+            if out.modes.insert(k) {
+                any = true;
+            }
+        }
     };
     match decl {
         Decl::Fn(f) => one(f),
@@ -520,6 +527,9 @@ struct Walker<'f> {
     deciding: bool,
     decided: HashSet<crate::check::Key>,
     virtual_binds: HashMap<crate::check::Key, String>,
+    /// [fate-move-mode] Deciding: the `for` loops data was moved out of
+    /// through their binding.
+    by_value: HashSet<crate::check::Key>,
     /// [fate-derived-readonly] Checking: the spans of the uses refused as
     /// S1 errors, whose move is then not made (one mistake, one
     /// diagnostic).
@@ -770,6 +780,29 @@ impl<'f> Walker<'f> {
             }
         }
         out
+    }
+
+    /// [fate-move-mode] A move of data out of `local`: each `for` binding
+    /// it is, or is derived from (back along its links on this path), makes
+    /// that loop iterate by value.
+    fn note_by_value(&mut self, local: &str, moved: &Moved) {
+        let Some(fate) = self.fate else { return };
+        if fate.for_bindings.is_empty() {
+            return;
+        }
+        let mut stack = vec![self.root_of(local)];
+        let mut seen: HashSet<String> = HashSet::new();
+        while let Some(v) = stack.pop() {
+            if !seen.insert(v.clone()) {
+                continue;
+            }
+            if let Some(k) = fate.for_bindings.get(&v) {
+                self.by_value.insert(*k);
+            }
+            for l in moved.links.get(&v).into_iter().flatten() {
+                stack.push(self.root_of(&l.root));
+            }
+        }
     }
 
     /// [fate-move-mode] [fate-derived-readonly] Moves and mutations of
@@ -1237,6 +1270,15 @@ impl<'f> Walker<'f> {
         match &e.kind {
             ExprKind::Read { place, consume, moved: checker_moved } => {
                 self.walk_steps(place, moved);
+                // [fate-move-mode] Data moved out of a projection of a `for`
+                // binding, or of a value derived from one, makes its loop
+                // iterate by value.
+                if self.deciding && *consume {
+                    if let Some(root) = self.fate.and_then(|f| f.projection_moves.get(&e.span)) {
+                        let root = root.clone();
+                        self.note_by_value(&root, moved);
+                    }
+                }
                 if !self.report_use(&place.root.0, e.span, moved) {
                     self.report_part_use(&place.root.0, &place.steps, e.span, moved);
                 }

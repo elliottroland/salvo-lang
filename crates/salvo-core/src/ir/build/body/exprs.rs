@@ -544,6 +544,13 @@ impl<'a, 'p> Lower<'a, 'p> {
         // read does not make for emission (a fn value consumed by a call's
         // contract, a projection taking its root): flow-only.
         let Move { consume, takes_root: moved, .. } = self.ctx.checked.move_at(key);
+        // [fate-move-mode] A projection moved out of its place: the flow
+        // pass makes a loop iterate by value when the place's root is (or
+        // derives from) its binding. Keyed by this read's span, since the
+        // read may go through a narrowing binding below.
+        if consume && projected {
+            self.fate.projection_moves.insert(span, place.root.0.clone());
+        }
         let narrowed = self.ctx.checked.narrowed_reads.get(&key).map(|n| (self.ctx.ir_ty(&n.stored), n.by));
         // [qual-field-override] A field a qualifier of the subject refines
         // is read through a narrowing binding justified by the claim.
@@ -2688,6 +2695,15 @@ impl<'a, 'p> Lower<'a, 'p> {
                         tmp
                     }
                 };
+                // [fate-move-mode] What the loop binds, for the flow pass to
+                // find a move out of it: the element, or every name the
+                // pattern destructures (all in the loop's scope so far).
+                let loop_key = self.key(iterable.span());
+                let bound: Vec<String> = self.scopes.last().map(|s| s.values().map(|b| b.local.0.clone()).collect()).unwrap_or_default();
+                self.fate.for_bindings.insert(local.0.clone(), loop_key);
+                for b in bound {
+                    self.fate.for_bindings.insert(b, loop_key);
+                }
                 if let Some(r) = &ran {
                     stmts.push(Stmt::Assign { place: Place { root: r.clone(), steps: Vec::new() }, value: Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(true) } });
                 }

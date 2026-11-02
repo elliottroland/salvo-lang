@@ -390,6 +390,14 @@ pub struct FateFacts {
     /// [deduce-field] The bindings a mutation event at a span may leave as
     /// virtual places (`Checked::virtual_candidates`), by the event's span.
     pub virtual_at: std::collections::HashMap<Span, Vec<VirtualAt>>,
+    /// [fate-move-mode] The locals a `for` over a collection binds (its
+    /// element, or the names its pattern destructures), each with the loop
+    /// it belongs to, by the loop's iterable node: moving data out of one
+    /// makes the loop iterate by value.
+    pub for_bindings: std::collections::HashMap<String, crate::check::Key>,
+    /// [fate-move-mode] The reads that move data out of a projection, by
+    /// span, each with the root local of the place it projects.
+    pub projection_moves: std::collections::HashMap<Span, String>,
 }
 
 /// [fate-move-mode] A move or mutation of a derived local (`FateFacts::uses`).
@@ -423,10 +431,9 @@ pub struct VirtualAt {
 /// build (`flow::decide`), which the builder then builds from: the
 /// bindings that take ownership (by stamp), the statements and loops the
 /// builder lowers as moves (`modes`: those bindings, the loops they make
-/// iterate by value, and — seeded before the first build — the loops the
-/// checker saw data moved out of through their binding,
-/// `Checked::by_value_loops`), and the bindings rendered as virtual places
-/// [deduce-field]. Keyed as the checker's tables are [node-id].
+/// iterate by value, and the loops data was moved out of through their
+/// binding), and the bindings rendered as virtual places [deduce-field].
+/// Keyed as the checker's tables are [node-id].
 #[derive(Clone, Default, Debug)]
 pub struct Decision {
     pub decided: std::collections::HashSet<crate::check::Key>,

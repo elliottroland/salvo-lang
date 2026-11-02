@@ -105,12 +105,8 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, id:
         if call.is_some_and(|c| c.dot) {
             marks.push("dot");
         }
-        // [fate-move-mode] A binding's mode is the IR's decision; the
-        // checker knows only the loops a projection move makes iterate by
-        // value.
-        if part.by_value_loops.contains(key) {
-            marks.push("by-value");
-        }
+        // [fate-move-mode] Binding and loop modes are the IR flow pass's
+        // decision, not checker facts (docs/compiler/Phases.md).
         if part.moves.get(key).is_some_and(|m| m.linear) {
             marks.push("linear-move");
         }

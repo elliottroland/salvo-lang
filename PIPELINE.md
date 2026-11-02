@@ -1423,7 +1423,8 @@ log current so the work can resume after a context reset). Newest last.
     binding is a root), `derived_uses` (every move or mutation of a derived
     variable, with the S1 message and the stamps of its own links; the use
     then goes on as an owned value's move), `virtual_candidates` and
-    `by_value_loops`. `ir::build_program` builds the bodies with every
+    `by_value_loops` (the last gone since D3.5(b): the flow pass finds those
+    loops). `ir::build_program` builds the bodies with every
     binding borrow-mode, runs `flow::decide` per declaration (at each
     derived use, every binding behind it that may take ownership does: the
     variable's own, then back along the chain as the IR's links stand on
@@ -2737,9 +2738,14 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   erasure stays per node but goes through one layer (option (a); a
   separate pass over an unerased IR was rejected); D3.5(a) `by_value_loops`
   into the flow pass's `Decision` and the fate shapes tidied; D3.6 rebuild
-  per declaration rather than per module; then D3.5(b), the fate links
+  per declaration rather than per module; then D3.5(b), the path questions
   into the flow pass so one thing owns every path-dependent ownership
-  question, behind a differential harness like R8 piece 8's. **D3.1 built
+  question, behind a differential harness like R8 piece 8's. (Redefined by
+  the user, 2026-10-30: the checker keeps the fate links, the mutation
+  events and narrowing, which are facts about values and operations; the
+  flow pass takes by-value loops, derived uses and the S1 error, virtual
+  candidates and eligibility, which are path questions —
+  docs/compiler/Phases.md.) **D3.1 built
   — done** (2026-10-30): the checker records an `Instance { ty, binder }`
   (`Fn`, `Lambda`, `Dep`, `Use`, `Clause`) in `effects_passed`,
   `constructions` (`Dep` is gone), `ImplicitArg::Member` and
@@ -2804,7 +2810,18 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   builder builds again only the items the flow pass decided something in
   (`rebuild_item`), not their whole modules. On `examples/cluster` the
   second build went from 13.7ms to about 6.5ms of a ~37ms IR build (was
-  45ms).
+  45ms). **D3.5(b), by-value loops built — done** (2026-10-30): the flow
+  pass finds the loops data is moved out of through their binding — a
+  consuming projection read (`FateFacts::projection_moves`, the place's
+  root, kept through a narrowing binding) whose root is, or derives along
+  the path's links from, a `for` binding (`FateFacts::for_bindings`) — and
+  adds them to `Decision::modes`; the first build iterates every loop by
+  reference. `Checked::by_value_loops` and the checker's `loop_by_value`
+  are gone; the checker still records the consuming read. A differential
+  (`SALVO_XP_LINKS`) over the suite, std's tests and the examples found the
+  same loops on both sides once the IR keyed on projection moves rather
+  than any move the checker took a root by. Left: derived uses and the S1
+  error, virtual candidates, eligibility, each the same way.
 - **D4. The typed dump and the full round trip**: B4 extended to types,
   type arguments and narrowings (marked notation where Salvo has no
   spelling).
