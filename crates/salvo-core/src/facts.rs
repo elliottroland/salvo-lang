@@ -91,12 +91,12 @@ fn decl(out: &mut String, program: &Program, checked: &Checked, file: usize, id:
         let call = part.calls.get(key);
         match call.map(|c| &c.callee) {
             Some(Callee::Fn { decl, .. }) => row.push_str(&format!("  -> {}", fn_name(program, &checked.decls, *decl))),
-            Some(Callee::Member { effect, index }) => row.push_str(&format!("  -> {}.#{index}", crate::typekey::plain(effect))),
+            Some(Callee::Member { effect, index, .. }) => row.push_str(&format!("  -> {}.#{index}", crate::typekey::plain(effect))),
             Some(Callee::QualMember { qualifier, member, .. }) => row.push_str(&format!("  -> {qualifier}.{member}")),
             Some(Callee::Local { local, .. }) => row.push_str(&format!("  -> local {local}")),
             Some(Callee::Field { .. }) => row.push_str("  -> field"),
             Some(Callee::Computed { .. }) => row.push_str("  -> computed"),
-            Some(Callee::Send { effect, index }) => row.push_str(&format!("  -> send {}.#{index}", crate::typekey::shown_text(&effect.to_string()))),
+            Some(Callee::Send { effect, index, .. }) => row.push_str(&format!("  -> send {}.#{index}", crate::typekey::shown_text(&effect.to_string()))),
             Some(Callee::OwnSend { member }) => row.push_str(&format!("  -> own send {member}")),
             Some(Callee::Throw) => row.push_str("  -> throw"),
             None => {}

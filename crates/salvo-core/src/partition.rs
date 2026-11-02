@@ -234,7 +234,7 @@ impl Checked {
     pub(crate) fn route(&self, owners: &Owners, scope: Scope, sink: &mut dyn Sink) {
         let all = scope == Scope::All;
         let hint = std::cell::Cell::new(0);
-        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_targets, waitfor_sites, handler_constructs, moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, actor_gates, actor_sends, task_sends, task_mints, written_types, effects_taken, effects_passed, handler_deps, effect_prereqs, deductions, param_modes, fn_refs, refs, local_decls, type_ref_span_keys, value_span_keys, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors } = self;
+        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_targets, waitfor_sites, handler_constructs, moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, actor_gates, actor_sends, task_sends, task_mints, written_types, effects_taken, effects_passed, handler_deps, effect_prereqs, deductions, param_modes, primitives, fn_refs, refs, local_decls, type_ref_span_keys, value_span_keys, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors } = self;
         // A node-keyed map, by its key's declaration.
         macro_rules! by_key {
             ($($t:ident),* $(,)?) => {$(
@@ -324,7 +324,7 @@ impl Checked {
         }
         in_order!(waitfor_sites, handler_constructs, actor_gates, actor_sends, task_sends, task_mints);
         if all {
-            by_key!(deductions, param_mutations, param_modes);
+            by_key!(deductions, param_mutations, param_modes, primitives);
             by_name!(protocol_hashes);
             for h in parking_handlers {
                 let p = match owners.named.get(h.as_str()) {
@@ -355,7 +355,7 @@ impl Checked {
     /// `split_files`, or a declaration's, `split_decls`): the keyed tables;
     /// what `Scope::Keyed` leaves out is the caller's.
     pub(crate) fn insert_rows(&mut self, rows: &Checked) {
-        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_targets, waitfor_sites, handler_constructs, moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, actor_gates, actor_sends, task_sends, task_mints, written_types, effects_taken, effects_passed, handler_deps, effect_prereqs, deductions, param_modes, fn_refs, refs, local_decls, type_ref_span_keys, value_span_keys, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors } = rows;
+        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, refinements, handles, constructions, route_keys, parking_handlers, protocol_hashes, replyto_targets, waitfor_sites, handler_constructs, moves, fate_mutations, bind_facts, derived_uses, virtual_candidates, by_value_loops, actor_gates, actor_sends, task_sends, task_mints, written_types, effects_taken, effects_passed, handler_deps, effect_prereqs, deductions, param_modes, primitives, fn_refs, refs, local_decls, type_ref_span_keys, value_span_keys, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors } = rows;
         macro_rules! map {
             ($($t:ident),* $(,)?) => {$(
                 self.$t.extend($t.iter().map(|(k, v)| (k.clone(), v.clone())));
@@ -391,7 +391,7 @@ impl Checked {
         // own map (`param_mutations`, by the caller).
         not_keyed!(
             refinements, parking_handlers, protocol_hashes, waitfor_sites, handler_constructs, actor_gates, actor_sends, task_sends,
-            task_mints, written_types, deductions, param_modes, type_ref_span_keys,
+            task_mints, written_types, deductions, param_modes, primitives, type_ref_span_keys,
             value_span_keys, param_mutations, errors,
         );
     }

@@ -144,6 +144,23 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — The rest of the builder's re-derivations become checker facts (PIPELINE.md D3.3, [backend-core-layers] [effect-dispatch] [fn-effects] [ir-types])
+
+- **Built**: `Checked::primitives` (std's intrinsic operators at basic types
+  and its native `to_str`s, recomputed every check, `partition`'s
+  program-wide rows) replaces the IR's `is_primitive_operator` AST test and
+  `intrinsic_fn` scan; `interface: DeclId` on `Callee::Member`,
+  `Callee::Send` and `ImplicitArg::Member` replaces `decl_of_effect`;
+  `FnValue::Decl { adapter }` replaces the IR's comparison of the position's
+  effects with the fn's; and `record_written_type` lowers every
+  declaration-level written type (struct and `state` fields, union aliases,
+  handler constructor parameters) once, quietly, so `written_types` has
+  them.
+- **Measured**: the `approx_keyed` fallback went from ~280k lowerings a
+  suite run to 16 (a variadic tail's element, an `Iter` obligation's
+  element, three signature types). It stays, for those. The IR and every
+  example are unchanged.
+
 ### 2026-10-30 — A block lambda answers its written return type, else `None`; lambda parameters are always parenthesized (user decision, PIPELINE.md D3.3(g), [fn-lambda])
 
 - **Decided (user, 2026-10-30)**: a block lambda with no expected fn type

@@ -110,7 +110,7 @@ fn ident_at(source: &str, span: Span, name: &str) -> bool {
 fn choice(checked: &Checked, file: usize, span: Span) -> Option<String> {
     let (callee, targs) = match &checked.call(checked.key_at(file, span))?.callee {
         Callee::Fn { decl, type_args } => (decl.to_string(), type_args.iter().map(|t| t.to_string()).collect::<Vec<_>>().join(", ")),
-        Callee::Member { effect, index } => (format!("{effect}#{index}"), String::new()),
+        Callee::Member { effect, index, .. } => (format!("{effect}#{index}"), String::new()),
         _ => return None,
     };
     Some(format!("{callee}<{targs}>"))

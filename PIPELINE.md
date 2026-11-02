@@ -2767,19 +2767,24 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   handler, behind its handle unless `threadsafe`) or not (an addr), not
   from the lowered value's type name; and `use` of a nested tuple of
   handles reads each at its path (`check::handle_leaves`, the checker's
-  flattening), which fixed a defect. **D3.3, what is left** (a probe over
-  the suite and the examples counted each fallback): (a) the primitive
-  operator test (`Ctx::is_primitive_operator`) is decided only in the IR,
-  the checker deferring to it — a fact to record, not a disagreement; (b)
-  `intrinsic_fn` finds std's `to_str` for a native interpolated part, an
-  `ArmText::Native` union arm and the slot text of an `@whynot` message,
-  which the IR builds from the doc template itself; (c) `decl_of_effect` is
-  a key-to-id lookup, removable by carrying the `DeclId` on
-  `Callee::Member`; (f) `approx_keyed` fires for ~280k written types per
-  suite run, nearly all std's (std is not walked, so `written_types` lacks
-  them): making the table total needs std's rows in the std cache; (h) the
-  `fn_value` adapter compares two checker facts, and could be recorded in
-  `FnValue::Decl`. **(g) decided and built** (user, 2026-10-30): a block
+  flattening), which fixed a defect. **D3.3, the rest built — done**
+  (2026-10-30): (a) and (b) std's primitives are a checker fact
+  (`Checked::primitives`: `Operator` for the intrinsic `eq`/`cmp`/`plus`/…
+  at basic types, `Text(T)` for the intrinsic `to_str` of a basic type or
+  `Str`), which `Ctx::is_primitive_operator` and `native_to_str` read — the
+  IR's AST and symbol scans are gone; (c) `Callee::Member`, `Callee::Send`
+  and `ImplicitArg::Member` carry the effect's `interface` declaration, so
+  `decl_of_effect` and `member_ref` are gone (with two unreachable
+  messages); (f) the checker records every struct field's, `state` field's,
+  union alias's and handler constructor parameter's written type at its
+  declaration (`record_written_type`, quietly: validation reported what was
+  wrong), and `approx_keyed` fell from ~280k lowerings a suite run to 16 —
+  a variadic tail's element type (12), an `Iter` obligation's element and
+  three signature types — so the fallback stays, small; (h) a fn named as a
+  value records its adapter (`FnValue::Decl { adapter }`: each effect it
+  takes by its index among the position's), and the IR builds the lambda
+  from it. Not moved: the `@whynot` message, which the IR still assembles
+  from the doc template (a presentation question, not a re-derivation). **(g) decided and built** (user, 2026-10-30): a block
   lambda answers its written return type (`(n: Int) -> Int { … }`), else
   the expected fn type's, else `None`, as a fn does; the IR's
   `returned_ty` inference is gone ([fn-lambda]). **D3.4 built — done** (2026-10-30, option (a)): erasure and the

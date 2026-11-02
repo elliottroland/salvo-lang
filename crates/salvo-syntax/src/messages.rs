@@ -4873,18 +4873,6 @@ messages! {
         "no instance of `{want}` in scope"
     );
 
-    // [effect-dispatch]
-    /// The IR builder met a member call to an effect with no declaration.
-    effect_dispatch_lower_no_declaration = "effect-dispatch:lower-no-declaration" (effect: &dyn std::fmt::Display) => format!(
-        "effect `{effect}` has no declaration"
-    );
-
-    // [effect-member-overload]
-    /// The IR builder met an effect member as a value, of an effect with no declaration.
-    effect_member_overload_lower_no_declaration = "effect-member-overload:lower-no-declaration" (effect: &dyn std::fmt::Display) => format!(
-        "effect `{effect}` has no declaration"
-    );
-
     // [effect-use]
     /// The IR builder met a `use` whose value is not a handler construction.
     effect_use_lower_not_construction = "effect-use:lower-not-construction" () =>

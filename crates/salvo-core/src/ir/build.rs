@@ -82,27 +82,10 @@ impl<'p> Ctx<'p> {
         self.resolution.decls.fn_decl(&self.program.modules, key)
     }
 
-    /// [op-equality] [op-order] [op-arith] [backend-core-layers] Whether `key` is
-    /// std's intrinsic `eq`, `cmp`, `plus`, `minus`, `times` or `divide` at a
-    /// basic type [type-basic]: the primitive operation itself, so an
-    /// operator resolved to it is the IR's own operator (which every backend
-    /// spells natively), and one resolved to anything else is the call (R10
-    /// D1). `pow` is not among them: no target has a native power operator,
-    /// so `**` is always the call, which the backends lower as an intrinsic
-    /// [op-pow].
+    /// [op-equality] [op-order] [op-arith] Whether the declaration `key` is
+    /// a primitive operation, as the checker recorded (`Checked::primitives`).
     pub fn is_primitive_operator(&self, key: DeclId) -> bool {
-        let Some(decl) = self.fn_by_key(key) else { return false };
-        if !decl.intrinsic || !matches!(decl.name.name.as_str(), "eq" | "cmp" | "plus" | "minus" | "times" | "divide") {
-            return false;
-        }
-        let Some(loc) = self.resolution.decls.loc(key) else { return false };
-        if !self.program.files.get(loc.file).is_some_and(|f| f.is_std) {
-            return false;
-        }
-        let basic = |t: &ast::Type| matches!(t, ast::Type::Named { qualifiers, base }
-            if qualifiers.is_empty() && base.args.is_empty() && crate::types::BASIC_TYPES.contains(&base.name.name.as_str()));
-        let explicit: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
-        explicit.len() == 2 && explicit.iter().all(|p| basic(&p.ty))
+        matches!(self.checked.primitives.get(&crate::check::Key::name_of(key)), Some(crate::check::Primitive::Operator))
     }
 
     /// [decl-id] The id of the declaration at (`file_idx`, `item`), if it
@@ -115,17 +98,6 @@ impl<'p> Ctx<'p> {
     /// container's); `usize::MAX` for a generated declaration.
     pub fn item_of(&self, id: DeclId) -> usize {
         self.resolution.decls.loc(id).map_or(usize::MAX, |l| l.item)
-    }
-
-    /// Where a struct/effect/handler declaration lives, by symbol key.
-    pub fn decl_of_effect(&self, key: &str) -> Option<DeclId> {
-        let decl: &ast::EffectDecl = self.symbols.effects.get(key).copied()?;
-        let file = self.resolution.decls.file_of(decl.name.span)?;
-        let item = self.program.modules[file]
-            .items
-            .iter()
-            .position(|i| matches!(i, Item::Effect(e) if std::ptr::eq(e, decl)))?;
-        self.item_id(file, item)
     }
 
     /// [dump-spelling] Every declaration's dump name (PIPELINE.md §II.10

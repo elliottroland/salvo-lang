@@ -655,10 +655,10 @@ pub enum Callee {
     /// A declared fn, at the type arguments it resolved to, in its
     /// declaration order [call-type-args].
     Fn { decl: DeclId, type_args: Vec<Ty> },
-    /// [effect-dispatch] An effect's member: the effect by its symbol key,
-    /// the member's index among its `fns` (an overload included
-    /// [effect-member-overload]).
-    Member { effect: String, index: usize },
+    /// [effect-dispatch] An effect's member: the effect by its symbol key
+    /// and by its declaration, the member's index among its `fns` (an
+    /// overload included [effect-member-overload]).
+    Member { effect: String, interface: DeclId, index: usize },
     /// [qual-whynot] `Q.member(args)`: a qualifier's own fn, and the base its
     /// `of` names (which declaration of an overloaded qualifier).
     QualMember { qualifier: String, member: String, of: Option<String> },
@@ -672,8 +672,8 @@ pub enum Callee {
     /// A computed callee (`adder()(1)`): the value's contract [fn-contract].
     Computed { contract: Vec<FnParamContract> },
     /// [actor-use-addr] A send through an addr: the effect instance it
-    /// serves, and the member's index.
-    Send { effect: Ty, index: usize },
+    /// serves, its declaration, and the member's index.
+    Send { effect: Ty, interface: DeclId, index: usize },
     /// [actor-self-send] [actor-mixed-handler] A send to one of the
     /// enclosing handler's own `send fn` members, by name: from a send
     /// member (its own mailbox) or a mixed handler's sync member (the
@@ -779,12 +779,30 @@ impl Move {
 #[derive(Clone, Debug, PartialEq)]
 pub enum FnValue {
     /// A declared fn (which one is `fn_refs`'): the implicits it fills in
-    /// turn, as an implicit filled by it would [implicit-recursive].
-    Decl { nested: Vec<ImplicitArg> },
+    /// turn, as an implicit filled by it would [implicit-recursive]; and,
+    /// where the position threads other effects than the fn declares
+    /// [fn-effects], the adapter: for each effect the fn takes (the throw
+    /// effect left out), its index among the ones the position passes.
+    Decl { nested: Vec<ImplicitArg>, adapter: Option<Vec<usize>> },
     /// [effect-member-overload] [effect-at] An effect's member, `m@E` at a
     /// fn-typed position: always an [`ImplicitArg::Member`], lowered to a
     /// closure over the instance, as for a member that fills an implicit.
     Member(ImplicitArg),
+}
+
+/// [backend-core-layers] What a std declaration is natively
+/// (`Checked::primitives`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Primitive {
+    /// [op-equality] [op-order] [op-arith] std's intrinsic `eq`, `cmp`,
+    /// `plus`, `minus`, `times` or `divide` at two basic types [type-basic]:
+    /// an operator resolved to one is the IR's own operator; to anything
+    /// else, the call (R10 D1). `pow` is not among them: no target has a
+    /// native power operator [op-pow].
+    Operator,
+    /// [interp-to-str] std's intrinsic `to_str` of the named basic type (or
+    /// `Str`, the identity): the text of a value the target renders natively.
+    Text(String),
 }
 
 /// [proj-readonly-return] [proj-infer] What a call's result borrows of its
@@ -1357,6 +1375,10 @@ pub struct Checked {
     /// lent, or lent mutably. Recomputed every check, from `deductions` and
     /// `param_mutations`.
     pub param_modes: HashMap<Key, Vec<crate::param_mode::PassMode>>,
+    /// [backend-core-layers] std's declarations, at their names, that *are*
+    /// a primitive the backends spell natively (PIPELINE.md D3.3(a), (b)):
+    /// recomputed every check.
+    pub primitives: HashMap<Key, Primitive>,
     /// [platform-check] [platform-factory] The host boundary at a node
     /// (PIPELINE.md D2): what crosses from host to Salvo and needs checking
     /// (ABI D7), and the factories of a union a host builds (ABI D5). At a
@@ -1639,7 +1661,7 @@ pub enum ImplicitArg {
     /// member's among its `fns`, as [`Callee::Member`] names them; `instance` the
     /// effect instance in scope; `nested` the member's own implicits
     /// [implicit-recursive]; `want` the fn type the position wanted.
-    Member { name: String, effect: String, index: usize, instance: Instance, nested: Vec<ImplicitArg>, want: Ty },
+    Member { name: String, effect: String, interface: DeclId, index: usize, instance: Instance, nested: Vec<ImplicitArg>, want: Ty },
 }
 
 /// [lsp-completion] One local binding declared in a file, for completion: its
@@ -2188,7 +2210,45 @@ fn check_program_walk<'p>(
     // [fn-param-mode] Every declaration's modes, now that what they rest on
     // is known.
     crate::param_mode::record(program, symbols, &mut out);
+    record_primitives(program, &mut out);
     out
+}
+
+/// [op-arith] [op-equality] [interp-to-str] Fills `Checked::primitives`
+/// from std's own intrinsic declarations.
+fn record_primitives(program: &Program, out: &mut Checked) {
+    let basic = |t: &ast::Type| matches!(t, ast::Type::Named { qualifiers, base }
+        if qualifiers.is_empty() && base.args.is_empty() && crate::types::BASIC_TYPES.contains(&base.name.name.as_str()));
+    let mut ops: HashMap<Key, Primitive> = HashMap::new();
+    for (file, module) in program.modules.iter().enumerate() {
+        if !program.files.get(file).is_some_and(|f| f.is_std) {
+            continue;
+        }
+        for (item, it) in module.items.iter().enumerate() {
+            let Item::Fn(f) = it else { continue };
+            if !f.intrinsic {
+                continue;
+            }
+            let Some(id) = out.decls.item(file, item) else { continue };
+            let explicit: Vec<&ast::Param> = f.params.iter().filter(|p| !p.implicit).collect();
+            let named = |t: &ast::Type| match t {
+                ast::Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() => Some(base.name.name.clone()),
+                _ => None,
+            };
+            match f.name.name.as_str() {
+                "eq" | "cmp" | "plus" | "minus" | "times" | "divide" if explicit.len() == 2 && explicit.iter().all(|p| basic(&p.ty)) => {
+                    ops.insert(Key::name_of(id), Primitive::Operator);
+                }
+                "to_str" if explicit.len() == 1 && (basic(&explicit[0].ty) || named(&explicit[0].ty).as_deref() == Some("Str")) => {
+                    if let Some(n) = named(&explicit[0].ty) {
+                        ops.insert(Key::name_of(id), Primitive::Text(n));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    out.primitives = ops;
 }
 
 /// [actor-replyto] The handlers whose members mint a continuation into the
@@ -3943,6 +4003,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if iface {
                 if let Some(t) = &field.ty {
                     self.validate_type(t);
+                    self.record_written_type(t);
                 }
                 if field.canbe_mut {
                     self.error(field.span, messages::struct_field_canbe_mut_handler_state());
@@ -4231,6 +4292,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // plain [effect-not-data] error, with no exception
             // left anywhere in the language.
             self.validate_type(&p.ty);
+            self.record_written_type(&p.ty);
         }
         // [effect-handler-multi] Conformance, face by face: every
         // member of every implemented effect needs an
@@ -4935,6 +4997,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let Some(written) = &field.ty else { continue };
                         if iface {
                             self.validate_type(written);
+                            self.record_written_type(written);
                             self.check_canbe_mut_field(s, field);
                             // [proj-field] Any struct may hold a borrow through a
                             // `proj` field; it is then a *view*, tied to whatever
@@ -4969,6 +5032,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // expected type, since there is none here.
                         self.own_alias_namespace = t.name.name.rsplit_once('.').map(|(ns, _)| ns.to_string());
                         self.validate_type(alias);
+                        self.record_written_type(alias);
                         self.own_alias_namespace = None;
                     }
                     // [linear-group] The opaque form of the legal-death
@@ -7343,6 +7407,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         ImplicitArg::Member {
                             name: imp.name.clone(),
                             effect: self.symbols.key_or(m.effect, &m.effect.name.name).to_string(),
+                            interface: self.name_key(m.effect.name.span).decl,
                             index: m.index,
                             instance: m.instance.clone(),
                             nested,
@@ -7989,6 +8054,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let arg = ImplicitArg::Member {
             name: name.to_string(),
             effect: self.symbols.key_or(m.effect, &m.effect.name.name).to_string(),
+            interface: self.name_key(m.effect.name.span).decl,
             index: m.index,
             instance: m.instance.clone(),
             nested,
@@ -8153,7 +8219,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         // [fn-ref-table]
         self.out.fn_refs.insert(self.key(name_span), entry.key);
-        self.out.fn_values.insert(self.key(name_span), FnValue::Decl { nested: Vec::new() });
         let decl = entry.decl;
         // [fn-effects] A named fn passed by value performs exactly the
         // effects it declares (inherited entries included) — its callers
@@ -8170,7 +8235,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             }) => exp_effects.clone(),
             _ => effects.clone(),
         };
+        // [fn-effects] The variance rule's adapter, when the two differ: each
+        // effect the fn takes is one the position passes (a value taking
+        // more does not fit, which the use reports).
+        let threaded_taken = crate::threaded_effects(&taken);
+        let threaded_own = crate::threaded_effects(&effects);
+        let adapter: Option<Vec<usize>> = (threaded_taken != threaded_own)
+            .then(|| threaded_own.iter().filter_map(|t| threaded_taken.iter().position(|x| x == t)).collect());
         self.out.effects_taken.insert(self.key(name_span), taken);
+        self.out.fn_values.insert(self.key(name_span), FnValue::Decl { nested: Vec::new(), adapter: adapter.clone() });
         // [fn-value] At an expected fn type, the value is what the shared
         // rule makes of the declaration there — generics instantiated, its
         // own implicits filled — exactly as an implicit filled by it would
@@ -8196,7 +8269,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return self.fn_value_ty(entry.key, decl);
         };
         if !value.nested.is_empty() {
-            self.out.fn_values.insert(self.key(name_span), FnValue::Decl { nested: value.nested });
+            self.out.fn_values.insert(self.key(name_span), FnValue::Decl { nested: value.nested, adapter });
         }
         // [linear-generics] The instantiation ban applies here as at any
         // call: an unopted generic cannot bind a linear type.
@@ -13955,7 +14028,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///   answer), as `<` needs a `?cmp`.
     ///
     /// Whether the backends spell the host's operator is read off the
-    /// selected declaration (`Ctx::is_primitive_operator`), never the operand
+    /// selected declaration (`Checked::primitives`), never the operand
     /// types [backend-core-layers].
     #[allow(clippy::too_many_arguments)]
     fn check_arith_call(
@@ -15507,7 +15580,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // extends its dependency chain past this activation.
         self.send_payload(target, &best, &arg_refs, &arg_tys, named, "forwarding it to another actor", span);
         if let Some(index) = index {
-            self.record_callee(self.key(span), Callee::Send { effect: instance.clone(), index });
+            let interface = self.name_key(effect.name.span).decl;
+            self.record_callee(self.key(span), Callee::Send { effect: instance.clone(), interface, index });
         }
         // [actor-deadlock-cycle] A send from inside a member body is an edge
         // in the wait-for graph: it blocks while the target's bounded mailbox
@@ -18021,6 +18095,18 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     // ================= type lowering =================
+
+    /// [ir-types] Records a declaration's written type in `written_types`
+    /// without a diagnostic of its own (what is wrong with it was reported
+    /// where it was validated), so the IR has the checker's lowering for
+    /// every declaration — a struct field no body reads included
+    /// (PIPELINE.md D3.3(f)).
+    fn record_written_type(&mut self, ty: &ast::Type) {
+        let (errors, warnings) = (self.out.errors.len(), self.copy_warnings.len());
+        let _ = self.lower_type(ty);
+        self.out.errors.truncate(errors);
+        self.copy_warnings.truncate(warnings);
+    }
 
     fn lower_type(&mut self, ty: &ast::Type) -> Ty {
         let subst = HashMap::new();
@@ -25193,7 +25279,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             return (true, pass.clone());
         }
-        if let Some(Callee::Member { effect, index }) = &callee {
+        if let Some(Callee::Member { effect, index, .. }) = &callee {
             let Some(effect) = self.symbols.effects.get(effect.as_str()).copied() else { return (true, pass.clone()) };
             let Some(member) = effect.fns.get(*index) else { return (true, pass.clone()) };
             let Some(p) = member.params.iter().find(|p| !p.implicit) else { return (true, pass.clone()) };
@@ -31754,8 +31840,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// an overloaded member positionally.
     fn record_member_call(&mut self, effect: &'p EffectDecl, member: &'p FnDecl, span: Span) {
         let Some(index) = crate::effect_member_index(effect, member) else { return };
+        let interface = self.name_key(effect.name.span).decl;
         let effect = self.symbols.key_or(effect, &effect.name.name).to_string();
-        self.record_callee(self.key(span), Callee::Member { effect, index });
+        self.record_callee(self.key(span), Callee::Member { effect, interface, index });
     }
 
     /// [call-resolve] Records what the call at `key` is, with its spelling

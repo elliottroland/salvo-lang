@@ -2472,7 +2472,7 @@ Conventions:
     arithmetic [op-wrap], `Int / Int` dividing toward zero, a zero divisor
     the host's trap, all as before; resolved to anything else (a struct's
     `plus`, an enclosing implicit, a member) it is the call
-    (`Ctx::is_primitive_operator`, which [op-order]'s comparisons share).
+    (`Checked::primitives`, which [op-order]'s comparisons share).
     Written out (`plus(1, 2)`) or passed as a value (`?plus` filled with
     std's), the intrinsic is each backend's same operator text.
   * **[op-promote] stays a lowering before the call**: `i + l` is
@@ -2613,7 +2613,7 @@ Conventions:
     primitive comparison, so the IR writes its own operator, which every
     backend spells as the host's; resolved to anything else — an enclosing
     implicit on an `Int`, a member, a struct's `cmp`, `Str`'s intrinsic — it
-    is the call (`Ctx::is_primitive_operator`, shared with [op-arith]).
+    is the call (`Checked::primitives`, shared with [op-arith]).
   * **`Str` orders by code point** on both backends (`cmp(Str, Str)`, which
     the JVM's `<` does not deliver [kt-ordered]); a struct orders when it has
     a `cmp`, and a tuple, a container or a fn value when its home declares one

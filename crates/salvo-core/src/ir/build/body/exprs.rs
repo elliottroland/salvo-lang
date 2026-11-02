@@ -136,8 +136,8 @@ impl<'a, 'p> Lower<'a, 'p> {
             AExpr::Field { .. } | AExpr::TupleIndex { .. } | AExpr::Index { .. } => self.read(e),
             AExpr::Scoped { name, .. } | AExpr::EffectScoped { name, .. } => {
                 // [effect-member-overload] An effect's member as a value (R10 D3).
-                if let Some(FnValue::Member(ImplicitArg::Member { effect, index, instance, nested, want, .. })) = self.ctx.checked.fn_values.get(&self.key(name.span)).cloned() {
-                    return self.member_value(&effect, index, &instance, &nested, &want, span);
+                if let Some(FnValue::Member(ImplicitArg::Member { interface, index, instance, nested, want, .. })) = self.ctx.checked.fn_values.get(&self.key(name.span)).cloned() {
+                    return self.member_value(interface, index, &instance, &nested, &want, span);
                 }
                 // A fn named through a selector, as a value.
                 match self.ctx.checked.fn_refs.get(&self.key(name.span)).copied() {
@@ -418,12 +418,14 @@ impl<'a, 'p> Lower<'a, 'p> {
         // [unify-checker] One lookup for the value's facts.
         let key = self.key(name_span);
         let taken: Vec<Ty> = self.ctx.checked.effects_taken.get(&key).map(|v| self.ctx.ir_tys(&crate::threaded_effects(v))).unwrap_or_default();
-        let nested: Vec<ImplicitArg> = match self.ctx.checked.fn_values.get(&key) {
-            Some(FnValue::Decl { nested }) => nested.clone(),
-            _ => Vec::new(),
+        // [fn-effects] [fn-value] The checker's answer: an adapter where the
+        // position threads other effects than the fn takes, or its own
+        // implicits to fill; else the fn itself.
+        let (nested, adapter): (Vec<ImplicitArg>, Option<Vec<usize>>) = match self.ctx.checked.fn_values.get(&key) {
+            Some(FnValue::Decl { nested, adapter }) => (nested.clone(), adapter.clone()),
+            _ => (Vec::new(), None),
         };
-        let declared: Vec<Ty> = self.fn_taken(k).map(|v| self.ctx.ir_tys(&crate::threaded_effects(&v))).unwrap_or_default();
-        if taken == declared && nested.is_empty() {
+        if adapter.is_none() && nested.is_empty() {
             return Expr { ty, span, kind: ExprKind::FnValue(FnRef::Decl(id)) };
         }
         let (params, ret) = match ty.strip_quals() {
@@ -434,15 +436,16 @@ impl<'a, 'p> Lower<'a, 'p> {
         for (i, t) in taken.iter().enumerate() {
             ps.push(Param { local: Local(format!("__fx{i}")), ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None, span });
         }
+        // Each effect the fn takes, from the position's: all of them, in
+        // order, where no adapter is needed.
+        let order: Vec<usize> = adapter.unwrap_or_else(|| (0..taken.len()).collect());
         let mut args: Vec<Expr> = Vec::new();
-        for t in &declared {
-            match taken.iter().position(|x| x == t) {
-                Some(i) => args.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: Local(format!("__fx{i}")), steps: Vec::new() }, consume: false, moved: false } }),
-                None => {
-                    self.error(span, messages::fn_effects_lower_adapter_effect(t));
-                    return unsupported(ty, span, "fn value adapter");
-                }
-            }
+        for i in order {
+            let Some(t) = taken.get(i) else {
+                self.error(span, messages::fn_effects_lower_adapter_effect(&Ty::Unknown));
+                return unsupported(ty, span, "fn value adapter");
+            };
+            args.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: Local(format!("__fx{i}")), steps: Vec::new() }, consume: false, moved: false } });
         }
         for (i, t) in params.iter().enumerate() {
             let l = Local(format!("__a{i}"));
@@ -467,8 +470,8 @@ impl<'a, 'p> Lower<'a, 'p> {
             return self.fn_value(k, span, span);
         }
         // [effect-member-overload] An effect's member passed by name (R10 D3).
-        if let Some(FnValue::Member(ImplicitArg::Member { effect, index, instance, nested, want, .. })) = self.ctx.checked.fn_values.get(&self.key(span)).cloned() {
-            return self.member_value(&effect, index, &instance, &nested, &want, span);
+        if let Some(FnValue::Member(ImplicitArg::Member { interface, index, instance, nested, want, .. })) = self.ctx.checked.fn_values.get(&self.key(span)).cloned() {
+            return self.member_value(interface, index, &instance, &nested, &want, span);
         }
         if let Some(local) = self.implicit_locals.get(&id.name).cloned() {
             return Expr { ty: self.ty_of(span), span, kind: ExprKind::FnValue(FnRef::Local(local)) };
@@ -659,7 +662,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let callee = self.ctx.checked.call(key).map(|c| c.callee.clone());
         if matches!(callee, Some(CalleeKind::Local { .. } | CalleeKind::Fn { .. } | CalleeKind::Member { .. })) {
             // std's identity `to_str(Str)` is the value itself.
-            if self.ctx.checked.call_decl(key).is_some_and(|k| self.intrinsic_fn("to_str", &[Ty::named("Str")]) == Some(k)) {
+            if self.ctx.checked.call_decl(key).is_some_and(|k| self.native_to_str(&Ty::named("Str")) == Some(k)) {
                 return Some(value);
             }
             return Some(self.for_call(key, vec![value], str_ty, span));
@@ -673,7 +676,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         if matches!(value.ty.strip_quals(), Ty::Named { name, .. } if name == "Str") {
             return Some(value);
         }
-        let id = self.intrinsic_fn("to_str", &[value.ty.clone()])?;
+        let id = self.native_to_str(&value.ty)?;
         Some(Expr { ty: Ty::named("Str"), span, kind: ExprKind::Call { target: FnRef::Decl(id), type_args: Vec::new(), args: vec![value], moved: false } })
     }
 
@@ -710,7 +713,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let read = Expr { ty: arm_ty.clone(), span, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: false, moved: false } };
                     Expr { ty: fn_ty, span, kind: ExprKind::Lambda { params: vec![p], ret: str_ty.clone(), body: Block { stmts: Vec::new(), value: Some(Box::new(read)), span }, captures: Vec::new() } }
                 }
-                ArmText::Native => match self.intrinsic_fn("to_str", &[arm_ty.clone()]) {
+                ArmText::Native => match self.native_to_str(arm_ty) {
                     Some(id) => Expr { ty: fn_ty, span, kind: ExprKind::FnValue(FnRef::Decl(id)) },
                     None => {
                         self.error(span, messages::interp_union_lower_arm_no_to_str(&arm_ty));
@@ -738,11 +741,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let (receiver, leading) = (passed.and_then(EffectsPassed::receiver).cloned(), passed.and_then(EffectsPassed::leading).cloned());
         let k = match callee {
             // [effect-dispatch]
-            Some(CalleeKind::Member { effect, index }) => {
-                let Some(interface) = self.ctx.decl_of_effect(&effect) else {
-                    self.error(span, messages::effect_dispatch_lower_no_declaration(&effect));
-                    return unsupported(ty, span, "member call");
-                };
+            Some(CalleeKind::Member { effect, interface, index }) => {
                 let Some(receiver) = receiver else {
                     self.error(span, messages::effect_available_lower_no_instance(&Ty::named(effect.clone())));
                     return unsupported(ty, span, "member call");
@@ -787,23 +786,17 @@ impl<'a, 'p> Lower<'a, 'p> {
         Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(k), type_args: Vec::new(), args: lowered, moved: false } }
     }
 
-    /// The std intrinsic `name` declared over exactly these parameter types.
-    pub(crate) fn intrinsic_fn(&self, name: &str, params: &[Ty]) -> Option<DeclId> {
-        let fns = self.ctx.symbols.intrinsic_fns.get(name)?;
-        let want: Vec<String> = params.iter().map(|t| self.ctx.ir_ty(t).strip_quals().to_string()).collect();
-        for f in fns {
-            if !f.intrinsic || f.params.iter().filter(|p| !p.implicit).count() != params.len() {
-                continue;
-            }
-            let have: Vec<String> = f.params.iter().filter(|p| !p.implicit).map(|p| p.ty.to_string()).collect();
-            if have == want {
-                return self.ctx.program.files.iter().enumerate().find_map(|(fi, _)| {
-                    let m = &self.ctx.program.modules[fi];
-                    m.items.iter().position(|i| matches!(i, ast::Item::Fn(g) if std::ptr::eq(g, *f))).and_then(|item| self.ctx.item_id(fi, item))
-                });
-            }
+    /// [interp-to-str] std's native `to_str` of a value of type `ty`, as the
+    /// checker recorded it (`Checked::primitives`).
+    pub(crate) fn native_to_str(&self, ty: &Ty) -> Option<DeclId> {
+        let Ty::Named { name, args } = self.ctx.ir_ty(ty).strip_quals().clone() else { return None };
+        if !args.is_empty() {
+            return None;
         }
-        None
+        self.ctx.checked.primitives.iter().find_map(|(k, p)| match p {
+            crate::check::Primitive::Text(t) if *t == name => Some(k.decl),
+            _ => None,
+        })
     }
 
     // --------------------------------------------------------- operators --
@@ -1112,8 +1105,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                     let id = *next_fn;
                     out.push(Expr { ty: Ty::Unknown, span: at, kind: ExprKind::FnValue(FnRef::Decl(id)) });
                 }
-                ImplicitArg::Member { effect, index, instance, nested, want, .. } => {
-                    out.push(self.member_value(effect, *index, instance, nested, want, at));
+                ImplicitArg::Member { interface, index, instance, nested, want, .. } => {
+                    out.push(self.member_value(*interface, *index, instance, nested, want, at));
                 }
             }
         }
@@ -1125,12 +1118,8 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// it — so it carries its handler, and its type is the position's, with no
     /// effects of its own. Its own implicits follow the arguments, as at a
     /// member call [implicit-recursive].
-    pub(crate) fn member_value(&mut self, effect: &str, index: usize, instance: &Instance, nested: &[ImplicitArg], want: &Ty, at: Span) -> Expr {
+    pub(crate) fn member_value(&mut self, interface: DeclId, index: usize, instance: &Instance, nested: &[ImplicitArg], want: &Ty, at: Span) -> Expr {
         let want = self.ctx.ir_ty(want);
-        let Some(interface) = self.ctx.decl_of_effect(effect) else {
-            self.error(at, messages::effect_member_overload_lower_no_declaration(&effect));
-            return unsupported(want, at, "member value");
-        };
         let (params, ret, contract) = match want.strip_quals() {
             Ty::Fn { params, ret, contract, .. } => (params.clone(), (**ret).clone(), contract.clone()),
             _ => (Vec::new(), Ty::Unknown, None),
@@ -1238,15 +1227,11 @@ impl<'a, 'p> Lower<'a, 'p> {
             };
         }
         // [actor-use-addr] a send to an actor through an addr.
-        if let Some(CalleeKind::Send { effect, index }) = callee_kind.clone() {
+        if let Some(CalleeKind::Send { interface, index, .. }) = callee_kind.clone() {
             if let AExpr::Field { base, .. } = callee {
                 let addr = self.expr(base);
-                let member = self.member_ref(&effect, index);
                 let a: Vec<Expr> = args.iter().map(|x| self.expr(x)).collect();
-                return match member {
-                    Some(member) => Expr { ty, span, kind: ExprKind::Send { addr: Box::new(addr), member, args: a } },
-                    None => unsupported(ty, span, "addr send"),
-                };
+                return Expr { ty, span, kind: ExprKind::Send { addr: Box::new(addr), member: MemberRef { interface, index }, args: a } };
             }
         }
         if let Some(CalleeKind::OwnSend { member }) = callee_kind.clone() {
@@ -1313,11 +1298,8 @@ impl<'a, 'p> Lower<'a, 'p> {
         let passed = checked.effects_passed.get(&key);
         let (receiver, leading) = (passed.and_then(EffectsPassed::receiver).cloned(), passed.and_then(EffectsPassed::leading).cloned());
         // [effect-dispatch]
-        if let Some(CalleeKind::Member { effect, index }) = &callee {
-            let Some(interface) = self.ctx.decl_of_effect(effect) else {
-                self.error(span, messages::effect_dispatch_lower_no_declaration(effect));
-                return Some(unsupported(ty, span, "member call"));
-            };
+        if let Some(CalleeKind::Member { effect, interface, index }) = &callee {
+            let interface = *interface;
             let Some(receiver) = receiver else {
                 self.error(span, messages::effect_available_lower_no_instance(&Ty::named(effect.clone())));
                 return Some(unsupported(ty, span, "member call"));
@@ -1565,16 +1547,6 @@ impl<'a, 'p> Lower<'a, 'p> {
             out.push(Expr { ty: arr_ty, span, kind: ExprKind::Array(tail) });
         }
         (out, prelude)
-    }
-
-    /// [actor-use-addr] The member at `index` of `effect`'s declaration.
-    pub(crate) fn member_ref(&mut self, effect: &Ty, index: usize) -> Option<MemberRef> {
-        let eff_name = match effect.strip_quals() {
-            Ty::Named { name, .. } => name.clone(),
-            _ => return None,
-        };
-        let interface = self.ctx.decl_of_effect(&eff_name)?;
-        Some(MemberRef { interface, index })
     }
 
     // ------------------------------------------------------------ structs --
