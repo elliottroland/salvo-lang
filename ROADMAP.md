@@ -1110,29 +1110,6 @@ repros are over the real std.
   before B3.4 (the `shout` repro); a send under `?.` is not in the run data
   for this reason.
 
-### 0az — Open defect (E1): an addr send in a lambda inside a handler member records no actor send (found 2026-10-30, D2)
-
-Found by reading, not yet run: `check_lambda` clears `own_handler` for the
-body and restores it after (check.rs, `saved_own_handler`), but leaves
-`own_task` as it is. So in
-
-```
-handler H() of A {
-    send fn go(peer: eff[B]) => peer {
-        each(xs, (x) -> peer.ping(x))
-    }
-}
-```
-
-`check_addr_call` sees no handler and records no `actor_sends` row, and
-the deadlock graph has no `A → B` edge for the send; the same lambda inside
-a free `send fn` does record its `task_sends` row. Whether the lambda runs
-in the member's activation decides whether the edge is real: a lambda
-called before the member returns blocks the actor exactly as a direct
-send does. Left for E1, whose per-declaration summaries replace these rows
-(PIPELINE.md); a repro with a two-actor cycle through such a lambda should
-land with the fix.
-
 ### 0ba — Recorded, not scheduled: a reference's target by node (D2 navigation refs, 2026-10-30)
 
 `Checked::refs` (`Ref::Def`, `Ref::Field`) names a target as a `DefSite`,
@@ -2979,10 +2956,21 @@ several are "revisit only if a customer appears".
   sync member of a mixed handler parks its caller until the servant
   answers") even when the occupied node is a router or a priced shareable
   handler's lock, where what happens is that the caller runs the member on
-  its own thread under the lock; and a *spawned* written router behind an
-  `eff[E]` gets no in-edges (sends through an `eff[E]` land on `E` alone —
-  the addr cannot say `any`, [effect-any]'s recorded gap), so a cycle
-  through one is not seen.
+  its own thread under the lock.
+- **DECISION (recorded 2026-10-30, E1): what an `eff[E]` send may reach.** A
+  *spawned* written router behind an `eff[E]` gets no in-edges: sends
+  through an `eff[E]` land on `E` alone, since the addr cannot say `any`
+  ([effect-any]'s recorded gap, ⑥ above), so a cycle through one is not
+  seen. Options: (a) every send through an `eff[E]` also lands on every
+  written `of any E` router's servant node, of the sender's kind (a spawned
+  router is an actor, so no occupancy) — over types like the rest of the
+  graph, it can add a warning to a program that spawns routers, and
+  closes the gap; (b) leave it unmodelled until an addr can carry the
+  `any` claim; (c) refuse spawning an `of any E` router behind a plain
+  `eff[E]` (its addr would then say what it is). Recommendation (a): the
+  graph already prices every binding a type allows. Repro to land with it:
+  `Pong` sends through an `eff[Ping]` held from `spawn R()` where `handler
+  R() [Pong] of any Ping` sends to `Pong` with a gate.
 - **Multi-effect and mixed-handler leftovers**: a same-named member across two
   faces still needs `@Effect` at the call even where the parameters distinguish it
   ([effect-at] keys on the name); a dependent multi-face handler is untested;

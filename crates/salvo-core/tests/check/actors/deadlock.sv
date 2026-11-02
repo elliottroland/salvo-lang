@@ -360,3 +360,46 @@ handler Working(peer: eff[Peer], back: eff[Counter]) [Ask] of Counter {
         out.send(0)
     }
 }
+
+//--- send-in-a-lambda
+// [actor-deadlock-cycle] A send in a lambda a member calls blocks the actor
+// as a direct send does, so it is the member's handler's edge (ROADMAP 0az:
+// the lambda's send recorded nothing, and this gate cycle went unseen).
+actor effect OrderApi {
+    send fn place(id: Int, out: Reply<Str>) => !out
+    send fn poke(id: Int)
+}
+
+actor effect CreditApi {
+    send fn credit(id: Int, out: Reply<Bool>) => !out
+}
+
+actor effect AuditApi {
+    send fn check(out: Reply<Int>) => !out
+}
+
+handler Orders(credit: eff[CreditApi]) of OrderApi {
+    mailbox { capacity: 1 }
+
+    send fn place(id: Int, out: Reply<Str>) {
+        credit.credit(id, replyto! placed(out))
+    }
+    send fn placed(out: Reply<Str>, ok: Bool) => !out {
+        out.send("placed")
+    }
+    send fn poke(id: Int) {}
+}
+
+handler Credit(orders: eff[OrderApi], audit: eff[AuditApi]) of CreditApi {
+    mailbox { capacity: 1 }
+
+    send fn credit(id: Int, out: Reply<Bool>) {
+        //~ error[actor-deadlock-cycle:gate-cycle]
+        audit.check(replyto! counted(out))
+        let poke = (n: Int) -> orders.poke(n)
+        poke(id)
+    }
+    send fn counted(out: Reply<Bool>, n: Int) => !out {
+        out.send(true)
+    }
+}

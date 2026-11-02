@@ -8056,7 +8056,10 @@ docs/language/ remains the source of truth for everything that does.
     constructions, task mints, each row owned by a `DeclId`) — and scans no
     tree; it is the combining step at the end of checking, over the merged
     rows, so an unedited file's rows are reused [lsp-check-cache]. Nodes and
-    messages still read the written names.
+    messages still read the written names. A send (or a task mint) in a lambda inside a
+    member is the member's handler's (ROADMAP 0az, closed 2026-10-30): a
+    lambda called before the member returns blocks the actor as a direct
+    send does, and where it is called is not known, so it counts.
 * **Built so far, and what is refused meanwhile.** The surface **runs**, and as
   of 2026-09-15 it runs **without `main` in the loop**: a program can spawn a
   handler — a **dependent** one included, its dependencies supplied by its own

@@ -144,6 +144,23 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A send in a member's lambda is the handler's edge (ROADMAP 0az, [actor-deadlock-cycle])
+
+- **Built**: the checker's `actor_owner` (the handler or free `send fn` a
+  body's work is attributed to) is no longer cleared for a lambda in a
+  handler member, as `own_handler` is (a lambda may not mint or wait), so
+  a send or a task mint in one is the handler's row. A lambda called before
+  the member returns blocks the actor exactly as a direct send does, and
+  where it is called is not known, so it counts. Repro:
+  `check/actors/deadlock.sv` `send-in-a-lambda` — a gate cycle whose one
+  side's send is in a lambda the member calls; unseen before (the test
+  fails on the previous commit), a `gate-cycle` error now.
+- **Left, as a DECISION** (ROADMAP "what an `eff[E]` send may reach"): the
+  spawned written router behind an `eff[E]`, which PIPELINE.md E1 listed as
+  "a cycle closing through a router never seen". The router in-edges of
+  2026-10-26 closed the `any E` dependency case; what is left needs a call
+  on what a plain addr may reach (options and a recommendation recorded).
+
 ### 2026-10-30 — Deadlock reads per-declaration facts; the graph stays the end-of-check combine (PIPELINE.md E1, user decision P25, [actor-deadlock-cycle])
 
 - **Decided (user, P25)**: whether the inputs come from the IR or are

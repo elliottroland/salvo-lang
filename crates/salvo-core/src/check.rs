@@ -25546,8 +25546,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         // minted it — none of which travels with a function value.
         let saved_can_spawn = std::mem::replace(&mut self.can_spawn, false);
         let saved_own_handler = self.own_handler.take();
-        // (0az: a lambda in a handler member attributes nothing.)
-        let saved_owner = if saved_own_handler.is_some() { self.actor_owner.take() } else { self.actor_owner };
         let ret = match body {
             // [type-none-unit] `(v: Int) -> None` into a `(v: Int) -> Str?` slot
             // answers the slot's optional: typed as answering `None` alone,
@@ -25580,7 +25578,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.loop_stack = saved_loops;
         self.can_spawn = saved_can_spawn;
         self.own_handler = saved_own_handler;
-        self.actor_owner = saved_owner;
         self.ret_ty = saved_ret;
         // [ir-analyze] A lambda parameter's linear-obligation leak check
         // moved to the IR analysis.

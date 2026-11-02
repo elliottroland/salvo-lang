@@ -2917,8 +2917,11 @@ compaction loses nothing. Progress:
 - E1, per-declaration inputs: done (commit "Give the deadlock graph
   per-declaration inputs"). Chosen: checker facts, the graph stays the
   end-of-check combine (COMPLETED.md for why); the IR half is not needed.
-  Next: 0az (actor_owner through lambdas, the repro is in
-  tmp/deadlock_with_0az.sv's last case), then the spawned-router gap, then E2.
+- ROADMAP 0az: done (commit "Count a send in a member's lambda as the
+  handler's"). The spawned-router gap is [effect-any]'s recorded one (an
+  `Addr<E>` cannot say `any`): left as recorded (ROADMAP "Router in-edge
+  leftovers"), since modelling it means deciding what an `eff[E]` send may
+  reach. Next: E2.
 
 ### Order, and what can overlap
 
