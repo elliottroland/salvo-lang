@@ -77,7 +77,9 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
   protocol hash").
 - 0ad: done (commit "Land a stamp's copy for an imported type's field in
   that type's file").
-- Next: 0al.
+- 0al: done (commit "Negate a literal before wrapping it as an
+  optional"). Its repro found 0bd (DECISION, recorded).
+- Next: 0am is a DECISION (skipped); then 0an.
 
 ## The sequence
 
@@ -739,6 +741,23 @@ writing `[E]` and `=> …` between its parameters and `->` as a fn does.
 Recommendation (a): nothing has needed it, and an inferred set fits where
 the written one would.
 
+### 0bd — DECISION: an entry point that declares an effect (found 2026-10-30)
+
+`fn main() [Console] -> None { println("hi") }` checks clean, and neither
+target runs it: Rust emits `pub fn main(console: &Console)` (E0580, `main`
+has the wrong type) and the Kotlin `main` takes the handler as a parameter,
+so the JVM finds no entry point. Nothing calls `main`, so nothing can pass
+it a handler; `main() [use]` with `use StdConsole()` is how a program gets
+one. A checker-clean program the targets refuse [backend-never-wrong].
+Options: (a) refuse it at the declaration: an entry point's effect list
+holds only the capabilities a host gives it (`use`, `spawn`, and whatever
+[cli-run] lists), naming the remedy ("`use` a handler in `main`"); (b) let
+the host supply std's default handler for each std effect `main` declares
+(`main() [Console]` meaning "with the standard console"), which every
+backend's entry shim would have to build. Recommendation (a): it is the
+rule the program already lives by, and (b) is a second way to install a
+handler. Found writing 0al's repro.
+
 ### 0ae — Recorded, not scheduled: per-declaration reuse in the check cache (measured 2026-10-28, A4)
 
 The language server's `CheckCache` [lsp-check-cache] reuses an unedited
@@ -1211,17 +1230,6 @@ the checker's own scopes:
 declaration is still found as the *first* of its name's overload set where a
 subject is not in hand (`written_qual_decl`, `qual_decl`): the generics and
 `comptime` flag of `NonEmpty` are read off whichever of its five comes first.
-
-### 0al — Open defect: `let x: Long? = -1L` miscompiles on Rust (found 2026-10-28, B3.3c)
-
-`let x: Long? = -1L` lowers to `present(-(present(1L)))` (IR): the optional
-coercion is recorded on the literal under the negation as well as on the
-negation, and rustc refuses `i64::wrapping_neg(Some(1i64))` (E0308). Kotlin
-runs it. Present at f1c17831 (the census probe `op-arm-compare` used this
-line; it was rebuilt with `let n = -1L; let x: Long? = n`). A
-checker-clean program the target compiler refuses [backend-never-wrong]; the
-expected type should not flow through unary `-` into the literal as an
-optional, only its numeric width ([type-lit-adopt]).
 
 ### 0am — DECISION: a type with both a `next` and an `iter` (B3.3d, 2026-10-28)
 

@@ -144,6 +144,19 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Unary `-` passes only its expectation's numeric width (ROADMAP 0al, [type-lit-adopt] [op-arith])
+
+- **Built**: the checker's `UnaryOp::Neg` checks its operand against the
+  numeric type the expectation names (`numeric_expectation`) instead of
+  the expectation itself. `let x: Long? = -1L` lowered to
+  `present(-(present(1L)))`, the literal wrapped as well as the negation,
+  and rustc refused `i64::wrapping_neg(Some(1i64))`; now it is
+  `present(-(1L))` and runs on both backends. An unsuffixed literal under
+  `-` still adopts (`let z: Long? = -2`, `let w: Double? = -1.5`). Covered
+  by run data `operators/a_negated_literal_into_an_optional.sv`.
+- **Found**: ROADMAP 0bd (DECISION), `main() [Console]` checks clean and
+  neither target runs it.
+
 ### 2026-10-30 — A stamp's copy for an imported type's field lands in that type's file (ROADMAP 0ad, [node-origin] [node-file])
 
 - **Built**: `origin::file_of` reads the file a rendered span is in from

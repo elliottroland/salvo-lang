@@ -23614,11 +23614,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             Expr::Unary { op, operand, .. } => {
                 match op {
-                    // [op-arith] Negation is numeric. The expectation
-                    // passes through, so `let x: Long = -5` adopts
-                    // [type-lit-adopt].
+                    // [op-arith] Negation is numeric. The expectation's
+                    // numeric width passes through, so `let x: Long = -5`
+                    // adopts [type-lit-adopt] — only the width: what else
+                    // the expectation says (`Long?`'s optional, a literal
+                    // union's arms, a qualifier) is about the negation, and
+                    // the operand coerced to it would be negated as an
+                    // optional (ROADMAP 0al, 2026-10-30).
                     UnaryOp::Neg => {
-                        let t = self.check_expr(operand, expected);
+                        let width = expected.and_then(numeric_expectation).map(Ty::named);
+                        let t = self.check_expr(operand, width.as_ref());
                         let tb = t.strip_quals();
                         if !op_lenient(tb) && op_numeric(tb).is_none() {
                             self.error(operand.span(), messages::op_arith_unary_minus(&t));

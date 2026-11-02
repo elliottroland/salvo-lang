@@ -102,6 +102,12 @@ Conventions:
   an integer), and *variables* never widen implicitly — only literals,
   and only where a numeric expectation exists (operator operands need
   none: `x + 1` widens per [op-promote]).
+  * **Unary `-` passes the width only** (ROADMAP 0al, fixed 2026-10-30):
+    `let x: Long? = -1` adopts `Long` for the literal under the negation,
+    and the optional wrap is the negation's. Passing the whole expectation
+    wrapped the literal as well, which rustc refused
+    (`i64::wrapping_neg(Some(1))`); a qualifier or a literal union
+    expected of the negation is the negation's business too.
   * Backends render the adopted type explicitly (`1i64`/`1L`, `3f64`/
     `3.0`, `0.5f32`/`0.5f`), since neither target adopts everywhere Salvo
     does (Kotlin refuses a bare `1` for a `Long` *parameter*).
