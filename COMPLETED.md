@@ -144,6 +144,18 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — ROADMAP 0aa closed: no IR build differs between two runs
+
+- **Checked**: a temporary hook in `build_program_gated` hashed the dump of
+  every module of every IR build (`Dumper::module`), by program, over two
+  fresh suite runs (every test but the toolchain runs): 11,365 program and
+  module pairs, and every variant of a pair occurred once per run (the
+  variants are build contexts: a gated declaration left out, std built or
+  not). The one odd count was two processes appending to one file. The
+  four differing `std.codec`/`std.core.comptime` dumps the A1 control run
+  found (2026-10-27) do not reproduce; whichever map iteration caused them
+  went with the rewrites since. The hook is removed.
+
 ### 2026-10-30 — A statically decided `is` test keeps its binding and its subject (ROADMAP 0p, closing 0l, [is-binding])
 
 - **Built**: the IR builder lowered an `is` the checker decided statically

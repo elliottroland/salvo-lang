@@ -70,7 +70,10 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
 - 0l: closed, already fixed by the lambda decision (COMPLETED.md
   2026-10-30). 0p: done (commit "Keep a statically decided is test's
   binding and subject").
-- Next: 0q.
+- 0q: a DECISION already (which fix is a language question): skipped.
+  0r: parked by the user: skipped. 0aa: closed, does not reproduce
+  (COMPLETED.md).
+- Next: 0ab.
 
 ## The sequence
 
@@ -696,18 +699,6 @@ chooses", [fn-value-select]).
 
 Record in COMPLETED.md ("A written fn value fits contravariantly in erased
 qualifiers", [fn-erased-variance]).
-
-### 0aa — Open defect: an IR dump that differs between two runs (found 2026-10-27)
-
-The A1 differential's control run (the compiler of c33b86d3 against itself,
-every program the suite checks, COMPLETED.md "Every fn is identified by
-module, name and signature") found 4 programs whose IR dump differs between
-two runs of the same compiler: 3 in `std.codec`, 1 in `std.core.comptime`.
-Some IR builder or dumper step iterates a hash map or set. The programs were
-not identified (the hook hashed them; no example reproduces it under
-`salvo dump --phase generate-ir --all`, three runs each). To find them: hash each built module's
-`Dumper::module_with_leaks` text per program over two suite runs, then dump
-the differing one twice and diff. Emitted code may be affected the same way.
 
 ### 0ab — Open defect: a written type parameter resolves as a same-named type of its file (found 2026-10-27)
 
