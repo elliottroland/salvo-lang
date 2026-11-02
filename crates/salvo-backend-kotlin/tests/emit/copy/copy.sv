@@ -44,17 +44,29 @@ fn main() [use] -> None {
     println("${zs.size()}")
 }
 
-//--- copy_of_nested_mutable_type_is_an_error
-// [kt-copy] [backend-never-wrong] Nested mutability Kotlin cannot copy
-// correctly yet — a map's mutable values — is a codegen error, never a
-// diverging copy. (A list of mutable lists used to be the example; it
-// copies element-wise since 2026-10-05.)
+//--- copy_of_a_map_copies_its_mutable_values
+// [kt-copy] [copy-plan] A map is its host class's `copy`, each value copied
+// by its own plan when the values are mutable (refused before 2026-10-30,
+// ROADMAP 0m).
 fn main() [use] -> None {
     use StdConsole
     let m = Mut Map(("a", Mut List(1)))
-    //~ refused[kt-copy:no-plan]
+    //~ emits: = m.copy { __c -> __c.toMutableList() }
     let n = copy(m)
     println("${size(n)}")
+}
+
+//--- copy_of_nested_mutable_type_is_an_error
+// [kt-copy] [backend-never-wrong] Nested mutability Kotlin cannot copy
+// correctly yet — an array's mutable elements — is a codegen error, never a
+// diverging copy. (A list of mutable lists, then a map of them, used to be
+// the example; they copy element-wise since 2026-10-05 and 2026-10-30.)
+fn main() [use] -> None {
+    use StdConsole
+    let a = array_of(Mut List(1))
+    //~ refused[kt-copy:no-plan]
+    let b = copy(a)
+    println("${b.size()}")
 }
 
 //--- canbe_mut_field_reads_cast_and_structs_copy_deeply

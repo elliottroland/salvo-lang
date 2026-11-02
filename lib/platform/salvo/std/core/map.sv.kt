@@ -133,6 +133,14 @@ class SalvoMap<K, V> @PublishedApi internal constructor() : Iterable<Pair<K, V>>
         return out
     }
 
+    /** The same, each value copied by [value] [kt-copy] [copy-plan]: a map whose values are mutable. */
+    @Suppress("UNCHECKED_CAST")
+    inline fun copy(value: (V) -> V): SalvoMap<K, V> {
+        val out = SalvoMap<K, V>()
+        for (i in liveSlots()) out.append(keys[i] as K, value(values[i] as V), digests[i])
+        return out
+    }
+
     /** Order-blind, on host equality (what a data class holding a map compares by; ROADMAP §0j step 8). */
     @Suppress("UNCHECKED_CAST")
     override fun equals(other: Any?): Boolean {

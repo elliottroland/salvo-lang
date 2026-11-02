@@ -79,7 +79,10 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
   that type's file").
 - 0al: done (commit "Negate a literal before wrapping it as an
   optional"). Its repro found 0bd (DECISION, recorded).
-- Next: 0am is a DECISION (skipped); then 0an.
+- 0am, 0ao, 0ap, 0aq, 0e: DECISIONs (skipped); 0an: recorded for Stage D,
+  not a defect. The run wraps to the open defects above 0p, in file order.
+- 0m: done (commit "Copy maps and sets on the Kotlin backend").
+- Next: 0n.
 
 ## The sequence
 
@@ -560,25 +563,6 @@ list to be complete.
   emitted there, so Rust's prelude `drop` runs (same effect on an `Int`, and
   it was so under the globs too). Worth a check that a resolved Salvo fn the
   program calls is always emitted.
-
-### 0m — Open defect: `copy` of a `Map` is unsupported on the Kotlin backend (found 2026-10-17)
-
-`copy(m)` for `m: Map<K, V>` fails the Kotlin emitter with "cannot `copy` a
-value of type `Map<…>`", while Rust copies it fine (a plain immutable map is an
-Identity copy). Found building `modules/aws/examples/ddb`, which copies a
-`Map<Str, AttributeValue>` item; the example works around it with a `rebuild`
-helper that copies attribute by attribute. Nothing in std or the other examples
-copies a whole map, which is why it was latent.
-
-The Kotlin `copy` path in `ir_emit/mod.rs` (`intrinsic_call`) bottoms out in
-`salvo_core::copyplan::copy_plan`, which has `List`/`Deque`/struct/array cases
-but **no `Map` case**, and the `immutable`→Identity shortcut does not fire here
-(the inferred map type carries its `(?hash, ?eq)` slots, which the
-immutable/plan walk likely trips on). Fix: give `copy_plan` a `Map` case
-(copy keys and values element-wise, like `Elements` does for a list, honouring
-`Mut`), or make `immutable` recognise a plain map of immutable entries so the
-copy is Identity. A backend-parity bug — Rust already does the right thing —
-not a language decision.
 
 ### 0n — Open defect: a call's named argument reads a parameter binding (found 2026-10-20)
 

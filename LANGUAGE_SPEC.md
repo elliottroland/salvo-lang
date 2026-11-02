@@ -10563,7 +10563,11 @@ between endpoints and delivers what arrives into the scheduler.
   operation can mutate any part of it (scalars, `Str`, non-`Mut` structs of
   such, an `Addr`, a `Pool`, fn values); otherwise a `Mut Str` gets a new
   buffer, a value platform type with a `Mut` kind its host's `copy`, a `List`
-  or `Deque` a new container whose elements copy by their own plan, a struct
+  or `Deque` a new container whose elements copy by their own plan, a keyed
+  collection (`Map`, `Set`, `SortedMap`, `SortedSet`) a new one of the same
+  entries whose values copy by their own plan and whose keys, which must be
+  immutable, are shared (ROADMAP 0m, 2026-10-30: a fn slot's identity counts
+  as immutable, so a plain map of immutable entries is shared), a struct
   a copy with each still-mutable field replaced by its own copy, an array of
   immutable elements a new array. A struct reached again inside its own copy
   has no plan and is refused. A backend whose copy is always deep (Rust's

@@ -29,6 +29,12 @@ pub enum CopyPlan {
     /// Salvo name) replaced by its own copy. Fields that copy as themselves
     /// are not listed.
     Struct { name: String, fields: Vec<(String, CopyPlan)> },
+    /// [copy-plan] A keyed collection, plain or `Mut` — a `Map`, `Set`,
+    /// `SortedMap` or `SortedSet`: a fresh collection of the same entries,
+    /// filed the same way, each value copied by `value` (`Identity` for a
+    /// set's members and for immutable values). The keys are shared, so a
+    /// collection whose keys are not immutable has no plan.
+    Keyed { value: Box<CopyPlan> },
     /// An array whose elements are immutable.
     Array,
     /// A non-generic struct reached again inside its own copy (a list of
@@ -64,6 +70,22 @@ fn plan(symbols: &Symbols<'_>, ty: &Ty, copying: &mut Vec<String>) -> Option<Cop
         Ty::Named { name, args } if (name == "Deque" || name == "List") && args.len() == 1 => {
             let elem = plan(symbols, &args[0], copying)?;
             Some(CopyPlan::Elements { deque: name == "Deque", mutable: has_mut, elem: Box::new(elem) })
+        }
+        // [copy-plan] A keyed collection: its type arguments are its key (or
+        // member) and, for a map, its value; its fn slots are identities.
+        Ty::Named { name, args }
+            if matches!(name.as_str(), "Map" | "SortedMap" | "Set" | "SortedSet")
+                && symbols.intrinsic_types.get(name.as_str()).is_some_and(|t| t.platform) =>
+        {
+            let types: Vec<&Ty> = args.iter().filter(|a| !matches!(a, Ty::FnName(_) | Ty::ValueRef { .. } | Ty::Const(_))).collect();
+            if !immutable(symbols, types.first()?, &mut Vec::new()) {
+                return None;
+            }
+            let value = match types.get(1) {
+                Some(v) if matches!(name.as_str(), "Map" | "SortedMap") => plan(symbols, v, copying)?,
+                _ => CopyPlan::Identity,
+            };
+            Some(CopyPlan::Keyed { value: Box::new(value) })
         }
         Ty::Named { name, args } if symbols.structs.contains_key(name.as_str()) => {
             let s = symbols.structs[name.as_str()];
@@ -173,8 +195,12 @@ pub fn immutable(symbols: &Symbols<'_>, ty: &Ty, visiting: &mut Vec<String>) -> 
         Ty::Array(_) => false,
         // Function values are opaque and immutable.
         Ty::Fn { .. } => true,
-        // An identity is not a value, so no value of this "type" exists.
-        Ty::FnName(_) => false,
+        // [cmp-carry] A fn slot's identity (the hash or ordering a map
+        // holds) is not a value, and nothing can change which fn it names:
+        // it leaves its holder as immutable as its other arguments make it
+        // (before 2026-10-30 it made every `Map` and `Set` mutable, and the
+        // Kotlin backend had no plan for a plain map's copy, ROADMAP 0m).
+        Ty::FnName(_) => true,
         Ty::Var(_) | Ty::Any | Ty::Never | Ty::Unknown => false,
     }
 }

@@ -51,6 +51,9 @@ class SalvoSortedMap<K, V> @PublishedApi internal constructor(
 ) {
     fun copy(): SalvoSortedMap<K, V> = SalvoSortedMap(ArrayList(keys), ArrayList(values))
 
+    /** The same, each value copied by [value] [kt-copy] [copy-plan]: a map whose values are mutable. */
+    inline fun copy(value: (V) -> V): SalvoSortedMap<K, V> = SalvoSortedMap(ArrayList(keys), values.mapTo(ArrayList(values.size), value))
+
     /** The entries, in key order: what a boundary check walks. */
     operator fun iterator(): Iterator<Pair<K, V>> = keys.indices.map { Pair(keys[it], values[it]) }.iterator()
 

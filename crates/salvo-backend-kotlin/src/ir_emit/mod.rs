@@ -2137,6 +2137,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     .collect();
                 format!("{code}.let {{ __s -> __s.copy({}) }}", parts.join(", "))
             }
+            // [kt-copy] A keyed collection is one class for both shapes: its
+            // host `copy`, mapping the values when they copy too.
+            CopyPlan::Keyed { value } => match self.render_copy(value, "__c") {
+                inner if inner == "__c" => format!("{code}.copy()"),
+                inner => format!("{code}.copy {{ __c -> {inner} }}"),
+            },
             CopyPlan::Array => format!("{code}.copyOf()"),
             CopyPlan::Recur { name, mutable } => {
                 // [kt-copy] the struct's own copy fn, generated at module end.

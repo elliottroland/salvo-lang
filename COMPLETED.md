@@ -144,6 +144,25 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — `copy` of a keyed collection has a plan (ROADMAP 0m, [copy-plan] [kt-copy])
+
+- **Built**: `copyplan::immutable` counts a fn slot's identity
+  (`Ty::FnName`, the hash or ordering a `Map<K, V>(hash, eq)` holds) as
+  immutable, so a plain map or set of immutable entries is shared, as a
+  `List` is; and `CopyPlan::Keyed { value }` copies a `Map`, `Set`,
+  `SortedMap` or `SortedSet` that is `Mut` or holds mutable values: a fresh
+  collection of the same entries, each value by its own plan, the keys
+  shared (a collection whose keys are not immutable has no plan, so it is
+  refused rather than aliased). Kotlin renders it as the host class's
+  `.copy()` or the new `.copy { __c -> … }` (`map.kt`, `sorted.kt`); Rust's
+  `clone` already did the right thing. Before, the slot identity made every
+  map and set "mutable" and no plan matched, so `copy(m)` failed the Kotlin
+  emitter. Run data `collections/copying_a_keyed_collection.sv` copies each
+  kind, plain and `Mut`, and a `Mut Map` of `Mut List`s whose copy's list is
+  changed without changing the original's. The `rebuild` helper in
+  `modules/aws/examples/ddb` that worked around it is still there and could
+  now go.
+
 ### 2026-10-30 — Unary `-` passes only its expectation's numeric width (ROADMAP 0al, [type-lit-adopt] [op-arith])
 
 - **Built**: the checker's `UnaryOp::Neg` checks its operand against the

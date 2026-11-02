@@ -1152,6 +1152,11 @@ nothing but the monitor.
     as immutable only when its type arguments are, and a `Deque` never does
     [col-deque] (2026-10-05: every platform type used to count as
     immutable, so a `List<Mut Counter>` copy aliased);
+  * a `Map`, `Set`, `SortedMap` or `SortedSet` (one host class for both
+    shapes) → its host `.copy()`, or `.copy { __c -> … }` copying each
+    value of a map whose values are mutable (2026-10-30, ROADMAP 0m: no
+    plan existed, so every `copy` of a map was refused); a plain one of
+    immutable entries is shared, as a `List` is;
   * `Mut Str` → `StringBuilder(sb)` [kt-mut-str];
   * a struct copies **deeply** (2026-10-05, ROADMAP §0j step 6e): the data
     class's `.copy(…)` with each field that is not transitively immutable
