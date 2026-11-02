@@ -58,9 +58,9 @@ import tags
 
 struct P { x: Int, s: Str }
 
-fn tag1(p: P) [] -> Int => p by tags
-fn tag2(p: P) [] -> Int => p by tags
-fn tag3(p: P) [] -> Int => p by tags
-fn tag4(p: P) [] -> Int => p by tags
-fn tag5(p: P) [] -> Int => p by tags
-fn tag6(p: P) [] -> Int => p by tags
+fn tag1(value: P) [] -> Int => value by tags
+fn tag2(value: P) [] -> Int => value by tags
+fn tag3(value: P) [] -> Int => value by tags
+fn tag4(value: P) [] -> Int => value by tags
+fn tag5(value: P) [] -> Int => value by tags
+fn tag6(value: P) [] -> Int => value by tags

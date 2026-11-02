@@ -1,14 +1,13 @@
-// [fn-by] A written declaration keeps its own parameter names and its own
-// deduction clause. `std.core.auto`'s `hash` names its parameter `value` and
-// declares a local `h`: the declared `h` is the parameter, and the template's
-// local is renamed apart (`h__p`, `stamp_signature_tests.rs`) so it cannot
-// capture it — nor be refused as shadowing it [var-no-shadow].
+// [fn-by] A written declaration keeps its own deduction clause, and names its
+// parameters as the template does (user decision 2026-10-30): `std.core.auto`'s
+// `hash` names its parameter `value`, and declares a local `h` of its own,
+// which the stamped body keeps as written.
 struct P : Hashed<self> {
     x: Int,
     y: Str
 
-    fn hash(h: P) -> Long by auto
-    fn eq(left: P, right: P) -> Bool => left, right by auto
+    fn hash(value: P) -> Long by auto
+    fn eq(a: P, b: P) -> Bool => a, b by auto
 }
 
 fn probe(p: P, q: P) [] -> Long {

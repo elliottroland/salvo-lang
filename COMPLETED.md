@@ -144,6 +144,43 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A stamped fn names its parameters as its template does (user decision, [fn-by] [obligation-by])
+
+- **Decided (user, 2026-10-30)**: a `fn … by X` declaration, and a clause's
+  member, must name each parameter as the template does at its position,
+  "for now until we discover a very compelling case to put effort into
+  generalizing it. It also makes things more predictable and standardized."
+  It replaces the positional binding PIPELINE.md had moved from C3 to D2,
+  whose premise (the typed form identifying parameters by id) the D2 merges
+  had not built; the three designs that binding needed (rename the
+  signature, alias the body's names, read locals by binding) are not needed.
+  It narrows the 2026-10-14 decision ("the declaration's signature is the
+  stamped fn's: its parameter names, …"): types, return type, effects and
+  clause stay the declaration's; the names are the template's.
+- **Built**: `fn-by:param-name`, at each differing parameter of a written
+  declaration, and once at the `by` site for a clause (a template written
+  for a group names its parameters as the group's member does). Gone with
+  the rename: `RenameParams`, `rename_capturing_locals`, `RenameLocals`,
+  `CollectLocals`, `hidden_free_name` and `fn-by:param-hides-name`, the
+  `h__p` suffix with `written_local`, `unmangle_message` and the checker's
+  `unmangle_scoped_locals`. `site_hidden` stays: a `name@[site]` still does
+  not see the stamped fn's parameters, now the template's own.
+- **Found building it**: a clause member refused by any `stamp_into` error
+  was left undeclared, so the clause was reported unfulfilled too
+  (`group-obligation:no-member`, two diagnostics for one mistake). The member
+  is now declared with the written declaration's fallback body; a refused
+  `by auto` (`comptime-refuse:refused` on a `canbe Mut` key,
+  `collections/equality.sv`) is one error now too.
+- **Rewritten**: the tests whose declarations named parameters their own
+  way (`stamp_signature/{written,names,generic,hides}.sv`,
+  `compare/attached.sv`, `comptime/{hygiene,stamped}.sv`,
+  `run/implicits/implicit_parameters.sv`, `stamp_signature_tests.rs`);
+  `hides.sv` now covers `@[site]` against a template parameter of the
+  site callee's name. std and the examples already used the templates'
+  names. The Compile-Time-Functions page says the names are the template's.
+- **Output**: 708 tests under nextest (one IR test of the old rule folded
+  into another).
+
 ### 2026-10-30 — Which overload types the arguments is chosen by signature alone (user decision, [fn-overload-scope] [fn-overload-rank])
 
 - **Decided (user, 2026-10-30)**: the lead candidate, whose parameter types

@@ -118,9 +118,8 @@ fn no_cmp(a: Ord3, b: Ord3) -> Bool => a, b {
 // ordered` used to carry, now stated in std rather than in the compiler.
 //
 // A `canbe Mut` struct could change under the collection holding it. The
-// refusal is one error; the obligation left unfulfilled by it is another, at
-// the clause.
-//~ error[group-obligation:no-member]
+// refusal is the one error: the member is still declared, so the obligation
+// is not also reported unfulfilled (until 2026-10-30 it was, at the clause).
 //~ error[comptime-refuse:refused]
 struct KMut : Hashed<self> by auto canbe Mut {
     v: Int

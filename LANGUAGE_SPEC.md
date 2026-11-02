@@ -5686,7 +5686,7 @@ Conventions:
   sequence, since a type or qualifier is uppercase by rule [name-casing].
   * **The declaration's signature is the stamped fn's, never the
     template's** (user decision 2026-10-14, ROADMAP §2c): its parameter
-    names, types, return type, effect list and deduction clause — written,
+    types, return type, effect list and deduction clause — written,
     or defaulted [deduce-default] — and the template supplies **only the
     body**, checked against it like any body against its signature. `fn
     eq(a: P, b: P) -> Bool => !a by auto` consumes its first argument though
@@ -5699,33 +5699,26 @@ Conventions:
   * The positional check of parameter types and return type is kept: the
     template instantiated at the type must have the declared ones, which
     reads better than the type errors its body would raise otherwise.
-  * **The template's parameters are bound to the declaration's by
-    position**: after the expansion, the body's references to the template's
-    parameter names are renamed to the declared ones (after, so no comptime
-    binder can meet a declared name), and a local of the body a declared
-    name would capture is renamed apart first — `fn hash(h: P) -> Long by
-    auto` meets `std.core.auto`'s own `let h`, which becomes `h__p`, still
-    written `h` in diagnostics but not refused as shadowing the parameter
-    [var-no-shadow]. Named arguments use the declared names, so they name
-    only a declared default [fn-param-default].
-  * **A declared parameter name the body uses for something outside it is
-    an error at the parameter** (2026-10-14, ROADMAP 0u), for a bare name
-    the template leaves to the site: a template calling `rank(a)`, which its
-    file does not see, stamped as `fn cmp(rank: R, b: R) -> Int by derive`,
-    would read the parameter once its parameters are renamed. The declared
-    names are the contract (named arguments use them) and a local shadows a
-    name [call-resolve], so neither is bent: a bare name in the expanded
-    body that equals a declared parameter name, and is neither a template
-    parameter nor a body local, is reported — "parameter `rank` hides the
-    function `rank` that `derive`'s `cmp` calls in its body: name the
-    parameter differently" (or "the name … uses" for a non-call use, such as
-    a fn passed by name) — and nothing is stamped for the member. Through a
-    clause the group member's parameter is the one named, at the clause
-    [obligation-by]. A selected name (`cmp@[site]`, `cmp@basic`) and a
-    dot-form call (`a.cmp(b)`) are not captured: a `name@[site]` does not
-    see the declared parameters (user decision 2026-10-30, P23 item 6), so
-    `fn cmp(cmp: P, b: P) -> Int by auto` stamps, where until then it was
-    this error.
+  * **The parameter names are the template's** (user decision 2026-10-30,
+    replacing a positional binding that renamed the body): each declared
+    parameter must be spelled as the template's at its position, else
+    `fn-by:param-name` at the parameter and nothing is stamped. The body is
+    then the template's as written: nothing in it is renamed, so a declared
+    name can capture nothing (the `h__p` rename-apart and
+    `fn-by:param-hides-name` went with the rename). Named arguments use the
+    one set of names; a default is the declaration's [fn-param-default].
+    Through a clause the declaration is the group's member, which the
+    clause's author does not write, so a template written for a group names
+    its parameters as the group's member does; a mismatch is reported once,
+    at the clause, naming the first differing name, and the member is still
+    declared (with a body that says nothing more), so the clause is not also
+    unfulfilled. "Until a very compelling case to generalize it" (the
+    user): what the restriction buys is predictability and one standard
+    spelling per group.
+  * A `name@[site]` does not see the stamped fn's parameters (user decision
+    2026-10-30, P23 item 6): a template whose parameter shares a name with
+    the site's function it calls (`cmp@[site](cmp.[field], …)`) reaches the
+    function.
   * **An obligation clause is this, once per member** [obligation-by]; a
     written declaration at a generic type is refused for now
     [comptime-generic].

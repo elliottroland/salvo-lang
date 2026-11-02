@@ -383,7 +383,16 @@ fn run<M: crate::expand::ModuleSlot>(
                             }
                             generated.push(Item::Fn(f));
                         }
-                        Err(errs) => diags.extend(errs),
+                        // One mistake, one diagnostic: the member is still
+                        // declared, with a body that says nothing more, so
+                        // the clause is not also reported unfulfilled
+                        // [obligation-by] — as a written declaration keeps
+                        // its signature.
+                        Err(errs) => {
+                            diags.extend(errs);
+                            fallback_body(&mut f);
+                            generated.push(Item::Fn(f));
+                        }
                     }
                 }
                 if !site_hover.is_empty() {
@@ -2093,16 +2102,16 @@ impl<'w> Stamper<'w> {
     /// [fn-by] [obligation-by] Stamps the body of a declaration — a written
     /// `fn … by X`, or the one a clause declares per member
     /// ([`Stamper::member_decl`]). **The declaration's signature is the
-    /// stamped fn's** (user decision 2026-10-14): its parameter names, types,
-    /// return type, effect list and deduction clause (written or defaulted
+    /// stamped fn's** (user decision 2026-10-14): its types, return type,
+    /// effect list and deduction clause (written or defaulted
     /// [deduce-default]). The template supplies only the body: it is
-    /// instantiated at the target, its parameter types and return type are
-    /// checked against the declaration's, positionally (a clearer error than
-    /// the body's type errors would be), and its parameters are bound to the
-    /// declaration's by position — the body's references to the template's
-    /// names are renamed to the declared ones. Its own effect list and
-    /// deductions do not count: the checker holds the body to the declared
-    /// contract, as it holds any body to its signature.
+    /// instantiated at the target, and its parameter types and return type
+    /// are checked against the declaration's, positionally (a clearer error
+    /// than the body's type errors would be), and its parameter names too —
+    /// the declaration names its parameters as the template does (user
+    /// decision 2026-10-30), so the body is the template's as written. Its
+    /// own effect list and deductions do not count: the checker holds the
+    /// body to the declared contract, as it holds any body to its signature.
     fn stamp_into(self, f: &mut FnDecl, declared: Declared<'_>) -> Result<(), Vec<Diagnostic>> {
         let site = f.by.as_ref().map(|b| b.span).unwrap_or(f.span);
         let mut inst = self.template.clone();
@@ -2170,6 +2179,21 @@ impl<'w> Stamper<'w> {
                     ));
                 }
             }
+            // [fn-by] The parameters are the template's, so they carry its
+            // names (user decision 2026-10-30): the body is copied as written,
+            // nothing in it is renamed, and nothing a declared name could
+            // capture. A clause's member is named once, at the clause.
+            for (w, i) in f.params.iter().zip(&inst.params) {
+                if w.name.name != i.name.name {
+                    errs.push(Diagnostic::error(
+                        messages::fn_by_param_name(&what, &w.name.name, &self.by.text(), &self.template.name.name, &i.name.name, !written),
+                        at(w.name.span),
+                    ));
+                    if !written {
+                        break;
+                    }
+                }
+            }
         }
         let written_ret = f.return_type.as_ref().map(|t| self.world.normalized(t)).unwrap_or_else(|| "None".into());
         let inst_ret = inst.return_type.as_ref().map(|t| self.world.normalized(t)).unwrap_or_else(|| "None".into());
@@ -2196,47 +2220,6 @@ impl<'w> Stamper<'w> {
         errs.retain(|d| d.is_error());
         if !errs.is_empty() {
             return Err(errs);
-        }
-        // The template's parameters are the declaration's, by position: the
-        // expanded body's references to the template's names are renamed to
-        // the declared ones (after the expansion, so no comptime binder can
-        // meet a declared name), and a local of the body that a declared name
-        // would capture is renamed apart first.
-        let renames: HashMap<String, String> = inst
-            .params
-            .iter()
-            .zip(&f.params)
-            .filter(|(i, w)| i.name.name != w.name.name)
-            .map(|(i, w)| (i.name.name.clone(), w.name.name.clone()))
-            .collect();
-        if let Some(b) = &mut inst.body {
-            if !renames.is_empty() {
-                rename_capturing_locals(b, &renames);
-                // [fn-by] A declared name the body also uses for something
-                // outside it — a function it calls, or names as a value —
-                // would capture that use once the parameters are renamed:
-                // the declared names are the contract (named arguments use
-                // them), and a local shadows a name [call-resolve], so the
-                // declaration has to change. One error at the parameter, and
-                // nothing stamped.
-                if let Some((name, called)) = hidden_free_name(b, &renames) {
-                    let member = match declared {
-                        Declared::Written => None,
-                        Declared::Member { group } => Some((group, f.name.name.as_str())),
-                    };
-                    let message = messages::fn_by_param_hides_name(
-                        &name,
-                        called,
-                        &self.by.text(),
-                        &self.template.name.name,
-                        member,
-                    );
-                    let span = f.params.iter().find(|p| p.name.name == name).map(|p| at(p.name.span)).unwrap_or(site);
-                    return Err(vec![Diagnostic::error(message, span)]);
-                }
-                let mut r = RenameParams { renames: &renames };
-                visit_mut::walk_block(&mut r, b);
-            }
         }
         f.body = inst.body;
         f.by = None;
@@ -2283,12 +2266,6 @@ impl MutVisitor for RenameIdent {
     }
 }
 
-/// Renames parameter references in a body (the template's names → the
-/// declaration's).
-struct RenameParams<'a> {
-    renames: &'a HashMap<String, String>,
-}
-
 /// [fn-by] [obligation-by] Which declaration a stamp fills: one written `fn
 /// … by X`, or the one an obligation clause declares for a member of its
 /// group. They stamp alike; only where a signature mismatch is reported, and
@@ -2332,35 +2309,6 @@ impl MutVisitor for SubstSelf<'_> {
             }
         }
         *ty = new;
-    }
-}
-
-/// [fn-by] Before a template's parameters are renamed to the declared names,
-/// every local the body binds under one of those names — a `let`, an `is`
-/// binding, a `for` pattern, a lambda parameter — is renamed apart
-/// (`h` → `h__p`, written `h` in diagnostics [comptime-scope]), so a declared
-/// `fn hash(h: P) -> Long by auto` reads its parameter where the template read
-/// `value`, and its own `h` where it declared one.
-fn rename_capturing_locals(body: &mut Block, renames: &HashMap<String, String>) {
-    struct Lambdas<'a>(&'a mut Vec<String>);
-    impl MutVisitor for Lambdas<'_> {
-        fn visit_expr(&mut self, expr: &mut Expr) {
-            if let Expr::Lambda { params, .. } = expr {
-                self.0.extend(params.iter().map(|p| p.name.name.clone()));
-            }
-        }
-    }
-    let mut names: Vec<String> = Vec::new();
-    visit_mut::walk_block(&mut CollectLocals { names: &mut names }, body);
-    visit_mut::walk_block(&mut Lambdas(&mut names), body);
-    let declared: Vec<&String> = renames.values().collect();
-    let apart: HashMap<String, String> = names
-        .into_iter()
-        .filter(|n| declared.contains(&n) && !renames.contains_key(n))
-        .map(|n| (n.clone(), format!("{n}{APART_SUFFIX}")))
-        .collect();
-    if !apart.is_empty() {
-        visit_mut::walk_block(&mut RenameLocals { renames: &apart }, body);
     }
 }
 
@@ -2504,54 +2452,6 @@ fn template_names(f: &FnDecl, names: &FileNames, bound: bool) -> (Vec<Diagnostic
         v::walk_block(&mut walk, body);
     }
     (walk.out, walk.site)
-}
-
-/// [fn-by] The first name a stamped body uses that one of the declared
-/// parameter names would capture: a bare identifier spelled like a declared
-/// name that is no template parameter (those are renamed) and no local (those
-/// were renamed apart, [`rename_capturing_locals`]) — so a function the body
-/// calls, or a name it reads from outside. Whether it is a call's callee
-/// comes with it.
-fn hidden_free_name(body: &mut Block, renames: &HashMap<String, String>) -> Option<(String, bool)> {
-    struct Find<'a> {
-        renames: &'a HashMap<String, String>,
-        callees: Vec<Span>,
-        found: Option<(String, bool)>,
-    }
-    impl MutVisitor for Find<'_> {
-        fn visit_expr(&mut self, expr: &mut Expr) {
-            if self.found.is_some() {
-                return;
-            }
-            match expr {
-                Expr::Call { callee, .. } => {
-                    if let Expr::Ident(id) = &**callee {
-                        self.callees.push(id.span);
-                    }
-                }
-                Expr::Ident(id) => {
-                    if !self.renames.contains_key(&id.name) && self.renames.values().any(|n| *n == id.name) {
-                        self.found = Some((id.name.clone(), self.callees.contains(&id.span)));
-                    }
-                }
-
-                _ => {}
-            }
-        }
-    }
-    let mut find = Find { renames, callees: Vec::new(), found: None };
-    visit_mut::walk_block(&mut find, body);
-    find.found
-}
-
-impl MutVisitor for RenameParams<'_> {
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        if let Expr::Ident(id) = expr {
-            if let Some(n) = self.renames.get(&id.name) {
-                id.name = n.clone();
-            }
-        }
-    }
 }
 
 /// [node-origin] Tags every span of a tree with a fresh expansion id: the nodes
@@ -4406,143 +4306,6 @@ fn arm_check(arm: &Type) -> Option<Vec<TypeRef>> {
         // [comptime-is-splice] A literal arm tests the value: `v is "json"`.
         Type::Literal { value, span } => Some(vec![value.as_type_ref(*span)]),
         _ => None,
-    }
-}
-
-/// [fn-by] The suffix [`rename_capturing_locals`] appends: a template's local
-/// `h` that a declared parameter `h` would capture becomes `h__p`. Not
-/// visible to the checker's no-shadowing rule as the `h` it was written as;
-/// diagnostics still name it `h`.
-const APART_SUFFIX: &str = "__p";
-
-/// [fn-by] The name a local renamed apart from a declared parameter was
-/// written as.
-pub fn written_local(name: &str) -> &str {
-    name.strip_suffix(APART_SUFFIX).filter(|o| !o.is_empty()).unwrap_or(name)
-}
-
-/// [fn-by] A diagnostic in the author's terms: a local renamed apart from a
-/// declared parameter (`h__p`) named as written (`h`).
-pub fn unmangle_message(msg: &str) -> std::borrow::Cow<'_, str> {
-    if !msg.contains(APART_SUFFIX) {
-        return std::borrow::Cow::Borrowed(msg);
-    }
-    let mut out = String::with_capacity(msg.len());
-    let mut word = String::new();
-    let flush = |word: &mut String, out: &mut String| {
-        out.push_str(written_local(word));
-        word.clear();
-    };
-    for ch in msg.chars() {
-        if ch.is_alphanumeric() || ch == '_' {
-            word.push(ch);
-        } else {
-            flush(&mut word, &mut out);
-            out.push(ch);
-        }
-    }
-    flush(&mut word, &mut out);
-    std::borrow::Cow::Owned(out)
-}
-
-struct CollectLocals<'a> {
-    names: &'a mut Vec<String>,
-}
-
-impl CollectLocals<'_> {
-    fn pattern(&mut self, p: &Pattern) {
-        match p {
-            Pattern::Ident(id) => {
-                if !self.names.contains(&id.name) {
-                    self.names.push(id.name.clone());
-                }
-            }
-            Pattern::Tuple { elems, .. } => elems.iter().for_each(|e| self.pattern(e)),
-            Pattern::Struct { fields, .. } => {
-                for f in fields {
-                    if !self.names.contains(&f.binding.name) {
-                        self.names.push(f.binding.name.clone());
-                    }
-                }
-            }
-        }
-    }
-}
-
-impl MutVisitor for CollectLocals<'_> {
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        if let Stmt::Let { pattern, .. } = stmt {
-            self.pattern(pattern);
-        }
-    }
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        match expr {
-            Expr::Is { binding: Some(b), .. } | Expr::Widen { binding: Some(b), .. } => {
-                if !self.names.contains(&b.name) {
-                    self.names.push(b.name.clone());
-                }
-            }
-            Expr::For { pattern, .. } => self.pattern(pattern),
-            _ => {}
-        }
-    }
-}
-
-struct RenameLocals<'a> {
-    renames: &'a HashMap<String, String>,
-}
-
-impl RenameLocals<'_> {
-    fn pattern(&self, p: &mut Pattern) {
-        match p {
-            Pattern::Ident(id) => {
-                if let Some(n) = self.renames.get(&id.name) {
-                    id.name = n.clone();
-                }
-            }
-            Pattern::Tuple { elems, .. } => elems.iter_mut().for_each(|e| self.pattern(e)),
-            Pattern::Struct { fields, .. } => {
-                for f in fields {
-                    if let Some(n) = self.renames.get(&f.binding.name) {
-                        f.binding.name = n.clone();
-                    }
-                }
-            }
-        }
-    }
-}
-
-impl MutVisitor for RenameLocals<'_> {
-    fn visit_stmt(&mut self, stmt: &mut Stmt) {
-        if let Stmt::Let { pattern, .. } = stmt {
-            self.pattern(pattern);
-        }
-    }
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        match expr {
-            Expr::Ident(id) => {
-                if let Some(n) = self.renames.get(&id.name) {
-                    id.name = n.clone();
-                }
-            }
-            Expr::Is { binding: Some(b), .. } | Expr::Widen { binding: Some(b), .. } => {
-                if let Some(n) = self.renames.get(&b.name) {
-                    b.name = n.clone();
-                }
-            }
-            Expr::For { pattern, .. } => self.pattern(pattern),
-            // A lambda's parameter is renamed with the uses in its body, which
-            // the walk renames: `(v: Int) -> v` in a body that also declares
-            // a `v` stays one name.
-            Expr::Lambda { params, .. } => {
-                for p in params {
-                    if let Some(n) = self.renames.get(&p.name.name) {
-                        p.name.name = n.clone();
-                    }
-                }
-            }
-            _ => {}
-        }
     }
 }
 

@@ -293,7 +293,7 @@ struct Reading : Hashed<self> {
     sensor: Str,
     value: Int
 
-    fn hash(r: Reading) -> Long by auto
+    fn hash(value: Reading) -> Long by auto
     fn eq(a: Reading, b: Reading) -> Bool => a, b { return a.sensor == b.sensor }
 }
 

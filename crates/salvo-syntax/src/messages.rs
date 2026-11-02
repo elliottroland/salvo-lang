@@ -1302,20 +1302,14 @@ messages! {
     fn_by_return_type = "fn-by:return-type" (what: &str, declared: &str, template: &str, stamped: &str) => format!(
         "{what} returns `{declared}`, but the stamped `{template}` returns `{stamped}`"
     );
-    /// A declared parameter name that would capture a name the stamped body uses; `member` is the group and fn of a clause's member.
-    fn_by_param_hides_name = "fn-by:param-hides-name" (name: &str, called: bool, by: &str, template: &str, member: Option<(&str, &str)>) => {
-        let used = if called {
-            format!("the function `{name}` that `{by}`'s `{template}` calls in its body")
-        } else {
-            format!("the name `{name}` that `{by}`'s `{template}` uses in its body")
-        };
-        match member {
-            None => format!("parameter `{name}` hides {used}: name the parameter differently"),
-            Some((group, f)) => format!(
-                "`{group}<self>`'s `fn {f}` names its parameter `{name}`, which hides {used}: \
-                 name the group member's parameter differently"
-            ),
-        }
+    /// A declaration's parameter named otherwise than the stamped template's; `member` when the declaration is a clause's group member.
+    fn_by_param_name = "fn-by:param-name" (what: &str, declared: &str, by: &str, template: &str, expected: &str, member: bool) => if member {
+        format!(
+            "{what} names a parameter `{declared}` where `{by}`'s `{template}` names it \
+             `{expected}`: a template a clause stamps names its parameters as the group's member does"
+        )
+    } else {
+        format!("{what}'s parameter `{declared}` must be named `{expected}`, as `{by}`'s `{template}` names it")
     };
 
     // [obligation-by]

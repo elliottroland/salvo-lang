@@ -1805,19 +1805,7 @@ pub fn check_program<'p>(
     let mut out = check_program_walk(program, resolution, symbols, None, None);
     crate::literal::lower_tables(&mut out);
     check_std_deductions_total(program, &mut out);
-    unmangle_scoped_locals(&mut out);
     out
-}
-
-/// [fn-by] Diagnostics in the author's terms: a template's local renamed
-/// apart from a declared parameter (`h__p`) is named as written (`h`),
-/// wherever the message came from.
-fn unmangle_scoped_locals(out: &mut Checked) {
-    for d in &mut out.errors {
-        if let std::borrow::Cow::Owned(m) = crate::comptime::unmangle_message(&d.message) {
-            d.message = m;
-        }
-    }
 }
 
 /// [std-cache] Checks a project reusing a `StdCache`: std's leading files are
@@ -1840,7 +1828,6 @@ pub fn check_project<'p>(
 ) -> Checked {
     let mut out = check_program_walk(program, resolution, symbols, Some(cache), None);
     crate::literal::lower_tables(&mut out);
-    unmangle_scoped_locals(&mut out);
     out
 }
 
@@ -1859,7 +1846,6 @@ pub fn check_project_cached<'p>(
 ) -> Checked {
     let mut out = check_program_walk(program, resolution, symbols, Some(cache), Some(check_cache));
     crate::literal::lower_tables(&mut out);
-    unmangle_scoped_locals(&mut out);
     out
 }
 
@@ -11816,8 +11802,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .entry(self.file_idx)
             .or_default()
             .push(crate::check::LocalDecl {
-                // [fn-by] As written, not as a stamp renamed it apart.
-                name: crate::comptime::written_local(&name.name).to_string(),
+                name: name.name.clone(),
                 ty,
                 span: name.span,
                 fn_body,
@@ -11863,9 +11848,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if self.lookup(&name.name).is_some() {
             self.error(
                 name.span,
-                messages::var_no_shadow_already_declared(
-                    &crate::comptime::written_local(&name.name),
-                ),
+                messages::var_no_shadow_already_declared(&name.name),
             );
         }
         // [fate-poison] [fate-move-mode] What the IR flow pass poisons this

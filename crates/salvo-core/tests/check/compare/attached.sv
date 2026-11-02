@@ -252,7 +252,7 @@ export fns Shown<T> {
 }
 // FILE: b.sv
 export fns Shown<T> {
-    fn eq(x: T, y: T) -> Bool
+    fn eq(a: T, b: T) -> Bool
 }
 // FILE: main.sv
 import b.Shown

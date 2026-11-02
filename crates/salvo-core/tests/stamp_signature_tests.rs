@@ -3,8 +3,8 @@
 //! 2026-10-14, ROADMAP §2c): the written one for `fn … by X`, the group
 //! member's with `self` substituted for an obligation clause — which is one
 //! `fn … by X` per member — and the template supplies only the body, checked
-//! against that signature. Its parameter names, effect list and deductions
-//! stop counting.
+//! against that signature. Its effect list and deductions stop counting; its
+//! parameter names are the template's (user decision 2026-10-30).
 //!
 //! Over the real standard library (`lib/`), so the stamps are `std.core.auto`'s.
 //!
@@ -50,10 +50,6 @@ fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
     errors
 }
 
-fn errors(src: &str) -> Vec<String> {
-    errors_in(&[("main.sv", src)])
-}
-
 /// The IR of the user modules, as `salvo ir` renders it.
 fn ir(files: &[(&str, &str)]) -> String {
     let (program, errors) = program(files);
@@ -63,28 +59,26 @@ fn ir(files: &[(&str, &str)]) -> String {
     text
 }
 
-/// A derive module whose template names its parameters `v` and `between`,
-/// where the group's member says `value` and `sep` — with a default of its
-/// own, so that a call may name it [fn-param-default].
+/// A derive module whose template names its parameters as the group's member
+/// does, with a default of its own that the stamp does not take
+/// [fn-param-default].
 const LABEL: &str = r#"
 export fns Labelled<T> {
     fn label(value: T, sep: Str = " ") -> Str
 }
 
-export comptime fn label<T is Struct>(v: T, between: Str = ",") [] -> Str => v {
+export comptime fn label<T is Struct>(value: T, sep: Str = ",") [] -> Str => value {
     let out: Mut Str = Mut Str("${T.name}")
     [for field in T.fields] {
-        append@string(out, between)
-        append@string(out, "${v.[field]}")
+        append@string(out, sep)
+        append@string(out, "${value.[field]}")
     }
     return out
 }
 "#;
 
-/// [obligation-by] The clause's member takes the **group's** parameter names:
-/// a named argument says `sep`, the group's, and the template's `between` is
-/// no name of the stamped fn — while the body, which reads `v` and
-/// `between`, reads the declared parameters.
+/// [obligation-by] The clause's member is the group's: its names (which the
+/// template shares) and its default, not the template's.
 #[test]
 fn a_clause_member_takes_the_groups_parameter_names() {
     let main = r#"
@@ -104,16 +98,14 @@ fn plain() [] -> Str {
     // `check/stamp_signature/names.sv`.)
     let dump = ir(&[("derive.sv", LABEL), ("main.sv", main)]);
     assert!(dump.contains("fn label@main(lent value: P@main, lent sep: Str)"), "{dump}");
-    assert!(dump.contains("value.x") && !dump.contains("between"), "{dump}");
+    assert!(dump.contains("value.x"), "{dump}");
     // The declared default, not the template's.
     assert!(dump.contains(r#"y: "a" }, " ")"#), "{dump}");
 }
 
-/// [fn-by] A written declaration keeps its own parameter names and its own
-/// deduction clause. `std.core.auto`'s `hash` names its parameter `value` and
-/// declares a local `h`: the declared `h` is the parameter, and the template's
-/// local is renamed apart (`h__p`) so it cannot capture it — nor be refused as
-/// shadowing it [var-no-shadow].
+/// [fn-by] A written declaration keeps its own deduction clause, and names its
+/// parameters as the template does: `std.core.auto`'s `hash` reads `value`,
+/// and its own local `h` stays `h`, since nothing is renamed.
 #[test]
 fn a_written_declaration_keeps_its_names_and_clause() {
     let src = r#"
@@ -121,8 +113,8 @@ struct P : Hashed<self> {
     x: Int,
     y: Str
 
-    fn hash(h: P) -> Long by auto
-    fn eq(left: P, right: P) -> Bool => left, right by auto
+    fn hash(value: P) -> Long by auto
+    fn eq(a: P, b: P) -> Bool => a, b by auto
 }
 
 fn probe(p: P, q: P) [] -> Long {
@@ -134,19 +126,18 @@ fn probe(p: P, q: P) [] -> Long {
 "#;
     // (That it checks clean is `check/stamp_signature/written.sv`.)
     let dump = ir(&[("main.sv", src)]);
-    assert!(dump.contains("fn hash@main(lent h: P@main)") && dump.contains("h.x") && dump.contains("h__p"), "{dump}");
-    assert!(dump.contains("fn eq@main(lent left: P@main, lent right: P@main)") && dump.contains("left.x"), "{dump}");
+    assert!(dump.contains("fn hash@main(lent value: P@main)") && dump.contains("value.x") && !dump.contains("__p"), "{dump}");
+    assert!(dump.contains("fn eq@main(lent a: P@main, lent b: P@main)") && dump.contains("a.x"), "{dump}");
 }
 
 /// [comptime-generic] [obligation-by] At a generic target the member's
-/// signature carries the generic additions, and a template whose names differ
-/// from the group's still stamps the group's names.
+/// signature carries the generic additions.
 #[test]
 fn a_generic_target_takes_the_members_signature() {
     let derive = r#"
-export comptime fn cmp<T is Struct>(x: T, y: T) [] -> Int => x, y {
+export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {
     [for field in T.fields] {
-        let c = cmp@[site](x.[field], y.[field])
+        let c = cmp@[site](a.[field], b.[field])
         if c != 0 {
             return c
         }
@@ -166,7 +157,7 @@ fn probe() [] -> Int {
     // (That it checks clean is `check/stamp_signature/generic.sv`.)
     let dump = ir(&[("derive.sv", derive), ("main.sv", main)]);
     assert!(dump.contains("fn cmp@main<T>(lent a: W@main<T>, lent b: W@main<T>; ?lent cmp: (T, T) -> Int)"), "{dump}");
-    assert!(dump.contains("a.item") && !dump.contains("x.item"), "{dump}");
+    assert!(dump.contains("a.item"), "{dump}");
 }
 
 /// The `fn` items of an IR dump, keyed by their first line, with blank lines
@@ -235,37 +226,33 @@ fn probe(p: P, q: P) [] -> Str {
     assert_eq!(a, b);
 }
 
-/// [fn-by] A declared parameter named like a function the template's body
-/// calls would capture those calls once the parameters are renamed (ROADMAP
-/// 0u): the error at the parameter is `check/stamp_signature/hides.sv`. Any
-/// other name stamps, the declared one included.
+/// [fn-by] [comptime-hygiene] A template's parameter named like the function
+/// it calls at the site does not capture the call: a `name@[site]` does not
+/// see the stamped fn's parameters (user decision 2026-10-30, P23 item 6).
 #[test]
-fn a_declared_parameter_that_hides_the_bodys_callee_is_named_at_the_parameter() {
-    let renamed = r#"
-struct P : Ordered<self> {
-    x: Int
-    fn cmp(first: P, b: P) -> Int by auto
+fn a_parameter_named_like_the_templates_site_callee_stamps() {
+    let derive = r#"
+export comptime fn cmp<T is Struct>(cmp: T, other: T) [] -> Int => cmp, other {
+    [for field in T.fields] {
+        let c = cmp@[site](cmp.[field], other.[field])
+        if c != 0 {
+            return c
+        }
+    }
+    return 0
 }
 "#;
-    let dump = ir(&[("main.sv", renamed)]);
-    assert!(dump.contains("fn cmp@main(lent first: P@main, lent b: P@main)") && dump.contains("first.x"), "{dump}");
-}
+    let main = r#"
+import derive
 
-/// [obligation-by] [fn-by] [comptime-hygiene] A group member's parameter
-/// named like the function the template calls at the site does not capture
-/// it: a `name@[site]` does not see the stamped fn's declared parameters
-/// (user decision 2026-10-30, P23 item 6). Until then this was
-/// `fn-by:param-hides-name`, at the clause, and nothing was stamped.
-#[test]
-fn a_group_member_parameter_named_like_the_templates_callee_stamps() {
-    let src = r#"
 export fns Ranked<T> {
     fn cmp(cmp: T, other: T) -> Int
 }
 
-struct Q : Ranked<self> by auto { y: Int }
+struct Q : Ranked<self> by derive { y: Int }
 "#;
-    assert!(errors(src).is_empty(), "{:?}", errors(src));
-    let dump = ir(&[("main.sv", src)]);
+    let files = [("derive.sv", derive), ("main.sv", main)];
+    assert!(errors_in(&files).is_empty(), "{:?}", errors_in(&files));
+    let dump = ir(&files);
     assert!(dump.contains("fn cmp@main(lent cmp: Q@main, lent other: Q@main)") && dump.contains("cmp.y"), "{dump}");
 }

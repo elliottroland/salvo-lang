@@ -150,4 +150,4 @@ export comptime fn fields<T is Struct>(value: T) [] -> Int => value {
 import geo.Pt
 import deriv
 
-fn fields(p: Pt) -> Int by deriv
+fn fields(value: Pt) -> Int by deriv

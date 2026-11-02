@@ -2532,7 +2532,8 @@ lowering before typing, then the checker's special paths deleted. Needs A2
     the language pages (Compile-Time-Functions, "Stamping for one call").
   - **Moved out of C3 (2026-10-30), with the reason:**
     - *Parameters bound by position* (`h__p` and `hidden_free_name` go) →
-      **D2**. A parameter is identified by its name across the checker's
+      **D2**, where it was settled by requiring the template's names instead
+      (user, 2026-10-30). A parameter is identified by its name across the checker's
       contract (`param_owned`, `own_contract`), `deduce`, `lends` and the IR
       builder, so binding a template's names to the declared parameters
       means an alias in each; the typed form identifies parameters by id,
@@ -2562,8 +2563,11 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   `interp_info`, COMPLETED.md 2026-10-10; `pick_info` went with the `?:`
   lowering), then the rest. The
   checker reads its own facts back from the typed form (`call_fn` alone has
-  13 readers inside the checker; the hard part). From C3: a stamped fn's parameters bound to the
-  template's names by position, which retires `h__p` and `hidden_free_name`.
+  13 readers inside the checker; the hard part). From C3: a stamped fn's
+  parameters bound to the template's names by position — settled otherwise
+  (user, 2026-10-30): a declaration names its parameters as the template
+  does, so nothing is renamed, and `h__p` and `hidden_free_name` went
+  without a positional binding.
   The clusters left after the five views (survey 2026-10-30, 107 fields):
   1. **Stragglers into views** — done: `effect_member_calls` and
      `qual_member_calls` into `call_info` (and `elvis_widen` into
@@ -2693,7 +2697,8 @@ lowering before typing, then the checker's special paths deleted. Needs A2
      `moved_projections` + `flow_moves` → `moves`, `handle_muts` and the
      `ReadInfo` view gone); and the closing sweep (no backend-prefixed label
      left in `salvo-core`, `salvo-syntax` or `salvo-backend`). Every
-     approved merge is built.
+     approved merge is built; with the C3 leftover settled by the exact-names
+     rule, D2 is done.
 - **D3. The IR builder becomes the lowering of the typed form**: erasure as
   its own sub-phase (qualifiers, effects to parameters, union wrapping),
   then flow. The builder's ~87 table reads go. **Decided (user,

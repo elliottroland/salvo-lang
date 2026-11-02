@@ -83,31 +83,30 @@ struct Person : Hashed<self> {
 ```
 
 The type stamped at is the first parameter's, and the written signature is
-the function's: its parameter names, effect list and deduction clause, as
-written or defaulted. It has to have the parameter types and return type the
-comptime fn has at that type (a mismatch names which), and a body beside `by`
-is an error, since the body is what `by` supplies. So a declaration may say
-more than the comptime fn does — `fn eq(a: Person, b: Person) -> Bool => !a by
+the function's: its effect list and deduction clause, as written or
+defaulted. It has to have the parameter types and return type the comptime
+fn has at that type (a mismatch names which), and a body beside `by` is an
+error, since the body is what `by` supplies. So a declaration may say more
+than the comptime fn does — `fn eq(a: Person, b: Person) -> Bool => !a by
 auto` consumes its first argument, and `fn loud(v: Person) [Console] -> Int by
-derive` grants a body that prints — and the names are its own: `fn hash(h:
-Person) -> Long by auto` reads `h` where `std.core.auto`'s `hash` reads
-`value`. A clause is exactly this, once per member, with the group's
-signature as the declaration.
+derive` grants a body that prints. A clause is exactly this, once per member,
+with the group's signature as the declaration.
 
-Your parameter names are yours: `fn cmp(cmp: Person, b: Person) -> Int by
-auto` stamps, because `std.core.auto`'s per-field `cmp@[site](…)` calls
-(below) mean the function your code sees, never a parameter of the stamped
-fn. Only a bare name the template leaves to your site can be caught by a
-parameter of the same name, and that is an error at the parameter, with
-nothing stamped:
+The parameter names are the comptime fn's: the body is its body as written,
+so the declaration spells its parameters the same way. `std.core.auto`'s
+`hash` names its parameter `value`, so `fn hash(h: Person) -> Long by auto` is
+an error at `h`:
 
 ```
-error: parameter `rank` hides the function `rank` that `derive`'s `cmp`
-       calls in its body: name the parameter differently [fn-by]
+error: `fn hash`'s parameter `h` must be named `value`, as `auto`'s `hash`
+       names it [fn-by]
 ```
 
-When the name comes from a group's member, the same error is reported at
-the clause and names the member.
+Through a clause the declaration is the group's member, which you do not
+write, so a comptime fn meant for a group names its parameters as the
+group's member does; one that does not is refused once, at the clause.
+`std.core.auto`'s templates use the names of `Ordered`, `Eq`, `Hashed` and
+`ToStr`.
 
 A clause names its type itself, so its members need not take one. A decoder
 returns the type and takes something else:

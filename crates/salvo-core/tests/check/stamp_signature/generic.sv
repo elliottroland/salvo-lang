@@ -1,11 +1,10 @@
 // [comptime-generic] [obligation-by] At a generic target the member's
-// signature carries the generic additions, and a template whose names differ
-// from the group's still stamps the group's names (the signature it stamps
-// is `stamp_signature_tests.rs`'s).
+// signature carries the generic additions (the signature it stamps is
+// `stamp_signature_tests.rs`'s).
 // FILE: derive.sv
-export comptime fn cmp<T is Struct>(x: T, y: T) [] -> Int => x, y {
+export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {
     [for field in T.fields] {
-        let c = cmp@[site](x.[field], y.[field])
+        let c = cmp@[site](a.[field], b.[field])
         if c != 0 {
             return c
         }
