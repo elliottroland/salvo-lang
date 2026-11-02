@@ -24577,7 +24577,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 self.finish_loop_value(body_ty, body_tail, ctx, else_ty, else_tail)
             }
-            Expr::Lambda { params, body, span } => self.check_lambda(params, body, *span, expected),
+            Expr::Lambda { params, ret, body, span } => self.check_lambda(params, ret.as_ref(), body, *span, expected),
             Expr::Spread { operand, .. } => self.check_expr(operand, None),
             // [comptime-default] Checked once where its struct is declared;
             // here it is a value of the field's type. The owner is lowered so
@@ -25422,6 +25422,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_lambda(
         &mut self,
         params: &'p [LambdaParam],
+        written_ret: Option<&'p ast::Type>,
         body: &'p LambdaBody,
         span: Span,
         expected: Option<&Ty>,
@@ -25472,7 +25473,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             param_tys.push(ty);
         }
-        let saved_ret = std::mem::replace(&mut self.ret_ty, exp_ret.clone().unwrap_or(Ty::Unknown));
+        // [fn-lambda] A block body answers its written return type, else the
+        // expected fn type's, else `None` — as a fn with no `->` does (user
+        // decision 2026-10-30): its `return`s are checked against it. An
+        // expression body answers its expression.
+        let block_ret: Option<Ty> = match body {
+            LambdaBody::Expr(_) => None,
+            _ => Some(written_ret.map(|t| self.lower_type(t)).or_else(|| exp_ret.clone()).unwrap_or_else(Ty::none)),
+        };
+        let saved_ret = std::mem::replace(&mut self.ret_ty, block_ret.clone().or_else(|| exp_ret.clone()).unwrap_or(Ty::Unknown));
         // [fn-effects] The body performs the effects the fn *type* declares
         // — the call site supplies them, so nothing is captured. With no
         // expected type the set is *inferred* from the body, which is what
@@ -25534,7 +25543,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.locals.pop();
                     }
                 }
-                exp_ret.unwrap_or(Ty::Unknown)
+                block_ret.clone().unwrap_or(Ty::Unknown)
             }
             // [expr-terminal-lambda] The parser fills a `...` body before checking.
             LambdaBody::Terminal => Ty::Unknown,
@@ -29954,6 +29963,28 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let mut subst = std::mem::take(&mut pool[pi].subst);
                     let generics = pool[pi].generics.clone();
                     self.extend_subst_from_implicits(key, &generics, &mut subst, named);
+                    // [fn-lambda] A lambda's return may be what the call's
+                    // result is going to: a type parameter only the return
+                    // binds (`eval<Q>(f: () -> Q)` into a `Str`) is bound
+                    // from the expected type before the lambda is typed, as
+                    // it is for the winner below, so a block body is
+                    // checked against it rather than against nothing.
+                    if let (Expr::Lambda { .. }, Some(exp), CallCand::Fn(entry)) = (a, expected, &candidates[pool[pi].index]) {
+                        if !exp.is_unknown() && *exp != Ty::Never {
+                            let decl = entry.decl;
+                            let saved = self.enter_generics(&decl.generics);
+                            let ret = self.fn_return_ty(decl);
+                            self.generics = saved;
+                            let mut from_expected: HashMap<String, Ty> = HashMap::new();
+                            if unify(&ret, exp, &mut from_expected) {
+                                for (g, ty) in from_expected {
+                                    if generics.contains(&g) && !ty.is_unknown() && !subst.contains_key(&g) {
+                                        subst.insert(g, ty);
+                                    }
+                                }
+                            }
+                        }
+                    }
                     pool[pi].subst = subst;
                     pool[pi]
                         .rank

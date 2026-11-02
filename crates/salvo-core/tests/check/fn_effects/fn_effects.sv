@@ -43,7 +43,7 @@ fn run_pure(f: (s: Str) -> Str) -> None =>[f] s {
 // [fn-effects] A lambda passed where a fn type declares the effect may
 // perform it — the call site supplies it.
 fn declared_in_the_body() [Logger] -> None {
-    run_logged(s -> {
+    run_logged((s) -> {
         log("in lambda ${s}")
         return "seen ${s}"
     })
@@ -54,7 +54,7 @@ fn declared_in_the_body() [Logger] -> None {
 // even though the enclosing scope has one. Lexical leakage is what made a fn
 // value's capabilities invisible in its type.
 fn undeclared_in_the_body() [Logger] -> None {
-    run_pure(s -> {
+    run_pure((s) -> {
         //~ error[effect-available:no-handler]
         log("in lambda ${s}")
         return "seen ${s}"
@@ -66,7 +66,7 @@ fn undeclared_in_the_body() [Logger] -> None {
 // [fn-effects] A fn taking an effectful fn value *inherits* the effect: it
 // needs no list of its own to call `f`, and its callers supply it.
 fn supplies_the_inherited() [Logger] -> None {
-    run_logged(s -> "${s}")
+    run_logged((s) -> "${s}")
 }
 
 // [fn-effects] The other half of inheritance: a caller that *cannot*
@@ -75,7 +75,7 @@ fn supplies_the_inherited() [Logger] -> None {
 // run time.
 fn cannot_supply_the_inherited() [] -> None {
     //~ error[effect-available:callee-no-handler]
-    run_logged(s -> "${s}")
+    run_logged((s) -> "${s}")
 }
 
 // [fn-effects] Inheritance reaches through a qualifier: `once` fn types
@@ -103,7 +103,7 @@ fn run_listing_logger(f: (s: Str) [Logger] -> Str) [Logger] -> None =>[f] s {
 }
 
 fn calls_the_listing_one() [Logger] -> None {
-    run_listing_logger(s -> "${s}")
+    run_listing_logger((s) -> "${s}")
 }
 
 // ===== variance =====
@@ -116,7 +116,7 @@ fn pure_fn(s: Str) [] -> Str => s {
 
 fn fewer_fit() [Logger] -> None {
     run_logged(pure_fn)
-    run_logged(s -> "${s}")
+    run_logged((s) -> "${s}")
 }
 
 // [fn-effects] Never the reverse: a value that performs an effect its
@@ -137,7 +137,7 @@ fn more_do_not_fit() [Logger] -> None {
 // body (inference from a visible body is what [decl-explicit] permits), so
 // it does not silently fit a pure position.
 fn inferred() [Logger] -> None {
-    let f = (s: Str) -> {
+    let f = (s: Str) -> Str {
         log(s)
         return "logged ${s}"
     }
@@ -153,7 +153,7 @@ fn inferred() [Logger] -> None {
 // effects, so the `f(s)` inside it has no Logger ("no handler for effect
 // `Logger`", "function value").
 fn holding_is_fine() [Logger] -> None {
-    let f = (s: Str) -> {
+    let f = (s: Str) -> Str {
         log(s)
         return "logged ${s}"
     }
@@ -172,7 +172,7 @@ fn run_two(f: (s: Str) [Logger, Counter] -> Str) -> None =>[f] s {
 
 fn supplies_one_of_two() [Logger] -> None {
     //~ error[effect-available:callee-no-handler]
-    run_two(s -> "${s}")
+    run_two((s) -> "${s}")
 }
 
 // ===== [fn-effects] a pass performs its effects in its `next` =====

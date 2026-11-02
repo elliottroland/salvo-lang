@@ -211,7 +211,7 @@ mod tests {
         let src = "struct P { data_type: Int, dataType: Int }\n\
                    fn read_to(x: Int) [] -> Int {\n    let read_x = 1\n    let readX = 2\n    return x\n}\n\
                    fn readTo(y: Str) [] -> Int {\n    return 1\n}\n\
-                   fn fine(a_b: Int) [] -> Int {\n    let f = { a_c: Int -> a_c }\n    let a_b2 = a_b\n    return a_b\n}\n\
+                   fn fine(a_b: Int) [] -> Int {\n    let f = (a_c: Int) -> a_c\n    let a_b2 = a_b\n    return a_b\n}\n\
                    fn other(read_x: Int) [] -> Int {\n    return read_x\n}\n";
         let (module, _) = salvo_syntax::parse_module(src);
         let clashes = module_clashes(&module);

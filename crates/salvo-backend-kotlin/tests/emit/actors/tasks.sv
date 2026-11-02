@@ -38,7 +38,7 @@ handler Desking() of Desk {
     send fn close_up(reason: Str) {
         //~ emits: salvo.std.core.list.drain(waiting, fun(
         //~ emits: waiting = mutableListOf<
-        drain(waiting, r -> send(r, "closed: ${reason}"))
+        drain(waiting, (r) -> send(r, "closed: ${reason}"))
         waiting = Mut List()
     }
 }
@@ -189,7 +189,7 @@ handler ManualTime() of Timer, TimerCtl {
     send fn advance(millis: Int) {
         now = now + millis
         let at = now
-        drain(waiting, r -> send(r, "fired at ${at}"))
+        drain(waiting, (r) -> send(r, "fired at ${at}"))
         waiting = Mut List()
     }
 

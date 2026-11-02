@@ -41,7 +41,7 @@ fn longs2(ws: List<Str>, keep: (Str) -> Bool) [] -> Int => ws, keep {
 
 // A lambda stored in a local first.
 fn local_lambda(ws: List<Str>) [] -> Int => ws {
-    let k: (Str) -> Bool = s -> size(s) > 1
+    let k: (Str) -> Bool = (s) -> size(s) > 1
     let it = iter(ws)
     // A local closure, a field, a generic body's parameter.
     //~ emits: &mut |__a0: &&String| k(*__a0)
@@ -114,15 +114,15 @@ fn from_call_local(ws: List<Str>) [] -> Int => ws {
 fn main() [use] -> None {
     use StdConsole
     let ws = List("ab", "c", "def")
-    println("param lambda ${longs(ws, s -> size(s) > 2)}")
+    println("param lambda ${longs(ws, (s) -> size(s) > 2)}")
     println("param named ${longs(ws, long)}")
-    println("two levels ${longs2(ws, s -> size(s) > 1)}")
+    println("two levels ${longs2(ws, (s) -> size(s) > 1)}")
     println("local lambda ${local_lambda(ws)}")
     println("local named ${local_named(ws)}")
     println("field ${field(ws, Picker { keep: long })}")
-    println("field any ${field_any(ws, Picker { keep: s -> size(s) > 2 })}")
+    println("field any ${field_any(ws, Picker { keep: (s) -> size(s) > 2 })}")
     println("implicit ${longs_i(ws, keep = long)}")
-    println("map ${lens(ws, s -> size(s))}")
+    println("map ${lens(ws, (s) -> size(s))}")
     println("reduce ${total(ws, (a, s) -> a + size(s))}")
     println("generic ${glongs(ws, long)}")
     println("call ${from_call(ws)}")
@@ -173,10 +173,10 @@ fn count_views(vs: List<proj Str>, keep: (x: proj Str) -> Bool) [] -> Int => vs,
 fn main() [use] -> None {
     use StdConsole
     let ws = List("def", "c", "ab")
-    let vs = filter(iter(ws), s -> size(s) > 1)
+    let vs = filter(iter(ws), (s) -> size(s) > 1)
     // Each combinator over the view list, with a named kept fn.
     //~ emits: any::<&String>(&vs, &mut |__a0: &&String| { let __a0 = *__a0; crate::longer(__a0) })
-    println("any ${any(vs, longer)} ${any(vs, s -> size(s) > 5)}")
+    println("any ${any(vs, longer)} ${any(vs, (s) -> size(s) > 5)}")
     println("all ${all(vs, long)} ${all(vs, longer)}")
     println("count ${count(vs, longer)}")
     let at = find_first(vs, longer) ?: unreachable!()
@@ -197,7 +197,7 @@ fn main() [use] -> None {
     let k: (proj Str) -> Bool = longer
     println("local ${k(get(vs, 1) ?: unreachable!())} ${count_views(vs, k)}")
     // Resolved implicits over the view type: `hash`, `eq`, `cmp`, `to_str`.
-    let m = to_map(vs, v -> (v, size(v)))
+    let m = to_map(vs, (v) -> (v, size(v)))
     //~ emits: get_platform(&m, &&String::from("def")
     let n = get(m, "def") ?: unreachable!()
     println("map ${n} ${size(m)} ${contains_key(m, "ab")}")

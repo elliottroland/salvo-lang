@@ -762,7 +762,7 @@ pub fn walk_expr<V: MutVisitor>(v: &mut V, e: &mut Expr) {
                 walk_block(v, b);
             }
         }
-        Expr::Lambda { params, body, span } => {
+        Expr::Lambda { params, ret, body, span } => {
             v.visit_span(span);
             for p in params {
                 v.visit_span(&mut p.span);
@@ -770,6 +770,9 @@ pub fn walk_expr<V: MutVisitor>(v: &mut V, e: &mut Expr) {
                 if let Some(t) = &mut p.ty {
                     walk_type(v, t);
                 }
+            }
+            if let Some(t) = ret {
+                walk_type(v, t);
             }
             match body {
                 LambdaBody::Expr(e) => walk_expr(v, e),

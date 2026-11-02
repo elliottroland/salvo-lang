@@ -87,8 +87,8 @@ handler OpsH of Ops {
 fn main() [use] {
     use StdConsole()
     use OpsH()
-    println("${map(7, x -> x * 3)}")
-    let xs = map(List(1, 2), x -> x + 1)
+    println("${map(7, (x) -> x * 3)}")
+    let xs = map(List(1, 2), (x) -> x + 1)
     println("${size(xs)}")
 }
 //= stdout

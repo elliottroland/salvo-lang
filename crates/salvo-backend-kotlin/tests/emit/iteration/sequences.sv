@@ -50,11 +50,11 @@ fn main() [use] {
     // Lambdas are anonymous fns [kt-ir].
     //~ emits: fun(n: Int): Int {
     //~|         return (n * 2)
-    let doubled = map(xs, n -> n * 2)
+    let doubled = map(xs, (n) -> n * 2)
     //~ emits: return (a + b)
     let sum = reduce(xs, 0, (a, b) -> a + b)
     //~ emits: filterPlatform(xs, fun(n: Int): Boolean {
-    let big = filter(xs, n -> n > 2)
+    let big = filter(xs, (n) -> n > 2)
     println("list: ${size(doubled)} ${sum} ${size(big)}")
     let named = map(xs, double)
     println("named: ${size(named)}")
@@ -64,18 +64,18 @@ fn main() [use] {
     // its implicit argument.
     //~ emits: salvo.std.core.seq.map__It_Fn(salvo.std.core.array.iter(arr), fun(n: Int): Int {
     //~ emits: { __a0 -> salvo.std.core.array.next(__a0) })
-    let arr_mapped = map(iter(arr), n -> n + 1)
+    let arr_mapped = map(iter(arr), (n) -> n + 1)
     println("array: ${arr_sum} ${size(arr_mapped)}")
     let hello = "hello"
-    let letters = filter(iter(hello), c -> c == 'l')
+    let letters = filter(iter(hello), (c) -> c == 'l')
     println("chars: ${size(letters)}")
     let lazy_sum = reduce(iter(naturals(1)), 0, (a, b) -> a + b)
-    let tripled = map(xs, n -> n * 3)
-    let chained = filter(iter(tripled), n -> n > 6)
+    let tripled = map(xs, (n) -> n * 3)
+    let chained = filter(iter(tripled), (n) -> n > 6)
     println("iter: ${lazy_sum} ${size(chained)}")
     let names = List("ann", "bob", "carol")
-    let lens = map(names, n -> size(n))
-    let long = filter(names, n -> size(n) > 3)
+    let lens = map(names, (n) -> size(n))
+    let long = filter(names, (n) -> size(n) > 3)
     println("names: ${size(lens)} ${size(long)}")
     let bag = Bag {items: List(5, 6)}
     println("bag: ${reduce(iter(bag), 0, (a, b) -> a + b)}")

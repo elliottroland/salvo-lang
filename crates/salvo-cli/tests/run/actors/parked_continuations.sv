@@ -33,7 +33,7 @@ handler Desking() of Desk {
     // The terminal: every parked token is answered, and the state is whole
     // again before the activation ends.
     send fn close_up(reason: Str) {
-        drain(waiting, r -> send(r, "closed: ${reason}"))
+        drain(waiting, (r) -> send(r, "closed: ${reason}"))
         waiting = Mut List()
     }
 }
@@ -85,7 +85,7 @@ handler ManualTime() of Timer, TimerCtl {
     send fn advance(millis: Int) {
         now = now + millis
         let at = now
-        drain(waiting, r -> send(r, "fired at ${at}"))
+        drain(waiting, (r) -> send(r, "fired at ${at}"))
         waiting = Mut List()
     }
 

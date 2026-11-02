@@ -2779,12 +2779,10 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   suite run, nearly all std's (std is not walked, so `written_types` lacks
   them): making the table total needs std's rows in the std cache; (h) the
   `fn_value` adapter compares two checker facts, and could be recorded in
-  `FnValue::Decl`. **DECISION (g)**: a block lambda with no expected fn
-  type is typed by the checker as returning `Unknown`, and the IR infers
-  the return from the first `return` it lowers (58 lambdas in the suite).
-  Inferring it in the checker would change what call sites see of such a
-  lambda (its return type becomes known, so mismatches surface), which is a
-  language-visible change. **D3.4 built — done** (2026-10-30, option (a)): erasure and the
+  `FnValue::Decl`. **(g) decided and built** (user, 2026-10-30): a block
+  lambda answers its written return type (`(n: Int) -> Int { … }`), else
+  the expected fn type's, else `None`, as a fn does; the IR's
+  `returned_ty` inference is gone ([fn-lambda]). **D3.4 built — done** (2026-10-30, option (a)): erasure and the
   conversions' nodes live in `ir/build/erased.rs`, the one layer every
   checker type enters the IR through (`ty_of`, `written_ty`, `handles_at`,
   `ir_ty`/`ir_tys` for a type a fact carries); the builder's 33 direct
@@ -4391,10 +4389,10 @@ recorded cut says. A bare lambda's parameter is then `Unknown`, and nothing
 reports it.
 
 - `member-collide-lambda`: an available member `apply(f: (x: Int) -> Int)`
-  beside `fn apply(f: (x: Str) -> Str)`, called as `apply(x -> x + 1)`. The
+  beside `fn apply(f: (x: Str) -> Str)`, called as `apply((x) -> x + 1)`. The
   analysis is clean. Rust: "a value of type `?` reached rust code
   generation". kotlinc: "unresolved reference 'plus'". The fn-only overload
-  set `twice(x -> x + 1)` in the same program types the lambda through the
+  set `twice((x) -> x + 1)` in the same program types the lambda through the
   lead candidate.
 
 **Under P3 + P4** members and fns form one candidate set with one lead
@@ -4405,7 +4403,7 @@ checker-clean program fails in both target compilers. **Decision:** none.
 Fixed (commit "Qualify every declared callee in Kotlin and check fn-value calls"): a lambda with an unwritten
 parameter type takes the type every candidate declares at its position when
 they agree, and is refused otherwise ("cannot type this lambda … write the
-lambda's parameter types"). **Correction:** the probe's `twice(x -> x + 1)`
+lambda's parameter types"). **Correction:** the probe's `twice((x) -> x + 1)`
 did not type its lambda either (its output has two kotlinc errors, one per
 lambda): with no dominant lead the fn path typed it `Unknown` and took the
 first overload. The same rule covers it now.

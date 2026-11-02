@@ -540,7 +540,7 @@ return type `Unknown` (an expression-bodied one is inferred). The unknown
 then passes the checker silently ([type-unknown-lenient]) and fails later:
 
 ```
-let twice = (k: Int) -> { return k * 2 }
+let twice = (k: Int) -> Int { return k * 2 }
 let r: Str = twice(5)       // accepted by the checker; rustc E0308
 println("${twice(5)}")      // IR builder: no `to_str` for `?` in an interpolation
 ```
@@ -1119,7 +1119,7 @@ body and restores it after (check.rs, `saved_own_handler`), but leaves
 ```
 handler H() of A {
     send fn go(peer: eff[B]) => peer {
-        each(xs, x -> peer.ping(x))
+        each(xs, (x) -> peer.ping(x))
     }
 }
 ```
@@ -1567,7 +1567,7 @@ left three follow-ups the user has asked for, in this order.
   reason a generic stays. A *row* (`func` performs several unknown effects)
   is where it gets expensive (no variadic generics on Rust; a bundle struct
   is the fusion shape again), so start with one variable and see whether std
-  needs the row — `map(xs, x -> println(x))` needs one. To check: `[any E]`
+  needs the row — `map(xs, (x) -> println(x))` needs one. To check: `[any E]`
   with `E` a variable; a lambda with an *inferred* effect set against `[E]`
   (bind when the set has one element, refuse naming the row otherwise); the
   deadlock graph prices the concrete instantiation at `run`'s call sites.
@@ -2207,7 +2207,7 @@ container [interp-to-str], property testing's `?generate`, section 2c's
   Rust it needs an adapter passing `&x` (the reverse of the one
   [fn-kept-borrow] uses); Kotlin needs nothing. Options: (a) allow it, for
   symmetry with [fn-kept-borrow]; (b) keep refusing it, the remedy being a
-  lambda (`s -> longer(s)`). Agent's lean: (a).
+  lambda (`(s) -> longer(s)`). Agent's lean: (a).
 - **Open defect: a `Map` keyed by borrows cannot be built from borrowed
   values** (noticed 2026-10-14, not investigated): building a `Map<proj Str,
   …>` from tuples whose `proj Str` component comes from a view (`("ab", h)`

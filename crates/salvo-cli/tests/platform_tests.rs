@@ -400,7 +400,7 @@ export platform handler HostApply() of Apply
 fn main() [use] {
     use StdConsole()
     let k = 5
-    println("${twice(n -> n + k, 1)}")
+    println("${twice((n) -> n + k, 1)}")
     let label = "late"
     println(call(() -> "${label} ran"))
     let why = run_guarded(() -> {
@@ -410,7 +410,7 @@ fn main() [use] {
     println("faulted: ${!(why is None)}")
     println("${run_guarded(() -> {}) is None}")
     use HostApply()
-    println("${apply(n -> n * k, 2)}")
+    println("${apply((n) -> n * k, 2)}")
 }
 "#;
     for (backend, sigs) in [

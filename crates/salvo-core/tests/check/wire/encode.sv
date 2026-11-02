@@ -46,7 +46,7 @@ struct Rule { test: (Int) -> Bool }
 
 fn fn_value() -> None {
     //~ error[net-noremote:no-wire-form]
-    let _b = encode(Rule { test: n -> n > 0 })
+    let _b = encode(Rule { test: (n) -> n > 0 })
 }
 
 // [net-wire-format] Step ②'s recorded cuts, each refused with its reason: a keyed

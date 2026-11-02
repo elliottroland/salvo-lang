@@ -303,7 +303,7 @@ For the one-handle shape std wraps the handle up, so a caller writes
 neither the handle nor the claim:
 
 ```
-update(squad, i, hero -> { hero.hp = hero.hp - 3 })
+update(squad, i, (hero) -> { hero.hp = hero.hp - 3 })
 ```
 
 `update` takes an `i: Idx(squad)` and **preserves `Idx`**, so a sequence of
@@ -311,8 +311,8 @@ them stays total. An in-place write moves no boundary, so the indices you
 proved remain valid:
 
 ```
-update(squad, i, hero -> { hero.hp = hero.hp - 3 })
-update(squad, j, hero -> { hero.hp = hero.hp + 1 })
+update(squad, i, (hero) -> { hero.hp = hero.hp - 3 })
+update(squad, j, (hero) -> { hero.hp = hero.hp + 1 })
 println("${get(squad, i).hp}")     // still the *total* read: `Idx` survived
 ```
 

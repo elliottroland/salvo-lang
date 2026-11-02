@@ -143,8 +143,8 @@ handler Derived(step: (n: Int) -> Int) of Random {
 }
 
 fn a_monitor_spawn_shares_a_stored_function_value() [use, spawn] {
-    let _rng = spawn Derived(n -> n + 1)
-    use Derived(n -> n + 2)
+    let _rng = spawn Derived((n) -> n + 1)
+    use Derived((n) -> n + 2)
     let _ok = next()
 }
 

@@ -6,13 +6,13 @@
 
 fn main() [use] -> None {
     use StdConsole()
-    let a = array_by(3, i -> i * 2)
+    let a = array_by(3, (i) -> i * 2)
     println("array_by ${a[0]} ${a[1]} ${a[2]}")
-    let xs = list_by(4, i -> i + 10)
+    let xs = list_by(4, (i) -> i + 10)
     println("list_by ${to_str(xs)}")
-    let s = set_by(5, i -> i % 3)
+    let s = set_by(5, (i) -> i % 3)
     println("set_by ${to_str(s)}")
-    let m = map_by(3, i -> (i, i * i))
+    let m = map_by(3, (i) -> (i, i * i))
     println("map_by ${to_str(m)}")
     let dups = List(1, 2, 2, 3)
     let uniq = to_set(dups)
@@ -21,7 +21,7 @@ fn main() [use] -> None {
     let m2 = to_map(pairs)
     println("to_map pairs ${to_str(m2)}")
     let words = List("alpha", "be")
-    let m3 = to_map(words, w -> (w, size(w)))
+    let m3 = to_map(words, (w) -> (w, size(w)))
     println("to_map rule ${to_str(m3)}")
     let arr = array_of(1, 2, 3)
     arr[0] = 9

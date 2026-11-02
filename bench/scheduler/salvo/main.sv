@@ -107,7 +107,7 @@ handler Alarming() [Timer] of Alarms {
         discard(f)
         left = left - 1
         if left == 0 {
-            drain(waiting, r -> send(r, 0))
+            drain(waiting, (r) -> send(r, 0))
             waiting = Mut List()
         }
     }

@@ -221,7 +221,7 @@ fn run_it(f: (s: Str) [Logger] -> Str, value: Str) -> Str =>[f] s => value {
 fn demo() [Console, Logger] -> None {
     // The lambda takes the effect rather than capturing it.
     //~ emits: fun(__leff0: Logger, s: String): String {
-    println(run_it(s -> {
+    println(run_it((s) -> {
         log("in lambda ${s}")
         return "done ${s}"
     }, "x"))

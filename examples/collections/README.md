@@ -43,7 +43,7 @@ a type of your own has them exactly when the functions exist — generated with
 equality. Comparing two *different* struct types is an error rather than a quiet
 `false`.
 
-**Generating and converting.** `list_by(n, i -> …)` builds from a size and a
+**Generating and converting.** `list_by(n, (i) -> …)` builds from a size and a
 rule; `to_set` dedups a list; `to_map` comes in two forms — a list of pairs, or
 a list plus a rule.
 

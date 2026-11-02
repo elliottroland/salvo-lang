@@ -94,7 +94,7 @@ handler Echoing() of Inbound, Seen {
     send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {
         got = "${to_str(from)}: ${str_of_bytes(frame) ?: "?"}"
         let text = copy(got)
-        drain(waiting, r -> send(r, copy(text)))
+        drain(waiting, (r) -> send(r, copy(text)))
         waiting = Mut List()
     }
 

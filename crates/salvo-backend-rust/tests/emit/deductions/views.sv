@@ -40,25 +40,25 @@ fn count(xs: List<proj Str>) [] -> Int {
 fn yielded(ws: List<Str>) [] -> Mut List<proj Str> holds proj(ws) => ws {
     let local = List("x", "yy")
     let li = iter(local)
-    let out = filter(li, s -> size(s) > 1)
+    let out = filter(li, (s) -> size(s) > 1)
     count(out)
     let wi = iter(ws)
-    out = filter(wi, s -> size(s) > 1)
+    out = filter(wi, (s) -> size(s) > 1)
     return out
 }
 
 // Re-pointed in both arms of an `if`, then returned.
 fn either(a: List<Str>, b: List<Str>, first: Bool) [] -> Mut List<proj Str> holds proj(a, b) => a, b {
     let local = List("long", "longer")
-    let out = filter(local, s -> size(s) > 2)
+    let out = filter(local, (s) -> size(s) > 2)
     count(out)
     //~ emits:     let mut out: Vec<&String>;
     //~|     if first {
     //~|         out = 
     if first {
-        out = filter(a, s -> size(s) > 1)
+        out = filter(a, (s) -> size(s) > 1)
     } else {
-        out = filter(b, s -> size(s) > 1)
+        out = filter(b, (s) -> size(s) > 1)
     }
     return out
 }
@@ -66,34 +66,34 @@ fn either(a: List<Str>, b: List<Str>, first: Bool) [] -> Mut List<proj Str> hold
 // Re-pointed in one arm that returns; the old view is used after.
 fn early(ws: List<Str>, quit: Bool) [Console] -> Mut List<proj Str> holds proj(ws) => ws {
     let local = List("aa", "b")
-    let out = filter(local, s -> size(s) > 1)
+    let out = filter(local, (s) -> size(s) > 1)
     //~ emits:     if quit {
     //~|         let mut out: Vec<&String> = 
     if quit {
-        out = filter(ws, s -> size(s) > 1)
+        out = filter(ws, (s) -> size(s) > 1)
         return out
     }
     println("early kept ${size(out)} of the local")
-    return filter(ws, s -> size(s) > 5)
+    return filter(ws, (s) -> size(s) > 5)
 }
 
 // Re-pointed on every turn of a loop at a local of the loop body, and in a
 // second loop at the parameters, used after it.
 fn turns(ws: List<Str>, more: List<Str>) [Console] -> None => ws, more {
     let total = List("t")
-    let out = filter(total, s -> size(s) > 0)
+    let out = filter(total, (s) -> size(s) > 0)
     println("total kept ${size(out)}")
     for w in ws {
         let row = List(copy(w), "zz", "y")
-        out = filter(row, s -> size(s) > 1)
+        out = filter(row, (s) -> size(s) > 1)
         println("turn kept ${size(out)}")
     }
-    let seen = filter(total, s -> size(s) > 0)
+    let seen = filter(total, (s) -> size(s) > 0)
     for w in more {
         if size(w) > 1 {
-            seen = filter(ws, s -> size(s) > 1)
+            seen = filter(ws, (s) -> size(s) > 1)
         } else {
-            seen = filter(more, s -> size(s) > 1)
+            seen = filter(more, (s) -> size(s) > 1)
         }
     }
     println("after the loop: ${size(seen)}")
@@ -103,9 +103,9 @@ fn turns(ws: List<Str>, more: List<Str>) [Console] -> None => ws, more {
 // the re-point (Rust: the first borrow must have ended).
 fn rewrite(ws: List<Str>) [Console] -> None => ws {
     let mine = Mut List("p", "qq")
-    let out = filter(mine, s -> size(s) > 1)
+    let out = filter(mine, (s) -> size(s) > 1)
     println("mine kept ${size(out)}")
-    out = filter(ws, s -> size(s) > 1)
+    out = filter(ws, (s) -> size(s) > 1)
     add(mine, "rrr")
     println("ws kept ${size(out)}, mine has ${size(mine)}")
 }
@@ -114,9 +114,9 @@ fn rewrite(ws: List<Str>) [Console] -> None => ws {
 fn orders(ws: List<Str>) [Console] -> None => ws {
     let a: Mut List<proj Str> = Mut List()
     println("a starts ${size(a)}")
-    a = filter(ws, s -> size(s) > 1)
+    a = filter(ws, (s) -> size(s) > 1)
     println("a then ${size(a)}")
-    let b = filter(ws, s -> size(s) > 0)
+    let b = filter(ws, (s) -> size(s) > 0)
     println("b starts ${size(b)}")
     b = Mut List()
     println("b then ${size(b)}")
@@ -126,23 +126,23 @@ fn orders(ws: List<Str>) [Console] -> None => ws {
 fn ints() [Console] -> None {
     let ns = List(1, 5, 9)
     //~ emits: ).into_iter().copied().collect::<Vec<_>>();
-    let big = filter(ns, n -> n > 2)
+    let big = filter(ns, (n) -> n > 2)
     println("ints kept ${size(big)}")
-    big = filter(List(10, 1), n -> n > 2)
+    big = filter(List(10, 1), (n) -> n > 2)
     println("ints then ${size(big)}")
 }
 
 // The value an arm or a loop stores flows out of it: one variable.
 fn flows(ws: List<Str>, c: Bool) [Console] -> None => ws {
-    let out = filter(ws, s -> size(s) > 5)
+    let out = filter(ws, (s) -> size(s) > 5)
     //~ emits:     if c {
     //~|         out = 
     if c {
-        out = filter(ws, s -> size(s) > 0)
+        out = filter(ws, (s) -> size(s) > 0)
     }
     println("flows if ${size(out)}")
     for w in ws {
-        out = filter(ws, s -> size(s) > 1)
+        out = filter(ws, (s) -> size(s) > 1)
         if size(w) > 0 {
             break
         }
@@ -152,11 +152,11 @@ fn flows(ws: List<Str>, c: Bool) [Console] -> None => ws {
     while n < 2 {
         n = n + 1
         if n == 1 {
-            out = filter(ws, s -> size(s) > 2)
+            out = filter(ws, (s) -> size(s) > 2)
             continue
         }
         println("flows continue ${size(out)}")
-        out = filter(ws, s -> size(s) > 0)
+        out = filter(ws, (s) -> size(s) > 0)
     }
     println("flows while ${size(out)}")
 }
@@ -164,7 +164,7 @@ fn flows(ws: List<Str>, c: Bool) [Console] -> None => ws {
 fn main() [use] -> None {
     use StdConsole
     let ws = List("ab", "c", "def")
-    println("pick ${size(pick(ws, s -> size(s) > 1))}")
+    println("pick ${size(pick(ws, (s) -> size(s) > 1))}")
     println("yielded ${size(yielded(ws))}")
     let a = List("aa", "bb", "c")
     let b = List("z")
@@ -206,7 +206,7 @@ fn show(b: Bag) [use] -> None {
 fn main() [use] -> None {
     use StdConsole
     let ws = List("ab", "c", "def")
-    let vs = filter(iter(ws), s -> size(s) > 1)
+    let vs = filter(iter(ws), (s) -> size(s) > 1)
     // The repro (ROADMAP 0z).
     // A `for` loop's `next`, whose instantiation the arguments state.
     //~ emits: = (match crate::std_core_list::next__ListNext(&mut __pass_3) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) });
@@ -230,27 +230,27 @@ fn main() [use] -> None {
     }
     // A `?Next` adapter.
     //~ emits: &mut |__a0: &mut crate::std_core_list::ListNext<'_, &String>| (match crate::std_core_list::next__ListNext(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v),
-    let ms = map(iter(vs), s -> size(s))
+    let ms = map(iter(vs), (s) -> size(s))
     println("map ${size(ms)} ${get(ms, 1) ?: 0}")
-    let fs = filter(iter(vs), s -> size(s) > 2)
+    let fs = filter(iter(vs), (s) -> size(s) > 2)
     for f in fs {
         println("filter ${f}")
     }
     println("count ${count(iter(vs))}")
-    let at = find_first(vs, s -> size(s) > 2) ?: unreachable!()
+    let at = find_first(vs, (s) -> size(s) > 2) ?: unreachable!()
     println("find_first ${at}")
     println("reduce ${reduce(iter(vs), 0, (a, s) -> a + size(s))}")
     let t = to_list(iter(vs))
     for x in iter(t) {
         println("to_list ${x}")
     }
-    let m = to_map(vs, v -> (copy(v), v))
+    let m = to_map(vs, (v) -> (copy(v), v))
     let mv = get(m, "def") ?: unreachable!()
     println("map get ${mv}")
     show(Bag {names: vs})
     // Nested: a `List<proj List<Str>>`.
     let ls = List(List("p", "q"), List("r"))
-    let big = filter(iter(ls), x -> size(x) > 0)
+    let big = filter(iter(ls), (x) -> size(x) > 0)
     //~ emits: let mut __pick7: Option<&Vec<String>> = crate::std_core_list::get_platform(&big, 0i32).copied();
     let fst = get(big, 0) ?: unreachable!()
     println("nested get ${size(fst)}")
@@ -276,12 +276,12 @@ fn main() [use] {
     //~ emits: &mut |mut i| -> &String {
     //~ emits: let mut __pick1: Option<&String> = crate::std_core_list::get_platform::<String>(&all, *i);
     //~ !emits: __pick1_3.clone()
-    let picked = map(indices, i -> (get(all, i) ?: unreachable!()))
+    let picked = map(indices, (i) -> (get(all, i) ?: unreachable!()))
     for w in picked {
         println(w)
     }
     let p = iter(indices)
-    let doubled = map(p, i -> i + i)
+    let doubled = map(p, (i) -> i + i)
     for n in doubled {
         println("${n}")
     }

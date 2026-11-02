@@ -1066,7 +1066,7 @@ handler Derived(step: (n: Int) -> Int) of Calc {
 }
 fn main() [use] {
     use StdConsole()
-    use Derived(n -> n + 1)
+    use Derived((n) -> n + 1)
     println("${calc(1)}")
 }
 //= stdout

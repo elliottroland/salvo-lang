@@ -20,9 +20,9 @@ A map's entries are written as `key: value` *arguments* — the same `k: v` pair
 Besides the constructors, each collection can be **generated** from a size and a rule, or **converted** from another:
 
 ```
-let squares = list_by(4, i -> i * i)        // [0, 1, 4, 9]
+let squares = list_by(4, (i) -> i * i)        // [0, 1, 4, 9]
 let unique = to_set(xs)                     // duplicates collapse
-let lengths = to_map(names, n -> (n, size(n)))
+let lengths = to_map(names, (n) -> (n, size(n)))
 ```
 
 There are two `to_map` forms — from a list of pairs, and from a list of anything plus a rule saying what key and value each element becomes. Duplicate keys are last-wins everywhere.
@@ -194,7 +194,7 @@ An array (`T[]`) is a fixed-size sequence, and it exists mostly for the *variadi
 let numbers: Int[] = array_of(1, 2, 3)
 
 // Generate one, size given first
-let zeros: Int[] = array_by(5, i -> 0)
+let zeros: Int[] = array_by(5, (i) -> 0)
 ```
 
 The array's size can be fetched from `numbers.size()` (see [dot-notation](Functions.md) for calling a function that way) and the array can be 0-indexed using `numbers[index]`. Indexing is an array's alone: a list exposes element access as `get(xs, i)`.

@@ -55,7 +55,7 @@ let total = reduce(iter(bag), 0, (acc, n) -> acc + n)
 
 Inference runs *through* the group: `It` comes from the subject, and `T` — the
 element type — from the `next` that takes an `It` (or `It`'s `: Next<self, T>`
-clause). That is what lets the lambda be written bare (`n -> n * 2`) with no
+clause). That is what lets the lambda be written bare (`(n) -> n * 2`) with no
 annotation anywhere.
 
 The other spread, `?Iter<C, It, T>`, is for a combinator over a **source**

@@ -92,7 +92,7 @@ export struct Circle { r: Int }
 export type Shape = Token | Circle
 
 export fn make_b() [] -> Token {
-    return Token { name: "bee", f: x -> x + 1 }
+    return Token { name: "bee", f: (x) -> x + 1 }
 }
 
 export fn show_b(t: Token) [] -> Str {
@@ -142,7 +142,7 @@ fn main() [use, spawn] {
     let b: BToken = make_b()
     println(b.name)
     println(show_b(b))
-    println(describe(BToken { name: "two", f: x -> x }))
+    println(describe(BToken { name: "two", f: (x) -> x }))
     println(describe(Circle { r: 3 }))
     let c = spawn Counting() on pool(1)
     c.bump(Token { label: "x" })

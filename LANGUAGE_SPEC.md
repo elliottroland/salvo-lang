@@ -756,7 +756,7 @@ Conventions:
   sorted set), `to_set` (from a list — duplicates collapse, first-appearance
   order), and **two `to_map` forms** (user decision 2026-09-12): from a list
   of pairs, and from a list of anything plus a rule
-  (`to_map(words, w -> (w, size(w)))`). Duplicate keys are last-wins
+  (`to_map(words, (w) -> (w, size(w)))`). Duplicate keys are last-wins
   throughout [col-duplicate-keys].
   * **Known limitation**: a *bare inline literal* argument to one of these
     does not determine the callee's type parameter
@@ -1364,8 +1364,8 @@ Conventions:
     nothing of a "literal". A user's own `List`/`Set`/… wins by the
     ordinary scope ladder [fn-overload-scope].
   * A `[...]` in expression position, or a `{...}` that is neither a
-    struct literal (`identifier:` / `Name {…}`) nor a brace lambda
-    (`{ i -> … }`), is a **parse error** naming the constructor form.
+    struct literal (`identifier:` / `Name {…}`) is a **parse error** naming
+    the constructor form (a lambda is never a brace: [fn-lambda]).
   * An **array** (`T[]`, the variadic boundary) is still built with
     `array_of(…)`; only the collection *literals* are gone.
 * [type-any-never] `Any` is the top type; `Never` is the bottom type
@@ -3331,9 +3331,9 @@ Conventions:
     `Ok A`) is out of the running before the lambda is typed, so it does not
     keep another from leading. That is what
     gives a bare lambda an expected type when the name is overloaded
-    (`map(xs, n -> n * 2)` with a `List` fast path beside the generic
+    (`map(xs, (n) -> n * 2)` with a `List` fast path beside the generic
     overload), and the per-argument re-narrowing is what keeps the subject
-    deciding: `map(arr, n -> n + 1)` drops the `List` candidate when `arr`
+    deciding: `map(arr, (n) -> n + 1)` drops the `List` candidate when `arr`
     turns out to be an array, before the lambda is typed. With no dominant
     candidate the arguments keep the untyped probe, and the lead is only ever
     a *hint* — the selection re-derives everything from the argument types it
@@ -3560,7 +3560,7 @@ Conventions:
   left to right**: each argument's expected type is its parameter pattern
   with everything the earlier arguments — and any explicit type-argument
   list — already determined substituted in. That is what types an
-  un-annotated lambda from its *siblings*: in `map(xs.iter(), n -> n * 2)`
+  un-annotated lambda from its *siblings*: in `map(xs.iter(), (n) -> n * 2)`
   the first argument binds `T = Int`, so the lambda is checked against
   `(Int) -> U` and its body determines `U`. The same rule effect member
   generics already state [effect-member-generics].
@@ -4554,9 +4554,30 @@ Conventions:
     type arguments are known, so it resolves them as a call resolves a fn's.
     A **lambda** may not: its type has no room to declare one (deliberate
     cut).
-* [fn-lambda] Lambdas: `x -> expr`, `(a, b) -> expr`, and block bodies
-  `{ x: T -> ... }` (blocks require `return`). Lambdas may declare
+* [fn-lambda] Lambdas: `(a, b) -> expr` and `(a, b) -> T { ... }` — the
+  parameters always parenthesized, one included (user decision 2026-10-30:
+  the single-parameter shorthand `x -> expr` and the brace form
+  `{ x: T -> ... }` are gone). Blocks require `return`. Lambdas may declare
   effects/deductions.
+  * **A block body's return type** (user decision 2026-10-30): the type
+    written before the block, else the expected fn type's, else `None` —
+    as a fn with no `->` returns `None`; the checker checks the body's
+    `return`s against it and the call sites see it. An expression body
+    answers its expression. Before, a block lambda with no expected type
+    was typed as returning `Unknown`, so a mismatch at its call was left
+    to the target compiler, and the IR inferred the return from the first
+    `return` it lowered (PIPELINE.md D3.3(g)).
+  * **An expected return a type parameter only the result binds**
+    (`eval<Q>(f: once () -> Q) -> Q` called where a `Str` is wanted): the
+    lead candidate's type parameters are bound from the call's expected type
+    before a lambda argument is typed, as the winner's are after, so the
+    block is checked against `Str`. Where nothing binds it, the call cannot
+    infer its type argument (`call-type-args`), and the remedy is the
+    lambda's written return type.
+  * **Parsing** (option (a)): after `->`, a type followed on its line by a
+    `{` that does not open a struct literal, or by `...`, is the return
+    type; anything else is the body. So `(n) -> Point { x: n }` returns a
+    struct literal, and a fieldless one is written `() -> (Finished {})`.
   * Param types come from annotation or the expected fn type; early
     `return` inside expression-position lambdas is a codegen error
     (deliberate cut).
@@ -10367,18 +10388,18 @@ between endpoints and delivers what arrives into the scheduler.
   2026-09-12): the closure holds a borrow of every non-Copy capture its
   body only reads, exactly as a struct holds its `proj` fields
   [proj-field] — because a body can return projections rooted in a
-  capture (`i -> (get(words, i) ?: unreachable!())` hands out elements of `words`), which no
+  capture (`(i) -> (get(words, i) ?: unreachable!())` hands out elements of `words`), which no
   fn type can name (`proj(…)` sources are parameters; captures are
   unnameable). So the *value* carries the link: binding the lambda links
   it to the captured roots (held, borrowed); a call result linked to a
   lambda argument reaches those roots transitively (which is what makes
-  `map(indices, i -> (get(all, i) ?: unreachable!()))` both legal and correctly poisoned by
+  `map(indices, (i) -> (get(all, i) ?: unreachable!()))` both legal and correctly poisoned by
   a later move of `all`); a capture-free lambda holds nothing, so
-  `map(p, w -> w)` binds with no ceremony (a lambda expression is never
+  `map(p, (w) -> w)` binds with no ceremony (a lambda expression is never
   itself a "temporary" a view could dangle from). A capture the closure
   *consumes* is owned, not borrowed — the `once` rule [fate-lambda] —
   and a Copy scalar capture links nothing [copy-scalar-free]. Before
-  this rule, naming the lambda (`let f = i -> (get(words, i) ?: unreachable!())`) evaded
+  this rule, naming the lambda (`let f = (i) -> (get(words, i) ?: unreachable!())`) evaded
   the discipline entirely: `eat(words)` was accepted with the view live.
   * Rust: a capture-rooted projection in a lambda tail stays the borrow
     (`|i| all.get((*i) as usize).unwrap()` returning `&String` into a

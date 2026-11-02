@@ -31,8 +31,8 @@ fn to_string(int: Int) -> Str {
 fn do_something() {
     let list: List<Int> = List(1, 2, 3)
     transform(list, to_string)
-    transform(list, i -> "${i}")
-    transform(list, i -> { return "${i}" })
+    transform(list, (i) -> "${i}")
+    transform(list, (i) -> { return "${i}" })
 }
 
 // An iterator struct is an ordinary struct with an ordinary `next`
@@ -70,7 +70,7 @@ fn next(p: Mut Countdown) -> Emitted Int | Finished => p: Mut {
 
 fn arrays() {
     let numbers: Int[] = array_of(1, 2, 3)
-    let generated: Int[] = array_by(5, i -> 0)
+    let generated: Int[] = array_by(5, (i) -> 0)
     let size = numbers.size()
     let first = numbers[0]
 }
@@ -102,7 +102,7 @@ fn run_it(f: (s: Str) [Console] -> Str, value: Str) -> Str =>[f] s => value {
 }
 
 fn use_it() [Console] -> None {
-    let shouted = run_it(s -> {
+    let shouted = run_it((s) -> {
         println("shouting ${s}")
         return "${s}!"
     }, "hello")

@@ -2197,9 +2197,13 @@ pub enum Expr {
         else_block: Option<Block>,
         span: Span,
     },
-    /// `i -> expr`, `(a, b) -> { ... }`, `{ i: Int -> 0 }`
+    /// `(i) -> expr`, `(a, b) -> { ... }`, `(a: Int) -> Int { ... }`
+    /// [fn-lambda]: parameters always parenthesized; a block (or `...`)
+    /// body may follow a written return type.
     Lambda {
         params: Vec<LambdaParam>,
+        /// [fn-lambda] The written return type of a block body, if any.
+        ret: Option<Type>,
         body: LambdaBody,
         span: Span,
     },
@@ -2521,9 +2525,9 @@ pub struct LambdaParam {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum LambdaBody {
-    /// `i -> "${i}"` — the expression is the value; no `return` required.
+    /// `(i) -> "${i}"` — the expression is the value; no `return` required.
     Expr(Box<Expr>),
-    /// `i -> { return "${i}" }` — a full block; requires `return`.
+    /// `(i) -> Str { return "${i}" }` — a full block; requires `return`.
     Block(Block),
     /// [expr-terminal-lambda] `map(xs, (e) -> ...)` — the lambda's body is the
     /// **rest of the enclosing block**, captured after the call and statement

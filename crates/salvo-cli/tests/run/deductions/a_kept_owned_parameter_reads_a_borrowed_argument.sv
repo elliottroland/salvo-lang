@@ -33,9 +33,9 @@ fn count_views(vs: List<proj Str>, keep: (x: proj Str) -> Bool) [] -> Int => vs,
 fn main() [use] -> None {
     use StdConsole
     let ws = List("def", "c", "ab")
-    let vs = filter(iter(ws), s -> size(s) > 1)
+    let vs = filter(iter(ws), (s) -> size(s) > 1)
     // Each combinator over the view list, with a named kept fn.
-    println("any ${any(vs, longer)} ${any(vs, s -> size(s) > 5)}")
+    println("any ${any(vs, longer)} ${any(vs, (s) -> size(s) > 5)}")
     println("all ${all(vs, long)} ${all(vs, longer)}")
     println("count ${count(vs, longer)}")
     let at = find_first(vs, longer) ?: unreachable!()
@@ -53,7 +53,7 @@ fn main() [use] -> None {
     let k: (proj Str) -> Bool = longer
     println("local ${k(get(vs, 1) ?: unreachable!())} ${count_views(vs, k)}")
     // Resolved implicits over the view type: `hash`, `eq`, `cmp`, `to_str`.
-    let m = to_map(vs, v -> (v, size(v)))
+    let m = to_map(vs, (v) -> (v, size(v)))
     let n = get(m, "def") ?: unreachable!()
     println("map ${n} ${size(m)} ${contains_key(m, "ab")}")
     let st = to_set(vs)

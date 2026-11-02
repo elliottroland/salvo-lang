@@ -70,13 +70,13 @@ fn bare_set() -> Int {
 // [col-by] [col-convert] The generated constructors and the converters type
 // as their collections, and the two `to_map` forms are told apart by arity.
 fn generated_and_converted() -> Int {
-    let xs = list_by(3, i -> i + 1)
-    let s = set_by(3, i -> i)
-    let m = map_by(2, i -> (i, i))
+    let xs = list_by(3, (i) -> i + 1)
+    let s = set_by(3, (i) -> i)
+    let m = map_by(2, (i) -> (i, i))
     let u = to_set(xs)
-    let pairs = list_by(1, _i -> (1, 2))
+    let pairs = list_by(1, (_i) -> (1, 2))
     let m2 = to_map(pairs)
-    let m3 = to_map(xs, x -> (x, x))
+    let m3 = to_map(xs, (x) -> (x, x))
     return size(xs) + size(s) + size(m) + size(u) + size(m2) + size(m3)
 }
 

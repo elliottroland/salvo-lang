@@ -1772,18 +1772,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                     .collect()
             })
             .unwrap_or_default();
-        // A block lambda the checker typed before its `return`s were known
-        // answers what its returns answer.
-        let (ret, ty) = if ret.is_unknown() {
-            let found = returned_ty(&block).unwrap_or_else(Ty::none);
-            let ty = match ty.strip_quals() {
-                Ty::Fn { params, contract, effects, .. } => Ty::Fn { params: params.clone(), ret: Box::new(found.clone()), contract: contract.clone(), effects: effects.clone() },
-                _ => Ty::Fn { params: ps.iter().map(|p| p.ty.clone()).collect(), ret: Box::new(found.clone()), contract: None, effects: Vec::new() },
-            };
-            (found, ty)
-        } else {
-            (ret, ty)
-        };
+        // [fn-lambda] The return type is the checker's: written, the expected
+        // fn type's, or `None`.
         Expr { ty, span, kind: ExprKind::Lambda { params: ps, ret, body: block, captures } }
     }
 
@@ -3318,36 +3308,6 @@ fn visit_reads(e: &Expr, f: &mut dyn FnMut(&Local)) {
         ExprKind::Spawn { handler, .. } => visit_reads(handler, f),
         _ => {}
     }
-}
-
-/// The type a block's `return`s (or its value) answer, when one is known;
-/// nested lambdas are their own fns and are not looked into.
-fn returned_ty(b: &Block) -> Option<Ty> {
-    fn in_block(b: &Block) -> Option<Ty> {
-        for s in &b.stmts {
-            if let Some(t) = in_stmt(s) {
-                return Some(t);
-            }
-        }
-        b.value.as_ref().map(|v| v.ty.clone()).filter(|t| !t.is_unknown() && *t != Ty::Never)
-    }
-    fn in_stmt(s: &Stmt) -> Option<Ty> {
-        match s {
-            Stmt::Return(Some(e), _) if !e.ty.is_unknown() && e.ty != Ty::Never => Some(e.ty.clone()),
-            Stmt::Expr(e) | Stmt::Let { value: e, .. } => in_expr(e),
-            Stmt::Loop { body, .. } => in_block(body),
-            _ => None,
-        }
-    }
-    fn in_expr(e: &Expr) -> Option<Ty> {
-        match &e.kind {
-            ExprKind::Branch { arms, otherwise, .. } => arms.iter().find_map(|(_, b)| in_block(b)).or_else(|| otherwise.as_ref().and_then(in_block)),
-            ExprKind::Switch { arms, .. } => arms.iter().find_map(|a| in_block(&a.body)),
-            ExprKind::Try { body } => in_block(body),
-            _ => None,
-        }
-    }
-    in_block(b)
 }
 
 /// A qualifier's value argument spelled as a literal (`0`, `65535L`,

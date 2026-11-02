@@ -33,7 +33,7 @@ fn shout(word: Str) -> Str {
 fn main() [use] {
     use StdConsole()
     let ns = List(1, 2)
-    for v in map(iter(copy(ns)), n -> n * 2) { println("bare=${v}") }
+    for v in map(iter(copy(ns)), (n) -> n * 2) { println("bare=${v}") }
     // The lambda's *inner* convention follows the declaration: its
     // parameter arrives borrowed, whatever the annotation says.
     //~ emits(main.rs): &mut |mut n| -> i32 {
@@ -47,6 +47,6 @@ fn main() [use] {
     //~|         crate::shout(s)
     for w in map(iter(copy(ws)), (s: Str) -> shout(s)) { println("str=${w}") }
     for w in map(iter(copy(ws)), shout) { println("named=${w}") }
-    for n in map(iter(ws), s -> size(s)) { println("size=${n}") }
+    for n in map(iter(ws), (s) -> size(s)) { println("size=${n}") }
     println("applied=${apply(2, (n: Int) -> n + 1)}")
 }

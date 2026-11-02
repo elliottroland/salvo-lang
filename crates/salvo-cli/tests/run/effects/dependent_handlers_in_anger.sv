@@ -25,7 +25,7 @@ export fn run_it(f: (s: Str) [Logger] -> Str) [Console, Logger] -> None =>[f] s 
 }
 
 export fn demo() [Console, Logger] -> None {
-    run_it(s -> {
+    run_it((s) -> {
         log("in lambda ${s}")
         return "done ${s}"
     })
@@ -313,7 +313,7 @@ fn main() [use] -> None {
     use StdConsole
     use PrefixLogger("L", 3)
     use MemCounter
-    log(twice(s -> {
+    log(twice((s) -> {
         log("in lambda ${s}")
         return "done ${s}"
     }))

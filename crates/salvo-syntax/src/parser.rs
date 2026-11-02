@@ -5365,41 +5365,14 @@ impl<'s> Parser<'s> {
     // --- Expressions ---
 
     pub fn parse_expr(&mut self) -> Option<Expr> {
-        // Lambda shorthand: `i -> ...`
-        if self.at_ident() && matches!(self.peek_at(1).kind, TokenKind::Arrow) {
-            return self.parse_lambda_from_ident();
-        }
-        // Lambda with parenthesized params: `(a, b) -> ...`
+        // [fn-lambda] A lambda: `(a, b) -> ...`, its parameters always
+        // parenthesized.
         if self.at(&TokenKind::LParen) {
             if let Some(lambda) = self.try_parse_paren_lambda() {
                 return Some(lambda);
             }
         }
         self.parse_binary(0).and_then(|e| self.newline_postfix(e))
-    }
-
-    fn parse_lambda_from_ident(&mut self) -> Option<Expr> {
-        let name = self.ident_value("lambda parameter")?;
-        let start = name.span;
-        self.expect(&TokenKind::Arrow)?;
-        let param = LambdaParam {
-            span: name.span,
-            name,
-            ty: None,
-        };
-        let body = self.parse_lambda_body()?;
-        let end = match &body {
-            LambdaBody::Expr(e) => e.span(),
-            LambdaBody::Block(b) => b.span,
-            // [expr-terminal-lambda] The body is captured after the statement; use
-            // the span so far.
-            LambdaBody::Terminal => start,
-        };
-        Some(Expr::Lambda {
-            params: vec![param],
-            body,
-            span: start.to(end),
-        })
     }
 
     /// Attempts `(a, b) -> ...`; rolls back and returns `None` when the
@@ -5442,6 +5415,7 @@ impl<'s> Parser<'s> {
             return None;
         }
         self.bump(); // ->
+        let ret = self.lambda_return_type();
         let body = match self.parse_lambda_body() {
             Some(b) => b,
             None => {
@@ -5458,9 +5432,32 @@ impl<'s> Parser<'s> {
         };
         Some(Expr::Lambda {
             params,
+            ret,
             body,
             span: start.to(end),
         })
+    }
+
+    /// [fn-lambda] A lambda's written return type: a type followed, on its
+    /// line, by a block that does not open a struct literal, or by `...`
+    /// (user decision 2026-10-30, option (a)). Anything else after `->` is
+    /// the body, so `(n) -> Point { x: n }` still returns a struct literal,
+    /// and a fieldless one is written `(n) -> (Finished {})`.
+    fn lambda_return_type(&mut self) -> Option<Type> {
+        if self.at(&TokenKind::LBrace) || self.at(&TokenKind::Ellipsis) {
+            return None;
+        }
+        let snap = self.snapshot();
+        let ty = self.parse_type();
+        let typed = ty.is_some()
+            && self.same_line()
+            && ((self.at(&TokenKind::LBrace) && !self.brace_is_struct_lit()) || self.at(&TokenKind::Ellipsis));
+        if typed {
+            ty
+        } else {
+            self.rollback(snap);
+            None
+        }
     }
 
     fn parse_lambda_body(&mut self) -> Option<LambdaBody> {
@@ -7080,26 +7077,12 @@ impl<'s> Parser<'s> {
         }
     }
 
-    /// `[1, 2, 3]`
-    /// A `{` in expression position: either a bare struct literal
-    /// (`{name: ..., age: ...}`) or a brace lambda (`{ i: Int -> 0 }`).
-    /// Collection literals are retired [col-no-literal]: a collection is
-    /// built with its type-named constructor (`List(1, 2)`, `Set("a")`,
-    /// `Map("k": v)`), so a brace that is neither a lambda nor a struct
-    /// literal is a parse error here.
+    /// A `{` in expression position: a bare struct literal (`{name: ...,
+    /// age: ...}`). Collection literals are retired [col-no-literal]: a
+    /// collection is built with its type-named constructor (`List(1, 2)`,
+    /// `Set("a")`, `Map("k": v)`), and a lambda's parameters are always
+    /// parenthesized [fn-lambda], so any other brace is a parse error here.
     fn parse_brace_expr(&mut self) -> Option<Expr> {
-        if let Some(lambda) = {
-            let snap = self.snapshot();
-            match self.parse_brace_lambda() {
-                Some(l) => Some(l),
-                None => {
-                    self.rollback(snap);
-                    None
-                }
-            }
-        } {
-            return Some(lambda);
-        }
         if self.brace_is_struct_lit() {
             return self.parse_struct_lit_body(None);
         }
@@ -7108,77 +7091,6 @@ impl<'s> Parser<'s> {
         let span = self.peek().span;
         self.error(messages::col_no_literal_brace_literal(), span);
         None
-    }
-
-    /// `{ i: Int -> 0 }` — a Kotlin-style brace lambda. Returns `None`
-    /// (without emitting diagnostics beyond rollback) if the contents do not
-    /// form `params ->`.
-    fn parse_brace_lambda(&mut self) -> Option<Expr> {
-        let snap = self.snapshot();
-        let start = match self.eat(&TokenKind::LBrace) {
-            Some(t) => t.span,
-            None => return None,
-        };
-        self.group_depth += 1;
-        let mut params = Vec::new();
-        loop {
-            if !self.at_ident() {
-                self.group_depth -= 1;
-                self.rollback(snap);
-                return None;
-            }
-            let name = self.ident()?;
-            let ty = if self.eat(&TokenKind::Colon).is_some() {
-                match self.parse_type() {
-                    Some(t) => Some(t),
-                    None => {
-                        self.group_depth -= 1;
-                        self.rollback(snap);
-                        return None;
-                    }
-                }
-            } else {
-                None
-            };
-            let span = name.span;
-            params.push(LambdaParam { name, ty, span });
-            if self.eat(&TokenKind::Comma).is_some() {
-                continue;
-            }
-            break;
-        }
-        self.group_depth -= 1;
-        if self.eat(&TokenKind::Arrow).is_none() {
-            self.rollback(snap);
-            return None;
-        }
-        // Body: statements until the closing brace.
-        let saved_depth = std::mem::replace(&mut self.group_depth, 0);
-        let saved_no_struct = std::mem::replace(&mut self.no_struct, false);
-        let mut stmts = Vec::new();
-        while !self.at(&TokenKind::RBrace) && !self.at_eof() {
-            let before = self.pos;
-            match self.parse_stmt() {
-                Some(stmt) => stmts.push(stmt),
-                None => self.recover_in_block(),
-            }
-            if self.pos == before {
-                self.bump();
-            }
-        }
-        self.group_depth = saved_depth;
-        self.no_struct = saved_no_struct;
-        let end = self.expect(&TokenKind::RBrace)?.span;
-        let body_span = start.to(end);
-        let body = LambdaBody::Block(Block {
-            stmts,
-            span: body_span,
-        });
-        Some(Expr::Lambda {
-            params,
-            body,
-            span: start.to(end),
-        })
     }
 
     fn parse_condition(&mut self) -> Option<Expr> {

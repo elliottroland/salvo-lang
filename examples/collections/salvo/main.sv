@@ -123,12 +123,12 @@ fn main() [use] -> None {
     println("4. plain struct equality ${notes_equal}")
 
     // ===== 5. generating and converting =====
-    let squares = list_by(4, i -> i * i)
+    let squares = list_by(4, (i) -> i * i)
     println("5. generated ${to_str(squares)}")
     let deduped = to_set(primes)
     println("5. to_set ${to_str(deduped)}")
     let words = List("alpha", "be")
-    let lengths = to_map(words, w -> (w, size(w)))
+    let lengths = to_map(words, (w) -> (w, size(w)))
     println("5. to_map with a rule ${to_str(lengths)}")
 
     // ===== 6. claims about a list =====

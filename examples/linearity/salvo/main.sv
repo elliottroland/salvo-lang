@@ -106,7 +106,7 @@ fn hand_over<T canbe linear>(value: T, to: once (t: T) [Console] -> None) [Conso
 
 fn generic_handoff() [Console] -> None {
     let ticket = issue(4, "9B")
-    hand_over(ticket, t -> redeem(t))
+    hand_over(ticket, (t) -> redeem(t))
 }
 
 // ===== 6. a container of obligations =====

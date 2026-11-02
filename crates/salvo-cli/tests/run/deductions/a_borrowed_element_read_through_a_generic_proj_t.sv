@@ -21,7 +21,7 @@ fn show(b: Bag) [use] -> None {
 fn main() [use] -> None {
     use StdConsole
     let ws = List("ab", "c", "def")
-    let vs = filter(iter(ws), s -> size(s) > 1)
+    let vs = filter(iter(ws), (s) -> size(s) > 1)
     // The repro (ROADMAP 0z).
     for v in vs {
         println("list for ${v}")
@@ -37,27 +37,27 @@ fn main() [use] -> None {
     if vs is NonEmpty {
         println("first ${first(vs)}")
     }
-    let ms = map(iter(vs), s -> size(s))
+    let ms = map(iter(vs), (s) -> size(s))
     println("map ${size(ms)} ${get(ms, 1) ?: 0}")
-    let fs = filter(iter(vs), s -> size(s) > 2)
+    let fs = filter(iter(vs), (s) -> size(s) > 2)
     for f in fs {
         println("filter ${f}")
     }
     println("count ${count(iter(vs))}")
-    let at = find_first(vs, s -> size(s) > 2) ?: unreachable!()
+    let at = find_first(vs, (s) -> size(s) > 2) ?: unreachable!()
     println("find_first ${at}")
     println("reduce ${reduce(iter(vs), 0, (a, s) -> a + size(s))}")
     let t = to_list(iter(vs))
     for x in iter(t) {
         println("to_list ${x}")
     }
-    let m = to_map(vs, v -> (copy(v), v))
+    let m = to_map(vs, (v) -> (copy(v), v))
     let mv = get(m, "def") ?: unreachable!()
     println("map get ${mv}")
     show(Bag {names: vs})
     // Nested: a `List<proj List<Str>>`.
     let ls = List(List("p", "q"), List("r"))
-    let big = filter(iter(ls), x -> size(x) > 0)
+    let big = filter(iter(ls), (x) -> size(x) > 0)
     let fst = get(big, 0) ?: unreachable!()
     println("nested get ${size(fst)}")
     for b in iter(big) {

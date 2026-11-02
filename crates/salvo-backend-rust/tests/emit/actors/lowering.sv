@@ -382,7 +382,7 @@ handler Desking() of Desk {
     send fn close_up(reason: Str) {
         // The drain of a state field is a take.
         //~ emits: drain::<crate::scheduler::SalvoReply>(std::mem::take(&mut self.waiting), 
-        drain(waiting, r -> send(r, "closed: ${reason}"))
+        drain(waiting, (r) -> send(r, "closed: ${reason}"))
         waiting = Mut List()
     }
 }
@@ -450,7 +450,7 @@ handler ManualTime() of Timer, TimerCtl {
     send fn advance(millis: Int) {
         now = now + millis
         let at = now
-        drain(waiting, r -> send(r, "fired at ${at}"))
+        drain(waiting, (r) -> send(r, "fired at ${at}"))
         waiting = Mut List()
     }
 

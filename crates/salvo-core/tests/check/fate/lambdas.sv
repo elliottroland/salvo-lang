@@ -30,14 +30,14 @@ fn consume_list(v: List<Int>) -> None => !v {
 fn immutable_free() -> Int {
     let base = 10
     let text = "hi"
-    let f = (n: Int) -> { return n + base + size(text) }
+    let f = (n: Int) -> Int { return n + base + size(text) }
     let r = apply(f, 1)
     return r + base + size(text)
 }
 
 fn used_before_mutation() -> Int {
     let xs = Mut List(1, 2)
-    let f = (n: Int) -> { return n + size(xs) }
+    let f = (n: Int) -> Int { return n + size(xs) }
     let r = apply(f, 1)
     add(xs, 9)
     return r + size(xs)
@@ -89,7 +89,7 @@ fn apply(f: (Int) -> Int, v: Int) -> Int {
 
 fn poisoned_after_mutation() -> Int {
     let xs = Mut List(1, 2)
-    let f = (n: Int) -> { return n + size(xs) }
+    let f = (n: Int) -> Int { return n + size(xs) }
     let before = apply(f, 1)
     add(xs, 9)
     //~ error[fate-poison:shared-root]
@@ -141,17 +141,17 @@ fn main() [use] {
     // 1. capture-free: the one-liner binds with no links
     let words = List("ann", "bo")
     let p = iter(words)
-    let kept = map(p, w -> w)
+    let kept = map(p, (w) -> w)
     println("${size(kept)}")
     // 2. a capture-rooted projection: legal, linked to the capture
     let all = List("a", "b", "c", "d")
     let indices = List(1, 3)
-    let picked = map(iter(indices), i -> (get(all, i) ?: unreachable!()))
+    let picked = map(iter(indices), (i) -> (get(all, i) ?: unreachable!()))
     println("${size(picked)}")
     // 3. the named-lambda form is linked the same way: consuming
     // the capture poisons the result derived through the closure
     let all2 = List("a", "b")
-    let f = i -> (get(all2, i) ?: unreachable!())
+    let f = (i) -> (get(all2, i) ?: unreachable!())
     let picked2 = map(iter(indices), f)
     eat(all2)
     //~ error[fate-poison:shared-root]

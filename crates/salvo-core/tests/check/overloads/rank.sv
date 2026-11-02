@@ -161,7 +161,7 @@ fn twice(f: (x: Str) -> Str) [] -> Str => f { return f(f("s")) }
 
 fn lambda_the_overloads_disagree_on() -> None {
     //~ error[fn-overload-rank:lambda-untyped]
-    let _n = twice(x -> x)
+    let _n = twice((x) -> x)
 }
 
 fn lambda_with_a_written_type() -> None {
@@ -172,6 +172,6 @@ fn pick(f: (x: Int) -> Int, n: Int) [] -> Int => f { return f(n) }
 fn pick(f: (x: Int) -> Int, s: Str) [] -> Int => f { return f(1) }
 
 fn lambda_the_overloads_agree_on() -> None {
-    let _a: Int = pick(x -> x, 2)
-    let _b: Int = pick(x -> x, "s")
+    let _a: Int = pick((x) -> x, 2)
+    let _b: Int = pick((x) -> x, "s")
 }

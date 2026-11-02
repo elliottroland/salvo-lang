@@ -103,9 +103,9 @@ fn main() [use] {
     use OpsH()
     println("computed: ${adder()(1)}")
     printer()("computed, with an effect")
-    println("member: ${apply(x -> x + 1, 20)}")
-    println("fn: ${apply(x -> x * 2, "s")}")
-    println("pick: ${pick(x -> x + 3, 4)} ${pick(x -> x + 3, "s")}")
+    println("member: ${apply((x) -> x + 1, 20)}")
+    println("fn: ${apply((x) -> x * 2, "s")}")
+    println("pick: ${pick((x) -> x + 3, 4)} ${pick((x) -> x + 3, "s")}")
 }
 //= stdout
 //= computed: 2

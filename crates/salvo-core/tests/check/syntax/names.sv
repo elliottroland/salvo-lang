@@ -60,7 +60,7 @@ fn f(xs: List<Int>) -> None {
 //--- casing_lambda_parameter
 fn f() -> None {
     //~ error[name-casing:value-name-uppercase]
-    let _g = X -> 1
+    let _g = (X) -> 1
 }
 
 //--- generic_parameters_must_be_uppercase

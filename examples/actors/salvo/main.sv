@@ -125,7 +125,7 @@ handler Desking(room: Int) of Desk {
     // an activation may take state out, but it may not *return* with a hole
     // in it — the actor owns those obligations until it ends.
     send fn close_up(reason: Str) {
-        drain(waiting, r -> send(r, "closed: ${reason}"))
+        drain(waiting, (r) -> send(r, "closed: ${reason}"))
         waiting = mut_deque_of()
     }
 }

@@ -28,7 +28,7 @@ fn peek(xs: List<Str>) -> Bool => xs {
 fn main() [use] -> None {
     use StdConsole
     let ws = List("ab", "c", "def")
-    let vs = filter(iter(ws), s -> size(s) > 1)
+    let vs = filter(iter(ws), (s) -> size(s) > 1)
     //~ error[call-resolve:no-overload-why]
     println("any ${any(vs, eat)}")
     //~ error[var-let-infer:annotation-mismatch]
@@ -37,7 +37,7 @@ fn main() [use] -> None {
     //~ error[implicit-override:does-not-fit]
     println("has ${contains(vs, "ab", eq = same)}")
     let ls = List(Mut List("p"), Mut List("q"))
-    let big = filter(iter(ls), x -> size(x) > 0)
+    let big = filter(iter(ls), (x) -> size(x) > 0)
     //~ error[call-resolve:no-overload]
     println("grow ${any(big, grow)}")
     //~ error[call-resolve:no-overload]

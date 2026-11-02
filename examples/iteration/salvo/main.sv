@@ -255,19 +255,19 @@ fn main() [use] {
     // `map`/`filter`/`reduce` are eager and take an *iterator*: a container is
     // iterated by writing its `iter`. A `List` has a fast path under the same
     // name, which is why `map(xs, f)` still reads well.
-    let doubled = map(xs, n -> n * 2)
-    let odd = filter(xs, n -> n % 2 == 1)
+    let doubled = map(xs, (n) -> n * 2)
+    let odd = filter(xs, (n) -> n % 2 == 1)
     let total = reduce(xs, 0, (acc, n) -> acc + n)
     println("5. list: ${size(doubled)} doubled, ${size(odd)} odd, total ${total}")
 
     let words = List("ann", "bo", "carol")
-    let lengths = map(iter(words), w -> size(w))
+    let lengths = map(iter(words), (w) -> size(w))
     println("5. lengths: ${reduce(iter(lengths), 0, (acc, n) -> acc + n)}")
 
     // `filter` returns a *view* of the elements it keeps, so what it walks
     // has to outlive the result: a literal would die at the end of the line.
     let word = "iteration"
-    let vowels = filter(iter(word), c -> c == 'i' || c == 'o')
+    let vowels = filter(iter(word), (c) -> c == 'i' || c == 'o')
     println("5. vowels: ${size(vowels)}")
 
     // An `iter fn`'s iterator composes with them exactly like a container's.

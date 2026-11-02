@@ -42,7 +42,7 @@ fn probe(body: &str) -> String {
 /// for the type people map most.
 #[test]
 fn a_list_subject_picks_the_fast_path() {
-    let src = probe("    let xs = List(1, 2)\n    let _ys: Mut List<Int> = map(xs, n -> n * 2)");
+    let src = probe("    let xs = List(1, 2)\n    let _ys: Mut List<Int> = map(xs, (n) -> n * 2)");
     assert!(picked_fast_path(&src), "expected the `List` overload: {:?}", callees(&src, "map"));
 }
 
@@ -50,7 +50,7 @@ fn a_list_subject_picks_the_fast_path() {
 /// viable, so specificity never gets to prefer it.
 #[test]
 fn a_pass_subject_picks_the_generic_body() {
-    let src = probe("    let xs = List(1, 2)\n    let _ys: Mut List<Int> = map(iter(xs), n -> n + 1)");
+    let src = probe("    let xs = List(1, 2)\n    let _ys: Mut List<Int> = map(iter(xs), (n) -> n + 1)");
     assert!(!picked_fast_path(&src), "expected the generic overload: {:?}", callees(&src, "map"));
 }
 
@@ -60,6 +60,6 @@ fn a_pass_subject_picks_the_generic_body() {
 /// the call checks clean is `seq/seq.sv`'s `a_str_pass_iterates_characters`.)
 #[test]
 fn the_lead_narrows_before_the_lambda_is_typed() {
-    let src = probe("    let _ys: Mut List<Bool> = map(iter(\"ab\"), c -> c == 'a')");
+    let src = probe("    let _ys: Mut List<Bool> = map(iter(\"ab\"), (c) -> c == 'a')");
     assert!(!picked_fast_path(&src), "{:?}", callees(&src, "map"));
 }

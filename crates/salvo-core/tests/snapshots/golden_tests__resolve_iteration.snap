@@ -260,19 +260,19 @@ fn main() [use] {
     // `map`/`filter`/`reduce` are eager and take an *iterator*: a container is
     // iterated by writing its `iter`. A `List` has a fast path under the same
     // name, which is why `map(xs, f)` still reads well.
-    let doubled = map(xs#{208:9}, n -> n#{258:27} * 2)
-    let odd = filter(xs#{208:9}, n -> n#{259:26} % 2 == 1)
+    let doubled = map(xs#{208:9}, (n) -> n#{258:28} * 2)
+    let odd = filter(xs#{208:9}, (n) -> n#{259:27} % 2 == 1)
     let total = reduce(xs#{208:9}, 0, (acc, n) -> acc#{260:32} + n#{260:37})
     println("5. list: ${size(doubled#{258:9})} doubled, ${size(odd#{259:9})} odd, total ${total#{260:9}}")
 
     let words = List("ann", "bo", "carol")
-    let lengths = map(iter#{@main, @std.core.array, @std.core.buffer, … 7 more}(words#{263:9}), w -> size(w#{264:36}))
+    let lengths = map(iter#{@main, @std.core.array, @std.core.buffer, … 7 more}(words#{263:9}), (w) -> size(w#{264:37}))
     println("5. lengths: ${reduce(iter#{@main, @std.core.array, @std.core.buffer, … 7 more}(lengths#{264:9}), 0, (acc, n) -> acc#{265:54} + n#{265:59})}")
 
     // `filter` returns a *view* of the elements it keeps, so what it walks
     // has to outlive the result: a literal would die at the end of the line.
     let word = "iteration"
-    let vowels = filter(iter#{@main, @std.core.array, @std.core.buffer, … 7 more}(word#{269:9}), c -> c#{270:37} == 'i' || c#{270:37} == 'o')
+    let vowels = filter(iter#{@main, @std.core.array, @std.core.buffer, … 7 more}(word#{269:9}), (c) -> c#{270:38} == 'i' || c#{270:38} == 'o')
     println("5. vowels: ${size(vowels#{270:9})}")
 
     // An `iter fn`'s iterator composes with them exactly like a container's.

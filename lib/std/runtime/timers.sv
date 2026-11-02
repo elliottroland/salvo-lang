@@ -109,7 +109,7 @@ handler Deadlines() of DeadlineTable {
 
 // Answers every token in [due] with the reading [now].
 fn answer_all(due: Mut List<Reply<Fired>>, now: Long) [] -> None => !due, now {
-    drain(due, r -> send(r, Fired { at: Tick { nanos: copy(now) } }))
+    drain(due, (r) -> send(r, Fired { at: Tick { nanos: copy(now) } }))
 }
 
 actor effect Wheel {

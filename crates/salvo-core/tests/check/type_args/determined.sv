@@ -83,19 +83,19 @@ fn unknown_argument() -> None {
 // binding an *earlier* argument made (`T = Int`), and its body then
 // determines the callee's remaining variable (`U = Int`).
 fn earlier_argument_types_a_lambda() -> None {
-    let _n = apply(1, x -> x)
+    let _n = apply(1, (x) -> x)
 }
 
 // The lambda's *return* is what determines `U`, so a body of a different
 // type than the parameter binds it to that type — the call still matches.
 fn lambda_body_determines_the_result() -> None {
-    let _s = apply(1, x -> size(Mut List(x)))
+    let _s = apply(1, (x) -> size(Mut List(x)))
 }
 
 // An explicit type-argument list seeds the bindings before the first
 // argument is checked, so it types the lambda too [call-type-args].
 fn explicit_type_arguments_type_a_lambda() -> None {
-    let _n = apply<Int, Int>(1, x -> x)
+    let _n = apply<Int, Int>(1, (x) -> x)
 }
 
 // An annotated lambda parameter needs no binding at all, in any position.
@@ -108,7 +108,7 @@ fn annotated_lambda_parameter() -> None {
 // inventing one. (Annotating the parameter is the remedy — the case above.)
 fn lambda_before_its_binding_argument() -> None {
     //~ error[call-type-args:cannot-infer]
-    let _n = apply_late(x -> x, 1)
+    let _n = apply_late((x) -> x, 1)
 }
 
 // [call-type-args] A `None` argument meets `Q?`'s `None` arm and leaves `Q`

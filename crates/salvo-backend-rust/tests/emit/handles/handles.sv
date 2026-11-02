@@ -186,7 +186,7 @@ export fn demo() [Console, Logger] -> None {
     // The effect arrives as a parameter of the closure, not a capture: the
     // effect's handle, typed on the lambda's leading parameter [rs-handle].
     //~ emits: : &crate::Logger, 
-    run_it(s -> {
+    run_it((s) -> {
         log("in lambda ${s}")
         return "done ${s}"
     })

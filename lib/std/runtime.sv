@@ -261,8 +261,8 @@ linear struct ActorRec canbe Mut {
 fn drop_actor_rec(a: ActorRec) [] -> None => !a {
     let {body, pool, bound, queue, slots, user_len, gate, running, dead, exit_reason, blocked, watchers, owed, ready, proxy} = a
     drop_slot(body)
-    drain(queue, e -> drop_entry(e))
-    drain(watchers, t -> drop_token(t))
+    drain(queue, (e) -> drop_entry(e))
+    drain(watchers, (t) -> drop_token(t))
 }
 
 // A frame waiting in `await_answer`, and the answer once it arrives.
@@ -324,7 +324,7 @@ linear struct PoolRec canbe Mut {
 
 fn drop_pool_rec(p: PoolRec) [] -> None => !p {
     let {idle, tasks, ready, sink, owed, dedicated, retired} = p
-    drain(tasks, t -> drop_task_run(t))
+    drain(tasks, (t) -> drop_task_run(t))
 }
 
 // Where an answer goes: an actor's parked continuation, a
@@ -618,7 +618,7 @@ handler Scheduler() of SchedTable {
         while remove_first(watchers) is Token t {
             deliver_to(actors, waiters, pools, t, erase(Exit { reason: copy(reason) }))
         }
-        drain(watchers, t -> drop_token(t))
+        drain(watchers, (t) -> drop_token(t))
     }
 
     fn mint_actor(addr: Int, gated: Bool) -> Token => !addr, !gated {
@@ -815,7 +815,7 @@ handler Scheduler() of SchedTable {
         while remove_first(watchers) is Token t {
             deliver_to(actors, waiters, pools, t, erase(Exit { reason: copy(reason) }))
         }
-        drain(watchers, t -> drop_token(t))
+        drain(watchers, (t) -> drop_token(t))
         retire_if_done(actors, pools, copy(pool))
         wake_all_pools(pools)
     }

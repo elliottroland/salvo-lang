@@ -21,14 +21,14 @@ handler Applying() of Apply {
 }
 
 fn through(x: Int) [Apply] -> Int {
-    return apply(n -> n + 1, x) + once_apply(() -> x * 10)
+    return apply((n) -> n + 1, x) + once_apply(() -> x * 10)
 }
 
 fn main() [use] {
     use StdConsole()
     use Applying()
     let k = 3
-    println("${apply(n -> n * k, 2)} ${once_apply(() -> k + 1)} ${through(5)}")
+    println("${apply((n) -> n * k, 2)} ${once_apply(() -> k + 1)} ${through(5)}")
 }
 //= stdout
 //= 18 4 57

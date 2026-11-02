@@ -172,7 +172,7 @@ platform fn on_tick(hook: (n: Int) -> None) [] -> None => !hook
 fn report(n: Int) [] -> None => n { … }
 
 on_tick(report)      // fine: a named fn, nothing captured
-on_tick(n -> …)      // error: a kept callback must be a named fn
+on_tick((n) -> …)      // error: a kept callback must be a named fn
 ```
 
 A named function captures nothing, so it is safe to keep for as long as the host likes; on Rust the host receives a plain `fn(i32)` pointer, on Kotlin a `(Int) -> Unit`.

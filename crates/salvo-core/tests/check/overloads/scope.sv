@@ -179,7 +179,7 @@ fn apply(f: (Int) -> Int) [] -> Str { return "own" }
 
 fn probe() [] -> None {
     //~ error[fn-overload-rank:lambda-untyped]
-    let _s = apply(x -> 1)
+    let _s = apply((x) -> 1)
     let _t = apply((x: Int) -> 1)
 }
 
@@ -196,6 +196,6 @@ import lib.apply
 fn apply(f: (Int) -> Int) [] -> Str { return "own" }
 
 fn probe() [] -> None {
-    let _s = apply(x -> x + 1)
+    let _s = apply((x) -> x + 1)
     let _t = apply(1)
 }

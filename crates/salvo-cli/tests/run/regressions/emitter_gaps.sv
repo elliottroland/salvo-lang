@@ -127,7 +127,7 @@ fn twice(f: (n: Int) -> Int, x: Int) [] -> Int => f {
 // 0c item 6: a `return` inside a lambda in a fn that may throw.
 fn may(n: Int) [Throw<Str>] -> Int {
     if n < 0 { throw("neg") }
-    let f = (x: Int) -> {
+    let f = (x: Int) -> Int {
         if x > 1 { return x * 2 }
         return x
     }
@@ -163,7 +163,7 @@ fn main() [use, spawn] {
         is Thrown { println("6: thrown") }
     }
     println("9: ${same(3L, 3L)} ${same(None, 3L)}")
-    let t = Tok { f: x -> x + 1 }
+    let t = Tok { f: (x) -> x + 1 }
     let tf = t.f
     println("11: ${tf(2)}")
     let c = Conf {}

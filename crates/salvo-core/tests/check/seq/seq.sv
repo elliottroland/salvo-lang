@@ -26,7 +26,7 @@
 // lambda's body.
 fn a_pass_subject_infers_everything() -> None {
     let xs = List(1, 2)
-    let _ys: Mut List<Int> = map(iter(xs), n -> n * 2)
+    let _ys: Mut List<Int> = map(iter(xs), (n) -> n * 2)
 }
 
 // A `Str` pass yields *characters*, so the lambda's parameter is a `Char` —
@@ -35,13 +35,13 @@ fn a_pass_subject_infers_everything() -> None {
 // would have been typed against `T` from `List<T>` — unbound — and `U` would
 // not have been inferable.
 fn a_str_pass_iterates_characters() -> None {
-    let _ys: Mut List<Bool> = map(iter("ab"), c -> c == 'a')
+    let _ys: Mut List<Bool> = map(iter("ab"), (c) -> c == 'a')
 }
 
 // ... and the element really is a `Char`, not a `Str`.
 fn a_char_is_not_a_str() -> None {
     //~ error[call-resolve:no-overload]
-    let _ys: Mut List<Int> = map(iter("ab"), c -> size(c))
+    let _ys: Mut List<Int> = map(iter("ab"), (c) -> size(c))
 }
 
 // Chains compose, because `map`'s result is a `Mut List` and that has an
@@ -49,7 +49,7 @@ fn a_char_is_not_a_str() -> None {
 // surface, and no cross-implicit inference (user decision 2026-09-09).
 fn chains_compose_through_iter() -> None {
     let xs = List(1, 2)
-    let _zs: Mut List<Int> = map(iter(map(xs, n -> n * 2)), n -> n + 1)
+    let _zs: Mut List<Int> = map(iter(map(xs, (n) -> n * 2)), (n) -> n + 1)
 }
 
 // A type of your own joins in by declaring an `iter` that answers a pass —
@@ -73,7 +73,7 @@ fn a_user_type_becomes_iterable() -> None {
 // spread is ever resolved.
 fn a_subject_that_is_not_a_pass() -> None {
     //~ error[call-resolve:no-overload]
-    let _ys = map(1, n -> n)
+    let _ys = map(1, (n) -> n)
 }
 
 // ===== [iter-generic-drive] a generic pass is driven by `for` =====

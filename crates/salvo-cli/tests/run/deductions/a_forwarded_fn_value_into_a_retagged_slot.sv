@@ -26,7 +26,7 @@ fn longs2(ws: List<Str>, keep: (Str) -> Bool) [] -> Int => ws, keep {
 
 // A lambda stored in a local first.
 fn local_lambda(ws: List<Str>) [] -> Int => ws {
-    let k: (Str) -> Bool = s -> size(s) > 1
+    let k: (Str) -> Bool = (s) -> size(s) > 1
     let it = iter(ws)
     return size(filter(it, k))
 }
@@ -87,15 +87,15 @@ fn from_call_local(ws: List<Str>) [] -> Int => ws {
 fn main() [use] -> None {
     use StdConsole
     let ws = List("ab", "c", "def")
-    println("param lambda ${longs(ws, s -> size(s) > 2)}")
+    println("param lambda ${longs(ws, (s) -> size(s) > 2)}")
     println("param named ${longs(ws, long)}")
-    println("two levels ${longs2(ws, s -> size(s) > 1)}")
+    println("two levels ${longs2(ws, (s) -> size(s) > 1)}")
     println("local lambda ${local_lambda(ws)}")
     println("local named ${local_named(ws)}")
     println("field ${field(ws, Picker { keep: long })}")
-    println("field any ${field_any(ws, Picker { keep: s -> size(s) > 2 })}")
+    println("field any ${field_any(ws, Picker { keep: (s) -> size(s) > 2 })}")
     println("implicit ${longs_i(ws, keep = long)}")
-    println("map ${lens(ws, s -> size(s))}")
+    println("map ${lens(ws, (s) -> size(s))}")
     println("reduce ${total(ws, (a, s) -> a + size(s))}")
     println("generic ${glongs(ws, long)}")
     println("call ${from_call(ws)}")

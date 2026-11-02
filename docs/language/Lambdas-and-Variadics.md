@@ -28,10 +28,21 @@ fn do_something() {
 
     // The following are all equivalent
     transform(list, to_string) // Pass the function by name
-    transform(list, i -> "${i}") // Use an anonymous lambda without {}, doesn't require a return
-    transform(list, i -> { return "${i}"}) // Use an anonymous lambda with {}, does require a return
+    transform(list, (i) -> "${i}") // Use an anonymous lambda without {}, doesn't require a return
+    transform(list, (i) -> { return "${i}"}) // Use an anonymous lambda with {}, does require a return
 }
 ```
+
+A lambda's parameters are always in parentheses, `(i) -> …`, even when there is one. A lambda with an expression body answers that expression. A lambda with a block body answers the type written before the block, or else the return type of the function type it is passed as (or assigned to), or else `None` — exactly as a function with no `->` returns `None`:
+
+```
+let double = (n: Int) -> Int { return n * 2 }   // (n: Int) -> Int
+transform(list, (i) -> { return "${i}" })        // the parameter's type says `Str`
+let say = (s: Str) -> { println(s) }             // (s: Str) -> None
+let wrong = (n: Int) -> { return n * 2 }         // error: returns an `Int` where `None` is expected
+```
+
+A type before a brace is the return type unless the brace opens a struct literal, so `(n: Int) -> Point { x: n }` still answers a `Point` built from `n`; a fieldless struct literal is written in parentheses, `() -> (Finished {})`.
 
 Lambdas can declare effects ([Effects and handlers](Effects-and-Handlers.md)) and deductions ([Deductions and ownership](Deductions-and-Ownership.md)), just like normal functions.
 
@@ -55,15 +66,15 @@ A second allowance is about borrows. A function whose parameter is an owned type
 ```
 fn longer(s: Str) -> Bool { return size(s) > 2 }
 
-let vs = filter(iter(ws), s -> size(s) > 1)   // a Mut List<proj Str>
+let vs = filter(iter(ws), (s) -> size(s) > 1)   // a Mut List<proj Str>
 any(vs, longer)                              // fine: `longer` keeps `s`
 let short = filter(vs, longer)
-let m = to_map(vs, v -> (v, size(v)))        // std's `hash` and `eq` of `Str` read the keys
+let m = to_map(vs, (v) -> (v, size(v)))        // std's `hash` and `eq` of `Str` read the keys
 ```
 
-A function that **consumes** its parameter (`=> !s`) does not fit: it would give away a value it was only lent, and the error says so. Pass a lambda that copies (`s -> eat(copy(s))`) if that is what you mean.
+A function that **consumes** its parameter (`=> !s`) does not fit: it would give away a value it was only lent, and the error says so. Pass a lambda that copies (`(s) -> eat(copy(s))`) if that is what you mean.
 
-A qualifier that changes how the argument is passed is different: a `count(xs: List<Int>)` does not fit `(xs: Mut List<Int>) -> Int`, and a function reading a list does not fit a slot handing it a `proj Mut` one. Wrap it in a lambda (`xs -> count(xs)`) where you mean it. Both allowances apply to the parameter's outer qualifiers only, not to those inside a type argument (`List<NonEmpty List<Int>>`, `List<proj Str>`) or on a union's arms.
+A qualifier that changes how the argument is passed is different: a `count(xs: List<Int>)` does not fit `(xs: Mut List<Int>) -> Int`, and a function reading a list does not fit a slot handing it a `proj Mut` one. Wrap it in a lambda (`(xs) -> count(xs)`) where you mean it. Both allowances apply to the parameter's outer qualifiers only, not to those inside a type argument (`List<NonEmpty List<Int>>`, `List<proj Str>`) or on a union's arms.
 
 ### Effects on function types
 
@@ -77,7 +88,7 @@ fn run_it(f: (s: Str) [Logger] -> Str, value: Str) -> Str =>[f] s => value {
 }
 
 fn demo() [Console, Logger] {
-    println(run_it(s -> {
+    println(run_it((s) -> {
         log("in lambda ${s}")      // legal: the fn type declares Logger
         return "done ${s}"
     }, "x"))

@@ -45,7 +45,7 @@ test "iteration runs front to back and reversed back to front" {
 }
 
 test "deque_by builds from the index and to_list keeps the order" {
-    let d = deque_by(4, i -> i * i)
+    let d = deque_by(4, (i) -> i * i)
     expect_eq(to_str(to_list(d)), "[0, 1, 4, 9]")
 }
 
@@ -61,7 +61,7 @@ test "drain consumes the deque, handing every element over" {
     let d: Mut Deque<Str> = mut_deque_of("b", "c")
     add_first(d, "a")
     expect_eq(to_str(d), "[a, b, c]")
-    drain(d, x -> discard(x))
+    drain(d, (x) -> discard(x))
 }
 
 test "a proven index reads and writes a deque, and growth keeps the claim" {

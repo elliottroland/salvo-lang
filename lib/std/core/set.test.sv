@@ -70,7 +70,7 @@ test "a set built concretely is found through a generic call, and back" {
 
 test "to_set and set_by keep first-appearance order" {
     expect_eq("${to_set(List(3, 3, 1, 2, 1))}", "{3, 1, 2}")
-    expect_eq("${set_by(4, i -> i % 2)}", "{0, 1}")
+    expect_eq("${set_by(4, (i) -> i % 2)}", "{0, 1}")
 }
 
 test "two sets are equal with the same elements in any order" {

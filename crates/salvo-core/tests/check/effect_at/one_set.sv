@@ -125,7 +125,7 @@ handler OpsH of Ops {
 fn apply(f: (x: Int) -> Int, s: Str) -> Int => f { return f(1) }
 
 fn work() [Ops] -> Int {
-    return apply(x -> x + 1, 20) + apply(x -> x * 2, "s")
+    return apply((x) -> x + 1, 20) + apply((x) -> x * 2, "s")
 }
 
 //--- a lambda the candidates disagree on
@@ -145,7 +145,7 @@ fn apply(f: (x: Str) -> Str, n: Int) -> Int => f { return 1 }
 
 fn work() [Ops] -> Int {
     //~ error[fn-overload-rank:lambda-untyped]
-    return apply(x -> x, 20)
+    return apply((x) -> x, 20)
 }
 
 fn work_written() [Ops] -> Int {

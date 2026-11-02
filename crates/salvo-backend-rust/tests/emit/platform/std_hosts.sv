@@ -55,7 +55,7 @@ fn main() [use] -> None {
         total = total + to_int(byte)
     }
     println("sum: ${total}")
-    let doubled = map(iter(a), each -> to_int(each) * 2)
+    let doubled = map(iter(a), (each) -> to_int(each) * 2)
     println("mapped: ${doubled}")
 }
 

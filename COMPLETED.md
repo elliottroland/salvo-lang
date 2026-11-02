@@ -144,6 +144,46 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A block lambda answers its written return type, else `None`; lambda parameters are always parenthesized (user decision, PIPELINE.md D3.3(g), [fn-lambda])
+
+- **Decided (user, 2026-10-30)**: a block lambda with no expected fn type
+  is treated like a fn: it returns `None` unless it writes its return type,
+  `(n: Int) -> Int { return n * 2 }`. With an expected fn type the return
+  type comes from it ("still specified, just elsewhere"); an expression
+  body answers its expression. Parsing is option (a): after `->`, a type
+  followed on its line by a `{` that does not open a struct literal (or by
+  `...`) is the return type, so `(n) -> Point { x: n }` keeps returning a
+  literal and a fieldless one is written `() -> (Finished {})`. And the
+  single-parameter shorthand `x -> e` and the Kotlin-style brace lambda
+  `{ x: T -> e }` are removed: a lambda's parameters are always
+  parenthesized.
+- **Why**: the checker typed such a lambda as returning `Unknown`, so
+  `let double = (n: Int) -> { return n * 2 }` then `let s: Str =
+  double(4)` checked clean and both target compilers refused the output;
+  the IR patched the type from the first `return` it lowered.
+- **Built**: `Expr::Lambda { ret: Option<Type> }` (both visitors walk it);
+  `Parser::lambda_return_type`; `parse_lambda_from_ident` and
+  `parse_brace_lambda` are gone, so a bare `{` in expression position is a
+  struct literal or a parse error. `check_lambda` checks a block body's
+  `return`s against the written type, the expected one or `None`, and the
+  lambda's type carries it; the IR's `returned_ty` fallback is deleted.
+  Rewritten: 209 shorthand lambdas in `.sv` files (std, examples, tests,
+  benches), 13 in Rust test sources, the snippets in `docs/language/`,
+  LANGUAGE_SPEC.md, PIPELINE.md, ROADMAP.md and the decision log above, one
+  brace lambda (`case.rs`), and the let-bound block lambdas that return a
+  value (annotated). `check/syntax/lambda_returns.sv` covers the forms.
+- **What fell out of building it**: a lambda passed where the return is a
+  type parameter only the call's result binds (`eval<Q>(f: once () -> Q)`
+  into a `let a: Str`) was typed with an expected return of nothing, and
+  the IR's inference had been what gave Kotlin its `String`. The lead
+  candidate's type parameters are now bound from the expected type before a
+  lambda argument is typed (`select_among`), as the winner's always were
+  after; the lambda is checked against `Str`.
+- **Left alone**: Kotlin's own brace lambdas in BACKEND_SPEC.kotlin.md, the
+  Kotlin emitter and the Kotlin examples (`{ __v -> … }`), arrows in prose
+  (`kept -> &`), and COMPLETED.md's mention of the long-deleted `Int[n] {
+  i -> … }` form.
+
 ### 2026-10-30 — The decided declarations are built again, not their modules (user decision, PIPELINE.md D3.6, [fate-move-mode])
 
 - **Decided (user, 2026-10-30)**: rebuild per declaration rather than per
@@ -390,7 +430,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   nested call's expected type), is chosen as the winner is: by signature,
   wherever the candidate comes from. `dominant_lead` had kept the ladder
   [fn-overload-scope] retired on 2026-09-26: the most specific rung led, so
-  a module's own `apply(f: (Int) -> Int)` typed `apply(x -> 1)` beside an
+  a module's own `apply(f: (Int) -> Int)` typed `apply((x) -> 1)` beside an
   imported `apply(f: (Str) -> Int)`, and the call quietly resolved to the
   own one. It is now `fn-overload-rank:lambda-untyped`, as any two
   overloads none of which is more specific are. `LeadCandidate::rung` and
@@ -2731,7 +2771,7 @@ had rules of their own, and each now follows the call:
   at the position its own instantiation makes of the open variables
   (`Checker::infer_open`): fitted at the erased pattern, `next`'s `proj
   Emitted Str` did not fit `Emitted ?`, and nothing was learned anywhere —
-  the first run of the suite caught it (`map(iter(ws), s -> size(s))` lost
+  the first run of the suite caught it (`map(iter(ws), (s) -> size(s))` lost
   `T`). Two refinements keep the old guarantee that inference never guesses
   (`strict_select`): where a *parameter* of the pattern is still unknown,
   only a single fitting candidate teaches; and the [implicit-fit] probe
@@ -3165,7 +3205,7 @@ choice or refused.
   ranking members and fns as one set with a lead candidate is P4's (B3
   piece 5). A refused lambda then fits both sides, and the tie is not
   reported a second time. **The census was wrong about the fn-only half of
-  its probe**: `twice(x -> x + 1)` over `twice((Int) -> Int)` and
+  its probe**: `twice((x) -> x + 1)` over `twice((Int) -> Int)` and
   `twice((Str) -> Str)` had no dominant lead either, typed the lambda
   `Unknown`, took the first overload, and failed in both compilers too (the
   probe's output shows both errors). The same rule now covers it in the fn
@@ -3508,7 +3548,7 @@ and ran on Kotlin, and rustc refused it (E0308).
   (rustc's deref coercion took the `&&String` argument to `println`; it is
   now flattened explicitly).
 - **Not reachable then**: a `Map<proj Str, …>` keyed by the view (`to_map(vs,
-  v -> (v, v))`) — std's `?hash`/`?eq` are `(Str) -> …` and did not fit a
+  (v) -> (v, v))`) — std's `?hash`/`?eq` are `(Str) -> …` and did not fit a
   `(proj Str) -> …` position. [fn-kept-borrow] (the entry above) made it
   reachable; it runs on both backends.
 - Emitted-code change: none in the examples or the goldens (the warm suite
@@ -13828,7 +13868,7 @@ before); a `with` clause works on any dependent handler; a platform effect
 arriving through `main`'s signature is captured like any dependency (the
 `DefaultFs [RawFs]` shape with the host's instance from `main`); a spawn
 inherits an actor-face handler bound inline; a handler holding a function value
-shares (`spawn Derived(n -> n + 1)`); an actor member's dependency is a handle
+shares (`spawn Derived((n) -> n + 1)`); an actor member's dependency is a handle
 it can hand to a spawn, so `net`'s `[rs-handle-bundle]` gap is gone. **Found
 under the fused argument**: the checker's `call_effects` listed inherited
 effects *after* the written ones while `fn_effects` (and the emitted signature)
@@ -16302,7 +16342,7 @@ land on it.
 - **A claim is never assumed** — the lesson of the round's one regression:
   `unify`'s Unknown-leniency let a mid-inference lambda argument satisfy
   `Idx(list) Int`, so the total overload out-ranked the optional one inside
-  `i -> get(all2, i)!` and the `!` stopped meaning anything.
+  `(i) -> get(all2, i)!` and the `!` stopped meaning anything.
   `dependent_demands_met` now runs before unification: the argument must
   *positively carry* every demanded dependent claim, with agreeing roots,
   and a sibling with no identity (a temporary) satisfies nothing.
@@ -20529,7 +20569,7 @@ last thing standing between the phase and its worked examples. Tests: **1051
   ships, but the gap is real and recorded in ROADMAP.md with the two candidate
   answers (a `for`-driven terminal, or call-site effect widening for a pure
   callback position). Found by writing the obvious test rather than by
-  reasoning: `drain(held, h -> release(h))` where `release` prints.
+  reasoning: `drain(held, (h) -> release(h))` where `release` prints.
 - **`T?` was being read as a composite.** `var_in_composite` treated a union
   and an optional as containers, so a signature *answering* `V?` counted as a
   store and `replace(map, k, v) -> V?` was refused at every call. It is the
@@ -22438,7 +22478,7 @@ fields bar `canbe hashed`.
 **(E) `SortedSet` and `SortedMap`.** Separate types, not a qualifier. String
 ordering had to be fixed to code-point order to make the two backends agree.
 
-**(F) The remaining conventions.** `*_by(size, i -> value)` constructors,
+**(F) The remaining conventions.** `*_by(size, (i) -> value)` constructors,
 `to_set`, and both `to_map` forms (a `List<(K, V)>` and a
 `List<T>` + entry function), duplicate keys last-wins. Container equality fell
 out of (D) for free and is order-insensitive on both backends for Set and Map
@@ -22463,7 +22503,7 @@ collection literal does not determine a callee's type parameter
 with the recorded bare-generic-struct-literal gap; and the
 `Int[3] { i: Int -> … }` **array-generator form is broken on Rust** (yields
 `()`, and splices the enclosing handler into the closure), which
-`array_by(3, i -> …)` now expresses properly — the recommendation is to delete
+`array_by(3, (i) -> …)` now expresses properly — the recommendation is to delete
 the form, a user decision.
 
 **The accepted cost.** Name-based reachability now pulls `std.core.set`,
@@ -22704,16 +22744,16 @@ fallback linked the result to arguments the author had excluded — the fix
 is one reorder in `lends.rs::lends_of` (declared entries before the
 `holds_proj` gate), and the entry now narrows the link while still flowing
 through a temporary pass to its roots. (2) *[fate-lambda-view]*: the user's
-`pick_list` example — `indices.map(i -> list.get(i)!)` — disproved the
+`pick_list` example — `indices.map((i) -> list.get(i)!)` — disproved the
 claim that a callback's projections always derive from its arguments: a
 body can root a projection in a **capture**, which no fn type can name,
-and naming the lambda (`let f = i -> get(words, i)!`) evaded fate
+and naming the lambda (`let f = (i) -> get(words, i)!`) evaded fate
 entirely — `eat(words)` was accepted with the view live (the Rust emitter
 masked it with a silent clone, and then failed on an unrelated cast bug).
 The decision: a lambda holds borrows of every non-Copy *read* capture,
 like a struct holds its `proj` fields — binding links it (held, borrowed,
 transitively through the capture's own links), results link through it, a
-capture-free lambda holds nothing (`map(p, w -> w)` binds freely), a
+capture-free lambda holds nothing (`map(p, (w) -> w)` binds freely), a
 lambda expression is never a "temporary" a view could dangle from, a
 consumed capture stays owned (the `once` case — the first cut of the
 implementation wrongly linked those and broke `run_once(g)`), and Copy
@@ -22771,7 +22811,7 @@ ladder rung. Two diagnostics-expectation updates (widen_tests earlier,
 `l7c_derived_returns` now) moved to the new type-level messages. One
 question surfaced during the closing run and left as a **DECISION** in
 ROADMAP: instantiation linking holds *fn-typed* arguments too, so
-`let kept = map(p, w -> w)` is refused as a view of a temporary (the
+`let kept = map(p, (w) -> w)` is refused as a view of a temporary (the
 lambda), and the idiomatic spelling needs a named callback.
 
 **Test-running discipline (user decisions 2026-09-12).** Three calls, all
@@ -23862,10 +23902,10 @@ What writing them turned up, none of it new but all of it worth having written
 down where a newcomer meets it:
 
 - **A lambda in a lazy combinator needs an annotated parameter.**
-  `map_lazy(naturals(1), n -> n * n)` cannot infer `U`: `T` comes from which
+  `map_lazy(naturals(1), (n) -> n * n)` cannot infer `U`: `T` comes from which
   `next` filled the implicit, and the un-annotated lambda's result is what `U`
   would have to come from. `(n: Int) -> n * n` fixes it, and the diagnostic
-  already names both remedies. The eager `map(xs, n -> n * 2)` is fine, because
+  already names both remedies. The eager `map(xs, (n) -> n * 2)` is fine, because
   the `List` fast path binds `T` from the argument.
 - **A nested string literal inside an interpolation does not lex**
   (`"read ${read_size("a.txt", 3)}"`). Bind the call to a local first. Not a
@@ -24596,7 +24636,7 @@ the traits question that prompted the exercise:
 - **[call-generic-progressive]** A callee's type variables now bind
   *progressively*, left to right, so an un-annotated lambda argument is
   checked against the pattern its *siblings* already determined
-  (`map(xs.iter(), n -> n * 2)`). Before, the lambda was checked against an
+  (`map(xs.iter(), (n) -> n * 2)`). Before, the lambda was checked against an
   unsubstituted `(T) -> U`, so its inferred type mentioned the callee's own
   variable (`(T) -> T`) — exactly what `unify`'s deliberate lack of an
   occurs check assumes cannot happen [fn-overload] — and the call failed to
@@ -31496,7 +31536,7 @@ their arguments. The user's answers, in the order asked:
   takes the name first, a rename introduces a new one).
 - The **lead candidate** (the source of expected types for arguments) uses
   the same rung filter and the same ranking, re-narrowed per argument. That
-  is what keeps `map(arr, n -> n + 1)` working with a `List` fast path in
+  is what keeps `map(arr, (n) -> n + 1)` working with a `List` fast path in
   scope: the `List` candidate leads until `arr` turns out to be an array.
 - `Ty::Any` is now produced by lowering the written `Any` — see the top of
   this file.

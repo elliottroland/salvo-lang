@@ -39,7 +39,7 @@ fn run_it(f: (s: Str) [Logger] -> Str, value: Str) -> Str =>[f] s => value {
 fn demo() [Console, Logger] -> None {
     //~ emits(main.rs): &mut |mut __leff0, mut s| -> String {
     //~|         __leff0.log(
-    println(run_it(s -> {
+    println(run_it((s) -> {
         log("in lambda ${s}")
         return "done ${s}"
     }, "x"))
