@@ -2,7 +2,7 @@
 //! declaration by declaration — each expression's type, the declaration a
 //! call or a name resolved to, and the coercions, moves and dot-calls the
 //! checker recorded. It is the readable form of what the walks hand the IR
-//! builder, the way `salvo ir` is of what the builder hands the backends, so
+//! builder, the way the IR dump is of what the builder hands the backends, so
 //! a fact can be looked at (and snapshot-tested) before anything lowers it.
 //!
 //! [decl-rows] The rows are the checker's own partition by declaration

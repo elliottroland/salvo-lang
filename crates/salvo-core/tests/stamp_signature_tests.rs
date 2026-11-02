@@ -50,7 +50,7 @@ fn errors_in(files: &[(&str, &str)]) -> Vec<String> {
     errors
 }
 
-/// The IR of the user modules, as `salvo ir` renders it.
+/// The IR of the user modules, as the IR dump renders it.
 fn ir(files: &[(&str, &str)]) -> String {
     let (program, errors) = program(files);
     assert!(errors.is_empty(), "{errors:?}");

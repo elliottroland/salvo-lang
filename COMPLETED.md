@@ -144,6 +144,21 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — `salvo dump` has every phase: `parse-ast` and `generate-ir` replace `compile --emit-ast` and `salvo ir` (user decisions P7, P24, [cli-dump] [dump-parse-ast] [dump-generate-ir])
+
+- **Built** (decided in P7, scheduled in P24.5): `--phase parse-ast` prints
+  each wanted module's tree in Rust's debug form, after the comptime
+  expansion and desugarings, as `--emit-ast` did (its `=MODULE` form is
+  `--module`, std's included); `--phase generate-ir` is `salvo ir` moved
+  whole (the same gate on blocking errors, the same `!!!` inlining of
+  IR-reliant ones, exit 1 when no IR can be built). `salvo ir` and
+  `compile --emit-ast` are gone, with `assemble`'s and `build`'s early-stop
+  parameter. The four phases are now `salvo dump`'s, in pipeline order.
+- **Also fixed**: docs/language/The-IR.md pointed at `crates/salvo-ir`,
+  merged into salvo-core long ago (`ir/nodes.rs`).
+- **Tests**: `dump_prints_the_parse_ast_and_generate_ir_phases`; the
+  `--src` refusal loop covers both phases. 712 tests.
+
 ### 2026-10-30 — The typed dump, and a round trip over operators, interpolation and types (user decision P24, PIPELINE.md D4, [dump-type-check] [dump-rows] [round-trip])
 
 - **Decided (user, 2026-10-30, P24)**: `salvo dump --phase type-check` is

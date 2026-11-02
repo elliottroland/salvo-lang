@@ -2912,6 +2912,8 @@ this document current as each piece lands or stalls** (user), so a context
 compaction loses nothing. Progress:
 - D4: done (commit "Print the type-check phase and round-trip operators,
   interpolation and types").
+- D4.5, the `parse-ast` and `generate-ir` phases: done (commit "Dump the
+  parse and IR phases through salvo dump"). Next: E1.
 
 ### Order, and what can overlap
 

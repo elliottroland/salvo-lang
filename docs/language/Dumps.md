@@ -11,8 +11,11 @@ salvo dump --phase resolve --src ./my_project --module main    # one module
 salvo dump --phase resolve --src ./my_project --all            # std too, every candidate listed
 ```
 
-`--phase` names the phase. So far there is one, `resolve`. The IR, printed by
-`salvo ir`, has its own page: [The IR](The-IR.md).
+`--phase` names the phase, in the order the compiler runs them:
+`parse-ast`, `resolve`, `type-check` and `generate-ir`. The IR, which
+`generate-ir` prints, has its own page: [The IR](The-IR.md); `parse-ast`
+prints the syntax tree in the compiler's own (Rust) debug form, for working
+on the compiler itself.
 
 A dump prints your program even when it has errors. They go to stderr, and the
 dump shows what the phase made of the code anyway.
@@ -30,7 +33,7 @@ Salvo has one.
   standard library's own names stay bare (`Int`, `List<Int>`, `println`),
   because nothing else can mean them.
 * **`#{…}` marks what Salvo has no spelling for.** What goes inside depends on
-  the phase. The resolve phase's are below.
+  the phase. Each phase's are below.
 
 ## The resolve phase
 

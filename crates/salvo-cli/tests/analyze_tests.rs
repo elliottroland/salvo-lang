@@ -307,7 +307,7 @@ fn import_suggestions_cover_user_modules_and_bad_imports() {
 }
 
 // [flow-use-after-move] The IR flow pass is a gate: `salvo analyze` (and so
-// the LSP), `salvo compile` on both backends, and `salvo ir` (inline) all
+// the LSP), `salvo compile` on both backends, and `salvo dump --phase generate-ir` (inline) all
 // report a use after a move, naming the move's line; a test file's bodies
 // are checked too.
 #[test]
@@ -332,8 +332,8 @@ fn every_gate_reports_a_use_after_move() {
         assert!(!out.status.success(), "{backend} compiled a use after a move: {stderr}");
         assert!(stderr.contains(message), "{backend}: {stderr}");
     }
-    // `salvo ir` dumps the program and shows the use where it happens.
-    let out = salvo(&["ir", "--src", dir.to_str().unwrap()]);
+    // The IR dump shows the program and the use where it happens.
+    let out = salvo(&["dump", "--phase", "generate-ir", "--src", dir.to_str().unwrap()]);
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains(&format!("!!! main:7:9: {message}")), "stdout: {stdout}");
 
@@ -624,7 +624,8 @@ fn a_src_inside_the_projects_source_root_is_refused() {
     for args in [
         &["analyze", "--src", inner][..],
         &["test", "--src", inner],
-        &["ir", "--src", inner],
+        &["dump", "--phase", "generate-ir", "--src", inner],
+        &["dump", "--phase", "parse-ast", "--src", inner],
         &["dump", "--phase", "type-check", "--src", inner],
         &["dump", "--phase", "resolve", "--src", inner],
         &["run", "--src", inner],
@@ -969,6 +970,32 @@ fn dump_prints_the_resolve_phase() {
     assert!(stdout.contains("println(\"${p#{5:9}.x} ${missing#{???}}\")"), "{stdout}");
     assert!(!stdout.contains("shapes.sv"), "only the module asked for: {stdout}");
     assert!(stderr.contains("missing"), "the error is reported: {stderr}");
+}
+
+/// [cli-dump] [dump-parse-ast] [dump-generate-ir] The tree the parser built
+/// and the IR, as `salvo dump` phases (they replaced `compile --emit-ast` and
+/// `salvo ir`); a program whose type errors leave no IR exits 1.
+#[test]
+fn dump_prints_the_parse_ast_and_generate_ir_phases() {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("analyze_dump_ast_ir");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("main.sv"), "fn twice(n: Int) -> Int {\n    return n * 2\n}\n").unwrap();
+    let src = dir.to_str().unwrap();
+    let out = salvo(&["dump", "--phase", "parse-ast", "--src", src]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(stdout.starts_with("// main.sv — module main\nModule {"), "{stdout}");
+    assert!(stdout.contains("name: \"twice\""), "{stdout}");
+    let out = salvo(&["dump", "--phase", "parse-ast", "--src", src, "--module", "std.core.list"]);
+    assert!(String::from_utf8_lossy(&out.stdout).starts_with("// std/core/list.sv — module std.core.list\n"));
+    let out = salvo(&["dump", "--phase", "generate-ir", "--src", src]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(stdout.contains("fn twice@main("), "{stdout}");
+    fs::write(dir.join("main.sv"), "fn twice(n: Int) -> Int {\n    return \"no\"\n}\n").unwrap();
+    let out = salvo(&["dump", "--phase", "generate-ir", "--src", src]);
+    assert!(!out.status.success());
 }
 
 /// [cli-dump] [dump-type-check] [dump-rows] `salvo dump --phase type-check`

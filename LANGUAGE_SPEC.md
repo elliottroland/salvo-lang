@@ -9304,7 +9304,7 @@ between endpoints and delivers what arrives into the scheduler.
     the analysis could not place [fate-partial-move]; the builder marks the
     first read of the root inside the lowered projection,
     `mark_root_move`); on a `Call` of a local, a `once` fn's call [fn-once].
-    It is flow-only: no emitter reads it, and `salvo ir` does not show it.
+    It is flow-only: no emitter reads it, and the IR dump does not show it.
   * **Partial moves** (R8 piece 3b) [fate-partial-move]: per path the pass
     also keeps, per local (its storage, through whole narrowings), the
     places moved *out of* it — a `Read { consume: true }` of a projection
@@ -12073,7 +12073,7 @@ replaced the working document TESTING.md).
     source root, as before); the
     language server, which takes each document's root from its manifest
     [manifest-discovery] and never has a `--src`.
-  * Narrowing to one module is `--module` on `ir`/`facts` [cli-ir] and the
+  * Narrowing to one module is `--module` on `salvo dump` [dump-generate-ir] and the
     id `FILTER` on `test` [test-filter]; `analyze` has none yet.
 * [actor-protocol-lock] **`salvo.lock` beside the manifest locks the protocol hash of
   every actor effect the project declares** (the network round's N-9, 2026-09-26,
@@ -12992,7 +12992,7 @@ replaced the working document TESTING.md).
       leak of `alias` until piece 7).
     * In a test file only these rules run, not the path-exit leaks
       (`check_one_flow_only`).
-  * **`salvo ir` dumps even a program this check rejects** (D4b): the dump is a
+  * **The IR dump dumps even a program this check rejects** (D4b): the dump is a
     debugging view, so it prints the IR and inlines each leak as a
     ` !!! module:line:col: <error>` note **at the end of the line that produced
     it** (the binding of the leaked value), falling back to a line after the
@@ -13744,11 +13744,11 @@ replaced the working document TESTING.md).
   [--all]` prints what one phase made of every user module, of one module, or
   (`--all`) of every module the program reaches, std included, with every
   candidate listed (PIPELINE.md P7). The phases so far: `resolve`
-  [dump-resolve] and `type-check` [dump-type-check] (with `--expr-types`, and
-  `--rows` [dump-rows], which replaced `salvo facts`); `salvo ir` and
-  `compile --emit-ast` join as `generate-ir` and `parse-ast` in the pieces
-  that add those phases. `--expr-types` and `--rows` with another phase are
-  an error. A program's errors in the dumped modules go to stderr; the dump
+  `parse-ast` [dump-parse-ast], `resolve` [dump-resolve], `type-check`
+  [dump-type-check] (with `--expr-types`, and `--rows` [dump-rows]) and
+  `generate-ir` [dump-generate-ir]; they replaced `salvo compile
+  --emit-ast`, `salvo facts` and `salvo ir` (PIPELINE.md D4). `--expr-types`
+  and `--rows` with another phase are an error. A program's errors in the dumped modules go to stderr; the dump
   is printed regardless.
 * [dump-resolve] The **resolve dump** (`names::dump::dump_file`) is each
   file's own text with what resolution bound every written name to spelled
@@ -13764,10 +13764,15 @@ replaced the working document TESTING.md).
   [effect-available]; a name nothing answers where a type decides what is
   available (a `use` of a handle, a lambda) reads `#{deferred}`. `the_resolve_dump_spells_each_kind_of_name` pins the
   spellings; `example_resolve_dump_is_stable` snapshots one example.
-* [cli-ir] `salvo ir [--src DIR] [--module PATH] [--all]` prints the IR
+* [dump-parse-ast] `salvo dump --phase parse-ast` prints each module's tree
+  as the parser built it, after the comptime expansion and the desugarings,
+  in Rust's debug form of the AST; `--module` selects one, std's included.
+* [dump-generate-ir] `salvo dump --phase generate-ir` prints the IR
   [ir-dump] of every user module, of one module, or (`--all`) of every
   module the program reaches, std included. It builds the IR exactly as the
-  backends do, so it is the point to bisect when they disagree.
+  backends do, so it is the point to bisect when they disagree; a program
+  with errors that keep the IR from being built has none (exit 1), while an
+  IR-reliant error is inlined as `!!! …` [ir-linear-check].
 * [dump-type-check] The **typed dump** (`salvo dump --phase type-check`,
   `round_trip::dump_file`, PIPELINE.md D4, user decision P24) is each file's
   own text with every choice the checker made written out by the writer the

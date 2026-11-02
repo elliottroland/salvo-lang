@@ -62,7 +62,7 @@ pub fn dump_program_over(
     // it is inserted only here (and before `ir::check`), never in the IR the
     // backends consume.
     obligations::annotate(&mut ir, &symbols);
-    // [ir-linear-check] D4b: `salvo ir` dumps even an invalid program and
+    // [ir-linear-check] D4b: the IR dump (`salvo dump --phase generate-ir`) dumps even an invalid program and
     // reports each linear leak inline — on the line that produced it (the
     // dumper matches the leak's span against each statement). The dump is a
     // debugging view; `salvo build` is what fails (D4a). A leak whose span

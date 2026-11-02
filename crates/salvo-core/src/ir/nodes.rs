@@ -487,7 +487,7 @@ pub enum Stmt {
     /// [ir-obligation] A directive recording a change to the set of linear
     /// obligations the enclosing fn currently owes. It emits no code — the
     /// backends skip it — but it is the ledger the IR-level linear check
-    /// (`ir::check`) reads, and it is dumped so `salvo ir` shows the
+    /// (`ir::check`) reads, and it is dumped so the IR dump shows the
     /// reasoning. See IR_CHECKER.md §3 (D3).
     Obligation(Obligation),
 }

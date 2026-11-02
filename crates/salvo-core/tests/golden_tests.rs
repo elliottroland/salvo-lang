@@ -17,7 +17,7 @@ fn example_ir_is_stable() {
         .unwrap()
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        // Examples with dependencies need the CLI's loader; `salvo ir` covers them.
+        // Examples with dependencies need the CLI's loader; the CLI's IR dump covers them.
         .filter(|p| p.join("salvo.toml").exists() && !std::fs::read_to_string(p.join("salvo.toml")).unwrap_or_default().contains("[dependencies]"))
         .collect();
     dirs.sort();
@@ -46,7 +46,7 @@ fn example_facts_are_stable() {
     insta::assert_snapshot!("facts_iteration", text);
 }
 
-/// [ir-linear-check] D4b: `salvo ir` dumps even a program the IR linear check
+/// [ir-linear-check] D4b: the IR dump dumps even a program the IR linear check
 /// rejects, with each leak inlined as `!!! module:line:col: …` and the IR
 /// still produced (exit 0). The dump is a debugging view; `salvo build` is what
 /// fails. Here a dropped `Checked` arm (noticeboard #2) is a genuine leak, so

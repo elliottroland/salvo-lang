@@ -105,7 +105,7 @@ crates/
 ├── salvo-syntax/         # lexer, parser, AST, spans, diagnostics (no deps)
 │   └── tests/corpus/     # language-docs example .sv files + insta snapshots
 ├── salvo-core/           # SourceSet, Program, Symbols, resolve.rs, types.rs, check.rs;
-│                         #   ir/ — the IR (IR record): nodes, builder from Program+Checked, dump, `salvo ir`
+│                         #   ir/ — the IR (IR record): nodes, builder from Program+Checked, dump (`salvo dump --phase generate-ir`)
 ├── salvo-backend/        # Backend trait, BackendRegistry, BackendError
 ├── salvo-backend-kotlin/ # Kotlin emitter over the IR (ir_emit/) + golden/kotlinc tests
 ├── salvo-backend-rust/   # Rust emitter (emit.rs) + golden/rustc tests

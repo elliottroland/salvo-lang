@@ -7,17 +7,17 @@ read the IR and nothing else. This page explains how to read it. You need it
 when a backend's output surprises you, when the two backends disagree, or when
 you work on the compiler.
 
-`salvo ir` prints it:
+`salvo dump --phase generate-ir` prints it:
 
 ```bash
-salvo ir --src ./my_project                  # every module of the project
-salvo ir --src ./my_project --module main    # one module
-salvo ir --src ./my_project --all            # with the std modules it reaches
+salvo dump --phase generate-ir --src ./my_project                  # every module of the project
+salvo dump --phase generate-ir --src ./my_project --module main    # one module
+salvo dump --phase generate-ir --src ./my_project --all            # with the std modules it reaches
 ```
 
 The printed form is for reading and for golden tests. Nothing parses it back.
 It names declarations as every dump does ([Dumps](Dumps.md)).
-The Rust types behind it are in `crates/salvo-ir/src/ir.rs`.
+The Rust types behind it are in `crates/salvo-core/src/ir/nodes.rs`.
 
 ## What the IR decides
 
@@ -51,7 +51,7 @@ A few rules hold everywhere:
 ## Reading a dump
 
 A dump is one module: `module main`, then one declaration per paragraph. Here
-is a small program, and below it what `salvo ir` prints for it.
+is a small program, and below it what the dump prints for it.
 
 ```
 struct Box canbe Mut { n: Int, tag: Str }

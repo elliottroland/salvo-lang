@@ -51,7 +51,7 @@ struct or the arms of any union).
 Twelve worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print; the first dependency, `modules/aws/`, keeps
 its four (`profile`, `sqs`, `s3`, `ddb`) and its own checks (`modules/aws/check.sh`)
-outside the compiler's tests. 711 tests green (nextest); std's own Salvo tests run inside one of them.
+outside the compiler's tests. 712 tests green (nextest); std's own Salvo tests run inside one of them.
 
 ## The sequence
 
@@ -730,7 +730,7 @@ module, name and signature") found 4 programs whose IR dump differs between
 two runs of the same compiler: 3 in `std.codec`, 1 in `std.core.comptime`.
 Some IR builder or dumper step iterates a hash map or set. The programs were
 not identified (the hook hashed them; no example reproduces it under
-`salvo ir --all`, three runs each). To find them: hash each built module's
+`salvo dump --phase generate-ir --all`, three runs each). To find them: hash each built module's
 `Dumper::module_with_leaks` text per program over two suite runs, then dump
 the differing one twice and diff. Emitted code may be affected the same way.
 

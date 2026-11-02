@@ -145,7 +145,7 @@ pub struct Analysis {
     pub type_completions: Vec<Vec<(String, TypeKind)>>,
     /// [ir-linear-check] The `(file, span start)` of every diagnostic that
     /// *relies on the IR* — the linear-obligation leak check (`ir::analyze`).
-    /// `salvo ir` dumps the IR anyway and inlines these as `!!! …`, so they
+    /// the IR dump dumps the IR anyway and inlines these as `!!! …`, so they
     /// must not block the dump the way a parse/type error does.
     pub ir_reliant: std::collections::HashSet<(usize, salvo_syntax::Span)>,
 }

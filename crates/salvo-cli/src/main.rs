@@ -44,6 +44,11 @@ struct Cli {
 /// [cli-dump] The phase `salvo dump` prints the output of (PIPELINE.md P7).
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
 enum Phase {
+    /// Each module's syntax tree as the parser built it, after the comptime
+    /// expansion and the desugarings: Rust's debug form of the AST (what
+    /// `salvo compile --emit-ast` printed). `--module` picks one, std's
+    /// included.
+    ParseAst,
     /// Each file's text with what resolution bound every written name to:
     /// `Point@app.shapes` for a declaration of another module, `show@app.svc`
     /// or `greet@Greeter` for a callee, `p#{12:9}` for a variable (where its
@@ -59,6 +64,10 @@ enum Phase {
     /// names. `--expr-types` adds every expression's type, `#{: T}`;
     /// `--rows` prints the checker's facts per node instead.
     TypeCheck,
+    /// The IR of the program's modules [ir-dump]: the decided form the
+    /// backends read (what `salvo ir` printed). With `--all`, the std modules
+    /// the program reaches too. A program with type errors has none.
+    GenerateIr,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -107,11 +116,6 @@ enum Command {
         /// `[<backend>] target`, else `[build] target`).
         #[arg(long)]
         target: Option<PathBuf>,
-        /// Debug: print the parsed AST and stop before code generation.
-        /// Bare `--emit-ast` prints the user modules; `--emit-ast=MODULE`
-        /// prints one module (std included), e.g. `--emit-ast=std.core.list`.
-        #[arg(long, num_args = 0..=1, require_equals = true, default_missing_value = "")]
-        emit_ast: Option<String>,
     },
     /// Compile Salvo sources and run the resulting program with the
     /// backend's toolchain [cli-run]. The command's exit code is the
@@ -245,19 +249,6 @@ enum Command {
         #[arg(long)]
         rows: bool,
     },
-    /// Print the IR of the program's modules [cli-ir]: the decided form the
-    /// backends read (IR record). Every user module, or with `--all` every module
-    /// the program reaches (std included).
-    Ir {
-        #[arg(long)]
-        src: Option<PathBuf>,
-        /// Also dump the std modules the program reaches.
-        #[arg(long)]
-        all: bool,
-        /// Dump only this module (dotted path).
-        #[arg(long)]
-        module: Option<String>,
-    },
     /// Start a language server speaking LSP over stdio [cli-lsp]. The
     /// workspace root comes from the client's `initialize` request.
     Lsp,
@@ -328,8 +319,7 @@ fn main() -> ExitCode {
             backend,
             src,
             target,
-            emit_ast,
-        } => compile(backend, src, target, emit_ast.as_deref()),
+        } => compile(backend, src, target),
         Command::Run {
             backend,
             src,
@@ -346,7 +336,6 @@ fn main() -> ExitCode {
             skip_tests,
         } => build_command(backend, src, main_file, out, skip_tests),
         Command::Analyze { src, format } => analyze(src, format),
-        Command::Ir { src, all, module } => ir_command(src, all, module),
         Command::Dump { phase, src, all, module, expr_types, rows } => dump_command(phase, src, all, module, expr_types, rows),
         Command::Test {
             backend,
@@ -617,6 +606,60 @@ fn dump_command(phase: Phase, src: Option<PathBuf>, all: bool, module: Option<St
         }
     };
     match phase {
+        // [cli-dump] [ir-dump] The IR, built exactly as the backends build it,
+        // so it is the point to bisect when they disagree.
+        Phase::GenerateIr => {
+            // [ir-linear-check] D4b: the dump is a debugging view, so a failing check
+            // that *relies on the IR* (the linear-obligation leak check) must not stop
+            // it — `dump_program` inlines those as `!!! …` and still returns the IR.
+            // Only diagnostics that prevent building a meaningful IR (parse and type
+            // errors — everything `dump_program` itself gates on) block the dump; the
+            // IR-reliant leaks are filtered out of the pre-check here and surface
+            // inline instead.
+            let blocking: Vec<&FileDiagnostic> = analysis
+                .diagnostics
+                .iter()
+                .filter(|d| d.is_error() && !analysis.ir_reliant.contains(&(d.file, d.span)))
+                .collect();
+            if !blocking.is_empty() || analysis.std_errors > 0 {
+                for diag in &blocking {
+                    eprintln!("{}", diag.render(&program.files));
+                }
+                // [diag-std-hidden]
+                if analysis.std_errors > 0 {
+                    eprintln!("{}", salvo_core::diag::std_errors_line(analysis.std_errors));
+                }
+                return ExitCode::FAILURE;
+            }
+            return match salvo_core::ir::dump_program(program, all, module.as_deref()) {
+                Ok((text, errors)) => {
+                    print!("{text}");
+                    for e in &errors {
+                        eprintln!("ir: {e}");
+                    }
+                    if errors.is_empty() { ExitCode::SUCCESS } else { ExitCode::FAILURE }
+                }
+                Err(errors) => {
+                    for e in errors {
+                        eprintln!("error: {e}");
+                    }
+                    ExitCode::FAILURE
+                }
+            };
+        }
+        // [dump-parse-ast] The tree every later phase reads.
+        Phase::ParseAst => {
+            let mut first = true;
+            for f in (0..program.files.len()).filter(|f| wanted(*f)) {
+                if !first {
+                    println!();
+                }
+                first = false;
+                let file = &program.files[f];
+                println!("// {} — module {}", file.name, file.module);
+                println!("{:#?}", program.modules[f]);
+            }
+        }
         Phase::Resolve => {
             let symbols = salvo_core::Symbols::collect(program);
             let resolution = salvo_core::resolve(program);
@@ -657,61 +700,6 @@ fn dump_command(phase: Phase, src: Option<PathBuf>, all: bool, module: Option<St
         eprintln!("{line}");
     }
     ExitCode::SUCCESS
-}
-
-fn ir_command(src: Option<PathBuf>, all: bool, module: Option<String>) -> ExitCode {
-    let inputs = match resolve_inputs(src, None, None, "rust", false) {
-        Ok(i) => i,
-        Err(msg) => {
-            eprintln!("error: {msg}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let analysis = match analysis::analyze_sources(&inputs.layout.src, inputs.project.clone(), "", &Default::default()) {
-        Ok(a) => a,
-        Err(msg) => {
-            eprintln!("error: {msg}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let program = &analysis.program;
-    // [ir-linear-check] D4b: the dump is a debugging view, so a failing check
-    // that *relies on the IR* (the linear-obligation leak check) must not stop
-    // it — `dump_program` inlines those as `!!! …` and still returns the IR.
-    // Only diagnostics that prevent building a meaningful IR (parse and type
-    // errors — everything `dump_program` itself gates on) block the dump; the
-    // IR-reliant leaks are filtered out of the pre-check here and surface
-    // inline instead.
-    let blocking: Vec<&FileDiagnostic> = analysis
-        .diagnostics
-        .iter()
-        .filter(|d| d.is_error() && !analysis.ir_reliant.contains(&(d.file, d.span)))
-        .collect();
-    if !blocking.is_empty() || analysis.std_errors > 0 {
-        for diag in &blocking {
-            eprintln!("{}", diag.render(&program.files));
-        }
-        // [diag-std-hidden]
-        if analysis.std_errors > 0 {
-            eprintln!("{}", salvo_core::diag::std_errors_line(analysis.std_errors));
-        }
-        return ExitCode::FAILURE;
-    }
-    match salvo_core::ir::dump_program(program, all, module.as_deref()) {
-        Ok((text, errors)) => {
-            print!("{text}");
-            for e in &errors {
-                eprintln!("ir: {e}");
-            }
-            if errors.is_empty() { ExitCode::SUCCESS } else { ExitCode::FAILURE }
-        }
-        Err(errors) => {
-            for e in errors {
-                eprintln!("error: {e}");
-            }
-            ExitCode::FAILURE
-        }
-    }
 }
 
 /// Renders diagnostics as a JSON array (one object per diagnostic, with
@@ -833,12 +821,10 @@ struct Assembled {
 ///
 /// The front half shared by `compile`, `run` and `platform generate`
 /// [cli-run] [cli-platform]: `Err` carries the exit code to return
-/// (diagnostics already reported), `Ok(None)` means the caller asked to stop
-/// early (`--emit-ast`).
+/// (diagnostics already reported).
 fn assemble(
     backend: &dyn salvo_backend::Backend,
     layout: &Layout,
-    emit_ast: Option<&str>,
     verbose: bool,
     project: Option<&salvo_core::Project>,
 ) -> Result<Option<Assembled>, ExitCode> {
@@ -927,30 +913,6 @@ fn assemble(
         return Err(ExitCode::FAILURE);
     }
 
-    if let Some(filter) = emit_ast {
-        let mut printed = 0usize;
-        for (file, module) in sources.files.iter().zip(&modules) {
-            // Bare `--emit-ast` prints the user modules; a value selects
-            // one module by path (std included).
-            let selected = if filter.is_empty() {
-                !file.is_std
-            } else {
-                file.module.to_string() == filter
-            };
-            if !selected {
-                continue;
-            }
-            println!("// ===== {} (module `{}`) =====", file.name, file.module);
-            println!("{module:#?}");
-            printed += 1;
-        }
-        if printed == 0 {
-            eprintln!("error: no module matches `{filter}`");
-            return Err(ExitCode::FAILURE);
-        }
-        return Ok(None);
-    }
-
     if verbose {
         let user_modules = sources.files.iter().filter(|f| !f.is_std).count();
         eprintln!(
@@ -1033,13 +995,11 @@ fn assemble(
 /// Parses, checks and emits `layout`'s sources with `backend`.
 ///
 /// The shared half of `compile` and `run` [cli-run]: `Err` carries the exit
-/// code to return (diagnostics already reported), `Ok(None)` means the build
-/// stopped early on purpose (`--emit-ast`).
+/// code to return (diagnostics already reported).
 fn build(
     backend: &dyn salvo_backend::Backend,
     layout: &Layout,
     target: &PathBuf,
-    emit_ast: Option<&str>,
     verbose: bool,
     project: Option<&salvo_core::Project>,
     host: &salvo_core::HostDeps,
@@ -1050,7 +1010,7 @@ fn build(
         main_module,
         ambiguous,
         tests: _,
-    }) = assemble(backend, layout, emit_ast, verbose, project)?
+    }) = assemble(backend, layout, verbose, project)?
     else {
         return Ok(None);
     };
@@ -1163,7 +1123,6 @@ fn compile(
     backend_name: Option<String>,
     src: Option<PathBuf>,
     target: Option<PathBuf>,
-    emit_ast: Option<&str>,
 ) -> ExitCode {
     let registry = registry();
     let inputs = match resolve_inputs(src, None, backend_name, "kotlin", false) {
@@ -1185,7 +1144,7 @@ fn compile(
                 return ExitCode::FAILURE;
             }
         };
-        if let Err(code) = build(backend, &inputs.layout, &target, emit_ast, true, inputs.project.as_ref(), &inputs.host, false) {
+        if let Err(code) = build(backend, &inputs.layout, &target, true, inputs.project.as_ref(), &inputs.host, false) {
             return code;
         }
     }
@@ -1259,7 +1218,7 @@ fn run_one(
         return ExitCode::FAILURE;
     }
 
-    let built = match build(backend, layout, target, None, false, inputs.project.as_ref(), &inputs.host, true) {
+    let built = match build(backend, layout, target, false, inputs.project.as_ref(), &inputs.host, true) {
         Ok(Some(built)) => built,
         Ok(None) => return ExitCode::SUCCESS,
         Err(code) => return code,
@@ -1421,7 +1380,7 @@ fn build_one(
         eprintln!("error: {msg}");
         return ExitCode::FAILURE;
     }
-    let built = match build(backend, layout, &target, None, false, inputs.project.as_ref(), &inputs.host, true) {
+    let built = match build(backend, layout, &target, false, inputs.project.as_ref(), &inputs.host, true) {
         Ok(Some(built)) => built,
         Ok(None) => return ExitCode::SUCCESS,
         Err(code) => return code,
@@ -1544,7 +1503,7 @@ fn test_one(
     policy: salvo_test::OutputPolicy,
 ) -> ExitCode {
     let layout = &inputs.layout;
-    let Some(mut assembled) = (match assemble(backend, layout, None, false, inputs.project.as_ref()) {
+    let Some(mut assembled) = (match assemble(backend, layout, false, inputs.project.as_ref()) {
         Ok(assembled) => assembled,
         Err(code) => return code,
     }) else {
@@ -2154,7 +2113,7 @@ fn write_once(path: &Path, content: &str) -> Result<bool, ExitCode> {
 fn platform_generate_one(backend: &dyn salvo_backend::Backend, inputs: &Inputs) -> ExitCode {
     let layout = &inputs.layout;
     let project = inputs.project.as_ref();
-    let Some(assembled) = (match assemble(backend, layout, None, false, project) {
+    let Some(assembled) = (match assemble(backend, layout, false, project) {
         Ok(assembled) => assembled,
         Err(code) => return code,
     }) else {
