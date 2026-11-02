@@ -271,3 +271,24 @@ fn main() [use] {
     use Srv()
     println("${ping()}")
 }
+
+// [fn-param-mode] A handler member takes its parameters as the member it
+// implements declares (`=> !out` moves the token in), so leaving one of its
+// paths without answering is the leak it is (found 2026-10-30, PIPELINE.md
+// D3.2: the member's declaration took `out` as kept, and nothing asked).
+actor effect Tally {
+    send fn tally(out: Reply<Int>) => !out
+}
+
+handler Tallying() of Tally {
+    mailbox { capacity: 4 }
+
+    state {
+        seen: Int = 0
+    }
+
+    //~ error[ir-linear-check:leak-at-exit]
+    send fn tally(out: Reply<Int>) {
+        seen = seen + 1
+    }
+}

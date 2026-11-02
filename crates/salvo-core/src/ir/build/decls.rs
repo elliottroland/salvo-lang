@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use crate::param_mode::{Modes, PassMode};
+use crate::param_mode::PassMode;
 use crate::source::SourceFile;
 use crate::check::{Binder, Instance};
 use crate::types::{is_proj_name, Ty};
@@ -239,7 +239,7 @@ fn struct_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, s: &ast::StructDecl, 
 }
 
 fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDecl) -> InterfaceDecl {
-    let modes = Modes { symbols: ctx.symbols, checked: ctx.checked, program: ctx.program };
+    let item = ctx.item_of(id);
     // [effect-prereq] As the checker expanded them (aliases flattened).
     let prereqs: Vec<Ty> = ctx
         .checked
@@ -259,7 +259,7 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
                 params.push(Param {
                     local: Local(p.name.name.clone()),
                     ty: ctx.written_ty(file_idx, &p.ty),
-                    mode: modes.member_param(m, p),
+                    mode: mode_of(ctx, ctx.checked.decls.member(file_idx, item, i + 1), &m.params, p),
                     variadic: p.variadic,
                     // [platform-check] a `Reply<T>` the host answers on.
                     check: ctx.checked.boundaries.get(&ctx.checked.key_at(file_idx, p.name.span)).and_then(|b| b.check.clone()),
@@ -316,7 +316,6 @@ fn interface_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, e: &ast::EffectDec
 }
 
 fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, statics: &[(Instance, Local)], errors: &mut Vec<String>) -> ImplDecl {
-    let modes = Modes { symbols: ctx.symbols, checked: ctx.checked, program: ctx.program };
     let faces: Vec<Ty> = h.of.iter().map(|t| ctx.written_ty(file_idx, t)).collect();
     // [effect-handler-deps] [effect-prereq] As the checker expanded them:
     // aliases flattened, the faces' prerequisites added.
@@ -332,7 +331,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
         .map(|p| Param {
             local: Local(p.name.name.clone()),
             ty: ctx.written_ty(file_idx, &p.ty),
-            mode: if p.implicit { PassMode::Lent } else { modes.default_param(&p.ty, p.variadic) },
+            mode: mode_of(ctx, Some(id), &h.params, p),
             variadic: p.variadic,
             check: None,
             span: p.span,
@@ -383,22 +382,9 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
             lower.effect_env = statics.to_vec();
             lower.effect_env.extend(dep_locals.clone());
             lower.in_handler = Some(h.name.name.clone());
-            let eff_member = face_decls.iter().find_map(|e| {
-                crate::effect_member_index(e, f).map(|i| (*e, i))
-            });
             let mut params: Vec<Param> = Vec::new();
             for p in f.params.iter().filter(|p| !p.implicit) {
-                let mode = match eff_member {
-                    Some((e, i)) => {
-                        let m = &e.fns[i];
-                        match m.params.iter().filter(|q| !q.implicit).nth(f.params.iter().position(|x| std::ptr::eq(x, p)).unwrap_or(0)) {
-                            Some(ep) => modes.member_param(m, ep),
-                            None => modes.default_param(&p.ty, p.variadic),
-                        }
-                    }
-                    None if f.is_send => modes.member_param(f, p),
-                    None => modes.default_param(&p.ty, p.variadic),
-                };
+                let mode = mode_of(ctx, Some(member), &f.params, p);
                 params.push(Param { local: Local(p.name.name.clone()), ty: ctx.written_ty(file_idx, &p.ty), mode, variadic: p.variadic, check: None, span: p.span });
             }
             for p in &params {
@@ -467,7 +453,6 @@ fn fn_decl(
     statics: &[(Instance, Local)],
     errors: &mut Vec<String>,
 ) -> FnDecl {
-    let modes = Modes { symbols: ctx.symbols, checked: ctx.checked, program: ctx.program };
     let mut lower = Lower::new(ctx, file_idx, Some(id));
     lower.effect_env.extend(statics.iter().cloned());
     lower.splice = crate::origin::SpliceScopes::of(f.stamped.as_ref());
@@ -510,11 +495,7 @@ fn fn_decl(
     }
     let effect_params = params.len();
     for p in f.params.iter().filter(|p| !p.implicit) {
-        let mode = if kind == FnKind::Qualifies || qualifier.is_some() {
-            modes.default_param(&p.ty, p.variadic)
-        } else {
-            modes.fn_param(key, p)
-        };
+        let mode = mode_of(ctx, Some(id), &f.params, p);
         let ty = ctx.written_ty(file_idx, &p.ty);
         lower.bind_owned(&p.name.name, ty.clone(), mode == PassMode::Moved);
         params.push(Param { local: Local(p.name.name.clone()), ty, mode, variadic: p.variadic, check: None, span: p.span });
@@ -664,3 +645,11 @@ pub(crate) fn effect_local_name(t: &Ty) -> String {
     if out.is_empty() { "effect".to_string() } else { out }
 }
 
+/// [fn-param-mode] How the declaration `id` takes its written parameter `p`
+/// (one of `params`), as the checker recorded it (`Checked::param_modes`).
+fn mode_of(ctx: &Ctx<'_>, id: Option<DeclId>, params: &[ast::Param], p: &ast::Param) -> PassMode {
+    let at = params.iter().position(|x| std::ptr::eq(x, p));
+    let mode = id.and_then(|id| ctx.checked.param_modes_of(id)).zip(at).and_then(|(ms, i)| ms.get(i).copied());
+    debug_assert!(mode.is_some(), "[fn-param-mode] no mode recorded for `{}`", p.name.name);
+    mode.unwrap_or(PassMode::Lent)
+}

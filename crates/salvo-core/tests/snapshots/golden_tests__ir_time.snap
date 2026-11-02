@@ -31,11 +31,13 @@ actor interface Session {
 
 impl Sessions() of Session@main deps [Timer] stateful {
   mailbox construct Mailbox { capacity: 8 }
-  fn open(lent started: Tick, lent budget: Duration, lent out: Reply<Str>) -> None {
+  fn open(moved started: Tick, moved budget: Duration, moved out: Reply<Str>) -> None {
+    obligation gain-params [out]
     obligation release [out]
     member after@Timer(read __dep0, call plus(Duration, Duration)@std.time(read budget, call seconds@std.time(1L)), replyto expire(!read started, !read budget, !read out))
   }
-  fn expire(lent started: Tick, lent budget: Duration, lent out: Reply<Str>, lent f: Fired) -> None {
+  fn expire(moved started: Tick, moved budget: Duration, moved out: Reply<Str>, moved f: Fired) -> None {
+    obligation gain-params [out]
     obligation release [out]
     call send@std.core.actor<Str>(!read out, call verdict@main(read started, read f.at, read budget))
   }
@@ -59,11 +61,13 @@ actor interface Sleeper {
 
 impl Napping() of Sleeper@main deps [Timer, Ticker] stateful {
   mailbox construct Mailbox { capacity: 8 }
-  fn nap(lent wait: Duration, lent out: Reply<Str>) -> None {
+  fn nap(moved wait: Duration, moved out: Reply<Str>) -> None {
+    obligation gain-params [out]
     obligation release [out]
     member after@Timer(read __dep0, !read wait, replyto woke(member tick@Ticker(read __dep1), !read out))
   }
-  fn woke(lent started: Tick, lent out: Reply<Str>, lent f: Fired) -> None {
+  fn woke(moved started: Tick, moved out: Reply<Str>, moved f: Fired) -> None {
+    obligation gain-params [out]
     obligation release [out]
     call send@std.core.actor<Str>(!read out, concat("napped ", call to_str@std.time(call elapsed@std.time(read __dep1, read started))))
   }

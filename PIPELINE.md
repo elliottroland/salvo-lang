@@ -2749,7 +2749,14 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   and `effect_instance` reads the one named: the type search, the
   base-name fallback, and the member-call and `for` fallbacks
   (`Ty::named(effect)`, the callee's own list) are gone, the last two now
-  lowering errors. Emitted code is unchanged.
+  lowering errors. Emitted code is unchanged. **D3.2 built — done**
+  (2026-10-30): `param_mode::record` records every declaration's modes at
+  its name once the deductions are known (`Checked::param_modes`, a
+  recomputed table like `deductions`); `Modes` is private to it, and the IR
+  reads the table for a declaration's parameters and a call's arguments.
+  A handler member's declaration now takes its parameters as the member it
+  implements declares, as its body already bound them, so the ledger sees a
+  moved `Reply` it must answer.
 - **D4. The typed dump and the full round trip**: B4 extended to types,
   type arguments and narrowings (marked notation where Salvo has no
   spelling).

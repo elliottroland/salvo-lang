@@ -22,7 +22,7 @@
 //! a `once` fn group are moved in: the callee receives a fresh list, and
 //! calls a `once` closure once.
 
-use salvo_syntax::ast::{DeductionKind, FnDecl, Param, Type};
+use salvo_syntax::ast::{DeductionKind, EffectDecl, FnDecl, Item, Param, Type};
 
 use crate::check::Checked;
 use crate::program::{Program, Symbols};
@@ -40,17 +40,100 @@ pub enum PassMode {
 }
 
 /// What the mode functions read.
-pub struct Modes<'a, 'p> {
-    pub symbols: &'a Symbols<'p>,
-    pub checked: &'a Checked,
-    pub program: &'a Program,
+struct Modes<'a, 'p> {
+    symbols: &'a Symbols<'p>,
+    checked: &'a Checked,
+    program: &'a Program,
+}
+
+/// [fn-param-mode] Records every declaration's parameter modes at its name
+/// (`Checked::param_modes`, PIPELINE.md D3.2), one per written parameter in
+/// order, an implicit one lent: a top-level fn's from its deductions, an
+/// effect member's from its clause, a handler member's from the effect
+/// member it implements (a send member's from its own clause), and a
+/// qualifier fn's and a handler constructor's kept. Run once the deductions
+/// and the parameter mutations are known; what reads a mode reads this.
+pub fn record(program: &Program, symbols: &Symbols<'_>, checked: &mut Checked) {
+    let mut out: Vec<(DeclId, Vec<PassMode>)> = Vec::new();
+    {
+        let modes = Modes { symbols, checked, program };
+        let each = |ps: &[Param], f: &dyn Fn(&Param) -> PassMode| -> Vec<PassMode> {
+            ps.iter().map(|p| if p.implicit { PassMode::Lent } else { f(p) }).collect()
+        };
+        let decls = &checked.decls;
+        for (file, module) in program.modules.iter().enumerate() {
+            for (item, it) in module.items.iter().enumerate() {
+                match it {
+                    Item::Fn(f) => {
+                        let Some(id) = decls.item(file, item) else { continue };
+                        out.push((id, each(&f.params, &|p| modes.fn_param(Some(id), p))));
+                    }
+                    Item::Qualifier(q) => {
+                        for (i, f) in q.fns.iter().enumerate() {
+                            let Some(id) = decls.member(file, item, i + 1) else { continue };
+                            out.push((id, each(&f.params, &|p| modes.default_param(&p.ty, p.variadic))));
+                        }
+                    }
+                    Item::Effect(e) => {
+                        for (i, m) in e.fns.iter().enumerate() {
+                            let Some(id) = decls.member(file, item, i + 1) else { continue };
+                            out.push((id, each(&m.params, &|p| modes.member_param(m, p))));
+                        }
+                    }
+                    Item::Handler(h) => {
+                        if let Some(id) = decls.item(file, item) {
+                            out.push((id, each(&h.params, &|p| modes.default_param(&p.ty, p.variadic))));
+                        }
+                        let faces: Vec<&EffectDecl> = h
+                            .of
+                            .iter()
+                            .filter_map(|t| match t {
+                                Type::Named { base, .. } => symbols.effects.get(checked.written_key(base)).copied(),
+                                _ => None,
+                            })
+                            .collect();
+                        let members = h.fns.iter().enumerate().map(|(i, f)| (i + 1, f)).chain(h.init.iter().map(|f| (h.fns.len() + 1, f)));
+                        for (sub, f) in members {
+                            let Some(id) = decls.member(file, item, sub) else { continue };
+                            let implemented = faces.iter().find_map(|e| crate::effect_member_index(e, f).map(|i| &e.fns[i]));
+                            let positional: Vec<&Param> = f.params.iter().filter(|p| !p.implicit).collect();
+                            out.push((
+                                id,
+                                each(&f.params, &|p| match implemented {
+                                    Some(m) => {
+                                        let at = positional.iter().position(|x| std::ptr::eq(*x, p)).unwrap_or(0);
+                                        match m.params.iter().filter(|q| !q.implicit).nth(at) {
+                                            Some(ep) => modes.member_param(m, ep),
+                                            None => modes.default_param(&p.ty, p.variadic),
+                                        }
+                                    }
+                                    None if f.is_send => modes.member_param(f, p),
+                                    None => modes.default_param(&p.ty, p.variadic),
+                                }),
+                            ));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    checked.param_modes = out.into_iter().map(|(id, m)| (crate::check::Key::name_of(id), m)).collect();
+}
+
+impl Checked {
+    /// [fn-param-mode] How the declaration `id` takes each written
+    /// parameter, in order (`record`).
+    pub fn param_modes_of(&self, id: DeclId) -> Option<&[PassMode]> {
+        self.param_modes.get(&crate::check::Key::name_of(id)).map(Vec::as_slice)
+    }
 }
 
 impl<'a, 'p> Modes<'a, 'p> {
     /// The mode of one top-level-fn parameter: deduction-driven (omitted =
     /// moved; kept = lent, mutably when the declared type carries `Mut` or
     /// its elements do).
-    pub fn fn_param(&self, key: Option<DeclId>, param: &Param) -> PassMode {
+    fn fn_param(&self, key: Option<DeclId>, param: &Param) -> PassMode {
         if param.variadic || is_fn_group(&param.ty) {
             return PassMode::Moved;
         }
@@ -94,7 +177,7 @@ impl<'a, 'p> Modes<'a, 'p> {
 
     /// The mode of an effect member's parameter (and of the handler members
     /// that implement it), from the clause written on the member.
-    pub fn member_param(&self, member: &FnDecl, p: &Param) -> PassMode {
+    fn member_param(&self, member: &FnDecl, p: &Param) -> PassMode {
         if p.variadic || is_fn_group(&p.ty) {
             return PassMode::Moved;
         }
@@ -115,7 +198,7 @@ impl<'a, 'p> Modes<'a, 'p> {
 
     /// The mode of a parameter of a fn outside the deduction tables
     /// (qualifier fns, handler-local members): always kept.
-    pub fn default_param(&self, ty: &Type, variadic: bool) -> PassMode {
+    fn default_param(&self, ty: &Type, variadic: bool) -> PassMode {
         if variadic || is_fn_group(ty) {
             return PassMode::Moved;
         }
@@ -125,54 +208,18 @@ impl<'a, 'p> Modes<'a, 'p> {
         kept_mode(ty)
     }
 
-    /// Whether a type is one of the scalars (`Int`, `Long`, `Float`, `Double`,
-    /// `Bool`, `Char`, `Byte`), through aliases. A fact about the type; what a
-    /// target does with it (copy it for free, say) is the backend's.
-    pub fn is_copy(&self, ty: &Type) -> bool {
-        let Type::Named { qualifiers, base } = ty else { return false };
-        if !qualifiers.is_empty() || !base.args.is_empty() {
-            return false;
-        }
-        if let Some(alias) = self.symbols.type_aliases.get(self.checked.written_key(base)) {
-            if let Some(target) = &alias.alias {
-                return self.is_copy(target);
-            }
-        }
-        salvo_syntax::is_copy_scalar_name(&base.name.name)
-    }
-
     /// [fn-param-mode] Whether this fn **stores** a callback it is given: a
     /// fn-typed parameter (or an implicit group, which spreads fn
     /// parameters), and a struct with a fn-typed field as the result. That is
     /// the composed-pass shape, and nothing else in the language keeps a
     /// callback past the call.
-    pub fn owns_callbacks(&self, key: DeclId) -> bool {
+    fn owns_callbacks(&self, key: DeclId) -> bool {
         let Some(decl) = self.fn_by_key(key) else { return false };
         if !decl.params.iter().any(|p| matches!(p.ty, Type::Fn { .. })) && decl.implicit_groups.is_empty() {
             return false;
         }
         let Some(ret) = decl.return_type.as_ref().and_then(type_base_name) else { return false };
         self.symbols.structs.get(ret).is_some_and(|s| s.fields.iter().any(|f| matches!(f.ty.as_ref(), Some(Type::Fn { .. }))))
-    }
-
-    /// [fn-param-mode] How the *declaration* of a fn type takes its
-    /// `i`th parameter, so a lambda passed into that position binds the same
-    /// way: kept and `Mut` is lent mutably, kept is lent, moved is moved.
-    pub fn fn_type_position(
-        &self,
-        params: &[Type],
-        param_names: &[Option<salvo_syntax::ast::Ident>],
-        deductions: &Option<Vec<salvo_syntax::ast::Deduction>>,
-        i: usize,
-    ) -> PassMode {
-        let (kept, is_mut) = fn_type_contract(params, param_names, deductions, i);
-        if kept && is_mut {
-            PassMode::LentMut
-        } else if kept {
-            PassMode::Lent
-        } else {
-            PassMode::Moved
-        }
     }
 
     fn fn_by_key(&self, key: DeclId) -> Option<&'a FnDecl> {
@@ -231,32 +278,4 @@ fn type_base_name(ty: &Type) -> Option<&str> {
         Type::QualifiedGroup { base, .. } => type_base_name(base),
         _ => None,
     }
-}
-
-/// The (kept, mutable) contract of one fn-type parameter [fn-contract]: kept
-/// unless the written deduction list moves its name [deduce-syntax];
-/// mutable when the declared type carries `Mut`.
-pub fn fn_type_contract(
-    params: &[Type],
-    param_names: &[Option<salvo_syntax::ast::Ident>],
-    deductions: &Option<Vec<salvo_syntax::ast::Deduction>>,
-    i: usize,
-) -> (bool, bool) {
-    let is_mut = params
-        .get(i)
-        .map(|t| match t {
-            Type::Named { qualifiers, .. } | Type::QualifiedGroup { qualifiers, .. } => {
-                qualifiers.iter().any(|q| q.name.name == "Mut")
-            }
-            _ => false,
-        })
-        .unwrap_or(false);
-    let kept = match (param_names.get(i).and_then(|n| n.as_ref()), deductions) {
-        (Some(name), Some(list)) => !list.iter().any(|d| {
-            d.param_name().is_some_and(|n| n.name == name.name)
-                && matches!(d.kind, DeductionKind::Moved | DeductionKind::Deferred)
-        }),
-        _ => true,
-    };
-    (kept, is_mut)
 }

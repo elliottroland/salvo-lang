@@ -10457,6 +10457,18 @@ between endpoints and delivers what arrives into the scheduler.
   target makes of the mode is its own ([backend-core-layers]): Rust passes a scalar by
   value whatever the mode, spells a lent fn value `&mut impl FnMut`
   ([rs-borrows]).
+  * **A per-declaration fact** (PIPELINE.md D3.2, 2026-10-30): once the
+    deductions and the parameter mutations are known, `param_mode::record`
+    records every declaration's modes at its name (`Checked::param_modes`,
+    one per written parameter, an implicit one lent) — a fn, an effect
+    member, a handler member (as the member it implements declares, a send
+    member by its own clause), a qualifier fn, a handler's constructor. The
+    lowering reads them, for a declaration's parameters and a call's
+    arguments alike. Before, the IR derived them at each use, and a handler
+    member's *declaration* took every parameter as kept while its body bound
+    them as the implemented member said: a member that left a path without
+    answering a `Reply` its effect member moves in (`=> !out`) was not
+    reported.
 * [copy-plan] **What `copy` duplicates is core's call** (built 2026-10-06,
   `salvo_core::copyplan`): a tree per type — share the value when no Salvo
   operation can mutate any part of it (scalars, `Str`, non-`Mut` structs of

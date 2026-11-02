@@ -15,7 +15,8 @@ impl Counting() of Counter@main stateful {
   fn bump(lent n: Int) -> None {
     assign sum = (read sum + read n)
   }
-  fn total(lent out: Reply<Int>) -> None {
+  fn total(moved out: Reply<Int>) -> None {
+    obligation gain-params [out]
     obligation release [out]
     call send@std.core.actor<Int>(!read out, !read sum)
   }
@@ -28,11 +29,13 @@ actor interface Ledger {
 
 impl Bookkeeping() of Ledger@main deps [Counter@main] stateful {
   mailbox construct Mailbox { capacity: 4 }
-  fn report(lent label: Str, lent out: Reply<Str>) -> None {
+  fn report(moved label: Str, moved out: Reply<Str>) -> None {
+    obligation gain-params [out]
     obligation release [out]
     member total@Counter(read __dep0, replyto reported(!read label, !read out))
   }
-  fn reported(lent label: Str, lent out: Reply<Str>, lent total: Int) -> None {
+  fn reported(moved label: Str, moved out: Reply<Str>, lent total: Int) -> None {
+    obligation gain-params [out]
     obligation release [out]
     call send@std.core.actor<Str>(!read out, concat(read label, "=", call to_str(Int)@std.core.basic(read total)))
   }
@@ -47,11 +50,12 @@ actor interface Desk {
 impl Desking(lent room: Int) of Desk@main stateful {
   mailbox construct Mailbox { capacity: read room }
   state waiting: Mut Deque<Reply<Str>> = call mut_deque_of()@std.core.deque<Reply<Str>>()
-  fn ticket(lent out: Reply<Str>) -> None {
+  fn ticket(moved out: Reply<Str>) -> None {
+    obligation gain-params [out]
     obligation release [out]
     call add_last@std.core.deque<Reply<Str>>(read waiting, !read out)
   }
-  fn serve(lent name: Str) -> None {
+  fn serve(moved name: Str) -> None {
     bind#1 let next: Reply<Str>? = call remove_first@std.core.deque<Reply<Str>>(read waiting)
     obligation gain [next.arms{0}]
     switch#2 read next {
@@ -70,7 +74,7 @@ impl Desking(lent room: Int) of Desk@main stateful {
       }
     }
   }
-  fn close_up(lent reason: Str) -> None {
+  fn close_up(moved reason: Str) -> None {
     obligation release [waiting]
     call drain@std.core.deque<Reply<Str>>(drop_mut(!read waiting), lambda(lent r: Reply<Str>) -> None captures [reason] {
       value call send@std.core.actor<Str>(!read r, concat("closed: ", read reason))

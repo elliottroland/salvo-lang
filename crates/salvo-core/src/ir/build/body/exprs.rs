@@ -1386,7 +1386,6 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// value reads an earlier parameter): a place handed to a `Moved`
     /// parameter is consumed; a variadic tail is one list argument.
     fn args_for(&mut self, callee: Option<Callee<'p>>, args: &[&AExpr], named: &[ast::NamedArg], span: Span) -> (Vec<Expr>, Vec<Stmt>) {
-        let modes = crate::param_mode::Modes { symbols: self.ctx.symbols, checked: self.ctx.checked, program: self.ctx.program };
         let params: Option<&[ast::Param]> = callee.as_ref().map(|c| match c { Callee::Fn(_, d) => d.params.as_slice(), Callee::Member(m) => m.params.as_slice() });
         let fixed: Vec<&ast::Param> = params.map(|ps| ps.iter().filter(|p| !p.implicit).collect()).unwrap_or_default();
         let variadic_at = fixed.iter().position(|p| p.variadic);
@@ -1396,10 +1395,18 @@ impl<'a, 'p> Lower<'a, 'p> {
             Some(Callee::Member(m)) => self.member_file(m),
             None => None,
         };
-        let mode_of = |p: &ast::Param| match &callee {
-            Some(Callee::Fn(k, _)) => modes.fn_param(Some(*k), p),
-            Some(Callee::Member(m)) => modes.member_param(m, p),
-            None => modes.default_param(&p.ty, p.variadic),
+        // [fn-param-mode] The callee's modes, as the checker recorded them.
+        let callee_id: Option<DeclId> = match &callee {
+            Some(Callee::Fn(k, _)) => Some(*k),
+            Some(Callee::Member(m)) => self.member_file(m).map(|f| self.ctx.checked.key_at(f, m.name.span).decl),
+            None => None,
+        };
+        let modes: Option<&[PassMode]> = callee_id.and_then(|id| self.ctx.checked.param_modes_of(id));
+        let mode_of = |p: &ast::Param| {
+            let at = params.and_then(|ps| ps.iter().position(|x| std::ptr::eq(x, p)));
+            let mode = modes.zip(at).and_then(|(ms, i)| ms.get(i).copied());
+            debug_assert!(mode.is_some(), "[fn-param-mode] no mode recorded for `{}`", p.name.name);
+            mode.unwrap_or(PassMode::Lent)
         };
         let mut out = Vec::new();
         let mut tail: Vec<Expr> = Vec::new();

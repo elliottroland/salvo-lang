@@ -144,6 +144,30 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Pass modes are per-declaration facts (PIPELINE.md D3.2, [fn-param-mode])
+
+- **Built** (the plan the user approved for D3): `param_mode::record` runs
+  after `deduce::infer` and records, at every declaration's name, how it
+  takes each written parameter (`Checked::param_modes`; an implicit one
+  lent): fns from the deductions, effect members from their clause, handler
+  members from the member they implement (a send member from its own
+  clause), qualifier fns and handler constructors kept. It is recomputed
+  every check, as `deductions` is (`partition`'s program-wide rows). `Modes`
+  is private to the module, `is_copy`, `fn_type_position` and
+  `fn_type_contract` (no readers) are gone, and the IR's four derivations
+  (`interface_decl`, `impl_decl`'s constructor and members, `fn_decl`,
+  `args_for`) read the table through `mode_of`.
+- **What fell out of building it**: a handler member's *declaration* took
+  its parameters through `fn_param` with no deductions to read — every one
+  kept — while its body bound them as the implemented member declares. The
+  IR's obligation ledger reads the declaration, so a member that left a path
+  without answering a `Reply` its effect member moves in (`=> !out`) was
+  accepted, against the actors example's own promise ("or the program does
+  not compile"). One fact now serves both, and the case is reported
+  (`check/actors/replyto.sv`). The IR dumps of `actors`, `cluster` and
+  `time` show the moved parameters and their `gain-params`; emitted code is
+  unchanged.
+
 ### 2026-10-30 — Effect arguments name their instance (user decision, PIPELINE.md D3.1, [effect-instance])
 
 - **Decided (user, 2026-10-30)**: each effect argument the checker resolves

@@ -1324,6 +1324,11 @@ pub struct Checked {
     /// mutates — directly, or through a handle into them (a generic
     /// container is lent mutably exactly when a handle into it is written).
     pub param_mutations: HashMap<Key, HashSet<String>>,
+    /// [fn-param-mode] Per declaration, at its name, how it takes each
+    /// written parameter (`param_mode::record`, PIPELINE.md D3.2): moved,
+    /// lent, or lent mutably. Recomputed every check, from `deductions` and
+    /// `param_mutations`.
+    pub param_modes: HashMap<Key, Vec<crate::param_mode::PassMode>>,
     /// [platform-check] [platform-factory] The host boundary at a node
     /// (PIPELINE.md D2): what crosses from host to Salvo and needs checking
     /// (ABI D7), and the factories of a union a host builds (ABI D5). At a
@@ -2152,6 +2157,9 @@ fn check_program_walk<'p>(
     crate::deduce::infer(program, symbols, &mut out, cache.map(|c| c.std_files));
     drop(t);
     out.param_mutations = mutations;
+    // [fn-param-mode] Every declaration's modes, now that what they rest on
+    // is known.
+    crate::param_mode::record(program, symbols, &mut out);
     out
 }
 
