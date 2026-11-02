@@ -144,6 +144,15 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — The flow decision is the one answer to a move (PIPELINE.md D3.5(a), [fate-move-mode])
+
+- **Built** (the order the user approved: (a) now, (b) later): the
+  builder's `Ctx::mode` read the flow pass's `Decision` *or* the checker's
+  `by_value_loops`; the decision is now seeded with those loops before the
+  first build, so it alone answers which bindings and loops are lowered as
+  moves. The IR is unchanged. D3.5(b) moves the decision that a loop
+  iterates by value (and the fate links) into the flow pass.
+
 ### 2026-10-30 — Erasure goes through one layer (user decision, PIPELINE.md D3.4 option (a), [ir-types])
 
 - **Decided (user, 2026-10-30)**: erasure stays per node, as the builder

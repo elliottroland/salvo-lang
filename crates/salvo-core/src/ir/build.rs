@@ -45,9 +45,12 @@ pub struct Ctx<'p> {
 
 impl<'p> Ctx<'p> {
     /// [fate-move-mode] Whether the binding statement (or the loop, by its
-    /// iterable) at `key` takes ownership: lowered as a move.
+    /// iterable) at `key` takes ownership: lowered as a move. The flow
+    /// pass's decision is the one answer (PIPELINE.md D3.5(a)): it starts
+    /// from the loops the checker saw data moved out of through their
+    /// binding (`Checked::by_value_loops`).
     pub fn mode(&self, key: crate::check::Key) -> bool {
-        self.decision.modes.contains(&key) || self.checked.by_value_loops.contains(&key)
+        self.decision.modes.contains(&key)
     }
 
     /// [deduce-field] Whether the binding at `key` is a virtual place.
@@ -243,7 +246,10 @@ pub fn build_program_gated<'p>(
         // In source order, as the bindings are written.
         v.sort_by_key(|f| f.stamp.span);
     }
-    let mut ctx = Ctx { program, symbols, resolution, checked, names: Ctx::compute_names(program, &resolution.decls), decision: Decision::default(), facts_by_decl, gate };
+    // [fate-move-mode] The decision starts from the loops the checker saw
+    // iterate by value; the flow pass adds the bindings that take ownership.
+    let decision = Decision { modes: checked.by_value_loops.clone(), ..Decision::default() };
+    let mut ctx = Ctx { program, symbols, resolution, checked, names: Ctx::compute_names(program, &resolution.decls), decision, facts_by_decl, gate };
     let mut out = Program { modules: Vec::new(), names: HashMap::new(), member_names: Ctx::compute_member_names(program, &resolution.decls), decision: Decision::default() };
     let mut errors = Vec::new();
     let mut failed: HashSet<(usize, usize)> = HashSet::new();

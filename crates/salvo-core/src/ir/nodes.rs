@@ -422,8 +422,10 @@ pub struct VirtualAt {
 /// [fate-move-mode] What the IR flow pass decided over a program's first
 /// build (`flow::decide`), which the builder then builds from: the
 /// bindings that take ownership (by stamp), the statements and loops the
-/// builder lowers as moves (`modes`: those bindings, and the loops they
-/// make iterate by value), and the bindings rendered as virtual places
+/// builder lowers as moves (`modes`: those bindings, the loops they make
+/// iterate by value, and — seeded before the first build — the loops the
+/// checker saw data moved out of through their binding,
+/// `Checked::by_value_loops`), and the bindings rendered as virtual places
 /// [deduce-field]. Keyed as the checker's tables are [node-id].
 #[derive(Clone, Default, Debug)]
 pub struct Decision {
