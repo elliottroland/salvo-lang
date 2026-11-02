@@ -11434,6 +11434,15 @@ between endpoints and delivers what arrives into the scheduler.
     item, member) and which id is at a position, for what still needs the
     file or the AST (emission order, a default's declaring file, the
     language server's definition sites, the check cache's per-file rows).
+  * **A file's scope is held by id** (2026-10-30, PIPELINE.md C4): a
+    `ScopeIds` is a `ModuleScope` with every declaration its id, names and
+    module paths interned for the process, a refinement or rename the module
+    it came from, and a definition site the declaration whose name it is
+    (`scope_ids.rs`). `Resolution::scope_ids` holds them; `Resolution::scopes`
+    is their view over the program (`ScopeIds::view`, one lookup per entry),
+    which the debug build checks against the scope built. A scope by id
+    outlives the program it was built over: the same declarations have the
+    same ids in every program that holds them.
   * The checker's references to a declaration (`Callee::Fn`, `fn_refs`,
     `ReplyTarget::Task`, `ImplicitArg::Resolved`, …) and the IR's name it by
     id; its own facts (`fn_lends`, `implicit_params`, `established_quals`,
@@ -13433,6 +13442,13 @@ replaced the working document TESTING.md).
   cache and computes the project's, merging the by-span keys as gathering
   them together would. An analysis through the front reports what one
   without it reports (`std_front_matches_an_analysis_without_it`).
+  * **std's scopes are the front's** (2026-10-30, PIPELINE.md C4): the front
+    keeps std's scopes by id [decl-id], and an analysis over it views them
+    instead of building them (`StdFront::resolve`, `resolve::resolve_over`);
+    std's duplicate-overload check is not repeated either. std sees only
+    std, so nothing a project writes changes them — except a project file
+    claiming a module under `std` (refused [std-root], but its declarations
+    still join the module it names), for which everything is built.
   * **The repository's tests check and emit over it too** (2026-10-28,
     TESTS.md T3/C2): `salvo_testkit::front` builds one front per test process
     and backend extension from `lib/`, and every program a test builds holds

@@ -186,6 +186,9 @@ impl<'p> ModuleScope<'p> {
 pub struct Resolution<'p> {
     /// One scope per file, aligned with `program.files`.
     pub scopes: Vec<ModuleScope<'p>>,
+    /// [decl-id] The same scopes by declaration id (empty for a scopes-only
+    /// resolution): `scopes` is their view over this program.
+    pub scope_ids: Vec<std::sync::Arc<crate::scope_ids::ScopeIds>>,
     /// [name-table] Every written type-position name, resolved where it is
     /// written: the file and scope of each reference, and what it means there.
     pub names: crate::names::Names<'p>,
@@ -613,6 +616,21 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
     resolve_sources(&program.files, &program.modules)
 }
 
+/// [lsp-std-front] [decl-id] [`resolve`] over a program whose leading files
+/// are a std already resolved on its own, with its scopes by id `std`
+/// (`StdFront`): those files' scopes are viewed, not built — std sees only
+/// std [std-root], so what a project adds changes none of them. Unless a
+/// project file claims a module under `std` (refused, but its declarations
+/// still join the module they name): then everything is built.
+pub fn resolve_over<'p>(program: &'p Program, std: &[std::sync::Arc<crate::scope_ids::ScopeIds>]) -> Resolution<'p> {
+    let n = std.len();
+    let claims_std = program.files[n.min(program.files.len())..].iter().any(|f| f.module.is_std_rooted());
+    if claims_std || n > program.files.len() || !program.files[..n].iter().all(|f| f.is_std && !f.is_shadow) {
+        return resolve(program);
+    }
+    resolve_impl(&program.files, &program.modules, &|i| i >= n, false, std)
+}
+
 /// The files and their ASTs, aligned: what resolution reads of a program.
 #[derive(Clone, Copy)]
 struct Sources<'s, 'p> {
@@ -627,7 +645,7 @@ pub fn resolve_sources<'p, M: crate::decl_id::ModuleRef>(
     files: &'p [crate::source::SourceFile],
     modules: &'p [M],
 ) -> Resolution<'p> {
-    resolve_impl(files, modules, &|_| true, false)
+    resolve_impl(files, modules, &|_| true, false, &[])
 }
 
 /// [lsp-std-front] The scopes of the files `scoped` accepts, and nothing
@@ -642,7 +660,7 @@ pub fn resolve_scopes_where<'p, M: crate::decl_id::ModuleRef>(
     modules: &'p [M],
     scoped: &dyn Fn(usize) -> bool,
 ) -> Resolution<'p> {
-    resolve_impl(files, modules, scoped, true)
+    resolve_impl(files, modules, scoped, true, &[])
 }
 
 fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
@@ -650,6 +668,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     modules: &'p [M],
     scoped: &dyn Fn(usize) -> bool,
     scopes_only: bool,
+    given: &[std::sync::Arc<crate::scope_ids::ScopeIds>],
 ) -> Resolution<'p> {
     let modules_in = modules;
     let modules: Vec<&'p salvo_syntax::ast::Module> = modules.iter().map(|m| m.borrow()).collect();
@@ -857,6 +876,12 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
         let mut sorted_modules: Vec<&&ModulePath> = by_module.keys().collect();
         sorted_modules.sort_by_key(|m| m.to_string());
         for module in sorted_modules {
+            // [lsp-std-front] A std module given resolved holds std's files
+            // alone (`resolve_over`), so its duplicates are std's own,
+            // reported when std was.
+            if !given.is_empty() && module.is_std_rooted() {
+                continue;
+            }
             let items = &by_module[*module];
             // The span it was first declared at, and whether that one was
             // *generated* [obligation-by].
@@ -1247,9 +1272,51 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
         }
     }
 
+    // [decl-id] The scopes by declaration id, and the pointer scopes as their
+    // view over this program (PIPELINE.md C4): what outlives the program.
+    let mut scope_ids: Vec<std::sync::Arc<crate::scope_ids::ScopeIds>> = Vec::new();
+    if !scopes_only {
+        let t = crate::timing::phase("    resolve: scope ids");
+        let addrs = crate::scope_ids::Addrs::of(&decls, &modules);
+        scope_ids = scopes
+            .iter()
+            .enumerate()
+            .map(|(i, scope)| {
+                if let Some(ids) = given.get(i) {
+                    return ids.clone();
+                }
+                // [qual-refn-scope] [fn-rename] [test-visibility] Whose
+                // refinements and renames the scope took: its own module's,
+                // and an annex's tested module's.
+                let file = &program.files[i];
+                let mut taken: Vec<&ModulePath> = Vec::new();
+                if scoped(i) {
+                    taken.push(&file.module);
+                    if file.is_test {
+                        let tested = ModulePath(file.module.0[..file.module.0.len().saturating_sub(1)].to_vec());
+                        if let Some((m, _)) = by_module.get_key_value(&tested) {
+                            taken.push(m);
+                        }
+                    }
+                }
+                std::sync::Arc::new(crate::scope_ids::ScopeIds::of(scope, &addrs, &taken, &taken))
+            })
+            .collect();
+        let view_decls = crate::scope_ids::Decls::new(&decls, files, modules_in);
+        let views: Vec<ModuleScope<'p>> = scope_ids.iter().map(|s| s.view(&view_decls)).collect();
+        #[cfg(debug_assertions)]
+        for (i, (built, view)) in scopes.iter().zip(&views).enumerate().skip(given.len()) {
+            if let Err(e) = crate::scope_ids::same(built, view) {
+                panic!("[decl-id] the scope of `{}` by id is not the scope built: {e}", program.files[i].name);
+            }
+        }
+        scopes = views;
+        drop(t);
+    }
     if scopes_only {
         return Resolution {
             scopes,
+            scope_ids,
             names: crate::names::Names::default(),
             declared_in,
             private_in,
@@ -1267,6 +1334,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     drop(t);
     Resolution {
         scopes,
+        scope_ids,
         names,
         declared_in,
         private_in,

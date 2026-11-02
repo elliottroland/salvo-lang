@@ -144,6 +144,47 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A file's scope by declaration id, and std's kept by the front (user decision, PIPELINE.md C4 A and C, [decl-id] [lsp-std-front])
+
+- **Decided (user, 2026-10-30)**: C4 is three pieces, all next — A.
+  scopes by `DeclId`, the pointer scopes their view; B. comptime between
+  interfaces and bodies; C. the `StdFront` keeping std's scopes — in the
+  order that is easiest and safest, which is A, C, B (C exercises A across
+  programs before B restructures resolution around it). The question that
+  led there: comptime's own resolution, the reason given for (i), measured
+  1.6ms per language-server edit by now (the std front scopes only the
+  project's files), not the ~13ms of 2026-10-20; the user wanted all three
+  regardless.
+- **A, built**: `ScopeIds` (`scope_ids.rs`): a `ModuleScope` with each
+  declaration its id, names and module paths interned for the process
+  (like declaration ids), refinements and renames as the modules they came
+  from, and definition sites as the declaration whose name they are (read
+  from the program viewed, which B will have numbered again).
+  `ScopeIds::of` reads a built scope's ids off the program's addresses
+  (`Addrs`), `ScopeIds::view` makes the pointer scope over a program
+  (`Decls`), and the debug build checks every view against the scope built
+  (`scope_ids::same`): the whole suite passed it before anything consumed
+  the ids. Every consumer still reads `Resolution::scopes`; the ids are
+  `Resolution::scope_ids`.
+- **C, built**: `StdFront` keeps std's `scope_ids` from its own resolution;
+  `StdFront::resolve` (the language server's project analyses,
+  `salvo_testkit::front`) calls `resolve::resolve_over`, which views std's
+  files' scopes instead of building them, and skips std's modules in the
+  duplicate-overload check. It builds everything when a project file
+  claims a module under `std` (refused, but its declarations join the
+  module they name) or the front does not stand in.
+  `std_front_matches_an_analysis_without_it` is the equivalence check.
+- **Measured** (`examples/cluster`, debug, an edit in `main`): `resolve:
+  scopes` 19.5 → 16.1ms. What is left of std's share is the name binding
+  over std's bodies (~11ms) and the core base a project file starts from;
+  ROADMAP's "What a language-server edit still costs" item 1 says so.
+- **C4's survey parts, closed**: the per-file `iter fn` expansion looks no
+  name up — two decisions go by spelling (a Copy scalar parameter, the
+  `Emitted T | Finished` shape), left for the planned rework of `iter fn`s —
+  and nothing rewrites an effect list. Stale text fixed: PIPELINE.md §1 and
+  §5, `main.rs`'s comment on the expansions.
+- **Output**: nothing moved. 708 tests under nextest, warm run 1m58.
+
 ### 2026-10-30 — A stamped fn names its parameters as its template does (user decision, [fn-by] [obligation-by])
 
 - **Decided (user, 2026-10-30)**: a `fn … by X` declaration, and a clause's

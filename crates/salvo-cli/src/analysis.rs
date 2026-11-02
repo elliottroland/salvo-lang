@@ -477,7 +477,11 @@ fn analyze_project_with(
         let symbols = Symbols::collect(&program);
         drop(t2);
         let t2 = salvo_core::timing::phase("  resolve: scopes");
-        let resolution = salvo_core::resolve(&program);
+        // [lsp-std-front] std's scopes are the front's, viewed.
+        let resolution = match front {
+            Some(front) => front.resolve(&program),
+            None => salvo_core::resolve(&program),
+        };
         drop(t2);
         let t2 = salvo_core::timing::phase("  resolve: lsp indexes");
         // [lsp-index-viewable] Only for the files a view of this analysis can

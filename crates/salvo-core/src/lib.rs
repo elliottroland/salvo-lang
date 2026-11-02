@@ -35,6 +35,7 @@ pub mod reach;
 pub mod refine;
 pub mod resolve;
 pub mod round_trip;
+pub mod scope_ids;
 pub mod source;
 pub mod std_front;
 pub mod timing;

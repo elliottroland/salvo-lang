@@ -883,10 +883,9 @@ fn assemble(
         sources.mark_std_tree();
     }
 
-    // Parse every module and collect diagnostics. The `iter fn` and `test`
-    // expansions are deferred to a program-level pass: the first needs the
-    // rest of the program's structs [iter-fn], the second needs to know
-    // which files are test annexes [test-file].
+    // Parse every module and collect diagnostics. The per-file expansions
+    // (`iter fn`s [iter-fn], `test` blocks [test-file]) and comptime run
+    // after, in `salvo_core::expand`.
     let mut modules = Vec::with_capacity(sources.files.len());
     let mut error_count = 0usize;
     // [diag-std-hidden] Errors located in the embedded std are counted, not

@@ -54,6 +54,10 @@ pub struct StdFront {
     expansion: Expansion,
     comptime: crate::comptime::StdComptime,
     cache: StdCache,
+    /// [decl-id] std's scopes by declaration id, from its own resolution: a
+    /// program over the front views them rather than building them again
+    /// ([`StdFront::resolve`]).
+    scopes: Vec<Arc<crate::scope_ids::ScopeIds>>,
 }
 
 /// A program built over a front: std's modules are the front's own, the
@@ -87,6 +91,7 @@ impl StdFront {
         let symbols = Symbols::collect(&program);
         let resolution = crate::resolve(&program);
         let checked = crate::check_program(&program, &resolution, &symbols);
+        let scopes = resolution.scope_ids.clone();
         let cache = StdCache::new(&program, &resolution, &symbols, checked);
         StdFront {
             files: std.files,
@@ -96,6 +101,7 @@ impl StdFront {
             expansion,
             comptime,
             cache,
+            scopes,
         }
     }
 
@@ -174,6 +180,18 @@ impl StdFront {
         let mut companions = self.companions.clone();
         companions.extend(extra_companions);
         FrontProgram { program: Program { files, modules, companions }, diagnostics, expansion }
+    }
+
+    /// [lsp-std-front] [decl-id] Resolves `program`, viewing std's scopes from
+    /// the front when it stands in for the program's leading files
+    /// ([`StdFront::applies`]) — `resolve::resolve_over` — and in full
+    /// otherwise.
+    pub fn resolve<'p>(&self, program: &'p Program) -> Resolution<'p> {
+        if self.applies(&program.files) {
+            crate::resolve::resolve_over(program, &self.scopes)
+        } else {
+            crate::resolve(program)
+        }
     }
 
     /// Checks `program` over the front's std: [`crate::check_project`] when

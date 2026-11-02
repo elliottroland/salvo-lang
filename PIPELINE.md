@@ -47,6 +47,8 @@ LANGUAGE_SPEC.md, and this file is deleted.
 (expand)     whole program, AST → AST, before resolution:
              hoist_struct_fns, hoist_iter_types, iter fn expansion, tests,
              comptime, route stubs, effect aliases, prerequisites
+             (as of the survey; by C4 only comptime is program-wide, the
+             rest per file or gone)
 02 resolve   Symbols::collect + resolve(): one scope per file
    check     check_program: ≥ 2 rounds over every body (round 1 discarded);
              types, overloads, narrowing, ownership, linearity, effects in
@@ -557,7 +559,7 @@ index; **(C)** needs a design change; **(D)** inherently whole-program.
 |---|---|---|---|
 | `hoist_struct_fns`, `expand_tests` | per file, in `expand` | move into 01-parse | A |
 | `hoist_iter_types` | needs every `fns` group (one bit: does a member mention `iter T`), by plain name | removed with `iter T` (R3) | — |
-| `iter fn` expansion | needs the subject struct's fields from any file (plain name, first match), for per-field snapshots | expand per file; if a named state holds every parameter (4.1), the snapshot and its lookup go | B |
+| `iter fn` expansion | needs the subject struct's fields from any file (plain name, first match), for per-field snapshots | expand per file; if a named state holds every parameter (4.1), the snapshot and its lookup go — done: per file, and it looks no name up (C4) | B |
 | comptime | flat `World` of every struct, type, compfn, group, qualifier; writes stamps into the site's module | the `by` clause declares the member signatures (group members with `self` substituted) at 02-resolve-01; bodies stamped per site in 02-resolve-04 from resolved declarations | C |
 | route stubs | unscoped effect table, exported-name index, synthetic imports | `use route_any(g)` checked as "a handler of the resolved `X`"; the stub derived per effect in 03-generate (where `actors::generate` already derives stubs) | C → B |
 | effect aliases | rewrites every effect list, synthetic imports | resolved in scope like type aliases; flattened in 02-resolve-03 | B |
@@ -2551,7 +2553,17 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   file; effect aliases and prerequisites already in scope after Part I
   step 6 — confirm nothing still rewrites effect lists program-wide); and
   from C3, comptime after the program's resolution, without its own
-  resolution and cloned tables.
+  resolution and cloned tables. **The user's order (2026-10-30)**: A.
+  scopes by `DeclId`, the pointer scopes their view; C. the `StdFront`
+  keeping std's scopes; B. comptime between interfaces and bodies (clause
+  members added to built scopes by replaying `add_items` over what each
+  scope took from each module; the checks that read generated fns after
+  stamping; `World` reading declarations by id). **Done so far**: the
+  survey's parts — the `iter fn` expansion looks no name up (two decisions
+  go by spelling: a Copy scalar parameter, and the `Emitted T | Finished`
+  shape; left to the planned rework of `iter fn`s as operators), and
+  nothing rewrites an effect list — and A and C (`scope_ids.rs`,
+  `resolve::resolve_over`, `StdFront::resolve`).
 
 ### Stage D — The typed partial IR
 

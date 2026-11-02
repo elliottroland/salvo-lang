@@ -156,7 +156,7 @@ pub fn check_built(built: FrontProgram) -> Checked {
     let FrontProgram { program, diagnostics, .. } = built;
     let front = std_front("kt");
     let symbols = Symbols::collect(&program);
-    let resolution = salvo_core::resolve(&program);
+    let resolution = front.resolve(&program);
     let checked = front.check(&program, &resolution, &symbols);
     let (ir, _decision) = salvo_core::ir::analyze::analyze_full(&program, &symbols, &resolution, &checked, &diagnostics);
     drop((symbols, resolution));

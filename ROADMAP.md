@@ -2709,13 +2709,14 @@ it would save only the cheap transcription and inherit every coupling of the
 - **What a language-server edit still costs** (PIPELINE.md step 8, measured
   2026-10-20, debug, `tools/lsp-timing.py`; ~28–39ms on `examples/cluster`,
   ~40ms on `modules/aws`), largest first:
-  1. std's scopes, rebuilt every analysis (~10–13ms: a `std.core.*` base per core
-     module, pass 1, and the address maps over std). Sharing them needs the
-     scopes to outlive the `Program` they borrow (`ModuleScope<'p>`), e.g. kept
-     by the `StdFront` beside the modules they point into; gate on no project
-     module under `core.` (a project `std.core.x` is implicitly visible to std's
-     own files, which the `StdCache` gate does not check either). Part of §5
-     item 4.
+  1. std's resolution, redone every analysis. Its scopes are the front's
+     since 2026-10-30 (by id, viewed: PIPELINE.md C4); left of it, measured
+     the same day on `examples/cluster` (debug): the name binding over std's
+     bodies and signatures (`resolve: names`, ~11ms of ~12), the core base a
+     project file's scope starts from (built from std's modules per
+     analysis), and the address and id maps over std's declarations
+     (`resolve: scope ids`, ~3ms with the debug build's check). Sharing the
+     names needs `Names<'p>` by id too.
   2. The std seed: `check_once` clones std's whole `Checked` (~5ms) to add the
      project's rows. Needs a layered `Checked` (std's rows read through), or
      a cache that hands its rows out without copying.
