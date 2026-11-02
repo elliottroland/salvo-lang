@@ -1424,8 +1424,8 @@ log current so the work can resume after a context reset). Newest last.
     variable, with the S1 message and the stamps of its own links — since
     D3.5(b) only the event and its action, the links being the path's; the use
     then goes on as an owned value's move), `virtual_candidates` and
-    `by_value_loops` (the last gone since D3.5(b): the flow pass finds those
-    loops). `ir::build_program` builds the bodies with every
+    `by_value_loops` (the last two gone since D3.5(b): the flow pass finds
+    them on the path). `ir::build_program` builds the bodies with every
     binding borrow-mode, runs `flow::decide` per declaration (at each
     derived use, every binding behind it that may take ownership does: the
     variable's own, then back along the chain as the IR's links stand on
@@ -2834,7 +2834,20 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   differed lost its root's name to a rebinding on an earlier iteration, so
   a link to a gone binding keeps its written name (`x~gone`). Eligibility
   stays the checker's (user, 2026-10-30: "may take ownership" is a fact
-  about the binding, judged where it is). Left: virtual candidates.
+  about the binding, judged where it is). **D3.5(b), virtual candidates
+  built — done** (2026-10-30): the flow pass takes the candidates at each
+  mutation event from the links standing on that path
+  (`flow::virtual_candidates`): a contents spare (the poison rule's own
+  exception), and, at a call whose callee declared which fields it
+  mutates (`FlowMutation::fields`, the one fact the checker adds), every
+  link to the root at a field path. `Checked::virtual_candidates`,
+  `VirtualCandidate`, `FateFacts::virtual_at` and the checker's two
+  collections are gone. The differential agreed at all 63 sites the suite
+  exercises, field survivors and contents spares both. **D3.5(b) is
+  done**: the checker records facts about values, operations and bindings
+  (links, mutation events, the derived-use events, eligibility, narrowing);
+  the flow pass answers every path question (moved, poisoned, ownership
+  taken, virtual places, by-value loops, the links a use stands on).
 - **D4. The typed dump and the full round trip**: B4 extended to types,
   type arguments and narrowings (marked notation where Salvo has no
   spelling).

@@ -277,7 +277,7 @@ cache, which reuses an unedited file's rows [lsp-check-cache]).
 
 ```rust
 pub borrows: HashMap<Key, Borrow>,   // a call's result: a view of, or holding borrows of, these arguments
-pub fn_lends, param_mutations, virtual_candidates …
+pub fn_lends, param_mutations …
 ```
 
 **Rule of thumb for finding one:** grep `pub .*: HashMap<Key` in

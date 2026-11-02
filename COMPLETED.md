@@ -144,6 +144,31 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — The flow pass finds the virtual-place candidates; D3.5(b) is done (PIPELINE.md D3.5(b), [deduce-field] [fate-move-mode])
+
+- **Built**: the checker no longer collects the bindings a mutation event
+  may leave as virtual places. The flow pass takes them at each event from
+  the links standing on that path (`flow::virtual_candidates`): a link the
+  contents rule spares (an inline handle at exactly a contents mutation's
+  path, the poison rule's own exception), and, at a call whose callee
+  declared which fields it mutates, every link to the root at a field
+  path. The one fact the checker adds is on the event:
+  `FlowMutation::fields` (a fact about the call). `Checked::virtual_candidates`,
+  `VirtualCandidate`, `FateFacts::virtual_at`/`VirtualAt` and the
+  checker's spare and survivor collections are gone; `virtual_here` keeps
+  what it kept before (not taken ownership on the path, a survivor still
+  live).
+- **The differential** (temporary, removed): the checker's candidates
+  against the flow pass's at every mutation site, over the suite, std's
+  tests and the examples: 63 sites, contents spares and field survivors
+  both, no difference. The IR and every example are unchanged.
+- **Where D3.5(b) ends**: the checker records facts about values,
+  operations and bindings (fate links, mutation events, derived-use events
+  with their action, eligibility, narrowing); the flow pass answers every
+  path question (moved, poisoned, ownership taken, virtual places, by-value
+  loops, the links a use stands on). `docs/compiler/Phases.md` records the
+  criterion and the observations the pieces made.
+
 ### 2026-10-30 — A derived use is derived through the links on its path (user decision, PIPELINE.md D3.5(b) option A, [fate-move-mode] [fate-derived-readonly])
 
 - **Decided (user, 2026-10-30)**: of a derived use, only what depends on

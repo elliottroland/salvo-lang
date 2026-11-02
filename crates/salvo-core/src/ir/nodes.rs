@@ -387,9 +387,6 @@ pub struct FateFacts {
     /// The same for a mutation by an assignment through a projection, by
     /// the assigned value's span.
     pub assign_uses: std::collections::HashMap<Span, Vec<DerivedUseAt>>,
-    /// [deduce-field] The bindings a mutation event at a span may leave as
-    /// virtual places (`Checked::virtual_candidates`), by the event's span.
-    pub virtual_at: std::collections::HashMap<Span, Vec<VirtualAt>>,
     /// [fate-move-mode] The locals a `for` over a collection binds (its
     /// element, or the names its pattern destructures), each with the loop
     /// it belongs to, by the loop's iterable node: moving data out of one
@@ -419,17 +416,6 @@ pub struct DerivedUseAt {
     pub action: String,
     /// Where the checker placed the use: where the S1 error points.
     pub at: Span,
-}
-
-/// [deduce-field] A binding a mutation event may leave as a virtual place:
-/// its stamp, the place, and — for a fields-declaring call's survivor — the
-/// local that must still be live there.
-#[derive(Clone, Debug)]
-pub struct VirtualAt {
-    /// [node-id] The binding, by its node.
-    pub stamp: crate::check::Key,
-    pub place: String,
-    pub local: Option<String>,
 }
 
 /// [fate-move-mode] What the IR flow pass decided over a program's first

@@ -414,8 +414,9 @@ impl Moved {
         // A link names the variable it was made to: the checker's links are
         // by variable, so one to an earlier binding of this name (an earlier
         // iteration's `let`) is not to this one. It stays as a link to no
-        // local (its name, `GONE`-suffixed), poisoning nothing, for the binding that made it
-        // [fate-move-mode]: a use of the descendant decides it too.
+        // local (its name, `GONE`-suffixed), poisoning nothing, for the
+        // binding that made it [fate-move-mode]: a use of the descendant
+        // decides it too.
         for ls in self.links.values_mut() {
             for l in ls.iter_mut() {
                 if l.root == local {
@@ -887,19 +888,61 @@ impl<'f> Walker<'f> {
     /// on this path, or — a fields-declaring call's survivor — their local
     /// is gone.
     fn virtual_here(&mut self, span: Span, moved: &Moved) {
-        let Some(fate) = self.fate else { return };
-        let Some(cands) = fate.virtual_at.get(&span) else { return };
-        for c in cands {
-            if moved.decided_here.contains(&c.stamp) {
+        for (stamp, place, local) in self.virtual_candidates(span, moved) {
+            if moved.decided_here.contains(&stamp) {
                 continue;
             }
-            if let Some(l) = &c.local {
+            if let Some(l) = &local {
                 if self.moved_use(l, moved).is_some() {
                     continue;
                 }
             }
-            self.virtual_binds.insert(c.stamp, c.place.clone());
+            self.virtual_binds.insert(stamp, place);
         }
+    }
+
+    /// [deduce-field] The bindings the mutation events at `span` may leave
+    /// as virtual places, by stamp, with the place and — a fields-declaring
+    /// call's survivor — the local that must still be live: a link the
+    /// contents rule spares (an inline handle at exactly a contents
+    /// mutation's path), and, at a call that declared which fields it
+    /// mutates, every link to its root at a field path. In Rust neither can
+    /// be a live borrow across the event (the place is named, or the whole
+    /// value lent `&mut`), and re-reading an unreplaced field yields the
+    /// object Kotlin's binding holds [backend-parity].
+    fn virtual_candidates(&self, span: Span, moved: &Moved) -> Vec<(crate::check::Key, String, Option<String>)> {
+        let mut out: Vec<(crate::check::Key, String, Option<String>)> = Vec::new();
+        for ev in self.mutations_at(span, false) {
+            for (v, ls) in &moved.links {
+                if *v == ev.root || ev.exempt.as_deref() == Some(v.as_str()) {
+                    continue;
+                }
+                for l in ls.iter().filter(|l| l.root == ev.root) {
+                    let Some(path) = l.path.as_deref() else { continue };
+                    let place = || {
+                        let mut place = written_name(&l.root).to_string();
+                        for step in path {
+                            place.push_str(&step.to_string());
+                        }
+                        place
+                    };
+                    let spared = ev.contents_only && !l.crosses && !path.is_empty() && ev.path.as_deref() == Some(path);
+                    if spared {
+                        let c = (l.stamp, place(), None);
+                        if !out.contains(&c) {
+                            out.push(c);
+                        }
+                    }
+                    if ev.fields && !path.is_empty() && path.iter().all(|s| matches!(s, crate::place::Step::Field(_))) {
+                        let c = (l.stamp, place(), Some(v.clone()));
+                        if !out.contains(&c) {
+                            out.push(c);
+                        }
+                    }
+                }
+            }
+        }
+        out
     }
 
     fn uses_at(&self, span: Span, assign: bool) -> Vec<DerivedUseAt> {

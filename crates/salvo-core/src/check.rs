@@ -1241,11 +1241,6 @@ pub struct Checked {
     /// a mutating call; an assignment statement): the variable, the action,
     /// and the message the IR reports when its binding stays borrow-mode.
     pub derived_uses: HashMap<Key, Vec<DerivedUse>>,
-    /// [deduce-field] The bindings a mutation event at a span may leave as
-    /// *virtual places* (`ir::Decision::virtual_binds`): those its contents rule
-    /// spares, and those a fields-declaring call leaves linked at a field
-    /// path. The IR keeps the ones its flow says are still live there.
-    pub virtual_candidates: HashMap<Key, Vec<VirtualCandidate>>,
     /// [actor-deadlock-cycle] Gated mints (`replyto!`) inside a handler's
     /// members: `(handler name, the mint's site)`. While a gated
     /// continuation is outstanding the actor serves *nothing else*, so
@@ -1737,19 +1732,6 @@ pub struct DerivedUse {
     pub action: String,
 }
 
-/// [deduce-field] A binding a mutation event may leave as a virtual place
-/// (`Checked::virtual_candidates`): its stamp, the place, the variable that
-/// holds the link, and whether that variable must still be live there
-/// (`survivor`: a fields-declaring call's) or not (a contents spare's).
-#[derive(Clone, Debug, PartialEq)]
-pub struct VirtualCandidate {
-    /// [node-id] The binding, by its node.
-    pub stamp: Key,
-    pub place: String,
-    pub var: String,
-    pub survivor: bool,
-}
-
 /// [fate-poison] One mutation event on a root, for the IR flow pass: what
 /// the checker's `record_mutation` was told. The pass poisons every
 /// value linked to `root` at an overlapping path [fate-field-disjoint],
@@ -1764,6 +1746,10 @@ pub struct FlowMutation {
     pub contents_only: bool,
     pub exempt: Option<String>,
     pub spared: Vec<String>,
+    /// [deduce-field] The event of a call whose callee declared which
+    /// fields it mutates: Rust still lends the whole value `&mut`, so what
+    /// survives linked at a field path cannot be a live borrow there.
+    pub fields: bool,
 }
 
 /// One captured variable of a lambda [fate-lambda]: the outer local the
@@ -12744,8 +12730,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// **at the same path** whose identity is proven apart names disjoint
     /// storage; anything short of the full proof poisons). A **contents**
     /// mutation (`contents_only` [deduce-field]) spares a handle to the
-    /// mutated thing itself, which is also a virtual-place candidate
-    /// (`Checked::virtual_candidates`).
+    /// mutated thing itself, which the IR flow pass may then render as a
+    /// virtual place.
     #[allow(clippy::too_many_arguments)]
     fn record_mutation(
         &mut self,
@@ -12761,13 +12747,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             Some(_) => self.live_distinct_pairs(),
             None => HashSet::new(),
         };
-        // [deduce-field] Bindings the contents-rule spares: in Rust they
-        // cannot be live borrows (the mutation names the same place, so
-        // `&h.tags` across `h.tags.push(…)` is E0502), so each is a
-        // candidate for the virtual-place rendering — which is also what
-        // keeps the two backends in step, since re-reading an unreplaced
-        // field yields the object Kotlin's binding holds [backend-parity].
-        let mut spared: Vec<(Span, String)> = Vec::new();
         // [fate-poison] For the IR flow pass: the variables the element
         // rule spares (a typing fact, the live `NotSame` claims), and the
         // acting handle by name.
@@ -12794,14 +12773,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // derivation reaching *through* its contents does not
                     // (`crosses`), nor does anything deeper, nor a
                     // replacement.
+                    // (Each is a candidate for the virtual-place rendering,
+                    // the IR flow pass's to say: `flow::virtual_candidates`.)
                     if contents_only && !l.crosses {
                         if let (Some(link), Some(ev)) = (l.path.as_deref(), event_path) {
                             if !link.is_empty() && link == ev {
-                                let mut place = l.root_name.clone();
-                                for step in link {
-                                    place.push_str(&step.to_string());
-                                }
-                                spared.push((l.bind_span, place));
                                 return false;
                             }
                         }
@@ -12832,19 +12808,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             contents_only,
             exempt: exempt_name,
             spared: elem_spared,
+            fields: false,
         };
         let at = self.out.fate_mutations.entry(key).or_default();
         if !at.contains(&fact) {
             at.push(fact);
-        }
-        // [deduce-field] The IR keeps the spares whose binding is still
-        // borrow-mode there [fate-move-mode].
-        for (bind_span, place) in spared {
-            let c = VirtualCandidate { stamp: self.key(bind_span), place, var: String::new(), survivor: false };
-            let at = self.out.virtual_candidates.entry(self.key(span)).or_default();
-            if !at.contains(&c) {
-                at.push(c);
-            }
         }
     }
 
@@ -17601,42 +17569,18 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Claims about the value are stripped as ever: a claim's own
         // precision is the follow-on (qualifiers on struct fields).
         self.strip_dependent_claims(name, &with_identity(preserve));
+        let key = self.key(span);
+        for m in self.out.fate_mutations.get_mut(&key).into_iter().flatten() {
+            if m.root == name {
+                m.fields = true;
+            }
+        }
         // [deduce-field] Whatever survives this narrowed event cannot be a
         // live borrow in Rust (the callee still takes the whole value
-        // `&mut`), so it is a candidate for the virtual-place rendering:
-        // every binding linked to the root at a field path. Which survive —
-        // still live after the event, and still borrow-mode — is the IR flow
-        // pass's to say [fate-move-mode] (until R8 piece 8 the walk's
-        // consumption marking said it).
-        let Some(root_id) = self.lookup(name).map(|v| v.id) else {
-            return;
-        };
-        let mut survivors: Vec<(Span, String, String)> = Vec::new();
-        for frame in &self.locals {
-            for (var_name, var) in frame {
-                for l in &var.links {
-                    if l.root_id != root_id {
-                        continue;
-                    }
-                    let Some(path) = l.path.as_deref() else { continue };
-                    if path.is_empty() || !path.iter().all(|s| matches!(s, Step::Field(_))) {
-                        continue;
-                    }
-                    let mut place = l.root_name.clone();
-                    for step in path {
-                        place.push_str(&step.to_string());
-                    }
-                    survivors.push((l.bind_span, place, var_name.clone()));
-                }
-            }
-        }
-        for (stamp, place, var) in survivors {
-            let c = VirtualCandidate { stamp: self.key(stamp), place, var, survivor: true };
-            let at = self.out.virtual_candidates.entry(self.key(span)).or_default();
-            if !at.contains(&c) {
-                at.push(c);
-            }
-        }
+        // `&mut`), so each binding linked to the root at a field path is a
+        // candidate for the virtual-place rendering; which survive is the IR
+        // flow pass's to say (`FlowMutation::fields`, `flow::virtual_candidates`)
+        // [fate-move-mode].
     }
 
     /// [qual-depend] The type and fate roots of a written **place path**

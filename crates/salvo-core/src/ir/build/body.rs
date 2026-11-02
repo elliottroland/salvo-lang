@@ -261,9 +261,8 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
-    /// [fate-move-mode] [deduce-field] The checker's derived uses and
-    /// virtual-place candidates at the AST span `span`, as the IR names
-    /// the locals here, onto the IR expression at `at`.
+    /// [fate-move-mode] The checker's derived uses at the AST span `span`,
+    /// as the IR names the locals here, onto the IR expression at `at`.
     pub(crate) fn note_uses(&mut self, span: Span, at: Span, assign: bool) {
         if let Some(uses) = self.ctx.checked.derived_uses.get(&self.key(span)) {
             let lowered: Vec<DerivedUseAt> = uses
@@ -275,20 +274,6 @@ impl<'a, 'p> Lower<'a, 'p> {
                 .collect();
             let table = if assign { &mut self.fate.assign_uses } else { &mut self.fate.uses };
             table.entry(at).or_default().extend(lowered);
-        }
-        if assign {
-            return;
-        }
-        if let Some(cands) = self.ctx.checked.virtual_candidates.get(&self.key(span)) {
-            let lowered: Vec<VirtualAt> = cands
-                .iter()
-                .map(|c| VirtualAt {
-                    stamp: c.stamp,
-                    place: c.place.clone(),
-                    local: if c.survivor { self.lookup(&c.var).map(|b| b.local.0.clone()) } else { None },
-                })
-                .collect();
-            self.fate.virtual_at.entry(at).or_default().extend(lowered);
         }
     }
 

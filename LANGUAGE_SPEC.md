@@ -10274,12 +10274,14 @@ between endpoints and delivers what arrives into the scheduler.
     Sound precisely because survival means the field was untouched, so the
     re-read sees the object Kotlin's binding holds. Which bindings survive
     is the IR flow pass's to say since R8 piece 8 (`ir::Decision::
-    virtual_binds`): the checker records the candidates at each event
-    (`Checked::virtual_candidates` — every binding linked to the root at a
-    field path, and the contents spares below), and `flow::decide` keeps
-    the ones still live after the event and whose binding has not taken
-    ownership on that path [fate-move-mode] (the walk's consumption marking
-    said which until then). (The first attempt at
+    virtual_binds`): at each event it takes the candidates from the links
+    standing on that path (`flow::virtual_candidates` — at a call whose
+    callee declared its fields, `FlowMutation::fields`, every binding
+    linked to the root at a field path; and the contents spares below),
+    and keeps the ones still live after the event and whose binding has
+    not taken ownership on that path [fate-move-mode]. (The checker
+    recorded the candidates until PIPELINE.md D3.5(b), and the walk's
+    consumption marking said which survived until R8 piece 8.) (The first attempt at
     this rung relaxed poison for *any* field path and broke that parity;
     COMPLETED.md's log (rung ⑤) keeps the probe.)
   * **v2 (built 2026-09-25): contents versus replacement.** A **contents**
