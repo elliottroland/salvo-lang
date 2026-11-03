@@ -14,6 +14,7 @@
 // the `cmp` the heap was built with: `Heap(min_by_age)` and `Heap(max_by_age)`
 // are different types that refuse to mix.
 // @compilerrules [cmp-carry]
+// @compilerknown
 export qualifier Heap<T>(?Ordered<T>) of List<T>
 
 // Returns an empty List which trivially supports the heap property. The

@@ -710,6 +710,7 @@ fn dial(dialed: Mut Set<Str>, group: Str, e: NodeEndpoint) [Transport] -> None
 // a generic fn (`actor_group<E>`) gets to hold the name and hash of an `E`
 // it cannot see.
 // @compilerrules [actor-protocol-hash, effect-generic-decl]
+// @compilerknown
 export struct Protocol<E> {
     name: Str,
     hash: Str
@@ -738,6 +739,7 @@ export intrinsic fn protocol<E>() [] -> Protocol<E>
 // `ActorGroup<Ledger>` are distinct types, so a group can only ever hold the
 // protocol it is of.
 // @compilerrules [actor-group, net-addr-routable, effect-generic-decl]
+// @compilerknown
 export actor effect ActorGroup<E> {
     // Register [member] here; every replica learns of it.
     send fn join(member: eff[E]) => !member
@@ -1092,6 +1094,7 @@ export struct RouteConfig {
 // what says `None`). std's policies take it as a constructor parameter that
 // defaults to [default_route_config].
 // @compilerrules [actor-route-stub]
+// @compilerknown
 export effect RouteSelector<E> {
     fn changed(view: RouteView<E>) -> None => view
     fn select(view: RouteView<E>, key: Long?) -> eff[E]? => view, key
@@ -1103,6 +1106,7 @@ export effect RouteSelector<E> {
 // erased like any qualifier; the stub hashes the argument
 // into the `key` its selector's `select` receives. At most one per member.
 // @compilerrules [actor-route-stub, qual-erasure]
+// @compilerknown
 export provenance qualifier Key<T> of T
 
 // The canonical hash of a key argument — over its wire encoding,
@@ -1115,6 +1119,7 @@ export intrinsic fn key_hash<T>(k: T) [] -> Long => k
 // What a stub's send goes to, and the view version its selector
 // has now seen.
 // @compilerrules [actor-route-stub]
+// @compilerknown
 export struct RoutePick<E> {
     to: eff[E],
     version: Long
@@ -1125,11 +1130,13 @@ export struct RoutePick<E> {
 // long as the selector's `config` says. Exported for the routes the compiler
 // derives, which call it from the protocol's own module.
 // @compilerrules [actor-route-stub]
+// @compilerknown
 export fn route_pick<E>(group: eff[ActorGroup<E>], seen: Long) [RouteSelector<E>] -> RoutePick<E>
 => group, !seen {
     return route_keyed(group, seen, None)
 }
 
+// @compilerknown
 export fn route_pick<E>(group: eff[ActorGroup<E>], seen: Long, key: Long) [RouteSelector<E>] -> RoutePick<E>
 => group, !seen, !key {
     return route_keyed(group, seen, key)

@@ -34,6 +34,7 @@
 use std::collections::HashMap;
 
 use salvo_syntax::ast::{EffectDecl, StructDecl, Type};
+use salvo_syntax::known;
 
 use crate::program::Symbols;
 use crate::types::{Qual, Ty};
@@ -115,7 +116,7 @@ fn wire_blocker_at(symbols: &Symbols<'_>, ty: &Ty, depth: usize) -> Option<WireB
                 "Bool" | "Byte" | "Int" | "Long" | "Float" | "Double" | "Char" | "Str"
                 | "Bytes" | "None" => return None,
                 "List" => return args.iter().find_map(|a| wire_blocker_at(symbols, a, depth + 1)),
-                "Set" | "Map" | "SortedSet" | "SortedMap" => {
+                known::SET_TYPE | known::MAP_TYPE | known::SORTED_SET_TYPE | known::SORTED_MAP_TYPE => {
                     return Some(WireBlock::Keyed(name.clone()))
                 }
                 // [net-addr-routable] An addr crosses as its routable identity —

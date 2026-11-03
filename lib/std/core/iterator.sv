@@ -19,11 +19,13 @@
 // end: `Emitted None | Finished` has two arms where `None | None` would
 // have one. Erased in generated code.
 // @compilerrules [qual-constructive, qual-erasure]
+// @compilerknown
 export provenance qualifier Emitted<T> of T
 
 // The end arm. A fieldless struct rather than a qualifier because there is
 // nothing for it to qualify: it carries no element, and reusing `None` would
 // say "absent" where the claim is "the sequence ended".
+// @compilerknown
 export struct Finished {}
 
 // Tags a value as the element arm. The value is moved into the
@@ -61,6 +63,7 @@ export fn finished() [] -> Finished {
 // declares `: Next<self, T>` and owns them. A reading combinator's
 // `?Next<It, T>` accepts either. A group emits nothing on any backend.
 // @compilerrules [iter-protocol, group-obligation, implicit-group, group-self, iter-yield-proj, copy-opt-in]
+// @compilerknown
 export fns Next<It, T> {
     fn next(it: Mut It) -> Emitted T | Finished => it: Mut
 }
@@ -84,6 +87,7 @@ export fns Next<It, T> {
 // *source* writes `for x in c` and the loop mints with the one and drives
 // with the other.
 // @compilerrules [iter-group, implicit-with]
+// @compilerknown
 export fns Iter<C, It, T> => iter with next {
     fn iter(collection: C) -> Mut It
     fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut

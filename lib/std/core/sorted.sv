@@ -28,6 +28,7 @@
 // order) [kt-ordered].
 
 // @compilerrules [qual-refn-type]
+// @compilerknown
 export iterable platform type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut : Iter<self, SetIter<T>, T> {
     // Adding an element makes the set non-empty.
     refn add(set: Mut SortedSet<T>, elem: T) => set: +NonEmpty
@@ -106,6 +107,7 @@ export fn iter<T>(set: SortedSet<T>) [] -> Mut SetIter<T> => set {
 }
 
 // @compilerrules [qual-refn-type]
+// @compilerknown
 export iterable platform type SortedMap<K, V>(?cmp: (K, K) -> Int) canbe Mut : Iter<self, MapKeyIter<K>, K> {
     // Putting an entry makes the map non-empty.
     refn put(map: Mut SortedMap<K, V>, key: K, value: V) => map: +NonEmpty

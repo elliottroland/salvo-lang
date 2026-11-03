@@ -609,14 +609,14 @@ impl Level {
 /// (this is the segment after `std`). Implicitly available in
 /// every test annex and nowhere else (user decision 2026-09-23), which is why
 /// no test file ever writes an import for the assertions it uses.
-pub const TEST_MODULE: &str = "test";
+pub const TEST_MODULE: &str = salvo_syntax::known::TEST_MODULE;
 
 /// [test-implicit-import] [throw] The non-resumption module, `std.throw`. Also
 /// implicitly available in a test annex, because the harness puts
 /// `[Throw<Failure>]` on a test body [test-body] and an assertion throws: a
 /// test file importing it would be importing something it never wrote
 /// (2026-09-26, when `throw` left `std.core`).
-pub const THROW_MODULE: &str = "throw";
+pub const THROW_MODULE: &str = salvo_syntax::known::THROW_MODULE;
 
 pub fn resolve(program: &Program) -> Resolution<'_> {
     // [comptime-instantiate] [decl-id] An expanded program comes with the
@@ -1465,7 +1465,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
 /// [mod-std-internal] The segment after `std` of std's internal modules:
 /// `std.runtime` and anything under it (`lib/std/runtime.sv`,
 /// `lib/std/runtime/**`).
-pub const STD_INTERNAL: &str = "runtime";
+pub const STD_INTERNAL: &str = salvo_syntax::known::STD_INTERNAL;
 
 struct AddCtx<'e, 'p> {
     file_idx: usize,

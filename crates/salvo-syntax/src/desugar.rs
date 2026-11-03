@@ -62,6 +62,7 @@ use std::collections::BTreeMap;
 
 use crate::ast::*;
 use crate::diag::Diagnostic;
+use crate::known;
 use crate::messages;
 use crate::span::Span;
 
@@ -368,7 +369,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
                 alias: None,
                 value_args: Vec::new(),
                 name: Ident {
-                    name: "Next".to_string(),
+                    name: known::NEXT_GROUP.to_string(),
                     span: struct_span,
                 },
                 args: vec![
@@ -679,10 +680,10 @@ fn test_fn(test: TestDecl, fn_name: String) -> FnDecl {
     // `Throw<Failure>`: the failure channel [test-fail]. `Failure` resolves
     // in a test file because `std.test` is implicitly available there
     // [test-implicit-import].
-    let mut throw = type_ref("Throw", span);
+    let mut throw = type_ref(known::THROW_EFFECT, span);
     throw.args = vec![Type::Named {
         qualifiers: Vec::new(),
-        base: type_ref("Failure", span),
+        base: type_ref(known::FAILURE_STRUCT, span),
     }];
     FnDecl {
         docs: test.docs,
@@ -739,10 +740,10 @@ fn element_type(ty: Option<&Type>) -> Option<Type> {
     let mut finished = false;
     for arm in arms {
         match arm {
-            Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name == "Finished" => {
+            Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name == known::FINISHED_STRUCT => {
                 finished = true;
             }
-            Type::Named { qualifiers, base } if qualifiers.len() == 1 && qualifiers[0].name.name == "Emitted" => {
+            Type::Named { qualifiers, base } if qualifiers.len() == 1 && qualifiers[0].name.name == known::EMITTED_QUALIFIER => {
                 emitted = Some(Type::Named {
                     qualifiers: vec![],
                     base: base.clone(),
@@ -750,7 +751,7 @@ fn element_type(ty: Option<&Type>) -> Option<Type> {
             }
             Type::QualifiedGroup {
                 qualifiers, base, ..
-            } if qualifiers.len() == 1 && qualifiers[0].name.name == "Emitted" => {
+            } if qualifiers.len() == 1 && qualifiers[0].name.name == known::EMITTED_QUALIFIER => {
                 emitted = Some((**base).clone());
             }
             _ => return None,

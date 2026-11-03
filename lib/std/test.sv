@@ -18,6 +18,8 @@
 //     these; there is nothing to register.
 //   * **A test stops at its first failure**, because that is what `throw`
 //     does. Several independent facts are several tests.
+//
+// @compilerknown
 
 // [test-fail] Why a test failed: the message the report prints under it.
 //
@@ -27,6 +29,7 @@
 import std.throw
 import std.runtime.trap_boundary
 
+// @compilerknown
 export struct Failure {
     // One line, ideally: the report indents it under the test's own line.
     message: Str

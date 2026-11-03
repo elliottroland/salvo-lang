@@ -13630,8 +13630,9 @@ replaced the working document TESTING.md).
     `` `[a, b]` `` stays literal.
 * [doc-tags] **A doc line that starts with `@name` opens a tag** (user
   decisions 2026-10-20): `@param name  text`, `@returns`, `@throws`, `@see`,
-  `@todo`, `@whynot` [qual-whynot] and `@compilerrules`
-  [doc-compilerrules]. Prose comes first; a tag's text runs
+  `@todo`, `@whynot` [qual-whynot], `@compilerrules`
+  [doc-compilerrules] and `@compilerknown` [doc-compilerknown]. Prose comes
+  first; a tag's text runs
   over the lines below it until the next tag, a bare `//` line, or the end
   of the block, its lines joined by spaces (so it wraps freely,
   [lsp-comment-continuation] lining up the continuation). An `@` inside a
@@ -13661,6 +13662,24 @@ replaced the working document TESTING.md).
   would be shown to every user hovering the name. Whether a cited label
   exists is the repository's test to check (`docs_tests`), not the
   compiler's: the compiler does not read the specs.
+* [doc-compilerknown] **`@compilerknown` marks a std declaration the compiler
+  names** (user decisions 2026-10-30): renaming or reshaping it would break
+  the compiler, which refers to it by name — the throw effect, the iterator
+  protocol's groups, the comptime type model, the actor runtime's types, the
+  containers and handle mints the backends lower. Bare, or followed by a
+  note on what depends on it; **hover leaves it out**, like
+  `@compilerrules`. A compiler-known *module* carries it in its own doc
+  comment [doc-module] (`std.throw`, `std.test`, `std.runtime`).
+  * **One list.** Every such name is a constant in
+    `salvo_syntax::known` (`known.rs`), and the compiler uses the constant
+    rather than a string of its own; `known::ALL` and `known::MODULES` list
+    the declarations and modules, and a repository test
+    (`std_compiler_known_names_are_tagged`) checks both directions: every
+    listed declaration carries the tag, and every tag in std is listed.
+  * **What is not listed**: `intrinsic` declarations, which the keyword
+    already marks; what a rule depends on only by its shape (a qualifier with
+    a `qualifies`, such as `Idx` and `NonEmpty`); and member names reached
+    through a listed declaration (`Throw`'s `throw`), which its tag covers.
 * [lsp-comment-continuation] **Enter in a `//` comment continues it aligned**
   (`textDocument/onTypeFormatting` on `\n`): under the text after a
   `LABEL: ` (`// TODO: text`), after a doc tag (`// @returns text`;

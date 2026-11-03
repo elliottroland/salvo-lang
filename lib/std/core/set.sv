@@ -19,6 +19,7 @@
 // Own module rather than part of `std.core.list` so a program that never uses a
 // set emits no code for it.
 // @compilerrules [type-canbe-mut, col-key-eligible, obligation-by, mod-used-only, qual-refn-type]
+// @compilerknown
 export iterable platform type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut : Iter<self, SetIter<T>, T> {
     // Adding an element makes a set non-empty, which `add` cannot promise
     // itself: a mutating function may not hand back a claim it has never

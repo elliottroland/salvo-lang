@@ -5,6 +5,7 @@
 //! backend's for now).
 
 use salvo_core::types::Ty;
+use salvo_syntax::known;
 use salvo_core::ir::{Decl, Expr, ExprKind, FnDecl, ImplDecl, InterfaceDecl, Local, ReplyTarget};
 
 use super::body::rs_local;
@@ -386,7 +387,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         };
         let joined = match join {
             Some(g) => {
-                let Some(group) = self.s.interface("ActorGroup") else {
+                let Some(group) = self.s.interface(known::ACTOR_GROUP_EFFECT) else {
                     self.error(messages::rs_actor_group_needs_net());
                     return "()".to_string();
                 };
@@ -618,14 +619,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ("pool", 2) if recv == Some("Int") => {
                 let a = self.value(&args[0], indent);
                 let b = self.value(&args[1], indent);
-                let faults = self.s.interface("Faults")?;
+                let faults = self.s.interface(known::FAULTS_EFFECT)?;
                 let msg = self.path_in(faults.id.module(), "__Msg_Faults");
-                let fault = self.type_path("Fault");
+                let fault = self.type_path(known::FAULT_STRUCT);
                 Some(format!("crate::scheduler::salvo_pool_with_sink((({a}) as usize), Some(((({b}) as usize), |__reason| std::boxed::Box::new({msg}::Faulted({fault} {{ reason: __reason }})))))"))
             }
             ("protocol", 0) => {
                 let effect = match e.ty.strip_quals() {
-                    Ty::Named { name, args } if name == "Protocol" && args.len() == 1 => match args[0].strip_quals() {
+                    Ty::Named { name, args } if name == known::PROTOCOL_STRUCT && args.len() == 1 => match args[0].strip_quals() {
                         Ty::Named { name, .. } => Some(name.clone()),
                         _ => None,
                     },
@@ -637,7 +638,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     return Some("()".to_string());
                 };
                 let proto = self.path_in(iface.id.module(), &format!("__PROTO_{}", rs_ident(&iface.name)));
-                let st = self.type_path("Protocol");
+                let st = self.type_path(known::PROTOCOL_STRUCT);
                 Some(format!("{st} {{ name: \"{}\".to_string(), hash: {proto}.to_string() }}", iface.name))
             }
             ("watch_control", 2) => {

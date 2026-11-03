@@ -92,6 +92,7 @@ export intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value
 // interpolation site — but it validates at the declaration that one exists,
 // which is where the mistake is easier to see (user decision 2026-09-11).
 // @compilerrules [interp-to-str]
+// @compilerknown
 export fns ToStr<T> {
     fn to_str(value: T) -> Str
 }

@@ -223,7 +223,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let elem = td
                 .obligations
                 .iter()
-                .find(|o| o.group.name.name == "Iter")
+                .find(|o| o.group.name.name == salvo_syntax::known::ITER_GROUP)
                 // `Iter<self, It, T>`: the element is the last argument.
                 .and_then(|o| o.group.args.get(2))
                 .map(|a| {

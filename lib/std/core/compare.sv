@@ -27,6 +27,7 @@
 // The ordering capability: one function, answering the sign of `a` against
 // `b`. A structure that *holds* an ordering (a `SortedSet`, a heap) binds one
 // at construction rather than resolving one per operation.
+// @compilerknown
 export fns Ordered<T> {
     fn cmp(a: T, b: T) -> Int
 }
@@ -34,6 +35,7 @@ export fns Ordered<T> {
 // The equality capability: one function, deciding whether two values are the
 // same. A struct with a fn-typed field — which nothing can compare
 // structurally — becomes comparable by declaring an `eq` that ignores it.
+// @compilerknown
 export fns Eq<T> {
     fn eq(a: T, b: T) -> Bool
 }
@@ -59,6 +61,7 @@ export fns Eq<T> {
 //
 // `Ordered` needs no such clause: one member cannot disagree with itself.
 // @compilerrules [implicit-with]
+// @compilerknown
 export fns Hashed<T> => eq with hash {
     fn hash(value: T) -> Long
     fn eq(a: T, b: T) -> Bool

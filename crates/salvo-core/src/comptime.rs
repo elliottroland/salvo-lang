@@ -28,6 +28,7 @@ use std::collections::HashMap;
 use salvo_syntax::ast::*;
 use salvo_syntax::visit_mut::{self, MutVisitor};
 use salvo_syntax::diag::IntoMessage;
+use salvo_syntax::known;
 use salvo_syntax::messages;
 use salvo_syntax::{Diagnostic, Span};
 
@@ -615,7 +616,7 @@ impl HoverRecorder<'_> {
     fn comp_ty(&mut self, ct: &CompTy) {
         if ct.via_type {
             if let Some(is_arm) = self.binder_kind(&ct.root.name) {
-                let owner = if is_arm { "Arm" } else { "Field" };
+                let owner = if is_arm { known::COMPTIME_ARM } else { known::COMPTIME_FIELD };
                 self.push(
                     ct.span,
                     &format!("{}.type", ct.root.name),
@@ -655,11 +656,11 @@ impl HoverRecorder<'_> {
     fn seq(&mut self, seq: &CompSeq) {
         self.comp_ty(&seq.ty);
         let (what, elem) = if seq.literals {
-            ("literals", "Literal")
+            ("literals", known::COMPTIME_LITERAL)
         } else if seq.arms {
-            ("arms", "Arm")
+            ("arms", known::COMPTIME_ARM)
         } else {
-            ("fields", "Field")
+            ("fields", known::COMPTIME_FIELD)
         };
         self.push(
             seq.span,
@@ -672,7 +673,7 @@ impl HoverRecorder<'_> {
     }
 
     fn binder(&mut self, id: &Ident, is_arm: bool) {
-        let ty = if is_arm { "Arm" } else { "Field" };
+        let ty = if is_arm { known::COMPTIME_ARM } else { known::COMPTIME_FIELD };
         self.push(
             id.span,
             &format!("{}: {ty}", id.name),
@@ -872,7 +873,7 @@ impl HoverRecorder<'_> {
         if let Type::Named { base, .. } = t {
             if let Some(b) = base.name.name.strip_suffix(".type") {
                 if let Some(is_arm) = self.binder_kind(b) {
-                    let owner = if is_arm { "Arm" } else { "Field" };
+                    let owner = if is_arm { known::COMPTIME_ARM } else { known::COMPTIME_FIELD };
                     self.push(
                         base.span,
                         &format!("{b}.type: Type"),
@@ -906,10 +907,10 @@ impl HoverRecorder<'_> {
                             "name" => ("Str", "The declared name, as a literal in each copy."),
                             "index" => ("Int", "The declared position, from zero."),
                             "first" => ("Bool", "Whether this copy is for the first element."),
-                            "value" => ("Value", "The literal member itself, as a literal in each copy [comptime-literals]."),
+                            "value" => (known::COMPTIME_VALUE, "The literal member itself, as a literal in each copy [comptime-literals]."),
                             "last" => ("Bool", "Whether this copy is for the last element."),
-                            "type" => ("Type", "The declared type itself (`core.comptime`)."),
-                            "kind" => ("Kind", "The declared type's kind (`core.comptime`), tested in a comptime head."),
+                            "type" => (known::COMPTIME_TYPE, "The declared type itself (`core.comptime`)."),
+                            "kind" => (known::COMPTIME_KIND, "The declared type's kind (`core.comptime`), tested in a comptime head."),
                             "docs" => ("Str?", "The doc comment above the declaration, as text, or `None` [comptime-docs]."),
                             "default" => ("Value?", "The declared default, evaluated where the struct is declared; `None` where the field has none [comptime-default]."),
                             _ => ("?", "Not a projection a `Field`/`Arm` has."),
@@ -1161,7 +1162,7 @@ fn kind_arms_missing(arms: &[KindArm]) -> Vec<String> {
     .into_iter()
     .filter(|k| !covered(*k))
     .filter_map(|k| match k {
-        TypeKindWord::Basic if opaque => Some("Opaque".to_string()),
+        TypeKindWord::Basic if opaque => Some(known::COMPTIME_OPAQUE.to_string()),
         TypeKindWord::Generic if opaque => None,
         k => Some(k.word().to_string()),
     })
@@ -1935,10 +1936,10 @@ impl<'w> Stamper<'w> {
     /// name. `None` for a member whose capability has no group to ask for.
     fn generic_needs(&self, member: &str, site: Span) -> Option<(Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<TypeRef>)> {
         let group = match member {
-            "cmp" => "Ordered",
-            "eq" => "Eq",
-            "hash" => "Hashed",
-            "to_str" => "ToStr",
+            "cmp" => known::ORDERED_GROUP,
+            "eq" => known::EQ_GROUP,
+            "hash" => known::HASHED_GROUP,
+            "to_str" => known::TO_STR_GROUP,
             _ => return None,
         };
         let (generics, canbe, parts): (Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<Type>) =
@@ -2199,9 +2200,9 @@ impl<'w> Stamper<'w> {
 
 fn group_for(member: &str) -> &'static str {
     match member {
-        "cmp" => "Ordered",
-        "hash" | "eq" => "Hashed",
-        "to_str" => "ToStr",
+        "cmp" => known::ORDERED_GROUP,
+        "hash" | "eq" => known::HASHED_GROUP,
+        "to_str" => known::TO_STR_GROUP,
         _ => "Group",
     }
 }
@@ -3262,7 +3263,7 @@ impl<'w> Expander<'w> {
                             self.error(*span, messages::comptime_qualifier_not_a_struct(&ty.root.name));
                             return None;
                         };
-                        return self.match_annotation(&annotations, base, binders, "Struct", *span, can_bind);
+                        return self.match_annotation(&annotations, base, binders, known::COMPTIME_STRUCT, *span, can_bind);
                     }
                 }
                 let t = self.resolve_ty(ty)?;
@@ -3350,7 +3351,7 @@ impl<'w> Expander<'w> {
                     self.error(*span, messages::comptime_qualifier_on_arm(&subject.name));
                     return None;
                 }
-                self.match_annotation(&b.annotations, qual, binders, "Field", *span, can_bind)
+                self.match_annotation(&b.annotations, qual, binders, known::COMPTIME_FIELD, *span, can_bind)
             }
             CompCond::Unset { binder, docs: true, span } => {
                 if let Some(b) = self.binding(&binder.name) {

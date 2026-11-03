@@ -23,7 +23,7 @@
 
 /// The tags this version knows. Any other `@name` at the start of a line is
 /// a warning naming these.
-pub const KNOWN_TAGS: &[&str] = &["param", "returns", "throws", "see", "todo", "whynot", "compilerrules"];
+pub const KNOWN_TAGS: &[&str] = &["param", "returns", "throws", "see", "todo", "whynot", "compilerrules", "compilerknown"];
 
 /// One tag of a doc block.
 #[derive(Clone, Debug, PartialEq)]

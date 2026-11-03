@@ -144,6 +144,38 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — `@compilerknown` marks the std names the compiler depends on (user decisions, [doc-compilerknown])
+
+- **Decided (user)**: a tag for "any types, functions, modules, or whatever
+  that if I renamed or changed them then something in the compiler would
+  break", scoped to the names the compiler explicitly names (3.a); those
+  names pulled out of strings into one constants file that a test checks
+  against the tags (3.a, 3.b); a bare `@compilerknown`, optionally with a
+  note, hidden from hover (3.c); a module's tag in its doc comment (3.d).
+- **Built**: `salvo_syntax::known` (`known.rs`), one `pub const` per name,
+  with `known::ALL` (module, name, fn-or-type) and `known::MODULES`; the
+  compiler's existing name constants (`THROW_EFFECT`, `MAILBOX_TYPE`,
+  `TEST_MODULE`, …) are now aliases of it, and 133 string literals across
+  salvo-syntax, salvo-core and both backends use the constants (a sub-agent's
+  sweep, checked by substituting every constant's value back and comparing
+  each changed line). `compilerknown` joins `KNOWN_TAGS`; hover drops it.
+  std carries 68 tags (65 declarations, counting each overload, and the
+  `std.throw`, `std.test`, `std.runtime` module comments);
+  `std_compiler_known_names_are_tagged` checks both directions.
+- **Scope calls** (mine, under 3.a): `intrinsic` declarations are not
+  listed, since the keyword already marks them; neither is what a rule needs
+  only by shape (`Idx`, `NonEmpty`), nor a member reached through a listed
+  declaration (`Throw`'s `throw`, `ActorGroup`'s `join`). The inventory's
+  `mint` and `watch_control` turned out not to be referenced as std's
+  declarations (the Kotlin runtime's `mint`; `std.net`'s intrinsic
+  `watch_control`), and std's `get` over a list, deque and map was missing
+  from it; the list was corrected both ways.
+- **Left as strings, deliberately**: a module's test annex (`l == "test"`,
+  any module's, not `std.test`), the `matches!` of builtin type keys in
+  `ir/build/erased.rs`, names inside emitted target text (`__Msg_Faults`),
+  the intrinsic `pool(Int, sink)` arms of the backends' intrinsic tables, and
+  `#[cfg(test)]` code.
+
 ### 2026-10-30 — `NonEmpty` is one generic qualifier, refined in its types' bodies (user decisions, [col-nonempty] [qual-refn-type])
 
 - **Decided (user)**: one `qualifier NonEmpty<T> of T` whose `qualifies`

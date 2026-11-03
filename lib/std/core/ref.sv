@@ -18,6 +18,7 @@ intrinsic fn same<T>(a: T, b: T) [] -> Bool => a, b
 // split borrow where their paths diverge. Rebinding either side
 // strips it, like any dependent claim.
 // @compilerrules [ref-notsame, fate-elem-distinct, rs-path, qual-depend]
+// @compilerknown
 export qualifier NotSame<T>(a: T) of T {
     fn qualifies(b: T, a: T) -> Bool {
         return !same(a, b)

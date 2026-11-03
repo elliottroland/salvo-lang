@@ -321,7 +321,7 @@ fun<T> drain(list: List<T>, each: (T) -> Unit) {
                     __pick1_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:322:32")
+                    throw AssertionError("salvo: unreachable at std.core.list:328:32")
                 }
             }
         })
@@ -346,7 +346,7 @@ fun<T> first(list: List<T>): T {
                 __pick2_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.core.list:347:28")
+                throw AssertionError("salvo: unreachable at std.core.list:353:28")
             }
         }
     }
@@ -385,7 +385,7 @@ fun<T> removeFrontWhile(list: salvo.platform.std.core.list.MutList<T>, keep: (T)
                     __pick3_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:395:50")
+                    throw AssertionError("salvo: unreachable at std.core.list:401:50")
                 }
             }
         })))) {
@@ -407,7 +407,7 @@ fun<T> removeBackWhile(list: salvo.platform.std.core.list.MutList<T>, keep: (T) 
                     __pick4_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:408:47")
+                    throw AssertionError("salvo: unreachable at std.core.list:414:47")
                 }
             }
         })))) {
@@ -436,7 +436,7 @@ fun<T> subList(list: List<T>, from: Int, to: Int, copy: (T) -> T): salvo.platfor
                     __pick5_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:427:39")
+                    throw AssertionError("salvo: unreachable at std.core.list:433:39")
                 }
             }
         }))
@@ -543,7 +543,7 @@ fun<T> contains(list: List<T>, elem: T, eq: (T, T) -> Boolean): Boolean {
                     __pick6_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:482:31")
+                    throw AssertionError("salvo: unreachable at std.core.list:488:31")
                 }
             }
         }, elem)) {
@@ -572,7 +572,7 @@ fun<T> all(list: List<T>, pick: (T) -> Boolean): Boolean {
                     __pick7_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:501:34")
+                    throw AssertionError("salvo: unreachable at std.core.list:507:34")
                 }
             }
         }))) {
@@ -598,7 +598,7 @@ fun<T> count(list: List<T>, pick: (T) -> Boolean): Int {
                     __pick8_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:515:33")
+                    throw AssertionError("salvo: unreachable at std.core.list:521:33")
                 }
             }
         })) {
@@ -625,7 +625,7 @@ fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): kotlin.Pa
                     __pick9_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:533:33")
+                    throw AssertionError("salvo: unreachable at std.core.list:539:33")
                 }
             }
         }
@@ -883,7 +883,7 @@ fun<A, B, E> both(a: Union2<A, List<E>>, b: Union2<B, List<E>>, copy: (E) -> E):
                     return Union2.U2<kotlin.Pair<A, B>, List<E>>(salvo.std.core.result.Errs(b_3))
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:77:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:78:13"))
                 }
             }
         }
@@ -899,12 +899,12 @@ fun<A, B, E> both(a: Union2<A, List<E>>, b: Union2<B, List<E>>, copy: (E) -> E):
                     return Union2.U2<kotlin.Pair<A, B>, List<E>>(salvo.std.core.result.Errs(salvo.std.core.result.joined(a_4, b_6, copy)))
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:83:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:84:13"))
                 }
             }
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:75:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:76:5"))
         }
     }
 }
@@ -924,7 +924,7 @@ fun<A, B, C, E> map2(a: Union2<A, List<E>>, b: Union2<B, List<E>>, f: (A, B) -> 
                     return Union2.U2<C, List<E>>(salvo.std.core.result.Errs(b_3))
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:98:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:99:13"))
                 }
             }
         }
@@ -940,12 +940,12 @@ fun<A, B, C, E> map2(a: Union2<A, List<E>>, b: Union2<B, List<E>>, f: (A, B) -> 
                     return Union2.U2<C, List<E>>(salvo.std.core.result.Errs(salvo.std.core.result.joined(a_4, b_6, copy)))
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:104:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:105:13"))
                 }
             }
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:96:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:97:5"))
         }
     }
 }
@@ -961,7 +961,7 @@ fun<X> joined(a: List<X>, b: List<X>, copy: (X) -> X): List<X> {
     if (salvo.std.core.nonempty.NonEmpty_qualifies(errors, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
         return errors
     }
-    return throw AssertionError(("salvo: " + ("two non-empty lists joined are not empty") + " at std.core.result:126:5"))
+    return throw AssertionError(("salvo: " + ("two non-empty lists joined are not empty") + " at std.core.result:127:5"))
 }
 
 

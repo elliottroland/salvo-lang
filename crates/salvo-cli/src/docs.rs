@@ -99,9 +99,10 @@ pub fn render(docs: &[String], scope: &DocScope) -> Option<String> {
             .collect();
         add(title, items);
     }
-    // [doc-compilerrules] The compiler rules a declaration cites are for
-    // its source's readers, not its users: hover leaves them out.
-    for t in parts.tags.iter().filter(|t| t.name != "compilerrules" && !sections.iter().any(|(s, _)| *s == t.name)) {
+    // [doc-compilerrules] [doc-compilerknown] The compiler rules a
+    // declaration cites, and that the compiler names it, are for its
+    // source's readers, not its users: hover leaves them out.
+    for t in parts.tags.iter().filter(|t| t.name != "compilerrules" && t.name != "compilerknown" && !sections.iter().any(|(s, _)| *s == t.name)) {
         add(&format!("@{}", t.name), vec![format!("- {}", resolve_refs(&t.text, scope))]);
     }
     if body.iter().all(|l| l.trim().is_empty()) {
@@ -312,7 +313,8 @@ mod tests {
 
     /// [doc-tags] The tags follow the prose as sections, `[name]`s resolved
     /// as anywhere in a doc block, and an unknown tag under its own name.
-    /// [doc-compilerrules] `@compilerrules` is not shown.
+    /// [doc-compilerrules] [doc-compilerknown] `@compilerrules` and
+    /// `@compilerknown` are not shown.
     #[test]
     fn tags_render_as_sections_after_the_prose() {
         let link = |_: usize, _: Span| -> Option<String> { None };
@@ -326,6 +328,7 @@ mod tests {
             "@frob something",
             "@todo the empty case",
             "@compilerrules [doc-tags, doc-compilerrules] how they apply",
+            "@compilerknown the checker names it",
         ]
         .iter()
         .map(|l| l.to_string())

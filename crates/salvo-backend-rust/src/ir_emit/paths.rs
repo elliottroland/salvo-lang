@@ -128,7 +128,7 @@ impl<'p> Shared<'p> {
         match c {
             Ty::Named { name, args } if (name == "List" || name == "Deque") && args.len() == 1 => via(PStep::Index, &args[0], prefix, stack, out),
             Ty::Array(x) => via(PStep::Index, x, prefix, stack, out),
-            Ty::Named { name, args } if name == "Map" && args.iter().filter(|a| !matches!(a, Ty::FnName(_))).count() == 2 => {
+            Ty::Named { name, args } if name == salvo_syntax::known::MAP_TYPE && args.iter().filter(|a| !matches!(a, Ty::FnName(_))).count() == 2 => {
                 let v = args.iter().filter(|a| !matches!(a, Ty::FnName(_))).nth(1).unwrap().clone();
                 via(PStep::Slot, &v, prefix, stack, out)
             }

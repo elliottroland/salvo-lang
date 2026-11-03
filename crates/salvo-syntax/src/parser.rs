@@ -227,7 +227,7 @@ pub const MAILBOX_SLOT: &str = "mailbox";
 /// [actor-mailbox] The std struct the slot's braces build: the block is that
 /// struct's literal with the type elided, which is what gives the fields their
 /// names, types, defaults and diagnostics for free.
-pub const MAILBOX_TYPE: &str = "Mailbox";
+pub const MAILBOX_TYPE: &str = crate::known::MAILBOX_TYPE;
 
 impl<'s> Parser<'s> {
     pub fn new(source: &'s str, tokens: Vec<Token>, comments: Vec<Comment>) -> Self {
@@ -1778,8 +1778,8 @@ impl<'s> Parser<'s> {
             }
             let kind_span = self.peek().span;
             let kind = match self.kind() {
-                TokenKind::Ident(n) if n == "Struct" => CompKind::Struct,
-                TokenKind::Ident(n) if n == "Union" => CompKind::Union,
+                TokenKind::Ident(n) if n == crate::known::COMPTIME_STRUCT => CompKind::Struct,
+                TokenKind::Ident(n) if n == crate::known::COMPTIME_UNION => CompKind::Union,
                 other => {
                     let found = other.describe();
                     self.error(messages::comptime_bound_unbounded_param(&found), kind_span);

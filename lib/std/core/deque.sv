@@ -95,16 +95,19 @@ export platform fn remove_at<T canbe linear>(d: Mut Deque<T>, index: Int) [] -> 
 => d: Mut, index
 
 // The element at [index] from the front, borrowed, or `None` past the end.
+// @compilerknown
 export platform fn get<T canbe linear>(d: Deque<T>, index: Int) [] -> (proj(d) T)? => d, index
 
 // The **total** read: an index proven in range by `Idx(d)`
 // (`std.core.index`) answers the element itself, as a list's does.
 // @compilerrules [col-idx]
+// @compilerknown
 export fn get<T canbe linear>(d: Deque<T>, index: Idx(d) Int) [] -> proj(d) T => d, index {
     return get_at(d, index + 0)
 }
 
 // The host's read; the proven index is in range.
+// @compilerknown
 platform fn get_at<T canbe linear>(d: Deque<T>, index: Int) [] -> proj(d) T => d, index
 
 // The mutable handle to the element at [index]
@@ -113,16 +116,19 @@ platform fn get_at<T canbe linear>(d: Deque<T>, index: Int) [] -> proj(d) T => d
 // in-place write through it moves nothing, while adding or removing an
 // element ends it. A host primitive, as a list's.
 // @compilerrules [col-locate, ref-handle, fate-poison]
+// @compilerknown
 export platform fn at<T canbe linear>(d: Deque<T>, index: Int) [] -> ref(d) T? => d, index
 
 // The **total** mint: an index proven in range by
 // `Idx(d)` answers the handle itself, as a list's does.
 // @compilerrules [col-idx, ref-handle]
+// @compilerknown
 export fn at<T canbe linear>(d: Deque<T>, index: Idx(d) Int) [] -> ref(d) T => d, index {
     return at_proven(d, index + 0)
 }
 
 // The host's mint; the proven index is in range.
+// @compilerknown
 platform fn at_proven<T canbe linear>(d: Deque<T>, index: Int) [] -> ref(d) T => d, index
 
 // The **total positional write**, as a list's: puts [value] at

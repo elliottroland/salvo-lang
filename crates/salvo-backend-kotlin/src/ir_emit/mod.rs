@@ -2062,7 +2062,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             // result type names — the written type argument or the implicit
             // position's type, both of which the call's type carries.
             let effect = match e.ty.strip_quals() {
-                Ty::Named { name, args } if name == "Protocol" && args.len() == 1 => match args[0].strip_quals() {
+                Ty::Named { name, args } if name == salvo_syntax::known::PROTOCOL_STRUCT && args.len() == 1 => match args[0].strip_quals() {
                     Ty::Named { name, .. } => Some(name.to_string()),
                     _ => None,
                 },

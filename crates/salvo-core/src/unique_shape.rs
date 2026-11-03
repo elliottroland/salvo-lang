@@ -31,6 +31,7 @@
 use std::collections::HashSet;
 
 use salvo_syntax::ast::{FnDecl, Item, Type, TypeDecl};
+use salvo_syntax::known;
 use salvo_syntax::messages;
 
 use crate::diag::FileDiagnostic;
@@ -108,12 +109,12 @@ fn is_next_return(t: &Type) -> bool {
     }
     let emitted = |a: &Type| match a {
         Type::Named { qualifiers, .. } | Type::QualifiedGroup { qualifiers, .. } => {
-            qualifiers.iter().any(|q| q.name.name == "Emitted")
+            qualifiers.iter().any(|q| q.name.name == known::EMITTED_QUALIFIER)
         }
         _ => false,
     };
     let finished = |a: &Type| {
-        matches!(a, Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name == "Finished")
+        matches!(a, Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name == known::FINISHED_STRUCT)
     };
     (emitted(&arms[0]) && finished(&arms[1])) || (emitted(&arms[1]) && finished(&arms[0]))
 }

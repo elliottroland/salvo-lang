@@ -82,6 +82,7 @@ export intrinsic fn send<T canbe linear>(reply: Reply<T>, value: T) [] -> None =
 // request is made. There is no default: a bound the compiler chose would be a
 // performance cliff nobody wrote.
 // @compilerrules [actor-mailbox]
+// @compilerknown
 export struct Mailbox { capacity: Int }
 
 // Where actors run: a pool of threads, named by a
@@ -96,6 +97,7 @@ export noremote intrinsic type Pool
 // syntax: `on pool(2)` is a call, and declaring `[spawn]` is what makes
 // creating one a capability the caller must hold.
 // @compilerrules [actor-spawn-expr]
+// @compilerknown
 export fn pool(size: Int) [spawn] -> Pool => size {
     let p = new_pool_of(size, -1)
     adopt(copy(p))
@@ -109,6 +111,7 @@ export fn pool(size: Int) [spawn] -> Pool => size {
 // which is what makes "a dedicated thread has exactly one occupant" a fact
 // of the type system instead of a convention.
 // @compilerrules [waitfor-dedicated]
+// @compilerknown
 export provenance qualifier Dedicated of Pool
 
 // Why a task or an unwatched actor died, delivered to a
@@ -120,6 +123,7 @@ export provenance qualifier Dedicated of Pool
 // host's account of the fault, exactly as `Exit`'s is — print it, do not branch
 // on it.
 // @compilerrules [actor-pool-fault-sink]
+// @compilerknown
 export struct Fault { reason: Str }
 
 // The protocol a pool's fault sink serves. Ordinary Salvo:
@@ -131,6 +135,7 @@ export struct Fault { reason: Str }
 // watch — so a fault that nobody was watching would otherwise vanish. With no
 // sink, the runtime reports it by name instead.
 // @compilerrules [actor-pool-fault-sink, actor-watch]
+// @compilerknown
 export actor effect Faults {
     send fn faulted(fault: Fault) => !fault
 }
@@ -140,6 +145,7 @@ export actor effect Faults {
 // `pool(n)` stays the simple thing it was: a sink is a choice, and where it is
 // absent the runtime's named report is the default.
 // @compilerrules [actor-pool-fault-sink]
+// @compilerknown
 export intrinsic fn pool(size: Int, sink: eff[Faults]) [spawn] -> Pool => size, sink
 
 // One fresh thread, owned by whatever is placed on it.

@@ -27,6 +27,7 @@
 // neither here: it is not an argument.
 import std.args.lex
 
+// @compilerknown
 export effect Args {
     // The command-line arguments the process was launched with, program name
     // excluded, in order.
@@ -38,6 +39,7 @@ export effect Args {
 // Rust's `std::env::args`. Stateless, so sharing it across threads needs no
 // synchronization.
 // @compilerrules [cli-args, platform-threadsafe]
+// @compilerknown
 export threadsafe platform handler HostArgs() of Args
 
 // ===== parsing a command line =====

@@ -6,6 +6,7 @@
 
 use crate::naming::msg_variant_name;
 use crate::types::Ty;
+use salvo_syntax::known;
 
 use super::Ctx;
 use crate::ir::*;
@@ -186,8 +187,8 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
         .collect();
     routed.sort();
     routed.dedup();
-    let pick_plain = net_fn(ctx, "route_pick", 2);
-    let pick_keyed = net_fn(ctx, "route_pick", 3);
+    let pick_plain = net_fn(ctx, known::ROUTE_PICK_FN, 2);
+    let pick_keyed = net_fn(ctx, known::ROUTE_PICK_FN, 3);
     let key_hash = net_fn(ctx, "key_hash", 1);
     let mut routes: Vec<(usize, ImplDecl)> = Vec::new();
     for effect in routed {
@@ -197,9 +198,9 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
         let span = iface.span;
         let face = Ty::Named { name: effect.clone(), args: Vec::new() };
         let addr_of = |t: Ty| Ty::Named { name: "Addr".into(), args: vec![t] };
-        let group_ty = addr_of(Ty::Named { name: "ActorGroup".into(), args: vec![face.clone()] });
-        let selector = Ty::Named { name: "RouteSelector".into(), args: vec![face.clone()] };
-        let pick_ty = Ty::Named { name: "RoutePick".into(), args: vec![face.clone()] };
+        let group_ty = addr_of(Ty::Named { name: known::ACTOR_GROUP_EFFECT.into(), args: vec![face.clone()] });
+        let selector = Ty::Named { name: known::ROUTE_SELECTOR_EFFECT.into(), args: vec![face.clone()] };
+        let pick_ty = Ty::Named { name: known::ROUTE_PICK_STRUCT.into(), args: vec![face.clone()] };
         let long = Ty::named("Long");
         let read = |l: &str, ty: &Ty, steps: Vec<Step>, consume: bool| Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: Local(l.into()), steps }, consume, moved: false } };
         let keys = ctx.checked.route_keys.get(effect.as_str());
@@ -246,7 +247,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
             });
         }
         let param = |name: &str, ty: Ty| Param { local: Local(name.into()), ty, mode: crate::param_mode::PassMode::Lent, variadic: false, check: None, span };
-        let mailbox = Expr { ty: Ty::named("Mailbox"), span, kind: ExprKind::Construct { fields: vec![("capacity".into(), Expr { ty: Ty::named("Int"), span, kind: ExprKind::Int(1) })] } };
+        let mailbox = Expr { ty: Ty::named(known::MAILBOX_TYPE), span, kind: ExprKind::Construct { fields: vec![("capacity".into(), Expr { ty: Ty::named("Int"), span, kind: ExprKind::Int(1) })] } };
         routes.push((
             mi,
             ImplDecl {

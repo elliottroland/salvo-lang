@@ -558,8 +558,8 @@ pub enum CompKind {
 impl CompKind {
     pub fn word(self) -> &'static str {
         match self {
-            CompKind::Struct => "Struct",
-            CompKind::Union => "Union",
+            CompKind::Struct => crate::known::COMPTIME_STRUCT,
+            CompKind::Union => crate::known::COMPTIME_UNION,
         }
     }
 }
@@ -730,26 +730,26 @@ pub enum TypeKindWord {
 impl TypeKindWord {
     pub fn parse(word: &str) -> Option<Self> {
         Some(match word {
-            "Struct" => TypeKindWord::Struct,
-            "Union" => TypeKindWord::Union,
-            "Tuple" => TypeKindWord::Tuple,
-            "FnType" => TypeKindWord::FnType,
-            "Opaque" => TypeKindWord::Opaque,
-            "Basic" => TypeKindWord::Basic,
-            "Generic" => TypeKindWord::Generic,
+            crate::known::COMPTIME_STRUCT => TypeKindWord::Struct,
+            crate::known::COMPTIME_UNION => TypeKindWord::Union,
+            crate::known::COMPTIME_TUPLE => TypeKindWord::Tuple,
+            crate::known::COMPTIME_FN_TYPE => TypeKindWord::FnType,
+            crate::known::COMPTIME_OPAQUE => TypeKindWord::Opaque,
+            crate::known::COMPTIME_BASIC => TypeKindWord::Basic,
+            crate::known::COMPTIME_GENERIC => TypeKindWord::Generic,
             _ => return None,
         })
     }
 
     pub fn word(self) -> &'static str {
         match self {
-            TypeKindWord::Struct => "Struct",
-            TypeKindWord::Union => "Union",
-            TypeKindWord::Tuple => "Tuple",
-            TypeKindWord::FnType => "FnType",
-            TypeKindWord::Opaque => "Opaque",
-            TypeKindWord::Basic => "Basic",
-            TypeKindWord::Generic => "Generic",
+            TypeKindWord::Struct => crate::known::COMPTIME_STRUCT,
+            TypeKindWord::Union => crate::known::COMPTIME_UNION,
+            TypeKindWord::Tuple => crate::known::COMPTIME_TUPLE,
+            TypeKindWord::FnType => crate::known::COMPTIME_FN_TYPE,
+            TypeKindWord::Opaque => crate::known::COMPTIME_OPAQUE,
+            TypeKindWord::Basic => crate::known::COMPTIME_BASIC,
+            TypeKindWord::Generic => crate::known::COMPTIME_GENERIC,
         }
     }
 }

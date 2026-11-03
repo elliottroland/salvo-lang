@@ -127,6 +127,7 @@ export fn mut_list_by<T>(size: Int, init: (Int) -> T) [] -> Mut List<T>
 }
 
 // Possibly gets the element at the given index if the list is long enough
+// @compilerknown
 export platform fn get<T canbe linear>(list: List<T>, index: Int) [] -> (proj(list) T)? => list, index
 
 // [col-idx] `Idx`, the claim about an index, is `std.core.index`'s:
@@ -137,6 +138,7 @@ export platform fn get<T canbe linear>(list: List<T>, index: Int) [] -> (proj(li
 // [get] by its qualifier, exactly as `first` over a
 // `NonEmpty` list is.
 // @compilerrules [col-idx, fn-overload-rank, col-of-nonempty]
+// @compilerknown
 export fn get<T canbe linear>(list: List<T>, index: Idx(list) Int) [] -> proj(list) T
 => list, index {
     // The host's read answers the element itself: going through the optional
@@ -146,6 +148,7 @@ export fn get<T canbe linear>(list: List<T>, index: Idx(list) Int) [] -> proj(li
 }
 
 // The host's read; the proven index is in range.
+// @compilerknown
 platform fn get_at<T canbe linear>(list: List<T>, index: Int) [] -> proj(list) T => list, index
 
 // The **total** exchange: two proven indices cannot be out of
@@ -199,6 +202,7 @@ export fns Ref<C, L, T> {
 // from a `get`'s borrow: positions are preserved, not rediscovered, so the
 // mint is a host primitive beside the read.
 // @compilerrules [col-locate, ref-handle, cmp-groups, rs-path]
+// @compilerknown
 export platform fn at<T canbe linear>(list: List<T>, index: Int) [] -> ref(list) T?
 => list, index
 
@@ -206,12 +210,14 @@ export platform fn at<T canbe linear>(list: List<T>, index: Int) [] -> ref(list)
 // answers the handle itself — no `None` arm, nothing to `!`. Ranked above the
 // optional [at] by its qualifier, as the total [get] is.
 // @compilerrules [col-idx, ref-handle, fn-overload-rank]
+// @compilerknown
 export fn at<T canbe linear>(list: List<T>, index: Idx(list) Int) [] -> ref(list) T
 => list, index {
     return at_proven(list, index + 0)
 }
 
 // The host's mint; the proven index is in range.
+// @compilerknown
 platform fn at_proven<T canbe linear>(list: List<T>, index: Int) [] -> ref(list) T
 => list, index
 
@@ -717,6 +723,7 @@ export fn to_str<T>(list: List<T>, ?to_str: (x: T) -> Str) [] -> Str => list {
 // that is a lower bound for one ordering and nonsense for the other. The slot
 // makes the two different types, so they refuse to mix.
 // @compilerrules [col-sorted-list, col-sorted, cmp-carry]
+// @compilerknown
 export qualifier Sorted<T>(?cmp: (T, T) -> Int) of List<T> {
     // [qual-refn] The claim's owner states what the insert below does to it,
     // because the primitive cannot: a function that mutates may not promise back

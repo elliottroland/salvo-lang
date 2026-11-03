@@ -41,7 +41,7 @@ fun<A, B, E> both(a: Union2<A, List<E>>, b: Union2<B, List<E>>, copy: (E) -> E):
                     return Union2.U2<kotlin.Pair<A, B>, List<E>>(salvo.std.core.result.Errs(b_3))
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:77:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:78:13"))
                 }
             }
         }
@@ -57,12 +57,12 @@ fun<A, B, E> both(a: Union2<A, List<E>>, b: Union2<B, List<E>>, copy: (E) -> E):
                     return Union2.U2<kotlin.Pair<A, B>, List<E>>(salvo.std.core.result.Errs(salvo.std.core.result.joined(a_4, b_6, copy)))
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:83:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:84:13"))
                 }
             }
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:75:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:76:5"))
         }
     }
 }
@@ -82,7 +82,7 @@ fun<A, B, C, E> map2(a: Union2<A, List<E>>, b: Union2<B, List<E>>, f: (A, B) -> 
                     return Union2.U2<C, List<E>>(salvo.std.core.result.Errs(b_3))
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:98:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:99:13"))
                 }
             }
         }
@@ -98,12 +98,12 @@ fun<A, B, C, E> map2(a: Union2<A, List<E>>, b: Union2<B, List<E>>, f: (A, B) -> 
                     return Union2.U2<C, List<E>>(salvo.std.core.result.Errs(salvo.std.core.result.joined(a_4, b_6, copy)))
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:104:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:105:13"))
                 }
             }
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:96:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.core.result:97:5"))
         }
     }
 }
@@ -119,6 +119,6 @@ fun<X> joined(a: List<X>, b: List<X>, copy: (X) -> X): List<X> {
     if (salvo.std.core.nonempty.NonEmpty_qualifies(errors, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
         return errors
     }
-    return throw AssertionError(("salvo: " + ("two non-empty lists joined are not empty") + " at std.core.result:126:5"))
+    return throw AssertionError(("salvo: " + ("two non-empty lists joined are not empty") + " at std.core.result:127:5"))
 }
 

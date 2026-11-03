@@ -9,6 +9,8 @@
 
 use std::collections::HashMap;
 
+use salvo_syntax::known;
+
 use crate::program::Symbols;
 use crate::types::{Qual, Ty};
 
@@ -74,7 +76,7 @@ fn plan(symbols: &Symbols<'_>, ty: &Ty, copying: &mut Vec<String>) -> Option<Cop
         // [copy-plan] A keyed collection: its type arguments are its key (or
         // member) and, for a map, its value; its fn slots are identities.
         Ty::Named { name, args }
-            if matches!(name.as_str(), "Map" | "SortedMap" | "Set" | "SortedSet")
+            if matches!(name.as_str(), known::MAP_TYPE | known::SORTED_MAP_TYPE | known::SET_TYPE | known::SORTED_SET_TYPE)
                 && symbols.intrinsic_types.get(name.as_str()).is_some_and(|t| t.platform) =>
         {
             let types: Vec<&Ty> = args.iter().filter(|a| !matches!(a, Ty::FnName(_) | Ty::ValueRef { .. } | Ty::Const(_))).collect();
@@ -82,7 +84,7 @@ fn plan(symbols: &Symbols<'_>, ty: &Ty, copying: &mut Vec<String>) -> Option<Cop
                 return None;
             }
             let value = match types.get(1) {
-                Some(v) if matches!(name.as_str(), "Map" | "SortedMap") => plan(symbols, v, copying)?,
+                Some(v) if matches!(name.as_str(), known::MAP_TYPE | known::SORTED_MAP_TYPE) => plan(symbols, v, copying)?,
                 _ => CopyPlan::Identity,
             };
             Some(CopyPlan::Keyed { value: Box::new(value) })

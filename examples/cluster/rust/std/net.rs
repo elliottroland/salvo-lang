@@ -1785,7 +1785,7 @@ pub fn route_keyed(route_selector: &crate::std_net::RouteSelector, mut group: us
             wait = cap;
         };
     }
-    panic!("salvo: unreachable at std.net:1144:5");
+    panic!("salvo: unreachable at std.net:1151:5");
     return crate::std_net::route_keyed(route_selector, group, seen, key);
 }
 

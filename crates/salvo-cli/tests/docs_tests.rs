@@ -225,3 +225,76 @@ fn every_backend_diagnostic_id_names_a_rule_of_its_backend() {
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
+
+/// [doc-compilerknown] Every std declaration the compiler names
+/// (`salvo_syntax::known::ALL`) carries `@compilerknown`, every
+/// compiler-known module (`known::MODULES`) carries it in its own doc
+/// comment, and nothing else in std does: renaming a tagged declaration is
+/// the one std change the compiler has to follow.
+#[test]
+fn std_compiler_known_names_are_tagged() {
+    use salvo_syntax::ast::Item;
+    use salvo_syntax::known::{KnownKind, ALL, MODULES};
+    let tagged = |docs: &[String]| salvo_syntax::doc::split(docs).tag("compilerknown").is_some();
+    let lib = repo_root().join("lib");
+    let mut files = Vec::new();
+    std_sources(&lib, &mut files);
+    files.sort();
+    // (module, name, kind) → whether each declaration is tagged.
+    let mut decls: Vec<(String, String, KnownKind, bool)> = Vec::new();
+    let mut modules: Vec<(String, bool)> = Vec::new();
+    for file in &files {
+        let rel = file.strip_prefix(&lib).unwrap().to_string_lossy().to_string();
+        if rel.ends_with(".test.sv") {
+            continue;
+        }
+        let module = rel.trim_end_matches(".sv").replace('/', ".");
+        let (ast, _) = salvo_syntax::parse_module(&std::fs::read_to_string(file).unwrap());
+        modules.push((module.clone(), tagged(&ast.docs)));
+        for item in &ast.items {
+            let (name, kind, docs) = match item {
+                Item::Fn(f) => (f.name.name.clone(), KnownKind::Fn, &f.docs),
+                Item::Struct(s) => (s.name.name.clone(), KnownKind::Type, &s.docs),
+                Item::Type(t) => (t.name.name.clone(), KnownKind::Type, &t.docs),
+                Item::Effect(e) => (e.name.name.clone(), KnownKind::Type, &e.docs),
+                Item::Handler(h) => (h.name.name.clone(), KnownKind::Type, &h.docs),
+                Item::Qualifier(q) => (q.name.name.clone(), KnownKind::Type, &q.docs),
+                Item::Fns(g) => (g.name.name.clone(), KnownKind::Type, &g.docs),
+                _ => continue,
+            };
+            decls.push((module.clone(), name, kind, tagged(docs)));
+        }
+    }
+    let mut problems = Vec::new();
+    for k in ALL {
+        let found: Vec<&(String, String, KnownKind, bool)> =
+            decls.iter().filter(|(m, n, kind, _)| m == k.module && n == k.name && *kind == k.kind).collect();
+        if found.is_empty() {
+            problems.push(format!("`{}` in `{}` is listed but not declared there", k.name, k.module));
+        }
+        for (m, n, _, t) in found {
+            if !t {
+                problems.push(format!("`{n}` in `{m}` is compiler-known but has no `@compilerknown`"));
+            }
+        }
+    }
+    for (m, n, kind, t) in &decls {
+        if *t && !ALL.iter().any(|k| k.module == m && k.name == n && k.kind == *kind) {
+            problems.push(format!("`{n}` in `{m}` carries `@compilerknown` but `known::ALL` does not list it"));
+        }
+    }
+    for (m, t) in &modules {
+        let listed = MODULES.contains(&m.as_str());
+        if listed && !t {
+            problems.push(format!("module `{m}` is compiler-known but its doc comment has no `@compilerknown`"));
+        } else if !listed && *t {
+            problems.push(format!("module `{m}` carries `@compilerknown` but `known::MODULES` does not list it"));
+        }
+    }
+    for m in MODULES {
+        if !modules.iter().any(|(n, _)| n == m) {
+            problems.push(format!("module `{m}` is listed but std has no such module"));
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}

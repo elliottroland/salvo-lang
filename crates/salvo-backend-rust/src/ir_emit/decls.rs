@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 
 use salvo_core::types::Ty;
+use salvo_syntax::known;
 use salvo_core::ir::{Decl, ExprKind, FnDecl, FnKind, ImplDecl, InterfaceDecl, Param, PassMode, Stmt, StructDecl, TypeParam};
 
 use super::{is_copy_ty, is_mut, is_proj, ModuleEmitter};
@@ -1369,18 +1370,18 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         // [ref-handle] std's mints `at` / `at_proven` are host primitives
         // whose position is the backend's own: the index, bounds-checked or
         // proven; the entry's slot.
-        if list && (f.name == "get" || f.name == "at") && args.len() == 2 {
+        if list && (f.name == known::GET_FN || f.name == known::AT_FN) && args.len() == 2 {
             return format!("{pad}if {i} >= 0 && ({i} as usize) < {anchor}.len() {{ Some({i} as usize) }} else {{ None }}\n", i = args[1]);
         }
-        if list && (f.name == "get_at" || f.name == "at_proven") && args.len() == 2 {
+        if list && (f.name == known::GET_AT_FN || f.name == known::AT_PROVEN_FN) && args.len() == 2 {
             return format!("{pad}{} as usize\n", args[1]);
         }
         // [ref-handle] A map's position is its entry's slot.
-        if matches!(module.0.as_slice(), [s, a, b] if s == "std" && a == "core" && b == "map") && (f.name == "get" || f.name == "at") {
+        if matches!(module.0.as_slice(), [s, a, b] if s == "std" && a == "core" && b == "map") && (f.name == known::GET_FN || f.name == known::AT_FN) {
             return format!("{pad}crate::{}::slot_of({})\n", host_mod_name(&module), args.join(", "));
         }
         // The total read's lowering: the key's presence is proved.
-        if matches!(module.0.as_slice(), [s, a, b] if s == "std" && a == "core" && b == "map") && (f.name == "get_present" || f.name == "at_present") {
+        if matches!(module.0.as_slice(), [s, a, b] if s == "std" && a == "core" && b == "map") && (f.name == known::GET_PRESENT_FN || f.name == known::AT_PRESENT_FN) {
             return format!("{pad}crate::{}::slot_of({}).expect(\"salvo: a `KeyOf` key is present\")\n", host_mod_name(&module), args.join(", "));
         }
         let call = format!("crate::{}::{}({})", host_mod_name(&module), rs_ident(&f.name), args.join(", "));

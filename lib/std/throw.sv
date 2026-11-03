@@ -8,6 +8,8 @@
 // never names `Throw`, `Thrown` or `throw`, so it neither imports this module
 // nor emits code for it. `import std.throw` is the one line a program that does
 // need it writes [mod-import-module].
+//
+// @compilerknown
 
 // Ends the enclosing `try` block with [message]. Returns `Never`
 // (the bottom type), which is what keeps the frames in between silent: a
@@ -18,6 +20,7 @@
 // The message is *moved* into the outcome (the body returns it, so the move
 // is inferred), like the value passed to `err`.
 // @compilerrules [throw]
+// @compilerknown
 export effect Throw<M> {
     fn throw(message: M) -> Never => !message
 }
@@ -32,6 +35,7 @@ export effect Throw<M> {
 // transferring control. The authority to throw is `[Throw<M>]`
 // availability alone.
 // @compilerrules [throw-try, qual-erasure]
+// @compilerknown
 export provenance qualifier Thrown<M> of M
 
 // Tags a value as the thrown arm of an outcome union

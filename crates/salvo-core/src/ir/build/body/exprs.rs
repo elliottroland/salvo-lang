@@ -2661,7 +2661,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     }
                 };
                 let step = self.fresh("__step");
-                let step_ty = Ty::Union(vec![elem_ty.clone(), Ty::named("Finished")]);
+                let step_ty = Ty::Union(vec![elem_ty.clone(), Ty::named(salvo_syntax::known::FINISHED_STRUCT)]);
                 let sid = self.id();
                 let step_value = if step_call {
                     self.expr(iterable)

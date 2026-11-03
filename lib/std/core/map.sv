@@ -22,6 +22,7 @@
 //
 // Own module so a program that never uses a map emits nothing for it.
 // @compilerrules [type-canbe-mut, col-key-eligible, obligation-by, linear-container, mod-used-only, qual-refn-type]
+// @compilerknown
 export iterable platform type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut : Iter<self, MapKeyIter<K>, K> {
     // `put` is the operation that makes a map non-empty, and it cannot say
     // so itself.
@@ -82,6 +83,7 @@ export fn to_map<T, K, V>(items: List<T>, entry: (T) -> (K, V), ?Hashed<K>) [] -
 // nothing and a caller that wants to keep the value says `copy`.
 // The key is only read, so it is kept.
 // @compilerrules [copy-opt-in]
+// @compilerknown
 export platform fn get<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> (proj(map) V)? => map, key
 
 // The mutable handle to the value stored under
@@ -91,6 +93,7 @@ export platform fn get<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> (proj(map
 // while adding or removing an entry ends it. A host primitive,
 // as a list's: its position is the entry's slot.
 // @compilerrules [col-locate, ref-handle, fate-poison]
+// @compilerknown
 export platform fn at<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> ref(map) V? => map, key
 
 // Stores [value] under [key], replacing any value already there. The map
@@ -148,12 +151,14 @@ export qualifier KeyOf<K, V>(map: Map<K, V>) of K {
 
 // The lowering behind the total [get]: a presence the claim already proved.
 // Private — the claim is the only door.
+// @compilerknown
 platform fn get_present<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> proj(map) V => map, key
 
 // The **total** read: a key carrying the claim answers the
 // value itself — the `None` arm was paid where the key was tested. Ranked
 // above the optional [get] by its qualifier.
 // @compilerrules [qual-depend, fn-overload-rank]
+// @compilerknown
 export fn get<K, V>(map: Map<K, V>(?hash, ?eq), key: KeyOf(map) K) [] -> proj(map) V => map, key {
     return get_present(map, key)
 }
@@ -161,11 +166,13 @@ export fn get<K, V>(map: Map<K, V>(?hash, ?eq), key: KeyOf(map) K) [] -> proj(ma
 // The **total** mint: a key carrying the claim
 // answers the handle itself, as the total [get] answers the value.
 // @compilerrules [qual-depend, ref-handle]
+// @compilerknown
 export fn at<K, V>(map: Map<K, V>(?hash, ?eq), key: KeyOf(map) K) [] -> ref(map) V => map, key {
     return at_present(map, key)
 }
 
 // The mint behind the total [at]: a presence the claim already proved.
+// @compilerknown
 platform fn at_present<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> ref(map) V => map, key
 
 // Returns the number of entries in the map

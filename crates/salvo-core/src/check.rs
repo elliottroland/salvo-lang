@@ -23,6 +23,7 @@ use std::collections::{HashMap, HashSet};
 
 use salvo_syntax::ast::{self, *};
 use salvo_syntax::diag::IntoMessage;
+use salvo_syntax::known;
 use salvo_syntax::messages::{self, Message};
 use salvo_syntax::Span;
 
@@ -962,7 +963,7 @@ pub enum NarrowBy {
 /// (`lib/std/throw.sv`, module `throw`), known by name to the compiler: it has no
 /// handler
 /// — `try` delimits it — and it is not threaded as an effect parameter.
-pub const THROW_EFFECT: &str = "Throw";
+pub const THROW_EFFECT: &str = salvo_syntax::known::THROW_EFFECT;
 
 /// [iter-fn] The name prefix of the pass type an **origin** mints at a
 /// call site (user decision 2026-09-09). Not writable in Salvo source, so the
@@ -971,9 +972,9 @@ pub const THROW_EFFECT: &str = "Throw";
 /// argument and a `for` over the same origin agree.
 pub const ORIGIN_PASS_PREFIX: &str = "__Pass_";
 /// The value arm of a `try` outcome, from `std.core.result` [throw-try].
-pub const OK_QUALIFIER: &str = "Ok";
+pub const OK_QUALIFIER: &str = salvo_syntax::known::OK_QUALIFIER;
 /// The message arm of a `try` outcome, from module `throw` [throw-try].
-pub const THROWN_QUALIFIER: &str = "Thrown";
+pub const THROWN_QUALIFIER: &str = salvo_syntax::known::THROWN_QUALIFIER;
 /// [actor-spawn-expr] The handle a `spawn` produces, from `std.core.actor`:
 /// known by name to the compiler because its type argument is an **effect**,
 /// which is the one sanctioned exception to [effect-not-data] (user decision
@@ -983,7 +984,7 @@ pub const ADDR_TYPE: &str = "Addr";
 pub const REPLY_TYPE: &str = "Reply";
 /// [actor-mailbox] The std struct a handler's `mailbox { … }` slot builds,
 /// from `std.core.actor`: the slot is that struct's literal with the type elided.
-pub const MAILBOX_TYPE: &str = "Mailbox";
+pub const MAILBOX_TYPE: &str = salvo_syntax::known::MAILBOX_TYPE;
 
 /// [actor-spawn-expr] The thread pool a spawn names in its `on` clause,
 /// from `std.core.actor`.
@@ -992,7 +993,7 @@ pub const POOL_TYPE: &str = "Pool";
 /// [waitfor-dedicated] The provenance qualifier `thread()` mints, from
 /// `std.core.actor`: a pool of one thread, which the `on` clause consumes, and
 /// the only placement a `[waitfor]`-carrying handler may be spawned onto.
-pub const DEDICATED_QUALIFIER: &str = "Dedicated";
+pub const DEDICATED_QUALIFIER: &str = salvo_syntax::known::DEDICATED_QUALIFIER;
 
 /// [actor-spawn-expr] The effect an `Addr<E>` serves, or `None` for anything
 /// that is not an addr. What `use addr`, a dot-call through an addr, and a spawn's
@@ -1122,7 +1123,7 @@ pub struct PredicateArg {
 }
 
 /// [actor-route-stub] The std qualifier marking a protocol member's key parameter.
-const ROUTE_KEY_QUALIFIER: &str = "Key";
+const ROUTE_KEY_QUALIFIER: &str = salvo_syntax::known::ROUTE_KEY_QUALIFIER;
 
 /// The checker's output.
 #[derive(Clone, Default)]
@@ -4803,7 +4804,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 (!out.is_empty()).then_some(C::Tuple { arity, elems: out })
             }
             Ty::Array(e) => self.boundary_plan(e, what, span, visiting).map(|c| C::Elems(Box::new(c))),
-            Ty::Named { name, args } if matches!(name.as_str(), "Set" | "SortedSet" | "Map" | "SortedMap")
+            Ty::Named { name, args } if matches!(name.as_str(), known::SET_TYPE | known::SORTED_SET_TYPE | known::MAP_TYPE | known::SORTED_MAP_TYPE)
                 && !self.keyed_canonically(name, args) =>
             {
                 // [platform-check] D10 C2: the host cannot build a container
@@ -4821,11 +4822,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // files define, so only its elements or entries can need a
                 // check (ROADMAP §0j step 7: the shape checks went with the
                 // JVM's own collections).
-                "Set" | "SortedSet" if args.len() == 1 => {
+                known::SET_TYPE | known::SORTED_SET_TYPE if args.len() == 1 => {
                     let elem = args[0].clone();
                     self.boundary_plan(&elem, what, span, visiting).map(|c| C::Elems(Box::new(c)))
                 }
-                "Map" | "SortedMap" if args.len() >= 2 => {
+                known::MAP_TYPE | known::SORTED_MAP_TYPE if args.len() >= 2 => {
                     let (k, v) = (args[0].clone(), args[1].clone());
                     let kc = self.boundary_plan(&k, what, span, visiting);
                     let vc = self.boundary_plan(&v, what, span, visiting);
@@ -5101,9 +5102,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let saved = self.enter_generics(&s.generics);
                     self.in_comptime_decl = s.comptime;
                     if iface {
-                        self.check_annotations(&s.annotations, "Struct");
+                        self.check_annotations(&s.annotations, known::COMPTIME_STRUCT);
                         for field in &s.fields {
-                            self.check_annotations(&field.annotations, "Field");
+                            self.check_annotations(&field.annotations, known::COMPTIME_FIELD);
                         }
                         self.check_fn_slots(&s.name.name, &s.fn_slots, &s.generics);
                         self.validate_auto_quals(&s.auto_qualifiers);
@@ -5521,9 +5522,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             // implementation — one token where the type wants the structural one.
             if matches!(q.name.name.as_str(), "hashed" | "ordered") {
                 let group = if q.name.name == "hashed" {
-                    "Hashed"
+                    known::HASHED_GROUP
                 } else {
-                    "Ordered"
+                    known::ORDERED_GROUP
                 };
                 self.error(
                     q.span,
@@ -5957,11 +5958,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Some(o) = t
             .obligations
             .iter()
-            .find(|o| o.group.name.name != "Iter" || o.by.is_some())
+            .find(|o| o.group.name.name != known::ITER_GROUP || o.by.is_some())
         {
             self.error(o.group.span, messages::platform_type_obligation(&name));
         }
-        if t.iterable && !t.obligations.iter().any(|o| o.group.name.name == "Iter") {
+        if t.iterable && !t.obligations.iter().any(|o| o.group.name.name == known::ITER_GROUP) {
             self.error(t.name.span, messages::platform_iterable_no_iter(&name));
         }
         if t.threadsafe && t.linear {
@@ -7548,7 +7549,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     {
                         if let Ty::Fn { ret, .. } = want.strip_quals() {
                             if let Ty::Named { name: pn, args } = ret.strip_quals() {
-                                if pn == "Protocol" {
+                                if pn == known::PROTOCOL_STRUCT {
                                     if let Some(Ty::Named { name: effect, .. }) =
                                         args.first().map(|a| a.strip_quals())
                                     {
@@ -10944,7 +10945,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_use_any(&mut self, group: &'p Expr, span: Span) {
         let ty = self.check_expr(group, None);
         let effect = match addr_effect(&ty) {
-            Some(Ty::Named { name, args }) if crate::typekey::plain(&name) == "ActorGroup" && args.len() == 1 => {
+            Some(Ty::Named { name, args }) if crate::typekey::plain(&name) == known::ACTOR_GROUP_EFFECT && args.len() == 1 => {
                 match &args[0] {
                     Ty::Named { name, args }
                         if args.is_empty()
@@ -10973,7 +10974,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Its one dependency: the policy that picks the member.
         let selector = self.visible_avail().into_iter().find(|a| {
             matches!(a.ty.strip_quals(), Ty::Named { name, args }
-                if crate::typekey::plain(name) == "RouteSelector" && args.len() == 1 && args[0] == effect)
+                if crate::typekey::plain(name) == known::ROUTE_SELECTOR_EFFECT && args.len() == 1 && args[0] == effect)
         });
         let Some(selector) = selector else {
             self.error(span, messages::actor_route_stub_no_selector(&shown));
@@ -12875,7 +12876,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let Ty::Qualified { quals, .. } = &var.narrowed else {
                     continue;
                 };
-                for q in quals.iter().filter(|q| q.name == "NotSame") {
+                for q in quals.iter().filter(|q| q.name == NOT_SAME) {
                     for a in &q.args {
                         if let Ty::ValueRef { roots, .. } = a {
                             if let [other] = roots.as_slice() {
@@ -14082,8 +14083,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// have it passed in.
     fn compare_remedy(&self, base: &Ty, member: &str) -> String {
         let group = match member {
-            "eq" => "Eq",
-            _ => "Ordered",
+            "eq" => known::EQ_GROUP,
+            _ => known::ORDERED_GROUP,
         };
         match base {
             Ty::Var(v) => format!(
@@ -14355,10 +14356,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 )),
                 // A container hashes when its elements do (Rust's `Vec` and
                 // Kotlin's `List` both hash structurally).
-                "List" | "Set" => args
+                "List" | known::SET_TYPE => args
                     .first()
                     .and_then(|a| self.hash_ineligible(a, depth + 1, canonical)),
-                "Map" => args
+                known::MAP_TYPE => args
                     .iter()
                     .take(2)
                     .find_map(|a| self.hash_ineligible(a, depth + 1, canonical)),
@@ -14563,7 +14564,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if base.name.name != "List" || base.args.len() != 1 {
             return;
         }
-        if !qualifiers.iter().any(|q| q.name.name == "Sorted") {
+        if !qualifiers.iter().any(|q| q.name.name == known::SORTED_QUALIFIER) {
             return;
         }
         let empty = HashMap::new();
@@ -14607,7 +14608,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [col-sorted-list] An *inferred* `Sorted List<T>` — what `sort` and
         // `mut_sort` return — carries the claim as a qualifier, so it has to
         // be read before `strip_quals` throws it away.
-        if ty.quals().iter().any(|q| q.name == "Sorted") {
+        if ty.quals().iter().any(|q| q.name == known::SORTED_QUALIFIER) {
             if let Ty::Named { name, args } = ty.strip_quals() {
                 if name == "List" && args.len() == 1 {
                     if let Some(reason) = self.sorted_list_elem_ineligible(&args[0]) {
@@ -14620,10 +14621,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         match ty.strip_quals() {
             Ty::Named { name, args } => {
                 let (arity, ordered) = match name.as_str() {
-                    "Set" => (1, false),
-                    "Map" => (2, false),
-                    "SortedSet" => (1, true),
-                    "SortedMap" => (2, true),
+                    known::SET_TYPE => (1, false),
+                    known::MAP_TYPE => (2, false),
+                    known::SORTED_SET_TYPE => (1, true),
+                    known::SORTED_MAP_TYPE => (2, true),
                     _ => (0, false),
                 };
                 // [cmp-carry] The identities ride after the type arguments
@@ -15112,7 +15113,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return None;
         }
         match (container, index) {
-            ("Set", 0) | ("SortedSet", 0) => Some(
+            (known::SET_TYPE, 0) | (known::SORTED_SET_TYPE, 0) => Some(
                 "a set **deduplicates**: inserting a value equal to one already there \
                  drops one of the two, and silently dropping an obligation is exactly \
                  what linearity prevents. A `Mut List<T>` holds obligations (its \
@@ -15120,7 +15121,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                  `Mut Map<K, T>` beside it is the other shape"
                     .to_string(),
             ),
-            ("Map", 0) | ("SortedMap", 0) => Some(
+            (known::MAP_TYPE, 0) | (known::SORTED_MAP_TYPE, 0) => Some(
                 "a map's **keys** are compared and retained, and storing under a key \
                  that is already there drops one of the two. Keys are data; the \
                  *values* are where obligations go — `Mut Map<K, V>` opts its values \
@@ -15731,7 +15732,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         let of = match addr_effect(&gty) {
-            Some(Ty::Named { name, args }) if name == "ActorGroup" && args.len() == 1 => args[0].clone(),
+            Some(Ty::Named { name, args }) if name == known::ACTOR_GROUP_EFFECT && args.len() == 1 => args[0].clone(),
             _ => {
                 self.error(group.span(), messages::actor_group_not_a_group(&gty));
                 return;
@@ -21295,7 +21296,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let Some(decl) = self.written_qual_decl(a) else { continue };
             self.record_qualifier_def(a);
             if !decl.comptime {
-                let place = if subject == "Field" { "before a field's name" } else { "before a declaration" };
+                let place = if subject == known::COMPTIME_FIELD { "before a field's name" } else { "before a declaration" };
                 self.error(
                     a.name.span,
                     messages::comptime_qualifier_not_comptime_annotation(&name, &place, &subject),
@@ -21367,7 +21368,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let of = match &q.of {
             ast::Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() => {
                 Some(base.name.name.as_str())
-                    .filter(|n| matches!(*n, "Field" | "Struct"))
+                    .filter(|n| matches!(*n, known::COMPTIME_FIELD | known::COMPTIME_STRUCT))
                     .filter(|_| self.named(base).structure.is_some_and(|s| s.comptime))
             }
             _ => None,
@@ -21381,7 +21382,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if !q.generics.is_empty() || !q.fn_slots.is_empty() {
             self.error(
                 q.name.span,
-                messages::comptime_qualifier_generics(&q.name.name, &of.unwrap_or("Field")),
+                messages::comptime_qualifier_generics(&q.name.name, &of.unwrap_or(known::COMPTIME_FIELD)),
             );
         }
         for v in &q.value_slots {
@@ -25001,7 +25002,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .obligations
             .iter()
             .map(|o| &o.group)
-            .find(|g| g.name.name == "Next")?;
+            .find(|g| g.name.name == known::NEXT_GROUP)?;
         Some((decl, ob))
     }
 
@@ -25052,7 +25053,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn next_spread_pairs(&self, decl: &'p FnDecl) -> Vec<(String, String)> {
         let mut out = Vec::new();
         for g in &decl.implicit_groups {
-            if g.name.name != "Next" || g.args.len() < 2 {
+            if g.name.name != known::NEXT_GROUP || g.args.len() < 2 {
                 continue;
             }
             let (
@@ -25538,7 +25539,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let file = self.resolution.decls.file_of(decl.name.span)?;
         let scope = self.resolution.scopes.get(file)?;
         // A group the struct's file cannot see is refused there as unknown.
-        if scope.fn_groups.contains_key("Next") && self.home_next(decl).is_some() {
+        if scope.fn_groups.contains_key(known::NEXT_GROUP) && self.home_next(decl).is_some() {
             return None;
         }
         self.pass_declared_elem_ty(subject)
@@ -26703,7 +26704,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // [ref-notsame] A `NotSame` claim is about the handle itself,
                 // not the container it shares fate with: it binds the
                 // handle's own identity.
-                let place_roots = if q == "NotSame" {
+                let place_roots = if q == NOT_SAME {
                     let base = path.split('.').next().unwrap_or(path);
                     self.lookup(base).map(|v| vec![v.id]).unwrap_or(place_roots)
                 } else {
@@ -28851,10 +28852,10 @@ struct FnSlotInfo {
 /// container is.
 fn keyed_container(name: &str) -> Option<(usize, bool)> {
     match name {
-        "Set" => Some((1, false)),
-        "Map" => Some((2, false)),
-        "SortedSet" => Some((1, true)),
-        "SortedMap" => Some((2, true)),
+        known::SET_TYPE => Some((1, false)),
+        known::MAP_TYPE => Some((2, false)),
+        known::SORTED_SET_TYPE => Some((1, true)),
+        known::SORTED_MAP_TYPE => Some((2, true)),
         _ => None,
     }
 }
@@ -32523,7 +32524,7 @@ fn emitted_arm_ty(ret: &Ty) -> Option<(Ty, usize, usize)> {
     let mut finished = false;
     for (i, arm) in value_arms.iter().enumerate() {
         match arm {
-            Ty::Qualified { quals, base } if quals.iter().any(|q| q.name == "Emitted") => {
+            Ty::Qualified { quals, base } if quals.iter().any(|q| q.name == known::EMITTED_QUALIFIER) => {
                 // [qual-depend] The element keeps every claim the arm
                 // carries beside the protocol tag: `Emitted (+Idx(…) Int)`
                 // emits an `Idx(…) Int`, which is how a pass mints a
@@ -32532,7 +32533,7 @@ fn emitted_arm_ty(ret: &Ty) -> Option<(Ty, usize, usize)> {
                 // an Int" one shape, so this is a filter, not an unwrap.
                 let rest: Vec<Qual> = quals
                     .iter()
-                    .filter(|q| q.name != "Emitted")
+                    .filter(|q| q.name != known::EMITTED_QUALIFIER)
                     .cloned()
                     .collect();
                 let elem = if rest.is_empty() {
@@ -32545,7 +32546,7 @@ fn emitted_arm_ty(ret: &Ty) -> Option<(Ty, usize, usize)> {
                 };
                 found = Some((elem, i));
             }
-            Ty::Named { name, args } if name == "Finished" && args.is_empty() => {
+            Ty::Named { name, args } if name == known::FINISHED_STRUCT && args.is_empty() => {
                 finished = true;
             }
             _ => return None,
@@ -32950,7 +32951,7 @@ fn strip_proj_union(ty: &Ty) -> &Ty {
 /// [ref-notsame] The handle-identity claim's name: it is about which element
 /// a handle is, so a write *through* a handle leaves it standing; only
 /// rebinding strips it.
-const NOT_SAME: &str = "NotSame";
+const NOT_SAME: &str = salvo_syntax::known::NOT_SAME_QUALIFIER;
 
 fn with_identity(preserve: &[String]) -> Vec<String> {
     let mut p = preserve.to_vec();

@@ -1227,7 +1227,7 @@ fun routeKeyed(routeSelector: RouteSelector, group: Int, seen: Long, key: Long?)
             wait = cap
         }
     }
-    throw AssertionError("salvo: unreachable at std.net:1144:5")
+    throw AssertionError("salvo: unreachable at std.net:1151:5")
     return salvo.std.net.routeKeyed(routeSelector, group, seen, key)
 }
 

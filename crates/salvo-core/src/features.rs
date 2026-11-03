@@ -10,6 +10,7 @@
 use std::collections::HashSet;
 
 use salvo_syntax::ast::{Item, Module};
+use salvo_syntax::known;
 
 use crate::check::Checked;
 use crate::program::Symbols;
@@ -104,7 +105,7 @@ pub fn module_features(
             break;
         }
     }
-    if addr_of_actor || named("Pool") || named("Reply") || refs.contains("pool") || refs.contains("thread") {
+    if addr_of_actor || named("Pool") || named("Reply") || refs.contains(known::POOL_FN) || refs.contains("thread") {
         f.scheduler = true;
     }
     if named("Reply") {
@@ -113,7 +114,7 @@ pub fn module_features(
     // [cli-args] argv travels with a `use` of the host handler or any mention
     // of the effect — an over-approximation, so a program that names `Args`
     // without calling `args()` still captures the arguments on the JVM.
-    if named("HostArgs") || named("Args") {
+    if named(known::HOST_ARGS_HANDLER) || named(known::ARGS_EFFECT) {
         f.args = true;
     }
     let mine = |k: &&crate::check::Key| k.file() == file_idx;

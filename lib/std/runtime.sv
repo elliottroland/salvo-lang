@@ -9,6 +9,8 @@
 // 2026-10-01). The services built on it are the modules under
 // `lib/std/runtime/` [runtime-layers]; each backend's `scheduler.rs`/
 // `scheduler.kt` is the entry points generated code calls, onto this.
+//
+// @compilerknown
 
 // One thread's park/unpark token: how a scheduler thread
 // with nothing to do sleeps until another thread changes the state it is

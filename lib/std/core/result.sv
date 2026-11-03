@@ -13,6 +13,7 @@
 // generated code: the union wrapper carries the arm, the
 // qualifier only decides which one.
 // @compilerrules [qual-constructive, qual-ctor-same-file, qual-erasure]
+// @compilerknown
 export provenance qualifier Ok<T> of T
 export provenance qualifier Err<T> of T
 

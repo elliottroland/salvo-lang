@@ -19,6 +19,7 @@
 // to be called `Union` is never mistaken for the kind [comptime-kind].
 
 // A struct: its declared fields, in declaration order.
+// @compilerknown
 export comptime struct Struct {
     // The declared name, as a `Str` literal in each copy (`T.name`).
     name: Str,
@@ -37,6 +38,7 @@ export comptime struct Struct {
 // A named union (`type Source = A | B | None`): its declared arms, `None`
 // included, in declaration order.
 // @compilerrules [type-union-arm-identity]
+// @compilerknown
 export comptime struct Union {
     name: Str,
     // The arms — what `[for arm in T.arms]` unrolls, and what a
@@ -48,26 +50,31 @@ export comptime struct Union {
 }
 
 // A tuple type: its elements, in order.
+// @compilerknown
 export comptime struct Tuple {
     elems: List<Type>
 }
 
 // A function type. A `comptime fn` can call one, not look inside it.
+// @compilerknown
 export comptime struct FnType {}
 
 // A type declared `intrinsic type` (`Int`, `Str`, `List<T>`): nothing to look
 // inside; the comptime fn calls the capability at it.
+// @compilerknown
 export comptime struct Basic {
     name: Str
 }
 
 // A type parameter of the struct being stamped (`Wrapper<T>`'s `T`): opaque
 // to the comptime fn, like a `Basic`.
+// @compilerknown
 export comptime struct Generic {
     name: Str
 }
 
 // The two kinds a comptime fn cannot look inside, when it does not care which.
+// @compilerknown
 export comptime type Opaque = Basic | Generic
 
 // Every kind — what `.kind` is. A `[when field.kind] { is Struct { … } … }` is
@@ -75,6 +82,7 @@ export comptime type Opaque = Basic | Generic
 // a kind added to the language is an error in every comptime fn that did not
 // consider it.
 // @compilerrules [when-exhaustive]
+// @compilerknown
 export comptime type Kind = Struct | Union | Tuple | FnType | Opaque
 
 // A type itself, as a binder's `.type` holds it: usable as a type inside the
@@ -82,11 +90,13 @@ export comptime type Kind = Struct | Union | Tuple | FnType | Opaque
 // A literal union's members are `.literals`, a `List<Literal>` a `[for lit in
 // field.type.literals]` walks.
 // @compilerrules [comptime-literals]
+// @compilerknown
 export comptime struct Type {}
 
 // One member of a literal union (`"json"` of `"json" | "text"`), in
 // declaration order.
 // @compilerrules [comptime-literals]
+// @compilerknown
 export comptime struct Literal {
     // The member itself, a literal of the union in each copy.
     value: Value,
@@ -100,9 +110,11 @@ export comptime struct Literal {
 // A value a declaration writes, as a field's `.default` holds it: in a copy it
 // is that expression, evaluated where it was declared.
 // @compilerrules [comptime-default]
+// @compilerknown
 export comptime struct Value {}
 
 // One field of a `Struct`.
+// @compilerknown
 export comptime struct Field {
     // The declared name: a literal of the union of the struct's field names
     // (`"x" | "y"` for `Point`), tested with `field.name is "x"` or an
@@ -132,6 +144,7 @@ export comptime struct Field {
 
 // One arm of a `Union`. `name` is the struct's name for a struct arm, the
 // type's text otherwise (`None`) — a literal of the union of the arm names.
+// @compilerknown
 export comptime struct Arm {
     name: Str,
     kind: Kind,

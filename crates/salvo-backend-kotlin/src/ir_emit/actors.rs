@@ -526,7 +526,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         };
         let joined = match join {
             Some(g) => {
-                let Some(group) = self.interface_by_key("ActorGroup") else {
+                let Some(group) = self.interface_by_key(salvo_syntax::known::ACTOR_GROUP_EFFECT) else {
                     self.error(messages::kt_actor_group_needs_net());
                     return "kotlin.TODO()".to_string();
                 };
