@@ -1331,9 +1331,10 @@ Conventions:
     error;
   * every field must itself have the capability, by ordinary resolution in the
     unrolled copy: `Int`, `Long`, `Str`, `Char` and `Bool` have all three;
-    `Double`/`Float` have `eq` and neither `cmp` nor `hash` (Rust's `f64` is not
-    `Eq`, `Hash` or `Ord`), so `: Eq<self> by auto` on a struct holding one
-    works and `: Hashed<self> by auto` reports the field; a nested struct must
+    `Double`/`Float` have `eq` and `cmp` (IEEE, since 2026-10-30) and no
+    `hash` (Rust's `f64` is not `Hash`), so `: Eq<self> by auto` and
+    `: Ordered<self> by auto` on a struct holding one work and
+    `: Hashed<self> by auto` reports the field; a nested struct must
     have its own; a **`List` or a tuple** resolves std's Salvo
     `eq`/`cmp`/`hash` for it (`std.core.list`'s and `std.core.basic`'s
     `eq`/`cmp`, `std.core.compare`'s `hash`), which take the element types' own (an element
@@ -2631,11 +2632,14 @@ Conventions:
   * **Two lowerings run before the call**, as [op-arm-eq] does (R10 D7):
     mixed numeric widths widen first [op-promote], since the call rule has no
     widening of its own (`i < l` is `cmp(widen(i), l) < 0`; §II.10 P11
-    records it, open), and **float ordering with no `cmp` in reach** keeps
-    the host's IEEE order (`NaN` answering `false`): std declares no
-    `cmp(Double, Double)`, because a sorted container of them has no total
-    order, so `<` on floats is a call only when something in reach — an
-    implicit — answers it (§II.10 P12, open).
+    records it, open). **The floats' `cmp` is IEEE comparison** (user
+    decision 2026-10-30, §II.10 P12): std declares intrinsic `cmp(Double,
+    Double)` and `cmp(Float, Float)` answering `-1`, `1` or `0` (a `NaN`
+    ties with everything), so `<` on floats is the call like any other, and
+    resolved to the intrinsic it is the host's own `<` (`NaN` answering
+    `false`). It is no total order, so a float stays refused as a sorted key
+    [col-sorted]. Until then std declared none, and `<` kept the host's
+    order with nothing to call.
   * **What the backends spell natively is the selected declaration's
     business, not the operand types'** [backend-core-layers]: a comparison resolved
     to std's intrinsic `cmp`/`eq` at a basic type [type-basic] *is* the
@@ -5494,11 +5498,12 @@ Conventions:
     the type [op-unique-shape] (the scalars' in `std.core.basic`, `Str`'s in
     `std.core.string`; `List`'s and the tuples', in Salvo, in `std.core.list`
     and `std.core.basic`) and `hash` in `std.core.compare`: `cmp` for `Int`, `Long`, `Byte`,
-    `Char`, `Bool` and `Str`; `eq` for those plus `Double` and `Float`; `hash`
-    for the ones `cmp` covers. So `Double`/`Float` compare for equality and
-    have no ordering and no hash — `NaN` ties with nothing, so no total order
-    exists and a float key would hash unpredictably, which is the same
-    reasoning [col-sorted] and [col-hashed-ordered] already apply.
+    `Char`, `Bool`, `Str`, `Double` and `Float` (the floats' IEEE, since
+    2026-10-30); `eq` for the same; `hash` for all but the floats. So
+    `Double`/`Float` compare and order, but no total order exists (`NaN`
+    ties) and a float key would hash unpredictably, so they are no sorted
+    or hashed keys: the reasoning [col-sorted] and [col-hashed-ordered]
+    already apply.
   * **`Str` compares by code point** on both backends, the contract
     [col-sorted] already owed: Rust's `str: Ord` is byte-wise UTF-8 (which
     *is* code-point order), while the JVM's `String.compareTo` is code-unit
@@ -6403,8 +6408,8 @@ Conventions:
     copy; the checker's facts are keyed by node [node-id], so two copies are
     two nodes whatever their spans. The `Stamp` on the fn records the expansions; a diagnostic at a
     copied node lands on the field or arm the copy was for, prefixed — "in
-    `cmp` from `auto` for `Point.y: Double`: no matching overload for
-    `cmp(Double, Double)`" at the field declaration — or, for the template's
+    `hash` from `auto` for `Point.y: Double`: no matching overload for
+    `hash(Double)`" at the field declaration — or, for the template's
     own text and what the stamp made, at the `by` site with the type ("in
     `cmp` from `auto` for `Point`: …"). (An expanded-in-place fn's copies
     land on the written code instead [comptime-inline].) Every phase renders

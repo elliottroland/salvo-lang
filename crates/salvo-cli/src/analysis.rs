@@ -1025,7 +1025,7 @@ mod tests {
                     (
                         "geo.sv",
                         "export struct Pt : Ordered<self> by auto, Hashed<self> by auto {\n    x: Int,\n    y: Int\n}\n\n\
-                         export struct Bad : Ordered<self> by auto {\n    f: Float\n}\n\n\
+                         export struct Bad : Hashed<self> by auto {\n    f: Float\n}\n\n\
                          export comptime fn total(p: Pt) [] -> Int => p {\n    let n = 0\n    [for field in Pt.fields] {\n        n = n + p.[field]\n    }\n    return n\n}\n",
                     ),
                     (

@@ -13868,10 +13868,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///   narrower operand first, so `i < l` is `cmp(widen(i), l) < 0`, and an
     ///   integer and a float operand are refused — the call rule has no
     ///   widening of its own (§II.10 P11, open).
-    /// * **Float ordering with nothing to call** keeps the host's IEEE order:
-    ///   std declares no `cmp(Double, Double)` (a sorted container of them has
-    ///   no total order), so `<` on floats goes through a `cmp` only when one
-    ///   is in reach, an implicit (§II.10 P12, open).
+    /// * **The floats have a `cmp`**, std's intrinsic, IEEE comparison (user
+    ///   decision 2026-10-30, §II.10 P12), so `<` on them is the call like any
+    ///   other; until then it was the host's order with nothing to call.
     ///
     /// Whether the backends spell it natively is read off the selected
     /// declaration (std's intrinsic `eq`/`cmp` at a basic type), not the
@@ -13947,13 +13946,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .map(|p| format!("`{}`", p.local))
                     .collect();
                 self.operator_implicit_tie(sym, member, &lt, &rt, tied.len(), &shown, span);
-                return;
-            }
-        }
-        // [op-order] Float ordering with no `cmp` in reach: the host's order.
-        if !equality && matches!(op_numeric(lt.strip_quals()), Some((true, _))) {
-            let want = Ty::Fn { params: tys.clone(), ret: Box::new(ret.clone()), contract: None, effects: Vec::new() };
-            if !self.some_fn_accepts(member, &want) {
                 return;
             }
         }

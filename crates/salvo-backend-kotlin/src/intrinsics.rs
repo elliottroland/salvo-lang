@@ -69,6 +69,14 @@ pub fn fn_call(
         ("cmp", Some("Int" | "Long" | "Byte" | "Char" | "Bool")) => {
             format!("({}).compareTo({})", a(0), a(1))
         }
+        // [op-order] The floats' `cmp` is IEEE comparison, as `<` is: not
+        // `compareTo`, whose total order puts `NaN` last. Each operand is
+        // evaluated once, in order.
+        ("cmp", Some(t @ ("Float" | "Double"))) => format!(
+            "({{ __a: {t}, __b: {t} -> if (__a < __b) -1 else if (__a > __b) 1 else 0 }})({}, {})",
+            a(0),
+            a(1)
+        ),
         // [interp-to-str] The scalars' text form as a function, so a
         // `?ToStr<T>` implicit can resolve one (added 2026-09-23 with the test
         // surface). `toString()` is what interpolation lowers to as well, so

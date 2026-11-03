@@ -27,18 +27,19 @@ tie and a positive number otherwise; `eq` decides equality; `hash` digests.
 Each is an ordinary overloadable function, which is the whole mechanism: no
 trait, no interface value, nothing either backend knows about.
 
-The intrinsic types come with theirs — `cmp` for `Int`, `Long`, `Byte`, `Char`,
-`Bool` and `Str`, `eq` for those plus `Double` and `Float`, `hash` for the ones
-`cmp` covers:
+The intrinsic types come with theirs — `cmp` and `eq` for `Int`, `Long`,
+`Byte`, `Char`, `Bool`, `Str`, `Double` and `Float`, `hash` for all but the
+floats:
 
 ```
 let order = cmp("ab", "b")      // negative: strings compare by code point
 let yes = eq(1.5, 1.5)          // true
 ```
 
-`Double` and `Float` have an `eq` and no `cmp`: `NaN` ties with nothing, so
-there is no total order to promise — the same reason a sorted collection of
-them is refused.
+`Double` and `Float` compare by IEEE: `cmp(a, b)` is `-1` when `a < b`, `1`
+when `a > b`, and `0` otherwise, so a `NaN` ties with everything. That is no
+total order, so a sorted collection of floats is refused, and they have no
+`hash`.
 
 The intrinsic types' `cmp` and `eq` are declared beside the types: the
 scalars' in `std.core.basic`, `Str`'s in `std.core.string`, and `List`'s and
@@ -206,10 +207,9 @@ refused, since a call does not widen a variable. And `x == -1L` on a `Long?`
 tests that `x` holds a `Long` before comparing it, so a `None` is simply
 unequal.
 
-`Double` and `Float` have no `cmp`, yet `1.5 < x` works: with nothing to call,
-floats order by the host's IEEE comparison (`NaN` is neither less nor
-greater). An implicit `?cmp` over `Double`s, where one is in reach, is called
-instead.
+On floats `<` is std's `cmp`, the host's IEEE comparison (`NaN` is neither
+less nor greater, so `NaN <= x` is `false` too), and an implicit `?cmp` over
+`Double`s, where one is in reach, is called instead.
 
 The backends write the host's own `<` or `==` when the call is std's
 built-in `cmp` or `eq` for a scalar — which is what it means — and the call
@@ -265,10 +265,10 @@ struct Person : Hashed<self> {
 promise, checked at the declaration, that a `hash` and an `eq` exist.
 
 What a stamped body needs of the type is checked where the type is declared,
-and the error lands on the field it is about: a `Double` field has no `cmp`,
-so `: Ordered<self> by auto` on a struct holding one reports
-`in `cmp` from `auto` for `Reading.value: Double`: no matching overload for
-`cmp(Double, Double)`` at that field, not at a distant `SortedSet<Reading>`.
+and the error lands on the field it is about: a `Double` field has no `hash`,
+so `: Hashed<self> by auto` on a struct holding one reports
+`in `hash` from `auto` for `Reading.value: Double`: no matching overload for
+`hash(Double)`` at that field, not at a distant `Set<Reading>`.
 A `canbe Mut` struct is **refused** by `std.core.auto`'s `hash` — a value that can
 change while a collection holds it corrupts the collection — and the refusal
 lands at the clause.

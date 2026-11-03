@@ -132,9 +132,8 @@ struct KFloatHash : Hashed<self> by auto {
     v: Double
 }
 
-// ... nor a `cmp`.
+// A `cmp` it has: IEEE comparison, as `<` (user decision 2026-10-30).
 struct KFloatOrd : Ordered<self> by auto {
-    //~ error[call-resolve:no-overload]
     v: Double
 }
 

@@ -875,28 +875,6 @@ nothing ([op-pow]). Option (b) would add the mixed `plus`/`minus`/`times`/
 `divide` overloads too (sixteen more intrinsics per class); one answer covers
 all of them.
 
-### 0aj — DECISION: float ordering has no `cmp` to call (B3.3c, 2026-10-28)
-
-std declares `eq(Double, Double)` and `eq(Float, Float)` but no `cmp` for
-them (a sorted container of floats has no total order), so the call `a < b`
-names does not exist at a `Double`. B3.3c kept the host's IEEE order there
-(`NaN` neither less nor greater) **when no `cmp` is in reach**; an enclosing
-`?cmp` over `Double`s takes the operator, as it takes the call (R10 D1).
-Options (the pipeline record §II.10 P12):
-
-- **(a) Host order when nothing answers** (built): the one fast path left, and
-  only where the call finds no candidate.
-- **(b) Declare intrinsic `cmp(Double, Double)`/`cmp(Float, Float)`** with a
-  total order (`NaN` last, say), so `<` is the call everywhere: floats become
-  orderable keys (`SortedSet<Double>`), reversing the 2026-09-21 refusal, and
-  either `<` stays IEEE (the backends spelling the intrinsic natively) and
-  disagrees with `cmp(a, b) < 0` on `NaN`, or `<` follows the total order and
-  disagrees with the host.
-- **(c) Refuse `<` on floats** without a `cmp` in reach: one rule, and every
-  float comparison in std and the examples needs a function (`lt(a, b)`).
-
-Recommendation: (a).
-
 ### 0ar — Open defects the test-data migration found (2026-10-28, TESTS.md T1)
 
 Moving the checker tests onto the real std and exact annotations (every

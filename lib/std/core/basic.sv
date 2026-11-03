@@ -1,8 +1,8 @@
 export intrinsic type Byte : Ordered<self>, Eq<self>, Hashed<self>, ToStr<self>
 export intrinsic type Int : Ordered<self>, Eq<self>, Hashed<self>, ToStr<self>
 export intrinsic type Long : Ordered<self>, Eq<self>, Hashed<self>, ToStr<self>
-export intrinsic type Float : Eq<self>, ToStr<self>
-export intrinsic type Double : Eq<self>, ToStr<self>
+export intrinsic type Float : Ordered<self>, Eq<self>, ToStr<self>
+export intrinsic type Double : Ordered<self>, Eq<self>, ToStr<self>
 export intrinsic type Char : Ordered<self>, Eq<self>, Hashed<self>, ToStr<self>
 export intrinsic type Bool : Ordered<self>, Eq<self>, Hashed<self>, ToStr<self>
 export intrinsic type Any
@@ -143,9 +143,17 @@ export intrinsic fn cmp(a: Byte, b: Byte) [] -> Int => a, b
 export intrinsic fn cmp(a: Char, b: Char) [] -> Int => a, b
 export intrinsic fn cmp(a: Bool, b: Bool) [] -> Int => a, b
 
-// Equality covers the float widths where ordering cannot: comparing two
-// `Double`s is meaningful (and both backends agree on IEEE, `NaN` equalling
-// nothing), ordering a set of them is not.
+// The floats order by IEEE comparison, as `<` on them always has (user
+// decision 2026-10-30, the pipeline record §II.10 P12): `-1` when `a < b`,
+// `1` when `a > b`, and `0` otherwise, so a `NaN` ties with everything. That
+// is not a total order, which is why a float is still refused as a sorted
+// key.
+// @compilerrules [op-order, col-sorted]
+export intrinsic fn cmp(a: Float, b: Float) [] -> Int => a, b
+export intrinsic fn cmp(a: Double, b: Double) [] -> Int => a, b
+
+// Equality covers the float widths too (both backends agree on IEEE, `NaN`
+// equalling nothing); a hash does not.
 export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b
 export intrinsic fn eq(a: Long, b: Long) [] -> Bool => a, b
 export intrinsic fn eq(a: Double, b: Double) [] -> Bool => a, b

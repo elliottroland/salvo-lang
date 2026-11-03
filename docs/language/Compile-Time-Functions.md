@@ -185,14 +185,14 @@ an error in it.
 
 ### Where the errors land
 
-A stamped body resolves a `cmp` per field, so a field with no `cmp` — a
+A stamped body resolves a `hash` per field, so a field with no `hash` — a
 `Double`, a function value, a struct that never opted in — fails in the copy
 for that field, and the error is reported **at that field**, prefixed with
 what was being stamped:
 
 ```
-error: in `cmp` from `auto` for `Reading.value: Double`: no matching overload
-       for `cmp(Double, Double)`
+error: in `hash` from `auto` for `Reading.value: Double`: no matching overload
+       for `hash(Double)`
   23 |     value: Double
            ^^^^^^^^^^^^^
 ```

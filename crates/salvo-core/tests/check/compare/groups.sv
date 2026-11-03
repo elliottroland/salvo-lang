@@ -189,15 +189,14 @@ fn probe_key_hash(k: Key) [] -> Long => k {
 
 // ===== what has no canonical implementation =====
 
-// `Double` has an `eq` and no `cmp`: `NaN` ties with nothing, so no total
-// order exists — the same reason a sorted collection of floats stays refused
-// [col-sorted]. The refusal is the ordinary "no overload" one.
+// `Double` has an `eq` and a `cmp`, the IEEE comparison `<` is (user
+// decision 2026-10-30): a `NaN` ties with everything, so it is no total
+// order, and a sorted collection of floats stays refused [col-sorted].
 fn same_double(a: Double, b: Double) [] -> Bool => a, b {
     return eq(a, b)
 }
 
 fn ranked_double(a: Double, b: Double) [] -> Int => a, b {
-    //~ error[call-resolve:no-overload]
     return cmp(a, b)
 }
 

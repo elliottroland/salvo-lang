@@ -130,6 +130,14 @@ pub fn fn_call(
         ("cmp", Some("Int" | "Long" | "Byte" | "Char" | "Bool")) => {
             format!("(Ord::cmp(&({}), &({})) as i32)", a(0), a(1))
         }
+        // [op-order] The floats' `cmp` is IEEE comparison, as `<` is: a `NaN`
+        // (no `partial_cmp`) ties.
+        ("cmp", Some(t @ ("Float" | "Double"))) => format!(
+            "(match {}::partial_cmp(&({}), &({})) {{ Some(std::cmp::Ordering::Less) => -1i32, Some(std::cmp::Ordering::Greater) => 1i32, _ => 0i32 }})",
+            if t == "Float" { "f32" } else { "f64" },
+            a(0),
+            a(1)
+        ),
         // [interp-to-str] The scalars' text form as a function, so a
         // `?ToStr<T>` implicit can resolve one (added 2026-09-23 with the test
         // surface). `Display` is what interpolation itself uses

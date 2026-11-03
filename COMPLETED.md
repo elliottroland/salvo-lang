@@ -144,6 +144,26 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — The floats have an IEEE `cmp` (user decision, ROADMAP 0aj / §II.10 P12, [op-order])
+
+- **Decided (user)**: keep the IEEE order for `<` on floats, and give them
+  an intrinsic `cmp` that uses it, "like with our other numeric types".
+- **Built**: `std.core.basic` declares `cmp(Float, Float)` and `cmp(Double,
+  Double)` (and `Float`/`Double` now declare `: Ordered<self>`): `-1` when
+  `a < b`, `1` when `a > b`, else `0`, so a `NaN` ties. Kotlin spells it
+  with `<`/`>` (not `compareTo`, whose total order puts `NaN` last), Rust
+  with `partial_cmp`. `<` on floats now resolves to it like any comparison
+  and, being std's intrinsic, is still the host's `<` (`NaN <= x` is
+  `false`); the checker's "no `cmp` in reach" fast path is gone. A float
+  stays refused as a sorted key (no total order) and has no `hash`.
+- **What it makes possible**: `cmp(a, b)` on floats, a `?cmp` filled at
+  `Double`, and `: Ordered<self> by auto` on a struct with a float field
+  (which `check/collections/equality.sv` and `check/compare/groups.sv` now
+  accept). Such a struct is orderable, so it *can* key a sorted collection,
+  whose order a `NaN` field then makes inconsistent; the floats themselves
+  are refused there. The docs' "no `cmp` at a `Double` field" examples are
+  now about `hash`.
+
 ### 2026-10-30 — `%` is `rem` and unary `-` is `neg` (user decision, ROADMAP 0ao / §II.10 P16, [op-arith] [op-unique-shape])
 
 - **Decided (user)**: option (c), with the names suggested: `a % b` is the
