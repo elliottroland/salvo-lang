@@ -3919,15 +3919,6 @@ messages! {
     );
 
     // [op-arith]
-    /// An arithmetic operator on operands that are not numbers.
-    op_arith_non_numeric = "op-arith:non-numeric" (sym: &dyn std::fmt::Display, l: &dyn std::fmt::Display, r: &dyn std::fmt::Display) => format!(
-        "`{sym}` needs numeric operands (`Int`, `Long`, `Float`, `Double`); found `{l}` \
-         and `{r}`"
-    );
-    /// Unary `-` on an operand that is not a number.
-    op_arith_unary_minus = "op-arith:unary-minus" (t: &dyn std::fmt::Display) => format!(
-        "unary `-` needs a numeric operand (`Int`, `Long`, `Float`, `Double`); found `{t}`"
-    );
 
     // [op-assign]
     /// An assignment to something that is not a place.

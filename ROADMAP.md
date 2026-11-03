@@ -1155,28 +1155,6 @@ loop's rules into the call's contract would make the header a written
 `let it = Mut e; loop { when next(it) … }` (the pipeline record §II.6), and belongs to
 the typed partial IR (Stage D).
 
-### 0ao — DECISION: names for `%`, unary `-` and `++`/`--` (B3.3e, 2026-10-28)
-
-O1's name table (OPERATOR_OVERLOAD.md) gives `+ - * /` and `**` their names
-(`plus`, `minus`, `times`, `divide`, `pow`) and says nothing of `%`, unary
-`-`, `++`/`--`. B3.3e kept those **the host's operators on the numeric
-scalars only**, as they were ([op-arith]): `%` with [op-promote]'s widening,
-unary `-` on a number, `++`/`--` on an `Int` place [op-inc-dec]; a struct gets
-none of them, and no name for them is a shape [op-unique-shape]. Compound
-assignment needs nothing: `v += w` is `v = v + w` [op-compound], which is
-`plus`. Options (the pipeline record §II.10 P16):
-
-- **(a) Keep them numeric-only** (built).
-- **(b) Name them**: `a % b` is `rem(a, b)` and `-a` is `neg(a)` (two more
-  rows of D-3's table: `rem` with 2 parameters, `neg` with 1; std's
-  intrinsics for the numbers, as for `plus`), and `++`/`--` either stay
-  `Int`-only or become `x = plus(x, 1)` / `x = minus(x, 1)`.
-- **(c)** (b) for `%` and unary `-` only.
-
-Recommendation: (c), since `%` and unary `-` are as much arithmetic as `+`,
-while a step of one on a struct has no obvious meaning. The names `rem` and
-`neg` are suggestions; choosing them is the user's call.
-
 ### 0ap — DECISION: what `**` means, and what std declares for it (B3.3e, 2026-10-28)
 
 Built ([op-pow]; the pipeline record §II.10 P17): std declares `pow(Int, Int) ->

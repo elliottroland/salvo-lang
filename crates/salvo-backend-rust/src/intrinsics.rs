@@ -175,10 +175,14 @@ pub fn fn_call(
         ("minus", Some(t @ ("Int" | "Long"))) => format!("{}::wrapping_sub({}, {})", rs_int(t), a(0), a(1)),
         ("times", Some(t @ ("Int" | "Long"))) => format!("{}::wrapping_mul({}, {})", rs_int(t), a(0), a(1)),
         ("divide", Some(t @ ("Int" | "Long"))) => format!("{}::wrapping_div({}, {})", rs_int(t), a(0), a(1)),
+        ("rem", Some(t @ ("Int" | "Long"))) => format!("{}::wrapping_rem({}, {})", rs_int(t), a(0), a(1)),
+        ("neg", Some(t @ ("Int" | "Long"))) => format!("{}::wrapping_neg({})", rs_int(t), a(0)),
         ("plus", Some("Float" | "Double")) => format!("(({}) + ({}))", a(0), a(1)),
         ("minus", Some("Float" | "Double")) => format!("(({}) - ({}))", a(0), a(1)),
         ("times", Some("Float" | "Double")) => format!("(({}) * ({}))", a(0), a(1)),
         ("divide", Some("Float" | "Double")) => format!("(({}) / ({}))", a(0), a(1)),
+        ("rem", Some("Float" | "Double")) => format!("(({}) % ({}))", a(0), a(1)),
+        ("neg", Some("Float" | "Double")) => format!("(-({}))", a(0)),
         // [op-pow] [rs-pow] `**`, which is always this call (no target has a
         // power operator). The receiver key is `base^exponent`, since two
         // overloads share a `Double` base. Each operand is evaluated once, in

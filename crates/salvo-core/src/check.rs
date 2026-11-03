@@ -1487,9 +1487,10 @@ struct OperatorSite {
     sym: &'static str,
     /// The function it names (`eq`, `cmp`).
     member: &'static str,
-    /// The operand types the call is resolved at.
+    /// The operand types the call is resolved at (`rhs` `None` for unary
+    /// `-`, `neg(a)`).
     lhs: Ty,
-    rhs: Ty,
+    rhs: Option<Ty>,
     /// What the refusal of a missing function suggests ([`Checker::compare_remedy`]).
     remedy: String,
 }
@@ -1500,14 +1501,18 @@ impl OperatorSite {
     /// operator is.
     fn reword(&self, msg: String) -> String {
         let OperatorSite { sym, member, lhs, rhs, remedy } = self;
-        let on = if lhs.strip_quals() == rhs.strip_quals() { format!("`{lhs}`") } else { format!("`{lhs}` and `{rhs}`") };
-        let call = format!("no matching overload for `{member}({lhs}, {rhs})`");
+        let (on, args) = match rhs {
+            None => (format!("`{lhs}`"), format!("{lhs}")),
+            Some(rhs) if lhs.strip_quals() == rhs.strip_quals() => (format!("`{lhs}`"), format!("{lhs}, {rhs}")),
+            Some(rhs) => (format!("`{lhs}` and `{rhs}`"), format!("{lhs}, {rhs}")),
+        };
+        let call = format!("no matching overload for `{member}({args})`");
         match msg.strip_prefix(&call) {
             Some(rest) => format!(
-                "no `{member}` for `{sym}` on {on}: `{sym}` is `{member}({lhs}, {rhs})`, and no `{member}` in \
-                 scope takes `({lhs}, {rhs})`{rest}{remedy}"
+                "no `{member}` for `{sym}` on {on}: `{sym}` is `{member}({args})`, and no `{member}` in \
+                 scope takes `({args})`{rest}{remedy}"
             ),
-            None => format!("`{sym}` on {on} is `{member}({lhs}, {rhs})`: {msg}"),
+            None => format!("`{sym}` on {on} is `{member}({args})`: {msg}"),
         }
     }
 }
@@ -2252,7 +2257,10 @@ fn record_primitives(program: &Program, out: &mut Checked) {
                 _ => None,
             };
             match f.name.name.as_str() {
-                "eq" | "cmp" | "plus" | "minus" | "times" | "divide" if explicit.len() == 2 && explicit.iter().all(|p| basic(&p.ty)) => {
+                "eq" | "cmp" | "plus" | "minus" | "times" | "divide" | "rem" if explicit.len() == 2 && explicit.iter().all(|p| basic(&p.ty)) => {
+                    ops.insert(Key::name_of(id), Primitive::Operator);
+                }
+                "neg" if explicit.len() == 1 && basic(&explicit[0].ty) => {
                     ops.insert(Key::name_of(id), Primitive::Operator);
                 }
                 "to_str" if explicit.len() == 1 && (basic(&explicit[0].ty) || named(&explicit[0].ty).as_deref() == Some("Str")) => {
@@ -13924,7 +13932,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let is_member = |p: &ImplicitParam| p.name == member;
         match self.pick_own_implicit_by(&is_member, &fits) {
             Ok(Some(own)) => {
-                let got = self.operator_through_implicit(&own, lhs, rhs, &tys, span);
+                let got = self.operator_through_implicit(&own, &[lhs, rhs], &tys, span);
                 self.operator_returns(&got, &ret, sym, member, &lt, &rt, span);
                 return;
             }
@@ -13951,7 +13959,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // 2. The call: visible fns and the available effects' members.
         let remedy = self.compare_remedy(lt.strip_quals(), member);
-        let saved = self.operator_site.replace(OperatorSite { sym, member, lhs: lt.clone(), rhs: rt.clone(), remedy });
+        let saved = self.operator_site.replace(OperatorSite { sym, member, lhs: lt.clone(), rhs: Some(rt.clone()), remedy });
         self.pending_arg_tys = Some(tys);
         let args: [&'p Expr; 2] = [lhs, rhs];
         let got = self.resolve_named_call(member, span, &[], &args, &[], Some(&ret), None, span);
@@ -13965,7 +13973,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// as a call through that local is (`Callee::Local`, and the local it is
     /// for the IR), with its arguments checked as a fn value's are.
     /// [op-arith] Arithmetic alike. Answers what the implicit returns.
-    fn operator_through_implicit(&mut self, own: &ImplicitParam, lhs: &'p Expr, rhs: &'p Expr, tys: &[Ty], span: Span) -> Ty {
+    fn operator_through_implicit(&mut self, own: &ImplicitParam, operands: &[&'p Expr], tys: &[Ty], span: Span) -> Ty {
         let key = self.key(span);
         self.record_callee(key, Callee::Local { local: own.local.clone(), contract: Vec::new() });
         let (params, got, contract, effects) = match self.lookup(&own.local).map(|v| v.narrowed.strip_quals().clone()) {
@@ -13980,7 +13988,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         self.check_fn_value_effects(&effects, span);
         let callee = format!("`{}`", own.local);
-        self.check_fn_value_args(&callee, &[lhs, rhs], &params, contract.as_deref(), Some(tys.to_vec()), span);
+        self.check_fn_value_args(&callee, operands, &params, contract.as_deref(), Some(tys.to_vec()), span);
         got
     }
 
@@ -14115,7 +14123,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         let named = |p: &ImplicitParam| p.name == member;
         match self.pick_own_implicit_by(&named, &fits) {
-            Ok(Some(own)) => return self.operator_through_implicit(&own, lhs, rhs, &tys, span),
+            Ok(Some(own)) => return self.operator_through_implicit(&own, &[lhs, rhs], &tys, span),
             Ok(None) => {}
             Err(tied) => {
                 let shown: Vec<String> =
@@ -14126,10 +14134,62 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // 2. The call: visible fns and the available effects' members.
         let remedy = self.arith_remedy(op, &lt, &rt);
-        let saved = self.operator_site.replace(OperatorSite { sym, member, lhs: lt.clone(), rhs: rt.clone(), remedy });
+        let saved = self.operator_site.replace(OperatorSite { sym, member, lhs: lt.clone(), rhs: Some(rt.clone()), remedy });
         self.pending_arg_tys = Some(tys);
         let args: [&'p Expr; 2] = [lhs, rhs];
         let got = self.resolve_named_call(member, span, &[], &args, &[], None, None, span);
+        self.pending_arg_tys = None;
+        self.operator_site = saved;
+        got
+    }
+
+    /// [op-arith] Unary `-` is **the call it names**, `neg(a)` (user decision
+    /// 2026-10-30, the pipeline record §II.10 P16), resolved as
+    /// [`Checker::check_arith_call`] resolves a binary operator: the enclosing
+    /// fn's own `?neg` first, then the visible fns and the available effects'
+    /// members, at the operand as checked. std's intrinsic `neg` at a number
+    /// is the host's negation [backend-core-layers]. `Unknown` and `Never`
+    /// stay lenient [type-unknown-lenient].
+    fn check_neg_call(&mut self, span: Span, operand: &'p Expr, t: &Ty) -> Ty {
+        let tw = crate::literal::widen(t);
+        let tb = tw.strip_quals().clone();
+        if tb.is_unknown() || matches!(tb, Ty::Never) {
+            return tb;
+        }
+        let tys = vec![tw.clone()];
+        let fits = |p: &ImplicitParam| match p.ty.strip_quals() {
+            Ty::Fn { params, .. } => params.len() == 1 && Self::arg_fits_fn_value(&tys[0], &params[0]),
+            _ => p.ty.is_unknown(),
+        };
+        match self.pick_own_implicit("neg", &fits) {
+            Ok(Some(own)) => return self.operator_through_implicit(&own, &[operand], &tys, span),
+            Ok(None) => {}
+            Err(tied) => {
+                let shown: Vec<String> =
+                    self.own_implicits.iter().filter(|p| p.name == "neg" && fits(p)).map(|p| format!("`{}`", p.local)).collect();
+                self.operator_implicit_tie("-", "neg", &tw, &tw, tied.len(), &shown, span);
+                return Ty::Unknown;
+            }
+        }
+        let is = |n: &str| matches!(&tb, Ty::Named { name, .. } if name == n);
+        let remedy = if is("Byte") {
+            " — a `Byte` is an octet, not a number: compute with `to_int` and come back with `to_byte`".to_string()
+        } else {
+            match &tb {
+                Ty::Var(v) => format!(
+                    " — nothing is knowable about `{v}` unless the signature asks: add `?neg: (a: {v}) -> {v}` \
+                     to this function's parameters"
+                ),
+                Ty::Named { name, .. } if self.symbols.structs.contains_key(name.as_str()) => {
+                    format!(" — declare a `neg` taking `({tw})` in `{name}`'s own file")
+                }
+                _ => String::new(),
+            }
+        };
+        let saved = self.operator_site.replace(OperatorSite { sym: "-", member: "neg", lhs: tw.clone(), rhs: None, remedy });
+        self.pending_arg_tys = Some(tys);
+        let args: [&'p Expr; 1] = [operand];
+        let got = self.resolve_named_call("neg", span, &[], &args, &[], None, None, span);
         self.pending_arg_tys = None;
         self.operator_site = saved;
         got
@@ -14164,59 +14224,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 " — declare a `{member}` taking `({l}, {r})` in `{name}`'s own file"
             ),
             _ => String::new(),
-        }
-    }
-
-    /// [op-arith] `%`'s operand typing, the one arithmetic operator that names
-    /// no function (the pipeline record §II.10 P16; `+ - * /` and `**` are
-    /// [`Checker::check_arith_call`]). Numeric operands only (user decision
-    /// 2026-09-14), with implicit widening *within* a class
-    /// (`Int % Long → Long`; the narrower side records a promotion
-    /// [op-promote]) and an explicit-conversion error *across* classes. The
-    /// result is the promoted operand type. `Unknown`/`Never` stay lenient
-    /// [type-unknown-lenient]; a type variable does not.
-    fn check_arith(
-        &mut self,
-        op: ast::BinaryOp,
-        span: Span,
-        lhs: &Expr,
-        rhs: &Expr,
-        l: &Ty,
-        r: &Ty,
-    ) -> Ty {
-        let (lb, rb) = (l.strip_quals(), r.strip_quals());
-        if op_lenient(lb) || op_lenient(rb) {
-            // One mistake, one diagnostic: an unknown side neither errors
-            // nor widens — a known numeric side carries the result.
-            return match (op_numeric(lb), op_numeric(rb)) {
-                (Some(_), _) => lb.clone(),
-                (_, Some(_)) => rb.clone(),
-                _ => Ty::Unknown,
-            };
-        }
-        let sym = op_symbol(op);
-        match (op_numeric(lb), op_numeric(rb)) {
-            (Some((lf, lr)), Some((rf, rr))) => {
-                if lf != rf {
-                    self.error(span, messages::op_promote_mixed_classes(&sym, &l, &r));
-                    return Ty::Unknown;
-                }
-                match lr.cmp(&rr) {
-                    std::cmp::Ordering::Equal => lb.clone(),
-                    std::cmp::Ordering::Less => {
-                        self.record_promotion(lhs.span(), rb);
-                        rb.clone()
-                    }
-                    std::cmp::Ordering::Greater => {
-                        self.record_promotion(rhs.span(), lb);
-                        lb.clone()
-                    }
-                }
-            }
-            _ => {
-                self.error(span, messages::op_arith_non_numeric(&sym, &l, &r));
-                Ty::Unknown
-            }
         }
     }
 
@@ -23680,11 +23687,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     UnaryOp::Neg => {
                         let width = expected.and_then(numeric_expectation).map(Ty::named);
                         let t = self.check_expr(operand, width.as_ref());
-                        let tb = t.strip_quals();
-                        if !op_lenient(tb) && op_numeric(tb).is_none() {
-                            self.error(operand.span(), messages::op_arith_unary_minus(&t));
-                        }
-                        t
+                        // [op-arith] `-a` is the call `neg(a)` (user decision
+                        // 2026-10-30, the pipeline record §II.10 P16).
+                        self.check_neg_call(expr.span(), operand, &t)
                     }
                     // [op-bool] Negation of a truth value: `Bool` only —
                     // Salvo has no truthiness.
@@ -23708,13 +23713,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // [str-drop-mut] An operator works on plain values.
                         self.drop_mut_operand(lhs, &l);
                         self.drop_mut_operand(rhs, &r);
-                        if matches!(op, Rem) {
-                            // [op-arith] `%` names no function (O1's table has
-                            // none): numeric operands, widening within a
-                            // class, promoted result type (the pipeline record §II.10
-                            // P16).
-                            self.check_arith(*op, expr.span(), lhs, rhs, &l, &r)
-                        } else if refused {
+                        if refused {
                             // One mistake, one diagnostic: the call would only
                             // repeat the refusal.
                             Ty::Unknown
@@ -32230,14 +32229,15 @@ pub(crate) fn op_symbol(op: BinaryOp) -> &'static str {
 }
 
 /// [op-arith] [op-pow] The function an arithmetic operator names (O1's
-/// table): `+` `plus`, `-` `minus`, `*` `times`, `/` `divide`, `**` `pow`.
-/// `%` names none (the pipeline record §II.10 P16).
+/// table): `+` `plus`, `-` `minus`, `*` `times`, `/` `divide`, `%` `rem`
+/// (user decision 2026-10-30, the pipeline record §II.10 P16), `**` `pow`.
 fn arith_member(op: BinaryOp) -> &'static str {
     match op {
         BinaryOp::Add => "plus",
         BinaryOp::Sub => "minus",
         BinaryOp::Mul => "times",
         BinaryOp::Div => "divide",
+        BinaryOp::Rem => "rem",
         BinaryOp::Pow => "pow",
         _ => unreachable!("not an arithmetic operator with a name"),
     }

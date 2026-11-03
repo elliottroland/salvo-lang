@@ -260,7 +260,7 @@ first(Mut #0) -> Int@main
   200:9   `return n`                     Never
   200:16  `n`                            Int
   202:5   `return -1`                    Never
-  202:12  `-1`                           Int
+  202:12  `-1`                           Int  -> std.core.basic::neg(Int)
   202:13  `1`                            Int
 main() -> None@main
   208:9   `xs`                           NonEmpty List<Int>
@@ -359,7 +359,7 @@ main() -> None@main
   259:26  `(n) -> n % 2 == 1`            (Int) -> Bool
   259:27  `n`                            Int
   259:33  `n % 2 == 1`                   Bool  -> std.core.basic::eq(Int, Int)
-  259:33  `n % 2`                        Int
+  259:33  `n % 2`                        Int  -> std.core.basic::rem(Int, Int)
   259:33  `n`                            Int
   259:37  `2`                            Int
   259:42  `1`                            Int

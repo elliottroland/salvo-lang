@@ -144,6 +144,26 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — `%` is `rem` and unary `-` is `neg` (user decision, ROADMAP 0ao / §II.10 P16, [op-arith] [op-unique-shape])
+
+- **Decided (user)**: option (c), with the names suggested: `a % b` is the
+  call `rem(a, b)` and `-a` is `neg(a)`; `++`/`--` stay steps of one on an
+  `Int` place.
+- **Built**: `%` goes through `check_arith_call` like `+ - * /` (widening
+  within a class before the call), and unary `-` through `check_neg_call`
+  (an enclosing `?neg` first, then the visible fns and members; the operand
+  still adopts the width its position expects). std's `std.core.basic`
+  declares intrinsic `rem` and `neg` for `Int`, `Long`, `Float` and
+  `Double`; a call resolved to one is the IR's own `Op::Rem`/`Op::Neg`
+  (`Checked::primitives`), so the emitted code is unchanged, and both
+  backends spell the intrinsics as values (`wrapping_rem`/`wrapping_neg` on
+  Rust). `rem` (2) and `neg` (1) join [op-unique-shape]'s class, so a type
+  gets them by declaring them in its own file. Gone: `op-arith:non-numeric`
+  and `op-arith:unary-minus` (the refusals are the call's, naming
+  `?rem`/`?neg` at a `T`). `check/operators/arithmetic.sv` covers a struct's
+  `neg`/`rem` and generic ones asked for; the facts snapshot shows the two
+  new callees; the std parse snapshot moved with the new declarations.
+
 ### 2026-10-30 — `**=` (user decision, ROADMAP 0aq, [op-compound] [op-pow])
 
 - **Decided (user)**: `**`'s precedence as built (Python's), and yes to

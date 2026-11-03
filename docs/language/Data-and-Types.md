@@ -20,7 +20,7 @@ Of these, `Byte`, `Int`, `Long`, `Float`, `Double`, `Bool` and `Char` are the **
 
 All numbers include the usual arithmetic operations: `+`, `-`, `*`, `/`, `%` and `**` work on `Int`, `Long`, `Float` and `Double` (and unary `-` on the same; `**` as below). `/` between integers is integer division on every backend. `+` does not concatenate strings — `${}` interpolation is how text is built — and `&&`, `||` and `!` take `Bool` operands only: Salvo has no truthiness in value position any more than in conditions.
 
-Like ordering and equality, the arithmetic operators are **the calls they name**: `a + b` is `plus(a, b)`, `a - b` is `minus(a, b)`, `a * b` is `times(a, b)`, `a / b` is `divide(a, b)` and `a ** b` is `pow(a, b)`, chosen exactly as the written call would be. The numbers' functions are std's, declared beside the types, and the backends write the host's own operator for them. A type of your own gets an operator by declaring the function **in its own file** — any right operand, any result:
+Like ordering and equality, the arithmetic operators are **the calls they name**: `a + b` is `plus(a, b)`, `a - b` is `minus(a, b)`, `a * b` is `times(a, b)`, `a / b` is `divide(a, b)`, `a % b` is `rem(a, b)`, `-a` is `neg(a)` and `a ** b` is `pow(a, b)`, chosen exactly as the written call would be. The numbers' functions are std's, declared beside the types, and the backends write the host's own operator for them. A type of your own gets an operator by declaring the function **in its own file** — any right operand, any result:
 
 ```
 struct V { x: Int, y: Int }
@@ -33,7 +33,7 @@ let w = (a + b) * 3
 
 An implicit of the function you are in comes first, as for every call: inside `fn total<T>(a: T, b: T, ?plus: (a: T, b: T) -> T)`, `a + b` is that `?plus` — the only way generic code can add, and the error at a `T` without one says to ask for it. An available effect's member `plus` is a candidate like a function. Ordering (`<`, `<=`, `>`, `>=`) and equality (`==`, `!=`) work the same way: `a < b` means `cmp(a, b) < 0` and `a == b` means `eq(a, b)` (see [Comparison, equality and hashing](Comparison-and-Hashing.md)).
 
-`%`, unary `-` and `++`/`--` name no function: they work on the numbers alone.
+`++` and `--` name no function: they step an `Int` place by one.
 
 **`**` is the power operator.** It binds tighter than `*` and than a `-` on its left, and it is right-associative: `-2 ** 2` is `-4`, `2 ** 3 ** 2` is `2 ** 9`, and the exponent may be negative (`2.0 ** -1`). Nothing is widened, since an exponent is not a base: std has `Int ** Int`, `Long ** Int`, `Double ** Int` and `Double ** Double`. An integer power wraps like the rest of integer arithmetic, and a negative integer exponent is an error at run time, as a division by zero is; `Double ** Int` is computed by repeated multiplication, identically on every backend, and `Double ** Double` is the host's `pow`.
 

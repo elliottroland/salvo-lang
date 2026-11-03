@@ -154,16 +154,19 @@ export intrinsic fn eq(a: Byte, b: Byte) [] -> Bool => a, b
 export intrinsic fn eq(a: Char, b: Char) [] -> Bool => a, b
 export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b
 
-// ===== arithmetic: the operators `+ - * /` and `**` =====
+// ===== arithmetic: the operators `+ - * / %`, unary `-`, and `**` =====
 //
 // What `a + b` (`plus(a, b)`), `a - b` (`minus`),
-// `a * b` (`times`) and `a / b` (`divide`) mean on a number, declared here,
-// beside the types, as the comparisons above are (OPERATOR_OVERLOAD.md O1).
+// `a * b` (`times`), `a / b` (`divide`), `a % b` (`rem`) and `-a` (`neg`)
+// mean on a number, declared here,
+// beside the types, as the comparisons above are (OPERATOR_OVERLOAD.md O1;
+// `rem` and `neg`, user decision 2026-10-30).
 // The backends write their own operator for these: integer
-// arithmetic wraps, `Int / Int` divides toward zero, and division
-// by zero is the host's trap. Mixed widths widen before the call,
+// arithmetic wraps, `Int / Int` divides toward zero, `%` keeps the
+// dividend's sign, and division or a remainder by zero is the host's
+// trap. Mixed widths widen before the call,
 // so only the same-width overloads exist. `Byte` has none: it
-// is an octet, not a number. `%` names no function.
+// is an octet, not a number.
 // @compilerrules [op-arith, op-unique-shape, backend-core-layers, op-wrap, op-promote, type-byte]
 export intrinsic fn plus(a: Int, b: Int) [] -> Int => a, b
 export intrinsic fn plus(a: Long, b: Long) [] -> Long => a, b
@@ -181,6 +184,14 @@ export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b
 export intrinsic fn divide(a: Long, b: Long) [] -> Long => a, b
 export intrinsic fn divide(a: Float, b: Float) [] -> Float => a, b
 export intrinsic fn divide(a: Double, b: Double) [] -> Double => a, b
+export intrinsic fn rem(a: Int, b: Int) [] -> Int => a, b
+export intrinsic fn rem(a: Long, b: Long) [] -> Long => a, b
+export intrinsic fn rem(a: Float, b: Float) [] -> Float => a, b
+export intrinsic fn rem(a: Double, b: Double) [] -> Double => a, b
+export intrinsic fn neg(a: Int) [] -> Int => a
+export intrinsic fn neg(a: Long) [] -> Long => a
+export intrinsic fn neg(a: Float) [] -> Float => a
+export intrinsic fn neg(a: Double) [] -> Double => a
 
 // `a ** b` is `pow(a, b)`, at the written types (no widening: an
 // exponent is not a base). An integer power wraps like the other integer

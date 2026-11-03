@@ -166,6 +166,24 @@ impl<'a, 'p> Lower<'a, 'p> {
                 }
             }
             AExpr::StructLit { ty, fields, .. } => self.struct_lit(ty.as_ref(), fields, span),
+            AExpr::Unary { op: UnaryOp::Neg, operand, .. }
+                if matches!(
+                    self.ctx.checked.call(self.key(span)).map(|c| &c.callee),
+                    Some(CalleeKind::Local { .. } | CalleeKind::Member { .. })
+                ) || matches!(self.ctx.checked.call(self.key(span)).map(|c| &c.callee), Some(CalleeKind::Fn { decl, .. }) if !self.ctx.is_primitive_operator(*decl)) =>
+            {
+                // [op-arith] `-a` is `neg(a)` (user decision 2026-10-30): a
+                // call, unless it resolved to std's intrinsic at a number,
+                // which is the IR's own negation below.
+                let ty = self.ty_of(span);
+                match self.call_named(vec![operand.as_ref()], &[], span, ty.clone()) {
+                    Some(call) => call,
+                    None => {
+                        self.error(span, messages::op_arith_lower_no_member(&"-", &"neg"));
+                        unsupported(ty, span, "negation")
+                    }
+                }
+            }
             AExpr::Unary { op, operand, .. } => {
                 // [ir-narrow] A test under `!` proves its opposite where it
                 // holds: nothing it narrows outlives the operand.
@@ -863,19 +881,18 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem | BinaryOp::Pow => {
                 // [op-arith] [op-pow] The operator is the call it names (O1):
-                // `plus(a, b)` …, `pow(a, b)`, lowered as that call is. std's
-                // intrinsic `plus`/`minus`/`times`/`divide` at a basic type is
-                // the primitive operation, so a call resolved to it is the IR's
-                // own operator [backend-core-layers]; `%` names no function and is
-                // always the operator; with nothing recorded (a lenient
-                // operand) the operator stays the host's.
+                // `plus(a, b)` …, `rem(a, b)`, `pow(a, b)`, lowered as that call
+                // is. std's intrinsic `plus`/`minus`/`times`/`divide`/`rem` at a
+                // basic type is the primitive operation, so a call resolved to
+                // it is the IR's own operator [backend-core-layers]; with
+                // nothing recorded (a lenient operand) the operator stays the
+                // host's.
                 let key = self.key(span);
-                let primitive = op == BinaryOp::Rem
-                    || match self.ctx.checked.call(key).map(|c| &c.callee) {
-                        Some(CalleeKind::Fn { decl, .. }) => self.ctx.is_primitive_operator(*decl),
-                        Some(CalleeKind::Local { .. } | CalleeKind::Member { .. }) => false,
-                        _ => op != BinaryOp::Pow,
-                    };
+                let primitive = match self.ctx.checked.call(key).map(|c| &c.callee) {
+                    Some(CalleeKind::Fn { decl, .. }) => self.ctx.is_primitive_operator(*decl),
+                    Some(CalleeKind::Local { .. } | CalleeKind::Member { .. }) => false,
+                    _ => op != BinaryOp::Pow,
+                };
                 if primitive {
                     let l = self.expr(lhs);
                     let r = self.expr(rhs);
@@ -893,6 +910,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     BinaryOp::Sub => "minus",
                     BinaryOp::Mul => "times",
                     BinaryOp::Div => "divide",
+                    BinaryOp::Rem => "rem",
                     _ => "pow",
                 };
                 match self.call_named(vec![lhs, rhs], &[], span, ty.clone()) {

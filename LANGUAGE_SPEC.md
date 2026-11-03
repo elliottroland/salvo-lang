@@ -2468,9 +2468,10 @@ Conventions:
     a literal, or a read when the subject is a read too.
 * [op-arith] **Arithmetic operators are the calls they name** (B3.3e,
   2026-10-28; OPERATOR_OVERLOAD.md O1, the pipeline record §3 R10): `a + b` is
-  `plus(a, b)`, `a - b` `minus(a, b)`, `a * b` `times(a, b)` and `a / b`
-  `divide(a, b)`, resolved exactly as the written call is, as the comparisons
-  are [op-order]:
+  `plus(a, b)`, `a - b` `minus(a, b)`, `a * b` `times(a, b)`, `a / b`
+  `divide(a, b)`, `a % b` `rem(a, b)` and unary `-a` `neg(a)` (`rem` and
+  `neg` user decision 2026-10-30, the pipeline record §II.10 P16), resolved
+  exactly as the written call is, as the comparisons are [op-order]:
   * **The enclosing fn's own implicit first** [implicit-resolve-body]: a
     `?plus` whose parameters the operands fit takes `+`, at a number too (R10
     D1), several ranked like overloads [implicit-same-name]. By **name**, as
@@ -2484,10 +2485,10 @@ Conventions:
     by declaring `plus` there** (any right operand, any return type, D-3:
     `times(v: V, k: Int) -> V`), and no import changes what `+` means.
   * **std declares the numbers' operations** beside the types, in
-    `std.core.basic`: intrinsic `plus`, `minus`, `times`, `divide` for
-    `Int`, `Long`, `Float` and `Double`, each at one width (`(Int, Int) ->
-    Int`, …). `Byte` has none [type-byte]; `Str` has none, since `+` does
-    not concatenate (interpolation does).
+    `std.core.basic`: intrinsic `plus`, `minus`, `times`, `divide`, `rem`
+    and `neg` for `Int`, `Long`, `Float` and `Double`, each at one width
+    (`(Int, Int) -> Int`, `(Int) -> Int`, …). `Byte` has none [type-byte];
+    `Str` has none, since `+` does not concatenate (interpolation does).
   * **The result is the call's return type.** At a number that is the
     (promoted) operand type, as before.
   * **What the backends spell natively is the selected declaration's
@@ -2517,10 +2518,12 @@ Conventions:
     leftover is closed for every operator** [backend-never-wrong]: `%`, unary
     `-`, `&&`, `||` and `!` on a `T` were accepted and refused by both target
     compilers (rustc E0369/E0600), and are now the ordinary operand errors.
-  * **`%`, unary `-` and `++`/`--` name no function** (O1's table has none):
-    they stay the host's operators on the numeric scalars (`%` with the
-    same widening; `++`/`--` on an `Int` place [op-inc-dec]), and a struct gets
-    none of them. Their names, if any, are the pipeline record §II.10 P16 (open).
+  * **`++`/`--` name no function** (user decision 2026-10-30, option (c) of
+    §II.10 P16): they stay steps of one on an `Int` place [op-inc-dec], since
+    a step of one on a struct has no obvious meaning. `%` widens like the
+    other binary operators; unary `-` takes its operand at the width its
+    position expects [type-lit-adopt]. Until 2026-10-30 `%` and unary `-`
+    named no function either and a struct got neither.
     Compound assignment is the binary operator it desugars to
     [op-compound], so `v += w` is `v = plus(v, w)`.
   * The checker records the operator as the call (`calls`: `Callee::Fn`,
@@ -5589,7 +5592,8 @@ Conventions:
   search.
   * **The class (D-3, D-6)** — a name, an explicit arity (implicit parameters
     not counted) and, for three, a return type: `eq` (2, `Bool`), `cmp` (2,
-    `Int`), `plus`, `minus`, `times`, `divide`, `pow` (2, any), `to_str` (1,
+    `Int`), `plus`, `minus`, `times`, `divide`, `rem`, `pow` (2, any), `neg`
+    (1, any; `rem` and `neg` since 2026-10-30), `to_str` (1,
     any), `iter` (1, any), `next` (1, `Emitted T | Finished` for any `T`).
     Anything else is an ordinary fn, allowed anywhere: `fn iter(list:
     List<Str>, step: Int)` and an effect member `fn next(step: Int) -> Int`

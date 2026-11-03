@@ -133,7 +133,8 @@ count) and, for three of them, a return type:
 |---|---|---|---|
 | `eq` | 2 | `Bool` | `==`, `!=` |
 | `cmp` | 2 | `Int` | `<`, `>`, `<=`, `>=` |
-| `plus`, `minus`, `times`, `divide`, `pow` | 2 | anything | `+`, `-`, `*`, `/`, `**` |
+| `plus`, `minus`, `times`, `divide`, `rem`, `pow` | 2 | anything | `+`, `-`, `*`, `/`, `%`, `**` |
+| `neg` | 1 | anything | unary `-` |
 | `to_str` | 1 | anything | interpolation |
 | `iter` | 1 | anything | `for` |
 | `next` | 1 | `Emitted T \| Finished` | `for` |

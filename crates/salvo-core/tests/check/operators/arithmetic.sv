@@ -56,7 +56,9 @@ fn unary_operands_are_checked() -> None {
     let _b = -2.5
     let c = !true
     let _d = !c
-    //~ error[op-arith:unary-minus]
+    // [op-arith] Unary `-` is the call `neg(a)` (user decision 2026-10-30):
+    // std declares it for the numbers, so a `Bool` has none.
+    //~ error[call-resolve:no-overload]
     let _e = -true
     //~ error[op-bool:not-bool]
     let _f = !5
@@ -76,16 +78,42 @@ fn ordering_on_numbers() -> None {
     let _d = a == b == c
 }
 
-// [backend-never-wrong] A type parameter is no number either, for the
-// operators that name no function.
+// [op-arith] `%` is `rem(a, b)` and unary `-` is `neg(a)` (user decision
+// 2026-10-30): at a type parameter there is nothing to call unless the
+// signature asks for the implicit, as for `+`.
 fn rem_of_t<T>(a: T) -> T {
-    //~ error[op-arith:non-numeric]
+    //~ error[call-resolve:no-overload]
     return a % a
 }
 
 fn neg_of_t<T>(a: T) -> T {
-    //~ error[op-arith:unary-minus]
+    //~ error[call-resolve:no-overload]
     return -a
+}
+
+fn rem_asked<T>(a: T, ?rem: (a: T, b: T) -> T) -> T {
+    return a % a
+}
+
+fn neg_asked<T>(a: T, ?neg: (a: T) -> T) -> T {
+    return -a
+}
+
+// A type of its own gets them by declaring them in its file [op-unique-shape].
+struct Money {
+    cents: Int
+}
+
+fn neg(m: Money) -> Money {
+    return Money { cents: -m.cents }
+}
+
+fn rem(m: Money, n: Int) -> Money {
+    return Money { cents: m.cents % n }
+}
+
+fn owed(m: Money) -> Money {
+    return -m % 100
 }
 
 fn and_of_t<T>(a: T) -> Bool {

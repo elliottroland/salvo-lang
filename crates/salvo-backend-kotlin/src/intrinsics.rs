@@ -107,6 +107,8 @@ pub fn fn_call(
         ("minus", Some("Int" | "Long" | "Float" | "Double")) => format!("(({}) - ({}))", a(0), a(1)),
         ("times", Some("Int" | "Long" | "Float" | "Double")) => format!("(({}) * ({}))", a(0), a(1)),
         ("divide", Some("Int" | "Long" | "Float" | "Double")) => format!("(({}) / ({}))", a(0), a(1)),
+        ("rem", Some("Int" | "Long" | "Float" | "Double")) => format!("(({}) % ({}))", a(0), a(1)),
+        ("neg", Some("Int" | "Long" | "Float" | "Double")) => format!("(-({}))", a(0)),
         // [op-pow] [kt-pow] `**`, which is always this call. The receiver key
         // is `base^exponent`, since two overloads share a `Double` base. An
         // immediately invoked lambda takes the operands as its parameters, so
