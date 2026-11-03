@@ -180,18 +180,15 @@ pub fn upload(s3: &crate::aws_s3::S3, fs: &crate::std_fs::Fs, console: &crate::s
     };
     if matches!(put, crate::unions::Union2::U1(_)) {
         let mut put_3 = match &put { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("put {}: etag {}", key, {
-            let mut __pick_4 = &put_3.e_tag;
-            if __pick_4.is_some() {
-                let mut __picked_5 = __pick_4.as_ref().unwrap();
-                __picked_5.clone()
-            } else {
-                String::from("?")
-            }
+        crate::std_core_console::println(console, &format!("put {}: etag {}", key, if put_3.e_tag.is_some() {
+            let mut __narrowed_4 = put_3.e_tag.as_ref().unwrap();
+            __narrowed_4.clone()
+        } else {
+            String::from("?")
         }));
     } else if matches!(put, crate::unions::Union2::U2(_)) {
-        let mut put_7 = match put { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("put {}: {}", key, crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_s3::S3Error, crate::aws::AwsError>>(put_7))).as_ref())));
+        let mut put_5 = match put { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+        crate::std_core_console::println(console, &format!("put {}: {}", key, crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_s3::S3Error, crate::aws::AwsError>>(put_5))).as_ref())));
     } else {
         panic!("salvo: unhandled union arm at main:58:5");
     };
@@ -213,39 +210,36 @@ pub fn download(s3: &crate::aws_s3::S3, fs: &crate::std_fs::Fs, console: &crate:
     let mut __destructured_3: crate::aws_s3::GetObjectOutput = got_2;
     let mut body: crate::std_stream::InStream = __destructured_3.body;
     let mut content_length: Option<i64> = __destructured_3.content_length;
-    crate::std_core_console::println(console, &format!("get {}: {} bytes", key, {
-        let mut __pick_4 = &content_length;
-        if __pick_4.is_some() {
-            let mut __picked_5 = __pick_4.unwrap();
-            __picked_5
-        } else {
-            i64::wrapping_neg(1i64)
-        }
+    crate::std_core_console::println(console, &format!("get {}: {} bytes", key, if content_length.is_some() {
+        let mut content_length_4 = content_length.unwrap();
+        content_length_4
+    } else {
+        i64::wrapping_neg(1i64)
     }));
     let mut target: crate::unions::Union2<crate::std_stream::OutStream, crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>> = fs.open_write(path);
     if matches!(target, crate::unions::Union2::U2(_)) {
-        let mut target_7 = match target { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("open {}: {}", crate::std_fs_path::to_str(path), crate::std_fs::to_str((&(crate::std_core_checked::detach::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(target_7))).as_ref())));
+        let mut target_5 = match target { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+        crate::std_core_console::println(console, &format!("open {}: {}", crate::std_fs_path::to_str(path), crate::std_fs::to_str((&(crate::std_core_checked::detach::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(target_5))).as_ref())));
         let mut closed: crate::unions::Union2<(), crate::std_core_checked::Checked<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>> = streams.close__InStream(body);
         if matches!(closed, crate::unions::Union2::U2(_)) {
-            let mut closed_8 = match closed { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-            crate::std_core_checked::ignore::<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>(closed_8);
+            let mut closed_6 = match closed { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+            crate::std_core_checked::ignore::<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>(closed_6);
         };
         return;
     };
     let mut copied: crate::unions::Union2<i64, crate::std_core_checked::Checked<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>> = {
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<crate::unions::Union2<i64, crate::std_core_checked::Checked<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
-        let mut target_9 = match target { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-        crate::std_stream::pipe(streams, body, target_9, r);
+        let mut target_7 = match target { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
+        crate::std_stream::pipe(streams, body, target_7, r);
         *crate::scheduler::salvo_wait(__wid).downcast::<crate::unions::Union2<i64, crate::std_core_checked::Checked<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>>>().expect("the awaited answer")
     };
     if matches!(copied, crate::unions::Union2::U1(_)) {
-        let mut copied_10 = match &copied { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("piped {} bytes into {}", copied_10, crate::std_fs_path::to_str(path)));
+        let mut copied_8 = match &copied { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
+        crate::std_core_console::println(console, &format!("piped {} bytes into {}", copied_8, crate::std_fs_path::to_str(path)));
     } else if matches!(copied, crate::unions::Union2::U2(_)) {
-        let mut copied_11 = match copied { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("pipe: {}", crate::std_stream::to_str((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>(copied_11))).as_ref())));
+        let mut copied_9 = match copied { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
+        crate::std_core_console::println(console, &format!("pipe: {}", crate::std_stream::to_str((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>(copied_9))).as_ref())));
     } else {
         panic!("salvo: unhandled union arm at main:88:5");
     };

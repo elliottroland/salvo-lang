@@ -112,10 +112,10 @@ pub fn drain<T>(mut list: Vec<T>, each: &mut dyn FnMut(T)) {
             break;
         };
         { let __arg1 = {
-            let mut __pick_1: Option<T> = crate::std_core_list::remove_last_platform::<T>(&mut m);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick1: Option<T> = crate::std_core_list::remove_last_platform::<T>(&mut m);
+            if __pick1.is_some() {
+                let mut __pick1_1 = __pick1.unwrap();
+                __pick1_1
             } else {
                 panic!("salvo: unreachable at std.core.list:265:32")
             }
@@ -146,10 +146,10 @@ pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
 
 pub fn first<T>(list: &Vec<T>) -> &T {
     return {
-        let mut __pick_1: Option<&T> = crate::std_core_list::get_platform::<T>(list, 0i32);
-        if __pick_1.is_some() {
-            let mut __picked_2 = __pick_1.unwrap();
-            __picked_2
+        let mut __pick2: Option<&T> = crate::std_core_list::get_platform::<T>(list, 0i32);
+        if __pick2.is_some() {
+            let mut __pick2_1 = __pick2.unwrap();
+            __pick2_1
         } else {
             panic!("salvo: unreachable at std.core.list:325:28")
         }
@@ -184,10 +184,10 @@ pub fn remove_front_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool
     let mut n: i32 = 0i32;
     loop {
         if !(((n < crate::std_core_list::size_platform::<T>(&*list)) && keep({
-            let mut __pick_1: Option<&T> = crate::std_core_list::get_platform::<T>(&*list, n);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick3: Option<&T> = crate::std_core_list::get_platform::<T>(&*list, n);
+            if __pick3.is_some() {
+                let mut __pick3_1 = __pick3.unwrap();
+                __pick3_1
             } else {
                 panic!("salvo: unreachable at std.core.list:373:50")
             }
@@ -203,10 +203,10 @@ pub fn remove_back_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool)
     let mut at: i32 = crate::std_core_list::size_platform::<T>(&*list);
     loop {
         if !(((at > 0i32) && keep({
-            let mut __pick_1: Option<&T> = crate::std_core_list::get_platform::<T>(&*list, i32::wrapping_sub(at, 1i32));
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick4: Option<&T> = crate::std_core_list::get_platform::<T>(&*list, i32::wrapping_sub(at, 1i32));
+            if __pick4.is_some() {
+                let mut __pick4_1 = __pick4.unwrap();
+                __pick4_1
             } else {
                 panic!("salvo: unreachable at std.core.list:386:47")
             }
@@ -229,10 +229,10 @@ pub fn sub_list<T: Clone>(list: &Vec<T>, mut from: i32, mut to: i32, copy: &mut 
             break;
         };
         crate::std_core_list::add_platform::<T>(&mut out, copy({
-            let mut __pick_1: Option<&T> = crate::std_core_list::get_platform::<T>(list, i);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick5: Option<&T> = crate::std_core_list::get_platform::<T>(list, i);
+            if __pick5.is_some() {
+                let mut __pick5_1 = __pick5.unwrap();
+                __pick5_1
             } else {
                 panic!("salvo: unreachable at std.core.list:405:39")
             }
@@ -317,10 +317,10 @@ pub fn contains<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) ->
             break;
         };
         if eq({
-            let mut __pick_1: Option<&T> = crate::std_core_list::get_platform::<T>(list, i);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick6: Option<&T> = crate::std_core_list::get_platform::<T>(list, i);
+            if __pick6.is_some() {
+                let mut __pick6_1 = __pick6.unwrap();
+                __pick6_1
             } else {
                 panic!("salvo: unreachable at std.core.list:460:31")
             }
@@ -343,10 +343,10 @@ pub fn all<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> bool {
             break;
         };
         if !(pick({
-            let mut __pick_1: Option<&T> = crate::std_core_list::get_platform::<T>(list, i);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick7: Option<&T> = crate::std_core_list::get_platform::<T>(list, i);
+            if __pick7.is_some() {
+                let mut __pick7_1 = __pick7.unwrap();
+                __pick7_1
             } else {
                 panic!("salvo: unreachable at std.core.list:479:34")
             }
@@ -366,10 +366,10 @@ pub fn count<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> i32 {
             break;
         };
         if pick({
-            let mut __pick_1: Option<&T> = crate::std_core_list::get_platform::<T>(list, i);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick8: Option<&T> = crate::std_core_list::get_platform::<T>(list, i);
+            if __pick8.is_some() {
+                let mut __pick8_1 = __pick8.unwrap();
+                __pick8_1
             } else {
                 panic!("salvo: unreachable at std.core.list:493:33")
             }
@@ -390,10 +390,10 @@ pub fn partition<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool, copy
             break;
         };
         let mut x: &T = {
-            let mut __pick_1: Option<&T> = crate::std_core_list::get_platform::<T>(list, i);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick9: Option<&T> = crate::std_core_list::get_platform::<T>(list, i);
+            if __pick9.is_some() {
+                let mut __pick9_1 = __pick9.unwrap();
+                __pick9_1
             } else {
                 panic!("salvo: unreachable at std.core.list:511:33")
             }
@@ -552,14 +552,12 @@ pub fn add_sorted<T: Clone>(list: &mut Vec<T>, mut elem: T, cmp: &mut dyn FnMut(
 
 pub fn binary_search<T: Clone>(list: &Vec<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Option<i32> {
     let mut found: i32 = {
-        let mut __pick_1: Option<i32> = crate::std_core_list::search_sorted_by_platform::<T>(list, elem, &mut *cmp);
-        if __pick_1.is_some() {
-            let mut __picked_2 = __pick_1.unwrap();
-            __picked_2
+        let mut __pick10: Option<i32> = crate::std_core_list::search_sorted_by_platform::<T>(list, elem, &mut *cmp);
+        if __pick10.is_some() {
+            let mut __pick10_1 = __pick10.unwrap();
+            __pick10_1
         } else {
-            {
-                return None;
-            }
+            return None;
         }
     };
     if crate::std_core_index::Idx__Int_qualifies(found, list, &mut |__a0| crate::std_core_list::size_platform(__a0)) {

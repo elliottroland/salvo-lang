@@ -436,7 +436,7 @@ fn from_sdk_local_secondary_index(v: &aws_sdk_dynamodb::types::LocalSecondaryInd
     LocalSecondaryIndex {
         index_name: v.index_name().to_string(),
         key_schema: v.key_schema().iter().map(|e| from_sdk_key_schema_element(e)).collect::<Vec<_>>(),
-        projection: from_sdk_projection(v.projection()),
+        projection: from_sdk_projection(v.projection().expect("the SDK answered no required Projection")),
     }
 }
 
@@ -466,7 +466,7 @@ fn from_sdk_global_secondary_index(v: &aws_sdk_dynamodb::types::GlobalSecondaryI
     GlobalSecondaryIndex {
         index_name: v.index_name().to_string(),
         key_schema: v.key_schema().iter().map(|e| from_sdk_key_schema_element(e)).collect::<Vec<_>>(),
-        projection: from_sdk_projection(v.projection()),
+        projection: from_sdk_projection(v.projection().expect("the SDK answered no required Projection")),
         provisioned_throughput: v.provisioned_throughput().map(|x| from_sdk_provisioned_throughput(x)),
         on_demand_throughput: v.on_demand_throughput().map(|x| from_sdk_on_demand_throughput(x)),
         warm_throughput: v.warm_throughput().map(|x| from_sdk_warm_throughput(x)),
@@ -573,9 +573,9 @@ fn to_sdk_tag(v: &Tag) -> aws_sdk_dynamodb::types::Tag {
 fn from_sdk_vector_index(v: &aws_sdk_dynamodb::types::VectorIndex) -> VectorIndex {
     VectorIndex {
         index_name: v.index_name().to_string(),
-        vector_attribute: from_sdk_vector_attribute_definition(v.vector_attribute()),
+        vector_attribute: from_sdk_vector_attribute_definition(v.vector_attribute().expect("the SDK answered no required VectorAttribute")),
         search_schema: { let __s = v.search_schema(); if __s.is_empty() { None } else { Some(__s.iter().map(|e| from_sdk_search_schema_element(e)).collect::<Vec<_>>()) } },
-        projection: from_sdk_projection(v.projection()),
+        projection: from_sdk_projection(v.projection().expect("the SDK answered no required Projection")),
         dimensions: *(&v.dimensions()),
         distance_function: v.distance_function().as_str().to_string(),
     }

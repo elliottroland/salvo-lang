@@ -341,19 +341,22 @@ class ManualTime : Timer, TimerCtl {
             }
             val at: Int = __subject_1!!
             val deadline: Long = kotlin.run {
-                val __pick_2: Long? = salvo.std.core.list.getPlatform(deadlines, at)
-                (if ((__pick_2 != null)) {
-                    val __picked_3: Long = __pick_2!!
-                    __picked_3
-                } else {
-                    throw AssertionError("salvo: unreachable at std.time:494:55")
-                })
+                val __pick1: Long? = salvo.std.core.list.getPlatform(deadlines, at)
+                when {
+                    (__pick1 != null) -> {
+                        val __pick1_2: Long = __pick1!!
+                        __pick1_2
+                    }
+                    else -> {
+                        throw AssertionError("salvo: unreachable at std.time:494:55")
+                    }
+                }
             }
             salvo.std.core.list.removeAtPlatform(deadlines, at)
             now = deadline
-            val __subject_5: salvo.SalvoReply? = salvo.std.core.list.removeAtPlatform(pending, at)
-            if ((__subject_5 != null)) {
-                val token: salvo.SalvoReply = __subject_5!!
+            val __subject_3: salvo.SalvoReply? = salvo.std.core.list.removeAtPlatform(pending, at)
+            if ((__subject_3 != null)) {
+                val token: salvo.SalvoReply = __subject_3!!
                 salvo.SalvoSched.replyWire(token, Fired(at = Tick(nanos = deadline)), __Codec_Fired)
             }
         }
@@ -410,13 +413,16 @@ fun earliestDue(deadlines: List<Long>, target: Long): Int? {
             break
         }
         val at: Long = kotlin.run {
-            val __pick_1: Long? = salvo.std.core.list.getPlatform(deadlines, i)
-            (if ((__pick_1 != null)) {
-                val __picked_2: Long = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.time:519:44")
-            })
+            val __pick2: Long? = salvo.std.core.list.getPlatform(deadlines, i)
+            when {
+                (__pick2 != null) -> {
+                    val __pick2_1: Long = __pick2!!
+                    __pick2_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.time:519:44")
+                }
+            }
         }
         if (((at <= target) && ((best < 0) || (at < bestAt)))) {
             best = i
@@ -431,9 +437,9 @@ fun earliestDue(deadlines: List<Long>, target: Long): Int? {
 }
 
 fun cmp__Duration_Duration(a: Duration, b: Duration): Int {
-    val c__c1: Int = (a.nanos).compareTo(b.nanos)
-    if ((c__c1 != 0)) {
-        return c__c1
+    val c: Int = (a.nanos).compareTo(b.nanos)
+    if ((c != 0)) {
+        return c
     }
     return 0
 }
@@ -452,9 +458,9 @@ fun eq__Duration_Duration(a: Duration, b: Duration): Boolean {
 }
 
 fun cmp__Instant_Instant(a: Instant, b: Instant): Int {
-    val c__c1: Int = (a.nanos).compareTo(b.nanos)
-    if ((c__c1 != 0)) {
-        return c__c1
+    val c: Int = (a.nanos).compareTo(b.nanos)
+    if ((c != 0)) {
+        return c
     }
     return 0
 }
@@ -473,9 +479,9 @@ fun eq__Instant_Instant(a: Instant, b: Instant): Boolean {
 }
 
 fun cmp__Tick_Tick(a: Tick, b: Tick): Int {
-    val c__c1: Int = (a.nanos).compareTo(b.nanos)
-    if ((c__c1 != 0)) {
-        return c__c1
+    val c: Int = (a.nanos).compareTo(b.nanos)
+    if ((c != 0)) {
+        return c
     }
     return 0
 }

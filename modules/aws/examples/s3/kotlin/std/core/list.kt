@@ -73,13 +73,16 @@ fun<T> drain(list: List<T>, each: (T) -> Unit) {
             break
         }
         each(kotlin.run {
-            val __pick_1: T? = salvo.std.core.list.removeLastPlatform(m)
-            (if ((__pick_1 != null)) {
-                val __picked_2: T = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.core.list:265:32")
-            })
+            val __pick1: T? = salvo.std.core.list.removeLastPlatform(m)
+            when {
+                (__pick1 != null) -> {
+                    val __pick1_1: T = __pick1!!
+                    __pick1_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.core.list:265:32")
+                }
+            }
         })
     }
     salvo.std.core.list.endEmptyPlatform(m)
@@ -99,13 +102,16 @@ fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
 
 fun<T> first(list: List<T>): T {
     return kotlin.run {
-        val __pick_1: T? = salvo.std.core.list.getPlatform(list, 0)
-        (if ((__pick_1 != null)) {
-            val __picked_2: T = __pick_1!!
-            __picked_2
-        } else {
-            throw AssertionError("salvo: unreachable at std.core.list:325:28")
-        })
+        val __pick2: T? = salvo.std.core.list.getPlatform(list, 0)
+        when {
+            (__pick2 != null) -> {
+                val __pick2_1: T = __pick2!!
+                __pick2_1
+            }
+            else -> {
+                throw AssertionError("salvo: unreachable at std.core.list:325:28")
+            }
+        }
     }
 }
 
@@ -135,13 +141,16 @@ fun<T> removeFrontWhile(list: salvo.platform.std.core.list.MutList<T>, keep: (T)
     var n: Int = 0
     while (true) {
         if (!(((n < salvo.std.core.list.sizePlatform(list)) && keep(kotlin.run {
-            val __pick_1: T? = salvo.std.core.list.getPlatform(list, n)
-            (if ((__pick_1 != null)) {
-                val __picked_2: T = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.core.list:373:50")
-            })
+            val __pick3: T? = salvo.std.core.list.getPlatform(list, n)
+            when {
+                (__pick3 != null) -> {
+                    val __pick3_1: T = __pick3!!
+                    __pick3_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.core.list:373:50")
+                }
+            }
         })))) {
             break
         }
@@ -154,13 +163,16 @@ fun<T> removeBackWhile(list: salvo.platform.std.core.list.MutList<T>, keep: (T) 
     var at: Int = salvo.std.core.list.sizePlatform(list)
     while (true) {
         if (!(((at > 0) && keep(kotlin.run {
-            val __pick_1: T? = salvo.std.core.list.getPlatform(list, (at - 1))
-            (if ((__pick_1 != null)) {
-                val __picked_2: T = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.core.list:386:47")
-            })
+            val __pick4: T? = salvo.std.core.list.getPlatform(list, (at - 1))
+            when {
+                (__pick4 != null) -> {
+                    val __pick4_1: T = __pick4!!
+                    __pick4_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.core.list:386:47")
+                }
+            }
         })))) {
             break
         }
@@ -180,13 +192,16 @@ fun<T> subList(list: List<T>, from: Int, to: Int, copy: (T) -> T): salvo.platfor
             break
         }
         salvo.std.core.list.addPlatform(out, copy(kotlin.run {
-            val __pick_1: T? = salvo.std.core.list.getPlatform(list, i)
-            (if ((__pick_1 != null)) {
-                val __picked_2: T = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.core.list:405:39")
-            })
+            val __pick5: T? = salvo.std.core.list.getPlatform(list, i)
+            when {
+                (__pick5 != null) -> {
+                    val __pick5_1: T = __pick5!!
+                    __pick5_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.core.list:405:39")
+                }
+            }
         }))
         i = (i + 1)
     }
@@ -284,13 +299,16 @@ fun<T> contains(list: List<T>, elem: T, eq: (T, T) -> Boolean): Boolean {
             break
         }
         if (eq(kotlin.run {
-            val __pick_1: T? = salvo.std.core.list.getPlatform(list, i)
-            (if ((__pick_1 != null)) {
-                val __picked_2: T = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.core.list:460:31")
-            })
+            val __pick6: T? = salvo.std.core.list.getPlatform(list, i)
+            when {
+                (__pick6 != null) -> {
+                    val __pick6_1: T = __pick6!!
+                    __pick6_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.core.list:460:31")
+                }
+            }
         }, elem)) {
             return true
         }
@@ -310,13 +328,16 @@ fun<T> all(list: List<T>, pick: (T) -> Boolean): Boolean {
             break
         }
         if (!(pick(kotlin.run {
-            val __pick_1: T? = salvo.std.core.list.getPlatform(list, i)
-            (if ((__pick_1 != null)) {
-                val __picked_2: T = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.core.list:479:34")
-            })
+            val __pick7: T? = salvo.std.core.list.getPlatform(list, i)
+            when {
+                (__pick7 != null) -> {
+                    val __pick7_1: T = __pick7!!
+                    __pick7_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.core.list:479:34")
+                }
+            }
         }))) {
             return false
         }
@@ -333,13 +354,16 @@ fun<T> count(list: List<T>, pick: (T) -> Boolean): Int {
             break
         }
         if (pick(kotlin.run {
-            val __pick_1: T? = salvo.std.core.list.getPlatform(list, i)
-            (if ((__pick_1 != null)) {
-                val __picked_2: T = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.core.list:493:33")
-            })
+            val __pick8: T? = salvo.std.core.list.getPlatform(list, i)
+            when {
+                (__pick8 != null) -> {
+                    val __pick8_1: T = __pick8!!
+                    __pick8_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.core.list:493:33")
+                }
+            }
         })) {
             n = (n + 1)
         }
@@ -357,13 +381,16 @@ fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): kotlin.Pa
             break
         }
         val x: T = kotlin.run {
-            val __pick_1: T? = salvo.std.core.list.getPlatform(list, i)
-            (if ((__pick_1 != null)) {
-                val __picked_2: T = __pick_1!!
-                __picked_2
-            } else {
-                throw AssertionError("salvo: unreachable at std.core.list:511:33")
-            })
+            val __pick9: T? = salvo.std.core.list.getPlatform(list, i)
+            when {
+                (__pick9 != null) -> {
+                    val __pick9_1: T = __pick9!!
+                    __pick9_1
+                }
+                else -> {
+                    throw AssertionError("salvo: unreachable at std.core.list:511:33")
+                }
+            }
         }
         if (pick(x)) {
             salvo.std.core.list.addPlatform(yes, copy(x))
@@ -505,15 +532,16 @@ fun<T> addSorted(list: salvo.platform.std.core.list.MutList<T>, elem: T, cmp: (T
 
 fun<T> binarySearch(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? {
     val found: Int = kotlin.run {
-        val __pick_1: Int? = salvo.std.core.list.searchSortedByPlatform(list, elem, cmp)
-        (if ((__pick_1 != null)) {
-            val __picked_2: Int = __pick_1!!
-            __picked_2
-        } else {
-            kotlin.run {
+        val __pick10: Int? = salvo.std.core.list.searchSortedByPlatform(list, elem, cmp)
+        when {
+            (__pick10 != null) -> {
+                val __pick10_1: Int = __pick10!!
+                __pick10_1
+            }
+            else -> {
                 return null
             }
-        })
+        }
     }
     if (salvo.std.core.index.Idx_qualifies(found, list, ::sizePlatform)) {
         return found

@@ -371,10 +371,10 @@ impl crate::std_runtime_streams::__Stateful_StreamTable for Streams {
             let mut _k: Option<i64> = crate::std_core_list::remove_at_platform::<i64>(&mut self.in_keys, at);
             crate::std_core_list::add_platform::<i64>(&mut self.busy, handle);
             return crate::unions::Union3::U1({
-                let mut __pick_1: Option<crate::std_runtime_streams::InEntry> = crate::std_core_list::remove_at_platform::<crate::std_runtime_streams::InEntry>(&mut self.ins, at);
-                if __pick_1.is_some() {
-                    let mut __picked_2 = __pick_1.unwrap();
-                    __picked_2
+                let mut __pick1: Option<crate::std_runtime_streams::InEntry> = crate::std_core_list::remove_at_platform::<crate::std_runtime_streams::InEntry>(&mut self.ins, at);
+                if __pick1.is_some() {
+                    let mut __pick1_1 = __pick1.unwrap();
+                    __pick1_1
                 } else {
                     panic!("salvo: unreachable at std.runtime.streams:166:42")
                 }
@@ -392,10 +392,10 @@ impl crate::std_runtime_streams::__Stateful_StreamTable for Streams {
             let mut _k: Option<i64> = crate::std_core_list::remove_at_platform::<i64>(&mut self.out_keys, at);
             crate::std_core_list::add_platform::<i64>(&mut self.busy, handle);
             return crate::unions::Union3::U1({
-                let mut __pick_1: Option<crate::std_runtime_streams::OutEntry> = crate::std_core_list::remove_at_platform::<crate::std_runtime_streams::OutEntry>(&mut self.outs, at);
-                if __pick_1.is_some() {
-                    let mut __picked_2 = __pick_1.unwrap();
-                    __picked_2
+                let mut __pick2: Option<crate::std_runtime_streams::OutEntry> = crate::std_core_list::remove_at_platform::<crate::std_runtime_streams::OutEntry>(&mut self.outs, at);
+                if __pick2.is_some() {
+                    let mut __pick2_1 = __pick2.unwrap();
+                    __pick2_1
                 } else {
                     panic!("salvo: unreachable at std.runtime.streams:180:43")
                 }
@@ -420,16 +420,16 @@ impl crate::std_runtime_streams::__Stateful_StreamTable for Streams {
                 break;
             };
             if ({
-                let mut __proj_4: &crate::std_runtime_streams::Pending = {
-                    let mut __pick_1: Option<&crate::std_runtime_streams::Pending> = crate::std_core_list::get_platform::<crate::std_runtime_streams::Pending>(&self.pending, i);
-                    if __pick_1.is_some() {
-                        let mut __picked_2 = __pick_1.unwrap();
-                        __picked_2
+                let mut __proj_2: &crate::std_runtime_streams::Pending = {
+                    let mut __pick3: Option<&crate::std_runtime_streams::Pending> = crate::std_core_list::get_platform::<crate::std_runtime_streams::Pending>(&self.pending, i);
+                    if __pick3.is_some() {
+                        let mut __pick3_1 = __pick3.unwrap();
+                        __pick3_1
                     } else {
                         panic!("salvo: unreachable at std.runtime.streams:200:36")
                     }
                 };
-                __proj_4.handle
+                __proj_2.handle
             } == handle) {
                 return crate::std_core_list::remove_at_platform::<crate::std_runtime_streams::Pending>(&mut self.pending, i);
             };
@@ -446,10 +446,10 @@ pub fn index_in(keys: &Vec<i64>, mut handle: i64) -> i32 {
             break;
         };
         if ({
-            let mut __pick_1: Option<i64> = crate::std_core_list::get_platform::<i64>(keys, i).copied();
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick4: Option<i64> = crate::std_core_list::get_platform::<i64>(keys, i).copied();
+            if __pick4.is_some() {
+                let mut __pick4_1 = __pick4.unwrap();
+                __pick4_1
             } else {
                 panic!("salvo: unreachable at std.runtime.streams:214:29")
             }
@@ -471,10 +471,10 @@ pub fn unbusy(busy: &mut Vec<i64>, waiting: &mut Vec<crate::std_runtime::Parker>
             break;
         };
         { let __arg1 = {
-            let mut __pick_1: Option<crate::std_runtime::Parker> = crate::std_core_list::remove_at_platform::<crate::std_runtime::Parker>(&mut *waiting, 0i32);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick5: Option<crate::std_runtime::Parker> = crate::std_core_list::remove_at_platform::<crate::std_runtime::Parker>(&mut *waiting, 0i32);
+            if __pick5.is_some() {
+                let mut __pick5_1 = __pick5.unwrap();
+                __pick5_1
             } else {
                 panic!("salvo: unreachable at std.runtime.streams:231:41")
             }
@@ -589,19 +589,19 @@ pub fn record(e: &mut crate::std_runtime_streams::InEntry, mut message: String) 
 pub fn take_ahead(e: &mut crate::std_runtime_streams::InEntry, mut n: i32) -> crate::std_core_bytes::Bytes {
     let mut all: i32 = crate::std_core_bytes::size_platform(&e.ahead);
     let mut front: crate::std_core_bytes::Bytes = {
-        let mut __pick_1: Option<crate::std_core_bytes::Bytes> = crate::std_core_bytes::slice_platform(&e.ahead, 0i32, n);
-        if __pick_1.is_some() {
-            let mut __picked_2 = __pick_1.unwrap();
-            __picked_2
+        let mut __pick6: Option<crate::std_core_bytes::Bytes> = crate::std_core_bytes::slice_platform(&e.ahead, 0i32, n);
+        if __pick6.is_some() {
+            let mut __pick6_1 = __pick6.unwrap();
+            __pick6_1
         } else {
             crate::std_core_bytes::bytes_of(vec![])
         }
     };
     let mut rest: crate::std_core_bytes::Bytes = {
-        let mut __pick_4: Option<crate::std_core_bytes::Bytes> = crate::std_core_bytes::slice_platform(&e.ahead, n, all);
-        if __pick_4.is_some() {
-            let mut __picked_5 = __pick_4.unwrap();
-            __picked_5
+        let mut __pick7: Option<crate::std_core_bytes::Bytes> = crate::std_core_bytes::slice_platform(&e.ahead, n, all);
+        if __pick7.is_some() {
+            let mut __pick7_2 = __pick7.unwrap();
+            __pick7_2
         } else {
             crate::std_core_bytes::bytes_of(vec![])
         }
@@ -645,10 +645,10 @@ pub fn read_line(e: &mut crate::std_runtime_streams::InEntry) -> crate::std_runt
             let mut line: crate::std_core_bytes::Bytes = crate::std_runtime_streams::take_ahead(&mut *e, i32::wrapping_add(i, 1i32));
             let mut n: i32 = i32::wrapping_sub(crate::std_core_bytes::size_platform(&line), 1i32);
             if ((n > 0i32) && ((({
-                let mut __pick_1: Option<u8> = crate::std_core_bytes::get_platform(&line, i32::wrapping_sub(n, 1i32));
-                if __pick_1.is_some() {
-                    let mut __picked_2 = __pick_1.unwrap();
-                    __picked_2
+                let mut __pick8: Option<u8> = crate::std_core_bytes::get_platform(&line, i32::wrapping_sub(n, 1i32));
+                if __pick8.is_some() {
+                    let mut __pick8_1 = __pick8.unwrap();
+                    __pick8_1
                 } else {
                     panic!("salvo: unreachable at std.runtime.streams:371:52")
                 }
@@ -656,10 +656,10 @@ pub fn read_line(e: &mut crate::std_runtime_streams::InEntry) -> crate::std_runt
                 n = i32::wrapping_sub(n, 1i32);
             };
             return crate::std_runtime_streams::Read { data: {
-                let mut __pick_4: Option<crate::std_core_bytes::Bytes> = crate::std_core_bytes::slice_platform(&line, 0i32, n);
-                if __pick_4.is_some() {
-                    let mut __picked_5 = __pick_4.unwrap();
-                    __picked_5
+                let mut __pick9: Option<crate::std_core_bytes::Bytes> = crate::std_core_bytes::slice_platform(&line, 0i32, n);
+                if __pick9.is_some() {
+                    let mut __pick9_2 = __pick9.unwrap();
+                    __pick9_2
                 } else {
                     crate::std_core_bytes::bytes_of(vec![])
                 }

@@ -106,7 +106,11 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
   (commit "Say nothing more of a value against a refused annotation").
   A failed `by` clause is its one refusal (commit "Report a failed by
   clause once").
-- Next: 0ar's remaining items (diagnostic cascades, message texts).
+- 0ar's remaining items are parse-recovery and smaller cascades, left for a
+  pass of their own (each is listed there).
+- 0aw: done (commit "Check the aws glue against the SDKs, and unwrap a
+  required structure member").
+- Next: 0ax.
 
 ## The sequence
 
@@ -1104,15 +1108,6 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
   `intrinsic` outside std), so the round trip runs on `structs.sv` alone,
   which the checker accepts (its use-after-move errors are the IR's
   analyses, which the round trip does not run).
-
-### 0aw — The aws module's Rust glue check has been skipping (found 2026-10-29)
-
-`modules/aws/check.sh host` and `glue` run `cargo check --offline`, and the
-SDK manifest names `aws-sdk-dynamodb`, which is not in this machine's cargo
-cache, so both Rust checks skip ("the SDK crates are not in cargo's cache").
-They skipped the same way in the compiler's test before the move. `ONLINE=1
-modules/aws/check.sh` fetches the crates; until someone runs it once, the Rust
-glue is unchecked against the SDK.
 
 ### 0ax — Names still read program-wide (the pipeline record C1.1, 2026-10-29)
 

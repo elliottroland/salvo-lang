@@ -88,13 +88,16 @@ fun SpanOf_qualifies(span: Span, str: String): Boolean {
 
 fun substr(str: String, at: Span): String {
     return kotlin.run {
-        val __pick_1: String? = salvo.std.core.string.substrPlatform(str, at.start, at.end)
-        (if ((__pick_1 != null)) {
-            val __picked_2: String = __pick_1!!
-            __picked_2
-        } else {
-            throw AssertionError("salvo: unreachable at std.core.string:162:45")
-        })
+        val __pick1: String? = salvo.std.core.string.substrPlatform(str, at.start, at.end)
+        when {
+            (__pick1 != null) -> {
+                val __pick1_1: String = __pick1!!
+                __pick1_1
+            }
+            else -> {
+                throw AssertionError("salvo: unreachable at std.core.string:162:45")
+            }
+        }
     }
 }
 
@@ -180,22 +183,28 @@ fun splitOnce(str: String, sep: String): kotlin.Pair<String, String>? {
     if ((at != null)) {
         val i: Int = at!!
         val before: String = kotlin.run {
-            val __pick_1: String? = salvo.std.core.string.substrPlatform(str, 0, i)
-            (if ((__pick_1 != null)) {
-                val __picked_2: String = __pick_1!!
-                __picked_2
-            } else {
-                ""
-            })
+            val __pick2: String? = salvo.std.core.string.substrPlatform(str, 0, i)
+            when {
+                (__pick2 != null) -> {
+                    val __pick2_1: String = __pick2!!
+                    __pick2_1
+                }
+                else -> {
+                    ""
+                }
+            }
         }
         val after: String = kotlin.run {
-            val __pick_4: String? = salvo.std.core.string.substrPlatform(str, (i + salvo.std.core.string.sizePlatform(sep)), salvo.std.core.string.sizePlatform(str))
-            (if ((__pick_4 != null)) {
-                val __picked_5: String = __pick_4!!
-                __picked_5
-            } else {
-                ""
-            })
+            val __pick3: String? = salvo.std.core.string.substrPlatform(str, (i + salvo.std.core.string.sizePlatform(sep)), salvo.std.core.string.sizePlatform(str))
+            when {
+                (__pick3 != null) -> {
+                    val __pick3_2: String = __pick3!!
+                    __pick3_2
+                }
+                else -> {
+                    ""
+                }
+            }
         }
         return kotlin.Pair(before, after)
     }
@@ -207,22 +216,28 @@ fun splitLast(str: String, sep: String): kotlin.Pair<String, String>? {
     if ((at != null)) {
         val i: Int = at!!
         val before: String = kotlin.run {
-            val __pick_1: String? = salvo.std.core.string.substrPlatform(str, 0, i)
-            (if ((__pick_1 != null)) {
-                val __picked_2: String = __pick_1!!
-                __picked_2
-            } else {
-                ""
-            })
+            val __pick4: String? = salvo.std.core.string.substrPlatform(str, 0, i)
+            when {
+                (__pick4 != null) -> {
+                    val __pick4_1: String = __pick4!!
+                    __pick4_1
+                }
+                else -> {
+                    ""
+                }
+            }
         }
         val after: String = kotlin.run {
-            val __pick_4: String? = salvo.std.core.string.substrPlatform(str, (i + salvo.std.core.string.sizePlatform(sep)), salvo.std.core.string.sizePlatform(str))
-            (if ((__pick_4 != null)) {
-                val __picked_5: String = __pick_4!!
-                __picked_5
-            } else {
-                ""
-            })
+            val __pick5: String? = salvo.std.core.string.substrPlatform(str, (i + salvo.std.core.string.sizePlatform(sep)), salvo.std.core.string.sizePlatform(str))
+            when {
+                (__pick5 != null) -> {
+                    val __pick5_2: String = __pick5!!
+                    __pick5_2
+                }
+                else -> {
+                    ""
+                }
+            }
         }
         return kotlin.Pair(before, after)
     }

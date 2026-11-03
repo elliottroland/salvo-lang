@@ -144,6 +144,21 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — The aws glue is checked against the SDKs, and passes (ROADMAP 0aw)
+
+- **Ran**: `ONLINE=1 modules/aws/check.sh host` fetched the SDK crates into
+  cargo's cache, so the Rust checks run offline from now on. They found the
+  DynamoDB Rust glue did not compile against `aws-sdk-dynamodb` 1.x: smithy-rs
+  answers `Option<&T>` for a required *structure* member (it has no zero
+  value), and the glue read `projection()` and `vector_attribute()` as
+  `&T`. The generator (`Generator.rsReadField`) now unwraps such a member
+  with an `expect` naming it; `./gradlew generate --offline` rewrote
+  `salvo/platform/aws/ddb/host.rs` (four lines).
+- **Refreshed**: the module's checked-in host project (`salvo/platform/std/**`)
+  and its four examples' generated trees were stale against this run's
+  compiler and std changes; `salvo platform generate --backend '*'` and
+  `salvo compile` rewrote them. `modules/aws/check.sh`: all checks pass.
+
 ### 2026-10-30 — A failed `by` clause is one refusal (ROADMAP 0ar, [obligation-by] [group-obligation])
 
 - **Built**: the checker no longer looks for the members of an obligation

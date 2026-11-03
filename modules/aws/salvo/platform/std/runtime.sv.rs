@@ -1237,28 +1237,28 @@ impl crate::std_runtime::__Stateful_SchedTable for Scheduler {
         self.actors[__h1].dead = true;
         self.actors[__h1].exit_reason = (reason).clone();
         loop {
-            let mut __subject_4: Option<crate::std_runtime::Parker> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Parker>(&mut self.actors[__h1].blocked);
-            if !(__subject_4.is_some()) {
+            let mut __subject_2: Option<crate::std_runtime::Parker> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Parker>(&mut self.actors[__h1].blocked);
+            if !(__subject_2.is_some()) {
                 break;
             };
-            let mut b = __subject_4.as_ref().unwrap();
+            let mut b = __subject_2.as_ref().unwrap();
             crate::std_runtime::unpark_platform(b);
         }
         let mut watchers: Vec<crate::std_runtime::Token> = vec![];
         loop {
-            let mut __subject_5: Option<crate::std_runtime::Token> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Token>(&mut self.actors[__h1].watchers);
-            if !(__subject_5.is_some()) {
+            let mut __subject_3: Option<crate::std_runtime::Token> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Token>(&mut self.actors[__h1].watchers);
+            if !(__subject_3.is_some()) {
                 break;
             };
-            let mut t = __subject_5.unwrap();
+            let mut t = __subject_3.unwrap();
             crate::std_core_list::add_platform::<crate::std_runtime::Token>(&mut watchers, t);
         }
         loop {
-            let mut __subject_6: Option<crate::std_runtime::Token> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Token>(&mut watchers);
-            if !(__subject_6.is_some()) {
+            let mut __subject_4: Option<crate::std_runtime::Token> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Token>(&mut watchers);
+            if !(__subject_4.is_some()) {
                 break;
             };
-            let mut t = __subject_6.unwrap();
+            let mut t = __subject_4.unwrap();
             crate::std_runtime::deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, t, crate::std_runtime::erase_platform::<crate::std_core_actor::Exit>(crate::std_core_actor::Exit { reason: (reason).clone() }));
         }
         crate::std_core_list::drain::<crate::std_runtime::Token>(watchers, &mut |mut t| {
@@ -1309,16 +1309,16 @@ impl crate::std_runtime::__Stateful_SchedTable for Scheduler {
     }
     fn next_work(&mut self, pool: i32, idle: crate::std_runtime::Parker) -> Option<crate::unions::Union3<crate::std_runtime::RunActor, crate::std_runtime::RunTask, crate::std_runtime::Retire>> {
         if {
-            let mut __proj_4: &crate::std_runtime::PoolRec = {
-                let mut __pick_1: Option<&crate::std_runtime::PoolRec> = crate::std_core_list::get_platform::<crate::std_runtime::PoolRec>(&self.pools, pool);
-                if __pick_1.is_some() {
-                    let mut __picked_2 = __pick_1.unwrap();
-                    __picked_2
+            let mut __proj_2: &crate::std_runtime::PoolRec = {
+                let mut __pick8: Option<&crate::std_runtime::PoolRec> = crate::std_core_list::get_platform::<crate::std_runtime::PoolRec>(&self.pools, pool);
+                if __pick8.is_some() {
+                    let mut __pick8_1 = __pick8.unwrap();
+                    __pick8_1
                 } else {
                     panic!("salvo: unreachable at std.runtime:677:33")
                 }
             };
-            __proj_4.retired
+            __proj_2.retired
         } {
             self.retired = i32::wrapping_add(self.retired, 1i32);
             return Some(crate::unions::Union3::U3(crate::std_runtime::Retire {}));
@@ -1416,8 +1416,8 @@ impl crate::std_runtime::__Stateful_SchedTable for Scheduler {
             return;
         };
         crate::std_runtime::drop_body_platform(body);
-        let mut fault_4 = fault.as_ref().unwrap();
-        let mut reason: String = (fault_4).clone();
+        let mut fault_2 = fault.as_ref().unwrap();
+        let mut reason: String = (fault_2).clone();
         self.actors[__h1].dead = true;
         self.actors[__h1].exit_reason = (reason).clone();
         self.actors[__h1].gate = None;
@@ -1428,8 +1428,8 @@ impl crate::std_runtime::__Stateful_SchedTable for Scheduler {
             };
             let mut entry: Option<crate::unions::Union3<crate::std_runtime::Delivered, crate::std_runtime::Answered, crate::std_runtime::Reported>> = crate::std_core_deque::remove_first_platform::<crate::unions::Union3<crate::std_runtime::Delivered, crate::std_runtime::Answered, crate::std_runtime::Reported>>(&mut self.actors[__h1].queue);
             if !(!(entry.is_none())) { panic!("salvo: assertion failed at std.runtime:796:13") };
-            let mut entry_5 = (match entry { Some(crate::unions::Union3::U1(__v)) => crate::unions::Union3::U1(__v), Some(crate::unions::Union3::U2(__v)) => crate::unions::Union3::U2(__v), Some(crate::unions::Union3::U3(__v)) => crate::unions::Union3::U3(__v), None => unreachable!("salvo: unreachable union arm"), #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") });
-            crate::std_runtime::drop_entry(entry_5);
+            let mut entry_3 = (match entry { Some(crate::unions::Union3::U1(__v)) => crate::unions::Union3::U1(__v), Some(crate::unions::Union3::U2(__v)) => crate::unions::Union3::U2(__v), Some(crate::unions::Union3::U3(__v)) => crate::unions::Union3::U3(__v), None => unreachable!("salvo: unreachable union arm"), #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") });
+            crate::std_runtime::drop_entry(entry_3);
         }
         loop {
             if !((crate::std_core_deque::size_platform::<i64>(&self.actors[__h1].slots) > 0i32)) {
@@ -1438,32 +1438,32 @@ impl crate::std_runtime::__Stateful_SchedTable for Scheduler {
             let mut _s: Option<i64> = crate::std_core_deque::remove_first_platform::<i64>(&mut self.actors[__h1].slots);
         }
         loop {
-            let mut __subject_6: Option<crate::std_runtime::Parker> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Parker>(&mut self.actors[__h1].blocked);
-            if !(__subject_6.is_some()) {
+            let mut __subject_4: Option<crate::std_runtime::Parker> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Parker>(&mut self.actors[__h1].blocked);
+            if !(__subject_4.is_some()) {
                 break;
             };
-            let mut b = __subject_6.as_ref().unwrap();
+            let mut b = __subject_4.as_ref().unwrap();
             crate::std_runtime::unpark_platform(b);
         }
         let mut pool: i32 = self.actors[__h1].pool;
         let mut watchers: Vec<crate::std_runtime::Token> = vec![];
         loop {
-            let mut __subject_7: Option<crate::std_runtime::Token> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Token>(&mut self.actors[__h1].watchers);
-            if !(__subject_7.is_some()) {
+            let mut __subject_5: Option<crate::std_runtime::Token> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Token>(&mut self.actors[__h1].watchers);
+            if !(__subject_5.is_some()) {
                 break;
             };
-            let mut t = __subject_7.unwrap();
+            let mut t = __subject_5.unwrap();
             crate::std_core_list::add_platform::<crate::std_runtime::Token>(&mut watchers, t);
         }
         if (crate::std_core_list::size_platform::<crate::std_runtime::Token>(&watchers) == 0i32) {
             crate::std_runtime::report_fault(&mut self.actors, &mut self.pools, pool, (reason).clone());
         };
         loop {
-            let mut __subject_8: Option<crate::std_runtime::Token> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Token>(&mut watchers);
-            if !(__subject_8.is_some()) {
+            let mut __subject_6: Option<crate::std_runtime::Token> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Token>(&mut watchers);
+            if !(__subject_6.is_some()) {
                 break;
             };
-            let mut t = __subject_8.unwrap();
+            let mut t = __subject_6.unwrap();
             crate::std_runtime::deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, t, crate::std_runtime::erase_platform::<crate::std_core_actor::Exit>(crate::std_core_actor::Exit { reason: (reason).clone() }));
         }
         crate::std_core_list::drain::<crate::std_runtime::Token>(watchers, &mut |mut t| {
@@ -1482,30 +1482,30 @@ impl crate::std_runtime::__Stateful_SchedTable for Scheduler {
     }
     fn pool_of_actor(&mut self, addr: i32) -> i32 {
         return {
-            let mut __proj_4: &crate::std_runtime::ActorRec = {
-                let mut __pick_1: Option<&crate::std_runtime::ActorRec> = crate::std_core_list::get_platform::<crate::std_runtime::ActorRec>(&self.actors, addr);
-                if __pick_1.is_some() {
-                    let mut __picked_2 = __pick_1.unwrap();
-                    __picked_2
+            let mut __proj_2: &crate::std_runtime::ActorRec = {
+                let mut __pick14: Option<&crate::std_runtime::ActorRec> = crate::std_core_list::get_platform::<crate::std_runtime::ActorRec>(&self.actors, addr);
+                if __pick14.is_some() {
+                    let mut __pick14_1 = __pick14.unwrap();
+                    __pick14_1
                 } else {
                     panic!("salvo: unreachable at std.runtime:832:43")
                 }
             };
-            __proj_4.pool
+            __proj_2.pool
         };
     }
     fn pool_of_waiter(&mut self, wid: i32) -> i32 {
         return {
-            let mut __proj_4: &crate::std_runtime::WaiterRec = {
-                let mut __pick_1: Option<&crate::std_runtime::WaiterRec> = crate::std_core_list::get_platform::<crate::std_runtime::WaiterRec>(&self.waiters, wid);
-                if __pick_1.is_some() {
-                    let mut __picked_2 = __pick_1.unwrap();
-                    __picked_2
+            let mut __proj_2: &crate::std_runtime::WaiterRec = {
+                let mut __pick16: Option<&crate::std_runtime::WaiterRec> = crate::std_core_list::get_platform::<crate::std_runtime::WaiterRec>(&self.waiters, wid);
+                if __pick16.is_some() {
+                    let mut __pick16_1 = __pick16.unwrap();
+                    __pick16_1
                 } else {
                     panic!("salvo: unreachable at std.runtime:841:43")
                 }
             };
-            __proj_4.pool
+            __proj_2.pool
         };
     }
     fn external(&mut self, delta: i32) {
@@ -1517,10 +1517,10 @@ impl crate::std_runtime::__Stateful_SchedTable for Scheduler {
     }
     fn room(&mut self, addr: i32) -> i32 {
         let mut a: &crate::std_runtime::ActorRec = {
-            let mut __pick_1: Option<&crate::std_runtime::ActorRec> = crate::std_core_list::get_platform::<crate::std_runtime::ActorRec>(&self.actors, addr);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick17: Option<&crate::std_runtime::ActorRec> = crate::std_core_list::get_platform::<crate::std_runtime::ActorRec>(&self.actors, addr);
+            if __pick17.is_some() {
+                let mut __pick17_1 = __pick17.unwrap();
+                __pick17_1
             } else {
                 panic!("salvo: unreachable at std.runtime:845:38")
             }
@@ -1529,30 +1529,30 @@ impl crate::std_runtime::__Stateful_SchedTable for Scheduler {
     }
     fn is_dead(&mut self, addr: i32) -> bool {
         return {
-            let mut __proj_4: &crate::std_runtime::ActorRec = {
-                let mut __pick_1: Option<&crate::std_runtime::ActorRec> = crate::std_core_list::get_platform::<crate::std_runtime::ActorRec>(&self.actors, addr);
-                if __pick_1.is_some() {
-                    let mut __picked_2 = __pick_1.unwrap();
-                    __picked_2
+            let mut __proj_2: &crate::std_runtime::ActorRec = {
+                let mut __pick18: Option<&crate::std_runtime::ActorRec> = crate::std_core_list::get_platform::<crate::std_runtime::ActorRec>(&self.actors, addr);
+                if __pick18.is_some() {
+                    let mut __pick18_1 = __pick18.unwrap();
+                    __pick18_1
                 } else {
                     panic!("salvo: unreachable at std.runtime:850:43")
                 }
             };
-            __proj_4.dead
+            __proj_2.dead
         };
     }
     fn queued(&mut self, addr: i32) -> i32 {
         return {
-            let mut __proj_4: &crate::std_runtime::ActorRec = {
-                let mut __pick_1: Option<&crate::std_runtime::ActorRec> = crate::std_core_list::get_platform::<crate::std_runtime::ActorRec>(&self.actors, addr);
-                if __pick_1.is_some() {
-                    let mut __picked_2 = __pick_1.unwrap();
-                    __picked_2
+            let mut __proj_2: &crate::std_runtime::ActorRec = {
+                let mut __pick19: Option<&crate::std_runtime::ActorRec> = crate::std_core_list::get_platform::<crate::std_runtime::ActorRec>(&self.actors, addr);
+                if __pick19.is_some() {
+                    let mut __pick19_1 = __pick19.unwrap();
+                    __pick19_1
                 } else {
                     panic!("salvo: unreachable at std.runtime:854:43")
                 }
             };
-            __proj_4.user_len
+            __proj_2.user_len
         };
     }
     fn go_virtual(&mut self, seed: i64) {
@@ -1645,8 +1645,8 @@ pub fn reset_all(actors: &mut Vec<crate::std_runtime::ActorRec>, pools: &mut Vec
             };
             let mut entry: Option<crate::unions::Union3<crate::std_runtime::Delivered, crate::std_runtime::Answered, crate::std_runtime::Reported>> = crate::std_core_deque::remove_first_platform::<crate::unions::Union3<crate::std_runtime::Delivered, crate::std_runtime::Answered, crate::std_runtime::Reported>>(&mut actors[__h1].queue);
             if !(!(entry.is_none())) { panic!("salvo: assertion failed at std.runtime:966:13") };
-            let mut entry_4 = (match entry { Some(crate::unions::Union3::U1(__v)) => crate::unions::Union3::U1(__v), Some(crate::unions::Union3::U2(__v)) => crate::unions::Union3::U2(__v), Some(crate::unions::Union3::U3(__v)) => crate::unions::Union3::U3(__v), None => unreachable!("salvo: unreachable union arm"), #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") });
-            crate::std_runtime::drop_entry(entry_4);
+            let mut entry_2 = (match entry { Some(crate::unions::Union3::U1(__v)) => crate::unions::Union3::U1(__v), Some(crate::unions::Union3::U2(__v)) => crate::unions::Union3::U2(__v), Some(crate::unions::Union3::U3(__v)) => crate::unions::Union3::U3(__v), None => unreachable!("salvo: unreachable union arm"), #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") });
+            crate::std_runtime::drop_entry(entry_2);
         }
         loop {
             if !((crate::std_core_deque::remove_first_platform::<i64>(&mut actors[__h1].slots)).is_some()) {
@@ -1654,11 +1654,11 @@ pub fn reset_all(actors: &mut Vec<crate::std_runtime::ActorRec>, pools: &mut Vec
             };
         }
         loop {
-            let mut __subject_5: Option<crate::std_runtime::Token> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Token>(&mut actors[__h1].watchers);
-            if !(__subject_5.is_some()) {
+            let mut __subject_3: Option<crate::std_runtime::Token> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Token>(&mut actors[__h1].watchers);
+            if !(__subject_3.is_some()) {
                 break;
             };
-            let mut t = __subject_5.unwrap();
+            let mut t = __subject_3.unwrap();
             crate::std_runtime::drop_token(t);
         }
         loop {
@@ -1666,9 +1666,9 @@ pub fn reset_all(actors: &mut Vec<crate::std_runtime::ActorRec>, pools: &mut Vec
                 break;
             };
         }
-        let mut __subject_6: Option<crate::std_runtime::Body> = crate::std_runtime::slot_take_platform::<crate::std_runtime::Body>(&mut actors[__h1].body);
-        if __subject_6.is_some() {
-            let mut b = __subject_6.unwrap();
+        let mut __subject_4: Option<crate::std_runtime::Body> = crate::std_runtime::slot_take_platform::<crate::std_runtime::Body>(&mut actors[__h1].body);
+        if __subject_4.is_some() {
+            let mut b = __subject_4.unwrap();
             crate::std_runtime::drop_body_platform(b);
         };
     }
@@ -1679,11 +1679,11 @@ pub fn reset_all(actors: &mut Vec<crate::std_runtime::ActorRec>, pools: &mut Vec
         };
         let __h2: usize = crate::std_core_list::at_platform(&*pools, i).expect("salvo: value is absent at std.runtime:982:33");
         loop {
-            let mut __subject_10: Option<crate::std_runtime::TaskRun> = crate::std_core_deque::remove_first_platform::<crate::std_runtime::TaskRun>(&mut pools[__h2].tasks);
-            if !(__subject_10.is_some()) {
+            let mut __subject_6: Option<crate::std_runtime::TaskRun> = crate::std_core_deque::remove_first_platform::<crate::std_runtime::TaskRun>(&mut pools[__h2].tasks);
+            if !(__subject_6.is_some()) {
                 break;
             };
-            let mut t = __subject_10.unwrap();
+            let mut t = __subject_6.unwrap();
             crate::std_runtime::drop_task_run(t);
         }
         loop {
@@ -1698,19 +1698,19 @@ pub fn reset_all(actors: &mut Vec<crate::std_runtime::ActorRec>, pools: &mut Vec
         i = i32::wrapping_add(i, 1i32);
     }
     loop {
-        let mut __subject_11: Option<crate::std_runtime::IdleHook> = crate::std_core_list::remove_first_platform::<crate::std_runtime::IdleHook>(&mut *idle_hooks);
-        if !(__subject_11.is_some()) {
+        let mut __subject_7: Option<crate::std_runtime::IdleHook> = crate::std_core_list::remove_first_platform::<crate::std_runtime::IdleHook>(&mut *idle_hooks);
+        if !(__subject_7.is_some()) {
             break;
         };
-        let mut h = __subject_11.unwrap();
+        let mut h = __subject_7.unwrap();
         crate::std_runtime::drop_idle_hook(h);
     }
     loop {
-        let mut __subject_12: Option<crate::std_runtime::Token> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Token>(&mut *clock_hooks);
-        if !(__subject_12.is_some()) {
+        let mut __subject_8: Option<crate::std_runtime::Token> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Token>(&mut *clock_hooks);
+        if !(__subject_8.is_some()) {
             break;
         };
-        let mut t = __subject_12.unwrap();
+        let mut t = __subject_8.unwrap();
         crate::std_runtime::drop_token(t);
     }
 }
@@ -1767,24 +1767,24 @@ pub fn release(actors: &mut Vec<crate::std_runtime::ActorRec>, waiters: &mut Vec
     } else if matches!(target, crate::unions::Union3::U2(_)) {
         let mut tw = match target { crate::unions::Union3::U2(__v) => __v, _ => unreachable!() };
         let mut pool: i32 = {
-            let mut __proj_7: &crate::std_runtime::WaiterRec = {
-                let mut __pick_4: Option<&crate::std_runtime::WaiterRec> = crate::std_core_list::get_platform::<crate::std_runtime::WaiterRec>(&*waiters, tw.wid);
-                if __pick_4.is_some() {
-                    let mut __picked_5 = __pick_4.unwrap();
-                    __picked_5
+            let mut __proj_3: &crate::std_runtime::WaiterRec = {
+                let mut __pick23: Option<&crate::std_runtime::WaiterRec> = crate::std_core_list::get_platform::<crate::std_runtime::WaiterRec>(&*waiters, tw.wid);
+                if __pick23.is_some() {
+                    let mut __pick23_2 = __pick23.unwrap();
+                    __pick23_2
                 } else {
                     panic!("salvo: unreachable at std.runtime:1055:50")
                 }
             };
-            __proj_7.pool
+            __proj_3.pool
         };
         let __h2: usize = crate::std_core_list::at_platform(&*pools, pool).expect("salvo: value is absent at std.runtime:1056:36");
         if (pools[__h2].owed > 0i32) {
             pools[__h2].owed = i32::wrapping_sub(pools[__h2].owed, 1i32);
         };
     } else {
-        let mut target_11 = match target { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
-        let __h3: usize = crate::std_core_list::at_platform(&*pools, target_11.pool).expect("salvo: value is absent at std.runtime:1061:43");
+        let mut target_5 = match target { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
+        let __h3: usize = crate::std_core_list::at_platform(&*pools, target_5.pool).expect("salvo: value is absent at std.runtime:1061:43");
         if (pools[__h3].owed > 0i32) {
             pools[__h3].owed = i32::wrapping_sub(pools[__h3].owed, 1i32);
         };
@@ -1844,10 +1844,10 @@ pub fn deliver_to(actors: &mut Vec<crate::std_runtime::ActorRec>, waiters: &mut 
             crate::std_runtime::unpark_platform(&(p).clone());
         };
     } else {
-        let mut target_8 = match target { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
-        let mut __destructured_9: crate::std_runtime::ToTask = target_8;
-        let mut pool: i32 = __destructured_9.pool;
-        let mut body: crate::std_runtime::Body = __destructured_9.body;
+        let mut target_4 = match target { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
+        let mut __destructured_5: crate::std_runtime::ToTask = target_4;
+        let mut pool: i32 = __destructured_5.pool;
+        let mut body: crate::std_runtime::Body = __destructured_5.body;
         let __h3: usize = crate::std_core_list::at_platform(&*pools, pool).expect("salvo: value is absent at std.runtime:1123:36");
         crate::std_core_deque::add_last_platform::<crate::std_runtime::TaskRun>(&mut pools[__h3].tasks, crate::std_runtime::TaskRun { body: body, value: value });
         crate::std_runtime::wake_pool(&mut *pools, pool);
@@ -1856,16 +1856,16 @@ pub fn deliver_to(actors: &mut Vec<crate::std_runtime::ActorRec>, waiters: &mut 
 
 pub fn report_fault(actors: &mut Vec<crate::std_runtime::ActorRec>, pools: &mut Vec<crate::std_runtime::PoolRec>, mut pool: i32, mut reason: String) {
     let mut sink: i32 = {
-        let mut __proj_4: &crate::std_runtime::PoolRec = {
-            let mut __pick_1: Option<&crate::std_runtime::PoolRec> = crate::std_core_list::get_platform::<crate::std_runtime::PoolRec>(&*pools, pool);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+        let mut __proj_2: &crate::std_runtime::PoolRec = {
+            let mut __pick30: Option<&crate::std_runtime::PoolRec> = crate::std_core_list::get_platform::<crate::std_runtime::PoolRec>(&*pools, pool);
+            if __pick30.is_some() {
+                let mut __pick30_1 = __pick30.unwrap();
+                __pick30_1
             } else {
                 panic!("salvo: unreachable at std.runtime:1135:42")
             }
         };
-        __proj_4.sink
+        __proj_2.sink
     };
     if (sink >= 0i32) {
         let __h1: usize = crate::std_core_list::at_platform(&*actors, sink).expect("salvo: value is absent at std.runtime:1137:37");
@@ -1917,16 +1917,16 @@ pub fn fire_idle(actors: &mut Vec<crate::std_runtime::ActorRec>, waiters: &mut V
         let mut token: crate::std_runtime::Token = __destructured_2.token;
         let mut gates: i32 = 0i32;
         let mut tokens: i32 = {
-            let mut __proj_6: &crate::std_runtime::PoolRec = {
-                let mut __pick_3: Option<&crate::std_runtime::PoolRec> = crate::std_core_list::get_platform::<crate::std_runtime::PoolRec>(&*pools, pool);
-                if __pick_3.is_some() {
-                    let mut __picked_4 = __pick_3.unwrap();
-                    __picked_4
+            let mut __proj_4: &crate::std_runtime::PoolRec = {
+                let mut __pick32: Option<&crate::std_runtime::PoolRec> = crate::std_core_list::get_platform::<crate::std_runtime::PoolRec>(&*pools, pool);
+                if __pick32.is_some() {
+                    let mut __pick32_3 = __pick32.unwrap();
+                    __pick32_3
                 } else {
                     panic!("salvo: unreachable at std.runtime:1189:48")
                 }
             };
-            __proj_6.owed
+            __proj_4.owed
         };
         for mut a in (&mut *actors).iter_mut() {
             if (a.pool == pool) {
@@ -1980,17 +1980,17 @@ pub fn take_work(actors: &mut Vec<crate::std_runtime::ActorRec>, pools: &mut Vec
     let mut task: Option<crate::std_runtime::TaskRun> = crate::std_core_deque::remove_first_platform::<crate::std_runtime::TaskRun>(&mut pools[__h1].tasks);
     if task.is_some() {
         let mut t = task.unwrap();
-        let mut __destructured_4: crate::std_runtime::TaskRun = t;
-        let mut body: crate::std_runtime::Body = __destructured_4.body;
-        let mut value: crate::std_runtime::Dyn = __destructured_4.value;
+        let mut __destructured_2: crate::std_runtime::TaskRun = t;
+        let mut body: crate::std_runtime::Body = __destructured_2.body;
+        let mut value: crate::std_runtime::Dyn = __destructured_2.value;
         return Some(crate::unions::Union2::U2(crate::std_runtime::RunTask { pool: pool, body: body, value: value }));
     };
     loop {
-        let mut __subject_5: Option<i32> = crate::std_core_deque::remove_first_platform::<i32>(&mut pools[__h1].ready);
-        if !(__subject_5.is_some()) {
+        let mut __subject_3: Option<i32> = crate::std_core_deque::remove_first_platform::<i32>(&mut pools[__h1].ready);
+        if !(__subject_3.is_some()) {
             break;
         };
-        let mut i = __subject_5.unwrap();
+        let mut i = __subject_3.unwrap();
         let __h2: usize = crate::std_core_list::at_platform(&*actors, i).expect("salvo: value is absent at std.runtime:1247:34");
         actors[__h2].ready = false;
         if (((i != exclude) && !(actors[__h2].running)) && !(actors[__h2].dead)) {
@@ -2002,16 +2002,16 @@ pub fn take_work(actors: &mut Vec<crate::std_runtime::ActorRec>, pools: &mut Vec
                 if !(!(e.is_none())) { panic!("salvo: assertion failed at std.runtime:1254:17") };
                 actors[__h2].running = true;
                 let mut body: crate::std_runtime::Body = {
-                    let mut __pick_9: Option<crate::std_runtime::Body> = crate::std_runtime::slot_take_platform::<crate::std_runtime::Body>(&mut actors[__h2].body);
-                    if __pick_9.is_some() {
-                        let mut __picked_10 = __pick_9.unwrap();
-                        __picked_10
+                    let mut __pick35: Option<crate::std_runtime::Body> = crate::std_runtime::slot_take_platform::<crate::std_runtime::Body>(&mut actors[__h2].body);
+                    if __pick35.is_some() {
+                        let mut __pick35_5 = __pick35.unwrap();
+                        __pick35_5
                     } else {
                         panic!("salvo: unreachable at std.runtime:1256:49")
                     }
                 };
-                let mut e_12 = (match e { Some(crate::unions::Union3::U1(__v)) => crate::unions::Union3::U1(__v), Some(crate::unions::Union3::U2(__v)) => crate::unions::Union3::U2(__v), Some(crate::unions::Union3::U3(__v)) => crate::unions::Union3::U3(__v), None => unreachable!("salvo: unreachable union arm"), #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") });
-                return crate::std_runtime::work_of(&mut actors[__h2], i, e_12, body);
+                let mut e_6 = (match e { Some(crate::unions::Union3::U1(__v)) => crate::unions::Union3::U1(__v), Some(crate::unions::Union3::U2(__v)) => crate::unions::Union3::U2(__v), Some(crate::unions::Union3::U3(__v)) => crate::unions::Union3::U3(__v), None => unreachable!("salvo: unreachable union arm"), #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") });
+                return crate::std_runtime::work_of(&mut actors[__h2], i, e_6, body);
             };
         };
     }
@@ -2079,16 +2079,16 @@ pub fn deliverable(slots: &std::collections::VecDeque<i64>, gate: &Option<i64>) 
         if !((i < crate::std_core_deque::size_platform::<i64>(slots))) {
             break;
         };
-        let mut gate_4 = gate.unwrap();
+        let mut gate_2 = gate.unwrap();
         if ({
-            let mut __pick_1: Option<i64> = crate::std_core_deque::get_platform::<i64>(slots, i).copied();
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick37: Option<i64> = crate::std_core_deque::get_platform::<i64>(slots, i).copied();
+            if __pick37.is_some() {
+                let mut __pick37_1 = __pick37.unwrap();
+                __pick37_1
             } else {
                 panic!("salvo: unreachable at std.runtime:1323:30")
             }
-        } == gate_4) {
+        } == gate_2) {
             return Some(i);
         };
         i = i32::wrapping_add(i, 1i32);
@@ -2098,9 +2098,9 @@ pub fn deliverable(slots: &std::collections::VecDeque<i64>, gate: &Option<i64>) 
 
 pub fn wake_pool(pools: &mut Vec<crate::std_runtime::PoolRec>, mut pool: i32) {
     let __h1: usize = crate::std_core_list::at_platform(&*pools, pool).expect("salvo: value is absent at std.runtime:1338:32");
-    let mut __subject_4: Option<crate::std_runtime::Parker> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Parker>(&mut pools[__h1].idle);
-    if __subject_4.is_some() {
-        let mut w = __subject_4.as_ref().unwrap();
+    let mut __subject_2: Option<crate::std_runtime::Parker> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Parker>(&mut pools[__h1].idle);
+    if __subject_2.is_some() {
+        let mut w = __subject_2.as_ref().unwrap();
         crate::std_runtime::unpark_platform(w);
     };
 }
@@ -2108,11 +2108,11 @@ pub fn wake_pool(pools: &mut Vec<crate::std_runtime::PoolRec>, mut pool: i32) {
 pub fn wake_every(pools: &mut Vec<crate::std_runtime::PoolRec>, mut pool: i32) {
     let __h1: usize = crate::std_core_list::at_platform(&*pools, pool).expect("salvo: value is absent at std.runtime:1346:32");
     loop {
-        let mut __subject_4: Option<crate::std_runtime::Parker> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Parker>(&mut pools[__h1].idle);
-        if !(__subject_4.is_some()) {
+        let mut __subject_2: Option<crate::std_runtime::Parker> = crate::std_core_list::remove_first_platform::<crate::std_runtime::Parker>(&mut pools[__h1].idle);
+        if !(__subject_2.is_some()) {
             break;
         };
-        let mut w = __subject_4.as_ref().unwrap();
+        let mut w = __subject_2.as_ref().unwrap();
         crate::std_runtime::unpark_platform(w);
     }
 }

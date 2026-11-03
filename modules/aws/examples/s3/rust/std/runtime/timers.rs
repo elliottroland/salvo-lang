@@ -170,18 +170,18 @@ impl crate::std_runtime_timers::__Stateful_DeadlineTable for Deadlines {
                 break;
             };
             if ({
-                let mut __pick_1: Option<i64> = crate::std_core_list::get_platform::<i64>(&self.ats, i).copied();
-                if __pick_1.is_some() {
-                    let mut __picked_2 = __pick_1.unwrap();
-                    __picked_2
+                let mut __pick1: Option<i64> = crate::std_core_list::get_platform::<i64>(&self.ats, i).copied();
+                if __pick1.is_some() {
+                    let mut __pick1_1 = __pick1.unwrap();
+                    __pick1_1
                 } else {
                     panic!("salvo: unreachable at std.runtime.timers:75:32")
                 }
             } <= now) {
                 let mut _at: Option<i64> = crate::std_core_list::remove_at_platform::<i64>(&mut self.ats, i);
-                let mut __subject_4: Option<crate::scheduler::SalvoReply> = crate::std_core_list::remove_at_platform::<crate::scheduler::SalvoReply>(&mut self.dones, i);
-                if __subject_4.is_some() {
-                    let mut r = __subject_4.unwrap();
+                let mut __subject_2: Option<crate::scheduler::SalvoReply> = crate::std_core_list::remove_at_platform::<crate::scheduler::SalvoReply>(&mut self.dones, i);
+                if __subject_2.is_some() {
+                    let mut r = __subject_2.unwrap();
                     crate::std_core_list::add_platform::<crate::scheduler::SalvoReply>(&mut due, r);
                 };
             } else {

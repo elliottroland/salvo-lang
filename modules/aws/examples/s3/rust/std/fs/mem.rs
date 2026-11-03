@@ -367,10 +367,10 @@ pub fn mem_find_newline(data: &crate::std_core_bytes::Bytes, mut from: i32) -> i
             break;
         };
         if ((({
-            let mut __pick_1: Option<u8> = crate::std_core_bytes::get_platform(data, i);
-            if __pick_1.is_some() {
-                let mut __picked_2 = __pick_1.unwrap();
-                __picked_2
+            let mut __pick1: Option<u8> = crate::std_core_bytes::get_platform(data, i);
+            if __pick1.is_some() {
+                let mut __pick1_1 = __pick1.unwrap();
+                __pick1_1
             } else {
                 panic!("salvo: unreachable at std.fs.mem:328:35")
             }
@@ -422,10 +422,10 @@ pub fn mem_read_line(reads: &mut crate::std_core_map::Map<i64, crate::std_fs_mem
     };
     let mut stop: i32 = crate::std_fs_mem::mem_find_newline(&bytes, at);
     let mut line: crate::std_core_bytes::Bytes = {
-        let mut __pick_1: Option<crate::std_core_bytes::Bytes> = crate::std_core_bytes::slice_platform(&bytes, at, stop);
-        if __pick_1.is_some() {
-            let mut __picked_2 = __pick_1.unwrap();
-            __picked_2
+        let mut __pick2: Option<crate::std_core_bytes::Bytes> = crate::std_core_bytes::slice_platform(&bytes, at, stop);
+        if __pick2.is_some() {
+            let mut __pick2_1 = __pick2.unwrap();
+            __pick2_1
         } else {
             panic!("salvo: unreachable at std.fs.mem:388:42")
         }
@@ -440,8 +440,8 @@ pub fn mem_read_line(reads: &mut crate::std_core_map::Map<i64, crate::std_fs_mem
         return None;
     };
     crate::std_core_map::put_platform::<i64, crate::std_fs_mem::MemRead>(&mut *reads, handle, crate::std_fs_mem::MemRead { source: (open.source).clone(), data: bytes, at: next_at, failed: false }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
-    let mut text_4 = text.as_ref().unwrap();
-    return Some(crate::std_core_string::trim_suffix_platform(text_4, &String::from("\r")));
+    let mut text_2 = text.as_ref().unwrap();
+    return Some(crate::std_core_string::trim_suffix_platform(text_2, &String::from("\r")));
 }
 
 pub fn mem_read_all(reads: &mut crate::std_core_map::Map<i64, crate::std_fs_mem::MemRead>, mut handle: i64) -> crate::unions::Union2<String, crate::std_core_checked::Checked<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>> {
@@ -453,10 +453,10 @@ pub fn mem_read_all(reads: &mut crate::std_core_map::Map<i64, crate::std_fs_mem:
     let mut bytes: crate::std_core_bytes::Bytes = (open.data).clone();
     let mut end: i32 = crate::std_core_bytes::size_platform(&bytes);
     let mut rest: crate::std_core_bytes::Bytes = {
-        let mut __pick_1: Option<crate::std_core_bytes::Bytes> = crate::std_core_bytes::slice_platform(&bytes, open.at, end);
-        if __pick_1.is_some() {
-            let mut __picked_2 = __pick_1.unwrap();
-            __picked_2
+        let mut __pick3: Option<crate::std_core_bytes::Bytes> = crate::std_core_bytes::slice_platform(&bytes, open.at, end);
+        if __pick3.is_some() {
+            let mut __pick3_1 = __pick3.unwrap();
+            __pick3_1
         } else {
             panic!("salvo: unreachable at std.fs.mem:412:46")
         }
@@ -467,8 +467,8 @@ pub fn mem_read_all(reads: &mut crate::std_core_map::Map<i64, crate::std_fs_mem:
         return crate::unions::Union2::U2(crate::std_core_result::err::<crate::std_core_checked::Checked<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>>(crate::std_core_checked::checked::<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>(crate::unions::Union2::U1(crate::std_stream::InvalidUtf8 { source: (source).clone() }))));
     };
     crate::std_core_map::put_platform::<i64, crate::std_fs_mem::MemRead>(&mut *reads, handle, crate::std_fs_mem::MemRead { source: (source).clone(), data: bytes, at: end, failed: false }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
-    let mut text_4 = text.unwrap();
-    return crate::unions::Union2::U1(crate::std_core_result::ok::<String>(text_4));
+    let mut text_2 = text.unwrap();
+    return crate::unions::Union2::U1(crate::std_core_result::ok::<String>(text_2));
 }
 
 pub fn mem_read_bytes(reads: &mut crate::std_core_map::Map<i64, crate::std_fs_mem::MemRead>, mut handle: i64, mut max: i32) -> crate::unions::Union2<crate::std_core_bytes::Bytes, crate::std_core_checked::Checked<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>> {
@@ -487,10 +487,10 @@ pub fn mem_read_bytes(reads: &mut crate::std_core_map::Map<i64, crate::std_fs_me
         stop = end;
     };
     let mut taken: crate::std_core_bytes::Bytes = {
-        let mut __pick_1: Option<crate::std_core_bytes::Bytes> = crate::std_core_bytes::slice_platform(&bytes, open.at, stop);
-        if __pick_1.is_some() {
-            let mut __picked_2 = __pick_1.unwrap();
-            __picked_2
+        let mut __pick4: Option<crate::std_core_bytes::Bytes> = crate::std_core_bytes::slice_platform(&bytes, open.at, stop);
+        if __pick4.is_some() {
+            let mut __pick4_1 = __pick4.unwrap();
+            __pick4_1
         } else {
             panic!("salvo: unreachable at std.fs.mem:438:48")
         }

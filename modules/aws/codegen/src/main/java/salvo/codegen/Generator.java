@@ -962,6 +962,13 @@ final class Generator {
         if (isPrimitive(t)) {
             return present ? rsFromSdk(t, "(&" + acc + ")") : acc + ".map(|x| " + rsFromSdk(t, "(&x)") + ")";
         }
+        // smithy-rs answers `Option<&T>` for a required *structure* member
+        // (a structure has no zero value to stand in for an absent one), so
+        // a member Salvo reads as present is unwrapped (2026-10-30: DynamoDB's
+        // `Projection` and `VectorAttributeDefinition` members did not compile).
+        if (present && t instanceof StructureShape) {
+            return rsFromSdk(t, acc + ".expect(\"the SDK answered no required " + m.getMemberName() + "\")");
+        }
         return present ? rsFromSdk(t, acc) : acc + ".map(|x| " + rsFromSdk(t, "x") + ")";
     }
 

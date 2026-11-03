@@ -54,19 +54,19 @@ fun upload(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.con
     when {
         (put is Union2.U1<*, *>) -> {
             val put_3: salvo.aws.s3.PutObjectOutput = ((put as Union2.U1<*, *>).value as salvo.aws.s3.PutObjectOutput)
-            salvo.std.core.console.println(console, "put ${key}: etag ${kotlin.run {
-                val __pick_4: String? = put_3.eTag
-                (if ((__pick_4 != null)) {
-                    val __picked_5: String = __pick_4!!
-                    __picked_5
-                } else {
+            salvo.std.core.console.println(console, "put ${key}: etag ${when {
+                (put_3.eTag != null) -> {
+                    val __narrowed_4: String = put_3.eTag!!
+                    __narrowed_4
+                }
+                else -> {
                     "?"
-                })
+                }
             }}")
         }
         (put is Union2.U2<*, *>) -> {
-            val put_7: salvo.std.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>> = ((put as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>>)
-            salvo.std.core.console.println(console, "put ${key}: ${salvo.main.describe(salvo.std.core.checked.detach(put_7))}")
+            val put_5: salvo.std.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>> = ((put as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>>)
+            salvo.std.core.console.println(console, "put ${key}: ${salvo.main.describe(salvo.std.core.checked.detach(put_5))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:58:5"))
@@ -92,23 +92,23 @@ fun download(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.c
     val __destructured_3: salvo.aws.s3.GetObjectOutput = got_2
     val body: salvo.std.stream.InStream = __destructured_3.body
     val contentLength: Long? = __destructured_3.contentLength
-    salvo.std.core.console.println(console, "get ${key}: ${kotlin.run {
-        val __pick_4: Long? = contentLength
-        (if ((__pick_4 != null)) {
-            val __picked_5: Long = __pick_4!!
-            __picked_5
-        } else {
+    salvo.std.core.console.println(console, "get ${key}: ${when {
+        (contentLength != null) -> {
+            val contentLength_4: Long = contentLength!!
+            contentLength_4
+        }
+        else -> {
             (-1L)
-        })
+        }
     }} bytes")
     val target: Union2<salvo.std.stream.OutStream, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>> = fs.openWrite(path)
     if ((target is Union2.U2<*, *>)) {
-        val target_7: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((target as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-        salvo.std.core.console.println(console, "open ${salvo.std.fs.path.toStr(path)}: ${salvo.std.fs.toStr(salvo.std.core.checked.detach(target_7))}")
+        val target_5: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((target as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
+        salvo.std.core.console.println(console, "open ${salvo.std.fs.path.toStr(path)}: ${salvo.std.fs.toStr(salvo.std.core.checked.detach(target_5))}")
         val closed: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = streams.close__InStream(body)
         if ((closed is Union2.U2<*, *>)) {
-            val closed_8: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((closed as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-            salvo.std.core.checked.ignore(closed_8)
+            val closed_6: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((closed as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
+            salvo.std.core.checked.ignore(closed_6)
         }
         null
         return
@@ -116,18 +116,18 @@ fun download(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.c
     val copied: Union2<Long, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = kotlin.run {
         val (r, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union2Codec(salvo.LongCodec, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(salvo.std.stream.__Codec_InvalidUtf8, salvo.std.stream.__Codec_StreamFailed)))) })
-        val target_9: salvo.std.stream.OutStream = ((target as Union2.U1<*, *>).value as salvo.std.stream.OutStream)
-        salvo.std.stream.pipe(streams, body, target_9, r)
+        val target_7: salvo.std.stream.OutStream = ((target as Union2.U1<*, *>).value as salvo.std.stream.OutStream)
+        salvo.std.stream.pipe(streams, body, target_7, r)
         salvo.SalvoSched.awaitReply(__wid) as Union2<Long, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>
     }
     when {
         (copied is Union2.U1<*, *>) -> {
-            val copied_10: Long = ((copied as Union2.U1<*, *>).value as Long)
-            salvo.std.core.console.println(console, "piped ${copied_10} bytes into ${salvo.std.fs.path.toStr(path)}")
+            val copied_8: Long = ((copied as Union2.U1<*, *>).value as Long)
+            salvo.std.core.console.println(console, "piped ${copied_8} bytes into ${salvo.std.fs.path.toStr(path)}")
         }
         (copied is Union2.U2<*, *>) -> {
-            val copied_11: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((copied as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-            salvo.std.core.console.println(console, "pipe: ${salvo.std.stream.toStr(salvo.std.core.checked.detach(copied_11))}")
+            val copied_9: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((copied as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
+            salvo.std.core.console.println(console, "pipe: ${salvo.std.stream.toStr(salvo.std.core.checked.detach(copied_9))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:88:5"))
