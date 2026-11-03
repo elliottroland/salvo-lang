@@ -748,7 +748,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let (receiver, leading) = (passed.and_then(EffectsPassed::receiver).cloned(), passed.and_then(EffectsPassed::leading).cloned());
         let k = match callee {
             // [effect-dispatch]
-            Some(CalleeKind::Member { effect, interface, index }) => {
+            Some(CalleeKind::Member { effect, interface, index, type_args }) => {
                 let Some(receiver) = receiver else {
                     self.error(span, messages::effect_available_lower_no_instance(&Ty::named(effect.clone())));
                     return unsupported(ty, span, "member call");
@@ -756,7 +756,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let instance = self.effect_instance(&receiver, span);
                 let mut lowered = args;
                 lowered.extend(self.implicit_list(&implicits, &[], span));
-                return Expr { ty, span, kind: ExprKind::MemberCall { instance: Box::new(instance), member: MemberRef { interface, index }, type_args: Vec::new(), args: lowered } };
+                let type_args = self.ctx.ir_tys(&type_args);
+                return Expr { ty, span, kind: ExprKind::MemberCall { instance: Box::new(instance), member: MemberRef { interface, index }, type_args, args: lowered } };
             }
             // [implicit-resolve-body] Through the fn's own implicit.
             Some(CalleeKind::Local { local, .. }) => {
@@ -1061,7 +1062,7 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     pub(crate) fn type_args_of(&mut self, span: Span) -> Vec<Ty> {
         match self.ctx.checked.call(self.key(span)).map(|c| &c.callee) {
-            Some(CalleeKind::Fn { type_args, .. }) => self.ctx.ir_tys(type_args),
+            Some(CalleeKind::Fn { type_args, .. }) | Some(CalleeKind::Member { type_args, .. }) => self.ctx.ir_tys(type_args),
             _ => Vec::new(),
         }
     }
@@ -1305,7 +1306,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         let passed = checked.effects_passed.get(&key);
         let (receiver, leading) = (passed.and_then(EffectsPassed::receiver).cloned(), passed.and_then(EffectsPassed::leading).cloned());
         // [effect-dispatch]
-        if let Some(CalleeKind::Member { effect, interface, index }) = &callee {
+        if let Some(CalleeKind::Member { effect, interface, index, type_args }) = &callee {
             let interface = *interface;
             let Some(receiver) = receiver else {
                 self.error(span, messages::effect_available_lower_no_instance(&Ty::named(effect.clone())));
@@ -1317,7 +1318,8 @@ impl<'a, 'p> Lower<'a, 'p> {
             let (args_lowered, prelude) = self.args_for(member_decl.map(Callee::Member), &all_args, named, span);
             let mut lowered = args_lowered;
             lowered.extend(self.implicit_list(&implicits, named, span));
-            let call = Expr { ty: ty.clone(), span, kind: ExprKind::MemberCall { instance: Box::new(instance), member: MemberRef { interface, index: *index }, type_args: Vec::new(), args: lowered } };
+            let type_args = self.ctx.ir_tys(type_args);
+            let call = Expr { ty: ty.clone(), span, kind: ExprKind::MemberCall { instance: Box::new(instance), member: MemberRef { interface, index: *index }, type_args, args: lowered } };
             return Some(if prelude.is_empty() { call } else { self.block_expr(prelude, call, span) });
         }
         // A fn-typed local, or the fn's own implicit [call-resolve].

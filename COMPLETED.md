@@ -144,6 +144,19 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A member call records its own type arguments (ROADMAP 0at, [call-type-args] [fn-variadic])
+
+- **Built**: `Callee::Member` carries the member's own type arguments, which
+  `finish_member_call` records after unifying the arguments, now including a
+  variadic tail's (each element against the tail's element type, a spread
+  against the array). The IR fills `MemberCall.type_args` from them and
+  `args_for` substitutes the tail's array type with them. Before, a generic
+  variadic member (`fn count<T>(...xs: T[]) -> Int` in an effect) bound no
+  `T`, the tail lowered as `array[T[]]`, and kotlinc refused the
+  `as Array<T>` the Kotlin backend wrote. Rust still refuses a member with
+  generics of its own, with its diagnostic. Run data
+  `effects/a_generic_variadic_member.sv` (Kotlin only, saying why).
+
 ### 2026-10-30 — The aws glue is checked against the SDKs, and passes (ROADMAP 0aw)
 
 - **Ran**: `ONLINE=1 modules/aws/check.sh host` fetched the SDK crates into

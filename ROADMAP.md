@@ -110,7 +110,14 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
   pass of their own (each is listed there).
 - 0aw: done (commit "Check the aws glue against the SDKs, and unwrap a
   required structure member").
-- Next: 0ax.
+- 0ax: design questions (qualifiers by name, the deadlock graph's node
+  names) plus the scopes' leftovers, not scheduled; its stale third bullet
+  (`member_ref_by_name`, already gone) removed. 0bb: refactor leftovers,
+  not defects (skipped).
+- 0at's member type arguments: done (commit "Record a member call's own
+  type arguments").
+- Next: the 0as–0av lists' remaining items are recorded limits, not
+  defects; the open defects left are 0ar's cascades.
 
 ## The sequence
 
@@ -1047,10 +1054,6 @@ the pipeline record §II.10 P19 is built; these are its recorded leftovers.
 
 ### 0at — What one selection for members and fns left (B3.5, 2026-10-28)
 
-- **A member's own generics are not recorded as the call's type arguments**
-  (`call_type_args`, before and after B3.5): the IR's `MemberCall.type_args`
-  is empty, and a *generic* variadic member's tail array lowers at its
-  unsubstituted element type. No std member or test has the shape.
 - **`call-resolve:no-overload` names no candidates**, for fns as before and
   now for members too, where `effect-member-overload:no-fit` named the
   effect (`no overload of `Fs.close` takes (Int)`). A candidate list in the
@@ -1111,8 +1114,10 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
 
 ### 0ax — Names still read program-wide (the pipeline record C1.1, 2026-10-29)
 
-C1.1 moved the last program-wide lookups of a *written* name to keys. Three
-remain, each a design question rather than a lookup to swap:
+C1.1 moved the last program-wide lookups of a *written* name to keys. Two
+remain, each a design question rather than a lookup to swap (a third, the
+IR's `member_ref_by_name`, went with "Record what each call is in one
+table", which reads the member off the checker's call row):
 
 - **Qualifiers are identified by name in types.** A `Ty` carries its
   qualifiers by name (`Qual { name }`), so whatever needs the declaration
@@ -1128,10 +1133,6 @@ remain, each a design question rather than a lookup to swap:
   `task_mints`, the graph's node names): two modules' handlers of one name
   are one node. Stage E1 rebuilds those inputs as per-declaration summaries,
   which is where they take ids.
-- **The IR's `member_ref_by_name`** picks an effect member by name when the
-  checker recorded no member index for the call: the first of an overloaded
-  name. It should be unreachable for a checked call; making it an error
-  rather than a pick is the [backend-never-wrong] fix.
 
 C1.2 and C1.3 (2026-10-29) bound every written type-position and
 value-position name where it is written [name-table]. What still goes through

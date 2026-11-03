@@ -657,8 +657,9 @@ pub enum Callee {
     Fn { decl: DeclId, type_args: Vec<Ty> },
     /// [effect-dispatch] An effect's member: the effect by its symbol key
     /// and by its declaration, the member's index among its `fns` (an
-    /// overload included [effect-member-overload]).
-    Member { effect: String, interface: DeclId, index: usize },
+    /// overload included [effect-member-overload]), and the member's own
+    /// type arguments in its declaration order [call-type-args].
+    Member { effect: String, interface: DeclId, index: usize, type_args: Vec<Ty> },
     /// [qual-whynot] `Q.member(args)`: a qualifier's own fn, and the base its
     /// `of` names (which declaration of an overloaded qualifier).
     QualMember { qualifier: String, member: String, of: Option<String> },
@@ -31867,7 +31868,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(index) = crate::effect_member_index(effect, member) else { return };
         let interface = self.name_key(effect.name.span).decl;
         let effect = self.symbols.key_or(effect, &effect.name.name).to_string();
-        self.record_callee(self.key(span), Callee::Member { effect, interface, index });
+        self.record_callee(self.key(span), Callee::Member { effect, interface, index, type_args: Vec::new() });
     }
 
     /// [call-resolve] Records what the call at `key` is, with its spelling
@@ -32018,6 +32019,28 @@ impl<'p, 'r> Checker<'p, 'r> {
         for (i, &pi) in positional.iter().enumerate() {
             let Some(a) = arg_tys.get(i) else { break };
             unify(&member_params[pi], a, &mut subst);
+        }
+        // [call-type-args] [fn-variadic] A variadic tail's arguments bind its
+        // element type too (a `...xs` spread binds the array), so a member's
+        // own `T` in `...xs: T[]` is known (ROADMAP 0at: it was not, and the
+        // tail lowered at the bare `T`).
+        if let Some(vi) = member.params.iter().position(|p| p.variadic) {
+            let elem = match &member_params[vi] {
+                Ty::Array(e) => (**e).clone(),
+                other => other.clone(),
+            };
+            for (i, a) in arg_tys.iter().enumerate().skip(positional.len()) {
+                match args.get(i) {
+                    Some(Expr::Spread { .. }) => unify(&member_params[vi], a, &mut subst),
+                    _ => unify(&elem, a, &mut subst),
+                };
+            }
+        }
+        if !member.generics.is_empty() {
+            let bound: Vec<Ty> = member.generics.iter().map(|g| subst.get(&g.name).cloned().unwrap_or(Ty::Unknown)).collect();
+            if let Some(Call { callee: Callee::Member { type_args, .. }, .. }) = self.out.calls.get_mut(&self.key(span)) {
+                *type_args = bound;
+            }
         }
         // Coercions against the fully substituted parameter types: the fixed
         // positions, then a variadic tail's elements.

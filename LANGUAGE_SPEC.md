@@ -3562,7 +3562,10 @@ Conventions:
   so `log("hi")` against `fn log(msg: Str, level: Int = 1)` was refused.)
 * [call-type-args] A generic call's type arguments must be **determined**.
   In order: an explicit list (`Mut List<Int>()`) pins them; otherwise
-  the arguments bind them by unification; otherwise the **expected type**
+  the arguments bind them by unification (a variadic tail's included: an
+  effect member's own `T` in `...xs: T[]` is bound by its tail and recorded
+  as the call's, `Callee::Member::type_args`, since 2026-10-30, ROADMAP
+  0at); otherwise the **expected type**
   at the call does — a `let` annotation, the enclosing fn's return type, or
   a parameter type the result flows into. A type argument that appears in
   the *result* type and that none of these determine is an error naming
