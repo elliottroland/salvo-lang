@@ -2,16 +2,16 @@ package salvo.std.core.array
 
 import salvo.*
 
-fun<T> iter(array: Array<T>): ArrayNext<T> {
-    return ArrayNext<T>(items = array, at = 0)
+fun<T> iter(array: Array<T>): ArrayIter<T> {
+    return ArrayIter<T>(items = array, at = 0)
 }
 
-data class ArrayNext<T>(
+data class ArrayIter<T>(
     var items: Array<T>,
     var at: Int,
 )
 
-fun<T> next(p: ArrayNext<T>): Union2<T, salvo.std.core.iterator.Finished> {
+fun<T> next(p: ArrayIter<T>): Union2<T, salvo.std.core.iterator.Finished> {
     val elem: T? = p.items.getOrNull(p.at)
     if ((elem == null)) {
         return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())

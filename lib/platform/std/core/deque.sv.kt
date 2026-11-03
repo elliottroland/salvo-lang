@@ -145,16 +145,16 @@ fun<T> toDeque(list: List<T>, copy: (T) -> T): kotlin.collections.ArrayDeque<T> 
     return out
 }
 
-fun<T> iter(d: kotlin.collections.ArrayDeque<T>): DequeNext<T> {
-    return DequeNext<T>(items = d, at = 0)
+fun<T> iter(d: kotlin.collections.ArrayDeque<T>): DequeIter<T> {
+    return DequeIter<T>(items = d, at = 0)
 }
 
-data class DequeNext<T>(
+data class DequeIter<T>(
     var items: kotlin.collections.ArrayDeque<T>,
     var at: Int,
 )
 
-fun<T> next__DequeNext(p: DequeNext<T>): Union2<T, salvo.std.core.iterator.Finished> {
+fun<T> next__DequeIter(p: DequeIter<T>): Union2<T, salvo.std.core.iterator.Finished> {
     val elem: T? = salvo.std.core.deque.getPlatform(p.items, p.at)
     if ((elem == null)) {
         return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
@@ -164,21 +164,21 @@ fun<T> next__DequeNext(p: DequeNext<T>): Union2<T, salvo.std.core.iterator.Finis
     return Union2.U1<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(elem_1))
 }
 
-data class DequeReversed<T>(
-    var d: kotlin.collections.ArrayDeque<T>,
+fun<T> reversed(d: kotlin.collections.ArrayDeque<T>): DequeReversedIter<T> {
+    return DequeReversedIter<T>(items = d, at = (salvo.std.core.deque.sizePlatform(d) - 1))
+}
+
+data class DequeReversedIter<T>(
+    var items: kotlin.collections.ArrayDeque<T>,
     var at: Int,
 )
 
-fun<T> reversed(d: kotlin.collections.ArrayDeque<T>): DequeReversed<T> {
-    return DequeReversed<T>(d = d, at = (salvo.std.core.deque.sizePlatform(d) - 1))
-}
-
-fun<T> next__DequeReversed(__p: DequeReversed<T>): Union2<T, salvo.std.core.iterator.Finished> {
-    val elem: T? = salvo.std.core.deque.getPlatform(__p.d, __p.at)
+fun<T> next__DequeReversedIter(p: DequeReversedIter<T>): Union2<T, salvo.std.core.iterator.Finished> {
+    val elem: T? = salvo.std.core.deque.getPlatform(p.items, p.at)
     if ((elem == null)) {
         return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
     }
-    __p.at = (__p.at - 1)
+    p.at = (p.at - 1)
     val elem_1: T = elem!!
     return Union2.U1<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(elem_1))
 }

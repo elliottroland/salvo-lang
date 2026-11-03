@@ -144,6 +144,32 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — std's iterators are named `…Iter` and written by hand (user decisions, [iter-mint] [iter-fn])
+
+- **Decided (user)**: "the conventional naming of the structure returned by
+  `iter()` should end in `Iter`", and std declares no `iter fn` ("I don't
+  think it's actually that useful"); the form itself stays for now.
+- **Renamed** everywhere outside `demo/` (306 files, the checked-in
+  generated code and host projects included, one scripted sweep): `ListNext`
+  → `ListIter`, `SetNext` → `SetIter`, `MapKeyNext` → `MapKeyIter`,
+  `StrNext` → `StrIter`, `BytesNext` → `BytesIter`, `DequeNext` →
+  `DequeIter`, `ArrayNext` → `ArrayIter`. Every old and new name has the same
+  length, so no span in a snapshot moved.
+- **Rewritten as a struct and a `next`** (each struct ending in `Iter`):
+  `range` (`RangeIter`, which drops the `start` field the generated struct
+  held), `reversed` over a list and a deque (`ListReversedIter`,
+  `DequeReversedIter`), `enumerate` and `enumerate_rev` (one
+  `ListEnumerateIter` with a `step`), `indices` and `rev_indices` (one
+  `IndicesIter`, its obligation `Next<self, Idx(self.list) Int>` and its
+  `next` establishing `+Idx(p.list)` as the expansion wrote it), `entries`
+  and `values` (`MapEntriesIter`, `MapValuesIter`), the buffers' `iter`
+  (`IntBufferIter`, `LongBufferIter`), and `seq.test.sv`'s `naturals`.
+- **Left**: the lazy adaptors (`Mapping`, `Filtering`, `Taking`, …) and the
+  streams' `Lines`/`Chunks` keep their names, which no `iter` answers; the
+  test data that exercises `iter fn` itself keeps it.
+- A std test name an older sweep had garbled ("expect_trap iterators when
+  the body traps") reads "passes" again.
+
 ### 2026-10-30 — Re-typing replaces the `^` lift, and an assignment may drop qualifiers (user decisions, [qual-retype] [var-drop-assign])
 
 - **Decided (user)**: "type guidance" — dropping qualifiers — is spelled as
@@ -3213,7 +3239,7 @@ unchanged.
 
 **Programs rewritten**: three std-less fixtures that loop over an array
 (`member_tests`, `place_tests`, `fn_effect_tests`) gained a `std/core/array.sv`
-with `ArrayNext`, an intrinsic `iter` and `next` — the call a `for` over an
+with `ArrayIter`, an intrinsic `iter` and `next` — the call a `for` over an
 array names, in the arrays' std home [op-unique-shape].
 `once_tests::a_next_without_a_next_obligation_is_not_a_pass` is
 `a_next_without_a_next_obligation_drives_the_loop`; both codegen suites'
@@ -3498,8 +3524,8 @@ and `Yield` → `Next` renames"), made first in B3 piece 3 so the operator and
   lookups by group name (`next_obligation`, `next_spread_pairs`,
   `learn_next_elems`, `next_elem_arg`, the "declares both `: Iter` and
   `: Next`" refusal). Its member stays `next`; `Iter<C, It, T>` stays.
-- **The iterator structs follow the group: `ListYield` → `ListNext`**, and
-  `ArrayNext`, `StrNext`, `BytesNext`, `DequeNext`, `SetNext`, `MapKeyNext`
+- **The iterator structs follow the group: `ListYield` → `ListIter`**, and
+  `ArrayIter`, `StrIter`, `BytesIter`, `DequeIter`, `SetIter`, `MapKeyIter`
   (and the tests' `BagNext`). They were named after the group on purpose (the
   2026-09-09 entry, "The pass structs are `*Yield`": "`Yield` names the
   obligation the struct declares, so the type and the group now read as one
@@ -3511,7 +3537,7 @@ and `Yield` → `Next` renames"), made first in B3 piece 3 so the operator and
 - **Labels kept** (stable ids): `[iter-yield-proj]` and `[yield-fn-origin]`; the
   `yield` statement of an `iter fn` is unchanged.
 - **Emitted code** changes only in names derived from the structs:
-  `ListNext`, `next__ListNext`, `__Codec_SetNext`, … in every example's
+  `ListIter`, `next__ListIter`, `__Codec_SetIter`, … in every example's
   `rust/` and `kotlin/` trees, `lib/platform`'s ABI mirrors and the codegen
   golden snapshots. Checked mechanically: each regenerated file equals its
   HEAD text with the two substitutions applied. `expected.txt` unchanged on
@@ -4288,19 +4314,19 @@ and ran on Kotlin, and rustc refused it (E0308).
   the mismatch is in the annotation; where the IR states none (a `for`
   loop's `next`, built by the IR builder with `type_args: []`, and a `?Next`
   adapter's forwarding call) rustc inferred `T = String` from the
-  annotation and refused the argument (`&mut ListNext<'_, &String>`).
+  annotation and refused the argument (`&mut ListIter<'_, &String>`).
 - **Fix** (`deref_scalar` and `call_subst_of` in
   `crates/salvo-backend-rust/src/ir_emit/body.rs`, [rs-proj-flat]): where a
   declared `proj T` over a variable meets an instantiation that is itself a
   (non-`ref`) borrow, the outer reference is copied out, as a Copy element
   already was: `get_platform(&vs, 0i32).copied()`,
   `(*first::<&String>(&vs))`, `last::<&String>(&vs).copied()`, and a `next`
-  arm by arm (`match next__ListNext(&mut __pass_6) { Union2::U1(__v) =>
+  arm by arm (`match next__ListIter(&mut __pass_6) { Union2::U1(__v) =>
   Union2::U1(*__v), Union2::U2(__v) => Union2::U2(__v) }`), in a `for` loop
   and inside every `?Next` adapter closure. The instantiation is the call's
   type arguments, or, when the IR states none, what the arguments' types
-  bind the callee's variables to (`Mut ListNext<T>` at `Mut
-  ListNext<proj Str>`: `T = proj Str`; a parameter's own qualifiers are
+  bind the callee's variables to (`Mut ListIter<T>` at `Mut
+  ListIter<proj Str>`: `T = proj Str`; a parameter's own qualifiers are
   not the variable's, so `proj T` at `proj Str` binds `T = Str`), as rustc
   infers it. The previous session's partial edit (the `flat` test in
   `deref_scalar`, effective only where type arguments were stated) was kept
@@ -4340,7 +4366,7 @@ rustc refused it (E0308, "expected `&mut dyn FnMut(&&String) -> bool`, found
 `&mut dyn FnMut(&String) -> bool`").
 
 - **Cause.** A `?Next` combinator over a list iterator retags its element
-  generic to a borrow [rs-proj-arm] (`filter::<ListNext<'_, String>,
+  generic to a borrow [rs-proj-arm] (`filter::<ListIter<'_, String>,
   &String>`), so its fn-typed slot is one reference deeper than the value's
   own type. A lambda in that slot peels the reference (`let s = *s;`) and a
   named fn's adapter closure does the same (`fn_value`), but a fn *value*
@@ -4704,7 +4730,7 @@ dropped and another could win (the near miss).
   and it wins by being the most specific; a same-signature fn beside it is
   ambiguous, as at a call. The worry recorded in ROADMAP §5 — "two same-named
   types have no distinguishing selector" — did not arise: types are keyed, so
-  a program's own `ListNext`'s `next` fits only its own type.
+  a program's own `ListIter`'s `next` fits only its own type.
 - **The cost**: with one candidate filled per level the width is 1 by
   construction. The pre-0t route to a doubled std (`salvo analyze --src
   lib/std` on a copy of the tree at `7e460b54^` with this change applied)
@@ -14476,7 +14502,7 @@ end, step)` and two `-> iter Int` overloads delegating to it (the `Range` struct
 is gone, and with it the [mod-export] note about exporting it); `core/list.sv`'s
 `reversed`, `indices`, `rev_indices`, `enumerate`, `enumerate_rev` are five `iter
 fn`s (the `ListRevYield`/`IdxYield`/`ListEnumYield` structs are gone). The
-container iterators downstream code names (`ListNext`, `SetNext`, …) stay
+container iterators downstream code names (`ListIter`, `SetIter`, …) stay
 structs deliberately — an unnameable iterator cannot be stored or wrapped.
 
 **What it took beyond the design**: `member_fn_ty` lends every kept parameter of
@@ -15309,7 +15335,7 @@ them.
   pass escapes the function says yes: the lend is **strictly more permissive**,
   every program that compiles without it compiles with it, and it additionally
   admits the lending candidate. std has both candidates —  `std.core.list`'s `iter`
-  lends (`ListNext.items: proj List<T>`), `std.core.set`'s snapshots — and a lent
+  lends (`ListIter.items: proj List<T>`), `std.core.set`'s snapshots — and a lent
   slot takes either.
 - **One shared lifetime is the correct design, not merely the simple one.** The
   opaque return's hidden lifetime has to *be* one of the parameters', and separate
@@ -15636,7 +15662,7 @@ parameter wanted `NE`.
   needed the same dedupe.
 - **Implicit resolution keeps the rung ladder**, deliberately: an implicit has no
   written call site to annotate, and two same-named types (a program's own
-  `ListNext` beside std's) have no distinguishing selector at all.
+  `ListIter` beside std's) have no distinguishing selector at all.
 - **A selector that changes nothing warns** [fn-overload-at] — noise in a
   disambiguation spelling reads as evidence that something is ambiguous. std had
   one (`remove_first@core.list`), now deleted.
@@ -17105,7 +17131,7 @@ opened with. Three pieces:
 Deliberately not done, recorded: the claimed respell of `enumerate`'s
 `Enumerated.index` field (a dependent claim on a *struct field* names a
 value the struct does not contain — the design's RT-2-beyond-v1 case) and
-a claimed `keys` pass for maps (`MapKeyNext` walks a key *snapshot*, not
+a claimed `keys` pass for maps (`MapKeyIter` walks a key *snapshot*, not
 the map, so its element cannot honestly name the map). Tests: three new
 `std.core.list` annex tests (39 std tests, both backends), iter-fn mangling
 moved again (`next__14` → `next__15`). Suite green.
@@ -17272,7 +17298,7 @@ green on both backends.
 **Refinement types, step 0 — `reversed`, `enumerate`, `enumerate_rev`
 (built 2026-09-23).** The plain iteration vocabulary from the decided
 sequence (ROADMAP.md "Refinement types — the build sequence"): three passes
-in `std.core.list`, the `Range`/`ListNext` shape, with `std.core.list`'s first test
+in `std.core.list`, the `Range`/`ListIter` shape, with `std.core.list`'s first test
 annex (`lib/std/core/list.test.sv`, 7 tests, both backends). [col-reversed]
 walks backwards emitting borrows (`: Next<self, proj T>`) — a pass, not
 Kotlin's copying `reversed()`. [col-enumerate] pairs elements with their
@@ -22445,7 +22471,7 @@ it, as on the host — see the bytes entry above.)
 
 * **`for k in map` was broken on both backends** — and *silently* on one,
   which is the class [backend-never-wrong] exists to prevent. Salvo iterates a
-  map's **keys** (`iter(map)` answers a `MapKeyNext`); Rust emitted
+  map's **keys** (`iter(map)` answers a `MapKeyIter`); Rust emitted
   `for k in map.clone()`, which does not compile (`SalvoMap` is no
   `IntoIterator`), while Kotlin compiled and iterated **entries**, binding
   `a=1` where the program asked for `a`. Both now ask for the keys
@@ -23608,7 +23634,7 @@ generic bindings show it (`map` over a container pass is a
 return holding `proj` with no inferable lend links the result to every
 kept argument, held. std: `copy<T>(value: proj T) -> T` (un-projects one
 level, keeps the rest — `copy` of a `proj Mut Str` is a `Mut Str`);
-`ArrayNext.items: proj (T[])`. **Rust emitter**: one rendering rule —
+`ArrayIter.items: proj (T[])`. **Rust emitter**: one rendering rule —
 `proj X` is `&X` at any depth, under the named lifetime when one is in
 scope (`'s` in borrowing structs and their `next`, `'a` on tied returns)
 — with one carve-out found by the e2e suite: `proj T` over a *bare
@@ -23731,7 +23757,7 @@ three questions were settled by the user: (1) **`proj Mut X` is legal but
 read-only** [proj-readonly] — `Mut X <: proj Mut X`, never the reverse, `copy`
 the way out — which is what refuses `take(s, 2)` on `s = get(ps, 0)!` while
 `take(p, 2)` on a constructed `p = iter(xs)` advances; a view is an **owned
-object holding borrows**, so `iter` returns a plain `Mut ListNext<T>`, no
+object holding borrows**, so `iter` returns a plain `Mut ListIter<T>`, no
 `proj` on the whole; (2) **which parameters a result holds borrows of is
 inferred** [proj-infer] (`lends.rs`: per field, through calls, locals, `!`,
 branches; conservative fallback to every kept parameter where there is no
@@ -24007,7 +24033,7 @@ iterators"; no language-design calls, all under decisions already made.
   identity.** `resolve_implicit_fn` now prefers the most specific scope rung
   among fitting candidates before declaring ambiguity — the same
   [fn-overload-scope] rule every named call walks — so a program declaring its
-  own `ListNext` plus `next` resolves the `?Next` spread to its own `next`
+  own `ListIter` plus `next` resolves the `?Next` spread to its own `next`
   instead of erroring. Consistent with the flat name-keyed scope (the user's
   struct declaration already wins the name in their file); true
   module-qualified nominal identity remains future resolver work.
@@ -24181,8 +24207,8 @@ correctly on Kotlin, and on Rust printed the first element of the first row for
 ever. Reduced to three lines with no iterators in sight:
 
 ```
-let p: Mut ListNext<Int>? = iter(list(1, 2))
-if p is Mut ListNext<Int> { show(next(p)); show(next(p)) }   // Rust: 1, 1
+let p: Mut ListIter<Int>? = iter(list(1, 2))
+if p is Mut ListIter<Int> { show(next(p)); show(next(p)) }   // Rust: 1, 1
 ```
 
 **Root cause.** `narrow_unwrap` reads a narrowed value *out of* its declared
@@ -24202,7 +24228,7 @@ is a `&mut` into the storage; `emit_place_mut`/`place_storage_mut` render a
 *chain* mutably, so no link becomes a temporary. Both mutable sites now go
 through it — an argument in a `&mut` position, and the **base** of an
 assignment target, which had the same fault with a louder symptom (`r.at = 2` on
-a narrowed `Mut ListNext<Int>?` reached for a field of the `Option`: E0609).
+a narrowed `Mut ListIter<Int>?` reached for a field of the `Option`: E0609).
 The outermost node of an assignment target deliberately keeps the read rule,
 since assigning to a narrowed *variable* writes its storage.
 
@@ -24489,7 +24515,7 @@ work, and it lifts the same cut for hand-written passes. A *generic* `next` with
 effects is still refused (its effects live on a fn value the caller supplied).
 
 **What it cost, and what it did not.** Two new keywords (`pass`, `state`), which
-took std's `next(pass: Mut ListNext<T>)` parameters to `p`; a leading-underscore
+took std's `next(pass: Mut ListIter<T>)` parameters to `p`; a leading-underscore
 type reference is now a parse error, which is what keeps the generated pass
 unnameable; and no new machinery in the checker or either emitter beyond the mint
 call and the handler threading. Verified with one program on both backends to
@@ -27840,8 +27866,8 @@ Rust output is wrong rather than absent, which is what makes this the one
 [backend-never-wrong] violation the compiler has shipped:
 
 ```
-let p: Mut ListNext<Int>? = iter(list(1, 2))
-if p is Mut ListNext<Int> {
+let p: Mut ListIter<Int>? = iter(list(1, 2))
+if p is Mut ListIter<Int> {
     show(next(p))      // Rust: got 1     Kotlin: got 1
     show(next(p))      // Rust: got 1     Kotlin: got 2
     show(next(p))      // Rust: got 1     Kotlin: end
@@ -29760,7 +29786,7 @@ the same programs to the same stdout. `iter` hands back a pass, std's
 combinators take one, and the `Iter<T>` world is deleted. The plan below was
 followed in its six steps; what it did not predict is recorded here.
 
-**std as built.** `ListNext<T>`/`ArrayNext<T>`/`StrNext` are ordinary structs
+**std as built.** `ListIter<T>`/`ArrayIter<T>`/`StrIter` are ordinary structs
 (`items`/`text` plus `at`) declaring `: Next<self, T> canbe Mut`, each with a
 Salvo `next` — the `is None` guard shape [is-narrow-guard] is what made them
 writable in Salvo at all. `iter` returns `Mut <C>Pass<T>` with `=> !…`
@@ -29848,7 +29874,7 @@ drive `it: Mut It` through a `?Next<It, T>` spread — with `while` + `next` +
   edit — a `@Suppress("UNCHECKED_CAST")` on the emitted function is the fix,
   and it is the first thing to do in a polish pass.
 - **A user type named like one of std's passes collides**: implicit resolution
-  matches by name, so a program declaring its own `ListNext` plus `next` makes
+  matches by name, so a program declaring its own `ListIter` plus `next` makes
   the `next` ambiguous. Nominal types are not module-qualified in that match;
   worth fixing when someone hits it (the demos were renamed instead).
 
@@ -29873,7 +29899,7 @@ drives `next` everywhere else) and must take its state as **`Mut It`** (the same
 diagnostic a declared `next` gets). Without a spread the subject reports the
 ordinary not-iterable error — a bare type parameter says nothing.
 
-**The parity defect the work turned up.** `fn take_two(p: Mut ListNext<Int>) ->
+**The parity defect the work turned up.** `fn take_two(p: Mut ListIter<Int>) ->
 [p: Mut] Int` driving `p` with `for`, called twice, printed `first 3 rest 3` on
 Rust and `first 3 rest 7` on Kotlin: Rust bound the subject into a local, which
 for a kept parameter is a *clone* of the `&mut`, so the caller's pass never
@@ -29928,7 +29954,7 @@ record.
 
 ##### R5 part 2 probe (2026-09-08): what the flip needs, from a real program
 
-Two throwaway programs (a `ListNext<T>` container pass plus a generic
+Two throwaway programs (a `ListIter<T>` container pass plus a generic
 combinator; and a narrowing probe) were run through `analyze` before touching
 std, and they turn the sequencing question into five facts:
 
@@ -29937,7 +29963,7 @@ std, and they turn the sequencing question into five facts:
    implicit resolver fills each implicit against the *declared* signature, so
    `P` is still unbound when it reaches `?Next<P, Int>`: `no next fits ?next:
    (Mut ?) -> Emitted Int | Finished`, while the `next` in scope is
-   `(Mut ListNext<Int>) -> …`. Filling `?iter` first and **feeding the chosen
+   `(Mut ListIter<Int>) -> …`. Filling `?iter` first and **feeding the chosen
    overload's return type back into the substitution** before resolving the
    next implicit is the missing step — a targeted change in `resolve_implicits`,
    and the enabling work R5 part 2 rests on. (Where a type parameter is bound by
@@ -29953,9 +29979,9 @@ std, and they turn the sequencing question into five facts:
    `close`) remains optional: it needs `pass_elem_ty` to accept a `Ty::Var`
    whose `next` is a fn-typed *parameter*, and a `PassDriver` that can name one.
 3. **A generic struct literal needs its type arguments written**
-   (`Mut ListNext<T> { … }`) — R0 finding 5, met again immediately.
+   (`Mut ListIter<T> { … }`) — R0 finding 5, met again immediately.
 4. **A pass that stores its source consumes it**: `fn iter<T>(items: List<T>)
-   -> Mut ListNext<T> => items` is refused ("deduction promises `items` back to
+   -> Mut ListIter<T> => items` is refused ("deduction promises `items` back to
    the caller, but the body moves it"), so std's `iter` will be `=> !…`. Worth
    knowing before the rewrite: iterating a list *consumes* the list unless the
    pass borrows, which is drive-in-place (R5's own open question) territory.
@@ -29991,7 +30017,7 @@ things this settles at once:
   `Mut It` with `[it: Mut]`, since advancing it is a mutation.
 
 **Validated end to end on both backends before touching std** (2026-09-09): a
-`ListNext<T>` with a hand-written `next`, a `map2` over the `?Next` spread
+`ListIter<T>` with a hand-written `next`, a `map2` over the `?Next` spread
 driving with `while` + `next` + `when`, `map2(iter2(xs), double)` printing
 `d 2 / d 4 / d 6` under rustc and kotlinc. Doing that first was worth it — the
 surface works, but **nothing had ever exercised a spread member that mutates
@@ -39729,7 +39755,7 @@ snapshot diffs.
   closure, are built with `type_args: []`; an emitter decision that reads
   the instantiation from the type arguments alone silently does nothing
   there, and rustc then infers the variable from the result's annotation,
-  so the error points at the *argument* (`expected &mut ListNext<'_,
+  so the error points at the *argument* (`expected &mut ListIter<'_,
   String>`), not at the result that is really one reference too deep. Read
   the instantiation off the arguments' types (`call_subst_of`) when none is
   stated.

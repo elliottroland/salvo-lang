@@ -214,9 +214,9 @@ fun<T> subList(list: List<T>, from: Int, to: Int, copy: (T) -> T): salvo.platfor
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> findFirst(list: List<T>, pick: (T) -> Boolean): Int? {
-    val __pass_1: salvo.std.core.index.Indices<T> = salvo.std.core.index.indices(list)
+    val __pass_1: salvo.std.core.index.IndicesIter<T> = salvo.std.core.index.indices(list)
     while (true) {
-        val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.std.core.index.next__Indices(__pass_1)
+        val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.std.core.index.next(__pass_1)
         when {
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: Int = ((__step_2 as Union2.U1<*, *>).value as Int)
@@ -235,9 +235,9 @@ fun<T> findFirst(list: List<T>, pick: (T) -> Boolean): Int? {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> findLast(list: List<T>, pick: (T) -> Boolean): Int? {
-    val __pass_1: salvo.std.core.index.RevIndices<T> = salvo.std.core.index.revIndices(list)
+    val __pass_1: salvo.std.core.index.IndicesIter<T> = salvo.std.core.index.revIndices(list)
     while (true) {
-        val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.std.core.index.next__RevIndices(__pass_1)
+        val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.std.core.index.next(__pass_1)
         when {
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: Int = ((__step_2 as Union2.U1<*, *>).value as Int)
@@ -256,9 +256,9 @@ fun<T> findLast(list: List<T>, pick: (T) -> Boolean): Int? {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> indexOf(list: List<T>, elem: T, eq: (T, T) -> Boolean): Int? {
-    val __pass_1: salvo.std.core.index.Indices<T> = salvo.std.core.index.indices(list)
+    val __pass_1: salvo.std.core.index.IndicesIter<T> = salvo.std.core.index.indices(list)
     while (true) {
-        val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.std.core.index.next__Indices(__pass_1)
+        val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.std.core.index.next(__pass_1)
         when {
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: Int = ((__step_2 as Union2.U1<*, *>).value as Int)
@@ -277,9 +277,9 @@ fun<T> indexOf(list: List<T>, elem: T, eq: (T, T) -> Boolean): Int? {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> lastIndexOf(list: List<T>, elem: T, eq: (T, T) -> Boolean): Int? {
-    val __pass_1: salvo.std.core.index.RevIndices<T> = salvo.std.core.index.revIndices(list)
+    val __pass_1: salvo.std.core.index.IndicesIter<T> = salvo.std.core.index.revIndices(list)
     while (true) {
-        val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.std.core.index.next__RevIndices(__pass_1)
+        val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.std.core.index.next(__pass_1)
         when {
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: Int = ((__step_2 as Union2.U1<*, *>).value as Int)
@@ -419,16 +419,16 @@ fun<T> reverse(list: salvo.platform.std.core.list.MutList<T>) {
     }
 }
 
-fun<T> iter(list: List<T>): ListNext<T> {
-    return ListNext<T>(items = list, at = 0)
+fun<T> iter(list: List<T>): ListIter<T> {
+    return ListIter<T>(items = list, at = 0)
 }
 
-data class ListNext<T>(
+data class ListIter<T>(
     var items: List<T>,
     var at: Int,
 )
 
-fun<T> next__ListNext(p: ListNext<T>): Union2<T, salvo.std.core.iterator.Finished> {
+fun<T> next__ListIter(p: ListIter<T>): Union2<T, salvo.std.core.iterator.Finished> {
     val elem: T? = salvo.std.core.list.getPlatform(p.items, p.at)
     if ((elem == null)) {
         return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
@@ -438,21 +438,21 @@ fun<T> next__ListNext(p: ListNext<T>): Union2<T, salvo.std.core.iterator.Finishe
     return Union2.U1<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(elem_1))
 }
 
-data class ListReversed<T>(
-    var list: List<T>,
+fun<T> reversed(list: List<T>): ListReversedIter<T> {
+    return ListReversedIter<T>(items = list, at = (salvo.std.core.list.sizePlatform(list) - 1))
+}
+
+data class ListReversedIter<T>(
+    var items: List<T>,
     var at: Int,
 )
 
-fun<T> reversed(list: List<T>): ListReversed<T> {
-    return ListReversed<T>(list = list, at = (salvo.std.core.list.sizePlatform(list) - 1))
-}
-
-fun<T> next__ListReversed(__p: ListReversed<T>): Union2<T, salvo.std.core.iterator.Finished> {
-    val elem: T? = salvo.std.core.list.getPlatform(__p.list, __p.at)
+fun<T> next__ListReversedIter(p: ListReversedIter<T>): Union2<T, salvo.std.core.iterator.Finished> {
+    val elem: T? = salvo.std.core.list.getPlatform(p.items, p.at)
     if ((elem == null)) {
         return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
     }
-    __p.at = (__p.at - 1)
+    p.at = (p.at - 1)
     val elem_1: T = elem!!
     return Union2.U1<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(elem_1))
 }
@@ -462,42 +462,27 @@ data class Enumerated<T>(
     val elem: T,
 )
 
-data class ListEnumerate<T>(
-    var list: List<T>,
-    var at: Int,
-)
-
-fun<T> enumerate(list: List<T>): ListEnumerate<T> {
-    return ListEnumerate<T>(list = list, at = 0)
+fun<T> enumerate(list: List<T>): ListEnumerateIter<T> {
+    return ListEnumerateIter<T>(items = list, at = 0, step = 1)
 }
 
-fun<T> next__ListEnumerate(__p: ListEnumerate<T>): Union2<Enumerated<T>, salvo.std.core.iterator.Finished> {
-    val elem: T? = salvo.std.core.list.getPlatform(__p.list, __p.at)
+fun<T> enumerateRev(list: List<T>): ListEnumerateIter<T> {
+    return ListEnumerateIter<T>(items = list, at = (salvo.std.core.list.sizePlatform(list) - 1), step = (-1))
+}
+
+data class ListEnumerateIter<T>(
+    var items: List<T>,
+    var at: Int,
+    var step: Int,
+)
+
+fun<T> next__ListEnumerateIter(p: ListEnumerateIter<T>): Union2<Enumerated<T>, salvo.std.core.iterator.Finished> {
+    val elem: T? = salvo.std.core.list.getPlatform(p.items, p.at)
     if ((elem == null)) {
         return Union2.U2<Enumerated<T>, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
     }
-    val index: Int = __p.at
-    __p.at = (__p.at + 1)
-    val elem_1: T = elem!!
-    return Union2.U1<Enumerated<T>, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(Enumerated<T>(index = index, elem = elem_1)))
-}
-
-data class ListEnumerateRev<T>(
-    var list: List<T>,
-    var at: Int,
-)
-
-fun<T> enumerateRev(list: List<T>): ListEnumerateRev<T> {
-    return ListEnumerateRev<T>(list = list, at = (salvo.std.core.list.sizePlatform(list) - 1))
-}
-
-fun<T> next__ListEnumerateRev(__p: ListEnumerateRev<T>): Union2<Enumerated<T>, salvo.std.core.iterator.Finished> {
-    val elem: T? = salvo.std.core.list.getPlatform(__p.list, __p.at)
-    if ((elem == null)) {
-        return Union2.U2<Enumerated<T>, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
-    }
-    val index: Int = __p.at
-    __p.at = (__p.at - 1)
+    val index: Int = p.at
+    p.at = (p.at + p.step)
     val elem_1: T = elem!!
     return Union2.U1<Enumerated<T>, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(Enumerated<T>(index = index, elem = elem_1)))
 }
@@ -558,9 +543,9 @@ fun<T> eq(a: List<T>, b: List<T>, eq: (T, T) -> Boolean): Boolean {
     if ((salvo.std.core.list.sizePlatform(a) != salvo.std.core.list.sizePlatform(b))) {
         return false
     }
-    val __pass_1: ListEnumerate<T> = salvo.std.core.list.enumerate(a)
+    val __pass_1: ListEnumerateIter<T> = salvo.std.core.list.enumerate(a)
     while (true) {
-        val __step_2: Union2<Enumerated<T>, salvo.std.core.iterator.Finished> = salvo.std.core.list.next__ListEnumerate(__pass_1)
+        val __step_2: Union2<Enumerated<T>, salvo.std.core.iterator.Finished> = salvo.std.core.list.next__ListEnumerateIter(__pass_1)
         when {
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: Enumerated<T> = ((__step_2 as Union2.U1<*, *>).value as Enumerated<T>)
@@ -582,9 +567,9 @@ fun<T> eq(a: List<T>, b: List<T>, eq: (T, T) -> Boolean): Boolean {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<T> cmp(a: List<T>, b: List<T>, cmp: (T, T) -> Int): Int {
-    val __pass_1: ListEnumerate<T> = salvo.std.core.list.enumerate(a)
+    val __pass_1: ListEnumerateIter<T> = salvo.std.core.list.enumerate(a)
     while (true) {
-        val __step_2: Union2<Enumerated<T>, salvo.std.core.iterator.Finished> = salvo.std.core.list.next__ListEnumerate(__pass_1)
+        val __step_2: Union2<Enumerated<T>, salvo.std.core.iterator.Finished> = salvo.std.core.list.next__ListEnumerateIter(__pass_1)
         when {
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: Enumerated<T> = ((__step_2 as Union2.U1<*, *>).value as Enumerated<T>)

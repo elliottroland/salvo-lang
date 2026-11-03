@@ -22,9 +22,9 @@ use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
 /// [iter-for] [iter-for-native] What a `for` over an array calls, in the
 /// arrays' std home [op-unique-shape]: `for x in xs` is `next(iter(xs))`, which
 /// the backends walk natively when these are the calls.
-const STD_ARRAY: &str = "export struct ArrayNext<T> canbe Mut {\n    at: Int\n}\n\
-     export intrinsic fn iter<T>(array: T[]) [] -> Mut ArrayNext<T> => array\n\
-     export intrinsic fn next<T>(p: Mut ArrayNext<T>) [] -> Emitted T | Finished => p: Mut\n";
+const STD_ARRAY: &str = "export struct ArrayIter<T> canbe Mut {\n    at: Int\n}\n\
+     export intrinsic fn iter<T>(array: T[]) [] -> Mut ArrayIter<T> => array\n\
+     export intrinsic fn next<T>(p: Mut ArrayIter<T>) [] -> Emitted T | Finished => p: Mut\n";
 
 const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\

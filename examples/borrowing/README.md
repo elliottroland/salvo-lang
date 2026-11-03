@@ -187,7 +187,7 @@ Rust refuses is *using* either result alongside the container, which is §2.
   type. Nothing else in the file does: the deduction analysis decided moves and
   borrows without needing to name a lifetime.
 - **`filter` builds a list of borrows.** Its instantiation is literal about it:
-  `filter::<ListNext<Fighter>, &Fighter>(&mut pass, …)` — the element type
+  `filter::<ListIter<Fighter>, &Fighter>(&mut pass, …)` — the element type
   *is* `&Fighter`, so no element was copied to build the result.
 - **The surviving field handle disappeared.** `let banners = camp.banners` has
   no binding in the Rust at all: its one use reads `camp.banners` where it

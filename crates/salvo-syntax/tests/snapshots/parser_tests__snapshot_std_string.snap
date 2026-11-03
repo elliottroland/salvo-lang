@@ -87,7 +87,7 @@ Module {
                                     qualifiers: [],
                                     base: TypeRef {
                                         name: Ident {
-                                            name: "StrNext",
+                                            name: "StrIter",
                                             span: 1004..1011,
                                         },
                                         args: [],
@@ -875,7 +875,7 @@ Module {
                         ],
                         base: TypeRef {
                             name: Ident {
-                                name: "StrNext",
+                                name: "StrIter",
                                 span: 2382..2389,
                             },
                             args: [],
@@ -918,7 +918,7 @@ Module {
                                                     ],
                                                     base: TypeRef {
                                                         name: Ident {
-                                                            name: "StrNext",
+                                                            name: "StrIter",
                                                             span: 2414..2421,
                                                         },
                                                         args: [],
@@ -986,7 +986,7 @@ Module {
                 annotations: [],
                 exported: true,
                 name: Ident {
-                    name: "StrNext",
+                    name: "StrIter",
                     span: 2634..2641,
                 },
                 generics: [],
@@ -1201,7 +1201,7 @@ Module {
                             ],
                             base: TypeRef {
                                 name: Ident {
-                                    name: "StrNext",
+                                    name: "StrIter",
                                     span: 2905..2912,
                                 },
                                 args: [],

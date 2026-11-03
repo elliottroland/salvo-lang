@@ -42,7 +42,7 @@ fn main() [use] -> None {
     println("kept ${kept.size()}")
     // [rs-implicit-turbofish] The instantiation is spelled out, or the adapter
     // closures have nothing to infer their parameter types from.
-    //~ emits(main.rs): crate::std_core_seq::map_to::<Vec<i32>, crate::std_core_list::ListNext<'_, i32>, i32, i32>(
+    //~ emits(main.rs): crate::std_core_seq::map_to::<Vec<i32>, crate::std_core_list::ListIter<'_, i32>, i32, i32>(
     let out = map_to(Mut List<Int>(), iter(copy(xs)), double)
     println("sink ${out.size()}")
     let chained = filter_to(map_to(Mut List<Int>(), iter(copy(xs)), double), iter(xs), is_even)

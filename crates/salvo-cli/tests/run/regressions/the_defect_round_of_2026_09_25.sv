@@ -561,7 +561,7 @@ fn next(s: Mut Steps) [] -> Emitted Int | Finished => s: Mut {
 
 rename fn advance = next(s: Mut Steps)
 
-fn iter(s: Steps) [] -> Mut ListNext<Int> => s {
+fn iter(s: Steps) [] -> Mut ListIter<Int> => s {
     return iter(s.items)
 }
 
@@ -637,7 +637,7 @@ fn next(b: Mut Both) [] -> Emitted Int | Finished => b: Mut {
     return emitted(b.n)
 }
 
-fn iter(b: Both) [] -> Mut ListNext<Int> => b {
+fn iter(b: Both) [] -> Mut ListIter<Int> => b {
     return iter(b.items)
 }
 

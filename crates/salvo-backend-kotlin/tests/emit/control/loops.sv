@@ -7,8 +7,8 @@
 // `break value`, loop `else` in value and statement position, bare `break`
 // (optional value), and a union-typed loop value re-wrapped to the declared
 // type [loop-while-value].
-// Its own pass, named `Upto` rather than `Range`: `std.core.range` exports a
-// `Range` of its own [mod-export], and two same-named structs in two modules
+// Its own pass, named `Upto` rather than `RangeIter`: `std.core.range` exports a
+// `RangeIter` of its own [mod-export], and two same-named structs in two modules
 // confuse the pass-driving resolution (an open defect — ROADMAP.md).
 struct Upto {
     start: Int,

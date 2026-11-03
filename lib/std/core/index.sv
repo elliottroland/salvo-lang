@@ -49,21 +49,34 @@ export qualifier Idx<C canbe linear>(c: C) of Int {
 // The `+Idx` is an establishment in a return-type arm, trusted
 // in the file that declares `Idx` and only there — which is why the indices
 // live here rather than in `std.core.list`; the bounds test above the emit is the
-// proof the trust rests on. The claim names the parameter; in
-// the generated struct's obligation it names the struct's own borrowed field,
-// and a `for` binds it to the *source* list's identity, so the claim reads
-// `Idx(xs)` in the loop body.
+// proof the trust rests on. The claim names the iterator's borrowed field
+// (`Idx(p.list)`), and a `for` binds it to the *source* list's identity, so
+// the claim reads `Idx(xs)` in the loop body.
 // @compilerrules [col-idx, proj-field, proj-infer, qual-depend, deduce-reapply]
-export iter fn indices<T>(list: List<T>) -> Emitted (+Idx(list) Int) | Finished {
-    state Indices {
-        // The index the next turn emits.
-        at: Int = 0
-    }
-    if at >= size(list) {
+export fn indices<T>(list: List<T>) [] -> Mut IndicesIter<T> => list {
+    return Mut IndicesIter<T> { list: list, at: 0, step: 1 }
+}
+
+// The iterator [indices] and [rev_indices] mint: the list, borrowed, the
+// index the next turn emits, and the direction.
+export struct IndicesIter<T> : Next<self, Idx(self.list) Int> canbe Mut {
+    // The list whose indices are emitted, borrowed.
+    // @compilerrules [proj-field, proj-infer]
+    list: proj List<T>,
+    // The index the next turn emits.
+    at: Int,
+    // `1` front to back, `-1` back to front.
+    step: Int
+}
+
+// Advances: the next index, proven in range, or the end.
+// @compilerrules [col-idx, deduce-reapply]
+export fn next<T>(p: Mut IndicesIter<T>) [] -> Emitted (+Idx(p.list) Int) | Finished => p: Mut {
+    if p.at < 0 || p.at >= size(p.list) {
         return finished()
     }
-    let index = at.copy()
-    at = at + 1
+    let index = p.at.copy()
+    p.at = p.at + p.step
     return emitted(index)
 }
 
@@ -71,14 +84,6 @@ export iter fn indices<T>(list: List<T>) -> Emitted (+Idx(list) Int) | Finished 
 // **the founding example of the refinement-types design**: the descending
 // loop whose body needs no `!`.
 // @compilerrules [col-idx]
-export iter fn rev_indices<T>(list: List<T>) -> Emitted (+Idx(list) Int) | Finished {
-    state RevIndices {
-        at: Int = size(list) - 1
-    }
-    if at < 0 {
-        return finished()
-    }
-    let index = at.copy()
-    at = at - 1
-    return emitted(index)
+export fn rev_indices<T>(list: List<T>) [] -> Mut IndicesIter<T> => list {
+    return Mut IndicesIter<T> { list: list, at: size(list) - 1, step: -1 }
 }

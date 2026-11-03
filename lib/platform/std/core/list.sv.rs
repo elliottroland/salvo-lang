@@ -5,17 +5,15 @@
 use crate::std_core_checked::Checked;
 use crate::std_core_iterator::Finished;
 use crate::std_core_index::Idx__Int_qualifies;
-use crate::std_core_index::Indices;
+use crate::std_core_index::IndicesIter;
 use crate::std_core_string::Mut_Str;
-use crate::std_core_index::RevIndices;
 use crate::std_core_string::append_platform;
 use crate::std_core_checked::checked;
 use crate::std_core_iterator::emitted;
 use crate::std_core_iterator::finished;
 use crate::std_core_checked::ignore;
 use crate::std_core_index::indices;
-use crate::std_core_index::next__Indices;
-use crate::std_core_index::next__RevIndices;
+use crate::std_core_index::next;
 use crate::std_core_index::rev_indices;
 
 
@@ -247,9 +245,9 @@ pub fn sub_list<T: Clone>(list: &Vec<T>, mut from: i32, mut to: i32, copy: &mut 
 }
 
 pub fn find_first<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> Option<i32> {
-    let mut __pass_1: crate::std_core_index::Indices<'_, T> = crate::std_core_index::indices::<T>(list);
+    let mut __pass_1: crate::std_core_index::IndicesIter<'_, T> = crate::std_core_index::indices::<T>(list);
     loop {
-        let mut __step_2: crate::unions::Union2<i32, crate::std_core_iterator::Finished> = crate::std_core_index::next__Indices(&mut __pass_1);
+        let mut __step_2: crate::unions::Union2<i32, crate::std_core_iterator::Finished> = crate::std_core_index::next(&mut __pass_1);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
             let mut i: i32 = __emitted_3;
@@ -264,9 +262,9 @@ pub fn find_first<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> 
 }
 
 pub fn find_last<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> Option<i32> {
-    let mut __pass_1: crate::std_core_index::RevIndices<'_, T> = crate::std_core_index::rev_indices::<T>(list);
+    let mut __pass_1: crate::std_core_index::IndicesIter<'_, T> = crate::std_core_index::rev_indices::<T>(list);
     loop {
-        let mut __step_2: crate::unions::Union2<i32, crate::std_core_iterator::Finished> = crate::std_core_index::next__RevIndices(&mut __pass_1);
+        let mut __step_2: crate::unions::Union2<i32, crate::std_core_iterator::Finished> = crate::std_core_index::next(&mut __pass_1);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
             let mut i: i32 = __emitted_3;
@@ -281,9 +279,9 @@ pub fn find_last<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> O
 }
 
 pub fn index_of<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> Option<i32> {
-    let mut __pass_1: crate::std_core_index::Indices<'_, T> = crate::std_core_index::indices::<T>(list);
+    let mut __pass_1: crate::std_core_index::IndicesIter<'_, T> = crate::std_core_index::indices::<T>(list);
     loop {
-        let mut __step_2: crate::unions::Union2<i32, crate::std_core_iterator::Finished> = crate::std_core_index::next__Indices(&mut __pass_1);
+        let mut __step_2: crate::unions::Union2<i32, crate::std_core_iterator::Finished> = crate::std_core_index::next(&mut __pass_1);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
             let mut i: i32 = __emitted_3;
@@ -298,9 +296,9 @@ pub fn index_of<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) ->
 }
 
 pub fn last_index_of<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) -> bool) -> Option<i32> {
-    let mut __pass_1: crate::std_core_index::RevIndices<'_, T> = crate::std_core_index::rev_indices::<T>(list);
+    let mut __pass_1: crate::std_core_index::IndicesIter<'_, T> = crate::std_core_index::rev_indices::<T>(list);
     loop {
-        let mut __step_2: crate::unions::Union2<i32, crate::std_core_iterator::Finished> = crate::std_core_index::next__RevIndices(&mut __pass_1);
+        let mut __step_2: crate::unions::Union2<i32, crate::std_core_iterator::Finished> = crate::std_core_index::next(&mut __pass_1);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
             let mut i: i32 = __emitted_3;
@@ -425,17 +423,17 @@ pub fn reverse<T>(list: &mut Vec<T>) {
     }
 }
 
-pub fn iter<T: Clone>(list: &Vec<T>) -> crate::std_core_list::ListNext<'_, T> {
-    return crate::std_core_list::ListNext { items: list, at: 0i32 };
+pub fn iter<T: Clone>(list: &Vec<T>) -> crate::std_core_list::ListIter<'_, T> {
+    return crate::std_core_list::ListIter { items: list, at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ListNext<'s, T> {
+pub struct ListIter<'s, T> {
     pub items: &'s Vec<T>,
     pub at: i32,
 }
 
-pub fn next__ListNext<'a, T: Clone>(p: &mut crate::std_core_list::ListNext<'a, T>) -> crate::unions::Union2<&'a T, crate::std_core_iterator::Finished> {
+pub fn next__ListIter<'a, T: Clone>(p: &mut crate::std_core_list::ListIter<'a, T>) -> crate::unions::Union2<&'a T, crate::std_core_iterator::Finished> {
     let mut elem: Option<&T> = crate::std_core_list::get_platform::<T>(p.items, p.at);
     if elem.is_none() {
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());
@@ -445,22 +443,22 @@ pub fn next__ListNext<'a, T: Clone>(p: &mut crate::std_core_list::ListNext<'a, T
     return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<&T>(elem_1));
 }
 
+pub fn reversed<T: Clone>(list: &Vec<T>) -> crate::std_core_list::ListReversedIter<'_, T> {
+    return crate::std_core_list::ListReversedIter { items: list, at: i32::wrapping_sub(crate::std_core_list::size_platform::<T>(list), 1i32) };
+}
+
 #[derive(Clone, Debug, PartialEq)]
-pub struct ListReversed<'s, T> {
-    pub list: &'s Vec<T>,
+pub struct ListReversedIter<'s, T> {
+    pub items: &'s Vec<T>,
     pub at: i32,
 }
 
-pub fn reversed<T: Clone>(list: &Vec<T>) -> crate::std_core_list::ListReversed<'_, T> {
-    return crate::std_core_list::ListReversed { list: list, at: i32::wrapping_sub(crate::std_core_list::size_platform::<T>(list), 1i32) };
-}
-
-pub fn next__ListReversed<'a, T: Clone>(__p: &mut crate::std_core_list::ListReversed<'a, T>) -> crate::unions::Union2<&'a T, crate::std_core_iterator::Finished> {
-    let mut elem: Option<&T> = crate::std_core_list::get_platform::<T>(__p.list, __p.at);
+pub fn next__ListReversedIter<'a, T: Clone>(p: &mut crate::std_core_list::ListReversedIter<'a, T>) -> crate::unions::Union2<&'a T, crate::std_core_iterator::Finished> {
+    let mut elem: Option<&T> = crate::std_core_list::get_platform::<T>(p.items, p.at);
     if elem.is_none() {
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());
     };
-    __p.at = i32::wrapping_sub(__p.at, 1i32);
+    p.at = i32::wrapping_sub(p.at, 1i32);
     let mut elem_1 = elem.unwrap();
     return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<&T>(elem_1));
 }
@@ -471,44 +469,28 @@ pub struct Enumerated<'s, T> {
     pub elem: &'s T,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct ListEnumerate<'s, T> {
-    pub list: &'s Vec<T>,
-    pub at: i32,
+pub fn enumerate<T: Clone>(list: &Vec<T>) -> crate::std_core_list::ListEnumerateIter<'_, T> {
+    return crate::std_core_list::ListEnumerateIter { items: list, at: 0i32, step: 1i32 };
 }
 
-pub fn enumerate<T: Clone>(list: &Vec<T>) -> crate::std_core_list::ListEnumerate<'_, T> {
-    return crate::std_core_list::ListEnumerate { list: list, at: 0i32 };
-}
-
-pub fn next__ListEnumerate<'a, T: Clone>(__p: &mut crate::std_core_list::ListEnumerate<'a, T>) -> crate::unions::Union2<crate::std_core_list::Enumerated<'a, T>, crate::std_core_iterator::Finished> {
-    let mut elem: Option<&T> = crate::std_core_list::get_platform::<T>(__p.list, __p.at);
-    if elem.is_none() {
-        return crate::unions::Union2::U2(crate::std_core_iterator::finished());
-    };
-    let mut index: i32 = __p.at;
-    __p.at = i32::wrapping_add(__p.at, 1i32);
-    let mut elem_1 = elem.unwrap();
-    return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<crate::std_core_list::Enumerated<'_, T>>(crate::std_core_list::Enumerated { index: index, elem: elem_1 }));
+pub fn enumerate_rev<T: Clone>(list: &Vec<T>) -> crate::std_core_list::ListEnumerateIter<'_, T> {
+    return crate::std_core_list::ListEnumerateIter { items: list, at: i32::wrapping_sub(crate::std_core_list::size_platform::<T>(list), 1i32), step: i32::wrapping_neg(1i32) };
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ListEnumerateRev<'s, T> {
-    pub list: &'s Vec<T>,
+pub struct ListEnumerateIter<'s, T> {
+    pub items: &'s Vec<T>,
     pub at: i32,
+    pub step: i32,
 }
 
-pub fn enumerate_rev<T: Clone>(list: &Vec<T>) -> crate::std_core_list::ListEnumerateRev<'_, T> {
-    return crate::std_core_list::ListEnumerateRev { list: list, at: i32::wrapping_sub(crate::std_core_list::size_platform::<T>(list), 1i32) };
-}
-
-pub fn next__ListEnumerateRev<'a, T: Clone>(__p: &mut crate::std_core_list::ListEnumerateRev<'a, T>) -> crate::unions::Union2<crate::std_core_list::Enumerated<'a, T>, crate::std_core_iterator::Finished> {
-    let mut elem: Option<&T> = crate::std_core_list::get_platform::<T>(__p.list, __p.at);
+pub fn next__ListEnumerateIter<'a, T: Clone>(p: &mut crate::std_core_list::ListEnumerateIter<'a, T>) -> crate::unions::Union2<crate::std_core_list::Enumerated<'a, T>, crate::std_core_iterator::Finished> {
+    let mut elem: Option<&T> = crate::std_core_list::get_platform::<T>(p.items, p.at);
     if elem.is_none() {
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());
     };
-    let mut index: i32 = __p.at;
-    __p.at = i32::wrapping_sub(__p.at, 1i32);
+    let mut index: i32 = p.at;
+    p.at = i32::wrapping_add(p.at, p.step);
     let mut elem_1 = elem.unwrap();
     return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<crate::std_core_list::Enumerated<'_, T>>(crate::std_core_list::Enumerated { index: index, elem: elem_1 }));
 }
@@ -574,9 +556,9 @@ pub fn eq<T: Clone>(a: &Vec<T>, b: &Vec<T>, eq: &mut dyn FnMut(&T, &T) -> bool) 
     if (crate::std_core_list::size_platform::<T>(a) != crate::std_core_list::size_platform::<T>(b)) {
         return false;
     };
-    let mut __pass_1: crate::std_core_list::ListEnumerate<'_, T> = crate::std_core_list::enumerate::<T>(a);
+    let mut __pass_1: crate::std_core_list::ListEnumerateIter<'_, T> = crate::std_core_list::enumerate::<T>(a);
     loop {
-        let mut __step_2: crate::unions::Union2<crate::std_core_list::Enumerated<'_, T>, crate::std_core_iterator::Finished> = crate::std_core_list::next__ListEnumerate(&mut __pass_1);
+        let mut __step_2: crate::unions::Union2<crate::std_core_list::Enumerated<'_, T>, crate::std_core_iterator::Finished> = crate::std_core_list::next__ListEnumerateIter(&mut __pass_1);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             let mut p: crate::std_core_list::Enumerated<'_, T> = __emitted_3;
@@ -594,9 +576,9 @@ pub fn eq<T: Clone>(a: &Vec<T>, b: &Vec<T>, eq: &mut dyn FnMut(&T, &T) -> bool) 
 }
 
 pub fn cmp<T: Clone>(a: &Vec<T>, b: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> i32 {
-    let mut __pass_1: crate::std_core_list::ListEnumerate<'_, T> = crate::std_core_list::enumerate::<T>(a);
+    let mut __pass_1: crate::std_core_list::ListEnumerateIter<'_, T> = crate::std_core_list::enumerate::<T>(a);
     loop {
-        let mut __step_2: crate::unions::Union2<crate::std_core_list::Enumerated<'_, T>, crate::std_core_iterator::Finished> = crate::std_core_list::next__ListEnumerate(&mut __pass_1);
+        let mut __step_2: crate::unions::Union2<crate::std_core_list::Enumerated<'_, T>, crate::std_core_iterator::Finished> = crate::std_core_list::next__ListEnumerateIter(&mut __pass_1);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             let mut p: crate::std_core_list::Enumerated<'_, T> = __emitted_3;

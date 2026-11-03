@@ -153,13 +153,13 @@ Three rules follow from "it is a borrow":
 **A view: an owned value that holds borrows.** A struct may declare fields as `proj`, written without a source — the struct says *that* it projects, each literal says *what*:
 
 ```
-struct ListNext<T> : Next<self, proj T> canbe Mut {
+struct ListIter<T> : Next<self, proj T> canbe Mut {
     items: proj List<T>,   // borrows the list it walks
     at: Int                // its own position
 }
 
-fn iter<T>(list: List<T>) -> Mut ListNext<T> {
-    return Mut ListNext<T> { items: list, at: 0 }
+fn iter<T>(list: List<T>) -> Mut ListIter<T> {
+    return Mut ListIter<T> { items: list, at: 0 }
 }
 ```
 
@@ -224,7 +224,7 @@ The result holds borrows of whatever the iterator walks — nothing is copied �
 
 **Re-pointing.** A mutable view may be made to project something else: a function that does so says which field and from what, `=> v: Mut, v.items: proj(other)`, and the caller's variable at `v` becomes linked to `other` from the call on.
 
-**What Rust makes of it.** A projected value is `&T` (or `Option<&T>`, `Union2<&T, Finished>`); a view struct carries a lifetime (`ListNext<'s, T>`), a lent parameter ties it (`iter<'a, T>(list: &'a Vec<T>) -> ListNext<'a, T>` when elision cannot); `List<proj T>` is `Vec<&T>`. Kotlin, where everything is a reference already, changes nothing — the rules are what keep the two backends printing the same thing.
+**What Rust makes of it.** A projected value is `&T` (or `Option<&T>`, `Union2<&T, Finished>`); a view struct carries a lifetime (`ListIter<'s, T>`), a lent parameter ties it (`iter<'a, T>(list: &'a Vec<T>) -> ListIter<'a, T>` when elision cannot); `List<proj T>` is `Vec<&T>`. Kotlin, where everything is a reference already, changes nothing — the rules are what keep the two backends printing the same thing.
 
 ## Shared fate and `copy`
 

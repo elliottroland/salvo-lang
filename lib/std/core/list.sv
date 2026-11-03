@@ -14,7 +14,7 @@
 // lowering is a template over rendered arguments (`vec![…]`, `listOf<T>(…)`)
 // a Salvo body cannot express for a `canbe linear` element type.
 // @compilerrules [type-canbe-mut, linear-container, platform-value-type]
-export iterable platform type List<T canbe linear> canbe Mut : Iter<self, ListNext<T>, T>
+export iterable platform type List<T canbe linear> canbe Mut : Iter<self, ListIter<T>, T>
 
 // Constructors, in two shapes (user decision 2026-09-23).
 // Writing a *first* element establishes `NonEmpty` **by construction**, so no
@@ -536,8 +536,8 @@ export fn reverse<T canbe linear>(list: Mut List<T>) [] -> None => list: Mut {
 // with a position — so iterating a list by hand keeps it
 // usable, and nothing is copied or consumed on the way.
 // @compilerrules [iter-mint, proj-field, copy-opt-in]
-export fn iter<T>(list: List<T>) [] -> Mut ListNext<T> => list {
-    return Mut ListNext<T> { items: list, at: 0 }
+export fn iter<T>(list: List<T>) [] -> Mut ListIter<T> => list {
+    return Mut ListIter<T> { items: list, at: 0 }
 }
 
 // The pass a list is walked by: the list plus a position in
@@ -546,7 +546,7 @@ export fn iter<T>(list: List<T>) [] -> Mut ListNext<T> => list {
 // backends keep their native loop as a fast path for a `for` over a list,
 // so this shape is what *combinators* see.
 // @compilerrules [iter-protocol, iter-for-native]
-export struct ListNext<T> : Next<self, proj T> canbe Mut {
+export struct ListIter<T> : Next<self, proj T> canbe Mut {
     // The list being walked — borrowed, not owned: an iterator is a position in
     // someone else's data. A `proj` field makes the struct a view of
     // whatever each literal stores there; `iter` above lends
@@ -560,7 +560,7 @@ export struct ListNext<T> : Next<self, proj T> canbe Mut {
 // Advances the iterator, reporting the element at its position or the end of the
 // list. Out of range is the end: [get] answers `None` past the last index, so
 // the bound is read rather than remembered.
-export fn next<T>(p: Mut ListNext<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
+export fn next<T>(p: Mut ListIter<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
     let elem = get(p.items, p.at)
     if elem is None {
         return finished()
@@ -573,23 +573,29 @@ export fn next<T>(p: Mut ListNext<T>) [] -> Emitted (proj(p) T) | Finished => p:
 // Kotlin's `reversed()` answers a fresh list; this borrows and emits
 // projections like [iter] does, so `for x in reversed(xs)` costs nothing per
 // element. A caller wanting the reversed *list* writes `to_list(reversed(xs))`.
-//
-// An `iter fn`: the declaration is the minter, the `state` block
-// names the iterator struct and declares its own field, and the body is its
-// `next` — the compiler writes the struct. `list` is borrowed by the iterator,
-// which is what lets it emit projections of it.
-// @compilerrules [col-reversed, iter-fn, proj-field]
-export iter fn reversed<T>(list: List<T>) -> Emitted (proj(list) T) | Finished {
-    state ListReversed {
-        // The index of the next element to emit, counting down; `-1` is the
-        // end, which [get] reports as `None` like any out-of-range index.
-        at: Int = size(list) - 1
-    }
-    let elem = get(list, at)
+// @compilerrules [col-reversed, proj-field]
+export fn reversed<T>(list: List<T>) [] -> Mut ListReversedIter<T> => list {
+    return Mut ListReversedIter<T> { items: list, at: size(list) - 1 }
+}
+
+// The iterator [reversed] mints: the list, borrowed, and the index of the
+// next element to emit, counting down.
+export struct ListReversedIter<T> : Next<self, proj T> canbe Mut {
+    // The list being walked, borrowed.
+    // @compilerrules [proj-field, proj-infer]
+    items: proj List<T>,
+    // The index of the next element to emit; `-1` is the end, which [get]
+    // reports as `None` like any out-of-range index.
+    at: Int
+}
+
+// Advances a reversed walk: the element at its position, or the end.
+export fn next<T>(p: Mut ListReversedIter<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
+    let elem = get(p.items, p.at)
     if elem is None {
         return finished()
     }
-    at = at - 1
+    p.at = p.at - 1
     return emitted(elem)
 }
 
@@ -611,39 +617,43 @@ export struct Enumerated<T> {
 // Walks the list front to back, pairing each element with its
 // index: `for pair in enumerate(xs)` sees `0/first`, `1/second`, … — the loop
 // that wants positions without writing index arithmetic. The element is
-// borrowed, the index is the pair's own — `holds proj(list)` says the emitted
-// view borrows the list.
+// borrowed, the index is the pair's own.
 // @compilerrules [col-enumerate]
-export iter fn enumerate<T>(list: List<T>) -> Emitted Enumerated<T> | Finished holds proj(list) {
-    state ListEnumerate {
-        // The index of the next element to emit.
-        at: Int = 0
-    }
-    let elem = get(list, at)
-    if elem is None {
-        return finished()
-    }
-    // Copied, not linked: the emitted index must survive `at`'s step below,
-    // the same detach `std.core.range`'s next does.
-    let index = at.copy()
-    at = at + 1
-    return emitted(Enumerated<T> { index: index, elem: elem })
+export fn enumerate<T>(list: List<T>) [] -> Mut ListEnumerateIter<T> => list {
+    return Mut ListEnumerateIter<T> { items: list, at: 0, step: 1 }
 }
 
 // The same pairs, back to front: `enumerate_rev(xs)` sees
 // `size-1/last` down to `0/first` — the descending index loop with the
 // element already in hand.
 // @compilerrules [col-enumerate]
-export iter fn enumerate_rev<T>(list: List<T>) -> Emitted Enumerated<T> | Finished holds proj(list) {
-    state ListEnumerateRev {
-        at: Int = size(list) - 1
-    }
-    let elem = get(list, at)
+export fn enumerate_rev<T>(list: List<T>) [] -> Mut ListEnumerateIter<T> => list {
+    return Mut ListEnumerateIter<T> { items: list, at: size(list) - 1, step: -1 }
+}
+
+// The iterator [enumerate] and [enumerate_rev] mint: the list, borrowed, the
+// index of the next element, and the direction.
+export struct ListEnumerateIter<T> : Next<self, Enumerated<T>> canbe Mut {
+    // The list being walked, borrowed.
+    // @compilerrules [proj-field, proj-infer]
+    items: proj List<T>,
+    // The index of the next element to emit.
+    at: Int,
+    // `1` front to back, `-1` back to front.
+    step: Int
+}
+
+// Advances an enumeration: the next element with its index, or the end. The
+// emitted view borrows the list (`holds proj(p)`).
+// @compilerrules [col-enumerate]
+export fn next<T>(p: Mut ListEnumerateIter<T>) [] -> Emitted Enumerated<T> | Finished holds proj(p) => p: Mut {
+    let elem = get(p.items, p.at)
     if elem is None {
         return finished()
     }
-    let index = at.copy()
-    at = at - 1
+    // Copied, not linked: the emitted index must survive `at`'s step below.
+    let index = p.at.copy()
+    p.at = p.at + p.step
     return emitted(Enumerated<T> { index: index, elem: elem })
 }
 

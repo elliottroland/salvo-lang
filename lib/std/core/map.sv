@@ -22,7 +22,7 @@
 //
 // Own module so a program that never uses a map emits nothing for it.
 // @compilerrules [type-canbe-mut, col-key-eligible, obligation-by, linear-container, mod-used-only]
-export iterable platform type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut : Iter<self, MapKeyNext<K>, K>
+export iterable platform type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut : Iter<self, MapKeyIter<K>, K>
 
 // Constructor, from entries written as pairs: `Map(("a", 1), ("b", 2))`.
 // The keys and values are stored in the new map, so they are moved: a
@@ -257,15 +257,15 @@ export platform fn keys<K, V>(map: Map<K, V>) [] -> List<K> => map
 // (An `entries`/`values` surface therefore waits on a way to copy a generic
 // value, or on iterators that borrow — recorded in ROADMAP.md.)
 // @compilerrules [iter-mint, kt-copy, col-key-eligible, copy-opt-in]
-export fn iter<K, V>(map: Map<K, V>) [] -> Mut MapKeyNext<K> => map {
-    return Mut MapKeyNext<K> { items: keys(map), at: 0 }
+export fn iter<K, V>(map: Map<K, V>) [] -> Mut MapKeyIter<K> => map {
+    return Mut MapKeyIter<K> { items: keys(map), at: 0 }
 }
 
 // The pass a map is walked by: a snapshot of its keys plus a
-// position in it, owned by the iterator — the same shape `SetNext` has, and for
+// position in it, owned by the iterator — the same shape `SetIter` has, and for
 // the same reason (a hash map has no index to walk).
 // @compilerrules [iter-protocol]
-export struct MapKeyNext<K> : Next<self, K> canbe Mut {
+export struct MapKeyIter<K> : Next<self, K> canbe Mut {
     // The keys, in insertion order, owned by this iterator.
     items: List<K>,
     // The index of the next key to emit.
@@ -273,7 +273,7 @@ export struct MapKeyNext<K> : Next<self, K> canbe Mut {
 }
 
 // Advances the iterator, reporting the key at its position or the end of the map.
-export fn next<K>(p: Mut MapKeyNext<K>) [] -> Emitted K | Finished => p: Mut {
+export fn next<K>(p: Mut MapKeyIter<K>) [] -> Emitted K | Finished => p: Mut {
     let key = snapshot_at(p.items, p.at)
     if key is None {
         return finished()
@@ -302,17 +302,29 @@ export struct MapEntry<K, V> {
 // The entries, in insertion order, each a borrowed
 // key/value view: `for e in entries(m) { println("${e.key}: ${e.value}") }`.
 // @compilerrules [col-map-entries]
-export iter fn entries<K, V>(map: Map<K, V>) -> Emitted MapEntry<K, V> | Finished holds proj(map) {
-    state MapEntries {
-        // The next slot to look at.
-        at: Int = 0
-    }
-    while at < slot_count(map) {
-        let here = at.copy()
-        at = at + 1
-        let key = key_at(map, here)
+export fn entries<K, V>(map: Map<K, V>) [] -> Mut MapEntriesIter<K, V> => map {
+    return Mut MapEntriesIter<K, V> { map: map, at: 0 }
+}
+
+// The iterator [entries] mints: the map, borrowed, and the next slot to look
+// at.
+export struct MapEntriesIter<K, V> : Next<self, MapEntry<K, V>> canbe Mut {
+    // The map being walked, borrowed.
+    // @compilerrules [proj-field, proj-infer]
+    map: proj Map<K, V>,
+    // The next slot to look at.
+    at: Int
+}
+
+// Advances an entry walk past removed slots: the next live entry, or the end.
+// @compilerrules [col-map-entries]
+export fn next<K, V>(p: Mut MapEntriesIter<K, V>) [] -> Emitted MapEntry<K, V> | Finished holds proj(p) => p: Mut {
+    while p.at < slot_count(p.map) {
+        let here = p.at.copy()
+        p.at = p.at + 1
+        let key = key_at(p.map, here)
         if !(key is None) {
-            let value = value_at(map, here)
+            let value = value_at(p.map, here)
             return emitted(MapEntry<K, V> { key: key, value: value })
         }
     }
@@ -321,15 +333,28 @@ export iter fn entries<K, V>(map: Map<K, V>) -> Emitted MapEntry<K, V> | Finishe
 
 // The values, in insertion order, borrowed.
 // @compilerrules [col-map-entries]
-export iter fn values<K, V>(map: Map<K, V>) -> Emitted (proj(map) V) | Finished holds proj(map) {
-    state MapValues {
-        at: Int = 0
-    }
-    while at < slot_count(map) {
-        let here = at.copy()
-        at = at + 1
-        if !(key_at(map, here) is None) {
-            let value = value_at(map, here)
+export fn values<K, V>(map: Map<K, V>) [] -> Mut MapValuesIter<K, V> => map {
+    return Mut MapValuesIter<K, V> { map: map, at: 0 }
+}
+
+// The iterator [values] mints: the map, borrowed, and the next slot to look
+// at.
+export struct MapValuesIter<K, V> : Next<self, proj V> canbe Mut {
+    // The map being walked, borrowed.
+    // @compilerrules [proj-field, proj-infer]
+    map: proj Map<K, V>,
+    // The next slot to look at.
+    at: Int
+}
+
+// Advances a value walk past removed slots: the next live value, or the end.
+// @compilerrules [col-map-entries]
+export fn next<K, V>(p: Mut MapValuesIter<K, V>) [] -> Emitted (proj(p) V) | Finished => p: Mut {
+    while p.at < slot_count(p.map) {
+        let here = p.at.copy()
+        p.at = p.at + 1
+        if !(key_at(p.map, here) is None) {
+            let value = value_at(p.map, here)
             return emitted(value)
         }
     }

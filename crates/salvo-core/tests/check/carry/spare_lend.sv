@@ -41,7 +41,7 @@ fn main() [use] -> None {
 
 //--- a_concrete_return_needs_its_lend
 // A **concrete** return still needs the clause, so it stays silent.
-fn walk<T>(xs: List<T>, ?iter: (c: List<T>) -> Mut ListNext<T> holds proj(c)) -> Int
+fn walk<T>(xs: List<T>, ?iter: (c: List<T>) -> Mut ListIter<T> holds proj(c)) -> Int
 => xs {
     let n = 0
     for _ in iter(xs) {

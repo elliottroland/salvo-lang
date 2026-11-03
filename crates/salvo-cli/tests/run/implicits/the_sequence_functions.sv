@@ -8,7 +8,7 @@ struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> Mut ListNext<Int> => bag {
+fn iter(bag: Bag) -> Mut ListIter<Int> => bag {
     return iter(bag.items)
 }
 

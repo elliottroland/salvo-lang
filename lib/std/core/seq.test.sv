@@ -2,12 +2,17 @@
 
 // Every natural number from [n] up: an endless source, which only a lazy
 // adaptor can stop.
-iter fn naturals(n: Int) -> Emitted Int | Finished {
-    state Naturals {
-        at: Int = n
-    }
-    let v = at.copy()
-    at = at + 1
+fn naturals(n: Int) [] -> Mut NaturalsIter {
+    return Mut NaturalsIter { at: n }
+}
+
+struct NaturalsIter : Next<self, Int> canbe Mut {
+    at: Int
+}
+
+fn next(p: Mut NaturalsIter) [] -> Emitted Int | Finished => p: Mut {
+    let v = p.at.copy()
+    p.at = p.at + 1
     return emitted(v)
 }
 

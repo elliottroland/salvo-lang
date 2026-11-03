@@ -58,7 +58,7 @@ struct Bag {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> Mut ListNext<Int> => bag {
+fn iter(bag: Bag) -> Mut ListIter<Int> => bag {
     return iter(bag.items)
 }
 
@@ -128,24 +128,24 @@ fn not_mut<It, T>(it: Mut It, ?next: (It) -> Emitted T | Finished) [] -> Int => 
 
 //--- own_pass_named_like_stds
 // [implicit-resolve] [fn-overload-scope] A program declaring its own pass
-// under a name std also uses — its own `ListNext` plus a `next` for it — used
+// under a name std also uses — its own `ListIter` plus a `next` for it — used
 // to make every drive of that name ambiguous: implicit resolution pooled
 // core's `next` and the module's own without the scope ladder every named
 // call walks. The most specific rung wins now, so the module's own `next`
-// fills the spread and the program checks. (Its own program: its `ListNext`
+// fills the spread and the program checks. (Its own program: its `ListIter`
 // would shadow std's for the cases above.)
 // The shape is std's own (`std.core.list`): the pass borrows its list, and
 // `next` emits projections of it.
-struct ListNext<T> : Next<self, proj T> canbe Mut {
+struct ListIter<T> : Next<self, proj T> canbe Mut {
     items: proj List<T>,
     at: Int
 }
 
-fn mine<T>(items: List<T>) [] -> Mut ListNext<T> => items {
-    return Mut ListNext<T> { items: items, at: 0 }
+fn mine<T>(items: List<T>) [] -> Mut ListIter<T> => items {
+    return Mut ListIter<T> { items: items, at: 0 }
 }
 
-fn next<T>(p: Mut ListNext<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
+fn next<T>(p: Mut ListIter<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
     let elem = get(p.items, p.at)
     if elem is None {
         return finished()

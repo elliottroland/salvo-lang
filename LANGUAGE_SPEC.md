@@ -55,7 +55,7 @@ Conventions:
   [platform-value-type]: `lib/platform/std/core/bytes.{rs,kt}` implements it,
   Rust as `Vec<u8>`, Kotlin as the shipped `salvo.SalvoBytes`; `bytes_of` and
   `mut_bytes` are Salvo over `empty_bytes`, and a `for` over a buffer goes
-  through its `BytesNext` pass — the native loop each backend had is gone.)
+  through its `BytesIter` pass — the native loop each backend had is gone.)
   **`Bytes` is std's byte buffer** (`std.core.bytes`, user decision
   2026-09-15), and the payload type of every byte-shaped API — *not*
   `List<Byte>`, which boxed every octet on the JVM and carried a list's
@@ -78,7 +78,7 @@ Conventions:
     [col-hashed-ordered], because a key that can be mutated under its map is
     a bug no diagnostic would catch later.
   * `for b in data` iterates the bytes natively on both backends
-    [iter-for-native] [platform-iterable]; `BytesNext` is the iterator the combinators drive
+    [iter-for-native] [platform-iterable]; `BytesIter` is the iterator the combinators drive
     [iter-protocol].
 * [type-lit-numeric] Numeric literals: `1` is `Int`; `1L` is `Long`; `1.2` is
   `Double`; `1.2f` is `Float`. Underscore separators are allowed anywhere
@@ -1067,7 +1067,7 @@ Conventions:
   `remove_first`, `remove_last` and `remove_at` (O(n)) moving elements in and
   out [linear-container]; `get`, `first`, `last` answering borrows;
   `size`, `drain`, `to_str`, `to_list`/`to_deque` [col-convert], `iter` over
-  a `DequeNext` pass and `reversed`. Out-of-range is `None` [col-bounds].
+  a `DequeIter` pass and `reversed`. Out-of-range is `None` [col-bounds].
   * **Not included, by decision**: a literal (`[…]` stays a `List`),
     `NonEmpty`/`Sorted` claims, `eq`/`hash`/`cmp` (not a key), and — for now
     — a wire form: declared `noremote` [net-noremote], since neither runtime has
@@ -3761,7 +3761,7 @@ Conventions:
     `iter` take is ambiguous, and the loop names the call it means (user
     decision 2026-10-30, [iter-for]).
   * **Same-named structs in two modules** (fixed 2026-09-25): a `Ty::Named`
-    carried no module, so a user `Range` beside `std.core.range`'s drove the
+    carried no module, so a user `Range` beside `std.core.range`'s (then named so) drove the
     *other* module's `next`, or minted with the other module's `iter`, and both
     target compilers rejected the program — [backend-never-wrong]-grade. The
     fix compared the declarations each side's name resolved to. Since A1 a
@@ -3817,7 +3817,7 @@ Conventions:
     pass and std's `drop` for a plain one [linear-discard]. (This
     replaces the deleted `?Linear<It>` spread.)
 * [iter-mint] `iter` converts a **container** into a fresh iterator
-  (`fn iter<T>(list: List<T>) [] -> Mut ListNext<T> => list`), and that is
+  (`fn iter<T>(list: List<T>) [] -> Mut ListIter<T> => list`), and that is
   the whole of container iteration: std declares an iterator struct plus a
   `next` per intrinsic container, so the language has no container protocol of
   its own (user decision 2026-09-08, roadmap R5). A type of one's own declares
@@ -3836,6 +3836,15 @@ Conventions:
   * **`for` over a *generic* source** mints through the `iter` implicit a
     `?Iter<C, It, T>` spread brought in: the call `iter(c)` goes through it
     [iter-for] [iter-group].
+  * **The naming convention** (user decision 2026-10-30): the struct an
+    iterator-minting function answers ends in `Iter` — `ListIter` for a
+    list's `iter`, `SetIter`, `MapKeyIter`, `StrIter`, `BytesIter`,
+    `DequeIter`, `ArrayIter`, `RangeIter`, `ListReversedIter`,
+    `ListEnumerateIter`, `IndicesIter`, `MapEntriesIter`, `MapValuesIter`.
+    (They ended in `Next` until then.) A convention, not a rule: the compiler
+    asks only that some `next` takes the struct. std writes every iterator
+    as such a struct and its `next` by hand: it declares no `iter fn`
+    [iter-fn] (user decision 2026-10-30), though the form stays.
 * [iter-for-native] A `for` over an **array** or an **`iterable platform
   type`** [platform-iterable] (`List`, `Str`, `Bytes`, `Deque`, `Set`, `Map`,
   the sorted pair) records no driver at all when the `iter` and `next` it
@@ -4412,7 +4421,7 @@ Conventions:
   Resolution feeds back into the substitution *between* the arguments, so a
   variable that appears only in an implicit's type is still inferred:
   `map<It, T, U>(it: Mut It, f: (T) -> U, ?Next<It, T>)` binds `It` from its
-  subject, then resolves `next` at `(Mut ListNext<Int>) -> Emitted T | Finished`
+  subject, then resolves `next` at `(Mut ListIter<Int>) -> Emitted T | Finished`
   and reads `T = Int` off the `next` that fits.
   * A designated group teaches even more directly: a `?Next<It, T>` spread
     reads `T` off `It`'s own `: Next<self, T>` clause, reaching through the
@@ -4777,7 +4786,7 @@ Conventions:
   * **`iter T` is gone** (user decision 2026-10-20, R3): the anonymous-iterator
     type, its hidden generics, its return patterns filled from a body and the
     pre-pass that resolved them were removed with the named state. What it
-    spelled is written out: a return names the struct (`-> Mut Range`), a
+    spelled is written out: a return names the struct (`-> Mut RangeIter`), a
     parameter is a generic with its spread (`fn first<It>(it: Mut It,
     ?Next<It, Int>)`), and `Iter`'s iterator is a group parameter
     [iter-group].
@@ -10577,8 +10586,8 @@ between endpoints and delivers what arrives into the scheduler.
   `Next` group, the element type argument carrying `proj`). The
   obligation and the member must agree — `proj` on one and not the other
   is an error naming the fix. Reading combinators (`?Next<It, T>`) accept
-  both. std's `ListNext`/`ArrayNext`/`StrNext` borrow (`items: proj
-  List<T>`; `StrNext` emits owned `Char`); an `iter fn`'s generated struct
+  both. std's `ListIter`/`ArrayIter`/`StrIter` borrow (`items: proj
+  List<T>`; `StrIter` emits owned `Char`); an `iter fn`'s generated struct
   borrows its parameters (`list: proj List<T>`, `proj` snapshot fields, Copy
   scalars owned) and names the parameter as the elements' source
   (`Emitted (proj(list) T)`), which the desugar redirects to the struct
@@ -11417,7 +11426,7 @@ between endpoints and delivers what arrives into the scheduler.
   (user decision 2026-10-05). A fn whose name is unique in its module keeps
   it; overloads within one module are named `<name>__<suffix>` from their
   parameter types, at the first level that sets each apart from the others of
-  its name there: (1) each explicit parameter's base type (`next__StrNext`,
+  its name there: (1) each explicit parameter's base type (`next__StrIter`,
   `map__List_Fn`); (2) with qualifiers (`swap__MutList_IdxInt_IdxInt`);
   (3) with type arguments (`get__ListT_Int`); (4) with both; (5) plus the
   implicit parameters' names; (6) plus the return type, for overloads whose

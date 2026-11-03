@@ -90,27 +90,49 @@ export fn clear(buf: Mut LongBuffer, fill: Long) [] -> None => buf: Mut, fill {
 // The slots in order, for a generic fn over `Iter`; a
 // `for` over a buffer is the host's own loop.
 // @compilerrules [platform-iterable]
-export iter fn iter(buf: IntBuffer) -> Emitted Int | Finished {
-    state IntBufferIter {
-        at: Int = 0
-    }
-    if at >= int_size(buf) {
+export fn iter(buf: IntBuffer) [] -> Mut IntBufferIter => buf {
+    return Mut IntBufferIter { buf: buf, at: 0 }
+}
+
+// The iterator [iter] mints over an `IntBuffer`: the buffer, borrowed, and
+// the next slot.
+export struct IntBufferIter : Next<self, Int> canbe Mut {
+    // The buffer being walked, borrowed.
+    // @compilerrules [proj-field, proj-infer]
+    buf: proj IntBuffer,
+    // The next slot to emit.
+    at: Int
+}
+
+// Advances a buffer walk: the next slot's value, or the end.
+export fn next(p: Mut IntBufferIter) [] -> Emitted Int | Finished => p: Mut {
+    if p.at >= int_size(p.buf) {
         return finished()
     }
-    let value = int_get(buf, at)
-    at = at + 1
+    let value = int_get(p.buf, p.at)
+    p.at = p.at + 1
     return emitted(value)
 }
 
-export iter fn iter(buf: LongBuffer) -> Emitted Long | Finished {
-    state LongBufferIter {
-        at: Int = 0
-    }
-    if at >= long_size(buf) {
+export fn iter(buf: LongBuffer) [] -> Mut LongBufferIter => buf {
+    return Mut LongBufferIter { buf: buf, at: 0 }
+}
+
+// The iterator [iter] mints over a `LongBuffer`.
+export struct LongBufferIter : Next<self, Long> canbe Mut {
+    // The buffer being walked, borrowed.
+    // @compilerrules [proj-field, proj-infer]
+    buf: proj LongBuffer,
+    // The next slot to emit.
+    at: Int
+}
+
+export fn next(p: Mut LongBufferIter) [] -> Emitted Long | Finished => p: Mut {
+    if p.at >= long_size(p.buf) {
         return finished()
     }
-    let value = long_get(buf, at)
-    at = at + 1
+    let value = long_get(p.buf, p.at)
+    p.at = p.at + 1
     return emitted(value)
 }
 

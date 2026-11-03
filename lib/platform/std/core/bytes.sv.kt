@@ -50,16 +50,16 @@ fun toStrPlatform(data: salvo.platform.std.core.bytes.Bytes): String = salvo.pla
 
 fun toHexPlatform(data: salvo.platform.std.core.bytes.Bytes): String = salvo.platform.std.core.bytes.toHex(data)
 
-fun iter(data: salvo.platform.std.core.bytes.Bytes): BytesNext {
-    return BytesNext(data = data, at = 0)
+fun iter(data: salvo.platform.std.core.bytes.Bytes): BytesIter {
+    return BytesIter(data = data, at = 0)
 }
 
-data class BytesNext(
+data class BytesIter(
     var data: salvo.platform.std.core.bytes.Bytes,
     var at: Int,
 )
 
-fun next(p: BytesNext): Union2<UByte, salvo.std.core.iterator.Finished> {
+fun next(p: BytesIter): Union2<UByte, salvo.std.core.iterator.Finished> {
     val b: UByte? = salvo.std.core.bytes.getPlatform(p.data, p.at)
     if ((b == null)) {
         return Union2.U2<UByte, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())

@@ -209,7 +209,7 @@ fn main() [use] -> None {
     let vs = filter(iter(ws), (s) -> size(s) > 1)
     // The repro (ROADMAP 0z).
     // A `for` loop's `next`, whose instantiation the arguments state.
-    //~ emits: = (match crate::std_core_list::next__ListNext(&mut __pass_3) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) });
+    //~ emits: = (match crate::std_core_list::next__ListIter(&mut __pass_3) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) });
     for v in vs {
         println("list for ${v}")
     }
@@ -229,7 +229,7 @@ fn main() [use] -> None {
         println("first ${first(vs)}")
     }
     // A `?Next` adapter.
-    //~ emits: &mut |__a0: &mut crate::std_core_list::ListNext<'_, &String>| (match crate::std_core_list::next__ListNext(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v),
+    //~ emits: &mut |__a0: &mut crate::std_core_list::ListIter<'_, &String>| (match crate::std_core_list::next__ListIter(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v),
     let ms = map(iter(vs), (s) -> size(s))
     println("map ${size(ms)} ${get(ms, 1) ?: 0}")
     let fs = filter(iter(vs), (s) -> size(s) > 2)

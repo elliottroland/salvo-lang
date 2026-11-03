@@ -228,14 +228,14 @@ A struct can state that its type parameter must come with a bundle, using a
 ```
 // std.core.array — the iterator an array is walked by. `: Next<self, proj T>` is the
 // obligation: this struct comes with a `next`, and `self` names the struct.
-export struct ArrayNext<T> : Next<self, proj T> canbe Mut {
+export struct ArrayIter<T> : Next<self, proj T> canbe Mut {
     items: proj (T[]),
     at: Int
 }
 ```
 
 The obligation now travels with the *type*: a combinator taking an
-`ArrayNext` writes no `?Next` of its own, and `for` over one needs nothing
+`ArrayIter` writes no `?Next` of its own, and `for` over one needs nothing
 either. Without the clause the same struct is just a struct — the `for` loop
 says so, and names the clause as the remedy.
 

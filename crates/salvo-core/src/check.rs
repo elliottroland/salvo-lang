@@ -9309,8 +9309,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Finished }` is how Salvo says "anything iterable": `map<It, T, U>(it:
     /// Mut It, f: (T) -> U, ?Next<It, T>)` binds `It` from its first
     /// argument, and `T` is determined by *which `next` fills the implicit* —
-    /// resolving it at `(Mut ListNext<Int>) -> Emitted T | Finished` finds
-    /// std's `next(Mut ListNext<T'>)` and reads `T = Int` back off it.
+    /// resolving it at `(Mut ListIter<Int>) -> Emitted T | Finished` finds
+    /// std's `next(Mut ListIter<T'>)` and reads `T = Int` back off it.
     /// Without this step the lambda would be
     /// typed against an unbound `T`, and `U` would be undeterminable
     /// [call-type-args] — the generic half of a sequence function would only
@@ -18273,7 +18273,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // whoever fills the slot, so the signature cannot see whether it holds
         // a borrow, and one Rust signature has to serve every filling. A
         // *concrete* return says for itself (`-> Mut List<T>` holds nothing;
-        // `-> Mut ListNext<T>` is a named borrowing type the emitter already
+        // `-> Mut ListIter<T>` is a named borrowing type the emitter already
         // ties), so nothing is inferred there and no existing signature
         // changes meaning.
         let infer_lends = matches!(ret.as_ref(), ast::Type::Named { qualifiers, base, .. }

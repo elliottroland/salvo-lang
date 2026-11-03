@@ -32,7 +32,7 @@ fn total<C, It>(c: C, ?iter: (c: C) -> Mut It holds proj(c), ?Next<It, Int>) -> 
 fn main() [use] -> None {
     use StdConsole()
     // Both calls fill `?next` from `std.core.list`, not from the sibling `Sib`.
-    //~ emits 2: next__ListNext(
+    //~ emits 2: next__ListIter(
     println("${total(List(1, 2, 3))}")
     println("${total(List(1, 2, 3))}")
 }

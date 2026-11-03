@@ -238,7 +238,7 @@ fn main() [use] {
     for n in bag #{iter@main, next@main} {
         println@std.core.console("2c. bag ${to_str@std.core.basic(n)}")
     }
-    println@std.core.console("2c. total of a bag ${to_str@std.core.basic(total@main<Bag@main, BagIter@main>(bag, iter = iter@main, next = next@main))}, of a list ${to_str@std.core.basic(total@main<NonEmpty List<Int>, ListNext<Int>>(xs, iter = iter@std.core.list, next = next@std.core.list))}")
+    println@std.core.console("2c. total of a bag ${to_str@std.core.basic(total@main<Bag@main, BagIter@main>(bag, iter = iter@main, next = next@main))}, of a list ${to_str@std.core.basic(total@main<NonEmpty List<Int>, ListIter<Int>>(xs, iter = iter@std.core.list, next = next@std.core.list))}")
 
     // 3. an effectful iterator: `for` supplies the handler per turn. It cannot
     // fill a *pure* `?Next` position, so a combinator over it would have to
@@ -266,13 +266,13 @@ fn main() [use] {
     println@std.core.console("5. list: ${to_str@std.core.basic(size@std.core.list<Int>(doubled#{as List<Int>}))} doubled, ${to_str@std.core.basic(size@std.core.list<Int>(odd#{as List<Int>}))} odd, total ${to_str@std.core.basic(total)}")
 
     let words: NonEmpty List<Str> = List@std.core.list<Str>("ann", "bo", "carol")
-    let lengths: Mut List<Int> = map@std.core.seq<ListNext<Str>, proj Str, Int>(iter@std.core.list<Str>(words), (w: proj Str) -> size@std.core.string(w#{as Str}), next = next@std.core.list)
-    println@std.core.console("5. lengths: ${to_str@std.core.basic(reduce@std.core.seq<ListNext<Int>, Int, Int>(iter@std.core.list<Int>(lengths#{as List<Int>}), 0, (acc: Int, n: Int) -> plus@std.core.basic(acc, n), next = next@std.core.list))}")
+    let lengths: Mut List<Int> = map@std.core.seq<ListIter<Str>, proj Str, Int>(iter@std.core.list<Str>(words), (w: proj Str) -> size@std.core.string(w#{as Str}), next = next@std.core.list)
+    println@std.core.console("5. lengths: ${to_str@std.core.basic(reduce@std.core.seq<ListIter<Int>, Int, Int>(iter@std.core.list<Int>(lengths#{as List<Int>}), 0, (acc: Int, n: Int) -> plus@std.core.basic(acc, n), next = next@std.core.list))}")
 
     // `filter` returns a *view* of the elements it keeps, so what it walks
     // has to outlive the result: a literal would die at the end of the line.
     let word: Str = "iteration"
-    let vowels: Mut List<Char> = filter@std.core.seq<StrNext, Char>(iter@std.core.string(word), (c: Char) -> eq@std.core.basic(c, 'i') || eq@std.core.basic(c, 'o'), next = next@std.core.string)
+    let vowels: Mut List<Char> = filter@std.core.seq<StrIter, Char>(iter@std.core.string(word), (c: Char) -> eq@std.core.basic(c, 'i') || eq@std.core.basic(c, 'o'), next = next@std.core.string)
     println@std.core.console("5. vowels: ${to_str@std.core.basic(size@std.core.list<Char>(vowels#{as List<Char>}))}")
 
     // An `iter fn`'s iterator composes with them exactly like a container's.

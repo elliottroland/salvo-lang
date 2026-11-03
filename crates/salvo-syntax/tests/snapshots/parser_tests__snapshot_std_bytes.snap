@@ -96,7 +96,7 @@ Module {
                                     qualifiers: [],
                                     base: TypeRef {
                                         name: Ident {
-                                            name: "BytesNext",
+                                            name: "BytesIter",
                                             span: 1442..1451,
                                         },
                                         args: [],
@@ -2481,7 +2481,7 @@ Module {
                         ],
                         base: TypeRef {
                             name: Ident {
-                                name: "BytesNext",
+                                name: "BytesIter",
                                 span: 5812..5821,
                             },
                             args: [],
@@ -2524,7 +2524,7 @@ Module {
                                                     ],
                                                     base: TypeRef {
                                                         name: Ident {
-                                                            name: "BytesNext",
+                                                            name: "BytesIter",
                                                             span: 5847..5856,
                                                         },
                                                         args: [],
@@ -2592,7 +2592,7 @@ Module {
                 annotations: [],
                 exported: true,
                 name: Ident {
-                    name: "BytesNext",
+                    name: "BytesIter",
                     span: 6050..6059,
                 },
                 generics: [],
@@ -2807,7 +2807,7 @@ Module {
                             ],
                             base: TypeRef {
                                 name: Ident {
-                                    name: "BytesNext",
+                                    name: "BytesIter",
                                     span: 6315..6324,
                                 },
                                 args: [],

@@ -845,9 +845,9 @@ fn show(step: Emitted Int | Finished) [Console] {
 }
 
 iter fn iter(f: Flat) -> Emitted Int | Finished {
-    state FlatIter { at: Int = 0, inner: Mut ListNext<Int>? = None }
+    state FlatIter { at: Int = 0, inner: Mut ListIter<Int>? = None }
     while true {
-        if inner is Mut ListNext<Int> {
+        if inner is Mut ListIter<Int> {
             let step = next(inner)
             when step {
                 is Emitted {
@@ -870,21 +870,21 @@ iter fn iter(f: Flat) -> Emitted Int | Finished {
 fn main() [use] {
     use StdConsole()
     let base = List(1, 2)
-    let p: Mut ListNext<Int>? = iter(base)
-    if p is Mut ListNext<Int> {
+    let p: Mut ListIter<Int>? = iter(base)
+    if p is Mut ListIter<Int> {
         show(next(p))
         show(next(p))
         show(next(p))
     }
     let qs = List(7, 8)
-    let q: Mut ListNext<Int> | Int = iter(qs)
-    if q is Mut ListNext<Int> {
+    let q: Mut ListIter<Int> | Int = iter(qs)
+    if q is Mut ListIter<Int> {
         show(next(q))
         show(next(q))
     }
     let rs = List(1, 2, 3)
-    let r: Mut ListNext<Int>? = iter(rs)
-    if r is Mut ListNext<Int> {
+    let r: Mut ListIter<Int>? = iter(rs)
+    if r is Mut ListIter<Int> {
         r.at = 2
         show(next(r))
     }

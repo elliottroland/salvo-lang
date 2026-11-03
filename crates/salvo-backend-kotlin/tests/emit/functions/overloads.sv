@@ -11,15 +11,15 @@
 // Two overloads the *checker* tells apart by Salvo types — a pass and the
 // `List` it walks — where the `List` overload **delegates** to the pass one.
 // (`OVERLOAD_DELEGATION` in codegen_tests.rs.)
-//~ emits: fun twice__ListNext_Fn(p: salvo.std.core.list.ListNext<Int>
-fn twice(p: Mut ListNext<Int>, f: (Int) -> Int) -> Mut List<Int> => p: Mut, f {
+//~ emits: fun twice__ListIter_Fn(p: salvo.std.core.list.ListIter<Int>
+fn twice(p: Mut ListIter<Int>, f: (Int) -> Int) -> Mut List<Int> => p: Mut, f {
     return map(p, f)
 }
 
 //~ emits: fun twice__List_Fn(xs: List<Int>
 fn twice(xs: List<Int>, f: (Int) -> Int) -> Mut List<Int> => f, !xs {
     // The delegation calls the *other* overload, by its own name.
-    //~ emits: return salvo.main.twice__ListNext_Fn(
+    //~ emits: return salvo.main.twice__ListIter_Fn(
     return twice(iter(xs), f)
 }
 

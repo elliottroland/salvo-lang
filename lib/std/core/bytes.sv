@@ -23,7 +23,7 @@
 // implements it — `lib/platform/std/core/bytes.{rs,kt}` — and its copy is the
 // host's own copy. Its mutable kind is the host's `MutBytes`.
 // @compilerrules [kt-bytes, type-bytes, fs-read-to, platform-value-type, platform-type]
-export iterable platform type Bytes canbe Mut : Iter<self, BytesNext, Byte>
+export iterable platform type Bytes canbe Mut : Iter<self, BytesIter, Byte>
 
 // The bytes of [elems], in order: `bytes_of(to_byte(0), to_byte(255))`.
 // Bytes have no literal syntax — collection literals are retired, and
@@ -122,14 +122,14 @@ export platform fn to_hex(data: Bytes) [] -> Str => data
 // A fresh iterator over the bytes of [data], in order — which is what
 // makes `for b in data` and the sequence functions work on a buffer.
 // @compilerrules [iter-mint]
-export fn iter(data: Bytes) [] -> Mut BytesNext => data {
-    return Mut BytesNext { data: data, at: 0 }
+export fn iter(data: Bytes) [] -> Mut BytesIter => data {
+    return Mut BytesIter { data: data, at: 0 }
 }
 
 // The pass a buffer is walked by: the buffer plus a position
 // in it. The buffer is borrowed, not copied.
 // @compilerrules [iter-protocol, proj-field]
-export struct BytesNext : Next<self, Byte> canbe Mut {
+export struct BytesIter : Next<self, Byte> canbe Mut {
     // The buffer being walked.
     data: proj Bytes,
     // The index of the next byte to emit.
@@ -138,7 +138,7 @@ export struct BytesNext : Next<self, Byte> canbe Mut {
 
 // Advances the iterator, reporting the byte at its position or the end of the
 // buffer.
-export fn next(p: Mut BytesNext) [] -> Emitted Byte | Finished => p: Mut {
+export fn next(p: Mut BytesIter) [] -> Emitted Byte | Finished => p: Mut {
     let b = get(p.data, p.at)
     if b is None {
         return finished()

@@ -1556,7 +1556,7 @@ stage is an `iter fn`. Over a **concrete** source it works today —
 
 ```
 iter fn evens(xs: List<Int>) -> Emitted Int | Finished {
-    state Evens { inner: Mut ListNext<Int> = iter(xs) }
+    state Evens { inner: Mut ListIter<Int> = iter(xs) }
     …
 }
 ```

@@ -29,7 +29,7 @@ own native loop.
 for x in xs { ... }             // a list: walked in place
 for c in "hi" { ... }           // its characters
 for x in iter(xs) { ... }       // the iterator an `iter` hands back
-for x in range(0, 10) { ... }   // one an `iter fn` mints
+for x in range(0, 10) { ... }   // one `range` mints
 for x in bag { ... }            // a source: `iter(bag)`, then driven
 for x in next(p) { ... }        // a step call, re-invoked each turn
 ```
@@ -238,16 +238,19 @@ an error, as an operator with two answers is. The loop says which: `for x in
 next(it)` drives it, and `for x in iter(it)` mints an iterator from it.
 
 std's containers are sources through their `iter` (`fn iter<T>(list: List<T>)
--> Mut ListNext<T>`, and the same for arrays, `Str`, `Set`, `Map`); each
+-> Mut ListIter<T>`, and the same for arrays, `Str`, `Set`, `Map`); each
 answers a named struct with an ordinary `next`, so nothing about container
 iteration is special-cased. The backends keep their native loop as a fast path
 for a `for` straight over a list, an array or a string — their spelling of
 `next(iter(xs))` when those are std's own `iter` and `next`. An enclosing
 `?iter` or `?next` that takes the list is called instead.
 
-std's `range` is an `iter fn range(start, end, step)` whose state is `Range`,
-and two overloads, `fn range(start: Int, end: Int) -> Mut Range` and `fn
-range(end: Int) -> Mut Range`, each delegating to it.
+std's `range(start, end, step)` mints a `RangeIter`, a struct with a `next`
+written out by hand, and two overloads, `fn range(start: Int, end: Int) -> Mut
+RangeIter` and `fn range(end: Int) -> Mut RangeIter`, each delegate to it. std
+writes every iterator that way, and names the struct an iterator-minting
+function answers after it, ending in `Iter`: `ListIter` for a list's `iter`,
+`RangeIter`, `ListReversedIter`, `MapEntriesIter`.
 
 ## Iterators over iterators: `mapping`, `taking`, …
 

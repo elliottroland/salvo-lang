@@ -56,22 +56,26 @@ fun clear__LongBuffer_Long(buf: salvo.platform.std.core.buffer.MutLongBuffer, fi
     salvo.std.core.buffer.longClearPlatform(buf, fill)
 }
 
+fun iter__IntBuffer(buf: salvo.platform.std.core.buffer.IntBuffer): IntBufferIter {
+    return IntBufferIter(buf = buf, at = 0)
+}
+
 data class IntBufferIter(
     var buf: salvo.platform.std.core.buffer.IntBuffer,
     var at: Int,
 )
 
-fun iter__IntBuffer(buf: salvo.platform.std.core.buffer.IntBuffer): IntBufferIter {
-    return IntBufferIter(buf = buf, at = 0)
-}
-
-fun next__IntBufferIter(__p: IntBufferIter): Union2<Int, salvo.std.core.iterator.Finished> {
-    if ((__p.at >= salvo.std.core.buffer.intSizePlatform(__p.buf))) {
+fun next__IntBufferIter(p: IntBufferIter): Union2<Int, salvo.std.core.iterator.Finished> {
+    if ((p.at >= salvo.std.core.buffer.intSizePlatform(p.buf))) {
         return Union2.U2<Int, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
     }
-    val value: Int = salvo.std.core.buffer.intGetPlatform(__p.buf, __p.at)
-    __p.at = (__p.at + 1)
+    val value: Int = salvo.std.core.buffer.intGetPlatform(p.buf, p.at)
+    p.at = (p.at + 1)
     return Union2.U1<Int, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(value))
+}
+
+fun iter__LongBuffer(buf: salvo.platform.std.core.buffer.LongBuffer): LongBufferIter {
+    return LongBufferIter(buf = buf, at = 0)
 }
 
 data class LongBufferIter(
@@ -79,23 +83,19 @@ data class LongBufferIter(
     var at: Int,
 )
 
-fun iter__LongBuffer(buf: salvo.platform.std.core.buffer.LongBuffer): LongBufferIter {
-    return LongBufferIter(buf = buf, at = 0)
-}
-
-fun next__LongBufferIter(__p: LongBufferIter): Union2<Long, salvo.std.core.iterator.Finished> {
-    if ((__p.at >= salvo.std.core.buffer.longSizePlatform(__p.buf))) {
+fun next__LongBufferIter(p: LongBufferIter): Union2<Long, salvo.std.core.iterator.Finished> {
+    if ((p.at >= salvo.std.core.buffer.longSizePlatform(p.buf))) {
         return Union2.U2<Long, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
     }
-    val value: Long = salvo.std.core.buffer.longGetPlatform(__p.buf, __p.at)
-    __p.at = (__p.at + 1)
+    val value: Long = salvo.std.core.buffer.longGetPlatform(p.buf, p.at)
+    p.at = (p.at + 1)
     return Union2.U1<Long, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(value))
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun toStr__IntBuffer(buf: salvo.platform.std.core.buffer.IntBuffer): String {
     val out: salvo.platform.std.core.string.MutStr = salvo.std.core.string.Mut_Str(arrayOf<String>("["))
-    val __pass_1: salvo.std.core.range.Range = salvo.std.core.range.range__Int(salvo.std.core.buffer.size__IntBuffer(buf))
+    val __pass_1: salvo.std.core.range.RangeIter = salvo.std.core.range.range__Int(salvo.std.core.buffer.size__IntBuffer(buf))
     while (true) {
         val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.std.core.range.next(__pass_1)
         when {
@@ -119,7 +119,7 @@ fun toStr__IntBuffer(buf: salvo.platform.std.core.buffer.IntBuffer): String {
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun toStr__LongBuffer(buf: salvo.platform.std.core.buffer.LongBuffer): String {
     val out: salvo.platform.std.core.string.MutStr = salvo.std.core.string.Mut_Str(arrayOf<String>("["))
-    val __pass_1: salvo.std.core.range.Range = salvo.std.core.range.range__Int(salvo.std.core.buffer.size__LongBuffer(buf))
+    val __pass_1: salvo.std.core.range.RangeIter = salvo.std.core.range.range__Int(salvo.std.core.buffer.size__LongBuffer(buf))
     while (true) {
         val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.std.core.range.next(__pass_1)
         when {

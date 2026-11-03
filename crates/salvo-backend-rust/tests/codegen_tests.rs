@@ -55,8 +55,8 @@ fn greet(person: Person) [Console] -> None => person {
     }
 }
 
-// Its own pass, named `Upto` rather than `Range`: `std.core.range` exports a
-// `Range` of its own [mod-export], and two same-named structs in two modules
+// Its own pass, named `Upto` rather than `RangeIter`: `std.core.range` exports a
+// `RangeIter` of its own [mod-export], and two same-named structs in two modules
 // confuse the pass-driving resolution (an open defect — ROADMAP.md).
 struct Upto {
     start: Int,
@@ -319,8 +319,8 @@ fn golden_effects_rust() {
 // ===== loops as values =====
 
 const LOOPS: &str = r#"
-// Its own pass, named `Upto` rather than `Range`: `std.core.range` exports a
-// `Range` of its own [mod-export], and two same-named structs in two modules
+// Its own pass, named `Upto` rather than `RangeIter`: `std.core.range` exports a
+// `RangeIter` of its own [mod-export], and two same-named structs in two modules
 // confuse the pass-driving resolution (an open defect — ROADMAP.md).
 struct Upto {
     start: Int,

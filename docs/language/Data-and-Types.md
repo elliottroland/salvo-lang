@@ -388,7 +388,7 @@ block — `return`, `break`, `continue`, or a call that never comes back — wha
 follows is on the else-path, so it reads with the remaining arms.
 
 ```
-fn next(p: Mut ListNext<T>) -> Emitted T | Finished => p: Mut {
+fn next(p: Mut ListIter<T>) -> Emitted T | Finished => p: Mut {
     let element = get(p.items, p.at)
     if element is None {
         return finished()       // the only way out for the empty case

@@ -137,10 +137,10 @@ fn main@main() -> None {
     }
     value !read __proj~5.name
   }))
-  bind#17 let pass: Mut ListNext<Fighter@main> = call iter@std.core.list<Fighter@main>(read roster)
-  bind#18 let standing: Mut List<proj Fighter@main> = call filter(Mut It, (T) -> Bool)@std.core.seq<ListNext<Fighter@main>, proj Fighter@main>(read pass, lambda(lent f: Fighter@main) -> Bool {
+  bind#17 let pass: Mut ListIter<Fighter@main> = call iter@std.core.list<Fighter@main>(read roster)
+  bind#18 let standing: Mut List<proj Fighter@main> = call filter(Mut It, (T) -> Bool)@std.core.seq<ListIter<Fighter@main>, proj Fighter@main>(read pass, lambda(lent f: Fighter@main) -> Bool {
     return (read f.hp > 10)
-  }, fn next(Mut ListNext<T>)@std.core.list)
+  }, fn next(Mut ListIter<T>)@std.core.list)
   call println@std.core.console(read __handle~2, concat("1. ", call to_str(Int)@std.core.basic(call size@std.core.list<proj Fighter@main>(drop_mut(read standing))), " of ", call to_str(Int)@std.core.basic(call size@std.core.list<Fighter@main>(read roster)), " still standing"))
   bind#19 let bench: Mut List<Fighter@main> = call Mut_List(T, T[])@std.core.list<Fighter@main>(construct Fighter@main { name: "Cy", hp: 12, energy: 2 }, array[Fighter@main[]]())
   call add@std.core.list<Fighter@main>(read bench, construct Fighter@main { name: "Dee", hp: 6, energy: 7 })

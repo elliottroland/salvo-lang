@@ -262,7 +262,7 @@ fn main@main() -> None {
       }
     }
   }
-  call println@std.core.console(read __handle~2, concat("2c. total of a bag ", call to_str(Int)@std.core.basic(call total@main<Bag@main, BagIter@main>(read bag, fn iter@main, fn next(Mut BagIter)@main)), ", of a list ", call to_str(Int)@std.core.basic(call total@main<List<Int>, ListNext<Int>>(read xs, fn iter@std.core.list, fn next(Mut ListNext<T>)@std.core.list))))
+  call println@std.core.console(read __handle~2, concat("2c. total of a bag ", call to_str(Int)@std.core.basic(call total@main<Bag@main, BagIter@main>(read bag, fn iter@main, fn next(Mut BagIter)@main)), ", of a list ", call to_str(Int)@std.core.basic(call total@main<List<Int>, ListIter<Int>>(read xs, fn iter@std.core.list, fn next(Mut ListIter<T>)@std.core.list))))
   bind#26 let __pass~12: Mut Fibs@main = call fibs@main(6)
   loop#25 {
     bind#27 let __step~13: Int | Finished = call next(Mut Fibs)@main(read __handle~2, read __pass~12)
@@ -305,14 +305,14 @@ fn main@main() -> None {
   })
   call println@std.core.console(read __handle~2, concat("5. list: ", call to_str(Int)@std.core.basic(call size@std.core.list<Int>(drop_mut(read doubled))), " doubled, ", call to_str(Int)@std.core.basic(call size@std.core.list<Int>(drop_mut(read odd))), " odd, total ", call to_str(Int)@std.core.basic(read total)))
   bind#41 let words: List<Str> = call List(T, T[])@std.core.list<Str>("ann", array[Str[]]("bo", "carol"))
-  bind#42 let lengths: Mut List<Int> = call map(Mut It, (T) -> U)@std.core.seq<ListNext<Str>, proj Str, Int>(call iter@std.core.list<Str>(read words), lambda(lent w: proj Str) -> Int {
+  bind#42 let lengths: Mut List<Int> = call map(Mut It, (T) -> U)@std.core.seq<ListIter<Str>, proj Str, Int>(call iter@std.core.list<Str>(read words), lambda(lent w: proj Str) -> Int {
     value call size@std.core.string(borrow_as[proj Str -> Str](read w))
-  }, fn next(Mut ListNext<T>)@std.core.list)
-  call println@std.core.console(read __handle~2, concat("5. lengths: ", call to_str(Int)@std.core.basic(call reduce(Mut It, A, (A, T) -> A)@std.core.seq<ListNext<Int>, Int, Int>(call iter@std.core.list<Int>(drop_mut(read lengths)), 0, lambda(lent acc: Int, lent n: Int) -> Int {
+  }, fn next(Mut ListIter<T>)@std.core.list)
+  call println@std.core.console(read __handle~2, concat("5. lengths: ", call to_str(Int)@std.core.basic(call reduce(Mut It, A, (A, T) -> A)@std.core.seq<ListIter<Int>, Int, Int>(call iter@std.core.list<Int>(drop_mut(read lengths)), 0, lambda(lent acc: Int, lent n: Int) -> Int {
     value (read acc + read n)
-  }, fn next(Mut ListNext<T>)@std.core.list))))
+  }, fn next(Mut ListIter<T>)@std.core.list))))
   bind#43 let word: Str = "iteration"
-  bind#44 let vowels: Mut List<Char> = call filter(Mut It, (T) -> Bool)@std.core.seq<StrNext, Char>(call iter@std.core.string(read word), lambda(lent c: Char) -> Bool {
+  bind#44 let vowels: Mut List<Char> = call filter(Mut It, (T) -> Bool)@std.core.seq<StrIter, Char>(call iter@std.core.string(read word), lambda(lent c: Char) -> Bool {
     value ((read c == 'i') || (read c == 'o'))
   }, fn next@std.core.string)
   call println@std.core.console(read __handle~2, concat("5. vowels: ", call to_str(Int)@std.core.basic(call size@std.core.list<Char>(drop_mut(read vowels)))))
@@ -324,7 +324,7 @@ fn main@main() -> None {
   }, fn add@std.core.list, fn next(Mut Countdown)@main)
   call println@std.core.console(read __handle~2, concat("6. collected ", call to_str(Int)@std.core.basic(call size@std.core.list<Int>(drop_mut(read collected)))))
   bind#46 let evens: Mut Str = call Mut_Str@std.core.string(array[Str[]]())
-  bind#48 let __pass~18: Mut Range = call range(Int, Int, Int)@std.core.range(0, 10, 2)
+  bind#48 let __pass~18: Mut RangeIter = call range(Int, Int, Int)@std.core.range(0, 10, 2)
   loop#47 {
     bind#49 let __step~19: Int | Finished = call next@std.core.range(read __pass~18)
     switch#50 read __step~19 {

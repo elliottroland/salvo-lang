@@ -387,7 +387,7 @@ main() -> None@main
   263:35  `"carol"`                      Str
   264:9   `lengths`                      Mut List<Int>
   264:19  `map(iter(words), (w) -> si…`  Mut List<Int>  -> std.core.seq::map(Mut It, (T) -> U)
-  264:23  `iter(words)`                  Mut ListNext<Str>  -> std.core.list::iter  [holds arg 0]
+  264:23  `iter(words)`                  Mut ListIter<Str>  -> std.core.list::iter  [holds arg 0]
   264:28  `words`                        NonEmpty List<Str>
   264:36  `(w) -> size(w)`               (proj Str) -> Int
   264:37  `w`                            proj Str
@@ -396,7 +396,7 @@ main() -> None@main
   265:5   `println("5. lengths: ${red…`  None  -> std.core.console::println  [passes Console (use 206:5)]
   265:13  `"5. lengths: ${reduce(iter…`  Str
   265:28  `reduce(iter(lengths), 0, (…`  Int  -> std.core.seq::reduce(Mut It, A, (A, T) -> A)
-  265:35  `iter(lengths)`                Mut ListNext<Int>  -> std.core.list::iter  [holds arg 0]
+  265:35  `iter(lengths)`                Mut ListIter<Int>  -> std.core.list::iter  [holds arg 0]
   265:40  `lengths`                      Mut List<Int> #{as List<Int>}
   265:50  `0`                            Int
   265:53  `(acc, n) -> acc + n`          (Int, Int) -> Int
@@ -409,7 +409,7 @@ main() -> None@main
   269:16  `"iteration"`                  Str
   270:9   `vowels`                       Mut List<Char>
   270:18  `filter(iter(word), (c) -> …`  Mut List<Char>  -> std.core.seq::filter(Mut It, (T) -> Bool)  [holds arg 0]
-  270:25  `iter(word)`                   Mut StrNext  -> std.core.string::iter  [holds arg 0]
+  270:25  `iter(word)`                   Mut StrIter  -> std.core.string::iter  [holds arg 0]
   270:30  `word`                         Str
   270:37  `(c) -> c == 'i' || c == 'o…`  (Char) -> Bool
   270:38  `c`                            Char
@@ -454,7 +454,7 @@ main() -> None@main
   288:17  `Mut Str()`                    Mut Str  -> std.core.string::Mut_Str
   289:5   `for i in range(0, 10, 2) {…`  None
   289:9   `i`                            Int
-  289:14  `range(0, 10, 2)`              Mut Range  -> std.core.range::range(Int, Int, Int)
+  289:14  `range(0, 10, 2)`              Mut RangeIter  -> std.core.range::range(Int, Int, Int)
   289:20  `0`                            Int
   289:23  `10`                           Int
   289:27  `2`                            Int

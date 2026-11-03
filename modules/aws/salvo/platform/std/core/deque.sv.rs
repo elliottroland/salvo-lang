@@ -186,17 +186,17 @@ pub fn to_deque<T: Clone>(list: &Vec<T>, copy: &mut dyn FnMut(&T) -> T) -> std::
     return out;
 }
 
-pub fn iter<T: Clone>(d: &std::collections::VecDeque<T>) -> crate::std_core_deque::DequeNext<'_, T> {
-    return crate::std_core_deque::DequeNext { items: d, at: 0i32 };
+pub fn iter<T: Clone>(d: &std::collections::VecDeque<T>) -> crate::std_core_deque::DequeIter<'_, T> {
+    return crate::std_core_deque::DequeIter { items: d, at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct DequeNext<'s, T> {
+pub struct DequeIter<'s, T> {
     pub items: &'s std::collections::VecDeque<T>,
     pub at: i32,
 }
 
-pub fn next__DequeNext<'a, T: Clone>(p: &mut crate::std_core_deque::DequeNext<'a, T>) -> crate::unions::Union2<&'a T, crate::std_core_iterator::Finished> {
+pub fn next__DequeIter<'a, T: Clone>(p: &mut crate::std_core_deque::DequeIter<'a, T>) -> crate::unions::Union2<&'a T, crate::std_core_iterator::Finished> {
     let mut elem: Option<&T> = crate::std_core_deque::get_platform::<T>(p.items, p.at);
     if elem.is_none() {
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());
@@ -206,22 +206,22 @@ pub fn next__DequeNext<'a, T: Clone>(p: &mut crate::std_core_deque::DequeNext<'a
     return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<&T>(elem_1));
 }
 
+pub fn reversed<T: Clone>(d: &std::collections::VecDeque<T>) -> crate::std_core_deque::DequeReversedIter<'_, T> {
+    return crate::std_core_deque::DequeReversedIter { items: d, at: i32::wrapping_sub(crate::std_core_deque::size_platform::<T>(d), 1i32) };
+}
+
 #[derive(Clone, Debug, PartialEq)]
-pub struct DequeReversed<'s, T> {
-    pub d: &'s std::collections::VecDeque<T>,
+pub struct DequeReversedIter<'s, T> {
+    pub items: &'s std::collections::VecDeque<T>,
     pub at: i32,
 }
 
-pub fn reversed<T: Clone>(d: &std::collections::VecDeque<T>) -> crate::std_core_deque::DequeReversed<'_, T> {
-    return crate::std_core_deque::DequeReversed { d: d, at: i32::wrapping_sub(crate::std_core_deque::size_platform::<T>(d), 1i32) };
-}
-
-pub fn next__DequeReversed<'a, T: Clone>(__p: &mut crate::std_core_deque::DequeReversed<'a, T>) -> crate::unions::Union2<&'a T, crate::std_core_iterator::Finished> {
-    let mut elem: Option<&T> = crate::std_core_deque::get_platform::<T>(__p.d, __p.at);
+pub fn next__DequeReversedIter<'a, T: Clone>(p: &mut crate::std_core_deque::DequeReversedIter<'a, T>) -> crate::unions::Union2<&'a T, crate::std_core_iterator::Finished> {
+    let mut elem: Option<&T> = crate::std_core_deque::get_platform::<T>(p.items, p.at);
     if elem.is_none() {
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());
     };
-    __p.at = i32::wrapping_sub(__p.at, 1i32);
+    p.at = i32::wrapping_sub(p.at, 1i32);
     let mut elem_1 = elem.unwrap();
     return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<&T>(elem_1));
 }

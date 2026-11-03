@@ -11,7 +11,7 @@ fn main() [use] -> None {
     // The temporary is bound before the loop…
     //~ emits: let mut __tmp1 = vec![1i32, 2i32];
     // …and the pass borrows the local.
-    //~ emits: let mut __pass_3: crate::std_core_list::ListNext<'_, i32> = crate::std_core_list::iter::<i32>(&__tmp1);
+    //~ emits: let mut __pass_3: crate::std_core_list::ListIter<'_, i32> = crate::std_core_list::iter::<i32>(&__tmp1);
     for x in iter(List(1, 2)) {
         println("a ${x}")
     }

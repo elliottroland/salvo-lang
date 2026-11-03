@@ -7,7 +7,7 @@
 // right output.
 //--- overload_delegation
 
-fn twice(p: Mut ListNext<Int>, f: (Int) -> Int) -> Mut List<Int> => p: Mut, f {
+fn twice(p: Mut ListIter<Int>, f: (Int) -> Int) -> Mut List<Int> => p: Mut, f {
     return map(p, f)
 }
 

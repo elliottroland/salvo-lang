@@ -116,24 +116,24 @@ fun<K, V> eq(a: salvo.platform.std.core.map.Map<K, V>, b: salvo.platform.std.cor
 
 fun<K, V> keysPlatform(map: salvo.platform.std.core.map.Map<K, V>): List<K> = salvo.platform.std.core.map.keys(map)
 
-fun<K, V> iter(map: salvo.platform.std.core.map.Map<K, V>): MapKeyNext<K> {
-    return MapKeyNext<K>(items = salvo.std.core.map.keysPlatform(map), at = 0)
+fun<K, V> iter(map: salvo.platform.std.core.map.Map<K, V>): MapKeyIter<K> {
+    return MapKeyIter<K>(items = salvo.std.core.map.keysPlatform(map), at = 0)
 }
 
-data class MapKeyNext<K>(
+data class MapKeyIter<K>(
     var items: List<K>,
     var at: Int,
 )
 
-class __Codec_MapKeyNext<K>(private val __c_K: salvo.WireCodec<K>) : salvo.WireCodec<MapKeyNext<K>> {
-    override fun enc(v: MapKeyNext<K>, out: salvo.WireOut) {
+class __Codec_MapKeyIter<K>(private val __c_K: salvo.WireCodec<K>) : salvo.WireCodec<MapKeyIter<K>> {
+    override fun enc(v: MapKeyIter<K>, out: salvo.WireOut) {
         salvo.ListCodec(__c_K).enc(v.items, out)
         salvo.IntCodec.enc(v.at, out)
     }
-    override fun dec(inp: salvo.WireIn): MapKeyNext<K> = MapKeyNext(salvo.ListCodec(__c_K).dec(inp), salvo.IntCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): MapKeyIter<K> = MapKeyIter(salvo.ListCodec(__c_K).dec(inp), salvo.IntCodec.dec(inp))
 }
 
-fun<K> next__MapKeyNext(p: MapKeyNext<K>): Union2<K, salvo.std.core.iterator.Finished> {
+fun<K> next__MapKeyIter(p: MapKeyIter<K>): Union2<K, salvo.std.core.iterator.Finished> {
     val key: K? = p.items.getOrNull(p.at)
     if ((key == null)) {
         return Union2.U2<K, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
@@ -154,25 +154,25 @@ data class MapEntry<K, V>(
     val value: V,
 )
 
-data class MapEntries<K, V>(
+fun<K, V> entries(map: salvo.platform.std.core.map.Map<K, V>): MapEntriesIter<K, V> {
+    return MapEntriesIter<K, V>(map = map, at = 0)
+}
+
+data class MapEntriesIter<K, V>(
     var map: salvo.platform.std.core.map.Map<K, V>,
     var at: Int,
 )
 
-fun<K, V> entries(map: salvo.platform.std.core.map.Map<K, V>): MapEntries<K, V> {
-    return MapEntries<K, V>(map = map, at = 0)
-}
-
-fun<K, V> next__MapEntries(__p: MapEntries<K, V>): Union2<MapEntry<K, V>, salvo.std.core.iterator.Finished> {
+fun<K, V> next__MapEntriesIter(p: MapEntriesIter<K, V>): Union2<MapEntry<K, V>, salvo.std.core.iterator.Finished> {
     while (true) {
-        if (!((__p.at < salvo.std.core.map.slotCountPlatform(__p.map)))) {
+        if (!((p.at < salvo.std.core.map.slotCountPlatform(p.map)))) {
             break
         }
-        val here: Int = __p.at
-        __p.at = (__p.at + 1)
-        val key: K? = salvo.std.core.map.keyAtPlatform(__p.map, here)
+        val here: Int = p.at
+        p.at = (p.at + 1)
+        val key: K? = salvo.std.core.map.keyAtPlatform(p.map, here)
         if (!((key == null))) {
-            val value: V = salvo.std.core.map.valueAtPlatform(__p.map, here)
+            val value: V = salvo.std.core.map.valueAtPlatform(p.map, here)
             val key_1: K = key!!
             return Union2.U1<MapEntry<K, V>, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(MapEntry<K, V>(key = key_1, value = value)))
         }
@@ -180,24 +180,24 @@ fun<K, V> next__MapEntries(__p: MapEntries<K, V>): Union2<MapEntry<K, V>, salvo.
     return Union2.U2<MapEntry<K, V>, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
 }
 
-data class MapValues<K, V>(
+fun<K, V> values(map: salvo.platform.std.core.map.Map<K, V>): MapValuesIter<K, V> {
+    return MapValuesIter<K, V>(map = map, at = 0)
+}
+
+data class MapValuesIter<K, V>(
     var map: salvo.platform.std.core.map.Map<K, V>,
     var at: Int,
 )
 
-fun<K, V> values(map: salvo.platform.std.core.map.Map<K, V>): MapValues<K, V> {
-    return MapValues<K, V>(map = map, at = 0)
-}
-
-fun<K, V> next__MapValues(__p: MapValues<K, V>): Union2<V, salvo.std.core.iterator.Finished> {
+fun<K, V> next__MapValuesIter(p: MapValuesIter<K, V>): Union2<V, salvo.std.core.iterator.Finished> {
     while (true) {
-        if (!((__p.at < salvo.std.core.map.slotCountPlatform(__p.map)))) {
+        if (!((p.at < salvo.std.core.map.slotCountPlatform(p.map)))) {
             break
         }
-        val here: Int = __p.at
-        __p.at = (__p.at + 1)
-        if (!((salvo.std.core.map.keyAtPlatform(__p.map, here) == null))) {
-            val value: V = salvo.std.core.map.valueAtPlatform(__p.map, here)
+        val here: Int = p.at
+        p.at = (p.at + 1)
+        if (!((salvo.std.core.map.keyAtPlatform(p.map, here) == null))) {
+            val value: V = salvo.std.core.map.valueAtPlatform(p.map, here)
             return Union2.U1<V, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(value))
         }
     }

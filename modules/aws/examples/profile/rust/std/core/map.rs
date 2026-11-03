@@ -175,17 +175,17 @@ pub fn keys_platform<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -
     crate::platform_std_core_map::keys(map)
 }
 
-pub fn iter<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> crate::std_core_map::MapKeyNext<K> {
-    return crate::std_core_map::MapKeyNext { items: crate::std_core_map::keys_platform::<K, V>(map), at: 0i32 };
+pub fn iter<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> crate::std_core_map::MapKeyIter<K> {
+    return crate::std_core_map::MapKeyIter { items: crate::std_core_map::keys_platform::<K, V>(map), at: 0i32 };
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct MapKeyNext<K> {
+pub struct MapKeyIter<K> {
     pub items: Vec<K>,
     pub at: i32,
 }
 
-impl<K: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for MapKeyNext<K> {
+impl<K: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for MapKeyIter<K> {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.items, out);
         crate::wire::__Wire::__enc(&self.at, out);
@@ -198,7 +198,7 @@ impl<K: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for MapKeyNex
     }
 }
 
-pub fn next__MapKeyNext<K: Clone>(p: &mut crate::std_core_map::MapKeyNext<K>) -> crate::unions::Union2<K, crate::std_core_iterator::Finished> {
+pub fn next__MapKeyIter<K: Clone>(p: &mut crate::std_core_map::MapKeyIter<K>) -> crate::unions::Union2<K, crate::std_core_iterator::Finished> {
     let mut key: Option<K> = p.items.get((p.at) as i64 as usize).cloned();
     if key.is_none() {
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());
@@ -226,26 +226,26 @@ pub struct MapEntry<'s, K, V> {
     pub value: &'s V,
 }
 
+pub fn entries<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> crate::std_core_map::MapEntriesIter<'_, K, V> {
+    return crate::std_core_map::MapEntriesIter { map: map, at: 0i32 };
+}
+
 #[derive(Clone, Debug, PartialEq)]
-pub struct MapEntries<'s, K, V> {
+pub struct MapEntriesIter<'s, K, V> {
     pub map: &'s crate::std_core_map::Map<K, V>,
     pub at: i32,
 }
 
-pub fn entries<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> crate::std_core_map::MapEntries<'_, K, V> {
-    return crate::std_core_map::MapEntries { map: map, at: 0i32 };
-}
-
-pub fn next__MapEntries<'a, K: Clone, V: Clone>(__p: &mut crate::std_core_map::MapEntries<'a, K, V>) -> crate::unions::Union2<crate::std_core_map::MapEntry<'a, K, V>, crate::std_core_iterator::Finished> {
+pub fn next__MapEntriesIter<'a, K: Clone, V: Clone>(p: &mut crate::std_core_map::MapEntriesIter<'a, K, V>) -> crate::unions::Union2<crate::std_core_map::MapEntry<'a, K, V>, crate::std_core_iterator::Finished> {
     loop {
-        if !((__p.at < crate::std_core_map::slot_count_platform::<K, V>(__p.map))) {
+        if !((p.at < crate::std_core_map::slot_count_platform::<K, V>(p.map))) {
             break;
         };
-        let mut here: i32 = __p.at;
-        __p.at = i32::wrapping_add(__p.at, 1i32);
-        let mut key: Option<&K> = crate::std_core_map::key_at_platform::<K, V>(__p.map, here);
+        let mut here: i32 = p.at;
+        p.at = i32::wrapping_add(p.at, 1i32);
+        let mut key: Option<&K> = crate::std_core_map::key_at_platform::<K, V>(p.map, here);
         if !(key.is_none()) {
-            let mut value: &V = crate::std_core_map::value_at_platform::<K, V>(__p.map, here);
+            let mut value: &V = crate::std_core_map::value_at_platform::<K, V>(p.map, here);
             let mut key_1 = key.unwrap();
             return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<crate::std_core_map::MapEntry<'_, K, V>>(crate::std_core_map::MapEntry { key: key_1, value: value }));
         };
@@ -253,25 +253,25 @@ pub fn next__MapEntries<'a, K: Clone, V: Clone>(__p: &mut crate::std_core_map::M
     return crate::unions::Union2::U2(crate::std_core_iterator::finished());
 }
 
+pub fn values<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> crate::std_core_map::MapValuesIter<'_, K, V> {
+    return crate::std_core_map::MapValuesIter { map: map, at: 0i32 };
+}
+
 #[derive(Clone, Debug, PartialEq)]
-pub struct MapValues<'s, K, V> {
+pub struct MapValuesIter<'s, K, V> {
     pub map: &'s crate::std_core_map::Map<K, V>,
     pub at: i32,
 }
 
-pub fn values<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> crate::std_core_map::MapValues<'_, K, V> {
-    return crate::std_core_map::MapValues { map: map, at: 0i32 };
-}
-
-pub fn next__MapValues<'a, K: Clone, V: Clone>(__p: &mut crate::std_core_map::MapValues<'a, K, V>) -> crate::unions::Union2<&'a V, crate::std_core_iterator::Finished> {
+pub fn next__MapValuesIter<'a, K: Clone, V: Clone>(p: &mut crate::std_core_map::MapValuesIter<'a, K, V>) -> crate::unions::Union2<&'a V, crate::std_core_iterator::Finished> {
     loop {
-        if !((__p.at < crate::std_core_map::slot_count_platform::<K, V>(__p.map))) {
+        if !((p.at < crate::std_core_map::slot_count_platform::<K, V>(p.map))) {
             break;
         };
-        let mut here: i32 = __p.at;
-        __p.at = i32::wrapping_add(__p.at, 1i32);
-        if !((crate::std_core_map::key_at_platform::<K, V>(__p.map, here)).is_none()) {
-            let mut value: &V = crate::std_core_map::value_at_platform::<K, V>(__p.map, here);
+        let mut here: i32 = p.at;
+        p.at = i32::wrapping_add(p.at, 1i32);
+        if !((crate::std_core_map::key_at_platform::<K, V>(p.map, here)).is_none()) {
+            let mut value: &V = crate::std_core_map::value_at_platform::<K, V>(p.map, here);
             return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<&V>(value));
         };
     }

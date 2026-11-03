@@ -15,7 +15,7 @@
 // implements it in `lib/platform/std/core/deque.{rs,kt}` and names the mutable
 // kind `MutDeque`.
 // @compilerrules [col-deque, type-canbe-mut, linear-container, net-noremote, platform-value-type]
-export iterable platform type Deque<T canbe linear> canbe Mut : Iter<self, DequeNext<T>, T>
+export iterable platform type Deque<T canbe linear> canbe Mut : Iter<self, DequeIter<T>, T>
 
 // The host's primitives, from which the constructors below are built.
 platform fn empty_deque<T canbe linear>() [] -> Mut Deque<T>
@@ -184,18 +184,18 @@ export fn to_deque<T>(list: List<T>, ?copy: (v: T) -> T) [] -> Deque<T> => list 
 // A fresh iterator front to back. Borrows the deque, like a
 // list's [iter].
 // @compilerrules [iter-mint]
-export fn iter<T>(d: Deque<T>) [] -> Mut DequeNext<T> => d {
-    return Mut DequeNext<T> { items: d, at: 0 }
+export fn iter<T>(d: Deque<T>) [] -> Mut DequeIter<T> => d {
+    return Mut DequeIter<T> { items: d, at: 0 }
 }
 
 // The pass a deque is walked by: the deque and a position.
 // @compilerrules [iter-protocol]
-export struct DequeNext<T> : Next<self, proj T> canbe Mut {
+export struct DequeIter<T> : Next<self, proj T> canbe Mut {
     items: proj Deque<T>,
     at: Int
 }
 
-export fn next<T>(p: Mut DequeNext<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
+export fn next<T>(p: Mut DequeIter<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
     let elem = get(p.items, p.at)
     if elem is None {
         return finished()
@@ -206,14 +206,26 @@ export fn next<T>(p: Mut DequeNext<T>) [] -> Emitted (proj(p) T) | Finished => p
 
 // Walks the deque back to front, borrowing it.
 // @compilerrules [col-reversed]
-export iter fn reversed<T>(d: Deque<T>) -> Emitted (proj(d) T) | Finished {
-    state DequeReversed {
-        at: Int = size(d) - 1
-    }
-    let elem = get(d, at)
+export fn reversed<T>(d: Deque<T>) [] -> Mut DequeReversedIter<T> => d {
+    return Mut DequeReversedIter<T> { items: d, at: size(d) - 1 }
+}
+
+// The iterator [reversed] mints over a deque: the deque, borrowed, and the
+// index of the next element to emit, counting down.
+export struct DequeReversedIter<T> : Next<self, proj T> canbe Mut {
+    // The deque being walked, borrowed.
+    // @compilerrules [proj-field, proj-infer]
+    items: proj Deque<T>,
+    // The index of the next element; `-1` is the end.
+    at: Int
+}
+
+// Advances a reversed walk: the element at its position, or the end.
+export fn next<T>(p: Mut DequeReversedIter<T>) [] -> Emitted (proj(p) T) | Finished => p: Mut {
+    let elem = get(p.items, p.at)
     if elem is None {
         return finished()
     }
-    at = at - 1
+    p.at = p.at - 1
     return emitted(elem)
 }

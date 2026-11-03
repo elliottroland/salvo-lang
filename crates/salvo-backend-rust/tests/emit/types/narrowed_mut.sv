@@ -34,12 +34,12 @@ fn show(step: Emitted Int | Finished) [Console] {
 }
 
 iter fn iter(f: Flat) -> Emitted Int | Finished {
-    state FlatIter { at: Int = 0, inner: Mut ListNext<Int>? = None }
+    state FlatIter { at: Int = 0, inner: Mut ListIter<Int>? = None }
     while true {
         // The `state` slot inside the generated pass, narrowed into a `&mut`
         // binding of the storage.
         //~ emits: let mut __narrowed_1 = __p.inner.as_mut().unwrap();
-        if inner is Mut ListNext<Int> {
+        if inner is Mut ListIter<Int> {
             let step = next(inner)
             when step {
                 is Emitted {
@@ -62,27 +62,27 @@ iter fn iter(f: Flat) -> Emitted Int | Finished {
 fn main() [use] {
     use StdConsole()
     let base = List(1, 2)
-    let p: Mut ListNext<Int>? = iter(base)
+    let p: Mut ListIter<Int>? = iter(base)
     // The optional, narrowed into a `&mut` binding of the storage.
     //~ emits: let mut p_3 = p.as_mut().unwrap();
     //~ !emits: &mut (p.as_ref
-    if p is Mut ListNext<Int> {
-        //~ emits: next__ListNext::<i32>(&mut *p_3)
+    if p is Mut ListIter<Int> {
+        //~ emits: next__ListIter::<i32>(&mut *p_3)
         show(next(p))
         show(next(p))
         show(next(p))
     }
     let qs = List(7, 8)
-    let q: Mut ListNext<Int> | Int = iter(qs)
+    let q: Mut ListIter<Int> | Int = iter(qs)
     // The union arm.
     //~ emits: let mut q_4 = match &mut q { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-    if q is Mut ListNext<Int> {
+    if q is Mut ListIter<Int> {
         show(next(q))
         show(next(q))
     }
     let rs = List(1, 2, 3)
-    let r: Mut ListNext<Int>? = iter(rs)
-    if r is Mut ListNext<Int> {
+    let r: Mut ListIter<Int>? = iter(rs)
+    if r is Mut ListIter<Int> {
         // The assignment base.
         //~ emits: let mut r_5 = r.as_mut().unwrap();
         //~|         r_5.at = 2i32;

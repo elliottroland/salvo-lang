@@ -42,11 +42,11 @@ T>`, naming that struct, to have the pair checked at the type
 ([Iterators](Iterators.md)):
 
 ```
-struct Bag : Iter<self, ListNext<Int>, Int> {
+struct Bag : Iter<self, ListIter<Int>, Int> {
     items: List<Int>
 }
 
-fn iter(bag: Bag) -> Mut ListNext<Int> => bag {
+fn iter(bag: Bag) -> Mut ListIter<Int> => bag {
     return iter(bag.items)
 }
 
@@ -109,5 +109,5 @@ declaring one function.
 
 A `fns` group can also be an obligation on a **struct**, so the
 requirement travels with the type rather than with each function that takes
-it (`export struct ArrayNext<T> : Next<self, proj T>`, `struct Bag :
+it (`export struct ArrayIter<T> : Next<self, proj T>`, `struct Bag :
 Iter<self, Int>`). See [Implicit parameters](Implicit-Parameters.md).
