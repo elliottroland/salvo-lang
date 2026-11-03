@@ -144,6 +144,14 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — `cmp_deref.sv`'s comment was the stale side (ROADMAP 0ar)
+
+- **Changed**: the Rust emit case said arithmetic must not grow a deref of
+  a borrowed scalar, while it asserted `i32::wrapping_add((*… get …), 1i32)`.
+  [rs-cmp-deref] already says arithmetic derefs (a wrapping function takes
+  `i32`s), so the comment and the case name now say so; nothing emitted
+  changed.
+
 ### 2026-10-30 — A refused fn named by module says nothing more (ROADMAP 0ar, [op-unique-shape])
 
 - **Built**: `Resolution::refused_names` lists the fns refused for their

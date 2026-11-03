@@ -91,7 +91,9 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
   The stale labels (commit "Retarget two labels no spec defines").
   The false `no-fn-in-module` (commit "Say nothing more of a refused fn
   named by module").
-- Next: 0ar's `cmp_deref` comment, then its remaining diagnostic cascades.
+  The `cmp_deref` comment was the stale side ([rs-cmp-deref] already says
+  arithmetic derefs; commit "Correct the cmp_deref case's stale comment").
+- Next: 0ar's remaining items (diagnostic cascades, message texts).
 
 ## The sequence
 
@@ -1003,10 +1005,6 @@ repros are over the real std.
     `build_produces_a_runnable_artifact_…`, which hold those programs since
     2026-10-29).
 - **From the emit data (TESTS.md C4/C5)**:
-  - `crates/salvo-backend-rust/tests/emit/operators/cmp_deref.sv`: the
-    program's comment says arithmetic must not grow a deref, but the emitted
-    (and asserted) code is `i32::wrapping_add((*crate::std_core_list::get::<i32>(&xs, i)), 1i32)`;
-    either the comment is stale or the emission is.
 - **From the second wave (parser and salvo-core tests to ids)**:
   - **a missing diagnostic?** `handler Working() of Work` with no `Work`
     declared reports nothing, in a file whose parse error elsewhere still
