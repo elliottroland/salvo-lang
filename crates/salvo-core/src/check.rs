@@ -9874,6 +9874,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.error(span, messages::throw_not_main_declared(&THROW_EFFECT));
             }
         }
+        // [main-effects] Nothing calls the entry point, so nothing can hand it
+        // a handler: its effect list holds only what the host gives it, `use`
+        // and `spawn` (user decision 2026-10-30, ROADMAP 0bd). A top-level
+        // `main` of a project file; a test file's are the harness's.
+        let entry = f.name.name == "main"
+            && self.own_handler.is_none()
+            && self.files.get(self.file_idx).is_some_and(|file| !file.is_std && !file.is_test);
+        if entry {
+            for e in f.effects.iter().flatten() {
+                if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = e {
+                    if r.name.name != THROW_EFFECT {
+                        self.error(r.span, messages::main_effects_declared(&r.name.name));
+                    }
+                }
+            }
+        }
         // [effect-handler-deps] A handler member body may use the effects
         // its handler declares in its effect list, exactly as if the member
         // had declared them — which it may not

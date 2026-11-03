@@ -144,6 +144,17 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — `main` declares only `use` and `spawn` (user decision, ROADMAP 0bd, [main-effects])
+
+- **Decided (user)**: option (a): refuse an effect on the entry point; a
+  program registers its handlers inside `main`.
+- **Built**: `main-effects:declared` at each effect a top-level project
+  `main` declares (`[Throw<M>]` keeps [throw-not-main]'s own message), naming
+  `[use]` and a handler registered inside. Data:
+  `check/effects/entry_point.sv`. Seven LSP tests whose sources declared
+  `fn main() [Console]` (checked clean, never run) now call it `show`, the
+  same length, so no position moved.
+
 ### 2026-10-30 — A `for` over a type both driven and minted is ambiguous (user decision, ROADMAP 0am / §II.10 P15, [iter-for] [iter-group])
 
 - **Decided (user)**: accept a type with both a `next` and an `iter`, and

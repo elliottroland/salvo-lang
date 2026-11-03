@@ -2094,7 +2094,7 @@ fn label(n: Int) -> Str {
     return \"own ${n}\"
 }
 
-fn main() [Console] {
+fn show() [Console] {
     let creds = ProfileCredentials {path: \"~/.aws/credentials\"}
     println(creds.path)
     println(label@shapes(1))
@@ -2488,7 +2488,7 @@ fn shout(s: Str) -> Str {
     return to_upper(s)
 }
 
-fn main() [Console] {
+fn show() [Console] {
     let name = \"salvo\"
     let n = 3
     println(name.)
@@ -2533,15 +2533,15 @@ fn main() [Console] {
     assert!(labels.contains(&"shout"), "{labels:?}");
     assert!(labels.contains(&"to_upper"), "{labels:?}");
     assert!(labels.contains(&"trim"), "{labels:?}");
-    assert!(!labels.contains(&"main"), "{labels:?}");
+    assert!(!labels.contains(&"show"), "{labels:?}");
     assert!(!labels.contains(&"push_heap"), "{labels:?}");
     let rank = |l: &str| items.iter().find(|(x, _)| x == l).map(|(_, r)| r.clone()).unwrap();
     assert!(rank("trim") < rank("copy"), "a Str fn ranks before a generic one");
     // A bare word: everything in scope.
     let items = complete(&mut lsp, 3, 8, 6);
     let labels: Vec<&str> = items.iter().map(|(l, _)| l.as_str()).collect();
-    assert!(labels.contains(&"shout") && labels.contains(&"main") && labels.contains(&"println"), "{labels:?}");
-    // [lsp-completion] Local bindings in scope are offered too: `main`'s own
+    assert!(labels.contains(&"shout") && labels.contains(&"show") && labels.contains(&"println"), "{labels:?}");
+    // [lsp-completion] Local bindings in scope are offered too: `show`'s own
     // `name` and `n`, declared above the cursor.
     assert!(labels.contains(&"name") && labels.contains(&"n"), "locals in scope: {labels:?}");
     // A local ranks ahead of a fn (sortText `0name` vs `0println`… both tier
@@ -2597,7 +2597,7 @@ fn take(p: Po) -> Int {
     return 0
 }
 
-fn main() [Console] {
+fn show() [Console] {
     
 }
 ";
@@ -3070,7 +3070,7 @@ fn pick(a: Int, b: Int) -> Int => a, b {
 
 // A reference to [Wi
 // Just some prose about wi
-fn main() [Console] {
+fn show() [Console] {
     pi
     un
 }
@@ -3146,7 +3146,7 @@ fn pick(a: Int, b: Int) -> Int => a, b {
     return a + b
 }
 
-fn main() [Console] {
+fn show() [Console] {
     let x = pick(1, 2)
 }
 ";
@@ -3215,7 +3215,7 @@ fn make() -> Pt {
     return Pt { mx: 1, }
 }
 
-fn main() [Console] {
+fn show() [Console] {
 }
 ";
     std::fs::write(root.join("a.sv"), a).unwrap();
@@ -3283,7 +3283,7 @@ fn outside(b: Bag) -> Int {
     return b.
 }
 
-fn main() [Console] {
+fn show() [Console] {
 }
 ";
     std::fs::write(root.join("bag.sv"), bag).unwrap();

@@ -6924,6 +6924,16 @@ Conventions:
 * [throw-not-main] `main` may not declare `[Throw<M>]`: there is no caller
   to receive it, Rust cannot express a `main` returning `ControlFlow`, and
   Kotlin would die on an uncaught signal. The delimiter goes inside.
+* [main-effects] **`main` declares only what the host gives it**: `use` and
+  `spawn` (user decision 2026-10-30, ROADMAP 0bd). Nothing calls the entry
+  point, so nothing could hand it a handler for an effect it declares:
+  `main() [Console]` is refused (`main-effects:declared`, naming `[use]` and
+  a handler registered inside as the remedy), as `[Throw<M>]` is
+  [throw-not-main]. Checked on a top-level `main` of a project file (a test
+  file's `main` is the harness's). Before, it checked clean and neither
+  target ran it: Rust emitted `fn main(console: &Console)` (E0580) and the
+  JVM found no entry point. Not chosen: the host supplying std's default
+  handler for each std effect `main` declares, a second way to install one.
 * [throw-try] `try { block }` is the delimiter: a **compiler intrinsic**, not an
   effect (user decision 2026-09-04 — "there's not much value in a function
   declaring the `Try` effect in its signature any more than there is in

@@ -4663,6 +4663,11 @@ messages! {
 
     // [throw-not-main]
     /// `main` declaring `Throw`.
+    /// [main-effects] An entry point that declares an effect.
+    main_effects_declared = "main-effects:declared" (effect: &dyn std::fmt::Display) => format!(
+        "`main` cannot declare `{effect}`: nothing calls `main`, so nothing can hand it a handler \
+         — declare `[use]` and register a handler of `{effect}` inside it (`use H()`)"
+    );
     throw_not_main_declared = "throw-not-main:declared" (throw_effect: &dyn std::fmt::Display) => format!(
         "`main` cannot declare `{throw_effect}`: there is no caller to receive the throw \
          — delimit it inside `main` with a `try {{ ... }}` block instead"

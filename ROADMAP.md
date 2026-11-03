@@ -732,23 +732,6 @@ writing `[E]` and `=> …` between its parameters and `->` as a fn does.
 Recommendation (a): nothing has needed it, and an inferred set fits where
 the written one would.
 
-### 0bd — DECISION: an entry point that declares an effect (found 2026-10-30)
-
-`fn main() [Console] -> None { println("hi") }` checks clean, and neither
-target runs it: Rust emits `pub fn main(console: &Console)` (E0580, `main`
-has the wrong type) and the Kotlin `main` takes the handler as a parameter,
-so the JVM finds no entry point. Nothing calls `main`, so nothing can pass
-it a handler; `main() [use]` with `use StdConsole()` is how a program gets
-one. A checker-clean program the targets refuse [backend-never-wrong].
-Options: (a) refuse it at the declaration: an entry point's effect list
-holds only the capabilities a host gives it (`use`, `spawn`, and whatever
-[cli-run] lists), naming the remedy ("`use` a handler in `main`"); (b) let
-the host supply std's default handler for each std effect `main` declares
-(`main() [Console]` meaning "with the standard console"), which every
-backend's entry shim would have to build. Recommendation (a): it is the
-rule the program already lives by, and (b) is a second way to install a
-handler. Found writing 0al's repro.
-
 ### 0ae — Recorded, not scheduled: per-declaration reuse in the check cache (measured 2026-10-28, A4)
 
 The language server's `CheckCache` [lsp-check-cache] reuses an unedited
