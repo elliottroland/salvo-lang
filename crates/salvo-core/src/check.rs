@@ -8212,6 +8212,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
             if named.is_empty() {
+                // [op-unique-shape] A `name@module` naming a declaration refused
+                // for its shape is that refusal's, which is already reported:
+                // one mistake, one diagnostic (ROADMAP 0ar — "no `to_str` in
+                // `main`" beside the refused `to_str<T>` of `main`).
+                if matches!(sel, Selector::Module(_))
+                    && self.resolution.refused_names.iter().any(|(m, n)| n == name && ModulePath::text_matches_suffix(m, &wanted))
+                {
+                    return Ty::Unknown;
+                }
                 self.error(
                     name_span,
                     match sel {

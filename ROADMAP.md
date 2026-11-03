@@ -89,7 +89,9 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
   The out-of-range subscript trap (commit "Trap an array subscript out of
   range with Salvo's message").
   The stale labels (commit "Retarget two labels no spec defines").
-- Next: 0ar's false `no-fn-in-module`.
+  The false `no-fn-in-module` (commit "Say nothing more of a refused fn
+  named by module").
+- Next: 0ar's `cmp_deref` comment, then its remaining diagnostic cascades.
 
 ## The sequence
 
@@ -1001,9 +1003,6 @@ repros are over the real std.
     `build_produces_a_runnable_artifact_…`, which hold those programs since
     2026-10-29).
 - **From the emit data (TESTS.md C4/C5)**:
-  - a refused catch-all `fn to_str<T>` also reports
-    `fn-overload-at:no-fn-in-module` at `to_str = to_str@main`, which is
-    false — `main` declares `to_str` (`check/unique_shape/catch_all_to_str.sv`);
   - `crates/salvo-backend-rust/tests/emit/operators/cmp_deref.sv`: the
     program's comment says arithmetic must not grow a deref, but the emitted
     (and asserted) code is `i32::wrapping_add((*crate::std_core_list::get::<i32>(&xs, i)), 1i32)`;

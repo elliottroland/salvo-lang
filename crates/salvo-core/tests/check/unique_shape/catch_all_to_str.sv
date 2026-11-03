@@ -13,6 +13,7 @@ fn to_str<T>(x: T) [] -> Str => x { return "?" }
 fn main() [use] {
     use StdConsole()
     let xs = List(1, 2)
-    //~ error[fn-overload-at:no-fn-in-module]
+    // The override names the refused catch-all, so it reports nothing more
+    // (it said "no `to_str` in `main`" before 2026-10-30, ROADMAP 0ar).
     println("${to_str(xs, to_str = to_str@main)}")
 }

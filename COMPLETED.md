@@ -144,6 +144,16 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A refused fn named by module says nothing more (ROADMAP 0ar, [op-unique-shape])
+
+- **Built**: `Resolution::refused_names` lists the fns refused for their
+  shape by module and name, and a `name@module` value whose module declares
+  only a refused `name` answers `Ty::Unknown` silently. Beside a refused
+  catch-all `fn to_str<T>` in `main`, `to_str = to_str@main` reported
+  `fn-overload-at:no-fn-in-module`, which is false: `main` declares one, and
+  its refusal is the one diagnostic (`check/unique_shape/catch_all_to_str.sv`
+  no longer expects the second).
+
 ### 2026-10-30 — Two labels no spec defined are retargeted (ROADMAP 0ar)
 
 - **Changed**: `[rs-interp-sequence]` (the run data on interpolation

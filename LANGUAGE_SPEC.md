@@ -5625,6 +5625,9 @@ Conventions:
     reaches through its effect list, so its uses report nothing beyond its
     refusal — one mistake, one diagnostic. An explicit `m@E` still reaches a
     refused member (the selector names it).
+    A `name@module` *value* naming a refused fn (`to_str = to_str@main`)
+    is silent too, rather than "no `to_str` in `main`"
+    (`Resolution::refused_names`, 2026-10-30).
   * The rule does not select: the comparison operators are the calls they
     name [op-order] [op-equality]; interpolation [interp-to-str] and `for`
     [iter-resolve] are lowered to their calls in their own pieces

@@ -232,6 +232,9 @@ pub struct Resolution<'p> {
     /// [op-unique-shape] The declarations refused for their placement, by
     /// address: left out of every candidate set (ROADMAP 0ag).
     pub refused_shapes: HashSet<usize>,
+    /// [op-unique-shape] The refused fns, by module and name: a
+    /// `name@module` naming one is not "no `name` in `module`" (ROADMAP 0ar).
+    pub refused_names: HashSet<(String, String)>,
 }
 
 impl<'p> Resolution<'p> {
@@ -1345,10 +1348,20 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     // a body reaches by `refused_shapes`, so its uses report nothing more
     // than its refusal — one mistake, one diagnostic.
     let mut refused_shapes: HashSet<usize> = HashSet::new();
+    let mut refused_names: HashSet<(String, String)> = HashSet::new();
     if !scopes_only {
         refused_shapes = crate::unique_shape::check_program(files, &modules, &scopes, &decls, &mut errors);
         if !refused_shapes.is_empty() {
             let refused = |f: &FnDecl| refused_shapes.contains(&(f as *const FnDecl as usize));
+            for (file, m) in files.iter().zip(modules.iter()) {
+                for item in &m.items {
+                    if let salvo_syntax::ast::Item::Fn(f) = item {
+                        if refused(f) {
+                            refused_names.insert((file.module.to_string(), f.name.name.clone()));
+                        }
+                    }
+                }
+            }
             for scope in scopes.iter_mut() {
                 for entries in scope.fns.values_mut() {
                     entries.retain(|e| !refused(e.decl));
@@ -1423,6 +1436,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
             stamp_scopes: Vec::new(),
             fn_stamp_scope: HashMap::new(),
             refused_shapes,
+            refused_names,
         };
     }
     let (stamp_scopes, fn_stamp_scope, templates, template_refs) = stamp_scopes(program, &scopes);
@@ -1442,6 +1456,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
         stamp_scopes,
         fn_stamp_scope,
         refused_shapes,
+        refused_names,
     }
 }
 
