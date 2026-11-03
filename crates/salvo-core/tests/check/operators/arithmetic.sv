@@ -147,6 +147,8 @@ fn compound_assignment() -> None {
     n -= 1
     n *= 3
     n /= 2
+    // `**=` too (user decision 2026-10-30).
+    n **= 2
     let s = "a"
     //~ error[call-resolve:no-overload]
     s += "b"

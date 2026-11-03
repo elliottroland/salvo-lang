@@ -525,10 +525,16 @@ impl<'s> Lexer<'s> {
                 TokenKind::MinusEq
             }
             // [op-pow] `**` is one token, before `*=` and the bare `*`: no
-            // other construct writes two stars together.
+            // other construct writes two stars together. [op-compound] `**=`
+            // is its compound assignment (user decision 2026-10-30).
             ('*', Some('*')) => {
                 self.bump();
-                TokenKind::StarStar
+                if self.peek() == Some('=') {
+                    self.bump();
+                    TokenKind::StarStarEq
+                } else {
+                    TokenKind::StarStar
+                }
             }
             ('*', Some('=')) => {
                 self.bump();

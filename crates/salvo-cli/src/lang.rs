@@ -474,7 +474,7 @@ pub fn tm_grammar() -> String {
         {{
           "comment": "[op-compound] before the arithmetic operators, so `+=` is one token-shaped thing rather than a `+` beside an `=`",
           "name": "keyword.operator.assignment.salvo",
-          "match": "\\+=|-=|\\*=|/="
+          "match": "\\*\\*=|\\+=|-=|\\*=|/="
         }},
         {{
           "comment": "[op-pow] `**` first, so it is one operator rather than two `*`",

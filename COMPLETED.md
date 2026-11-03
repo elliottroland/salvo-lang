@@ -144,6 +144,16 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — `**=` (user decision, ROADMAP 0aq, [op-compound] [op-pow])
+
+- **Decided (user)**: `**`'s precedence as built (Python's), and yes to
+  `**=`, "since I'd like numeric operators to be consistent".
+- **Built**: the lexer reads `**=` as one token after `**`'s two stars, and
+  the parser desugars `x **= e` to `x = x ** e` like the other compound
+  assignments. LANGUAGE_SPEC [op-compound], docs/language/Data-and-Types.md,
+  the TextMate grammar (regenerated with `salvo lang tm-grammar`) and
+  `check/operators/arithmetic.sv` follow.
+
 ### 2026-10-30 — An aliased binder is not the operator's (user decision, ROADMAP 0ak / §II.10 P13–P14, [cmp-binder] [op-order])
 
 - **Decided (user)**: (1) option (b): an operator asks for its function by

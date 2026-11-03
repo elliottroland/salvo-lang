@@ -150,9 +150,10 @@ Conventions:
     is accepted, because field chains flow-narrow [flow-place]. Element
     reads (`arr[i]`) do not narrow, so those still need the
     `is Str name` binding form.
-* [op-compound] `x += e`, `-=`, `*=`, `/=`: **pure desugar** to
-  `x = x op e`, in the parser (user decision 2026-09-22, the heap plan's item 6).
-  Four of them, one per two-operand arithmetic operator; `%=` is deliberately
+* [op-compound] `x += e`, `-=`, `*=`, `/=`, `**=`: **pure desugar** to
+  `x = x op e`, in the parser (user decision 2026-09-22, the heap plan's item 6;
+  `**=` user decision 2026-10-30, so the numeric operators are consistent).
+  One per two-operand arithmetic operator and `**`; `%=` is deliberately
   absent, since a remainder-in-place has no reading a reader would guess.
   * Nothing downstream knows the spelling exists: the operand rules come from
     [op-arith] (so `+=` on a `Str` is refused naming interpolation, and an
@@ -165,8 +166,8 @@ Conventions:
   * A **statement**, not an expression: no chaining (`a += b += c`), and the
     operator does not cross a line break (`same_line`, as `++` requires).
   * One token each in the lexer, after `++`/`--` so the step operators keep
-    their spelling. `/=` cannot collide with a comment: `//` and `/*` are
-    consumed earlier.
+    their spelling; `**=` is read after `**`'s two stars. `/=` cannot collide
+    with a comment: `//` and `/*` are consumed earlier.
   * `++` is **not** re-expressed as `+= 1`: it is also an *expression*, where
     the fixity decides the value [op-inc-dec], so it keeps its own node.
 * [op-assign] An assignment's target must be a **place**: a variable, a field

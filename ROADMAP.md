@@ -1211,19 +1211,6 @@ questions:
 Recommendation: (1a), (2) as built, (3c) and (4) as built; or (3b) if bit
 parity of float results is to stay a promise without exceptions.
 
-### 0aq — DECISION: the precedence of `**` (B3.3e, 2026-10-28)
-
-The brief and OPERATOR_OVERLOAD.md say nothing about it. Built ([op-pow];
-the pipeline record §II.10 P18) as most languages with the operator do (Python's
-rule): **tighter than `*` and than a prefix operator on its left,
-right-associative, its exponent possibly unary**. So `-2 ** 2` is `-4`,
-`2 ** 3 ** 2` is `512`, `2 ** -1` is `2 ** (-1)` and `a * b ** c` is
-`a * (b ** c)`; same-line only, as `*`; and there is no `**=`. Alternatives:
-(b) unary minus binds tighter (`-2 ** 2` is `4`, as in Excel), which surprises
-a reader who knows the mathematical convention; (c) refuse `-a ** b` without
-parentheses (precedence made explicit). Recommendation: as built. Also open:
-whether `**=` should exist (by [op-compound]'s rule it would be `x = x ** e`).
-
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
 **What it is.** When a message makes an actor runnable, the scheduler unparks

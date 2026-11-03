@@ -7834,15 +7834,17 @@ fn slot_name_span(slot: &SlotDecl) -> (String, Span) {
 }
 
 /// [op-compound] The arithmetic operator a compound assignment carries, or
-/// `None` for anything else. Four of them, matching the four arithmetic
-/// operators that take two operands: `%=` is deliberately absent, since a
-/// remainder-in-place has no reading a reader would guess.
+/// `None` for anything else: the four arithmetic operators and `**`
+/// (`**=`, user decision 2026-10-30, so the numeric operators are
+/// consistent). `%=` is deliberately absent, since a remainder-in-place has
+/// no reading a reader would guess.
 fn compound_op(kind: &TokenKind) -> Option<BinaryOp> {
     match kind {
         TokenKind::PlusEq => Some(BinaryOp::Add),
         TokenKind::MinusEq => Some(BinaryOp::Sub),
         TokenKind::StarEq => Some(BinaryOp::Mul),
         TokenKind::SlashEq => Some(BinaryOp::Div),
+        TokenKind::StarStarEq => Some(BinaryOp::Pow),
         _ => None,
     }
 }

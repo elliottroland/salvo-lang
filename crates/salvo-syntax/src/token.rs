@@ -129,6 +129,7 @@ pub enum TokenKind {
     MinusEq,  // -=
     StarEq,   // *=
     SlashEq,  // /=
+    StarStarEq, // **= — [op-pow] (user decision 2026-10-30)
     Caret,    // ^ — the qualifier-widening check [qual-lift]
     At,       // @ — the scope selector on a call [fn-overload-at]
 
@@ -268,6 +269,7 @@ impl TokenKind {
             TokenKind::MinusEq => "-=",
             TokenKind::StarEq => "*=",
             TokenKind::SlashEq => "/=",
+            TokenKind::StarStarEq => "**=",
             TokenKind::Caret => "^",
             TokenKind::At => "@",
             _ => unreachable!("symbol() called on non-symbol token"),
