@@ -320,6 +320,9 @@ impl<'a, 'p> Writer<'a, 'p> {
         let mut expects: Vec<(String, String)> = Vec::new();
         for arg in filled {
             let (name, value, expect) = match arg {
+                // [cmp-carry-override] What an argument's type carries is not
+                // written: the argument already gives it.
+                ImplicitArg::Resolved { carried: true, .. } => continue,
                 ImplicitArg::Resolved { name, key, .. } => (name.clone(), format!("{}@{}", key.name(), key.module()), key.to_string()),
                 ImplicitArg::Member { name, effect, index, .. } => {
                     let Some(decl) = self.symbols.effects.get(effect.as_str()) else { continue };

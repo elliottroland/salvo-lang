@@ -707,7 +707,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     None => unsupported(fn_ty, span, "interpolation"),
                 },
                 ArmText::Call { callee: CalleeKind::Fn { decl, .. }, implicits } => {
-                    let arg = ImplicitArg::Resolved { name: "to_str".into(), key: *decl, nested: implicits.clone(), want: fn_ty };
+                    let arg = ImplicitArg::Resolved { name: "to_str".into(), key: *decl, nested: implicits.clone(), want: fn_ty, carried: false };
                     self.implicit_list(&[arg], &[], span).pop().unwrap()
                 }
                 ArmText::Call { .. } => {

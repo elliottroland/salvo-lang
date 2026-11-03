@@ -1089,13 +1089,6 @@ emitted wrong:
 
 the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (b)).
 
-- **DECISION (the pipeline record §II.10 P21): a carried binder written as well.**
-  `contains(s, x, hash = h)` where `s`'s type carries its `hash` was never
-  checked. Built, as recommended: (a) check it, accept the carried identity,
-  refuse any other (`cmp-carry:override-disagrees`; forwarded, only the
-  caller's own binder agrees). Alternatives: (b) the written value wins
-  (a set hashed with one fn probed with another); (c) refuse any written
-  override where an identity is carried, the agreeing one too.
 - **What the printer skips**, having no surface spelling (D4 added
   operators, interpolated parts and inferred types, COMPLETED.md
   2026-10-30): `for` (the calls it names are marked in the typed dump,

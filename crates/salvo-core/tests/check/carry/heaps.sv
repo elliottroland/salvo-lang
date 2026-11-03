@@ -78,12 +78,13 @@ fn round_trip() [] -> Int {
     return heap_size(h2)
 }
 
-// [cmp-carry-override] The carried ordering written out by its attached name
-// is the one it carries; another ordering is not.
+// [cmp-carry-override] The carried ordering is given by the heap: writing it
+// out, by its attached name or as another ordering, is refused.
 fn written_again() [] -> Int {
     let h = empty_heap<Person>()
+    //~ error[cmp-carry:override-carried]
     let h2 = heap_push(h, Person {name: "a", age: 3}, cmp = cmp@Person)
-    //~ error[cmp-carry:override-disagrees]
+    //~ error[cmp-carry:override-carried]
     let h3 = heap_push(h2, Person {name: "b", age: 4}, cmp = by_name)
     return heap_size(h3)
 }

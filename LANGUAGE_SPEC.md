@@ -6586,16 +6586,15 @@ Conventions:
     `cmp = cmp@Person` do; a lambda does not, and passing one where the
     signature carries the binder is an error rather than a silently dropped
     claim.
-  * [cmp-carry-override] **A carried binder written as well must name the
-    carried identity** (the pipeline record B4, 2026-10-28; DECISION open, §II.10
-    P21): `contains(s, x, hash = my_hash)` with `s` built with `my_hash` is
-    checked like any override and accepted; `hash = other_hash`, a lambda or
-    a member is refused (`cmp-carry:override-disagrees`), since the structure
-    was built with the carried one. Forwarded, the caller's own binder is the
-    one value that agrees (`hash = hash`). Before, the written value was
-    never checked. Not chosen: the written value wins (breaks the
-    structure's invariant); any override refused where an identity is
-    carried.
+  * [cmp-carry-override] **A carried binder is not written as well** (user
+    decision 2026-10-30, the pipeline record §II.10 P21): where an argument's
+    type carries the `?hash`, the argument *is* that `?hash`, so
+    `contains(s, x, hash = …)` gives one parameter twice and is refused
+    (`cmp-carry:override-carried`), whatever it names — `s`'s own `my_hash`,
+    another fn, a lambda, a forwarded binder. From 2026-10-28 the agreeing
+    value was accepted and any other refused; before that (found by the round
+    trip, B4) the written value was never checked. Not chosen: the written
+    value wins (it breaks the structure's invariant).
   * **A binder names its slot, and may be aliased.** `?cmp` fills the slot
     `cmp` under that name; `?cmp: cmp2` fills it under the name `cmp2` — the
     destructuring spelling (`field: variable_name`), for the same reason: the

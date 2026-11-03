@@ -2360,11 +2360,10 @@ messages! {
          not fit `?{implicit}: {want}` here"
     );
     /// [cmp-carry-override] A value written for a binder the arguments
-    /// already carry, naming something else.
-    cmp_carry_override_disagrees = "cmp-carry:override-disagrees" (callee: &dyn std::fmt::Display, implicit: &dyn std::fmt::Display, id: &dyn std::fmt::Display) => format!(
-        "`{callee}` already has the `{implicit}` its argument was built with — \
-         `{id}` — and the value written here is not that one: drop \
-         `{implicit} = ...`, or pass `{implicit} = {id}`"
+    /// already carry.
+    cmp_carry_override_carried = "cmp-carry:override-carried" (callee: &dyn std::fmt::Display, implicit: &dyn std::fmt::Display, id: &dyn std::fmt::Display) => format!(
+        "`{callee}`'s `{implicit}` is the one its argument was built with — \
+         `{id}` — so it is given already: drop `{implicit} = ...`"
     );
     /// A value with no identity where a carried one is claimed.
     cmp_carry_no_identity = "cmp-carry:no-identity" () =>

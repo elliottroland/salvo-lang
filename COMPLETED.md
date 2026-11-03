@@ -144,6 +144,18 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A carried binder written as well is refused (user decision, ROADMAP 0av / the pipeline record §II.10 P21, [cmp-carry-override])
+
+- **Decided (user)**: where an argument's type carries the `?hash` (or
+  `?cmp`, …), the argument *is* that parameter, so writing it as well
+  (`contains(s, x, hash = …)`) specifies one parameter twice: refused,
+  whatever it names. This replaces option (a), built 2026-10-28, which
+  accepted the value the structure was built with and refused any other.
+- **Built**: `cmp-carry:override-carried` replaces
+  `cmp-carry:override-disagrees`, at a carried named identity and at a
+  forwarded binder alike. `check/carry/keys.sv` and `heaps.sv` annotate the
+  agreeing cases as refused; docs/language/Implicit-Parameters.md says so.
+
 ### 2026-10-30 — A member call records its own type arguments (ROADMAP 0at, [call-type-args] [fn-variadic])
 
 - **Built**: `Callee::Member` carries the member's own type arguments, which

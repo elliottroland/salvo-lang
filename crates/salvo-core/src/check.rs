@@ -1647,6 +1647,9 @@ pub enum ImplicitArg {
         /// type arguments substituted — the *concrete* type a shape-lowered
         /// intrinsic (`copy`) needs to render itself as a value.
         want: Ty,
+        /// [cmp-carry-override] The identity an argument's type carries, not
+        /// one resolution chose: no `name = …` may be written for it.
+        carried: bool,
     },
     /// [iter-fn] The position wants a pass's `next` and the argument
     /// was an **origin**, so the pass is the hidden machine minted at that
@@ -7307,18 +7310,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 }
                             };
                             if let Some(own) = own {
-                                // [cmp-carry-override] Written as well, it must
-                                // be the binder itself: any other value is one
-                                // this call cannot show agrees with it.
+                                // [cmp-carry-override] The argument already
+                                // provides it: written as well is the one
+                                // parameter given twice (user decision
+                                // 2026-10-30).
                                 if let Some(arg) = named.iter().find(|a| a.name.name == imp.name) {
                                     self.check_expr(&arg.value, Some(&want));
-                                    let same = matches!(&arg.value, Expr::Ident(v) if v.name == own.local);
-                                    if !same {
-                                        self.error(
-                                            arg.span,
-                                            messages::cmp_carry_override_disagrees(&callee, &imp.name, &own.local),
-                                        );
-                                    }
+                                    self.error(
+                                        arg.span,
+                                        messages::cmp_carry_override_carried(&callee, &imp.name, &own.local),
+                                    );
                                 }
                                 return Some((ImplicitArg::Forwarded { name: own.local.clone() }, None));
                             }
@@ -7326,31 +7327,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                         FnId::Named { .. } => {
                             match self.resolve_identity(&id, &want) {
                                 Ok((key, _)) => {
-                                    // [cmp-carry-override] (user decision open,
-                                    // PIPELINE §II.10) A value written for a
-                                    // binder the arguments already carry is
-                                    // checked like any override, and must
-                                    // name the same declaration: the
-                                    // structure was built with the carried
-                                    // one, so another would silently break
-                                    // its invariants.
+                                    // [cmp-carry-override] A value written for a
+                                    // binder the arguments already carry is the
+                                    // parameter given twice: the argument *is*
+                                    // its `?hash`, so it is refused, an
+                                    // agreeing one too (user decision
+                                    // 2026-10-30; it was checked to agree
+                                    // from 2026-10-28).
                                     let nested = std::mem::take(&mut self.last_nested);
                                     if let Some(arg) = named.iter().find(|a| a.name.name == imp.name) {
                                         self.check_expr(&arg.value, Some(&want));
-                                        let at = match &arg.value {
-                                            Expr::Ident(v) if self.lookup(&v.name).is_none() => Some(v.span),
-                                            // `cmp@Person`: a type's attached fn
-                                            // [fn-attached] (a member records none).
-                                            Expr::Scoped { base: None, name, .. } | Expr::EffectScoped { base: None, name, .. } => Some(name.span),
-                                            _ => None,
-                                        };
-                                        let written = at.and_then(|s| self.out.fn_refs.get(&self.key(s)).copied());
-                                        if written != Some(key) {
-                                            self.error(
-                                                arg.span,
-                                                messages::cmp_carry_override_disagrees(&callee, &imp.name, &id),
-                                            );
-                                        }
+                                        self.error(
+                                            arg.span,
+                                            messages::cmp_carry_override_carried(&callee, &imp.name, &id),
+                                        );
                                     }
                                     return Some((
                                         ImplicitArg::Resolved {
@@ -7360,6 +7350,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                             // are filled where it is used.
                                             nested,
                                             want: want.clone(),
+                                            carried: true,
                                         },
                                         None,
                                     ))
@@ -7523,6 +7514,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             key: found,
                             nested: std::mem::take(&mut self.last_nested),
                             want: want.clone(),
+                            carried: false,
                         },
                         Some(identity),
                     ))
