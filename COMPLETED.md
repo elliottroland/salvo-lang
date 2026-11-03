@@ -144,6 +144,15 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Two labels no spec defined are retargeted (ROADMAP 0ar)
+
+- **Changed**: `[rs-interp-sequence]` (the run data on interpolation
+  order, TOUR.md, a decision-log entry) and `[rs-narrow]` (the run data on a
+  narrowed scalar arm) named no rule. The code they describe cites
+  `[rs-mut-arg-hoist]`, so TOUR.md and the log now do; the run data, which
+  is backend-neutral and may cite no `rs-` label, cites `[deduce-same-call]`
+  (left to right) and `[is-narrowing]`.
+
 ### 2026-10-30 — An array subscript out of range is Salvo's trap (ROADMAP 0ar, [col-index-trap]; the user's call of 2026-10-28)
 
 - **Built**: `xs[i]` on an array, read or written, traps with `salvo: index
@@ -11142,7 +11151,8 @@ Checked against the tables already built, three things were target concerns:
 
 ### 2026-10-06 — Two defects, two leftovers (§0j)
 
-* **E0502 in an interpolation** ([rs-interp-sequence]): `println("${get(d, i)}
+* **E0502 in an interpolation** ([rs-mut-arg-hoist], cited as
+  `[rs-interp-sequence]`, a label no spec defined, until 2026-10-30): `println("${get(d, i)}
   ${replace(d, i, 0)}")` borrowed `d` for the whole `format!`. Where a later
   part takes a `&mut` of a place (not a `&mut |closure|` argument) and no place
   read was hoisted, each part is formatted to text in turn and the texts are

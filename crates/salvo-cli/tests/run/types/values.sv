@@ -84,7 +84,7 @@ fn main() [use] -> None {
 //= -.5e+2|-50.0
 //= 9000000000 true true 42 text
 
-// [rs-narrow] A scalar arm of a union, narrowed and handed to an intrinsic
+// [is-narrowing] A scalar arm of a union, narrowed and handed to an intrinsic
 // (`to_str(value)`), reads through the arm rather than the whole union: a
 // generic union with a generic struct arm used to render `*value` and need
 // `Box<A>: Display` (closed 2026-10-06).

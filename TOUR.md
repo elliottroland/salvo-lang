@@ -396,7 +396,7 @@ bumped(b))`, where the read is a borrowed argument and the hoist is a clone).
 A different gap, fixed this session: an interpolation part that reads a place
 *through a call* (`${get(d, i)} ${replace(d, i, 0)}`) is not a place, so the
 plan misses it. `emit_string` now formats each part to text in turn when a
-later part takes a `&mut` and no place hoist applies ([rs-interp-sequence]).
+later part takes a `&mut` and no place hoist applies ([rs-mut-arg-hoist]).
 
 The *fact* here is Salvo's (left-to-right evaluation, and which arguments are
 lent mutably). The *remedy* (a `let`) is Rust's.

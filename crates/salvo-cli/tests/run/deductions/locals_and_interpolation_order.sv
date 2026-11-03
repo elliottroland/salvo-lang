@@ -46,7 +46,7 @@ fn main() [use] -> None {
 //= stdout
 //= 4 3
 
-// [rs-interp-sequence] An interpolation whose earlier part reads a place
+// [deduce-same-call] An interpolation whose earlier part reads a place
 // through a call and whose later part mutates it runs in source order
 // (rustc used to refuse it: E0502).
 //--- an_interpolation_reads_before_a_later_part_mutates

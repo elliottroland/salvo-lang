@@ -88,7 +88,8 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
   (commit "Join a safe call's absent arm into None as the unit").
   The out-of-range subscript trap (commit "Trap an array subscript out of
   range with Salvo's message").
-- Next: 0ar's stale labels, then its false `no-fn-in-module`.
+  The stale labels (commit "Retarget two labels no spec defines").
+- Next: 0ar's false `no-fn-in-module`.
 
 ## The sequence
 
@@ -994,8 +995,6 @@ repros are over the real std.
   warns unused; a servant forwarding a received reply through a dependency
   call (`draw(out)`) needs no `defer`, through a held handle it does.
 - **From the run data (TESTS.md C3)**:
-  - **Stale labels**: `[rs-interp-sequence]` and `[rs-narrow]` are cited
-    (run data, TOUR.md) but defined by no spec; define or retarget them.
   - **The run-data format cannot say** an argument holding a space, an
     environment variable, or a CR on stdin; the tests needing them stay in
     `run_tests.rs` (`run_builds_and_runs_with_each_backend` and
