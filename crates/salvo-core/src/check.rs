@@ -1583,9 +1583,9 @@ pub struct ImplicitParam {
     pub borrowed_arms: Vec<usize>,
     /// [cmp-binder] The **slot** this parameter came from, when it came from one:
     /// `?cmp: cmp2` is named `cmp2` here and remembers that it fills a `cmp`.
-    /// That is what makes an alias honest — two orderings in one scope are an
-    /// ambiguity for `<` whatever they are called, so the operator has to ask
-    /// what a parameter *is*, not what it is called (user decision 2026-09-22).
+    /// The operators ask by name (user decision 2026-10-30, replacing the
+    /// 2026-09-22 slot rule): an alias is how a body opts one ordering out of
+    /// `<`.
     pub slot: Option<String>,
     /// [cmp-binder] True when the signature carries this name as a **binder**
     /// (`Heap(?cmp)`) — whether the parameter was written (`?cmp: (T, T) ->
@@ -7157,8 +7157,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [`Checker::pick_own_implicit`] among the implicits `named` accepts:
-    /// a comparison operator asks by name or by the slot a binder alias fills
-    /// [cmp-binder].
+    /// a test of the implicit's name.
     fn pick_own_implicit_by(
         &self,
         named: &dyn Fn(&ImplicitParam) -> bool,
@@ -13847,9 +13846,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///   one named `eq`/`cmp` whose parameters the operands fit takes the
     ///   operator, as it takes the call — at a scalar or `Str` too (D1) — and
     ///   several are ranked like overloads [implicit-same-name] (D21).
-    ///   [cmp-binder] A binder alias counts by the slot it fills
-    ///   (`?cmp: cmp2` is a `cmp` here), as decided 2026-09-22; the call
-    ///   `cmp(a, b)` does not see it (the pipeline record §II.10 P13, open).
+    ///   [cmp-binder] By name, as the call asks: a binder alias
+    ///   (`?cmp: cmp2`) is not a `cmp` here, which is what aliasing is for —
+    ///   the body opts that ordering out of the operator (user decision
+    ///   2026-10-30, the pipeline record §II.10 P13; until then it counted
+    ///   by the slot it fills, as decided 2026-09-22).
     /// * **Then the visible declarations and the available effects' members**,
     ///   by `resolve_named_call` (R10 D3: a member competes; a tie is the
     ///   ordinary ambiguity, `m@E` its remedy). Under [op-unique-shape] a
@@ -13914,12 +13915,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         let tys = vec![lt.clone(), rt.clone()];
         let ret = if equality { Ty::named("Bool") } else { Ty::named("Int") };
         // 1. [implicit-resolve-body] The enclosing fn's own implicit of the
-        // name, when the operands fit it; [cmp-binder] by the slot it fills.
+        // name, when the operands fit it — by its name in the body, as the
+        // call `cmp(a, b)` asks [cmp-binder].
         let fits = |p: &ImplicitParam| match p.ty.strip_quals() {
             Ty::Fn { params, .. } => params.len() == 2 && tys.iter().zip(params).all(|(a, q)| Self::arg_fits_fn_value(a, q)),
             _ => p.ty.is_unknown(),
         };
-        let is_member = |p: &ImplicitParam| p.name == member || p.slot.as_deref() == Some(member);
+        let is_member = |p: &ImplicitParam| p.name == member;
         match self.pick_own_implicit_by(&is_member, &fits) {
             Ok(Some(own)) => {
                 let got = self.operator_through_implicit(&own, lhs, rhs, &tys, span);
@@ -13928,8 +13930,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             Ok(None) => {}
             Err(tied) => {
-                // [cmp-binder] Named by what the body calls them, an alias
-                // included: that is what the remedy writes.
+                // Named by what the body calls them: that is what the
+                // remedy writes.
                 let shown: Vec<String> = self
                     .own_implicits
                     .iter()

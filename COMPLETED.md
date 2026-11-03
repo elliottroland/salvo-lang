@@ -144,6 +144,24 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — An aliased binder is not the operator's (user decision, ROADMAP 0ak / §II.10 P13–P14, [cmp-binder] [op-order])
+
+- **Decided (user)**: (1) option (b): an operator asks for its function by
+  name, as the call does, so `?cmp: cmp2` is not a `cmp` for `<`. "When
+  aliasing `?cmp`, the user is opting out of operator overloading syntactic
+  sugar": two orderings in scope are told apart by the alias, and the
+  aliased one is reached by calling it. The 2026-09-22 rule (an alias
+  remembers its slot, so two orderings are an ambiguity for `<` whatever
+  they are called) is withdrawn. (2) option (a) kept: a fn-typed local or
+  ordinary parameter named `cmp`/`eq` does not take the operator ("fine
+  for now", the user unsure which is better); the same for `next`/`iter`
+  and `plus`…`pow`.
+- **Built**: `check_comparison_operands` picks the own implicit by name
+  only. `check/carry/heaps.sv`'s `pick` (a `?cmp` heap and a `?cmp: cmp2`
+  heap) now checks clean, `x < y` being the `cmp`. LANGUAGE_SPEC
+  [cmp-binder] and [op-order] and docs/language/Implicit-Parameters.md say
+  so.
+
 ### 2026-10-30 — A carried binder written as well is refused (user decision, ROADMAP 0av / the pipeline record §II.10 P21, [cmp-carry-override])
 
 - **Decided (user)**: where an argument's type carries the `?hash` (or

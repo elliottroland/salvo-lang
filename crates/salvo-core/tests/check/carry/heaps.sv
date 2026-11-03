@@ -200,14 +200,13 @@ fn aliased() [] -> Int {
     return compare_across(one, other, Person {name: "a", age: 1}, Person {name: "b", age: 2})
 }
 
-// [cmp-binder] …and an alias does not make the *operator* unambiguous: two
-// orderings in one scope are two candidates for `<` whatever they are called,
-// so the body must name the one it means ("in scope", `cmp`, `cmp2`).
-// Aliasing is how two orderings get into one scope, not how the choice
-// between them is dodged.
+// [cmp-binder] …and the operator asks by name, as the call does: `<` is the
+// `cmp`, and the aliased `cmp2` is the ordering the body opted out of the
+// operator, reached by calling it (user decision 2026-10-30; until then two
+// orderings in one scope were two candidates for `<` whatever they were
+// called).
 fn pick<T>(a: Heap<T>(?cmp) List<T>, b: Heap<T>(?cmp: cmp2) List<T>, x: T, y: T) [] -> Bool => a, b, x, y {
-    //~ error[implicit-same-name:operator]
-    return x < y
+    return x < y && cmp2(x, y) <= 0
 }
 
 // [deduce-reapply] [cmp-carry] A fn that **establishes** a carried claim

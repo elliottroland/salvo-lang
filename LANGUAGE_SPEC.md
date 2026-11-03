@@ -2610,11 +2610,12 @@ Conventions:
     implicit named `cmp` whose parameters the operands fit takes the operator,
     at a basic type or `Str` too (R10 D1: inside `f(a: Str, b: Str, ?cmp: …)`,
     `a < b` is the implicit, as `cmp(a, b)` is), several ranked like
-    overloads [implicit-same-name]. **Recorded divergence** (§II.10 P13,
-    open): a binder alias counts by the slot it fills — `?cmp: cmp2` is a
-    `cmp` for the operator, as [cmp-binder] decided 2026-09-22, while the
-    call `cmp(a, b)` does not see `cmp2`; and a fn-typed local or ordinary
-    parameter named `cmp` does not take the operator (§II.10 P14, open).
+    overloads [implicit-same-name]. By name, as the call asks: a binder
+    alias (`?cmp: cmp2`) is not a `cmp` for the operator (user decision
+    2026-10-30, §II.10 P13; it counted by its slot before, [cmp-binder]'s
+    2026-09-22 rule). **Recorded divergence** (§II.10 P14, kept as built by
+    the user 2026-10-30): a fn-typed local or ordinary parameter named `cmp`
+    does not take the operator, while it takes the call.
   * **Then the visible declarations and the available effects' members**
     (R10 D3), ranked as the call ranks them, an ambiguity being the call's
     (`m@E` its remedy for a member). The operand types are the call's
@@ -6600,13 +6601,13 @@ Conventions:
     destructuring spelling (`field: variable_name`), for the same reason: the
     left names the thing, the right names it here. Naming the slot is what lets a
     signature mention some slots and not others.
-  * **An alias remembers its slot** (user decision 2026-09-22), so two
-    candidates for one capability are an **ambiguity for the operator** whatever
-    they are called: a signature holding two heaps ordered differently has two
-    `cmp`s in scope, `a < b` there is refused naming both, and the body calls the
-    one it means. Aliasing is how two orderings get into one scope, not how the
-    choice between them is dodged — the operator asks what a parameter *is*, not
-    what it is called.
+  * **An alias opts its ordering out of the operator** (user decision
+    2026-10-30, replacing the 2026-09-22 rule that an alias remembers its slot
+    for `<`): the operator asks by name, as the call `cmp(a, b)` does, so a
+    signature holding two heaps ordered differently — `?cmp` and `?cmp: cmp2`
+    — has `a < b` mean the `cmp`, and the body reaches the other by calling
+    `cmp2(a, b)`. Aliasing is how a body says which ordering the sugar is
+    not for. The alias still fills, and is checked against, the `cmp` slot.
   * Justification recorded with the decision: the bare binder is *an indirect
     way of declaring a fn in the parameter scope*, so it does not belong in the
     generics list — with the reservation that the generics-list spelling could

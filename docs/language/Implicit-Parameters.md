@@ -274,8 +274,9 @@ Three consequences, and they are the point:
   fills the same slot under the name `cmp2`. A slot a signature never
   mentions is not constrained at all, so a function that does not care writes
   the claim bare (`Heap List<T>`) and accepts any of them. In that `merge`,
-  `x < y` would be ambiguous between `cmp` and `cmp2`, so it is an error
-  naming both and the body calls the one it means.
+  `x < y` is the `cmp`: an operator asks for its function by name, as the
+  call `cmp(x, y)` would, so aliasing an ordering is how a body keeps it out
+  of `<`, and calls `cmp2(x, y)` where it wants that one.
 - **A function bound into a type must be named, top-level and capture-free.**
   A lambda has no identity a type could carry, and the error says so instead
   of losing the claim quietly. Everything a type can *print* it can carry.

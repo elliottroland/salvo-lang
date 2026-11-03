@@ -897,36 +897,6 @@ Options (the pipeline record §II.10 P12):
 
 Recommendation: (a).
 
-### 0ak — DECISION: two places a comparison and its call still differ (B3.3c, 2026-10-28)
-
-Built as before B3.3c, since R10 did not name them (the pipeline record §II.10 P13,
-P14):
-
-1. **A binder alias counts for the operator** (P13): `?cmp: cmp2` fills the
-   `cmp` slot under the name `cmp2`, and [cmp-binder] (user decision
-   2026-09-22) makes two orderings in one scope an ambiguity for `<`
-   "whatever they are called" (`carry_tests::two_orderings_in_scope_refuse_the_operator`).
-   The call `cmp(x, y)` sees only `cmp`. Options: (a) keep (built: the
-   operator asks what a parameter *is*); (b) the operator is the call by name
-   only, so `x < y` there is `cmp`'s, and the 2026-09-22 rule goes; (c) the
-   call asks by slot too, so `cmp(x, y)` is ambiguous there as well.
-   Recommendation: (c), which keeps the 2026-09-22 reasoning and the one
-   rule.
-2. **A fn-typed local or ordinary parameter named `eq`/`cmp` does not take
-   the operator** (P14), while it takes the call `eq(a, b)`
-   ([call-resolve]). std has such parameters (`sort_by(list, cmp: (T, T) ->
-   Int)`, `platform fn`s); a body with one that compares `Int`s with `<`
-   would, under the call rule, call the parameter at `(Int, Int)` and be
-   refused. Options: (a) keep (built: only implicits shadow an operator, as
-   only they shadow by fit); (b) follow the call. Recommendation: (a).
-   The same holds for the `next`/`iter` a `for` names since B3.3d (a local
-   `next` does not take the loop), and for `plus`/`minus`/`times`/`divide`/
-   `pow` since B3.3e (a local `plus` does not take `+`), decided with this one.
-
-For (1), the arithmetic operators (B3.3e) ask **by name**, as the call does:
-there is no binder slot for `plus` and no 2026-09-22 decision about them, so
-they follow the call; if (c) is chosen for `cmp`, nothing changes for them.
-
 ### 0ar — Open defects the test-data migration found (2026-10-28, TESTS.md T1)
 
 Moving the checker tests onto the real std and exact annotations (every
