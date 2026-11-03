@@ -483,7 +483,7 @@ Conventions:
   text is `salvo: <what> at <module>:<line>:<col>`, identical on both backends
   (user decision 2026-09-23, A-2), where `<what>` is the written message when
   there is one and `value is absent` / `assertion failed` / `unreachable`
-  otherwise.
+  otherwise — or `index out of range`, a subscript's [col-index-trap].
   * The **location is the module path**, not the file's display name: a name
     depends on how the file was loaded (`lib/std/core/list.sv` from the embedded
     library, `core/list.sv` from a directory walk), and emitted output must not
@@ -3703,6 +3703,14 @@ Conventions:
 * [col-index-resolve] `[]` subscripts arrays only. Other collections expose
   element access as declared functions (std's `get(list, index)`), and
   tuples use constant positions ([expr-tuple-index]).
+* [col-index-trap] A subscript out of range — past the end, or negative —
+  is a **trap** [assert-trap], `salvo: index out of range at
+  <module>:<line>:<col>` at the index, the same on both backends, for a read
+  and a write alike (user, 2026-10-28; built 2026-10-30, ROADMAP 0ar). It
+  was the host's failure before: Rust's `index out of bounds` panic and the
+  JVM's `ArrayIndexOutOfBoundsException`. The location is core's
+  (`ir::trap_location`, from the index's span); each backend spells the
+  check ([rs-index-trap], [kt-index-trap]).
 * [iter-resolve] A `for` subject must be a **step call** [iter-step-call], or a
   value some `next` takes (an **iterator**) or some `iter` takes (a
   **source**), the calls [iter-for] names; anything else is an error saying

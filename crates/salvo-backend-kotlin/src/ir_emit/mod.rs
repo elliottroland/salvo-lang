@@ -69,6 +69,7 @@ pub fn emit_program_ir_over(program: &Program, abi: bool, std: Option<&salvo_cor
         tuple_sizes: BTreeSet::new(),
         needs_throw: false,
         needs_compare: false,
+        needs_index: false,
         needs_bytes: false,
         errors: Vec::new(),
         decl_modules: HashMap::new(),
@@ -155,6 +156,9 @@ pub fn emit_program_ir_over(program: &Program, abi: bool, std: Option<&salvo_cor
     if shared.needs_throw {
         files.push(EmittedFile { rel_path: "throwsignal.kt".into(), content: crate::emit::generate_throw_file() });
     }
+    if shared.needs_index {
+        files.push(EmittedFile { rel_path: "index.kt".into(), content: include_str!("../../runtime/index.kt").to_string() });
+    }
     if shared.needs_compare {
         files.push(EmittedFile { rel_path: "compare.kt".into(), content: crate::emit::generate_compare_file() });
     }
@@ -236,6 +240,8 @@ struct Shared<'p> {
     tuple_sizes: BTreeSet<usize>,
     needs_throw: bool,
     needs_compare: bool,
+    /// [kt-index-trap] An array was subscripted: `index.kt` ships.
+    needs_index: bool,
     needs_bytes: bool,
     errors: Vec<String>,
     decl_modules: HashMap<DeclId, ModulePath>,
@@ -1304,6 +1310,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         src.to_string()
     }
 
+    /// The file of the module being emitted.
+    fn module_file(&self) -> Option<usize> {
+        self.s.program.files.iter().position(|f| f.module == self.module.path)
+    }
+
     fn place(&mut self, p: &Place, indent: usize) -> String {
         let mut out = self.local_read(&p.root);
         for s in &p.steps {
@@ -1321,9 +1332,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                         n => format!("v{n}"),
                     });
                 }
+                // [kt-index-trap] A subscript out of range traps with the
+                // Salvo location of the index; the array is a place, so its
+                // size is read without evaluating anything twice.
                 Step::Index(e) => {
                     let i = self.expr(e, indent);
-                    out.push_str(&format!("[{i}]"));
+                    let at = self.module_file().map(|f| salvo_core::ir::trap_location(self.s.program, f, e.span)).unwrap_or_else(|| self.module.path.to_string());
+                    self.s.needs_index = true;
+                    out = format!("{out}[salvoIx({i}, {out}.size, {at:?})]");
                 }
             }
         }

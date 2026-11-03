@@ -20,6 +20,18 @@ pub use build::actors::enum_key;
 pub use build::{build_program, build_program_gated};
 pub use nodes::*;
 
+/// [assert-trap] A trap's `module:line:col` for a node of the file `file`:
+/// the module path, not the file's name (which depends on the loader), and
+/// [node-origin] a copied node where a diagnostic about it would land. The
+/// IR carries it on `assert!` and `unreachable!`; a backend asks it for a
+/// subscript's range check, from the index's span [col-index-trap].
+pub fn trap_location(program: &crate::Program, file: usize, span: salvo_syntax::Span) -> String {
+    let (at, span) = crate::origin::landing(&program.modules, file, span);
+    let f = &program.files[at];
+    let (line, col) = salvo_syntax::span::span_line_col(&f.content, span);
+    format!("{}:{line}:{col}", f.module)
+}
+
 /// Checks `program` the way a build does, builds the IR of its modules and
 /// renders them: every user module, or with `all` every reached module, or
 /// only `module`.

@@ -71,6 +71,15 @@ Conventions:
     on the locator instead — same text, same timing.
   * The location is the **module path**, not the file name — a file's display
     name depends on the loader, and emitted output must not.
+* [col-index-trap] [rs-index-trap] An array subscript indexes by
+  `crate::index::SalvoIx(i as usize, "<module>:<line>:<col>")`, whose
+  `Index`/`IndexMut` impls on `Vec<T>` check the position and panic with the
+  Salvo text (`runtime/index.rs`, mounted when a program subscripts). A
+  negative index becomes a huge position, out of range too. `Vec`'s own
+  impl is generic over `SliceIndex`, which `SalvoIx` does not implement, so
+  coherence lets both stand; a `&Vec`/`&mut Vec` reaches it by auto-deref.
+  A split borrow of two handles into one array compares and splits by the
+  positions (`usize::from`), and two `SalvoIx` are equal by position.
 * [rs-opt-borrow] `expr ?: unreachable!()` on an owned `Option` held by a **local** reads it
   *through a borrow*: the block binds `let mut __nn = &x;` and
   `let mut __some = __nn.as_ref().unwrap();`, and answers `__some` where the

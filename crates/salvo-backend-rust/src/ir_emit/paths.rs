@@ -562,7 +562,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                             self.error(messages::rs_path_paths_differ_in_kind());
                             return "panic!()".to_string();
                         };
-                        let (k, cx, cy) = (k.clone(), cx.clone(), cy.clone());
+                        // [rs-index-trap] An array subscript's position is a
+                        // `SalvoIx`; a split takes the bare positions.
+                        let pos = |c: &String| if c.starts_with("crate::index::SalvoIx(") { format!("usize::from({c})") } else { c.clone() };
+                        let (k, cx, cy) = (k.clone(), pos(cx), pos(cy));
                         let (u, w) = (self.fresh("u"), self.fresh("w"));
                         let split = match k {
                             PStep::Slot => format!("{root}.pair_mut({cx}, {cy})"),
@@ -644,10 +647,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     extra.push(match st {
                         Step::Field(f) => SStep::Field(f.clone()),
                         Step::Tuple(i) => SStep::Tuple(*i),
-                        Step::Index(e) => {
-                            let i = self.value(e, indent);
-                            SStep::Dyn(PStep::Index, format!("(({i}) as usize)"))
-                        }
+                        Step::Index(e) => SStep::Dyn(PStep::Index, self.index_code(e, indent)),
                     });
                 }
                 match self.handle_of(&place.root.0) {
@@ -680,10 +680,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     steps.push(match st {
                         Step::Field(f) => SStep::Field(f.clone()),
                         Step::Tuple(i) => SStep::Tuple(*i),
-                        Step::Index(e) => {
-                            let i = self.value(e, indent);
-                            SStep::Dyn(PStep::Index, format!("(({i}) as usize)"))
-                        }
+                        Step::Index(e) => SStep::Dyn(PStep::Index, self.index_code(e, indent)),
                     });
                 }
                 Some(Handle { root: h.root, steps })

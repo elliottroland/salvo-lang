@@ -16,7 +16,7 @@ use std::process::Command;
 /// and `hostargs.kt` by the command-line work; both are here now, which is
 /// what makes this test complete rather than a sample.)
 const RUNTIME_MODULES: &[&str] =
-    &["throwsignal.kt", "compare.kt", "bytes.kt", "scheduler.kt", "hoststreams.kt", "hosttime.kt", "wire.kt", "hostargs.kt"];
+    &["throwsignal.kt", "compare.kt", "bytes.kt", "scheduler.kt", "hoststreams.kt", "hosttime.kt", "wire.kt", "hostargs.kt", "index.kt"];
 
 /// The bytes the emitter will splice, read from the same path `include_str!`
 /// reads at compile time.

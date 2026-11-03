@@ -23,6 +23,12 @@ Conventions:
   * The `!!` that remains is the *implementation's* [kt-narrow-field-assert]: a
     narrowed field read where Kotlin's smart cast is unavailable, on a value the
     checker has already proved present. It can never fail, so it needs no message.
+* [col-index-trap] [kt-index-trap] An array subscript is
+  `xs[salvoIx(i, xs.size, "<module>:<line>:<col>")]` (`runtime/index.kt`,
+  shipped when a program subscripts), which throws the Salvo text as an
+  `AssertionError` instead of the JVM's `ArrayIndexOutOfBoundsException`.
+  The array is a place (a local and field, tuple and index steps), so
+  reading its size again evaluates nothing twice.
 
 ## Output layout
 

@@ -144,6 +144,23 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — An array subscript out of range is Salvo's trap (ROADMAP 0ar, [col-index-trap]; the user's call of 2026-10-28)
+
+- **Built**: `xs[i]` on an array, read or written, traps with `salvo: index
+  out of range at <module>:<line>:<col>` at the index on both backends,
+  where it was the host's panic (Rust `index out of bounds: the len is 3 but
+  the index is 10`, the JVM `ArrayIndexOutOfBoundsException`). Core answers
+  the location (`ir::trap_location`, now what `Lower::location` and the Rust
+  emitter's `location` call too); Rust indexes by `crate::index::SalvoIx`,
+  whose `Index`/`IndexMut` on `Vec<T>` check the range (`runtime/index.rs`;
+  a split borrow of two array handles compares and splits by `usize::from`),
+  and Kotlin by `salvoIx(i, xs.size, at)` (`runtime/index.kt`). The message
+  carries no numbers, as the other traps' texts do not. Run data
+  `collections/a_subscript_out_of_range_traps.sv` (past the end, a negative
+  write, and reads and writes in range through a field and a nested array);
+  `run_tests::the_programs_exit_code_is_the_commands` now expects the Salvo
+  text.
+
 ### 2026-10-30 — A safe call answering `None` runs on Rust (ROADMAP 0ar, [type-none-unit] [op-safe-nav])
 
 - **Built**: `Checker::coerce_tail` records the `NoneUnit` conversion for

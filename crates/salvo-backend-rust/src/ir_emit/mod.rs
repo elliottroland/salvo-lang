@@ -100,6 +100,7 @@ fn run(
         union_sizes: BTreeSet::new(),
         needs_str: false,
         needs_seq: false,
+        needs_index: false,
         errors: fn_names.errors.iter().map(salvo_syntax::messages::rendered).collect(),
         decls: HashMap::new(),
         platform_effects: reach.platform_effects.clone(),
@@ -230,7 +231,10 @@ fn run(
     if needs_scheduler && !salvo_core::runtime_module(program).is_some_and(|m| reach.emitted.contains(m)) {
         errors.push(salvo_syntax::messages::rendered(&messages::runtime_sched_runtime_not_reached()));
     }
-    let (needs_str, needs_seq) = (shared.needs_str, shared.needs_seq);
+    let (needs_str, needs_seq, needs_index) = (shared.needs_str, shared.needs_seq, shared.needs_index);
+    if needs_index {
+        files.push(EmittedFile { rel_path: "index.rs".into(), content: include_str!("../../runtime/index.rs").to_string() });
+    }
     if needs_str {
         files.push(EmittedFile { rel_path: "strings.rs".into(), content: generate_strings_file() });
     }
@@ -351,6 +355,9 @@ fn run(
         if needs_seq {
             mounts.push(("seq".into(), runtime("seq")));
         }
+        if needs_index {
+            mounts.push(("index".into(), runtime("index")));
+        }
         if needs_scheduler {
             mounts.push(("scheduler".into(), runtime("scheduler")));
         }
@@ -419,6 +426,8 @@ pub(crate) struct Shared<'p> {
     pub union_sizes: BTreeSet<usize>,
     pub needs_str: bool,
     pub needs_seq: bool,
+    /// [rs-index-trap] An array was subscripted: `index.rs` is mounted.
+    pub needs_index: bool,
     pub errors: Vec<String>,
     pub decls: HashMap<DeclId, &'p Decl>,
     pub platform_effects: BTreeMap<String, salvo_core::PlatformEffect>,

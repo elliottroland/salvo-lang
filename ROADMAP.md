@@ -86,7 +86,9 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
   default").
 - 0ar, a bucket, one commit per item: the `?.` call answering `None`
   (commit "Join a safe call's absent arm into None as the unit").
-- Next: 0ar's out-of-range subscript trap.
+  The out-of-range subscript trap (commit "Trap an array subscript out of
+  range with Salvo's message").
+- Next: 0ar's stale labels, then its false `no-fn-in-module`.
 
 ## The sequence
 
@@ -992,13 +994,6 @@ repros are over the real std.
   warns unused; a servant forwarding a received reply through a dependency
   call (`draw(out)`) needs no `defer`, through a held handle it does.
 - **From the run data (TESTS.md C3)**:
-  - **An out-of-range subscript traps with a Salvo message** (user, 2026-10-28:
-    fix it, after the the pipeline record work): today it is the host's panic —
-    Rust prints `index out of bounds: the len is 3 but the index is 10`
-    (exit 101), Kotlin throws `ArrayIndexOutOfBoundsException` (exit 1)
-    (`run_tests::the_programs_exit_code_is_the_commands`) — and it should be a
-    `salvo: …` trap reading the same on both backends, as `unreachable!` and
-    `assert!` are.
   - **Stale labels**: `[rs-interp-sequence]` and `[rs-narrow]` are cited
     (run data, TOUR.md) but defined by no spec; define or retarget them.
   - **The run-data format cannot say** an argument holding a space, an

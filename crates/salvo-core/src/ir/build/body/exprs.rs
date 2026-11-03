@@ -2353,10 +2353,7 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// [node-origin] A node a stamp copied names the place a diagnostic about it
     /// would (`origin::landing`).
     pub(crate) fn location(&self, span: Span) -> String {
-        let (at, span) = crate::origin::landing(&self.ctx.program.modules, self.file_idx, span);
-        let file = &self.ctx.program.files[at];
-        let (line, col) = salvo_syntax::span::span_line_col(&file.content, span);
-        format!("{}:{line}:{col}", file.module)
+        crate::ir::trap_location(self.ctx.program, self.file_idx, span)
     }
 
     /// A condition: an expression whose `is` tests narrow what follows

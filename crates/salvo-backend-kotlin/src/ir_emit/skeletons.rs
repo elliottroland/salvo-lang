@@ -47,6 +47,7 @@ pub fn platform_skeletons_ir(program: &Program) -> Result<Vec<EmittedFile>, Vec<
         tuple_sizes: BTreeSet::new(),
         needs_throw: false,
         needs_compare: false,
+        needs_index: false,
         needs_bytes: false,
         errors: Vec::new(),
         decl_modules: HashMap::new(),

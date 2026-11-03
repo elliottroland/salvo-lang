@@ -23,6 +23,7 @@ use std::process::Command;
 const RUNTIME_MODULES: &[&str] = &[
     "strings.rs",
     "seq.rs",
+    "index.rs",
     "scheduler.rs",
     "hoststreams.rs",
     "hosttime.rs",

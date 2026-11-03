@@ -518,8 +518,9 @@ fn the_programs_exit_code_is_the_commands() {
         "expected the panic to propagate; stderr: {}",
         String::from_utf8_lossy(&out.stderr)
     );
+    // [col-index-trap] Salvo's trap, not the host's panic text.
     assert!(
-        String::from_utf8_lossy(&out.stderr).contains("index out of bounds"),
+        String::from_utf8_lossy(&out.stderr).contains("salvo: index out of range at main:5:30"),
         "the program's own stderr should reach the terminal: {}",
         String::from_utf8_lossy(&out.stderr)
     );

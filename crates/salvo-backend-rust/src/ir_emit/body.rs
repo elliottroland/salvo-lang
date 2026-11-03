@@ -454,17 +454,21 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         format!("__{base}{}", self.f.tmp)
     }
 
+    /// [rs-index-trap] An array subscript's position: `SalvoIx`, which
+    /// checks the range and traps with the Salvo location of the index.
+    pub(crate) fn index_code(&mut self, e: &salvo_core::ir::Expr, indent: usize) -> String {
+        let i = self.value(e, indent);
+        let at = self.location(e.span);
+        self.s.needs_index = true;
+        format!("crate::index::SalvoIx((({i}) as usize), {at:?})")
+    }
+
     /// `module:line:col` of a span in this module's source.
     pub fn location(&self, span: salvo_syntax::Span) -> String {
         match self.s.program.files.iter().position(|f| f.module == self.module.path) {
-            Some(i) => {
-                // [node-origin] Copied code is named where it lands, in the file
-                // it lands in.
-                let (at, span) = salvo_core::origin::landing(&self.s.program.modules, i, span);
-                let file = &self.s.program.files[at];
-                let (line, col) = salvo_syntax::span::span_line_col(&file.content, span);
-                format!("{}:{line}:{col}", file.module)
-            }
+            // [node-origin] Copied code is named where it lands, in the file it
+            // lands in.
+            Some(i) => salvo_core::ir::trap_location(self.s.program, i, span),
             None => format!("{}", self.module.path),
         }
     }
@@ -939,8 +943,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     }
                     Step::Tuple(i) => out.push_str(&format!(".{i}")),
                     Step::Index(e) => {
-                        let i = self.value(e, indent);
-                        out.push_str(&format!("[({i}) as usize]"));
+                        let i = self.index_code(e, indent);
+                        out.push_str(&format!("[{i}]"));
                     }
                 }
             }
@@ -955,10 +959,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                         steps.push(match s {
                             Step::Field(f) => super::paths::SStep::Field(f.clone()),
                             Step::Tuple(i) => super::paths::SStep::Tuple(*i),
-                            Step::Index(e) => {
-                                let i = self.value(e, indent);
-                                super::paths::SStep::Dyn(super::paths::PStep::Index, format!("(({i}) as usize)"))
-                            }
+                            Step::Index(e) => super::paths::SStep::Dyn(super::paths::PStep::Index, self.index_code(e, indent)),
                         });
                     }
                     let m = self.f.place_mut;
@@ -998,8 +999,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 }
                 Step::Tuple(i) => out.push_str(&format!(".{i}")),
                 Step::Index(e) => {
-                    let i = self.value(e, indent);
-                    out.push_str(&format!("[({i}) as usize]"));
+                    let i = self.index_code(e, indent);
+                    out.push_str(&format!("[{i}]"));
                 }
             }
         }
