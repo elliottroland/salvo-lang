@@ -53,222 +53,24 @@ targets and the output they print; the first dependency, `modules/aws/`, keeps
 its four (`profile`, `sqs`, `s3`, `ddb`) and its own checks (`modules/aws/check.sh`)
 outside the compiler's tests. 712 tests green (nextest); std's own Salvo tests run inside one of them.
 
-## The unattended run (user, 2026-10-30)
-
-The user let the work run unattended through the pipeline record's last
-stages (D4, E1, E2, all done 2026-10-30) and then through this file's open
-defects that need no decision, in order (0p, 0q, 0r, 0aa, 0ab, 0ad, 0al,
-…). The rules: a new DECISION is recorded here (options, recommendation),
-left unbuilt, and the run goes on with the next unblocked item, stopping
-only when nothing unblocked is left; a differential showing a behavior
-change is fixed when the docs call it a bug, else the old behavior is kept
-and the change recorded; one commit per piece after a warm nextest, no
-pushes; `demo/`, `.vscode/`, `SLICES.md`, `OPERATOR_OVERLOAD.md` and
-`DATA_STACKS.md` are not touched. **Keep this list current as each piece
-lands or stalls** (user), so a context compaction loses nothing. Progress:
-- D4, the dump phases, E1, 0az, E2: done (COMPLETED.md, 2026-10-30).
-- 0l: closed, already fixed by the lambda decision (COMPLETED.md
-  2026-10-30). 0p: done (commit "Keep a statically decided is test's
-  binding and subject").
-- 0q: a DECISION already (which fix is a language question): skipped.
-  0r: parked by the user: skipped. 0aa: closed, does not reproduce
-  (COMPLETED.md).
-- 0ab: done (commit "Keep a type parameter out of the written keys and the
-  protocol hash").
-- 0ad: done (commit "Land a stamp's copy for an imported type's field in
-  that type's file").
-- 0al: done (commit "Negate a literal before wrapping it as an
-  optional"). Its repro found 0bd (DECISION, recorded).
-- 0am, 0ao, 0ap, 0aq, 0e: DECISIONs (skipped); 0an: recorded for Stage D,
-  not a defect. The run wraps to the open defects above 0p, in file order.
-- 0m: done (commit "Copy maps and sets on the Kotlin backend").
-- 0n: done (commit "Read the caller's names in a named argument beside a
-  default").
-- 0ar, a bucket, one commit per item: the `?.` call answering `None`
-  (commit "Join a safe call's absent arm into None as the unit").
-  The out-of-range subscript trap (commit "Trap an array subscript out of
-  range with Salvo's message").
-  The stale labels (commit "Retarget two labels no spec defines").
-  The false `no-fn-in-module` (commit "Say nothing more of a refused fn
-  named by module").
-  The `cmp_deref` comment was the stale side ([rs-cmp-deref] already says
-  arithmetic derefs; commit "Correct the cmp_deref case's stale comment").
-  An unhashable key is reported per declaration, not once per program
-  (commit "Report an ineligible key once per declaration").
-  The implicit-fill messages (commit "Report one miss per implicit group,
-  without naming an arbitrary candidate").
-  `assert!(n)`'s second report (commit "Refuse a non-Bool assertion
-  once").
-  Exact repeats of one diagnostic (commit "Drop a diagnostic that repeats
-  another exactly"): the fn-type `[use]`/`[spawn]`/`any` refusals, three
-  carry refusals, the leading-dot arm.
-  A refused annotation or return type is not a second mistake at its value
-  (commit "Say nothing more of a value against a refused annotation").
-  A failed `by` clause is its one refusal (commit "Report a failed by
-  clause once").
-- 0ar's remaining items are parse-recovery and smaller cascades, left for a
-  pass of their own (each is listed there).
-- 0aw: done (commit "Check the aws glue against the SDKs, and unwrap a
-  required structure member").
-- 0ax: design questions (qualifiers by name, the deadlock graph's node
-  names) plus the scopes' leftovers, not scheduled; its stale third bullet
-  (`member_ref_by_name`, already gone) removed. 0bb: refactor leftovers,
-  not defects (skipped).
-- 0at's member type arguments: done (commit "Record a member call's own
-  type arguments").
-- Next: the 0as–0av lists' remaining items are recorded limits, not
-  defects; the open defects left are 0ar's cascades.
-
 ## The sequence
 
-### N — Namespaces: done (2026-10-16)
+### N — A nested-namespace import (left by namespaces, 2026-10-16)
 
-`namespace X { … }` is built on both backends — see COMPLETED.md's decision
-log ("Namespaces"). DDB (the `aws` module task that prompted it) builds on it.
-
-Open follow-up: a **nested-namespace import** `import mod.Outer.Inner` may hit
+`namespace X { … }` is built (COMPLETED.md, "Namespaces"). A **nested-namespace
+import** `import mod.Outer.Inner` may hit
 the import splitter's `trailing_upper > 2` cap in `resolve_import` — only
 `import mod.X` (whole namespace) and `import mod.X.Thing` (one member) are
 exercised. Relax the cap if a case needs importing a nested namespace as a
 unit.
 
-### Effect aliases: done (2026-10-18)
-
-`effects IO = [Console, Fs, Streams]` — a named shorthand for a group of
-effects, usable anywhere an effect list appears — is built on both backends
-(COMPLETED.md's decision log, "Effect-group aliases"). It was the first half of
-a two-part user request; the second half (first-class effects) is the DECISION
-below. The `salvo build` + command-line-arguments work that followed it is
-done and recorded in COMPLETED.md (the `Args` effect, `salvo build`, and the
-dedicated manifest docs page).
-
-### First-class effects (user direction 2026-10-14, DECISION, not designed)
-
-The user asked for functions that **register or return handlers** — a
-"`effect fn`" that `use`s handlers and hands an effect's capability back to its
-caller. The original sketch was `effect fn std_io() [use] -> [IO] Double`. The
-agent surfaced a fundamental tension: effects today are strictly lexically
-scoped (a `use` pushes an `EffectAvail` onto `effect_env`, truncated at block
-end), a handler is **not** a first-class value ([handler-not-value]), and the
-only value→bound-effect path is `Addr<E>` → `use addr`. Returning a handler is
-not expressible as the language stands.
-
-The user reframed the goal (superseding the `effect fn` sketch): **make effects
-first-class values**, standardising on how `Addr` already works, and then let an
-effect **alias** be referred to as a single effect value.
-
-**DESIGN SETTLED (user decisions 2026-10-18).** The design round is done; the
-model below is the user's call and is ready to build. No implementation had
-started when it was recorded.
-
-The key realisation from the design round: a bound effect is *already* a
-first-class value under the hood — every `use H()` wraps the instance in the
-shareable monitor handle (`__Mon_E` on Kotlin, `__Handle_E`/`Arc` on Rust),
-the same handle an `Addr<E>` carries — and a **direct `use H()` and a `use` of
-a handed-in handle already dispatch identically**. Only the language refused to
-let that handle be a value ([handler-not-value], [effect-not-data]). `Addr<E>`
-is that handle given a nameable type. So the feature is: surface the handle, no
-new handler kind, no new representation. The shareability property (a handle is
-a thread-shareable monitor; a stateful one carries a lock) is kept — that is
-what makes handing a handle to another thread safe.
-
-**The model — `eff[...]`, a handle over a flat effect set:**
-
-- **`eff[A, B, C]`** is the type of a handle to the effects `A, B, C`. A
-  lowercase type former with square brackets (like `proj`/`iter`/`ref`, and
-  reusing the effect-list bracket), *not* a generic — `eff` is contextual in
-  type position. The set is **flat and alias-expanding**: `eff[IO]` ⟺
-  `eff[Console, Fs, Streams]`, `eff[IO, Random]` ⟺
-  `eff[Console, Fs, Streams, Random]`, order-normalised like an effect list.
-  `eff[E]` (one effect) is the degenerate case.
-- **Set-subsumption** (user decision): `eff[A, B]` is a subtype of `eff[A]` — a
-  wider handle satisfies a narrower requirement, mirroring how a scope with more
-  effects calls a fn needing fewer. A real addition to `is_subtype`/`unify`.
-- **`use` becomes an expression.** `let x = use H()` both registers `H` into
-  the current scope **and** yields the handle `x`. The statement `use H()` is
-  the discarded-value case (`let _ = use H()`). A single-face handler yields
-  `eff[E]`; a multi-face `H of Public, Admin` yields one flat `eff[Public,
-  Admin]` (not a tuple). `use e` where `e: eff[...]` pushes every effect in the
-  set into scope — the consumer side needs no new syntax (it is the existing
-  `use addr` path generalised).
-- **`spawn` must always be `on` a pool** (user decision). Now that `use H()`
-  covers the synchronous/monitor case, `spawn` is reserved for "on a thread":
-  bare `spawn H()` (the SH-3 monitor spawn) is retired and those sites migrate
-  to `use H()`, whose handle is already the shareable monitor.
-- **Projection `e[A, B]` / `e[IO]`** narrows a handle to a sub-handle: legal iff
-  the named set `S ⊆ effects(e)`, type `eff[S]` (flattened), **non-consuming**
-  (a copy — handles are freely cloned). The `[...]` after a value carries effect
-  **names**, disambiguated from array indexing by capitalised contents. This is
-  how you get an actor's address back out of a bundle: `e[SomeActor]` where the
-  named effect is an actor effect.
-- **Merge `eff[a, b]`** in *value* position combines **already-bound** handle
-  values into their union `eff[union]` — a factory assembles a unified handle to
-  return. (Bare `H()` without `use` stays [handler-not-value]; only bound
-  handles merge — user decision.) **`eff[*]`** is "every effect handle in scope"
-  (stage 5).
-- **Actor address** is no longer a separate type: it is an `eff[X]` whose `X` is
-  an actor effect. `send`/`replyto`/`self@Face`/group routing require that.
-
-`eff[...]` is thus a small closed algebra: **type** `eff[A,B]`; **construct**
-`eff[x,y]` (merge bound handles) with atoms from `use H()`; **project** `e[S]`
-(narrow, copy); **bind** `use e` (push the set). Both backends already render
-the handle as a storable value, so emission is identical by construction
-[backend-never-wrong].
-
-**The build plan — five commits, in order:**
-
-1. **Rename `Addr<E>` → `eff[E]`** — ✅ DONE (commit `eba7f4b4`). Surface is
-   now `eff[A, B, …]` (parser former + a parse error on the old `Addr<…>`);
-   internal `Ty` name stays `"Addr"`, rendered as `eff[…]` by both `Ty` and AST
-   Display; the std intrinsic `type Addr<E>` declaration is the only remaining
-   `Addr` spelling. lib/std/examples/docs/tests/spec all swept.
-2. **`spawn` must be `on` a pool** — ✅ DONE (this commit). An *actor* spawn
-   requires `on POOL`; the implicit main-pool default is retired. A **monitor**
-   spawn (plain-effect faces) still omits a pool — it runs on no thread — and is
-   retired in favour of `use H()` in stage 3. `[actor-main-pool]` kept for task-mint
-   inheritance (`replyto` with no `on`) and for `main`'s own execution context.
-3. **`use` as an expression** — ✅ DONE (this commit). `Expr::Use` added;
-   `let x = use H()` registers and yields `eff[E]`; fns return/accept handles;
-   `use handle` binds a handed-in one. Set-subsumption in `unify`/`is_subtype`
-   (`eff[A,B]` <: `eff[A]`). **Deferred to stage 4:** a *multi-face* handler's
-   handle as a single value (needs the flat multi-effect representation that
-   projection introduces) — refused by name for now; a multi-face `use`
-   statement still binds every face. The monitor-spawn→`use` migration also
-   rides with stage 4/5.
-4. **Projection `e[S]`, multi-effect handle, `use e` of a handle set** —
-   ✅ DONE. A multi-effect handle `eff[A, B]` lowers to a **tuple of single
-   handles** `(eff[A], eff[B])` — in the type system (`lower_base_ref`) and the
-   IR alike — so there is no flat multi-face representation to invent; each
-   element is an ordinary single handle. A multi-face `use H()` as a value
-   yields that tuple; `use e` over a (nested) tuple binds every effect
-   (`use e.0; use e.1`, a `use` with `handles` and no construction); projection `e[A, B]` / `e[IO]`
-   is a non-consuming copy of the named sub-handles (`Expr::Project`,
-   `handles`), with alias flattening in type **and** projection
-   position. Both backends byte-identical.
-5. **Merge `eff[a, b]` and `eff[*]`** — ✅ DONE. A value-position `eff[…]`
-   constructor (`Expr::Merge`, `handles`): `eff[clock, logger]` combines
-   already-bound handles into one `eff[Clock, Log]` (union of effects, ordered
-   to the expected type so a positional tuple fits a declared return); `eff[*]`
-   bundles every handle in scope. Only bound handles merge (bare `H()` stays
-   [handler-not-value]). Both backends byte-identical.
-
-**All five stages are complete** — the first-class-effects feature is built.
-One related fix landed with stage 5: a plain-effect handle (`eff[Clock]`, a
-monitor) no longer forces the actor scheduler (`features.rs` now triggers the
-scheduler only on an `Addr` wrapping an *actor* effect, via `ty_has_actor_addr`),
-so a program that only passes plain handles around is not pulled onto the
-runtime. The single-face `use`-expression double-binding is a recorded,
-accepted non-issue (left un-optimised, user decision).
-
-Tests must all pass at the end; the tree need not be clean between commits.
-
-### 0 — The runtime in Salvo: done (2026-10-03)
+### 0 — What the runtime in Salvo left (built 2026-10-03)
 
 Built: see COMPLETED.md's decision log and its "Design record: the runtime in
-Salvo" (the runtime record, retired 2026-10-03). What is left, besides 0c, 0d, 0e
+Salvo" (the runtime record, retired 2026-10-03). What is left, besides 0d, 0e
 and the `test actor` follow-ups recorded below:
 
-2. **What is left of the actor, net and time intrinsics** (most went
+- **2.** **What is left of the actor, net and time intrinsics** (most went
    2026-10-05 and 2026-10-06, COMPLETED.md; `route_frames`, `watch` and
    `on_idle` are Salvo since §0j 6h, `epoch_nanos` a platform fn since step
    5). §0j schedules `encode`/`decode` as Salvo codecs (step 9); `key_hash<T>`
@@ -282,20 +84,12 @@ and the `test actor` follow-ups recorded below:
    provenance claim only a constructor can make; `reply_token` and the four
    handle conversions are the runtime's view of its own handles
    [runtime-handles].
-6. **Kotlin's `unerase<T>` cannot check `T`** (erased generics): a mismatch
+- **6.** **Kotlin's `unerase<T>` cannot check `T`** (erased generics): a mismatch
    surfaces as a `ClassCastException` where the value is used. In the
    runtime a mismatch is a compiler bug either way; an exact check would need
    a type token generated code could pass.
-7. **Every collection as a platform type** — done for every collection
-   (2026-10-04/05, COMPLETED.md); the constructors followed with §0j step 7
-   (2026-10-06). Lost with `List` and still owed: printing a nested list
-   (step 8).
 
-### 0b — ✅ Three slow tests (fixed 2026-10-04, COMPLETED.md)
-
-### 0c — ✅ Emitter defects and gaps (closed 2026-10-04, COMPLETED.md)
-
-### 0j — Shrinking the backends (user decisions 2026-10-05, not built)
+### 0j — Shrinking the backends (user decisions 2026-10-05, partly built)
 
 The aim: a third backend implements a short, straightforward list. Decided in
 one sitting; COMPLETED.md's log ("Shrinking the backends") has the decisions
@@ -315,11 +109,9 @@ and the survey behind them, with per-site line numbers. Four principles:
 
 The steps, in order. Each says what it absorbs from elsewhere in this file.
 
-1. ✅ **Defects** (2026-10-05, COMPLETED.md).
-2. ✅ **Integers** (2026-10-05, COMPLETED.md): `bit_` functions [op-bits],
-   wrapping arithmetic [op-wrap], `mix_hash` in Salvo. Left, small:
+- **2.** **Integers**, left of the step built 2026-10-05: the
    `checked_*`/`saturating_*` std functions (§10's overflow row named them).
-3. **Shared machinery in `salvo-backend`** — mostly built 2026-10-05
+- **3.** **Shared machinery in `salvo-backend`** — mostly built 2026-10-05
    (COMPLETED.md): `driver.rs` (check, erase, resolve, reach) and
    `emit_util.rs` (23 shared walkers and helpers, `EmittedFile`, ABI
    stamping, file writing). Left: the side-table accessors (`ty_of`,
@@ -329,16 +121,10 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
    (`in_abi` against `abi_modules_or_project`) and should be one rule;
    `effect_param_name`/`disambiguate_unchecked` (near-identical; the second
    goes in step 4).
-4. ✅ **Small core facts** (2026-10-05, COMPLETED.md): overload resolution is
-   total, so the emitters' by-shape fallback is gone. Examined and left: the
-   mutated/declared/`is`-binding walkers are one copy in `salvo-backend` since
-   step 3, which removed the duplication a core table would have; and
-   `handler_dep_effects` *renders* the declaration's dependency list rather
-   than re-resolving it, so `Checked::constructions`' dependencies matter only for a generic
-   dependency, which both backends refuse. Still small and open: one
+- **4.** **Small core facts**, left of the step built 2026-10-05: one
    termination predicate (Rust `block_terminates`, Kotlin
    `block_returns_early`).
-5. **Runtime files and intrinsics to std** — `epoch_nanos` is a platform fn
+- **5.** **Runtime files and intrinsics to std** — `epoch_nanos` is a platform fn
    with host files `lib/platform/std/time.{kt,rs}` (2026-10-05, COMPLETED.md).
    The runtime files turned out to be used by other runtime code, so each
    moves with what uses it: `hosttime`'s monotonic clock with the scheduler
@@ -350,38 +136,19 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
    become a platform fn of `std.core.string` once interpolation lowers through
    `to_str` for floats, which is a small step of its own. The recorded
    runtime-file-name collision shrinks as these go.
-6. **The language the Salvo collections need.**
-   - a. ✅ **Fn slots on struct declarations** [struct-slot] (2026-10-05,
-     COMPLETED.md).
-   - b. ✅ **`canbe Mut` on a field type** [struct-field-canbe-mut] (2026-10-05,
-     COMPLETED.md). Left: Kotlin refuses a `Str canbe Mut` field (a
+- **6.** **The language the Salvo collections need.**
+   - b. **`canbe Mut` on a field type** [struct-field-canbe-mut], left:
+     Kotlin refuses a `Str canbe Mut` field (a
      `StringBuilder` is not a `String`, so one property cannot hold both
      shapes without `Any` and identity equality) [kt-field-canbe-mut].
-   - c. ✅ **Opaque structs** [struct-opaque] (2026-10-05, COMPLETED.md; LSP
-     completion hides the fields outside the module, 2026-10-06).
-   - d. ✅ **A total positional list write**, `replace(list, i: Idx(list)
-     Int, v) -> T` [col-replace] (2026-10-05, COMPLETED.md), linear elements
-     included: a qualifier's type parameter may now `canbe linear`. Left:
+   - d. **A total positional write at a field**, left of [col-replace]:
      §0d's `take(place: Mut T?) -> T?`, the same gap at a field.
-   - e. ✅ **Deep copy of structs on Kotlin** [kt-copy] (2026-10-05, with b;
-     a non-generic struct that contains itself gets a generated copy fn,
-     2026-10-06). Left: the same for a *generic* struct, which is still
-     refused.
-   - f. ✅ **Hand-written `eq`/`hash`/`to_str` beside `by auto`** (checked
-     2026-10-05, COMPLETED.md): already supported (an obligation without
-     `by` is a promise any visible fn keeps), generic structs included since
-     6i. Step 7's map writes its order- and tombstone-blind `eq` this way.
-   - g0. ✅ **`Idx` for anything indexable** [col-idx] (user decision and
-     build 2026-10-05, COMPLETED.md): `std.core.index`, `qualifies` taking
-     `?size` at the tested container. `Str` stays excluded until the
-     recorded `size(Str)` DECISION.
-   - g. ✅ **`IntBuffer` and `LongBuffer`** [col-buffer] (user decisions and
-     build 2026-10-05, COMPLETED.md). A hash probe tests `i is Idx(index)`
-     per probe (accepted). Specializing `Int[]` to `IntArray` (M7) stays a
+   - e. **Deep copy of structs on Kotlin** [kt-copy], left: a *generic*
+     struct that contains itself, which is still refused.
+   - g. **`IntBuffer` and `LongBuffer`** [col-buffer], left: specializing `Int[]` to `IntArray` (M7) stays a
      later, separate question; left out until needed: a fallible `set`, a
      wire form.
-   - h. ✅ **Platform fns keep named fns** [platform-fn-value] (2026-10-06,
-     COMPLETED.md): `route_frames`, `watch` and `on_idle` are Salvo. Left, a
+   - h. **Platform fns keep named fns** [platform-fn-value], left, a
      **DECISION**: `pool(size, sink)` and `watch_control` build an actor
      *message* (`Faults.faulted`, the handler's private `control`), which is
      generated code no Salvo fn can name, so a kept named fn cannot build it.
@@ -393,30 +160,20 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
      top-level rule bends); (c) change how a sink and a control channel
      receive their payload (e.g. a re-armed reply token per delivery), a std
      API change to `Faults` and the groups.
-   - i. ✅ **Implicits on stamped fns for generic structs** [comptime-generic]
-     (2026-10-05, COMPLETED.md), with the DECISION it needed: an implicit
-     joins resolution by argument types [implicit-resolve-body] (user, option
-     A). Left: a stamp with implicits cannot be passed as a fn value (a
+   - i. **Implicits on stamped fns for generic structs** [comptime-generic],
+     left: a stamp with implicits cannot be passed as a fn value (a
      `Set<Wrapper<Str>>`'s `hash`) until step 8. (The generic union with a
      generic struct arm, `type Either<A> = Box<A> | Int : ToStr<self> by
-     auto`, works since 2026-10-06: a narrowed scalar arm handed to an
-     intrinsic was read as the whole union, which needed `Box<A>: Display`.)
-7. ✅ **The keyed collections, one representation per backend, identity
-   per call** (user decisions and build 2026-10-06, COMPLETED.md; the
-   "written in Salvo" plan was dropped by the user for this; leftovers
-   closed the same day). Left:
+     auto`, works since 2026-10-06.)
+- **7.** **The keyed collections** (built 2026-10-06, COMPLETED.md), left:
    - **A `==` on a struct holding a set or map** still compares by the host
      classes' order-blind equality (step 8's host-equality rule).
    - Until step 9, `Set`/`Map` stay `noremote`; their codec is the entries,
      never the slab (hash values differ by backend).
    - The typed override of a same-named implicit (`to_str: (V) -> Str = f`,
      decided 2026-09-28) is refused with a message, not built.
-8. ✅/partial **Recursive implicits (§6), then the host-equality rule**
-   (2026-10-06, COMPLETED.md): resolution and emission are recursive
-   [implicit-recursive]; `List` and tuple `eq`/`cmp`/`hash`/`to_str` are
-   Salvo; deleted: the interim intrinsics and both backends' lowerings, Rust's
-   `Eq`/`Hash`/`Ord` derives and their helpers, Kotlin's [kt-float-eq]
-   override, `SalvoTuple` and the structural half of `compare.kt`. Left:
+- **8.** **Recursive implicits (§6), then the host-equality rule** (partly built
+   2026-10-06, COMPLETED.md), left:
    - **The carried identity as a tree** (decision 3): a `Set<List<Person>>`
      still records the flat `hash@List`, and the element's `hash` is resolved
      where the set is used; the type does not print or compare the levels.
@@ -432,41 +189,27 @@ The steps, in order. Each says what it absorbs from elsewhere in this file.
    - Waiting on it and now unblocked: `Checked<T>`'s `to_str`
      [type-checked], `expect_eq` on a generic container, property testing's
      `?generate`, `json` over container fields.
-9. **Wire codecs in Salvo.** `encode`/`decode` (`lib/std/codec.sv`,
+- **9.** **Wire codecs in Salvo.** `encode`/`decode` (`lib/std/codec.sv`,
    `runtime/routing.sv`) as comptime fns over fields and arms, the `by auto`
    way, on a byte-level platform surface over `Bytes` (write/read `Int`,
    `Long`, `Double`, `Byte`, length-prefixed `Bytes`/`Str`). Deletes
    `wire.kt`/`wire.rs` and every generated codec. Absorbs §2c's "`decode<T>`
    as an implicit": the stamped codec is that implicit. Needs 6i, and 8 for
    container fields.
-10. ✅ **Imports and runtime features from core** (COMPLETED.md, 2026-10-06).
-11. ✅ **Effect dispatch and copy plans** (COMPLETED.md, 2026-10-06). Left,
-    small: the dot-notation normalization still asks `effect_of_fn` (step 13
+- **11.** **Effect dispatch and copy plans** (built 2026-10-06), left, small: the dot-notation normalization still asks `effect_of_fn` (step 13
     removes it); the actor-send path (`a.send_fn(..)`) reads its overload
     index off `Callee::Send` since the D2 calls merge.
-12. **The ownership plan.** Done (COMPLETED.md, 2026-10-06): parameter modes
-    (`salvo_core::param_mode`), the mutable-lend sets (`mut_lends`), the
-    borrowed-result classification (`borrows`), and the unifications (effect
-    members count element `Mut`; one ABI module rule). Examined and *not*
-    built, by the core/backend rule (AGENTS.md, [backend-core-layers]): a per-local
-    `BindKind` table and the borrow-`let` are Rust's state about its own
-    output types, not Salvo facts. **Open, for discussion in TOUR.md §9–10:**
+- **12.** **The ownership plan** (built 2026-10-06, COMPLETED.md). **Open, for
+    discussion in TOUR.md §9–10:**
     one new core table, the *demand* on each expression (moved / lent / lent
     mutably / discarded / returned), which is what `ValueMode` is a function of.
-13. **The IR** (user direction 2026-10-06; built, steps 1–5 done 2026-10-06,
+- **13.** **The IR** (user direction 2026-10-06; built, steps 1–5 done 2026-10-06,
     record in COMPLETED.md "Design record: the IR"). Both emitters read only
     the IR. **Open:** (a) with the user, revisit whether the actor *codecs*
     belong in the IR (consistency between backends against their tie to the
-    `UnionN` layout); (b) ✅ the IR builder's reads of the span-keyed `Checked`
-    tables are now unified behind five view accessors (`call_info`, `use_info`,
-    `spawn_info`, `pick_info` — since gone with the `?:` lowering —,
-    `interp_info` — 2026-10-10, COMPLETED.md
-    `[unify-checker]`), one lookup per node per concern; eliminating the tables
-    outright was judged not worth it (the IR is already self-contained, so they
-    are builder-private handoff state, and collapsing their storage fights the
-    checker's own readers); (c)
+    `UnionN` layout); (b)
     `BACKEND_SPEC.kotlin.md` still describes several AST-emitter spellings
-    and wants a pass rule by rule; (d) a single-face `use` takes a
+    and wants a pass rule by rule; (c) a single-face `use` takes a
     `ReentrantLock` it does not need. TOUR.md §10 lists the decisions still
     open.
 
@@ -489,8 +232,8 @@ decision 2026-10-02), to be revisited once the port lands. First candidates:
    through `Mut`. Stands in for moving a linear value out of a field (gap G2):
    a core `take(place: Mut T?) -> T?` leaving `None` behind, or the checker
    accepting `let b = a.body` followed by `a.body = None` before the
-   projection ends. Decide together with §0j step 6d (the same gap at a list
-   position).
+   projection ends. A list position has its total write already
+   ([col-replace]); §0j step 6d is this same gap at a field.
 2. **`Body`** — an activation's owned, mutable, sendable fn value (E10).
    After the cutover a real actor's body is generated dispatch, so this should
    become what the emitter produces rather than hand-written host code; a
@@ -541,8 +284,8 @@ Most of what each toolchain compiles is std and runtime code the program
 never reaches: hello world is 1,516 lines of Kotlin (8 of them `main.kt`) and
 2,832 of Rust, because pruning works per module [mod-used-only]. The plan:
 extend `salvo_core::reach` to declarations (fns by what the checker
-resolved, types by name), and emit runtime files only when used (that half
-is §0j step 10; §0j steps 5, 7 and 9 also move most runtime files into std,
+resolved, types by name); runtime files are already emitted only when used
+(§0j step 10, built), and §0j steps 5, 7 and 9 also move most runtime files into std,
 where per-declaration pruning reaches them). With
 [fn-emit-name] std's output no longer depends on the program, so a std edit
 would rerun only the programs that reach it. Kotlin already shares one std
@@ -570,11 +313,9 @@ artifact), `salvo-cli`'s unit tests 6s (`std_front_expansion_is_project_independ
 ~8–10s), `analyze_tests` 5s, `ir_linear_tests` 4s
 (`ir_linear_check_has_no_false_positives` ~5–6s), `flow_tests` 4s,
 `golden_tests` 3s, `carry_tests` 3s, `lsp_tests` 3s. The levers, none cheap:
-(a) a std check shared across a test binary's programs — **done 2026-10-28**
-(TESTS.md T3/C2, `salvo_testkit::front`; the Rust codegen tests went from 18s
-to 6.3s under `cargo test`, Kotlin 16s to 5.5s), though under nextest each
-test still builds the front in its own process, which TESTS.md T1's grouping
-addresses; (b) a shard-level stamp for
+(a) under nextest each test still builds the shared std front
+(`salvo_testkit::front`, 2026-10-28) in its own process, which TESTS.md T1's
+grouping addresses; (b) a shard-level stamp for
 the Kotlin compile-and-run shards, keyed by the test binary, `lib/`, every
 example's tree *and its resolved dependencies* (`aws = "0.1.0"`), and the
 kotlinc version, which would make their warm cost ~0 but needs that input
@@ -590,33 +331,10 @@ list to be complete.
   parameter type; Rust names it by its subject (`NonEmpty__List_qualifies`).
   Both deterministic; two modules declaring one qualifier over one subject
   would clash on Rust, unhandled.
-- A fn the emitter calls that the checker's tables do not show cannot take
-  part in the clash check; two of one name from two modules is reported as an
-  internal error rather than imported over each other. Closed by §0j step 10
-  (imports from the checker's references).
 - `examples/actors` calls `drop(boom)` on an `Int`; `std.core.seq`'s `drop` is not
   emitted there, so Rust's prelude `drop` runs (same effect on an `Int`, and
   it was so under the globs too). Worth a check that a resolved Salvo fn the
   program calls is always emitted.
-
-### 0o — ✅ The flow pass's mirrored join, loop and revival rules (fixed 2026-10-20, COMPLETED.md)
-
-Fixed in the IR flow pass (R8 piece 5): paths, joins and loop back edges are
-dataflow now, `continue` included; the record and what was left is in
-COMPLETED.md's decision log.
-
-### 0v — Closed 2026-10-14: a re-pointed view gets a Rust variable per live range
-
-Record in COMPLETED.md ("A re-pointed view gets a Rust variable per live
-range", [rs-repoint], [rs-proj-generic]). It left 0y.
-
-### 0y — Closed 2026-10-14: a fn value forwarded to a retagged slot is adapted
-
-Moved to COMPLETED.md ("A fn value forwarded to a retagged slot is adapted").
-
-### 0z — Closed 2026-10-27: a borrow of a borrowed element is flattened on Rust
-
-Moved to COMPLETED.md ("A borrow of a borrowed element is flattened on Rust", [rs-proj-flat]).
 
 ### 0q — Open defect: moving a field out of an indexed element fails rustc (found 2026-10-20)
 
@@ -681,30 +399,6 @@ struct's minter), and report a cycle. Only tests write the inferred form.
 
 Parked (user, 2026-10-14): the user expects to move away from state structs and `iter fn`s altogether.
 
-### 0t — Closed 2026-10-14: a `--src` inside a project's source root is refused
-
-Record in COMPLETED.md ("`--src` is the source root", [manifest-src]). The
-implicit-resolution cost it reproduced was decided 2026-10-14 (implicits
-resolved as calls are; COMPLETED.md).
-
-### 0w — Closed 2026-10-14: a function passed by name is chosen as a call chooses
-
-Record in COMPLETED.md ("A function passed by name is chosen as a call
-chooses", [fn-value-select]).
-
-### 0x — Closed 2026-10-14: a written fn value fits across erased qualifiers
-
-Record in COMPLETED.md ("A written fn value fits contravariantly in erased
-qualifiers", [fn-erased-variance]).
-
-### 0ac — Closed 2026-10-28: a location computed from a copied node lands where a diagnostic would
-
-Fixed with A3 (`origin::landing`; COMPLETED.md "Every fact is keyed by its
-declaration and node"): traps, "moved at line N", the IR dump's notes,
-`--rows` dump rows, language-server ranges and the deadlock check's reports.
-The trap strings of `examples/cli` moved from the end of `main.sv` to the
-fields their copies were for.
-
 ### 0bb — Leftovers of the pipeline record's stage D (2026-10-30)
 
 - **`erase` is still public** for one reader outside the IR builder, the
@@ -754,97 +448,6 @@ Worth it when one-file projects of that size are common, or as part of the
 typed form (Stage D), whose per-declaration storage makes the second half
 moot. On that file the IR (built and analyzed whole every edit, 28ms) costs
 more than the walk would save.
-
-### 0af — DECISION: does an effect member fill a binder position? (B3.1, 2026-10-28)
-
-R10 D3 has effect members fill every position a fn does, implicits included
-(a member as a value carries its handler; built in B3 piece 1). A **binder**
-position — `?cmp` where the signature's types carry it, `Mut SortedSet(…)`'s
-`cmp` — is filled by an identity a type then carries [cmp-binder], and a type
-carries only a named, top-level, capture-free fn [cmp-carry]; a member's value
-is a closure over a handler. Options:
-
-- **(a) Fns only at a binder** (built, the safe reading): a member is no
-  candidate there, so it never wins and never ties; no program is newly
-  refused. The one rule then has an exception at binders.
-- **(b) Rank members there too**, and refuse a member that wins ("this value
-  has no identity a type can carry", as for a lambda written at a binder):
-  one candidate set everywhere, at the cost of new errors where an
-  available member ties or beats a fn at a binder (`Set(…)` inside a fn
-  whose effect declares an `eq` or `hash` member).
-
-Recommendation: (a), since a binder's fill is a different kind of thing
-(an identity, not a value). Also recorded in the pipeline record §II.10.
-
-Left by B3.1 for later pieces (the pipeline record §II.13 "Order for B3"): a bare
-member name as a value (`apply(to_str, p)`, piece 6); members at
-interpolation parts (piece 2; at the comparison operators done in piece 3c);
-and at implicit positions
-two available effects' same-named members are already ranked as one set,
-while a bare *call* still refuses them (D15, piece 5).
-
-### 0ag — Closed 2026-10-28: a refused unique shape is a candidate nowhere
-
-Fixed in B3 piece 3c (COMPLETED.md "Comparison operators are the calls they
-name"): resolution leaves a declaration [op-unique-shape] refused out of every
-scope's fns and members, so its uses report nothing beyond the refusal.
-
-### 0ah — DECISION: three readings of [op-unique-shape] built for confirmation (B3.3b, 2026-10-28)
-
-OPERATOR_OVERLOAD.md D-1 to D-7 decide the rule; three cases it does not name
-were built on the reading that follows from it, and are yours to confirm
-(the pipeline record §II.10 P10):
-
-1. **A non-union alias names its target.** `type Grid = List<Int>` makes
-   `to_str(g: Grid)` a shape on `List` (refused outside `list.sv`), since an
-   alias expands structurally [type-alias] and D-2 says "base type"; a union
-   alias is a declared union and its own home (O4). Alternative: every alias
-   is its own home (its declaring file), which lets a module give `List<Int>`
-   a second `to_str` through an alias, i.e. a competitor for a concrete type,
-   which D exists to prevent. Recommendation: as built.
-2. **A handler's members are exempt**: a handler implements its effect's
-   members, and the effect member (covered, D-4) is the declaration in scope.
-   Alternative: check them too (a handler in another file than the type would
-   then be refused for implementing a covered member). Recommendation: as
-   built.
-3. **A qualifier's fns are covered**, like effect members (functions reached
-   by calls, B3 piece 5). Alternative: exempt them. No program has one of a
-   shape today. Recommendation: as built.
-
-Also recorded, not a decision: the anonymous unions' std home, which D-5 does
-not name, is `std.core.basic` (with tuples and fn types).
-
-### 0ai — DECISION: numeric widening at a comparison (B3.3c, 2026-10-28)
-
-`i < l` with an `Int` and a `Long` compares at `Long` [op-promote], but the
-call it names, `cmp(i, l)`, is refused when written out: a call does not widen
-a variable (`f(i)` into a `Long` parameter is refused too; only literals adopt
-[type-lit-adopt]). The call rule cannot express the widening, so B3.3c kept it as a
-**lowering before the call**, as [op-arm-eq] is (R10 D7): the narrower operand
-is widened, then `cmp(Long, Long)` is called; an integer and a float operand
-are refused before any call. Options (the pipeline record §II.10 P11):
-
-- **(a) A lowering before the call** (built): the operator's meaning is
-  unchanged; operator and written call differ for mixed widths, as for an arm
-  comparison.
-- **(b) Declare the mixed overloads in std** (`cmp(Int, Long)`, `eq(Long,
-  Int)`, … for every pair of widths in a class, intrinsics): the operator is
-  then a plain call and `cmp(i, l)` works written out; eight more intrinsics
-  per class and comparison, and each backend lowers them.
-- **(c) Let a call widen an integer (float) argument to a wider parameter of
-  its class**, for every call: one rule, but it changes overload resolution
-  everywhere (an `f(Int)`/`f(Long)` pair, adoption's "exact candidate blocks
-  it" rule) and is a language change well beyond the operators.
-
-Recommendation: (a), until arithmetic operators (`plus` …, O1) raise the same
-question and the three can be decided together.
-
-**Extended by B3.3e** (2026-10-28): the arithmetic operators raise it now, and
-were built the same way: `i + l` is `plus(widen(i), l)`, at std's
-`plus(Long, Long)`, and `plus(i, l)` written out is refused; `**` widens
-nothing ([op-pow]). Option (b) would add the mixed `plus`/`minus`/`times`/
-`divide` overloads too (sixteen more intrinsics per class); one answer covers
-all of them.
 
 ### 0ar — Open defects the test-data migration found (2026-10-28, TESTS.md T1)
 
@@ -917,7 +520,6 @@ repros are over the real std.
     `run_tests.rs` (`run_builds_and_runs_with_each_backend` and
     `build_produces_a_runnable_artifact_…`, which hold those programs since
     2026-10-29).
-- **From the emit data (TESTS.md C4/C5)**:
 - **From the second wave (parser and salvo-core tests to ids)**:
   - **a missing diagnostic?** `handler Working() of Work` with no `Work`
     declared reports nothing, in a file whose parse error elsewhere still
@@ -951,6 +553,10 @@ built: a field's name node needs its own identity, and the readers
 ### 0as — What member calls and uniform calls left (B3.4, 2026-10-28)
 
 the pipeline record §II.10 P19 is built; these are its recorded leftovers.
+
+- **Two available effects' same-named members** are ranked as one set at an
+  implicit position, while a bare *call* still refuses them (D15; left by
+  B3.1, whose binder question 0af the user settled 2026-10-30).
 
 - **Member values** (user, 2026-10-28: a future change): `c.bump` without a
   call, as a fn value that sends to `c`, and generally `x.f` read for a
@@ -1079,40 +685,6 @@ loop's rules into the call's contract would make the header a written
 `let it = Mut e; loop { when next(it) … }` (the pipeline record §II.6), and belongs to
 the typed partial IR (Stage D).
 
-### 0ap — DECISION: what `**` means, and what std declares for it (B3.3e, 2026-10-28)
-
-Built ([op-pow]; the pipeline record §II.10 P17): std declares `pow(Int, Int) ->
-Int`, `pow(Long, Int) -> Long`, `pow(Double, Int) -> Double` and
-`pow(Double, Double) -> Double`, and the operator widens nothing. The
-questions:
-
-1. **A negative integer exponent.** Built: **(a) a trap**, the host's
-   arithmetic exception (Rust `panic!`, Kotlin `ArithmeticException`, both
-   naming the exponent), as a zero divisor is; the texts differ, as division
-   by zero's do (§10). Alternatives: (b) the truncated real result (`0` for
-   `|b| > 1`, `1` for `b == 1`, `±1` for `b == -1`, a trap for `b == 0`),
-   never a trap but a surprise; (c) declare `pow` only over an exponent type
-   that cannot be negative, which std has none of today.
-2. **Overflow** wraps like the rest of integer arithmetic [op-wrap] (built:
-   Rust's `wrapping_pow` and the JVM's wrapping multiplication give the same
-   low bits). A `checked_pow` belongs with the other `checked_*` (§10).
-3. **Float powers.** `Double ** Int` is repeated squaring written out on both
-   backends, in one order, so the bits agree (built). `Double ** Double` is
-   the host's `pow` (Rust `f64::powf`, the JVM's `Math.pow`): both are within
-   about an ulp, but nothing guarantees they round alike for every input, so
-   it is the first operation in std whose last bit could differ between the
-   backends [backend-parity]. Alternatives: (b) declare no `Double ** Double`
-   until a shared implementation exists (a port of fdlibm's `pow` on Rust,
-   `StrictMath.pow` on the JVM); (c) keep it and document the caveat (built,
-   and documented in [op-pow]).
-4. **What is absent:** `Float` has no `pow` (an `f32` host `pow` and the
-   JVM's double `Math.pow` narrowed would round differently), and `Long **
-   Long`, `Int ** Long` and `Double ** Long` are refused naming what std
-   declares.
-
-Recommendation: (1a), (2) as built, (3c) and (4) as built; or (3b) if bit
-parity of float results is to stay a promise without exceptions.
-
 ### 0e — Deferred wakes (recorded 2026-10-03, DECISION, needs a design session)
 
 **What it is.** When a message makes an actor runnable, the scheduler unparks
@@ -1149,46 +721,11 @@ it, and the alternative of Go-style timed affinity (wake at once, but a woken
 thread leaves the item alone for a few microseconds so its sender can take
 it).
 
-### 1 — ✅ The std reorganisation (complete 2026-09-26)
+### 2 — What the network sequence left (complete 2026-09-27)
 
-One theme: std's shape. Step (a) landed with the sitting that scheduled the rest,
-and each remaining step is mechanical but wide — the sweeps are the cost, not the
-design.
-
-- **(a) ✅ `Checked<T>` in `std.core`, and a list write answers one** — built
-  2026-09-26 [type-checked] [col-bounds] (COMPLETED.md's log). `take` is
-  `detach`; the fallible `swap` hands back a `Checked<Bool>`.
-- **(b) ✅ The filesystem on `Checked<T>`** — built 2026-09-26 [fs-surface]
-  [type-checked] (COMPLETED.md's log). `Err Checked<FsError>` throughout; the
-  bespoke wrapper, its `ignore`/`detach` and its `to_str` are gone.
-- **(c) ✅ The filesystem out of `std.core`** — built 2026-09-26 [fs-module]
-  [fs-host-split] (COMPLETED.md's log). Modules `fs`, `fs.host`, `fs.mem`,
-  `fs.restricted`, unprefixed (user decision: (B1), with step 8's `std.` prefix
-  left as its own slice). `DefaultFs` stays in `fs.host` rather than the surface
-  module — the fusion gate reads reachable modules, so a `fs.mem` test would
-  otherwise be fused by a handler it never registers.
-- **(d) ✅ `std.core.nonempty` dissolves into the collections** — built 2026-09-26
-  [qual-overload] (COMPLETED.md's log). Each `NonEmpty` sits beside its
-  container; the four ordered accessors delegate through a `rename fn`, which is
-  what let the module go. The recorded "`NonEmpty` constructor convention — the
-  siblings" item is now *unblocked* rather than closed: `Set(first, ...rest)
-  -> +NonEmpty Set<T>` siblings are writable where they were not, and whether
-  std should have them is an API question.
-- **(e) ✅ `throw` out of `std.core`** — built 2026-09-26 [throw]
-  [test-implicit-import] (COMPLETED.md's log). `import std.throw`, and a test annex
-  gets it implicitly because the harness puts the effect there. Two defects fell
-  out of the module's name: Kotlin keyword package segments now mangle
-  [kt-package-keyword], and a duplicate emitted path is refused rather than
-  clobbered [backend-companion].
-
-**Step 1 is complete.**
-
-### 2 — ✅ Actors across machines: the network sequence (complete 2026-09-27)
-
-Eight steps, sixteen user decisions (2026-09-26), all built: COMPLETED.md's log
-has one entry per step ("The network sequence, step ①" … "step ⑧") and the
-round's entry ("Actors across machines — the network round"). What the
-sequence left behind, by step — each a leftover, none a blocker:
+COMPLETED.md's log has one entry per step ("The network sequence, step ①" …
+"step ⑧"). What the sequence left behind, by step — each a leftover, none a
+blocker:
 
 - **① wire/transport**: `delay(node, d)` on `MemNetwork`; a `.test.sv` annex
   for `net` (test bodies have no `spawn`); the multi-face stateful monitor gap,
@@ -1215,19 +752,13 @@ sequence left behind, by step — each a leftover, none a blocker:
   erased effect (`RouteSelector<A>`, `RouteSelector<B>`) cannot share a scope — a function per
   policy is the pattern, and lifting it means keeping a phantom on the erased
   trait plus a marker type per effect on the Rust side.
-- **the tidy-up (2026-09-27)**: a node group now connects the node itself
-  (2026-09-28, once handles let an actor member hand its transport to a
-  spawn — COMPLETED.md, "A node group connects its node"). A mixed handler
-  has no `init` block yet. The mixed servant / private-member unification
+- **the tidy-up (2026-09-27)**: a mixed handler has no `init` block yet. The mixed servant / private-member unification
   (below) is unchanged.
 - **⑧ the example**: `examples/cluster/` ships an election by host order behind
   `Leader`, not Raft. **Raft as a flagship example is still to be written** —
   terms, votes, heartbeats over `Timer`, a replicated log — and wants a
   deterministic clock across nodes first (virtual time is per process today,
-  and messages between virtual nodes run on other threads). N-10's user-facing
-  half — the manifest's `version` plus a lock file, so a protocol change
-  without a bump fails the build — **built 2026-09-29** with the manifest
-  (`salvo.lock`, [actor-protocol-lock]).
+  and messages between virtual nodes run on other threads).
 
 Both groups stay **actors until the sugar pass** (section 13), which thereby
 gains two concrete targets: `members()` as a plain read (the answering stub)
@@ -1236,17 +767,6 @@ deadlock graph is per program, so a wait cycle closing through a handler in
 *another* program of the same node group is invisible — the same shape as the
 "over types, not instances" gap, same deferred remedy.
 
-### 2b — ✅ One shape for effects (complete 2026-09-28)
-
-Built in four commits the day it was decided; the record — the decision, what
-it took, what fell out, the shapes it replaced, the gotchas — is COMPLETED.md's
-"One shape for effects" entry, the shape itself is under "Current architectural
-facts worth knowing" there, and the rules are [effect-handle], [rs-handle],
-[kt-handle]. The same afternoon the handle was keyed on
-statefulness and named after the effect (COMPLETED.md's second 2026-09-28
-entry). What it left open is in "Recorded, not scheduled": lock-free
-scope-local bindings, and the erased-sibling refusal.
-
 ### 2c — After `protocol<E>`: fused emission back, effect polymorphism, `decode` as an implicit
 
 The `actor_group`-over-`?protocol` round (COMPLETED.md, 2026-09-28 evening)
@@ -1254,7 +774,7 @@ left three follow-ups the user has asked for, in this order.
 
 - **Revisit fused effect emission** (user, 2026-09-28: "I'm happy to revisit
   the effect fusion — I personally find it more readable — but after the
-  `protocol<E>` work"). §2b chose one handle parameter per effect over the
+  `protocol<E>` work"). One shape for effects chose one handle parameter per effect over the
   fused `__fx` value for uniformity while the shapes were being settled; with
   the handle keyed on statefulness and named after the effect, the question
   is whether a fn declaring `[A, B]` should take one fused parameter again,
@@ -1313,9 +833,6 @@ compile-time-only structs with `Type` a union the kind `when` dispatches over,
 and added hover inside comptime fn bodies. What the decided design still owes,
 in build order:
 
-- ✅ **Implicits on stamped fns for generic structs** (built 2026-10-05 as
-  §0j step 6i, COMPLETED.md). `Checked<T>`'s `to_str` could now be `by auto`
-  [type-checked].
 - **Obligation clauses on platform types** (decided for `intrinsic type`
   2026-09-28; the collections became platform types and, per §0j, `Set`/`Map`/
   the sorted pair become Salvo structs, whose clauses are ordinary). For
@@ -1386,22 +903,6 @@ in build order:
 - **The `json` module** (`Json` union per SERDE.md SD-1, `to_json`/`from_json`
   comptime fns spelled `by json`, tag rules per SD-4) — waits on SERDE.md's SD-1 and
   SD-4 decisions and on section 6 for container fields.
-- ✅ **Command-line parsing** (`lib/std/args`): built 2026-10-20 (COMPLETED.md,
-  "Design record: command-line parsing"; [args-derive] and the rules beside
-  it). What it left open is §2d items 10 and 15 below and the deferred
-  features in "Recorded, not scheduled".
-- **Docs**: a `Compile-Time-Functions.md` page exists; LANGUAGE_SPEC has
-  `[comptime-*]`, `[obligation-by]`, `[fn-by]`. Both COMPTIME.md working
-  documents were deleted with their rounds in COMPLETED.md (the second, the
-  2026-10-20 expansion, as its "Design record: comptime expansion"); SERDE.md's SD-3 carries a superseding note.
-
-Settled 2026-09-29 (user decisions): a module *selector* names a module by any
-**unambiguous suffix** of its path — `size@list`, `by auto`; an `import` stays
-fully qualified — with a shared predicate and an ambiguity refusal
-[mod-suffix]; and a
-`by` name that is both a module and a comptime fn is disambiguated as `by
-@auto` (the module) or `by auto@mymod` (the fn), `@import` having been
-withdrawn because it confuses where a module *goes*.
 
 Known and recorded: two `to_str` overloads that both fit a *narrowed* value
 (`to_str(Manual)` beside a stamped `to_str(Source)` where `value: Source` is
@@ -1428,18 +929,9 @@ ladder); these stay open:
   union template ends in `return ""` after an exhaustive `[when value]`.
 - **The signature/body split** (the pipeline record §5: `by` declares the member
   signatures in 02-resolve-03, bodies stamped in 02-resolve-04) waits on step
-  8's stable ids and declaration-relative spans. **Decided (user,
-  2026-10-14): a stamped member has the signature it is declared with, never
-  the template's.** For `fn cmp(a: Point, b: Point) -> Int by auto` that is
-  the written signature; for `struct Point : Ordered<self> by auto` it is
-  each group member's with `self` substituted, and the group clause behaves
-  exactly as a `fn … by auto` per member would. The template supplies only
-  the body, checked against that signature: its parameter names, effect list
-  and deductions stop counting. **Built 2026-10-14** in today's expansion
-  (COMPLETED.md's decision log): the clause builds each member's declaration
-  and fills it on the written declarations' path. The split itself still
-  waits on stable ids and relative spans, and now needs no template to know
-  a signature. Left beside it: a written `fn … by X` at a generic type is
+  8's stable ids and declaration-relative spans; a stamped member already has
+  the signature it is declared with (built 2026-10-14, COMPLETED.md). Left
+  beside it: a written `fn … by X` at a generic type is
   still refused (it would have to spell the [comptime-generic] additions
   itself), while the clause stamps one; and `Stamper::member_decl` clears a
   group member's own type parameters (no std group has a generic member, and
@@ -1454,20 +946,7 @@ design touches it, and scheduled **alongside the planned `lib/std/args` derive
 and comptime work**. None is a decision except where marked. Each was
 reproduced in a scratch project; the repros are below.
 
-1. ✅ **Defaults are checked against their declared type** (done 2026-10-20,
-   COMPLETED.md; [default-fits], [default-predicate]).
-
-2. ✅ **A union of qualified literals compiles** (done 2026-10-20,
-   COMPLETED.md; [type-literal-qualified]).
-3. ✅ **`Short "port"` parses** (done 2026-10-20, with item 2).
-
-4. ✅ **A type name shadows `std.core` whatever kind declares it** (done
-   2026-10-20, COMPLETED.md; [type-name-shadow]).
-
-5. ✅ **Warnings in comptime copies land on the written code, once** (done
-   2026-10-20, COMPLETED.md; [comptime-copy-warn]).
-
-6. **`?:` on an optional literal union picks one literal (DECISION).** Found
+- **6.** **`?:` on an optional literal union picks one literal (DECISION).** Found
    2026-10-20 building 1.7. The positional pick keeps the subject's first
    *declared* arm [op-elvis], so `parse_output(s) ?: "text"` with
    `parse_output: (Str) -> ("json" | "text")?` picks `"json"` alone and leaves
@@ -1485,7 +964,7 @@ reproduced in a scratch project; the repros are below.
    so a literal there is a literal of the union. Recommendation: (a), plus
    the expected type. Until decided, the derive narrows with `!is None`.
 
-7. **A generic caller and callee sharing a type parameter's name misinfer a
+- **7.** **A generic caller and callee sharing a type parameter's name misinfer a
    forwarded implicit.** Found 2026-10-20 building `Errs` (1.10). Repro:
    `fn g2<E>(a: NonEmpty List<E>, ?copy: (v: E) -> E) [] -> NonEmpty List<E>
    => !a { return a }` and `fn h2<E>(x: NonEmpty List<E>, ?copy: (v: E) ->
@@ -1498,9 +977,8 @@ reproduced in a scratch project; the repros are below.
    from a forwarded own implicit first. `std.core.result`'s `joined` names its
    parameter `X` until then.
 
-8. ✅ **A declaration's own types resolve where they were written** —
-   done 2026-10-20 (`Symbols::ref_key`, [type-identity], COMPLETED.md);
-   `args.lex`'s union is `Token` again. Left over, **unexplained**: with the
+- **8.** **A written key differs under the CLI build** (left by
+   [type-identity], 2026-10-20), **unexplained**: with the
    wire predicates reading keys through `Checked::written_key`, the CLI
    build (`salvo compile` of `examples/time`, embedded std) judged runtime's
    `WaiterMint { token: Token }` by `args.lex`'s `Token`, while the
@@ -1514,15 +992,14 @@ reproduced in a scratch project; the repros are below.
    `wire::approx_ty`'s key through `ctx.checked.written_key` and compile
    `examples/time`.
 
-9. ✅ **The postfix `!` is gone; a `copy` of a pick over a temporary
-   compiles** — done 2026-10-20 ([assert-op], [rs-loop-temp], COMPLETED.md).
-   Left over: `?: unreachable!(…)` keeps the subject's **first** value arm,
+- **9.** **`?: unreachable!(…)` is not the old `!`** (left by [assert-op],
+   2026-10-20): it keeps the subject's **first** value arm,
    where `!` kept every non-`None` arm, so on a union with several value arms
    (`A | B | None`) it is not the old assertion; such sites narrow with
    `assert!(x !is None)` instead. A single expression form that drops only
    `None` does not exist, deliberately (user decision 2026-10-20).
 
-9b. **Open defect: `get(xs, i) ?: "default"` is refused.** Found 2026-10-20
+- **9b.** **Open defect: `get(xs, i) ?: "default"` is refused.** Found 2026-10-20
    (item 9). The pick's join is `proj Str | Str`, and the literal on the
    right matches both arms: "a value of type `Str` matches multiple arms of
    `proj Str | Str`; qualify the value to disambiguate", then "no matching
@@ -1532,14 +1009,7 @@ reproduced in a scratch project; the repros are below.
    (`X <: proj X`), so the join should be `proj Str`, with the literal an
    owned value fitting it.
 
-9c. ✅ **Writing both members of a `with` pair with another struct** — done
-    2026-10-20 with the pipeline record step 4 ([iter-group], COMPLETED.md).
-
-9d. ✅ **A handler's state initializer reads a constructor parameter, and its
-    names may not clash** — done 2026-10-20 with the pipeline record step 4
-    ([name-bare], [handler-state-name], COMPLETED.md).
-
-9e. **A general `state` effect (DECISION, to design).** Found 2026-10-20 while
+- **9e.** **A general `state` effect (DECISION, to design).** Found 2026-10-20 while
    designing named iterator state (the pipeline record 4.1, "The general form"): a
    `state` statement that brings a struct into scope for the rest of a block,
    like `use` (`state Cursor { src: text, at: 0 }`), and `[state S]` on a fn
@@ -1553,70 +1023,21 @@ reproduced in a scratch project; the repros are below.
    [iter-fn] [handler-state-name]; `HandlerDecl.state_name` is recorded and unread)
    are written so that this can extend them.
 
-10. ✅ **A stamped body falls back to its template's names** — done
-    2026-10-20 with option (b), and replaced 2026-10-30 by P23: a template's
-    text means its own file's names, a fn name it sees is written `@module`
-    or `@[site]` ([comptime-hygiene], COMPLETED.md). Left over: the same-file and same-module rules a stamped body may meet inside
+- **10.** **Template code meets the stamping file's rules** (left by
+    [comptime-hygiene]): the same-file and same-module rules a stamped body may meet inside
     template code — [struct-opaque] field access on a template-private
     struct, the `own_qualifiers` constructor rule, the [linear-group]
     same-file discharger — still key on the stamping file, so a derive's
     private *types* would be refused there; `args` keeps its types exported.
     `refine` (refinements per file) and `reach` read the site file's scope.
 
-11. ✅ **A reassigned local owns or borrows for its whole life** — done
-    2026-10-20 ([proj-local], [rs-opt-borrow], COMPLETED.md).
-
-12. ✅ **Moving a Copy scalar is a copy** — done 2026-10-20
-    ([copy-scalar-free], COMPLETED.md).
-
-13. ✅ **A literal `is` on an un-narrowed `Str?`** — done 2026-10-20
-    ([is-union], COMPLETED.md).
-
-14. ✅ **Kotlin stdlib calls are qualified** — done 2026-10-20
-    ([kt-stdlib-qualified], COMPLETED.md). Left over: the Kotlin *types* the
+- **14.** **Kotlin types the emitter writes bare** (left by
+    [kt-stdlib-qualified], 2026-10-20): the Kotlin *types* the
     emitter writes bare (`String`, `Int`, `Long`, `Boolean`, `Unit`,
     `MutableList`, `StringBuilder`, `AssertionError`) can be shadowed the same
     way by a program's `struct String` in the same package. Untested; most
     shapes would be a kotlinc error rather than wrong code, but that is not
     established. Qualify them (`kotlin.String`, …) or reserve the names.
-
-15. ✅ **The derive explains every qualifier's failure** — done 2026-10-20
-    with a `@whynot` doc tag and `whynot?(x is Q)` ([qual-whynot],
-    [doc-tags], COMPLETED.md).
-
-16. ✅ **The validation hook (Q16)** — done 2026-10-20 with option (a)
-    ([args-validate], COMPLETED.md). The record of how it was decided: Q16 (accepted) says the parse calls a user
-    `validate(o: T) [Throw<ArgError>] -> +Valid T` "when one is declared
-    (found as an implicit), so the parse result is the validated type". An
-    implicit cannot be optional, so "when one is declared" needs a
-    mechanism, and the one that keeps the claim in the type does not compile
-    today. Probed 2026-10-20 with `fn parse_valid<T, V>(args: List<Str>,
-    ?FromArgs<T>, ?validate: (o: T) [Throw<ArgError>] -> V) [] -> Ok V |
-    Errs NonEmpty List<ArgError>`, called as `let r: Ok Valid Range | Errs
-    … = parse_valid(args)`: `T` is inferred from the candidate, but (1) the
-    candidate's type is `(Range) [Throw<…>] -> Range`: a fn value does not
-    carry the claim its `+Valid Range` return gains, so it does not fit `->
-    Valid Range`; and (2) calling the implicit inside `try` is not seen as
-    throwing ("nothing in this `try` block can throw"), and the throw is
-    charged to the caller. **(1) is fixed** (2026-10-20, [fn-value]: a
-    function value is one rule by name and as an implicit, and the probe's
-    `T` and `V` now resolve); **(2) is fixed** (2026-10-20, [fn-effects]
-    and [fn-throw-value]: a function inherits its fn-typed parameters'
-    effects only when it writes no effect list, and a throwing fn value's
-    call is delimited like a named callee's). Option (a) is being built.
-    Options:
-    - (a) **A separate entry point**, `parse_valid` / `valid_args_or_exit`
-      as above, after fixing (1) and (2), both general: a fn value keeps a
-      gained claim, and an effectful implicit's throw lands in the `try`
-      around its call. The user writes `let opts: Valid Serve =
-      valid_args_or_exit(args())`.
-    - (b) **No hook**: the user validates after parsing, `let checked = try
-      { validate(opts) }`, and `args` exports a helper that reports errors
-      the way `args_or_exit` does and exits 2. Works today.
-    - (c) **A `FromArgs` member `validate`**, stamped as the identity unless
-      written by hand: no compiler work, but it returns `T`, so the claim
-      Q16 wants in the type is lost.
-    Recommendation: (a), with (b)'s helper useful either way.
 
 ### 3 — Recorded: the restrictive reading of a fn-typed slot's lend
 
@@ -1649,24 +1070,10 @@ What the second one left open, deliberately, is the reading it chose *against*:
   the restrictive slot becomes worth stating, and the shape is above. Note the
   matching must be **directional**: a lending slot still accepts a non-lending
   candidate, so it is subtyping on the contract rather than equality.
-- ✅ The spare clause **warns** (user decision 2026-09-26, built): writing
-  `holds proj(c)` on an opaque-returning slot says what the signature infers, so
-  it is reported the way a no-op `@place` selector is [fn-overload-at] — one
-  diagnostic per clause, naming every source, and silent where the return is
-  concrete.
 
-### 4 — ✅ Project manifest and LSP source-root discovery (built 2026-09-29)
+### 4 — What the project manifest left (built 2026-09-29)
 
-Decided (M-1…M-7) and built the same day; COMPLETED.md's log has the entry.
-`salvo.toml` with `[project]`/`[build]`/`[rust]`/`[kotlin]`, discovery by
-nearest ancestor with nested manifests as boundaries, every command reading it
-flag > manifest > default, `backend = "*"`, per-document analysis in the LSP,
-`std = true` for `lib/std/`, and `salvo.lock` for the protocol hashes (section 2's
-step-8 customer, now closed). The repo-root defect is gone: `lib/std/`, every
-`examples/*/` and `demo/` carry manifests, so the root opens as several
-programs.
-
-Left behind, none blocking: `salvo lock` as an explicit command was not added
+COMPLETED.md's log has the entry. Left behind, none blocking: `salvo lock` as an explicit command was not added
 (a build writes the file); the `--target` flag under `backend = "*"` is
 per-backend for `run`/`test` (suffixed) and refused for `compile`; only a build
 (`compile`, `run`, `test`) reconciles `salvo.lock` — `analyze` and the language
@@ -1677,43 +1084,28 @@ modules`, `modules/aws/` consumed by its `examples/profile/`; COMPLETED.md has
 the entry). **What that slice left for later**: transitive dependencies (a
 dependency's own `[dependencies]` are not followed), version ranges and
 resolution, a fetcher that fills `salvo_modules/` from anywhere, a dependency's
-own `.svignore` and companions beyond `platform/`. The `aws` module's content is
-designed (`modules/aws/DESIGN.md`) and needs three things of the compiler first —
-§4b.
+own `.svignore` and companions beyond `platform/`.
 
-### 4b — What the first dependency needs of the language (decided 2026-09-29, not built)
+### 4b — What the first dependency left of the language (decided 2026-09-29)
 
 `modules/aws/DESIGN.md` records the design (user decisions D1–D8 that day):
 services generated from the public Smithy models by a `smithy-build` plugin
 living in `modules/aws/codegen/`, wrapping aws-sdk-kotlin and aws-sdk-rust through
 generated platform handlers (the `smithy-dafny` pattern), non-blocking by taking
 a `Reply` and returning at once, streaming bodies through one std effect. The
-module is a *user* of Salvo and must not extend the CLI; what it needs is three
-AWS-neutral extensions, in this order. None is a **DECISION** — the calls were
-made in the design sitting — but each has a shape to settle at implementation.
+module is a *user* of Salvo and must not extend the CLI. Its three
+AWS-neutral extensions are built; below is what they left, and the
+extensions recorded since.
 
-1. ✅ **Host dependencies of platform code** — built 2026-09-29
-   ([platform-host-deps] [rs-cargo] [kt-classpath]; COMPLETED.md has the entry).
-   Maven coordinates are now resolved by Gradle (2026-09-30, [kt-gradle]
-   [backend-host-tool]); left: a lock for host versions, repositories besides Maven
-   Central.
-2. ✅ **Host-completed continuations** — built 2026-09-29 ([platform-reply];
-   COMPLETED.md has the entry). Left: a host reply to a remote-minted token (the
-   typed wire path), and detecting a lost reply on Kotlin.
-3. **`std.stream`** (DESIGN §5; decisions 20–27, the third sitting). Moving
-   `InStream` alone broke the same-file rule, so streams move *as a layer*:
-   `stream` owns `InStream`/`OutStream` and one effect `Streams` with every
-   stream operation; `fs` keeps paths and mints into it. In order:
-   a. ✅ **Effect prerequisites** — built 2026-09-29 ([effect-prereq]).
-   b. ✅ **One handle counter** — built 2026-09-29 ([stream-handle]).
-   c. ✅ **The split** — built 2026-09-29 ([stream-layer] [stream-table]
-      [stream-provider]; COMPLETED.md has the entry).
-   d. ✅ **Non-blocking** — built 2026-09-29 ([stream-receive]
-      [stream-from-bytes] [stream-pipe]; `Reply<T canbe linear>`).
-   Left from step 3: the writer pair for Salvo-produced bodies a host consumes,
+- **1.** **Host dependencies of platform code** (built 2026-09-29), left: a lock
+   for host versions, repositories besides Maven Central.
+- **2.** **Host-completed continuations** (built 2026-09-29), left: a host reply
+   to a remote-minted token (the typed wire path), and detecting a lost
+   reply on Kotlin.
+- **3.** **`std.stream`** (built 2026-09-29), left: the writer pair for Salvo-produced bodies a host consumes,
    asynchronous `Lines`, a consumer-only face, and `MemStreams` for a test with
    no filesystem (DESIGN §9).
-4. **Provider-checked stream handles** (DESIGN §9, decision 10 of 2026-09-29's
+- **4.** **Provider-checked stream handles** (DESIGN §9, decision 10 of 2026-09-29's
    second sitting). A `MemFs` stream handed to `HostByteSource` traps at
    runtime; the user wants the compiler to see it. Sketch to start from: a
    handle carries its **domain** as a provenance qualifier (`Host InStream`,
@@ -1722,9 +1114,7 @@ made in the design sitting — but each has a shape to settle at implementation.
    not at the read. **DECISION** at implementation time: qualifier vs. a type
    parameter on the effect vs. a property of the handler declaration, and how a
    program that legitimately mixes domains says so. Not blocking §4b 1–3.
-5. ✅ **Dot-names under a `type`** — built 2026-09-29 ([name-dot]; Kotlin nests
-   the members in an `object`).
-6. **Handler bundles** (recorded 2026-09-29, **DECISION**, not scheduled). A
+- **6.** **Handler bundles** (recorded 2026-09-29, **DECISION**, not scheduled). A
    production composition root binds a whole collection of handlers, and the
    stream layering makes even a host filesystem four lines (`use
    HostRawStreams()`, `use DefaultStreams()`, `use HostRawFs()`, `use
@@ -1732,7 +1122,7 @@ made in the design sitting — but each has a shape to settle at implementation.
    in dependency order — would make that one `use`. First customer: streams +
    fs; the shape (a declaration form, a fn that `use`s, how a bundle composes
    with `with` and interception) is the user's call when it is picked up.
-7. **Program end on the JVM** (found 2026-09-30, **DECISION**: to be designed
+- **7.** **Program end on the JVM** (found 2026-09-30, **DECISION**: to be designed
    fully before building). A Rust program ends when `main` returns; a Kotlin
    program ends when the JVM's last non-daemon thread does, so a host library
    holding one keeps the process alive after `main` — OkHttp, under
@@ -1746,56 +1136,21 @@ made in the design sitting — but each has a shape to settle at implementation.
    the exit; the exit status (a fault that reached the sink, a trap); and the
    cost — every emitted `main` changes, so every golden and example tree.
 
-The second sitting's other calls (DESIGN.md's numbered table) fix the shapes
-above: `Cargo.toml` only when crates are declared; a **directory of jars** for
-Kotlin then (`[kotlin] libs`; since 2026-09-30 Gradle resolves `artifacts`); host-dependency version conflicts
-refused; an undischarged reply reported to the fault sink where detectable;
-provider-sized non-empty chunks; `Err Checked<StreamError>`; a wrong-provider
-handle traps; `InStream` and `OutStream` both move.
-
-Then, outside the compiler — **built 2026-09-29/30 for SQS and S3**: the
-generator (`modules/aws/codegen`, a smithy-build plugin; `modules/aws/README.md`
-has the from-scratch setup), `aws.sqs` for six operations with a recording
-`FakeSqs`, `AwsConfig` with a `Credentials` union and an `endpoint` override,
-`aws.s3` for `PutObject`/`GetObject` with bodies as `stream.InStream` in linear
-structs and timestamps as `time.Instant`, `modules/aws/examples/{sqs,s3}`
-checked by the module's `check.sh`, and `modules/aws/demo/{sqs,s3}_live` run by
-hand against both SDKs through local stand-ins (COMPLETED.md has both entries).
-Uploads stream and require `content_length` (2026-09-30). Left, in the module
+Outside the compiler, the `aws` module (COMPLETED.md has its entries) left
 (DESIGN §9): multipart upload for a body of unknown length, Smithy unions,
 paginators and waiters, more S3 operations (buckets, listing).
 
-### 4c — Unions of literals, then the clients over them (decided 2026-09-30)
+### 4c — What unions of literals left (built 2026-09-30)
 
-The user's order: (1) ✅ a drift test for the aws glue; (2) ✅ **unions of
-literals** (built 2026-09-30, [type-literal]; left: `Byte` literals, which
-need literal syntax first); (3) ✅ `aws.sqs`/`aws.s3` regenerated with
-literal-union enums and one error struct per service; (4) ✅ the host ABI
-written down ([platform-abi], [rs-host-abi], [kt-host-abi]), then ✅ **host code with Salvo splices** (built 2026-09-30, [platform-host-splice]).
-✅ the aws glue moved onto splices, then onto **platform templates**
-(`platform/<m>.sv.kt`/`.sv.rs`, 2026-09-30), ✅ with editor support for them
-(highlighting and the language server, 2026-09-30; left: a template whose
-module has no `.sv` file is reported at file 0, span 0 — the embedded std — so
-`salvo analyze` names it but the editor drops it; the diagnostic needs a
-location of its own, the template), ✅ platform roots in the manifest, a
-template-writing `platform generate` and ascription by a place (2026-09-30) —
-all of which the templates' removal (2026-10-01) has since undone except the
-platform roots; (5) DynamoDB.
-
-✅ **The platform ABI** (user direction 2026-10-01; complete the same day,
-COMPLETED.md): generated host projects, interfaces, adapters, boundary
-checks, factories and stamps beside hand-written implementation files. The
-design and its decisions (D1–D11) are COMPLETED.md's "Design record: the
-platform ABI" (the ABI decisions, retired 2026-10-03). **Next: DynamoDB.**
+`Byte` literals, which need literal syntax first [type-literal].
 
 ### 5 — Consistency passes the 2026-09-26 ambiguity round left
 
-Three narrower questions, all downstream of "refuse to choose" (COMPLETED.md's
+Two narrower questions, both downstream of "refuse to choose" (COMPLETED.md's
 log for the round itself).
 
-- **✅ Identical-signature shadowing stays an ambiguity** — confirmed
-  2026-09-26 (user decision, COMPLETED.md's log). Nothing to build. What came
-  out of confirming it is a **small new question**: the remedy is
+- **A `@mod` selector for "this file's module"?** Identical-signature
+  shadowing stays an ambiguity (user, 2026-09-26), and its remedy is
   `f@<this module's path>(…)`, and there is no shorthand — `@mod` does not
   exist, and `@mod`/`@import` as *rung* keywords were rejected 2026-09-07
   because they ask the reader to know which rung a name arrived on. A `@mod`
@@ -1906,9 +1261,6 @@ container [interp-to-str], property testing's `?generate`, section 2c's
   pricing first (the case that raised this needs only `NonEmpty List<Int>` →
   `List<Int>` *inside* a type argument, which is qualifier-dropping at depth); and
   that the emitted Rust must not depend on it, since Rust has no variance.
-- **A fn value over owned elements at a view-element slot**: decided
-  2026-10-14 (option (b)) and built 2026-10-27 — COMPLETED.md ("A kept owned
-  parameter reads a borrow", [fn-kept-borrow]).
 - **DECISION — the mirror of [fn-kept-borrow]** (found 2026-10-14): should a fn
   whose parameter is a borrow (`fn longer(s: proj Str) -> Bool`) fit a slot
   that passes an owned value (`(Str) -> Bool`, e.g. `any(ws, longer)` over a
@@ -2013,15 +1365,11 @@ deliberately cut, in the order the decisions put it:
 
 ### 10 — The assertion trap policy (A-6, decided 2026-09-23, not built)
 
-Three failure classes still take the hosts' behaviour:
+One failure class still takes the hosts' behaviour (a subscript out of range
+traps with Salvo's message since 2026-10-30, and integers wrap [op-wrap]):
 
-- **Subscript out of range** → trap with *our* message (index and length),
-  replacing the hosts' two different texts. Needs care on the *place* path
-  (`arr[i] = x`), where a block expression cannot stand.
 - **Division by zero** → trap with our message; both hosts already trap, only the
   text differs.
-- **Integer overflow** → **wrapping**: built 2026-10-05 [op-wrap] (§0j step
-  2); `checked_*`/`saturating_*` are left there.
 
 ### 11 — One read, one mode: the rendering that reports a reference
 
@@ -2305,70 +1653,25 @@ backends**.
   v1); and an `iter fn` over a recursive subject snapshots per field, which is a
   deep copy.
 
-### 5 — LSP responsiveness: debounce, per-file parse cache, and a cached std front-half (user decisions 2026-10-10; phases 1–3 built, 4 recorded, 5 open)
+### 5 — LSP responsiveness: what is left (user decisions 2026-10-10; phases 1–3 built, 4 recorded, 5 open)
 
 **Superseding design in progress:** the pipeline record (2026-10-20) reorganizes the
 compiler into phases with per-file and per-declaration caching and early
 cutoff, which would replace phase 4's std-only summary with the general
 mechanism. Decided (rounds R1–R5); its §7 is the plan of work.
 
-The language server re-runs the whole `analyze` pipeline on every document
-event with no incremental state (`crates/salvo-cli/src/lsp.rs`,
-`analysis.rs`): std's ~42 files plus any dependencies plus the project are
-parsed, resolved and checked from scratch on each keystroke. The cost is
-`check_program`'s walk over every body (`crates/salvo-core/src/check.rs`; a
-whole-program fixpoint of up to four walks when this was written, one walk
-since 2026-10-20, the pipeline record R8 piece 4), not parsing. And
-because the server is single-threaded with no debounce or cancellation, a full
-analysis runs to completion before the next batch of events is read, so an
-analysis in flight reflects a buffer from several keystrokes ago and the
-backlog empties one whole analysis at a time — the user's report that the LSP
-"loops through previous issues in order even after they're addressed" (there
-is no literal queue; `main_loop` already coalesces to one `dirty` flag — the
-latency *is* the symptom). Four phases, agreed in order; the IR does **not**
-help here (it is built *from* `check_program`'s output — `salvo_core::ir`'s
-`build_program` copies the checker's answers and infers nothing — so caching
-it would save only the cheap transcription and inherit every coupling of the
-`Checked` cache):
+Phases 1–3 are built (COMPLETED.md, 2026-10-10: [lsp-debounce],
+[lsp-parse-cache], [deduce-std-explicit], [std-cache]; the std front shared
+across analyses, [lsp-std-front], 2026-10-20). Left of phase 3: a
+dependency's own fns are still inferred (they check as project files), so
+extending [deduce-std-explicit] to a `std = true` dependency would let the
+cache cover it too; and an **unverified concern** (2026-10-20): the cache's
+gate does not look at a project module under `core.` that is no std module
+(`src/core/x.sv`): `std.core.*` is implicitly visible in every file, std's
+included, so such a module could change what std's own names resolve to
+while the cache stands in for std's check. Not reproduced.
 
-1. ✅ **Debounce + drop-stale, in the LSP loop** (built 2026-10-10,
-   COMPLETED.md; [lsp-debounce]). On `dirty`, the loop waits a 120ms quiet
-   period and absorbs any message arriving inside it, so a burst of keystrokes
-   produces one analysis of the latest buffer. Requests (hover, completion,
-   go-to-definition) are unaffected — they analyse on demand.
-2. ✅ **Per-file parse cache in the server** (built 2026-10-10, COMPLETED.md;
-   [lsp-parse-cache]). Each file's parsed `Module` and parse diagnostics are
-   kept keyed by a content hash; on a keystroke only the edited file is
-   reparsed. Sound because parsing is per-file and local. `ParseCache` in
-   `analysis.rs`, held by the server, dropped per analysis to what the current
-   files produce.
-3. **A cached std front-half (resolve + check), reused across projects.** The
-   win, and the hard part: std's `Checked` is **not** today a pure function of
-   std's sources. The whole-program deduction fixpoint back-propagates callers'
-   facts into any std fn with an *unwritten* deduction clause, and overload
-   resolution merges std's `Core`-rung candidates with the project's — so a
-   project call can change a std fn's inferred contract.
-   - ✅ **The enabling rule — total clauses on exported std fns —
-     is built** (2026-10-10, COMPLETED.md; `[deduce-std-explicit]`, option (a)).
-     `check_std_deductions_total` in `crates/salvo-core/src/check.rs` requires,
-     in an `is_std && is_shadow` tree (what `std = true` sets via
-     `mark_std_tree`), a *total* deduction clause on every exported bodied `fn`
-     — a plain entry for every non-implicit, non-Copy-scalar parameter — and
-     the diagnostic suggests the inferred clause verbatim. std swept (33 fns);
-     the suggestions were correct by construction and changed no emitted code.
-   - ✅ **The cache itself is built** (2026-10-10, COMPLETED.md; `[std-cache]`).
-     `salvo_core::StdCache` wraps the `Checked` of a std-only program;
-     `check_project` seeds a round from it and skips std files in both the
-     per-file walk and the deduction fixpoint. The language server builds it
-     once per session (`analysis::build_std_cache`, since 2026-10-20 part of `build_std_front`) and reuses it, gated
-     (`std_cache_applies`) on the merged program's leading files being that std
-     unshadowed and the project not being `std = true` (A4) — else a full
-     `check_program`. **Measured 7.4×: `analyze` of the demo fell from ~449ms
-     to ~61ms** once the cache is built. A dependency's own fns are still
-     inferred (they check as project files `>= std_files`); extending
-     `[deduce-std-explicit]` to a `std = true` dependency would let the cache
-     cover it too, a later item.
-4. **(Future, recorded.) std as a precompiled library — Option B.** A's larger
+- **4.** **(Future, recorded.) std as a precompiled library — Option B.** A's larger
    successor: give the front-half a real std-as-a-crate boundary, with std
    checked once into an **owned, index-free** interface summary (contracts
    keyed by module path + item name, not file index) that `resolve`/`check`
@@ -2379,27 +1682,18 @@ it would save only the cheap transcription and inherit every coupling of the
    fixed) and needs a path-based parallel to the `FnKey`-keyed tables. Not
    worth it over A until cross-run persistence or workspace scale demands it;
    recorded so A's seam is designed without foreclosing it.
-   - ✅ **A first step is built** (2026-10-20, COMPLETED.md;
-     [lsp-std-front]): the language server parses and expands std once, and
-     every analysis's `Program` shares those modules (`Arc<Module>`) — no
-     parse, clone or comptime expansion of std per edit, and std's written
-     keys come from the cache. std's files are still in every `Program`, and
-     resolution still builds their scopes per analysis (~10ms of an edit);
-     the rest of Option B stays future.
-   - **Unverified concern** (2026-10-20): the cache's gate does not look at
-     a project module under `core.` that is no std module (`src/core/x.sv`):
-     `std.core.*` is implicitly visible in every file, std's included, so such a
-     module could change what std's own names resolve to while the cache
-     stands in for std's check. Not reproduced.
+   Its first step (std's modules parsed and expanded once per session) is
+   built; std's files are still in every `Program`, and resolution still
+   builds their scopes per analysis (~10ms of an edit).
 
-5. **(Follow-on, for `salvo build` — not the LSP.)** Once step 3's annotation
+- **5.** **(Follow-on, for `salvo build` — not the LSP.)** Once step 3's annotation
    guarantee holds, std's *IR* is a pure function of std's sources too, which
    is the property the Kotlin std **classes** cache
    (`salvo-backend-kotlin/src/stdlib.rs`, `[kt-std-library]`) relies on today
    by the weaker "verify byte-identical or recompile whole" fallback. Promote
    that cache to a sound IR-keyed std cache, and give the Rust backend an
    equivalent (which §0h already notes needs std's Rust output to stop
-   depending on the program first). Depends on step 3 landing.
+   depending on the program first). Step 3 has landed, so this is unblocked.
 
 ## Recorded, not scheduled
 
@@ -2595,9 +1889,6 @@ several are "revisit only if a customer appears".
   language-defined algorithms implemented identically in both runtimes (the
   rejected sketch: FNV-1a 64 over a canonical byte encoding). Until then a program
   must not print or persist a hash value and expect cross-backend identity.
-- **Platform-handler thread-safety contract — decided 2026-09-26**, as
-  `threadsafe platform handler`; built as step ① of the network sequence
-  (section 2). What used to be the DECISION here is in COMPLETED.md's log.
 - **`on_idle`'s predicate (DECISION).** The hook fires on the strict quiescence
   condition while the deadlock report fires on a weaker one, so a program stuck
   *with a parked frame* gets the report and exit 1 where the relaxed reading would
@@ -2611,14 +1902,10 @@ several are "revisit only if a customer appears".
   parity-safe by construction and is what the filesystem uses.
 - **Intersection types (DECISION)** — whether `Addr<A & B>`-style types join the
   language; recorded 2026-09-17 when the tuple form shipped instead.
-- **`platform type`** shipped (2026-10-02, [platform-type]); **`platform
-  effect`** stays removed (2026-10-01): `platform handler`, `platform fn` and
-  `platform type` are the interop surface.
 - **`const` bindings** — announced (user intent 2026-09-19), not designed. Its
   first customer is recorded: the shareable-handler taxonomy's rung 1 keys on "no
   mutable state", which today means "no fields, no `Mut` constructor parameters";
   `const` immutable fields would join the allowance.
-- **Test-suite speed** — now sequence item 0b (2026-10-02).
 - **Locators through opaque anchors, branded tokens, and the bounds-check
   mitigation ladder** — the group-borrowing ladder's recorded refinements, with
   GhostCell declined on the record (a brand is a scope-bound *lifetime* and actor
@@ -2677,8 +1964,7 @@ several are "revisit only if a customer appears".
   mailbox on that same pool still hangs (only the `main` case is caught); a `use`
   site does not check the `[spawn]` capability; a main-pool task whose answer
   arrives after `main`'s last wait never runs, silently; an effectful discharger
-  cannot `drain` a container; (the missing positional list write is §0j step
-  6d); `on_idle`'s
+  cannot `drain` a container; `on_idle`'s
   refinements (per-pool firing, naming who is parked, a many-shot form); FC-7 host
   bridging; and the `[waitfor]` spawn-placement diagnostic still states a hazard
   the pump rule removed.
@@ -2724,10 +2010,8 @@ several are "revisit only if a customer appears".
   possible automation is hoisting the temporary into a fresh local, which is what
   the user writes today — not free of judgement, since the temporary then lives to
   the end of the block and a hoist inside a loop changes how often it is built.
-- **A runtime file name colliding with an emitted std module** — the *silence*
-  is closed (2026-09-26): emission refuses at the end when two files claim one
-  path [backend-companion], which is how it was caught the second time (`throw`
-  left `std.core`, and the runtime's `throw.kt` had been winning that path). The
+- **A runtime file name colliding with an emitted std module** — emission
+  refuses when two files claim one path [backend-companion]; the
   workaround is still a rename each time — `hosttime.{rs,kt}`, now
   `throwsignal.kt`. The durable fix, unscheduled: namespace the runtime under
   `salvo_rt/`, which touches every golden, every example and the documented

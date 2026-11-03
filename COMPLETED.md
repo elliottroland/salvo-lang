@@ -144,6 +144,36 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Four built readings confirmed, and the roadmap cleared of finished work (user decisions, ROADMAP 0af, 0ah, 0ai, 0ap)
+
+- **Confirmed (user)**, each as built, so none is a DECISION any more:
+  0af (a), "happy with this for now": an effect member is no candidate at a
+  binder position, since a binder's fill is an identity, not a value.
+  0ah, "confirmed": a non-union alias names its target for
+  [op-unique-shape], a handler's members are exempt, a qualifier's fns are
+  covered. 0ai (a), "happy with this": a comparison or arithmetic operator
+  over mixed integer (float) widths widens the narrower operand before the
+  call, and the call written out widens nothing. 0ap, "happy with this":
+  a negative integer exponent traps (1a), integer powers wrap (2),
+  `Double ** Double` is the host's `pow` with the parity caveat documented
+  in [op-pow] (3c), and `Float` has no `pow` (4).
+- **Kept in the backlog (user)**: 0e (deferred wakes), variance on generic
+  parameters, the mirror of [fn-kept-borrow], §8 (mutating through a union
+  arm), §14 (`Cell`) and §17 (recursive types).
+- **ROADMAP.md cleared** (user: "clean up the ROADMAP so that no longer
+  holds completed items"): every ✅ step, "Closed" stub and finished
+  section is gone, with only what each left kept under it (the network
+  sequence's, the manifest's, the runtime's, §0j's steps, §2d's items, the
+  LSP phases'). 0af's one leftover (two effects' same-named members ranked
+  at an implicit position but refused at a call) moved to 0as. The
+  first-class-effects design text moved into this log's 2026-10-18 entry.
+  Lists whose finished items went keep their step numbers as labels, since
+  other sections cite them ("§0j step 9").
+- **The unattended run** (2026-10-30) is over: its progress list was a
+  pointer to entries already in this log (D4, E1, E2, 0p, 0ab, 0ad, 0al,
+  0m, 0n, the 0ar items, 0aw, 0at), and the user then answered the
+  DECISIONs it had collected (the entries above).
+
 ### 2026-10-30 — A lambda writes its effects and its clause (user decision, ROADMAP 0bc option (b), [fn-lambda-sig])
 
 - **Decided (user)**: option (b), "to make lambdas consistent with
@@ -8649,8 +8679,9 @@ target compiler.
 ### 2026-10-18 — First-class effect handles: `eff[E]` (stages 1–3 + alias flattening)
 
 Reworked the effect-handle surface and made bound handlers first-class values,
-per the settled design in ROADMAP's "First-class effects" (user decisions
-2026-10-18). Landed as four commits:
+per the settled design (user decisions 2026-10-18; the design text below moved
+here from ROADMAP's "First-class effects" when the roadmap was cleared,
+2026-10-30). Landed as four commits:
 
 - **`Addr<E>` → `eff[E]` (commit `eba7f4b4`).** The handle type's surface
   spelling is now the lowercase bracketed former `eff[A, B, …]` (a flat effect
@@ -8700,7 +8731,50 @@ calling `visit_type` on the node, so a `visit_type` override must not call
 `walk_type` on the same node — the framework already descends (an infinite
 recursion found and fixed while building the type-position flattening).
 
+The design as settled (moved from ROADMAP):
 
+**The model — `eff[...]`, a handle over a flat effect set:**
+
+- **`eff[A, B, C]`** is the type of a handle to the effects `A, B, C`. A
+  lowercase type former with square brackets (like `proj`/`iter`/`ref`, and
+  reusing the effect-list bracket), *not* a generic — `eff` is contextual in
+  type position. The set is **flat and alias-expanding**: `eff[IO]` ⟺
+  `eff[Console, Fs, Streams]`, `eff[IO, Random]` ⟺
+  `eff[Console, Fs, Streams, Random]`, order-normalised like an effect list.
+  `eff[E]` (one effect) is the degenerate case.
+- **Set-subsumption** (user decision): `eff[A, B]` is a subtype of `eff[A]` — a
+  wider handle satisfies a narrower requirement, mirroring how a scope with more
+  effects calls a fn needing fewer. A real addition to `is_subtype`/`unify`.
+- **`use` becomes an expression.** `let x = use H()` both registers `H` into
+  the current scope **and** yields the handle `x`. The statement `use H()` is
+  the discarded-value case (`let _ = use H()`). A single-face handler yields
+  `eff[E]`; a multi-face `H of Public, Admin` yields one flat `eff[Public,
+  Admin]` (not a tuple). `use e` where `e: eff[...]` pushes every effect in the
+  set into scope — the consumer side needs no new syntax (it is the existing
+  `use addr` path generalised).
+- **`spawn` must always be `on` a pool** (user decision). Now that `use H()`
+  covers the synchronous/monitor case, `spawn` is reserved for "on a thread":
+  bare `spawn H()` (the SH-3 monitor spawn) is retired and those sites migrate
+  to `use H()`, whose handle is already the shareable monitor.
+- **Projection `e[A, B]` / `e[IO]`** narrows a handle to a sub-handle: legal iff
+  the named set `S ⊆ effects(e)`, type `eff[S]` (flattened), **non-consuming**
+  (a copy — handles are freely cloned). The `[...]` after a value carries effect
+  **names**, disambiguated from array indexing by capitalised contents. This is
+  how you get an actor's address back out of a bundle: `e[SomeActor]` where the
+  named effect is an actor effect.
+- **Merge `eff[a, b]`** in *value* position combines **already-bound** handle
+  values into their union `eff[union]` — a factory assembles a unified handle to
+  return. (Bare `H()` without `use` stays [handler-not-value]; only bound
+  handles merge — user decision.) **`eff[*]`** is "every effect handle in scope"
+  (stage 5).
+- **Actor address** is no longer a separate type: it is an `eff[X]` whose `X` is
+  an actor effect. `send`/`replyto`/`self@Face`/group routing require that.
+
+`eff[...]` is thus a small closed algebra: **type** `eff[A,B]`; **construct**
+`eff[x,y]` (merge bound handles) with atoms from `use H()`; **project** `e[S]`
+(narrow, copy); **bind** `use e` (push the set). Both backends already render
+the handle as a storable value, so emission is identical by construction
+[backend-never-wrong].
 
 ### 2026-10-18 — Effect-group aliases (`effects IO = [Console, Fs, Streams]`)
 
