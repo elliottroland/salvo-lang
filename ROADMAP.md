@@ -84,7 +84,9 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
 - 0m: done (commit "Copy maps and sets on the Kotlin backend").
 - 0n: done (commit "Read the caller's names in a named argument beside a
   default").
-- Next: 0ar (0q, 0r skipped as above).
+- 0ar, a bucket, one commit per item: the `?.` call answering `None`
+  (commit "Join a safe call's absent arm into None as the unit").
+- Next: 0ar's out-of-range subscript trap.
 
 ## The sequence
 
@@ -1027,12 +1029,6 @@ repros are over the real std.
     errors; `"${size("a)} z"` gives three; `let a: [x.type] = p` outside a
     comptime fn adds the unknown type and two mismatches; `is` alone in a
     handler body is called a bare state field.
-- **From B3.4 (2026-10-28)**: a `?.` call link whose result is `None` (a send,
-  or `fn shout(n: Int) [Console] -> None` as `m?.shout()` on an `Int?`)
-  miscompiles on Rust: the absent branch is `None`, the present one the
-  call's `()`, and rustc refuses the `if` (E0308). Kotlin runs it. Present
-  before B3.4 (the `shout` repro); a send under `?.` is not in the run data
-  for this reason.
 
 ### 0ba — Recorded, not scheduled: a reference's target by node (D2 navigation refs, 2026-10-30)
 

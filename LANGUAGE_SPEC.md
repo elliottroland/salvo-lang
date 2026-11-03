@@ -679,6 +679,13 @@ Conventions:
     evaluate it and then yield the absent optional — Rust `{ log_it(); None }`,
     Kotlin `log_it(); return null` — never a bare `return log_it()` (which is
     the unit value where the optional is wanted). Added 2026-10-12.
+  * **A branch's absent arm joined into `None`** is the unit too (fixed
+    2026-10-30, ROADMAP 0ar): where an `if` or `when` answers the `None`
+    type, a branch whose value is the `None` literal or an optional
+    narrowed to it records the `NoneUnit` (`Checker::coerce_tail`). The
+    shape is a `?.` call answering `None` (`m?.shout()`), whose absent arm
+    reads the base narrowed to `None`; Rust was handed `if … { shout() }
+    else { None }` and refused it (E0282).
 * [type-array] `T[]` is an array; `arr[i]` is 0-indexed; size via
   `size()`. It has **no literal syntax and no generator syntax** since
   2026-09-13 — a list is `List(...)` [col-no-literal] — so `array_of(...)`

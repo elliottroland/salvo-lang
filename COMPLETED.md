@@ -144,6 +144,17 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A safe call answering `None` runs on Rust (ROADMAP 0ar, [type-none-unit] [op-safe-nav])
+
+- **Built**: `Checker::coerce_tail` records the `NoneUnit` conversion for
+  a branch whose value is the absent arm of an optional (the `None`
+  literal, or an optional narrowed to `None`) where the `if`/`when` joins to
+  the `None` type. `m?.shout()` with `fn shout(n: Int) [Console] -> None`
+  lowered its absent arm to `none[None]` beside the call's unit, and rustc
+  refused the `if` (E0282); now the arm is `unit` on both backends. Run data
+  `operators/a_safe_call_answering_none.sv` covers the `?.` call and an
+  `if … { shout(9) } else { None }` returned from a `-> None` fn.
+
 ### 2026-10-30 — A named argument beside a parameter-reading default reads the caller's names (ROADMAP 0n, [fn-param-default] [deduce-same-call])
 
 - **Built**: `Lower::args_for` lowers the `name = value` arguments before

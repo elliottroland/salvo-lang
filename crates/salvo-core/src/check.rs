@@ -22298,6 +22298,8 @@ struct TailInfo {
     span: Span,
     logical: Ty,
     repr: Ty,
+    /// [type-none-unit] The tail is the `None` literal.
+    none_lit: bool,
 }
 
 /// Value contributions collected while checking one loop body
@@ -22638,6 +22640,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     span: e.span(),
                     logical: value.clone(),
                     repr: self.repr_of(e, &value),
+                    none_lit: matches!(e, Expr::Ident(id) if id.name == "None"),
                 }),
                 _ => None,
             };
@@ -24088,6 +24091,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 span: v.span(),
                                 logical: vty,
                                 repr,
+                                none_lit: matches!(&**v, Expr::Ident(id) if id.name == "None"),
                             });
                         }
                     }
@@ -27112,7 +27116,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let join = self.mk_union(branch_tys);
         for tail in tails.into_iter().flatten() {
-            self.maybe_coerce(tail.span, &tail.logical, &tail.repr, &join);
+            self.coerce_tail(&tail, &join);
         }
         for (_, block) in branches {
             // [is-narrow-guard] [is-narrow-assign-reset] A branch that exits
@@ -27439,7 +27443,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let join = self.mk_union(branch_tys);
         for tail in tails.into_iter().flatten() {
-            self.maybe_coerce(tail.span, &tail.logical, &tail.repr, &join);
+            self.coerce_tail(&tail, &join);
         }
         for branch in branches {
             // [is-narrow-assign-reset] A branch that leaves cannot be the
@@ -27478,9 +27482,25 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let join = self.mk_union(arms);
         for tail in body_tail.into_iter().chain(ctx.breaks).chain(else_tail) {
-            self.maybe_coerce(tail.span, &tail.logical, &tail.repr, &join);
+            self.coerce_tail(&tail, &join);
         }
         join
+    }
+
+    /// A branch's tail used as the value of the join: the representation
+    /// change it needs, and [type-none-unit] the unit value where the join
+    /// *is* `None` and the tail is the absent arm of an optional — the
+    /// `None` literal, or an optional narrowed to it. A `?.` call whose
+    /// result is `None` (`m?.shout()`) joins the call's unit with its
+    /// absent arm, the base narrowed to `None`, which is the unit too
+    /// (ROADMAP 0ar: Rust was handed `if … { shout() } else { None }`).
+    fn coerce_tail(&mut self, tail: &TailInfo, join: &Ty) {
+        let absent = tail.none_lit || (tail.logical.is_none_ty() && tail.repr.has_none_arm() && !tail.repr.is_none_ty());
+        if absent && join.is_none_ty() {
+            self.out.converts.insert(self.key(tail.span), Convert::one(ConvertStep::NoneUnit));
+            return;
+        }
+        self.maybe_coerce(tail.span, &tail.logical, &tail.repr, join);
     }
 
     /// [type-none-unit] Records that a `None` **literal** argument fills a
