@@ -807,6 +807,7 @@ impl Rewrite {
                 self.expr(target);
                 self.expr(value);
             }
+            Stmt::Retype { target, .. } => self.expr(target),
             Stmt::Use { handler, .. } => self.expr(handler),
             Stmt::Rename(_) => {}
             Stmt::Expr(expr) => self.expr(expr),
@@ -907,7 +908,7 @@ impl Rewrite {
                 self.expr(lhs);
                 self.expr(rhs);
             }
-            Expr::Is { subject, .. } | Expr::Widen { subject, .. } => self.expr(subject),
+            Expr::Is { subject, .. } | Expr::Retype { subject, .. } => self.expr(subject),
             Expr::If {
                 branches,
                 else_block,
@@ -1096,6 +1097,7 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                     walk_expr(target, reserved, out);
                     walk_expr(value, reserved, out);
                 }
+                Stmt::Retype { target, .. } => walk_expr(target, reserved, out),
                 Stmt::Use { handler, .. } => walk_expr(handler, reserved, out),
                 Stmt::Rename(_) => {}
                 Stmt::Expr(expr) => walk_expr(expr, reserved, out),
@@ -1241,7 +1243,7 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
             | Expr::IncDec { operand: base, .. }
             | Expr::Spread { operand: base, .. }
             | Expr::Unary { operand: base, .. }
-            | Expr::Widen { subject: base, .. } => walk_expr(base, reserved, out),
+            | Expr::Retype { subject: base, .. } => walk_expr(base, reserved, out),
             Expr::SafeNav { base, access, .. } => {
                 walk_expr(base, reserved, out);
                 if let SafeAccess::Call { args, named, .. } = access {
@@ -1650,7 +1652,6 @@ impl crate::visit_mut::MutVisitor for LowerPicks {
             or: Vec::new(),
             hole: Some(hole),
             binding: None,
-            widen: false,
             body: Block { stmts: vec![Stmt::Expr(value)], span },
             span,
         };
@@ -1685,7 +1686,6 @@ impl LowerPicks {
             or: Vec::new(),
             hole: Some(hole),
             binding: None,
-            widen: false,
             body: Block { stmts: vec![Stmt::Expr(value)], span },
             span,
         };
@@ -1737,7 +1737,6 @@ impl LowerPicks {
             or: Vec::new(),
             hole: Some(hole),
             binding: None,
-            widen: false,
             body: Block { stmts: vec![Stmt::Expr(value)], span },
             span,
         };

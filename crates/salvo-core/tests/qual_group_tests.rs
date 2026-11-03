@@ -1,15 +1,8 @@
-//! The widening check `^` [qual-lift].
+//! Qualified unions on a state-qualifier prelude [qual-group].
 //!
-//! `^` is the dual of `is`: where a successful `is` narrows the subject (a
-//! qualifier added, a union arm picked), a successful `^` **generalizes** it
-//! by removing the listed qualifiers. Boolean-valued, same places, same
-//! runtime test — only the type in the branch differs. Its reason to exist
-//! is the qualified union: `Ok (Ok Int | Err Str)` is a claim *about* a
-//! union, and `is ^Ok` is what lets a branch `when` the union inside it.
-//!
-//! The diagnostics are test data, `tests/check/widening/` (TESTS.md T1).
-//! What stays here could not move to the real std without a different
-//! result; each says why.
+//! The re-typing that opens one (`o := -Ok` [qual-retype]) is test data,
+//! `tests/check/qualifiers/retype.sv`. What stays here could not move to the
+//! real std without a different result; each says why.
 
 use std::path::Path;
 
@@ -125,29 +118,5 @@ fn the_same_qualifier_twice_deduplicates_and_says_so() {
     assert!(
         errs.iter().any(|(id, m)| *id == "type-union:no-arm" && m.contains("deduplicates")),
         "expected the deduplication hint, got: {errs:?}"
-    );
-}
-
-// Kept in Rust, parse-only: checked as a whole program, the mixed check is
-// reported twice — the parse's `qual-lift:partial` and then the checker's
-// `qual-lift:not-qualifiers` for the same `Int` — so the data file would pin a
-// second diagnostic for one mistake.
-/// [qual-lift] A check **mixes** lifted and kept terms — `is ^Ok Int` marks
-/// the qualifier but not the base type — and that is refused at the parse, not
-/// the check: some terms marked and some not is a syntactic property, and the
-/// parser cannot tell a qualifier from a type name (both are uppercase). The
-/// old spelling `^ Ok Int` was refused too, by the checker's qualifiers-only
-/// rule, so nothing expressible has been lost. Lifting a qualifier *while*
-/// naming the arm's base type stays unexpressible for now.
-#[test]
-fn a_check_mixing_lifted_and_kept_terms_is_rejected() {
-    let src = "fn probe(o: Ok Int | Err Str) {\n    if o is ^Ok Int {\n        note(o)\n    }\n}\n";
-    let (_ast, diagnostics) = salvo_syntax::parse_module(src);
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d.is_error() && d.id == Some("qual-lift:partial")),
-        "expected the mixed-check error, got {:?}",
-        diagnostics.iter().map(|d| d.id).collect::<Vec<_>>()
     );
 }

@@ -486,6 +486,11 @@ impl<'s> Lexer<'s> {
                 self.bump();
                 TokenKind::EqEq
             }
+            // [qual-retype] `x := -Ok`, the re-typing statement.
+            (':', Some('=')) => {
+                self.bump();
+                TokenKind::ColonEq
+            }
             // [deduce-syntax] `=>` introduces a deduction clause.
             ('=', Some('>')) => {
                 self.bump();
@@ -580,7 +585,6 @@ impl<'s> Lexer<'s> {
             ('*', _) => TokenKind::Star,
             ('/', _) => TokenKind::Slash,
             ('%', _) => TokenKind::Percent,
-            ('^', _) => TokenKind::Caret,
             // [fn-overload-at] `add@core.list(x)`: which module's overload.
             ('@', _) => TokenKind::At,
             _ => {

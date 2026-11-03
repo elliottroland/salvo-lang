@@ -224,6 +224,8 @@ fn apply_step(step: &ConvertStep, value: Expr, span: Span) -> Expr {
                 .collect();
             Expr { ty: erase(to), span, kind: ExprKind::BorrowAs { value: Box::new(value), arms } }
         }
+        // [var-drop-assign] A plain value into `Mut` storage.
+        ConvertStep::IntoMut { to } => Expr { ty: erase(to), span, kind: ExprKind::IntoMut { value: Box::new(value) } },
         // An optional drops `Mut` on its present arm [proj-opt-slot].
         ConvertStep::DropMut { from } => {
             Expr { ty: crate::types::drop_mut_ty(&erase(from)), span, kind: ExprKind::DropMut { value: Box::new(value) } }

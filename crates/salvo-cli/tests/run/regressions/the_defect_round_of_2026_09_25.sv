@@ -1246,7 +1246,8 @@ fn wrapped(n: Int) [Throw<Str>] -> Ok Int | Err Str {
 fn main() [use] {
     use StdConsole()
     let h = H { result: try { wrapped(7) } }
-    if h.result is ^Ok {
+    if h.result is Ok {
+        h.result := -Ok
         if h.result is Ok { println("ok ${h.result}") } else { println("not ok") }
         if h.result is Err { println("err ${h.result}") } else { println("not err") }
     }

@@ -86,15 +86,13 @@ fn main@main() -> None {
   bind#6 let plain: Int = 21
   bind#7 let warm: Int = call celsius@main(21)
   call println@std.core.console(read __handle~2, concat("2. ", call describe(Int)@main(read plain), " vs ", call describe(Celsius Int)@main(read warm)))
-  branch#8 cond#0 true {
-    call println@std.core.console(read __handle~2, concat("2. widened: ", call describe(Int)@main(read warm)))
-  }
+  call println@std.core.console(read __handle~2, concat("2. dropped: ", call describe(Int)@main(read warm)))
   call println@std.core.console(read __handle~2, concat("3. sum ", call to_str(Int)@std.core.basic(call sum@main(drop_mut(read xs))), ", head still ", call to_str(Int)@std.core.basic(call head@main(drop_mut(read xs)))))
   call compact@main(read xs)
   call add@std.core.list<Int>(read xs, 9)
   call println@std.core.console(read __handle~2, concat("3. after compact and add, head is ", call to_str(Int)@std.core.basic(call head@main(drop_mut(read xs)))))
-  bind#10 let session: Mut Request@main = call authenticate@main(construct Mut Request@main { path: "/orders", touches: 0 })
-  bind#11 let fresh: Mut Request@main = call freshen@main(construct Mut Request@main { path: "/health", touches: 0 })
+  bind#8 let session: Mut Request@main = call authenticate@main(construct Mut Request@main { path: "/orders", touches: 0 })
+  bind#9 let fresh: Mut Request@main = call freshen@main(construct Mut Request@main { path: "/health", touches: 0 })
   call println@std.core.console(read __handle~2, concat("4. before: ", call handle(Authenticated Request)@main(drop_mut(read session)), " / ", call handle(Fresh Request)@main(drop_mut(read fresh))))
   call touch@main(read session)
   call touch@main(read fresh)

@@ -669,7 +669,6 @@ Module {
                                             or: [],
                                             hole: None,
                                             binding: None,
-                                            widen: false,
                                             body: Block {
                                                 stmts: [
                                                     Expr(
@@ -705,7 +704,6 @@ Module {
                                             or: [],
                                             hole: None,
                                             binding: None,
-                                            widen: false,
                                             body: Block {
                                                 stmts: [
                                                     Expr(

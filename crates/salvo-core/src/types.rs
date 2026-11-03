@@ -46,7 +46,7 @@ pub struct Qual {
     /// effect in qualifier position is now *refused* at declarations,
     /// naming the replacement — the `next`'s own effect list. The flag
     /// stays because the refused type still lowers (one mistake, one
-    /// diagnostic) and the `^`-widening diagnostic still explains why such
+    /// diagnostic) and the re-typing diagnostic still explains why such
     /// a claim could not drop.
     ///
     /// It rides in `Qual` because the spelling, the display and the erasure
@@ -888,7 +888,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         // a `once` one is wanted (the `Iter<T>` factory this was built
         // for went with the reduction to `next`), since promising to use
         // something at most once demands less than being able to use it
-        // repeatedly. Never the reverse — `once` never drops [qual-lift].
+        // repeatedly. Never the reverse — `once` never drops [qual-retype].
         //
         // Deliberately unconditional on the base, unlike the *position*
         // rule: whether `once` may be **written** on a type needs the
@@ -905,7 +905,7 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
             is_subtype(a, base)
         }
         // `Qual T <: T` — except the qualifiers that may never be dropped
-        // ([qual-lift]'s single exclusion list: `once`, `Linear`,
+        // ([qual-retype]'s single exclusion list: `once`, `Linear`,
         // `proj`). [copy-scalar-free] `proj` on a Copy scalar is the one
         // exception: a borrowed `Int` is the number itself on both
         // backends, so `proj Int <: Int`.
@@ -1107,8 +1107,8 @@ pub fn contract_fits(
     })
 }
 
-/// [qual-lift]. The single exclusion list: `is_subtype`'s `Qual T <: T`
-/// rule and the `^` widening check both read it, so the two cannot drift as
+/// [qual-retype]. The single exclusion list: `is_subtype`'s `Qual T <: T`
+/// rule and the re-typing both read it, so the two cannot drift as
 /// intrinsic qualifiers are added (user decision 2026-09-05).
 ///
 /// Everything else is droppable: dropping a *claim* only loses knowledge
@@ -2010,7 +2010,7 @@ pub fn drop_mut_ty(from: &Ty) -> Ty {
     }
 }
 
-/// [qual-lift] [str-drop-mut] Whether `to` is `from` with only its `Mut`
+/// [qual-retype] [str-drop-mut] Whether `to` is `from` with only its `Mut`
 /// dropped (on the type, or on a union's arms): the one qualifier removal
 /// that is a conversion rather than a narrowing [ir-coerce].
 pub fn drops_only_mut(from: &Ty, to: &Ty) -> bool {

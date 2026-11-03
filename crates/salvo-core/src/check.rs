@@ -428,7 +428,7 @@ pub struct UnionTest {
     pub values: Vec<(usize, bool, Vec<salvo_syntax::ast::TypeLit>)>,
 }
 
-/// [is-narrowing] A **test** at one node (an `is`, a `^`, a `when` branch
+/// [is-narrowing] A **test** at one node (an `is`, a `when` branch
 /// head, an [op-arm-eq] comparison): what the program asks of a value at
 /// run time (the pipeline record D2, `Test`). A node asks one kind of question.
 #[derive(Clone, Debug)]
@@ -587,6 +587,12 @@ pub enum ConvertStep {
     /// `Mut` erases (Rust, and Kotlin's `MutableList`) renders nothing.
     /// Always the first step: the steps after it are about the plain type.
     DropMut { from: Ty },
+    /// [var-drop-assign] The reverse of `DropMut`: a plain value stored into
+    /// `Mut` storage (a variable declared `Mut T` taking a `T`). A backend
+    /// where `Mut` is a type of its own builds that type from the value
+    /// (Kotlin's `StringBuilder(s)`, `toMutableList()`); where it erases,
+    /// nothing. Always the last step.
+    IntoMut { to: Ty },
     /// [proj-opt-slot] A union with borrowed arms (`proj Mut A | B`, an
     /// optional handle) read where an owned union is expected — a kept
     /// position, which only reads: each arm of `from` is read as the arm of
@@ -617,6 +623,7 @@ impl Convert {
             ConvertStep::Rewrap { to, .. } | ConvertStep::BorrowAs { to, .. } | ConvertStep::Promote { to } => to.clone(),
             ConvertStep::NoneUnit => Ty::none(),
             ConvertStep::DropMut { from } => crate::types::drop_mut_ty(from),
+            ConvertStep::IntoMut { to } => to.clone(),
         })
     }
 }
@@ -943,7 +950,7 @@ impl EffectsPassed {
 /// What a [`NarrowedRead`] rests on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NarrowBy {
-    /// The flow: a test, a guard, a branch [flow-place] [qual-lift].
+    /// The flow: a test, a guard, a branch, a re-typing [flow-place] [qual-retype].
     Flow,
     /// A qualifier's field claim on the read's base [qual-field-override]
     /// (the backend casts and asserts).
@@ -1136,7 +1143,7 @@ pub struct Checked {
     /// representation.
     pub converts: HashMap<Key, Convert>,
     /// [is-narrowing] The tests, by the node that asks them: an `is`, a
-    /// `^`, a `when` branch head, an [op-arm-eq] comparison. An `is` the
+    /// a `when` branch head, an [op-arm-eq] comparison. An `is` the
     /// checker decided statically has none.
     pub tests: HashMap<Key, Test>,
     /// [when-exhaustive] [lsp-completion] For each `when` with a subject
@@ -2775,11 +2782,11 @@ struct LocalVar {
     /// takes ownership, exactly as a struct literal does
     /// [effect-state-store]. Ordinary locals link instead [fate-link].
     is_handler_state: bool,
-    /// [qual-lift] While a `^` check holds, the *physical* view of this
-    /// variable: the arm test peeled a wrapper, so reads and any further
-    /// narrowing compose on the inner value rather than on the storage.
-    /// `None` outside a widening branch (`declared` is then the view). The
-    /// emitters materialize the peel as a branch-local temporary.
+    /// [qual-retype] After a re-typing peeled a wrapper (`o := -Ok` on an
+    /// `Ok (A | B)`), the *storage view* of this variable: reads and any
+    /// further narrowing compose on it rather than on `declared`. `None`
+    /// when `declared` is the view. The IR rebinds the variable where its
+    /// binding does not hold the view already.
     widened: Option<Ty>,
     /// Narrowed *projections* out of this variable [flow-place]: flow
     /// facts about `h.field`, keyed by the projection path. The
@@ -2890,6 +2897,8 @@ struct VarState {
     narrowed: Ty,
     links: Vec<FateLink>,
     place_narrows: Vec<PlaceNarrow>,
+    /// [qual-retype] The storage view (`LocalVar::widened`).
+    widened: Option<Ty>,
 }
 
 
@@ -11761,10 +11770,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         if let Some(var) = self.lookup(&id.name) {
             let mut narrowed = var.narrowed.clone();
-            // [qual-lift] Inside a `^` branch the physical view is
-            // the widened type: the wrapper the arm test peeled is
-            // materialized by the emitters, so reads (and any
-            // further narrowing) unwrap relative to *it*.
+            // [qual-retype] After a re-typing peeled a wrapper the
+            // storage view is the inner value, which the IR rebinds the
+            // variable to, so reads (and any further narrowing) unwrap
+            // relative to *it*.
             let declared = var.widened.clone().unwrap_or_else(|| var.declared.clone());
             let links = var.links.clone();
             let var_id = var.id;
@@ -15264,8 +15273,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         out
     }
 
-    /// Why a *written* qualifier name may not be removed with `^`, if it may
-    /// not [qual-lift]. Consults the effect namespace first: an effect claim
+    /// Why a *written* qualifier name may not be dropped by a re-typing, if
+    /// it may not [qual-retype]. Consults the effect namespace first: an effect claim
     /// on a producer never drops [fn-effects], and the name-based list
     /// cannot know an arbitrary effect's name.
     fn removal_block(&self, name: &str) -> Option<&'static str> {
@@ -17204,7 +17213,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Unary { .. }
             | Expr::Binary { .. }
             | Expr::Is { .. }
-            | Expr::Widen { .. }
+            | Expr::Retype { .. }
             | Expr::IncDec { .. }
             | Expr::Spread { .. }
             | Expr::Scoped { .. }
@@ -17304,7 +17313,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Unary { .. }
             | Expr::Binary { .. }
             | Expr::Is { .. }
-            | Expr::Widen { .. }
+            | Expr::Retype { .. }
             | Expr::IncDec { .. }
             | Expr::Spread { .. }
             | Expr::Scoped { .. }
@@ -17881,7 +17890,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if n.place.is_root() {
                 if let Some(var) = self.lookup_mut(&n.place.root) {
                     var.narrowed = n.narrowed.clone();
-                    if n.declared != var.declared {
+                    if n.declared != var.declared && n.declared != var.widened.clone().unwrap_or_else(|| var.declared.clone()) {
                         var.widened = Some(n.declared.clone());
                     }
                 }
@@ -17896,16 +17905,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         // Applied place facts, with the fact each one displaced
         // [flow-place].
         let mut saved_places: Vec<(Place, Ty, Option<PlaceNarrow>)> = Vec::new();
-        // [qual-lift] Root narrows whose *view* differs from the variable's
-        // declared type (a `^` widening) install it for the branch.
+        // [qual-retype] Every root narrowed here gets its storage view back
+        // with its narrowing: a re-typing inside the branch ends there too.
         let mut saved_views: Vec<(String, Option<Ty>)> = Vec::new();
         for n in narrows {
             if n.place.is_root() {
                 if let Some(var) = self.lookup_mut(&n.place.root) {
                     saved.push((n.place.root.clone(), var.narrowed.clone()));
+                    saved_views.push((n.place.root.clone(), var.widened.clone()));
                     var.narrowed = n.narrowed.clone();
-                    if n.declared != var.declared {
-                        saved_views.push((n.place.root.clone(), var.widened.clone()));
+                    if n.declared != var.declared && n.declared != var.widened.clone().unwrap_or_else(|| var.declared.clone()) {
                         var.widened = Some(n.declared.clone());
                     }
                 }
@@ -17956,7 +17965,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         collect_assigned(block, &mut names);
         for name in names {
             if let Some(var) = self.lookup_mut(&name) {
-                var.narrowed = var.declared.clone();
+                // [var-drop-assign] A value assigned with fewer qualifiers
+                // than the declaration leaves the variable without them, and
+                // the join kept only what every path has: that stands where
+                // the paths agree on the base. A narrowing to an arm does not
+                // survive an assignment that may have replaced it.
+                if var.narrowed.strip_quals() != var.declared.strip_quals() {
+                    var.narrowed = var.declared.clone();
+                }
+                var.widened = None;
                 var.place_narrows.clear();
             }
         }
@@ -17979,6 +17996,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 narrowed: var.narrowed.clone(),
                                 links: var.links.clone(),
                                 place_narrows: var.place_narrows.clone(),
+                                widened: var.widened.clone(),
                             },
                         )
                     })
@@ -17994,6 +18012,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     var.narrowed = state.narrowed.clone();
                     var.links = state.links.clone();
                     var.place_narrows = state.place_narrows.clone();
+                    var.widened = state.widened.clone();
                 }
             }
         }
@@ -18089,10 +18108,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .cloned()
                         .collect()
                 };
+                // [qual-retype] A storage view survives the join only where
+                // every path agrees on it and it is the declared storage as
+                // the IR holds it: a rebinding the IR made inside a branch
+                // ends with the branch.
+                let widened = states[0].widened.clone().filter(|v| {
+                    states[1..].iter().all(|s| s.widened.as_ref() == Some(v))
+                });
                 if let Some(var) = self.locals.get_mut(frame_idx).and_then(|f| f.get_mut(name)) {
+                    let widened = widened.filter(|v| crate::ir::build::erase(v) == crate::ir::build::erase(&var.declared));
                     var.narrowed = joined;
                     var.links = links;
                     var.place_narrows = place_narrows;
+                    var.widened = widened;
                 }
             }
         }
@@ -21827,7 +21855,7 @@ fn collect_binder_arg_sites<'p>(
             | Expr::IncDec { operand: base, .. }
             | Expr::Spread { operand: base, .. }
             | Expr::Is { subject: base, .. }
-            | Expr::Widen { subject: base, .. } => expr(base, name, out),
+            | Expr::Retype { subject: base, .. } => expr(base, name, out),
             Expr::Binary { lhs, rhs, .. } => {
                 expr(lhs, name, out);
                 expr(rhs, name, out);
@@ -21923,7 +21951,7 @@ fn collect_binder_arg_sites<'p>(
                 }
                 Stmt::Use { handler, .. } => expr(handler, name, out),
                 Stmt::Expr(e) => expr(e, name, out),
-                Stmt::Rename(_) => {}
+                Stmt::Rename(_) | Stmt::Retype { .. } => {}
                 // [comptime-inline] Gone before this runs.
                 Stmt::Comp(_) => {}
             }
@@ -22136,7 +22164,7 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
         }
         Expr::Unary { operand, .. }
         | Expr::Spread { operand, .. } => collect_assigned_expr(operand, out),
-        Expr::Is { subject, .. } | Expr::Widen { subject, .. } => {
+        Expr::Is { subject, .. } | Expr::Retype { subject, .. } => {
             collect_assigned_expr(subject, out)
         }
         // Leaves: no sub-expression, so nothing can be assigned inside.
@@ -22149,39 +22177,13 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
     }
 }
 
-/// Removes the named qualifiers from a type [qual-lift], or `None` when it
-/// does not carry all of them. `Qual T` with every qualifier removed is `T`.
-/// [qual-lift] [str-drop-mut] What a lifted arm is *stored* as inside the
-/// branch: the arm without the lifted qualifiers that erase. `Mut` is the
-/// one that does not [ir-types]: lifting it changes the representation on
-/// a backend that renders `Mut` as a type of its own (Kotlin's
-/// `StringBuilder`), so the storage keeps it and a read used as the plain
-/// type drops it there, a conversion [ir-coerce].
-fn lifted_storage(arm: &Ty, names: &[String]) -> Ty {
-    let erasable: Vec<String> = names.iter().filter(|n| n.as_str() != "Mut").cloned().collect();
-    if erasable.is_empty() {
-        return arm.clone();
+/// [qual-retype] Whether a re-typing's written base type is the value's own:
+/// the same declaration, and the same type arguments where it writes them.
+fn retype_base_fits(written: &Ty, value: &Ty) -> bool {
+    match (written.strip_quals(), value.strip_quals()) {
+        (Ty::Named { name: a, args: wa }, Ty::Named { name: b, args: va }) => a == b && (wa.is_empty() || wa == va),
+        (w, v) => w == v,
     }
-    strip_quals_named(arm, &erasable).unwrap_or_else(|| arm.clone())
-}
-
-fn strip_quals_named(ty: &Ty, names: &[String]) -> Option<Ty> {
-    let Ty::Qualified { quals, base } = ty else {
-        return None;
-    };
-    if !names.iter().all(|n| quals.iter().any(|q| q.name == *n)) {
-        return None;
-    }
-    let kept: Vec<Qual> = quals
-        .iter()
-        .filter(|q| !names.contains(&q.name))
-        .cloned()
-        .collect();
-    Some(if kept.is_empty() {
-        (**base).clone()
-    } else {
-        (**base).clone().qualify(kept)
-    })
 }
 
 /// Whether any statement of `block` mentions the variable `name` — the
@@ -22192,6 +22194,7 @@ fn block_mentions_name(block: &Block, name: &str) -> bool {
         Stmt::Assign { target, value, .. } => {
             expr_mentions(target, name) || expr_mentions(value, name)
         }
+        Stmt::Retype { target, .. } => expr_mentions(target, name),
         Stmt::Use { handler, .. } => expr_mentions(handler, name),
         Stmt::Expr(e) => expr_mentions(e, name),
         _ => false,
@@ -22263,7 +22266,7 @@ pub(crate) fn expr_mentions(expr: &Expr, name: &str) -> bool {
         | Expr::IncDec { operand, .. }
         | Expr::Spread { operand, .. } => expr_mentions(operand, name),
         Expr::Binary { lhs, rhs, .. } => expr_mentions(lhs, name) || expr_mentions(rhs, name),
-        Expr::Is { subject, .. } | Expr::Widen { subject, .. } => expr_mentions(subject, name),
+        Expr::Is { subject, .. } | Expr::Retype { subject, .. } => expr_mentions(subject, name),
         Expr::If {
             branches,
             else_block,
@@ -22418,8 +22421,6 @@ struct IsInfo {
 }
 
 impl<'p, 'r> Checker<'p, 'r> {
-    // ================= widening checks [qual-lift] =================
-
     /// [expr-pipe] `lhs |> rhs` (user decision 2026-10-14). The left side is
     /// evaluated once and bound to `_`; the right side reads it. The pipe's
     /// type is the right side's. Pure sugar — it reuses the placeholder
@@ -22451,150 +22452,146 @@ impl<'p, 'r> Checker<'p, 'r> {
         rhs_ty
     }
 
-    /// [qual-lift] The facts of a lifting check `x is ^Q`: the test the
-    /// one `is` of the same qualifiers performs — same arm, same lowering —
-    /// but the matched type is *generalized* (the qualifiers removed) rather
-    /// than refined, so the subject reads without them inside the branch.
-    fn widen_info(
-        &mut self,
-        subject: &'p Expr,
-        quals: &'p [TypeRef],
-        binding: Option<&'p Ident>,
-        span: Span,
-    ) -> IsInfo {
-        let subj_ty = self.check_expr(subject, None);
-        let repr = self.repr_of(subject, &subj_ty);
-        let pat = self.parse_check(quals, Some(&subj_ty));
-        // Same places `is` narrows [flow-place]: a variable or a field chain
-        // out of a tracked local (user decision 2026-09-05: consistent with
-        // `is`).
-        let subject_place =
-            Place::of_expr(subject).filter(|p| p.narrowable() && self.lookup(&p.root).is_some());
-        let unchanged = IsInfo {
-            subject_place: None,
-            subject_repr: repr.clone(),
-            matched: subj_ty.clone(),
-            remaining: None,
-            binding: None,
-        };
+    // ================= re-typing [qual-retype] =================
+
+    /// [qual-retype] What a re-typing makes of a value of type `ty`: the type
+    /// it reads as, and the *storage view* a re-typed place keeps — the same
+    /// type with `Mut` left on, since `Mut` is the qualifier a backend may
+    /// represent [ir-types] and the drop is a conversion at each read that
+    /// needs it [str-drop-mut]. Never adds a qualifier; on a union every value
+    /// arm must carry what is named. Reports and answers `None` when refused;
+    /// `None` too, silently, for a value nothing could type
+    /// [type-unknown-lenient].
+    fn retype_of(&mut self, ty: &Ty, retype: &'p Retype) -> Option<(Ty, Ty)> {
+        if ty.is_unknown() || matches!(ty, Ty::Never) {
+            return None;
+        }
+        let span = retype.span;
+        let pat = self.parse_check(retype.refs(), Some(ty));
         if pat.unresolved {
-            return unchanged;
+            return None;
         }
-        // `^` removes qualifiers: a base type in the check would be an `is`
-        // question, not a widening one.
-        if pat.base.is_some() || pat.is_none {
-            self.error(span, messages::qual_lift_not_qualifiers());
-            return unchanged;
+        let keep = matches!(retype.kind, RetypeKind::Keep(_));
+        let named = pat.quals.clone();
+        let shown = named.join(" ");
+        if !keep && pat.base.is_some() {
+            self.error(span, messages::qual_retype_not_carried(ty, &retype.refs().iter().map(|r| r.name.name.clone()).collect::<Vec<_>>().join(" ")));
+            return None;
         }
-        if pat.quals.is_empty() {
-            self.error(span, messages::qual_lift_nothing_named());
-            return unchanged;
+        let union = matches!(ty, Ty::Union(_));
+        if union && pat.base.is_some() {
+            self.error(span, messages::qual_retype_union_base(ty));
+            return None;
         }
-        // [qual-lift] The single exclusion list, shared with `Qual T <: T`.
-        let mut blocked = false;
-        for q in &pat.quals {
-            if let Some(reason) = self.removal_block(q) {
-                self.error(span, messages::qual_lift_cannot_remove(&q, &reason));
-                blocked = true;
+        if !keep {
+            for q in &named {
+                if let Some(reason) = self.removal_block(q) {
+                    self.error(span, messages::qual_retype_cannot_remove(&q, &reason));
+                    return None;
+                }
             }
         }
-        if blocked {
-            return unchanged;
-        }
-        // The same runtime test `is` would emit; absent for a tautology (the
-        // qualifiers are statically present), where the check is `true`.
-        if let Some(test) = self.union_test_for(&repr, &pat) {
-            self.out.tests.insert(self.key(span), Test::Arms(test));
-        }
-        let mut multi_arm = false;
-        let mut storage: Option<Ty> = None;
-        let (matched, remaining) = match &subj_ty {
-            Ty::Union(arms) => {
-                let (m, r): (Vec<Ty>, Vec<Ty>) = arms
-                    .iter()
-                    .cloned()
-                    .partition(|arm| self.arm_matches(arm, &pat));
-                multi_arm = m.len() > 1;
-                if m.len() > 1 && binding.is_none() {
-                    // [qual-lift] Each arm peels a *different* wrapper
-                    // position, so re-reading the subject cannot stand for all
-                    // of them — but a **binding** can (user decision
-                    // 2026-09-21): the lifted value is materialized once, into
-                    // a name, so several arms may be lifted at a time there.
-                    // The diagnostic names that remedy.
-                    self.error(
-                        span,
-                        messages::qual_lift_several_arms(&pat.quals.join(" ^"), &subj_ty),
-                    );
-                    return unchanged;
-                }
-                let stripped: Vec<Ty> = m
-                    .iter()
-                    .filter_map(|arm| strip_quals_named(arm, &pat.quals))
-                    .collect();
-                if stripped.len() != m.len() || m.is_empty() {
-                    self.error(
-                        span,
-                        messages::qual_lift_no_arm_carries(&subj_ty, &pat.quals.join(" ")),
-                    );
-                    return unchanged;
-                }
-                storage = Some(self.mk_union(m.iter().map(|arm| lifted_storage(arm, &pat.quals)).collect()));
-                (self.mk_union(stripped), Some(self.mk_union(r)))
-            }
-            other => match strip_quals_named(other, &pat.quals) {
-                // Statically present: the check cannot fail, and the else
-                // branch learns nothing.
-                Some(stripped) => (stripped, None),
-                None => {
-                    if !other.is_unknown() && !matches!(other, Ty::Never) {
-                        self.error(
-                            span,
-                            messages::qual_lift_not_carried(&other, &pat.quals.join(" ")),
-                        );
-                    }
-                    return unchanged;
-                }
-            },
+        let arms: Vec<Ty> = match ty {
+            Ty::Union(arms) => arms.clone(),
+            other => vec![other.clone()],
         };
-        // [qual-lift] Inside the branch the value is stored as the arm the
-        // test matched, with the lifted qualifiers gone (they erase), so a
-        // further `is`/`when` on the subject narrows relative to that rather
-        // than to the union it came out of. A lifted `Mut` stays in the
-        // storage (`lifted_storage`). The IR narrows the subject to the
-        // matched arm at the test, as for an `is`.
-        let subject_repr = if self.out.tests.contains_key(&self.key(span)) {
-            storage.unwrap_or_else(|| matched.clone())
+        let mut logical: Vec<Ty> = Vec::new();
+        let mut view: Vec<Ty> = Vec::new();
+        for arm in &arms {
+            if union && arm.is_none_ty() {
+                logical.push(arm.clone());
+                view.push(arm.clone());
+                continue;
+            }
+            let have: Vec<String> = arm.quals().iter().map(|q| q.name.clone()).collect();
+            if named.iter().any(|q| !have.contains(q)) {
+                let msg = if union {
+                    messages::qual_retype_arm_not_carried(ty, &shown)
+                } else {
+                    messages::qual_retype_not_carried(ty, &shown)
+                };
+                self.error(span, msg);
+                return None;
+            }
+            if let Some(base) = &pat.base {
+                if !retype_base_fits(base, arm) {
+                    self.error(span, messages::qual_retype_base_mismatch(base, arm));
+                    return None;
+                }
+            }
+            // A kept list drops what it leaves out, except what can never be
+            // dropped (`once`, `Linear`, a borrow): those are capabilities of
+            // the value, not claims about it, and stay [qual-erasure].
+            let drops: HashSet<String> = if keep {
+                have.iter().filter(|q| !named.contains(q) && self.removal_block(q).is_none()).cloned().collect()
+            } else {
+                named.iter().cloned().collect()
+            };
+            if union && drops.contains("Mut") {
+                self.error(span, messages::qual_retype_cannot_remove(&"Mut", &"a union's arms keep their `Mut`: narrow it to one arm first"));
+                return None;
+            }
+            let no_mut: HashSet<String> = drops.iter().filter(|q| q.as_str() != "Mut").cloned().collect();
+            logical.push(arm.clone().remove_quals(&drops));
+            view.push(arm.clone().remove_quals(&no_mut));
+        }
+        if !union {
+            return Some((logical.remove(0), view.remove(0)));
+        }
+        let joined = self.mk_union(logical);
+        let before = ty.value_arms().len();
+        if joined.value_arms().len() < before || !matches!(joined, Ty::Union(_)) && before > 1 {
+            self.error(span, messages::qual_retype_arms_merge(ty, &joined));
+            return None;
+        }
+        Some((joined, self.mk_union(view)))
+    }
+
+    /// [qual-retype] `e: -Ok`: the subject re-typed, for this use only. A `Mut`
+    /// it drops — from the subject's type, or from its storage where an
+    /// earlier re-typing left the type without it — is a conversion here
+    /// [str-drop-mut].
+    fn check_retype_expr(&mut self, subject: &'p Expr, retype: &'p Retype, span: Span) -> Ty {
+        let ty = self.check_expr(subject, None);
+        let stored = self.repr_of(subject, &ty);
+        let Some((logical, _)) = self.retype_of(&ty, retype) else {
+            return if ty.is_unknown() { Ty::Unknown } else { ty };
+        };
+        if !Self::carries_mut(&logical) {
+            if Self::carries_mut(&ty) {
+                self.record_mut_drop(span, ty);
+            } else if Self::carries_mut(&stored) {
+                self.record_mut_drop(span, stored);
+            }
+        }
+        logical
+    }
+
+    /// [qual-retype] `place := -Ok` (or `place = place: -Ok`): the place reads
+    /// re-typed for the rest of its flow — exactly as a call whose clause drops
+    /// the qualifiers would leave it, lost at a join if lost on any path — and
+    /// nothing is written. The storage view it keeps is recorded at the list's
+    /// span for the IR, which rebinds the place where its binding does not
+    /// already hold that view (a wrapper the re-typing peels).
+    fn check_retype_stmt(&mut self, target: &'p Expr, retype: &'p Retype) {
+        let place = Place::of_expr(target).filter(|p| p.narrowable() && self.lookup(&p.root).is_some());
+        let Some(place) = place else {
+            self.check_expr(target, None);
+            self.error(target.span(), messages::qual_retype_not_a_place());
+            return;
+        };
+        let cur = self.check_expr(target, None);
+        let Some((logical, view)) = self.retype_of(&cur, retype) else {
+            return;
+        };
+        self.out.expr_ty.insert(self.key(retype.span), view.clone());
+        if place.is_root() {
+            if let Some(var) = self.lookup_mut(&place.root) {
+                var.widened = if view == var.declared { None } else { Some(view) };
+                var.narrowed = logical;
+            }
         } else {
-            repr
-        };
-        // [qual-lift] A **multi-arm** lift narrows nothing: re-reading the
-        // subject is exactly what cannot stand for several arms, so the lifted
-        // value lives only in the binding and the subject keeps its declared
-        // type inside the branch. (Single-arm lifts narrow the place as they
-        // always did.)
-        let subject_place = if multi_arm { None } else { subject_place };
-        // [qual-lift] `is ^Ok inner` binds the **lifted** value to a fresh
-        // name for the branch (user decision 2026-09-21). It is the same
-        // binding an `is Type name` makes, at the lifted type, and it shares
-        // fate with the subject [fate-link] — so a multi-arm lift has exactly
-        // one place to live, which is what makes it legal above.
-        let binding = binding.map(|b| {
-            let bty = matched.clone();
-            self.out.expr_ty.insert(self.key(b.span), bty.clone());
-            // [type-rewrap] A **multi-arm** lift binds a value of a *smaller* union
-            // than the storage, so it is not a payload read: the emitters map
-            // arm to arm. Recorded against the binding, which is where they
-            // build it.
-            let links = self.links_for_value(subject, b.span);
-            (b.clone(), bty, links, None)
-        });
-        IsInfo {
-            subject_place,
-            subject_repr,
-            matched,
-            remaining,
-            binding,
+            self.set_place_narrow(&Narrow { place, narrowed: logical, declared: view });
         }
     }
 
@@ -22721,6 +22718,10 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn check_stmt(&mut self, stmt: &'p Stmt) -> Ty {
         match stmt {
+            Stmt::Retype { target, retype, .. } => {
+                self.check_retype_stmt(target, retype);
+                Ty::none()
+            }
             // [fn-rename] In force from here to the end of the block.
             Stmt::Rename(decl) => {
                 self.declare_rename(decl, true);
@@ -22883,8 +22884,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 };
                 let value_ty = self.check_expr(value, Some(&target_ty));
+                // [var-drop-assign] A variable takes a value with fewer
+                // qualifiers than it was declared with, and reads without them
+                // until a value gives them back (user decisions 2026-09-23,
+                // 2026-10-30, `Mut` included): the declaration is the ceiling.
+                let drops_fit = !is_subtype(&value_ty, &target_ty)
+                    && match target {
+                        Expr::Ident(id) => {
+                            !self.lookup(&id.name).is_some_and(|v| v.is_handler_state) && self.assign_drop_fits(&value_ty, &target_ty)
+                        }
+                        _ => false,
+                    };
+                if drops_fit && Self::carries_mut(&target_ty) && !Self::carries_mut(&value_ty) {
+                    self.record_into_mut(value.span(), &target_ty);
+                }
                 // [var-no-widen] assignments must fit the declared type.
-                if !is_subtype(&value_ty, &target_ty) {
+                if !drops_fit && !is_subtype(&value_ty, &target_ty) {
                     self.error(
                         value.span(),
                         messages::var_no_widen_assign_mismatch(&value_ty, &target_ty),
@@ -22961,6 +22976,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // The old value is gone: every fact about its
                         // parts falls with it [flow-place-invalidate].
                         var.place_narrows.clear();
+                        // [qual-retype] A fresh value is in the declared storage.
+                        var.widened = None;
                     }
                 }
                 Ty::none()
@@ -23306,7 +23323,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// The physical representation type of an expression: for identifier
     /// uses this is the declared type (narrowing does not re-wrap values),
     /// and for a narrowed projection place the type its storage keeps
-    /// [flow-place] — inside a `^` branch, the widened type [qual-lift]. It
+    /// [flow-place] — after a re-typing that peeled a wrapper, its storage view [qual-retype]. It
     /// is what the read recorded when it was checked (`narrowed_reads`,
     /// the pipeline record D2): the checker reads its own fact back rather than
     /// deriving it a second time from the flow state, which may have moved
@@ -23774,17 +23791,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.is_info(expr);
                 Ty::named("Bool")
             }
-            // [qual-lift] Boolean-valued like `is`; the flow facts are
-            // produced by `analyze_cond` in condition position.
-            Expr::Widen {
-                subject,
-                quals,
-                binding,
-                span,
-            } => {
-                self.widen_info(subject, quals, binding.as_ref(), *span);
-                Ty::named("Bool")
-            }
+            Expr::Retype { subject, retype, span } => self.check_retype_expr(subject, retype, *span),
             // [when-lowered] Lowered to a `when` after parsing.
             Expr::SafeNav { span, .. } => {
                 self.error(*span, messages::op_safe_nav_not_lowered());
@@ -26396,37 +26403,6 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     fn analyze_cond(&mut self, cond: &'p Expr) -> CondInfo {
         match cond {
-            // [qual-lift] The dual of `is`: same test, generalized type.
-            Expr::Widen {
-                subject,
-                quals,
-                binding,
-                span,
-            } => {
-                let info = self.widen_info(subject, quals, binding.as_ref(), *span);
-                self.out.expr_ty.insert(self.key(*span), Ty::named("Bool"));
-                let mut out = CondInfo::default();
-                if let Some(place) = &info.subject_place {
-                    out.then_narrows.push(Narrow {
-                        place: place.clone(),
-                        narrowed: info.matched.clone(),
-                        declared: info.subject_repr.clone(),
-                    });
-                    if let Some(rem) = &info.remaining {
-                        out.else_narrows.push(Narrow {
-                            place: place.clone(),
-                            narrowed: rem.clone(),
-                            declared: info.subject_repr.clone(),
-                        });
-                    }
-                }
-                // [qual-lift] `is ^Ok inner` declares `inner` in the branch,
-                // exactly as an `is` binding does.
-                if let Some(binding) = info.binding {
-                    out.bindings.push(binding);
-                }
-                out
-            }
             Expr::Is { .. } => {
                 let info = self.is_info(cond);
                 self.out
@@ -27498,40 +27474,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             if let Some(test) = test {
                 self.out.tests.insert(self.key(branch.span), Test::Arms(test));
             }
-            // [qual-lift] A `^` branch tests the same arm and then reads the
-            // subject *without* the qualifiers: the whole point is the
-            // nested case, where the arm's payload is itself a union
-            // (`Ok (Ok Int | Err Str)`) that the branch can then `when` on.
-            let narrow_ty = if branch.widen {
-                let mut ok = !matched.is_empty();
-                if pat.base.is_some() || pat.is_none {
-                    self.error(branch.span, messages::qual_lift_branch_not_qualifiers());
-                    ok = false;
-                }
-                for q in &pat.quals {
-                    if let Some(reason) = self.removal_block(q) {
-                        self.error(branch.span, messages::qual_lift_cannot_remove(&q, &reason));
-                        ok = false;
-                    }
-                }
-                let stripped: Vec<Ty> = matched
-                    .iter()
-                    .filter_map(|arm| strip_quals_named(arm, &pat.quals))
-                    .collect();
-                if ok && stripped.len() == matched.len() {
-                    self.mk_union(stripped)
-                } else {
-                    if ok {
-                        self.error(
-                            branch.span,
-                            messages::qual_lift_arm_not_carried(&pat.quals.join(" ")),
-                        );
-                    }
-                    self.mk_union(matched.clone())
-                }
-            } else {
-                self.mk_union(matched.clone())
-            };
+            let narrow_ty = self.mk_union(matched.clone());
             let mut bindings = Vec::new();
             if let Some(b) = &branch.binding {
                 if matches!(narrow_ty, Ty::Union(_)) {
@@ -27542,19 +27485,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let links = self.links_for_value(subject, b.span);
                 bindings.push((b.clone(), narrow_ty.clone(), links, None));
             }
-            // [qual-lift] A `^` branch stores the subject as the arm it
-            // matched, the lifted qualifiers gone (a `Mut` kept,
-            // `lifted_storage`), so nested narrowing composes on that rather
-            // than on the union the arm test peeled it out of.
-            let declared = if branch.widen && self.out.tests.contains_key(&self.key(branch.span)) {
-                self.mk_union(matched.iter().map(|arm| lifted_storage(arm, &pat.quals)).collect())
-            } else {
-                repr.clone()
-            };
             let narrows = vec![Narrow {
                 place: subject_place.clone(),
                 narrowed: narrow_ty,
-                declared,
+                declared: repr.clone(),
             }];
             // Isolate this branch's consumption effects; only
             // fall-through branches reach the code after the `when`
@@ -27768,6 +27702,32 @@ impl<'p, 'r> Checker<'p, 'r> {
         ty.quals().iter().any(|q| q.name == "Mut")
     }
 
+    /// [var-drop-assign] Whether `value` fits a variable declared `declared`
+    /// once the declaration's droppable qualifiers are set aside. Not for a
+    /// union, whose arms are its runtime shape: a value has to be one of them.
+    fn assign_drop_fits(&self, value: &Ty, declared: &Ty) -> bool {
+        if matches!(declared, Ty::Union(_)) || value.is_unknown() {
+            return false;
+        }
+        let droppable: HashSet<String> = declared
+            .quals()
+            .iter()
+            .map(|q| q.name.clone())
+            .filter(|q| self.removal_block(q).is_none())
+            .collect();
+        !droppable.is_empty() && is_subtype(value, &declared.clone().remove_quals(&droppable))
+    }
+
+    /// [var-drop-assign] A plain value stored where the variable's storage is
+    /// `Mut`: a backend that renders `Mut` as a type of its own builds that
+    /// storage from the value [ir-coerce], as `Mut` drops convert the other
+    /// way [str-drop-mut].
+    fn record_into_mut(&mut self, span: Span, to: &Ty) {
+        let key = self.key(span);
+        let convert = self.out.converts.entry(key).or_default();
+        convert.steps.push(ConvertStep::IntoMut { to: to.clone() });
+    }
+
     /// [str-drop-mut] Records a `Mut` drop at `span`, keeping any
     /// representation change already recorded there as the drop's
     /// continuation. Used by the positions that have no *expected type* to
@@ -27795,7 +27755,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// declined: `Mut List` is accepted everywhere else, so a rejection
     /// here would surprise.
     fn drop_mut_operand(&mut self, expr: &'p Expr, ty: &Ty) {
-        // [qual-lift] A read inside an `is ^Mut` branch is a plain value
+        // [qual-retype] A read of a place re-typed `-Mut` is a plain value
         // stored as a builder: the storage is what is dropped.
         let stored = self.repr_of(expr, ty);
         if Self::carries_mut(ty) {

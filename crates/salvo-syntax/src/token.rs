@@ -130,7 +130,7 @@ pub enum TokenKind {
     StarEq,   // *=
     SlashEq,  // /=
     StarStarEq, // **= — [op-pow] (user decision 2026-10-30)
-    Caret,    // ^ — the qualifier-widening check [qual-lift]
+    ColonEq,  // := — the re-typing statement [qual-retype]
     At,       // @ — the scope selector on a call [fn-overload-at]
 
     Eof,
@@ -270,7 +270,7 @@ impl TokenKind {
             TokenKind::StarEq => "*=",
             TokenKind::SlashEq => "/=",
             TokenKind::StarStarEq => "**=",
-            TokenKind::Caret => "^",
+            TokenKind::ColonEq => ":=",
             TokenKind::At => "@",
             _ => unreachable!("symbol() called on non-symbol token"),
         }

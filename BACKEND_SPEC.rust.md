@@ -1192,7 +1192,7 @@ the blanket rule:
   site that mutates through the narrowing reads that binding: a `&mut`
   argument (`crate::std_core_list::add_platform::<i32>(&mut *a_5, 9i32)`), the
   base of an assignment target (`let mut r_5 = r.as_mut().unwrap();` then
-  `r_5.at = 2i32;`), an intrinsic's `Mut` parameter, a `^` branch
+  `r_5.at = 2i32;`), an intrinsic's `Mut` parameter, an arm's shadow
   [rs-widen-shadow], a handler's state field (`match &mut self.held { … }`).
   Assigning to the narrowed *variable* itself writes its storage, not
   through the narrowing.
@@ -1285,10 +1285,11 @@ the blanket rule:
   quote strings and so disagree with Kotlin. A container's is std's Salvo
   `to_str`, handed the element's
   (`crate::std_core_list::to_str::<String>(&names, &mut |__a0: &String| format!("{}", __a0))`).
-* [qual-lift] [rs-widen-shadow] A `^` check emits the same test `is` would
-  (or `true` when the qualifiers are statically present — qualifiers are
-  erased, so widening is a typing act). Where it *peels a wrapper arm*, the
-  branch opens with the ordinary narrowing binding of the subject
+* [qual-retype] [rs-widen-shadow] A re-typing emits nothing of its own
+  (qualifiers are erased, and so is `Mut` on this backend, so `IntoMut`
+  [var-drop-assign] renders the value). Where it *peels a wrapper arm* after
+  an arm test (`if nested is Ok { nested := -Ok … }`), the branch opens with
+  the test's ordinary narrowing binding of the subject
   (`let mut nested_7 = match &nested { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };`),
   a reference into the storage, so reads of the subject and any nested
   `when` see the inner value (`if matches!(nested_7, crate::unions::Union2::U1(_)) { … }`).
@@ -1297,9 +1298,10 @@ the blanket rule:
     so a mutation inside the branch reaches the storage and survives the
     branch, as Kotlin's cast of the storage does. [rs-narrow-mut] carries
     the whole set of mutable sites and the one shape still refused.
-  * A `^` test on a *projection* (`h.result is ^Ok`) tests the field in
-    place (`if matches!(h.result, crate::unions::Union2::U1(_))`) and binds
-    `__narrowed_N` where the branch reads it [flow-place].
+  * A re-typed *projection* (`h.result := -Ok` after `if h.result is Ok`)
+    tests the field in place (`if matches!(h.result, crate::unions::Union2::U1(_))`)
+    and binds `__narrowed_N` (or the re-typing's `__retyped_N`) where the
+    branch reads it [flow-place].
   * Without the narrowing the emitted code would compile and be **wrong**: a
     nested test would scrutinize the outer wrapper, whose arm 0 is the one
     the outer test already took, making the second inner branch dead code.

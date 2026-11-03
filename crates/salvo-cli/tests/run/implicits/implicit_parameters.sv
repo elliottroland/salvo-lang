@@ -773,7 +773,8 @@ fn classify(n: Int) -> Ok Int | Err Str {
 
 fn describe(n: Int) [Console] -> None {
     let outcome = classify(n)
-    if outcome is ^Ok value {
+    if outcome is Ok {
+        let value = outcome: -Ok
         println("ok ${value}")
     }
     if outcome is Err {
@@ -782,9 +783,8 @@ fn describe(n: Int) [Console] -> None {
 }
 
 fn read_only(list: Mut List<Int>) [Console] -> None => list: Mut {
-    if list is ^Mut plain {
-        println("size ${size(plain)}")
-    }
+    let plain = list: -Mut
+    println("size ${size(plain)}")
 }
 
 fn main() [use] {
@@ -836,7 +836,10 @@ struct Flat {
 
 fn show(step: Emitted Int | Finished) [Console] {
     when step {
-        is ^Emitted { println("got ${step}") }
+        is Emitted {
+            step := -Emitted
+            println("got ${step}")
+        }
         is Finished { println("end") }
     }
 }
@@ -847,7 +850,10 @@ iter fn iter(f: Flat) -> Emitted Int | Finished {
         if inner is Mut ListNext<Int> {
             let step = next(inner)
             when step {
-                is ^Emitted { return emitted(step) }
+                is Emitted {
+                    step := -Emitted
+                    return emitted(step)
+                }
                 is Finished { inner = None }
             }
         }
@@ -920,13 +926,15 @@ handler Holder of Bag {
     }
 
     fn stash(n: Int) -> None {
-        if held is ^Ok {
+        if held is Ok {
+            held := -Ok
             add(held, n)
         }
     }
 
     fn dump() -> Str {
-        if held is ^Ok {
+        if held is Ok {
+            held := -Ok
             return to_str(held)
         }
         return "err"
@@ -934,7 +942,8 @@ handler Holder of Bag {
 }
 
 fn eat(o: Ok Mut List<Int> | Err Str) [] -> Str => !o {
-    if o is ^Ok {
+    if o is Ok {
+        o := -Ok
         add(o, 7)
         return to_str(o)
     }
@@ -954,16 +963,31 @@ fn main() [use] {
     if b.items is Mut { println("field ${to_str(b.items)}") }
 
     let c: Ok Mut List<Int> | Err Str = ok(Mut List(1))
-    if c is ^Ok { add(c, 9) }
-    if c is ^Ok { println("widen ${to_str(c)}") }
+    if c is Ok {
+        c := -Ok
+        add(c, 9)
+    }
+    if c is Ok {
+        c := -Ok
+        println("widen ${to_str(c)}")
+    }
 
     let d: Ok Mut List<Int> | Err Str = ok(Mut List(1))
     when d { is Ok { add(d, 9) } is Err { } }
-    if d is ^Ok { println("when ${to_str(d)}") }
+    if d is Ok {
+        d := -Ok
+        println("when ${to_str(d)}")
+    }
 
     let e: Ok Mut List<Int> | Err Str | None = ok(Mut List(1))
-    if e is ^Ok { add(e, 9) }
-    if e is ^Ok { println("nullable ${to_str(e)}") }
+    if e is Ok {
+        e := -Ok
+        add(e, 9)
+    }
+    if e is Ok {
+        e := -Ok
+        println("nullable ${to_str(e)}")
+    }
 
     println("moved ${eat(ok(Mut List(1)))}")
     stash(5)
@@ -1099,7 +1123,8 @@ fn main() [use] {
 //--- peeling_a_mut_arm_out_of_a_borrowed_parameter
 
 fn bump(o: Ok Mut List<Int> | Err Str) [] -> None {
-    if o is ^Ok {
+    if o is Ok {
+        o := -Ok
         add(o, 7)
     }
 }
@@ -1109,7 +1134,8 @@ fn main() [use] {
     let r: Ok Mut List<Int> | Err Str = ok(Mut List(1))
     bump(r)
     bump(r)
-    if r is ^Ok {
+    if r is Ok {
+        r := -Ok
         println("${size(r)}")
     }
 }
@@ -1127,10 +1153,8 @@ fn parse(text: Str) -> Ok Int | Err Str {
 
 fn doubled(text: Str) -> Ok Int | Err Str {
     let got: Ok Int = parse(text) ?: return _
-    if got is ^Ok n {
-        return ok(n * 2)
-    }
-    return got
+    let n = got: -Ok
+    return ok(n * 2)
 }
 
 fn show(label: Str, r: Ok Int | Err Str) [Console] -> None {
@@ -1201,7 +1225,8 @@ fn step(n: Int) -> Emitted (Str | Int) | Finished {
 fn show(n: Int) [Console] {
     let r = step(n)
     when r {
-        is ^Emitted {
+        is Emitted {
+            r := -Emitted
             when r {
                 is Str { println("str ${r}") }
                 is Int { println("int ${r}") }
@@ -1301,7 +1326,8 @@ fn attempt(text: Str) -> Ok Int | Err Str | Thrown Str {
 
 fn show(n: Int) [Console] -> None {
     let o = classify(n)
-    if o is ^Ok value {
+    if o is Ok {
+        let value = o: -Ok
         when value {
             is Int { println("int ${value}") }
             is Str { println("str ${value}") }
@@ -1314,10 +1340,8 @@ fn show(n: Int) [Console] -> None {
 
 fn run(text: Str) -> Err Str | Thrown Str {
     let got: Ok Int = attempt(text) ?: return _
-    if got is ^Ok n {
-        return err("len ${n}")
-    }
-    return err("unreachable")
+    let n = got: -Ok
+    return err("len ${n}")
 }
 
 fn report(text: Str) [Console] -> None {

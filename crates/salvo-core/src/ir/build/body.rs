@@ -68,8 +68,8 @@ pub struct Lower<'a, 'p> {
     pub(crate) in_condition: bool,
     /// [ir-narrow] Projection places an enclosing safe call bound.
     pub(crate) place_aliases: Vec<(Place, Local, Ty)>,
-    /// [ir-narrow] Projection places a test narrowed (a lifted claim,
-    /// `h.f is ^Ok`): the binding, valid until the scope at that depth closes.
+    /// [ir-narrow] Projection places a re-typing narrowed (a dropped claim,
+    /// `h.f := -Ok`): the binding, valid until the scope at that depth closes.
     pub(crate) scoped_aliases: Vec<(usize, Place, Local, Ty)>,
     /// [fate-poison] The flow-only facts of the fn being lowered (its
     /// `FnDecl::fate`).
@@ -183,7 +183,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // borrow — e.g. `return present(read f)` for a `ref(..)` element — and
         // marking that read consuming would move a reference.)
         match &mut e.kind {
-            ExprKind::DropMut { value } | ExprKind::Rewrap { value, .. } => {
+            ExprKind::DropMut { value } | ExprKind::IntoMut { value } | ExprKind::Rewrap { value, .. } => {
                 return self.consume_if_owned(value);
             }
             _ => {}
@@ -371,6 +371,7 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     pub(crate) fn stmt(&mut self, s: &AStmt) -> Vec<Stmt> {
         match s {
+            AStmt::Retype { target, retype, .. } => self.retype_stmt(target, retype),
             AStmt::Let { pattern, ty, value, span } => self.let_stmt(pattern, ty.as_ref(), value, *span),
             AStmt::Assign { target, value, span } => {
                 let mut v = self.expr(value);
@@ -682,8 +683,8 @@ impl<'a, 'p> Lower<'a, 'p> {
         if logical.is_unknown() || self.ctx.ir_ty(declared) == logical || bound.ty == logical {
             return bound.local.clone();
         }
-        // [qual-lift] [str-drop-mut] A builder read as the plain type (inside
-        // an `is ^Mut` branch) is no narrowing: the read is the builder, and
+        // [qual-retype] [str-drop-mut] A builder read as the plain type (a
+        // place re-typed `-Mut`) is no narrowing: the read is the builder, and
         // the checker's `Mut` drop at the read converts it [ir-coerce].
         if crate::types::drops_only_mut(&bound.ty, &logical) {
             return bound.local.clone();
@@ -709,9 +710,9 @@ impl<'a, 'p> Lower<'a, 'p> {
         local
     }
 
-    /// [qual-lift] [str-drop-mut] The statements binding `local` (at `ty`)
+    /// [qual-retype] [str-drop-mut] The statements binding `local` (at `ty`)
     /// to the arm `arm_ty` of `from`: a narrowing, or — when the binding is
-    /// the arm with its `Mut` lifted (`is ^Mut s`) — a narrowing to the
+    /// the arm with its `Mut` dropped — a narrowing to the
     /// builder and the `Mut` drop that makes the binding's plain value
     /// [ir-coerce], since no narrowing changes a representation.
     pub(crate) fn bind_arm(&mut self, local: Local, ty: Ty, from: Place, from_ty: Ty, arm_ty: Option<Ty>, because: Justification, binding: &salvo_syntax::ast::Ident) -> Vec<Stmt> {
@@ -729,6 +730,50 @@ impl<'a, 'p> Lower<'a, 'p> {
                 self.note_narrow_bind(id, binding);
                 vec![Stmt::Narrow { id, local, ty, from, from_ty, because }]
             }
+        }
+    }
+
+    /// [qual-retype] `place := …` writes nothing. Where the place's binding
+    /// does not already hold the storage view the checker recorded (a
+    /// re-typing that peels a wrapper, of a value the flow narrowed per read),
+    /// the place is rebound to it for the rest of the scope, as a test's arm
+    /// rebinds its subject.
+    fn retype_stmt(&mut self, target: &AExpr, retype: &salvo_syntax::ast::Retype) -> Vec<Stmt> {
+        let Some(view) = self.ctx.checked.expr_ty.get(&self.key(retype.span)).map(|t| self.ctx.ir_ty(t)) else {
+            return Vec::new();
+        };
+        let because = match (self.current_test, self.last_branch) {
+            (Some(j), _) => j,
+            (None, Some(b)) => Justification::After { branch: b, arm: 0 },
+            (None, None) => Justification::After { branch: NodeId(0), arm: 0 },
+        };
+        match target {
+            AExpr::Ident(id) => {
+                let Some(bound) = self.lookup(&id.name).cloned() else { return Vec::new() };
+                if bound.ty == view || crate::types::drops_only_mut(&bound.ty, &view) {
+                    return Vec::new();
+                }
+                let from = Place { root: bound.local.clone(), steps: Vec::new() };
+                vec![self.narrow_in_arm(&id.name, from, bound.ty.clone(), view, because)]
+            }
+            AExpr::Field { .. } | AExpr::TupleIndex { .. } => {
+                let Some(place) = self.stored_place_of(target) else { return Vec::new() };
+                let (from, from_ty) = match self.place_alias(&place) {
+                    Some(Expr { ty, kind: ExprKind::Read { place: p, .. }, .. }) => (p, ty),
+                    _ => {
+                        let stored = self.ctx.checked.flow_stored(self.key(target.span())).cloned().unwrap_or_else(|| self.ctx.checked.expr_ty.get(&self.key(target.span())).cloned().unwrap_or(Ty::Unknown));
+                        (place.clone(), self.ctx.ir_ty(&stored))
+                    }
+                };
+                if from_ty == view || from_ty.is_unknown() || crate::types::drops_only_mut(&from_ty, &view) {
+                    return Vec::new();
+                }
+                let local = self.fresh("__retyped");
+                let id = self.id();
+                self.scoped_aliases.push((self.scopes.len(), place, local.clone(), view.clone()));
+                vec![Stmt::Narrow { id, local, ty: view, from, from_ty, because }]
+            }
+            _ => Vec::new(),
         }
     }
 

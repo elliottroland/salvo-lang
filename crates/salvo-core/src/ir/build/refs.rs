@@ -258,6 +258,7 @@ fn expr(e: &mut Expr, env: &mut HashMap<String, Ty>, lends: &HashMap<DeclId, Opt
         ExprKind::MakeUnion { value, .. }
         | ExprKind::Rewrap { value, .. }
         | ExprKind::DropMut { value }
+        | ExprKind::IntoMut { value }
         | ExprKind::Present { value }
         | ExprKind::BorrowAs { value, .. }
         | ExprKind::Widen { value }
@@ -347,7 +348,7 @@ fn expr(e: &mut Expr, env: &mut HashMap<String, Ty>, lends: &HashMap<DeclId, Opt
         ExprKind::Call { target: FnRef::Local(_), args, .. } | ExprKind::MemberCall { args, .. } => {
             args.iter().find(|a| !is_scalar(&a.ty) && !matches!(a.ty.strip_quals(), Ty::Fn { .. })).map(|a| storage(&a.ty))
         }
-        ExprKind::Present { value } | ExprKind::Widen { value } | ExprKind::DropMut { value } | ExprKind::Rewrap { value, .. } => ref_container(&value.ty).cloned(),
+        ExprKind::Present { value } | ExprKind::Widen { value } | ExprKind::DropMut { value } | ExprKind::IntoMut { value } | ExprKind::Rewrap { value, .. } => ref_container(&value.ty).cloned(),
         ExprKind::Branch { arms, otherwise, .. } => arms
             .iter()
             .filter_map(|(_, b)| b.value.as_ref())

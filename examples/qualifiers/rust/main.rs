@@ -139,9 +139,7 @@ pub fn main() {
     let mut plain: i32 = 21i32;
     let mut warm: i32 = crate::celsius(21i32);
     crate::std_core_console::println(&__handle_2, &format!("2. {} vs {}", crate::describe__Int(plain), crate::describe__CelsiusInt(warm)));
-    {
-        crate::std_core_console::println(&__handle_2, &format!("2. widened: {}", crate::describe__Int(warm)));
-    };
+    crate::std_core_console::println(&__handle_2, &format!("2. dropped: {}", crate::describe__Int(warm)));
     crate::std_core_console::println(&__handle_2, &format!("3. sum {}, head still {}", crate::sum(&xs), crate::head(&xs)));
     crate::compact(&mut xs);
     crate::std_core_list::add_platform::<i32>(&mut xs, 9i32);

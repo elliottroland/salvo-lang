@@ -3001,7 +3001,6 @@ Module {
                                                         First,
                                                     ),
                                                     binding: None,
-                                                    widen: false,
                                                     body: Block {
                                                         stmts: [
                                                             Expr(
@@ -3024,7 +3023,6 @@ Module {
                                                         Rest,
                                                     ),
                                                     binding: None,
-                                                    widen: false,
                                                     body: Block {
                                                         stmts: [
                                                             Expr(

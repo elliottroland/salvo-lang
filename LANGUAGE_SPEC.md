@@ -588,10 +588,10 @@ Conventions:
   [var-let-infer]'s `Rewrap` coercion has always emitted for an annotated slot
   (`let b: Str | Int = a` out of a `Str | Int | Bool`); the sites that produce
   such a value **with no slot** reach the same mapping:
-  * a **multi-arm lift binding** [qual-lift], whose source arms are recorded
-    *lifted* — the mapping pairs arms by type equality, and a lifted arm's type
-    is the arm without its qualifier, while positions stay the storage's since
-    qualifiers erase;
+  * a **multi-arm re-typing** [qual-retype] (`o: -Ok` of an `Ok Int | Ok
+    Str` an `is Ok` left), whose arms are recorded without the qualifier — the
+    mapping pairs arms by type equality, while positions stay the storage's
+    since qualifiers erase;
   * a **pick's picked side**, and a pick that **widens** its result into a
     larger union, same treatment;
   * a **pick's unpicked side** (`_`), whose source arms keep their tags.
@@ -1434,7 +1434,26 @@ Conventions:
   is already visible is an error.
 * [var-no-widen] A variable's type can never widen: assignments must be
   subtypes of the *declared* type (qualifiers/narrowing may vary within
-  it).
+  it), but for the qualifiers [var-drop-assign] lets an assignment drop.
+* [var-drop-assign] **An assignment may drop qualifiers** (user decisions
+  2026-09-23 and 2026-10-30, ROADMAP §7): a variable declared (or inferred)
+  `NonEmpty List<Int>` takes a plain `List<Int>`, and reads without
+  `NonEmpty` until a value that has it is assigned — the declaration is the
+  ceiling, the variable's qualifiers are always its value's. **`Mut` is one
+  of them**: a `Mut Str` variable takes a `Str`, and reads without `Mut`.
+  * The droppable qualifiers are the declaration's top-level ones outside
+    `qual_drop_block` (`once`, `Linear`, a borrow stay). Not for a union,
+    whose arms are its runtime shape, nor for a handler's state, which every
+    member reads at its declared type.
+  * At a join the variable keeps what every path has (as a call's drop
+    does); a path that narrowed it to an arm is not trusted past an
+    assignment that may have replaced it, so the variable reads as declared
+    there.
+  * The storage stays the declaration's. Where a backend renders `Mut` as a
+    type of its own the plain value is converted into it (`IntoMut`, the
+    reverse of [str-drop-mut]: Kotlin's `StringBuilder(s)`, `toMutableList()`),
+    a copy nobody can observe, since the variable is not `Mut` until a `Mut`
+    value is assigned again.
 * [var-block-scope] Every block (`if`, `while`, `for`, `when` branches) is
   its own scope; declarations do not escape.
 * [var-let-infer] `let` without an annotation takes the value's logical type
@@ -1495,10 +1514,10 @@ Conventions:
     not in scope after it (the checker has always said so; the IR builder
     used to narrow the branch anyway). The right operand of `a || b` sees
     the *failure* of `a`.
-  * [qual-lift] on a projection: inside `if h.f is ^Ok { … }` a further test
-    of `h.f` reads the **lifted** view of the field (the wrapper peeled),
-    not the stored union; the IR names that view with a narrowing binding
-    until the branch closes.
+  * [qual-retype] on a projection: after `h.f := -Ok` inside `if h.f is Ok
+    { … }` a further test of `h.f` reads the **re-typed** view of the field
+    (the wrapper peeled), not the stored union; the IR names that view with a
+    narrowing binding until the scope closes.
   * A fact survives a branch join only when every fall-through path
     agrees on it exactly; otherwise the place falls back to its declared
     type, which is always a supertype.
@@ -2691,7 +2710,7 @@ Conventions:
   and nothing else. There is no truthiness — no rule could turn an `Int`,
   a `Str` or a possibly-absent `Bool?` into a decision, and guessing one
   is how a backend divergence gets in (Kotlin has no truthiness either;
-  Rust would reject the `Option`). `is`/`^` checks evaluate to `Bool`.
+  Rust would reject the `Option`). `is` checks evaluate to `Bool`.
   * Checked per **leaf** of a `&&`/`||`/`!` condition, which is where the
     wrong type was written; `Unknown` and `Never` stay lenient
     [type-unknown-lenient].
@@ -2777,7 +2796,7 @@ Conventions:
   "text"`, `x is Int | Str` makes an `Int | Str | Bool` an `Int | Str`. The
   parser builds the disjunction over clones of the subject, so the subject
   must be a place (a variable or a field chain), read once per test; a
-  binding or a `^` lift is refused, and `!is A | B` negates the whole.
+  binding is refused, and `!is A | B` negates the whole.
   * A place only one side narrows is not narrowed [flow-or-not]; `&&` and
     the `else` of `||` are as before.
   * **A literal test on a plain base compares the value** (fixed
@@ -2812,9 +2831,9 @@ Conventions:
     testing it, which type-checks and reads as the *opposite* of the intent. So
     the postfix tier left a `!` alone when `is` followed it. (The postfix is
     gone since 2026-10-20; the parser still reads `x !is Q` first.)
-  * **No binding and no `^`**: a negated test tells you nothing on the branch it
-    guards, so there is no value to name (`!is Q name`) and none to widen
-    (`!is ^Q` [qual-lift]). Both are errors naming the positive form.
+  * **No binding**: a negated test tells you nothing on the branch it
+    guards, so there is no value to name (`!is Q name`). It is an error
+    naming the positive form.
   * Everything it composes with comes free: `&&`/`||`, a `when` condition head,
     and the overload routing after the guard [fn-overload-rank].
 * [is-narrow-guard] A narrowing **survives a guard** (user decision
@@ -2875,72 +2894,64 @@ Conventions:
 * [is-precise] Checks may include qualifiers and generics:
   `is Err Str` matches only the `Err Str` arm; `is Err` matches every
   `Err`-qualified arm; overlapping matches infer the smaller union.
-* [qual-lift] `expr is ^Qual...` **lifts** a qualifier: the same arm test an
-  ordinary `is` performs, after which the listed qualifiers are *removed* for
-  the branch. `list is ^Mut` reads `list` without `Mut`; `outcome is ^Ok`
-  without `Ok`. Spelled as a mark on the qualifier since 2026-09-21 (user
-  decision, step 3 of the `?` family sequence); from 2026-09-05 until then it
-  was a standalone operator `expr ^ Qual...` with its own precedence tier, and
-  the change buys one rule instead of two — `^Q` is "Q, lifted", wherever a
-  qualifier may be written in a check.
-  * **All or none.** Every qualifier in a check is marked or none is; a mix
-    (`is ^Ok NonEmpty`) is a *parse* error, because some-marked-some-not is a
-    syntactic property and the parser cannot tell a qualifier from a base type
-    (both are uppercase). One consequence: lifting a qualifier while *naming*
-    the arm's base type (`is ^Ok Int`) is unexpressible for now. Nothing was
-    lost — the old operator refused a base type outright.
-  * **A binding is allowed** (user decision 2026-09-21, superseding the
-    no-binding rule of 2026-09-05): `is ^Ok value` names the lifted value.
-    Two emissions, because they genuinely differ: a lift that peels a
-    **wrapper arm** reads the payload out of the storage, while a lift of a
-    **qualifier only** binds the value itself, qualifiers being erased.
-  * **Several arms at once** is what the binding is for: the lifted value is
-    *produced*, so it can span two arms where a re-read of the subject cannot,
-    and with a binding nothing narrows — the subject keeps its declared type
-    and the lifted union lives in the name. Built end to end (2026-09-21): the
-    bound value spans fewer arms than its storage, so it is produced by the
-    arm mapping [type-rewrap] rather than by a payload read. **Without** a binding
-    it stays refused for the original reason: one re-read cannot stand for two
-    wrapper positions.
-  * A `when` **branch head** takes the same form: `is ^Qual...` alongside
-    `is ...`, the same arm test with the subject reading lifted inside the
-    branch. That
-    is the form the qualified-union case wants — `when o { is ^Ok { when o {
-    … } } }` reaches the union inside `Ok (Ok Int | Err Str)` with no
-    intermediate binding and no repeated type.
-  * The qualifiers must be **present**: nothing to remove is an error, not a
-    silently-false test (`^` is not a predicate test — that is `is`).
-    Several may be removed at once (`v is ^Mut ^NonEmpty`), and the right side
-    is qualifier names only: a *type* there is an `is` question.
-  * **Droppability comes from one list** — `types::qual_drop_block`, which
-    `Qual T <: T` also reads, so the two cannot drift as intrinsic
-    qualifiers are added. `once` (restricts rather than refines), `Linear`
-    (carries a use obligation) and `proj` (the value is derived from
-    another) may never be dropped; every other qualifier may, since dropping
-    a *claim* only loses knowledge and dropping a *permission* only loses
-    permission.
-  * No binding form: the subject itself reads widened, so a second spelling
-    would be redundant.
-  * Widening more than one arm at a time is an error: each arm would peel a
-    different wrapper position, so one widened view cannot stand for all.
-  * Backends: the runtime test is `is`'s (qualifiers are erased, so widening
-    is a *typing* act), and where the check peels a wrapper arm the widened
-    value is bound to a **shadowing local** for the branch — see
-    [rs-widen-shadow] / [kt-widen-shadow]. Without that materialization a
-    nested `when` would scrutinize the wrapper it came out of, which is
-    exactly the wrong-code bug the feature's own demo caught while it was
-    being built. The IR narrows the subject to the arm the test matched, as
-    it does for an `is`; no table says what the lift sees (the pipeline record D2,
-    `Test`: the per-read storage is in `narrowed_reads`).
-  * **`^Mut` converts** (2026-10-30): `Mut` is the one qualifier that
-    survives erasure [ir-types], so lifting it is a change of
-    representation where a backend renders `Mut` as a type of its own
-    (Kotlin's `StringBuilder` for `Mut Str`). The lifted subject is stored
-    as the builder inside the branch, and a read used as the plain type
-    carries the `Mut` drop [str-drop-mut] [ir-coerce]; a lifted binding
-    (`is ^Mut s`) is the dropped value. Before, the `if` form cast the
-    builder to `String` and the `when` form passed the builder where a
-    `String` was wanted.
+* [qual-retype] **A re-typing drops qualifiers from a value** (user
+  decisions 2026-10-30, replacing the `^` lift `x is ^Q`): the deduction
+  clause's qualifier list [deduce-syntax], written after the value or the
+  place it re-types.
+  * **Inline, `e: quals`**, the value of `e` re-typed for that use:
+    `read((p: -Mut))` reaches the plain overload, `let v = o: -Ok` binds the
+    payload an `is Ok` left. The loosest-binding postfix, so `(x: -Ok) is Int`
+    needs its parentheses. **At the top of a call argument `k: v` is a
+    key-value pair** [col-pairs], always — the parser decides, so a
+    re-typing argument is parenthesized: `g((list: NonEmpty))`.
+  * **As a statement, `place := quals`**, a variable or field path re-typed
+    for the rest of its flow, exactly as a call whose clause drops those
+    qualifiers would leave it: lost after a join where any path lost it,
+    back when a value that has them is assigned. **`place = place: quals` is
+    the same statement**, a re-typing and not a write. A target that is not
+    a place is `qual-retype:not-a-place`.
+  * **The list**: `-A -B` drops those; `A B` keeps only those, and may end in
+    the value's own base type (`x := List`, `x := NonEmpty List`; type
+    arguments may be left out, and if written must be the value's). A kept
+    list keeps what can never be dropped without naming it (`once`,
+    `Linear`, a borrow). Refused at the parse: `+Q`
+    (`qual-retype:reapply`: a re-establishment is a function's claim, never a
+    value's), `None` and `Never` (`qual-retype:none-or-never`), a kept name
+    beside a dropped one (`qual-retype:keep-and-drop`), an empty list.
+  * **Never adds a qualifier**: naming one the value does not carry is
+    `qual-retype:not-carried` (test for it with `is`); a base other than the
+    value's is `qual-retype:base-mismatch`. The `qual_drop_block` list —
+    `once`, `Linear`, `proj`, `ref` — may not be dropped
+    (`qual-retype:cannot-remove`), the same list `Qual T <: T` reads.
+  * **On a union** every value arm must carry what is named
+    (`qual-retype:arm-not-carried`, whose remedy is the `is` that leaves the
+    arms that do), and it is dropped from each; a base type is refused
+    (`qual-retype:union-base`); a drop that would merge two arms is
+    `qual-retype:arms-merge`, since the value would change shape at run
+    time; and `Mut` is not dropped from a union's arms (narrow to one first).
+  * **What it does at run time: nothing, but `Mut`.** The arm test and the
+    payload read are `is`'s; qualifiers erase [qual-erasure]. The one
+    qualifier a backend may render is `Mut` [ir-types], so dropping it is a
+    conversion at each read that needs the plain type [str-drop-mut]
+    (Kotlin's `StringBuilder`), recorded at the inline re-typing or at the
+    reads of the re-typed place, whose storage stays `Mut`.
+  * **A re-typed place keeps a storage view**: after `o := -Ok` on an `Ok (A
+    | B)` (a qualified union, or the arm an `is Ok` narrowed it to), reads
+    and further narrowing compose on the inner union. The checker records
+    the view at the list's span; the IR rebinds the place to it where the
+    place's binding does not already hold it (a field gets a narrowing
+    binding until its scope closes), and the view survives a join only where
+    every path agrees and it is the declared storage as the IR holds it. A
+    re-typing inside a branch that narrowed the same root ends with that
+    branch, as its narrowing does (ROADMAP: a call's drop there too).
+  * **What it replaced**: `x is ^Q` tested an arm and dropped the claim in
+    one step, which spelled the drop differently from a deduction's `x: -Q`.
+    Its forms translate as `if o is Ok { o := -Ok … }`, `when o { is Ok { o
+    := -Ok … } }`, `if o is Ok { let v = o: -Ok … }` (several arms at once
+    included), and `read((p: -Mut))` for a lift that only picked an
+    overload. Its all-or-none rule, its `!is` and union-head refusals and the
+    `^` token are gone; `is ^Ok Int`, which it could not say, is `is Ok Int`
+    then `: -Ok`.
 * [when-union-subject] `when` **with a subject** requires a union-typed
   *variable* subject, and takes no `else`: the arms are the cases and
   covering them is what is checked [when-exhaustive]. An `else` here is a
@@ -2949,9 +2960,9 @@ Conventions:
   they now narrow (user decision 2026-09-03): `if … is` covers them.
   * A **qualified union** (`Ok (A | B)`, a `Thrown (Str | Int)` message
     [throw-try]) is a claim *about* a union, so its arms belong to the inner
-    type. Reach them with a `^` branch head ([qual-lift]:
-    `when v { is ^Ok { when v { … } } }`), or bind at the inner type
-    (`let inner: A | B = value`). The droppable-qualifier rule does the
+    type. Reach them by dropping the claim ([qual-retype]: `when v { is Ok
+    { v := -Ok; when v { … } } }`), or bind at the inner type (`let inner:
+    A | B = value`). The droppable-qualifier rule does the
     unwrapping ([qual-erasure]: `Qual T <: T`), which is also why the
     intrinsic capability qualifiers need no special case — `once` is
     excluded from dropping and `Linear` is never written at a use site.
@@ -2975,8 +2986,7 @@ Conventions:
   union inside it, as `x is A | B` narrows in a condition [is-union]. Arms are
   consumed in order, so an alternative an earlier arm took is no error, and a
   head none of whose alternatives is left is dead [when-exhaustive]. Like
-  [is-union] it takes no binding and no `^` (`is-union:binding`,
-  `is-union:lift`).
+  [is-union] it takes no binding (`is-union:binding`).
   * Lowered as one arm test over the alternatives' arms
     (`merge_union_tests`): the arms of each, a `None` test of either, a value
     test on a literal arm only where no alternative takes the arm whole. Two
@@ -3048,7 +3058,7 @@ Conventions:
     conditions is a shape the reader has to verify; this form is the shape
     the grammar guarantees. Nothing else is new — which is why it reuses
     `check_if` rather than getting its own checking.
-  * **Branch heads are ordinary conditions**, so `is`/`^` work in them and
+  * **Branch heads are ordinary conditions**, so `is` works in them and
     narrow their branch (user decision 2026-09-05). No arm-exhaustiveness
     follows: `is` heads that happen to cover a union still need the
     `else` — the subject form is how you ask for that check.
@@ -13106,7 +13116,7 @@ replaced the working document TESTING.md).
   and reports zero leaks on all known-good std and example code.
   * **What settles an arm.** A matched `when`/`if is` arm discharges its arm;
     falling past an else-less branch's positive test discharges that arm on the
-    skip path; an `assert!(x is ^Ok)` discharges the *complement* arms past it
+    skip path; an `assert!(x is Ok)` discharges the *complement* arms past it
     (the assert proves the rest absent, so a value an assert handles is not a
     leak); a move (`Release`) and a `narrow` to a non-linear type discharge
     outright. An **unconditional arm** (a `block_expr` wrapper, a desugared

@@ -164,7 +164,7 @@ impl salvo_syntax::visit_mut::MutVisitor for Bindings {
         use salvo_syntax::ast::Expr;
         match expr {
             Expr::For { pattern, .. } => self.pattern(pattern),
-            Expr::Is { binding: Some(b), .. } | Expr::Widen { binding: Some(b), .. } => self.0.push(b.clone()),
+            Expr::Is { binding: Some(b), .. } => self.0.push(b.clone()),
             Expr::Lambda { params, .. } => self.0.extend(params.iter().map(|p| p.name.clone())),
             Expr::When { branches, .. } => {
                 self.0.extend(branches.iter().filter_map(|b| b.binding.clone()));

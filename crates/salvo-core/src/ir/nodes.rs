@@ -627,6 +627,9 @@ pub enum ExprKind {
     Rewrap { from: Ty, value: Box<Expr> },
     /// [str-drop-mut] a `Mut` value used where the plain type is required.
     DropMut { value: Box<Expr> },
+    /// [var-drop-assign] a plain value stored into `Mut` storage (`ty`, the
+    /// storage's type): the reverse of `DropMut`.
+    IntoMut { value: Box<Expr> },
     /// [ir-coerce] a value placed into an optional's present arm (`ty` is
     /// the optional): Rust's `Some`, nothing on Kotlin.
     Present { value: Box<Expr> },

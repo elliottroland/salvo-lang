@@ -128,6 +128,7 @@ fn expr(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
         ExprKind::MakeUnion { value, .. }
         | ExprKind::Rewrap { value, .. }
         | ExprKind::DropMut { value }
+        | ExprKind::IntoMut { value }
         | ExprKind::Present { value }
         | ExprKind::BorrowAs { value, .. }
         | ExprKind::Widen { value }

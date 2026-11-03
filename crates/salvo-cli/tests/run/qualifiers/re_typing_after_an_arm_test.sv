@@ -1,8 +1,8 @@
-// the widening check `^` [qual-lift]
+// the re-typing `x := -Q` and `x: -Q` after an arm test [qual-retype]
 //
 // Compile-and-run data ([test-run-data]), moved from the codegen tests.
 
-//--- widening
+//--- re_typing
 
 import std.throw
 
@@ -26,7 +26,8 @@ fn limit(n: Int) [Throw<Int>] -> Int {
 fn describe(n: Int) [Console] -> None {
     let nested = try { wrapped(n) }
     when nested {
-        is ^Ok {
+        is Ok {
+            nested := -Ok
             when nested {
                 is Ok {
                     println("value ${nested}")
@@ -55,7 +56,8 @@ fn main() [use] -> None {
         is Ok {
             println("mixed ok ${mixed}")
         }
-        is ^Thrown {
+        is Thrown {
+            mixed := -Thrown
             when mixed {
                 is Str {
                     println("message text ${mixed}")
@@ -73,11 +75,12 @@ fn main() [use] -> None {
 //= thrown negative
 //= message number 9
 
-//--- lifting_mut_converts_the_builder
-// [qual-lift] [str-drop-mut] `^Mut` is the one lift that changes a
-// representation: Kotlin's `Mut Str` is a `StringBuilder`. A read of the
-// lifted subject, or a lifted binding, is the plain `Str` by a `Mut` drop
-// (the pipeline record D2 `Test`, 2026-10-30). Before, the `if` form cast the
+//--- dropping_mut_converts_the_builder
+// [qual-retype] [str-drop-mut] Dropping `Mut` is the one re-typing that
+// changes a representation: Kotlin's `Mut Str` is a `StringBuilder`. A read
+// of the re-typed subject, or a binding of `m: -Mut`, is the plain `Str` by a
+// `Mut` drop (the pipeline record D2 `Test`, 2026-10-30, for the lift it
+// replaced). Before, the `if` form cast the
 // builder to `String` (a `ClassCastException`) and the `when` form passed
 // the builder where a `String` was wanted (refused by kotlinc).
 
@@ -88,20 +91,28 @@ fn size_of(s: Str) [] -> Int {
 fn main() [use] -> None {
     use StdConsole()
     let m: Mut Str | Int = Mut Str("hi")
-    if m is ^Mut {
+    if m is Str {
+        m := -Mut
         println("if ${size_of(m)} ${m == "hi"}")
         let copied = m
         println(copied)
     }
     when m {
-        is ^Mut { println("when ${size_of(m)} ${m == "hi"}") }
+        is Str {
+            m := -Mut
+            println("when ${size_of(m)} ${m == "hi"}")
+        }
         is Int { println("int") }
     }
     when m {
-        is ^Mut s { println("bound ${size_of(s)} ${s == "hi"}") }
+        is Str {
+            let s = m: -Mut
+            println("bound ${size_of(s)} ${s == "hi"}")
+        }
         is Int { println("int") }
     }
-    if m is ^Mut t {
+    if m is Str {
+        let t = m: -Mut
         println("if bound ${size_of(t)}")
     }
 }

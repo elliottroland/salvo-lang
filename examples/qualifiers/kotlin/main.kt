@@ -92,9 +92,7 @@ fun main() {
     val plain: Int = 21
     val warm: Int = salvo.main.celsius(21)
     salvo.std.core.console.println(__handle_2, "2. ${salvo.main.describe__Int(plain)} vs ${salvo.main.describe__CelsiusInt(warm)}")
-    kotlin.run {
-        salvo.std.core.console.println(__handle_2, "2. widened: ${salvo.main.describe__Int(warm)}")
-    }
+    salvo.std.core.console.println(__handle_2, "2. dropped: ${salvo.main.describe__Int(warm)}")
     salvo.std.core.console.println(__handle_2, "3. sum ${salvo.main.sum(xs)}, head still ${salvo.main.head(xs)}")
     salvo.main.compact(xs)
     salvo.std.core.list.addPlatform(xs, 9)

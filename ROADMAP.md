@@ -51,7 +51,7 @@ struct or the arms of any union).
 Twelve worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print; the first dependency, `modules/aws/`, keeps
 its four (`profile`, `sqs`, `s3`, `ddb`) and its own checks (`modules/aws/check.sh`)
-outside the compiler's tests. 712 tests green (nextest); std's own Salvo tests run inside one of them.
+outside the compiler's tests. 711 tests green (nextest); std's own Salvo tests run inside one of them.
 
 ## The sequence
 
@@ -460,8 +460,7 @@ repros are over the real std.
   - past a parse error, the recovered AST cascades: `self.note(x)` adds
     `effect-available:own-effect` and `effect-member-call:arg-count`; a
     `[for]`/`refuse!` outside a comptime fn adds the internal
-    `comptime-inline:not-expanded`; `is ^Ok Int` adds `qual-lift:not-qualifiers`
-    (three parse-only tests kept);
+    `comptime-inline:not-expanded` (two parse-only tests kept);
   - also noted, annotated as they are: a non-scalar `NonEmpty` view returned
     owned reports `fate-derived-readonly:view-moved` and
     `fn-syntax:return-mismatch`; a value fitting no union arm reports
@@ -506,9 +505,7 @@ repros are over the real std.
   by type name, not instantiation).
 - **Behaviour worth a look**: `=> !a` on an `Int` warns
   "changes nothing" yet decides whether the fn fits a keeping `?add`.
-- **Smaller**: an `_`-prefixed lift binding (`is ^Ok _value`) is refused with
-  three errors, so an unused lift binding cannot be silenced as a `let`
-  can; an effect member with a gained qualifier
+- **Smaller**: an effect member with a gained qualifier
   (`fn poke2(s: Mut Store<Int>) [] -> None => s: Stocked Mut`) is not refused
   as a bodiless gain, though `deduce.rs` says it should be (callers do not
   gain it, so no wrong code); a local whose only read is calling it (`n()`)
@@ -1222,17 +1219,15 @@ container [interp-to-str], property testing's `?generate`, section 2c's
 
 ### 7 — Qualifiers are droppable, then variance
 
-- **Qualifiers are droppable on assignment** (user decision 2026-09-23, not
-  built). A variable's type may never *widen*, but a qualifier is by definition
-  something that optionally applies, so dropping one is always legal: assigning a
-  plain `List<Int>` to a variable inferred as `NonEmpty List<Int>` must be
-  accepted, and the variable simply stops being `NonEmpty` (the flow state already
-  models exactly this — a mutating call drops claims the same way). Provenance
-  qualifiers need thought: dropping one is harmless, re-*gaining* it must stay
-  impossible. Where it shows up today: the checker data's
-  `fate/derived.sv#fate_links_merge_across_branches` and `ownership/consume.sv#inferred_moves_consume_arguments` had to
-  annotate their `let`s when the constructors started claiming, and those
-  annotations come back out.
+- **Open defect: a qualifier dropped inside a branch that narrowed the same
+  variable comes back at the branch's end** (found 2026-10-30 building
+  [qual-retype], not reproduced as wrong code): `with_narrows` restores a
+  narrowed root's flow type when the branch closes, whatever the branch did to
+  it, so in `if x is NonEmpty { x := -Mut }` (or a call there whose clause
+  drops `Mut`) `x` is `Mut` again after the `if`. Regaining a claim the value
+  still has is sound for a re-typing (it writes nothing); for a call that
+  mutated it, the claim it dropped is restored too. The fix is a join of the
+  branch's exit state with the restored one rather than a plain restore.
 - **An inferred type argument is not widened by the expected type** — found
   while building step 1(b), and the same invariance in a narrower place.
   `checked<T>(value: T)` binds `T` from the argument, so
@@ -1295,7 +1290,7 @@ place:
 
 ```
 fn bump(o: Ok Mut List<Int> | Err Str) [] -> None {
-    if o is ^Ok {
+    if o is Ok {
         add(o, 7)          // Kotlin: mutates the caller's list
     }                      // Rust: reported — `o` is read-only here
 }

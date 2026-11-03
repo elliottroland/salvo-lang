@@ -84,6 +84,7 @@ fn stepping_a_linked_int_strips(n: Int, base: Int) [] -> Bool => n, base {
     let floor = base + 0
     assert!(n is Above(floor))
     floor++
-    //~ error[qual-lift:not-carried]
-    return n is ^Above
+    //~ error[qual-retype:not-carried]
+    let _n = n: -Above
+    return true
 }

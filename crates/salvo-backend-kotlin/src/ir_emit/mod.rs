@@ -1490,6 +1490,18 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let v = self.expr(value, indent);
                 self.borrow_as(&v, &value.ty, arms, &e.ty)
             }
+            // [var-drop-assign] [kt-mut-str] A plain value into `Mut` storage:
+            // the builder or mutable list is built from it (a copy, which no
+            // one can observe: the variable reads without `Mut` until a `Mut`
+            // value is stored into it again).
+            ExprKind::IntoMut { value } => {
+                let v = self.expr(value, indent);
+                match e.ty.strip_quals() {
+                    Ty::Named { name, .. } if name == "Str" => format!("StringBuilder({v})"),
+                    Ty::Named { name, .. } if name == "List" => format!("({v}).toMutableList()"),
+                    _ => v,
+                }
+            }
             ExprKind::DropMut { value } => {
                 let v = self.expr(value, indent);
                 match value.ty.strip_quals() {
@@ -2628,7 +2640,7 @@ fn assigned_locals(b: &Block) -> HashSet<Local> {
                     expr(v, out);
                 }
             }
-            ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::BorrowAs { value, .. } | ExprKind::Widen { value } | ExprKind::Present { value } | ExprKind::Spread { value } => expr(value, out),
+            ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::IntoMut { value } | ExprKind::BorrowAs { value, .. } | ExprKind::Widen { value } | ExprKind::Present { value } | ExprKind::Spread { value } => expr(value, out),
             _ => {}
         }
     }

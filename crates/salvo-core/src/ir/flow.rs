@@ -1683,6 +1683,7 @@ fn each_operand(e: &Expr, f: &mut impl FnMut(&Expr)) {
         ExprKind::MakeUnion { value, .. }
         | ExprKind::Rewrap { value, .. }
         | ExprKind::DropMut { value }
+        | ExprKind::IntoMut { value }
         | ExprKind::Present { value }
         | ExprKind::BorrowAs { value, .. }
         | ExprKind::Widen { value }

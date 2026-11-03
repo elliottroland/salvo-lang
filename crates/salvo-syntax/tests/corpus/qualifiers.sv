@@ -56,12 +56,12 @@ fn checks(person: Person) -> None {
     let pair = (person, check_surname(person))
 }
 
-// [qual-lift] `is ^Q` lifts a qualifier: the same arm test, after which the
-// subject reads with the claim *removed*, which is what opens a qualified
-// union.
+// [qual-retype] `x := -Q` drops a qualifier: after the arm test, the subject
+// reads with the claim *removed*, which is what opens a qualified union.
 fn describe(outcome: Ok (Ok Int | Err Str) | Err Str) [Console] -> None {
     when outcome {
-        is ^Ok {
+        is Ok {
+            outcome := -Ok
             when outcome {
                 is Ok {
                     println("value ${outcome}")
@@ -78,9 +78,8 @@ fn describe(outcome: Ok (Ok Int | Err Str) | Err Str) [Console] -> None {
 }
 
 fn read_only(list: Mut List<Int>) [Console] -> None => list: Mut {
-    if list is ^Mut {
-        println("size ${size(list)}")
-    }
+    list := -Mut
+    println("size ${size(list)}")
 }
 
 // [qual-refn] A qualifier states what functions it does not own do to *its*

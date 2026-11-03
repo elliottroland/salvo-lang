@@ -1,7 +1,7 @@
 // [qual-depend] Dependent qualifiers — value slots, the filled `is` test,
 // fate-root binding, and conservative cross-value stripping (the
 // refinement-types sequence, step 2). A claim that was stripped shows as the
-// widen check `^` below it finding nothing to remove [qual-lift].
+// re-typing below it finding nothing to drop [qual-retype].
 
 struct Box canbe Mut { n: Int }
 struct Key { s: Str }
@@ -21,19 +21,21 @@ fn read(box: Box) [] -> Int => box {
 }
 
 // The filled test narrows: after `assert!(key is Inside(box))` the claim is
-// in the type, which the widen check observes [qual-lift].
+// in the type, which the re-typing observes [qual-retype].
 fn a_filled_is_test_narrows(key: Key, box: Box) [] -> Bool => key, box {
     assert!(key is Inside(box))
-    return key is ^Inside
+    let _key = key: -Inside
+    return true
 }
 
 // [qual-depend] Any `Mut` use of the depended-on value strips the claim —
-// the widen check below it no longer finds `Inside`.
+// the re-typing below it no longer finds `Inside`.
 fn mutating_the_linked_value_strips(key: Key, box: Mut Box) [] -> Bool => key, box: Mut {
     assert!(key is Inside(box))
     bump(box)
-    //~ error[qual-lift:not-carried]
-    return key is ^Inside
+    //~ error[qual-retype:not-carried]
+    let _key = key: -Inside
+    return true
 }
 
 // A *read* of the depended-on value keeps the claim: only mutation can
@@ -41,7 +43,8 @@ fn mutating_the_linked_value_strips(key: Key, box: Mut Box) [] -> Bool => key, b
 fn reading_the_linked_value_keeps(key: Key, box: Box) [] -> Bool => key, box {
     assert!(key is Inside(box))
     let _n = read(box)
-    return key is ^Inside
+    let _key = key: -Inside
+    return true
 }
 
 // Mutating a *different* value strips nothing: the claim is bound to the
@@ -49,7 +52,8 @@ fn reading_the_linked_value_keeps(key: Key, box: Box) [] -> Bool => key, box {
 fn mutating_an_unrelated_value_keeps(key: Key, box: Box, other: Mut Box) [] -> Bool => key, box, other: Mut {
     assert!(key is Inside(box))
     bump(other)
-    return key is ^Inside
+    let _key = key: -Inside
+    return true
 }
 
 // An unfilled test of a dependent qualifier names the filled form.
@@ -73,8 +77,9 @@ fn reassigning_the_linked_value_strips(key: Key) [] -> Bool => key {
     let box = Mut Box { n: 1 }
     assert!(key is Inside(box))
     box = Mut Box { n: 2 }
-    //~ error[qual-lift:not-carried]
-    return key is ^Inside
+    //~ error[qual-retype:not-carried]
+    let _key = key: -Inside
+    return true
 }
 
 // [qual-depend] A dependent predicate's `qualifies` takes the subject and
@@ -139,19 +144,21 @@ fn shrink(box: Mut Box) [] -> None => box: Mut {
 }
 
 // [qual-preserve] A refined call keeps the dependent claim alive: the
-// widen check still finds it below the mutation.
+// re-typing still finds it below the mutation.
 fn a_preserving_call_keeps(key: Key, box: Mut Box) [] -> Bool => key, box: Mut {
     assert!(key is Held(box))
     grow(box)
-    return key is ^Held
+    let _key = key: -Held
+    return true
 }
 
 // An unrefined mutator still strips: preservation is per call, opt-in.
 fn an_unrefined_mutator_still_strips(key: Key, box: Mut Box) [] -> Bool => key, box: Mut {
     assert!(key is Held(box))
     shrink(box)
-    //~ error[qual-lift:not-carried]
-    return key is ^Held
+    //~ error[qual-retype:not-carried]
+    let _key = key: -Held
+    return true
 }
 
 // [qual-preserve] A fn's own `preserve` entry is checked: a body that
@@ -174,7 +181,8 @@ fn wrap(box: Mut Box) [] -> None
 fn an_own_preserve_promise_carries_to_callers(key: Key, box: Mut Box) [] -> Bool => key, box: Mut {
     assert!(key is Held(box))
     wrap(box)
-    return key is ^Held
+    let _key = key: -Held
+    return true
 }
 
 // [op-elvis-guard] A leaving right side takes its flow effects with it: a

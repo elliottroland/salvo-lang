@@ -127,10 +127,11 @@ export fn main() [use] -> None {
 }
 
 //--- widening_materializes_the_peel_kotlin
-// [qual-lift] Kotlin materializes the same peel with a shadowing `val`
+// [qual-retype] Kotlin materializes the same peel with a shadowing `val`
 // (the alternative, a fresh name, would need every read rewritten).
-// [qual-lift] `^` tests the arm *and* removes the claim, so a branch can
-// `when` the union inside a qualified one — the shape `try` outcomes produce.
+// [qual-retype] `is Ok` tests the arm and `:= -Ok` removes the claim, so a
+// branch can `when` the union inside a qualified one — the shape `try`
+// outcomes produce.
 // (`WIDEN_DEMO` in codegen_tests.rs.)
 import std.throw
 
@@ -155,7 +156,8 @@ fn describe(n: Int) [Console] -> None {
     let nested = try { wrapped(n) }
     when nested {
         //~ emits: : Union2<Int, String> = ((nested as Union2.U1<*, *>).value as Union2<Int, String>)
-        is ^Ok {
+        is Ok {
+            nested := -Ok
             when nested {
                 is Ok {
                     println("value ${nested}")
@@ -184,7 +186,8 @@ fn main() [use] -> None {
         is Ok {
             println("mixed ok ${mixed}")
         }
-        is ^Thrown {
+        is Thrown {
+            mixed := -Thrown
             when mixed {
                 is Str {
                     println("message text ${mixed}")

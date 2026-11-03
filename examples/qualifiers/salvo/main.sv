@@ -149,11 +149,9 @@ fn main() [use] {
     let warm = celsius(21)
     println("2. ${describe(plain)} vs ${describe(warm)}")
 
-    // `^` is the dual of `is`: it reads the subject with the claim *removed*,
-    // which is how the less specific overload is reached deliberately.
-    if warm is ^Celsius {
-        println("2. widened: ${describe(warm)}")
-    }
+    // A re-typing reads the value with the claim *dropped*, which is how the
+    // less specific overload is reached deliberately.
+    println("2. dropped: ${describe((warm: -Celsius))}")
 
     // ----- 3: what survives a call -----
 

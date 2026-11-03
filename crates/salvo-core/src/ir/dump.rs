@@ -575,6 +575,11 @@ impl<'a> Dumper<'a> {
                 self.expr(value, indent);
                 self.out.push(')');
             }
+            ExprKind::IntoMut { value } => {
+                self.out.push_str("into_mut(");
+                self.expr(value, indent);
+                self.out.push(')');
+            }
             ExprKind::BorrowAs { value, arms } => {
                 let pairs: Vec<String> = arms
                     .iter()

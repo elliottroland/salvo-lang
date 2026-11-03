@@ -1201,7 +1201,8 @@ fn main() [use] {
     let o = open(\"x\")
     when o {
         is Ok { println(\"ok\") }
-        is ^Err {
+        is Err {
+            o := -Err
             when o {
                 is NotFound { println(\"not found ${o.path}\") }
                 is Denied { println(\"denied\") }

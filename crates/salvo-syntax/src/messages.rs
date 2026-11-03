@@ -588,10 +588,6 @@ messages! {
         "`!is` binds nothing: the value is only known on the branch the test *fails*, so \
          there is nothing to name — drop the binding, or write the positive test with an \
          `else`";
-    /// A `^` lift on a `!is` test.
-    is_not_lift = "is-not:lift" () =>
-        "`!is ^Q` is not a check: `^` widens the value it tested, and a negated test \
-         produces no value to widen — write `!(x is ^Q)` if the boolean is all you want";
 
     // [is-union]
     /// A binding on an `is` over several tests.
@@ -603,9 +599,6 @@ messages! {
     is_union_binding = "is-union:binding" () =>
         "an `is` over several tests binds nothing: bind the narrowed value with `let` \
          after the test";
-    /// A `^` lift on an `is` over several tests.
-    is_union_lift = "is-union:lift" () =>
-        "an `is` over several tests cannot lift `^`: lift in one test";
     /// An `is` over several tests whose subject is not a variable or field.
     is_union_subject_not_place = "is-union:subject-not-place" () =>
         "an `is` over several tests reads its subject once per test, so the subject is a \
@@ -745,16 +738,6 @@ messages! {
     qual_depend_value_slot_outside_qualifier = "qual-depend:value-slot-outside-qualifier" () =>
         "a value slot belongs to a qualifier, not a type: only a claim can depend on \
          another value";
-
-    // [qual-lift]
-    /// An `is` check that lifts some of its qualifiers but not all.
-    qual_lift_partial = "qual-lift:partial" () =>
-        "an `is` check either lifts every qualifier or none: mark them all with `^` (`is \
-         ^Mut ^NonEmpty`), or split the check";
-    /// A `when` branch head that lifts some of its qualifiers but not all.
-    qual_lift_partial_branch = "qual-lift:partial-branch" () =>
-        "a branch head either lifts every qualifier or none: mark them all with `^`, or \
-         split the branch";
 
     // [qual-refn]
     /// A `refn` that declares effects.
@@ -4328,40 +4311,56 @@ messages! {
         "struct `{name}` has no field `{field}`"
     );
 
-    // [qual-lift]
-    /// A `^` whose right side is not qualifier names.
-    qual_lift_not_qualifiers = "qual-lift:not-qualifiers" () =>
-        "`^` removes qualifiers, so its right side is qualifier names only (use `is` to \
-         check a type)";
-    /// A `^` naming no qualifier.
-    qual_lift_nothing_named = "qual-lift:nothing-named" () =>
-        "`^` needs a qualifier to remove";
-    /// A `^` of a qualifier that cannot be removed.
-    qual_lift_cannot_remove = "qual-lift:cannot-remove" (q: &dyn std::fmt::Display, reason: &dyn std::fmt::Display) => format!(
-        "`{q}` cannot be removed with `^`: {reason}"
+    // [qual-retype]
+    /// A `+Q` in a re-typing.
+    qual_retype_reapply = "qual-retype:reapply" () =>
+        "a re-typing only drops qualifiers: `+Q` re-establishes one, which a function's own \
+         deduction clause may claim, never a value";
+    /// A re-typing naming no qualifier.
+    qual_retype_missing_qualifiers = "qual-retype:missing-qualifiers" () =>
+        "a re-typing names the qualifiers to drop (`x: -Ok`) or the ones to keep (`x: \
+         NonEmpty`, `x: List`)";
+    /// `None` or `Never` in a re-typing.
+    qual_retype_none_or_never = "qual-retype:none-or-never" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` has no meaning in a re-typing: name the qualifiers to drop (`-Ok -Mut`), or \
+         write the value's base type to drop them all (`x := List`)"
     );
-    /// An `is ^Q` matching several arms of the subject.
-    qual_lift_several_arms = "qual-lift:several-arms" (quals: &dyn std::fmt::Display, subj_ty: &dyn std::fmt::Display) => format!(
-        "`is ^{quals}` matches more than one arm of `{subj_ty}`: lifting re-reads the \
-         subject, which cannot stand for several arms at once — bind the lifted value \
-         instead (`is ^{quals} name`)"
+    /// A re-typing mixing `-` names with kept ones.
+    qual_retype_keep_and_drop = "qual-retype:keep-and-drop" () =>
+        "a re-typing either drops the names it lists (`-A -B`) or keeps only them (`A B`), \
+         not both: a kept list already drops what it leaves out";
+    /// A qualifier a re-typing may not drop.
+    qual_retype_cannot_remove = "qual-retype:cannot-remove" (q: &dyn std::fmt::Display, reason: &dyn std::fmt::Display) => format!(
+        "`{q}` cannot be dropped: {reason}"
     );
-    /// An `is ^Q` whose subject has no arm carrying `Q`.
-    qual_lift_no_arm_carries = "qual-lift:no-arm-carries" (subj_ty: &dyn std::fmt::Display, quals: &dyn std::fmt::Display) => format!(
-        "no arm of `{subj_ty}` carries `{quals}`, so there is nothing for `^` to remove"
+    /// A re-typing naming a qualifier the value does not carry.
+    qual_retype_not_carried = "qual-retype:not-carried" (ty: &dyn std::fmt::Display, quals: &dyn std::fmt::Display) => format!(
+        "`{ty}` does not carry `{quals}`: a re-typing only drops qualifiers, it never adds \
+         one (test for it with `is`)"
     );
-    /// A `^Q` of a value that does not carry `Q`.
-    qual_lift_not_carried = "qual-lift:not-carried" (other: &dyn std::fmt::Display, quals: &dyn std::fmt::Display) => format!(
-        "`{other}` does not carry `{quals}`, so there is nothing for `^` to remove"
+    /// A re-typing of a union with an arm that does not carry the qualifier.
+    qual_retype_arm_not_carried = "qual-retype:arm-not-carried" (ty: &dyn std::fmt::Display, quals: &dyn std::fmt::Display) => format!(
+        "not every arm of `{ty}` carries `{quals}`: narrow to the arms that do first (`if x is \
+         {quals} {{ x := -{quals} }}`)"
     );
-    /// A `^` branch whose head is not qualifier names.
-    qual_lift_branch_not_qualifiers = "qual-lift:branch-not-qualifiers" () =>
-        "a `^` branch removes qualifiers, so its head is qualifier names only (use `is` \
-         to match a type)";
-    /// A `^` branch whose arm does not carry the qualifier.
-    qual_lift_arm_not_carried = "qual-lift:arm-not-carried" (quals: &dyn std::fmt::Display) => format!(
-        "this arm does not carry `{quals}`, so there is nothing for `^` to remove"
+    /// A re-typing naming a base other than the value's.
+    qual_retype_base_mismatch = "qual-retype:base-mismatch" (written: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
+        "`{written}` is not the type of this value, `{ty}`: a re-typing may end in the \
+         value's own base type, and changes nothing else about it"
     );
+    /// A re-typing naming a base type on a union.
+    qual_retype_union_base = "qual-retype:union-base" (ty: &dyn std::fmt::Display) => format!(
+        "`{ty}` is a union, so a re-typing of it names qualifiers only: they are dropped \
+         from (or kept on) every arm"
+    );
+    /// A re-typing that would merge two arms of a union.
+    qual_retype_arms_merge = "qual-retype:arms-merge" (from: &dyn std::fmt::Display, to: &dyn std::fmt::Display) => format!(
+        "dropping these qualifiers from `{from}` would merge its arms into `{to}`, which is a \
+         different value at run time: narrow it first, or bind the arm you want"
+    );
+    /// A re-typing statement whose target is not a place.
+    qual_retype_not_a_place = "qual-retype:not-a-place" () =>
+        "`:=` re-types a variable or a field path: bind the value first (`let v = e: -Ok`)";
 
     // [qual-no-dup]
     /// A qualifier applied twice in one type.
@@ -4848,8 +4847,8 @@ messages! {
     /// A `when` subject that is a claim about a union.
     when_union_subject_qualified_union = "when-union-subject:qualified-union" (subj_ty: &dyn std::fmt::Display, qual: &dyn std::fmt::Display, base: &dyn std::fmt::Display) => format!(
         "`when` requires a union-typed subject, and `{subj_ty}` is the claim `{qual}` \
-         *about* a union: bind the inner union to a local and match that (`let inner: \
-         {base} = ...`)"
+         *about* a union: drop the claim first (`x := -{qual}`) and match the union \
+         `{base}` it leaves"
     );
     /// A `when` subject that is not a union.
     when_union_subject_not_a_union = "when-union-subject:not-a-union" (subj_ty: &dyn std::fmt::Display) => format!(

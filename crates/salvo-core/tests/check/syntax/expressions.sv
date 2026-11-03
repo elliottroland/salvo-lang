@@ -133,16 +133,6 @@ fn f(s: Str?) -> Str {
     return "yes"
 }
 
-//--- not_is_refuses_a_widening
-// [is-not] …and `^` has nothing to widen either [qual-lift].
-fn f(o: Ok Int | Err Str) -> Int {
-    //~ error[is-not:lift]
-    if o !is ^Ok {
-        return 0
-    }
-    return 1
-}
-
 //--- a_union_is_binds_nothing
 // [is-union] A binding on a union `is` is refused…
 fn f(x: Int | Str | Bool) {

@@ -94,7 +94,7 @@ export fn probe(flag: Bool) [Throw<Str>] -> None {\n\
     );
 }
 
-/// [ir-obligation] An `assert!(x is ^Ok)` proves the un-asserted (linear) arms
+/// [ir-obligation] An `assert!(x is Ok)` proves the un-asserted (linear) arms
 /// absent past it, discharging them — so a value handled by an assert is not a
 /// leak (false positive fixed 2026-10-12).
 #[test]
@@ -108,7 +108,7 @@ export fn open_it(n: Int) -> Ok Res | Err Checked<FsError> => n {\n\
 }\n\
 export fn use_assert(n: Int) -> Res {\n\
     let r = open_it(n)\n\
-    assert!(r is ^Ok, \"failed\")\n\
+    assert!(r is Ok, \"failed\")\n\
     return r\n\
 }\n";
     assert!(leaks_of(src).is_empty(), "assert narrowing reported a false leak: {:?}", leaks_of(src));

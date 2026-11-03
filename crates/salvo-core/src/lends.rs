@@ -408,7 +408,8 @@ impl<'p> Walk<'_, '_, 'p> {
             Expr::Return { .. } | Expr::Break { .. } | Expr::Continue { .. } => {
                 Some(HashSet::new())
             }
-            Expr::Widen { subject, .. } => self.lends_of_expr(subject),
+            // [qual-retype] The subject's value, re-typed.
+            Expr::Retype { subject, .. } => self.lends_of_expr(subject),
             // [actor-spawn-expr] [actor-replyto] [actor-waitfor] None of the
             // three yields a view: an `Addr` and a `Reply` are owned tokens,
             // and a `waitfor` yields a value another actor sent — nothing

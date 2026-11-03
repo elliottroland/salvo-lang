@@ -488,7 +488,7 @@ impl<'a, 'p> Writer<'a, 'p> {
             Expr::Binary { lhs, .. } => Some(lhs.as_ref()),
             Expr::Field { base, .. } | Expr::TupleIndex { base, .. } | Expr::Index { base, .. } => Some(base.as_ref()),
             Expr::Call { callee, .. } => Some(callee.as_ref()),
-            Expr::Is { subject, .. } | Expr::Widen { subject, .. } | Expr::Elvis { subject, .. } => Some(subject.as_ref()),
+            Expr::Is { subject, .. } | Expr::Retype { subject, .. } | Expr::Elvis { subject, .. } => Some(subject.as_ref()),
             Expr::SafeNav { base, .. } => Some(base.as_ref()),
             Expr::Pipe { lhs, .. } | Expr::SafePipe { lhs, .. } => Some(lhs.as_ref()),
             _ => None,

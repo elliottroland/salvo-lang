@@ -494,8 +494,8 @@ Conventions:
   `else -> { … }`. The source shape survives, and since the `else` is
   mandatory the result is a Kotlin *expression* in value position with no
   `else null` filler — unlike a value-position `if` chain without an
-  `else` ([expr-if-else-none]). `is`-binding declarations and `^` shadowing
-  locals go at the top of their arm exactly as in an `if` branch.
+  `else` ([expr-if-else-none]). `is`-binding declarations and arm shadowing
+  locals [kt-widen-shadow] go at the top of their arm exactly as in an `if` branch.
 * [kt-inc-dec] Kotlin has `++`/`--` in both fixities with the same value
   semantics as Salvo's [op-inc-dec], so they render directly (`i++`, `++i`,
   `i--`, `--i`) in both statement and value position.
@@ -513,7 +513,7 @@ Conventions:
   kotlinc's smart cast has already given the payload that type, so it reports
   the cast as **useless** — the same class of noise from the other direction.
   The emitter notes every payload cast as it renders it (generic loop element
-  reads, `when`-arm and `is` bindings, `^` widening binds, and narrowed place
+  reads, `when`-arm and `is` bindings, re-typed place shadows, and narrowed place
   reads) and prepends `@Suppress("UNCHECKED_CAST", "USELESS_CAST")` to the
   enclosing emitted function, so generated code stays warning-free whichever
   warning applies. Soundness is not delegated to the cast: the checker proved
@@ -568,20 +568,19 @@ Conventions:
     range out of a std intrinsic, say — where the Rust splice does not run on
     a panic. Salvo has no `catch`, so side effects during a crash are not part
     of a program's meaning.
-* [qual-lift] [kt-widen-shadow] A `^` check emits the same test `is` would
-  (or `true` for a tautology). Where it peels a wrapper arm, the widened
-  value is bound to a **shadowing `val`** at the top of the branch
-  (`val nested = nested.value as Union2<Int, String>`), so reads of the
-  subject and any nested `when` see the inner value. Kotlin warns about the
+* [qual-retype] [kt-widen-shadow] A re-typing emits nothing of its own. Where
+  it peels a wrapper arm (`when nested { is Ok { nested := -Ok … } }`), the
+  arm test has already bound the subject to a **shadowing `val`** at the top
+  of the branch (`val nested = nested.value as Union2<Int, String>`), so reads
+  of the subject and any nested `when` see the inner value; where it did not
+  (a value the flow narrowed per read), the IR rebinds the place at the
+  re-typing and the shadow is emitted there. Kotlin warns about the
   shadowing; the alternative — a fresh name — would need every read in the
   branch rewritten. The cast cannot fail: the arm test just proved the arm.
-  * **A lift with a binding needs no shadow** (2026-09-21): `is ^Ok value`
-    materializes the lifted value into `value` instead, through the
-    `is`-binding path. A lift of a **qualifier only** binds the subject itself
-    there, since qualifiers are erased — the payload read the wrapper case uses
-    would be wrong for it (on Rust it assumed an `Option`; on Kotlin it built a
-    cast to the qualifier's name).
-  * `^` on a projection is a reported codegen error for now, as in Rust.
+  * **Dropping `Mut`** is a conversion where Kotlin renders `Mut` as a type of
+    its own (`StringBuilder`'s `.toString()` [kt-mut-str]); the reverse, a
+    plain value assigned into `Mut` storage [var-drop-assign], builds it
+    (`StringBuilder(s)`, `(xs).toMutableList()`).
 * [fn-effects] [kt-fn-effect-params] A fn type's effects are **leading
   parameters** of the Kotlin function type: `(s: Str) [Logger] -> Str`
   renders as `(Logger, String) -> String`, a lambda as

@@ -284,7 +284,7 @@ pub(crate) fn walk_expr<'b>(e: &'b Expr, fs: &mut impl FnMut(&'b Stmt), fe: &mut
             args.iter().for_each(&mut sub);
         }
         ExprKind::Construct { fields } => fields.iter().for_each(|(_, v)| sub(v)),
-        ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::BorrowAs { value, .. } | ExprKind::Widen { value } | ExprKind::Spread { value } => sub(value),
+        ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::IntoMut { value } | ExprKind::BorrowAs { value, .. } | ExprKind::Widen { value } | ExprKind::Spread { value } => sub(value),
         ExprKind::Handle { instance } => sub(instance),
         ExprKind::AddrInstance { addr } => sub(addr),
         ExprKind::Throw { message } => sub(message),
@@ -1303,6 +1303,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 self.rewrap(&v, from, &e.ty)
             }
             ExprKind::DropMut { value } => self.value(value, indent),
+            // [var-drop-assign] `Mut` erases on this backend.
+            ExprKind::IntoMut { value } => self.value(value, indent),
             // [rs-opt-borrow] Outside an argument slot (which lends it, see
             // `lend_value`): the union of borrows of what it reads.
             ExprKind::BorrowAs { value, .. } => {

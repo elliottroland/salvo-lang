@@ -43,6 +43,10 @@ pub struct Parser<'s> {
     /// When true, do not speculate struct literals / trailing braces
     /// (condition position).
     no_struct: bool,
+    /// [qual-retype] [col-pairs] The group depth of the call argument being
+    /// parsed: there a `:` is the pair's, not a re-typing, so `g(x: v)` is
+    /// always a pair and a re-typing argument is parenthesized, `g((x: Q))`.
+    pair_depth: Option<u32>,
     /// [comptime-inline] Inside a `compfn` body: the comptime syntax (`inline`,
     /// `refuse`, `v.[field]`, `[field]:`, `T.fields`, `[field.type]` in a type
     /// position) is legal. Anywhere else each form is a parse error naming the
@@ -89,7 +93,7 @@ struct Snapshot {
 enum InfixKind {
     /// A plain `lhs OP rhs` binary that builds `Expr::Binary`.
     Binary(BinaryOp),
-    /// `is` — a type/qualifier check (`Expr::Is`/`Expr::Widen`).
+    /// `is` — a type/qualifier check (`Expr::Is`).
     Is,
     /// `!is` — the negated check, sugar for `!(x is Q)`.
     IsNot,
@@ -253,6 +257,7 @@ impl<'s> Parser<'s> {
             pending_deductions: Vec::new(),
             group_depth: 0,
             no_struct: false,
+            pair_depth: None,
             in_compfn: false,
             in_comp_pattern: false,
             allow_terminal: false,
@@ -4434,6 +4439,7 @@ impl<'s> Parser<'s> {
         // even when the block itself appears inside parentheses.
         let saved_depth = std::mem::replace(&mut self.group_depth, 0);
         let saved_no_struct = std::mem::replace(&mut self.no_struct, false);
+        let saved_pair = self.pair_depth.take();
         // [expr-terminal-lambda] A nested block is not the enclosing statement's
         // expression tree; `parse_block_stmt` re-arms the flag per statement.
         let saved_in_stmt = std::mem::replace(&mut self.in_stmt_expr, false);
@@ -4451,6 +4457,7 @@ impl<'s> Parser<'s> {
         self.group_depth = saved_depth;
         self.no_struct = saved_no_struct;
         self.in_stmt_expr = saved_in_stmt;
+        self.pair_depth = saved_pair;
         let end = self.expect(&TokenKind::RBrace)?.span;
         Some(Block {
             stmts,
@@ -4557,10 +4564,26 @@ impl<'s> Parser<'s> {
             }
             _ => {
                 let expr = self.parse_expr()?;
+                // [qual-retype] `place := -Ok`: the place re-typed for the
+                // rest of its flow.
+                if self.at(&TokenKind::ColonEq) && self.same_line() {
+                    self.bump();
+                    let retype = self.parse_retype()?;
+                    let span = expr.span().to(retype.span);
+                    return Some(Stmt::Retype { target: expr, retype, span });
+                }
                 if self.at(&TokenKind::Eq) && self.same_line() {
                     self.bump();
                     let value = self.sub_expr(|p| p.parse_expr())?;
                     let span = expr.span().to(value.span());
+                    // [qual-retype] `place = place: -Ok` is the same statement
+                    // as `place := -Ok`: a re-typing, not a write (user
+                    // decision 2026-10-30).
+                    if let Expr::Retype { subject, retype, .. } = &value {
+                        if same_place(&expr, subject) {
+                            return Some(Stmt::Retype { target: expr, retype: retype.clone(), span });
+                        }
+                    }
                     return Some(Stmt::Assign {
                         target: expr,
                         value,
@@ -5372,7 +5395,82 @@ impl<'s> Parser<'s> {
                 return Some(lambda);
             }
         }
-        self.parse_binary(0).and_then(|e| self.newline_postfix(e))
+        let e = self.parse_binary(0).and_then(|e| self.newline_postfix(e))?;
+        // [qual-retype] `e: -Ok`, `e: NonEmpty List`: the loosest-binding
+        // postfix, so `(x: -Ok) is Int` needs its parentheses. At the top of a
+        // call argument the `:` is a key-value pair's [col-pairs].
+        if self.at(&TokenKind::Colon) && self.same_line() && self.pair_depth != Some(self.group_depth) {
+            self.bump();
+            let retype = self.parse_retype()?;
+            let span = e.span().to(retype.span);
+            return Some(Expr::Retype { subject: Box::new(e), retype, span });
+        }
+        Some(e)
+    }
+
+    /// [qual-retype] The list after a re-typing's `:` or `:=`: `-A -B` (drop
+    /// these) or `A B` (keep only these), the latter optionally ending in the
+    /// value's base type. The deduction clause's list [deduce-syntax], less
+    /// what has no meaning on a value: `+Q` (a re-establishment this file
+    /// cannot vouch for), `None` and `Never`.
+    fn parse_retype(&mut self) -> Option<Retype> {
+        let start = self.peek().span;
+        let mut end = start;
+        let mut keep: Vec<TypeRef> = Vec::new();
+        let mut drop: Vec<TypeRef> = Vec::new();
+        loop {
+            if !self.same_line() {
+                break;
+            }
+            let sign = if self.at(&TokenKind::Minus) {
+                end = self.bump().span;
+                Some(false)
+            } else if self.at(&TokenKind::Plus) {
+                let plus = self.bump().span;
+                self.error(messages::qual_retype_reapply(), plus);
+                end = plus;
+                Some(true)
+            } else {
+                None
+            };
+            let opens_ref = self.at_type_name()
+                || matches!(self.kind(), TokenKind::KwOnce | TokenKind::KwLinear | TokenKind::KwProj | TokenKind::KwRef);
+            if !opens_ref {
+                if sign.is_some() {
+                    let span = self.peek().span;
+                    self.error(messages::qual_retype_missing_qualifiers(), span);
+                    return None;
+                }
+                break;
+            }
+            let r = self.parse_type_ref()?;
+            end = r.span;
+            if sign == Some(false) {
+                drop.push(r);
+            } else {
+                keep.push(r);
+            }
+        }
+        let span = start.to(end);
+        if keep.is_empty() && drop.is_empty() {
+            self.error(messages::qual_retype_missing_qualifiers(), span);
+            return None;
+        }
+        for r in keep.iter().chain(&drop) {
+            if r.args.is_empty() && (r.name.name == "None" || r.name.name == "Never") {
+                self.error(messages::qual_retype_none_or_never(&r.name.name), r.span);
+                return None;
+            }
+        }
+        let kind = match (keep.is_empty(), drop.is_empty()) {
+            (true, false) => RetypeKind::Drop(drop),
+            (false, true) => RetypeKind::Keep(keep),
+            _ => {
+                self.error(messages::qual_retype_keep_and_drop(), span);
+                return None;
+            }
+        };
+        Some(Retype { kind, span })
     }
 
     /// Attempts `(a, b) -> ...`; rolls back and returns `None` when the
@@ -5678,7 +5776,7 @@ impl<'s> Parser<'s> {
     fn parse_is_tail(&mut self, lhs: Expr, not: bool) -> Option<Expr> {
         let start = if not { self.bump().span } else { lhs.span() };
         self.bump(); // `is`
-        let (check, binding, lifted) = self.parse_is_check()?;
+        let (check, binding) = self.parse_is_check()?;
         // [is-union] `s is "json" | "text"`, `x is Int | Str`: the
         // disjunction of the tests, which narrows to the union of what they
         // test (the CLI design record X4, Q9). Written over a place, read once per
@@ -5689,12 +5787,9 @@ impl<'s> Parser<'s> {
             let mut end = checks[0].last().map(|r| r.span).unwrap_or_else(|| lhs.span());
             while self.at(&TokenKind::Pipe) && self.same_line() {
                 self.bump();
-                let (more, b, l) = self.parse_is_check()?;
+                let (more, b) = self.parse_is_check()?;
                 if let Some(b) = b {
                     self.error(messages::is_union_binding(), b.span);
-                }
-                if l > 0 {
-                    self.error(messages::is_union_lift(), end);
                 }
                 end = more.last().map(|r| r.span).unwrap_or(end);
                 checks.push(more);
@@ -5702,9 +5797,6 @@ impl<'s> Parser<'s> {
             let span = lhs.span().to(end);
             if let Some(b) = &binding {
                 self.error(messages::is_union_binding(), b.span);
-            }
-            if lifted > 0 {
-                self.error(messages::is_union_lift(), span);
             }
             if !is_place_expr(&lhs) {
                 self.error(messages::is_union_subject_not_place(), lhs.span());
@@ -5733,11 +5825,8 @@ impl<'s> Parser<'s> {
             if let Some(b) = &binding {
                 self.error(messages::is_not_binding(), b.span);
             }
-            if lifted > 0 {
-                self.error(messages::is_not_lift(), start.to(end));
-            }
             let span = lhs.span().to(end);
-            let inner = self.is_or_widen(lhs, check, binding, lifted, span)?;
+            let inner = Expr::Is { subject: Box::new(lhs), check, binding, span };
             return Some(Expr::Unary {
                 op: UnaryOp::Not,
                 operand: Box::new(inner),
@@ -5745,48 +5834,15 @@ impl<'s> Parser<'s> {
             });
         }
         let span = lhs.span().to(end);
-        self.is_or_widen(lhs, check, binding, lifted, span)
-    }
-
-    /// [qual-lift] Classifies a parsed `is` check: every term `^`-marked is a
-    /// **widening** check (the qualifiers are tested and removed), none marked
-    /// is an ordinary narrowing `is`, and a mix is refused — the two say
-    /// opposite things about the same check, and no existing form needed it
-    /// (the standalone `^ Q` operator this replaces took qualifiers only).
-    fn is_or_widen(
-        &mut self,
-        subject: Expr,
-        check: Vec<TypeRef>,
-        binding: Option<Ident>,
-        lifted: usize,
-        span: Span,
-    ) -> Option<Expr> {
-        if lifted == 0 {
-            return Some(Expr::Is {
-                subject: Box::new(subject),
-                check,
-                binding,
-                span,
-            });
-        }
-        if lifted != check.len() {
-            self.error(messages::qual_lift_partial(), span);
-        }
-        Some(Expr::Widen {
-            subject: Box::new(subject),
-            quals: check,
-            binding,
-            span,
-        })
+        Some(Expr::Is { subject: Box::new(lhs), check, binding, span })
     }
 
     /// The type-ref sequence after `is`, with an optional trailing binding.
     /// Type names are uppercase by convention; a trailing lowercase
     /// identifier is a binding: `is Str s`, `is Err Str`, `is NonEmpty`.
-    fn parse_is_check(&mut self) -> Option<(Vec<TypeRef>, Option<Ident>, usize)> {
+    fn parse_is_check(&mut self) -> Option<(Vec<TypeRef>, Option<Ident>)> {
         let mut refs = Vec::new();
         let mut binding = None;
-        let mut lifted = 0usize;
         loop {
             if !self.same_line() {
                 break;
@@ -5795,16 +5851,6 @@ impl<'s> Parser<'s> {
             // binder's type carries, then its base, spliced per copy.
             if refs.is_empty() && self.at_type_splice() {
                 refs.push(self.parse_type_splice()?);
-                continue;
-            }
-            // [qual-lift] `is ^Ok` — the qualifier is tested *and removed*
-            // (user decision 2026-09-21, superseding the standalone `^ Ok`
-            // operator). The mark is on the qualifier, not on the check, so a
-            // reader learns one rule: `^Q` is "Q, lifted".
-            if matches!(self.kind(), TokenKind::Caret) {
-                self.bump();
-                lifted += 1;
-                refs.push(self.parse_type_ref()?);
                 continue;
             }
             // [obligation-spelling] `is once (A) -> B`, `is proj Str`: the
@@ -5857,7 +5903,7 @@ impl<'s> Parser<'s> {
             self.error(messages::syntax_expected_type_after_is(&found), span);
             return None;
         }
-        Some((refs, binding, lifted))
+        Some((refs, binding))
     }
 
     /// [op-elvis] The **positional pick** operator tail, folded onto an
@@ -6454,6 +6500,19 @@ impl<'s> Parser<'s> {
         // (so `Map("a": 1)` is `Map(("a", 1))`). Pairs are all-or-nothing
         // in one call (user decision 2026-10-12, Q6): no mixing with
         // positional or `=`-named arguments.
+        let saved_pair = self.pair_depth.replace(self.group_depth);
+        let out = self.parse_call_arg_list(&mut args, &mut named);
+        self.pair_depth = saved_pair;
+        out?;
+        self.group_depth -= 1;
+        let end = self.expect(&TokenKind::RParen)?.span;
+        Some((args, named, end))
+    }
+
+    /// The arguments of a call up to its `)`, with `pair_depth` set by the
+    /// caller [col-pairs] [qual-retype]. On `None` the group depth is already
+    /// back where the call found it.
+    fn parse_call_arg_list(&mut self, args: &mut Vec<Expr>, named: &mut Vec<NamedArg>) -> Option<()> {
         let mut saw_pair = false;
         let mut saw_plain = false;
         while !self.at(&TokenKind::RParen) && !self.at_eof() {
@@ -6515,9 +6574,7 @@ impl<'s> Parser<'s> {
                 break;
             }
         }
-        self.group_depth -= 1;
-        let end = self.expect(&TokenKind::RParen)?.span;
-        Some((args, named, end))
+        Some(())
     }
 
     /// Speculatively parses `<T, U>(args)` as a generic call.
@@ -7583,35 +7640,23 @@ impl<'s> Parser<'s> {
                 self.parse_block()?;
                 continue;
             }
-            // [qual-lift] A branch head is always `is`; `^` on its qualifiers
-            // is what makes it a widening branch (user decision 2026-09-21).
             let head_span = self.expect(&TokenKind::KwIs)?.span;
-            let (check, binding, lifted) = self.parse_is_check()?;
-            let widen = lifted > 0;
-            if widen && lifted != check.len() {
-                self.error(messages::qual_lift_partial_branch(), head_span);
-            }
+            let (check, binding) = self.parse_is_check()?;
             // [when-union-head] `is A | B { … }`: one arm for every
             // alternative (user decision 2026-10-30, option 1a), as `x is A
-            // | B` is in a condition [is-union]: no binding, no lift.
+            // | B` is in a condition [is-union]: no binding.
             let mut or = Vec::new();
             while self.at(&TokenKind::Pipe) && self.same_line() {
-                let bar = self.bump().span;
-                let (more, b, l) = self.parse_is_check()?;
+                self.bump();
+                let (more, b) = self.parse_is_check()?;
                 if let Some(b) = b {
                     self.error(messages::is_union_binding(), b.span);
-                }
-                if l > 0 {
-                    self.error(messages::is_union_lift(), bar);
                 }
                 or.push(more);
             }
             if !or.is_empty() {
                 if let Some(b) = &binding {
                     self.error(messages::is_union_binding(), b.span);
-                }
-                if widen {
-                    self.error(messages::is_union_lift(), head_span);
                 }
             }
             let body = self.parse_block()?;
@@ -7621,7 +7666,6 @@ impl<'s> Parser<'s> {
                 or,
                 hole: None,
                 binding,
-                widen,
                 body,
                 span,
             });
@@ -7826,6 +7870,19 @@ fn is_place_expr(e: &Expr) -> bool {
     match e {
         Expr::Ident(_) => true,
         Expr::Field { base, .. } => is_place_expr(base),
+        _ => false,
+    }
+}
+
+/// [qual-retype] Whether two expressions name the same place — a variable,
+/// or the same field path out of one — so `x = x: -Ok` is the re-typing
+/// statement.
+fn same_place(a: &Expr, b: &Expr) -> bool {
+    match (a, b) {
+        (Expr::Ident(x), Expr::Ident(y)) => x.name == y.name,
+        (Expr::Field { base: ba, field: fa, .. }, Expr::Field { base: bb, field: fb, .. }) => {
+            fa.name == fb.name && same_place(ba, bb)
+        }
         _ => false,
     }
 }

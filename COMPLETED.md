@@ -144,6 +144,64 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Re-typing replaces the `^` lift, and an assignment may drop qualifiers (user decisions, [qual-retype] [var-drop-assign])
+
+- **Decided (user)**: "type guidance" — dropping qualifiers — is spelled as
+  the deduction clause spells it, with `:`. Inline `e: quals` re-types a value
+  for one use; `place := quals` re-types a place for the rest of its flow
+  ("re-typing only", and `place = place: quals` is the same statement); the
+  list is `-A -B` or `A B`, which may be the plain type (`x := List`); `+Q`,
+  `None` and `Never` are refused, naming a qualifier the value lacks is an
+  error, and on a union every arm must carry what is dropped. The `^` lift is
+  removed. At the top of a call's arguments `k: v` stays the key-value pair
+  ("handled in the parser"): a re-typing argument is parenthesized,
+  `g((x: Q))`, option (b) of the three put to the user (the others: `:=`
+  inline as well, which would make an inline `-Mut` permanent, or `:=` with
+  two meanings). And ROADMAP §7 (2026-09-23's "qualifiers are droppable on
+  assignment") is built with it, `Mut` treated like any other qualifier.
+- **Built**:
+  - Syntax: `Expr::Retype` and `Stmt::Retype` with a `Retype` list
+    (`RetypeKind::Drop`/`Keep`), a `ColonEq` token, the postfix at the
+    loosest binding (suppressed at a call argument's own depth by
+    `pair_depth`), `same_place` for the assignment spelling. `TokenKind::Caret`,
+    `Expr::Widen`, `WhenBranch::widen`, `is_or_widen` and the six
+    `qual-lift`/`is-not:lift`/`is-union:lift` parse messages are gone; a `^` is
+    now an unexpected character.
+  - Checker: `retype_of` (one pass over the arms, the logical type and the
+    storage view with `Mut` left on), `check_retype_expr` (recording the `Mut`
+    drop from the type or the storage), `check_retype_stmt` (the place's
+    `narrowed`, its `widened` storage view, or a place narrow).
+    `LocalVar::widened` is the re-typing's view now: part of `VarState`,
+    restored by `with_narrows` for every root it narrows, and kept at a join
+    only where every path agrees and it erases like the declaration.
+    `widen_info`, the `^` branch head and `lifted_storage` are gone.
+  - [var-drop-assign]: `assign_drop_fits` (a non-union declaration with its
+    droppable top-level qualifiers set aside, not for handler state), and
+    `reset_assigned` keeps a join that agrees with the declaration's base
+    instead of resetting to the declaration (which would have given back a
+    claim an assigned value did not have). A plain value into `Mut` storage
+    is the new `ConvertStep::IntoMut` / `ExprKind::IntoMut`: Kotlin builds the
+    `StringBuilder` or `toMutableList()`, Rust renders the value.
+  - IR: a re-typing expression is its subject at the new type (the `Mut` drop
+    applied around it); the statement rebinds the place to the view where its
+    binding does not hold it (`retype_stmt`; a field gets a `__retyped`
+    alias), which is a no-op after an arm test, whose narrowing already
+    rebinds.
+  - Every `is ^Q` rewritten (71 lines, 13 files): `is Q` then `x := -Q`, `let
+    v = x: -Q` for a binding, and a plain re-typing where the lift only
+    tested a qualifier the value statically had (`read((p: -Mut))`,
+    `let n = got: -Ok`). `examples/qualifiers` prints `2. dropped:`.
+    `check/widening/lift.sv` became `check/qualifiers/retype.sv`;
+    `widen_tests.rs` keeps its qualified-group test as `qual_group_tests.rs`;
+    the run data `the_widening_check.sv` is `re_typing_after_an_arm_test.sv`.
+- **Specs**: LANGUAGE_SPEC [qual-retype] replaces [qual-lift] (its two stale
+  bullets, "no binding form" and "more than one arm is an error", go with it),
+  [var-drop-assign] beside [var-no-widen]; [rs-widen-shadow]/[kt-widen-shadow]
+  reworded; docs/language/Control-Flow.md's section rewritten.
+- **Found, recorded** (ROADMAP §7): a qualifier dropped inside a branch that
+  narrowed the same variable comes back when the branch closes
+  (`with_narrows` restores the root); sound for a re-typing, which writes
+  nothing, and pre-existing for a call's drop.
 ### 2026-10-30 — OPERATOR_OVERLOAD.md retired (user question)
 
 - The user asked whether the operator brief still needed to exist.

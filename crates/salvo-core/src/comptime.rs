@@ -860,6 +860,7 @@ impl HoverRecorder<'_> {
                 self.expr(target);
                 self.expr(value);
             }
+            Stmt::Retype { target, .. } => self.expr(target),
             Stmt::Use { handler, .. } => self.expr(handler),
             Stmt::Rename(_) => {}
             Stmt::Expr(e) => self.expr(e),
@@ -952,7 +953,7 @@ impl HoverRecorder<'_> {
                 self.expr(lhs);
                 self.expr(rhs);
             }
-            Expr::Is { subject, .. } | Expr::Widen { subject, .. } => self.expr(subject),
+            Expr::Is { subject, .. } | Expr::Retype { subject, .. } => self.expr(subject),
             Expr::If { branches, else_block, .. } => {
                 for (c, b) in branches {
                     self.expr(c);
@@ -2327,7 +2328,7 @@ fn template_names(f: &FnDecl, names: &FileNames, bound: bool) -> (Vec<Diagnostic
         }
         fn visit_expr(&mut self, expr: &Expr) {
             match expr {
-                Expr::Is { binding: Some(b), .. } | Expr::Widen { binding: Some(b), .. } | Expr::WaitFor { binding: b, .. } => {
+                Expr::Is { binding: Some(b), .. } | Expr::WaitFor { binding: b, .. } => {
                     self.0.insert(b.name.clone());
                 }
                 Expr::For { pattern, .. } => self.pattern(pattern),
@@ -3666,7 +3667,6 @@ impl<'w> Expander<'w> {
                         or: Vec::new(),
                         hole: None,
                         binding: None,
-                        widen: false,
                         body,
                         span: bspan,
                     });

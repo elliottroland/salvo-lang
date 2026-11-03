@@ -669,6 +669,12 @@ impl<'b, 'p> Binder<'b, 'p> {
                 self.expr(target);
                 self.expr(value);
             }
+            Stmt::Retype { target, retype, .. } => {
+                self.expr(target);
+                for r in retype.refs() {
+                    self.ref_values(r);
+                }
+            }
             Stmt::Use { handler, with_items, .. } => {
                 self.expr(handler);
                 for w in with_items {
@@ -720,7 +726,7 @@ impl<'b, 'p> Binder<'b, 'p> {
     /// guards (`analyze_cond`'s).
     fn cond(&mut self, c: &Expr) -> Vec<(String, Span)> {
         match c {
-            Expr::Is { subject, check: refs, binding, .. } | Expr::Widen { subject, quals: refs, binding, .. } => {
+            Expr::Is { subject, check: refs, binding, .. } => {
                 self.expr(subject);
                 for r in refs {
                     self.ref_values(r);
@@ -839,9 +845,16 @@ impl<'b, 'p> Binder<'b, 'p> {
                 self.expr(rhs);
             }
             // An `is` outside a condition binds nothing.
-            Expr::Is { subject, check: refs, .. } | Expr::Widen { subject, quals: refs, .. } => {
+            Expr::Is { subject, check: refs, .. } => {
                 self.expr(subject);
                 for r in refs {
+                    self.ref_values(r);
+                }
+            }
+            // [qual-retype] Its names are qualifiers and a base type.
+            Expr::Retype { subject, retype, .. } => {
+                self.expr(subject);
+                for r in retype.refs() {
                     self.ref_values(r);
                 }
             }

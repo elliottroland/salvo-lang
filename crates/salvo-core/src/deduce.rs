@@ -1192,8 +1192,8 @@ impl<'p> Walk<'_, 'p> {
                 LambdaBody::Block(b) => self.cond_block(b),
                 LambdaBody::Terminal => {}
             },
-            // [qual-lift] The check reads its subject.
-            Expr::Widen { subject, .. } => self.expr(subject),
+            // [qual-retype] A re-typing reads its subject.
+            Expr::Retype { subject, .. } => self.expr(subject),
             // [throw-try] The delimiter's body is ordinary code: the calls in it
             // contribute to the enclosing fn's inferred contract. A throw
             // can leave it early, so an addition inside one does not reach

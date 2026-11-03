@@ -1,14 +1,15 @@
-// The widening check `^` [qual-lift].
+// Dropping a claim after an arm test [qual-retype].
 
 //--- widening_materializes_the_peel
-// [qual-lift] `^` tests the arm *and* removes the claim, so a branch can
-// `when` the union inside a qualified one — the shape `try` outcomes produce.
+// [qual-retype] `is Ok` tests the arm and `:= -Ok` removes the claim, so a
+// branch can `when` the union inside a qualified one — the shape `try`
+// outcomes produce.
 //
-// [qual-lift] The peel is *materialized*: the widened value is bound to a
+// [qual-retype] The peel is *materialized*: the arm's value is bound to a
 // shadowing local, so a nested `when` scrutinizes the inner union rather
 // than the wrapper it came out of. Without it the inner match reads the
 // outer arm and the second branch is dead code — which is what this program
-// caught while `^` was being built.
+// caught while the `^` lift this replaced was being built.
 import std.throw
 
 fn wrapped(n: Int) [Throw<Str>] -> Ok Int | Err Str {
@@ -36,7 +37,8 @@ fn describe(n: Int) [Console] -> None {
     //~|         let mut nested_1 = match &nested { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
     //~|         if matches!(nested_1, crate::unions::Union2::U1(_)) {
     when nested {
-        is ^Ok {
+        is Ok {
+            nested := -Ok
             when nested {
                 is Ok {
                     println("value ${nested}")
@@ -65,7 +67,8 @@ fn main() [use] -> None {
         is Ok {
             println("mixed ok ${mixed}")
         }
-        is ^Thrown {
+        is Thrown {
+            mixed := -Thrown
             when mixed {
                 is Str {
                     println("message text ${mixed}")

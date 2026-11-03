@@ -512,6 +512,12 @@ fn block_names<'p>(block: &'p Block, used: &mut HashSet<&'p str>) {
                 expr_names(target, used);
                 expr_names(value, used);
             }
+            Stmt::Retype { target, retype, .. } => {
+                expr_names(target, used);
+                for q in retype.refs() {
+                    type_ref_names(q, used);
+                }
+            }
             Stmt::Use { handler, .. } => expr_names(handler, used),
             Stmt::Expr(e) => expr_names(e, used),
             // [comptime-inline] Gone before this runs.
@@ -642,10 +648,10 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
             }
             block_names(body, used);
         }
-        // [qual-lift] The qualifier names are type references.
-        Expr::Widen { subject, quals, .. } => {
+        // [qual-retype] The names are type references.
+        Expr::Retype { subject, retype, .. } => {
             expr_names(subject, used);
-            for q in quals {
+            for q in retype.refs() {
                 type_ref_names(q, used);
             }
         }

@@ -108,6 +108,18 @@ pub fn walk_field_decl<V: MutVisitor>(v: &mut V, f: &mut FieldDecl) {
     }
 }
 
+/// [qual-retype] The type refs a re-typing names.
+pub fn walk_retype<V: MutVisitor>(v: &mut V, r: &mut Retype) {
+    v.visit_span(&mut r.span);
+    match &mut r.kind {
+        RetypeKind::Drop(refs) | RetypeKind::Keep(refs) => {
+            for q in refs {
+                walk_type_ref(v, q);
+            }
+        }
+    }
+}
+
 pub fn walk_effect_ref<V: MutVisitor>(v: &mut V, e: &mut EffectRef) {
     match e {
         EffectRef::Use(s) | EffectRef::Spawn(s) => v.visit_span(s),
@@ -301,6 +313,11 @@ pub fn walk_stmt<V: MutVisitor>(v: &mut V, s: &mut Stmt) {
             v.visit_span(span);
             walk_expr(v, target);
             walk_expr(v, value);
+        }
+        Stmt::Retype { target, retype, span } => {
+            v.visit_span(span);
+            walk_expr(v, target);
+            walk_retype(v, retype);
         }
         Stmt::Use {
             handler,
@@ -624,20 +641,10 @@ pub fn walk_expr<V: MutVisitor>(v: &mut V, e: &mut Expr) {
                 v.visit_ident(b);
             }
         }
-        Expr::Widen {
-            subject,
-            quals,
-            binding,
-            span,
-        } => {
+        Expr::Retype { subject, retype, span } => {
             v.visit_span(span);
             walk_expr(v, subject);
-            for q in quals {
-                walk_type_ref(v, q);
-            }
-            if let Some(b) = binding {
-                v.visit_ident(b);
-            }
+            walk_retype(v, retype);
         }
         Expr::SafeNav { base, access, span } => {
             v.visit_span(span);

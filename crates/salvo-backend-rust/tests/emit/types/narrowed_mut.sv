@@ -25,7 +25,10 @@ struct Flat {
 
 fn show(step: Emitted Int | Finished) [Console] {
     when step {
-        is ^Emitted { println("got ${step}") }
+        is Emitted {
+            step := -Emitted
+            println("got ${step}")
+        }
         is Finished { println("end") }
     }
 }
@@ -39,7 +42,10 @@ iter fn iter(f: Flat) -> Emitted Int | Finished {
         if inner is Mut ListNext<Int> {
             let step = next(inner)
             when step {
-                is ^Emitted { return emitted(step) }
+                is Emitted {
+                    step := -Emitted
+                    return emitted(step)
+                }
                 is Finished { inner = None }
             }
         }
@@ -95,7 +101,7 @@ fn main() [use] {
 //--- a_mut_payload_is_peeled_by_borrowing_the_storage
 // [rs-narrow-mut] The other two halves of the same rule, found 2026-09-20
 // while designing `?.` and silently wrong until then: the **intrinsic**
-// argument path and the `^` **branch shadow** [rs-widen-shadow].
+// argument path and the **branch shadow** of a dropped claim [rs-widen-shadow].
 //
 // The 2026-09-10 fix covered declared calls (`ParamMode::RefMut` →
 // `borrowed_mut_arg`) and assignment bases. It missed:
@@ -105,13 +111,13 @@ fn main() [use] {
 //   `Mut List<Int>?` emitted `a.as_ref().unwrap().clone().push(9)`: compiles,
 //   warns about nothing, drops the element. Every read cloned afresh, so the
 //   mutation was gone on the next line;
-// - the `^` branch shadow, which bound an owned clone, so a mutation *held*
+// - the branch shadow (then of the `^` lift), which bound an owned clone, so a mutation *held*
 //   inside the branch and vanished when it ended.
 //
 // Both disagreed with Kotlin, which casts the storage and mutates the real
 // value — the repro and the reasoning are in COMPLETED.md. The shapes here are
 // the ones that were wrong, each with a different storage: a variable and a
-// struct field over the nullable representation, a wrapper arm through `^` and
+// struct field over the nullable representation, a wrapper arm through `:= -Ok` and
 // through `when`/`is`, a wrapper behind an `Option`, a **moved** union
 // parameter (whose binder needs `mut`), and a handler **state field**
 // (`self.held`).
@@ -136,13 +142,15 @@ handler Holder of Bag {
     fn stash(n: Int) -> None {
         // A handler state field peels through `self`.
         //~ emits: let mut held_1 = match &mut self.held { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-        if held is ^Ok {
+        if held is Ok {
+            held := -Ok
             add(held, n)
         }
     }
 
     fn dump() -> Str {
-        if held is ^Ok {
+        if held is Ok {
+            held := -Ok
             return to_str(held)
         }
         return "err"
@@ -152,7 +160,8 @@ handler Holder of Bag {
 // A moved union parameter binds `mut`, or the peel cannot borrow it.
 //~ emits: pub fn eat(mut o: 
 fn eat(o: Ok Mut List<Int> | Err Str) [] -> Str => !o {
-    if o is ^Ok {
+    if o is Ok {
+        o := -Ok
         add(o, 7)
         return to_str(o)
     }
@@ -178,23 +187,38 @@ fn main() [use] {
     if b.items is Mut { println("field ${to_str(b.items)}") }
 
     let c: Ok Mut List<Int> | Err Str = ok(Mut List(1))
-    // The `^` shadow: a borrow into the storage.
+    // The arm's shadow: a borrow into the storage.
     //~ emits: let mut c_9 = match &mut c { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
     //~ !emits: .u1().clone().push(
     //~ !emits: let mut c = c.u1().clone();
-    if c is ^Ok { add(c, 9) }
-    if c is ^Ok { println("widen ${to_str(c)}") }
+    if c is Ok {
+        c := -Ok
+        add(c, 9)
+    }
+    if c is Ok {
+        c := -Ok
+        println("widen ${to_str(c)}")
+    }
 
     let d: Ok Mut List<Int> | Err Str = ok(Mut List(1))
     // A wrapper arm, narrowed by `when`/`is`.
     //~ emits: let mut d_11 = match &mut d { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
     when d { is Ok { add(d, 9) } is Err { } }
-    if d is ^Ok { println("when ${to_str(d)}") }
+    if d is Ok {
+        d := -Ok
+        println("when ${to_str(d)}")
+    }
 
     let e: Ok Mut List<Int> | Err Str | None = ok(Mut List(1))
     //~ emits: let mut e_14 = match &mut e { Some(crate::unions::Union2::U1(__v)) => __v, _ => unreachable!() };
-    if e is ^Ok { add(e, 9) }
-    if e is ^Ok { println("nullable ${to_str(e)}") }
+    if e is Ok {
+        e := -Ok
+        add(e, 9)
+    }
+    if e is Ok {
+        e := -Ok
+        println("nullable ${to_str(e)}")
+    }
 
     println("moved ${eat(ok(Mut List(1)))}")
     stash(5)
@@ -209,7 +233,8 @@ fn main() [use] {
 // reported error.)
 //~ emits: o: crate::unions::Union2<&mut Vec<i32>, &String>
 fn bump(o: Ok Mut List<Int> | Err Str) [] -> None {
-    if o is ^Ok {
+    if o is Ok {
+        o := -Ok
         add(o, 7)
     }
 }
@@ -219,7 +244,8 @@ fn main() [use] {
     let r: Ok Mut List<Int> | Err Str = ok(Mut List(1))
     bump(r)
     bump(r)
-    if r is ^Ok {
+    if r is Ok {
+        r := -Ok
         println("${size(r)}")
     }
 }

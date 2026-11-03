@@ -1914,6 +1914,40 @@ pub enum Stmt {
     /// [comptime-inline] A comptime construct, legal only inside a `comptime
     /// fn` and expanded away before resolution.
     Comp(CompStmt),
+    /// [qual-retype] `place := -Ok`, and `place = place: -Ok`, which is the
+    /// same statement: the place is re-typed for the rest of its flow, and
+    /// nothing is written (user decisions 2026-10-30).
+    Retype {
+        target: Expr,
+        retype: Retype,
+        span: Span,
+    },
+}
+
+/// [qual-retype] The qualifier list a re-typing writes after `:` or `:=`:
+/// the deduction clause's list ([deduce-syntax]) without `+`, `None` or
+/// `Never`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Retype {
+    pub kind: RetypeKind,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum RetypeKind {
+    /// `-A -B`: drop these, keep the rest.
+    Drop(Vec<TypeRef>),
+    /// `A B`, optionally ending in the value's own base type (`NonEmpty
+    /// List`, `List`): afterwards only these apply.
+    Keep(Vec<TypeRef>),
+}
+
+impl Retype {
+    pub fn refs(&self) -> &[TypeRef] {
+        match &self.kind {
+            RetypeKind::Drop(r) | RetypeKind::Keep(r) => r,
+        }
+    }
 }
 
 impl Stmt {
@@ -1922,6 +1956,7 @@ impl Stmt {
         match self {
             Stmt::Let { span, .. }
             | Stmt::Assign { span, .. }
+            | Stmt::Retype { span, .. }
             | Stmt::Use { span, .. } => *span,
             Stmt::Rename(decl) => decl.span,
             Stmt::Expr(e) => e.span(),
@@ -2069,20 +2104,13 @@ pub enum Expr {
         binding: Option<Ident>,
         span: Span,
     },
-    /// `expr is ^Qual...` — the *widening* check [qual-lift]: the dual of
-    /// `is`. Where a successful `is` narrows the subject (a qualifier added,
-    /// a union arm picked), a successful `^` **generalizes** it by removing
-    /// the listed qualifiers — `list is ^Mut` reads `list` without `Mut`
-    /// afterwards, `outcome is ^Ok` without `Ok`. Boolean-valued, like `is`;
-    /// the runtime test is the same one `is` performs.
-    Widen {
+    /// [qual-retype] `expr: -Ok`, `expr: NonEmpty List` — the value of
+    /// `expr` with qualifiers dropped (user decision 2026-10-30, replacing
+    /// the lift `x is ^Q`). Never adds one, never tests anything: the runtime work
+    /// is `is`'s.
+    Retype {
         subject: Box<Expr>,
-        /// The qualifiers to remove (all must be present and droppable).
-        quals: Vec<TypeRef>,
-        /// [qual-lift] `is ^Ok inner` — the lifted value bound to a fresh
-        /// name for the branch (user decision 2026-09-21). Without one the
-        /// subject itself reads lifted, as it always did.
-        binding: Option<Ident>,
+        retype: Retype,
         span: Span,
     },
     /// `base?.field` or `base?.method(args)` — safe navigation [op-safe-nav].
@@ -2509,7 +2537,7 @@ pub enum ArmHole {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WhenBranch {
-    /// The `is ...` check, with or without `^`-lifted qualifiers.
+    /// The `is ...` check.
     pub check: Vec<TypeRef>,
     /// [when-union-head] The further alternatives of a union head, `is A |
     /// B`: the arm covers every one (`check` is the first). Empty for a
@@ -2519,9 +2547,6 @@ pub struct WhenBranch {
     /// only in a `when` lowered from an operator.
     pub hole: Option<ArmHole>,
     pub binding: Option<Ident>,
-    /// [qual-lift] Every qualifier in the check was `^`-marked: the same arm
-    /// test, but the subject reads *without* them inside the branch.
-    pub widen: bool,
     pub body: Block,
     pub span: Span,
 }
@@ -2617,7 +2642,7 @@ impl Expr {
             | Expr::Unary { span, .. }
             | Expr::Binary { span, .. }
             | Expr::Is { span, .. }
-            | Expr::Widen { span, .. }
+            | Expr::Retype { span, .. }
             | Expr::SafeNav { span, .. }
             | Expr::Assert { span, .. }
             | Expr::Unreachable { span, .. }

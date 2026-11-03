@@ -205,53 +205,16 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
             AExpr::Binary { op, lhs, rhs, .. } => self.binary(*op, lhs, rhs, span),
             AExpr::Is { subject, binding, .. } => self.is_test(subject, binding.as_ref(), span),
-            AExpr::Widen { subject, binding, .. } => {
-                // [qual-lift] the test is the same as `is`; the widening is
-                // erased with the qualifiers, so the binding is the subject
-                // under its widened type.
-                let test = self.ctx.checked.tests.get(&self.key(span)).and_then(|t| t.arms()).cloned();
-                let s = self.expr_subject(subject);
-                // [qual-lift] What the lift narrows its subject to: the arm the
-                // test matched, as stored (the lifted qualifiers erase; a
-                // lifted `Mut` is dropped at each read that needs the plain
-                // type [ir-coerce]).
-                let widen = test.as_ref().and_then(|t| self.narrowed_ty_of_test(&s.ty, t));
-                let id = self.id();
-                if let Some(b) = binding {
-                    let ty = self.ty_of(b.span);
-                    let from = self.stored_place_of(subject).unwrap_or(Place { root: Local("<subject>".into()), steps: Vec::new() });
-                    let local = Local(b.name.clone());
-                    self.rebind(&b.name, local.clone(), ty.clone());
-                    let from_ty = s.ty.clone();
-                    let stmts = self.bind_arm(local, ty, from, from_ty, widen.clone(), Justification::Test { test: id }, b);
-                    self.pending_after_test.extend(stmts);
-                } else if let (Some(target), true) = (widen, self.in_condition) {
-                    // [qual-lift] A lift that peels a wrapper arm narrows the
-                    // subject to the widened type for the branch.
-                    if let Some(place) = self.stored_place_of(subject) {
-                        let from_ty = s.ty.clone();
-                        match subject.as_ref() {
-                            AExpr::Ident(name) => {
-                                let narrow = self.narrow_in_arm(&name.name, place, from_ty, target, Justification::Test { test: id });
-                                self.pending_after_test.push(narrow);
-                            }
-                            // A projection has no name to rebind: the view is
-                            // a local the place reads through until the
-                            // branch closes.
-                            AExpr::Field { .. } | AExpr::TupleIndex { .. } => {
-                                let local = self.fresh("__lifted");
-                                let nid = self.id();
-                                self.pending_after_test.push(Stmt::Narrow { id: nid, local: local.clone(), ty: target.clone(), from: place.clone(), from_ty, because: Justification::Test { test: id } });
-                                self.scoped_aliases.push((self.scopes.len(), place, local, target));
-                            }
-                            _ => {}
-                        }
-                    }
+            // [qual-retype] The subject's value, at the re-typed type: nothing
+            // happens at run time but the `Mut` drop the checker recorded here,
+            // which `expr` applies around this node [ir-coerce].
+            AExpr::Retype { subject, .. } => {
+                let mut v = self.expr(subject);
+                let drops_mut = self.ctx.checked.converts.get(&self.key(span)).is_some_and(|c| matches!(c.steps.first(), Some(crate::check::ConvertStep::DropMut { .. })));
+                if !drops_mut {
+                    v.ty = self.ty_of(span);
                 }
-                match test {
-                    Some(t) => Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Test { id, subject: Box::new(s), test: arm_test(&t) } },
-                    None => Expr { ty: Ty::named("Bool"), span, kind: ExprKind::Bool(true) },
-                }
+                v
             }
             // [when-lowered] Lowered to a `when` before checking.
             AExpr::SafeNav { .. } => unsupported(self.ty_of(span), span, "unlowered `?.`"),
@@ -543,7 +506,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 _ => unsupported(ty, span, "read of a non-place"),
             };
         };
-        // [qual-lift] [str-drop-mut] A builder read as the plain type is read
+        // [qual-retype] [str-drop-mut] A builder read as the plain type is read
         // as the builder; the checker's `Mut` drop converts it [ir-coerce].
         let ty = match (e, place.steps.is_empty()) {
             (AExpr::Ident(id), true) => match self.lookup(&id.name) {
@@ -3288,7 +3251,7 @@ fn visit_reads(e: &Expr, f: &mut dyn FnMut(&Local)) {
                 visit_reads(v, f);
             }
         }
-        ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::BorrowAs { value, .. } | ExprKind::Widen { value } | ExprKind::Present { value } | ExprKind::Spread { value } => visit_reads(value, f),
+        ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::IntoMut { value } | ExprKind::BorrowAs { value, .. } | ExprKind::Widen { value } | ExprKind::Present { value } | ExprKind::Spread { value } => visit_reads(value, f),
         ExprKind::Branch { arms, otherwise, .. } => {
             for (c, b) in arms {
                 visit_reads(c, f);
@@ -3380,7 +3343,7 @@ fn loop_body_value(v: &Expr) -> bool {
 /// is the expression's own, so the read is never a borrow being returned.
 fn consume_under_coercions(e: &mut Expr) {
     match &mut e.kind {
-        ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::Present { value } | ExprKind::Widen { value } => consume_under_coercions(value),
+        ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::IntoMut { value } | ExprKind::Present { value } | ExprKind::Widen { value } => consume_under_coercions(value),
         ExprKind::Read { place, consume, .. } if place.steps.is_empty() => *consume = true,
         _ => {}
     }

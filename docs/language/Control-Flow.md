@@ -104,7 +104,7 @@ let value = when result {
 }
 ```
 
-An arm may cover several cases at once: `is A | B` matches either, as `x is A | B` does in a condition, and inside it the subject is the union of the two. It takes no binding and no `^`, since there is no single type to name:
+An arm may cover several cases at once: `is A | B` matches either, as `x is A | B` does in a condition, and inside it the subject is the union of the two. It takes no binding, since there is no single type to name:
 
 ```
 let label = when v {           // v: Point | Circle | None
@@ -135,7 +135,7 @@ let label = when {
 }
 ```
 
-That mandatory `else` is the reason the form exists. An `if` chain without an `else` folds `None` into its value, so a chain of conditions that always produces something has to be written with a trailing `else` and read carefully to see that it does; a subject-less `when` says so in its grammar. Everything else follows from the heads being plain conditions: `is` and `^` work in them and narrow their branch, and a later branch sees the earlier ones ruled out.
+That mandatory `else` is the reason the form exists. An `if` chain without an `else` folds `None` into its value, so a chain of conditions that always produces something has to be written with a trailing `else` and read carefully to see that it does; a subject-less `when` says so in its grammar. Everything else follows from the heads being plain conditions: `is` works in them and narrows its branch, and a later branch sees the earlier ones ruled out.
 
 ```
 when {
@@ -180,25 +180,37 @@ for i in range(0, person.age) {
 
 `for` loops evaluate to values just like `while` loops. They support `break`, `continue` and `else`.
 
-## Lifting a qualifier: `is ^Q`
+## Dropping a qualifier: `x: -Q` and `x := -Q`
 
-`is` narrows: a successful check means the value is *more* specific than its declared type. Marking a qualifier with `^` inside the check makes it do the dual as well — the arm is still tested, but the claim is **lifted**, so the value reads as *less* specific afterwards:
+`is` narrows: a successful check means the value is *more* specific than its declared type. A **re-typing** does the opposite: it drops qualifiers, so the value reads as *less* specific. Its list is the one a deduction clause writes ([Deductions and ownership](Deductions-and-Ownership.md)): `-A -B` drops those, and `A B` keeps only those, optionally ending in the value's own type.
+
+Written after a value, `e: -Q` re-types it for that one use:
 
 ```
 fn describe(p: Mut Person) [Console] {
-    if p is ^Mut {
-        read_only_report(p)      // `p` reads as `Person` here
-    }
+    read_only_report((p: -Mut))     // reaches the `Person` overload
+    let plain = p: Person           // the same, keeping no qualifier
 }
 ```
 
-Its reason to exist is the qualified union. `Ok (Ok Int | Err Str)` is a claim *about* a union, so `when` cannot take its arms apart — they belong to the inner type. A `^` branch head tests the arm and removes the claim in one step:
+At the top of a call's arguments, `k: v` is a key-value pair (`Map("a": 1)`), so a re-typing argument goes in parentheses, as above. Written as a statement, `place := -Q` re-types a variable or field for the rest of its flow, and `place = place: -Q` is the same statement:
+
+```
+let list: Ok Mut List<Str> = f()
+if list is NonEmpty {
+    list := -Ok                     // `list` reads as `NonEmpty Mut List<Str>` from here
+    g((list: -Mut))                 // this call only: the non-`Mut` overload
+    g((list: NonEmpty))             // this call only: keep `NonEmpty` alone
+}
+```
+
+Its main use is the qualified union. `Ok (Ok Int | Err Str)` is a claim *about* a union, so `when` cannot take its arms apart: they belong to the inner type. Test the arm, then drop the claim:
 
 ```
 let nested = try { wrapped(7) }        // Ok (Ok Int | Err Str) | Thrown Str
 when nested {
-    is ^Ok {
-        // `nested` reads as `Ok Int | Err Str` here
+    is Ok {
+        nested := -Ok                  // `nested` reads as `Ok Int | Err Str`
         when nested {
             is Ok { println("value ${nested}") }
             is Err { println("error ${nested}") }
@@ -212,21 +224,11 @@ when nested {
 
 The rules:
 
-- **It is an ordinary `is`**, so it works everywhere one does: `if`/`elif`, `&&`/`||`/`!`, and as a `when` branch head, where it consumes the arms it matched so exhaustiveness is unchanged. The runtime test is the same; `^` decides only whether the claim survives into the branch.
-- **The qualifiers must be there.** Nothing to lift is an error, not a false test — `^Q` lifts a known claim, it does not test for one (that is a plain `is Q`).
-- **All or none.** `is ^Mut ^NonEmpty` lifts both; a check mixing lifted and kept qualifiers (`is ^Ok NonEmpty`) is an error, since the two say opposite things about one check.
-- **Some qualifiers can never be lifted**: `once` (it restricts rather than refines), `Linear` (it carries a use obligation) and `proj` (the value is derived from another). Everything else can, since dropping a claim loses only knowledge and dropping a permission loses only permission.
-- **A binding is allowed**, and it is what makes a lift of *several arms at once* possible:
-
-  ```
-  let outcome: Ok Int | Ok Str | Err Str = classify(input)
-  if outcome is ^Ok value {
-      // `value` is `Int | Str`; `outcome` keeps its declared type here
-      print_either(value)
-  }
-  ```
-
-  Without a binding the lifted value has to be re-read out of the subject, and one such read cannot stand for two arms that live in different wrapper positions — so a multi-arm lift without a binding is an error naming this remedy. With a single arm, a binding is optional: the subject itself reads lifted, as `p is ^Mut` does above.
+- **It never adds a qualifier.** Naming one the value does not carry is an error, not a false test: a re-typing drops a known claim, it does not test for one (that is `is Q`). It tests nothing at all; the arm test is `is`'s.
+- **On a union**, every arm must carry what it drops, and it drops it from each. So after `if outcome is Ok`, with `outcome: Ok Int | Ok Str | Err Str`, `let value = outcome: -Ok` is an `Int | Str`. Before the test it would be an error, since the `Err` arm has no `Ok`.
+- **Some qualifiers can never be dropped**: `once` (it restricts rather than refines), `Linear` (it carries a use obligation) and `proj` (the value is derived from another). A kept list leaves them on without naming them. Everything else can be dropped, since dropping a claim loses only knowledge and dropping a permission loses only permission.
+- **A dropped claim stays dropped** until a value that has it is assigned. After an `if`, a variable keeps only what every path kept.
+- **Assignment drops qualifiers too**: a variable declared `NonEmpty List<Int>` takes an empty list, and reads without `NonEmpty` afterwards. `Mut` is no exception: a `Mut Str` variable takes a plain `Str`, and reads as a `Str` until a `Mut Str` is assigned.
 
 ## Operators and the pipe
 
