@@ -232,10 +232,10 @@ fn total<C, It>(c: C, ?Iter<C, It, Int>) -> Int => c {
 Over an iterator rather than a source, the spread is `?Next<It, T>` with the
 iterator as a parameter: `fn first<It>(it: Mut It, ?Next<It, Int>)`.
 
-A type declares `: Iter<self, It, T>` **or** `: Next<self, T>`, never both: it is
-a source or an iterator struct, and declaring both is refused. A type that has
-both a `next` and an `iter` without declaring either is driven by its `next`:
-a value some `next` takes is already a position in a sequence.
+A type may be both a source and an iterator struct — a `next` and an `iter`
+take it, declared or not — and then `for x in it` has two answers, so it is
+an error, as an operator with two answers is. The loop says which: `for x in
+next(it)` drives it, and `for x in iter(it)` mints an iterator from it.
 
 std's containers are sources through their `iter` (`fn iter<T>(list: List<T>)
 -> Mut ListNext<T>`, and the same for arrays, `Str`, `Set`, `Map`); each

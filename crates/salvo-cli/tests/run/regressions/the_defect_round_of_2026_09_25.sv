@@ -621,7 +621,9 @@ fn gauge(g: Mut Gauge) [Gen] -> Str => g: Mut {
     return "${out}"
 }
 
-// A type with both a `next` and an `iter` is driven by its `next` (P15).
+// A type with both a `next` and an `iter` is ambiguous for `for`, which
+// names the call it means (user decision 2026-10-30, P15; it was driven by
+// its `next` until then): `next(b)` drives it, `iter(b)` mints from it.
 struct Both canbe Mut {
     n: Int,
     items: List<Int>
@@ -660,7 +662,10 @@ fn main() [use] {
     println(gauge(Mut Gauge { n: 0 }))
     let b = Mut Both { n: 0, items: List(7, 8, 9) }
     let bs = Mut List<Int>()
-    for x in b {
+    for x in next(b) {
+        add(bs, x)
+    }
+    for x in iter(b) {
         add(bs, x)
     }
     println("${bs}")
@@ -671,7 +676,7 @@ fn main() [use] {
 //= [10, 20]
 //= [1, 2]
 //= [3, 6]
-//= [1, 2]
+//= [1, 2, 7, 8, 9]
 
 //--- handles_into_generic_containers
 

@@ -3140,11 +3140,13 @@ Conventions:
     `: Iter<self, It, T>` for a `for`. Both stay what [group-obligation] makes
     them — a promise checked at the declaration — and `: Next<self, T>` still
     teaches a `?Next<It, T>` spread its element type [implicit-group].
-  * **A type with both a `next` and an `iter`** is driven by its `next`: "a
-    `next` takes `e`" decides. Whether to refuse such a type, as the brief
-    suggests ("it should be an error for both next and iter to be defined on
-    the same type"), is DECISION P15 (ROADMAP 0am). Declaring both obligations
-    stays refused at the type [iter-group].
+  * **A type with both a `next` and an `iter` is accepted, and `for` over it
+    is ambiguous** (user decision 2026-10-30, P15), as an operator with two
+    answers is: `iter-for:ambiguous` names the two spellings, a step call
+    `for x in next(e)` [iter-step-call] to drive it and `for x in iter(e)` to
+    mint from it. Declaring both obligations (`: Iter<self, …>` beside
+    `: Next<self, …>`) is accepted too [iter-group]. Until then such a type
+    was driven by its `next`, and the obligation pair refused.
   * **The calls' facts.** Neither call has a node of its own, so their call
     facts (`calls`, `implicit_args`, `effects_passed`) are keyed `Key::FOR_NEXT`
     and `Key::FOR_ITER` of the subject's node [node-id]; `Checked::for_drivers`
@@ -3745,9 +3747,9 @@ Conventions:
   `next` without the clause was an error naming it.
   * Resolution order: a step call, then `next(e)`, then `next(iter(e))`. A
     value some `next` takes is *already* a position in a sequence, so it is
-    driven and never minted from — a type with both a `next` and an `iter` is
-    driven (DECISION P15), and declaring both obligations is refused at the
-    struct [iter-group].
+    driven and never minted from — except that a type some `next` *and* some
+    `iter` take is ambiguous, and the loop names the call it means (user
+    decision 2026-10-30, [iter-for]).
   * **Same-named structs in two modules** (fixed 2026-09-25): a `Ty::Named`
     carried no module, so a user `Range` beside `std.core.range`'s drove the
     *other* module's `next`, or minted with the other module's `iter`, and both

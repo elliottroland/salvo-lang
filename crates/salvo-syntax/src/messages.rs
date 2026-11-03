@@ -3601,12 +3601,11 @@ messages! {
          the loop"
     );
 
-    // [iter-group]
-    /// A type that is both a source and an iterator.
-    iter_group_source_and_iterator = "iter-group:source-and-iterator" (name: &dyn std::fmt::Display, obligation: &dyn std::fmt::Display) => format!(
-        "`{name}` declares both `: {obligation}` and `: Next`: a type is either a source \
-         (`{obligation}` mints an iterator from it) or an iterator struct (`next` \
-         advances it), not both — `for x in {name}` would have two answers"
+    // [iter-for]
+    /// A `for` over a value both a `next` and an `iter` take.
+    iter_for_ambiguous = "iter-for:ambiguous" (ty: &dyn std::fmt::Display, e: &dyn std::fmt::Display) => format!(
+        "`for` over `{ty}` has two answers: a `next` takes it (drive it) and an `iter` takes it \
+         (mint an iterator from it); say which — `for x in next({e})` or `for x in iter({e})`"
     );
 
     // [iter-protocol]

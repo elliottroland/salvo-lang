@@ -144,6 +144,22 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A `for` over a type both driven and minted is ambiguous (user decision, ROADMAP 0am / §II.10 P15, [iter-for] [iter-group])
+
+- **Decided (user)**: accept a type with both a `next` and an `iter`, and
+  refuse the `for` sugar over it for ambiguity, "consistent with how we
+  treat operator ambiguity in general": the loop writes `for x in next(y)`
+  or `for x in iter(y)`.
+- **Built**: `for_subject` reports `iter-for:ambiguous` when both calls fit
+  the subject, naming the two spellings; the step-call form already drove
+  `for x in next(y)`, and `for x in iter(y)` mints. The obligation pair
+  (`: Iter<self, …>` beside `: Next<self, …>`) is accepted as well, and its
+  refusal (`iter-group:source-and-iterator`) is gone. Before, `next` won
+  silently. `check/once/passes.sv`, `check/iter_fn/iter_fn.sv` and the
+  regression run data (`a_for_as_the_calls_it_names`, now both forms)
+  follow, and run data `iteration/a_type_both_driven_and_minted.sv` runs
+  both forms; docs/language/Iterators.md says so.
+
 ### 2026-10-30 — The floats have an IEEE `cmp` (user decision, ROADMAP 0aj / §II.10 P12, [op-order])
 
 - **Decided (user)**: keep the IEEE order for `<` on floats, and give them

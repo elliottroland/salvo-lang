@@ -1096,31 +1096,6 @@ declaration is still found as the *first* of its name's overload set where a
 subject is not in hand (`written_qual_decl`, `qual_decl`): the generics and
 `comptime` flag of `NonEmpty` are read off whichever of its five comes first.
 
-### 0am — DECISION: a type with both a `next` and an `iter` (B3.3d, 2026-10-28)
-
-`for x in e` is `next(e)` when a `next` takes `e`, otherwise `next(iter(e))`
-[iter-for] (R10 D10). A type some `next` takes *and* some `iter` takes is
-therefore driven by its `next`, and its `iter` is never called by a `for`.
-OPERATOR_OVERLOAD.md's brief: "I suppose it should be an error for _both_ next
-and iter to be defined on the same type"; R10 did not decide it. What the code
-refuses today is only the *obligation* pair (`: Iter<…>` beside `: Next<…>` on
-one struct, [iter-group]); the fns alone are accepted. Options (the pipeline record
-§II.10 P15):
-
-- **(a) Accept, `next` wins** (built): a value some `next` takes is already a
-  position in a sequence, so minting a second one would be wrong (the old
-  [iter-resolve] reasoning); the obligation pair stays refused.
-- **(b) Refuse at the type**: a per-declaration check beside [op-unique-shape]
-  (both shapes are declared in the type's file, so it needs no program-wide
-  search) — "`T` has both a `next` (an iterator) and an `iter` (a source)";
-  the brief's rule, and the obligation-pair refusal becomes its special case.
-  No program in the suite has the pair except the test of (a).
-- **(c) Accept, and drop the obligation-pair refusal too**, since the
-  obligations no longer decide anything for `for`.
-
-Recommendation: (b), the brief's rule, cheap to check where it is declared;
-(a) until decided.
-
 ### 0an — The `for` header's calls apply no argument contract (B3.3d, 2026-10-28)
 
 Recorded, not a decision: the `next`/`iter` a `for` names are resolved,

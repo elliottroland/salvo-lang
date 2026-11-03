@@ -343,9 +343,9 @@ fn next(p: Mut Bag4Iter) -> Emitted Int | Finished => p: Mut {
     return finished()
 }
 
-// A type is a source or an iterator struct, never both: `for x in s` would
-// have two answers.
-//~ error[iter-group:source-and-iterator]
+// A type may be both a source and an iterator struct (user decision
+// 2026-10-30; refused until then): `for x in s` then has two answers, so the
+// loop names one [iter-for].
 struct Both : Iter<self, BothIter, Int>, Next<self, Int> canbe Mut { at: Int }
 iter fn iter(b: Both) -> Emitted Int | Finished {
     state BothIter {}

@@ -91,10 +91,10 @@ fn go_plain(c: Mut Plain) -> None => c: Mut {
     for _n in c {}
 }
 
-// [iter-for] [iter-group] A type with both a `next` and an `iter` and no
-// obligations is driven by its `next` — "a `next` fits" decides (DECISION
-// P15: whether to refuse such a type); declaring both obligations stays
-// refused at the type.
+// [iter-for] [iter-group] A type both a `next` and an `iter` take is
+// accepted, and `for x in c` over it is ambiguous, as an operator with two
+// answers is (user decision 2026-10-30, P15): the loop says which, a step
+// call `for x in next(c)` or `for x in iter(c)`.
 struct Other canbe Mut {
     n: Int
 }
@@ -111,7 +111,10 @@ fn iter(c: Both) -> Mut Other => c { return Mut Other { n: 0 } }
 
 fn go_both(c: Mut Both) -> Int => c: Mut {
     let total = 0
+    //~ error[iter-for:ambiguous]
     for n in c { total = n }
+    for n in next(c) { total = n }
+    for s in iter(c) { total = size(s) }
     return total
 }
 

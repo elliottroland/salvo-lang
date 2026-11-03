@@ -5332,18 +5332,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .zip(args)
                 .collect();
             let bound: HashSet<String> = group.generics.iter().map(|p| p.name.clone()).collect();
-            // [iter-group] `: Iter<self, It, T>` beside `: Next<self, T>` gives
-            // `for x in s` two answers — drive `s`, or mint from it — so the
-            // pair is refused; a type is a source or an iterator struct.
-            if group.name.name == "Iter"
-                && obligations.iter().any(|p| p.group.name.name == "Next")
-            {
-                self.error(
-                    ob.span,
-                    messages::iter_group_source_and_iterator(&name.name, &ob.name.name),
-                );
-                continue;
-            }
+            // [iter-group] `: Iter<self, It, T>` beside `: Next<self, T>` is
+            // accepted (user decision 2026-10-30): such a type is both, and a
+            // `for` over it, having two answers, names the one it means
+            // [iter-for].
             for member in &group.fns {
                 let outer = self.enter_generics(&group.generics);
                 let member_ty = self.member_fn_ty(member);
@@ -25296,8 +25288,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// and otherwise `next(iter(e))` — `e` is a **source**, and the loop
     /// mints an iterator from it first. Each call is resolved as it would be
     /// written [fn-overload-rank] [fn-rename] [implicit-resolve-body], so no
-    /// `: Next` or `: Iter` declaration is needed; a type with both a `next`
-    /// and an `iter` is driven (P15). What the loop does with the calls is
+    /// `: Next` or `: Iter` declaration is needed. A type both take is
+    /// **ambiguous**, as an operator with two answers is, and the loop names
+    /// the one it means: `for x in next(e)` (a step call [iter-step-call]) or
+    /// `for x in iter(e)` (user decision 2026-10-30, P15). What the loop does with the calls is
     /// `Checked::for_drivers`; the calls' own facts are the call tables at
     /// `Key::FOR_NEXT` and `Key::FOR_ITER` of the subject's node. A container
     /// a backend walks natively (an array, an `iterable platform type`), when
@@ -25311,6 +25305,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let node = self.key(span);
         let (next_key, iter_key) = (node.synthetic(Key::FOR_NEXT), node.synthetic(Key::FOR_ITER));
+        // [iter-for] Both: the sugar has two answers.
+        if self.for_fits("next", &ty) && self.for_fits("iter", &ty) {
+            let shown = match iterable {
+                Expr::Ident(id) => id.name.clone(),
+                _ => "e".to_string(),
+            };
+            self.error(span, messages::iter_for_ambiguous(&subject, &shown));
+            return Ty::Unknown;
+        }
         // 1. An iterator: `next(e)`.
         if self.for_fits("next", &ty) {
             let call = format!("next({subject})");
