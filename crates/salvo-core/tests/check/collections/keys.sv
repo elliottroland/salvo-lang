@@ -90,9 +90,10 @@ fn count<K>(m: Map<K, Str>) -> Int => m {
 
 // [col-key-eligible] The **inferred** half: `Set(1.5)` writes no type
 // anywhere, so the ineligible key exists only in the resolved substitution.
-// A type refused as a key is reported once per file (one mistake, one
-// diagnostic, when an annotation and the call it types both reach it), so
-// each inferred case is a file of its own.
+// A type refused as a key is reported once per declaration (one mistake,
+// one diagnostic, when an annotation and the call it types both reach it);
+// before 2026-10-30 it was once per file, which is why each inferred case
+// below is a file of its own.
 // FILE: inferred_set.sv
 fn inferred_set() -> Int {
     //~ error[col-key-eligible:key]
@@ -117,4 +118,25 @@ fn instantiated() -> Int {
     //~ error[col-key-eligible:key]
     let m = Map((1.5, "x"))
     return count_keys(m)
+}
+
+// FILE: per_declaration.sv
+// Each declaration's own mistake is its own report (ROADMAP 0ar: the second
+// fn's `Set(2.5)` went unreported), while a signature's and the call it types
+// stay one.
+fn first() -> Int {
+    //~ error[col-key-eligible:key]
+    let s = Set(2.5)
+    return size(s)
+}
+
+fn second() -> Int {
+    //~ error[col-key-eligible:key]
+    let s = Set(3.5)
+    return size(s)
+}
+
+//~ error[col-key-eligible:key]
+fn typed() -> Set<Double> {
+    return Set()
 }

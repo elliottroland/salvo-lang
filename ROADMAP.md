@@ -93,6 +93,8 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
   named by module").
   The `cmp_deref` comment was the stale side ([rs-cmp-deref] already says
   arithmetic derefs; commit "Correct the cmp_deref case's stale comment").
+  An unhashable key is reported per declaration, not once per program
+  (commit "Report an ineligible key once per declaration").
 - Next: 0ar's remaining items (diagnostic cascades, message texts).
 
 ## The sequence
@@ -986,9 +988,7 @@ repros are over the real std.
   a dropped `Reply<Int>`'s hint names `on_idle`/`watch` (dischargers listed
   by type name, not instantiation); type-named constructors show by their
   key (`Mut_Set`, `Mut_List<…>`).
-- **Behaviour worth a look**: an unhashable key in a constructor call is
-  reported once per program (`reported_ineligible_keys`), so a second fn's
-  `Set(2.5)` goes unreported while it is refused; `=> !a` on an `Int` warns
+- **Behaviour worth a look**: `=> !a` on an `Int` warns
   "changes nothing" yet decides whether the fn fits a keeping `?add`.
 - **Smaller**: an `_`-prefixed lift binding (`is ^Ok _value`) is refused with
   three errors, so an unused lift binding cannot be silenced as a `let`

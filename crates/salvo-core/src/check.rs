@@ -2965,7 +2965,7 @@ struct FileIface<'p> {
     fns: HashMap<usize, FnSig>,
     handlers: HashMap<usize, HandlerSig>,
     renames: Vec<RenameBinding<'p>>,
-    reported_ineligible_keys: HashSet<String>,
+    reported_ineligible_keys: HashSet<(Option<DeclId>, String)>,
     /// [cmp-carry] Written identities already refused as ambiguous: a
     /// written type is lowered at every use, and one mistake is one
     /// diagnostic.
@@ -3004,7 +3004,7 @@ struct Checker<'p, 'r> {
     /// [col-key-eligible] Types already reported as ineligible keys in this
     /// file, so one mistake produces one diagnostic even when both a written
     /// annotation and the call it types arrive at the same type.
-    reported_ineligible_keys: HashSet<String>,
+    reported_ineligible_keys: HashSet<(Option<DeclId>, String)>,
     /// [cmp-carry] Written identities already refused as ambiguous: a written
     /// type is lowered at every use, and one mistake is one diagnostic.
     reported_identities: HashSet<(usize, Span)>,
@@ -7517,7 +7517,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         if let Ty::Fn { params, .. } = want.strip_quals() {
                             if params
                                 .first()
-                                .is_some_and(|p| self.reported_ineligible_keys.contains(&format!("{}", p.strip_quals())))
+                                .is_some_and(|p| self.reported_ineligible_keys.contains(&(self.own_fn, format!("{}", p.strip_quals()))))
                             {
                                 return None;
                             }
@@ -14446,7 +14446,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let span = base.args[0].span();
             // [type-unknown-lenient] Shared with the inferred path's dedup: a
             // written annotation and the call it types are one mistake.
-            self.reported_ineligible_keys.insert(format!("{key}"));
+            self.reported_ineligible_keys.insert((self.own_fn, format!("{key}")));
             self.error(span, reason);
         }
     }
@@ -14546,7 +14546,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // fix goes — and the call learned `T = Double` from that
                         // very annotation (2026-09-26, with the expected-type
                         // seeding that made the call's instantiation known).
-                        if self.reported_ineligible_keys.insert(format!("{}", type_args[0])) {
+                        // Per declaration (ROADMAP 0ar): another fn's
+                        // `Set(2.5)` is a mistake of its own.
+                        if self.reported_ineligible_keys.insert((self.own_fn, format!("{}", type_args[0]))) {
                             self.error(span, reason);
                         }
                         return;

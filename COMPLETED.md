@@ -144,6 +144,16 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — An ineligible key is reported once per declaration (ROADMAP 0ar, [col-key-eligible])
+
+- **Built**: `reported_ineligible_keys` is keyed by the declaration being
+  checked (`own_fn`) with the type, where it was the type alone for the
+  whole file and both passes. A refused `Set(2.5)` in one fn silenced the
+  same mistake in every later fn, and a `-> Set<Double>` signature silenced
+  every inferred `Double` key in the file, though the program stayed
+  refused. A signature and the call it types (`return Set()`) are still one
+  report. `check/collections/keys.sv` gains `per_declaration.sv`.
+
 ### 2026-10-30 — `cmp_deref.sv`'s comment was the stale side (ROADMAP 0ar)
 
 - **Changed**: the Rust emit case said arithmetic must not grow a deref of
