@@ -4001,12 +4001,19 @@ Conventions:
     twice — once for its own argument slot, once from a later default — is
     not re-evaluated from source twice (which would duplicate a side effect
     or an identity): the IR builder lowers the earlier parameter's filling
-    value **once**, binds it to a fresh local (`Lower::bind_owned`), and the
-    default's reference to the parameter's name resolves to a `Read` of
-    that local through the ordinary name-lookup path — the same path an
-    `Ident` inside the callee's own body would take. The bindings this needs
-    (only the parameters a default actually mentions; an ordinary call with
-    no such reference gets none) become the statements of one
+    value **once**, binds it to a fresh local (`__a~N`, never the
+    parameter's own name, since the binding runs in the caller's scope),
+    and the default's reference to the parameter's name resolves to a
+    `Read` of that local through the ordinary name-lookup path — the same
+    path an `Ident` inside the callee's own body would take. A `name =
+    value` argument is lowered before those names are bound, so it reads
+    the caller's variables (ROADMAP 0n, fixed 2026-10-30: `f(1, c = a)`
+    read the parameter `a`). The bindings this needs (every argument up to
+    the last parameter a default mentions, in order, so arguments still run
+    left to right [deduce-same-call] — before 2026-10-30 only the mentioned
+    ones, so `g(h1(), h2())` with a default reading the second ran `h2()`
+    first; an ordinary call with no such reference gets none) become the
+    statements of one
     block-valued expression ([ir-branch]'s `block_expr` form), wrapped
     around the whole call. Only without a variadic parameter: a variadic
     tail absorbs whatever is left, so no fixed parameter past it is ever

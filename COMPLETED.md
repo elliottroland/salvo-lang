@@ -144,6 +144,20 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A named argument beside a parameter-reading default reads the caller's names (ROADMAP 0n, [fn-param-default] [deduce-same-call])
+
+- **Built**: `Lower::args_for` lowers the `name = value` arguments before
+  it pushes the scope that binds the parameters a default reads, and binds
+  each to a fresh local (`__a~N`) rather than one named as the parameter,
+  as `construct_handler` already did; and both bind every argument up to
+  the last parameter a default reads, in order, not only the read ones.
+  Before, `fn f(a: Int, b: Int = a, c: Int = 0)` called as `f(1, c = a)`
+  with a program `a = 7` printed 111 instead of 117 on both backends
+  (silently wrong code, [backend-never-wrong]), and `g(tick(1), tick(2))`
+  with `z: Int = y` ticked 2 before 1, against [deduce-same-call]'s left to
+  right. Run data `functions/a_default_reading_an_earlier_parameter.sv`
+  covers both and a handler construction.
+
 ### 2026-10-30 — `copy` of a keyed collection has a plan (ROADMAP 0m, [copy-plan] [kt-copy])
 
 - **Built**: `copyplan::immutable` counts a fn slot's identity

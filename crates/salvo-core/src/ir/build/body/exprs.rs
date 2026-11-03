@@ -1447,11 +1447,12 @@ impl<'a, 'p> Lower<'a, 'p> {
         // A default may read an **earlier** parameter. Re-lowering that
         // parameter's own argument expression a second time would be unsound
         // for anything with a side effect or an identity, so instead every
-        // parameter any default in this call actually mentions is bound
-        // **once**, by name, in a fresh scope (`self.bind_owned`), before
-        // the defaults are lowered: an `Ident` inside a default then
-        // resolves through the ordinary `lookup` path to a `Read` of the
-        // bound local, exactly as it would inside the callee's own body.
+        // parameter up to the last one any default in this call mentions is
+        // bound **once**, to a fresh local found by the parameter's name in a
+        // pushed scope, before the defaults are lowered: an `Ident` inside a
+        // default then resolves through the ordinary `lookup` path to a
+        // `Read` of the bound local, exactly as it would inside the callee's
+        // own body. The named values are lowered before the scope is pushed.
         // The resulting `Let`s are returned as a prelude the caller runs
         // ahead of the call (`Lower::block_expr`) — empty, and no scope
         // even pushed, when no default reads an earlier parameter, which is
@@ -1461,58 +1462,47 @@ impl<'a, 'p> Lower<'a, 'p> {
             let referenced: std::collections::HashSet<String> =
                 fixed.iter().filter_map(|p| p.default.as_ref()).flat_map(mentioned_idents).collect();
             if !referenced.is_empty() {
+                // The named values first, in the call's own scope: a name
+                // they mention is the program's, never a parameter bound
+                // below for a default to read (ROADMAP 0n: `f(1, c = a)`
+                // read the parameter `a`).
+                let mut by_name: Vec<Option<Expr>> = Vec::with_capacity(fixed.len());
+                for (i, p) in fixed.iter().enumerate() {
+                    let named_value = if i < args.len() { None } else { named.iter().find(|a| a.name.name == p.name.name) };
+                    by_name.push(named_value.map(|a| self.expr(&a.value)));
+                }
+                // [deduce-same-call] Arguments are evaluated left to right, so
+                // every one up to the last a default reads is bound, in
+                // order, not only the ones read.
+                let last = fixed.iter().rposition(|p| referenced.contains(p.name.name.as_str()));
                 self.push_scope();
                 for (i, p) in fixed.iter().enumerate() {
-                    if !referenced.contains(p.name.name.as_str()) {
-                        if i >= args.len() {
-                            // Not referenced by any later default: fill it
-                            // the plain way, with nothing to bind.
-                            let named_value: Option<&AExpr> = named.iter().find(|a| a.name.name == p.name.name).map(|a| &a.value);
-                            let lowered = match (named_value, &p.default) {
-                                (Some(v), _) => Some(self.expr(v)),
-                                (None, Some(d)) => Some(self.param_default(p, d, span, default_file)),
-                                (None, None) => None, // a required gap — a checker error already
-                            };
-                            if let Some(mut x) = lowered {
-                                if mode_of(p) == PassMode::Moved {
-                                    self.consume_if_owned(&mut x);
-                                }
-                                out.push(x);
-                            }
-                        }
-                        continue;
-                    }
-                    // Referenced by a later default: fill it (positionally,
-                    // by name, or by its own default) and bind the result
-                    // under its own name, so the defaults after it read the
-                    // one bound value rather than re-evaluating it.
-                    let value = if i < args.len() {
-                        None // already lowered into `out[i]` above
+                    let mode = mode_of(p);
+                    let at = if i < args.len() {
+                        i // already lowered into `out[i]` above
                     } else {
-                        let named_value: Option<&AExpr> = named.iter().find(|a| a.name.name == p.name.name).map(|a| &a.value);
-                        let lowered = match (named_value, &p.default) {
-                            (Some(v), _) => self.expr(v),
+                        let mut x = match (by_name[i].take(), &p.default) {
+                            (Some(v), _) => v,
                             (None, Some(d)) => self.param_default(p, d, span, default_file),
                             (None, None) => continue, // a required gap — a checker error already
                         };
-                        Some(lowered)
-                    };
-                    let mode = mode_of(p);
-                    if let Some(mut x) = value {
                         if mode == PassMode::Moved {
                             self.consume_if_owned(&mut x);
                         }
-                        let ty = x.ty.clone();
+                        out.push(x);
+                        out.len() - 1
+                    };
+                    if last.is_some_and(|l| i <= l) {
+                        // A fresh local, not the parameter's own name: the
+                        // binding runs ahead of the call, in the program's
+                        // scope, where a variable of that name may live.
+                        let ty = out[at].ty.clone();
                         let id = self.id();
-                        let local = self.bind_owned(&p.name.name, ty.clone(), mode != PassMode::Lent);
-                        prelude.push(Stmt::Let { id, local: local.clone(), ty: ty.clone(), value: x });
-                        out.push(Expr { ty, span, kind: ExprKind::Read { place: Place { root: local, steps: Vec::new() }, consume: false, moved: false } });
-                    } else {
-                        let ty = out[i].ty.clone();
-                        let id = self.id();
-                        let local = self.bind_owned(&p.name.name, ty.clone(), mode != PassMode::Lent);
-                        let moved = std::mem::replace(&mut out[i], Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: local.clone(), steps: Vec::new() }, consume: false, moved: false } });
-                        prelude.push(Stmt::Let { id, local, ty, value: moved });
+                        let local = self.fresh(&format!("__{}", p.name.name));
+                        self.scopes.last_mut().unwrap().insert(p.name.name.clone(), super::Bound { local: local.clone(), ty: ty.clone(), owned: mode != PassMode::Lent });
+                        let read = Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: local.clone(), steps: Vec::new() }, consume: false, moved: false } };
+                        let value = std::mem::replace(&mut out[at], read);
+                        prelude.push(Stmt::Let { id, local, ty, value });
                     }
                 }
                 self.pop_scope();
@@ -3038,6 +3028,9 @@ impl<'a, 'p> Lower<'a, 'p> {
             let referenced: std::collections::HashSet<String> =
                 value_params.iter().filter_map(|p| p.default.as_ref()).flat_map(mentioned_idents).collect();
             let scoped = !referenced.is_empty();
+            // [deduce-same-call] Every argument up to the last a default
+            // reads is bound, in order, so they run left to right.
+            let last = value_params.iter().rposition(|p| referenced.contains(p.name.name.as_str()));
             if scoped {
                 self.push_scope();
             }
@@ -3053,7 +3046,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     fields.push((p.name.name.clone(), v));
                     fields.len() - 1
                 };
-                if referenced.contains(p.name.name.as_str()) {
+                if last.is_some_and(|l| i <= l) {
                     // A fresh local, not the parameter's own name: the
                     // binding is hoisted into the program's scope, where a
                     // variable of that name may live.

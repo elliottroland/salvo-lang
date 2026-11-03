@@ -82,7 +82,9 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
 - 0am, 0ao, 0ap, 0aq, 0e: DECISIONs (skipped); 0an: recorded for Stage D,
   not a defect. The run wraps to the open defects above 0p, in file order.
 - 0m: done (commit "Copy maps and sets on the Kotlin backend").
-- Next: 0n.
+- 0n: done (commit "Read the caller's names in a named argument beside a
+  default").
+- Next: 0ar (0q, 0r skipped as above).
 
 ## The sequence
 
@@ -563,34 +565,6 @@ list to be complete.
   emitted there, so Rust's prelude `drop` runs (same effect on an `Int`, and
   it was so under the globs too). Worth a check that a resolved Salvo fn the
   program calls is always emitted.
-
-### 0n — Open defect: a call's named argument reads a parameter binding (found 2026-10-20)
-
-Silently wrong code, both backends' input (the IR): when a fn's default reads
-an earlier parameter, `Lower::args_for` binds that parameter under its own
-name in a pushed scope and then lowers the remaining **named** values inside
-that scope — so a named value mentioning a program variable of the same name
-reads the parameter instead:
-
-```
-fn f(a: Int, b: Int = a, c: Int = 0) -> Int {
-    return a * 100 + b * 10 + c
-}
-fn main() [use] {
-    use StdConsole()
-    let a = 7
-    println("${f(1, c = a)}")   // prints 111; should be 117
-}
-```
-
-Fix (what `construct_handler` does for a handler's constructor, 2026-10-20):
-lower the named values before pushing the scope, and bind to a fresh local.
-A smaller ordering point on the same path: only the parameters a default reads
-are bound into the prelude, so an earlier positional argument that is *not*
-read is evaluated after a later one that is (`f(g(), h())` with a default
-reading the second runs `h()` first; `construct_handler` mirrors this) — bind
-every argument up to the last one read, in order, if evaluation order is to
-hold.
 
 ### 0o — ✅ The flow pass's mirrored join, loop and revival rules (fixed 2026-10-20, COMPLETED.md)
 
