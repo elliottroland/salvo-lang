@@ -413,6 +413,10 @@ pub struct TypeDecl {
     /// declares its canonical one. Written last, after the alias or the
     /// `canbe` list.
     pub obligations: Vec<Obligation>,
+    /// [qual-refn-type] The refinements of an opaque type's optional body
+    /// (`platform type List<T> … { refn add(…) => list: +NonEmpty }`): the
+    /// only thing such a body may hold.
+    pub refns: Vec<RefnDecl>,
     pub span: Span,
 }
 
@@ -458,6 +462,10 @@ pub struct StructDecl {
     /// visibility from it. Hoisted to module level by desugaring, which is
     /// where they get their attachment.
     pub fns: Vec<FnDecl>,
+    /// [qual-refn-type] Refinements written in the body: the type's author
+    /// stating what its own functions do to a generic claim
+    /// (`refn add(list: Mut List<T>, elem: T) => list: +NonEmpty`).
+    pub refns: Vec<RefnDecl>,
     /// [linear-group] `linear struct X` — the exactly-once obligation,
     /// declared as a modifier (user decision 2026-09-12; replaces the
     /// `: Linear<self>` group entry). A generic struct with a

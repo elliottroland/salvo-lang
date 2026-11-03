@@ -19,7 +19,7 @@ fun<T> Err(value: T): T {
 }
 
 fun<E> errs(first: E): List<E> {
-    return listOf<E>(first)
+    return salvo.std.core.list.List__T(first)
 }
 
 fun<T> Errs(value: T): T {
@@ -116,7 +116,7 @@ fun<X> joined(a: List<X>, b: List<X>, copy: (X) -> X): List<X> {
     for (e in salvo.platform.std.core.list.each(b)) {
         salvo.std.core.list.addPlatform(errors, copy(e))
     }
-    if (salvo.std.core.list.NonEmpty_qualifies(errors)) {
+    if (salvo.std.core.nonempty.NonEmpty_qualifies(errors, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
         return errors
     }
     return throw AssertionError(("salvo: " + ("two non-empty lists joined are not empty") + " at std.core.result:126:5"))

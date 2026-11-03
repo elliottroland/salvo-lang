@@ -23,16 +23,12 @@ pub mod std_core_index;
 pub mod std_core_iterator;
 #[path = "std/core/list.rs"]
 pub mod std_core_list;
-#[path = "std/core/map.rs"]
-pub mod std_core_map;
+#[path = "std/core/nonempty.rs"]
+pub mod std_core_nonempty;
 #[path = "std/core/range.rs"]
 pub mod std_core_range;
 #[path = "std/core/result.rs"]
 pub mod std_core_result;
-#[path = "std/core/set.rs"]
-pub mod std_core_set;
-#[path = "std/core/sorted.rs"]
-pub mod std_core_sorted;
 #[path = "std/core/string.rs"]
 pub mod std_core_string;
 #[path = "std/process.rs"]
@@ -45,12 +41,6 @@ pub mod platform_std_args;
 pub mod platform_std_core_console;
 #[path = "platform/std/core/list.rs"]
 pub mod platform_std_core_list;
-#[path = "platform/std/core/map.rs"]
-pub mod platform_std_core_map;
-#[path = "platform/std/core/set.rs"]
-pub mod platform_std_core_set;
-#[path = "platform/std/core/sorted.rs"]
-pub mod platform_std_core_sorted;
 #[path = "platform/std/core/string.rs"]
 pub mod platform_std_core_string;
 #[path = "platform/std/process.rs"]
@@ -66,10 +56,12 @@ use crate::std_args::GroupSpec;
 use crate::std_args::HelpRequested;
 use crate::std_core_range::InRange__Int_qualifies;
 use crate::std_args::Invalid;
+use crate::std_core_list::List__T;
+use crate::std_core_list::List__T_TArray;
 use crate::std_args::Missing;
 use crate::std_args::MissingOne;
 use crate::std_args::MissingValue;
-use crate::std_core_list::NonEmpty__List_qualifies;
+use crate::std_core_nonempty::NonEmpty_qualifies;
 use crate::std_core_result::Ok;
 use crate::std_args::OptSpec;
 use crate::std_args::Repeated;
@@ -334,15 +326,15 @@ pub fn main() {
     let __handle_4 = crate::std_args::Args::shared(__use_3);
     let mut __use_5: crate::std_process::__Platform_HostProcess = crate::std_process::__Platform_HostProcess::new();
     let __handle_6 = crate::std_process::Process::shared(__use_5);
-    crate::show(&__handle_2, &vec![String::from("serve"), String::from("-p"), String::from("80"), String::from("index.html"), String::from("app.js")]);
-    crate::show(&__handle_2, &vec![String::from("-v"), String::from("serve"), String::from("--host=0.0.0.0"), String::from("--workers"), String::from("4"), String::from("--cert"), String::from("c.pem"), String::from("--key"), String::from("k.pem"), String::from("--output"), String::from("json"), String::from("site")]);
-    crate::show(&__handle_2, &vec![String::from("fetch"), String::from("--url"), String::from("https://example.com"), String::from("--header"), String::from("Accept: text/html"), String::from("--header"), String::from("X-Id: 7")]);
-    crate::show(&__handle_2, &vec![String::from("fetch"), String::from("--from-stdin")]);
-    crate::show(&__handle_2, &vec![String::from("serve"), String::from("-p"), String::from("0"), String::from("--output"), String::from("xml"), String::from("--cert"), String::from("c.pem")]);
-    crate::show(&__handle_2, &vec![String::from("fetch"), String::from("--url"), String::from("u"), String::from("--file"), String::from("f")]);
-    crate::show(&__handle_2, &vec![String::from("deploy")]);
-    crate::show(&__handle_2, &vec![String::from("--help")]);
-    crate::show(&__handle_2, &vec![String::from("serve"), String::from("--help")]);
+    crate::show(&__handle_2, &crate::std_core_list::List__T_TArray::<String>(String::from("serve"), vec![String::from("-p"), String::from("80"), String::from("index.html"), String::from("app.js")]));
+    crate::show(&__handle_2, &crate::std_core_list::List__T_TArray::<String>(String::from("-v"), vec![String::from("serve"), String::from("--host=0.0.0.0"), String::from("--workers"), String::from("4"), String::from("--cert"), String::from("c.pem"), String::from("--key"), String::from("k.pem"), String::from("--output"), String::from("json"), String::from("site")]));
+    crate::show(&__handle_2, &crate::std_core_list::List__T_TArray::<String>(String::from("fetch"), vec![String::from("--url"), String::from("https://example.com"), String::from("--header"), String::from("Accept: text/html"), String::from("--header"), String::from("X-Id: 7")]));
+    crate::show(&__handle_2, &crate::std_core_list::List__T_TArray::<String>(String::from("fetch"), vec![String::from("--from-stdin")]));
+    crate::show(&__handle_2, &crate::std_core_list::List__T_TArray::<String>(String::from("serve"), vec![String::from("-p"), String::from("0"), String::from("--output"), String::from("xml"), String::from("--cert"), String::from("c.pem")]));
+    crate::show(&__handle_2, &crate::std_core_list::List__T_TArray::<String>(String::from("fetch"), vec![String::from("--url"), String::from("u"), String::from("--file"), String::from("f")]));
+    crate::show(&__handle_2, &crate::std_core_list::List__T::<String>(String::from("deploy")));
+    crate::show(&__handle_2, &crate::std_core_list::List__T::<String>(String::from("--help")));
+    crate::show(&__handle_2, &crate::std_core_list::List__T_TArray::<String>(String::from("serve"), vec![String::from("--help")]));
     let mut tool: crate::Tool = crate::std_args::args_or_exit::<crate::Tool>(&__handle_2, &__handle_6, &__handle_4.args(), &mut || crate::arg_spec__SpecTool(), &mut |__a0: &crate::std_args::Found| crate::from_found__Found_OkToolOrErrsNonEmptyListArgError(__a0));
     crate::std_core_console::println(&__handle_2, &format!("argv: {}", crate::describe(&tool)));
 }
@@ -395,7 +387,7 @@ pub fn from_found__Found_OkToolOrErrsNonEmptyListArgError(found: &crate::std_arg
         let mut r: crate::unions::Union2<crate::Fetch, Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>> = crate::std_args::parse_named::<crate::Fetch>(&found.rest, Some((found.path).clone()), &mut || crate::arg_spec__SpecFetch(), &mut |__a0: &crate::std_args::Found| crate::from_found__Found_OkFetchOrErrsNonEmptyListArgError(__a0));
         crate::std_args::group_errors::<crate::Fetch>(&mut errors, r, 0i32);
     };
-    if crate::std_core_list::NonEmpty__List_qualifies(&errors) {
+    if crate::std_core_nonempty::NonEmpty_qualifies::<Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>>(&errors, &mut |__a0: &Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>| crate::std_core_list::size_platform(__a0)) {
         return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>>(errors));
     };
     return crate::unions::Union2::U1(crate::std_core_result::Ok::<crate::Tool>(crate::Tool { verbose: crate::std_args::eval({ let mut found = found.clone(); move || -> bool {
@@ -515,7 +507,7 @@ pub fn from_found__Found_OkServeOrErrsNonEmptyListArgError(found: &crate::std_ar
     crate::std_args::check_value::<String>(&mut errors, found, &String::from("files"), &shown_2, &what_3, &mut |mut _v| -> Option<String> {
         None
     }, &mut |__a0: &String| crate::std_core_string::from_str__Str_StrOpt(__a0));
-    if crate::std_core_list::NonEmpty__List_qualifies(&errors) {
+    if crate::std_core_nonempty::NonEmpty_qualifies::<Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>>(&errors, &mut |__a0: &Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>| crate::std_core_list::size_platform(__a0)) {
         return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>>(errors));
     };
     return crate::unions::Union2::U1(crate::std_core_result::Ok::<crate::Serve>(crate::Serve { net: crate::std_args::eval({ let mut found = found.clone(); move || -> crate::Net {
@@ -553,7 +545,7 @@ pub fn from_found__Found_OkServeOrErrsNonEmptyListArgError(found: &crate::std_ar
         return None;
     } }), files: crate::std_args::eval({ let mut found = found.clone(); move || -> Vec<String> {
         let mut all: Vec<String> = crate::std_args::read_all::<String>(&found, &String::from("files"), &mut |__a0: &String| crate::std_core_string::from_str__Str_StrOpt(__a0));
-        if crate::std_core_list::NonEmpty__List_qualifies(&all) {
+        if crate::std_core_nonempty::NonEmpty_qualifies::<Vec<String>>(&all, &mut |__a0: &Vec<String>| crate::std_core_list::size_platform(__a0)) {
             return all;
         };
         panic!("salvo: `files` was checked as required at main:49:16")
@@ -619,7 +611,7 @@ pub fn from_found__Found_OkNetOrErrsNonEmptyListArgError(found: &crate::std_args
     crate::std_args::check_value::<i32>(&mut errors, found, &String::from("workers"), &shown_2, &what_3, &mut |mut _v| -> Option<String> {
         None
     }, &mut |__a0: &String| crate::std_core_string::from_str__Str_IntOpt(__a0));
-    if crate::std_core_list::NonEmpty__List_qualifies(&errors) {
+    if crate::std_core_nonempty::NonEmpty_qualifies::<Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>>(&errors, &mut |__a0: &Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>| crate::std_core_list::size_platform(__a0)) {
         return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>>(errors));
     };
     return crate::unions::Union2::U1(crate::std_core_result::Ok::<crate::Net>(crate::Net { host: crate::std_args::eval({ let mut found = found.clone(); move || -> String {
@@ -693,7 +685,7 @@ pub fn from_found__Found_OkTlsOrErrsNonEmptyListArgError(found: &crate::std_args
     crate::std_args::check_value::<String>(&mut errors, found, &String::from("key"), &shown_2, &what_3, &mut |mut v| -> Option<String> {
         None
     }, &mut |__a0: &String| crate::std_core_string::from_str__Str_StrOpt(__a0));
-    if crate::std_core_list::NonEmpty__List_qualifies(&errors) {
+    if crate::std_core_nonempty::NonEmpty_qualifies::<Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>>(&errors, &mut |__a0: &Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>| crate::std_core_list::size_platform(__a0)) {
         return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>>(errors));
     };
     return crate::unions::Union2::U1(crate::std_core_result::Ok::<crate::Tls>(crate::Tls { cert: crate::std_args::eval({ let mut found = found.clone(); move || -> String {
@@ -791,7 +783,7 @@ pub fn from_found__Found_OkFetchOrErrsNonEmptyListArgError(found: &crate::std_ar
     crate::std_args::check_value::<String>(&mut errors, found, &String::from("header"), &shown, &what, &mut |mut _v| -> Option<String> {
         None
     }, &mut |__a0: &String| crate::std_core_string::from_str__Str_StrOpt(__a0));
-    if crate::std_core_list::NonEmpty__List_qualifies(&errors) {
+    if crate::std_core_nonempty::NonEmpty_qualifies::<Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>>(&errors, &mut |__a0: &Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>| crate::std_core_list::size_platform(__a0)) {
         return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>>(errors));
     };
     return crate::unions::Union2::U1(crate::std_core_result::Ok::<crate::Fetch>(crate::Fetch { source: crate::std_args::eval({ let mut found = found.clone(); let mut s = s.clone(); move || -> crate::unions::Union3<crate::FromUrl, crate::FromFile, crate::FromStdin> {
@@ -880,7 +872,7 @@ pub fn from_found__Found_OkFromUrlOrErrsNonEmptyListArgError(found: &crate::std_
     crate::std_args::check_value::<i32>(&mut errors, found, &String::from("timeout"), &shown_2, &what_3, &mut |mut v| -> Option<String> {
         None
     }, &mut |__a0: &String| crate::std_core_string::from_str__Str_IntOpt(__a0));
-    if crate::std_core_list::NonEmpty__List_qualifies(&errors) {
+    if crate::std_core_nonempty::NonEmpty_qualifies::<Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>>(&errors, &mut |__a0: &Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>| crate::std_core_list::size_platform(__a0)) {
         return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>>(errors));
     };
     return crate::unions::Union2::U1(crate::std_core_result::Ok::<crate::FromUrl>(crate::FromUrl { url: crate::std_args::eval({ let mut found = found.clone(); move || -> String {
@@ -939,7 +931,7 @@ pub fn from_found__Found_OkFromFileOrErrsNonEmptyListArgError(found: &crate::std
     crate::std_args::check_value::<String>(&mut errors, found, &String::from("file"), &shown, &what, &mut |mut v| -> Option<String> {
         None
     }, &mut |__a0: &String| crate::std_core_string::from_str__Str_StrOpt(__a0));
-    if crate::std_core_list::NonEmpty__List_qualifies(&errors) {
+    if crate::std_core_nonempty::NonEmpty_qualifies::<Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>>(&errors, &mut |__a0: &Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>| crate::std_core_list::size_platform(__a0)) {
         return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>>(errors));
     };
     return crate::unions::Union2::U1(crate::std_core_result::Ok::<crate::FromFile>(crate::FromFile { file: crate::std_args::eval({ let mut found = found.clone(); move || -> String {
@@ -969,7 +961,7 @@ pub fn from_found__Found_OkFromStdinOrErrsNonEmptyListArgError(found: &crate::st
     for mut e in found.errors.iter() {
         crate::std_core_list::add_platform::<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>(&mut errors, (e).clone());
     }
-    if crate::std_core_list::NonEmpty__List_qualifies(&errors) {
+    if crate::std_core_nonempty::NonEmpty_qualifies::<Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>>(&errors, &mut |__a0: &Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>| crate::std_core_list::size_platform(__a0)) {
         return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>>(errors));
     };
     return crate::unions::Union2::U1(crate::std_core_result::Ok::<crate::FromStdin>(crate::FromStdin {}));

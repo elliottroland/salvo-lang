@@ -36,14 +36,14 @@ pub fn size__LongBuffer(buf: &crate::std_core_buffer::LongBuffer) -> i32 {
 }
 
 pub fn get__IntBuffer_Int(buf: &crate::std_core_buffer::IntBuffer, mut index: i32) -> Option<i32> {
-    if crate::std_core_index::Idx__Int_qualifies(index, buf, &mut |__a0| crate::std_core_buffer::size__IntBuffer(__a0)) {
+    if crate::std_core_index::Idx__Int_qualifies::<crate::std_core_buffer::IntBuffer>(index, buf, &mut |__a0: &crate::std_core_buffer::IntBuffer| crate::std_core_buffer::size__IntBuffer(__a0)) {
         return Some(crate::std_core_buffer::int_get_platform(buf, i32::wrapping_add(index, 0i32)));
     };
     return None;
 }
 
 pub fn get__LongBuffer_Int(buf: &crate::std_core_buffer::LongBuffer, mut index: i32) -> Option<i64> {
-    if crate::std_core_index::Idx__Int_qualifies(index, buf, &mut |__a0| crate::std_core_buffer::size__LongBuffer(__a0)) {
+    if crate::std_core_index::Idx__Int_qualifies::<crate::std_core_buffer::LongBuffer>(index, buf, &mut |__a0: &crate::std_core_buffer::LongBuffer| crate::std_core_buffer::size__LongBuffer(__a0)) {
         return Some(crate::std_core_buffer::long_get_platform(buf, i32::wrapping_add(index, 0i32)));
     };
     return None;

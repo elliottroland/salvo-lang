@@ -14,8 +14,12 @@
 // A value platform type (ROADMAP 0.7): the host
 // implements it in `lib/platform/std/core/deque.{rs,kt}` and names the mutable
 // kind `MutDeque`.
-// @compilerrules [col-deque, type-canbe-mut, linear-container, net-noremote, platform-value-type]
-export iterable platform type Deque<T canbe linear> canbe Mut : Iter<self, DequeIter<T>, T>
+// @compilerrules [col-deque, type-canbe-mut, linear-container, net-noremote, platform-value-type, qual-refn-type]
+export iterable platform type Deque<T canbe linear> canbe Mut : Iter<self, DequeIter<T>, T> {
+    // Growth at either end makes a deque non-empty.
+    refn add_last(d: Mut Deque<T>, elem: T) => d: +NonEmpty
+    refn add_first(d: Mut Deque<T>, elem: T) => d: +NonEmpty
+}
 
 // The host's primitives, from which the constructors below are built.
 platform fn empty_deque<T canbe linear>() [] -> Mut Deque<T>
@@ -26,29 +30,32 @@ platform fn deque_from<T>(first: T, rest: T[]) [] -> Mut Deque<T> => !first, !re
 platform fn into_mut<T canbe linear>(d: Deque<T>) [] -> Mut Deque<T> => !d
 platform fn end_empty<T canbe linear>(d: Mut Deque<T>) [] -> None => !d
 
-// Constructors, in the two shapes every collection has.
-// @compilerrules [col-of-nonempty]
+// Constructors, in the two shapes every collection has. One written element
+// makes the deque `NonEmpty`: `add_last`'s refinement says so for the
+// one-element shape, and the host's `deque_from` is trusted with it here, in
+// the file that declares `Deque`.
+// @compilerrules [col-of-nonempty, qual-refn-type]
 export fn deque_of<T canbe linear>() [] -> Deque<T> {
     return empty_deque<T>()
 }
 // A linear element travels alone: no obligation can sit in a variadic tail.
-export fn deque_of<T canbe linear>(first: T) [] -> Deque<T> => !first {
+export fn deque_of<T canbe linear>(first: T) [] -> NonEmpty Deque<T> => !first {
     let d = empty_deque<T>()
     add_last(d, first)
     return d
 }
-export fn deque_of<T>(first: T, ...rest: T[]) [] -> Deque<T> => !first, !rest {
+export fn deque_of<T>(first: T, ...rest: T[]) [] -> +NonEmpty Deque<T> => !first, !rest {
     return deque_from(first, rest)
 }
 export fn mut_deque_of<T canbe linear>() [] -> Mut Deque<T> {
     return empty_deque<T>()
 }
-export fn mut_deque_of<T canbe linear>(first: T) [] -> Mut Deque<T> => !first {
+export fn mut_deque_of<T canbe linear>(first: T) [] -> NonEmpty Mut Deque<T> => !first {
     let d = empty_deque<T>()
     add_last(d, first)
     return d
 }
-export fn mut_deque_of<T>(first: T, ...rest: T[]) [] -> Mut Deque<T> => !first, !rest {
+export fn mut_deque_of<T>(first: T, ...rest: T[]) [] -> +NonEmpty Mut Deque<T> => !first, !rest {
     return deque_from(first, rest)
 }
 

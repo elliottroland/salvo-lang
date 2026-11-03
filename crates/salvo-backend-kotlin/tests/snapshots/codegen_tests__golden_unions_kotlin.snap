@@ -216,6 +216,33 @@ package salvo.std.core.list
 
 import salvo.*
 
+fun<T> List(): List<T> {
+    return mutableListOf<T>()
+}
+
+fun<T> List__T(first: T): List<T> {
+    return salvo.std.core.list.Mut_List__T(first)
+}
+
+fun<T> List__T_TArray(first: T, rest: Array<T>): List<T> {
+    return salvo.std.core.list.Mut_List__T_TArray(first, rest)
+}
+
+fun<T> Mut_List__T(first: T): salvo.platform.std.core.list.MutList<T> {
+    val list: salvo.platform.std.core.list.MutList<T> = mutableListOf<T>()
+    salvo.std.core.list.addPlatform(list, first)
+    return list
+}
+
+fun<T> Mut_List__T_TArray(first: T, rest: Array<T>): salvo.platform.std.core.list.MutList<T> {
+    val list: salvo.platform.std.core.list.MutList<T> = mutableListOf<T>()
+    salvo.std.core.list.addPlatform(list, first)
+    salvo.std.core.list.addAllPlatform(list, rest)
+    return list
+}
+
+fun<T> addAllPlatform(list: salvo.platform.std.core.list.MutList<T>, items: Array<T>) = salvo.platform.std.core.list.addAll(list, items)
+
 fun<T> listBy(size: Int, init: (Int) -> T): List<T> {
     return salvo.std.core.list.mutListBy(size, init)
 }
@@ -294,7 +321,7 @@ fun<T> drain(list: List<T>, each: (T) -> Unit) {
                     __pick1_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:265:32")
+                    throw AssertionError("salvo: unreachable at std.core.list:322:32")
                 }
             }
         })
@@ -310,10 +337,6 @@ fun<T> removeLastPlatform(list: salvo.platform.std.core.list.MutList<T>): T? = s
 
 fun<T> firstPlatform(list: List<T>): T? = salvo.platform.std.core.list.first(list)
 
-fun<T> NonEmpty_qualifies(list: List<T>): Boolean {
-    return (salvo.std.core.list.sizePlatform(list) > 0)
-}
-
 fun<T> first(list: List<T>): T {
     return kotlin.run {
         val __pick2: T? = salvo.std.core.list.getPlatform(list, 0)
@@ -323,7 +346,7 @@ fun<T> first(list: List<T>): T {
                 __pick2_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.core.list:325:28")
+                throw AssertionError("salvo: unreachable at std.core.list:347:28")
             }
         }
     }
@@ -362,7 +385,7 @@ fun<T> removeFrontWhile(list: salvo.platform.std.core.list.MutList<T>, keep: (T)
                     __pick3_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:373:50")
+                    throw AssertionError("salvo: unreachable at std.core.list:395:50")
                 }
             }
         })))) {
@@ -384,7 +407,7 @@ fun<T> removeBackWhile(list: salvo.platform.std.core.list.MutList<T>, keep: (T) 
                     __pick4_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:386:47")
+                    throw AssertionError("salvo: unreachable at std.core.list:408:47")
                 }
             }
         })))) {
@@ -413,7 +436,7 @@ fun<T> subList(list: List<T>, from: Int, to: Int, copy: (T) -> T): salvo.platfor
                     __pick5_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:405:39")
+                    throw AssertionError("salvo: unreachable at std.core.list:427:39")
                 }
             }
         }))
@@ -520,7 +543,7 @@ fun<T> contains(list: List<T>, elem: T, eq: (T, T) -> Boolean): Boolean {
                     __pick6_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:460:31")
+                    throw AssertionError("salvo: unreachable at std.core.list:482:31")
                 }
             }
         }, elem)) {
@@ -549,7 +572,7 @@ fun<T> all(list: List<T>, pick: (T) -> Boolean): Boolean {
                     __pick7_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:479:34")
+                    throw AssertionError("salvo: unreachable at std.core.list:501:34")
                 }
             }
         }))) {
@@ -575,7 +598,7 @@ fun<T> count(list: List<T>, pick: (T) -> Boolean): Int {
                     __pick8_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:493:33")
+                    throw AssertionError("salvo: unreachable at std.core.list:515:33")
                 }
             }
         })) {
@@ -602,7 +625,7 @@ fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): kotlin.Pa
                     __pick9_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:511:33")
+                    throw AssertionError("salvo: unreachable at std.core.list:533:33")
                 }
             }
         }
@@ -806,215 +829,13 @@ fun<T> cmp(a: List<T>, b: List<T>, cmp: (T, T) -> Int): Int {
 }
 
 
-// ===== std/core/map.kt =====
-package salvo.std.core.map
+// ===== std/core/nonempty.kt =====
+package salvo.std.core.nonempty
 
 import salvo.*
 
-fun<K, V> Map_platform(entries: Array<kotlin.Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.Map<K, V> = salvo.platform.std.core.map.Map(entries, hash, eq)
-
-fun<K, V> Mut_Map_platform(entries: Array<kotlin.Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.MutMap<K, V> = salvo.platform.std.core.map.Mut_Map(entries, hash, eq)
-
-fun<K, V> mapByPlatform(size: Int, init: (Int) -> kotlin.Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.Map<K, V> = salvo.platform.std.core.map.mapBy(size, init, hash, eq)
-
-fun<K, V> mutMapByPlatform(size: Int, init: (Int) -> kotlin.Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.MutMap<K, V> = salvo.platform.std.core.map.mutMapBy(size, init, hash, eq)
-
-fun<K, V> toMapPlatform(pairs: List<kotlin.Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.Map<K, V> = salvo.platform.std.core.map.toMap(pairs, hash, eq)
-
-fun<T, K, V> toMap(items: List<T>, entry: (T) -> kotlin.Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.Map<K, V> {
-    val map: salvo.platform.std.core.map.MutMap<K, V> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<K, V>>(), hash, eq)
-    for (x in salvo.platform.std.core.list.each(items)) {
-        val __destructured_1: kotlin.Pair<K, V> = entry(x)
-        val k: K = __destructured_1.first
-        val v: V = __destructured_1.second
-        salvo.std.core.map.putPlatform(map, k, v, hash, eq)
-    }
-    return map
-}
-
-fun<K, V> getPlatform(map: salvo.platform.std.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? = salvo.platform.std.core.map.get(map, key, hash, eq)
-
-fun<K, V> atPlatform(map: salvo.platform.std.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? = salvo.platform.std.core.map.at(map, key, hash, eq)
-
-fun<K, V> putPlatform(map: salvo.platform.std.core.map.MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean) = salvo.platform.std.core.map.put(map, key, value, hash, eq)
-
-fun<K, V> replacePlatform(map: salvo.platform.std.core.map.MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean): V? = salvo.platform.std.core.map.replace(map, key, value, hash, eq)
-
-fun<K, V> removePlatform(map: salvo.platform.std.core.map.MutMap<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? = salvo.platform.std.core.map.remove(map, key, hash, eq)
-
-fun<K, V> containsKeyPlatform(map: salvo.platform.std.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): Boolean = salvo.platform.std.core.map.containsKey(map, key, hash, eq)
-
-fun<K, V> KeyOf_qualifies(key: K, map: salvo.platform.std.core.map.Map<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): Boolean {
-    return salvo.std.core.map.containsKeyPlatform(map, key, hash, eq)
-}
-
-fun<K, V> getPresentPlatform(map: salvo.platform.std.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V = salvo.platform.std.core.map.getPresent(map, key, hash, eq)
-
-fun<K, V> get(map: salvo.platform.std.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V {
-    return salvo.std.core.map.getPresentPlatform(map, key, hash, eq)
-}
-
-fun<K, V> at(map: salvo.platform.std.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V {
-    return salvo.std.core.map.atPresentPlatform(map, key, hash, eq)
-}
-
-fun<K, V> atPresentPlatform(map: salvo.platform.std.core.map.Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V = salvo.platform.std.core.map.atPresent(map, key, hash, eq)
-
-fun<K, V> sizePlatform(map: salvo.platform.std.core.map.Map<K, V>): Int = salvo.platform.std.core.map.size(map)
-
-fun<K, V> drain(map: salvo.platform.std.core.map.Map<K, V>, each: (V) -> Unit) {
-    salvo.std.core.list.drain(salvo.std.core.map.intoValuesPlatform(map), each)
-}
-
-fun<K, V> intoValuesPlatform(map: salvo.platform.std.core.map.Map<K, V>): List<V> = salvo.platform.std.core.map.intoValues(map)
-
-fun<K, V> toStr(map: salvo.platform.std.core.map.Map<K, V>, toStr: (K) -> String, toStr__1: (V) -> String, hash: (K) -> Long, eq: (K, K) -> Boolean): String {
-    val out: salvo.platform.std.core.string.MutStr = salvo.std.core.string.Mut_Str(arrayOf<String>("{"))
-    var i: Int = 0
-    for (k in salvo.platform.std.core.map.each(map)) {
-        if ((i > 0)) {
-            salvo.std.core.string.appendPlatform(out, ", ")
-        }
-        salvo.std.core.string.appendPlatform(out, toStr(k))
-        salvo.std.core.string.appendPlatform(out, ": ")
-        salvo.std.core.string.appendPlatform(out, toStr__1(kotlin.run {
-            val __pick1: V? = salvo.std.core.map.getPlatform(map, k, hash, eq)
-            when {
-                (__pick1 != null) -> {
-                    val __pick1_1: V = __pick1!!
-                    __pick1_1
-                }
-                else -> {
-                    throw AssertionError("salvo: unreachable at std.core.map:201:43")
-                }
-            }
-        }))
-        i = (i + 1)
-    }
-    salvo.std.core.string.appendPlatform(out, "}")
-    return out.toString()
-}
-
-fun<K, V> eq(a: salvo.platform.std.core.map.Map<K, V>, b: salvo.platform.std.core.map.Map<K, V>, eq: (V, V) -> Boolean, hash: (K) -> Long, eq__1: (K, K) -> Boolean): Boolean {
-    if ((salvo.std.core.map.sizePlatform(a) != salvo.std.core.map.sizePlatform(b))) {
-        return false
-    }
-    for (k in salvo.platform.std.core.map.each(a)) {
-        val theirs: V? = salvo.std.core.map.getPlatform(b, k, hash, eq__1)
-        if ((theirs == null)) {
-            return false
-        }
-        val theirs_2: V = theirs!!
-        if (!(eq(kotlin.run {
-            val __pick2: V? = salvo.std.core.map.getPlatform(a, k, hash, eq__1)
-            when {
-                (__pick2 != null) -> {
-                    val __pick2_1: V = __pick2!!
-                    __pick2_1
-                }
-                else -> {
-                    throw AssertionError("salvo: unreachable at std.core.map:224:29")
-                }
-            }
-        }, theirs_2))) {
-            return false
-        }
-    }
-    return true
-}
-
-fun<K, V> keysPlatform(map: salvo.platform.std.core.map.Map<K, V>): List<K> = salvo.platform.std.core.map.keys(map)
-
-fun<K, V> iter(map: salvo.platform.std.core.map.Map<K, V>): MapKeyIter<K> {
-    return MapKeyIter<K>(items = salvo.std.core.map.keysPlatform(map), at = 0)
-}
-
-data class MapKeyIter<K>(
-    var items: List<K>,
-    var at: Int,
-)
-
-class __Codec_MapKeyIter<K>(private val __c_K: salvo.WireCodec<K>) : salvo.WireCodec<MapKeyIter<K>> {
-    override fun enc(v: MapKeyIter<K>, out: salvo.WireOut) {
-        salvo.ListCodec(__c_K).enc(v.items, out)
-        salvo.IntCodec.enc(v.at, out)
-    }
-    override fun dec(inp: salvo.WireIn): MapKeyIter<K> = MapKeyIter(salvo.ListCodec(__c_K).dec(inp), salvo.IntCodec.dec(inp))
-}
-
-fun<K> next__MapKeyIter(p: MapKeyIter<K>): Union2<K, salvo.std.core.iterator.Finished> {
-    val key: K? = p.items.getOrNull(p.at)
-    if ((key == null)) {
-        return Union2.U2<K, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
-    }
-    p.at = (p.at + 1)
-    val key_1: K = key!!
-    return Union2.U1<K, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(key_1))
-}
-
-fun<K, V> slotCountPlatform(map: salvo.platform.std.core.map.Map<K, V>): Int = salvo.platform.std.core.map.slotCount(map)
-
-fun<K, V> keyAtPlatform(map: salvo.platform.std.core.map.Map<K, V>, at: Int): K? = salvo.platform.std.core.map.keyAt(map, at)
-
-fun<K, V> valueAtPlatform(map: salvo.platform.std.core.map.Map<K, V>, at: Int): V = salvo.platform.std.core.map.valueAt(map, at)
-
-data class MapEntry<K, V>(
-    val key: K,
-    val value: V,
-)
-
-fun<K, V> entries(map: salvo.platform.std.core.map.Map<K, V>): MapEntriesIter<K, V> {
-    return MapEntriesIter<K, V>(map = map, at = 0)
-}
-
-data class MapEntriesIter<K, V>(
-    var map: salvo.platform.std.core.map.Map<K, V>,
-    var at: Int,
-)
-
-fun<K, V> next__MapEntriesIter(p: MapEntriesIter<K, V>): Union2<MapEntry<K, V>, salvo.std.core.iterator.Finished> {
-    while (true) {
-        if (!((p.at < salvo.std.core.map.slotCountPlatform(p.map)))) {
-            break
-        }
-        val here: Int = p.at
-        p.at = (p.at + 1)
-        val key: K? = salvo.std.core.map.keyAtPlatform(p.map, here)
-        if (!((key == null))) {
-            val value: V = salvo.std.core.map.valueAtPlatform(p.map, here)
-            val key_1: K = key!!
-            return Union2.U1<MapEntry<K, V>, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(MapEntry<K, V>(key = key_1, value = value)))
-        }
-    }
-    return Union2.U2<MapEntry<K, V>, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
-}
-
-fun<K, V> values(map: salvo.platform.std.core.map.Map<K, V>): MapValuesIter<K, V> {
-    return MapValuesIter<K, V>(map = map, at = 0)
-}
-
-data class MapValuesIter<K, V>(
-    var map: salvo.platform.std.core.map.Map<K, V>,
-    var at: Int,
-)
-
-fun<K, V> next__MapValuesIter(p: MapValuesIter<K, V>): Union2<V, salvo.std.core.iterator.Finished> {
-    while (true) {
-        if (!((p.at < salvo.std.core.map.slotCountPlatform(p.map)))) {
-            break
-        }
-        val here: Int = p.at
-        p.at = (p.at + 1)
-        if (!((salvo.std.core.map.keyAtPlatform(p.map, here) == null))) {
-            val value: V = salvo.std.core.map.valueAtPlatform(p.map, here)
-            return Union2.U1<V, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(value))
-        }
-    }
-    return Union2.U2<V, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
-}
-
-fun<K, V> NonEmpty_qualifies(map: salvo.platform.std.core.map.Map<K, V>): Boolean {
-    return (salvo.std.core.map.sizePlatform(map) > 0)
+fun<T> NonEmpty_qualifies(value: T, size: (T) -> Int): Boolean {
+    return (size(value) > 0)
 }
 
 
@@ -1040,7 +861,7 @@ fun<T> Err(value: T): T {
 }
 
 fun<E> errs(first: E): List<E> {
-    return listOf<E>(first)
+    return salvo.std.core.list.List__T(first)
 }
 
 fun<T> Errs(value: T): T {
@@ -1137,310 +958,10 @@ fun<X> joined(a: List<X>, b: List<X>, copy: (X) -> X): List<X> {
     for (e in salvo.platform.std.core.list.each(b)) {
         salvo.std.core.list.addPlatform(errors, copy(e))
     }
-    if (salvo.std.core.list.NonEmpty_qualifies(errors)) {
+    if (salvo.std.core.nonempty.NonEmpty_qualifies(errors, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
         return errors
     }
     return throw AssertionError(("salvo: " + ("two non-empty lists joined are not empty") + " at std.core.result:126:5"))
-}
-
-
-// ===== std/core/set.kt =====
-package salvo.std.core.set
-
-import salvo.*
-
-fun<T> Set_platform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.std.core.set.Set<T> = salvo.platform.std.core.set.Set(elems, hash, eq)
-
-fun<T> Mut_Set_platform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.std.core.set.MutSet<T> = salvo.platform.std.core.set.Mut_Set(elems, hash, eq)
-
-fun<T> setByPlatform(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.std.core.set.Set<T> = salvo.platform.std.core.set.setBy(size, init, hash, eq)
-
-fun<T> mutSetByPlatform(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.std.core.set.MutSet<T> = salvo.platform.std.core.set.mutSetBy(size, init, hash, eq)
-
-fun<T> toSetPlatform(list: List<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.std.core.set.Set<T> = salvo.platform.std.core.set.toSet(list, hash, eq)
-
-fun<T> addPlatform(set: salvo.platform.std.core.set.MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean = salvo.platform.std.core.set.add(set, elem, hash, eq)
-
-fun<T> removePlatform(set: salvo.platform.std.core.set.MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean = salvo.platform.std.core.set.remove(set, elem, hash, eq)
-
-fun<T> containsPlatform(set: salvo.platform.std.core.set.Set<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean = salvo.platform.std.core.set.contains(set, elem, hash, eq)
-
-fun<T> sizePlatform(set: salvo.platform.std.core.set.Set<T>): Int = salvo.platform.std.core.set.size(set)
-
-fun<T> toStr(set: salvo.platform.std.core.set.Set<T>, toStr: (T) -> String): String {
-    val out: salvo.platform.std.core.string.MutStr = salvo.std.core.string.Mut_Str(arrayOf<String>("{"))
-    var i: Int = 0
-    for (x in salvo.platform.std.core.set.each(set)) {
-        if ((i > 0)) {
-            salvo.std.core.string.appendPlatform(out, ", ")
-        }
-        salvo.std.core.string.appendPlatform(out, toStr(x))
-        i = (i + 1)
-    }
-    salvo.std.core.string.appendPlatform(out, "}")
-    return out.toString()
-}
-
-fun<T> eq(a: salvo.platform.std.core.set.Set<T>, b: salvo.platform.std.core.set.Set<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
-    if ((salvo.std.core.set.sizePlatform(a) != salvo.std.core.set.sizePlatform(b))) {
-        return false
-    }
-    for (x in salvo.platform.std.core.set.each(a)) {
-        if (!(salvo.std.core.set.containsPlatform(b, x, hash, eq))) {
-            return false
-        }
-    }
-    return true
-}
-
-fun<T> toListPlatform(set: salvo.platform.std.core.set.Set<T>): List<T> = salvo.platform.std.core.set.toList(set)
-
-fun<T> iter(set: salvo.platform.std.core.set.Set<T>): SetIter<T> {
-    return SetIter<T>(items = salvo.std.core.set.toListPlatform(set), at = 0)
-}
-
-data class SetIter<T>(
-    var items: List<T>,
-    var at: Int,
-)
-
-class __Codec_SetIter<T>(private val __c_T: salvo.WireCodec<T>) : salvo.WireCodec<SetIter<T>> {
-    override fun enc(v: SetIter<T>, out: salvo.WireOut) {
-        salvo.ListCodec(__c_T).enc(v.items, out)
-        salvo.IntCodec.enc(v.at, out)
-    }
-    override fun dec(inp: salvo.WireIn): SetIter<T> = SetIter(salvo.ListCodec(__c_T).dec(inp), salvo.IntCodec.dec(inp))
-}
-
-fun<T> next(p: SetIter<T>): Union2<T, salvo.std.core.iterator.Finished> {
-    val elem: T? = p.items.getOrNull(p.at)
-    if ((elem == null)) {
-        return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
-    }
-    p.at = (p.at + 1)
-    val elem_1: T = elem!!
-    return Union2.U1<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(elem_1))
-}
-
-fun<T> NonEmpty_qualifies(set: salvo.platform.std.core.set.Set<T>): Boolean {
-    return (salvo.std.core.set.sizePlatform(set) > 0)
-}
-
-
-// ===== std/core/sorted.kt =====
-package salvo.std.core.sorted
-
-import salvo.*
-
-fun<T> SortedSet_platform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.std.core.sorted.SortedSet<T> = salvo.platform.std.core.sorted.SortedSet(elems, cmp)
-
-fun<T> Mut_SortedSet_platform(elems: Array<T>, cmp: (T, T) -> Int): salvo.platform.std.core.sorted.MutSortedSet<T> = salvo.platform.std.core.sorted.Mut_SortedSet(elems, cmp)
-
-fun<T> addPlatform(set: salvo.platform.std.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = salvo.platform.std.core.sorted.add(set, elem, cmp)
-
-fun<T> remove__SortedSet_T(set: salvo.platform.std.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
-    return salvo.std.core.sorted.removeElemPlatform(set, elem, cmp)
-}
-
-fun<T> removeElemPlatform(set: salvo.platform.std.core.sorted.MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = salvo.platform.std.core.sorted.removeElem(set, elem, cmp)
-
-fun<T> setSizePlatform(set: salvo.platform.std.core.sorted.SortedSet<T>): Int = salvo.platform.std.core.sorted.setSize(set)
-
-fun<K, V> removeKeyPlatform(map: salvo.platform.std.core.sorted.MutSortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? = salvo.platform.std.core.sorted.removeKey(map, key, cmp)
-
-fun<K, V> mapSizePlatform(map: salvo.platform.std.core.sorted.SortedMap<K, V>): Int = salvo.platform.std.core.sorted.mapSize(map)
-
-fun<T> containsPlatform(set: salvo.platform.std.core.sorted.SortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = salvo.platform.std.core.sorted.contains(set, elem, cmp)
-
-fun<T> size__SortedSet(set: salvo.platform.std.core.sorted.SortedSet<T>): Int {
-    return salvo.std.core.sorted.setSizePlatform(set)
-}
-
-fun<T> minPlatform(set: salvo.platform.std.core.sorted.SortedSet<T>): T? = salvo.platform.std.core.sorted.min(set)
-
-fun<T> maxPlatform(set: salvo.platform.std.core.sorted.SortedSet<T>): T? = salvo.platform.std.core.sorted.max(set)
-
-fun<T> toListPlatform(set: salvo.platform.std.core.sorted.SortedSet<T>): List<T> = salvo.platform.std.core.sorted.toList(set)
-
-fun<T> toStr__SortedSet(set: salvo.platform.std.core.sorted.SortedSet<T>, toStr: (T) -> String): String {
-    val out: salvo.platform.std.core.string.MutStr = salvo.std.core.string.Mut_Str(arrayOf<String>("{"))
-    var i: Int = 0
-    for (x in salvo.platform.std.core.sorted.eachSortedSet(set)) {
-        if ((i > 0)) {
-            salvo.std.core.string.appendPlatform(out, ", ")
-        }
-        salvo.std.core.string.appendPlatform(out, toStr(x))
-        i = (i + 1)
-    }
-    salvo.std.core.string.appendPlatform(out, "}")
-    return out.toString()
-}
-
-fun<T> iter__SortedSet(set: salvo.platform.std.core.sorted.SortedSet<T>): salvo.std.core.set.SetIter<T> {
-    return salvo.std.core.set.SetIter<T>(items = salvo.std.core.sorted.toListPlatform(set), at = 0)
-}
-
-fun<K, V> SortedMap_platform(entries: Array<kotlin.Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.std.core.sorted.SortedMap<K, V> = salvo.platform.std.core.sorted.SortedMap(entries, cmp)
-
-fun<K, V> Mut_SortedMap_platform(entries: Array<kotlin.Pair<K, V>>, cmp: (K, K) -> Int): salvo.platform.std.core.sorted.MutSortedMap<K, V> = salvo.platform.std.core.sorted.Mut_SortedMap(entries, cmp)
-
-fun<K, V> getPlatform(map: salvo.platform.std.core.sorted.SortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? = salvo.platform.std.core.sorted.get(map, key, cmp)
-
-fun<K, V> putPlatform(map: salvo.platform.std.core.sorted.MutSortedMap<K, V>, key: K, value: V, cmp: (K, K) -> Int) = salvo.platform.std.core.sorted.put(map, key, value, cmp)
-
-fun<K, V> remove__SortedMap_K(map: salvo.platform.std.core.sorted.MutSortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
-    return salvo.std.core.sorted.removeKeyPlatform(map, key, cmp)
-}
-
-fun<K, V> containsKeyPlatform(map: salvo.platform.std.core.sorted.SortedMap<K, V>, key: K, cmp: (K, K) -> Int): Boolean = salvo.platform.std.core.sorted.containsKey(map, key, cmp)
-
-fun<K, V> size__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>): Int {
-    return salvo.std.core.sorted.mapSizePlatform(map)
-}
-
-fun<K, V> firstKeyPlatform(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K? = salvo.platform.std.core.sorted.firstKey(map)
-
-fun<K, V> lastKeyPlatform(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K? = salvo.platform.std.core.sorted.lastKey(map)
-
-fun<K, V> keysPlatform(map: salvo.platform.std.core.sorted.SortedMap<K, V>): List<K> = salvo.platform.std.core.sorted.keys(map)
-
-fun<K, V> toStr__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>, toStr: (K) -> String, toStr__1: (V) -> String, cmp: (K, K) -> Int): String {
-    val out: salvo.platform.std.core.string.MutStr = salvo.std.core.string.Mut_Str(arrayOf<String>("{"))
-    var i: Int = 0
-    for (k in salvo.platform.std.core.sorted.eachSortedMap(map)) {
-        if ((i > 0)) {
-            salvo.std.core.string.appendPlatform(out, ", ")
-        }
-        salvo.std.core.string.appendPlatform(out, toStr(k))
-        salvo.std.core.string.appendPlatform(out, ": ")
-        salvo.std.core.string.appendPlatform(out, toStr__1(kotlin.run {
-            val __pick1: V? = salvo.std.core.sorted.getPlatform(map, k, cmp)
-            when {
-                (__pick1 != null) -> {
-                    val __pick1_1: V = __pick1!!
-                    __pick1_1
-                }
-                else -> {
-                    throw AssertionError("salvo: unreachable at std.core.sorted:163:43")
-                }
-            }
-        }))
-        i = (i + 1)
-    }
-    salvo.std.core.string.appendPlatform(out, "}")
-    return out.toString()
-}
-
-fun<T> eq__SortedSet_SortedSet(a: salvo.platform.std.core.sorted.SortedSet<T>, b: salvo.platform.std.core.sorted.SortedSet<T>, cmp: (T, T) -> Int): Boolean {
-    if ((salvo.std.core.sorted.size__SortedSet(a) != salvo.std.core.sorted.size__SortedSet(b))) {
-        return false
-    }
-    for (x in salvo.platform.std.core.sorted.eachSortedSet(a)) {
-        if (!(salvo.std.core.sorted.containsPlatform(b, x, cmp))) {
-            return false
-        }
-    }
-    return true
-}
-
-fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.std.core.sorted.SortedMap<K, V>, b: salvo.platform.std.core.sorted.SortedMap<K, V>, eq: (V, V) -> Boolean, cmp: (K, K) -> Int): Boolean {
-    if ((salvo.std.core.sorted.size__SortedMap(a) != salvo.std.core.sorted.size__SortedMap(b))) {
-        return false
-    }
-    for (k in salvo.platform.std.core.sorted.eachSortedMap(a)) {
-        val theirs: V? = salvo.std.core.sorted.getPlatform(b, k, cmp)
-        if ((theirs == null)) {
-            return false
-        }
-        val theirs_2: V = theirs!!
-        if (!(eq(kotlin.run {
-            val __pick2: V? = salvo.std.core.sorted.getPlatform(a, k, cmp)
-            when {
-                (__pick2 != null) -> {
-                    val __pick2_1: V = __pick2!!
-                    __pick2_1
-                }
-                else -> {
-                    throw AssertionError("salvo: unreachable at std.core.sorted:198:29")
-                }
-            }
-        }, theirs_2))) {
-            return false
-        }
-    }
-    return true
-}
-
-fun<K, V> iter__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>): salvo.std.core.map.MapKeyIter<K> {
-    return salvo.std.core.map.MapKeyIter<K>(items = salvo.std.core.sorted.keysPlatform(map), at = 0)
-}
-
-fun<T> NonEmpty_qualifies(set: salvo.platform.std.core.sorted.SortedSet<T>): Boolean {
-    return (salvo.std.core.sorted.size__SortedSet(set) > 0)
-}
-
-fun<K, V> NonEmpty_qualifies(map: salvo.platform.std.core.sorted.SortedMap<K, V>): Boolean {
-    return (salvo.std.core.sorted.size__SortedMap(map) > 0)
-}
-
-fun<T> min(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
-    return kotlin.run {
-        val __pick3: T? = salvo.std.core.sorted.minPlatform(set)
-        when {
-            (__pick3 != null) -> {
-                val __pick3_1: T = __pick3!!
-                __pick3_1
-            }
-            else -> {
-                throw AssertionError("salvo: unreachable at std.core.sorted:257:28")
-            }
-        }
-    }
-}
-
-fun<T> max(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
-    return kotlin.run {
-        val __pick4: T? = salvo.std.core.sorted.maxPlatform(set)
-        when {
-            (__pick4 != null) -> {
-                val __pick4_1: T = __pick4!!
-                __pick4_1
-            }
-            else -> {
-                throw AssertionError("salvo: unreachable at std.core.sorted:261:28")
-            }
-        }
-    }
-}
-
-fun<K, V> firstKey(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K {
-    return kotlin.run {
-        val __pick5: K? = salvo.std.core.sorted.firstKeyPlatform(map)
-        when {
-            (__pick5 != null) -> {
-                val __pick5_1: K = __pick5!!
-                __pick5_1
-            }
-            else -> {
-                throw AssertionError("salvo: unreachable at std.core.sorted:265:34")
-            }
-        }
-    }
-}
-
-fun<K, V> lastKey(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K {
-    return kotlin.run {
-        val __pick6: K? = salvo.std.core.sorted.lastKeyPlatform(map)
-        when {
-            (__pick6 != null) -> {
-                val __pick6_1: K = __pick6!!
-                __pick6_1
-            }
-            else -> {
-                throw AssertionError("salvo: unreachable at std.core.sorted:269:33")
-            }
-        }
-    }
 }
 
 
@@ -1542,7 +1063,7 @@ fun substr(str: String, at: Span): String {
                 __pick1_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.core.string:162:45")
+                throw AssertionError("salvo: unreachable at std.core.string:169:45")
             }
         }
     }
@@ -2366,6 +1887,12 @@ fun <T> add(list: MutList<T>, elem: T) {
     list.add(elem)
 }
 
+// [col-of-nonempty] The variadic constructor's tail, copied in: it stays the
+// caller's.
+fun <T> addAll(list: MutList<T>, items: Array<T>) {
+    list.addAll(items)
+}
+
 fun <T> removeFirst(list: MutList<T>): T? = if (list.isEmpty()) null else list.removeAt(0)
 
 fun <T> removeLast(list: MutList<T>): T? = if (list.isEmpty()) null else list.removeAt(list.size - 1)
@@ -2424,680 +1951,6 @@ fun <T> insertSortedBy(list: MutList<T>, elem: T, cmp: (T, T) -> Int) {
 
 fun <T> searchSortedBy(list: List<T>, elem: T, cmp: (T, T) -> Int): Int? =
     list.indexOfFirst { cmp(it, elem) >= 0 }.let { if (it >= 0 && cmp(list[it], elem) == 0) it else null }
-
-// ===== platform/std/core/map.kt =====
-// [platform-value-type] [platform-slots] std's map, for `std.core.map`'s `platform
-// type Map<K, V>(?hash, ?eq) canbe Mut`: one insertion-ordered slab for every
-// identity (ROADMAP §0j step 7, user decision 2026-10-06). Every operation is
-// handed the `hash` and `eq` its call resolved, lent for the call
-// [platform-fn-value]; the map keeps the entries and the digest each key was
-// filed under, nothing else. The operations are `inline`, as the set's are,
-// so the canonical identity compiles to the direct `hashCode`/`==` [kt-keyed].
-package salvo.platform.std.core.map
-
-typealias Map<K, V> = SalvoMap<K, V>
-typealias MutMap<K, V> = SalvoMap<K, V>
-
-/**
- * Entries in first-insertion order ([SalvoMap.TOMB] as the key where one was
- * removed), each key's digest, and an open-addressing index over a
- * power-of-two table holding `slot + 1` (0 is empty). An overwrite keeps the
- * key's position [col-insertion-order].
- */
-class SalvoMap<K, V> @PublishedApi internal constructor() : Iterable<Pair<K, V>> {
-    @PublishedApi internal var keys: Array<Any?> = arrayOfNulls(8)
-    @PublishedApi internal var values: Array<Any?> = arrayOfNulls(8)
-    @PublishedApi internal var digests: LongArray = LongArray(8)
-    @PublishedApi internal var count = 0
-    @PublishedApi internal var live = 0
-    @PublishedApi internal var index: IntArray = IntArray(16)
-
-    @PublishedApi internal fun home(digest: Long): Int {
-        val h = digest xor (digest ushr 29) xor (digest ushr 47)
-        return h.toInt() and (index.size - 1)
-    }
-
-    /** The slot holding a key equal to [key], or -1. */
-    @Suppress("UNCHECKED_CAST")
-    @PublishedApi internal inline fun find(key: K, digest: Long, eq: (K, K) -> Boolean): Int {
-        val mask = index.size - 1
-        var i = home(digest)
-        while (true) {
-            val at = index[i]
-            if (at == 0) return -1
-            val s = at - 1
-            if (digests[s] == digest) {
-                val k = keys[s]
-                if (k !== TOMB && eq(k as K, key)) return s
-            }
-            i = (i + 1) and mask
-        }
-    }
-
-    @PublishedApi internal fun append(key: K, value: V, digest: Long) {
-        if ((count + 1) * 4 > index.size * 3) rebuild()
-        if (count == keys.size) {
-            keys = keys.copyOf(count * 2)
-            values = values.copyOf(count * 2)
-            digests = digests.copyOf(count * 2)
-        }
-        keys[count] = key
-        values[count] = value
-        digests[count] = digest
-        count++
-        live++
-        place(count - 1)
-    }
-
-    private fun place(s: Int) {
-        val mask = index.size - 1
-        var i = home(digests[s])
-        while (index[i] != 0) i = (i + 1) and mask
-        index[i] = s + 1
-    }
-
-    private fun rebuild() {
-        var w = 0
-        for (r in 0 until count) {
-            if (keys[r] !== TOMB) {
-                keys[w] = keys[r]
-                values[w] = values[r]
-                digests[w] = digests[r]
-                w++
-            }
-        }
-        for (r in w until count) {
-            keys[r] = null
-            values[r] = null
-        }
-        count = w
-        var cap = 16
-        while (cap * 3 < (count + 1) * 8) cap *= 2
-        index = IntArray(cap)
-        for (s in 0 until count) place(s)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    @PublishedApi internal fun removeAt(s: Int): V {
-        val old = values[s] as V
-        keys[s] = TOMB
-        values[s] = null
-        live--
-        if (count > 2 * live + 8) rebuild()
-        return old
-    }
-
-    /** Stores [value] under [key]: an existing key keeps its place and takes the new key and value. */
-    @Suppress("UNCHECKED_CAST")
-    @PublishedApi internal inline fun store(key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean): Pair<Boolean, V?> {
-        val d = hash(key)
-        val i = find(key, d, eq)
-        if (i < 0) {
-            append(key, value, d)
-            return Pair(false, null)
-        }
-        val old = values[i] as V
-        keys[i] = key
-        values[i] = value
-        return Pair(true, old)
-    }
-
-    /** The live entries' slot numbers, in insertion order. */
-    @PublishedApi internal fun liveSlots(): Sequence<Int> = (0 until count).asSequence().filter { keys[it] !== TOMB }
-
-    /** The entries, in insertion order: what a boundary check and host code walk. */
-    @Suppress("UNCHECKED_CAST")
-    override fun iterator(): Iterator<Pair<K, V>> = liveSlots().map { Pair(keys[it] as K, values[it] as V) }.iterator()
-
-    /** A fresh map with the same entries, filed the same way; the values are shared. */
-    @Suppress("UNCHECKED_CAST")
-    fun copy(): SalvoMap<K, V> {
-        val out = SalvoMap<K, V>()
-        for (i in liveSlots()) out.append(keys[i] as K, values[i] as V, digests[i])
-        return out
-    }
-
-    /** The same, each value copied by [value] [kt-copy] [copy-plan]: a map whose values are mutable. */
-    @Suppress("UNCHECKED_CAST")
-    inline fun copy(value: (V) -> V): SalvoMap<K, V> {
-        val out = SalvoMap<K, V>()
-        for (i in liveSlots()) out.append(keys[i] as K, value(values[i] as V), digests[i])
-        return out
-    }
-
-    /** Order-blind, on host equality (what a data class holding a map compares by; ROADMAP §0j step 8). */
-    @Suppress("UNCHECKED_CAST")
-    override fun equals(other: Any?): Boolean {
-        if (other !is SalvoMap<*, *>) return false
-        if (live != other.live) return false
-        val o = other as SalvoMap<Any?, Any?>
-        for (i in liveSlots()) {
-            val j = o.find(keys[i], digests[i]) { a, b -> a == b }
-            if (j < 0 || o.values[j] != values[i]) return false
-        }
-        return true
-    }
-
-    override fun hashCode(): Int {
-        var h = 0L
-        for (i in liveSlots()) h += digests[i] * 31 + (values[i]?.hashCode() ?: 0)
-        return (h xor (h ushr 32)).toInt()
-    }
-
-    /** `{a: 1, b: 2}`, in insertion order — the map literal that would build it [col-to-str]. */
-    override fun toString(): String = liveSlots().joinToString(", ", "{", "}") { "${keys[it]}: ${values[it]}" }
-
-    @PublishedApi internal companion object {
-        @PublishedApi internal val TOMB = Any()
-    }
-}
-
-/**
- * [platform-value-type] For host code: a map keyed **canonically** — the
- * identity Salvo resolves for an intrinsic key type (`Str`, `Int`, `Long`,
- * `Char`, `Bool`, `Byte`), whose `hash` is the JVM's `hashCode` and whose
- * `eq` is `==`. In the order given; a repeated key keeps its first place and
- * takes its last value [col-duplicate-keys].
- */
-fun <K, V> canonicalMap(entries: Iterable<Pair<K, V>>): SalvoMap<K, V> {
-    val m = SalvoMap<K, V>()
-    for ((k, v) in entries) m.store(k, v, { it.hashCode().toLong() }, { a, b -> a == b })
-    return m
-}
-
-// [platform-iterable] [col-map-iter] The host's loop over a map: its keys.
-@Suppress("UNCHECKED_CAST")
-fun <K, V> each(map: Map<K, V>): Iterable<K> = map.liveSlots().map { map.keys[it] as K }.asIterable()
-
-inline fun <K, V> Map(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): Map<K, V> =
-    Mut_Map(entries, hash, eq)
-
-// A repeated key keeps the position of its first appearance and takes the
-// value of its last [col-duplicate-keys].
-inline fun <K, V> Mut_Map(entries: Array<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): MutMap<K, V> {
-    val m = SalvoMap<K, V>()
-    for ((k, v) in entries) m.store(k, v, hash, eq)
-    return m
-}
-
-inline fun <K, V> mapBy(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): Map<K, V> =
-    mutMapBy(size, init, hash, eq)
-
-inline fun <K, V> mutMapBy(size: Int, init: (Int) -> Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): MutMap<K, V> {
-    val m = SalvoMap<K, V>()
-    for (i in 0 until size) {
-        val (k, v) = init(i)
-        m.store(k, v, hash, eq)
-    }
-    return m
-}
-
-inline fun <K, V> toMap(pairs: List<Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): Map<K, V> {
-    val m = SalvoMap<K, V>()
-    for ((k, v) in pairs) m.store(k, v, hash, eq)
-    return m
-}
-
-@Suppress("UNCHECKED_CAST")
-inline fun <K, V> get(map: Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
-    val i = map.find(key, hash(key), eq)
-    return if (i < 0) null else map.values[i] as V
-}
-
-// The claim proved the key present [qual-depend].
-@Suppress("UNCHECKED_CAST")
-inline fun <K, V> getPresent(map: Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V =
-    map.values[map.find(key, hash(key), eq)] as V
-
-// [ref-handle] The mints: a handle is the value itself on Kotlin, so `at` is
-// its `get` (and the proven one its `getPresent`).
-inline fun <K, V> at(map: Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? =
-    get(map, key, hash, eq)
-
-inline fun <K, V> atPresent(map: Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V =
-    getPresent(map, key, hash, eq)
-
-inline fun <K, V> put(map: MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean) {
-    map.store(key, value, hash, eq)
-}
-
-inline fun <K, V> replace(map: MutMap<K, V>, key: K, value: V, hash: (K) -> Long, eq: (K, K) -> Boolean): V? =
-    map.store(key, value, hash, eq).second
-
-inline fun <K, V> remove(map: MutMap<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): V? {
-    val i = map.find(key, hash(key), eq)
-    return if (i < 0) null else map.removeAt(i)
-}
-
-inline fun <K, V> containsKey(map: Map<K, V>, key: K, hash: (K) -> Long, eq: (K, K) -> Boolean): Boolean =
-    map.find(key, hash(key), eq) >= 0
-
-fun <K, V> size(map: Map<K, V>): Int = map.live
-
-@Suppress("UNCHECKED_CAST")
-fun <K, V> keys(map: Map<K, V>): MutableList<K> = map.liveSlots().map { map.keys[it] as K }.toMutableList()
-
-// [linear-container] The values, in insertion order.
-@Suppress("UNCHECKED_CAST")
-fun <K, V> intoValues(map: Map<K, V>): MutableList<V> = map.liveSlots().map { map.values[it] as V }.toMutableList()
-
-// [col-map-entries] The slots, live or removed: what `entries` and `values` walk.
-fun <K, V> slotCount(map: Map<K, V>): Int = map.count
-
-@Suppress("UNCHECKED_CAST")
-fun <K, V> keyAt(map: Map<K, V>, at: Int): K? {
-    val k = map.keys[at]
-    return if (k === SalvoMap.TOMB) null else k as K
-}
-
-@Suppress("UNCHECKED_CAST")
-fun <K, V> valueAt(map: Map<K, V>, at: Int): V = map.values[at] as V
-
-// ===== platform/std/core/set.kt =====
-// [platform-value-type] [platform-slots] std's set, for `std.core.set`'s `platform
-// type Set<T>(?hash, ?eq) canbe Mut`: one insertion-ordered slab for every
-// identity (ROADMAP §0j step 7, user decision 2026-10-06). The identity is
-// the type's, not the value's: every operation is handed the `hash` and `eq`
-// its call resolved, lent for the call [platform-fn-value], and the set keeps
-// nothing but the elements and the digest each was filed under.
-//
-// The operations are `inline`, so a call that passes the canonical `hash`/
-// `eq` as lambdas (what the generated wrappers do) compiles to the direct
-// `hashCode`/`==` with nothing boxed — the fast path, with no second code
-// path to keep in step [kt-keyed].
-package salvo.platform.std.core.set
-
-typealias Set<T> = SalvoSet<T>
-typealias MutSet<T> = SalvoSet<T>
-
-/**
- * Elements in first-insertion order ([SalvoSet.TOMB] where one was removed),
- * the digest each was filed under, and an open-addressing index over a
- * power-of-two table holding `slot + 1` (0 is empty). A removed element's
- * index entry stays until the next rebuild, which compacts the slots too.
- */
-class SalvoSet<T> @PublishedApi internal constructor() : Iterable<T> {
-    @PublishedApi internal var elems: Array<Any?> = arrayOfNulls(8)
-    @PublishedApi internal var digests: LongArray = LongArray(8)
-    @PublishedApi internal var count = 0
-    @PublishedApi internal var live = 0
-    @PublishedApi internal var index: IntArray = IntArray(16)
-
-    @PublishedApi internal fun home(digest: Long): Int {
-        val h = digest xor (digest ushr 29) xor (digest ushr 47)
-        return h.toInt() and (index.size - 1)
-    }
-
-    /** The slot holding an element equal to [elem], or -1. */
-    @Suppress("UNCHECKED_CAST")
-    @PublishedApi internal inline fun find(elem: T, digest: Long, eq: (T, T) -> Boolean): Int {
-        val mask = index.size - 1
-        var i = home(digest)
-        while (true) {
-            val at = index[i]
-            if (at == 0) return -1
-            val s = at - 1
-            if (digests[s] == digest) {
-                val e = elems[s]
-                if (e !== TOMB && eq(e as T, elem)) return s
-            }
-            i = (i + 1) and mask
-        }
-    }
-
-    @PublishedApi internal fun append(elem: T, digest: Long) {
-        if ((count + 1) * 4 > index.size * 3) rebuild()
-        if (count == elems.size) {
-            elems = elems.copyOf(count * 2)
-            digests = digests.copyOf(count * 2)
-        }
-        elems[count] = elem
-        digests[count] = digest
-        count++
-        live++
-        place(count - 1)
-    }
-
-    private fun place(s: Int) {
-        val mask = index.size - 1
-        var i = home(digests[s])
-        while (index[i] != 0) i = (i + 1) and mask
-        index[i] = s + 1
-    }
-
-    /** Compacts the slots and re-files every element in a table sized for them. */
-    private fun rebuild() {
-        var w = 0
-        for (r in 0 until count) {
-            if (elems[r] !== TOMB) {
-                elems[w] = elems[r]
-                digests[w] = digests[r]
-                w++
-            }
-        }
-        for (r in w until count) elems[r] = null
-        count = w
-        var cap = 16
-        while (cap * 3 < (count + 1) * 8) cap *= 2
-        index = IntArray(cap)
-        for (s in 0 until count) place(s)
-    }
-
-    @PublishedApi internal fun removeAt(s: Int) {
-        elems[s] = TOMB
-        live--
-        if (count > 2 * live + 8) rebuild()
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    override fun iterator(): Iterator<T> = object : Iterator<T> {
-        private var at = skip(0)
-
-        private fun skip(from: Int): Int {
-            var i = from
-            while (i < count && elems[i] === TOMB) i++
-            return i
-        }
-
-        override fun hasNext(): Boolean = at < count
-
-        override fun next(): T {
-            val e = elems[at] as T
-            at = skip(at + 1)
-            return e
-        }
-    }
-
-    /** A fresh set with the same elements, filed the same way. */
-    fun copy(): SalvoSet<T> {
-        val out = SalvoSet<T>()
-        @Suppress("UNCHECKED_CAST")
-        for (s in 0 until count) if (elems[s] !== TOMB) out.append(elems[s] as T, digests[s])
-        return out
-    }
-
-    /**
-     * Order-blind, as a set is: the same elements, each found under the digest
-     * the other set filed it by. Host equality on the elements — what a data
-     * class holding a set compares by (ROADMAP §0j step 8 owns replacing it).
-     */
-    @Suppress("UNCHECKED_CAST")
-    override fun equals(other: Any?): Boolean {
-        if (other !is SalvoSet<*>) return false
-        if (live != other.live) return false
-        val o = other as SalvoSet<Any?>
-        for (s in 0 until count) {
-            val e = elems[s]
-            if (e === TOMB) continue
-            if (o.find(e, digests[s]) { a, b -> a == b } < 0) return false
-        }
-        return true
-    }
-
-    override fun hashCode(): Int {
-        var h = 0L
-        for (s in 0 until count) if (elems[s] !== TOMB) h += digests[s]
-        return (h xor (h ushr 32)).toInt()
-    }
-
-    override fun toString(): String = joinToString(", ", "{", "}")
-
-    @PublishedApi internal companion object {
-        @PublishedApi internal val TOMB = Any()
-    }
-}
-
-/**
- * [platform-value-type] For host code: a set kept **canonically** — the
- * identity Salvo resolves for an intrinsic element type, whose `hash` is the
- * JVM's `hashCode` and whose `eq` is `==`. A repeated element: the last wins.
- */
-fun <T> canonicalSet(elems: Iterable<T>): SalvoSet<T> {
-    val s = SalvoSet<T>()
-    for (e in elems) put(s, e, { it.hashCode().toLong() }, { a, b -> a == b })
-    return s
-}
-
-/** Adds [elem], or overwrites an equal one in place: the last wins [col-duplicate-keys]. */
-@PublishedApi internal inline fun <T> put(s: SalvoSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean) {
-    val d = hash(elem)
-    val i = s.find(elem, d, eq)
-    if (i >= 0) s.elems[i] = elem else s.append(elem, d)
-}
-
-// [platform-iterable] The host's loop over a set: its elements, in insertion order.
-fun <T> each(set: Set<T>): Iterable<T> = set
-
-inline fun <T> Set(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Set<T> = Mut_Set(elems, hash, eq)
-
-inline fun <T> Mut_Set(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): MutSet<T> {
-    val s = SalvoSet<T>()
-    for (e in elems) put(s, e, hash, eq)
-    return s
-}
-
-inline fun <T> setBy(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): Set<T> =
-    mutSetBy(size, init, hash, eq)
-
-inline fun <T> mutSetBy(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): MutSet<T> {
-    val s = SalvoSet<T>()
-    for (i in 0 until size) put(s, init(i), hash, eq)
-    return s
-}
-
-inline fun <T> toSet(list: List<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): Set<T> {
-    val s = SalvoSet<T>()
-    for (e in list) put(s, e, hash, eq)
-    return s
-}
-
-inline fun <T> add(set: MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
-    val d = hash(elem)
-    if (set.find(elem, d, eq) >= 0) return false
-    set.append(elem, d)
-    return true
-}
-
-inline fun <T> remove(set: MutSet<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean {
-    val i = set.find(elem, hash(elem), eq)
-    if (i < 0) return false
-    set.removeAt(i)
-    return true
-}
-
-inline fun <T> contains(set: Set<T>, elem: T, hash: (T) -> Long, eq: (T, T) -> Boolean): Boolean =
-    set.find(elem, hash(elem), eq) >= 0
-
-fun <T> size(set: Set<T>): Int = set.live
-
-// In insertion order [col-insertion-order].
-fun <T> toList(set: Set<T>): MutableList<T> = set.toMutableList()
-
-// ===== platform/std/core/sorted.kt =====
-// [platform-value-type] [platform-slots] std's sorted pair, for `std.core.sorted`'s
-// `platform type SortedSet<T>(?cmp)` and `SortedMap<K, V>(?cmp)`: a sorted
-// list searched by bisection (ROADMAP §0j step 7, user decision 2026-10-06).
-// Every operation is handed the `cmp` its call resolved, lent for the call
-// [platform-fn-value]; the value keeps only its members, in order. Two
-// members are one when `cmp` answers 0 [col-membership].
-package salvo.platform.std.core.sorted
-
-typealias SortedSet<T> = SalvoSortedSet<T>
-typealias MutSortedSet<T> = SalvoSortedSet<T>
-typealias SortedMap<K, V> = SalvoSortedMap<K, V>
-typealias MutSortedMap<K, V> = SalvoSortedMap<K, V>
-
-/** Where [x] is in [items], or `-(insertion point) - 1`, as `binarySearch` answers. */
-@PublishedApi internal inline fun <T> bisect(items: List<T>, x: T, cmp: (T, T) -> Int): Int {
-    var lo = 0
-    var hi = items.size - 1
-    while (lo <= hi) {
-        val mid = (lo + hi) ushr 1
-        val c = cmp(items[mid], x)
-        when {
-            c < 0 -> lo = mid + 1
-            c > 0 -> hi = mid - 1
-            else -> return mid
-        }
-    }
-    return -(lo + 1)
-}
-
-class SalvoSortedSet<T> @PublishedApi internal constructor(@PublishedApi internal val items: ArrayList<T>) : Iterable<T> {
-    override fun iterator(): Iterator<T> = items.iterator()
-
-    fun copy(): SalvoSortedSet<T> = SalvoSortedSet(ArrayList(items))
-
-    // In order on both sides, so equality is the lists' (host equality on the
-    // members; ROADMAP §0j step 8).
-    override fun equals(other: Any?): Boolean = other is SalvoSortedSet<*> && items == other.items
-
-    override fun hashCode(): Int = items.hashCode()
-
-    override fun toString(): String = items.joinToString(", ", "{", "}")
-}
-
-class SalvoSortedMap<K, V> @PublishedApi internal constructor(
-    @PublishedApi internal val keys: ArrayList<K>,
-    @PublishedApi internal val values: ArrayList<V>,
-) {
-    fun copy(): SalvoSortedMap<K, V> = SalvoSortedMap(ArrayList(keys), ArrayList(values))
-
-    /** The same, each value copied by [value] [kt-copy] [copy-plan]: a map whose values are mutable. */
-    inline fun copy(value: (V) -> V): SalvoSortedMap<K, V> = SalvoSortedMap(ArrayList(keys), values.mapTo(ArrayList(values.size), value))
-
-    /** The entries, in key order: what a boundary check walks. */
-    operator fun iterator(): Iterator<Pair<K, V>> = keys.indices.map { Pair(keys[it], values[it]) }.iterator()
-
-    override fun equals(other: Any?): Boolean =
-        other is SalvoSortedMap<*, *> && keys == other.keys && values == other.values
-
-    override fun hashCode(): Int = keys.hashCode() * 31 + values.hashCode()
-
-    override fun toString(): String = keys.indices.joinToString(", ", "{", "}") { "${keys[it]}: ${values[it]}" }
-
-    /** Stores under [key]; an equal key is replaced, key and value. Answers the displaced value. */
-    @PublishedApi internal inline fun store(key: K, value: V, cmp: (K, K) -> Int): V? {
-        val i = bisect(keys, key, cmp)
-        if (i >= 0) {
-            val old = values[i]
-            keys[i] = key
-            values[i] = value
-            return old
-        }
-        keys.add(-i - 1, key)
-        values.add(-i - 1, value)
-        return null
-    }
-}
-
-/**
- * [platform-value-type] Salvo's canonical ordering for an intrinsic type:
- * natural order, except that a `String` compares by **code point** (the JVM's
- * `compareTo` is UTF-16 code-unit order) [kt-ordered].
- */
-@Suppress("UNCHECKED_CAST")
-fun canonicalCompare(a: Any?, b: Any?): Int {
-    if (a is String && b is String) {
-        var i = 0
-        var j = 0
-        while (i < a.length && j < b.length) {
-            val ca = a.codePointAt(i)
-            val cb = b.codePointAt(j)
-            if (ca != cb) return ca.compareTo(cb)
-            i += Character.charCount(ca)
-            j += Character.charCount(cb)
-        }
-        return (a.length - i).compareTo(b.length - j)
-    }
-    return (a as Comparable<Any?>).compareTo(b)
-}
-
-/** [platform-value-type] For host code: a sorted set under the canonical ordering. */
-fun <T> canonicalSortedSet(elems: Iterable<T>): SalvoSortedSet<T> =
-    Mut_SortedSet((elems.toList() as List<Any?>).toTypedArray() as Array<T>, ::canonicalCompare)
-
-/** [platform-value-type] For host code: a sorted map under the canonical ordering. */
-fun <K, V> canonicalSortedMap(entries: Iterable<Pair<K, V>>): SalvoSortedMap<K, V> {
-    val m = SalvoSortedMap(ArrayList<K>(), ArrayList<V>())
-    for ((k, v) in entries) m.store(k, v, ::canonicalCompare)
-    return m
-}
-
-// [platform-iterable] The host's loops: a set's elements and a map's keys.
-fun <T> eachSortedSet(set: SortedSet<T>): Iterable<T> = set
-
-fun <K, V> eachSortedMap(map: SortedMap<K, V>): Iterable<K> = map.keys
-
-inline fun <T> SortedSet(elems: Array<T>, cmp: (T, T) -> Int): SortedSet<T> = Mut_SortedSet(elems, cmp)
-
-// A repeated member: the last wins, in the place they share.
-inline fun <T> Mut_SortedSet(elems: Array<T>, cmp: (T, T) -> Int): MutSortedSet<T> {
-    val s = SalvoSortedSet(ArrayList<T>(elems.size))
-    for (e in elems) {
-        val i = bisect(s.items, e, cmp)
-        if (i >= 0) s.items[i] = e else s.items.add(-i - 1, e)
-    }
-    return s
-}
-
-inline fun <T> add(set: MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
-    val i = bisect(set.items, elem, cmp)
-    if (i >= 0) return false
-    set.items.add(-i - 1, elem)
-    return true
-}
-
-inline fun <T> removeElem(set: MutSortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean {
-    val i = bisect(set.items, elem, cmp)
-    if (i < 0) return false
-    set.items.removeAt(i)
-    return true
-}
-
-inline fun <T> contains(set: SortedSet<T>, elem: T, cmp: (T, T) -> Int): Boolean = bisect(set.items, elem, cmp) >= 0
-
-fun <T> setSize(set: SortedSet<T>): Int = set.items.size
-
-fun <T> min(set: SortedSet<T>): T? = set.items.firstOrNull()
-
-fun <T> max(set: SortedSet<T>): T? = set.items.lastOrNull()
-
-fun <T> toList(set: SortedSet<T>): MutableList<T> = ArrayList(set.items)
-
-inline fun <K, V> SortedMap(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): SortedMap<K, V> = Mut_SortedMap(entries, cmp)
-
-inline fun <K, V> Mut_SortedMap(entries: Array<Pair<K, V>>, cmp: (K, K) -> Int): MutSortedMap<K, V> {
-    val m = SalvoSortedMap(ArrayList<K>(entries.size), ArrayList<V>(entries.size))
-    for ((k, v) in entries) m.store(k, v, cmp)
-    return m
-}
-
-inline fun <K, V> get(map: SortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
-    val i = bisect(map.keys, key, cmp)
-    return if (i >= 0) map.values[i] else null
-}
-
-inline fun <K, V> put(map: MutSortedMap<K, V>, key: K, value: V, cmp: (K, K) -> Int) {
-    map.store(key, value, cmp)
-}
-
-inline fun <K, V> removeKey(map: MutSortedMap<K, V>, key: K, cmp: (K, K) -> Int): V? {
-    val i = bisect(map.keys, key, cmp)
-    if (i < 0) return null
-    map.keys.removeAt(i)
-    return map.values.removeAt(i)
-}
-
-inline fun <K, V> containsKey(map: SortedMap<K, V>, key: K, cmp: (K, K) -> Int): Boolean = bisect(map.keys, key, cmp) >= 0
-
-fun <K, V> mapSize(map: SortedMap<K, V>): Int = map.keys.size
-
-fun <K, V> firstKey(map: SortedMap<K, V>): K? = map.keys.firstOrNull()
-
-fun <K, V> lastKey(map: SortedMap<K, V>): K? = map.keys.lastOrNull()
-
-fun <K, V> keys(map: SortedMap<K, V>): MutableList<K> = ArrayList(map.keys)
 
 // ===== platform/std/core/string.kt =====
 // [platform-value-type] std's string, for `std.core.string`'s

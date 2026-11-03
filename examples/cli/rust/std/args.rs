@@ -1,5 +1,6 @@
 use crate::std_core_console::Console;
 use crate::std_args_lex::EndToken;
+use crate::std_core_list::List;
 use crate::std_args_lex::LongToken;
 use crate::std_core_string::Mut_Str;
 use crate::std_core_result::Ok;
@@ -492,7 +493,7 @@ pub fn merge_group(opts: &mut Vec<crate::std_args::OptSpec>, groups: &mut Vec<cr
         crate::std_core_list::add_platform::<crate::std_args::OptSpec>(&mut *opts, crate::std_args::OptSpec { field: (o.field).clone(), short: o.short.clone(), takes_value: o.takes_value, repeats: o.repeats, required: o.required, help: (o.help).clone(), default_text: (o.default_text).clone(), choices: (o.choices).clone(), group: Some(group) });
     }
     if ((&kind[..] == &String::from("arm")[..]) && crate::std_core_list::is_empty::<crate::std_args::OptSpec>(&child.opts)) {
-        crate::std_core_list::add_platform::<crate::std_args::OptSpec>(&mut *opts, crate::std_args::OptSpec { field: crate::std_core_string::replace_platform(&crate::std_args::command_name(&child.name), &String::from("-"), &String::from("_")), short: None, takes_value: false, repeats: false, required: false, help: (child.about).clone(), default_text: None, choices: vec![], group: Some((key).clone()) });
+        crate::std_core_list::add_platform::<crate::std_args::OptSpec>(&mut *opts, crate::std_args::OptSpec { field: crate::std_core_string::replace_platform(&crate::std_args::command_name(&child.name), &String::from("-"), &String::from("_")), short: None, takes_value: false, repeats: false, required: false, help: (child.about).clone(), default_text: None, choices: crate::std_core_list::List::<String>(), group: Some((key).clone()) });
     };
 }
 
@@ -1047,7 +1048,7 @@ pub fn usage(spec: &crate::std_args::Spec) -> String {
     if !(crate::std_core_list::is_empty::<crate::std_args::OptSpec>(&spec.opts)) {
         crate::std_core_string::append_platform(&mut out, &String::from(" [OPTIONS]"));
     };
-    let mut none: Vec<crate::std_args::Hit> = vec![];
+    let mut none: Vec<crate::std_args::Hit> = crate::std_core_list::List::<crate::std_args::Hit>();
     for mut o in spec.opts.iter() {
         if (o.required && crate::std_args::live(spec, &none, (&o.group).as_ref())) {
             crate::std_core_string::append_platform(&mut out, &format!(" {} <{}>", crate::std_args::long_name(&o.field), crate::std_args::value_name(&o.field)));

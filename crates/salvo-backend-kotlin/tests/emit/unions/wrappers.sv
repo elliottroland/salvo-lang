@@ -142,10 +142,10 @@ fn main() [use] -> None {
     // arm is coerced at its own binding.
     //~ emits: Union2.U2<Int, String>(salvo.main.tagErr("a"))
     let second: Result = tag_err("a")
-    // [col-no-literal] `List<Result>(…)` lowers to `listOf`, with the
+    // [col-no-literal] `List<Result>(…)` is a call to the constructor, with the
     // coercion wrapper on the argument; the second arm is wrapped at its
     // own binding.
-    //~ emits: listOf<Union2<Int, String>>(Union2.U1<Int, String>(salvo.main.tagOk(1)), second)
+    //~ emits: salvo.std.core.list.List__T_TArray(Union2.U1<Int, String>(salvo.main.tagOk(1)), arrayOf<Union2<Int, String>>(second))
     let arr: List<Result> = List<Result>(tag_ok(1), second)
     for x in arr {
         println(describe(copy(x)))

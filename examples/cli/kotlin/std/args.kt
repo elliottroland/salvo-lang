@@ -218,7 +218,7 @@ data class OptSpec(
     val required: Boolean = false,
     val help: String? = null,
     val defaultText: String? = null,
-    val choices: List<String> = listOf<String>(),
+    val choices: List<String> = salvo.std.core.list.List(),
     val group: String? = null,
 )
 
@@ -276,8 +276,8 @@ data class Spec(
     val about: String? = null,
     val opts: List<OptSpec>,
     val args: List<ArgSpec>,
-    val groups: List<GroupSpec> = listOf<GroupSpec>(),
-    val commands: List<CmdSpec> = listOf<CmdSpec>(),
+    val groups: List<GroupSpec> = salvo.std.core.list.List(),
+    val commands: List<CmdSpec> = salvo.std.core.list.List(),
     val commandRequired: Boolean = false,
     val commandFields: Int = 0,
 )
@@ -335,7 +335,7 @@ fun mergeGroup(opts: salvo.platform.std.core.list.MutList<OptSpec>, groups: salv
         salvo.std.core.list.addPlatform(opts, OptSpec(field = o.field, short = o.short, takesValue = o.takesValue, repeats = o.repeats, required = o.required, help = o.help, defaultText = o.defaultText, choices = o.choices, group = group))
     }
     if ((((kind) == ("arm")) && salvo.std.core.list.isEmpty(child.opts))) {
-        salvo.std.core.list.addPlatform(opts, OptSpec(field = salvo.std.core.string.replacePlatform(salvo.std.args.commandName(child.name), "-", "_"), short = null, takesValue = false, repeats = false, required = false, help = child.about, defaultText = null, choices = listOf<String>(), group = key))
+        salvo.std.core.list.addPlatform(opts, OptSpec(field = salvo.std.core.string.replacePlatform(salvo.std.args.commandName(child.name), "-", "_"), short = null, takesValue = false, repeats = false, required = false, help = child.about, defaultText = null, choices = salvo.std.core.list.List(), group = key))
     }
 }
 
@@ -404,7 +404,7 @@ data class Found(
     val errors: List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>,
     val help: Boolean,
     val command: String? = null,
-    val rest: List<String> = listOf<String>(),
+    val rest: List<String> = salvo.std.core.list.List(),
     val path: String = "",
 )
 
@@ -906,7 +906,7 @@ fun usage(spec: Spec): String {
     if (!(salvo.std.core.list.isEmpty(spec.opts))) {
         salvo.std.core.string.appendPlatform(out, " [OPTIONS]")
     }
-    val none: List<Hit> = listOf<Hit>()
+    val none: List<Hit> = salvo.std.core.list.List()
     for (o in salvo.platform.std.core.list.each(spec.opts)) {
         if ((o.required && salvo.std.args.live(spec, none, o.group))) {
             salvo.std.core.string.appendPlatform(out, " ${salvo.std.args.longName(o.field)} <${salvo.std.args.valueName(o.field)}>")

@@ -328,7 +328,7 @@ list to be complete.
   (`sizePlatform`, `sizePlatform__core_list` on a clash): Rust's `__loc`
   locator variants hang off the wrapper's name, which an alias would break.
 - A Kotlin predicate qualifier keeps `Q_qualifies` and overloads on the JVM
-  parameter type; Rust names it by its subject (`NonEmpty__List_qualifies`).
+  parameter type; Rust names it by its subject (`Filled__List_qualifies`).
   Both deterministic; two modules declaring one qualifier over one subject
   would clash on Rust, unhandled.
 - `examples/actors` calls `drop(boom)` on an `Int`; `std.core.seq`'s `drop` is not
@@ -413,6 +413,46 @@ Parked (user, 2026-10-14): the user expects to move away from state structs and 
 - **What the round trip still skips** [round-trip]: `for` (its calls are
   only marked in the typed dump), an operator whose operand widens
   [op-promote], qualified types other than `Mut T`; see 0av.
+
+### 0bc — What the generic `NonEmpty` left (2026-10-30)
+
+`NonEmpty` is one `qualifier NonEmpty<T canbe linear> of T` in
+`std.core.nonempty`, refined in each type's body [qual-refn-type]
+(COMPLETED.md, 2026-10-30). Left over:
+
+- **The "testable where written" rule, not built** (user decision 4.b: only
+  as a general rule). The general form: a predicate qualifier whose `of`
+  unification fixes all its generics, written over a concrete subject, must
+  have its `qualifies` implicits resolvable where it is written — so
+  `NonEmpty Int` is refused at the type rather than at the first `is`. What
+  building it takes: at `validate_type`, unify the qualifier's `of` with the
+  written base, skip a subject that still has type variables, and probe
+  `resolve_implicit_value` for each implicit without recording; a new
+  diagnostic for the miss (the resolver's are worded for a call), reported
+  once per written type.
+- **Open defect: a program's same-name qualifier over a particular subject
+  now overloads std's generic one instead of shadowing it** [qual-overload],
+  and std's type-body refinements, which name the claim, reach it by name.
+  Repro: declare `qualifier NonEmpty<T> of List<T> { fn qualifies(list:
+  List<T>) -> Bool { return list.size() > 1 } }` (a stricter meaning) and
+  `add(xs, 1)` to an empty `Mut List<Int>`: `List`'s `refn add => list:
+  +NonEmpty` establishes the program's claim too, which is false for a
+  one-element list. Before, the program's `of List<T>` replaced std's (same
+  subject). The tests that declared their own `NonEmpty` were renamed
+  `Filled`. Fix candidates: let a program's declaration of a std qualifier's
+  name shadow it whatever the subject, or key claims by declaration rather
+  than by name.
+- **A host boundary cannot check a claim whose `qualifies` takes an
+  implicit**, so `platform fn names() -> NonEmpty List<Str>` is refused
+  (`platform-check`), where the five per-container `NonEmpty`s were checked.
+  Building it: resolve the implicits at the platform declaration (the type is
+  concrete there), carry them in `BoundaryCheck::Qualifies`, and have both
+  backends' boundary code pass them (`kotlin ir_emit/boundary.rs`, `rust
+  ir_emit/decls.rs` `boundary_check`).
+- **The variadic list constructor copies a fresh tail on Rust**: `List(1, 2,
+  3)` builds `vec![2, 3]` and `add_all` clones each element out of it, since
+  the tail is kept (a spread of a place must stay usable). A literal tail
+  could be moved instead.
 
 ### 0ae — Recorded, not scheduled: per-declaration reuse in the check cache (measured 2026-10-28, A4)
 
@@ -668,7 +708,8 @@ the checker's own scopes:
   position first; not scheduled. A qualifier's
 declaration is still found as the *first* of its name's overload set where a
 subject is not in hand (`written_qual_decl`, `qual_decl`): the generics and
-`comptime` flag of `NonEmpty` are read off whichever of its five comes first.
+`comptime` flag of a name declared over several subjects are read off
+whichever comes first.
 
 ### 0an — The `for` header's calls apply no argument contract (B3.3d, 2026-10-28)
 

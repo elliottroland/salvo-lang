@@ -144,6 +144,71 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — `NonEmpty` is one generic qualifier, refined in its types' bodies (user decisions, [col-nonempty] [qual-refn-type])
+
+- **Decided (user)**: one `qualifier NonEmpty<T> of T` whose `qualifies`
+  takes `?size` as an implicit, as `Idx`'s does (4.a); its own module,
+  `std.core.nonempty` (4.e); refinements in a type's body, struct or
+  `platform type` (4.d); refinements for `List`, `Set`, `Map`, `SortedSet`,
+  `SortedMap`, `Deque` and `(Mut) Str` (4.f); the list constructors written
+  in Salvo over the one intrinsic, empty `Mut List()` ("the other can all be
+  built from `Mut List<T>()` and use normal predicates", 4.c); keep
+  [qual-overload] though std no longer uses it (4.g); and the "testable where
+  written" rule only as a general one, "otherwise let's leave it" (4.b).
+- **Built**:
+  - `std.core.nonempty` declares `export qualifier NonEmpty<T canbe linear>
+    of T { fn qualifies(value: T, ?size: (value: T) -> Int) -> Bool }`; the
+    five per-container declarations are gone, and their refinements moved
+    into the types' bodies. `Deque` gains `add_first`/`add_last`, and `Str`
+    the keep forms of `append` and `set` (appending an empty text to an empty
+    string leaves it empty, so `append` cannot establish the claim).
+  - **[qual-refn-type]**: `refn` in a struct body, and an optional
+    refinements-only `{ … }` body on an opaque type (`TypeDecl::refns`,
+    `StructDecl::refns`; `refine.rs`'s `Owner::Type`). Such a refinement
+    speaks only about its own type and only about a claim its author is
+    trusted with, a generic one or one from its own file; it is visible
+    where every qualifier it names is.
+  - **The trust rule**: a type's file may establish a generic *state* claim
+    about that type, in the three gates that used to read `own_qualifiers`
+    alone (`may_establish`: return-type `+Q`, clause `+Q`, `-> +Q T`
+    constructors), by the type's key [type-identity]. `deque_of` and
+    `mut_deque_of` now return `NonEmpty`.
+  - **The list constructors are Salvo**: `List()`, `List(first)`,
+    `List(first, ...rest)` and their `Mut` pair over the intrinsic `Mut
+    List()`; the Kotlin `listOf`/Rust `vec![…]` spread lowerings are deleted.
+- **What fell out of building it**:
+  - **A generic `of` never bound anything at an `is` test.** Only value slots
+    fed the substitution, so `NonEmpty<T>`'s `?size` was resolved against
+    `(Unknown) -> Int` and `size@std.core.array` won — wrong code on Kotlin
+    (it happened to compile) and a raw "type `?`" error on Rust.
+    `check_predicate_quals` now unifies the `of` with the subject, and
+    `PredicateCheck` records the call's type arguments, without which Rust's
+    adapter spelled the qualifier's `T` as the caller's own `T`.
+  - A `Mut` subject is dropped for the `qualifies` call (`DropMut`): a
+    `Mut Str` is a `StringBuilder` on Kotlin.
+  - A host boundary now refuses a claim whose `qualifies` takes an implicit,
+    which it would have called without it ([backend-never-wrong]); the
+    boundary tests use a local `Filled` instead (ROADMAP 0bc).
+  - [qual-refn-narrow]: a narrower type on a parameter the refinement states
+    nothing about read as no condition at all; it is refused now
+    (`qual-refn-narrow:other-param`).
+  - Where a specific and a generic declaration of one name both fit,
+    `qualifier_for`, the refinement matcher and the IR's `qual_fn_ref` all
+    pick the specific one; before, the checker and the IR could pick
+    different `qualifies`.
+  - The constructors' variadic overload is over a plain `T` and the
+    one-element one is `canbe linear`, as `deque_of` was: the IR ledger
+    flagged the loop over a `canbe linear` tail. The tail is kept, so a
+    spread of a place stays usable, and a private host helper `add_all`
+    copies it in, since a Salvo body has no `copy` for a generic element on
+    Kotlin.
+  - `std.core.set`, `.map` and `.sorted` stopped being emitted into programs
+    that never use them: their `NonEmpty`s had kept them reachable.
+- **Left**: the general "testable where written" rule, a program's own
+  `NonEmpty` now overloading std's (an open defect, with its repro), checking
+  an implicit-taking claim at a host boundary, and a wasted copy of a literal
+  tail on Rust — all in ROADMAP 0bc.
+
 ### 2026-10-30 — std's iterators are named `…Iter` and written by hand (user decisions, [iter-mint] [iter-fn])
 
 - **Decided (user)**: "the conventional naming of the structure returned by
@@ -39445,6 +39510,14 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A `qualifies` call is typed by what the test binds, and only by that**
+  (2026-10-30): nothing but `check_predicate_quals`'s substitution fixes the
+  qualifier's generics at an `is`, so an implicit over an unbound generic is
+  resolved against `Unknown` and *some* overload of the name wins. A generic
+  `of` must be unified with the subject, and the type arguments recorded,
+  or a backend reads the qualifier's `T` as the caller's. And the checker
+  (`qualifier_for`) and the IR (`qual_fn_ref`) pick a declaration of an
+  overloaded qualifier separately: change one's order and change the other's.
 - **A differential that writes only differences cannot tell "agree" from
   "never ran"** (2026-10-30, D3.5(b)). The first by-value probe did not
   parse (`let mut` is not Salvo), and an empty diff directory looked like

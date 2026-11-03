@@ -90,7 +90,7 @@ let same = a == b        // true
 
 ### Claims a list can carry
 
-std ships three qualifiers over `List<T>`, which is where the qualifier machinery earns its keep over a container: a claim travels in the type, so a function can *demand* it instead of re-checking it.
+std ships three qualifiers a list can carry, which is where the qualifier machinery earns its keep over a container: a claim travels in the type, so a function can *demand* it instead of re-checking it.
 
 `NonEmpty` is the one with a predicate, so it can be tested with `is` — and it is what lets `first` drop its optional:
 
@@ -103,7 +103,7 @@ add(xs, 7)
 let seven = first(xs)            // `add` established the claim
 ```
 
-That second case is a **refinement**: `add` cannot promise `NonEmpty` back (a function that mutates may not promise a qualifier it has never heard of — see "Deductions"), so the qualifier says it on `add`'s behalf.
+That second case is a **refinement**: `add` cannot promise `NonEmpty` back (a function that mutates may not promise a qualifier it has never heard of — see "Deductions"), so `List` says it on `add`'s behalf, in its own body (see "Refinements" in "Qualifiers").
 
 `Sorted` is established by construction only. There is no `is Sorted`, because deciding whether a list happens to be sorted means comparing its elements, which nothing can do over an unconstrained `T` at the Salvo level:
 
@@ -128,20 +128,26 @@ let found = binary_search(words, "kiwi")                          // asks by len
 
 Two lists sorted differently are two types and refuse to mix, and a signature that wants either writes the claim without an ordering (`xs: Sorted List<T>`) — an argument nobody wrote is *unconstrained*, so the value keeps carrying its own. A `let` annotation reads the same way, which is why the `Mut Sorted List<Int>` above still knows what sorted it.
 
-These three are about a *list*. `NonEmpty` also means what it says about the other containers — `Set`, `Map`, `SortedSet`, `SortedMap` — because **a qualifier name may be declared over several subject types**, and the subject decides which one a use means, just as a function overload is decided by its arguments:
+`Sorted` and `Distinct` (below) are about a *list*. `NonEmpty` is about anything with a `size` — `List`, `Set`, `Map`, `SortedSet`, `SortedMap`, `Deque`, `Str` — because it is **one generic qualifier**, in `std.core.nonempty`:
+
+```
+export qualifier NonEmpty<T canbe linear> of T {
+    fn qualifies(value: T, ?size: (value: T) -> Int) -> Bool {
+        return size(value) > 0
+    }
+}
+```
+
+The `size` is an implicit of `qualifies`, found where the claim is tested at the value's own type, so nothing about it shows in `NonEmpty Set<Str>`. What *establishes* the claim is each type's to say, in its own body — appending makes a list non-empty, adding makes a set non-empty — so the same name works the same way over every container:
 
 ```
 let seen: Mut Set<Str> = Mut Set()
-add(seen, "a")                       // establishes NonEmpty of Set
-if seen is NonEmpty { … }
-
+add(seen, "a")                       // Set's `add` establishes NonEmpty
 let ranked = SortedSet(30, 10)
 if ranked is NonEmpty {
     let lo = min(ranked)             // an element, not an optional
 }
 ```
-
-Same name plus the *same* subject is not an overload but a replacement: your own `NonEmpty of List<T>` shadows std's, and two over one subject are a duplicate, since nothing at a use site could tell them apart.
 
 `Distinct` says a list holds no duplicates, and comes from the one thing that can honestly promise it — a set:
 

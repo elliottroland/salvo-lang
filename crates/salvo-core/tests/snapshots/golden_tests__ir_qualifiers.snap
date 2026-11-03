@@ -80,7 +80,7 @@ fn main@main() -> None {
   call add@std.core.list<Int>(read xs, 3)
   call println@std.core.console(read __handle~2, concat("1. head after add: ", call to_str(Int)@std.core.basic(call head@main(drop_mut(read xs)))))
   bind#4 let maybe_empty: List<Int> = call List(T, T[])@std.core.list<Int>(7, array[Int[]](8))
-  branch#5 cond#0 call NonEmpty.qualifies@std.core.list(read maybe_empty) {
+  branch#5 cond#0 call NonEmpty.qualifies@main<Int>(read maybe_empty) {
     call println@std.core.console(read __handle~2, concat("2. checked at run time, head is ", call to_str(Int)@std.core.basic(call head@main(read maybe_empty))))
   }
   bind#6 let plain: Int = 21

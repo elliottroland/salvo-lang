@@ -1279,9 +1279,42 @@ impl<'s> Parser<'s> {
         if linear && alias.is_some() {
             self.error(messages::type_alias_linear_alias(), name.span);
         }
-        let end = obligations
+        // [qual-refn-type] An opaque type's optional body: its refinements,
+        // nothing else.
+        let mut refns = Vec::new();
+        let mut body_end = None;
+        if self.at(&TokenKind::LBrace) && self.same_line() {
+            let open = self.bump().span;
+            if alias.is_some() {
+                self.error(messages::qual_refn_type_alias_body(), open);
+            }
+            while !self.at(&TokenKind::RBrace) && !self.at_eof() {
+                if self.at(&TokenKind::KwRefn) {
+                    refns.push(self.parse_refn()?);
+                } else {
+                    let found = self.kind().describe();
+                    let span = self.peek().span;
+                    self.error(messages::qual_refn_type_only_refns(&found), span);
+                    // Skip to the body's own `}`: one mistake, one diagnostic.
+                    let mut depth = 0usize;
+                    while !self.at_eof() {
+                        if self.at(&TokenKind::LBrace) {
+                            depth += 1;
+                        } else if self.at(&TokenKind::RBrace) {
+                            if depth == 0 {
+                                break;
+                            }
+                            depth -= 1;
+                        }
+                        self.bump();
+                    }
+                }
+            }
+            body_end = Some(self.expect(&TokenKind::RBrace)?.span);
+        }
+        let end = body_end.or_else(|| obligations
             .last()
-            .map(|o| o.by.as_ref().map(|b| b.span).unwrap_or(o.group.span))
+            .map(|o| o.by.as_ref().map(|b| b.span).unwrap_or(o.group.span)))
             .or_else(|| alias.as_ref().map(|t| t.span()))
             .or_else(|| auto_qualifiers.last().map(|q| q.span))
             .unwrap_or(name.span);
@@ -1304,6 +1337,7 @@ impl<'s> Parser<'s> {
             auto_qualifiers,
             alias,
             obligations,
+            refns,
             span: start.to(end),
         })
     }
@@ -1572,6 +1606,7 @@ impl<'s> Parser<'s> {
         self.expect(&TokenKind::LBrace)?;
         let mut fields = Vec::new();
         let mut fns = Vec::new();
+        let mut refns = Vec::new();
         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
             // [fn-attached] A `fn` inside the body is **declared on** the
             // struct: it travels with the type, and its visibility is the
@@ -1602,6 +1637,12 @@ impl<'s> Parser<'s> {
                 fns.push(self.parse_fn(false)?);
                 continue;
             }
+            // [qual-refn-type] The type's author refining its own functions
+            // for a generic claim.
+            if self.at(&TokenKind::KwRefn) {
+                refns.push(self.parse_refn()?);
+                continue;
+            }
             fields.push(self.parse_field_decl(false)?);
             self.eat(&TokenKind::Comma);
         }
@@ -1618,6 +1659,7 @@ impl<'s> Parser<'s> {
             docs,
             name,
             fns,
+            refns,
             generics,
             generic_canbe,
             fn_slots,

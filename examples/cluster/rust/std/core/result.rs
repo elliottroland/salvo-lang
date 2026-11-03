@@ -1,5 +1,7 @@
-use crate::std_core_list::NonEmpty__List_qualifies;
+use crate::std_core_list::List__T;
+use crate::std_core_nonempty::NonEmpty_qualifies;
 use crate::std_core_list::add_platform;
+use crate::std_core_list::size_platform;
 
 
 pub fn ok<T>(mut value: T) -> T {
@@ -19,7 +21,7 @@ pub fn Err<T>(mut value: T) -> T {
 }
 
 pub fn errs<E: Clone>(mut first: E) -> Vec<E> {
-    return vec![first];
+    return crate::std_core_list::List__T::<E>(first);
 }
 
 pub fn Errs<T>(mut value: T) -> T {
@@ -90,7 +92,7 @@ pub fn joined<X: Clone>(mut a: Vec<X>, mut b: Vec<X>, copy: &mut dyn FnMut(&X) -
     for mut e in b.iter() {
         crate::std_core_list::add_platform::<X>(&mut errors, copy(e));
     }
-    if crate::std_core_list::NonEmpty__List_qualifies(&errors) {
+    if crate::std_core_nonempty::NonEmpty_qualifies::<Vec<X>>(&errors, &mut |__a0: &Vec<X>| crate::std_core_list::size_platform(__a0)) {
         return errors;
     };
     return panic!("salvo: two non-empty lists joined are not empty at std.core.result:126:5");

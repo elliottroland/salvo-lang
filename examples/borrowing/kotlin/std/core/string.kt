@@ -95,7 +95,7 @@ fun substr(str: String, at: Span): String {
                 __pick1_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.core.string:162:45")
+                throw AssertionError("salvo: unreachable at std.core.string:169:45")
             }
         }
     }

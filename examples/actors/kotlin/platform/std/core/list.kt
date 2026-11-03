@@ -29,6 +29,12 @@ fun <T> add(list: MutList<T>, elem: T) {
     list.add(elem)
 }
 
+// [col-of-nonempty] The variadic constructor's tail, copied in: it stays the
+// caller's.
+fun <T> addAll(list: MutList<T>, items: Array<T>) {
+    list.addAll(items)
+}
+
 fun <T> removeFirst(list: MutList<T>): T? = if (list.isEmpty()) null else list.removeAt(0)
 
 fun <T> removeLast(list: MutList<T>): T? = if (list.isEmpty()) null else list.removeAt(list.size - 1)

@@ -442,7 +442,7 @@ fun workflow(fs: salvo.std.fs.Fs, console: salvo.std.core.console.Console, strea
     for (kind in salvo.platform.std.core.list.each(failures)) {
         salvo.std.core.console.println(console, "  ${salvo.main.kindName__FsError(kind)}")
     }
-    for (name in salvo.platform.std.core.list.each(listOf<String>("notes.txt", "notes-copy.txt", "raw.bin"))) {
+    for (name in salvo.platform.std.core.list.each(salvo.std.core.list.List__T_TArray("notes.txt", arrayOf<String>("notes-copy.txt", "raw.bin")))) {
         val gone: Union2<Unit, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>> = fs.delete(salvo.std.fs.path.path(name))
         if ((gone is Union2.U2<*, *>)) {
             val gone_56: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((gone as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)

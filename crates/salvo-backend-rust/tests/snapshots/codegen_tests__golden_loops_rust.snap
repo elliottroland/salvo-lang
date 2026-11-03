@@ -276,6 +276,35 @@ const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug +
 const _: fn() = || { fn __each(x: &List<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_std_core_list::each(x).map(|e| e.clone()) } let _ = __each; };
 const _: fn() = || { fn __each_ref(x: &List<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_std_core_list::each(x) } fn __each_mut(x: &mut List<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_std_core_list::each_mut(x) } fn __into_each(x: List<i32>) -> impl Iterator<Item = i32> { crate::platform_std_core_list::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
 
+pub fn List<T>() -> Vec<T> {
+    return vec![];
+}
+
+pub fn List__T<T>(mut first: T) -> Vec<T> {
+    return crate::std_core_list::Mut_List__T::<T>(first);
+}
+
+pub fn List__T_TArray<T: Clone>(mut first: T, mut rest: Vec<T>) -> Vec<T> {
+    return crate::std_core_list::Mut_List__T_TArray::<T>(first, rest.clone());
+}
+
+pub fn Mut_List__T<T>(mut first: T) -> Vec<T> {
+    let mut list: Vec<T> = vec![];
+    crate::std_core_list::add_platform::<T>(&mut list, first);
+    return list;
+}
+
+pub fn Mut_List__T_TArray<T: Clone>(mut first: T, mut rest: Vec<T>) -> Vec<T> {
+    let mut list: Vec<T> = vec![];
+    crate::std_core_list::add_platform::<T>(&mut list, first);
+    crate::std_core_list::add_all_platform::<T>(&mut list, &rest);
+    return list;
+}
+
+pub fn add_all_platform<T: Clone>(list: &mut Vec<T>, items: &Vec<T>) {
+    crate::platform_std_core_list::add_all(list, items)
+}
+
 pub fn list_by<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T) -> Vec<T> {
     return crate::std_core_list::mut_list_by::<T>(size, &mut *init);
 }
@@ -372,7 +401,7 @@ pub fn drain<T>(mut list: Vec<T>, each: &mut dyn FnMut(T)) {
                 let mut __pick1_1 = __pick1.unwrap();
                 __pick1_1
             } else {
-                panic!("salvo: unreachable at std.core.list:265:32")
+                panic!("salvo: unreachable at std.core.list:322:32")
             }
         }; each(__arg1) };
     }
@@ -395,10 +424,6 @@ pub fn first_platform<T>(list: &Vec<T>) -> Option<&T> {
     crate::platform_std_core_list::first(list)
 }
 
-pub fn NonEmpty__List_qualifies<T: Clone>(list: &Vec<T>) -> bool {
-    return (crate::std_core_list::size_platform::<T>(list) > 0i32);
-}
-
 pub fn first<T>(list: &Vec<T>) -> &T {
     return {
         let mut __pick2: Option<&T> = crate::std_core_list::get_platform::<T>(list, 0i32);
@@ -406,7 +431,7 @@ pub fn first<T>(list: &Vec<T>) -> &T {
             let mut __pick2_1 = __pick2.unwrap();
             __pick2_1
         } else {
-            panic!("salvo: unreachable at std.core.list:325:28")
+            panic!("salvo: unreachable at std.core.list:347:28")
         }
     };
 }
@@ -444,7 +469,7 @@ pub fn remove_front_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool
                 let mut __pick3_1 = __pick3.unwrap();
                 __pick3_1
             } else {
-                panic!("salvo: unreachable at std.core.list:373:50")
+                panic!("salvo: unreachable at std.core.list:395:50")
             }
         }))) {
             break;
@@ -463,7 +488,7 @@ pub fn remove_back_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool)
                 let mut __pick4_1 = __pick4.unwrap();
                 __pick4_1
             } else {
-                panic!("salvo: unreachable at std.core.list:386:47")
+                panic!("salvo: unreachable at std.core.list:408:47")
             }
         }))) {
             break;
@@ -489,7 +514,7 @@ pub fn sub_list<T: Clone>(list: &Vec<T>, mut from: i32, mut to: i32, copy: &mut 
                 let mut __pick5_1 = __pick5.unwrap();
                 __pick5_1
             } else {
-                panic!("salvo: unreachable at std.core.list:405:39")
+                panic!("salvo: unreachable at std.core.list:427:39")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
@@ -577,7 +602,7 @@ pub fn contains<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) ->
                 let mut __pick6_1 = __pick6.unwrap();
                 __pick6_1
             } else {
-                panic!("salvo: unreachable at std.core.list:460:31")
+                panic!("salvo: unreachable at std.core.list:482:31")
             }
         }, elem) {
             return true;
@@ -603,7 +628,7 @@ pub fn all<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> bool {
                 let mut __pick7_1 = __pick7.unwrap();
                 __pick7_1
             } else {
-                panic!("salvo: unreachable at std.core.list:479:34")
+                panic!("salvo: unreachable at std.core.list:501:34")
             }
         })) {
             return false;
@@ -626,7 +651,7 @@ pub fn count<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> i32 {
                 let mut __pick8_1 = __pick8.unwrap();
                 __pick8_1
             } else {
-                panic!("salvo: unreachable at std.core.list:493:33")
+                panic!("salvo: unreachable at std.core.list:515:33")
             }
         }) {
             n = i32::wrapping_add(n, 1i32);
@@ -650,7 +675,7 @@ pub fn partition<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool, copy
                 let mut __pick9_1 = __pick9.unwrap();
                 __pick9_1
             } else {
-                panic!("salvo: unreachable at std.core.list:511:33")
+                panic!("salvo: unreachable at std.core.list:533:33")
             }
         };
         if pick(x) {
@@ -799,7 +824,7 @@ pub fn binary_search<T: Clone>(list: &Vec<T>, elem: &T, cmp: &mut dyn FnMut(&T, 
             return None;
         }
     };
-    if crate::std_core_index::Idx__Int_qualifies(found, list, &mut |__a0| crate::std_core_list::size_platform(__a0)) {
+    if crate::std_core_index::Idx__Int_qualifies::<Vec<T>>(found, list, &mut |__a0: &Vec<T>| crate::std_core_list::size_platform(__a0)) {
         return Some(found);
     };
     return None;
@@ -816,7 +841,7 @@ pub fn eq<T: Clone>(a: &Vec<T>, b: &Vec<T>, eq: &mut dyn FnMut(&T, &T) -> bool) 
             let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             let mut p: crate::std_core_list::Enumerated<'_, T> = __emitted_3;
             let mut j: i32 = p.index;
-            if crate::std_core_index::Idx__Int_qualifies(j, b, &mut |__a0| crate::std_core_list::size_platform(__a0)) {
+            if crate::std_core_index::Idx__Int_qualifies::<Vec<T>>(j, b, &mut |__a0: &Vec<T>| crate::std_core_list::size_platform(__a0)) {
                 if !(eq(p.elem, crate::std_core_list::get::<T>(b, j))) {
                     return false;
                 };
@@ -836,7 +861,7 @@ pub fn cmp<T: Clone>(a: &Vec<T>, b: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32)
             let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             let mut p: crate::std_core_list::Enumerated<'_, T> = __emitted_3;
             let mut j: i32 = p.index;
-            if crate::std_core_index::Idx__Int_qualifies(j, b, &mut |__a0| crate::std_core_list::size_platform(__a0)) {
+            if crate::std_core_index::Idx__Int_qualifies::<Vec<T>>(j, b, &mut |__a0: &Vec<T>| crate::std_core_list::size_platform(__a0)) {
                 let mut c: i32 = cmp(p.elem, crate::std_core_list::get::<T>(b, j));
                 if (c != 0i32) {
                     return c;
@@ -854,294 +879,17 @@ pub fn cmp<T: Clone>(a: &Vec<T>, b: &Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32)
     return 0i32;
 }
 
-// ===== std/core/map.rs =====
-use crate::std_core_iterator::Finished;
-use crate::std_core_string::Mut_Str;
-use crate::std_core_string::append_platform;
-use crate::std_core_iterator::emitted;
-use crate::std_core_iterator::finished;
+// ===== std/core/nonempty.rs =====
 
-
-/// [platform-type] The host's `Map`.
-pub use crate::platform_std_core_map::Map;
-const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq>() {} __contract::<Map<i32, i32>>(); };
-const _: fn() = || { fn __each(x: &Map<i32, i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_std_core_map::each(x).map(|e| e.clone()) } let _ = __each; };
-const _: fn() = || { fn __each_ref(x: &Map<i32, i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_std_core_map::each(x) } fn __each_mut(x: &mut Map<i32, i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_std_core_map::each_mut(x) } fn __into_each(x: Map<i32, i32>) -> impl Iterator<Item = i32> { crate::platform_std_core_map::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
-
-pub fn Map_platform<K: Clone, V>(mut entries: Vec<(K, V)>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_map::Map(entries, &mut hash, &mut eq)
-}
-
-pub fn Mut_Map_platform<K: Clone, V>(mut entries: Vec<(K, V)>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_map::Mut_Map(entries, &mut hash, &mut eq)
-}
-
-pub fn map_by_platform<K: Clone, V>(mut size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
-    let mut init = init;
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_map::map_by(size, &mut init, &mut hash, &mut eq)
-}
-
-pub fn mut_map_by_platform<K: Clone, V>(mut size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
-    let mut init = init;
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_map::mut_map_by(size, &mut init, &mut hash, &mut eq)
-}
-
-pub fn to_map_platform<K: Clone, V: Clone>(pairs: &Vec<(K, V)>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_map::to_map(pairs, &mut hash, &mut eq)
-}
-
-pub fn to_map<T: Clone, K: Clone, V: Clone>(items: &Vec<T>, entry: &mut dyn FnMut(&T) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
-    let mut map: crate::std_core_map::Map<K, V> = crate::std_core_map::Mut_Map_platform::<K, V>(vec![], &mut *hash, &mut *eq);
-    for mut x in items.iter() {
-        let mut __destructured_1: (K, V) = entry(x);
-        let mut k: K = __destructured_1.0;
-        let mut v: V = __destructured_1.1;
-        crate::std_core_map::put_platform::<K, V>(&mut map, k, v, &mut *hash, &mut *eq);
-    }
-    return map;
-}
-
-pub fn get_platform<'a, K: Clone, V: Clone>(map: &'a crate::std_core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<&'a V> {
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_map::get(map, key, &mut hash, &mut eq)
-}
-
-pub fn at_platform<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<usize> {
-    crate::platform_std_core_map::slot_of(map, key, hash, eq)
-}
-
-pub fn put_platform<K: Clone, V: Clone>(map: &mut crate::std_core_map::Map<K, V>, mut key: K, mut value: V, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) {
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_map::put(map, key, value, &mut hash, &mut eq)
-}
-
-pub fn replace_platform<K: Clone, V>(map: &mut crate::std_core_map::Map<K, V>, mut key: K, mut value: V, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<V> {
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_map::replace(map, key, value, &mut hash, &mut eq)
-}
-
-pub fn remove_platform<K: Clone, V>(map: &mut crate::std_core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> Option<V> {
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_map::remove(map, key, &mut hash, &mut eq)
-}
-
-pub fn contains_key_platform<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> bool {
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_map::contains_key(map, key, &mut hash, &mut eq)
-}
-
-pub fn KeyOf_qualifies<K: Clone, V: Clone>(key: &K, map: &crate::std_core_map::Map<K, V>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> bool {
-    return crate::std_core_map::contains_key_platform::<K, V>(map, key, &mut *hash, &mut *eq);
-}
-
-pub fn get_present_platform<'a, K: Clone, V: Clone>(map: &'a crate::std_core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> &'a V {
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_map::get_present(map, key, &mut hash, &mut eq)
-}
-
-pub fn get<'a, K: Clone, V: Clone>(map: &'a crate::std_core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> &'a V {
-    return crate::std_core_map::get_present_platform::<K, V>(map, key, &mut *hash, &mut *eq);
-}
-
-pub fn at<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> usize {
-    return crate::std_core_map::at_present_platform(map, key, &mut *hash, &mut *eq);
-}
-
-pub fn at_present_platform<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, key: &K, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> usize {
-    crate::platform_std_core_map::slot_of(map, key, hash, eq).expect("salvo: a `KeyOf` key is present")
-}
-
-pub fn size_platform<K: Clone, V>(map: &crate::std_core_map::Map<K, V>) -> i32 {
-    crate::platform_std_core_map::size(map)
-}
-
-pub fn drain<K: Clone, V>(mut map: crate::std_core_map::Map<K, V>, each: &mut dyn FnMut(V)) {
-    crate::std_core_list::drain::<V>(crate::std_core_map::into_values_platform::<K, V>(map), &mut *each);
-}
-
-pub fn into_values_platform<K: Clone, V>(mut map: crate::std_core_map::Map<K, V>) -> Vec<V> {
-    crate::platform_std_core_map::into_values(map)
-}
-
-pub fn to_str<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, to_str: &mut dyn FnMut(&K) -> String, to_str__1: &mut dyn FnMut(&V) -> String, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> String {
-    let mut out: String = crate::std_core_string::Mut_Str(vec![String::from("{")]);
-    let mut i: i32 = 0i32;
-    for mut k in crate::platform_std_core_map::each(map).map(|__x| __x.clone()) {
-        if (i > 0i32) {
-            crate::std_core_string::append_platform(&mut out, &String::from(", "));
-        };
-        crate::std_core_string::append_platform(&mut out, &to_str(&k));
-        crate::std_core_string::append_platform(&mut out, &String::from(": "));
-        crate::std_core_string::append_platform(&mut out, &to_str__1({
-            let mut __pick1: Option<&V> = crate::std_core_map::get_platform::<K, V>(map, &k, &mut *hash, &mut *eq);
-            if __pick1.is_some() {
-                let mut __pick1_1 = __pick1.unwrap();
-                __pick1_1
-            } else {
-                panic!("salvo: unreachable at std.core.map:201:43")
-            }
-        }));
-        i = i32::wrapping_add(i, 1i32);
-    }
-    crate::std_core_string::append_platform(&mut out, &String::from("}"));
-    return out;
-}
-
-pub fn eq<K: Clone, V: Clone>(a: &crate::std_core_map::Map<K, V>, b: &crate::std_core_map::Map<K, V>, eq: &mut dyn FnMut(&V, &V) -> bool, hash: &mut dyn FnMut(&K) -> i64, eq__1: &mut dyn FnMut(&K, &K) -> bool) -> bool {
-    if (crate::std_core_map::size_platform::<K, V>(a) != crate::std_core_map::size_platform::<K, V>(b)) {
-        return false;
-    };
-    for mut k in crate::platform_std_core_map::each(a).map(|__x| __x.clone()) {
-        let mut theirs: Option<&V> = crate::std_core_map::get_platform::<K, V>(b, &k, &mut *hash, &mut *eq__1);
-        if theirs.is_none() {
-            return false;
-        };
-        let mut theirs_2 = theirs.unwrap();
-        if !(eq({
-            let mut __pick2: Option<&V> = crate::std_core_map::get_platform::<K, V>(a, &k, &mut *hash, &mut *eq__1);
-            if __pick2.is_some() {
-                let mut __pick2_1 = __pick2.unwrap();
-                __pick2_1
-            } else {
-                panic!("salvo: unreachable at std.core.map:224:29")
-            }
-        }, theirs_2)) {
-            return false;
-        };
-    }
-    return true;
-}
-
-pub fn keys_platform<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> Vec<K> {
-    crate::platform_std_core_map::keys(map)
-}
-
-pub fn iter<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> crate::std_core_map::MapKeyIter<K> {
-    return crate::std_core_map::MapKeyIter { items: crate::std_core_map::keys_platform::<K, V>(map), at: 0i32 };
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct MapKeyIter<K> {
-    pub items: Vec<K>,
-    pub at: i32,
-}
-
-impl<K: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for MapKeyIter<K> {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        crate::wire::__Wire::__enc(&self.items, out);
-        crate::wire::__Wire::__enc(&self.at, out);
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        Some(Self {
-            items: crate::wire::__Wire::__dec(r)?,
-            at: crate::wire::__Wire::__dec(r)?,
-        })
-    }
-}
-
-pub fn next__MapKeyIter<K: Clone>(p: &mut crate::std_core_map::MapKeyIter<K>) -> crate::unions::Union2<K, crate::std_core_iterator::Finished> {
-    let mut key: Option<K> = p.items.get((p.at) as i64 as usize).cloned();
-    if key.is_none() {
-        return crate::unions::Union2::U2(crate::std_core_iterator::finished());
-    };
-    p.at = i32::wrapping_add(p.at, 1i32);
-    let mut key_1 = key.unwrap();
-    return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<K>(key_1));
-}
-
-pub fn slot_count_platform<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> i32 {
-    crate::platform_std_core_map::slot_count(map)
-}
-
-pub fn key_at_platform<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, mut at: i32) -> Option<&K> {
-    crate::platform_std_core_map::key_at(map, at)
-}
-
-pub fn value_at_platform<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, mut at: i32) -> &V {
-    crate::platform_std_core_map::value_at(map, at)
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct MapEntry<'s, K, V> {
-    pub key: &'s K,
-    pub value: &'s V,
-}
-
-pub fn entries<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> crate::std_core_map::MapEntriesIter<'_, K, V> {
-    return crate::std_core_map::MapEntriesIter { map: map, at: 0i32 };
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct MapEntriesIter<'s, K, V> {
-    pub map: &'s crate::std_core_map::Map<K, V>,
-    pub at: i32,
-}
-
-pub fn next__MapEntriesIter<'a, K: Clone, V: Clone>(p: &mut crate::std_core_map::MapEntriesIter<'a, K, V>) -> crate::unions::Union2<crate::std_core_map::MapEntry<'a, K, V>, crate::std_core_iterator::Finished> {
-    loop {
-        if !((p.at < crate::std_core_map::slot_count_platform::<K, V>(p.map))) {
-            break;
-        };
-        let mut here: i32 = p.at;
-        p.at = i32::wrapping_add(p.at, 1i32);
-        let mut key: Option<&K> = crate::std_core_map::key_at_platform::<K, V>(p.map, here);
-        if !(key.is_none()) {
-            let mut value: &V = crate::std_core_map::value_at_platform::<K, V>(p.map, here);
-            let mut key_1 = key.unwrap();
-            return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<crate::std_core_map::MapEntry<'_, K, V>>(crate::std_core_map::MapEntry { key: key_1, value: value }));
-        };
-    }
-    return crate::unions::Union2::U2(crate::std_core_iterator::finished());
-}
-
-pub fn values<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> crate::std_core_map::MapValuesIter<'_, K, V> {
-    return crate::std_core_map::MapValuesIter { map: map, at: 0i32 };
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct MapValuesIter<'s, K, V> {
-    pub map: &'s crate::std_core_map::Map<K, V>,
-    pub at: i32,
-}
-
-pub fn next__MapValuesIter<'a, K: Clone, V: Clone>(p: &mut crate::std_core_map::MapValuesIter<'a, K, V>) -> crate::unions::Union2<&'a V, crate::std_core_iterator::Finished> {
-    loop {
-        if !((p.at < crate::std_core_map::slot_count_platform::<K, V>(p.map))) {
-            break;
-        };
-        let mut here: i32 = p.at;
-        p.at = i32::wrapping_add(p.at, 1i32);
-        if !((crate::std_core_map::key_at_platform::<K, V>(p.map, here)).is_none()) {
-            let mut value: &V = crate::std_core_map::value_at_platform::<K, V>(p.map, here);
-            return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<&V>(value));
-        };
-    }
-    return crate::unions::Union2::U2(crate::std_core_iterator::finished());
-}
-
-pub fn NonEmpty__Map_qualifies<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> bool {
-    return (crate::std_core_map::size_platform::<K, V>(map) > 0i32);
+pub fn NonEmpty_qualifies<T>(value: &T, size: &mut dyn FnMut(&T) -> i32) -> bool {
+    return (size(value) > 0i32);
 }
 
 // ===== std/core/result.rs =====
-use crate::std_core_list::NonEmpty__List_qualifies;
+use crate::std_core_list::List__T;
+use crate::std_core_nonempty::NonEmpty_qualifies;
 use crate::std_core_list::add_platform;
+use crate::std_core_list::size_platform;
 
 
 pub fn ok<T>(mut value: T) -> T {
@@ -1161,7 +909,7 @@ pub fn Err<T>(mut value: T) -> T {
 }
 
 pub fn errs<E: Clone>(mut first: E) -> Vec<E> {
-    return vec![first];
+    return crate::std_core_list::List__T::<E>(first);
 }
 
 pub fn Errs<T>(mut value: T) -> T {
@@ -1232,406 +980,10 @@ pub fn joined<X: Clone>(mut a: Vec<X>, mut b: Vec<X>, copy: &mut dyn FnMut(&X) -
     for mut e in b.iter() {
         crate::std_core_list::add_platform::<X>(&mut errors, copy(e));
     }
-    if crate::std_core_list::NonEmpty__List_qualifies(&errors) {
+    if crate::std_core_nonempty::NonEmpty_qualifies::<Vec<X>>(&errors, &mut |__a0: &Vec<X>| crate::std_core_list::size_platform(__a0)) {
         return errors;
     };
     return panic!("salvo: two non-empty lists joined are not empty at std.core.result:126:5");
-}
-
-// ===== std/core/set.rs =====
-use crate::std_core_iterator::Finished;
-use crate::std_core_string::Mut_Str;
-use crate::std_core_string::append_platform;
-use crate::std_core_iterator::emitted;
-use crate::std_core_iterator::finished;
-
-
-/// [platform-type] The host's `Set`.
-pub use crate::platform_std_core_set::Set;
-const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq>() {} __contract::<Set<i32>>(); };
-const _: fn() = || { fn __each(x: &Set<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_std_core_set::each(x).map(|e| e.clone()) } let _ = __each; };
-const _: fn() = || { fn __each_ref(x: &Set<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_std_core_set::each(x) } fn __each_mut(x: &mut Set<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_std_core_set::each_mut(x) } fn __into_each(x: Set<i32>) -> impl Iterator<Item = i32> { crate::platform_std_core_set::into_each(x) } let _ = (__each_ref, __each_mut, __into_each); };
-
-pub fn Set_platform<T: Clone>(mut elems: Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::std_core_set::Set<T> {
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_set::Set(elems, &mut hash, &mut eq)
-}
-
-pub fn Mut_Set_platform<T: Clone>(mut elems: Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::std_core_set::Set<T> {
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_set::Mut_Set(elems, &mut hash, &mut eq)
-}
-
-pub fn set_by_platform<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::std_core_set::Set<T> {
-    let mut init = init;
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_set::set_by(size, &mut init, &mut hash, &mut eq)
-}
-
-pub fn mut_set_by_platform<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::std_core_set::Set<T> {
-    let mut init = init;
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_set::mut_set_by(size, &mut init, &mut hash, &mut eq)
-}
-
-pub fn to_set_platform<T: Clone>(list: &Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::std_core_set::Set<T> {
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_set::to_set(list, &mut hash, &mut eq)
-}
-
-pub fn add_platform<T: Clone>(set: &mut crate::std_core_set::Set<T>, mut elem: T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_set::add(set, elem, &mut hash, &mut eq)
-}
-
-pub fn remove_platform<T: Clone>(set: &mut crate::std_core_set::Set<T>, elem: &T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_set::remove(set, elem, &mut hash, &mut eq)
-}
-
-pub fn contains_platform<T: Clone>(set: &crate::std_core_set::Set<T>, elem: &T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
-    let mut hash = hash;
-    let mut eq = eq;
-    crate::platform_std_core_set::contains(set, elem, &mut hash, &mut eq)
-}
-
-pub fn size_platform<T: Clone>(set: &crate::std_core_set::Set<T>) -> i32 {
-    crate::platform_std_core_set::size(set)
-}
-
-pub fn to_str<T: Clone>(set: &crate::std_core_set::Set<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
-    let mut out: String = crate::std_core_string::Mut_Str(vec![String::from("{")]);
-    let mut i: i32 = 0i32;
-    for mut x in crate::platform_std_core_set::each(set).map(|__x| __x.clone()) {
-        if (i > 0i32) {
-            crate::std_core_string::append_platform(&mut out, &String::from(", "));
-        };
-        crate::std_core_string::append_platform(&mut out, &to_str(&x));
-        i = i32::wrapping_add(i, 1i32);
-    }
-    crate::std_core_string::append_platform(&mut out, &String::from("}"));
-    return out;
-}
-
-pub fn eq<T: Clone>(a: &crate::std_core_set::Set<T>, b: &crate::std_core_set::Set<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> bool {
-    if (crate::std_core_set::size_platform::<T>(a) != crate::std_core_set::size_platform::<T>(b)) {
-        return false;
-    };
-    for mut x in crate::platform_std_core_set::each(a).map(|__x| __x.clone()) {
-        if !(crate::std_core_set::contains_platform::<T>(b, &x, &mut *hash, &mut *eq)) {
-            return false;
-        };
-    }
-    return true;
-}
-
-pub fn to_list_platform<T: Clone>(set: &crate::std_core_set::Set<T>) -> Vec<T> {
-    crate::platform_std_core_set::to_list(set)
-}
-
-pub fn iter<T: Clone>(set: &crate::std_core_set::Set<T>) -> crate::std_core_set::SetIter<T> {
-    return crate::std_core_set::SetIter { items: crate::std_core_set::to_list_platform::<T>(set), at: 0i32 };
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct SetIter<T> {
-    pub items: Vec<T>,
-    pub at: i32,
-}
-
-impl<T: Clone + 'static + crate::wire::__Wire> crate::wire::__Wire for SetIter<T> {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        crate::wire::__Wire::__enc(&self.items, out);
-        crate::wire::__Wire::__enc(&self.at, out);
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        Some(Self {
-            items: crate::wire::__Wire::__dec(r)?,
-            at: crate::wire::__Wire::__dec(r)?,
-        })
-    }
-}
-
-pub fn next<T: Clone>(p: &mut crate::std_core_set::SetIter<T>) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> {
-    let mut elem: Option<T> = p.items.get((p.at) as i64 as usize).cloned();
-    if elem.is_none() {
-        return crate::unions::Union2::U2(crate::std_core_iterator::finished());
-    };
-    p.at = i32::wrapping_add(p.at, 1i32);
-    let mut elem_1 = elem.unwrap();
-    return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<T>(elem_1));
-}
-
-pub fn NonEmpty__Set_qualifies<T: Clone>(set: &crate::std_core_set::Set<T>) -> bool {
-    return (crate::std_core_set::size_platform::<T>(set) > 0i32);
-}
-
-// ===== std/core/sorted.rs =====
-use crate::std_core_map::MapKeyIter;
-use crate::std_core_string::Mut_Str;
-use crate::std_core_set::SetIter;
-use crate::std_core_string::append_platform;
-
-
-/// [platform-type] The host's `SortedSet`.
-pub use crate::platform_std_core_sorted::SortedSet;
-const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq>() {} __contract::<SortedSet<i32>>(); };
-const _: fn() = || { fn __each(x: &SortedSet<i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_std_core_sorted::each_sorted_set(x).map(|e| e.clone()) } let _ = __each; };
-const _: fn() = || { fn __each_ref(x: &SortedSet<i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_std_core_sorted::each_sorted_set(x) } fn __each_mut(x: &mut SortedSet<i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_std_core_sorted::each_sorted_set_mut(x) } fn __into_each(x: SortedSet<i32>) -> impl Iterator<Item = i32> { crate::platform_std_core_sorted::into_each_sorted_set(x) } let _ = (__each_ref, __each_mut, __into_each); };
-
-pub fn SortedSet_platform<T: Clone>(mut elems: Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> crate::std_core_sorted::SortedSet<T> {
-    let mut cmp = cmp;
-    crate::platform_std_core_sorted::SortedSet(elems, &mut cmp)
-}
-
-pub fn Mut_SortedSet_platform<T: Clone>(mut elems: Vec<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> crate::std_core_sorted::SortedSet<T> {
-    let mut cmp = cmp;
-    crate::platform_std_core_sorted::Mut_SortedSet(elems, &mut cmp)
-}
-
-pub fn add_platform<T: Clone>(set: &mut crate::std_core_sorted::SortedSet<T>, mut elem: T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
-    let mut cmp = cmp;
-    crate::platform_std_core_sorted::add(set, elem, &mut cmp)
-}
-
-pub fn remove__SortedSet_T<T: Clone>(set: &mut crate::std_core_sorted::SortedSet<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
-    return crate::std_core_sorted::remove_elem_platform::<T>(&mut *set, elem, &mut *cmp);
-}
-
-pub fn remove_elem_platform<T: Clone>(set: &mut crate::std_core_sorted::SortedSet<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
-    let mut cmp = cmp;
-    crate::platform_std_core_sorted::remove_elem(set, elem, &mut cmp)
-}
-
-pub fn set_size_platform<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> i32 {
-    crate::platform_std_core_sorted::set_size(set)
-}
-
-pub fn remove_key_platform<K: Clone, V: Clone>(map: &mut crate::std_core_sorted::SortedMap<K, V>, key: &K, cmp: &mut dyn FnMut(&K, &K) -> i32) -> Option<V> {
-    let mut cmp = cmp;
-    crate::platform_std_core_sorted::remove_key(map, key, &mut cmp)
-}
-
-pub fn map_size_platform<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> i32 {
-    crate::platform_std_core_sorted::map_size(map)
-}
-
-pub fn contains_platform<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
-    let mut cmp = cmp;
-    crate::platform_std_core_sorted::contains(set, elem, &mut cmp)
-}
-
-pub fn size__SortedSet<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> i32 {
-    return crate::std_core_sorted::set_size_platform::<T>(set);
-}
-
-pub fn min_platform<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> Option<T> {
-    crate::platform_std_core_sorted::min(set)
-}
-
-pub fn max_platform<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> Option<T> {
-    crate::platform_std_core_sorted::max(set)
-}
-
-pub fn to_list_platform<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> Vec<T> {
-    crate::platform_std_core_sorted::to_list(set)
-}
-
-pub fn to_str__SortedSet<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>, to_str: &mut dyn FnMut(&T) -> String) -> String {
-    let mut out: String = crate::std_core_string::Mut_Str(vec![String::from("{")]);
-    let mut i: i32 = 0i32;
-    for mut x in crate::platform_std_core_sorted::each_sorted_set(set).map(|__x| __x.clone()) {
-        if (i > 0i32) {
-            crate::std_core_string::append_platform(&mut out, &String::from(", "));
-        };
-        crate::std_core_string::append_platform(&mut out, &to_str(&x));
-        i = i32::wrapping_add(i, 1i32);
-    }
-    crate::std_core_string::append_platform(&mut out, &String::from("}"));
-    return out;
-}
-
-pub fn iter__SortedSet<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> crate::std_core_set::SetIter<T> {
-    return crate::std_core_set::SetIter { items: crate::std_core_sorted::to_list_platform::<T>(set), at: 0i32 };
-}
-
-/// [platform-type] The host's `SortedMap`.
-pub use crate::platform_std_core_sorted::SortedMap;
-const _: fn() = || { fn __contract<T: Send + 'static + Clone + std::fmt::Debug + PartialEq + Eq>() {} __contract::<SortedMap<i32, i32>>(); };
-const _: fn() = || { fn __each(x: &SortedMap<i32, i32>) -> impl Iterator<Item = i32> + '_ { crate::platform_std_core_sorted::each_sorted_map(x).map(|e| e.clone()) } let _ = __each; };
-const _: fn() = || { fn __each_ref(x: &SortedMap<i32, i32>) -> impl Iterator<Item = &i32> + '_ { crate::platform_std_core_sorted::each_sorted_map(x) } fn __each_mut(x: &mut SortedMap<i32, i32>) -> impl Iterator<Item = &mut i32> + '_ { crate::platform_std_core_sorted::each_sorted_map_mut(x) } fn __into_each(x: SortedMap<i32, i32>) -> impl Iterator<Item = i32> { crate::platform_std_core_sorted::into_each_sorted_map(x) } let _ = (__each_ref, __each_mut, __into_each); };
-
-pub fn SortedMap_platform<K: Clone, V: Clone>(mut entries: Vec<(K, V)>, cmp: &mut dyn FnMut(&K, &K) -> i32) -> crate::std_core_sorted::SortedMap<K, V> {
-    let mut cmp = cmp;
-    crate::platform_std_core_sorted::SortedMap(entries, &mut cmp)
-}
-
-pub fn Mut_SortedMap_platform<K: Clone, V: Clone>(mut entries: Vec<(K, V)>, cmp: &mut dyn FnMut(&K, &K) -> i32) -> crate::std_core_sorted::SortedMap<K, V> {
-    let mut cmp = cmp;
-    crate::platform_std_core_sorted::Mut_SortedMap(entries, &mut cmp)
-}
-
-pub fn get_platform<'a, K: Clone, V: Clone>(map: &'a crate::std_core_sorted::SortedMap<K, V>, key: &K, cmp: &mut dyn FnMut(&K, &K) -> i32) -> Option<&'a V> {
-    let mut cmp = cmp;
-    crate::platform_std_core_sorted::get(map, key, &mut cmp)
-}
-
-pub fn put_platform<K: Clone, V: Clone>(map: &mut crate::std_core_sorted::SortedMap<K, V>, mut key: K, mut value: V, cmp: &mut dyn FnMut(&K, &K) -> i32) {
-    let mut cmp = cmp;
-    crate::platform_std_core_sorted::put(map, key, value, &mut cmp)
-}
-
-pub fn remove__SortedMap_K<K: Clone, V: Clone>(map: &mut crate::std_core_sorted::SortedMap<K, V>, key: &K, cmp: &mut dyn FnMut(&K, &K) -> i32) -> Option<V> {
-    return crate::std_core_sorted::remove_key_platform::<K, V>(&mut *map, key, &mut *cmp);
-}
-
-pub fn contains_key_platform<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>, key: &K, cmp: &mut dyn FnMut(&K, &K) -> i32) -> bool {
-    let mut cmp = cmp;
-    crate::platform_std_core_sorted::contains_key(map, key, &mut cmp)
-}
-
-pub fn size__SortedMap<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> i32 {
-    return crate::std_core_sorted::map_size_platform::<K, V>(map);
-}
-
-pub fn first_key_platform<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> Option<K> {
-    crate::platform_std_core_sorted::first_key(map)
-}
-
-pub fn last_key_platform<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> Option<K> {
-    crate::platform_std_core_sorted::last_key(map)
-}
-
-pub fn keys_platform<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> Vec<K> {
-    crate::platform_std_core_sorted::keys(map)
-}
-
-pub fn to_str__SortedMap<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>, to_str: &mut dyn FnMut(&K) -> String, to_str__1: &mut dyn FnMut(&V) -> String, cmp: &mut dyn FnMut(&K, &K) -> i32) -> String {
-    let mut out: String = crate::std_core_string::Mut_Str(vec![String::from("{")]);
-    let mut i: i32 = 0i32;
-    for mut k in crate::platform_std_core_sorted::each_sorted_map(map).map(|__x| __x.clone()) {
-        if (i > 0i32) {
-            crate::std_core_string::append_platform(&mut out, &String::from(", "));
-        };
-        crate::std_core_string::append_platform(&mut out, &to_str(&k));
-        crate::std_core_string::append_platform(&mut out, &String::from(": "));
-        crate::std_core_string::append_platform(&mut out, &to_str__1({
-            let mut __pick1: Option<&V> = crate::std_core_sorted::get_platform::<K, V>(map, &k, &mut *cmp);
-            if __pick1.is_some() {
-                let mut __pick1_1 = __pick1.unwrap();
-                __pick1_1
-            } else {
-                panic!("salvo: unreachable at std.core.sorted:163:43")
-            }
-        }));
-        i = i32::wrapping_add(i, 1i32);
-    }
-    crate::std_core_string::append_platform(&mut out, &String::from("}"));
-    return out;
-}
-
-pub fn eq__SortedSet_SortedSet<T: Clone>(a: &crate::std_core_sorted::SortedSet<T>, b: &crate::std_core_sorted::SortedSet<T>, cmp: &mut dyn FnMut(&T, &T) -> i32) -> bool {
-    if (crate::std_core_sorted::size__SortedSet::<T>(a) != crate::std_core_sorted::size__SortedSet::<T>(b)) {
-        return false;
-    };
-    for mut x in crate::platform_std_core_sorted::each_sorted_set(a).map(|__x| __x.clone()) {
-        if !(crate::std_core_sorted::contains_platform::<T>(b, &x, &mut *cmp)) {
-            return false;
-        };
-    }
-    return true;
-}
-
-pub fn eq__SortedMap_SortedMap<K: Clone, V: Clone>(a: &crate::std_core_sorted::SortedMap<K, V>, b: &crate::std_core_sorted::SortedMap<K, V>, eq: &mut dyn FnMut(&V, &V) -> bool, cmp: &mut dyn FnMut(&K, &K) -> i32) -> bool {
-    if (crate::std_core_sorted::size__SortedMap::<K, V>(a) != crate::std_core_sorted::size__SortedMap::<K, V>(b)) {
-        return false;
-    };
-    for mut k in crate::platform_std_core_sorted::each_sorted_map(a).map(|__x| __x.clone()) {
-        let mut theirs: Option<&V> = crate::std_core_sorted::get_platform::<K, V>(b, &k, &mut *cmp);
-        if theirs.is_none() {
-            return false;
-        };
-        let mut theirs_2 = theirs.unwrap();
-        if !(eq({
-            let mut __pick2: Option<&V> = crate::std_core_sorted::get_platform::<K, V>(a, &k, &mut *cmp);
-            if __pick2.is_some() {
-                let mut __pick2_1 = __pick2.unwrap();
-                __pick2_1
-            } else {
-                panic!("salvo: unreachable at std.core.sorted:198:29")
-            }
-        }, theirs_2)) {
-            return false;
-        };
-    }
-    return true;
-}
-
-pub fn iter__SortedMap<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> crate::std_core_map::MapKeyIter<K> {
-    return crate::std_core_map::MapKeyIter { items: crate::std_core_sorted::keys_platform::<K, V>(map), at: 0i32 };
-}
-
-pub fn NonEmpty__SortedSet_qualifies<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> bool {
-    return (crate::std_core_sorted::size__SortedSet::<T>(set) > 0i32);
-}
-
-pub fn NonEmpty__SortedMap_qualifies<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> bool {
-    return (crate::std_core_sorted::size__SortedMap::<K, V>(map) > 0i32);
-}
-
-pub fn min<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> T {
-    return {
-        let mut __pick3: Option<T> = crate::std_core_sorted::min_platform::<T>(set);
-        if __pick3.is_some() {
-            let mut __pick3_1 = __pick3.unwrap();
-            __pick3_1
-        } else {
-            panic!("salvo: unreachable at std.core.sorted:257:28")
-        }
-    };
-}
-
-pub fn max<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> T {
-    return {
-        let mut __pick4: Option<T> = crate::std_core_sorted::max_platform::<T>(set);
-        if __pick4.is_some() {
-            let mut __pick4_1 = __pick4.unwrap();
-            __pick4_1
-        } else {
-            panic!("salvo: unreachable at std.core.sorted:261:28")
-        }
-    };
-}
-
-pub fn first_key<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> K {
-    return {
-        let mut __pick5: Option<K> = crate::std_core_sorted::first_key_platform::<K, V>(map);
-        if __pick5.is_some() {
-            let mut __pick5_1 = __pick5.unwrap();
-            __pick5_1
-        } else {
-            panic!("salvo: unreachable at std.core.sorted:265:34")
-        }
-    };
-}
-
-pub fn last_key<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V>) -> K {
-    return {
-        let mut __pick6: Option<K> = crate::std_core_sorted::last_key_platform::<K, V>(map);
-        if __pick6.is_some() {
-            let mut __pick6_1 = __pick6.unwrap();
-            __pick6_1
-        } else {
-            panic!("salvo: unreachable at std.core.sorted:269:33")
-        }
-    };
 }
 
 // ===== std/core/string.rs =====
@@ -1781,7 +1133,7 @@ pub fn substr(str: &String, at: &crate::std_core_string::Span) -> String {
             let mut __pick1_1 = __pick1.unwrap();
             __pick1_1
         } else {
-            panic!("salvo: unreachable at std.core.string:162:45")
+            panic!("salvo: unreachable at std.core.string:169:45")
         }
     };
 }
@@ -1957,30 +1309,21 @@ pub mod std_core_index;
 pub mod std_core_iterator;
 #[path = "std/core/list.rs"]
 pub mod std_core_list;
-#[path = "std/core/map.rs"]
-pub mod std_core_map;
+#[path = "std/core/nonempty.rs"]
+pub mod std_core_nonempty;
 #[path = "std/core/result.rs"]
 pub mod std_core_result;
-#[path = "std/core/set.rs"]
-pub mod std_core_set;
-#[path = "std/core/sorted.rs"]
-pub mod std_core_sorted;
 #[path = "std/core/string.rs"]
 pub mod std_core_string;
 #[path = "platform/std/core/console.rs"]
 pub mod platform_std_core_console;
 #[path = "platform/std/core/list.rs"]
 pub mod platform_std_core_list;
-#[path = "platform/std/core/map.rs"]
-pub mod platform_std_core_map;
-#[path = "platform/std/core/set.rs"]
-pub mod platform_std_core_set;
-#[path = "platform/std/core/sorted.rs"]
-pub mod platform_std_core_sorted;
 #[path = "platform/std/core/string.rs"]
 pub mod platform_std_core_string;
 
 use crate::std_core_iterator::Finished;
+use crate::std_core_list::List__T_TArray;
 use crate::std_core_iterator::emitted;
 use crate::std_core_result::err;
 use crate::std_core_iterator::finished;
@@ -2075,7 +1418,7 @@ pub fn main() {
     crate::std_core_console::println(&__handle_2, &format!("never: {}", never));
     let mut found: Option<i32> = {
         let mut __loop_10: Option<i32> = None;
-        for mut x in vec![0i32, 1i32, 2i32, 3i32, 4i32, 5i32].iter().copied() {
+        for mut x in crate::std_core_list::List__T_TArray::<i32>(0i32, vec![1i32, 2i32, 3i32, 4i32, 5i32]).iter().copied() {
             if (i32::wrapping_mul(x, x) > 10i32) {
                 __loop_10 = Some(x);
                 break;
@@ -2615,6 +1958,12 @@ pub fn add<T>(list: &mut List<T>, elem: T) {
     list.push(elem);
 }
 
+// [col-of-nonempty] The variadic constructor's tail, copied in: it stays the
+// caller's.
+pub fn add_all<T: Clone>(list: &mut List<T>, items: &Vec<T>) {
+    list.extend(items.iter().cloned());
+}
+
 pub fn remove_first<T>(list: &mut List<T>) -> Option<T> {
     if list.is_empty() { None } else { Some(list.remove(0)) }
 }
@@ -2686,822 +2035,6 @@ pub fn insert_sorted_by<T>(list: &mut List<T>, elem: T, cmp: &mut dyn FnMut(&T, 
 pub fn search_sorted_by<T>(list: &List<T>, elem: &T, cmp: &mut dyn FnMut(&T, &T) -> i32) -> Option<i32> {
     let at = list.partition_point(|x| cmp(x, elem) < 0);
     if at < list.len() && cmp(&list[at], elem) == 0 { Some(at as i32) } else { None }
-}
-
-// ===== platform/std/core/map.rs =====
-// [platform-value-type] [platform-slots] std's map, for `std.core.map`'s `platform
-// type Map<K, V>(?hash, ?eq) canbe Mut`: one insertion-ordered slab for every
-// identity (ROADMAP §0j step 7, user decision 2026-10-06). Every operation is
-// handed the `hash` and `eq` its call resolved, lent for the call
-// [platform-fn-value]; the map keeps the entries and the digest each key was
-// filed under, nothing else. `Mut Map` is the same type, passed as `&mut`.
-
-use std::fmt;
-
-type HashFn<'a, K> = &'a mut dyn FnMut(&K) -> i64;
-type EqFn<'a, K> = &'a mut dyn FnMut(&K, &K) -> bool;
-
-/// Entries in first-insertion order (`None` where one was removed), each
-/// key's digest, and an open-addressing index over a power-of-two table
-/// holding `slot + 1` (0 is empty). An overwrite keeps the key's position
-/// [col-insertion-order].
-#[derive(Clone)]
-pub struct Map<K, V> {
-    slots: Vec<Option<(K, V)>>,
-    digests: Vec<i64>,
-    index: Vec<u32>,
-    live: usize,
-}
-
-pub type MutMap<K, V> = Map<K, V>;
-
-impl<K, V> Map<K, V> {
-    fn new() -> Self {
-        Map { slots: Vec::new(), digests: Vec::new(), index: vec![0; 16], live: 0 }
-    }
-
-    fn home(&self, digest: i64) -> usize {
-        let d = digest as u64;
-        let h = d ^ (d >> 29) ^ (d >> 47);
-        (h as usize) & (self.index.len() - 1)
-    }
-
-    fn find_by(&self, digest: i64, mut same: impl FnMut(&K) -> bool) -> Option<usize> {
-        let mask = self.index.len() - 1;
-        let mut i = self.home(digest);
-        loop {
-            let at = self.index[i];
-            if at == 0 {
-                return None;
-            }
-            let s = (at - 1) as usize;
-            if self.digests[s] == digest {
-                if let Some((k, _)) = &self.slots[s] {
-                    if same(k) {
-                        return Some(s);
-                    }
-                }
-            }
-            i = (i + 1) & mask;
-        }
-    }
-
-    fn find(&self, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> Option<usize> {
-        let digest = hash(key);
-        self.find_by(digest, |k| eq(k, key))
-    }
-
-    fn place(&mut self, s: usize) {
-        let mask = self.index.len() - 1;
-        let mut i = self.home(self.digests[s]);
-        while self.index[i] != 0 {
-            i = (i + 1) & mask;
-        }
-        self.index[i] = (s + 1) as u32;
-    }
-
-    fn rebuild(&mut self) {
-        let slots = std::mem::take(&mut self.slots);
-        let digests = std::mem::take(&mut self.digests);
-        for (e, d) in slots.into_iter().zip(digests) {
-            if let Some(e) = e {
-                self.slots.push(Some(e));
-                self.digests.push(d);
-            }
-        }
-        let mut cap = 16;
-        while cap * 3 < (self.slots.len() + 1) * 8 {
-            cap *= 2;
-        }
-        self.index = vec![0; cap];
-        for s in 0..self.slots.len() {
-            self.place(s);
-        }
-    }
-
-    fn append(&mut self, digest: i64, key: K, value: V) {
-        if (self.slots.len() + 1) * 4 > self.index.len() * 3 {
-            self.rebuild();
-        }
-        self.slots.push(Some((key, value)));
-        self.digests.push(digest);
-        self.live += 1;
-        self.place(self.slots.len() - 1);
-    }
-
-    /// Stores `value` under `key`: an existing key keeps its place and takes
-    /// the new key and value. Answers the displaced value.
-    fn store(&mut self, key: K, value: V, hash: HashFn<K>, eq: EqFn<K>) -> Option<V> {
-        let digest = hash(&key);
-        match self.find_by(digest, |k| eq(k, &key)) {
-            Some(i) => self.slots[i].replace((key, value)).map(|(_, old)| old),
-            None => {
-                self.append(digest, key, value);
-                None
-            }
-        }
-    }
-
-    fn remove_at(&mut self, i: usize) -> Option<V> {
-        let (_, value) = self.slots[i].take()?;
-        self.live -= 1;
-        if self.slots.len() > 2 * self.live + 8 {
-            self.rebuild();
-        }
-        Some(value)
-    }
-
-    /// The entries, in insertion order.
-    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
-        self.slots.iter().flatten().map(|(k, v)| (k, v))
-    }
-}
-
-/// Order-blind, on host equality (what a struct holding a map compares by;
-/// ROADMAP §0j step 8 owns replacing it).
-impl<K: PartialEq, V: PartialEq> PartialEq for Map<K, V> {
-    fn eq(&self, other: &Self) -> bool {
-        self.live == other.live
-            && self.slots.iter().zip(&self.digests).all(|(e, d)| {
-                e.as_ref().is_none_or(|(k, v)| {
-                    other
-                        .find_by(*d, |o| o == k)
-                        .is_some_and(|j| other.slots[j].as_ref().is_some_and(|(_, ov)| ov == v))
-                })
-            })
-    }
-}
-
-impl<K: PartialEq, V: PartialEq> Eq for Map<K, V> {}
-
-impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for Map<K, V> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_map().entries(self.iter()).finish()
-    }
-}
-
-/// `{a: 1, b: 2}`, in insertion order — the map literal that would build it
-/// [col-to-str].
-impl<K: fmt::Display, V: fmt::Display> fmt::Display for Map<K, V> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{{")?;
-        for (i, (k, v)) in self.iter().enumerate() {
-            if i > 0 {
-                write!(f, ", ")?;
-            }
-            write!(f, "{k}: {v}")?;
-        }
-        write!(f, "}}")
-    }
-}
-
-/// [platform-value-type] For host code: the digest Salvo's canonical `hash`
-/// answers for an intrinsic key type (`Str`, `Int`, `Long`, `Char`, `Bool`,
-/// `Byte`) — the standard library's `DefaultHasher` over the value, which is
-/// what the `hash` intrinsics lower to.
-pub fn canonical_hash<K: std::hash::Hash + ?Sized>(k: &K) -> i64 {
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    k.hash(&mut h);
-    std::hash::Hasher::finish(&h) as i64
-}
-
-/// [platform-value-type] For host code: a map keyed **canonically** (the
-/// identity Salvo resolves for an intrinsic key type), in the order given; a
-/// repeated key keeps its first place and takes its last value
-/// [col-duplicate-keys].
-pub fn canonical_map<K: std::hash::Hash + PartialEq, V>(entries: Vec<(K, V)>) -> Map<K, V> {
-    Map(entries, &mut |k: &K| canonical_hash(k), &mut |a: &K, b: &K| a == b)
-}
-
-// [platform-iterable] [col-map-iter] The host's loop over a map: its keys,
-// in insertion order.
-pub fn each<K, V>(map: &Map<K, V>) -> impl Iterator<Item = &K> + '_ {
-    map.iter().map(|(k, _)| k)
-}
-
-pub fn each_mut<K, V>(_map: &mut Map<K, V>) -> std::iter::Empty<&mut K> {
-    // A key is written in place nowhere: it would move in the map.
-    unreachable!("salvo: a map's keys are not written in place")
-}
-
-pub fn into_each<K, V>(map: Map<K, V>) -> std::vec::IntoIter<K> {
-    map.slots.into_iter().flatten().map(|(k, _)| k).collect::<Vec<K>>().into_iter()
-}
-
-// A repeated key keeps the position of its first appearance and takes the
-// value of its last [col-duplicate-keys].
-pub fn Map<K, V>(entries: Vec<(K, V)>, hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
-    let mut m = Map::new();
-    for (k, v) in entries {
-        m.store(k, v, &mut *hash, &mut *eq);
-    }
-    m
-}
-
-pub fn Mut_Map<K, V>(entries: Vec<(K, V)>, hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
-    Map(entries, hash, eq)
-}
-
-pub fn map_by<K, V>(size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
-    let mut m = Map::new();
-    for i in 0..size.max(0) {
-        let (k, v) = init(i);
-        m.store(k, v, &mut *hash, &mut *eq);
-    }
-    m
-}
-
-pub fn mut_map_by<K, V>(size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
-    map_by(size, init, hash, eq)
-}
-
-pub fn to_map<K: Clone, V: Clone>(pairs: &Vec<(K, V)>, hash: HashFn<K>, eq: EqFn<K>) -> Map<K, V> {
-    Map(pairs.clone(), hash, eq)
-}
-
-pub fn get<'a, K, V>(map: &'a Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> Option<&'a V> {
-    let i = map.find(key, hash, eq)?;
-    map.slots[i].as_ref().map(|(_, v)| v)
-}
-
-// [rs-loc] [ref-handle] A handle into a map is a slot position: `at`'s
-// locator. Slots are stable until an entry is added or removed, which ends
-// every handle [fate-poison].
-pub fn slot_of<K, V>(map: &Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> Option<usize> {
-    map.find(key, hash, eq)
-}
-
-impl<K, V> Map<K, V> {
-    // [rs-path] Two handles into two different entries, live at once: the
-    // slab's `split_at_mut`. `None` when the slots coincide or are empty.
-    pub fn pair_mut(&mut self, i: usize, j: usize) -> Option<(&mut V, &mut V)> {
-        if i == j || i >= self.slots.len() || j >= self.slots.len() {
-            return None;
-        }
-        let (lo, hi) = if i < j { (i, j) } else { (j, i) };
-        let (a, b) = self.slots.split_at_mut(hi);
-        let x = &mut a[lo].as_mut()?.1;
-        let y = &mut b[0].as_mut()?.1;
-        Some(if i < j { (x, y) } else { (y, x) })
-    }
-}
-
-impl<K, V> std::ops::Index<usize> for Map<K, V> {
-    type Output = V;
-    fn index(&self, slot: usize) -> &V {
-        &self.slots[slot].as_ref().expect("salvo: a handle to a removed entry").1
-    }
-}
-
-impl<K, V> std::ops::IndexMut<usize> for Map<K, V> {
-    fn index_mut(&mut self, slot: usize) -> &mut V {
-        &mut self.slots[slot].as_mut().expect("salvo: a handle to a removed entry").1
-    }
-}
-
-// The claim proved the key present [qual-depend].
-pub fn get_present<'a, K, V>(map: &'a Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> &'a V {
-    get(map, key, hash, eq).expect("salvo: a `KeyOf` key is absent")
-}
-
-pub fn put<K, V>(map: &mut Map<K, V>, key: K, value: V, hash: HashFn<K>, eq: EqFn<K>) {
-    map.store(key, value, hash, eq);
-}
-
-pub fn replace<K, V>(map: &mut Map<K, V>, key: K, value: V, hash: HashFn<K>, eq: EqFn<K>) -> Option<V> {
-    map.store(key, value, hash, eq)
-}
-
-pub fn remove<K, V>(map: &mut Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> Option<V> {
-    let i = map.find(key, hash, eq)?;
-    map.remove_at(i)
-}
-
-pub fn contains_key<K, V>(map: &Map<K, V>, key: &K, hash: HashFn<K>, eq: EqFn<K>) -> bool {
-    map.find(key, hash, eq).is_some()
-}
-
-pub fn size<K, V>(map: &Map<K, V>) -> i32 {
-    map.live as i32
-}
-
-pub fn keys<K: Clone, V>(map: &Map<K, V>) -> Vec<K> {
-    map.iter().map(|(k, _)| k.clone()).collect()
-}
-
-// [linear-container] The values, owned, in insertion order.
-pub fn into_values<K, V>(map: Map<K, V>) -> Vec<V> {
-    map.slots.into_iter().flatten().map(|(_, v)| v).collect()
-}
-
-// [col-map-entries] The slots, live or removed: what `entries` and `values` walk.
-pub fn slot_count<K, V>(map: &Map<K, V>) -> i32 {
-    map.slots.len() as i32
-}
-
-pub fn key_at<'a, K, V>(map: &'a Map<K, V>, at: i32) -> Option<&'a K> {
-    map.slots.get(at as usize)?.as_ref().map(|(k, _)| k)
-}
-
-pub fn value_at<'a, K, V>(map: &'a Map<K, V>, at: i32) -> &'a V {
-    map.slots[at as usize].as_ref().map(|(_, v)| v).expect("salvo: a removed map slot")
-}
-
-// ===== platform/std/core/set.rs =====
-// [platform-value-type] [platform-slots] std's set, for `std.core.set`'s `platform
-// type Set<T>(?hash, ?eq) canbe Mut`: one insertion-ordered slab for every
-// identity (ROADMAP §0j step 7, user decision 2026-10-06). Every operation is
-// handed the `hash` and `eq` its call resolved, lent for the call
-// [platform-fn-value]; the set keeps the elements and the digest each was
-// filed under, nothing else. `Mut Set` is the same type, passed as `&mut`.
-
-use std::fmt;
-
-type HashFn<'a, T> = &'a mut dyn FnMut(&T) -> i64;
-type EqFn<'a, T> = &'a mut dyn FnMut(&T, &T) -> bool;
-
-/// Elements in first-insertion order (`None` where one was removed), the
-/// digest each was filed under, and an open-addressing index over a
-/// power-of-two table holding `slot + 1` (0 is empty). A removed element's
-/// index entry stays until the next rebuild, which compacts the slots too.
-/// The cached digests let compaction and equality run without an identity.
-#[derive(Clone)]
-pub struct Set<T> {
-    slots: Vec<Option<T>>,
-    digests: Vec<i64>,
-    index: Vec<u32>,
-    live: usize,
-}
-
-pub type MutSet<T> = Set<T>;
-
-impl<T> Set<T> {
-    fn new() -> Self {
-        Set { slots: Vec::new(), digests: Vec::new(), index: vec![0; 16], live: 0 }
-    }
-
-    fn home(&self, digest: i64) -> usize {
-        let d = digest as u64;
-        let h = d ^ (d >> 29) ^ (d >> 47);
-        (h as usize) & (self.index.len() - 1)
-    }
-
-    fn find_by(&self, digest: i64, mut same: impl FnMut(&T) -> bool) -> Option<usize> {
-        let mask = self.index.len() - 1;
-        let mut i = self.home(digest);
-        loop {
-            let at = self.index[i];
-            if at == 0 {
-                return None;
-            }
-            let s = (at - 1) as usize;
-            if self.digests[s] == digest {
-                if let Some(e) = &self.slots[s] {
-                    if same(e) {
-                        return Some(s);
-                    }
-                }
-            }
-            i = (i + 1) & mask;
-        }
-    }
-
-    fn find(&self, elem: &T, hash: HashFn<T>, eq: EqFn<T>) -> Option<usize> {
-        let digest = hash(elem);
-        self.find_by(digest, |e| eq(e, elem))
-    }
-
-    fn place(&mut self, s: usize) {
-        let mask = self.index.len() - 1;
-        let mut i = self.home(self.digests[s]);
-        while self.index[i] != 0 {
-            i = (i + 1) & mask;
-        }
-        self.index[i] = (s + 1) as u32;
-    }
-
-    /// Compacts the slots and re-files every element in a table sized for them.
-    fn rebuild(&mut self) {
-        let slots = std::mem::take(&mut self.slots);
-        let digests = std::mem::take(&mut self.digests);
-        for (e, d) in slots.into_iter().zip(digests) {
-            if let Some(e) = e {
-                self.slots.push(Some(e));
-                self.digests.push(d);
-            }
-        }
-        let mut cap = 16;
-        while cap * 3 < (self.slots.len() + 1) * 8 {
-            cap *= 2;
-        }
-        self.index = vec![0; cap];
-        for s in 0..self.slots.len() {
-            self.place(s);
-        }
-    }
-
-    fn append(&mut self, digest: i64, elem: T) {
-        if (self.slots.len() + 1) * 4 > self.index.len() * 3 {
-            self.rebuild();
-        }
-        self.slots.push(Some(elem));
-        self.digests.push(digest);
-        self.live += 1;
-        self.place(self.slots.len() - 1);
-    }
-
-    /// Adds `elem`, or overwrites an equal one in place: the last wins
-    /// [col-duplicate-keys].
-    fn put(&mut self, elem: T, hash: HashFn<T>, eq: EqFn<T>) {
-        let digest = hash(&elem);
-        match self.find_by(digest, |e| eq(e, &elem)) {
-            Some(i) => self.slots[i] = Some(elem),
-            None => self.append(digest, elem),
-        }
-    }
-
-    fn remove_at(&mut self, i: usize) {
-        if self.slots[i].take().is_some() {
-            self.live -= 1;
-        }
-        if self.slots.len() > 2 * self.live + 8 {
-            self.rebuild();
-        }
-    }
-
-    /// The elements, in insertion order.
-    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
-        self.slots.iter().flatten()
-    }
-}
-
-/// Order-blind, as a set is: the same elements, each found under the digest
-/// the other filed it by. Host equality on the elements — what a struct
-/// holding a set compares by (ROADMAP §0j step 8 owns replacing it).
-impl<T: PartialEq> PartialEq for Set<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.live == other.live
-            && self
-                .slots
-                .iter()
-                .zip(&self.digests)
-                .all(|(e, d)| e.as_ref().is_none_or(|e| other.find_by(*d, |o| o == e).is_some()))
-    }
-}
-
-impl<T: PartialEq> Eq for Set<T> {}
-
-impl<T: fmt::Debug> fmt::Debug for Set<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_set().entries(self.iter()).finish()
-    }
-}
-
-/// `{1, 2, 3}`: the set literal that would build it.
-impl<T: fmt::Display> fmt::Display for Set<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{{")?;
-        for (i, e) in self.iter().enumerate() {
-            if i > 0 {
-                write!(f, ", ")?;
-            }
-            write!(f, "{e}")?;
-        }
-        write!(f, "}}")
-    }
-}
-
-/// [platform-value-type] For host code: a set kept **canonically** (the
-/// identity Salvo resolves for an intrinsic element type: the standard
-/// library's `DefaultHasher` over the value, and `==`). A repeated element:
-/// the last wins.
-pub fn canonical_set<T: std::hash::Hash + PartialEq>(elems: Vec<T>) -> Set<T> {
-    Set(
-        elems,
-        &mut |e: &T| {
-            let mut h = std::collections::hash_map::DefaultHasher::new();
-            e.hash(&mut h);
-            std::hash::Hasher::finish(&h) as i64
-        },
-        &mut |a: &T, b: &T| a == b,
-    )
-}
-
-// [platform-iterable] The host's loop over a set, in insertion order.
-pub fn each<T>(set: &Set<T>) -> impl Iterator<Item = &T> + '_ {
-    set.iter()
-}
-
-pub fn each_mut<T>(_set: &mut Set<T>) -> std::iter::Empty<&mut T> {
-    // An element is a key: writing through one would move it in the set.
-    unreachable!("salvo: a set's elements are not written in place")
-}
-
-pub fn into_each<T>(set: Set<T>) -> std::vec::IntoIter<T> {
-    set.slots.into_iter().flatten().collect::<Vec<T>>().into_iter()
-}
-
-pub fn Set<T>(elems: Vec<T>, hash: HashFn<T>, eq: EqFn<T>) -> Set<T> {
-    let mut s = Set::new();
-    for e in elems {
-        s.put(e, &mut *hash, &mut *eq);
-    }
-    s
-}
-
-pub fn Mut_Set<T>(elems: Vec<T>, hash: HashFn<T>, eq: EqFn<T>) -> Set<T> {
-    Set(elems, hash, eq)
-}
-
-pub fn set_by<T>(size: i32, init: &mut dyn FnMut(i32) -> T, hash: HashFn<T>, eq: EqFn<T>) -> Set<T> {
-    let mut s = Set::new();
-    for i in 0..size.max(0) {
-        s.put(init(i), &mut *hash, &mut *eq);
-    }
-    s
-}
-
-pub fn mut_set_by<T>(size: i32, init: &mut dyn FnMut(i32) -> T, hash: HashFn<T>, eq: EqFn<T>) -> Set<T> {
-    set_by(size, init, hash, eq)
-}
-
-pub fn to_set<T: Clone>(list: &Vec<T>, hash: HashFn<T>, eq: EqFn<T>) -> Set<T> {
-    Set(list.clone(), hash, eq)
-}
-
-pub fn add<T>(set: &mut Set<T>, elem: T, hash: HashFn<T>, eq: EqFn<T>) -> bool {
-    let digest = hash(&elem);
-    if set.find_by(digest, |e| eq(e, &elem)).is_some() {
-        return false;
-    }
-    set.append(digest, elem);
-    true
-}
-
-pub fn remove<T>(set: &mut Set<T>, elem: &T, hash: HashFn<T>, eq: EqFn<T>) -> bool {
-    match set.find(elem, hash, eq) {
-        Some(i) => {
-            set.remove_at(i);
-            true
-        }
-        None => false,
-    }
-}
-
-pub fn contains<T>(set: &Set<T>, elem: &T, hash: HashFn<T>, eq: EqFn<T>) -> bool {
-    set.find(elem, hash, eq).is_some()
-}
-
-pub fn size<T>(set: &Set<T>) -> i32 {
-    set.live as i32
-}
-
-// In insertion order [col-insertion-order].
-pub fn to_list<T: Clone>(set: &Set<T>) -> Vec<T> {
-    set.iter().cloned().collect()
-}
-
-// ===== platform/std/core/sorted.rs =====
-// [platform-value-type] [platform-slots] std's sorted pair, for `std.core.sorted`'s
-// `platform type SortedSet<T>(?cmp)` and `SortedMap<K, V>(?cmp)`: a sorted
-// `Vec` searched by bisection (ROADMAP §0j step 7, user decision 2026-10-06).
-// Every operation is handed the `cmp` its call resolved, lent for the call
-// [platform-fn-value]; the value keeps only its members, in order. Two
-// members are one when `cmp` answers 0 [col-membership]. A `Mut` one is the
-// same type, passed as `&mut`.
-
-use std::fmt;
-
-type CmpFn<'a, T> = &'a mut dyn FnMut(&T, &T) -> i32;
-
-/// Where `x` is in `items`: `Ok(i)`, or `Err(insertion point)`.
-fn bisect<T>(items: &[T], x: &T, cmp: CmpFn<T>) -> Result<usize, usize> {
-    items.binary_search_by(|e| cmp(e, x).cmp(&0))
-}
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct SortedSet<T> {
-    items: Vec<T>,
-}
-
-pub type MutSortedSet<T> = SortedSet<T>;
-
-#[derive(Clone, PartialEq, Eq)]
-pub struct SortedMap<K, V> {
-    keys: Vec<K>,
-    values: Vec<V>,
-}
-
-pub type MutSortedMap<K, V> = SortedMap<K, V>;
-
-impl<T> SortedSet<T> {
-    /// The members, in order.
-    pub fn iter(&self) -> impl Iterator<Item = &T> + '_ {
-        self.items.iter()
-    }
-}
-
-impl<K, V> SortedMap<K, V> {
-    /// The entries, in key order.
-    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
-        self.keys.iter().zip(self.values.iter())
-    }
-
-    /// Stores under `key`; an equal key is replaced, key and value. Answers
-    /// the displaced value.
-    fn store(&mut self, key: K, value: V, cmp: CmpFn<K>) -> Option<V> {
-        match bisect(&self.keys, &key, cmp) {
-            Ok(i) => {
-                self.keys[i] = key;
-                Some(std::mem::replace(&mut self.values[i], value))
-            }
-            Err(i) => {
-                self.keys.insert(i, key);
-                self.values.insert(i, value);
-                None
-            }
-        }
-    }
-}
-
-impl<T: fmt::Debug> fmt::Debug for SortedSet<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_set().entries(self.items.iter()).finish()
-    }
-}
-
-impl<T: fmt::Display> fmt::Display for SortedSet<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{{")?;
-        for (i, e) in self.items.iter().enumerate() {
-            if i > 0 {
-                write!(f, ", ")?;
-            }
-            write!(f, "{e}")?;
-        }
-        write!(f, "}}")
-    }
-}
-
-impl<K: fmt::Debug, V: fmt::Debug> fmt::Debug for SortedMap<K, V> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_map().entries(self.keys.iter().zip(self.values.iter())).finish()
-    }
-}
-
-/// `{a: 1, b: 2}`, in key order [col-to-str].
-impl<K: fmt::Display, V: fmt::Display> fmt::Display for SortedMap<K, V> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{{")?;
-        for (i, (k, v)) in self.keys.iter().zip(self.values.iter()).enumerate() {
-            if i > 0 {
-                write!(f, ", ")?;
-            }
-            write!(f, "{k}: {v}")?;
-        }
-        write!(f, "}}")
-    }
-}
-
-/// [platform-value-type] For host code: a sorted set under the canonical
-/// ordering of an intrinsic type, which is `Ord` (a `String` compares by
-/// bytes, which is code-point order).
-pub fn canonical_sorted_set<T: Ord>(elems: Vec<T>) -> SortedSet<T> {
-    SortedSet(elems, &mut |a: &T, b: &T| a.cmp(b) as i32)
-}
-
-/// [platform-value-type] For host code: a sorted map under the canonical
-/// ordering of an intrinsic key type.
-pub fn canonical_sorted_map<K: Ord, V>(entries: Vec<(K, V)>) -> SortedMap<K, V> {
-    SortedMap(entries, &mut |a: &K, b: &K| a.cmp(b) as i32)
-}
-
-// [platform-iterable] The host's loops: a set's elements and a map's keys,
-// in order. Elements and keys are not written in place.
-pub fn each_sorted_set<T>(set: &SortedSet<T>) -> impl Iterator<Item = &T> + '_ {
-    set.items.iter()
-}
-
-pub fn each_sorted_set_mut<T>(_set: &mut SortedSet<T>) -> std::iter::Empty<&mut T> {
-    unreachable!("salvo: a sorted set's elements are not written in place")
-}
-
-pub fn into_each_sorted_set<T>(set: SortedSet<T>) -> std::vec::IntoIter<T> {
-    set.items.into_iter()
-}
-
-pub fn each_sorted_map<K, V>(map: &SortedMap<K, V>) -> impl Iterator<Item = &K> + '_ {
-    map.keys.iter()
-}
-
-pub fn each_sorted_map_mut<K, V>(_map: &mut SortedMap<K, V>) -> std::iter::Empty<&mut K> {
-    unreachable!("salvo: a sorted map's keys are not written in place")
-}
-
-pub fn into_each_sorted_map<K, V>(map: SortedMap<K, V>) -> std::vec::IntoIter<K> {
-    map.keys.into_iter()
-}
-
-// A repeated member: the last wins, in the place they share.
-pub fn SortedSet<T>(elems: Vec<T>, cmp: CmpFn<T>) -> SortedSet<T> {
-    let mut s = SortedSet { items: Vec::with_capacity(elems.len()) };
-    for e in elems {
-        match bisect(&s.items, &e, &mut *cmp) {
-            Ok(i) => s.items[i] = e,
-            Err(i) => s.items.insert(i, e),
-        }
-    }
-    s
-}
-
-pub fn Mut_SortedSet<T>(elems: Vec<T>, cmp: CmpFn<T>) -> SortedSet<T> {
-    SortedSet(elems, cmp)
-}
-
-pub fn add<T>(set: &mut SortedSet<T>, elem: T, cmp: CmpFn<T>) -> bool {
-    match bisect(&set.items, &elem, cmp) {
-        Ok(_) => false,
-        Err(i) => {
-            set.items.insert(i, elem);
-            true
-        }
-    }
-}
-
-pub fn remove_elem<T>(set: &mut SortedSet<T>, elem: &T, cmp: CmpFn<T>) -> bool {
-    match bisect(&set.items, elem, cmp) {
-        Ok(i) => {
-            set.items.remove(i);
-            true
-        }
-        Err(_) => false,
-    }
-}
-
-pub fn contains<T>(set: &SortedSet<T>, elem: &T, cmp: CmpFn<T>) -> bool {
-    bisect(&set.items, elem, cmp).is_ok()
-}
-
-pub fn set_size<T>(set: &SortedSet<T>) -> i32 {
-    set.items.len() as i32
-}
-
-pub fn min<T: Clone>(set: &SortedSet<T>) -> Option<T> {
-    set.items.first().cloned()
-}
-
-pub fn max<T: Clone>(set: &SortedSet<T>) -> Option<T> {
-    set.items.last().cloned()
-}
-
-pub fn to_list<T: Clone>(set: &SortedSet<T>) -> Vec<T> {
-    set.items.clone()
-}
-
-pub fn SortedMap<K, V>(entries: Vec<(K, V)>, cmp: CmpFn<K>) -> SortedMap<K, V> {
-    let mut m = SortedMap { keys: Vec::with_capacity(entries.len()), values: Vec::with_capacity(entries.len()) };
-    for (k, v) in entries {
-        m.store(k, v, &mut *cmp);
-    }
-    m
-}
-
-pub fn Mut_SortedMap<K, V>(entries: Vec<(K, V)>, cmp: CmpFn<K>) -> SortedMap<K, V> {
-    SortedMap(entries, cmp)
-}
-
-pub fn get<'a, K, V>(map: &'a SortedMap<K, V>, key: &K, cmp: CmpFn<K>) -> Option<&'a V> {
-    bisect(&map.keys, key, cmp).ok().map(|i| &map.values[i])
-}
-
-pub fn put<K, V>(map: &mut SortedMap<K, V>, key: K, value: V, cmp: CmpFn<K>) {
-    map.store(key, value, cmp);
-}
-
-pub fn remove_key<K, V>(map: &mut SortedMap<K, V>, key: &K, cmp: CmpFn<K>) -> Option<V> {
-    let i = bisect(&map.keys, key, cmp).ok()?;
-    map.keys.remove(i);
-    Some(map.values.remove(i))
-}
-
-pub fn contains_key<K, V>(map: &SortedMap<K, V>, key: &K, cmp: CmpFn<K>) -> bool {
-    bisect(&map.keys, key, cmp).is_ok()
-}
-
-pub fn map_size<K, V>(map: &SortedMap<K, V>) -> i32 {
-    map.keys.len() as i32
-}
-
-pub fn first_key<K: Clone, V>(map: &SortedMap<K, V>) -> Option<K> {
-    map.keys.first().cloned()
-}
-
-pub fn last_key<K: Clone, V>(map: &SortedMap<K, V>) -> Option<K> {
-    map.keys.last().cloned()
-}
-
-pub fn keys<K: Clone, V>(map: &SortedMap<K, V>) -> Vec<K> {
-    map.keys.clone()
 }
 
 // ===== platform/std/core/string.rs =====

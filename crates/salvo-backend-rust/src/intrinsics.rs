@@ -275,33 +275,10 @@ pub fn fn_call(
         // to the time surface. Everything else (`Duration`, `between`, the
         // correlation `DefaultClock` keeps) is ordinary Salvo over these.
         // [stream-handle] One counter for every stream table in the process.
-        // [col-of-nonempty] The constructors match on the *name*, because the
-        // first parameter no longer identifies them: the empty one has none and
-        // the element one starts with a `T`. Three call shapes reach here.
-        //
-        // A lone `...spread` fills `first` [fn-variadic], so it arrives as the
-        // only argument and the spread *is* the list.
-        ("List" | "Mut_List", _) if spread_any && args.len() == 1 => owned_vec(),
-        // `List(a, b, ...rest)`: the leading elements, then the tail's
-        // elements. `vec![…]` and `extend` rather than one expression because
-        // the tail is a collection, not an element.
-        ("List" | "Mut_List", _) if spread_any => {
-            let leading: Vec<&str> = args[..args.len() - 1].iter().map(|s| s.as_str()).collect();
-            let tail = &args[args.len() - 1];
-            let extend = match spread {
-                Spread::Owned => format!("{tail}.into_iter()"),
-                _ => format!("{tail}.iter().cloned()"),
-            };
-            format!(
-                "{{ let mut __v = vec![{}]; __v.extend({extend}); __v }}",
-                leading.join(", ")
-            )
-        }
-        // No spread: the arguments are the elements. `vec![]` needs no element
-        // type — rustc infers it from later use.
-        ("List" | "Mut_List", _) => {
-            format!("vec![{}]", args.join(", "))
-        }
+        // [col-of-nonempty] The one intrinsic list constructor, the empty
+        // mutable one; the others are Salvo over it and `add`. `vec![]` needs
+        // no element type — rustc infers it from later use.
+        ("Mut_List", _) => "vec![]".to_string(),
         // `T?` is physical here, so an out-of-range index must produce
         // `None` rather than panic. The element is **borrowed**
         // (`Option<&T>`): `get` declares `(proj(list) T)?`, and a

@@ -29,10 +29,10 @@ pub mod std_core_iterator;
 pub mod std_core_list;
 #[path = "std/core/map.rs"]
 pub mod std_core_map;
+#[path = "std/core/nonempty.rs"]
+pub mod std_core_nonempty;
 #[path = "std/core/set.rs"]
 pub mod std_core_set;
-#[path = "std/core/sorted.rs"]
-pub mod std_core_sorted;
 #[path = "std/core/string.rs"]
 pub mod std_core_string;
 #[path = "std/runtime.rs"]
@@ -51,8 +51,6 @@ pub mod platform_std_core_list;
 pub mod platform_std_core_map;
 #[path = "platform/std/core/set.rs"]
 pub mod platform_std_core_set;
-#[path = "platform/std/core/sorted.rs"]
-pub mod platform_std_core_sorted;
 #[path = "platform/std/core/string.rs"]
 pub mod platform_std_core_string;
 #[path = "platform/std/runtime/routing.rs"]
@@ -61,6 +59,7 @@ pub mod platform_std_runtime_routing;
 pub mod platform_std_runtime;
 
 use crate::std_core_actor::Exit;
+use crate::std_core_list::List;
 use crate::std_core_deque::add_last_platform;
 use crate::std_core_deque::drain;
 use crate::std_core_list::get_platform;
@@ -539,7 +538,7 @@ impl Breaking {
 
 impl crate::__Stateless_Fragile for Breaking {
     fn crash(&self) {
-        let mut empty: Vec<i32> = vec![];
+        let mut empty: Vec<i32> = crate::std_core_list::List::<i32>();
         let mut boom: i32 = {
             let mut __pick1: Option<i32> = crate::std_core_list::get_platform::<i32>(&empty, 7i32).copied();
             if __pick1.is_some() {

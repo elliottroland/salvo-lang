@@ -21,12 +21,8 @@ pub mod std_core_index;
 pub mod std_core_iterator;
 #[path = "std/core/list.rs"]
 pub mod std_core_list;
-#[path = "std/core/map.rs"]
-pub mod std_core_map;
-#[path = "std/core/set.rs"]
-pub mod std_core_set;
-#[path = "std/core/sorted.rs"]
-pub mod std_core_sorted;
+#[path = "std/core/nonempty.rs"]
+pub mod std_core_nonempty;
 #[path = "std/core/string.rs"]
 pub mod std_core_string;
 #[path = "platform/std/core/console.rs"]
@@ -35,12 +31,6 @@ pub mod platform_std_core_console;
 pub mod platform_std_core_deque;
 #[path = "platform/std/core/list.rs"]
 pub mod platform_std_core_list;
-#[path = "platform/std/core/map.rs"]
-pub mod platform_std_core_map;
-#[path = "platform/std/core/set.rs"]
-pub mod platform_std_core_set;
-#[path = "platform/std/core/sorted.rs"]
-pub mod platform_std_core_sorted;
 #[path = "platform/std/core/string.rs"]
 pub mod platform_std_core_string;
 

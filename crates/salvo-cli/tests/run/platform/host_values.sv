@@ -7,7 +7,7 @@
 // [platform-check] The adapters and wrappers check what the host hands
 // back (ABI D7, D10 C3): a closed literal union, a literal field of a
 // struct inside a list (element by element), a state qualifier
-// (`NonEmpty`, by running its `qualifies`), a literal arm of a positional
+// (`Filled`, by running its `qualifies`), a literal arm of a positional
 // union, and a `Reply<T>` the host completes from its own thread — the
 // hosts building their unions with the factories [platform-factory] (a
 // named union's `Problems.notFound` / `Problem::not_found`, a signature's
@@ -101,7 +101,15 @@ platform fn tier(n: Int) [] -> "gold" | "silver" | None
 
 platform fn items(n: Int) [] -> List<Item>
 
-platform fn names(n: Int) [] -> NonEmpty List<Str>
+// A claim the boundary can test (std's generic `NonEmpty` takes an implicit
+// `size`, which it cannot).
+qualifier Filled of List<Str> {
+    fn qualifies(list: List<Str>) -> Bool {
+        return list.size() > 0
+    }
+}
+
+platform fn names(n: Int) [] -> Filled List<Str>
 
 struct NotFound { path: Str }
 struct Denied { path: Str }
@@ -248,7 +256,15 @@ platform fn tier(n: Int) [] -> "gold" | "silver" | None
 
 platform fn items(n: Int) [] -> List<Item>
 
-platform fn names(n: Int) [] -> NonEmpty List<Str>
+// A claim the boundary can test (std's generic `NonEmpty` takes an implicit
+// `size`, which it cannot).
+qualifier Filled of List<Str> {
+    fn qualifies(list: List<Str>) -> Bool {
+        return list.size() > 0
+    }
+}
+
+platform fn names(n: Int) [] -> Filled List<Str>
 
 struct NotFound { path: Str }
 struct Denied { path: Str }
@@ -395,7 +411,15 @@ platform fn tier(n: Int) [] -> "gold" | "silver" | None
 
 platform fn items(n: Int) [] -> List<Item>
 
-platform fn names(n: Int) [] -> NonEmpty List<Str>
+// A claim the boundary can test (std's generic `NonEmpty` takes an implicit
+// `size`, which it cannot).
+qualifier Filled of List<Str> {
+    fn qualifies(list: List<Str>) -> Bool {
+        return list.size() > 0
+    }
+}
+
+platform fn names(n: Int) [] -> Filled List<Str>
 
 struct NotFound { path: Str }
 struct Denied { path: Str }

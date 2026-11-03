@@ -18,8 +18,13 @@
 //
 // Own module rather than part of `std.core.list` so a program that never uses a
 // set emits no code for it.
-// @compilerrules [type-canbe-mut, col-key-eligible, obligation-by, mod-used-only]
-export iterable platform type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut : Iter<self, SetIter<T>, T>
+// @compilerrules [type-canbe-mut, col-key-eligible, obligation-by, mod-used-only, qual-refn-type]
+export iterable platform type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) canbe Mut : Iter<self, SetIter<T>, T> {
+    // Adding an element makes a set non-empty, which `add` cannot promise
+    // itself: a mutating function may not hand back a claim it has never
+    // heard of.
+    refn add(set: Mut Set<T>, elem: T) => set: +NonEmpty
+}
 
 // Constructor. The elements are stored in the new set, so they are moved: a
 // variadic tail is owned, and needs no entry in the clause.
@@ -178,21 +183,4 @@ export fn next<T>(p: Mut SetIter<T>) [] -> Emitted T | Finished => p: Mut {
     }
     p.at = p.at + 1
     return emitted(elem)
-}
-
-// The claim over an unordered set, beside `std.core.list`'s
-// `NonEmpty of List<T>`. One qualifier name, five subject types: which one a
-// use means is decided by the subject, the way a function overload is decided
-// by its arguments — which is what makes `NonEmpty` mean what it says about
-// whatever it qualifies rather than needing a `NonEmptySet`.
-//
-// `add` cannot promise it — a mutating function may not hand back a qualifier
-// it has never heard of — so the qualifier says it on `add`'s behalf.
-// @compilerrules [qual-overload, qual-refn]
-export qualifier NonEmpty<T> of Set<T> {
-    fn qualifies(set: Set<T>) [] -> Bool {
-        return size(set) > 0
-    }
-
-    refn add(set: Mut Set<T>, elem: T) => set: +NonEmpty
 }

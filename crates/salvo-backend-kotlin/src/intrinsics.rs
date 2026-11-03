@@ -188,20 +188,11 @@ pub fn fn_call(
         // time surface, matching `time.rs` number for number.
         // [stream-handle] One counter for every stream table in the process.
         // std.core.list ------------------------------------------------------
-        // The element type is spelled out: `listOf()` with no arguments
-        // leaves kotlinc with nothing to infer from
-        // [backend-intrinsic].
-        // [fn-variadic] A `...spread` argument arrives as one `Array<T>`,
-        // which Kotlin passes on with its own spread operator — the
-        // alternative (`listOf(arr)`) is a *list of one array*, and kotlinc
-        // says so, but only after the fact [backend-never-wrong].
-        // [col-of-nonempty] The empty constructor has no parameters and the
-        // element one starts with a `T`, so these match on the *name*: the
-        // receiver type no longer identifies them.
-        ("List", _) => format!("listOf<{}>({})", elem(), args.join(", ")),
-        ("Mut_List", _) => {
-            format!("mutableListOf<{}>({})", elem(), args.join(", "))
-        }
+        // [col-of-nonempty] The one intrinsic list constructor, the empty
+        // mutable one; the others are Salvo over it and `add`. The element
+        // type is spelled out: `mutableListOf()` with no arguments leaves
+        // kotlinc with nothing to infer from [backend-intrinsic].
+        ("Mut_List", _) => format!("mutableListOf<{}>()", elem()),
         // [interp-to-str] `[1, 2, 3]`, the language's format rather than the
         // JVM's — `joinToString` already produces exactly it, but writing it
         // out is what pins the parity with Rust [backend-parity].

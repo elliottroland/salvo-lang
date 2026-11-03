@@ -39,6 +39,12 @@ pub fn add<T>(list: &mut List<T>, elem: T) {
     list.push(elem);
 }
 
+// [col-of-nonempty] The variadic constructor's tail, copied in: it stays the
+// caller's.
+pub fn add_all<T: Clone>(list: &mut List<T>, items: &Vec<T>) {
+    list.extend(items.iter().cloned());
+}
+
 pub fn remove_first<T>(list: &mut List<T>) -> Option<T> {
     if list.is_empty() { None } else { Some(list.remove(0)) }
 }

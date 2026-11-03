@@ -45,7 +45,7 @@ fn main() [use] {
     use StdConsole
     // [effect-handler-generics] The handler is constructed *at* a type: the
     // local's annotation says which.
-    //~ emits: let mut __use_3: crate::CyclicRandom<i32> = crate::CyclicRandom::new(vec![10i32, 20i32, 30i32], move |__a0: &i32| *__a0);
+    //~ emits: let mut __use_3: crate::CyclicRandom<i32> = crate::CyclicRandom::new(crate::std_core_list::List__T_TArray::<i32>(10i32, vec![20i32, 30i32]), move |__a0: &i32| *__a0);
     //~ emits: let __handle_4 = crate::Random::locked(__use_3);
     use CyclicRandom(List(10, 20, 30))
     use CyclicRandom(List("a", "b"))

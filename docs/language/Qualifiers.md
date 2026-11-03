@@ -220,13 +220,15 @@ qualifier NonEmpty<T> of List<T> {
     }
 }
 
-// Requiring a first element guarantees the predicate by construction — which
-// is how std's own list constructor is shaped: `List()` for an empty list,
-// `List(first, ...rest)` for one that is known non-empty.
-intrinsic fn List<T>(first: T, ...rest: T[]) -> +NonEmpty List<T>
+// Requiring a first element guarantees the predicate by construction.
+fn one_of<T>(first: T, ...rest: T[]) -> +NonEmpty List<T> => !first, !rest {
+    return List(first, ...rest)
+}
 ```
 
-**This one is real.** `NonEmpty`, and the constructor above, are declared in std's `std.core.list` — so is `Sorted`, and `Distinct` in `std.core.set`; see "Collections".
+std's own `NonEmpty` is the generic one in `std.core.nonempty`, over anything with a `size`, and its list constructors are shaped this way: `List()` for an empty list, `List(first, ...rest)` for one that is known non-empty. `Sorted` is std's too, and `Distinct` in `std.core.set`; see "Collections".
+
+A claim like std's `NonEmpty`, generic over its subject (`of T`), belongs to no one type, so the file that declares a type may establish it about that type as well — `std.core.deque` writes `-> +NonEmpty Deque<T>` over a host function.
 
 This is also how union arms are tagged in practice: a generic constructor applies the tag, and the tagged value then coerces into the union:
 
@@ -371,7 +373,16 @@ qualifier Q2<T> of List<T> { ... refn something(list: List<T>, *) => list: +Q2 }
 
 Both `Q1` and `Q2` are established — qualifiers compose freely. The one thing a refinement may not do is contradict itself: establishing and invalidating the same qualifier (`+Q -Q`) for one parameter is an error at the declaration.
 
-**A refinement always lives in the qualifier whose claim it is about.** There is no top-level form — a qualifier is the one party entitled to say what happens to its claim. A `@module` selector on the refinement itself (`refn add@core.list(...)`) scopes *which* functions it matches, when a same-named function in another module should be left alone. A *constructive* qualifier can hold refinements too, without a `qualifies`: `Sorted` cannot be tested at runtime and still has something to say about an insert that keeps it.
+**A refinement lives in the qualifier whose claim it is about, or in the type it refines.** There is no top-level form. A qualifier is entitled to say what happens to its claim; and for a claim generic over its subject, like std's `NonEmpty`, the type's own author is the one who knows what its functions do. So a struct's body, or an opaque type's `{ … }` body, may hold refinements about that type:
+
+```
+export iterable platform type List<T canbe linear> canbe Mut : Iter<self, ListIter<T>, T> {
+    // Adding an element makes the list non-empty.
+    refn add(list: Mut List<T>, elem: T) => list: +NonEmpty
+}
+```
+
+Such a refinement speaks only about its own type's values, and only about a claim its author is trusted with — a generic one, or one declared in the same file. It applies wherever that claim is in scope. A `@module` selector on the refinement itself (`refn add@core.list(...)`) scopes *which* functions it matches, when a same-named function in another module should be left alone. A *constructive* qualifier can hold refinements too, without a `qualifies`: `Sorted` cannot be tested at runtime and still has something to say about an insert that keeps it.
 
 Finally, a refinement reaches **inferred** deductions, so the fact does not die at one frame:
 

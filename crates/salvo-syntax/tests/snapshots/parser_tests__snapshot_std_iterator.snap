@@ -91,6 +91,7 @@ Module {
                 auto_qualifiers: [],
                 fields: [],
                 fns: [],
+                refns: [],
                 linear: false,
                 opaque: false,
                 noremote: false,

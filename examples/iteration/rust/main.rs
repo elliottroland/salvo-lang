@@ -21,36 +21,27 @@ pub mod std_core_index;
 pub mod std_core_iterator;
 #[path = "std/core/list.rs"]
 pub mod std_core_list;
-#[path = "std/core/map.rs"]
-pub mod std_core_map;
+#[path = "std/core/nonempty.rs"]
+pub mod std_core_nonempty;
 #[path = "std/core/range.rs"]
 pub mod std_core_range;
 #[path = "std/core/seq.rs"]
 pub mod std_core_seq;
-#[path = "std/core/set.rs"]
-pub mod std_core_set;
-#[path = "std/core/sorted.rs"]
-pub mod std_core_sorted;
 #[path = "std/core/string.rs"]
 pub mod std_core_string;
 #[path = "platform/std/core/console.rs"]
 pub mod platform_std_core_console;
 #[path = "platform/std/core/list.rs"]
 pub mod platform_std_core_list;
-#[path = "platform/std/core/map.rs"]
-pub mod platform_std_core_map;
 #[path = "platform/std/core/seq.rs"]
 pub mod platform_std_core_seq;
-#[path = "platform/std/core/set.rs"]
-pub mod platform_std_core_set;
-#[path = "platform/std/core/sorted.rs"]
-pub mod platform_std_core_sorted;
 #[path = "platform/std/core/string.rs"]
 pub mod platform_std_core_string;
 
 use crate::std_core_console::Console;
 use crate::std_core_iterator::Finished;
 use crate::std_core_list::ListIter;
+use crate::std_core_list::List__T_TArray;
 use crate::std_core_string::Mut_Str;
 use crate::std_core_range::RangeIter;
 use crate::std_core_string::StrIter;
@@ -337,7 +328,7 @@ pub fn first<It: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> crate::uni
 pub fn main() {
     let mut __use_1: crate::std_core_console::__Platform_StdConsole = crate::std_core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::std_core_console::Console::shared(__use_1);
-    let mut xs: Vec<i32> = vec![1i32, 2i32, 3i32, 4i32];
+    let mut xs: Vec<i32> = crate::std_core_list::List__T_TArray::<i32>(1i32, vec![2i32, 3i32, 4i32]);
     crate::describe_container(&__handle_2, &xs);
     let mut p: crate::Countdown = crate::countdown(5i32);
     crate::take(&__handle_2, &mut p, 2i32);
@@ -367,7 +358,7 @@ pub fn main() {
     let mut hp: crate::Halving = crate::halving(20i32);
     { let __arg6 = { let __part5 = crate::sum_of::<crate::Halving>(&mut hp, &mut |__a0: &mut crate::Halving| crate::next__Halving(&mut *__a0)); format!("2b. summed from a held iterator: {}", __part5) }; crate::std_core_console::println(&__handle_2, &__arg6) };
     crate::std_core_console::println(&__handle_2, &{ let __part7 = crate::first::<crate::Halving>(&mut crate::halving_from_ten(), &mut |__a0: &mut crate::Halving| crate::next__Halving(&mut *__a0)); format!("2b. first from a fn returning one: {}", __part7) });
-    let mut bag: crate::Bag = crate::Bag { items: vec![7i32, 8i32] };
+    let mut bag: crate::Bag = crate::Bag { items: crate::std_core_list::List__T_TArray::<i32>(7i32, vec![8i32]) };
     let mut __pass_9: crate::BagIter<'_> = crate::iter(&bag);
     loop {
         let mut __step_10: crate::unions::Union2<i32, crate::std_core_iterator::Finished> = crate::next__BagIter(&mut __pass_9);
@@ -415,7 +406,7 @@ pub fn main() {
         i32::wrapping_add(*acc, *n)
     });
     crate::std_core_console::println(&__handle_2, &format!("5. list: {} doubled, {} odd, total {}", crate::std_core_list::size_platform::<i32>(&doubled), crate::std_core_list::size_platform::<i32>(&odd), total));
-    let mut words: Vec<String> = vec![String::from("ann"), String::from("bo"), String::from("carol")];
+    let mut words: Vec<String> = crate::std_core_list::List__T_TArray::<String>(String::from("ann"), vec![String::from("bo"), String::from("carol")]);
     let mut lengths: Vec<i32> = crate::std_core_seq::map__It_Fn::<crate::std_core_list::ListIter<'_, String>, &String, i32>(&mut crate::std_core_list::iter::<String>(&words), &mut |mut w| -> i32 {
         let w = *w;
         crate::std_core_string::size_platform(w)

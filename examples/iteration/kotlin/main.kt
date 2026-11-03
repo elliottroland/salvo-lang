@@ -254,7 +254,7 @@ fun<It> first(it: It, next: (It) -> Union2<Int, salvo.std.core.iterator.Finished
 fun main() {
     val __use_1: salvo.std.core.console.__Platform_StdConsole = salvo.std.core.console.__Platform_StdConsole()
     val __handle_2: salvo.std.core.console.Console = __use_1
-    val xs: List<Int> = listOf<Int>(1, 2, 3, 4)
+    val xs: List<Int> = salvo.std.core.list.List__T_TArray(1, arrayOf<Int>(2, 3, 4))
     salvo.main.describeContainer(__handle_2, xs)
     val p: Countdown = salvo.main.countdown(5)
     salvo.main.take(__handle_2, p, 2)
@@ -290,7 +290,7 @@ fun main() {
     val hp: Halving = salvo.main.halving(20)
     salvo.std.core.console.println(__handle_2, "2b. summed from a held iterator: ${salvo.main.sumOf(hp, ::next__Halving)}")
     salvo.std.core.console.println(__handle_2, "2b. first from a fn returning one: ${salvo.main.first(salvo.main.halvingFromTen(), ::next__Halving)}")
-    val bag: Bag = Bag(items = listOf<Int>(7, 8))
+    val bag: Bag = Bag(items = salvo.std.core.list.List__T_TArray(7, arrayOf<Int>(8)))
     val __pass_9: BagIter = salvo.main.iter(bag)
     while (true) {
         val __step_10: Union2<Int, salvo.std.core.iterator.Finished> = salvo.main.next__BagIter(__pass_9)
@@ -347,7 +347,7 @@ fun main() {
         return (acc + n)
     })
     salvo.std.core.console.println(__handle_2, "5. list: ${salvo.std.core.list.sizePlatform(doubled)} doubled, ${salvo.std.core.list.sizePlatform(odd)} odd, total ${total}")
-    val words: List<String> = listOf<String>("ann", "bo", "carol")
+    val words: List<String> = salvo.std.core.list.List__T_TArray("ann", arrayOf<String>("bo", "carol"))
     val lengths: salvo.platform.std.core.list.MutList<Int> = salvo.std.core.seq.map__It_Fn(salvo.std.core.list.iter(words), fun(w: String): Int {
         return salvo.std.core.string.sizePlatform(w)
     }, { __a0 -> salvo.std.core.list.next__ListIter(__a0) })

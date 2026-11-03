@@ -13,8 +13,15 @@
 // A value platform type (ROADMAP 0.7): the host
 // implements it in `lib/platform/std/core/string.{rs,kt}`, and names the mutable
 // kind `MutStr`.
-// @compilerrules [type-canbe-mut, str-drop-mut, platform-value-type]
-export iterable platform type Str canbe Mut : Iter<self, StrIter, Char>
+// @compilerrules [type-canbe-mut, str-drop-mut, platform-value-type, qual-refn-type]
+export iterable platform type Str canbe Mut : Iter<self, StrIter, Char> {
+    // [qual-refn-narrow] Appending keeps a string that already has a
+    // character non-empty, and writing one character in place changes no
+    // length. Appending to an *empty* string establishes nothing: the text
+    // appended may be empty too.
+    refn append(str: NonEmpty Mut Str, text: Str) => str: +NonEmpty
+    refn set(str: NonEmpty Mut Str, index: Int, chr: Char) => str: +NonEmpty
+}
 
 // Builds a mutable string from [parts] (concatenated in order). A string
 // *literal* is a `Str`, never a `Mut Str`: mutability is asked for here,

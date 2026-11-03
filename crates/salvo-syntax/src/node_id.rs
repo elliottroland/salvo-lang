@@ -392,6 +392,7 @@ fn struct_decl<V: MutVisitor>(n: &mut V, s: &mut StructDecl) {
         auto_qualifiers,
         fields,
         fns,
+        refns,
         linear: _,
         opaque: _,
         noremote: _,
@@ -418,6 +419,9 @@ fn struct_decl<V: MutVisitor>(n: &mut V, s: &mut StructDecl) {
     for f in fns {
         fn_decl(n, f);
     }
+    for r in refns {
+        refn(n, r);
+    }
 }
 
 fn type_decl<V: MutVisitor>(n: &mut V, t: &mut TypeDecl) {
@@ -438,6 +442,7 @@ fn type_decl<V: MutVisitor>(n: &mut V, t: &mut TypeDecl) {
         auto_qualifiers,
         alias,
         obligations: obls,
+        refns,
         span,
     } = t;
     n.visit_span(span);
@@ -452,6 +457,9 @@ fn type_decl<V: MutVisitor>(n: &mut V, t: &mut TypeDecl) {
         vm::walk_type(n, a);
     }
     obligations(n, obls);
+    for r in refns {
+        refn(n, r);
+    }
 }
 
 fn effect_decl<V: MutVisitor>(n: &mut V, e: &mut EffectDecl) {

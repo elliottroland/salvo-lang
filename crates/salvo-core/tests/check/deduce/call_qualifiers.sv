@@ -3,16 +3,16 @@
 //--- calls_remove_qualifiers_per_declared_deductions
 // [deduce-consume] A kept parameter sheds its removal set (declared −
 // kept qualifiers) from the argument at the call site: after
-// `take_head` (`[list: Mut]` on a `NonEmpty Mut` param) the variable
-// is no longer `NonEmpty`, so a second call fails overload resolution.
+// `take_head` (`[list: Mut]` on a `Filled Mut` param) the variable
+// is no longer `Filled`, so a second call fails overload resolution.
 // The explicit-empty `[list:]` form strips all declared qualifiers.
-qualifier NonEmpty<T> of List<T> {
+qualifier Filled<T> of List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return list.size() > 0
     }
 }
 
-fn take_head<T>(list: NonEmpty Mut List<T>) -> T => list: Mut {
+fn take_head<T>(list: Filled Mut List<T>) -> T => list: Mut {
     // `get` answers a projection, which a `-> T` cannot return [proj-type].
     //~ error[fn-syntax:return-mismatch]
     return list.get(0) ?: unreachable!()
@@ -21,7 +21,7 @@ fn take_head<T>(list: NonEmpty Mut List<T>) -> T => list: Mut {
 fn main() [use] {
     use StdConsole
     let strings = Mut List("a", "b")
-    if strings is NonEmpty {
+    if strings is Filled {
         let _s = take_head(strings)
         //~ error[call-resolve:no-overload]
         let _t = take_head(strings)
@@ -30,17 +30,17 @@ fn main() [use] {
 
 //--- an_empty_deduction_strips_every_declared_qualifier
 // `[list:]` strips every declared qualifier: after `weaken` the value
-// no longer satisfies a `NonEmpty`-requiring overload.
-qualifier NonEmpty<T> of List<T> {
+// no longer satisfies a `Filled`-requiring overload.
+qualifier Filled<T> of List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return list.size() > 0
     }
 }
 
-fn weaken<T>(list: NonEmpty List<T>) -> None => list: None {
+fn weaken<T>(list: Filled List<T>) -> None => list: None {
 }
 
-fn head<T>(list: NonEmpty List<T>) -> T {
+fn head<T>(list: Filled List<T>) -> T {
     // `get` answers a projection, which a `-> T` cannot return [proj-type].
     //~ error[fn-syntax:return-mismatch]
     return list.get(0) ?: unreachable!()
@@ -49,7 +49,7 @@ fn head<T>(list: NonEmpty List<T>) -> T {
 fn main() [use] {
     use StdConsole
     let strings = List("a", "b")
-    if strings is NonEmpty {
+    if strings is Filled {
         weaken(strings)
         //~ error[call-resolve:no-overload]
         let _s = head(strings)
@@ -61,13 +61,13 @@ fn main() [use] {
 // conservative: the join keeps only the qualifiers common to all paths,
 // so an overload requiring the maybe-removed qualifier no longer resolves
 // (nested inside the `is` branch that established it).
-qualifier NonEmpty<T> of List<T> {
+qualifier Filled<T> of List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return list.size() > 0
     }
 }
 
-fn take_head<T>(list: NonEmpty Mut List<T>) -> T => list: Mut {
+fn take_head<T>(list: Filled Mut List<T>) -> T => list: Mut {
     // `get` answers a projection, which a `-> T` cannot return [proj-type].
     //~ error[fn-syntax:return-mismatch]
     return list.get(0) ?: unreachable!()
@@ -75,7 +75,7 @@ fn take_head<T>(list: NonEmpty Mut List<T>) -> T => list: Mut {
 
 fn partial(flag: Bool) {
     let strings = Mut List("a", "b")
-    if strings is NonEmpty {
+    if strings is Filled {
         if flag {
             let _x = take_head(strings)
         }
@@ -92,8 +92,8 @@ fn partial(flag: Bool) {
 // mutates a parameter may use neither keep-all nor a delta.
 //
 // The reproduction of the unsoundness: `clear` declares only `Mut`,
-// so its exhaustive list drops the caller's `NonEmpty`.
-qualifier NonEmpty of List<Int> {
+// so its exhaustive list drops the caller's `Filled`.
+qualifier Filled of List<Int> {
     fn qualifies(list: List<Int>) -> Bool {
         return list.size() > 0
     }
@@ -102,14 +102,14 @@ qualifier NonEmpty of List<Int> {
 fn clear(list: Mut List<Int>) [] -> None => list: Mut {
 }
 
-fn describe(list: NonEmpty Mut List<Int>) -> Int {
+fn describe(list: Filled Mut List<Int>) -> Int {
     return list.size()
 }
 
 fn main() [use] {
     use StdConsole
     let xs = Mut List(1, 2)
-    if xs is NonEmpty {
+    if xs is Filled {
         clear(xs)
         //~ error[call-resolve:no-overload]
         println("${describe(xs)}")
@@ -120,7 +120,7 @@ fn main() [use] {
 // The delta form keeps everything it does not name — legal on a
 // parameter nothing can invalidate (no `Mut`): here `Checked` survives
 // even though the callee never declares it.
-qualifier NonEmpty of List<Int> {
+qualifier Filled of List<Int> {
     fn qualifies(list: List<Int>) -> Bool {
         return list.size() > 0
     }
@@ -132,7 +132,7 @@ qualifier Checked of List<Int> {
     }
 }
 
-fn forget_nonempty(list: NonEmpty List<Int>) [] -> None => list: -NonEmpty {
+fn forget_nonempty(list: Filled List<Int>) [] -> None => list: -Filled {
 }
 
 fn needs_checked(list: Checked List<Int>) -> Int {
@@ -142,7 +142,7 @@ fn needs_checked(list: Checked List<Int>) -> Int {
 fn main() [use] {
     use StdConsole
     let xs = List(1, 2)
-    if xs is NonEmpty Checked {
+    if xs is Filled Checked {
         forget_nonempty(xs)
         println("${needs_checked(xs)}")
     }
@@ -153,13 +153,13 @@ fn main() [use] {
 // mutate it: a written delta is the author's contract, trusted rather
 // than second-guessed (a body that *does* mutate cannot keep
 // everything — see the `grow` case below).
-qualifier NonEmpty of List<Int> {
+qualifier Filled of List<Int> {
     fn qualifies(list: List<Int>) -> Bool {
         return list.size() > 0
     }
 }
 
-fn touch(list: Mut List<Int>) [] -> None => list: -NonEmpty {
+fn touch(list: Mut List<Int>) [] -> None => list: -Filled {
 }
 
 fn describe(list: Checked Mut List<Int>) -> Int {
@@ -193,13 +193,13 @@ fn main() [use] {
 // by the body-validation pass with a more precise message naming the
 // qualifier it may lose; reproducing it needs a qualifier on the
 // parameter's type for the body to actually invalidate.
-qualifier NonEmpty of List<Int> {
+qualifier Filled of List<Int> {
     fn qualifies(list: List<Int>) -> Bool {
         return list.size() > 0
     }
 }
 
 //~ error[deduce-gained:qualifier-removed]
-fn grow(list: Mut NonEmpty List<Int>) -> None => list {
+fn grow(list: Mut Filled List<Int>) -> None => list {
     list.add(1)
 }

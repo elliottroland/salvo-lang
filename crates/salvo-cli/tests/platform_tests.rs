@@ -1170,7 +1170,15 @@ platform fn tier(n: Int) [] -> \"gold\" | \"silver\" | None
 
 platform fn items(n: Int) [] -> List<Item>
 
-platform fn names(n: Int) [] -> NonEmpty List<Str>
+// [platform-check] A predicate claim the boundary can test: std's generic
+// `NonEmpty` takes an implicit `size`, which it cannot.
+qualifier Filled of List<Str> {
+    fn qualifies(list: List<Str>) -> Bool {
+        return list.size() > 0
+    }
+}
+
+platform fn names(n: Int) [] -> Filled List<Str>
 
 struct NotFound { path: Str }
 struct Denied { path: Str }

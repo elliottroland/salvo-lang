@@ -1928,6 +1928,16 @@ impl<'a, 'p> Lower<'a, 'p> {
         if let Some(t) = effects.iter().filter(|t| !crate::types::is_throw_effect(t)).nth(args.len()) {
             self.error(span, messages::effect_available_lower_no_instance(&t));
         }
+        // [str-drop-mut] `qualifies` reads its subject at the plain type
+        // (`NonEmpty<T> of T` binds `T` to `Str` for a `Mut Str`): a `Mut`
+        // subject is dropped to it, which is a real conversion on a backend
+        // that renders `Mut` as a type of its own.
+        let subject = if subject.ty.quals().iter().any(|q| q.name == "Mut") {
+            let ty = crate::types::drop_mut_ty(&subject.ty);
+            Expr { ty, span: subject.span, kind: ExprKind::DropMut { value: Box::new(subject) } }
+        } else {
+            subject
+        };
         args.push(subject);
         for a in &check.args {
             args.push(self.slot_arg(a, Ty::Unknown, span));
@@ -1935,7 +1945,14 @@ impl<'a, 'p> Lower<'a, 'p> {
         if let Some(at) = check.implicits_at {
             args.extend(self.implicit_args_keyed(at, at.span));
         }
-        Expr { ty: bool_ty, span, kind: ExprKind::Call { target: FnRef::Decl(target), type_args: Vec::new(), args, moved: false } }
+        // [call-type-args] Only when every one is known: a backend infers the
+        // rest from the arguments, as it did before they were recorded.
+        let type_args = if !check.type_args.is_empty() && check.type_args.iter().all(|t| !t.is_unknown()) {
+            self.ctx.ir_tys(&check.type_args)
+        } else {
+            Vec::new()
+        };
+        Expr { ty: bool_ty, span, kind: ExprKind::Call { target: FnRef::Decl(target), type_args, args, moved: false } }
     }
 
     /// [qual-depend] A predicate check's slot value: the place it names,
@@ -2061,7 +2078,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     other => crate::check::PredicateArg { path: other.to_string(), copy: true },
                 })
                 .collect();
-            let check = crate::check::PredicateCheck { name: q.name.clone(), args, implicits_at: None, effects: Vec::new() };
+            let check = crate::check::PredicateCheck { name: q.name.clone(), args, implicits_at: None, type_args: Vec::new(), effects: Vec::new() };
             let cond = self.qualifies_call(&check, read(false), span);
             let shown = Ty::Qualified { quals: vec![q.clone()], base: Box::new(slot.strip_quals().clone()) };
             let message = Expr {
@@ -2096,7 +2113,13 @@ impl<'a, 'p> Lower<'a, 'p> {
                     Ty::Array(_) => "[]".to_string(),
                     _ => return None,
                 };
-                many.iter().copied().find(|d| crate::refine::of_base(&d.of, &d.generics).is_some_and(|of| of == base)).or_else(|| candidates.first().copied())?
+                // The declaration about this base, else a generic one (`of
+                // T`) — the checker's `qualifier_for` order.
+                many.iter()
+                    .copied()
+                    .find(|d| crate::refine::of_base(&d.of, &d.generics).is_some_and(|of| of == base))
+                    .or_else(|| many.iter().copied().find(|d| crate::refine::of_base(&d.of, &d.generics).is_none()))
+                    .or_else(|| candidates.first().copied())?
             }
         };
         let fi = decl.fns.iter().position(|f| f.name.name == member)?;

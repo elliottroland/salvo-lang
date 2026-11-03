@@ -31,12 +31,12 @@ pub mod std_core_iterator;
 pub mod std_core_list;
 #[path = "std/core/map.rs"]
 pub mod std_core_map;
+#[path = "std/core/nonempty.rs"]
+pub mod std_core_nonempty;
 #[path = "std/core/result.rs"]
 pub mod std_core_result;
 #[path = "std/core/set.rs"]
 pub mod std_core_set;
-#[path = "std/core/sorted.rs"]
-pub mod std_core_sorted;
 #[path = "std/core/string.rs"]
 pub mod std_core_string;
 #[path = "std/fs.rs"]
@@ -71,8 +71,6 @@ pub mod platform_std_core_list;
 pub mod platform_std_core_map;
 #[path = "platform/std/core/set.rs"]
 pub mod platform_std_core_set;
-#[path = "platform/std/core/sorted.rs"]
-pub mod platform_std_core_sorted;
 #[path = "platform/std/core/string.rs"]
 pub mod platform_std_core_string;
 #[path = "platform/std/fs/host.rs"]
@@ -98,6 +96,7 @@ use crate::std_stream::InStream;
 use crate::std_stream::InvalidUtf8;
 use crate::std_fs::IoError;
 use crate::std_stream::Lines;
+use crate::std_core_list::List__T_TArray;
 use crate::std_core_string::Mut_Str;
 use crate::std_fs::NotADirectory;
 use crate::std_fs::NotFound;
@@ -478,7 +477,7 @@ pub fn workflow(fs: &crate::std_fs::Fs, console: &crate::std_core_console::Conso
     for mut kind in failures.iter() {
         crate::std_core_console::println(console, &format!("  {}", crate::kind_name__FsError((&((kind).clone())).as_ref())));
     }
-    for mut name in vec![String::from("notes.txt"), String::from("notes-copy.txt"), String::from("raw.bin")].into_iter() {
+    for mut name in crate::std_core_list::List__T_TArray::<String>(String::from("notes.txt"), vec![String::from("notes-copy.txt"), String::from("raw.bin")]).into_iter() {
         let mut gone: crate::unions::Union2<(), crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>> = fs.delete(&crate::std_fs_path::path(&name));
         if matches!(gone, crate::unions::Union2::U2(_)) {
             let mut gone_56 = match gone { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };

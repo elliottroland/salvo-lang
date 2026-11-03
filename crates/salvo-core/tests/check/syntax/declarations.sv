@@ -101,7 +101,8 @@ define fn List<T>(...elems: T[]) -> List<T> {
 }
 
 //--- define_type
-//~ error[syntax-expected:item]
+// The `{ … }` reads as a (refinements-only) body [qual-refn-type], so the one
+// parse error is the word.
 //~ error[syntax-expected:item]
 //~ error[decl-body:type-without-definition]
 define type LinkedList<T> {

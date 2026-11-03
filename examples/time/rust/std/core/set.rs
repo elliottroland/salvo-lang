@@ -127,7 +127,3 @@ pub fn next<T: Clone>(p: &mut crate::std_core_set::SetIter<T>) -> crate::unions:
     let mut elem_1 = elem.unwrap();
     return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<T>(elem_1));
 }
-
-pub fn NonEmpty__Set_qualifies<T: Clone>(set: &crate::std_core_set::Set<T>) -> bool {
-    return (crate::std_core_set::size_platform::<T>(set) > 0i32);
-}

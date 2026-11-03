@@ -79,7 +79,3 @@ fun<T> next(p: SetIter<T>): Union2<T, salvo.std.core.iterator.Finished> {
     return Union2.U1<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(elem_1))
 }
 
-fun<T> NonEmpty_qualifies(set: salvo.platform.std.core.set.Set<T>): Boolean {
-    return (salvo.std.core.set.sizePlatform(set) > 0)
-}
-

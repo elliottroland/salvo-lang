@@ -91,7 +91,7 @@ fun<K, V> toStr__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>, 
                     __pick1_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.sorted:163:43")
+                    throw AssertionError("salvo: unreachable at std.core.sorted:171:43")
                 }
             }
         }))
@@ -131,7 +131,7 @@ fun<K, V> eq__SortedMap_SortedMap(a: salvo.platform.std.core.sorted.SortedMap<K,
                     __pick2_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.sorted:198:29")
+                    throw AssertionError("salvo: unreachable at std.core.sorted:206:29")
                 }
             }
         }, theirs_2))) {
@@ -145,14 +145,6 @@ fun<K, V> iter__SortedMap(map: salvo.platform.std.core.sorted.SortedMap<K, V>): 
     return salvo.std.core.map.MapKeyIter<K>(items = salvo.std.core.sorted.keysPlatform(map), at = 0)
 }
 
-fun<T> NonEmpty_qualifies(set: salvo.platform.std.core.sorted.SortedSet<T>): Boolean {
-    return (salvo.std.core.sorted.size__SortedSet(set) > 0)
-}
-
-fun<K, V> NonEmpty_qualifies(map: salvo.platform.std.core.sorted.SortedMap<K, V>): Boolean {
-    return (salvo.std.core.sorted.size__SortedMap(map) > 0)
-}
-
 fun<T> min(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
     return kotlin.run {
         val __pick3: T? = salvo.std.core.sorted.minPlatform(set)
@@ -162,7 +154,7 @@ fun<T> min(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
                 __pick3_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.core.sorted:257:28")
+                throw AssertionError("salvo: unreachable at std.core.sorted:246:28")
             }
         }
     }
@@ -177,7 +169,7 @@ fun<T> max(set: salvo.platform.std.core.sorted.SortedSet<T>): T {
                 __pick4_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.core.sorted:261:28")
+                throw AssertionError("salvo: unreachable at std.core.sorted:250:28")
             }
         }
     }
@@ -192,7 +184,7 @@ fun<K, V> firstKey(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K {
                 __pick5_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.core.sorted:265:34")
+                throw AssertionError("salvo: unreachable at std.core.sorted:254:34")
             }
         }
     }
@@ -207,7 +199,7 @@ fun<K, V> lastKey(map: salvo.platform.std.core.sorted.SortedMap<K, V>): K {
                 __pick6_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.core.sorted:269:33")
+                throw AssertionError("salvo: unreachable at std.core.sorted:258:33")
             }
         }
     }

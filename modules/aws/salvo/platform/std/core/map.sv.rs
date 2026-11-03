@@ -141,7 +141,7 @@ pub fn to_str<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>, to_str: 
                 let mut __pick1_1 = __pick1.unwrap();
                 __pick1_1
             } else {
-                panic!("salvo: unreachable at std.core.map:201:43")
+                panic!("salvo: unreachable at std.core.map:205:43")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
@@ -166,7 +166,7 @@ pub fn eq<K: Clone, V: Clone>(a: &crate::std_core_map::Map<K, V>, b: &crate::std
                 let mut __pick2_1 = __pick2.unwrap();
                 __pick2_1
             } else {
-                panic!("salvo: unreachable at std.core.map:224:29")
+                panic!("salvo: unreachable at std.core.map:228:29")
             }
         }, theirs_2)) {
             return false;
@@ -280,8 +280,4 @@ pub fn next__MapValuesIter<'a, K: Clone, V: Clone>(p: &mut crate::std_core_map::
         };
     }
     return crate::unions::Union2::U2(crate::std_core_iterator::finished());
-}
-
-pub fn NonEmpty__Map_qualifies<K: Clone, V: Clone>(map: &crate::std_core_map::Map<K, V>) -> bool {
-    return (crate::std_core_map::size_platform::<K, V>(map) > 0i32);
 }

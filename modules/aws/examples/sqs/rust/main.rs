@@ -33,14 +33,14 @@ pub mod std_core_iterator;
 pub mod std_core_list;
 #[path = "std/core/map.rs"]
 pub mod std_core_map;
+#[path = "std/core/nonempty.rs"]
+pub mod std_core_nonempty;
 #[path = "std/core/other.rs"]
 pub mod std_core_other;
 #[path = "std/core/result.rs"]
 pub mod std_core_result;
 #[path = "std/core/set.rs"]
 pub mod std_core_set;
-#[path = "std/core/sorted.rs"]
-pub mod std_core_sorted;
 #[path = "std/core/string.rs"]
 pub mod std_core_string;
 #[path = "std/runtime.rs"]
@@ -59,8 +59,6 @@ pub mod platform_std_core_list;
 pub mod platform_std_core_map;
 #[path = "platform/std/core/set.rs"]
 pub mod platform_std_core_set;
-#[path = "platform/std/core/sorted.rs"]
-pub mod platform_std_core_sorted;
 #[path = "platform/std/core/string.rs"]
 pub mod platform_std_core_string;
 #[path = "platform/std/runtime/routing.rs"]
@@ -77,6 +75,7 @@ use crate::aws_sqs::DeleteMessageInput;
 use crate::aws_sqs::DeleteQueueInput;
 use crate::aws_sqs::GetQueueUrlInput;
 use crate::aws_sqs::GetQueueUrlOutput;
+use crate::std_core_list::List;
 use crate::std_core_map::Map;
 use crate::aws_sqs::Message;
 use crate::std_core_map::Mut_Map_platform;
@@ -165,7 +164,7 @@ pub fn round_trip(sqs: &crate::aws_sqs::Sqs, console: &crate::std_core_console::
             let mut __narrowed_8 = got_7.messages.as_ref().unwrap();
             __narrowed_8.clone()
         } else {
-            vec![]
+            crate::std_core_list::List::<crate::aws_sqs::Message>()
         };
         crate::std_core_console::println(console, &format!("received {} message(s)", crate::std_core_list::size_platform::<crate::aws_sqs::Message>(&messages)));
         for mut m in messages.iter() {
@@ -219,7 +218,7 @@ impl crate::aws_sqs::__Stateful_Sqs for MemSqs {
     fn create_queue(&mut self, input: crate::aws_sqs::CreateQueueInput, reply: crate::scheduler::SalvoReply) {
         let mut url: String = format!("mem://{}", input.queue_name);
         if !(crate::std_core_map::contains_key_platform::<String, Vec<String>>(&self.queues, &url, &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]))) {
-            crate::std_core_map::put_platform::<String, Vec<String>>(&mut self.queues, (url).clone(), vec![], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
+            crate::std_core_map::put_platform::<String, Vec<String>>(&mut self.queues, (url).clone(), crate::std_core_list::List::<String>(), &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
         };
         crate::scheduler::salvo_reply_wire::<crate::unions::Union2<crate::aws_sqs::CreateQueueOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_sqs::SqsError, crate::aws::AwsError>>>>(reply, crate::unions::Union2::U1(crate::std_core_result::ok::<crate::aws_sqs::CreateQueueOutput>(crate::aws_sqs::CreateQueueOutput { queue_url: Some(url) })));
     }

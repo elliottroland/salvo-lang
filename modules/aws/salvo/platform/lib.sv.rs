@@ -47,10 +47,10 @@ pub mod std_core_iterator;
 pub mod std_core_list;
 #[path = "std/core/map.sv.rs"]
 pub mod std_core_map;
+#[path = "std/core/nonempty.sv.rs"]
+pub mod std_core_nonempty;
 #[path = "std/core/set.sv.rs"]
 pub mod std_core_set;
-#[path = "std/core/sorted.sv.rs"]
-pub mod std_core_sorted;
 #[path = "std/core/string.sv.rs"]
 pub mod std_core_string;
 #[path = "std/runtime.sv.rs"]
@@ -73,8 +73,6 @@ pub mod platform_std_core_list;
 pub mod platform_std_core_map;
 #[path = "salvo/platform/std/core/set.sv.rs"]
 pub mod platform_std_core_set;
-#[path = "salvo/platform/std/core/sorted.sv.rs"]
-pub mod platform_std_core_sorted;
 #[path = "salvo/platform/std/core/string.sv.rs"]
 pub mod platform_std_core_string;
 #[path = "salvo/platform/std/runtime/routing.sv.rs"]

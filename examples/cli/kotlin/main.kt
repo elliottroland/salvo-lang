@@ -200,15 +200,15 @@ fun main(args: Array<String>) {
     val __handle_4: salvo.std.args.Args = __use_3
     val __use_5: salvo.std.process.__Platform_HostProcess = salvo.std.process.__Platform_HostProcess()
     val __handle_6: salvo.std.process.Process = __use_5
-    salvo.main.show(__handle_2, listOf<String>("serve", "-p", "80", "index.html", "app.js"))
-    salvo.main.show(__handle_2, listOf<String>("-v", "serve", "--host=0.0.0.0", "--workers", "4", "--cert", "c.pem", "--key", "k.pem", "--output", "json", "site"))
-    salvo.main.show(__handle_2, listOf<String>("fetch", "--url", "https://example.com", "--header", "Accept: text/html", "--header", "X-Id: 7"))
-    salvo.main.show(__handle_2, listOf<String>("fetch", "--from-stdin"))
-    salvo.main.show(__handle_2, listOf<String>("serve", "-p", "0", "--output", "xml", "--cert", "c.pem"))
-    salvo.main.show(__handle_2, listOf<String>("fetch", "--url", "u", "--file", "f"))
-    salvo.main.show(__handle_2, listOf<String>("deploy"))
-    salvo.main.show(__handle_2, listOf<String>("--help"))
-    salvo.main.show(__handle_2, listOf<String>("serve", "--help"))
+    salvo.main.show(__handle_2, salvo.std.core.list.List__T_TArray("serve", arrayOf<String>("-p", "80", "index.html", "app.js")))
+    salvo.main.show(__handle_2, salvo.std.core.list.List__T_TArray("-v", arrayOf<String>("serve", "--host=0.0.0.0", "--workers", "4", "--cert", "c.pem", "--key", "k.pem", "--output", "json", "site")))
+    salvo.main.show(__handle_2, salvo.std.core.list.List__T_TArray("fetch", arrayOf<String>("--url", "https://example.com", "--header", "Accept: text/html", "--header", "X-Id: 7")))
+    salvo.main.show(__handle_2, salvo.std.core.list.List__T_TArray("fetch", arrayOf<String>("--from-stdin")))
+    salvo.main.show(__handle_2, salvo.std.core.list.List__T_TArray("serve", arrayOf<String>("-p", "0", "--output", "xml", "--cert", "c.pem")))
+    salvo.main.show(__handle_2, salvo.std.core.list.List__T_TArray("fetch", arrayOf<String>("--url", "u", "--file", "f")))
+    salvo.main.show(__handle_2, salvo.std.core.list.List__T("deploy"))
+    salvo.main.show(__handle_2, salvo.std.core.list.List__T("--help"))
+    salvo.main.show(__handle_2, salvo.std.core.list.List__T_TArray("serve", arrayOf<String>("--help")))
     val tool: Tool = salvo.std.args.argsOrExit(__handle_2, __handle_6, __handle_4.args(), ::argSpec__SpecTool, ::fromFound__Found_OkToolOrErrsNonEmptyListArgError)
     salvo.std.core.console.println(__handle_2, "argv: ${salvo.main.describe(tool)}")
 }
@@ -261,7 +261,7 @@ fun fromFound__Found_OkToolOrErrsNonEmptyListArgError(found: salvo.std.args.Foun
         val r: Union2<Fetch, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>> = salvo.std.args.parseNamed(found.rest, found.path, ::argSpec__SpecFetch, ::fromFound__Found_OkFetchOrErrsNonEmptyListArgError)
         salvo.std.args.groupErrors(errors, r, 0)
     }
-    if (salvo.std.core.list.NonEmpty_qualifies(errors)) {
+    if (salvo.std.core.nonempty.NonEmpty_qualifies(errors, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
         return Union2.U2<Tool, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Errs(errors))
     }
     return Union2.U1<Tool, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Ok(Tool(verbose = salvo.std.args.eval(fun(): Boolean {
@@ -382,7 +382,7 @@ fun fromFound__Found_OkServeOrErrsNonEmptyListArgError(found: salvo.std.args.Fou
     salvo.std.args.checkValue(errors, found, "files", shown_2, what_3, fun(_v: String): String? {
         return null
     }, { __a0 -> salvo.std.core.string.fromStr__Str_StrOpt(__a0) })
-    if (salvo.std.core.list.NonEmpty_qualifies(errors)) {
+    if (salvo.std.core.nonempty.NonEmpty_qualifies(errors, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
         return Union2.U2<Serve, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Errs(errors))
     }
     return Union2.U1<Serve, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Ok(Serve(net = salvo.std.args.eval(fun(): Net {
@@ -420,7 +420,7 @@ fun fromFound__Found_OkServeOrErrsNonEmptyListArgError(found: salvo.std.args.Fou
         return null
     }), files = salvo.std.args.eval(fun(): List<String> {
         val all: List<String> = salvo.std.args.readAll(found, "files", { __a0 -> salvo.std.core.string.fromStr__Str_StrOpt(__a0) })
-        if (salvo.std.core.list.NonEmpty_qualifies(all)) {
+        if (salvo.std.core.nonempty.NonEmpty_qualifies(all, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
             return all
         }
         return throw AssertionError(("salvo: " + ("`files` was checked as required") + " at main:49:16"))
@@ -486,7 +486,7 @@ fun fromFound__Found_OkNetOrErrsNonEmptyListArgError(found: salvo.std.args.Found
     salvo.std.args.checkValue(errors, found, "workers", shown_2, what_3, fun(_v: Int): String? {
         return null
     }, { __a0 -> salvo.std.core.string.fromStr__Str_IntOpt(__a0) })
-    if (salvo.std.core.list.NonEmpty_qualifies(errors)) {
+    if (salvo.std.core.nonempty.NonEmpty_qualifies(errors, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
         return Union2.U2<Net, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Errs(errors))
     }
     return Union2.U1<Net, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Ok(Net(host = salvo.std.args.eval(fun(): String {
@@ -560,7 +560,7 @@ fun fromFound__Found_OkTlsOrErrsNonEmptyListArgError(found: salvo.std.args.Found
     salvo.std.args.checkValue(errors, found, "key", shown_2, what_3, fun(v: String): String? {
         return null
     }, { __a0 -> salvo.std.core.string.fromStr__Str_StrOpt(__a0) })
-    if (salvo.std.core.list.NonEmpty_qualifies(errors)) {
+    if (salvo.std.core.nonempty.NonEmpty_qualifies(errors, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
         return Union2.U2<Tls, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Errs(errors))
     }
     return Union2.U1<Tls, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Ok(Tls(cert = salvo.std.args.eval(fun(): String {
@@ -659,7 +659,7 @@ fun fromFound__Found_OkFetchOrErrsNonEmptyListArgError(found: salvo.std.args.Fou
     salvo.std.args.checkValue(errors, found, "header", shown, what, fun(_v: String): String? {
         return null
     }, { __a0 -> salvo.std.core.string.fromStr__Str_StrOpt(__a0) })
-    if (salvo.std.core.list.NonEmpty_qualifies(errors)) {
+    if (salvo.std.core.nonempty.NonEmpty_qualifies(errors, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
         return Union2.U2<Fetch, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Errs(errors))
     }
     return Union2.U1<Fetch, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Ok(Fetch(source = salvo.std.args.eval(fun(): Union3<FromUrl, FromFile, FromStdin> {
@@ -748,7 +748,7 @@ fun fromFound__Found_OkFromUrlOrErrsNonEmptyListArgError(found: salvo.std.args.F
     salvo.std.args.checkValue(errors, found, "timeout", shown_2, what_3, fun(v: Int): String? {
         return null
     }, { __a0 -> salvo.std.core.string.fromStr__Str_IntOpt(__a0) })
-    if (salvo.std.core.list.NonEmpty_qualifies(errors)) {
+    if (salvo.std.core.nonempty.NonEmpty_qualifies(errors, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
         return Union2.U2<FromUrl, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Errs(errors))
     }
     return Union2.U1<FromUrl, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Ok(FromUrl(url = salvo.std.args.eval(fun(): String {
@@ -807,7 +807,7 @@ fun fromFound__Found_OkFromFileOrErrsNonEmptyListArgError(found: salvo.std.args.
     salvo.std.args.checkValue(errors, found, "file", shown, what, fun(v: String): String? {
         return null
     }, { __a0 -> salvo.std.core.string.fromStr__Str_StrOpt(__a0) })
-    if (salvo.std.core.list.NonEmpty_qualifies(errors)) {
+    if (salvo.std.core.nonempty.NonEmpty_qualifies(errors, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
         return Union2.U2<FromFile, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Errs(errors))
     }
     return Union2.U1<FromFile, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Ok(FromFile(file = salvo.std.args.eval(fun(): String {
@@ -837,7 +837,7 @@ fun fromFound__Found_OkFromStdinOrErrsNonEmptyListArgError(found: salvo.std.args
     for (e in salvo.platform.std.core.list.each(found.errors)) {
         salvo.std.core.list.addPlatform(errors, e)
     }
-    if (salvo.std.core.list.NonEmpty_qualifies(errors)) {
+    if (salvo.std.core.nonempty.NonEmpty_qualifies(errors, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
         return Union2.U2<FromStdin, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Errs(errors))
     }
     return Union2.U1<FromStdin, List<Union11<salvo.std.args.UnknownOption, salvo.std.args.MissingValue, salvo.std.args.Missing, salvo.std.args.Invalid, salvo.std.args.Unexpected, salvo.std.args.Repeated, salvo.std.args.Requires, salvo.std.args.Conflict, salvo.std.args.MissingOne, salvo.std.args.UnknownCommand, salvo.std.args.HelpRequested>>>(salvo.std.core.result.Ok(FromStdin()))

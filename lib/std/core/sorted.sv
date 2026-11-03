@@ -27,7 +27,11 @@
 // has to arrange deliberately (its `String.compareTo` is UTF-16 code-unit
 // order) [kt-ordered].
 
-export iterable platform type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut : Iter<self, SetIter<T>, T>
+// @compilerrules [qual-refn-type]
+export iterable platform type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut : Iter<self, SetIter<T>, T> {
+    // Adding an element makes the set non-empty.
+    refn add(set: Mut SortedSet<T>, elem: T) => set: +NonEmpty
+}
 
 // Constructor. The elements are stored, so they are moved; duplicates
 // collapse, and the result is in order however the arguments were written.
@@ -101,7 +105,11 @@ export fn iter<T>(set: SortedSet<T>) [] -> Mut SetIter<T> => set {
     return Mut SetIter<T> { items: to_list(set), at: 0 }
 }
 
-export iterable platform type SortedMap<K, V>(?cmp: (K, K) -> Int) canbe Mut : Iter<self, MapKeyIter<K>, K>
+// @compilerrules [qual-refn-type]
+export iterable platform type SortedMap<K, V>(?cmp: (K, K) -> Int) canbe Mut : Iter<self, MapKeyIter<K>, K> {
+    // Putting an entry makes the map non-empty.
+    refn put(map: Mut SortedMap<K, V>, key: K, value: V) => map: +NonEmpty
+}
 
 // Constructor, from entries written as pairs. A repeated key takes the value
 // of its last appearance [col-duplicate-keys]; position is irrelevant here,
@@ -219,25 +227,6 @@ rename fn min_opt = min<T>(set: SortedSet<T>)
 rename fn max_opt = max<T>(set: SortedSet<T>)
 rename fn first_key_opt = first_key<K, V>(map: SortedMap<K, V>)
 rename fn last_key_opt = last_key<K, V>(map: SortedMap<K, V>)
-
-// `NonEmpty` over the two ordered containers, as `std.core.set`
-// and `std.core.map` declare it over theirs.
-// @compilerrules [qual-overload]
-export qualifier NonEmpty<T> of SortedSet<T> {
-    fn qualifies(set: SortedSet<T>) [] -> Bool {
-        return size(set) > 0
-    }
-
-    refn add(set: Mut SortedSet<T>, elem: T) => set: +NonEmpty
-}
-
-export qualifier NonEmpty<K, V> of SortedMap<K, V> {
-    fn qualifies(map: SortedMap<K, V>) [] -> Bool {
-        return size(map) > 0
-    }
-
-    refn put(map: Mut SortedMap<K, V>, key: K, value: V) => map: +NonEmpty
-}
 
 // The dividend, and the reason the claim is worth carrying: the cheap-at-
 // either-end operations of an ordered tree answer with an element instead of

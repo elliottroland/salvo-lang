@@ -85,8 +85,8 @@ fun main() {
     val xs: salvo.platform.std.core.list.MutList<Int> = mutableListOf<Int>()
     salvo.std.core.list.addPlatform(xs, 3)
     salvo.std.core.console.println(__handle_2, "1. head after add: ${salvo.main.head(xs)}")
-    val maybeEmpty: List<Int> = listOf<Int>(7, 8)
-    if (salvo.std.core.list.NonEmpty_qualifies(maybeEmpty)) {
+    val maybeEmpty: List<Int> = salvo.std.core.list.List__T_TArray(7, arrayOf<Int>(8))
+    if (salvo.main.NonEmpty_qualifies(maybeEmpty)) {
         salvo.std.core.console.println(__handle_2, "2. checked at run time, head is ${salvo.main.head(maybeEmpty)}")
     }
     val plain: Int = 21

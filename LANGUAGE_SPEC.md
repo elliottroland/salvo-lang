@@ -785,17 +785,32 @@ Conventions:
   construction.
 
   ```
-  export intrinsic fn List<T canbe linear>() [] -> List<T>
-  export intrinsic fn List<T canbe linear>(first: T, ...rest: T[]) [] -> +NonEmpty List<T>
+  export intrinsic fn Mut List<T canbe linear>() [] -> Mut List<T>
+
+  export fn Mut List<T>(first: T, ...rest: T[]) [] -> NonEmpty Mut List<T> => !first, rest {
+      let list = Mut List<T>()
+      list.add(first)
+      add_all(list, rest)
+      return list
+  }
   ```
 
   So `List()` is empty, `List(1, 2, 3)` and `List(a, ...rest)` are
-  `NonEmpty`, and nothing is checked at run time [qual-ctor-predicate]. Built
-  for `List`/`Mut List`, whose `NonEmpty` is declared in the same file
-  [qual-ctor-same-file]. `Set`/`Map` and the sorted pair keep the single
-  variadic shape: their `NonEmpty` now lives beside them (2026-09-26), so the
-  two-shape convention is *available* to them and adding it is an std API
-  question rather than a blocked one (ROADMAP.md).
+  `NonEmpty`, and nothing is tested at run time: `add`'s refinement
+  [qual-refn-type] establishes the claim, and `add_all`'s keeps it. Only the
+  empty `Mut List()` is intrinsic (user decision 2026-10-30, the constructors
+  were all intrinsic before); `List(…)` returns `Mut List(…)`, dropping the
+  `Mut`. The tail is kept, not consumed, so a spread of a place stays usable
+  [fn-variadic]; a private host helper, `add_all`, copies its elements in,
+  since a Salvo body has no `copy` for a generic element on Kotlin, and the
+  list's own `refn add_all(list: NonEmpty Mut List<T>, …)` keeps the claim
+  across it. A linear element has a one-element overload of each
+  (`List<T canbe linear>(first: T)`), and the variadic one is over any other
+  `T`, as `deque_of` was already: an array cannot hold an obligation, and the
+  IR ledger cannot see that a `canbe linear` tail is never linear. `Deque`'s
+  constructors claim it too (`-> +NonEmpty Deque<T>` over the host's
+  `deque_from`, trusted in the deque's file). `Set`/`Map` and the sorted pair
+  keep the single variadic shape.
   * A **lone `...spread` reaches neither shape**: a spread may not supply a
     required parameter [fn-variadic], and the empty shape takes no arguments.
     An array becomes a list through `map_to` or a loop with `add`.
@@ -809,12 +824,40 @@ Conventions:
     is redundant.
   * A **literal** (`[1, 2, 3]`) claims nothing, deliberately unexamined so far:
     the convention is about the constructors (ROADMAP.md records the question).
-* [col-nonempty] std declares `qualifier NonEmpty<T> of List<T>` in
-  `std.core.list` (2026-09-13), with a `qualifies` of `size(list) > 0`, the
-  by-construction constructor of [col-of-nonempty], and a
-  `first(list: NonEmpty List<T>) -> proj(list) T` overload that drops
-  the optional — ranked above the plain `first` by [fn-overload-rank].
-  * A **refinement** `refn add(list: Mut List<T>, elem: T) => list: +NonEmpty`
+* [col-nonempty] std declares **one generic** `qualifier NonEmpty<T canbe
+  linear> of T` in its own module, `std.core.nonempty` (user decision
+  2026-10-30; it was five declarations, one per container, since 2026-09-13):
+
+  ```
+  export qualifier NonEmpty<T canbe linear> of T {
+      fn qualifies(value: T, ?size: (value: T) -> Int) -> Bool {
+          return size(value) > 0
+      }
+  }
+  ```
+
+  * The `size` is an **implicit of `qualifies`** (as `Idx`'s is [col-idx]),
+    not a slot in the header: it is resolved where the claim is tested, at the
+    subject's concrete type, so nothing about it prints in the type. The
+    test binds the qualifier's generics by unifying its `of` with the
+    subject (`check_predicate_quals`), so `xs is NonEmpty` over a
+    `Mut List<Int>` passes `size(List<T>)`. A `Mut` subject is dropped to its
+    plain type for the call, which on Kotlin turns a `Mut Str`'s
+    `StringBuilder` into a `String`.
+  * **What establishes it is each type's to say**, in its own body
+    [qual-refn-type]: `List`'s `add`, `swap` and `add_all`, `Set`'s and `SortedSet`'s
+    `add`, `Map`'s and `SortedMap`'s `put`, `Deque`'s `add_first` and
+    `add_last`, and `Str`'s `append` and `set` — the last two only *keep* it
+    [qual-refn-narrow], since appending an empty text to an empty string
+    leaves it empty.
+  * The **"written where it cannot be tested"** rule (refusing `NonEmpty Int`,
+    where no `size` exists) was not added: it would be a rule for this one
+    qualifier, and the general form is in ROADMAP.md.
+  * Over each container, a `first(list: NonEmpty List<T>) -> proj(list) T`
+    overload drops the optional — ranked above the plain `first` by
+    [fn-overload-rank] — and the sorted pair's `min`/`max`/`first_key`/
+    `last_key` do the same.
+  * `refn add(list: Mut List<T>, elem: T) => list: +NonEmpty`
     establishes the claim, because `add` itself may not [qual-refn]. So does
     `refn swap(list: Mut List<T>, i: Int, j: Int) => list: +NonEmpty`
     (2026-09-23): exchanging two elements cannot change how many there are, and
@@ -830,13 +873,8 @@ Conventions:
   * The overload delegates to `get(list, 0) ?: unreachable!()`, **not** to `first@core.list`:
     the scope selector names the module, and within it a `NonEmpty` argument
     re-picks this same overload, which recurses forever.
-  * The constructor is an `intrinsic` only because mixing a plain argument
-    with a `...spread` in one variadic call is unsupported, so
-    `List(first, ...rest)` cannot be its body (recorded in ROADMAP.md).
-  * **One name, one subject type.** A qualifier name is unique within a module
-    *and* across the implicitly visible `std.core` modules, so there is no
-    `NonEmpty` over `Set`/`Map`/`SortedSet`/`SortedMap`; that needs same-name
-    different-subject qualifiers, a DECISION in ROADMAP.md.
+  * The constructors are Salvo (2026-10-30): only the empty `Mut List()` is
+    intrinsic, and the others `add` into it [col-of-nonempty].
 * [col-sorted-list] std declares
   `qualifier Sorted<T>(?cmp: (T, T) -> Int) of List<T>` in
   `std.core.list` — a **state claim** over a list, and a different mechanic from
@@ -1736,19 +1774,20 @@ Conventions:
 * [qual-overload] **A qualifier name may be declared over several subject
   types**, and which one a use means is decided by the subject — the way a
   function overload is decided by its arguments (user decision 2026-09-13).
-  std declares `NonEmpty` five times over, each **beside the container it
-  claims** (2026-09-26): `of List<T>` in `std.core.list`, `of Set<T>` in
-  `std.core.set`, `of Map<K, V>` in `std.core.map`, and `of SortedSet<T>` /
-  `of SortedMap<K, V>` in `std.core.sorted`.
-  * The four gathered in a `std.core.nonempty` of their own until 2026-09-26, for
-    one reason: `min(NonEmpty SortedSet<T>)` has to delegate to the plain
-    `min`, and `min@core.sorted(set)` re-picks the `NonEmpty` overload — a
-    selector names a module, and within it the qualified argument still ranks
-    first. `rename fn min_opt = min<T>(set: SortedSet<T>)` is what dissolved
-    the module: it takes the plain overload out of the shared name *in that
-    file only* (a rename is not importable [fn-rename]), which is the same
-    escape `first(NonEmpty List<T>)` makes by delegating to `get`
-    [col-of-nonempty].
+  Kept, though std no longer uses it (user decision 2026-10-30): std's
+  `NonEmpty` was declared five times over, beside each container it claimed,
+  until it became one generic qualifier [col-nonempty].
+  * `rename fn min_opt = min<T>(set: SortedSet<T>)` is still how
+    `min(NonEmpty SortedSet<T>)` delegates to the plain `min`:
+    `min@core.sorted(set)` re-picks the `NonEmpty` overload — a selector names
+    a module, and within it the qualified argument still ranks first — and a
+    rename takes the plain overload out of the shared name *in that file only*
+    (a rename is not importable [fn-rename]), the same escape
+    `first(NonEmpty List<T>)` makes by delegating to `get` [col-of-nonempty].
+  * A user's same-name qualifier over a particular subject (`qualifier
+    NonEmpty<T> of List<T>`) now sits beside std's generic one as an overload
+    rather than shadowing it, and std's type-body refinements, which name the
+    claim, reach it by name. Recorded in ROADMAP.md as an open defect.
   * The subject is keyed **syntactically, by the `of` type's base name**
     (`List`, `Set`, …). A generic `of` (`qualifier Ok<T> of T`) has no base
     name, accepts every subject, and so cannot be told apart from another
@@ -1770,7 +1809,7 @@ Conventions:
     containers.
   * A **refinement** picks its qualifier the same way, from the refined
     parameter's own type: `refn add(set: Mut Set<T>, elem: T) => set:
-    +NonEmpty` inside the `of Set<T>` declaration refines the `add` that takes
+    +Filled` inside an `of Set<T>` declaration refines the `add` that takes
     a set. Two container claims therefore do *not* conflict with each other —
     they are about different subjects.
   * Backends: erasure [qual-erasure] makes two same-named `qualifies`
@@ -2083,7 +2122,10 @@ Conventions:
   * Union tagging goes through generic constructors
     (`fn ok<T>(value: T) -> +Ok T`).
 * [qual-ctor-same-file] Constructor functions must be declared in the same
-  file as their qualifier.
+  file as their qualifier — or, for a **generic state** qualifier (`qualifier
+  NonEmpty<T> of T`), in the file that declares the subject type
+  [qual-refn-type] (user decision 2026-10-30): a claim that belongs to no one
+  subject is vouched for by the author of the type it is about.
 * [qual-arm-infer] **Provenance-arm inference** (user decision 2026-10-12): at a
   position whose expected type is a wrapper union, a bare value that no arm
   accepts by subtyping is wrapped into the one *provenance-tagged* arm whose
@@ -2244,6 +2286,13 @@ Conventions:
   refn swap(list: NonEmpty Mut List<T>, i: Int, j: Int) => list: +NonEmpty
   ```
 
+  The narrower type goes on the parameter the refinement states something
+  about: one written on *another* parameter is refused
+  (`qual-refn-narrow:other-param`, 2026-10-30), since a precondition is read
+  on the parameter it is stated about and would otherwise be no condition at
+  all. So `append` keeps a `NonEmpty Str` (`refn append(str: NonEmpty Mut Str,
+  text: Str)`) and cannot say "appending a non-empty text makes it non-empty".
+
   This is the difference between a claim a call **establishes** and one it
   merely **keeps**, and it is not decoration: the unconditional form of the
   refinement above would say that swapping *makes* a list non-empty, which is
@@ -2263,9 +2312,10 @@ Conventions:
     unconditional promise, is the precondition-free group — so a reader is never
     told a conditional fact as though it always held [qual-refn-docs].
 * [qual-refn-scope] **A refinement lives in the qualifier whose claim it is
-  about** — always (user decision 2026-09-26). It applies wherever that
-  qualifier is in scope and nowhere else: the user opts into the refinements by
-  opting into the qualifier (user decision 2026-09-06).
+  about** (user decision 2026-09-26), **or in the body of the type it
+  refines** [qual-refn-type] (user decision 2026-10-30). It applies wherever
+  that qualifier is in scope and nowhere else: the user opts into the
+  refinements by opting into the qualifier (user decision 2026-09-06).
   * A **top-level** `refn` is refused, with a diagnostic naming the move. It
     existed to *reconcile* two qualifiers that disagreed, and disagreement is
     now impossible to express (a `+Q`/`-Q` contradiction is a declaration
@@ -2276,6 +2326,36 @@ Conventions:
     braces. A body of refinements alone is the mint-only shape — `Sorted`'s
     insert is the case that forced it: the claim cannot be tested, and still has
     something to say about a function that keeps it.
+* [qual-refn-type] **A type's body may hold refinements** (user decision
+  2026-10-30): its author states what the type's own functions do to a claim,
+  for a claim that belongs to no one subject.
+
+  ```
+  export iterable platform type List<T canbe linear> canbe Mut : Iter<self, ListIter<T>, T> {
+      refn add(list: Mut List<T>, elem: T) => list: +NonEmpty
+      refn swap(list: NonEmpty Mut List<T>, i: Int, j: Int) => list: +NonEmpty
+  }
+  ```
+
+  * A **struct** body takes `refn` beside its fields and fns; an **opaque**
+    (`platform`/`intrinsic`) type declaration takes an optional `{ … }` body
+    after its obligations that holds refinements **only**
+    (`qual-refn-type:only-refns`). An alias has no body
+    (`qual-refn-type:alias-body`).
+  * The refinement's signature is written over the type's own parameters, as
+    one inside a qualifier is over the qualifier's [qual-refn-match].
+  * **About its own type.** Each parameter it states something about has that
+    type as its base (`qual-refn-type:other-subject`): a type speaks for its
+    own values.
+  * **Only a claim its author is trusted with** — a *generic* state qualifier
+    (`of T`, which no subject's author owns), or one declared in the same
+    file (`qual-refn-type:foreign-qualifier`). The same trust lets the
+    type's file establish such a claim with `+Q` [deduce-reapply]
+    [qual-ctor-same-file]. A claim about one particular type declared
+    elsewhere still has its refinements in its own body.
+  * **Visible wherever every qualifier it names is**, the same declaration —
+    which for std's `NonEmpty` is everywhere. Trusted like any refinement.
+  * Refinements inside a qualifier's body stay (`Idx`'s `preserve`s).
 * [qual-refn-infer] Refinements reach **inferred** deductions
   [deduce-infer], so the fact survives one frame outward: a fn whose
   parameter declares the qualifier and whose body makes a refined call
@@ -9306,7 +9386,10 @@ between endpoints and delivers what arrives into the scheduler.
   * **Only in the file that declares `Q`** [qual-ctor-same-file], which is the
     same party already trusted to mint the claim with `-> +Q T` [qual-ctor-fn]
     and to speak for someone else's call with a `refn` [qual-refn]. Elsewhere it
-    is an error naming both remedies.
+    is an error naming both remedies. A **generic state** qualifier (`of T`) may
+    also be established by the file that declares the subject's type
+    [qual-refn-type] — `std.core.deque` writes `-> +NonEmpty Deque<T>` for
+    the host's `deque_from`.
   * **It establishes, whether or not the parameter already holds the claim**
     (extended by user decision 2026-09-22, the heap demo's `heapify`): re-applying
     what a mutation stripped and *minting* a claim on a value that arrived without
@@ -12584,8 +12667,9 @@ replaced the working document TESTING.md).
     (`Ok`, `Err`, `Other` are provenance); a **constructive** one (no
     `qualifies`) is trusted when declared in the platform declaration's
     module — for a handler, the effect's — and refused otherwise. A
-    `qualifies` that needs effects or slot values cannot run at the
-    boundary and is refused, and so is a recursive type with fields to check.
+    `qualifies` that needs effects, slot values or an implicit (`NonEmpty`'s
+    `?size`, which has no resolution there) cannot run at the boundary and is
+    refused, and so is a recursive type with fields to check.
   * A check that walks a collection **warns** on the declaration, naming the
     cost (D10 C3).
   * The plan is the checker's (`Checked::boundaries`' `check`,

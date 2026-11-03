@@ -539,7 +539,7 @@ class Routes : RouteTable {
     var taskKeys: salvo.platform.std.core.list.MutList<Long> = mutableListOf<Long>()
     var tasks: salvo.platform.std.core.list.MutList<ExportedTask> = mutableListOf<ExportedTask>()
     var controls: salvo.platform.std.core.map.MutMap<ControlKey, Int> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<ControlKey, Int>>(), { __a0 -> salvo.std.runtime.routing.hash__ControlKey(__a0) }, { __a0, __a1 -> salvo.std.runtime.routing.eq__ControlKey_ControlKey(__a0, __a1) })
-    var local: List<kotlin.Pair<String, String>> = listOf<kotlin.Pair<String, String>>()
+    var local: List<kotlin.Pair<String, String>> = salvo.std.core.list.List()
     var peers: salvo.platform.std.core.map.MutMap<Long, List<kotlin.Pair<String, String>>> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<Long, List<kotlin.Pair<String, String>>>>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     var deadEntry: Int = (-1)
     var creditWaiters: salvo.platform.std.core.list.MutList<salvo.platform.std.runtime.Parker> = mutableListOf<salvo.platform.std.runtime.Parker>()
@@ -821,7 +821,7 @@ class Routes : RouteTable {
             val found: List<Int> = v!!
             return found
         }
-        return listOf<Int>()
+        return salvo.std.core.list.List()
     }
     override fun versionOf(group: Int): Long {
         return salvo.std.runtime.routing.versionIn(versions, group)

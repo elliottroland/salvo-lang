@@ -37,6 +37,8 @@ pub mod std_core_iterator;
 pub mod std_core_list;
 #[path = "std/core/map.rs"]
 pub mod std_core_map;
+#[path = "std/core/nonempty.rs"]
+pub mod std_core_nonempty;
 #[path = "std/core/other.rs"]
 pub mod std_core_other;
 #[path = "std/core/range.rs"]
@@ -45,8 +47,6 @@ pub mod std_core_range;
 pub mod std_core_result;
 #[path = "std/core/set.rs"]
 pub mod std_core_set;
-#[path = "std/core/sorted.rs"]
-pub mod std_core_sorted;
 #[path = "std/core/string.rs"]
 pub mod std_core_string;
 #[path = "std/fs.rs"]
@@ -81,8 +81,6 @@ pub mod platform_std_core_list;
 pub mod platform_std_core_map;
 #[path = "platform/std/core/set.rs"]
 pub mod platform_std_core_set;
-#[path = "platform/std/core/sorted.rs"]
-pub mod platform_std_core_sorted;
 #[path = "platform/std/core/string.rs"]
 pub mod platform_std_core_string;
 #[path = "platform/std/runtime/routing.rs"]

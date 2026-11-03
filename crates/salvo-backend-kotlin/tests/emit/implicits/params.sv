@@ -45,10 +45,10 @@ fn sum_pair<T>(a: T, b: T, ?add: (T, T) -> T) -> T {
 
 fn main() [use] {
     use StdConsole()
-    //~ emits: total(listOf<Int>(1, 2, 3), ::add, ::zero)
+    //~ emits: total(salvo.std.core.list.List__T_TArray(1, arrayOf<Int>(2, 3)), ::add, ::zero)
     println("total=${total(List(1, 2, 3))}")
     // An override written at the call site [implicit-override].
-    //~ emits: total(listOf<Int>(2, 3, 4), ::multiply, ::one)
+    //~ emits: total(salvo.std.core.list.List__T_TArray(2, arrayOf<Int>(3, 4)), ::multiply, ::one)
     println("product=${total(List(2, 3, 4), add = multiply, zero = one)}")
     // [col-of-nonempty] Literals rather than constructor calls: the element
     // constructors claim `NonEmpty`, and a `List<NonEmpty List<Int>>` does not

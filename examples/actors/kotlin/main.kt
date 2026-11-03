@@ -254,7 +254,7 @@ class Breaking : Fragile {
     var __addr: Int? = null
     val __parked: MutableMap<Long, __Cont_Breaking> = kotlin.collections.mutableMapOf()
     override fun crash() {
-        val empty: List<Int> = listOf<Int>()
+        val empty: List<Int> = salvo.std.core.list.List()
         val boom: Int = kotlin.run {
             val __pick1: Int? = salvo.std.core.list.getPlatform(empty, 7)
             when {

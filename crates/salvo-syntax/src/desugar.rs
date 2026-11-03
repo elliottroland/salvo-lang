@@ -340,6 +340,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
     let pass_struct = StructDecl {
         annotations: Vec::new(),
         fns: Vec::new(),
+        refns: Vec::new(),
         // [net-noremote] An iterator holds a position into a value the frame owns;
         // it is never sent anywhere, so the flag is moot — off.
         noremote: false,

@@ -134,7 +134,7 @@ fun hoist(camp: Camp, banner: String) {
 fun main() {
     val __use_1: salvo.std.core.console.__Platform_StdConsole = salvo.std.core.console.__Platform_StdConsole()
     val __handle_2: salvo.std.core.console.Console = __use_1
-    val roster: List<Fighter> = listOf<Fighter>(Fighter(name = "Ada", hp = 30, energy = 4), Fighter(name = "Bo", hp = 8, energy = 9))
+    val roster: List<Fighter> = salvo.std.core.list.List__T_TArray(Fighter(name = "Ada", hp = 30, energy = 4), arrayOf<Fighter>(Fighter(name = "Bo", hp = 8, energy = 9)))
     val ada: Fighter = kotlin.run {
         val __pick2: Fighter? = salvo.main.named(roster, "Ada")
         when {
@@ -173,7 +173,7 @@ fun main() {
         return (f.hp > 10)
     }, { __a0 -> salvo.std.core.list.next__ListIter(__a0) })
     salvo.std.core.console.println(__handle_2, "1. ${salvo.std.core.list.sizePlatform(standing)} of ${salvo.std.core.list.sizePlatform(roster)} still standing")
-    val bench: salvo.platform.std.core.list.MutList<Fighter> = mutableListOf<Fighter>(Fighter(name = "Cy", hp = 12, energy = 2))
+    val bench: salvo.platform.std.core.list.MutList<Fighter> = salvo.std.core.list.Mut_List__T(Fighter(name = "Cy", hp = 12, energy = 2))
     salvo.std.core.list.addPlatform(bench, Fighter(name = "Dee", hp = 6, energy = 7))
     salvo.std.core.console.println(__handle_2, "2. bench ${salvo.std.core.list.sizePlatform(bench)}, front ${kotlin.run {
         val __proj_7: Fighter = kotlin.run {
@@ -190,7 +190,7 @@ fun main() {
         }
         __proj_7.name
     }} (a reading, not a handle)")
-    val squad: List<Fighter> = listOf<Fighter>(Fighter(name = "Ada", hp = 30, energy = 4), Fighter(name = "Bo", hp = 8, energy = 9))
+    val squad: List<Fighter> = salvo.std.core.list.List__T_TArray(Fighter(name = "Ada", hp = 30, energy = 4), arrayOf<Fighter>(Fighter(name = "Bo", hp = 8, energy = 9)))
     var boss: Fighter = kotlin.run {
         val __pick5: Fighter? = salvo.std.core.list.atPlatform(squad, 0)
         when {
@@ -399,7 +399,7 @@ fun main() {
         }
         __proj_29.energy
     }} energy after striking itself")
-    val team: Squad = Squad(banner = "Red", members = listOf<Fighter>(Fighter(name = "Cy", hp = 12, energy = 2), Fighter(name = "Dee", hp = 6, energy = 7)))
+    val team: Squad = Squad(banner = "Red", members = salvo.std.core.list.List__T_TArray(Fighter(name = "Cy", hp = 12, energy = 2), arrayOf<Fighter>(Fighter(name = "Dee", hp = 6, energy = 7))))
     salvo.main.rotate(team.members, kotlin.run {
         val __pick19: Fighter? = salvo.std.core.list.atPlatform(team.members, i)
         when {
@@ -452,7 +452,7 @@ fun main() {
         }
         __proj_35.energy
     }}")
-    val camp: Camp = Camp(supplies = 10, banners = mutableListOf<String>("red"))
+    val camp: Camp = Camp(supplies = 10, banners = salvo.std.core.list.Mut_List__T("red"))
     val banners: salvo.platform.std.core.list.MutList<String> = camp.banners
     salvo.main.spend(camp, 3)
     salvo.main.hoist(camp, "blue")

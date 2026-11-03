@@ -1322,7 +1322,8 @@ fn main() [use] {
         "unexpected hover: {value}"
     );
     assert!(
-        value.contains("- `[list: +NonEmpty preserve Idx]` — from `Idx`, `NonEmpty`"),
+        // [qual-refn-type] `List`'s own body states `+NonEmpty` too.
+        value.contains("- `[list: +NonEmpty preserve Idx]` — from `Idx`, `List`, `NonEmpty`"),
         "unexpected hover: {value}"
     );
     assert!(

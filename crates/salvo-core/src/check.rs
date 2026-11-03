@@ -1099,6 +1099,13 @@ pub struct PredicateCheck {
     /// synthetic key at the first value argument, one per qualifier
     /// (`Key::synthetic`) [node-id].
     pub implicits_at: Option<Key>,
+    /// [col-nonempty] [call-type-args] The `qualifies` call's type arguments,
+    /// in its IR declaration's order (the qualifier's generics, then the
+    /// fn's own): what the subject and the slots bound, `Unknown` for the
+    /// rest. A backend that spells an implicit's adapter reads its parameter
+    /// types through them, so a caller's own `T` is never mistaken for the
+    /// qualifier's.
+    pub type_args: Vec<Ty>,
     /// [is-qualifies-effects] [effect-instance] The instances the
     /// `qualifies` call is given, in its expanded effect list's order
     /// (the throw effect left out).
@@ -3042,6 +3049,9 @@ struct Checker<'p, 'r> {
     /// Names of qualifiers declared in the file currently being checked
     /// (constructive-qualifier constructors must live in this file).
     own_qualifiers: HashSet<String>,
+    /// [qual-refn-type] The keys of the (non-alias) types the current file
+    /// declares [type-identity].
+    own_types: HashSet<String>,
     /// Effect instances available to the code being checked: the current
     /// fn's declared effect dependencies plus `use`d handlers. Entries
     /// added by `use` are truncated at block boundaries.
@@ -3496,6 +3506,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                 _ => None,
             })
             .collect();
+        // [qual-refn-type] The types this file declares, by their keys
+        // [type-identity]: their author may establish a generic claim about
+        // them.
+        self.own_types = module
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| matches!(item, Item::Type(t) if t.alias.is_none()) || matches!(item, Item::Struct(_)))
+            .filter_map(|(i, _)| self.resolution.decls.item(self.file_idx, i))
+            .filter_map(|id| self.symbols.key_of_id(id).map(str::to_string))
+            .collect();
         for (item_idx, item) in module.items.iter().enumerate() {
             match item {
                 Item::Fn(f) => {
@@ -3631,6 +3652,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             ret_ty: Ty::none(),
             ret_refused: false,
             own_qualifiers: HashSet::new(),
+            own_types: HashSet::new(),
             effect_env: Vec::new(),
             call_fixed_params: HashSet::new(),
             handler_deps: Vec::new(),
@@ -4688,9 +4710,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     let qualifies = decl.fns.iter().find(|f| f.name.name == "qualifies");
                     match qualifies {
+                        // [col-nonempty] An implicit (`NonEmpty`'s `?size`) has
+                        // no resolution at a host boundary either.
                         Some(f) if f.effects.as_ref().is_some_and(|e| !e.is_empty())
                             || !decl.value_slots.is_empty()
-                            || !decl.fn_slots.is_empty() =>
+                            || !decl.fn_slots.is_empty()
+                            || f.params.iter().any(|p| p.implicit) =>
                         {
                             self.error(
                                 span,
@@ -4937,6 +4962,17 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Item::Qualifier(q) => Some(q.name.name.clone()),
                 _ => None,
             })
+            .collect();
+        // [qual-refn-type] The types this file declares, by their keys
+        // [type-identity]: their author may establish a generic claim about
+        // them.
+        self.own_types = module
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| matches!(item, Item::Type(t) if t.alias.is_none()) || matches!(item, Item::Struct(_)))
+            .filter_map(|(i, _)| self.resolution.decls.item(self.file_idx, i))
+            .filter_map(|id| self.symbols.key_of_id(id).map(str::to_string))
             .collect();
         for (item_idx, item) in module.items.iter().enumerate() {
             match item {
@@ -9935,15 +9971,24 @@ impl<'p, 'r> Checker<'p, 'r> {
             // written type as-is), the body's returns are checked *without*
             // it — trusted, so only in the qualifier's own file, the same
             // gate a constructor's head `+Q` answers to.
-            let established: Vec<(String, Span)> = f
+            let established: Vec<(String, Span, Option<ast::Type>)> = f
                 .return_type
                 .as_ref()
                 .map(|rt| established_quals(rt))
                 .unwrap_or_default();
             if !established.is_empty() {
                 let mut strip: HashSet<String> = HashSet::new();
-                for (name, span) in &established {
-                    if !self.own_qualifiers.contains(name.as_str()) {
+                for (name, span, subject) in &established {
+                    // The written base, as the key a lowered type carries
+                    // (lowered once already, with the return type: anything
+                    // wrong with it was reported there).
+                    let errors_before = self.out.errors.len();
+                    let key = subject.as_ref().and_then(|b| match self.lower_type(b) {
+                        Ty::Named { name, .. } => Some(name),
+                        _ => None,
+                    });
+                    self.out.errors.truncate(errors_before);
+                    if !self.may_establish(name, key.as_deref()) {
                         self.error(*span, messages::deduce_reapply_other_file(&name));
                     }
                     strip.insert(name.clone());
@@ -20605,7 +20650,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // data, so a `Mut Set<Str>` subject picks the `of Set<T>`
                 // declaration exactly as a plain `Set<Str>` does.
                 let subject = subject?.strip_quals().clone();
-                many.iter().copied().find(|d| self.qual_applies(d, &subject))
+                // A declaration about this subject's own type beats a generic
+                // one (`of T`) that accepts it too: std's `NonEmpty` and a
+                // program's `NonEmpty of List<T>`. The IR picks the same way
+                // (`qual_fn_ref`), so the two agree on which `qualifies` runs.
+                let fits: Vec<&'p QualifierDecl> =
+                    many.iter().copied().filter(|d| self.qual_applies(d, &subject)).collect();
+                fits.iter()
+                    .copied()
+                    .find(|d| crate::refine::of_base(&d.of, &d.generics).is_some())
+                    .or_else(|| fits.first().copied())
             }
         }
     }
@@ -20617,6 +20671,25 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// containers), and the first is as good as any.
     fn qualifier_named(&self, name: &str) -> Option<&'p QualifierDecl> {
         self.scope.qualifiers.get(name)?.first().copied()
+    }
+
+    /// [deduce-reapply] [qual-ctor-same-file] [qual-refn-type] Whether this
+    /// file is trusted to establish `name` about a value whose base type is
+    /// `subject`: the qualifier's own file always; and, for a generic
+    /// *state* claim (`qualifier NonEmpty<T> of T`), which no subject's
+    /// author owns, the file that declares the subject type — `subject` is
+    /// the subject's key [type-identity].
+    fn may_establish(&self, name: &str, subject: Option<&str>) -> bool {
+        if self.own_qualifiers.contains(name) {
+            return true;
+        }
+        let Some(base) = subject else { return false };
+        self.own_types.contains(base)
+            && self.scope.qualifiers.get(name).is_some_and(|ds| {
+                ds.iter().any(|d| {
+                    d.subject == QualSubject::State && crate::refine::of_base(&d.of, &d.generics).is_none()
+                })
+            })
     }
 
     /// Whether a qualifier's `of` type accepts the given base type.
@@ -21503,7 +21576,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(q.span, messages::deduce_reapply_compiler_qualifier(&name));
                     continue;
                 }
-                if !self.own_qualifiers.contains(name) {
+                if !self.may_establish(name, param.as_ref().and_then(|t| match t.strip_quals() {
+                    Ty::Named { name, .. } => Some(name.as_str()),
+                    _ => None,
+                })) {
                     self.error(q.span, messages::deduce_reapply_foreign_qualifier(&name));
                     continue;
                 }
@@ -21692,7 +21768,11 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(cref.span, messages::qual_ctor_fn_unknown_qualifier(&name));
             return;
         };
-        if !self.own_qualifiers.contains(name) {
+        let subject_base = match subject.as_ref().map(|t| t.strip_quals()) {
+            Some(Ty::Named { name, .. }) => Some(name.clone()),
+            _ => None,
+        };
+        if !self.may_establish(name, subject_base.as_deref()) {
             self.error(cref.span, messages::qual_ctor_same_file_other_file(&name));
         }
         let Some(rt) = &f.return_type else {
@@ -21736,18 +21816,27 @@ impl<'p, 'r> Checker<'p, 'r> {
 /// [deduce-reapply] Every `+Q` written in a type, with its span: the claims
 /// a return type says the fn establishes, wherever they sit (a union arm,
 /// an optional).
-fn established_quals(ty: &ast::Type) -> Vec<(String, Span)> {
+fn established_quals(ty: &ast::Type) -> Vec<(String, Span, Option<ast::Type>)> {
     let mut out = Vec::new();
-    fn go(ty: &ast::Type, out: &mut Vec<(String, Span)>) {
+    // The base type a qualifier written here applies to, unqualified, for
+    // the trust rule [qual-refn-type].
+    fn subject(ty: &ast::Type) -> Option<ast::Type> {
+        match ty {
+            ast::Type::Named { base, .. } => Some(ast::Type::Named { qualifiers: Vec::new(), base: base.clone() }),
+            ast::Type::QualifiedGroup { base, .. } => subject(base),
+            _ => None,
+        }
+    }
+    fn go(ty: &ast::Type, out: &mut Vec<(String, Span, Option<ast::Type>)>) {
         match ty {
             ast::Type::Named { qualifiers, base } => {
                 for q in qualifiers {
                     if q.established {
-                        out.push((q.name.name.clone(), q.span));
+                        out.push((q.name.name.clone(), q.span, Some(ast::Type::Named { qualifiers: Vec::new(), base: base.clone() })));
                     }
                 }
                 if base.established {
-                    out.push((base.name.name.clone(), base.span));
+                    out.push((base.name.name.clone(), base.span, None));
                 }
             }
             ast::Type::QualifiedGroup {
@@ -21755,7 +21844,7 @@ fn established_quals(ty: &ast::Type) -> Vec<(String, Span)> {
             } => {
                 for q in qualifiers {
                     if q.established {
-                        out.push((q.name.name.clone(), q.span));
+                        out.push((q.name.name.clone(), q.span, subject(base)));
                     }
                 }
                 go(base, out);
@@ -26551,7 +26640,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let slots: &'p [ast::ValueSlot] = decl.map(|d| d.value_slots.as_slice()).unwrap_or(&[]);
             if slots.is_empty() && !args.is_empty() {
                 self.error(args[0].1, messages::qual_depend_no_value_args(&q));
-                checks.push(PredicateCheck { name: q.clone(), args: Vec::new(), implicits_at: None, effects: Vec::new() });
+                checks.push(PredicateCheck { name: q.clone(), args: Vec::new(), implicits_at: None, type_args: Vec::new(), effects: Vec::new() });
                 continue;
             }
             if slots.len() != args.len() {
@@ -26561,7 +26650,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     span,
                     messages::qual_depend_unfilled(&q, &slots.len(), &filled.join(", ")),
                 );
-                checks.push(PredicateCheck { name: q.clone(), args: Vec::new(), implicits_at: None, effects: Vec::new() });
+                checks.push(PredicateCheck { name: q.clone(), args: Vec::new(), implicits_at: None, type_args: Vec::new(), effects: Vec::new() });
                 continue;
             }
             let mut rendered = Vec::new();
@@ -26571,6 +26660,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             // implicits.
             let qual_generics: Vec<Ident> = decl.map(|d| d.generics.clone()).unwrap_or_default();
             let mut slot_subst: HashMap<String, Ty> = HashMap::new();
+            // [col-nonempty] A generic `of` binds too: `NonEmpty<T> of T`
+            // tested at a `Mut List<Int>` has `T` ↦ `List<Int>`, so its
+            // `?size` is the list's `size`, not whichever `size` happens to
+            // fit an unknown parameter.
+            if let Some(d) = decl {
+                let saved = self.enter_generics(&qual_generics);
+                let of_ty = self.lower_type(&d.of);
+                self.generics = saved;
+                unify(&of_ty, subj_ty.strip_quals(), &mut slot_subst);
+            }
             for (slot, (path, pspan)) in slots.iter().zip(args) {
                 // [qual-const] A constant fills its slot whole: nothing
                 // to resolve, nothing to invalidate — but it must be of the
@@ -26683,7 +26782,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                     implicits_at = Some(at);
                 }
             }
-            checks.push(PredicateCheck { name: q.clone(), args: rendered, implicits_at, effects: Vec::new() });
+            let qf_generics: &[Ident] = decl
+                .and_then(|d| d.fns.iter().find(|f| f.name.name == "qualifies"))
+                .map(|f| f.generics.as_slice())
+                .unwrap_or(&[]);
+            let type_args: Vec<Ty> = qual_generics
+                .iter()
+                .chain(qf_generics)
+                .map(|g| slot_subst.get(&g.name).cloned().unwrap_or(Ty::Unknown))
+                .collect();
+            checks.push(PredicateCheck { name: q.clone(), args: rendered, implicits_at, type_args, effects: Vec::new() });
         }
         // The `qualifies` call happens here at runtime: its declared
         // effects must be available in this scope

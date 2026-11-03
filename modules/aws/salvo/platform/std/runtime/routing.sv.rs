@@ -6,6 +6,7 @@ use crate::std_runtime::Body;
 use crate::std_core_bytes::Bytes;
 use crate::std_runtime::Dyn;
 use crate::std_runtime::Exported;
+use crate::std_core_list::List;
 use crate::std_core_map::Map;
 use crate::std_core_map::Mut_Map_platform;
 use crate::std_core_set::Mut_Set_platform;
@@ -832,7 +833,7 @@ impl Routes {
             task_keys: vec![],
             tasks: vec![],
             controls: crate::std_core_map::Mut_Map_platform::<crate::std_runtime_routing::ControlKey, i32>(vec![], &mut |__a0: &crate::std_runtime_routing::ControlKey| crate::std_runtime_routing::hash__ControlKey(__a0), &mut |__a0: &crate::std_runtime_routing::ControlKey, __a1: &crate::std_runtime_routing::ControlKey| crate::std_runtime_routing::eq__ControlKey_ControlKey(__a0, __a1)),
-            local: vec![],
+            local: crate::std_core_list::List::<(String, String)>(),
             peers: crate::std_core_map::Mut_Map_platform::<i64, Vec<(String, String)>>(vec![], &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1))),
             dead_entry: i32::wrapping_neg(1i32),
             credit_waiters: vec![],
@@ -1123,7 +1124,7 @@ impl crate::std_runtime_routing::__Stateful_RouteTable for Routes {
             let mut found = v.unwrap();
             return (found).clone();
         };
-        return vec![];
+        return crate::std_core_list::List::<i32>();
     }
     fn version_of(&mut self, group: i32) -> i64 {
         return crate::std_runtime_routing::version_in(&self.versions, group);

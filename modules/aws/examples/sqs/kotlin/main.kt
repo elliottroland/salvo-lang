@@ -83,7 +83,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.std.core.console.Console, n
                     __narrowed_8
                 }
                 else -> {
-                    listOf<salvo.aws.sqs.Message>()
+                    salvo.std.core.list.List()
                 }
             }
             salvo.std.core.console.println(console, "received ${salvo.std.core.list.sizePlatform(messages)} message(s)")
@@ -137,7 +137,7 @@ class MemSqs : salvo.aws.sqs.Sqs {
     override fun createQueue(input: salvo.aws.sqs.CreateQueueInput, reply: salvo.SalvoReply) {
         val url: String = "mem://${input.queueName}"
         if (!(salvo.std.core.map.containsKeyPlatform(queues, url, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) }))) {
-            salvo.std.core.map.putPlatform(queues, url, listOf<String>(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
+            salvo.std.core.map.putPlatform(queues, url, salvo.std.core.list.List(), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
         }
         salvo.SalvoSched.replyWire(reply, Union2.U1<salvo.aws.sqs.CreateQueueOutput, salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>>(salvo.std.core.result.ok(salvo.aws.sqs.CreateQueueOutput(queueUrl = url))), salvo.Union2Codec(salvo.aws.sqs.__Codec_CreateQueueOutput, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(salvo.aws.sqs.__Codec_SqsError, salvo.aws.__Codec_AwsError))))
     }

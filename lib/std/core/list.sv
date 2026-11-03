@@ -10,15 +10,42 @@
 // spells it.
 // A value platform type (ROADMAP 0.7): the host
 // implements it in `lib/platform/std/core/list.{rs,kt}` and names the mutable
-// kind `MutList`. The constructors stay intrinsic, since their spread
-// lowering is a template over rendered arguments (`vec![…]`, `listOf<T>(…)`)
-// a Salvo body cannot express for a `canbe linear` element type.
-// @compilerrules [type-canbe-mut, linear-container, platform-value-type]
-export iterable platform type List<T canbe linear> canbe Mut : Iter<self, ListIter<T>, T>
+// kind `MutList`. Only the empty mutable constructor is intrinsic; the others
+// are written below in terms of it and `add`.
+//
+// The body says what `std.core.nonempty`'s generic `NonEmpty` learns from a
+// list's own functions: a list's author is the one who knows that appending
+// makes it non-empty.
+// @compilerrules [type-canbe-mut, linear-container, platform-value-type, qual-refn-type]
+export iterable platform type List<T canbe linear> canbe Mut : Iter<self, ListIter<T>, T> {
+    // `add` cannot say this itself: a function that mutates may not promise
+    // back a qualifier it has never heard of [deduce-syntax], and appending
+    // is exactly the operation that makes a list non-empty [qual-refn].
+    refn add(list: Mut List<T>, elem: T) => list: +NonEmpty
+
+    // [qual-refn-narrow] And exchanging two elements of a list that is
+    // *already* non-empty leaves it non-empty — which is why the parameter is
+    // written `NonEmpty Mut List<T>` and not `Mut List<T>`: swapping does not
+    // *make* a list non-empty, so the claim is **kept**, not established. A
+    // refinement whose parameter is narrower than the declaration it refines
+    // states exactly that, and applies only where the claim is already there
+    // (user correction 2026-09-23).
+    //
+    // `swap`'s own exhaustive clause has to strip the claim, like every
+    // mutator's; this is the owner saying what the call really leaves behind.
+    // It is what lets a heap's sift-down keep the `NonEmpty` it was handed
+    // (`std.heap`'s `heapify`).
+    refn swap(list: NonEmpty Mut List<T>, i: Int, j: Int) => list: +NonEmpty
+
+    // Appending to a non-empty list keeps it non-empty (the items may be
+    // none).
+    refn add_all(list: NonEmpty Mut List<T>, items: T[]) => list: +NonEmpty
+}
 
 // Constructors, in two shapes (user decision 2026-09-23).
-// Writing a *first* element establishes `NonEmpty` **by construction**, so no
-// `qualifies` call is emitted and the claim costs nothing:
+// Writing a *first* element gives a `NonEmpty` list, and nothing tests it at
+// the call: the `add`s in the body establish the claim, by `List`'s own
+// refinement above.
 //
 //     List()             // List<T>, empty
 //     List(1, 2, 3)      // NonEmpty List<T> — the claim comes free
@@ -31,23 +58,53 @@ export iterable platform type List<T canbe linear> canbe Mut : Iter<self, ListIt
 //
 // The constructor **is** the type-named function: `List(...)`
 // resolves to this declaration, whose canonical key is `List` (and `Mut_List`
-// for the mutable pair), carried verbatim to the backend lowering. There is no
-// separate lowercase constructor — the type name is the name.
+// for the mutable pair). There is no separate lowercase constructor — the type
+// name is the name.
 //
 // The elements are stored in the new list, so they are moved: a variadic tail is
 // owned, and needs no entry in the clause.
-// @compilerrules [col-of-nonempty, qual-ctor-predicate, fn-variadic, fn-type-named, deduce-syntax]
-export intrinsic fn List<T canbe linear>() [] -> List<T>
-export intrinsic fn List<T canbe linear>(first: T, ...rest: T[]) [] -> +NonEmpty List<T>
-=> !first
+// @compilerrules [col-of-nonempty, fn-variadic, fn-type-named, deduce-syntax, qual-refn-type]
+export fn List<T canbe linear>() [] -> List<T> {
+    return Mut List<T>()
+}
+
+export fn List<T canbe linear>(first: T) [] -> NonEmpty List<T> => !first {
+    return Mut List(first)
+}
+
+export fn List<T>(first: T, ...rest: T[]) [] -> NonEmpty List<T> => !first, rest {
+    return Mut List(first, ...rest)
+}
 
 // The same pair, mutable. A `Mut NonEmpty` list is a claim the next mutation
 // may take away — which is exactly what a state qualifier is —
 // so `remove_at` strips it and `add` puts it back.
-// @compilerrules [qual-subject, qual-refn]
+//
+// The empty one is the list's one intrinsic constructor: everything else is
+// built from it with `add`, whose refinement above is what makes the result
+// `NonEmpty`. A variadic tail is never linear (an array cannot hold an
+// obligation), so a linear element has the one-element overload, and the
+// variadic one is over any other `T`.
+// @compilerrules [qual-subject, qual-refn, backend-intrinsic, linear-container]
 export intrinsic fn Mut List<T canbe linear>() [] -> Mut List<T>
-export intrinsic fn Mut List<T canbe linear>(first: T, ...rest: T[]) [] -> +NonEmpty Mut List<T>
-=> !first
+
+export fn Mut List<T canbe linear>(first: T) [] -> NonEmpty Mut List<T> => !first {
+    let list = Mut List<T>()
+    list.add(first)
+    return list
+}
+
+export fn Mut List<T>(first: T, ...rest: T[]) [] -> NonEmpty Mut List<T> => !first, rest {
+    let list = Mut List<T>()
+    list.add(first)
+    add_all(list, rest)
+    return list
+}
+
+// Appends a copy of every element of [items], in order. The tail of
+// [Mut List] is the caller's — a spread of a place stays usable — and a
+// generic element has no `copy` a Salvo body could call, so the host copies.
+platform fn add_all<T>(list: Mut List<T>, items: T[]) [] -> None => list: Mut, items
 
 // Builds a list of [size] elements, each from its index:
 // `list_by(3, i -> i * 2)` is `[0, 2, 4]`. The generator is called once per
@@ -278,41 +335,6 @@ platform fn end_empty<T canbe linear>(list: Mut List<T>) [] -> None => !list
 export platform fn remove_last<T canbe linear>(list: Mut List<T>) [] -> T? => list: Mut
 
 export platform fn first<T canbe linear>(list: List<T>) [] -> proj(list) T? => list
-
-// The claim that a list has at least one element, and the
-// reason the qualifier machinery is worth having over a container: with it,
-// `first` answers with an element instead of an optional.
-//
-// Only one qualifier of a given *name* is visible across the implicitly
-// visible `std.core` modules, so `NonEmpty` is a claim about a **list**
-// specifically; `Set`/`Map` and the sorted pair have no equivalent yet (see
-// ROADMAP.md).
-// @compilerrules [col-nonempty]
-export qualifier NonEmpty<T> of List<T> {
-    fn qualifies(list: List<T>) [] -> Bool {
-        return size(list) > 0
-    }
-
-    // The claim's *owner* states this, because `add` cannot: a function that
-    // mutates may not promise back a qualifier it has never heard of
-    // [deduce-syntax], and appending is exactly the operation that makes a
-    // list non-empty [qual-refn].
-    refn add(list: Mut List<T>, elem: T) => list: +NonEmpty
-
-    // [qual-refn-narrow] And exchanging two elements of a list that is
-    // *already* non-empty leaves it non-empty — which is why the parameter is
-    // written `NonEmpty Mut List<T>` and not `Mut List<T>`: swapping does not
-    // *make* a list non-empty, so the claim is **kept**, not established. A
-    // refinement whose parameter is narrower than the declaration it refines
-    // states exactly that, and applies only where the claim is already there
-    // (user correction 2026-09-23).
-    //
-    // `swap`'s own exhaustive clause has to strip the claim, like every
-    // mutator's; this is the owner saying what the call really leaves behind.
-    // It is what lets a heap's sift-down keep the `NonEmpty` it was handed
-    // (`std.heap`'s `heapify`).
-    refn swap(list: NonEmpty Mut List<T>, i: Int, j: Int) => list: +NonEmpty
-}
 
 // The dividend: the same accessor, without the optional.
 // Ranked above the plain `first` because it demands more of its argument.

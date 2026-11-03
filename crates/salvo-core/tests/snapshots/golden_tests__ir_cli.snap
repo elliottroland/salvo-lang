@@ -142,8 +142,8 @@ fn main@main() -> None {
   call show@main(read __handle~2, call List(T, T[])@std.core.list<Str>("fetch", array[Str[]]("--from-stdin")))
   call show@main(read __handle~2, call List(T, T[])@std.core.list<Str>("serve", array[Str[]]("-p", "0", "--output", "xml", "--cert", "c.pem")))
   call show@main(read __handle~2, call List(T, T[])@std.core.list<Str>("fetch", array[Str[]]("--url", "u", "--file", "f")))
-  call show@main(read __handle~2, call List(T, T[])@std.core.list<Str>("deploy", array[Str[]]()))
-  call show@main(read __handle~2, call List(T, T[])@std.core.list<Str>("--help", array[Str[]]()))
+  call show@main(read __handle~2, call List(T)@std.core.list<Str>("deploy"))
+  call show@main(read __handle~2, call List(T)@std.core.list<Str>("--help"))
   call show@main(read __handle~2, call List(T, T[])@std.core.list<Str>("serve", array[Str[]]("--help")))
   bind#7 let tool: Tool@main = call args_or_exit@std.args<Tool@main>(read __handle~2, read __handle~6, member args@Args(read __handle~4), fn arg_spec()@main, fn from_found(Found)@main)
   call println@std.core.console(read __handle~2, concat("argv: ", call describe@main(read tool)))
@@ -197,7 +197,7 @@ fn from_found(Found)@main(lent found: Found) -> Tool@main | List<UnknownOption |
     bind#8 let r: Fetch@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call parse_named@std.args<Fetch@main>(read found.rest, present(call copy@std.core.basic<Str>(read found.path)), fn arg_spec()@main, fn from_found(Found)@main)
     call group_errors@std.args<Fetch@main>(read errors, !read r, 0)
   }
-  branch#9 cond#0 call NonEmpty.qualifies@std.core.list(read errors) {
+  branch#9 cond#0 call NonEmpty.qualifies@std.core.nonempty<List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(drop_mut(read errors), fn size@std.core.list) {
     return make_union[Tool@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call Errs@std.core.result<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
   return make_union[Tool@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call Ok@std.core.result<Tool@main>(construct Tool@main { verbose: call eval@std.args<Bool>(lambda() -> Bool captures [found] {
@@ -317,7 +317,7 @@ fn from_found(Found)@main(lent found: Found) -> Serve@main | List<UnknownOption 
   call check_value@std.args<Str>(read errors, read found, "files", read shown~2, read what~3, lambda(lent _v: Str) -> Str? {
     value none[None]
   }, fn from_str(Str)@std.core.string)
-  branch#14 cond#0 call NonEmpty.qualifies@std.core.list(read errors) {
+  branch#14 cond#0 call NonEmpty.qualifies@std.core.nonempty<List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(drop_mut(read errors), fn size@std.core.list) {
     return make_union[Serve@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call Errs@std.core.result<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
   return make_union[Serve@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call Ok@std.core.result<Serve@main>(construct Serve@main { net: call eval@std.args<Net@main>(lambda() -> Net@main captures [found] {
@@ -355,7 +355,7 @@ fn from_found(Found)@main(lent found: Found) -> Serve@main | List<UnknownOption 
     return none[None]
   }), files: call eval@std.args<List<Str>>(lambda() -> List<Str> captures [found] {
     bind#29 let all: List<Str> = call read_all@std.args<Str>(read found, "files", fn from_str(Str)@std.core.string)
-    branch#30 cond#0 call NonEmpty.qualifies@std.core.list(read all) {
+    branch#30 cond#0 call NonEmpty.qualifies@std.core.nonempty<List<Str>>(read all, fn size@std.core.list) {
       return !read all
     }
     value unreachable("`files` was checked as required") at main:49:16
@@ -421,7 +421,7 @@ fn from_found(Found)@main(lent found: Found) -> Net@main | List<UnknownOption | 
   call check_value@std.args<Int>(read errors, read found, "workers", read shown~2, read what~3, lambda(lent _v: Int) -> Str? {
     value none[None]
   }, fn from_str(Str)@std.core.string)
-  branch#9 cond#0 call NonEmpty.qualifies@std.core.list(read errors) {
+  branch#9 cond#0 call NonEmpty.qualifies@std.core.nonempty<List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(drop_mut(read errors), fn size@std.core.list) {
     return make_union[Net@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call Errs@std.core.result<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
   return make_union[Net@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call Ok@std.core.result<Net@main>(construct Net@main { host: call eval@std.args<Str>(lambda() -> Str captures [found] {
@@ -495,7 +495,7 @@ fn from_found(Found)@main(lent found: Found) -> Tls@main | List<UnknownOption | 
   call check_value@std.args<Str>(read errors, read found, "key", read shown~2, read what~3, lambda(lent v: Str) -> Str? {
     value none[Str?]
   }, fn from_str(Str)@std.core.string)
-  branch#9 cond#0 call NonEmpty.qualifies@std.core.list(read errors) {
+  branch#9 cond#0 call NonEmpty.qualifies@std.core.nonempty<List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(drop_mut(read errors), fn size@std.core.list) {
     return make_union[Tls@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call Errs@std.core.result<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
   return make_union[Tls@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call Ok@std.core.result<Tls@main>(construct Tls@main { cert: call eval@std.args<Str>(lambda() -> Str captures [found] {
@@ -593,7 +593,7 @@ fn from_found(Found)@main(lent found: Found) -> Fetch@main | List<UnknownOption 
   call check_value@std.args<Str>(read errors, read found, "header", read shown, read what, lambda(lent _v: Str) -> Str? {
     value none[None]
   }, fn from_str(Str)@std.core.string)
-  branch#15 cond#0 call NonEmpty.qualifies@std.core.list(read errors) {
+  branch#15 cond#0 call NonEmpty.qualifies@std.core.nonempty<List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(drop_mut(read errors), fn size@std.core.list) {
     return make_union[Fetch@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call Errs@std.core.result<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
   return make_union[Fetch@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call Ok@std.core.result<Fetch@main>(construct Fetch@main { source: call eval@std.args<FromUrl@main | FromFile@main | FromStdin@main>(lambda() -> FromUrl@main | FromFile@main | FromStdin@main captures [found] {
@@ -682,7 +682,7 @@ fn from_found(Found)@main(lent found: Found) -> FromUrl@main | List<UnknownOptio
   call check_value@std.args<Int>(read errors, read found, "timeout", read shown~2, read what~3, lambda(lent v: Int) -> Str? {
     value none[Str?]
   }, fn from_str(Str)@std.core.string)
-  branch#9 cond#0 call NonEmpty.qualifies@std.core.list(read errors) {
+  branch#9 cond#0 call NonEmpty.qualifies@std.core.nonempty<List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(drop_mut(read errors), fn size@std.core.list) {
     return make_union[FromUrl@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call Errs@std.core.result<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
   return make_union[FromUrl@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call Ok@std.core.result<FromUrl@main>(construct FromUrl@main { url: call eval@std.args<Str>(lambda() -> Str captures [found] {
@@ -741,7 +741,7 @@ fn from_found(Found)@main(lent found: Found) -> FromFile@main | List<UnknownOpti
   call check_value@std.args<Str>(read errors, read found, "file", read shown, read what, lambda(lent v: Str) -> Str? {
     value none[Str?]
   }, fn from_str(Str)@std.core.string)
-  branch#6 cond#0 call NonEmpty.qualifies@std.core.list(read errors) {
+  branch#6 cond#0 call NonEmpty.qualifies@std.core.nonempty<List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(drop_mut(read errors), fn size@std.core.list) {
     return make_union[FromFile@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call Errs@std.core.result<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
   return make_union[FromFile@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call Ok@std.core.result<FromFile@main>(construct FromFile@main { file: call eval@std.args<Str>(lambda() -> Str captures [found] {
@@ -771,7 +771,7 @@ fn from_found(Found)@main(lent found: Found) -> FromStdin@main | List<UnknownOpt
   foreach#2 e: proj (UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested) in read found.errors {
     call add@std.core.list<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read errors, call copy@std.core.basic<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>(read e))
   }
-  branch#3 cond#0 call NonEmpty.qualifies@std.core.list(read errors) {
+  branch#3 cond#0 call NonEmpty.qualifies@std.core.nonempty<List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(drop_mut(read errors), fn size@std.core.list) {
     return make_union[FromStdin@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#1(drop_mut(call Errs@std.core.result<Mut List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>>(!read errors)))
   }
   return make_union[FromStdin@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested>]#0(call Ok@std.core.result<FromStdin@main>(construct FromStdin@main { }))

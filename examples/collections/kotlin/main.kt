@@ -38,7 +38,7 @@ fun countUnique(xs: List<Int>): Int {
 fun main() {
     val __use_1: salvo.std.core.console.__Platform_StdConsole = salvo.std.core.console.__Platform_StdConsole()
     val __handle_2: salvo.std.core.console.Console = __use_1
-    val primes: List<Int> = listOf<Int>(2, 3, 5, 7)
+    val primes: List<Int> = salvo.std.core.list.List__T_TArray(2, arrayOf<Int>(3, 5, 7))
     val vowels: salvo.platform.std.core.set.Set<String> = salvo.std.core.set.Set_platform(arrayOf<String>("a", "e", "i", "o", "u"), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     val ages: salvo.platform.std.core.map.Map<String, Int> = salvo.std.core.map.Map_platform(arrayOf<kotlin.Pair<String, Int>>(kotlin.Pair("ada", 36), kotlin.Pair("grace", 45)), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     salvo.std.core.console.println(__handle_2, "1. list ${salvo.std.core.list.toStr(primes, { __a0 -> (__a0).toString() })}")
@@ -87,7 +87,7 @@ fun main() {
     salvo.std.core.console.println(__handle_2, "5. generated ${salvo.std.core.list.toStr(squares, { __a0 -> (__a0).toString() })}")
     val deduped: salvo.platform.std.core.set.Set<Int> = salvo.std.core.set.toSetPlatform(primes, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     salvo.std.core.console.println(__handle_2, "5. to_set ${salvo.std.core.set.toStr(deduped, { __a0 -> (__a0).toString() })}")
-    val words: List<String> = listOf<String>("alpha", "be")
+    val words: List<String> = salvo.std.core.list.List__T_TArray("alpha", arrayOf<String>("be"))
     val lengths: salvo.platform.std.core.map.Map<String, Int> = salvo.std.core.map.toMap(words, fun(w: String): kotlin.Pair<String, Int> {
         return kotlin.run {
             val __part_5: Int = salvo.std.core.string.sizePlatform(w)
@@ -95,23 +95,23 @@ fun main() {
         }
     }, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     salvo.std.core.console.println(__handle_2, "5. to_map with a rule ${salvo.std.core.map.toStr(lengths, { __a0 -> __a0 }, { __a0 -> (__a0).toString() }, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })}")
-    val filled: List<String> = listOf<String>("ada", "grace")
+    val filled: List<String> = salvo.std.core.list.List__T_TArray("ada", arrayOf<String>("grace"))
     salvo.std.core.console.println(__handle_2, "6. first is ${salvo.std.core.list.first(filled)}, no optional")
     val growing: salvo.platform.std.core.list.MutList<Int> = mutableListOf<Int>()
     salvo.std.core.list.addPlatform(growing, 7)
     salvo.std.core.console.println(__handle_2, "6. after add, first is ${salvo.std.core.list.first(growing)}")
-    val ordered: List<Int> = salvo.std.core.list.sort(listOf<Int>(40, 10, 30, 20), { __a0, __a1 -> (__a0).compareTo(__a1) })
+    val ordered: List<Int> = salvo.std.core.list.sort(salvo.std.core.list.List__T_TArray(40, arrayOf<Int>(10, 30, 20)), { __a0, __a1 -> (__a0).compareTo(__a1) })
     salvo.std.core.console.println(__handle_2, "6. sorted ${salvo.std.core.list.toStr(ordered, { __a0 -> (__a0).toString() })}")
     val __subject_6: Int? = salvo.std.core.list.binarySearch(ordered, 30, { __a0, __a1 -> (__a0).compareTo(__a1) })
     if ((__subject_6 != null)) {
         val at: Int = __subject_6!!
         salvo.std.core.console.println(__handle_2, "6. found 30 at ${at}")
     }
-    val live: salvo.platform.std.core.list.MutList<Int> = salvo.std.core.list.mutSort(listOf<Int>(10, 30), { __a0, __a1 -> (__a0).compareTo(__a1) })
+    val live: salvo.platform.std.core.list.MutList<Int> = salvo.std.core.list.mutSort(salvo.std.core.list.List__T_TArray(10, arrayOf<Int>(30)), { __a0, __a1 -> (__a0).compareTo(__a1) })
     salvo.std.core.list.addSorted(live, 20, { __a0, __a1 -> (__a0).compareTo(__a1) })
     salvo.std.core.list.addSorted(live, 5, { __a0, __a1 -> (__a0).compareTo(__a1) })
     salvo.std.core.console.println(__handle_2, "6. still sorted ${salvo.std.core.list.toStr(live, { __a0 -> (__a0).toString() })}")
-    val bylen: List<String> = salvo.std.core.list.sort(listOf<String>("alpha", "be", "z"), ::byLen)
+    val bylen: List<String> = salvo.std.core.list.sort(salvo.std.core.list.List__T_TArray("alpha", arrayOf<String>("be", "z")), ::byLen)
     salvo.std.core.console.println(__handle_2, "6. by length ${salvo.std.core.list.toStr(bylen, { __a0 -> __a0 })}")
     val __subject_7: Int? = salvo.std.core.list.binarySearch(bylen, "hi", ::byLen)
     if ((__subject_7 != null)) {

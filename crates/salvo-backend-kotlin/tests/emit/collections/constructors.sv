@@ -1,16 +1,16 @@
 // Collections: what the std constructors render to.
 
 //--- list_constructors_carry_their_element_type
-// The std list constructors use this: `Mut List()` must not emit a bare
-// `mutableListOf()`, which kotlinc cannot infer: an empty list constructor
+// The one intrinsic list constructor uses this: `Mut List()` must not emit a
+// bare `mutableListOf()`, which kotlinc cannot infer: the empty constructor
 // renders its element type from the call's resolved type arguments
 // (`mutableListOf<Int>()`), since Kotlin cannot infer a type argument that the
-// source never wrote.
+// source never wrote. The others are Salvo over it [col-of-nonempty].
 export fn main() [use] -> None {
     use StdConsole
     //~ emits: mutableListOf<Int>()
     let xs: Mut List<Int> = Mut List()
-    //~ emits: listOf<String>()
+    //~ emits: val ys: List<String> = salvo.std.core.list.List()
     let ys = List<Str>()
     add(xs, 1)
     println("${size(xs)} ${size(ys)}")

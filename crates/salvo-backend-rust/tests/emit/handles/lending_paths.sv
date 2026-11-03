@@ -32,7 +32,7 @@ fn main() [use] {
     let j = 1
     let a = at(es, i) ?: unreachable!()
     let d = at(es, j) ?: unreachable!()
-    //~ emits: crate::std_core_ref::NotSame_qualifies(&es[__h2], &es[__h1])
+    //~ emits: crate::std_core_ref::NotSame_qualifies::<crate::Entity>(&es[__h2], &es[__h1])
     if d is NotSame(a) {
         // One preamble per pair call.
         //~ emits 2: salvo_pair_mut(&mut es[..],

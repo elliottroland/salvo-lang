@@ -735,7 +735,7 @@ fun shop(console: salvo.std.core.console.Console, stock: Int) {
     val __use_3: __Route_Inventory = __Route_Inventory(group = stock, __handle_2)
     val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
     val __handle_4: Inventory = __Mon_Inventory(__use_3, __lock___use_3)
-    salvo.main.checkout(__handle_4, console, listOf<String>("apple", "pear", "apple", "fig", "pear"))
+    salvo.main.checkout(__handle_4, console, salvo.std.core.list.List__T_TArray("apple", arrayOf<String>("pear", "apple", "fig", "pear")))
 }
 
 interface Boot {
@@ -773,7 +773,7 @@ class Booting(private val at: salvo.std.net.NodeEndpoint, private val all: List<
         val stock: Int = salvo.std.net.actorGroup__Addr(group, {  -> salvo.std.net.Protocol("Inventory", __PROTO_Inventory) })
         kotlin.run { val __h = Stocking(shard = "shard-b"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Stocking(__h), __Actor_Stocking.__DECODE); salvo.SalvoSched.sendWire(stock, salvo.std.net.__Msg_ActorGroup.Join(__a), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup); __a }
         val index: Int = salvo.std.net.actorGroup__Addr(group, {  -> salvo.std.net.Protocol("Search", __PROTO_Search) })
-        kotlin.run { val __h = Indexing(words = listOf<String>("salvo", "actors", "salvo", "nodes")); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE); salvo.SalvoSched.sendWire(index, salvo.std.net.__Msg_ActorGroup.Join(__a), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup); __a }
+        kotlin.run { val __h = Indexing(words = salvo.std.core.list.List__T_TArray("salvo", arrayOf<String>("actors", "salvo", "nodes"))); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE); salvo.SalvoSched.sendWire(index, salvo.std.net.__Msg_ActorGroup.Join(__a), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup); __a }
         val looks: Int = salvo.std.net.actorGroup__Addr(group, {  -> salvo.std.net.Protocol("Lookup", __PROTO_Lookup) })
         val timer: Int = kotlin.run { val __h = salvo.std.time.DefaultTimer(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, salvo.std.time.__Actor_DefaultTimer(__h), salvo.std.time.__Actor_DefaultTimer.__DECODE); __a }
         kotlin.run { val __h = SlowLooking(who = "b (slow)", timer = timer); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_SlowLooking(__h), __Actor_SlowLooking.__DECODE); salvo.SalvoSched.sendWire(looks, salvo.std.net.__Msg_ActorGroup.Join(__a), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup); __a }
@@ -841,7 +841,7 @@ fun main() {
     val __handle_2: salvo.std.core.console.Console = __use_1
     val a: salvo.std.net.NodeEndpoint = salvo.std.net.NodeEndpoint(host = "a", port = 1)
     val b: salvo.std.net.NodeEndpoint = salvo.std.net.NodeEndpoint(host = "b", port = 1)
-    val all: List<salvo.std.net.NodeEndpoint> = listOf<salvo.std.net.NodeEndpoint>(a, b)
+    val all: List<salvo.std.net.NodeEndpoint> = salvo.std.core.list.List__T_TArray(a, arrayOf<salvo.std.net.NodeEndpoint>(b))
     val network: Int = kotlin.run { val __h = salvo.std.net.MemNetwork(); val __a = salvo.SalvoSched.spawn(salvo.std.core.actor.pool(1), __h.__mailboxCapacity, salvo.std.net.__Actor_MemNetwork(__h), salvo.std.net.__Actor_MemNetwork.__DECODE); __a }
     val __use_3: salvo.std.net.MemTransport = salvo.std.net.MemTransport(me = a, net = network)
     val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
@@ -853,7 +853,7 @@ fun main() {
     val stock: Int = salvo.std.net.actorGroup__Addr(nodes, {  -> salvo.std.net.Protocol("Inventory", __PROTO_Inventory) })
     kotlin.run { val __h = Stocking(shard = "shard-a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Stocking(__h), __Actor_Stocking.__DECODE); salvo.SalvoSched.sendWire(stock, salvo.std.net.__Msg_ActorGroup.Join(__a), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup); __a }
     val index: Int = salvo.std.net.actorGroup__Addr(nodes, {  -> salvo.std.net.Protocol("Search", __PROTO_Search) })
-    kotlin.run { val __h = Indexing(words = listOf<String>("salvo", "is", "salvo")); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE); salvo.SalvoSched.sendWire(index, salvo.std.net.__Msg_ActorGroup.Join(__a), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup); __a }
+    kotlin.run { val __h = Indexing(words = salvo.std.core.list.List__T_TArray("salvo", arrayOf<String>("is", "salvo"))); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE); salvo.SalvoSched.sendWire(index, salvo.std.net.__Msg_ActorGroup.Join(__a), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup); __a }
     val looks: Int = salvo.std.net.actorGroup__Addr(nodes, {  -> salvo.std.net.Protocol("Lookup", __PROTO_Lookup) })
     kotlin.run { val __h = Looking(who = "a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Looking(__h), __Actor_Looking.__DECODE); salvo.SalvoSched.sendWire(looks, salvo.std.net.__Msg_ActorGroup.Join(__a), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup); __a }
     val pb: Int = salvo.std.net.poolAt(salvo.std.net.newNode(), 1)

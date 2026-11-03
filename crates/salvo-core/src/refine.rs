@@ -59,7 +59,8 @@ use crate::resolve::Resolution;
 /// merged documentation [qual-refn-docs].
 #[derive(Clone, Debug, PartialEq)]
 pub struct RefnSource {
-    /// The qualifier that declared it, or `None` for a top-level `refn`.
+    /// The declaration whose body states it — a qualifier, or a type
+    /// [qual-refn-type] — or `None` for a top-level `refn`.
     pub qualifier: Option<String>,
     /// The refinement's own doc comment [doc-comment].
     pub docs: Vec<String>,
@@ -159,11 +160,45 @@ impl Refinements {
     }
 }
 
+/// Whose body a refinement is written in [qual-refn-scope].
+#[derive(Clone, Copy)]
+enum Owner<'p> {
+    /// A top-level `refn` (refused by the parser, kept for its diagnostics).
+    Top,
+    /// A qualifier's body: the refinement states that qualifier's claim.
+    Qualifier(&'p QualifierDecl),
+    /// [qual-refn-type] A type's body (a struct, or an opaque type's refns-only
+    /// body): the type's author stating what its own functions do to a
+    /// claim it may establish — a generic one (`of T`), or one declared in
+    /// the same file.
+    Type { name: &'p Ident, generics: &'p [Ident] },
+}
+
+impl<'p> Owner<'p> {
+    fn qualifier(self) -> Option<&'p QualifierDecl> {
+        match self {
+            Owner::Qualifier(q) => Some(q),
+            _ => None,
+        }
+    }
+
+    fn name(self) -> Option<String> {
+        match self {
+            Owner::Top => None,
+            Owner::Qualifier(q) => Some(q.name.name.clone()),
+            Owner::Type { name, .. } => Some(name.name.clone()),
+        }
+    }
+}
+
 /// One validated refinement, before visibility is applied.
 struct Resolved<'p> {
     decl: &'p RefnDecl,
-    /// The declaring qualifier, or `None` for a top-level `refn`.
-    qualifier: Option<&'p QualifierDecl>,
+    /// Whose body it is written in.
+    owner: Owner<'p>,
+    /// [qual-refn-type] The qualifiers a type-owned refinement names: it is
+    /// visible where every one of them is.
+    named: Vec<&'p QualifierDecl>,
     /// The file the refinement is *written* in.
     file: usize,
     /// [qual-refn-match] The overloads it refines — one-to-many (user
@@ -192,7 +227,7 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
             match item {
                 Item::Refn(r) => {
                     if let Some(res) =
-                        resolve_refn(resolution, file_idx, r, None, &mut errors)
+                        resolve_refn(program, resolution, file_idx, r, Owner::Top, &mut errors)
                     {
                         resolved.push(res);
                     }
@@ -200,8 +235,25 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
                 Item::Qualifier(q) => {
                     for r in &q.refns {
                         if let Some(res) =
-                            resolve_refn(resolution, file_idx, r, Some(q), &mut errors)
+                            resolve_refn(program, resolution, file_idx, r, Owner::Qualifier(q), &mut errors)
                         {
+                            resolved.push(res);
+                        }
+                    }
+                }
+                // [qual-refn-type] A type's own refinements.
+                Item::Struct(sd) => {
+                    let owner = Owner::Type { name: &sd.name, generics: &sd.generics };
+                    for r in &sd.refns {
+                        if let Some(res) = resolve_refn(program, resolution, file_idx, r, owner, &mut errors) {
+                            resolved.push(res);
+                        }
+                    }
+                }
+                Item::Type(td) => {
+                    let owner = Owner::Type { name: &td.name, generics: &td.generics };
+                    for r in &td.refns {
+                        if let Some(res) = resolve_refn(program, resolution, file_idx, r, owner, &mut errors) {
                             resolved.push(res);
                         }
                     }
@@ -228,20 +280,25 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
             Vec<(RefnSource, Vec<String>, Vec<String>, Vec<String>)>,
         > = HashMap::new();
         for res in &resolved {
-            let visible = match res.qualifier {
-                // A qualifier's refinements are in scope wherever the
-                // qualifier is [qual-refn-scope] — the *same* declaration.
-                Some(q) => scope
+            let in_scope = |q: &QualifierDecl| {
+                scope
                     .qualifiers
                     .get(q.name.name.as_str())
-                    .is_some_and(|ds| ds.iter().any(|d| std::ptr::eq(*d, q))),
-                None => program.files[res.file].module == file.module,
+                    .is_some_and(|ds| ds.iter().any(|d| std::ptr::eq(*d, q)))
+            };
+            let visible = match res.owner {
+                // A qualifier's refinements are in scope wherever the
+                // qualifier is [qual-refn-scope] — the *same* declaration.
+                Owner::Qualifier(q) => in_scope(q),
+                // [qual-refn-type] A type's, wherever the claims it states are.
+                Owner::Type { .. } => res.named.iter().all(|q| in_scope(q)),
+                Owner::Top => program.files[res.file].module == file.module,
             };
             if !visible {
                 continue;
             }
             let source = RefnSource {
-                qualifier: res.qualifier.map(|q| q.name.name.clone()),
+                qualifier: res.owner.name(),
                 docs: res.decl.docs.clone(),
                 file: res.file,
                 span: res.decl.name.span,
@@ -332,12 +389,14 @@ pub fn collect<'p>(program: &'p Program, resolution: &Resolution<'p>) -> Refinem
 /// Resolves one refinement to the overload it refines and validates it
 /// [qual-refn-match].
 fn resolve_refn<'p>(
+    program: &'p Program,
     resolution: &Resolution<'p>,
     file_idx: usize,
     decl: &'p RefnDecl,
-    qualifier: Option<&'p QualifierDecl>,
+    owner: Owner<'p>,
     errors: &mut Vec<FileDiagnostic>,
 ) -> Option<Resolved<'p>> {
+    let qualifier = owner.qualifier();
     let scope = &resolution.scopes[file_idx];
     let name = decl.name.name.as_str();
     // Type parameters in scope for the refinement's signature: the
@@ -351,8 +410,10 @@ fn resolve_refn<'p>(
     // that mentions one.
     let mut generics: Vec<&str> = Vec::new();
     generics.extend(decl.generics.iter().map(|g| g.name.as_str()));
-    if let Some(q) = qualifier {
-        generics.extend(q.generics.iter().map(|g| g.name.as_str()));
+    match owner {
+        Owner::Qualifier(q) => generics.extend(q.generics.iter().map(|g| g.name.as_str())),
+        Owner::Type { generics: gs, .. } => generics.extend(gs.iter().map(|g| g.name.as_str())),
+        Owner::Top => {}
     }
     let want = signature(&decl.params, &generics);
     let _ = &want;
@@ -454,6 +515,7 @@ fn resolve_refn<'p>(
     let entry = *matched[0];
 
     let mut entries: Vec<(usize, Vec<String>, Vec<String>, Vec<String>)> = Vec::new();
+    let mut named: Vec<&'p QualifierDecl> = Vec::new();
     let mut seen: HashSet<&str> = HashSet::new();
     for e in &decl.deductions {
         let param = e.param.name.as_str();
@@ -503,6 +565,19 @@ fn resolve_refn<'p>(
                 continue;
             }
         }
+        // [qual-refn-type] A type's refinement speaks about its own type: the
+        // parameter it states about is one of it.
+        if let Owner::Type { name: tname, .. } = owner {
+            let rp = &decl.params[pos];
+            if param_base(strip_all_quals(&rp.ty)).as_deref() != Some(tname.name.as_str()) {
+                errors.push(FileDiagnostic::error(
+                    file_idx,
+                    e.span,
+                    messages::qual_refn_type_other_subject(&tname.name, param, &rp.ty),
+                ));
+                continue;
+            }
+        }
         let mut add: Vec<String> = Vec::new();
         let mut remove: Vec<String> = Vec::new();
         let mut preserve: Vec<String> = Vec::new();
@@ -512,9 +587,12 @@ fn resolve_refn<'p>(
             (&e.preserve, &mut preserve, "preserve"),
         ] {
             for r in refs {
-                if let Some(q) = check_refined_qual(
-                    file_idx, decl, qualifier, scope, r, p, verb, errors,
+                if let Some((q, qd)) = check_refined_qual(
+                    program, file_idx, decl, owner, scope, r, p, verb, errors,
                 ) {
+                    if !named.iter().any(|d| std::ptr::eq(*d, qd)) {
+                        named.push(qd);
+                    }
                     if !out.contains(&q) {
                         out.push(q);
                     }
@@ -571,9 +649,25 @@ fn resolve_refn<'p>(
                 .map(|pos| (pos, r.negated, r.qual.name.name.clone()))
         })
         .collect();
+    // [qual-refn-narrow] A precondition is about the parameter the refinement
+    // states something about: a narrower type written on *another*
+    // parameter would be read as no condition at all, so it is refused.
+    for (pos, _) in &requires {
+        if !entries.iter().any(|(p, ..)| p == pos) {
+            let rp = &decl.params[*pos];
+            errors.push(FileDiagnostic::error(
+                file_idx,
+                rp.name.span,
+                messages::qual_refn_narrow_other_param(&decl.name.name, &rp.name.name),
+            ));
+            return None;
+        }
+    }
+    let _ = qualifier;
     Some(Resolved {
         decl,
-        qualifier,
+        owner,
+        named,
         file: file_idx,
         callees,
         entries,
@@ -585,16 +679,18 @@ fn resolve_refn<'p>(
 /// Validates one qualifier named by a refinement entry, returning its name
 /// when it may be used [qual-refn].
 #[allow(clippy::too_many_arguments)]
-fn check_refined_qual(
+fn check_refined_qual<'p>(
+    program: &'p Program,
     file_idx: usize,
     decl: &RefnDecl,
-    qualifier: Option<&QualifierDecl>,
-    scope: &crate::resolve::ModuleScope<'_>,
+    owner: Owner<'p>,
+    scope: &crate::resolve::ModuleScope<'p>,
     r: &TypeRef,
     param: &Param,
     verb: &str,
     errors: &mut Vec<FileDiagnostic>,
-) -> Option<String> {
+) -> Option<(String, &'p QualifierDecl)> {
+    let qualifier = owner.qualifier();
     let q = r.name.name.as_str();
     // A refinement inside a qualifier may only speak about *its own*
     // claim [qual-refn]. That is what makes "opting into a qualifier opts
@@ -621,10 +717,13 @@ fn check_refined_qual(
     let qd = match candidates {
         [] => None,
         [one] => Some(*one),
+        // The declaration about this base first, a generic one (`of T`)
+        // otherwise — the checker's `qualifier_for` order.
         many => param_base(&param.ty).and_then(|base| {
-            many.iter().copied().find(|d| {
-                of_base(&d.of, &d.generics).map(|of| of == base).unwrap_or(true)
-            })
+            many.iter()
+                .copied()
+                .find(|d| of_base(&d.of, &d.generics).is_some_and(|of| of == base))
+                .or_else(|| many.iter().copied().find(|d| of_base(&d.of, &d.generics).is_none()))
         }),
     };
     let Some(qd) = qd else {
@@ -655,6 +754,24 @@ fn check_refined_qual(
             messages::qual_subject_provenance(q),
         ));
         return None;
+    }
+    // [qual-refn-type] A type's author may state a claim it is trusted with
+    // about its type: a generic one (`of T`, which no subject's author owns)
+    // or one declared in the same file — the same rule as a `+Q` it writes
+    // in a return type [deduce-reapply].
+    if let Owner::Type { name: tname, .. } = owner {
+        let same_file = program.modules[file_idx]
+            .items
+            .iter()
+            .any(|i| matches!(i, Item::Qualifier(d) if std::ptr::eq(d, qd)));
+        if !same_file && of_base(&qd.of, &qd.generics).is_some() {
+            errors.push(FileDiagnostic::error(
+                file_idx,
+                r.span,
+                messages::qual_refn_type_foreign_qualifier(&tname.name, verb, q),
+            ));
+            return None;
+        }
     }
     // The claim has to be about the parameter's type: the qualifier's `of`
     // type must accept it [qual-of]. Compared by base name, which is what
@@ -688,7 +805,7 @@ fn check_refined_qual(
                 return None;
             }
         }
-        return Some(q.to_string());
+        return Some((q.to_string(), qd));
     }
     if let (Some(of), Some(base)) = (of_base(&qd.of, &qd.generics), param_base(&param.ty)) {
         if of != base {
@@ -700,7 +817,7 @@ fn check_refined_qual(
             return None;
         }
     }
-    Some(q.to_string())
+    Some((q.to_string(), qd))
 }
 
 /// Whether a written deduction list gives `param` back to the caller

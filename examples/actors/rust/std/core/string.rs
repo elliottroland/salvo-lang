@@ -144,7 +144,7 @@ pub fn substr(str: &String, at: &crate::std_core_string::Span) -> String {
             let mut __pick1_1 = __pick1.unwrap();
             __pick1_1
         } else {
-            panic!("salvo: unreachable at std.core.string:162:45")
+            panic!("salvo: unreachable at std.core.string:169:45")
         }
     };
 }

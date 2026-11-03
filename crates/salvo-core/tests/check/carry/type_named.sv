@@ -1,25 +1,32 @@
 // [fn-type-named] Rule (c): a type-named fn must return the named base with
 // at least the named qualifiers. `fn Mut List<T> -> Mut List<T>` is fine;
 // returning a plain `List<T>` (missing `Mut`) is refused. Each a program of
-// its own: they declare `List`'s constructors beside std's.
+// its own: they declare `List`'s constructors beside std's, over two
+// elements so as not to collide with std's one-element shape.
 //
 // Correct: returns exactly the named type.
-fn Mut List<T>(first: T) -> Mut List<T> => !first {
-    return Mut List(first)
+fn Mut List<T>(first: T, second: T) -> Mut List<T> => !first, !second {
+    let list = Mut List(first)
+    list.add(second)
+    return list
 }
 
 //--- a missing named qualifier
 // Missing the named `Mut` qualifier on the return ("must carry the `Mut`
 // qualifier").
 //~ error[fn-type-named:missing-qualifier]
-fn Mut List<T>(first: T) -> List<T> => !first {
-    return Mut List(first)
+fn Mut List<T>(first: T, second: T) -> List<T> => !first, !second {
+    let list = Mut List(first)
+    list.add(second)
+    return list
 }
 
 //--- extra qualifiers
 // Extra qualifiers beyond the named ones are allowed (named ⊆ return).
-fn List<T>(first: T) -> Mut List<T> => !first {
-    return Mut List(first)
+fn List<T>(first: T, second: T) -> Mut List<T> => !first, !second {
+    let list = Mut List(first)
+    list.add(second)
+    return list
 }
 
 //--- provenance

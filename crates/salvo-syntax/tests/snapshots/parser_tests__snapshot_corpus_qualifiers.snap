@@ -507,6 +507,7 @@ Module {
                     },
                 ),
                 obligations: [],
+                refns: [],
                 span: 210..242,
             },
         ),

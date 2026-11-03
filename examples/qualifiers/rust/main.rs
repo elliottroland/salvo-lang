@@ -19,27 +19,18 @@ pub mod std_core_index;
 pub mod std_core_iterator;
 #[path = "std/core/list.rs"]
 pub mod std_core_list;
-#[path = "std/core/map.rs"]
-pub mod std_core_map;
-#[path = "std/core/set.rs"]
-pub mod std_core_set;
-#[path = "std/core/sorted.rs"]
-pub mod std_core_sorted;
+#[path = "std/core/nonempty.rs"]
+pub mod std_core_nonempty;
 #[path = "std/core/string.rs"]
 pub mod std_core_string;
 #[path = "platform/std/core/console.rs"]
 pub mod platform_std_core_console;
 #[path = "platform/std/core/list.rs"]
 pub mod platform_std_core_list;
-#[path = "platform/std/core/map.rs"]
-pub mod platform_std_core_map;
-#[path = "platform/std/core/set.rs"]
-pub mod platform_std_core_set;
-#[path = "platform/std/core/sorted.rs"]
-pub mod platform_std_core_sorted;
 #[path = "platform/std/core/string.rs"]
 pub mod platform_std_core_string;
 
+use crate::std_core_list::List__T_TArray;
 use crate::std_core_list::add_platform;
 use crate::std_core_list::get_platform;
 use crate::std_core_console::println;
@@ -132,8 +123,8 @@ pub fn main() {
     let mut xs: Vec<i32> = vec![];
     crate::std_core_list::add_platform::<i32>(&mut xs, 3i32);
     crate::std_core_console::println(&__handle_2, &format!("1. head after add: {}", crate::head(&xs)));
-    let mut maybe_empty: Vec<i32> = vec![7i32, 8i32];
-    if crate::std_core_list::NonEmpty__List_qualifies(&maybe_empty) {
+    let mut maybe_empty: Vec<i32> = crate::std_core_list::List__T_TArray::<i32>(7i32, vec![8i32]);
+    if crate::NonEmpty__List_qualifies::<i32>(&maybe_empty) {
         crate::std_core_console::println(&__handle_2, &format!("2. checked at run time, head is {}", crate::head(&maybe_empty)));
     };
     let mut plain: i32 = 21i32;

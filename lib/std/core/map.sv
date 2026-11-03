@@ -21,8 +21,12 @@
 // a repeated key would drop one).
 //
 // Own module so a program that never uses a map emits nothing for it.
-// @compilerrules [type-canbe-mut, col-key-eligible, obligation-by, linear-container, mod-used-only]
-export iterable platform type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut : Iter<self, MapKeyIter<K>, K>
+// @compilerrules [type-canbe-mut, col-key-eligible, obligation-by, linear-container, mod-used-only, qual-refn-type]
+export iterable platform type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut : Iter<self, MapKeyIter<K>, K> {
+    // `put` is the operation that makes a map non-empty, and it cannot say
+    // so itself.
+    refn put(map: Mut Map<K, V>, key: K, value: V) => map: +NonEmpty
+}
 
 // Constructor, from entries written as pairs: `Map(("a", 1), ("b", 2))`.
 // The keys and values are stored in the new map, so they are moved: a
@@ -359,15 +363,4 @@ export fn next<K, V>(p: Mut MapValuesIter<K, V>) [] -> Emitted (proj(p) V) | Fin
         }
     }
     return finished()
-}
-
-// The same claim over a map, where `put` is the operation that
-// establishes it and cannot say so itself.
-// @compilerrules [qual-overload, qual-refn]
-export qualifier NonEmpty<K, V> of Map<K, V> {
-    fn qualifies(map: Map<K, V>) [] -> Bool {
-        return size(map) > 0
-    }
-
-    refn put(map: Mut Map<K, V>, key: K, value: V) => map: +NonEmpty
 }

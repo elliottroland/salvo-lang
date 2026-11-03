@@ -650,6 +650,7 @@ fn walk_item_in<V: Visitor>(c: &mut V, it: &Item) {
             auto_qualifiers,
             alias,
             obligations: obs,
+            refns,
             span: _,
         }) => {
             canbe(c, generic_canbe);
@@ -661,6 +662,9 @@ fn walk_item_in<V: Visitor>(c: &mut V, it: &Item) {
                 v::walk_type(c, a);
             }
             obligations(c, obs);
+            for r in refns {
+                refn(c, r);
+            }
         }
         Item::Struct(ast::StructDecl {
             docs: _,
@@ -674,12 +678,16 @@ fn walk_item_in<V: Visitor>(c: &mut V, it: &Item) {
             auto_qualifiers,
             fields,
             fns,
+            refns,
             linear: _,
             opaque: _,
             noremote: _,
             comptime: _,
             span: _,
         }) => {
+            for r in refns {
+                refn(c, r);
+            }
             for a in annotations.iter().chain(auto_qualifiers) {
                 v::walk_type_ref(c, a);
             }

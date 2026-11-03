@@ -768,11 +768,42 @@ messages! {
          survives\", which is the function's own deduction to make)"
     );
 
+    // [qual-refn-narrow]
+    /// A narrower parameter the refinement says nothing about.
+    qual_refn_narrow_other_param = "qual-refn-narrow:other-param" (refn: &str, param: &str) => format!(
+        "`refn {refn}` writes a narrower type for `{param}` than the function it refines, \
+         but states nothing about `{param}`: a precondition is read on the parameter it \
+         is stated about, so write it there, or drop the extra qualifier"
+    );
+
     // [qual-refn-scope]
     /// A `refn` outside the qualifier it refines.
     qual_refn_scope_top_level_refn = "qual-refn-scope:top-level-refn" (name: &str) => format!(
-        "a refinement belongs to the qualifier whose claim it is about: move `refn \
-         {name}` into that qualifier's body"
+        "a refinement belongs to the qualifier whose claim it is about, or to the type \
+         it refines: move `refn {name}` into that qualifier's or that type's body"
+    );
+
+    // [qual-refn-type]
+    /// A body on a type alias.
+    qual_refn_type_alias_body = "qual-refn-type:alias-body" () => format!(
+        "a type alias has no body: only an opaque type declaration takes one, to hold \
+         its refinements"
+    );
+    /// A type's refinement stating about a parameter of another type.
+    qual_refn_type_other_subject = "qual-refn-type:other-subject" (ty: &str, param: &str, written: &dyn std::fmt::Display) => format!(
+        "a refinement in `{ty}`'s body states what a call does to a `{ty}`, but `{param}` \
+         is a `{written}`: move it to the body of the type it is about"
+    );
+    /// A type's refinement naming a qualifier its author is not trusted with.
+    qual_refn_type_foreign_qualifier = "qual-refn-type:foreign-qualifier" (ty: &str, verb: &str, q: &str) => format!(
+        "`{ty}`'s body cannot {verb} `{q}`: a type may refine a generic claim (`of T`) \
+         or one declared in its own file, and `{q}` is about one particular type \
+         declared elsewhere; state it in `{q}`'s body instead"
+    );
+    /// Something other than a `refn` in an opaque type's body.
+    qual_refn_type_only_refns = "qual-refn-type:only-refns" (found: &str) => format!(
+        "expected `refn` or `}}` in a type's body, found {found}: an opaque type's body \
+         holds refinements only"
     );
 
     // [qual-value-arg]

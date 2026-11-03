@@ -46,9 +46,9 @@ fn main() [use] {
     // [effect-handler-generics] — the emitter does not reason about what
     // Kotlin could have inferred, and a stateless generic handler leaves it
     // nothing to infer from.
-    //~ emits: : CyclicRandom<Int> = CyclicRandom<Int>(values = listOf<Int>(10, 20, 30), copy = { __a0 -> __a0 })
+    //~ emits: : CyclicRandom<Int> = CyclicRandom<Int>(values = salvo.std.core.list.List__T_TArray(10, arrayOf<Int>(20, 30)), copy = { __a0 -> __a0 })
     use CyclicRandom(List(10, 20, 30))
-    //~ emits: : CyclicRandom<String> = CyclicRandom<String>(values = listOf<String>("a", "b"), copy = { __a0 -> __a0 })
+    //~ emits: : CyclicRandom<String> = CyclicRandom<String>(values = salvo.std.core.list.List__T_TArray("a", arrayOf<String>("b")), copy = { __a0 -> __a0 })
     use CyclicRandom(List("a", "b"))
     // Each instance is bound behind the effect's handle [effect-handle].
     //~ emits: : Random<Int> = __Mon_Random<Int>(__use_
@@ -177,7 +177,7 @@ fn main() [use] -> None {
     use StdConsole
     // The `use` registers `Random<Int>`; `roll`'s `Random<Count>`
     // parameter and its call site must agree with it.
-    //~ emits: : CyclicRandom<Int> = CyclicRandom<Int>(values = listOf<Int>(7, 8), copy = { __a0 -> __a0 })
+    //~ emits: : CyclicRandom<Int> = CyclicRandom<Int>(values = salvo.std.core.list.List__T_TArray(7, arrayOf<Int>(8)), copy = { __a0 -> __a0 })
     //~ emits: : Random<Int> = __Mon_Random<Int>(
     use CyclicRandom(List(7, 8))
     //~ emits: roll(__handle_

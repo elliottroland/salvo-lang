@@ -142,7 +142,7 @@ fn main@main() -> None {
     return (read f.hp > 10)
   }, fn next(Mut ListIter<T>)@std.core.list)
   call println@std.core.console(read __handle~2, concat("1. ", call to_str(Int)@std.core.basic(call size@std.core.list<proj Fighter@main>(drop_mut(read standing))), " of ", call to_str(Int)@std.core.basic(call size@std.core.list<Fighter@main>(read roster)), " still standing"))
-  bind#19 let bench: Mut List<Fighter@main> = call Mut_List(T, T[])@std.core.list<Fighter@main>(construct Fighter@main { name: "Cy", hp: 12, energy: 2 }, array[Fighter@main[]]())
+  bind#19 let bench: Mut List<Fighter@main> = call Mut_List(T)@std.core.list<Fighter@main>(construct Fighter@main { name: "Cy", hp: 12, energy: 2 })
   call add@std.core.list<Fighter@main>(read bench, construct Fighter@main { name: "Dee", hp: 6, energy: 7 })
   call println@std.core.console(read __handle~2, concat("2. bench ", call to_str(Int)@std.core.basic(call size@std.core.list<Fighter@main>(drop_mut(read bench))), ", front ", branch#25 cond#0 true {
     bind#24 let __proj~7: proj Fighter@main = branch#23 cond#0 true {
@@ -272,15 +272,15 @@ fn main@main() -> None {
       }
     }
   }
-  branch#73 cond#0 call NotSame.qualifies@std.core.ref(read d, read a) {
+  branch#73 cond#0 call NotSame.qualifies@std.core.ref<Fighter@main>(drop_mut(read d), read a) {
     assign a.hp = (read a.hp + 1)
     assign d.hp = (read d.hp + 1)
     call duel@main(borrow_as[ref<List<Mut Fighter@main>> Mut Fighter@main -> Mut Fighter@main](read a), borrow_as[ref<List<Mut Fighter@main>> Mut Fighter@main -> Mut Fighter@main](read d))
     assign a.energy = (read a.energy + 100)
     assign d.energy = (read d.energy + 200)
   }
-  branch#74 cond#0 call Idx.qualifies@std.core.index(read i, read squad, fn size@std.core.list) {
-    branch#75 cond#0 call Idx.qualifies@std.core.index(read j, read squad, fn size@std.core.list) {
+  branch#74 cond#0 call Idx.qualifies@std.core.index<List<Mut Fighter@main>>(read i, read squad, fn size@std.core.list) {
+    branch#75 cond#0 call Idx.qualifies@std.core.index<List<Mut Fighter@main>>(read j, read squad, fn size@std.core.list) {
       call update@std.core.list<Fighter@main>(read squad, read i, lambda(lent f: Mut Fighter@main) -> None {
         assign f.energy = (read f.energy + 1)
       })
@@ -421,7 +421,7 @@ fn main@main() -> None {
     }
     value !read __proj~35.energy
   })))
-  bind#129 let camp: Mut Camp@main = construct Mut Camp@main { supplies: 10, banners: call Mut_List(T, T[])@std.core.list<Str>("red", array[Str[]]()) }
+  bind#129 let camp: Mut Camp@main = construct Mut Camp@main { supplies: 10, banners: call Mut_List(T)@std.core.list<Str>("red") }
   alias#130 banners: Mut List<Str> = camp.banners
   call spend@main(read camp, 3)
   call hoist@main(read camp, "blue")
