@@ -144,6 +144,22 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — An implicit group's miss is one report, and names no arbitrary candidate (ROADMAP 0ar, [implicit-resolve])
+
+- **Built**: three fixes to what a failed implicit fill says.
+  - A `with`-bound group (`?Hashed<K>`: `hash` with `eq`) whose member
+    failed and reported is one mistake: its other members are skipped
+    (`fill_implicit_list`'s `failed_groups`). `Mut Set(Q { x: 1 })` for a
+    struct with no `hash` reported the `hash` and then the `eq`.
+  - Where several candidates missed by type alone, the reason is "none of
+    the 9 `hash` functions in scope is `(Q) -> Long`", not one of them as
+    "the `hash` in scope is `(Int) -> Long`" (an `eq` of
+    `(eff[E], eff[E]) -> Bool` read as the only one).
+  - A type-named constructor is shown by its type (`Mut Set<T>`), as the
+    linear-composite message already did, not its key (`Mut_Set`).
+- `analyze_tests::an_unfillable_winner_is_an_error_naming_the_chain` asserted
+  the old text and now asserts the new one without the count (std's).
+
 ### 2026-10-30 — An ineligible key is reported once per declaration (ROADMAP 0ar, [col-key-eligible])
 
 - **Built**: `reported_ineligible_keys` is keyed by the declaration being

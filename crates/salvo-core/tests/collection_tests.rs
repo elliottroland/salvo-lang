@@ -46,10 +46,10 @@ fn a_fn_typed_local_outranks_a_same_named_effect_member() {
 /// [col-key-eligible].
 //
 // Kept on the old prelude: over the real std, the one `Set(h)` also reports
-// `implicit-resolve:no-fit` twice (no `hash`, no `eq` for `Handle`, the `eq`
-// "in scope" shown as `(eff[E], eff[E]) -> Bool`) beside the two
+// `implicit-resolve:no-fit` (no `hash` for `Handle`; its `eq` is not
+// reported again since 2026-10-30) and the variadic refusal beside the two
 // `linear-generics` errors, where a written `Set<Handle>` would be one
-// `col-key-eligible:key`: one mistake, several diagnostics.
+// `col-key-eligible:key`: one mistake, several diagnostics (ROADMAP 0ar).
 #[test]
 fn a_linear_element_is_refused_by_the_instantiation_ban() {
     let ids = error_ids(

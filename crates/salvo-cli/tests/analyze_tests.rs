@@ -821,7 +821,10 @@ fn an_unfillable_winner_is_an_error_naming_the_chain() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "{stderr}");
     assert!(
-        stderr.contains("`?to_str: (NonEmpty List<Foo>) -> Str` for `to_str` cannot be completed: it needs `?to_str: (Foo) -> Str`, and no `to_str` fits (the `to_str` in scope is `(Int) -> Str`, and the position needs `(Foo) -> Str`); pass `to_str = …` explicitly"),
+        // [implicit-resolve] How many `to_str`s std has is not this test's
+        // business: the text says none of them fits, rather than naming one.
+        stderr.contains("`?to_str: (NonEmpty List<Foo>) -> Str` for `to_str` cannot be completed: it needs `?to_str: (Foo) -> Str`, and no `to_str` fits (none of the ")
+            && stderr.contains(" `to_str` functions in scope is `(Foo) -> Str`); pass `to_str = …` explicitly"),
         "{stderr}"
     );
     // Two links: the chain is the headline, and is not repeated.

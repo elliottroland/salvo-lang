@@ -95,6 +95,8 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
   arithmetic derefs; commit "Correct the cmp_deref case's stale comment").
   An unhashable key is reported per declaration, not once per program
   (commit "Report an ineligible key once per declaration").
+  The implicit-fill messages (commit "Report one miss per implicit group,
+  without naming an arbitrary candidate").
 - Next: 0ar's remaining items (diagnostic cascades, message texts).
 
 ## The sequence
@@ -955,10 +957,10 @@ repros are over the real std.
     `call-type-args:cannot-infer` twice (six `carry_tests`);
   - `let n: Mut Int = 1` reports `struct-mut:not-canbe-mut` and the annotation
     mismatch (`str_tests::str_opts_into_mut`);
-  - an inferred struct key with no `hash` (`Set(Q { x: 1 })`) reports
-    `implicit-resolve:no-fit` twice (for `hash`, for `eq`), where a written
-    `Set<Q>` reports one `col-key-eligible:key`
-    (`collection_tests::a_linear_element_is_refused_…`).
+  - a linear key (`Set(h)` for a `linear struct Handle`) reports the
+    missing `hash` beside the two `linear-generics` refusals and the variadic
+    one (`collection_tests::a_linear_element_is_refused_…`); the struct key's
+    `eq` is no longer reported after its `hash` (2026-10-30).
 - **And from wave 3**:
   - an unknown type in a return or a `let` adds the mismatch it causes
     (`name_tests::unknown_names_are_reported_at_declaration_sites`); one
@@ -983,11 +985,9 @@ repros are over the real std.
   - also noted, annotated as they are: a prerequisite cycle is reported once
     per effect on it; a poisoned handle is reported at each use on one line
     (`d.hp = d.hp + 1` gives two).
-- **Message texts to fix** (the ids are right; annotated as they are):
-  `implicit-resolve:no-fit` names one arbitrary candidate of many;
-  a dropped `Reply<Int>`'s hint names `on_idle`/`watch` (dischargers listed
-  by type name, not instantiation); type-named constructors show by their
-  key (`Mut_Set`, `Mut_List<…>`).
+- **Message text to fix** (the id is right; annotated as it is): a
+  dropped `Reply<Int>`'s hint names `on_idle`/`watch` (dischargers listed
+  by type name, not instantiation).
 - **Behaviour worth a look**: `=> !a` on an `Int` warns
   "changes nothing" yet decides whether the fn fits a keeping `?add`.
 - **Smaller**: an `_`-prefixed lift binding (`is ^Ok _value`) is refused with

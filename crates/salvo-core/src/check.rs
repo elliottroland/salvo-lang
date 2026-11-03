@@ -6786,9 +6786,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             .get(&Key::name_of(key))
             .cloned()
             .unwrap_or_default();
+        // A type-named constructor shows its readable type (`Mut Set`), not
+        // its canonical key (`Mut_Set`; ROADMAP 0ar).
+        let shown = decl.type_name.as_ref().map(|t| format!("{t}")).unwrap_or_else(|| decl.name.name.clone());
         self.fill_implicits(
             &implicits,
-            &decl.name.name,
+            &shown,
             subst,
             callee_generics,
             named,
@@ -6873,13 +6876,25 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [implicit-with] Where each **bound** parameter's value came from, for
         // the one-source check below.
         let mut sources: Vec<(usize, &str, &'static str)> = Vec::new();
+        // [type-unknown-lenient] A group whose member could not be filled
+        // (`?Hashed<K>` at a key with no `hash`) is one mistake: its other
+        // members are not reported again (ROADMAP 0ar: `Set(Q { x: 1 })`
+        // reported the missing `hash` and then the missing `eq`).
+        let mut failed_groups: HashSet<usize> = HashSet::new();
         for imp in implicits {
+            if imp.bound.is_some_and(|g| failed_groups.contains(&g)) {
+                continue;
+            }
             // The type as this call needs it, with the callee's type
             // arguments substituted in.
             let want = substitute_vars(&imp.ty, subst, callee_generics);
+            let errors_before = self.out.errors.len();
             let Some((arg, identity)) =
                 self.fill_one_implicit(imp, callee, &want, named, subst, span)
             else {
+                if let (Some(g), true) = (imp.bound, self.out.errors.len() > errors_before) {
+                    failed_groups.insert(g);
+                }
                 continue;
             };
             if let Some(component) = imp.bound {
@@ -7869,6 +7884,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         // this file's own module is one function, not an ambiguity. An
         // available effect's member competes beside them (R10 D3).
         let mut hits: Vec<(ValueCand<'p>, FnFit)> = Vec::new();
+        // [implicit-resolve] How many candidates missed by their type alone
+        // (rank 1 and 2): naming one of several as "the `hash` in scope"
+        // reads as though it were the only one (ROADMAP 0ar).
+        let mut type_misses = 0usize;
         for cand in entries {
             if hits.iter().any(|(c, _)| c.same(&cand)) {
                 continue;
@@ -7879,7 +7898,17 @@ impl<'p, 'r> Checker<'p, 'r> {
             };
             match fit {
                 Ok(fit) => hits.push((cand, fit)),
-                Err((rank, reason)) => note(rank, reason, &mut near),
+                Err((rank, reason)) => {
+                    if rank > 0 {
+                        type_misses += 1;
+                    }
+                    note(rank, reason, &mut near)
+                }
+            }
+        }
+        if let (true, Some((rank, reason))) = (hits.is_empty() && type_misses > 1, near.as_mut()) {
+            if *rank > 0 {
+                *reason = format!("none of the {type_misses} `{name}` functions in scope is `{want}`");
             }
         }
         // 2. [implicit-fit] Among several, a candidate whose own implicit
