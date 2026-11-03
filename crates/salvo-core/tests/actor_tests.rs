@@ -223,7 +223,8 @@ fn poke() [any Counter] -> None {
 
 /// [effect-any] A fn type carries no strength — `any` on one is refused
 /// with the reason.
-// Kept: the fn-type refusal is reported twice for one `any` (three times with an empty body).
+// Once for one `any` (twice, three times with an empty body, until
+// 2026-10-30, ROADMAP 0ar).
 #[test]
 fn any_is_refused_on_fn_types() {
     let errs = errors(&format!(
@@ -233,8 +234,5 @@ fn each(f: () [any Counter] -> None) [any Counter] -> None {{
 }}
 "
     ));
-    assert!(
-        errs.contains(&"effect-any:fn-type"),
-        "{errs:?}"
-    );
+    assert_eq!(errs.iter().filter(|e| **e == "effect-any:fn-type").count(), 1, "{errs:?}");
 }

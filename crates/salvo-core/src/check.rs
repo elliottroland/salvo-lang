@@ -2436,6 +2436,7 @@ fn check_once<'p>(
         c.record(program, first, syntactic, &out, param_mutations, walked, &owners);
     }
     program_checks(program, symbols, &mut out, parking_handlers);
+    crate::diag::drop_repeated(&mut out.errors);
     out
 }
 

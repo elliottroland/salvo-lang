@@ -1439,6 +1439,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
             refused_names,
         };
     }
+    crate::diag::drop_repeated(&mut errors);
     let (stamp_scopes, fn_stamp_scope, templates, template_refs) = stamp_scopes(program, &scopes);
     let t = crate::timing::phase("    resolve: names");
     let names = crate::names::Names::build(program.modules, &scopes, &templates, &template_refs);

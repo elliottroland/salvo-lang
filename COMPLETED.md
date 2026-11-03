@@ -144,6 +144,21 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A diagnostic that repeats another exactly is dropped (ROADMAP 0ar, [type-unknown-lenient])
+
+- **Built**: `diag::drop_repeated`, run over the checker's errors after the
+  program checks and over resolution's, keeps the first of any diagnostics
+  with the same file, span, id, severity and text. The interface passes and
+  the body pass lower one written type up to three times, so what lowering
+  refuses was reported once per lowering: `[use]` on a fn type three times,
+  `[spawn]` three or four, `any E` two or three, an unknown identity in a
+  slot (`Heap<Person>(nowhere)`), `cmp@Nothing` and a partial type-argument
+  list twice each, and an unresolvable leading-dot arm twice (resolution).
+  Each is now one; `fn_effect_tests`, `actor_tests`, `member_tests`,
+  `carry_tests` and `name_tests` assert the one. Repeats that differ in
+  place or text (a cyclic alias at both declarations, `to_set(List())`'s two
+  type parameters) are separate items in ROADMAP 0ar still.
+
 ### 2026-10-30 — A non-`Bool` assertion is refused once (ROADMAP 0ar, [expr-cond-bool])
 
 - **Built**: `assert!(n)` on an `Int` reported `expr-cond-bool:not-bool`

@@ -121,8 +121,8 @@ fn note(text: Str) [] -> None => text {}
 /// type's effect list is meaningless — a lambda may `use` exactly when the
 /// function containing it may.
 ///
-/// Kept over its prelude, not moved to `check/fn_effects/`: checked exactly,
-/// one `[use]` is reported three times (`fn-effects:use`).
+/// Reported once (each pass that lowered the type reported it, three times,
+/// until 2026-10-30, ROADMAP 0ar).
 #[test]
 fn use_in_a_fn_type_is_rejected() {
     let errs = errors(&format!(
@@ -131,5 +131,5 @@ fn use_in_a_fn_type_is_rejected() {
          note(f(\"x\"))\n\
          }}\n"
     ));
-    assert!(errs.contains(&"fn-effects:use"), "expected the `use` rejection, got: {errs:?}");
+    assert_eq!(errs.iter().filter(|e| **e == "fn-effects:use").count(), 1, "expected the `use` rejection once, got: {errs:?}");
 }

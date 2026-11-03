@@ -172,9 +172,11 @@ fn run(f: (Int) [spawn] -> Int) -> Int {
 }
 ",
     );
-    assert!(
-        errors.contains(&"actor-spawn-effect:fn-type"),
-        "expected the fn-type spawn refusal, got: {errors:?}"
+    // Once (three or four times until 2026-10-30, ROADMAP 0ar).
+    assert_eq!(
+        errors.iter().filter(|e| **e == "actor-spawn-effect:fn-type").count(),
+        1,
+        "expected the fn-type spawn refusal once, got: {errors:?}"
     );
 }
 

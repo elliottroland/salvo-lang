@@ -99,6 +99,9 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
   without naming an arbitrary candidate").
   `assert!(n)`'s second report (commit "Refuse a non-Bool assertion
   once").
+  Exact repeats of one diagnostic (commit "Drop a diagnostic that repeats
+  another exactly"): the fn-type `[use]`/`[spawn]`/`any` refusals, three
+  carry refusals, the leading-dot arm.
 - Next: 0ar's remaining items (diagnostic cascades, message texts).
 
 ## The sequence
@@ -917,10 +920,6 @@ below stays a Rust test, as it was, until fixed (the file and test named);
 repros are over the real std.
 
 - **One mistake, several diagnostics** [type-unknown-lenient]:
-  - `effect-any:fn-type` twice for one `any` on a fn type, three times with an
-    empty body (`actor_tests::any_is_refused_on_fn_types`);
-    `actor-spawn-effect:fn-type` three or four times for one `[spawn]` fn
-    type (`member_tests::a_fn_type_cannot_declare_the_spawn_capability`);
   - `obligation-by:not-self` and `obligation-by:group-arg-not-self` for one
     clause (`compare_tests::default_is_refused_…`, `a_default_obligation_takes_self`);
   - a failed `by` clause (refused, ambiguous, several modules, names nothing)
@@ -952,11 +951,10 @@ repros are over the real std.
     `:conflict` (`implicit_tests::written_type_arguments_must_agree_…`);
   - `list_size@core.list(xs)` on a renamed fn warns `fn-overload-at:not-needed`
     beside `fn-rename:at-on-renamed` (`overload_tests::a_renamed_name_takes_…`);
-  - in a parameter type, `Heap<Person>(nowhere)`, `Heap<Person>(cmp@Nothing)`
-    and `Ranked<Person, Int>(by_age)` are each reported twice; a local as an
-    identity adds the annotation mismatch and warns the local unused; `fn
-    bad<T, ?cmp: …>` reports two slot errors; `to_set(List())` reports
-    `call-type-args:cannot-infer` twice (six `carry_tests`);
+  - in a parameter type, a local as an identity adds the annotation
+    mismatch and warns the local unused; `fn bad<T, ?cmp: …>` reports two
+    slot errors; `to_set(List())` reports `call-type-args:cannot-infer`
+    twice, for `List`'s `T` and `to_set`'s (`carry_tests`);
   - `let n: Mut Int = 1` reports `struct-mut:not-canbe-mut` and the annotation
     mismatch (`str_tests::str_opts_into_mut`);
   - a linear key (`Set(h)` for a `linear struct Handle`) reports the
@@ -965,13 +963,10 @@ repros are over the real std.
     `eq` is no longer reported after its `hash` (2026-10-30).
 - **And from wave 3**:
   - an unknown type in a return or a `let` adds the mismatch it causes
-    (`name_tests::unknown_names_are_reported_at_declaration_sites`); one
-    unresolvable leading-dot arm is reported twice
-    (`name_tests::leading_dot_shorthand_reports_an_unresolvable_sibling`);
+    (`name_tests::unknown_names_are_reported_at_declaration_sites`);
   - past the parse error, `return v!` adds the return mismatch (parse-only
     test kept);
-  - one `[use]` on a fn type reports `fn-effects:use` three times
-    (`fn_effect_tests::use_in_a_fn_type_is_rejected`); a member call through
+  - a member call through
     a two-face spawn's tuple reports three errors
     (`multi_effect_tests::several_faces_answer_a_tuple_…`); a cyclic alias
     pair is reported at both declarations and again at a use, and `[any App]`

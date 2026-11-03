@@ -134,9 +134,7 @@ fn unknown_type_names_suggest_imports() {
 // body — no such sibling in its namespace — is still a clear error naming
 // the namespace searched (same error `resolve_alias_arm_dot_ref` reports
 // for every other arm position).
-// Kept over the prelude until a defect is fixed (ROADMAP §0ar): over the
-// real std, `mod-namespace:no-alias-member` is reported twice for the one
-// arm.
+// Reported once (twice over the real std until 2026-10-30, ROADMAP 0ar).
 #[test]
 fn leading_dot_shorthand_reports_an_unresolvable_sibling() {
     let src = "namespace Arg {\n    \
@@ -144,7 +142,7 @@ fn leading_dot_shorthand_reports_an_unresolvable_sibling() {
                    type Type = .Int | .Missing\n\
                }\n";
     let ids = ids(src);
-    assert!(ids.contains(&"mod-namespace:no-alias-member"), "{ids:?}");
+    assert_eq!(ids.iter().filter(|i| **i == "mod-namespace:no-alias-member").count(), 1, "{ids:?}");
 }
 
 // [name-table] [node-file] A *copy* of a written reference means what the

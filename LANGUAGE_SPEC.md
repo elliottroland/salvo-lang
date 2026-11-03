@@ -1414,6 +1414,11 @@ Conventions:
     render), but *not* where the checker now guarantees resolution: an
     unresolved dot-call is a codegen error naming the internal
     inconsistency ([backend-never-wrong]).
+  * **An exact repeat is dropped** (`diag::drop_repeated`, 2026-10-30): a
+    diagnostic with the same file, span, id, severity and text as an
+    earlier one, which a type lowered once per checker pass produced. A
+    second diagnostic that differs in place or text is a cascade to fix at
+    its source, not here.
 
 ## Variables and scoping
 

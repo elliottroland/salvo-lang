@@ -37,6 +37,18 @@ pub struct FileDiagnostic {
     pub id: Option<&'static str>,
 }
 
+/// [type-unknown-lenient] One mistake, one diagnostic: a diagnostic that
+/// repeats an earlier one exactly — the same file, place, id and text — is
+/// dropped, the first kept. The checker's interface passes and its body pass
+/// lower one written type up to three times, and what lowering refuses
+/// (`[use]` or `any` on a fn type, ROADMAP 0ar) was reported each time;
+/// resolution, which walks a type alias's arms from more than one place,
+/// the same.
+pub fn drop_repeated(errors: &mut Vec<FileDiagnostic>) {
+    let mut seen: std::collections::HashSet<(usize, u32, u32, u32, Option<&'static str>, bool, String)> = std::collections::HashSet::new();
+    errors.retain(|d| seen.insert((d.file, d.span.start, d.span.end, d.span.expn, d.id, d.is_error(), d.message.clone())));
+}
+
 impl FileDiagnostic {
     pub fn error(file: usize, span: Span, message: impl IntoMessage) -> Self {
         let (id, message) = message.into_message();

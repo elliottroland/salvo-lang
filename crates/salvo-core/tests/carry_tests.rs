@@ -5,9 +5,9 @@
 //! be (ROADMAP §0ar), kept as they were until that is fixed:
 //!
 //! - over the heap declarations and their prelude: a local named in a type's
-//!   slot (also warned unused, and the annotation mismatch), an unknown
-//!   identity and an unknown `cmp@Nothing` selector (each reported twice), and
-//!   a partial type-argument list (reported twice);
+//!   slot (also warned unused, and the annotation mismatch); an unknown
+//!   identity, an unknown `cmp@Nothing` selector and a partial type-argument
+//!   list were each reported twice until 2026-10-30, and are asserted exact;
 //! - over the prelude: a slot in a fn's `<…>` (two errors), and a bare value
 //!   two provenance arms accept (`type-union:no-arm`, "no arm accepts", beside
 //!   the return mismatch);
@@ -206,8 +206,9 @@ fn run(h: Heap<Person>(nowhere) Mut List<Person>) [] -> Int => h {
 }
 "#,
     );
+    // Once (twice until 2026-10-30, ROADMAP 0ar).
     assert!(
-        errs.contains(&"cmp-carry:unknown-fn"),
+        errs == ["cmp-carry:unknown-fn"],
         "expected the unknown-function error: {errs:?}"
     );
 }
@@ -226,8 +227,9 @@ fn run(h: Heap<Person>(cmp@Nothing) Mut List<Person>) [] -> Int => h {
 }
 "#,
     );
+    // Once (twice until 2026-10-30, ROADMAP 0ar).
     assert!(
-        errs.contains(&"fn-attached:no-identity-on-type"),
+        errs == ["fn-attached:no-identity-on-type"],
         "expected the selector error: {errs:?}"
     );
 }
@@ -248,8 +250,9 @@ fn f(h: Ranked<Person, Int>(by_age) Mut List<Person>) [] -> Int => h {
 }
 "#,
     );
+    // Once (twice until 2026-10-30, ROADMAP 0ar).
     assert!(
-        errs.contains(&"qual-value-arg:partial-type-args"),
+        errs == ["qual-value-arg:partial-type-args"],
         "expected the all-or-none error: {errs:?}"
     );
 }
