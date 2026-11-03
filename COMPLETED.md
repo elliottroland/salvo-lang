@@ -144,6 +144,37 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A lambda writes its effects and its clause (user decision, ROADMAP 0bc option (b), [fn-lambda-sig])
+
+- **Decided (user)**: option (b), "to make lambdas consistent with
+  functions": inference from the body stays, and a lambda may also write
+  `[E]` and `=> …` between its parameters and `->`:
+  `(b: Box) [Console] => !b -> …`.
+- **Built**: `Expr::Lambda` gained `effects` and `deductions`; the parser's
+  speculative lambda reads both after the `)` and still rolls back unless
+  `->` follows, so `(xs)[0]` stays a subscript. `check_lambda`: a written
+  list is the body's environment (bound to the lambda, as an expected fn
+  type's is) and, where no fn type is expected, the value's effects; where
+  one is, it may name less, and an effect beyond it is
+  `fn-lambda-sig:effect-not-expected`. A written clause decides which
+  parameters are kept (`fn-contract:consume-kept` for a consumed one), and a
+  `!p` is the value's contract when no fn type is expected (so a call
+  through it consumes), refused where the expected type keeps the argument
+  (`fn-lambda-sig:consumes-kept`). `fn-effects:use`'s message now names a
+  lambda too. Data: `check/fn_effects/lambda_signatures.sv`, run data
+  `functions/a_lambda_s_written_effects_and_clause.sv`.
+- **Scope cut**: the clause accepts only `p` and `!p`
+  (`fn-lambda-sig:entry-kind` for a qualifier, field or projection entry). A
+  qualifier entry is a claim about what the body does to the argument, which
+  only the deduce pass checks, and it runs over declarations; checking a
+  lambda's would need that pass to walk lambda bodies. Where an expected fn
+  type exists, the value keeps that type's contract and passing modes, so a
+  written `p` against a slot that consumes still emits the slot's mode.
+- **Spelling**: the clause sits before `->`, where a fn writes it after its
+  return type, because a lambda's return type is written only before a
+  block, and a clause after `->` would read as the start of an expression
+  body.
+
 ### 2026-10-30 — A send through an `eff[E]` reaches `E`'s spawnable routers (user decision, the E1 DECISION, [actor-deadlock-cycle] [effect-any])
 
 - **Decided (user)**: option (a): an `eff[E]` send also lands on every

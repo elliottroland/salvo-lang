@@ -783,10 +783,16 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
                 block_names(b, used);
             }
         }
-        Expr::Lambda { params, body, .. } => {
+        Expr::Lambda { params, effects, body, .. } => {
             for p in params {
                 if let Some(t) = &p.ty {
                     type_names(t, used);
+                }
+            }
+            // [fn-lambda-sig] A written effect list names effects.
+            for eff in effects.iter().flatten() {
+                if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = eff {
+                    type_ref_names(r, used);
                 }
             }
             match body {

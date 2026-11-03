@@ -5410,7 +5410,45 @@ impl<'s> Parser<'s> {
             }
         }
         self.group_depth -= 1;
-        if !ok || self.eat(&TokenKind::RParen).is_none() || !self.at(&TokenKind::Arrow) {
+        if !ok || self.eat(&TokenKind::RParen).is_none() {
+            self.rollback(snap);
+            return None;
+        }
+        // [fn-lambda-sig] `(s) [Logger] => !s -> …`: an effect list and a
+        // deduction clause between the parameters and `->`, as a fn writes
+        // them after its parameters. Speculative like the rest: `(xs)[0]`
+        // and `(a)[i]` are subscripts, which `->` never follows.
+        let effects = if self.at(&TokenKind::LBracket) && self.same_line() {
+            match self.parse_effect_list() {
+                Some(list) => Some(list),
+                None => {
+                    self.rollback(snap);
+                    return None;
+                }
+            }
+        } else {
+            None
+        };
+        let deductions = if self.at(&TokenKind::FatArrow) && self.same_line() {
+            self.bump();
+            let mut entries: Vec<Deduction> = Vec::new();
+            loop {
+                let Some(entry) = self.parse_deduction_entry() else {
+                    self.pending_deductions.clear();
+                    self.rollback(snap);
+                    return None;
+                };
+                entries.push(entry);
+                entries.extend(std::mem::take(&mut self.pending_deductions));
+                if self.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+            }
+            Some(entries)
+        } else {
+            None
+        };
+        if !self.at(&TokenKind::Arrow) {
             self.rollback(snap);
             return None;
         }
@@ -5432,6 +5470,8 @@ impl<'s> Parser<'s> {
         };
         Some(Expr::Lambda {
             params,
+            effects,
+            deductions,
             ret,
             body,
             span: start.to(end),

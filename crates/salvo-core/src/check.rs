@@ -3413,6 +3413,13 @@ struct TryCtx {
     sites: Vec<(Span, Ty)>,
 }
 
+/// [fn-lambda-sig] What a lambda wrote between its parameters and `->`.
+#[derive(Clone, Copy)]
+struct LambdaSig<'p> {
+    effects: Option<&'p [EffectRef]>,
+    deductions: Option<&'p [Deduction]>,
+}
+
 /// One enclosing lambda during body checking [fate-lambda].
 struct LambdaCtx {
     /// `locals.len()` at lambda entry: frames below this index belong to
@@ -24664,7 +24671,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 self.finish_loop_value(body_ty, body_tail, ctx, else_ty, else_tail)
             }
-            Expr::Lambda { params, ret, body, span } => self.check_lambda(params, ret.as_ref(), body, *span, expected),
+            Expr::Lambda { params, effects, deductions, ret, body, span } => self.check_lambda(
+                params,
+                LambdaSig { effects: effects.as_deref(), deductions: deductions.as_deref() },
+                ret.as_ref(),
+                body,
+                *span,
+                expected,
+            ),
             Expr::Spread { operand, .. } => self.check_expr(operand, None),
             // [comptime-default] Checked once where its struct is declared;
             // here it is a value of the field's type. The owner is lowered so
@@ -25520,6 +25534,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_lambda(
         &mut self,
         params: &'p [LambdaParam],
+        sig: LambdaSig<'p>,
         written_ret: Option<&'p ast::Type>,
         body: &'p LambdaBody,
         span: Span,
@@ -25540,6 +25555,66 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
                 _ => (None, None, None, None),
             };
+        let expected_fn = exp_params.is_some();
+        // [fn-lambda-sig] A written clause says which parameters the lambda
+        // consumes (`!p`) and which it keeps (`p`, the default). Nothing
+        // else: a qualifier entry is a claim about what the body does to the
+        // argument's qualifiers, which only a declaration's body analysis
+        // checks.
+        let written_moved: Option<Vec<Option<Span>>> = sig.deductions.map(|entries| {
+            let mut moved: Vec<Option<Span>> = vec![None; params.len()];
+            for d in entries {
+                let (DeductionTarget::Param { name, path }, kind @ (DeductionKind::KeepAll | DeductionKind::Moved)) =
+                    (&d.target, &d.kind)
+                else {
+                    self.error(d.span, messages::fn_lambda_sig_entry_kind());
+                    continue;
+                };
+                if !path.is_empty() {
+                    self.error(d.span, messages::fn_lambda_sig_entry_kind());
+                    continue;
+                }
+                let Some(i) = params.iter().position(|p| p.name.name == name.name) else {
+                    self.error(name.span, messages::fn_lambda_sig_unknown_param(&name.name));
+                    continue;
+                };
+                moved[i] = matches!(kind, DeductionKind::Moved).then_some(d.span);
+            }
+            moved
+        });
+        // [fn-lambda-sig] Consuming what the expected fn type keeps would give
+        // away a value its caller still owns — the rule a named fn meets when
+        // passed there [fn-contract].
+        if let (Some(moved), true) = (&written_moved, expected_fn) {
+            for (i, at) in moved.iter().enumerate() {
+                let Some(at) = at else { continue };
+                let exp_kept = exp_contract.as_ref().and_then(|c| c.get(i)).is_none_or(|e| e.kept);
+                if exp_kept {
+                    self.error(*at, messages::fn_lambda_sig_consumes_kept(&params[i].name.name));
+                }
+            }
+        }
+        // [fn-lambda-sig] A written effect list is the set the body may
+        // perform, supplied by whoever calls the value. Where a fn type is
+        // expected it may name less than the type (a smaller set fits) but
+        // nothing more: the call site could not supply it.
+        let written_effects: Option<Vec<Ty>> = sig.effects.map(|list| self.lower_fn_effects(Some(list)));
+        if let (Some(written), Some(exp), Some(list)) = (&written_effects, &exp_effects, sig.effects) {
+            let at = list
+                .iter()
+                .map(|e| match e {
+                    EffectRef::Use(s) | EffectRef::Spawn(s) => *s,
+                    EffectRef::Effect(r) | EffectRef::AnyEffect(r) => r.span,
+                })
+                .reduce(|a, b| a.to(b))
+                .unwrap_or(span);
+            for e in written {
+                if !exp.contains(e) {
+                    self.error(at, messages::fn_lambda_sig_effect_not_expected(e, expected.unwrap()));
+                }
+            }
+        }
+        let env_effects: Option<Vec<Ty>> = written_effects.clone().or_else(|| exp_effects.clone());
         // [fate-lambda] Everything below this frame boundary is a
         // capture; the body's reads/mutations of such variables are
         // recorded, and consuming one is an error (the lambda may run
@@ -25559,11 +25634,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.declare(&p.name, ty.clone());
             // [fn-contract] A parameter the expected contract *keeps*
             // belongs to the closure's caller: never consumable inside
-            // the body.
-            let kept = exp_contract
-                .as_ref()
-                .and_then(|c| c.get(i))
-                .is_some_and(|e| e.kept);
+            // the body. [fn-lambda-sig] A written clause decides instead.
+            let kept = match &written_moved {
+                Some(moved) => moved.get(i).is_some_and(|m| m.is_none()),
+                None => exp_contract
+                    .as_ref()
+                    .and_then(|c| c.get(i))
+                    .is_some_and(|e| e.kept),
+            };
             if kept {
                 if let Some(var) = self.lookup_mut(&p.name.name) {
                     var.lambda_kept = true;
@@ -25587,7 +25665,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // `effect_uses` collects; the enclosing environment stands in for
         // the duration so the calls resolve.
         let lambda_binder = Binder::Lambda(self.key(span));
-        let saved_effects = match &exp_effects {
+        let saved_effects = match &env_effects {
             // Transitional (ROADMAP §2b): a fn value's effects arrive as its
             // effect parameters, which the emitters cannot mint a handle
             // from yet — marked inline so a capture is refused.
@@ -25678,16 +25756,38 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [fn-effects] A declared set is the type's (even where the body
         // uses less of it — the emitted signature has to match what the
         // caller passes); otherwise the inferred set is the type's.
-        let effects = exp_effects.unwrap_or(used);
+        // [fn-lambda-sig] A written list is declared, so it is the type's
+        // where no fn type is expected.
+        let effects = exp_effects.or(written_effects).unwrap_or(used);
         // What the emitters need: the effect values this lambda takes as
         // leading parameters, in order.
         self.out
             .effects_taken
             .insert(self.key(span), effects.clone());
+        // [fn-lambda-sig] A written `!p` is the type's contract where no fn
+        // type is expected; there, the expected type's passing modes stand,
+        // so the value fits the slot it is passed to.
+        let contract = match &written_moved {
+            Some(moved) if !expected_fn && moved.iter().any(|m| m.is_some()) => Some(
+                moved
+                    .iter()
+                    .zip(params)
+                    .zip(&param_tys)
+                    .map(|((m, p), ty)| FnParamContract {
+                        name: Some(p.name.name.clone()),
+                        kept: m.is_none(),
+                        effect: if m.is_none() { QualEffect::KeepAll } else { QualEffect::Exhaustive(Vec::new()) },
+                        mutable: ty.quals().iter().any(|q| q.name == "Mut"),
+                        lent: false,
+                    })
+                    .collect(),
+            ),
+            _ => None,
+        };
         let fn_ty = Ty::Fn {
             params: param_tys,
             ret: Box::new(ret),
-            contract: None,
+            contract,
             effects,
         };
         // [fn-once] A lambda that consumes a capture is callable at most

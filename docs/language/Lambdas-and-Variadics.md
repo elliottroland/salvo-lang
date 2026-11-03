@@ -44,7 +44,16 @@ let wrong = (n: Int) -> { return n * 2 }         // error: returns an `Int` wher
 
 A type before a brace is the return type unless the brace opens a struct literal, so `(n: Int) -> Point { x: n }` still answers a `Point` built from `n`; a fieldless struct literal is written in parentheses, `() -> (Finished {})`.
 
-Lambdas can declare effects ([Effects and handlers](Effects-and-Handlers.md)) and deductions ([Deductions and ownership](Deductions-and-Ownership.md)), just like normal functions.
+Lambdas can declare effects ([Effects and handlers](Effects-and-Handlers.md)) and deductions ([Deductions and ownership](Deductions-and-Ownership.md)), just like normal functions. Both go between the parameters and `->`, effects first:
+
+```
+let say = (s: Str) [Console] -> println(s)      // (s: Str) [Console] -> None: callers supply Console
+let consume = (b: Box) => !b -> eat(b)          // calling it consumes the argument
+let keep = (b: Box) => b -> b.v                 // `b` is the caller's: the body may not consume it
+let both = (b: Box) [Console] => !b -> { println(eat(b)) }
+```
+
+Both are optional. Without a written list, a lambda performs what the function type it is passed as declares, or else what its body calls (see [Effects on function types](#effects-on-function-types)); a written list is the set its body may perform, and where a function type is expected it may name fewer effects than the type but not more. A lambda's clause says only which parameters it consumes (`!p`) and which it keeps (`p`, the default, so a parameter the clause leaves out is kept too); a qualifier entry such as `xs: -Sorted` is written on a declared function. A lambda that consumes a parameter does not fit a function type that keeps it, for the same reason a function that does is refused there (below).
 
 ### Which functions fit a function type
 
@@ -110,7 +119,7 @@ fn attempt(f: (n: Int) [Throw<Str>] -> Int, n: Int) [] -> Str => f {
 }
 ```
 - **Fewer effects fit where more are expected.** A pure function passes wherever an effectful one is expected — it is handed the effect and ignores it. The reverse is an error: the value would reach a call site that cannot supply it.
-- **An un-annotated lambda's effects are inferred** from its body, so `let f = () -> { println("hi") }` has type `() [Console] -> None` and does not silently fit a pure position.
+- **An un-annotated lambda's effects are inferred** from its body, so `let f = () -> { println("hi") }` has type `() [Console] -> None` and does not silently fit a pure position. A lambda that writes its list, `() [Console] -> …`, has that set instead.
 - **A function value that may throw** (`[Throw<M>]` in its type) throws to the `try` around its call, or out of a function that declares the throw, as a call of a named function does.
 - **A function value carries no capability**, so storing or returning one is fine; what needs the effect is *calling* it. A stored effectful value called where its effects are unavailable is an error at the call.
 - `use` cannot appear in a function type: registering a handler is local to a body, so a lambda may `use` exactly when the function containing it may.

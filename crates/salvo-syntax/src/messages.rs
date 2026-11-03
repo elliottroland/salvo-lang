@@ -3086,6 +3086,28 @@ messages! {
          type: `({name}: ...) -> ...`)"
     );
 
+    // [fn-lambda-sig]
+    /// A lambda clause entry other than `p` or `!p`.
+    fn_lambda_sig_entry_kind = "fn-lambda-sig:entry-kind" () =>
+        "a lambda's deduction clause says which parameters it consumes (`!p`) and which it \
+         keeps (`p`, the default); a qualifier, field or projection entry is written on a \
+         declared function";
+    /// A lambda clause entry naming no parameter.
+    fn_lambda_sig_unknown_param = "fn-lambda-sig:unknown-param" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` names no parameter of this lambda"
+    );
+    /// A lambda consuming what the expected fn type keeps.
+    fn_lambda_sig_consumes_kept = "fn-lambda-sig:consumes-kept" (name: &dyn std::fmt::Display) => format!(
+        "this lambda consumes `{name}`, but the function type it is passed as keeps that \
+         argument (its caller still owns it): drop `!{name}`, and consume a `copy({name})` \
+         if the body needs one"
+    );
+    /// A lambda declaring an effect the expected fn type does not.
+    fn_lambda_sig_effect_not_expected = "fn-lambda-sig:effect-not-expected" (effect: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
+        "this lambda declares `{effect}`, which the function type it is passed as \
+         (`{ty}`) does not: whoever calls the value could not supply it"
+    );
+
     // [fn-uniform]
     /// A uniform call naming no function in scope, and no member of the receiver.
     fn_uniform_unknown_fn = "fn-uniform:unknown-fn" (name: &dyn std::fmt::Display) => format!(
@@ -3113,8 +3135,8 @@ messages! {
     // [fn-effects]
     /// `use` in a fn type.
     fn_effects_use = "fn-effects:use" () =>
-        "a fn type cannot declare `use`: registering a handler is local to a body, so a \
-         lambda may `use` exactly when the function containing it may";
+        "a fn type or a lambda cannot declare `use`: registering a handler is local to a \
+         body, so a lambda may `use` exactly when the function containing it may";
     /// An effect written as a qualifier of a fn type.
     fn_effects_in_qualifier_position = "fn-effects:in-qualifier-position" (effect: &dyn std::fmt::Display) => format!(
         "a function type declares its effects in its own list (`(…) [{effect}] -> …`), \

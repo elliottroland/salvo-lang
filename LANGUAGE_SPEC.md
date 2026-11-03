@@ -4633,7 +4633,7 @@ Conventions:
   parameters always parenthesized, one included (user decision 2026-10-30:
   the single-parameter shorthand `x -> expr` and the brace form
   `{ x: T -> ... }` are gone). Blocks require `return`. Lambdas may declare
-  effects/deductions.
+  effects and deductions [fn-lambda-sig].
   * **A block body's return type** (user decision 2026-10-30): the type
     written before the block, else the expected fn type's, else `None` —
     as a fn with no `->` returns `None`; the checker checks the body's
@@ -4656,6 +4656,35 @@ Conventions:
   * Param types come from annotation or the expected fn type; early
     `return` inside expression-position lambdas is a codegen error
     (deliberate cut).
+* [fn-lambda-sig] **A lambda's effect list and deduction clause** (user
+  decision 2026-10-30, ROADMAP 0bc option (b)): written between the
+  parameters and `->`, `(s: Str) [Console] -> …`, `(b: Box) => !b -> eat(b)`,
+  both together as `(b) [Console] => !b -> …`. Optional, as a fn's are; an
+  unwritten list is the expected fn type's or else inferred from the body
+  [fn-effects], and an unwritten clause is the expected type's contract.
+  * **The effect list** is what the body may perform, supplied by whoever
+    calls the value, exactly as a fn type's list: so a pure fn can build and
+    return a `() [Console] -> None`. Where a fn type is expected it may name
+    less than the type (a smaller set fits; the value's type is still the
+    expected one, which is what the call site passes) and nothing more
+    (`fn-lambda-sig:effect-not-expected`). `use`, `spawn` and `any E` are
+    refused as on a fn type.
+  * **The clause** says which parameters the lambda consumes (`!p`) and
+    which it keeps (`p`, the default); a parameter it does not mention is
+    kept, so writing a clause makes every unconsumed parameter the caller's
+    (`fn-contract:consume-kept` if the body consumes one). Nothing else is
+    accepted (`fn-lambda-sig:entry-kind`): a qualifier entry is a claim about
+    what the body does to the argument's qualifiers, which only a declared
+    fn's body analysis checks, so a lambda states it by being passed where
+    the fn type says it. An entry names a parameter of the lambda
+    (`fn-lambda-sig:unknown-param`).
+  * **Against an expected fn type** a `!p` where the type keeps the
+    argument is refused (`fn-lambda-sig:consumes-kept`) — the rule a named
+    fn that consumes meets there [fn-contract]. Where no fn type is
+    expected, a `!p` is the value's contract, so a call through it consumes
+    the argument.
+  * **Parsing**: speculative like the rest of the lambda; `(xs)[0]` is
+    still a subscript, since `->` never follows one.
 * [iter-fn] An **`iter fn`** is a hand-written `next` whose **iterator struct
   is generated** (user decisions 2026-09-09, redesigned 2026-09-26/27, the
   struct named 2026-10-20): the declaration is the **minter** — any name, any

@@ -720,18 +720,6 @@ fields their copies were for.
   only marked in the typed dump), an operator whose operand widens
   [op-promote], qualified types other than `Mut T`; see 0av.
 
-### 0bc — DECISION: lambdas "can declare effects and deductions" (found 2026-10-30)
-
-docs/language/Lambdas-and-Variadics.md says "Lambdas can declare effects …
-and deductions …, just like normal functions", but the parser has no syntax
-for either on a lambda: a lambda's effects come from the fn type it is
-checked against or are inferred from its body (the same page, further
-down), and its parameters' contract is the expected fn type's [fn-contract].
-Options: (a) correct the page to say that; (b) add the syntax, a lambda
-writing `[E]` and `=> …` between its parameters and `->` as a fn does.
-Recommendation (a): nothing has needed it, and an inferred set fits where
-the written one would.
-
 ### 0ae — Recorded, not scheduled: per-declaration reuse in the check cache (measured 2026-10-28, A4)
 
 The language server's `CheckCache` [lsp-check-cache] reuses an unedited

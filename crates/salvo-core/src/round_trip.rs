@@ -641,7 +641,7 @@ impl<'a, 'p> Writer<'a, 'p> {
     /// [fn-lambda] A lambda's inferred parameter types, and a block body's
     /// return type when it wrote none.
     fn lambda(&mut self, e: &Expr) {
-        let Expr::Lambda { params, ret, body, span } = e else { return };
+        let Expr::Lambda { params, ret, body, span, .. } = e else { return };
         if !self.here(*span) {
             return;
         }

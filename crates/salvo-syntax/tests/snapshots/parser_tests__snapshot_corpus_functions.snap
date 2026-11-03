@@ -1095,6 +1095,8 @@ Module {
                                                     span: 693..694,
                                                 },
                                             ],
+                                            effects: None,
+                                            deductions: None,
                                             ret: None,
                                             body: Expr(
                                                 Str {
@@ -1145,6 +1147,8 @@ Module {
                                                     span: 728..729,
                                                 },
                                             ],
+                                            effects: None,
+                                            deductions: None,
                                             ret: None,
                                             body: Block(
                                                 Block {
@@ -2712,6 +2716,8 @@ Module {
                                                     span: 1693..1694,
                                                 },
                                             ],
+                                            effects: None,
+                                            deductions: None,
                                             ret: None,
                                             body: Expr(
                                                 Int {
@@ -3973,6 +3979,8 @@ Module {
                                                     span: 2526..2527,
                                                 },
                                             ],
+                                            effects: None,
+                                            deductions: None,
                                             ret: None,
                                             body: Block(
                                                 Block {

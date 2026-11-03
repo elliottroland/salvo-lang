@@ -2197,11 +2197,21 @@ pub enum Expr {
         else_block: Option<Block>,
         span: Span,
     },
-    /// `(i) -> expr`, `(a, b) -> { ... }`, `(a: Int) -> Int { ... }`
+    /// `(i) -> expr`, `(a, b) -> { ... }`, `(a: Int) -> Int { ... }`,
+    /// `(b: Box) [Console] => !b -> ...`
     /// [fn-lambda]: parameters always parenthesized; a block (or `...`)
-    /// body may follow a written return type.
+    /// body may follow a written return type; an effect list and a deduction
+    /// clause may precede the `->` [fn-lambda-sig].
     Lambda {
         params: Vec<LambdaParam>,
+        /// [fn-lambda-sig] The written effect list, `(s) [Logger] -> …`:
+        /// the effects the body may perform, supplied by whoever calls the
+        /// value. `None` when not written (then the fn type it is checked
+        /// against says, or the body's calls are the set).
+        effects: Option<Vec<EffectRef>>,
+        /// [fn-lambda-sig] The written deduction clause, `(b) => !b -> …`:
+        /// which parameters the lambda consumes. `None` when not written.
+        deductions: Option<Vec<Deduction>>,
         /// [fn-lambda] The written return type of a block body, if any.
         ret: Option<Type>,
         body: LambdaBody,
