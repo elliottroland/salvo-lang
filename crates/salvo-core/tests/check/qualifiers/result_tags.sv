@@ -57,9 +57,9 @@ fn main() [use] {
 //~ error[name-resolve:unknown-type]
 //~ error[name-resolve:unknown-type]
 fn f() -> Yes Int | No Str {
-    // A value fitting no arm is reported twice, the arm and the return
-    // mismatch (ROADMAP §0ar, annotated as it is).
-    //~ error[fn-syntax:return-mismatch]
+    // A value fitting no arm of the refused return type: the arm is reported
+    // (annotated as it is, ROADMAP §0ar); the return mismatch beside it went
+    // with the return type's refusal on 2026-10-30.
     //~ error[type-union:no-arm]
     return 1
 }

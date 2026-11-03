@@ -1419,6 +1419,12 @@ Conventions:
     earlier one, which a type lowered once per checker pass produced. A
     second diagnostic that differs in place or text is a cascade to fix at
     its source, not here.
+  * **A refused annotation is that refusal** (2026-10-30): when a `let`'s
+    annotation or a fn's return type is refused as written (an unknown name
+    or qualifier, an effect in a data position, a `Mut` that does not
+    apply, an ineligible key), the value is still checked against it (an
+    empty `Set()` still learns its type there) but not also reported as not
+    fitting it, at the `let` or at a `return`.
 
 ## Variables and scoping
 

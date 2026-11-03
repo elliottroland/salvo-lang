@@ -81,10 +81,10 @@ fn uppercase_module_path_is_an_error() {
 // [name-resolve] Undeclared base types and qualifiers are reported at
 // every declaration site: fn signatures, struct fields, `let`
 // annotations, type aliases, effect members.
-// Kept over the prelude until a defect is fixed (ROADMAP §0ar): over the
-// real std, `fn f() -> Nope { return 1 }` also reports
-// `fn-syntax:return-mismatch` and `let x: Nope = 1` also reports
-// `var-let-infer:annotation-mismatch` beside the unknown type.
+// Kept over the prelude. Over the real std, `fn f() -> Nope { return 1 }`
+// also reported `fn-syntax:return-mismatch` and `let x: Nope = 1`
+// `var-let-infer:annotation-mismatch` beside the unknown type until
+// 2026-10-30; it could move to the data now.
 #[test]
 fn unknown_names_are_reported_at_declaration_sites() {
     let cases = [

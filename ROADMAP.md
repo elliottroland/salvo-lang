@@ -102,6 +102,8 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
   Exact repeats of one diagnostic (commit "Drop a diagnostic that repeats
   another exactly"): the fn-type `[use]`/`[spawn]`/`any` refusals, three
   carry refusals, the leading-dot arm.
+  A refused annotation or return type is not a second mistake at its value
+  (commit "Say nothing more of a value against a refused annotation").
 - Next: 0ar's remaining items (diagnostic cascades, message texts).
 
 ## The sequence
@@ -924,10 +926,6 @@ repros are over the real std.
     clause (`compare_tests::default_is_refused_…`, `a_default_obligation_takes_self`);
   - a failed `by` clause (refused, ambiguous, several modules, names nothing)
     also reports `group-obligation:no-member` (four `compare_tests`);
-  - an effect type in a data position also reports the return/annotation
-    mismatch (`member_tests::effect_types_are_rejected_in_data_positions`);
-  - an unknown qualifier in a `let` also reports the annotation mismatch
-    (`refine_tests::a_refinement_is_only_in_scope_with_its_qualifier`);
   - past a parse error, the recovered AST cascades: `self.note(x)` adds
     `effect-available:own-effect` and `effect-member-call:arg-count`; a
     `[for]`/`refuse!` outside a comptime fn adds the internal
@@ -955,15 +953,11 @@ repros are over the real std.
     mismatch and warns the local unused; `fn bad<T, ?cmp: …>` reports two
     slot errors; `to_set(List())` reports `call-type-args:cannot-infer`
     twice, for `List`'s `T` and `to_set`'s (`carry_tests`);
-  - `let n: Mut Int = 1` reports `struct-mut:not-canbe-mut` and the annotation
-    mismatch (`str_tests::str_opts_into_mut`);
   - a linear key (`Set(h)` for a `linear struct Handle`) reports the
     missing `hash` beside the two `linear-generics` refusals and the variadic
     one (`collection_tests::a_linear_element_is_refused_…`); the struct key's
     `eq` is no longer reported after its `hash` (2026-10-30).
 - **And from wave 3**:
-  - an unknown type in a return or a `let` adds the mismatch it causes
-    (`name_tests::unknown_names_are_reported_at_declaration_sites`);
   - past the parse error, `return v!` adds the return mismatch (parse-only
     test kept);
   - a member call through
@@ -1014,7 +1008,7 @@ repros are over the real std.
     declarations recover into checked declarations (`effect-handler-multi:missing-member`
     ×3, `fn-must-return`); a terminal `if … ...` then `elif` gives three
     errors; `"${size("a)} z"` gives three; `let a: [x.type] = p` outside a
-    comptime fn adds the unknown type and two mismatches; `is` alone in a
+    comptime fn adds the unknown type and the return mismatch at `return a`; `is` alone in a
     handler body is called a bare state field.
 
 ### 0ba — Recorded, not scheduled: a reference's target by node (D2 navigation refs, 2026-10-30)

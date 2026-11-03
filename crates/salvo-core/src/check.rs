@@ -2944,6 +2944,9 @@ struct FnSig {
     /// type with established claims stripped [deduce-reapply]; `None` for a
     /// bodiless fn.
     ret_ty: Ty,
+    /// [type-unknown-lenient] The written return type was refused (ROADMAP
+    /// 0ar): a `return` is not also reported as not fitting it.
+    ret_refused: bool,
 }
 
 /// [decl-interface-pass] A handler's header, as its members' bodies read it.
@@ -3013,6 +3016,8 @@ struct Checker<'p, 'r> {
     generics: HashSet<String>,
     /// Return type of the function being checked.
     ret_ty: Ty,
+    /// [type-unknown-lenient] The fn's written return type was refused.
+    ret_refused: bool,
     /// Names of qualifiers declared in the file currently being checked
     /// (constructive-qualifier constructors must live in this file).
     own_qualifiers: HashSet<String>,
@@ -3596,6 +3601,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             locals: Vec::new(),
             generics: HashSet::new(),
             ret_ty: Ty::none(),
+            ret_refused: false,
             own_qualifiers: HashSet::new(),
             effect_env: Vec::new(),
             call_fixed_params: HashSet::new(),
@@ -9615,9 +9621,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             ),
         };
         let SigFacts { implicits, effects: mut fn_effects, can_use, mut can_spawn } = facts;
+        // [type-unknown-lenient] A return type refused as written (an unknown
+        // name or qualifier, an effect in a data position, a `Mut` that does
+        // not apply) is that refusal: the body's returns are not checked
+        // against it as well (ROADMAP 0ar).
+        let errors_before = self.out.errors.len();
         if let Some(rt) = &f.return_type {
             self.validate_type(rt);
         }
+        let mut ret_refused = self.out.errors.len() > errors_before;
         // [fn-type-named] Rule (c): a type-named fn must return a value whose
         // type has the named base AND at least the named qualifiers (extra
         // qualifiers allowed). Checked with the fn's generics in scope.
@@ -9891,11 +9903,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         // (callers see `Qual T`). Only a body has return points.
         let mut ret_ty = Ty::none();
         if f.body.is_some() {
+            let errors_before = self.out.errors.len();
             ret_ty = f
                 .return_type
                 .as_ref()
                 .map(|t| self.lower_type(t))
                 .unwrap_or_else(Ty::none);
+            ret_refused |= self.out.errors.len() > errors_before;
             // [deduce-reapply] `+Q` inside the return type marks a claim this
             // fn **establishes**: callers see it (`fn_return_ty` lowers the
             // written type as-is), the body's returns are checked *without*
@@ -9923,6 +9937,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         FnSig {
+            ret_refused,
             implicits,
             effects: fn_effects,
             can_use,
@@ -10008,7 +10023,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         sig: FnSig,
         saved_generics: HashSet<String>,
     ) {
-        let FnSig { implicits, effects: fn_effects, can_use, can_spawn, ret_ty, .. } = sig;
+        let FnSig { implicits, effects: fn_effects, can_use, can_spawn, ret_ty, ret_refused, .. } = sig;
+        self.ret_refused = ret_refused;
         // [node-id] Variable ids are per declaration: what a body's facts
         // carry of them (`FateLink::elem_idx`) does not
         // move when another declaration of the file changes.
@@ -22718,14 +22734,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                 value,
                 span,
             } => {
+                // [type-unknown-lenient] An annotation refused as written is
+                // that refusal: the value is not also reported as not fitting
+                // it (ROADMAP 0ar).
+                let errors_before = self.out.errors.len();
                 if let Some(t) = ty {
                     let saved = std::mem::replace(&mut self.let_pattern, true);
                     self.validate_type(t);
                     self.let_pattern = saved;
                 }
                 let annotated = ty.as_ref().map(|t| self.lower_type(t));
+                let ann_refused = self.out.errors.len() > errors_before;
                 let value_ty = self.check_expr(value, annotated.as_ref());
-                if let Some(ann) = &annotated {
+                if let Some(ann) = annotated.as_ref().filter(|_| !ann_refused) {
                     // [type-literal] A value outside a literal union's list
                     // is reported once, by the coercion, naming the values.
                     let listed_elsewhere = crate::literal::mentions_lit(ann)
@@ -24041,6 +24062,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             }
                         }
                         if !ref_mint
+                            && !self.ret_refused
                             && !is_subtype(&vty, &expected)
                             // [qual-arm-infer] A bare value that is the payload of
                             // exactly one provenance-tagged arm is accepted:
@@ -25557,6 +25579,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             _ => Some(written_ret.map(|t| self.lower_type(t)).or_else(|| exp_ret.clone()).unwrap_or_else(Ty::none)),
         };
         let saved_ret = std::mem::replace(&mut self.ret_ty, block_ret.clone().or_else(|| exp_ret.clone()).unwrap_or(Ty::Unknown));
+        let saved_ret_refused = std::mem::replace(&mut self.ret_refused, false);
         // [fn-effects] The body performs the effects the fn *type* declares
         // — the call site supplies them, so nothing is captured. With no
         // expected type the set is *inferred* from the body, which is what
@@ -25627,6 +25650,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.can_spawn = saved_can_spawn;
         self.own_handler = saved_own_handler;
         self.ret_ty = saved_ret;
+        self.ret_refused = saved_ret_refused;
         // [ir-analyze] A lambda parameter's linear-obligation leak check
         // moved to the IR analysis.
         self.locals.pop();

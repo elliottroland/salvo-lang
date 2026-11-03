@@ -144,6 +144,19 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A value is not reported against a refused annotation (ROADMAP 0ar, [type-unknown-lenient])
+
+- **Built**: a `let` whose annotation, or a fn whose return type, reported
+  an error while it was validated and lowered skips the mismatch report at
+  the value (`var-let-infer:annotation-mismatch`, `fn-syntax:return-mismatch`;
+  `FnSig::ret_refused`, reset inside a lambda). The expectation still flows
+  into the value, so `-> Set<Double>` with `return Set()` still infers its
+  type and reports the key once. Gone: the second diagnostic for an unknown
+  type or qualifier, an effect type in a data position and a `Mut Int`
+  annotation. Data annotations changed in `check/qualifiers/result_tags.sv`
+  and `check/syntax/comptime.sv`; `analyze_tests::ownership_errors_are_…`
+  counts 8 errors, not 9.
+
 ### 2026-10-30 — A diagnostic that repeats another exactly is dropped (ROADMAP 0ar, [type-unknown-lenient])
 
 - **Built**: `diag::drop_repeated`, run over the checker's errors after the

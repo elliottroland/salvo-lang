@@ -391,7 +391,9 @@ fn ownership_errors_are_reported_beside_type_errors_elsewhere() {
     assert!(stderr.contains("expected return type `Int`, found `Str` --> main.sv:5:12"), "stderr: {stderr}");
     assert!(stderr.contains("expected return type `Int`, found `Str` --> main.sv:18:12"), "stderr: {stderr}");
     assert!(stderr.contains("unknown type `Nope` --> main.sv:21:19"), "stderr: {stderr}");
-    assert!(stderr.contains("expected return type `Nope`, found `Str` --> main.sv:22:12"), "stderr: {stderr}");
+    // [type-unknown-lenient] A refused return type is not a second mistake
+    // at its `return` (it was reported there too until 2026-10-30).
+    assert!(!stderr.contains("expected return type `Nope`"), "stderr: {stderr}");
     assert!(stderr.contains("`s` is kept by default, but the body moves it"), "stderr: {stderr}");
     assert!(stderr.contains("in `hash` from `auto` for `Sample.at: Double`"), "stderr: {stderr}");
     assert!(stderr.contains("expected identifier, found `=` --> broken.sv:8:9"), "stderr: {stderr}");
@@ -407,8 +409,8 @@ fn ownership_errors_are_reported_beside_type_errors_elsewhere() {
     assert!(!stderr.contains("main.sv:28:9"), "stderr: {stderr}");
     assert!(!stderr.contains("broken.sv:7"), "stderr: {stderr}");
     let errors = stderr.matches("error: ").count();
-    assert_eq!(errors, 9, "stderr: {stderr}");
-    assert!(stderr.contains("9 errors"), "stderr: {stderr}");
+    assert_eq!(errors, 8, "stderr: {stderr}");
+    assert!(stderr.contains("8 errors"), "stderr: {stderr}");
 
     // A build lists both kinds, and still emits nothing.
     fs::remove_file(dir.join("broken.sv")).unwrap();

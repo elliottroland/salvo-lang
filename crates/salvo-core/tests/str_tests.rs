@@ -176,11 +176,10 @@ fn a_plain_str_records_nothing() {
 /// [type-canbe-mut] `Str canbe Mut`, so `Mut Str` is a type — where `Mut
 /// Int` still is not.
 //
-// Kept on the old prelude: over the real std, `let n: Mut Int = 1` reports
-// `struct-mut:not-canbe-mut` and then `var-let-infer:annotation-mismatch`
-// ("expected `Mut Int`, found `Int`"), a second diagnostic for one mistake
-// [type-unknown-lenient], which a data file would pin. The `Mut Str` half is
-// `strings/strings.sv`'s `opts_into_mut`.
+// Kept on the old prelude. Over the real std, `let n: Mut Int = 1` also
+// reported `var-let-infer:annotation-mismatch` beside `struct-mut:not-canbe-mut`
+// until 2026-10-30 [type-unknown-lenient]; it could move to the data now. The
+// `Mut Str` half is `strings/strings.sv`'s `opts_into_mut`.
 #[test]
 fn str_opts_into_mut() {
     assert!(prelude_errors(&body("    let b: Mut Str = mut_str()")).is_empty());

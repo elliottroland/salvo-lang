@@ -77,7 +77,6 @@ comptime fn f<T is Struct>(v: T) [] -> Int => v {
 //--- a_splice_outside_a_comptime_fn
 // [comptime-inline] A splice outside a comptime fn names the scope.
 fn f(p: Int) -> Int => p {
-    //~ error[var-let-infer:annotation-mismatch]
     //~ error[name-resolve:unknown-type]
     //~ error[comptime-inline:outside-compfn]
     let a: [x.type] = p
