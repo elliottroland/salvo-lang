@@ -14048,7 +14048,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [op-arith] [op-pow] An arithmetic operator is **the call it names**
-    /// (OPERATOR_OVERLOAD.md O1, the pipeline record §3 R10): `a + b` is `plus(a, b)`,
+    /// (the operator record O1, the pipeline record §3 R10): `a + b` is `plus(a, b)`,
     /// `-` `minus`, `*` `times`, `/` `divide`, and `a ** b` is `pow(a, b)`,
     /// resolved exactly as the written call is, as the comparisons are
     /// (B3.3c): the enclosing fn's own implicit of the name first, by name as
@@ -25313,7 +25313,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [iter-for] [iter-resolve] The element type of `for x in e`, which is
-    /// the calls it names (OPERATOR_OVERLOAD.md O1, R10 D10): `next(e)` when a
+    /// the calls it names (the operator record O1, R10 D10): `next(e)` when a
     /// `next` takes `e` — `e` is an **iterator**, driven where it lives —
     /// and otherwise `next(iter(e))` — `e` is a **source**, and the loop
     /// mints an iterator from it first. Each call is resolved as it would be

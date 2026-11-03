@@ -1,5 +1,5 @@
 // [op-unique-shape] A function of a unique shape on a type is declared in the
-// type's own file (user decision O1-D, 2026-10-27; OPERATOR_OVERLOAD.md
+// type's own file (user decision O1-D, 2026-10-27; the operator record
 // "D's details"): the class is `eq` (2 explicit parameters, `-> Bool`), `cmp`
 // (2, `-> Int`), `plus`, `minus`, `times`, `divide`, `pow` (2), `to_str` (1),
 // `iter` (1) and `next` (1, `-> Emitted T | Finished`); "on `T`" is the first

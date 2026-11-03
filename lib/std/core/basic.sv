@@ -167,7 +167,7 @@ export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b
 // What `a + b` (`plus(a, b)`), `a - b` (`minus`),
 // `a * b` (`times`), `a / b` (`divide`), `a % b` (`rem`) and `-a` (`neg`)
 // mean on a number, declared here,
-// beside the types, as the comparisons above are (OPERATOR_OVERLOAD.md O1;
+// beside the types, as the comparisons above are (the operator record O1;
 // `rem` and `neg`, user decision 2026-10-30).
 // The backends write their own operator for these: integer
 // arithmetic wraps, `Int / Int` divides toward zero, `%` keeps the

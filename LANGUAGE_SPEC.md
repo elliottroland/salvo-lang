@@ -2468,7 +2468,7 @@ Conventions:
     skipped. A value side is held in a temporary unless nothing could tell:
     a literal, or a read when the subject is a read too.
 * [op-arith] **Arithmetic operators are the calls they name** (B3.3e,
-  2026-10-28; OPERATOR_OVERLOAD.md O1, the pipeline record §3 R10): `a + b` is
+  2026-10-28; the operator record O1, the pipeline record §3 R10): `a + b` is
   `plus(a, b)`, `a - b` `minus(a, b)`, `a * b` `times(a, b)`, `a / b`
   `divide(a, b)`, `a % b` `rem(a, b)` and unary `-a` `neg(a)` (`rem` and
   `neg` user decision 2026-10-30, the pipeline record §II.10 P16), resolved
@@ -2534,7 +2534,7 @@ Conventions:
     resolved nothing and the result was the promoted operand type
     (`check_arith`, which now types `%` alone).
 * [op-pow] **`a ** b` is `pow(a, b)`** (B3.3e; the brief's `**`,
-  OPERATOR_OVERLOAD.md O1's name table), resolved as [op-arith]'s operators
+  the operator record O1's name table), resolved as [op-arith]'s operators
   are — the enclosing `?pow`, then the visible `pow`s and members, one per
   concrete base type [op-unique-shape]. A type of your own gets `**` by
   declaring `pow` in its file (`fn pow(p: Person, power: Int) -> Person`).
@@ -2608,7 +2608,7 @@ Conventions:
   (Kotlin `toX()` ≡ Rust `as`, verified pairwise).
 * [op-order] **Ordering is `cmp`**: `a < b` is `cmp(a, b) < 0`, and likewise
   for `<=`, `>` and `>=` (user decision 2026-09-21, superseding the
-  2026-09-14 surface), and since B3.3c (2026-10-28; OPERATOR_OVERLOAD.md O1,
+  2026-09-14 surface), and since B3.3c (2026-10-28; the operator record O1,
   the pipeline record §3 R10) **the operator is the call it names**, resolved exactly
   as the written call `cmp(a, b)` is — one rule, no semantic fast path:
   * **The enclosing fn's own implicit first** [implicit-resolve-body]: an
@@ -3116,7 +3116,7 @@ Conventions:
     without a binding is read once by the test and so needs nothing.
   * `when` needs no rule of its own: its subject must already be a plain
     variable [when-union-subject].
-* [iter-for] **`for x in e` is the calls it names** (OPERATOR_OVERLOAD.md O1,
+* [iter-for] **`for x in e` is the calls it names** (the operator record O1,
   R10 D10, B3.3d): `next(e)` when a `next` takes `e` — `e` is an **iterator**
   [iter-protocol], driven where it lives — and otherwise `next(iter(e))` — `e`
   is a **source**, and the loop mints an iterator from it once [iter-mint].
@@ -3855,7 +3855,7 @@ Conventions:
   * `fns Next<It, T> { fn next(it: Mut It) -> Emitted T | => it: Mut
     Finished }` [group-obligation] [group-self]: a type of your own becomes
     drivable by supplying the `next` [iter-for]; declaring `: Next<self, T>`
-    (the group was `Yield` until 2026-10-27, OPERATOR_OVERLOAD.md O1) checks it
+    (the group was `Yield` until 2026-10-27, the operator record O1) checks it
     at the struct, where a misspelled member is caught (roadmap R2, user
     decisions 2026-09-08; this replaced `fns Iterator<St, T>` and the `once`
     requirement). The state is `Mut` because advancing an iterator mutates its
@@ -4282,7 +4282,7 @@ Conventions:
   in their own right, and the group has **no binder** (user decision
   2026-09-05 — the binder referenced nothing, prevented no collision, and
   made the caller name it to override one member). The keyword is `fns`
-  (user decision 2026-10-27, OPERATOR_OVERLOAD.md O1): it was `params`, from
+  (user decision 2026-10-27, the operator record O1): it was `params`, from
   when a group was only a bundle of implicit parameters; a group is now a
   set of function signatures that also serves as an obligation on a type
   [group-obligation]. The concept keeps its name, a **group**.
@@ -5614,7 +5614,7 @@ Conventions:
     implicitly visible everywhere anyway. (Until 2026-10-27 the canonicals were
     in `std.core.compare`, so neither route was available.)
 * [op-unique-shape] **A function of a unique shape on a type is declared in the
-  type's own file** (user decision O1-D, 2026-10-27; OPERATOR_OVERLOAD.md
+  type's own file** (user decision O1-D, 2026-10-27; the operator record
   "D's details", D-1 to D-7). An operator is the call it names (O1-B: `a == b`
   is `eq(a, b)`, `a < b` is `cmp(a, b) < 0`, `"${x}"` is `to_str(x)`, `for x
   in c` is `next(iter(c))`), and this placement rule makes that call *the*
@@ -6359,8 +6359,8 @@ Conventions:
   * **Positions the template writes no name for are the site's**: an
     interpolation's `to_str`, an operator's `cmp` or `eq`, a `for`'s `next`
     and `iter`, an implicit argument — as they would be in code written
-    there. (Operator overloading will lower some of these to calls a template
-    can write with a selector, OPERATOR_OVERLOAD.md.) **A type's name called
+    there. (Since the operator record's O1 these are the calls they name,
+    resolved as those calls are.) **A type's name called
     as a constructor** (`Mut Str("…")`, `Point(…)`) is the type's: the
     template's when its file sees it, the site's otherwise; it needs no
     selector.
@@ -13934,7 +13934,7 @@ replaced the working document TESTING.md).
   as the call it resolved to (`plus@std.core.basic(a, b)`, `eq@…(a, b)`,
   `!eq@…(a, b)` for `!=`, `cmp@…(a, b) < 0` for a comparison; grouping
   parentheses kept); an interpolated part as its `to_str` call inside `${}`
-  (until interpolation is a function of its own, OPERATOR_OVERLOAD.md); the
+  (the parts' join is the IR's `Concat`, not a std fn [interp-to-str]); the
   type of an unannotated `let`, a lambda's parameters and block return, and
   a generic struct literal's type arguments. Types are spelled as the dumps
   spell them [dump-spelling], std's callees written with their module too.

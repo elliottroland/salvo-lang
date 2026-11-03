@@ -144,6 +144,16 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — OPERATOR_OVERLOAD.md retired (user question)
+
+- The user asked whether the operator brief still needed to exist.
+  Everything it decided is built (operators as the calls they name,
+  [op-unique-shape], the renames, `**`, interpolation as `to_str` calls),
+  and its leftovers were the 0ah readings, now confirmed. Following the
+  retirement rule it is the "Design record: operator overloading" section
+  below, brief and discussion as written; code, specs, std and this log cite
+  it as "the operator record"; the file is deleted.
+
 ### 2026-10-30 — Four built readings confirmed, and the roadmap cleared of finished work (user decisions, ROADMAP 0af, 0ah, 0ai, 0ap)
 
 - **Confirmed (user)**, each as built, so none is a DECISION any more:
@@ -693,7 +703,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   `#{…}`; `--expr-types` (the user's name) adds every expression's type;
   `salvo facts` goes, its rows becoming `--rows`; operators are written as
   the call they resolve to, interpolated parts as `to_str` inside `${}`
-  (until OPERATOR_OVERLOAD.md makes interpolation a function of its own),
+  (until the operator record makes interpolation a function of its own),
   `for` marked; the round trip compares the written binding types and type
   arguments.
 - **Built**: `round_trip.rs` is one writer with two readings. The round
@@ -2845,8 +2855,8 @@ is** (user, round 3 TD12: short feature words are fine — `op-arith`, `kt`,
 `[field-resolve]` `[struct-field-resolve]`; the full table is in TESTS.md §7.
 One scripted sweep of the bracketed form over every tracked file (4,119
 references in 445 files: specs, code, tests, snapshots, std, examples' checked-in output,
-COMPLETED.md and ROADMAP.md), leaving the user's `demo/`, OPERATOR_OVERLOAD.md
-and SLICES.md alone. One proposed name collided (`eff-handle` →
+COMPLETED.md and ROADMAP.md), leaving the user's `demo/`, the operator brief
+(OPERATOR_OVERLOAD.md, since retired) and SLICES.md alone. One proposed name collided (`eff-handle` →
 `effect-handle` exists) and became `effect-eff-handle`.
 
 - **`@compilerrules [rule-a, rule-b] comment`** ([doc-compilerrules], user
@@ -2925,7 +2935,7 @@ This is the sequence's first code step.
 ### 2026-10-28 — Arithmetic operators are the calls they name, and `**` is added (B3 piece 3e, O1, R10 D1, D3)
 
 **`a + b` is `plus(a, b)`, `a - b` `minus(a, b)`, `a * b` `times(a, b)`, `a /
-b` `divide(a, b)`, and the new `a ** b` is `pow(a, b)`** (OPERATOR_OVERLOAD.md
+b` `divide(a, b)`, and the new `a ** b` is `pow(a, b)`** (the operator record
 O1's name table and the brief's `**`; the pipeline record §3 R10; [op-arith],
 [op-pow]), each resolved exactly as the written call is, the way B3.3c made the
 comparisons calls. `check_arith_call` runs the one lowering that stays before
@@ -3044,7 +3054,7 @@ of the summed top-level phases: `examples/cluster` 62.0/64.2/58.8 →
 ### 2026-10-28 — A `for` is the `next` and `iter` it names (B3 piece 3d, R10 D10, D3; census D8–D11)
 
 **`for x in e` is `next(e)` when a `next` takes `e`, and `next(iter(e))`
-otherwise** (OPERATOR_OVERLOAD.md O1; the pipeline record §3 R10 D10; [iter-for]),
+otherwise** (the operator record O1; the pipeline record §3 R10 D10; [iter-for]),
 each call resolved exactly as it would be written: the enclosing fn's own
 implicit of the name first, ranked like overloads ([implicit-resolve-body],
 [implicit-same-name]), then `resolve_named_call` over the available effects'
@@ -3174,7 +3184,7 @@ does not re-check std.
 
 **`a == b` is `eq(a, b)`, `a != b` is `!eq(a, b)`, `a < b` is `cmp(a, b) <
 0`** (`>`, `<=`, `>=` alike), selected by the call rule
-(OPERATOR_OVERLOAD.md O1; the pipeline record §3 R10; [op-order], [op-equality]).
+(the operator record O1; the pipeline record §3 R10; [op-order], [op-equality]).
 `check_comparison_operands` no longer resolves anything of its own: it runs
 the two lowerings that stay before the call and then `resolve_named_call`
 with the operands pre-typed, so the call's selection, its effect members,
@@ -3298,7 +3308,7 @@ numeric one returned at once (an edit does not pay it: std is cached).
 ### 2026-10-28 — Each operator on a type is declared in the type's file (B3 piece 3b, user decision O1-D)
 
 **The placement rule [op-unique-shape]** (user decision O1-D, 2026-10-27:
-OPERATOR_OVERLOAD.md "Discussion", O1 "B plus D" and "D's details", D-1 to
+the operator record "Discussion", O1 "B plus D" and "D's details", D-1 to
 D-7, decided by the user): a function matching a unique function shape on a
 type `T` (or a qualified `T`) is declared in `T`'s declaring file, and a
 second one anywhere else is an error at its declaration, used or not. With
@@ -3404,7 +3414,7 @@ all green; `salvo test --src lib` 150.
 
 ### 2026-10-28 — Implicit groups are spelled `fns`, and `Yield` is `Next` (B3 piece 3a)
 
-**Two renames the user kept from the operator brief** (OPERATOR_OVERLOAD.md
+**Two renames the user kept from the operator brief** (the operator record
 O1, user decision 2026-10-27: "kept from the brief: … the `params` → `fns`
 and `Yield` → `Next` renames"), made first in B3 piece 3 so the operator and
 `for` lowering that follow speak the new names (the pipeline record §II.12, §II.13
@@ -4059,7 +4069,7 @@ disambiguates overloads by the written parameter types), P2 (facts keyed
 `(DeclId, NodeId)`, the span kept as origin data), P3 (call resolution is
 the reference for every spelling of a call), P4 case by case (effect
 members compete with fns; operators and interpolation per
-OPERATOR_OVERLOAD.md O1), P5 (the round trip on the corpus and examples),
+the operator record O1), P5 (the round trip on the corpus and examples),
 P6 (representation at D1), P7 (one `salvo dump --phase …`), P8 (comptime's
 signature/body split only in C3); `by` at a call is not supported.
 
@@ -34599,7 +34609,7 @@ types), P2 (facts keyed `(DeclId, NodeId)`, the span kept as origin data;
 amends R1's relative-span key), P3 (call resolution is the reference; every
 other spelling behaves like the call it lowers to), P4 case by case
 (effect members compete with fns; interpolation and operators per
-OPERATOR_OVERLOAD.md O1: an operator is the call it names, and each operator
+the operator record O1: an operator is the call it names, and each operator
 shape on a type is declared in the type's file, `[op-unique-shape]`), P5 (the
 round trip on the corpus and examples), P6 (representation decided at D1),
 P7 (one `salvo dump --phase parse-ast|resolve|type-check|generate-ir`), P8
@@ -34626,7 +34636,7 @@ all cases where we can.*
 - **D5: follow the call.** No "operators compare the data" exception: `xs ==
   ys` is `eq(xs, ys)` with the qualified argument types.
 - **D6: drop the same-type rule** for `==` and `<`; a mixed `eq(Meters, Feet)`
-  is an operator, placed with its left type (OPERATOR_OVERLOAD.md D-2).
+  is an operator, placed with its left type (the operator record D-2).
 - **D7: [op-arm-eq] stays a lowering before the call, for now.** Recorded
   for later (not now): a general way for more complicated cases, perhaps
   generating helper functions over the unions.
@@ -34649,7 +34659,7 @@ all cases where we can.*
 - **D1: no semantic fast path.** `"${n}"` and `==` on scalars are the calls
   they name (an enclosing `?to_str` or `?eq` applies); the backends emit the
   native spelling exactly when the call resolves to std's intrinsic.
-  OPERATOR_OVERLOAD.md O5's text is to be corrected accordingly.
+  the operator record O5's text is to be corrected accordingly.
 
 ### 4. Body-derived interface facts (D2)
 
@@ -35054,7 +35064,7 @@ agent while Part I's leftovers were finished. Part I's §7 plan is built; Part
 II is what comes after it. Its rounds are summarized in §3 as R9 and kept in
 full in §II.11; its sequence is §II.9, and its work log is §II.12. Operator
 overloading, which decides Part II's interpolation and operator rows (P4), is
-designed in OPERATOR_OVERLOAD.md.
+designed in the operator record.
 
 ### II.1. Goal
 
@@ -35801,7 +35811,7 @@ lowering before typing, then the checker's special paths deleted. Needs A2
   3. Operators are written as the call they resolve to
      (`plus@std.core.basic(a, b)`), checked by the round trip;
      interpolation parts as their `to_str@…` inside `${}` (until
-     OPERATOR_OVERLOAD.md makes interpolation a specific function); `for`
+     the operator record makes interpolation a specific function); `for`
      is marked.
   4. The round trip compares the type of every binding it writes an
      annotation for, and type arguments; marked forms are skipped. A
@@ -35872,7 +35882,7 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
 - **P4. What each form lowers to** (B2). **Case by case** (user,
   2026-10-27), from the census table. Two directions given:
   - **Interpolation and operators wait on the user's operator-overloading
-    design** (OPERATOR_OVERLOAD.md; discussion and decisions O1–O6 recorded
+    design** (the operator record; discussion and decisions O1–O6 recorded
     there; O1 decided 2026-10-27: an operator is the call it names, resolved by name like any call, and each operator on a type is declared once, in the type's module), its interaction with implicits and generics; interpolation is an operator on that model. Candidate direction (user):
     `"a ${x} b"` lowers to a call of a std **format fn**, which a backend may
     emit as its native interpolation ([backend-core-layers]: core states the call,
@@ -36097,7 +36107,7 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
      place of its own.
   2. Positions a template writes no name for (an interpolation, an
      operator, a `for`) are the site's; operator overloading
-     (OPERATOR_OVERLOAD.md) will lower them to calls a template can select.
+     (the operator record) will lower them to calls a template can select.
   3. Types, effects and qualifiers are the template file's only.
   4. A type's name called as a constructor follows the type.
   5. An expanded-in-place comptime fn has ordinary names; `@[site]` is an
@@ -36155,12 +36165,12 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
 
 - P5: (b), corpus and examples. P7's phase names: `parse-ast`, `resolve`,
   `type-check`, `generate-ir`, documented in the language docs.
-- The user's operator-overloading design (OPERATOR_OVERLOAD.md, untracked)
+- The user's operator-overloading design (OPERATOR_OVERLOAD.md, untracked; now the operator record)
   shared for P4's interpolation and operator rows; under discussion.
 
 #### 2026-10-27, fourth
 
-- Operators (OPERATOR_OVERLOAD.md O1, user): **an operator is the call it
+- Operators (the operator record O1, user): **an operator is the call it
   names**, resolved by name exactly like that call (option B); no fixed
   operator fn, no `operator` keyword, no generic exclusion. So B3's
   operator piece lowers `a < b` to `cmp(a, b) < 0` and `a == b` to
@@ -36170,16 +36180,16 @@ Outcomes of the 2026-10-27 round first; what is still open says so.
 
 #### 2026-10-27, fifth
 
-- Operators, revised (OPERATOR_OVERLOAD.md O1, user): B **plus D**: every
+- Operators, revised (the operator record O1, user): B **plus D**: every
   fn matching an operator pattern on `T` (or a qualified `T`) is declared
   in `T`'s module, so a concrete type has one candidate per operator and
   the name-based call is that operator. Lowering unchanged from the fourth
   round; adds a per-declaration placement check (an interface fact, in
-  `resolve`). D's details D-1 to D-7 open in OPERATOR_OVERLOAD.md.
+  `resolve`). D's details D-1 to D-7 open in the operator record.
 
 #### 2026-10-27, sixth
 
-- D's details decided (OPERATOR_OVERLOAD.md): the class is **unique
+- D's details decided (the operator record): the class is **unique
   function shapes** (operators its first members); placement is the
   type's declaring *file*; "on `T`" is the first explicit parameter's base
   type; a shape is name + explicit arity, plus the return type for `eq`
@@ -36334,7 +36344,7 @@ same body goes through the implicit [implicit-resolve-body].
 or `cmp` covering a scalar or `Str`, and which interpolate or compare such
 a value directly, would behave differently. None would newly be refused.
 The backends can keep the native spelling exactly when the call resolves
-to std's intrinsic. **Decision:** none beyond P3, but OPERATOR_OVERLOAD.md
+to std's intrinsic. **Decision:** none beyond P3, but the operator record
 O5 is wrong today. O5 says `"${n}"` inside `show(…, ?to_str: (x: Int) ->
 Str)` "uses the enclosing implicit". That holds only for elements nested
 inside a std container's `to_str` (the 2026-10-14 test); a direct `${n}`
@@ -37713,6 +37723,341 @@ new decision is needed from the user. Spec labels to add as they land:
   `Checked<T>` needs no special case. D4: IR-check failures hard-fail the build;
   `salvo ir` dumps invalid programs and annotates errors inline as `!!! …`,
   exit 0.
+
+## Design record: operator overloading (OPERATOR_OVERLOAD.md, retired 2026-10-30)
+
+The user's brief (2026-10-27) and the discussion that decided it, O1–O6.
+Everything decided is built: operators are the calls they name (B3.3c–e,
+[op-order] [op-arith] [op-pow] [iter-for], interpolation as `to_str` calls
+joined by the IR's `Concat`, 2026-10-28), the placement rule
+[op-unique-shape] (`unique_shape.rs`, with `rem` and `neg` added
+2026-10-30), `params` → `fns` and `Yield` → `Next`, and `**` / `**=`. The
+three readings built beyond D-1 to D-7 were confirmed by the user
+2026-10-30 (ROADMAP 0ah, in the decision log). Cited from code and specs as
+"the operator record".
+
+### The brief, as written
+
+I want to add operator overloading to salvo.
+
+Today we have quasi-operator overloading with implicit parameters, so this design will also adjust how we currently deal with those. An `operator fn` is a special kind of canonical function associated with a type, that is the unique function used when the operator's syntax is used -- that is, it doesn't compete with other functions of the same signature when the operator's syntax is used. Here is a list of operator fn names and their corresponding syntaxes:
+
+1. cmp: <, >, <=, >=
+2. eq: ==
+3. plus, minus, times, divide: +, -, *, /
+4. pow: ** (not currently supported by we can add it as part of this)
+5. iter: for i in <x>
+6. next: for i in <x>
+7. to_str: for string interpolation
+
+Here's an example showing how this might be used:
+
+```
+// In module: std.operators
+export fns Eq<T> {
+    operator fn eq(a: T, b: T) -> Bool
+}
+
+// In module: person
+export struct Person : Eq<self> {
+    name: Str
+    age: Int
+
+    // The `pow` operator defined inline, a canonical position
+    operator fn pow(p: Person, power: Int) -> Person {
+        return Person {
+            name: p.name.copy(),
+            age: p.age ** power
+        }
+    }
+}
+
+// Because of the `: Eq<self>` obligation, this is a canonical position
+operator fn eq(a: Person, b: Person) -> Bool by auto
+
+// This is an error: an operator must appear in a canonical position, but this doesn't -- it's not
+// inline and it is not pulled in as an obligation
+operator fn cmp(a: Person, b: Person) -> Int {
+    return c.age.cmp(b.age)
+}
+
+// In module: other
+export fn eq(a: Person, b: Person) -> Bool {
+    return a.name == b.name
+}
+
+// In module: main
+import person
+import other
+
+fn something(a: Person, b: Person) {
+    // Runs the operator fn defined in person module
+    if a == b {
+        ...
+    }
+
+    // Ambiguous -- must be disambiguated with eq@person / eq@other
+    if a.eq(b) {
+        ...
+    }
+}
+```
+
+Note that in this example, I have changes `params` to `fns`, and I would like to do this as part of this work. `params` started as a way of modeling groups of implicit parameters, but it has since evolved beyond that to include more general things we want with functions and types, so `fns` is a more appropriate name.
+
+The iter/next operator allows you to iterate over a pass (next) or a source from which a pass is minted (iter):
+
+```
+// Today, this is Yield, but Next makes more sense
+fns Next<It, T> {
+    operator fn next(iterator: Mut It) -> Emitted T | Finished
+}
+
+fns Iter<C, It, T> {
+    operator fn iter(collection: C) -> Mut It
+    operator fn next(iterator: Mut It) -> Emitted T | Finished
+}
+```
+
+Here, since operators must be canonical functions, I think what's implied by this is that the `Iter` fn group is attaching an operator to the `It` type, and tying the collection type (`C`) to the iterator type (`It`), so that importing the former imports the latter? Not entirely sure about this. This is a certain power to being able to express operators across multiple types like this.
+
+At the use site, `for x in it` becomes `for x in next(it)`, and `for x in c` becomes `for x in next(iter(c))`. I suppose it should be an error for _both_ next and iter to be defined on the same type.
+
+The final question to ask is how operators work for generic functions. I think they should be excluded at the first pass, so:
+
+```rust
+fn highest<T>(a: T, b: T, ?Ordered<T>) -> T {
+    // Error: cannot use an operator on a generic type
+    if a < b {
+        ...
+    }
+
+    // How you must use it instead
+    if a.cmp(b) < 0 {
+        ...
+    }
+}
+```
+
+### The discussion (2026-10-27)
+
+
+Everything above this line is the original brief, kept as written. What
+follows records the discussion of it against PIPELINE.md Part II (P3: calls are the
+reference; P4: what each surface form lowers to).
+
+#### Where operators sit in the pipeline
+
+An operator lowers to a call, in `type-check` (it needs the operand types),
+and `salvo dump --phase type-check` prints that call with its target
+written out. Interpolation lowers to a call of a std **format fn** whose
+parts are each a `to_str` call, which a backend may emit as native
+interpolation ([core-layers]). How the target of those calls is chosen is
+decided by O1 below: it is chosen exactly as the written call's target
+is, and D's placement rule guarantees there is one candidate for a
+concrete type.
+
+#### Decided
+
+- **O1. Operators are name-based calls, and each exists once: options B
+  and D below** (user, 2026-10-27; first B, then D added the same day).
+  - **Selection (B).** `a < b` is `cmp(a, b) < 0`, `a == b` is
+    `eq(a, b)`, `"${x}"` is `to_str(x)` (through the format fn), `for x in
+    c` is `next(iter(c))`, resolved exactly as those calls are.
+  - **Coherence (D), the placement rule** (user's wording): *every function
+    matching an operator pattern on a type `T` (or a qualified version of
+    `T`) must be declared in the same module as `T`'s declaration.* (Refined
+    below: the same *file*, D-1; the class is *unique function shapes*,
+    D-6.) A second
+    one anywhere else is an error at its declaration, even if nothing uses
+    it. So for a concrete type there is never a competitor, and the
+    name-based call *is* the type's one operator: B's single rule with A's
+    predictability. Easy to enforce (a per-declaration check against the
+    type's declaring file), and it removes unintended selections: no
+    import or local fn can change what an operator means.
+  - **Overriding stays explicit.** An implicit parameter can still be given
+    any function at the call (`cmp = by_age`, a lambda, `Heap(min_by_age)`
+    [cmp-carry]); the rule only constrains what *operator-named* functions
+    exist, so an override is named for what it does, not `cmp`/`to_str`.
+  - **Generic code** reaches operators through [implicit-forward]: an
+    enclosing implicit is the function the caller chose and shadows, so
+    `?Ordered<T>` makes `a < b` legal at `T`; the brief's generic exclusion
+    is dropped. At the concrete caller, the implicit is filled by name, and
+    by D only the type's own operator fits, so generic and concrete sites
+    agree by construction.
+  - **O5** keeps today's answer: `"${n}"` inside `show(…, ?to_str: (x:
+    Int) -> Str)` uses the enclosing implicit (an explicit override, which
+    is allowed).
+  - **Not needed:** the `operator` keyword and the canonical positions; the
+    name table (`cmp` ↔ `<` `>` `<=` `>=`, `eq` ↔ `==`, `plus`/`minus`/
+    `times`/`divide` ↔ `+ - * /`, `pow` ↔ `**`, `iter`/`next` ↔ `for`,
+    `to_str` ↔ interpolation) is the whole mapping, and D is what makes it
+    safe.
+  - **Kept from the brief:** the new names and `**`; `iter`/`next` for
+    `for`; the `params` → `fns` and `Yield` → `Next` renames;
+    interpolation through a std format fn.
+  - **Programs refused that compile today:** an operator-named fn for a
+    type declared elsewhere — the brief's own `other` module (`export fn
+    eq(a: Person, b: Person)`), a module's `to_str(Int)` used as
+    `to_str = to_str@main` (rename it, e.g. `hex`), and a catch-all
+    `fn to_str<T>(x: T)` (a type parameter has no declaring module; this is
+    the 2026-10-14 hazard, now refused at its declaration).
+
+  **D's details** (decided, user, 2026-10-27):
+  - **The class: unique function shapes** (D-6). D is stated for a general
+    class, *unique function shapes*, of which the operators are the first
+    and, for now, only members. A unique function shape is a name, an
+    explicit arity and (for some) a return type; a function matching one on
+    a type `T` is declared in `T`'s declaring file. Suggested rule label:
+    `[unique-shape]`. Not in the class yet: `hash`, `default`, `from_str`
+    (filled by name too, but `hash`'s consumers carry it in the type's
+    identity, `Set<T>(?hash, eq)` [cmp-carry], so a second one cannot mix
+    silently with the first). Adding one later is a one-row change to the
+    table.
+  - **D-1. The declaring file**, as [fn-attached] already states its
+    "travels with the type" rule. A `.test.sv` annex is a different file,
+    so it may declare shapes only for types it declares itself.
+  - **D-2. "On `T`" is the first explicit parameter's base type**,
+    qualifiers stripped (`NonEmpty Mut List<T>` is on `List`): the left
+    operand, as O2 chose. `pow(p: Person, power: Int)` lives with `Person`.
+  - **D-3. A shape is name + explicit arity (implicit parameters not
+    counted), plus the return type for `eq`, `cmp` and `next`:**
+
+    | name | explicit params | return |
+    |---|---|---|
+    | `eq` | 2 | `Bool` |
+    | `cmp` | 2 | `Int` |
+    | `plus`, `minus`, `times`, `divide`, `pow` | 2 | any |
+    | `to_str` | 1 | any |
+    | `iter` | 1 | any |
+    | `next` | 1 | `Emitted T \| Finished` (any `T`) |
+
+    Anything else is an ordinary fn, allowed anywhere: a second stepping
+    form `fn iter(list: List<Str>, step: Int)` (in the suite) is not a
+    shape. Every `cmp` and `eq` in `lib/std` already has those return
+    types (checked 2026-10-27).
+  - **D-4. Exempt:** `fns` group member signatures (they declare a shape's
+    signature, not an implementation) and comptime templates (what they
+    stamp lands on the type; a stamp outside the type's file is refused
+    like a written fn). **Effect members are covered**, as functions in
+    scope (PIPELINE.md §II.10 P4); with D-3's return type, the CLI test's
+    `effect Counter { fn next(step: Int) -> Int }` does not match `next`'s
+    shape and stays legal.
+  - **D-5. Structural types get a std home.** Tuples, arrays `T[]`, fn
+    types, anonymous unions and built-in address types (`eff[E]`) each
+    have a home module std names (which one is decided when it is built;
+    tuples and fn types in `std.core.basic`, arrays in `std.core.array`
+    are the obvious candidates), and only that file may declare their
+    shapes. **A bare type parameter has no home**, so a shape on `T` cannot
+    be declared: that refuses the catch-all `fn to_str<T>(x: T)`.
+  - **Several overloads of one shape in the type's own file** stay legal
+    (`eq<T>(List<T>, …)` beside a more specific one): uniqueness is across
+    files, and inside the file the author controls the set; ranking and
+    [fn-overload-duplicate] apply as for any overloads.
+  - **D-7. Adoption cost accepted:** move `compare.sv`'s 20 fns next to
+    their types (14 scalar and `Str` into `basic.sv`, 2 `List` into
+    `list.sv`, 4 tuple to the tuples' home); rewrite the ~45
+    operator-named fns on std types in Rust test sources; turn the 7
+    catch-all `to_str<T>` tests into tests of the refusal.
+
+- **O2. Which operand decides:** the left operand (user, 2026-10-27). For
+  selection it is moot (a call ranks every argument); for D's placement
+  it is the parameter that says which type an operator is on (D-2).
+- **O3. Operators travel with their type, regardless of imports** (user,
+  2026-10-27). This is today's [fn-attached]: a fn declared on a struct (in
+  its body, or as the file's fulfilment of one of its obligations) is
+  imported with the type, so it is visible wherever the type is usable. The
+  brief's addition was a *selection* rule (the attached fn wins), not a
+  visibility one; that part is O1.
+- **O6. Operator and call may lower to different calls** (user,
+  2026-10-27): if `a == b` and `a.eq(b)` lower to different calls, they may
+  differ (one ambiguous, the other not), and that is stated as a rule so
+  nobody "fixes" one to match the other. Under O1 (B) they lower to the
+  same call, so today the question does not arise.
+- **O4. Homes for the built-in types' and unions' operators: settled by
+  D-5.** Basic types' shapes move to their declaring module
+  (`std.core.basic`); structural types get a std home; a union keeps
+  [interp-union]'s arm-wise rendering unless a declared union type gives
+  itself a `to_str` in its own file.
+
+#### The options weighed for O1
+
+How an operator chooses its function (O1, with O5):
+
+  **A. Fixed (the brief).** `a == b` calls the operand type's attached
+  operator fn (`eq@Person`); at a type parameter, the enclosing implicit.
+  - For: the meaning of `==` on a type is a property of the type; no
+    import or local declaration changes it. Lookup is by type id: no
+    candidate set, cheap to cache.
+  - Against: a type you do not own (a tuple, a fn value, another module's
+    struct without an `eq`) cannot get an operator; today [op-equality]
+    lets "a tuple order when someone declares a `cmp`".
+  - Against, and the main one: **two rules for one question**. Inside
+    `fn highest<T>(a: T, b: T, ?Ordered<T>)`, `a < b` uses whatever the
+    *caller's implicit resolution* chose, which is name-based and competes.
+    At a concrete site with a second visible `cmp(Person, Person)`, `a < b`
+    picks the attached one while `highest(a, b)` is ambiguous. Making them
+    agree means implicits (and, by P3, calls) prefer the attached fn too: a
+    precedence rung, the kind of rule [fn-overload-scope] removed on
+    2026-09-26 ("scope says which functions are visible, never which one a
+    call means").
+  - Needs the `operator` keyword, canonical positions, and O4's homes.
+
+  **B. Name-based: an operator is the call.** `a < b` is `cmp(a, b) < 0`,
+  `a == b` is `eq(a, b)`, `"${x}"` is `to_str(x)`, resolved exactly as
+  those calls are; no fit or several equally specific is an error.
+  - For: one rule. Operator, call and implicit selection agree by
+    construction (P3; "implicits are automatically selected lambdas").
+    Generic code works through [implicit-forward] with no special case: a
+    fn-typed parameter or implicit *is* the function the caller chose and
+    shadows, so `?Ordered<T>` makes `a < b` legal at `T`, and O5 keeps
+    today's answer (`"${n}"` inside `show(…, ?to_str: (x: Int) -> Str)`
+    uses the enclosing implicit). Types you do not own get operators by
+    declaring a fn. O4 needs nothing new. Closest to today's [op-order] /
+    [op-equality] / [interp-to-str].
+  - Against: what `==` means depends on what is visible, as with calls:
+    importing a module with another `eq(Person, Person)` makes `a == b` an
+    ambiguity error. Loud, never silent, unless the newcomer is strictly
+    more specific (as for any call).
+  - Against: any fn named `plus` is a candidate for `+`; opting in is by
+    name, so it can be accidental.
+  - The `operator` keyword is not needed; the name table (`cmp` ↔ `<` …) is
+    the whole mapping.
+
+  **C. Name-based among fns declared `operator`.** The keyword marks
+  eligibility, not uniqueness; candidates are ranked as calls.
+  - For: no accidental opt-in; intent visible at the declaration.
+  - Against: `a == b` and `eq(a, b)` rank different candidate sets, so they
+    can pick different functions — the divergence P3 removes. Which set
+    fills `?eq` re-raises it for implicits.
+
+  **D. Coherent: at most one per type.** A type has at most one `eq` (one
+  `cmp`, …) visible anywhere in the program, declared with the type or by
+  std; a second is an error even where unused (Rust's and Haskell's
+  coherence, with their orphan rule). Then A and B coincide: no competitor
+  can exist, so the name-based call *is* the fixed one.
+  - For: A's predictability with B's single rule; generic and concrete
+    sites agree by construction.
+  - Against: refuses programs. The brief's own `other` module (`export fn
+    eq(a: Person, b: Person)`) becomes an error. A second ordering must be
+    named differently and passed explicitly — already Salvo's style
+    (`Heap(min_by_age)`, [cmp-carry]). Types you do not own get no
+    operators unless std provides them.
+
+  **Recommended: B; chosen: B with D** (user, 2026-10-27; see O1). The
+  recommendation, as given: B. It is the option that follows the principles
+  already decided (scope decides visibility, never choice; implicits are
+  automatically selected lambdas; calls are the reference), it needs the
+  least machinery, and it dissolves O4 and O5. A's predictability is real
+  but costs a second rule, which is the disunity PIPELINE.md Part II exists to
+  remove. If accidental opt-in by name turns out to matter, D is the
+  stronger remedy than C, since it keeps one rule.
+
+  What stays from the brief under B: the name table (adding `plus`,
+  `minus`, `times`, `divide`, `pow` and `**`), `iter`/`next` for `for`, the
+  `params` → `fns` and `Yield` → `Next` renames, and interpolation through
+  the format fn. Not needed: the `operator` keyword, canonical positions,
+  and the generic exclusion.
 
 ## Test inventory (all green: 2156 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 

@@ -1,5 +1,5 @@
 //! [op-unique-shape] **A function of a unique shape on a type is declared in the
-//! type's own file** (user decision O1-D, 2026-10-27; OPERATOR_OVERLOAD.md
+//! type's own file** (user decision O1-D, 2026-10-27; the operator record
 //! "D's details"). The operators are names (`a == b` is `eq(a, b)`, `"${x}"`
 //! is `to_str(x)`, `for x in c` is `next(iter(c))`, O1-B), resolved exactly
 //! as those calls are; this placement rule is what makes the name-based call
