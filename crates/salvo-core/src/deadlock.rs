@@ -313,7 +313,7 @@ fn build(
             if !*any || !is_actor(of) {
                 continue;
             }
-            routers_of.entry(of.clone()).or_default().push(Router { node: servant_node(&h.shape.name), occupies });
+            routers_of.entry(of.clone()).or_default().push(Router { node: servant_node(&h.shape.name), occupies, written: true });
         }
     }
     for effect in routed.keys() {
@@ -321,7 +321,7 @@ fn build(
         routers_of
             .entry(effect.to_string())
             .or_default()
-            .push(Router { node: servant_node(&handler), occupies: true });
+            .push(Router { node: servant_node(&handler), occupies: true, written: false });
     }
     // Every handler of an actor effect: the protocol it serves, whether any
     // of its members gates, and what it can send to.
@@ -457,9 +457,11 @@ fn build(
             }
             // Sends through an addr the handler holds: the peer half of the
             // graph, and the only place an own-protocol edge survives.
+            let own_node = servant_node(&h.shape.name);
             for (handler, target, k) in &out.actor_sends {
                 if *handler == h.id && is_actor(target) {
                     targets.push((target.clone(), k.file(), k.span));
+                    send_router_targets(&routers_of, target, &own_node, k.file(), k.span, &mut targets);
                 }
             }
             // [task-mint] And the sends of every task this handler's mints
@@ -470,6 +472,7 @@ fn build(
                 for (owner, target, k) in &out.task_sends {
                     if *owner == task && is_actor(target) {
                         targets.push((target.clone(), k.file(), k.span));
+                        send_router_targets(&routers_of, target, &own_node, k.file(), k.span, &mut targets);
                     }
                 }
             }
@@ -598,6 +601,7 @@ fn build(
             for (owner, target, k) in &out.task_sends {
                 if *owner == task && is_actor(target) {
                     targets.push((target.clone(), k.file(), k.span));
+                    send_router_targets(&routers_of, target, &from, k.file(), k.span, &mut targets);
                 }
             }
         }
@@ -835,9 +839,13 @@ impl Servant<'_> {
                 }
             }
         }
-        targets.extend(self.sends.into_iter().filter(|(target, _, _)| {
-            is_actor(target) && !self.forwards.contains(&target.as_str())
-        }));
+        for (target, file, span) in self.sends {
+            if !is_actor(&target) || self.forwards.contains(&target.as_str()) {
+                continue;
+            }
+            send_router_targets(routers_of, &target, &from, file, span, &mut targets);
+            targets.push((target, file, span));
+        }
         for (target, file, span) in targets {
             let (kind, file, span) = match (self.gate, self.blocks) {
                 (Some((gfile, gspan)), _) => (EdgeKind::Wait, gfile, gspan),
@@ -921,6 +929,9 @@ fn deps_of(out: &Checked, h: &Handler<'_>) -> Vec<(String, Span, bool)> {
 struct Router {
     node: String,
     occupies: bool,
+    /// A written `of any E` handler, which a program may spawn and hand out
+    /// as an `eff[E]`; the derived route of a `use any` is never spawned.
+    written: bool,
 }
 
 /// [actor-deadlock-cycle] [effect-any] Where a dependency on `any E` lands
@@ -944,6 +955,27 @@ fn router_targets(
         if r.occupies {
             occupancies.push((r.node.clone(), file, span));
         } else {
+            targets.push((r.node.clone(), file, span));
+        }
+    }
+}
+
+/// [actor-deadlock-cycle] [effect-any] Where a **send through an `eff[E]`**
+/// lands besides `E` (user decision 2026-10-30): an addr cannot say whether
+/// it is a member of `E` or a spawned `of any E` router, so the send lands on
+/// every written router of `E` too (but the sending node itself), of the
+/// sender's kind — a spawned router is an actor, so no occupancy. The
+/// derived route of a `use any` is never behind an addr.
+fn send_router_targets(
+    routers_of: &BTreeMap<String, Vec<Router>>,
+    effect: &str,
+    from: &str,
+    file: usize,
+    span: Span,
+    targets: &mut Vec<(String, usize, Span)>,
+) {
+    for r in routers_of.get(effect).into_iter().flatten() {
+        if r.written && r.node != from {
             targets.push((r.node.clone(), file, span));
         }
     }

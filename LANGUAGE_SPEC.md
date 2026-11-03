@@ -8130,10 +8130,16 @@ docs/language/ remains the source of truth for everything that does.
     protocols. So `Pong → __Route_Ping → Watching's lock → Pong` — a
     `Pong` actor calling into the route, whose stateful selector pokes
     `Pong` — is an occupancy error, anchored at the dependency on `any
-    Ping`. A strong `[E]` and an `eff[E]` send land on `E` alone: a strong
-    requirement refuses a router's binding, and a route cannot be spawned;
-    a *spawned* written router behind an `eff[E]` (the gap [effect-any]
-    records) is not modelled.
+    Ping`. A strong `[E]` lands on `E` alone: a strong requirement refuses
+    a router's binding. **A send through an `eff[E]` lands on every written
+    `of any E` router too** (user decision 2026-10-30), since the addr cannot
+    say whether it answers with a member of `E` or a spawned router (the gap
+    [effect-any] records), of the sender's kind — a spawned router is an
+    actor, so no occupancy; a route cannot be spawned, so it gets none. So
+    `Ponger` gated on its `eff[Ping]`, beside `handler R() [Pong] of any
+    Ping` gated on `Pong`, is a gate cycle through `R`'s servant
+    (`check/actors/deadlock.sv`). This may add a warning to a program that
+    spawns routers; before, such a cycle went unseen.
   * **Sound, not precise, and stated so.** The graph is over actor *types*,
     not instances, so a chain of same-protocol workers is a self-loop here and
     acyclic in the running program; and a handler's *declared dependencies*

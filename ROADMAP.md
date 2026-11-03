@@ -1215,10 +1215,10 @@ sequence left behind, by step — each a leftover, none a blocker:
   the handshake; `HeartbeatNodeGroup` over a `Ddb` platform handler as the
   interop example.
 - **⑥ `any`**: an `Addr<E>` answered by *spawning* a router binds as an
-  ordinary `E` under `use addr` (the addr type has no room for the claim); a
-  lambda's body is checked under strong availabilities; `local`/`any` on a fn
-  type is reported once per lowering of the type (three times for a
-  parameter), a pre-existing duplication.
+  ordinary `E` under `use addr` (the addr type has no room for the claim;
+  the deadlock graph prices it since 2026-10-30, every `eff[E]` send landing
+  on `E`'s written routers too); a lambda's body is checked under strong
+  availabilities.
 - **⑦ picks**: consistent hashing for `Sharded` (today `key mod n` over the
   ordered view, so a join reshuffles most keys); a `[keyed E]` claim for a
   program relying on `Sharded`'s per-key ordering; a stub for a group whose
@@ -2700,20 +2700,6 @@ several are "revisit only if a customer appears".
   answers") even when the occupied node is a router or a priced shareable
   handler's lock, where what happens is that the caller runs the member on
   its own thread under the lock.
-- **DECISION (recorded 2026-10-30, E1): what an `eff[E]` send may reach.** A
-  *spawned* written router behind an `eff[E]` gets no in-edges: sends
-  through an `eff[E]` land on `E` alone, since the addr cannot say `any`
-  ([effect-any]'s recorded gap, ⑥ above), so a cycle through one is not
-  seen. Options: (a) every send through an `eff[E]` also lands on every
-  written `of any E` router's servant node, of the sender's kind (a spawned
-  router is an actor, so no occupancy) — over types like the rest of the
-  graph, it can add a warning to a program that spawns routers, and
-  closes the gap; (b) leave it unmodelled until an addr can carry the
-  `any` claim; (c) refuse spawning an `of any E` router behind a plain
-  `eff[E]` (its addr would then say what it is). Recommendation (a): the
-  graph already prices every binding a type allows. Repro to land with it:
-  `Pong` sends through an `eff[Ping]` held from `spawn R()` where `handler
-  R() [Pong] of any Ping` sends to `Pong` with a gate.
 - **Multi-effect and mixed-handler leftovers**: a same-named member across two
   faces still needs `@Effect` at the call even where the parameters distinguish it
   ([effect-at] keys on the name); a dependent multi-face handler is untested;

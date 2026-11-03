@@ -144,6 +144,18 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A send through an `eff[E]` reaches `E`'s spawnable routers (user decision, the E1 DECISION, [actor-deadlock-cycle] [effect-any])
+
+- **Decided (user)**: option (a): an `eff[E]` send also lands on every
+  written `of any E` router's servant node, of the sender's kind.
+- **Built**: `deadlock::send_router_targets`, called wherever a held addr's
+  or a traced task's send becomes an edge (an actor's, a servant's, a
+  priced shareable handler's); `Router::written` keeps the derived route of a
+  `use any` out (it is never behind an addr). Data:
+  `check/actors/deadlock.sv` `a-send-through-an-addr-reaches-a-spawned-router`,
+  the repro the DECISION named (reported nothing before). No existing case
+  changed.
+
 ### 2026-10-30 — `main` declares only `use` and `spawn` (user decision, ROADMAP 0bd, [main-effects])
 
 - **Decided (user)**: option (a): refuse an effect on the entry point; a
