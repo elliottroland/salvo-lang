@@ -2966,10 +2966,6 @@ messages! {
     );
 
     // [expr-cond-bool]
-    /// An `assert!` condition that is not a `Bool`.
-    expr_cond_bool_assert_condition = "expr-cond-bool:assert-condition" (t: &dyn std::fmt::Display) => format!(
-        "an `assert!` condition must be a `Bool`, found `{t}`"
-    );
     /// A condition that is not a `Bool`.
     expr_cond_bool_not_bool = "expr-cond-bool:not-bool" (ty: &dyn std::fmt::Display) => format!(
         "a condition must be a `Bool` (found `{ty}`): Salvo has no truthiness — compare \

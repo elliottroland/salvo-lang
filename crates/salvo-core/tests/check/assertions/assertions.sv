@@ -211,3 +211,11 @@ struct P {
 fn add(a: Int, b: Int) [] -> Int => a, b {
     return a + b
 }
+
+// [assert-fn] [expr-cond-bool] A non-`Bool` condition is refused — no
+// truthiness, as for `if` — once (it was also `assert-condition` until
+// 2026-10-30, ROADMAP 0ar).
+fn not_a_condition(n: Int) -> None => n {
+    //~ error[expr-cond-bool:not-bool]
+    assert!(n)
+}

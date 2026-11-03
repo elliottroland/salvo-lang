@@ -144,6 +144,15 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A non-`Bool` assertion is refused once (ROADMAP 0ar, [expr-cond-bool])
+
+- **Built**: `assert!(n)` on an `Int` reported `expr-cond-bool:not-bool`
+  (from `analyze_cond`, leaf by leaf, with the remedy) and
+  `expr-cond-bool:assert-condition` (the `assert!` arm's own check). The
+  second check and its message are gone. The case moved from
+  `assert_tests.rs` to `check/assertions/assertions.sv`; the file keeps its
+  parse-only postfix-`!` test (712 tests under nextest).
+
 ### 2026-10-30 — An implicit group's miss is one report, and names no arbitrary candidate (ROADMAP 0ar, [implicit-resolve])
 
 - **Built**: three fixes to what a failed implicit fill says.

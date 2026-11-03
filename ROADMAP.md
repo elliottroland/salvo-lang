@@ -97,6 +97,8 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
   (commit "Report an ineligible key once per declaration").
   The implicit-fill messages (commit "Report one miss per implicit group,
   without naming an arbitrary candidate").
+  `assert!(n)`'s second report (commit "Refuse a non-Bool assertion
+  once").
 - Next: 0ar's remaining items (diagnostic cascades, message texts).
 
 ## The sequence
@@ -966,9 +968,8 @@ repros are over the real std.
     (`name_tests::unknown_names_are_reported_at_declaration_sites`); one
     unresolvable leading-dot arm is reported twice
     (`name_tests::leading_dot_shorthand_reports_an_unresolvable_sibling`);
-  - `assert!(n)` on an `Int` reports `expr-cond-bool:assert-condition` and
-    `:not-bool` (`assert_tests::a_non_bool_condition_is_refused`); past the
-    parse error, `return v!` adds the return mismatch (parse-only test kept);
+  - past the parse error, `return v!` adds the return mismatch (parse-only
+    test kept);
   - one `[use]` on a fn type reports `fn-effects:use` three times
     (`fn_effect_tests::use_in_a_fn_type_is_rejected`); a member call through
     a two-face spawn's tuple reports three errors

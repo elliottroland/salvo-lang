@@ -13,76 +13,10 @@
 //! claim, so "clean" means the assertion informed the type.
 //!
 //! The cases are test data now, `tests/check/assertions/` (TESTS.md T1).
-//! Two stay here until a defect is fixed (ROADMAP §0ar): the postfix-`!`
+//! One stays here until a defect is fixed (ROADMAP §0ar): the postfix-`!`
 //! test is parse-only, because past the parse error the recovered `return
-//! v` also reports `fn-syntax:return-mismatch`; and `assert!(n)` reports
-//! both `expr-cond-bool:assert-condition` and `:not-bool` for its one
-//! mistake.
-
-use std::path::Path;
-
-use salvo_core::{check_program, resolve, Program, SourceSet, Symbols};
-
-const STD_PRELUDE: &str = concat!(
-    "export intrinsic type Int\nexport intrinsic type Str\n\
-     export intrinsic type Bool\nexport intrinsic type Never\n",
-    // [op-equality] [op-order] What the comparison operators call.
-    "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",
-    "export intrinsic fn eq(a: Bool, b: Bool) [] -> Bool => a, b\n",
-    "export intrinsic fn eq(a: Str, b: Str) [] -> Bool => a, b\n",
-    "export intrinsic fn cmp(a: Int, b: Int) [] -> Int => a, b\n",
-    // [op-arith] [op-pow] What the arithmetic operators call.
-    "export intrinsic fn plus(a: Int, b: Int) [] -> Int => a, b\n",
-    "export intrinsic fn minus(a: Int, b: Int) [] -> Int => a, b\n",
-    "export intrinsic fn times(a: Int, b: Int) [] -> Int => a, b\n",
-    "export intrinsic fn divide(a: Int, b: Int) [] -> Int => a, b\n",
-);
-
-/// [diag-id] The id of every error the program reports.
-fn errors(src: &str) -> Vec<&'static str> {
-    let mut sources = SourceSet::default();
-    sources.add(
-        "std/core/prelude.sv",
-        SourceSet::classify(Path::new("std/core/prelude.sv")).unwrap(),
-        STD_PRELUDE.to_string(),
-        true,
-    );
-    sources.add(
-        "main.sv",
-        SourceSet::classify(Path::new("main.sv")).unwrap(),
-        src.to_string(),
-        false,
-    );
-    let mut modules = Vec::with_capacity(sources.files.len());
-    for file in &sources.files {
-        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
-        let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
-        assert!(
-            parse_errors.is_empty(),
-            "parse errors in {}: {parse_errors:?}",
-            file.name
-        );
-        modules.push(ast);
-    }
-    // [comptime-instantiate] The `by` sites stamp before resolution.
-    let _expansion = salvo_core::expand(&sources.files, &mut modules);
-    let program = Program {
-        files: sources.files,
-        modules: Program::share(modules),
-        companions: Vec::new(),
-        interfaces: None,
-    };
-    let symbols = Symbols::collect(&program);
-    let resolution = resolve(&program);
-    let checked = check_program(&program, &resolution, &symbols);
-    resolution
-        .errors
-        .iter()
-        .chain(checked.errors.iter())
-        .filter(|d| d.is_error())
-        .map(|d| d.id.unwrap_or("?"))
-        .collect()
-}
+//! v` also reports `fn-syntax:return-mismatch`. (`assert!(n)` moved to the
+//! data on 2026-10-30, when its second report went.)
 
 /// [assert-op] There is no postfix `!`: a presence assertion is spelled out,
 /// so it is not the easy thing to write (user decision 2026-10-14). The parse
@@ -93,12 +27,4 @@ fn a_postfix_bang_is_a_parse_error_naming_the_alternatives() {
     let (_, diagnostics) = salvo_syntax::parse_module(src);
     let shown: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).map(|d| d.id).collect();
     assert!(shown.contains(&Some("assert-op:postfix-bang")), "{shown:?}");
-}
-
-/// [expr-cond-bool] No truthiness: the condition is a `Bool`.
-#[test]
-fn a_non_bool_condition_is_refused() {
-    let src = "fn f(n: Int) -> None => n {\n    assert!(n)\n}\n";
-    let errs = errors(src);
-    assert!(errs.contains(&"expr-cond-bool:assert-condition"), "{errs:?}");
 }

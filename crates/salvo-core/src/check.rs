@@ -23782,14 +23782,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 message,
                 span,
             } => {
+                // [expr-cond-bool] No truthiness: `analyze_cond` refuses a
+                // condition that is not a `Bool`, leaf by leaf, with the
+                // remedy (an `assert!`-only second report went 2026-10-30,
+                // ROADMAP 0ar).
                 let info = self.analyze_cond(cond);
-                let cond_ty = self.expr_ty_recorded(cond);
-                // [expr-cond-bool] No truthiness: the condition is a `Bool`.
-                if let Some(t) = cond_ty {
-                    if !matches!(t, Ty::Unknown) && t.to_string() != "Bool" {
-                        self.error(cond.span(), messages::expr_cond_bool_assert_condition(&t));
-                    }
-                }
                 self.install_narrows(&info.then_narrows);
                 match message {
                     Some(m) => self.check_assert_message(m),
