@@ -104,6 +104,8 @@ lands or stalls** (user), so a context compaction loses nothing. Progress:
   carry refusals, the leading-dot arm.
   A refused annotation or return type is not a second mistake at its value
   (commit "Say nothing more of a value against a refused annotation").
+  A failed `by` clause is its one refusal (commit "Report a failed by
+  clause once").
 - Next: 0ar's remaining items (diagnostic cascades, message texts).
 
 ## The sequence
@@ -922,10 +924,6 @@ below stays a Rust test, as it was, until fixed (the file and test named);
 repros are over the real std.
 
 - **One mistake, several diagnostics** [type-unknown-lenient]:
-  - `obligation-by:not-self` and `obligation-by:group-arg-not-self` for one
-    clause (`compare_tests::default_is_refused_…`, `a_default_obligation_takes_self`);
-  - a failed `by` clause (refused, ambiguous, several modules, names nothing)
-    also reports `group-obligation:no-member` (four `compare_tests`);
   - past a parse error, the recovered AST cascades: `self.note(x)` adds
     `effect-available:own-effect` and `effect-member-call:arg-count`; a
     `[for]`/`refuse!` outside a comptime fn adds the internal
@@ -965,13 +963,8 @@ repros are over the real std.
     (`multi_effect_tests::several_faces_answer_a_tuple_…`); a cyclic alias
     pair is reported at both declarations and again at a use, and `[any App]`
     adds a no-handler error at the body (two `alias_tests`);
-  - `platform type Keyed : Hashed<self> by auto` adds two
-    `group-obligation:no-member`; `platform type Walked : Iter<self, …> by
-    auto` adds an `obligation-by:not-self` telling the user to write what they
-    wrote (`platform_tests::platform_types_are_opaque_handles_…`); a group
-    member parameter hiding the body's callee adds
-    `group-obligation:no-member` for the unstamped member
-    (`stamp_signature_tests::a_group_member_parameter_that_hides_…`);
+  - `by nowhere` on `: Hashed<self>` reports `obligation-by:names-nothing`
+    once per member it would stamp (`hash`, then `eq`);
   - also noted, annotated as they are: a prerequisite cycle is reported once
     per effect on it; a poisoned handle is reported at each use on one line
     (`d.hp = d.hp + 1` gives two).

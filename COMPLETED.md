@@ -144,6 +144,19 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A failed `by` clause is one refusal (ROADMAP 0ar, [obligation-by] [group-obligation])
+
+- **Built**: the checker no longer looks for the members of an obligation
+  clause with `by` (`check_obligation_list`): the clause stamps them, and a
+  clause that stamped nothing was refused where it is written (refused,
+  ambiguous, several modules, names nothing, a platform type's). It no
+  longer repeats the expansion's `self` check either (its
+  `obligation-by:not-self` and that message are gone; the expansion's
+  `obligation-by:group-arg-not-self` is the one). Before, each of those
+  reported `group-obligation:no-member` per member beside its own error,
+  and `: Ordered<Int> by auto` reported the `self` rule twice. The kept
+  `compare_tests` assert the one id.
+
 ### 2026-10-30 — A value is not reported against a refused annotation (ROADMAP 0ar, [type-unknown-lenient])
 
 - **Built**: a `let` whose annotation, or a fn whose return type, reported

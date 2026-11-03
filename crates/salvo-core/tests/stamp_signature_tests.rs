@@ -9,8 +9,7 @@
 //! Over the real standard library (`lib/`), so the stamps are `std.core.auto`'s.
 //!
 //! What the stamps' diagnostics are is data, `tests/check/stamp_signature/`
-//! (TESTS.md T1); what is left here reads the IR they build, and the one case
-//! whose diagnostics are not yet right (ROADMAP §0ar).
+//! (TESTS.md T1); what is left here reads the IR they build.
 
 use salvo_core::Program;
 

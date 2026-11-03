@@ -166,7 +166,7 @@ struct Counter : Step<self, Int> by auto canbe Mut {
     );
     // `auto` has no `advance`, and the clause's argument is not `self` either.
     assert!(
-        errs.contains(&"obligation-by:not-self") || errs.contains(&"obligation-by:module-lacks-member"),
+        errs.contains(&"obligation-by:group-arg-not-self") || errs.contains(&"obligation-by:module-lacks-member"),
         "expected the stamping to be refused, got: {errs:?}"
     );
 }
@@ -182,8 +182,10 @@ struct Point : Ordered<Int> by auto {
 }
 "#,
     );
+    // Once: the expansion's (the checker repeated it as `not-self` until
+    // 2026-10-30, ROADMAP 0ar).
     assert!(
-        errs.contains(&"obligation-by:not-self"),
+        errs == ["obligation-by:group-arg-not-self"],
         "expected the `self` rule to be named, got: {errs:?}"
     );
 }

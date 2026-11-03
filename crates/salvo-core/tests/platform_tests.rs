@@ -74,10 +74,10 @@ fn check_files(files: &[(&str, &str)]) -> Vec<FileDiagnostic> {
 /// [platform-type] What the kinds forbid is refused at the declaration: an
 /// obligation clause stamped `by`. (The rest of this test — the three kinds
 /// in use, the threadsafe value type, `iterable` without `Iter`, the linear
-/// leak — is `check/platform/types.sv`.) Kept over the prelude: over the real
-/// std, `: Hashed<self> by auto` also reports `group-obligation:no-member`
-/// for `hash` and `eq`, and `: Iter<self, ClientIter, Int> by auto` also
-/// reports `obligation-by:not-self` suggesting `: Iter<self> by auto`.
+/// leak — is `check/platform/types.sv`.) Kept over the prelude. Over the
+/// real std, `: Hashed<self> by auto` also reported `group-obligation:no-member`
+/// for `hash` and `eq`, and `: Iter<self, ClientIter, Int> by auto`
+/// `obligation-by:not-self`, until 2026-10-30; each is now the one refusal.
 #[test]
 fn platform_types_are_opaque_handles_in_three_kinds() {
     let errors = |src: &str| -> Vec<&'static str> {

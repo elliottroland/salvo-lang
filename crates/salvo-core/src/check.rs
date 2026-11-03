@@ -5193,19 +5193,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
             // [obligation-by] `by` stamps the members for the type it is
-            // written on, so the argument has to be `self` [group-self]. The
-            // expansion refuses this too; this is the check for a clause the
-            // expansion skipped (an unknown group).
-            if entry.by.is_some() && !ob.args.iter().all(is_self_ref) {
-                self.error(
-                    ob.span,
-                    messages::obligation_by_not_self(
-                        &ob.name.name,
-                        &entry.by.as_ref().map(|b| b.text()).unwrap_or_default(),
-                    ),
-                );
-                continue;
-            }
+            // written on, so the argument has to be `self` [group-self]: the
+            // expansion refuses it (`obligation-by:group-arg-not-self`), once.
+            // The checker said it a second time until 2026-10-30 (ROADMAP
+            // 0ar), and an unknown group's clause, which the expansion skips,
+            // is the unknown group's error.
             // [linear-group] The pre-2026-09-12 spelling, caught before the
             // unknown-group error would puzzle: linearity is a declaration
             // modifier now.
@@ -5428,7 +5420,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     }
                 }
-                if !found {
+                // [obligation-by] A `by` clause stamps the members; one that
+                // stamped nothing for this member was refused where it is
+                // written (refused, ambiguous, naming nothing), and that is
+                // the one diagnostic (ROADMAP 0ar).
+                if !found && entry.by.is_none() {
                     let Ty::Fn { params, ret, .. } = &expected else {
                         continue;
                     };

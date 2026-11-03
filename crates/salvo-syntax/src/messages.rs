@@ -3912,11 +3912,6 @@ messages! {
          hand-written `intrinsic fn`, so declare `{obligation}` without `by` and write \
          the `intrinsic fn`(s) it names"
     );
-    /// `by` on an obligation whose argument is not `self`.
-    obligation_by_not_self = "obligation-by:not-self" (obligation: &dyn std::fmt::Display, by: &dyn std::fmt::Display) => format!(
-        "`by` stamps the implementation for the type it is written on, so its argument is \
-         `self`: write `: {obligation}<self> by {by}`"
-    );
     /// The removed `canbe hashed` / `canbe ordered`.
     obligation_by_canbe_hashed = "obligation-by:canbe-hashed" (qualifier: &dyn std::fmt::Display, group: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
         "`canbe {qualifier}` no longer exists: being hashable or orderable is *having the \
