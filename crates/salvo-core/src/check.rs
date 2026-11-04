@@ -5163,6 +5163,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.check_obligations(s);
                         self.check_struct_cycle(s);
                     }
+                    // [effect-var] A struct's effect variable must be named
+                    // by a field, or no value could bind it.
+                    if iface {
+                        for g in &s.effect_generics {
+                            if !s.fields.iter().any(|f| f.ty.as_ref().is_some_and(|t| ast_mentions_effect_var(t, &g.name))) {
+                                self.error(g.span, messages::effect_var_undetermined(&g.name));
+                            }
+                        }
+                    }
                     for field in &s.fields {
                         // [handler-state-infer] A generated iterator struct's state
                         // field may be inferred (`ty` is `None`); its type is
@@ -5221,7 +5230,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     // [group-obligation] [obligation-by] A `type` declaration's
                     // clause, checked as a struct's is.
-                    self.check_obligation_list(&t.name, &t.generics, &t.obligations, t.obligations.len(), t.intrinsic);
+                    self.check_obligation_list(&t.name, &t.generics, &[], &t.obligations, t.obligations.len(), t.intrinsic);
                     self.in_comptime_decl = false;
                     self.generics = saved;
                 }
@@ -5272,7 +5281,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
             }
         }
-        self.check_obligation_list(&s.name, &s.generics, &s.obligations, s.obligations.len(), false);
+        self.check_obligation_list(&s.name, &s.generics, &s.effect_generics, &s.obligations, s.obligations.len(), false);
     }
 
     /// [group-obligation] The obligation clause of any type declaration — a
@@ -5283,6 +5292,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         &mut self,
         name: &'p ast::Ident,
         generics: &'p [ast::Ident],
+        // [effect-var] Which of them are effect variables.
+        effect_generics: &'p [ast::Ident],
         obligations: &'p [ast::Obligation],
         _count: usize,
         intrinsic: bool,
@@ -5375,19 +5386,39 @@ impl<'p, 'r> Checker<'p, 'r> {
                         name: name.clone(),
                         args: generics
                             .iter()
-                            .map(|g| ast::Type::Named {
-                                qualifiers: vec![],
-                                base: ast::TypeRef {
-                                    name: g.clone(),
-                                    args: vec![],
-                                    value_args: vec![],
-                                    from: vec![],
-                                    at: None,
-                                    binder: false,
-                                    established: false,
-                                    alias: None,
-                                    span: g.span,
-                                },
+                            .map(|g| {
+                                let plain = ast::Type::Named {
+                                    qualifiers: vec![],
+                                    base: ast::TypeRef {
+                                        name: g.clone(),
+                                        args: vec![],
+                                        value_args: vec![],
+                                        from: vec![],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: g.span,
+                                    },
+                                };
+                                // [effect-var] An effect variable's argument is its row.
+                                if !effect_generics.iter().any(|e| e.name == g.name) {
+                                    return plain;
+                                }
+                                ast::Type::Named {
+                                    qualifiers: vec![],
+                                    base: ast::TypeRef {
+                                        name: ast::Ident { name: salvo_syntax::ast::EFFECT_ROW_TYPE_NAME.to_string(), span: g.span },
+                                        args: vec![plain],
+                                        value_args: vec![],
+                                        from: vec![],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: g.span,
+                                    },
+                                }
                             })
                             .collect(),
                         value_args: vec![],
@@ -5401,7 +5432,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 };
                 // Not recorded in `written_types`: the node is this
                 // temporary's, and its address another's once it is gone.
-                self.lower_type_subst(&written, &HashMap::new(), 0)
+                let saved = self.generics.clone();
+                self.enter_effect_vars(effect_generics);
+                let lowered = self.lower_type_subst(&written, &HashMap::new(), 0);
+                self.generics = saved;
+                lowered
             };
             for a in &ob.args {
                 if !is_self_ref(a) {
@@ -8462,7 +8497,37 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(value) = fitted else {
             return self.fn_value_ty(entry.key, decl);
         };
-        if !value.nested.is_empty() {
+        // [effect-var] A fn with effect variables of its own takes each as one
+        // pack, where the position hands it the effects one by one: the
+        // adapter gathers each variable's effects, at what the position bound
+        // it to, into its pack.
+        let open = matches!(expected.map(|t| t.strip_quals()), Some(Ty::Fn { effects, .. }) if effects.iter().any(Ty::is_open_effects));
+        let adapter = if decl.effect_generics.is_empty() {
+            adapter
+        } else {
+            let vars: HashSet<&str> = decl.effect_generics.iter().map(|g| g.name.as_str()).collect();
+            let mut flat: Vec<Ty> = Vec::new();
+            let mut packs: Vec<usize> = Vec::new();
+            for e in &threaded_own {
+                match e {
+                    Ty::Var(g) if vars.contains(g.as_str()) => {
+                        let row = value.binding.get(g).map(|b| crate::threaded_effects(&effect_row_of(b))).unwrap_or_default();
+                        packs.push(row.len());
+                        flat.extend(row);
+                    }
+                    other => {
+                        packs.push(1);
+                        flat.push(other.clone());
+                    }
+                }
+            }
+            self.out.effect_packs.insert(self.key(name_span), packs);
+            // Where the position's own variable is what this binds, the
+            // value is passed as it is and adapted with the others
+            // (`slot_value`), which reads the packs recorded here.
+            (!open).then(|| flat.iter().filter_map(|t| threaded_taken.iter().position(|x| x == t)).collect())
+        };
+        if !value.nested.is_empty() || !decl.effect_generics.is_empty() {
             self.out.fn_values.insert(self.key(name_span), FnValue::Decl { nested: value.nested, adapter });
         }
         // [linear-generics] The instantiation ban applies here as at any
@@ -12114,7 +12179,21 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [effect-var] Whether `r` names an effect variable (`[E]`) of the
     /// declaration it is written in.
     fn names_effect_var(&self, r: &TypeRef) -> bool {
-        r.args.is_empty() && self.resolution.names.written(r).is_some_and(|w| w.effect_var)
+        r.args.is_empty()
+            && match self.resolution.names.written(r) {
+                Some(w) => w.effect_var,
+                // A reference the checker made up: an effect variable it
+                // put in scope (`Self::enter_effect_vars`).
+                None => self.generics.contains(&effect_var_mark(&r.name.name)),
+            }
+    }
+
+    /// [effect-var] Marks `names` as effect variables for references the
+    /// checker makes up; restored with `self.generics`, as generics are.
+    fn enter_effect_vars(&mut self, names: &[Ident]) {
+        for g in names {
+            self.generics.insert(effect_var_mark(&g.name));
+        }
     }
 
     /// [lsp-definition] [name-table] A written name -> its declaration,
@@ -19403,6 +19482,22 @@ impl<'p, 'r> Checker<'p, 'r> {
             None
         };
         let name = resolved_dot.as_deref().unwrap_or(base.name.name.as_str());
+        // [effect-var] `[A, B]`: a struct's effect argument, a row of effects
+        // (aliases flattened, prerequisites added, an effect variable
+        // substituted by its binding when `subst` has one).
+        if name == salvo_syntax::ast::EFFECT_ROW_TYPE_NAME {
+            let refs: Vec<EffectRef> = base
+                .args
+                .iter()
+                .filter_map(|a| match a {
+                    ast::Type::Named { qualifiers, base: r } if qualifiers.is_empty() => Some(EffectRef::Effect(r.clone())),
+                    _ => None,
+                })
+                .collect();
+            let listed: Vec<Ty> = self.expand_effect_refs(&refs, true).into_iter().map(|e| e.ty).collect();
+            let names: HashSet<String> = subst.keys().cloned().collect();
+            return Ty::effect_row(substitute_effects(&listed, subst, &names).into_iter().filter(|t| !t.is_open_effects()).collect());
+        }
         // [type-identity] [name-table] A written name means what it means in
         // the file that wrote it, which is not this one when a callee's
         // signature or a struct's field is lowered at a use: resolution bound
@@ -20432,6 +20527,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         match ty {
             ast::Type::Literal { .. } => {}
             ast::Type::Named { qualifiers, base } => {
+                // [effect-var] An effect row outside a struct's argument list.
+                if base.name.name == salvo_syntax::ast::EFFECT_ROW_TYPE_NAME {
+                    self.error(base.span, messages::effect_var_row_misplaced(&"a type"));
+                    return;
+                }
                 // [effect-var] An effect variable is not a type of values.
                 if self.names_effect_var(base) {
                     self.error(base.span, messages::effect_var_as_type(&base.name.name));
@@ -20468,6 +20568,27 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // effect here, of either kind: an actor effect's addr
                         // is a mailbox handle, a plain effect's a shared
                         // monitor's handle (SH-3, user decision 2026-09-19).
+                        continue;
+                    }
+                    // [effect-var] An effect row fills a struct's effect
+                    // variable, and nothing else.
+                    if let ast::Type::Named { base: r, .. } = a {
+                        if r.name.name == salvo_syntax::ast::EFFECT_ROW_TYPE_NAME {
+                            let takes = self.named(base).structure.is_some_and(|d| {
+                                d.generics.get(i).is_some_and(|g| d.effect_generics.iter().any(|e| e.name == g.name))
+                            });
+                            if !takes {
+                                self.error(r.span, messages::effect_var_row_misplaced(&base.name.name));
+                            }
+                            continue;
+                        }
+                    }
+                    // [effect-var] …and a struct's effect variable takes a row.
+                    let wants_row = self.named(base).structure.is_some_and(|d| {
+                        d.generics.get(i).is_some_and(|g| d.effect_generics.iter().any(|e| e.name == g.name))
+                    });
+                    if wants_row {
+                        self.error(a.span(), messages::effect_var_row_expected(&base.name.name));
                         continue;
                     }
                     self.validate_type(a);
@@ -25066,6 +25187,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// immutable all the way down.
     fn struct_field_ty(&mut self, field: &ast::FieldDecl, subst: &HashMap<String, Ty>, mutable: bool) -> Ty {
         let ty = self.lower_type_subst(field.written_ty(), subst, 0);
+        // [effect-var] A struct's effect variable, in a field's fn type or
+        // handle, is what the struct's argument binds it to — which the
+        // lowering, substituting types, did not reach.
+        let effect_vars: HashSet<String> = subst.iter().filter(|(_, v)| v.as_effect_row().is_some()).map(|(k, _)| k.clone()).collect();
+        let ty = if effect_vars.is_empty() { ty } else { substitute_vars(&ty, subst, &effect_vars) };
         if field.canbe_mut && mutable && !ty.quals().iter().any(|q| q.name == "Mut") && self.has_auto_mut(&ty) {
             let mut quals = ty.quals().to_vec();
             quals.push(Qual::plain("Mut", Vec::new()));
@@ -26309,6 +26435,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                             // ... }` call sites unchanged).
                             self.record_field_ref(&struct_ty, name);
                             let fty = self.struct_field_ty(df, &subst, lit_mut);
+                            // [effect-var] An effect variable nothing determined
+                            // yet leaves the field's fn type open: the value
+                            // binds it, as an argument binds a fn's.
+                            let open_vars: HashSet<String> = decl
+                                .effect_generics
+                                .iter()
+                                .filter(|g| subst.get(&g.name).is_none_or(|t| t.is_unknown()))
+                                .map(|g| g.name.clone())
+                                .collect();
+                            let fty = if open_vars.is_empty() { fty } else { substitute_vars(&fty, &HashMap::new(), &open_vars) };
                             self.check_expr(value, Some(&fty));
                             let vty = self.out.expr_ty[&self.key(value.span())].clone();
                             // [struct-literal-arg] What this field says about an
@@ -26415,6 +26551,51 @@ impl<'p, 'r> Checker<'p, 'r> {
                         messages::struct_defaults_missing_field(&df.name.name, &decl.name.name),
                     );
                 }
+            }
+        }
+        // [effect-var] A fn field whose type names the struct's effect
+        // variable is called with that variable's pack: the value stored
+        // there takes it, as an argument to a fn does.
+        if !decl.effect_generics.is_empty() {
+            let given: Vec<Ty> = match struct_ty.strip_quals() {
+                Ty::Named { args, .. } => args.clone(),
+                _ => Vec::new(),
+            };
+            let all: HashMap<String, Ty> = decl.generics.iter().map(|g| (g.name.clone(), Ty::Var(g.name.clone()))).collect();
+            let names: HashSet<String> = all.keys().cloned().collect();
+            let bound: HashMap<String, Ty> = decl
+                .generics
+                .iter()
+                .enumerate()
+                .map(|(i, g)| {
+                    let t = match given.get(i) {
+                        Some(t) if !t.is_unknown() => t.clone(),
+                        _ => inferred.get(&g.name).cloned().unwrap_or(Ty::Unknown),
+                    };
+                    (g.name.clone(), t)
+                })
+                .collect();
+            let vars: HashSet<&str> = decl.effect_generics.iter().map(|g| g.name.as_str()).collect();
+            for f in fields {
+                let StructLitFieldKind::Named { name, value } = &f.kind else { continue };
+                let Some(df) = decl.fields.iter().find(|df| df.name.name == name.name && df.ty.is_some()) else { continue };
+                let pattern = self.struct_field_ty(df, &all, lit_mut);
+                let Ty::Fn { effects, .. } = pattern.strip_quals() else { continue };
+                if !effects.iter().any(|e| matches!(e, Ty::Var(g) if vars.contains(g.as_str()))) {
+                    continue;
+                }
+                let slots: Vec<EffectSlot> = crate::threaded_effects(effects)
+                    .iter()
+                    .map(|e| match e {
+                        Ty::Var(g) if vars.contains(g.as_str()) => {
+                            EffectSlot::Pack(bound.get(g).map(|b| crate::threaded_effects(&effect_row_of(b))).unwrap_or_default())
+                        }
+                        other => EffectSlot::One(substitute_vars(other, &bound, &names)),
+                    })
+                    .collect();
+                let at = substitute_vars(&pattern, &bound, &names);
+                let vty = self.out.expr_ty.get(&self.key(value.span())).cloned();
+                self.slot_value(value, vty.as_ref(), slots, at);
             }
         }
         // [struct-literal-arg] Rebuild the literal's type with what the fields
@@ -28474,6 +28655,31 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
             subst.insert(g.clone(), Ty::effect_row(row));
             true
         }
+        // [effect-var] A row pattern against a row: its variable binds the
+        // effects beyond the ones it names, which the argument must hold.
+        (Ty::Named { name: pn, args: pargs }, Ty::Named { name: an, args: aargs })
+            if pn == crate::types::EFFECT_ROW && an == crate::types::EFFECT_ROW =>
+        {
+            let named: Vec<&Ty> = pargs.iter().filter(|e| !matches!(e, Ty::Var(_))).collect();
+            if !named.iter().all(|e| aargs.contains(e)) {
+                return false;
+            }
+            let vars: Vec<&String> = pargs.iter().filter_map(|e| match e { Ty::Var(g) => Some(g), _ => None }).collect();
+            match vars.as_slice() {
+                [] => aargs.len() == named.len(),
+                [g] => {
+                    let mut row: Vec<Ty> = subst.get(*g).map(effect_row_of).unwrap_or_default();
+                    for e in aargs.iter().filter(|e| !named.contains(e)) {
+                        if !row.contains(e) {
+                            row.push(e.clone());
+                        }
+                    }
+                    subst.insert((*g).clone(), Ty::effect_row(row));
+                    true
+                }
+                _ => false,
+            }
+        }
         (Ty::Var(g), _) => {
             match subst.get(g) {
                 Some(bound) => {
@@ -28753,6 +28959,29 @@ fn keep_effect_vars_open(pattern: &Ty, exp: Ty, effect_vars: &[String]) -> Ty {
         Ty::Qualified { quals, base } => Ty::Qualified { quals, base: Box::new(open(*base)) },
         other => open(other),
     }
+}
+
+/// [effect-var] Whether `arg`, a handle, fills `pattern`, an `eff[E]` over one
+/// of `effect_vars`, whose substituted form `sub` holds the same effects in
+/// the row's canonical order.
+pub(crate) fn handle_fits_effect_var(pattern: &Ty, arg: &Ty, sub: &Ty, effect_vars: &[Ident]) -> bool {
+    let Ty::Named { name, args } = pattern.strip_quals() else { return false };
+    // A plain type parameter there is refused with its own diagnostic once
+    // the call settles (`effect-var:row-for-type`), so it fits here too.
+    let _ = effect_vars;
+    if name != ADDR_TYPE || !matches!(args.as_slice(), [Ty::Var(_)]) {
+        return false;
+    }
+    match (handle_leaves(arg), handle_leaves(sub)) {
+        (Some(a), Some(b)) => a.len() == b.len() && a.iter().all(|(_, e)| b.iter().any(|(_, f)| f == e)),
+        _ => false,
+    }
+}
+
+/// [effect-var] The entry in the checker's generic scope that says a name is
+/// an effect variable, for a reference with no name-table entry.
+fn effect_var_mark(name: &str) -> String {
+    format!("[{name}]")
 }
 
 /// [effect-var] The effects a binding of an effect variable stands for: a
@@ -29188,6 +29417,10 @@ fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashS
             .get(&FnId::subst_key(name))
             .cloned()
             .unwrap_or_else(|| ty.clone()),
+        // [effect-var] A row's variable is spliced into what it is bound to.
+        Ty::Named { name, args } if name == crate::types::EFFECT_ROW => {
+            Ty::effect_row(substitute_effects(args, subst, callee_generics).into_iter().filter(|t| !t.is_open_effects()).collect())
+        }
         Ty::Named { name, args } => {
             let args: Vec<Ty> = args.iter().map(|a| substitute_vars(a, subst, callee_generics)).collect();
             // [effect-var] `eff[E]` at `E`'s binding is the handle over its effects.
@@ -30835,7 +31068,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .unwrap_or(true);
                 // [type-literal] A literal argument fits a parameter listing
                 // it, though it was typed without one (its base, `Str`).
-                let fits = self.arg_fits_param(&arg_tys[i], &sp, kept);
+                // [effect-var] A handle bound to `eff[E]` fits in any order:
+                // `E`'s pack keeps its effects in one, and the lowering
+                // reorders the handle into it.
+                let fits = self.arg_fits_param(&arg_tys[i], &sp, kept) || handle_fits_effect_var(p, &arg_tys[i], &sp, &decl.effect_generics);
                 if !fits {
                     // Remember when *only* the projection stood in the way,
                     // for the diagnostic below.
@@ -32200,46 +32436,56 @@ impl<'p, 'r> Checker<'p, 'r> {
                     other => EffectSlot::One(substitute_vars(other, subst, callee_generics)),
                 })
                 .collect();
-            let flat: Vec<Ty> = slots.iter().flat_map(|s| s.effects().to_vec()).collect();
             let Some(arg) = args.get(i).copied() else { continue };
-            let key = self.key(arg.span());
-            if let Expr::Lambda { .. } = arg {
-                // The lambda takes its effects in the slots' order; an
-                // inferred one stands for the instance in scope here.
-                let throws: Vec<Ty> = self
-                    .out
-                    .effects_taken
-                    .get(&key)
-                    .map(|t| t.iter().filter(|e| crate::types::is_throw_effect(e)).cloned().collect())
-                    .unwrap_or_default();
-                let visible = self.visible_avail();
-                let named: Vec<&Ty> = slots.iter().filter_map(|s| match s { EffectSlot::One(t) => Some(t), _ => None }).collect();
-                let mut stands: Vec<Instance> = flat
-                    .iter()
-                    .map(|t| match visible.iter().find(|a| a.ty == *t) {
-                        Some(a) if !named.contains(&t) => a.instance(),
-                        _ => Instance { ty: t.clone(), binder: Binder::Missing },
-                    })
-                    .collect();
-                stands.extend(throws.iter().map(|t| Instance { ty: t.clone(), binder: Binder::Missing }));
-                let mut taken = flat.clone();
-                taken.extend(throws);
-                self.out.effects_taken.insert(key, taken);
-                self.out.effects_passed.insert(key, EffectsPassed::Inferred(stands));
-                self.out.effect_slots.insert(key, slots);
-                continue;
-            }
-            // Any other value: as it is, when it already takes exactly the
-            // slots' effects one by one; else through an adapter.
-            let own: Vec<Ty> = match arg_tys.get(i).map(|t| t.strip_quals()) {
-                Some(Ty::Fn { effects, .. }) => crate::threaded_effects(effects),
-                _ => continue,
-            };
-            let one_by_one = slots.iter().all(|s| s.effects().len() == 1);
-            if !(one_by_one && own == flat) {
-                self.out.effect_slots.insert(key, slots);
-                self.out.effect_adapted.insert(key, substitute_vars(pattern, subst, callee_generics));
-            }
+            let at = substitute_vars(pattern, subst, callee_generics);
+            self.slot_value(arg, arg_tys.get(i), slots, at);
+        }
+    }
+
+    /// [effect-var] What a fn value `arg` (of type `arg_ty`) is called with
+    /// where its position's fn type `at` takes effect variables: `slots`. A
+    /// lambda takes them as its own parameters, its effects in the slots'
+    /// order, an inferred one standing for the instance in scope here; any
+    /// other value is adapted, unless it already takes exactly those effects
+    /// one by one.
+    fn slot_value(&mut self, arg: &'p Expr, arg_ty: Option<&Ty>, slots: Vec<EffectSlot>, at: Ty) {
+        let flat: Vec<Ty> = slots.iter().flat_map(|s| s.effects().to_vec()).collect();
+        let key = self.key(arg.span());
+        if let Expr::Lambda { .. } = arg {
+            let throws: Vec<Ty> = self
+                .out
+                .effects_taken
+                .get(&key)
+                .map(|t| t.iter().filter(|e| crate::types::is_throw_effect(e)).cloned().collect())
+                .unwrap_or_default();
+            let visible = self.visible_avail();
+            let named: Vec<&Ty> = slots.iter().filter_map(|s| match s { EffectSlot::One(t) => Some(t), _ => None }).collect();
+            let mut stands: Vec<Instance> = flat
+                .iter()
+                .map(|t| match visible.iter().find(|a| a.ty == *t) {
+                    Some(a) if !named.contains(&t) => a.instance(),
+                    _ => Instance { ty: t.clone(), binder: Binder::Missing },
+                })
+                .collect();
+            stands.extend(throws.iter().map(|t| Instance { ty: t.clone(), binder: Binder::Missing }));
+            let mut taken = flat.clone();
+            taken.extend(throws);
+            self.out.effects_taken.insert(key, taken);
+            self.out.effects_passed.insert(key, EffectsPassed::Inferred(stands));
+            self.out.effect_slots.insert(key, slots);
+            return;
+        }
+        let own: Vec<Ty> = match arg_ty.map(|t| t.strip_quals()) {
+            Some(Ty::Fn { effects, .. }) => crate::threaded_effects(effects),
+            _ => return,
+        };
+        // A named fn taking its own effect variables takes their packs: as
+        // it is only where each slot is one effect it takes alone.
+        let own_packs = self.out.effect_packs.get(&key).is_some_and(|p| p.iter().any(|n| *n != 1));
+        let one_by_one = slots.iter().all(|s| s.effects().len() == 1);
+        if !(one_by_one && own == flat && !own_packs) {
+            self.out.effect_slots.insert(key, slots);
+            self.out.effect_adapted.insert(key, at);
         }
     }
 
@@ -33203,11 +33449,12 @@ fn proj_arm_indices(ty: &ast::Type) -> Vec<usize> {
 }
 
 /// [effect-var] Whether a written type names the effect variable `name` where
-/// a call can bind it: in a fn type's effect list, or as an `eff[…]` handle's
-/// effect.
+/// a call can bind it: in a fn type's effect list, as an `eff[…]` handle's
+/// effect, or in a struct's effect argument (`Later<[E]>`).
 fn ast_mentions_effect_var(ty: &ast::Type, name: &str) -> bool {
     fn in_ref(r: &TypeRef, name: &str) -> bool {
-        (r.name.name == ADDR_TYPE && r.args.iter().any(|a| matches!(a, ast::Type::Named { base, .. } if base.name.name == name)))
+        ((r.name.name == ADDR_TYPE || r.name.name == salvo_syntax::ast::EFFECT_ROW_TYPE_NAME)
+            && r.args.iter().any(|a| matches!(a, ast::Type::Named { base, .. } if base.name.name == name)))
             || r.args.iter().any(|a| ast_mentions_effect_var(a, name))
     }
     match ty {

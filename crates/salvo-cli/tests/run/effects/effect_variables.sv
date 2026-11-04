@@ -106,6 +106,14 @@ handler Counting() of Tally {
     fn total() -> Int { return n }
 }
 
+effect Bumps {
+    fn bump2() -> None
+}
+
+handler Counting2() [Console] of Bumps {
+    fn bump2() { println("bump2") }
+}
+
 fn each<T, [E]>(xs: List<T>, f: (x: T) [E] -> None) => xs, f {
     for x in xs {
         f(x)
@@ -159,6 +167,13 @@ fn main() [use] -> None {
     both(() -> bump(), () -> say("both"))
     later(s, () -> say("later"))
     later(eff[], () -> {})
+    // A handle of two effects, in another order than the variable's pack
+    // keeps them: reordered into it.
+    let t = use Counting2()
+    later(eff[s, t], () -> {
+        say("both")
+        bump2()
+    })
     println(guarded(() -> say("fine")))
     println(guarded(() -> throw("no")))
     println("bumps ${total()}")
@@ -172,7 +187,146 @@ fn main() [use] -> None {
 //= down 1
 //= both
 //= later
+//= both
+//= bump2
 //= fine
 //= ok
 //= caught no
 //= bumps 3
+
+//--- structs_and_lazy_adaptors
+// A struct holds an effect variable as a fn field's effects, and its type
+// names what it is bound to (`Later<[]>`). std's lazy adaptors are such
+// structs: their callbacks run as the adaptor is driven, by a `for` or by a
+// function filling `?Next` with an adaptor that performs nothing.
+effect Tally {
+    fn bump() -> None
+    fn total() -> Int
+}
+
+handler Counting() of Tally {
+    state {
+        n: Int = 0
+    }
+    fn bump() { n = n + 1 }
+    fn total() -> Int { return n }
+}
+
+struct Later<[E]> {
+    n: Int,
+    run: (x: Int) [E] -> Int
+}
+
+fn later<[E]>(n: Int, f: (x: Int) [E] -> Int) -> Later<[E]> => !f {
+    return Later { n: n, run: f }
+}
+
+fn fire<[E]>(l: Later<[E]>) [E] -> Int => l {
+    let f = l.run
+    return f(l.n)
+}
+
+fn tens(x: Int) [Tally] -> Int {
+    bump()
+    return x * 10
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    use Counting()
+    let a = later(3, (x) -> {
+        bump()
+        println("a ${x}")
+        return x * 2
+    })
+    println("fired ${fire(a)}")
+    let b: Later<[]> = later(4, (x) -> x + 1)
+    println("fired ${fire(b)}")
+    let xs = List(1, 2, 3, 4)
+    for y in mapping(iter(xs), (x) -> tens(x)) {
+        println("y ${y}")
+    }
+    for y in filtering(iter(xs), (x) -> x > 2) {
+        println("big ${y}")
+    }
+    for y in taking_while(iter(xs), (x) -> {
+        println("check ${x}")
+        return x < 3
+    }) {
+        println("took ${y}")
+    }
+    for y in skipping_while(iter(xs), (x) -> {
+        bump()
+        return x < 3
+    }) {
+        println("from ${y}")
+    }
+    let m = mapping(iter(xs), (x) -> x + 1)
+    println("list ${size(to_list(m))}")
+    println("total ${total()}")
+}
+//= stdout
+//= a 3
+//= fired 6
+//= fired 5
+//= y 10
+//= y 20
+//= y 30
+//= y 40
+//= big 3
+//= big 4
+//= check 1
+//= took 1
+//= check 2
+//= took 2
+//= check 3
+//= from 3
+//= from 4
+//= list 4
+//= total 8
+
+//--- a_polymorphic_fn_as_a_value
+// A struct literal's fn field binds the struct's effect variable, and a
+// function with an effect variable of its own, passed as a value, takes the
+// pack the position hands it — of two effects, and of none.
+effect Tally {
+    fn bump() -> None
+    fn total() -> Int
+}
+
+handler Counting() of Tally {
+    state {
+        n: Int = 0
+    }
+    fn bump() { n = n + 1 }
+    fn total() -> Int { return n }
+}
+
+struct Later<[E]> {
+    n: Int,
+    run: (x: Int) [E] -> Int
+}
+
+fn fire<[E]>(l: Later<[E]>) [E] -> Int => l {
+    let f = l.run
+    return f(l.n)
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    use Counting()
+    let loud: List<Later<[Console, Tally]>> = List(Later { n: 1, run: (x) -> {
+        bump()
+        println("loud ${x}")
+        return x
+    } })
+    println("${map(loud, fire)}")
+    let quiet: List<Later<[]>> = List(Later { n: 2, run: (x) -> x * 3 })
+    println("${map(quiet, fire)}")
+    println("total ${total()}")
+}
+//= stdout
+//= loud 1
+//= [1]
+//= [6]
+//= total 1

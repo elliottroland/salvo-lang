@@ -72,3 +72,11 @@ fn later<[E]>(fx: eff[E], f: () [E, Console] -> None) [use] -> eff[] => fx, f {
     use fx
     return eff[]
 }
+
+// [effect-var] A struct's effect variable, and the list that fills it.
+struct Later<[E]> {
+    run: () [E] -> None
+}
+
+fn fire(a: Later<[Console, Logger]>, b: Later<[]>) => a, b {
+}

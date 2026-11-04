@@ -629,6 +629,10 @@ pub(crate) fn walk_item<V: Visitor>(c: &mut V, it: &Item) {
         _ => (&[], &[]),
     };
     c.enter_generics(generics, canbe_list);
+    // [effect-var] A struct's effect variables.
+    if let Item::Struct(d) = it {
+        c.enter_effect_generics(&d.effect_generics);
+    }
     walk_item_in(c, it);
     c.leave_generics();
 }
@@ -677,6 +681,7 @@ fn walk_item_in<V: Visitor>(c: &mut V, it: &Item) {
             generics: _,
             generic_canbe,
             fn_slots,
+            effect_generics: _,
             obligations: obs,
             auto_qualifiers,
             fields,

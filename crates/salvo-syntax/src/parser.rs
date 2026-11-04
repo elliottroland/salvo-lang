@@ -1374,6 +1374,11 @@ impl<'s> Parser<'s> {
         (generics, canbe, slots)
     }
 
+    /// [effect-var] A struct's generics: slots, opt-ins, and effect variables.
+    fn parse_struct_generics(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<SlotDecl>, Vec<Ident>) {
+        self.parse_generics_all()
+    }
+
     /// Type parameters with optional per-parameter `canbe` opt-ins
     /// [linear-generics] [qual-canbe-optin]: `<T canbe linear, U>` — one
     /// qualifier per `canbe` (the comma separates parameters) — and
@@ -1615,7 +1620,7 @@ impl<'s> Parser<'s> {
         // [struct-slot] And fn slots, as a type declaration has them
         // [cmp-carry]: `struct Map<K, V>(?hash: (K) -> Long, ?eq: (K, K) ->
         // Bool)`.
-        let (generics, generic_canbe, mut fn_slots) = self.parse_generics_slots();
+        let (generics, generic_canbe, mut fn_slots, effect_generics) = self.parse_struct_generics();
         let (block_slots, value_slots) = self.parse_slot_block();
         fn_slots.extend(block_slots);
         for v in &value_slots {
@@ -1697,6 +1702,7 @@ impl<'s> Parser<'s> {
             generics,
             generic_canbe,
             fn_slots,
+            effect_generics,
             obligations,
             auto_qualifiers,
             fields,
@@ -3710,6 +3716,38 @@ impl<'s> Parser<'s> {
         Some(Type::Named { qualifiers: Vec::new(), base })
     }
 
+    /// [effect-var] `[A, B]` / `[]` in a type position: carried as a ref named
+    /// [`EFFECT_ROW_TYPE_NAME`] whose arguments are the effects.
+    fn parse_effect_row_type(&mut self) -> Option<Type> {
+        let start = self.expect(&TokenKind::LBracket)?.span;
+        self.group_depth += 1;
+        let mut args: Vec<Type> = Vec::new();
+        while !self.at(&TokenKind::RBracket) && !self.at_eof() {
+            let Some(r) = self.parse_type_ref() else {
+                self.group_depth -= 1;
+                return None;
+            };
+            args.push(Type::Named { qualifiers: Vec::new(), base: r });
+            if self.eat(&TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        self.group_depth -= 1;
+        let end = self.expect(&TokenKind::RBracket)?.span;
+        let base = TypeRef {
+            name: Ident { name: EFFECT_ROW_TYPE_NAME.to_string(), span: start },
+            args,
+            value_args: Vec::new(),
+            from: Vec::new(),
+            at: None,
+            binder: false,
+            established: false,
+            alias: None,
+            span: start.to(end),
+        };
+        Some(Type::Named { qualifiers: Vec::new(), base })
+    }
+
     /// [comptime-inline] Whether a type splice `[binder.type]` starts here:
     /// exactly `[`, a lowercase name, `.`, `type`, `]`.
     fn at_type_splice(&self) -> bool {
@@ -3753,6 +3791,12 @@ impl<'s> Parser<'s> {
         if self.at_type_splice() {
             let base = self.parse_type_splice()?;
             return Some(Type::Named { qualifiers: Vec::new(), base });
+        }
+        // [effect-var] `[A, B]`: an effect list as a type argument, for a
+        // struct's effect variable (`Later<[Console]>`, `Later<[]>`). Only
+        // the checker knows the position is one.
+        if self.at(&TokenKind::LBracket) {
+            return self.parse_effect_row_type();
         }
         // [comptime-pattern] `*` — any type, in a comptime type pattern only.
         // Carried as a named type spelled `*`, which no declaration can spell;

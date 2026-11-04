@@ -284,7 +284,10 @@ fn struct_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, s: &ast::StructDecl, 
         id,
         name: s.name.name.clone(),
         exported: s.exported,
-        type_params: type_params(&s.generics, &s.generic_canbe),
+        type_params: type_params(&s.generics, &s.generic_canbe).into_iter().map(|mut t| {
+            t.effect = s.effect_generics.iter().any(|e| e.name == t.name);
+            t
+        }).collect(),
         fields: fields(ctx, file_idx, &s.fields, false, &[], bodies, errors),
         linear: s.linear,
         opaque: s.opaque,

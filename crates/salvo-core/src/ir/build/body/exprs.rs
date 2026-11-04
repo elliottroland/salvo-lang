@@ -191,6 +191,9 @@ impl<'a, 'p> Lower<'a, 'p> {
             };
             args.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false, moved: false } });
         }
+        // A named fn with effect variables of its own takes them as packs.
+        let key = self.key(span);
+        let mut args = if matches!(target, FnRef::Decl(_)) { self.group_packs(args, key, span) } else { args };
         for (i, t) in params.iter().enumerate() {
             let l = Local(format!("__a{i}"));
             let mode = match contract.as_ref().and_then(|c| c.get(i)) {
@@ -212,10 +215,50 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
     }
 
+    /// [effect-var] Each argument at a parameter written `eff[E]`, `E` an
+    /// effect variable of `decl`, that is a handle over several effects in
+    /// another order than `E`'s pack keeps them in (`Ty::effect_row`'s):
+    /// bound once and rebuilt in that order.
+    fn reorder_effect_handles(&mut self, decl: &ast::FnDecl, args: Vec<Expr>, span: Span) -> Vec<Expr> {
+        let fixed: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
+        let mut out = Vec::with_capacity(args.len());
+        for (i, a) in args.into_iter().enumerate() {
+            let is_handle_param = fixed.get(i).is_some_and(|p| matches!(&p.ty, ast::Type::Named { qualifiers, base }
+                if qualifiers.is_empty() && base.name.name == crate::check::ADDR_TYPE
+                    && matches!(base.args.as_slice(), [ast::Type::Named { base: v, .. }] if decl.effect_generics.iter().any(|g| g.name == v.name.name))));
+            let leaves = crate::check::handle_leaves(&a.ty);
+            let (true, Some(leaves)) = (is_handle_param, leaves) else {
+                out.push(a);
+                continue;
+            };
+            let mut order: Vec<usize> = (0..leaves.len()).collect();
+            order.sort_by_key(|&k| leaves[k].1.to_string());
+            if order.iter().enumerate().all(|(n, k)| n == *k) || leaves.iter().any(|(path, _)| path.len() != 1) {
+                out.push(a);
+                continue;
+            }
+            let tmp = self.fresh("__handle");
+            let id = self.id();
+            let tty = a.ty.clone();
+            let elems: Vec<Ty> = match tty.strip_quals() {
+                Ty::Tuple(es) => es.clone(),
+                _ => Vec::new(),
+            };
+            let reads: Vec<Expr> = order
+                .iter()
+                .map(|&k| Expr { ty: elems.get(k).cloned().unwrap_or(Ty::Unknown), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: vec![Step::Tuple(k)] }, consume: false, moved: false } })
+                .collect();
+            let ty = Ty::Tuple(reads.iter().map(|r| r.ty.clone()).collect());
+            let value = Expr { ty, span, kind: ExprKind::Tuple(reads) };
+            out.push(self.block_expr(vec![Stmt::Let { id, local: tmp, ty: tty, value: a }], value, span));
+        }
+        out
+    }
+
     /// [effect-var] The leading arguments of the call at `span`: the
     /// instances, a callee's effect variable's grouped into its pack.
-    fn group_packs(&mut self, reads: Vec<Expr>, span: Span) -> Vec<Expr> {
-        let Some(packs) = self.ctx.checked.effect_packs.get(&self.key(span)).cloned() else { return reads };
+    fn group_packs(&mut self, reads: Vec<Expr>, key: crate::check::Key, span: Span) -> Vec<Expr> {
+        let Some(packs) = self.ctx.checked.effect_packs.get(&key).cloned() else { return reads };
         let mut it = reads.into_iter();
         let mut out = Vec::new();
         for n in packs {
@@ -561,6 +604,8 @@ impl<'a, 'p> Lower<'a, 'p> {
             };
             args.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: Local(format!("__fx{i}")), steps: Vec::new() }, consume: false, moved: false } });
         }
+        // [effect-var] The fn's own effect variables take their effects as packs.
+        let mut args = self.group_packs(args, key, span);
         for (i, t) in params.iter().enumerate() {
             let l = Local(format!("__a{i}"));
             ps.push(Param { local: l.clone(), ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None, span });
@@ -879,7 +924,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     return unsupported(ty, span, "local call");
                 };
                 let mut a: Vec<Expr> = match leading {
-                    Some(effs) => self.leading_instances(&effs, span),
+                    Some(effs) => self.leading_instances_at(key, &effs, span),
                     None => Vec::new(),
                 };
                 a.extend(args);
@@ -895,7 +940,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // as the checker resolved them [effect-instance]. A callee taking
         // one with none recorded is refused rather than called short.
         let mut lowered: Vec<Expr> = match leading {
-            Some(effs) => self.leading_instances(&effs, span),
+            Some(effs) => self.leading_instances_at(key, &effs, span),
             None => {
                 if let Some(t) = self.fn_taken(k).unwrap_or_default().into_iter().find(|t| !crate::types::is_throw_effect(t)) {
                     self.error(span, messages::effect_available_lower_no_instance(&self.ctx.ir_ty(&t)));
@@ -1207,7 +1252,11 @@ impl<'a, 'p> Lower<'a, 'p> {
                 ImplicitArg::Resolved { key, nested, want, .. } => {
                     let id = *key;
                     let want = self.ctx.ir_ty(want);
-                    if nested.is_empty() {
+                    // [effect-var] An implicit is effect-free [implicit-resolve],
+                    // so a fn taking effect variables fills one only with them
+                    // bound to nothing: it is handed an empty pack for each.
+                    let packs = self.fn_taken(id).map(|t| crate::threaded_effects(&t).len()).unwrap_or(0);
+                    if nested.is_empty() && packs == 0 {
                         out.push(Expr { ty: want, span: at, kind: ExprKind::FnValue(FnRef::Decl(id)) });
                     } else {
                         // [implicit-recursive] a fn with implicits of its own
@@ -1217,7 +1266,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                             _ => (Vec::new(), Ty::Unknown),
                         };
                         let ps: Vec<Param> = params.iter().enumerate().map(|(i, t)| Param { local: Local(format!("__i{i}")), ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None, span: at }).collect();
-                        let mut args: Vec<Expr> = ps.iter().map(|p| Expr { ty: p.ty.clone(), span: at, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: false, moved: false } }).collect();
+                        let mut args: Vec<Expr> = (0..packs).map(|_| Expr { ty: Ty::Tuple(Vec::new()), span: at, kind: ExprKind::Tuple(Vec::new()) }).collect();
+                        args.extend(ps.iter().map(|p| Expr { ty: p.ty.clone(), span: at, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: false, moved: false } }));
                         args.extend(self.implicit_list(nested, &[], at));
                         let call = Expr { ty: ret.clone(), span: at, kind: ExprKind::Call { target: FnRef::Decl(id), type_args: Vec::new(), args, moved: false } };
                         out.push(Expr { ty: want, span: at, kind: ExprKind::Lambda { params: ps, ret, body: Block { stmts: Vec::new(), value: Some(Box::new(call)), span: at }, captures: Vec::new() } });
@@ -1311,8 +1361,15 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// [effect-instance] The instances a call passes ahead of its arguments,
     /// the throw effect left out [throw].
     fn leading_instances(&mut self, passed: &[Instance], span: Span) -> Vec<Expr> {
+        let key = self.key(span);
+        self.leading_instances_at(key, passed, span)
+    }
+
+    /// [effect-var] As [`Self::leading_instances`], for the call the checker
+    /// keyed at `key` (a `for`'s synthetic one).
+    fn leading_instances_at(&mut self, key: crate::check::Key, passed: &[Instance], span: Span) -> Vec<Expr> {
         let reads: Vec<Expr> = passed.iter().filter(|i| !crate::types::is_throw_effect(&i.ty)).map(|i| self.effect_instance(i, span)).collect();
-        self.group_packs(reads, span)
+        self.group_packs(reads, key, span)
     }
 
     fn call(&mut self, callee: &AExpr, args: &[AExpr], named: &[ast::NamedArg], span: Span) -> Expr {
@@ -1464,6 +1521,12 @@ impl<'a, 'p> Lower<'a, 'p> {
                 None => Vec::new(),
             };
             let (args_lowered, prelude) = self.args_for(decl.map(|d| Callee::Fn(k, d)), &all_args, named, span);
+            // [effect-var] A handle passed as `eff[E]` is reordered into `E`'s
+            // pack, whose effects keep one canonical order.
+            let args_lowered = match decl {
+                Some(d) if !d.effect_generics.is_empty() => self.reorder_effect_handles(d, args_lowered, span),
+                _ => args_lowered,
+            };
             lowered.extend(args_lowered);
             lowered.extend(self.implicit_list(&implicits, named, span));
             let type_args = self.type_args_of(span);

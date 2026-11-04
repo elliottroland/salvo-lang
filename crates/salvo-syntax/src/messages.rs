@@ -432,6 +432,16 @@ messages! {
          a throw is control flow, not a handle. Catch it inside the value with `try`, or have the \
          parameter's type list `Throw<…>` itself"
     );
+    /// An effect row written where no effect variable takes it.
+    effect_var_row_misplaced = "effect-var:row-misplaced" (owner: &dyn std::fmt::Display) => format!(
+        "an effect list here is not a type: it fills a struct's effect variable, and this \
+         position of `{owner}` is not one"
+    );
+    /// A struct's effect variable given a type.
+    effect_var_row_expected = "effect-var:row-expected" (owner: &dyn std::fmt::Display) => format!(
+        "this argument of `{owner}` is an effect variable: write the effects it stands for \
+         as a list (`[Console]`, `[]`, `[E]`)"
+    );
     /// A plain type parameter bound to several effects through a handle.
     effect_var_row_for_type = "effect-var:row-for-type" (name: &dyn std::fmt::Display, callee: &dyn std::fmt::Display) => format!(
         "`{name}` of `{callee}` stands for one effect, and this argument carries a set of them: \

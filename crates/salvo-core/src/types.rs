@@ -377,8 +377,12 @@ pub const EFFECT_ROW: &str = "[effects]";
 pub const OPEN_EFFECTS: &str = "[..]";
 
 impl Ty {
-    /// [effect-var] An effect variable's binding.
-    pub fn effect_row(effects: Vec<Ty>) -> Ty {
+    /// [effect-var] An effect variable's binding. Its effects are kept in
+    /// one canonical order (by their spelling), since the pack they make is
+    /// positional: `[Console, Tally]` found in either order is one pack type.
+    pub fn effect_row(mut effects: Vec<Ty>) -> Ty {
+        effects.sort_by_key(|e| e.to_string());
+        effects.dedup();
         Ty::Named { name: EFFECT_ROW.to_string(), args: effects }
     }
 
@@ -1225,6 +1229,11 @@ pub fn moves_for_free(ty: &Ty) -> bool {
 }
 
 pub fn compatible(a: &Ty, b: &Ty) -> bool {
+    // [effect-var] Two effect rows (a struct's effect argument) are one when
+    // they hold the same effects, in whatever order they were found.
+    if let (Some(x), Some(y)) = (a.as_effect_row(), b.as_effect_row()) {
+        return x.len() == y.len() && x.iter().all(|e| y.contains(e));
+    }
     is_subtype(a, b) && is_subtype(b, a)
 }
 
@@ -1559,6 +1568,11 @@ impl fmt::Display for Ty {
                     write!(f, "{a}")?;
                 }
                 write!(f, "]")
+            }
+            // [effect-var] A row reads as the effect list it was written as.
+            Ty::Named { name, args } if name == EFFECT_ROW => {
+                let parts: Vec<String> = args.iter().map(|a| a.to_string()).collect();
+                write!(f, "[{}]", parts.join(", "))
             }
             Ty::Named { name, args } => {
                 // [type-identity] A key is shown as the name it was written as;

@@ -120,44 +120,44 @@ fun<D, It, T> filterTo(dest: D, it: It, keep: (T) -> Boolean, add: (D, T) -> Uni
 fun<T> drop(value: T) {
 }
 
-data class Mapping<It, T, U>(
+data class Mapping<It, T, U, E>(
     var src: It,
     var step: (It) -> Union2<T, salvo.std.core.iterator.Finished>,
-    var f: (T) -> U,
+    var f: (E, T) -> U,
 )
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<It, T, U> next__Mapping(m: Mapping<It, T, U>): Union2<U, salvo.std.core.iterator.Finished> {
+fun<It, T, U, E> next__Mapping(e: E, m: Mapping<It, T, U, E>): Union2<U, salvo.std.core.iterator.Finished> {
     val step: (It) -> Union2<T, salvo.std.core.iterator.Finished> = m.step
     val x: Union2<T, salvo.std.core.iterator.Finished> = step(m.src)
     if ((x is Union2.U2<*, *>)) {
         val x_1: salvo.std.core.iterator.Finished = ((x as Union2.U2<*, *>).value as salvo.std.core.iterator.Finished)
         return Union2.U2<U, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
     }
-    val f: (T) -> U = m.f
+    val f: (E, T) -> U = m.f
     val x_2: T = ((x as Union2.U1<*, *>).value as T)
-    val y: U = f(x_2)
+    val y: U = f(e, x_2)
     return Union2.U1<U, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(y))
 }
 
-fun<It, T, U> mapping(it: It, f: (T) -> U, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): Mapping<It, T, U> {
-    return Mapping<It, T, U>(src = it, step = next, f = f)
+fun<It, T, U, E> mapping(it: It, f: (E, T) -> U, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): Mapping<It, T, U, E> {
+    return Mapping<It, T, U, E>(src = it, step = next, f = f)
 }
 
-fun<It, T, U> detach__Mapping(it: Mapping<It, T, U>): It {
+fun<It, T, U, E> detach__Mapping(it: Mapping<It, T, U, E>): It {
     return it.src
 }
 
-data class Filtering<It, T>(
+data class Filtering<It, T, E>(
     var src: It,
     var step: (It) -> Union2<T, salvo.std.core.iterator.Finished>,
-    var keep: (T) -> Boolean,
+    var keep: (E, T) -> Boolean,
 )
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<It, T> next__Filtering(t: Filtering<It, T>): Union2<T, salvo.std.core.iterator.Finished> {
+fun<It, T, E> next__Filtering(e: E, t: Filtering<It, T, E>): Union2<T, salvo.std.core.iterator.Finished> {
     val step: (It) -> Union2<T, salvo.std.core.iterator.Finished> = t.step
-    val keep: (T) -> Boolean = t.keep
+    val keep: (E, T) -> Boolean = t.keep
     while (true) {
         val x: Union2<T, salvo.std.core.iterator.Finished> = step(t.src)
         if ((x is Union2.U2<*, *>)) {
@@ -165,7 +165,7 @@ fun<It, T> next__Filtering(t: Filtering<It, T>): Union2<T, salvo.std.core.iterat
             return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
         }
         val x_2: T = ((x as Union2.U1<*, *>).value as T)
-        if (keep(x_2)) {
+        if (keep(e, x_2)) {
             return Union2.U1<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(x_2))
         }
     }
@@ -173,11 +173,11 @@ fun<It, T> next__Filtering(t: Filtering<It, T>): Union2<T, salvo.std.core.iterat
     return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
 }
 
-fun<It, T> filtering(it: It, keep: (T) -> Boolean, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): Filtering<It, T> {
-    return Filtering<It, T>(src = it, step = next, keep = keep)
+fun<It, T, E> filtering(it: It, keep: (E, T) -> Boolean, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): Filtering<It, T, E> {
+    return Filtering<It, T, E>(src = it, step = next, keep = keep)
 }
 
-fun<It, T> detach__Filtering(it: Filtering<It, T>): It {
+fun<It, T, E> detach__Filtering(it: Filtering<It, T, E>): It {
     return it.src
 }
 
@@ -204,15 +204,15 @@ fun<It, T> detach__Taking(it: Taking<It, T>): It {
     return it.src
 }
 
-data class TakingWhile<It, T>(
+data class TakingWhile<It, T, E>(
     var src: It,
     var step: (It) -> Union2<T, salvo.std.core.iterator.Finished>,
-    var keep: (T) -> Boolean,
+    var keep: (E, T) -> Boolean,
     var done: Boolean,
 )
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<It, T> next__TakingWhile(t: TakingWhile<It, T>): Union2<T, salvo.std.core.iterator.Finished> {
+fun<It, T, E> next__TakingWhile(e: E, t: TakingWhile<It, T, E>): Union2<T, salvo.std.core.iterator.Finished> {
     if (t.done) {
         return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
     }
@@ -223,20 +223,20 @@ fun<It, T> next__TakingWhile(t: TakingWhile<It, T>): Union2<T, salvo.std.core.it
         t.done = true
         return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
     }
-    val keep: (T) -> Boolean = t.keep
+    val keep: (E, T) -> Boolean = t.keep
     val x_2: T = ((x as Union2.U1<*, *>).value as T)
-    if (keep(x_2)) {
+    if (keep(e, x_2)) {
         return Union2.U1<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(x_2))
     }
     t.done = true
     return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
 }
 
-fun<It, T> takingWhile(it: It, keep: (T) -> Boolean, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): TakingWhile<It, T> {
-    return TakingWhile<It, T>(src = it, step = next, keep = keep, done = false)
+fun<It, T, E> takingWhile(it: It, keep: (E, T) -> Boolean, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): TakingWhile<It, T, E> {
+    return TakingWhile<It, T, E>(src = it, step = next, keep = keep, done = false)
 }
 
-fun<It, T> detach__TakingWhile(it: TakingWhile<It, T>): It {
+fun<It, T, E> detach__TakingWhile(it: TakingWhile<It, T, E>): It {
     return it.src
 }
 
@@ -271,20 +271,20 @@ fun<It, T> detach__Skipping(it: Skipping<It, T>): It {
     return it.src
 }
 
-data class SkippingWhile<It, T>(
+data class SkippingWhile<It, T, E>(
     var src: It,
     var step: (It) -> Union2<T, salvo.std.core.iterator.Finished>,
-    var skip: (T) -> Boolean,
+    var skip: (E, T) -> Boolean,
     var started: Boolean,
 )
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<It, T> next__SkippingWhile(t: SkippingWhile<It, T>): Union2<T, salvo.std.core.iterator.Finished> {
+fun<It, T, E> next__SkippingWhile(e: E, t: SkippingWhile<It, T, E>): Union2<T, salvo.std.core.iterator.Finished> {
     val step: (It) -> Union2<T, salvo.std.core.iterator.Finished> = t.step
     if (t.started) {
         return step(t.src)
     }
-    val skip: (T) -> Boolean = t.skip
+    val skip: (E, T) -> Boolean = t.skip
     while (true) {
         val x: Union2<T, salvo.std.core.iterator.Finished> = step(t.src)
         if ((x is Union2.U2<*, *>)) {
@@ -292,7 +292,7 @@ fun<It, T> next__SkippingWhile(t: SkippingWhile<It, T>): Union2<T, salvo.std.cor
             return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
         }
         val x_2: T = ((x as Union2.U1<*, *>).value as T)
-        if (!(skip(x_2))) {
+        if (!(skip(e, x_2))) {
             t.started = true
             val x_3: T = ((x as Union2.U1<*, *>).value as T)
             return Union2.U1<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(x_3))
@@ -302,11 +302,11 @@ fun<It, T> next__SkippingWhile(t: SkippingWhile<It, T>): Union2<T, salvo.std.cor
     return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
 }
 
-fun<It, T> skippingWhile(it: It, skip: (T) -> Boolean, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): SkippingWhile<It, T> {
-    return SkippingWhile<It, T>(src = it, step = next, skip = skip, started = false)
+fun<It, T, E> skippingWhile(it: It, skip: (E, T) -> Boolean, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): SkippingWhile<It, T, E> {
+    return SkippingWhile<It, T, E>(src = it, step = next, skip = skip, started = false)
 }
 
-fun<It, T> detach__SkippingWhile(it: SkippingWhile<It, T>): It {
+fun<It, T, E> detach__SkippingWhile(it: SkippingWhile<It, T, E>): It {
     return it.src
 }
 

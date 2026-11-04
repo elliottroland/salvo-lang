@@ -10179,11 +10179,32 @@ between endpoints and delivers what arrives into the scheduler.
   `eff[E]`, `use` over it and `eff[]` as surface features; lazy adaptors in a
   second step; the fusion revisit kept separate; no `[E canbe Throw]`).
   `fn each<T, [E]>(xs: List<T>, f: (x: T) [E] -> None)`.
-  * **Declared on a fn only** for now (`effect-var:misplaced` elsewhere; a
-    struct's is the next step, ROADMAP §2c). It stays in `generics` at its
-    written position, and `FnDecl::effect_generics` says which ones are
-    variables; the name table marks a reference to one
-    (`Written::effect_var`).
+  * **Declared on a fn or a struct** (`effect-var:misplaced` elsewhere). It
+    stays in `generics` at its written position, and `effect_generics` says
+    which ones are variables; the name table marks a reference to one
+    (`Written::effect_var`), and a reference the checker makes up is marked
+    in its generic scope (`effect_var_mark`).
+  * **A struct's** is named by a field (`effect-var:undetermined`
+    otherwise) and filled by a **list type argument**, `Later<[Console]>`,
+    `Later<[]>`, `Later<[E]>` — parsed where a type starts with `[` (an array
+    suffix only follows a type), carried as a ref named `[]`
+    (`EFFECT_ROW_TYPE_NAME`), lowered to a row. A list anywhere but an effect
+    variable's position is `effect-var:row-misplaced`; a type there is
+    `effect-var:row-expected`. A field's type is substituted by the struct's
+    row (`struct_field_ty`); two rows are one type when they hold the same
+    effects in any order (`types::compatible`), and a row pattern binds its
+    variable to the effects beyond the ones it names (`unify`). An
+    obligation's `self` gives a variable as its row. The IR renders a row as
+    its pack (`erase`), so a stored callback is `Arc<dyn Fn(&E, …)>` on Rust
+    over the struct's `E`. A literal leaves a fn field's list open while the
+    variable is undetermined, so the value binds it, and its value is
+    slotted as a call argument is (`slot_value`).
+  * **A row's effects keep one canonical order**, by their spelling
+    (`Ty::effect_row`): the pack is positional, and `[Console, Tally]` found
+    from an annotation and `[Tally, Console]` from a lambda's body are one
+    pack type. A handle passed as `eff[E]` fits in any order
+    (`handle_fits_effect_var`) and the lowering rebuilds it in the pack's
+    (`reorder_effect_handles`).
   * **Where it is written**: in an effect list (a fn's, a fn type's), and as a
     handle, `eff[E]`. Anywhere else it is no type
     (`effect-var:as-type`); a plain type parameter in an effect list is
@@ -10219,7 +10240,12 @@ between endpoints and delivers what arrives into the scheduler.
     lambda's own parameters bind each effect out of its pack, and any other
     value (a named fn, a parameter, a field, a call's result) is wrapped in
     the IR's pack adapter, typed by the position (`effect_adapted`), unless
-    it already takes exactly those effects one by one. A row's leaves accept
+    it already takes exactly those effects one by one. The other way round, a
+    named fn with variables of its own, passed as a value, is adapted to
+    gather the position's effects into its packs (`effect_packs` at its
+    name); filling an implicit, which performs nothing, it is handed an
+    empty pack per variable. A `for` driving an effectful `next` groups its
+    packs at its synthetic key. A row's leaves accept
     a binding spread over many instances: the value that performs one stated
     its own requirement where it was checked.
   * **Never erased** ([effect-generic-decl]): the pack differs with the
@@ -10232,11 +10258,14 @@ between endpoints and delivers what arrives into the scheduler.
     the callee takes the variable's handle as `eff[E]`
     (`effect-var:actor-handle` — an actor's address is not its instance,
     which is what a pack holds).
-  * std's eager callback-taking fns written in Salvo take one (`map`,
-    `reduce`, `filter` over an iterator, `any`, `all`, `count`,
-    `find_first`, `find_last`, `partition`, `remove_*_while`, `update`,
-    `drain`, `to_map`, `map2`, `list_by`, `deque_by` and their `mut_`
-    forms); the lazy adaptors, platform fns and implicits stay pure (ROADMAP).
+  * std's callback-taking fns written in Salvo take one (`map`, `reduce`,
+    `filter` over an iterator, `any`, `all`, `count`, `find_first`,
+    `find_last`, `partition`, `remove_*_while`, `update`, `drain`, `to_map`,
+    `map2`, `list_by`, `deque_by` and their `mut_` forms), and so do the lazy
+    adaptors (`Mapping`, `Filtering`, `TakingWhile`, `SkippingWhile`, whose
+    constructors write `[]` — they store the callback, not call it — and
+    whose `next` writes `[E]`); platform fns and implicits stay pure
+    (ROADMAP).
   * The deadlock graph needs nothing: it reads handler dependencies, and a
     pack carries only instances a caller already held.
 * [fn-once] `once` is the language-level **use**-multiplicity qualifier

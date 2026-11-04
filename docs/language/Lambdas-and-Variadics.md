@@ -150,8 +150,16 @@ fn main() [use] {
 - **One variable per function type.** `(x: T) [E, F] -> None` is refused, since a call could not tell which of the value's effects belong to which variable.
 - **A throw is not an effect a variable carries.** A function value that may throw cannot bind `E`; a parameter whose type lists `Throw<…>` itself takes one, and the function either catches it with `try` or passes it on in its own list.
 - **An actor effect does not reach a variable through `eff[E]` yet.** It may through a function value's effects: a callback that sends to an actor works.
+- **A struct may have one too**, for a function it stores: `struct Later<[E]> { run: () [E] -> None }`. Its type names what the variable is bound to as a list, `Later<[Console]>`, `Later<[]>`, or `Later<[E]>` inside a function generic over `E`, and a function that calls the stored value declares `[E]` itself, since it has no fn-typed parameter to inherit it from:
 
-std's eager functions that take callbacks have an effect variable: `map`, `reduce`, `filter` over an iterator, `any`, `all`, `count`, `find_first`, `find_last`, `partition`, `remove_front_while`, `remove_back_while`, `update`, `drain`, `to_map`, `map2`, and the `_by` builders written in Salvo (`list_by`, `deque_by`). So a callback passed to them may log, count or print. The lazy adaptors (`mapping`, `filtering`, …) and the functions std implements on the platform (`sort_by`, `filter` over a list, `set_by`, `map_by`, `array_by`) still take pure callbacks.
+```
+fn fire<[E]>(l: Later<[E]>) [E] => l {
+    let f = l.run
+    f()
+}
+```
+
+std's functions that take callbacks have an effect variable: `map`, `reduce`, `filter` over an iterator, `any`, `all`, `count`, `find_first`, `find_last`, `partition`, `remove_front_while`, `remove_back_while`, `update`, `drain`, `to_map`, `map2`, the `_by` builders written in Salvo (`list_by`, `deque_by`), and the lazy adaptors (`mapping`, `filtering`, `taking_while`, `skipping_while`), whose callbacks run as the adaptor is driven. So a callback passed to them may log, count or print. The functions std implements on the platform (`sort_by`, `filter` over a list, `set_by`, `map_by`, `array_by`) still take pure callbacks, and an adaptor whose callback performs effects cannot fill an implicit `?Next` (an implicit performs nothing), so `to_list(mapping(it, f))` needs a pure `f` while `for x in mapping(it, f)` takes any.
 
 ## Variadic arguments
 

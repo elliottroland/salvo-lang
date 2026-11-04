@@ -17,6 +17,7 @@ Module {
                 generics: [],
                 generic_canbe: [],
                 fn_slots: [],
+                effect_generics: [],
                 obligations: [],
                 auto_qualifiers: [],
                 fields: [
@@ -74,6 +75,7 @@ Module {
                 generics: [],
                 generic_canbe: [],
                 fn_slots: [],
+                effect_generics: [],
                 obligations: [
                     Obligation {
                         by: None,

@@ -17,6 +17,7 @@ Module {
                 generics: [],
                 generic_canbe: [],
                 fn_slots: [],
+                effect_generics: [],
                 obligations: [],
                 auto_qualifiers: [
                     TypeRef {
@@ -166,6 +167,7 @@ Module {
                 ],
                 generic_canbe: [],
                 fn_slots: [],
+                effect_generics: [],
                 obligations: [],
                 auto_qualifiers: [],
                 fields: [

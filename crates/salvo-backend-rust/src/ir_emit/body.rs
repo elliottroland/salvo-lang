@@ -1594,7 +1594,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         let decl = self.s.struct_decl(&name);
         let path = self.type_path(&name);
-        let _ = args;
+        // [effect-var] A stored fn's effect parameters are the struct's
+        // effect variables at the literal's arguments.
+        let saved_subst = std::mem::take(&mut self.f.call_subst);
+        if let Some(d) = decl.filter(|d| d.type_params.iter().any(|t| t.effect) && d.type_params.len() == args.len()) {
+            self.f.call_subst = d.type_params.iter().map(|t| t.name.clone()).zip(args.iter().cloned()).collect();
+        }
         let mut fs = Vec::new();
         for (n, v) in fields {
             let fty = decl.and_then(|d| d.fields.iter().find(|f| f.name == *n)).map(|f| f.ty.clone()).unwrap_or_else(|| v.ty.clone());
@@ -1605,6 +1610,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             };
             fs.push(format!("{}: {code}", rs_ident(n)));
         }
+        self.f.call_subst = saved_subst;
         if fs.is_empty() {
             format!("{path} {{}}")
         } else {

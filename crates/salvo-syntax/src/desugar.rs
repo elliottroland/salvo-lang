@@ -358,6 +358,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
         name: pass_name.clone(),
         generic_canbe: Vec::new(),
         fn_slots: Vec::new(),
+        effect_generics: Vec::new(),
         opaque: false,
         generics: f.generics.clone(),
         obligations: vec![Obligation {

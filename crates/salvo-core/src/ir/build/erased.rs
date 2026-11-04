@@ -161,6 +161,10 @@ pub fn erase(ty: &Ty) -> Ty {
             }
             base.qualify(kept)
         }
+        // [effect-var] A struct's effect argument is the pack it holds.
+        Ty::Named { name, args } if name == crate::types::EFFECT_ROW => {
+            crate::types::effect_pack_ty(&crate::threaded_effects(args).iter().map(erase).collect::<Vec<_>>())
+        }
         Ty::Named { name, args } => Ty::Named { name: name.clone(), args: args.iter().map(erase).collect() },
         // [type-union-arm-identity] Arms are positional over the runtime union:
         // two arms that erase alike (`Err Str | Thrown Str`) keep their tag,

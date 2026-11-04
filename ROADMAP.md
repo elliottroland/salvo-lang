@@ -820,18 +820,8 @@ left three follow-ups the user has asked for, in this order.
   from effect variables (user decision 2026-10-30): their pack exists only at
   a variable's own parameter, so either outcome works with it. **DECISION**
   on the shape before code.
-- **Effect variables, the rest** — the first step is built (COMPLETED.md,
-  2026-10-30: `[E]` on fns, std's eager callbacks). Decided and not built
-  yet, in order:
-  1. **Struct effect parameters, then the lazy adaptors** (user decision
-     2026-10-30: a second step). `struct Mapping<It, T, U, [E]> { f: (x: T)
-     [E] -> U }`, its `next` writing `[E]`; a type argument spelled as a list
-     (`Mapping<It, Int, Str, [Console]>`, `[]`, `[E]`), parsed where a type
-     argument starts (`[` there cannot be an array suffix). Rust: the stored
-     fn is `Arc<dyn Fn(&E, …) + Send + Sync>`, so the struct's `E` needs the
-     `Clone + Send + Sync + 'static` bounds a struct's generics have — a pack
-     of `Arc` handles meets them. The `for` over an effectful `next` already
-     threads its effects [fn-effects].
+- **Effect variables, the rest** — built (COMPLETED.md, 2026-10-30): `[E]`
+  on fns and structs, std's callbacks and lazy adaptors. Left:
   2. **Platform fns and intrinsics with callbacks** stay pure: `filter` over a
      list, `sort_by`, `insert_sorted_by`, `search_sorted_by`, `set_by`,
      `map_by`, `array_by`, test's `trapped_by`. Each is a host signature; an
@@ -839,8 +829,10 @@ left three follow-ups the user has asked for, in this order.
      too. Until then `filter(xs, (x) -> log(x))` over a *list* finds no
      overload (the iterator overload takes one).
   3. **Implicits stay pure** ([implicit-resolve]: a default is effect-free by
-     construction), so `?Next` of an effectful iterator does not fill `map`'s.
-     Open question, not a decision yet.
+     construction), so `?Next` of an effectful iterator — a lazy adaptor over
+     an effectful callback, `Lines` — does not fill `map`'s or `to_list`'s
+     (`for` drives one). **DECISION**: whether an implicit may perform
+     effects, and whose.
   4. **An actor effect through `eff[E]`** is refused
      (`effect-var:actor-handle`): the pack holds instances, an actor's address
      is a `usize`. Converting at the boundary (`AddrInstance` per leaf going
@@ -851,8 +843,16 @@ left three follow-ups the user has asked for, in this order.
      `Throw<X>` (2026-10-30). With `Throw<X>` in a parameter's type and a
      value that does not throw, nothing binds `X` — check before relying on
      it.
-  6. **A fn value passed with effect variables of its own** (a polymorphic
-     named fn as a value) is untested.
+  7. **A pure fn value without a wrapper** (user request 2026-10-30:
+     consider it). Today a value that is not a lambda and performs nothing —
+     `map(xs, f)` with `f: (x: Int) -> Int` a parameter, a named fn, a
+     field — is wrapped in the IR's pack adapter, because the callee calls
+     it with the empty pack first (`&()`, `Unit`). Options to weigh: the
+     callee's call skips an empty pack (a second, pack-less fn type at
+     every position, so a value's type would depend on its binding); the
+     pack becomes the *last* parameter so a backend can drop a unit one
+     (Kotlin cannot overload on it, Rust closures have fixed arity); or the
+     wrapper stays and only its spelling improves.
 - **`decode<T>` as an implicit** — scheduled with §0j step 9: codecs become
   comptime Salvo fns, and the stamped codec is this implicit. The reasoning
   stands — the other intrinsic whose lowering reads

@@ -2051,6 +2051,290 @@ Module {
                 span: 1733..1842,
             },
         ),
+        Struct(
+            StructDecl {
+                docs: [
+                    "[effect-var] A struct's effect variable, and the list that fills it.",
+                ],
+                annotations: [],
+                exported: false,
+                name: Ident {
+                    name: "Later",
+                    span: 1923..1928,
+                },
+                generics: [
+                    Ident {
+                        name: "E",
+                        span: 1930..1931,
+                    },
+                ],
+                generic_canbe: [],
+                fn_slots: [],
+                effect_generics: [
+                    Ident {
+                        name: "E",
+                        span: 1930..1931,
+                    },
+                ],
+                obligations: [],
+                auto_qualifiers: [],
+                fields: [
+                    FieldDecl {
+                        docs: [],
+                        annotations: [],
+                        name: Ident {
+                            name: "run",
+                            span: 1940..1943,
+                        },
+                        ty: Some(
+                            Fn {
+                                params: [],
+                                param_names: [],
+                                effects: Some(
+                                    [
+                                        Effect(
+                                            TypeRef {
+                                                name: Ident {
+                                                    name: "E",
+                                                    span: 1949..1950,
+                                                },
+                                                args: [],
+                                                value_args: [],
+                                                from: [],
+                                                at: None,
+                                                binder: false,
+                                                established: false,
+                                                alias: None,
+                                                span: 1949..1950,
+                                            },
+                                        ),
+                                    ],
+                                ),
+                                deductions: None,
+                                ret: Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "None",
+                                            span: 1955..1959,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 1955..1959,
+                                    },
+                                },
+                                span: 1945..1959,
+                            },
+                        ),
+                        canbe_mut: false,
+                        default: None,
+                        span: 1940..1959,
+                    },
+                ],
+                fns: [],
+                refns: [],
+                linear: false,
+                opaque: false,
+                noremote: false,
+                comptime: false,
+                span: 1916..1961,
+            },
+        ),
+        Fn(
+            FnDecl {
+                docs: [],
+                exported: false,
+                intrinsic: false,
+                platform: false,
+                is_iter: false,
+                iter_state: [],
+                iter_state_name: None,
+                is_send: false,
+                name: Ident {
+                    name: "fire",
+                    span: 1966..1970,
+                },
+                type_name: None,
+                scoped_to: None,
+                compfn: None,
+                by: None,
+                stamped: None,
+                generics: [],
+                generic_canbe: [],
+                effect_generics: [],
+                derived_return: None,
+                params: [
+                    Param {
+                        name: Ident {
+                            name: "a",
+                            span: 1971..1972,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Later",
+                                    span: 1974..1979,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "[]",
+                                                span: 1980..1981,
+                                            },
+                                            args: [
+                                                Named {
+                                                    qualifiers: [],
+                                                    base: TypeRef {
+                                                        name: Ident {
+                                                            name: "Console",
+                                                            span: 1981..1988,
+                                                        },
+                                                        args: [],
+                                                        value_args: [],
+                                                        from: [],
+                                                        at: None,
+                                                        binder: false,
+                                                        established: false,
+                                                        alias: None,
+                                                        span: 1981..1988,
+                                                    },
+                                                },
+                                                Named {
+                                                    qualifiers: [],
+                                                    base: TypeRef {
+                                                        name: Ident {
+                                                            name: "Logger",
+                                                            span: 1990..1996,
+                                                        },
+                                                        args: [],
+                                                        value_args: [],
+                                                        from: [],
+                                                        at: None,
+                                                        binder: false,
+                                                        established: false,
+                                                        alias: None,
+                                                        span: 1990..1996,
+                                                    },
+                                                },
+                                            ],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 1980..1997,
+                                        },
+                                    },
+                                ],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 1974..1998,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        default: None,
+                        span: 1971..1998,
+                    },
+                    Param {
+                        name: Ident {
+                            name: "b",
+                            span: 2000..2001,
+                        },
+                        ty: Named {
+                            qualifiers: [],
+                            base: TypeRef {
+                                name: Ident {
+                                    name: "Later",
+                                    span: 2003..2008,
+                                },
+                                args: [
+                                    Named {
+                                        qualifiers: [],
+                                        base: TypeRef {
+                                            name: Ident {
+                                                name: "[]",
+                                                span: 2009..2010,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 2009..2011,
+                                        },
+                                    },
+                                ],
+                                value_args: [],
+                                from: [],
+                                at: None,
+                                binder: false,
+                                established: false,
+                                alias: None,
+                                span: 2003..2012,
+                            },
+                        },
+                        variadic: false,
+                        implicit: false,
+                        default: None,
+                        span: 2000..2012,
+                    },
+                ],
+                implicit_groups: [],
+                effects: None,
+                deductions: Some(
+                    [
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "a",
+                                    span: 2017..2018,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 2017..2018,
+                        },
+                        Deduction {
+                            target: Param {
+                                name: Ident {
+                                    name: "b",
+                                    span: 2020..2021,
+                                },
+                                path: [],
+                            },
+                            kind: KeepAll,
+                            span: 2020..2021,
+                        },
+                    ],
+                ),
+                return_type: None,
+                response: None,
+                constructs: None,
+                body: Some(
+                    Block {
+                        stmts: [],
+                        span: 2022..2025,
+                    },
+                ),
+                span: 1963..2025,
+            },
+        ),
     ],
     uses: [],
     namespaces: [],

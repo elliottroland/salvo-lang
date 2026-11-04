@@ -389,6 +389,7 @@ fn struct_decl<V: MutVisitor>(n: &mut V, s: &mut StructDecl) {
         name,
         generics,
         generic_canbe,
+        effect_generics,
         fn_slots,
         obligations: obls,
         auto_qualifiers,
@@ -408,6 +409,7 @@ fn struct_decl<V: MutVisitor>(n: &mut V, s: &mut StructDecl) {
     n.visit_ident(name);
     idents(n, generics);
     canbe(n, generic_canbe);
+    idents(n, effect_generics);
     slots(n, fn_slots);
     obligations(n, obls);
     for q in auto_qualifiers {

@@ -144,6 +144,41 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A struct takes an effect variable, and the lazy adaptors do (user decision, [effect-var])
+
+- **Decided (user)**: the second step of effect variables, as planned —
+  struct effect parameters, then std's lazy adaptors — with the list
+  spelling of the type argument from the design round (`Later<[Console]>`,
+  `Later<[]>`).
+- **Built**: `struct Later<[E]> { run: () [E] -> None }` — parsed, named,
+  lowered (a row type argument, carried as a ref named `[]`), refused out of
+  place (`effect-var:row-misplaced`, `row-expected`, `undetermined` for a
+  struct no field mentions); field types substituted by the struct's row;
+  rows compared as sets and unified with a variable binding the rest;
+  `Mapping`, `Filtering`, `TakingWhile`, `SkippingWhile` over `[E]`, their
+  constructors writing `[]` and their `next` `[E]`.
+- **Found building it**:
+  - The pack is positional, so a row needs **one order**: an annotation's
+    `[Console, Tally]` and a lambda's inferred `[Tally, Console]` rendered
+    two Rust types. Rows sort by spelling; a handle passed as `eff[E]` in
+    another order fits and is rebuilt in the pack's at the call.
+  - A **named fn with its own variables**, as a value, takes packs where a
+    position hands effects one by one: `fn_value` records its grouping and
+    the pack adapter regroups (`map(xs, fire)` with `fire<[E]>`); filling an
+    implicit (`?Next` with an adaptor's `next`, pure by construction), it is
+    handed an empty pack per variable.
+  - A `for` over an effectful `next` is keyed synthetically, so its packs
+    are grouped at that key, not the call's span.
+  - An obligation's `self` type was built from bare generic names; a
+    variable there is its row, or no `next` matched `: Next<self, U>`.
+  - A struct with an effect variable was erased (the effect-only fixpoint
+    never sees effect lists): it keeps it now.
+  - A struct literal's fn field rendered its closure at the uninstantiated
+    field type on Rust (`&E`): the literal's arguments substitute it.
+- **Left** (ROADMAP §2c): an effectful adaptor cannot fill an implicit
+  `?Next` (`to_list(mapping(it, f))` needs a pure `f`; `for` takes any) —
+  the implicits question is now a **DECISION** there.
+
 ### 2026-10-30 — Effect variables: `[E]` ranges over a set of effects (user decisions, [effect-var])
 
 - **Decided (user)**, from the design round on ROADMAP §2c's effect

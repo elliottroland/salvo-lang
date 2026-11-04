@@ -448,6 +448,9 @@ pub struct StructDecl {
     /// has it: `struct Map<K, V>(?hash: (K) -> Long, ?eq: (K, K) -> Bool)`.
     /// The identity is carried by the struct's *type*; no value stores it.
     pub fn_slots: Vec<SlotDecl>,
+    /// [effect-var] The generics written `[E]`, as a fn's
+    /// (`FnDecl::effect_generics`): in `generics` too, at their position.
+    pub effect_generics: Vec<Ident>,
     /// Obligations [group-obligation]: `fns` groups this type promises
     /// to satisfy, written `: Group<Args>` after the generics and before
     /// `canbe`. Each member of each named group must have a matching
@@ -1724,6 +1727,11 @@ pub struct ValueSlot {
     pub span: Span,
 }
 
+/// [effect-var] The name a type argument written as an effect list
+/// (`Later<[Console, Fs]>`, `Later<[]>`) is carried under: its effects are
+/// the reference's arguments. Unwritable as a type name.
+pub const EFFECT_ROW_TYPE_NAME: &str = "[]";
+
 /// A reference to a named type or qualifier, with optional generic arguments:
 /// `Str`, `List<Int>`, `Ok<T>`.
 #[derive(Clone, Debug, PartialEq)]
@@ -1780,6 +1788,11 @@ impl fmt::Display for TypeRef {
         // [effect-eff-handle] The internal handle name `Addr` reads as its surface
         // spelling `eff[A, B, …]` — never the old `Addr<…>`. (No binder, `@`,
         // or value-args ever attach to a handle type.)
+        // [effect-var] An effect row type argument reads as its list: `[A, B]`.
+        if self.name.name == EFFECT_ROW_TYPE_NAME {
+            let args: Vec<String> = self.args.iter().map(|a| a.to_string()).collect();
+            return write!(f, "[{}]", args.join(", "));
+        }
         if self.name.name == "Addr" && !self.binder && self.at.is_none() {
             let args: Vec<String> = self.args.iter().map(|a| a.to_string()).collect();
             return write!(f, "eff[{}]", args.join(", "));

@@ -86,11 +86,37 @@ fn handles() [use] {
     one(eff[s, o])
 }
 
-//--- an_effect_variable_on_a_struct
-// Only a function declares one, for now.
+//--- an_effect_variable_on_an_effect
+// A function or a struct declares one; nothing else does.
 //~ error[effect-var:misplaced]
+effect Later<[E]> {
+    fn later() -> None
+}
+
+//--- struct_effect_variables
+// A struct's effect variable is named by a field and given as a list.
 struct Later<[E]> {
+    n: Int,
+    run: (x: Int) [E] -> Int
+}
+
+// No field names it, so no value could bind it.
+//~ error[effect-var:undetermined]
+struct Idle<[E]> {
     n: Int
+}
+
+// A list fills an effect variable, and nothing else.
+//~ error[effect-var:row-misplaced]
+fn wrong_list(xs: List<[Console]>) => xs {
+}
+
+// An effect variable takes a list.
+//~ error[effect-var:row-expected]
+fn wrong_arg(l: Later<Int>) => l {
+}
+
+fn fine(a: Later<[]>, b: Later<[Console]>) => a, b {
 }
 
 //--- an_actor_effect_through_a_handle

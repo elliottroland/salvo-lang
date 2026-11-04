@@ -257,7 +257,8 @@ pub fn erased_generics(program: &Program) -> Erased {
                     Item::Handler(h) if all_effect_only(&h.name.name, &h.generics, &handler_types(h), &erased, &decls, false) => {
                         erased.handlers.insert(h.name.name.clone());
                     }
-                    Item::Struct(s) if all_effect_only(&s.name.name, &s.generics, &struct_types(s), &erased, &decls, true) => {
+                    // [effect-var] A struct with an effect variable keeps it.
+                    Item::Struct(s) if s.effect_generics.is_empty() && all_effect_only(&s.name.name, &s.generics, &struct_types(s), &erased, &decls, true) => {
                         erased.structs.insert(s.name.name.clone());
                     }
                     // A function's own name is never a type, so `current` is
