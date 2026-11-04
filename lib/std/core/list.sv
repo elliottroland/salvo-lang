@@ -101,12 +101,12 @@ export platform fn append<T canbe linear>(list: Mut List<T>, items: T[]) [] -> N
 // `list_by(3, i -> i * 2)` is `[0, 2, 4]`. The generator is called once per
 // index, in order.
 // @compilerrules [col-by]
-export fn list_by<T>(size: Int, init: (Int) -> T) [] -> List<T> => size, init {
+export fn list_by<T, [E]>(size: Int, init: (Int) [E] -> T) -> List<T> => size, init {
     return mut_list_by(size, init)
 }
 
 // Mutable variant
-export fn mut_list_by<T>(size: Int, init: (Int) -> T) [] -> Mut List<T>
+export fn mut_list_by<T, [E]>(size: Int, init: (Int) [E] -> T) -> Mut List<T>
 => size, init {
     let out = Mut List<T>()
     let i = 0
@@ -217,7 +217,7 @@ platform fn at_proven<T canbe linear>(list: List<T>, index: Int) [] -> ref(list)
 // copied, moved out, or put back. An in-place write moves no boundary, so
 // existing `Idx` claims survive the call.
 // @compilerrules [col-update, ref-handle, qual-preserve]
-export fn update<T>(list: List<Mut T>, index: Idx(list) Int, f: (elem: Mut T) -> None) [] -> None
+export fn update<T, [E]>(list: List<Mut T>, index: Idx(list) Int, f: (elem: Mut T) [E] -> None) -> None
 => list: preserve Idx, index, f {
     f(at(list, index))
     return None
@@ -311,7 +311,7 @@ platform fn swap_at<T canbe linear>(list: Mut List<T>, i: Int, j: Int) [] -> Boo
 // travel to the caller, so draining into an effectful discharger
 // needs no annotation here.
 // @compilerrules [linear-container, fn-effects]
-export fn drain<T canbe linear>(list: List<T>, each: (x: T) -> None) [] -> None
+export fn drain<T canbe linear, [E]>(list: List<T>, each: (x: T) [E] -> None) -> None
 =>[each] !x => !list, each {
     let m = into_mut(list)
     reverse(m)
@@ -386,7 +386,7 @@ export fn remove_back<T canbe linear>(list: Mut List<T>, n: Int) [] -> Mut List<
 // answers them in order: the list is left starting at the first one it
 // refused.
 // @compilerrules [col-salvo]
-export fn remove_front_while<T canbe linear>(list: Mut List<T>, keep: (x: T) -> Bool) [] -> Mut List<T>
+export fn remove_front_while<T canbe linear, [E]>(list: Mut List<T>, keep: (x: T) [E] -> Bool) -> Mut List<T>
 => list: Mut, keep {
     let n = 0
     while n < size(list) && keep(get(list, n) ?: unreachable!()) {
@@ -399,7 +399,7 @@ export fn remove_front_while<T canbe linear>(list: Mut List<T>, keep: (x: T) -> 
 // answers them in list order: the list is left ending at the last one it
 // refused.
 // @compilerrules [col-salvo]
-export fn remove_back_while<T canbe linear>(list: Mut List<T>, keep: (x: T) -> Bool) [] -> Mut List<T>
+export fn remove_back_while<T canbe linear, [E]>(list: Mut List<T>, keep: (x: T) [E] -> Bool) -> Mut List<T>
 => list: Mut, keep {
     let at = size(list)
     while at > 0 && keep(get(list, at - 1) ?: unreachable!()) {
@@ -429,7 +429,7 @@ export fn sub_list<T>(list: List<T>, from: Int, to: Int, ?copy: (v: T) -> T) [] 
 
 // The index of the first element [pick] accepts, or `None`.
 // @compilerrules [col-salvo]
-export fn find_first<T>(list: List<T>, pick: (x: T) -> Bool) [] -> (Idx(list) Int)? => list, pick {
+export fn find_first<T, [E]>(list: List<T>, pick: (x: T) [E] -> Bool) -> (Idx(list) Int)? => list, pick {
     for i in indices(list) {
         if pick(get(list, i)) {
             return i
@@ -440,7 +440,7 @@ export fn find_first<T>(list: List<T>, pick: (x: T) -> Bool) [] -> (Idx(list) In
 
 // The index of the last element [pick] accepts, or `None`.
 // @compilerrules [col-salvo]
-export fn find_last<T>(list: List<T>, pick: (x: T) -> Bool) [] -> (Idx(list) Int)? => list, pick {
+export fn find_last<T, [E]>(list: List<T>, pick: (x: T) [E] -> Bool) -> (Idx(list) Int)? => list, pick {
     for i in rev_indices(list) {
         if pick(get(list, i)) {
             return i
@@ -486,13 +486,13 @@ export fn contains<T>(list: List<T>, elem: T, ?Eq<T>) [] -> Bool => list, elem {
 
 // Whether [pick] accepts some element.
 // @compilerrules [col-salvo]
-export fn any<T>(list: List<T>, pick: (x: T) -> Bool) [] -> Bool => list, pick {
+export fn any<T, [E]>(list: List<T>, pick: (x: T) [E] -> Bool) -> Bool => list, pick {
     return !(find_first(list, pick) is None)
 }
 
 // Whether [pick] accepts every element (true for an empty list).
 // @compilerrules [col-salvo]
-export fn all<T>(list: List<T>, pick: (x: T) -> Bool) [] -> Bool => list, pick {
+export fn all<T, [E]>(list: List<T>, pick: (x: T) [E] -> Bool) -> Bool => list, pick {
     let i = 0
     while i < size(list) {
         if !pick(get(list, i) ?: unreachable!()) {
@@ -505,7 +505,7 @@ export fn all<T>(list: List<T>, pick: (x: T) -> Bool) [] -> Bool => list, pick {
 
 // How many elements [pick] accepts.
 // @compilerrules [col-salvo]
-export fn count<T>(list: List<T>, pick: (x: T) -> Bool) [] -> Int => list, pick {
+export fn count<T, [E]>(list: List<T>, pick: (x: T) [E] -> Bool) -> Int => list, pick {
     let n = 0
     let i = 0
     while i < size(list) {
@@ -521,7 +521,7 @@ export fn count<T>(list: List<T>, pick: (x: T) -> Bool) [] -> Int => list, pick 
 // the rest, each in order. Copies the elements, as [filter_to] does, since a
 // tuple cannot hold borrows.
 // @compilerrules [col-salvo]
-export fn partition<T>(list: List<T>, pick: (x: T) -> Bool, ?copy: (v: T) -> T) [] -> (Mut List<T>, Mut List<T>)
+export fn partition<T, [E]>(list: List<T>, pick: (x: T) [E] -> Bool, ?copy: (v: T) -> T) -> (Mut List<T>, Mut List<T>)
 => list, pick {
     let yes = Mut List<T>()
     let no = Mut List<T>()

@@ -101,7 +101,9 @@ fn a_queue_of_tickets@main(lent console: Console) -> None {
     call redeem@main(read console, !read next)
   }
   obligation release [queue]
-  call drain@std.core.deque<Ticket@main>(drop_mut(!read queue), fn scrap@main)
+  call drain@std.core.deque<Ticket@main, ()>(tuple(), drop_mut(!read queue), lambda(lent __fx0: (), moved __a0: Ticket@main) -> None {
+    value call scrap@main(!read __a0)
+  })
   call println@std.core.console(read console, "6. queue drained")
 }
 

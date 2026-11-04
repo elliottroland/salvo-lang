@@ -69,7 +69,7 @@ export platform fn to_map<K, V>(pairs: List<(K, V)>, ?Hashed<K>) [] -> Map<K, V>
 // spelled for the two sources people actually have: a list of pairs, or a
 // list plus a rule.
 // @compilerrules [col-convert]
-export fn to_map<T, K, V>(items: List<T>, entry: (T) -> (K, V), ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
+export fn to_map<T, K, V, [E]>(items: List<T>, entry: (T) [E] -> (K, V), ?Hashed<K>) -> Map<K, V>(?hash, ?eq)
 => items, entry {
     let map: Mut Map<K, V>(?hash, ?eq) = Mut Map()
     for x in items {
@@ -184,7 +184,7 @@ export platform fn size<K, V canbe linear>(map: Map<K, V>) [] -> Int => map
 // the map — they were never obligations — so what the callback sees is the
 // values, one at a time, each moved in.
 // @compilerrules [linear-container]
-export fn drain<K, V canbe linear>(map: Map<K, V>, each: (x: V) -> None) [] -> None
+export fn drain<K, V canbe linear, [E]>(map: Map<K, V>, each: (x: V) [E] -> None) -> None
 =>[each] !x => !map, each {
     drain(into_values(map), each)
 }

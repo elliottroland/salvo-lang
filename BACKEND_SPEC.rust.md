@@ -1530,6 +1530,17 @@ the blanket rule:
   thread as arguments — the parameter as it is, `&__handle_N` for a handle
   `use`d in the current scope
   (`crate::draw(&__handle_4, &__handle_6, &__handle_2);`).
+  * [effect-var] **An effect variable is a type parameter** with the
+    default `Clone` bound, and its one leading parameter is `e: &E`: `pub fn
+    drain<T, E: Clone>(e: &E, list: Vec<T>, each: &mut dyn FnMut(&E, T))`.
+    A call names the pack type in the turbofish and passes the pack: `&()`
+    for none, the handle for one, a tuple of handles (`&(console.clone(),
+    tally.clone())`) for several. A closure's effect parameters are rendered
+    at the slot with the call's substitution (`closure_params_at`), so `&E`
+    there is the pack type; a lambda binds each effect out of its pack, and a
+    pack adapter around a computed value is a `move` closure in a block that
+    evaluates the value first (`fn_arg`). `eff[E]` of the fn's own variable
+    renders as `E`, and `use` over it is the pack itself.
   * [deduce-syntax] **Effect member parameters follow the member's own
     written deduction clause**: consumed (`=> !s`) is by value, kept `Mut`
     is `&mut T`, kept plain is `&T`, Copy scalars and variadics by value

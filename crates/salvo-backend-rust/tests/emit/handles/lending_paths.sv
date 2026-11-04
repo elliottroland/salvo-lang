@@ -395,7 +395,7 @@ export fn main() [use] -> None {
             bump(at(xs, j))
             hit(xs, at(xs, i), at(xs, i))
             // `update` materializes the total handle with no `Option` match.
-            //~ emits(std/core/list.rs): f({ let __l1 = crate::std_core_list::at(&*list, index); &mut list[__l1] });
+            //~ emits(std/core/list.rs): f(e, { let __l1 = crate::std_core_list::at(&*list, index); &mut list[__l1] });
             update(xs, i, (e: Mut E) -> { e.hp = e.hp * 2 })
             let p = at(xs, i)
             //~ emits: let __h8: usize = crate::std_core_list::at(&xs, j);

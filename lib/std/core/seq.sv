@@ -22,7 +22,7 @@
 // back, which is what lets a caller drive it further.
 
 // Applies [f] to every element of [it], in order.
-export fn map<It canbe linear, T, U>(it: Mut It, f: (T) -> U, ?Next<It, T>) [] -> Mut List<U> => it: Mut, f {
+export fn map<It canbe linear, T, U, [E]>(it: Mut It, f: (T) [E] -> U, ?Next<It, T>) -> Mut List<U> => it: Mut, f {
     let out = Mut List<U>()
     for x in it {
         add(out, f(x))
@@ -37,7 +37,7 @@ export fn map<It canbe linear, T, U>(it: Mut It, f: (T) -> U, ?Next<It, T>) [] -
 // element of an opaque iterator is stored, so the signature says it. For a list
 // of your own to keep, see [filter_to].
 // @compilerrules [copy-opt-in, proj-infer]
-export fn filter<It canbe linear, T>(it: Mut It, keep: (T) -> Bool, ?Next<It, T>) [] -> Mut List<proj T> holds proj(it)
+export fn filter<It canbe linear, T, [E]>(it: Mut It, keep: (T) [E] -> Bool, ?Next<It, T>) -> Mut List<proj T> holds proj(it)
 => it: Mut, keep {
     let out: Mut List<proj T> = Mut List()
     for x in it {
@@ -50,7 +50,7 @@ export fn filter<It canbe linear, T>(it: Mut It, keep: (T) -> Bool, ?Next<It, T>
 
 // Folds [it] into a single value, starting from [init] and combining with
 // [f] — the accumulator first, the element second.
-export fn reduce<It canbe linear, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Next<It, T>) [] -> A => it: Mut, init, f {
+export fn reduce<It canbe linear, T, A, [E]>(it: Mut It, init: A, f: (A, T) [E] -> A, ?Next<It, T>) -> A => it: Mut, init, f {
     let acc = init
     for x in it {
         acc = f(acc, x)
@@ -63,7 +63,7 @@ export fn reduce<It canbe linear, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Ne
 // these to its own collection operation, and overload specificity picks them
 // when the subject really is a `List`.
 // @compilerrules [fn-overload-rank]
-export fn map<T, U>(list: List<T>, f: (T) -> U) [] -> Mut List<U> => list, f {
+export fn map<T, U, [E]>(list: List<T>, f: (T) [E] -> U) -> Mut List<U> => list, f {
     let out = Mut List<U>()
     for x in list {
         add(out, f(x))
@@ -72,7 +72,7 @@ export fn map<T, U>(list: List<T>, f: (T) -> U) [] -> Mut List<U> => list, f {
 }
 export platform fn filter<T>(list: List<T>, keep: (T) -> Bool) [] -> Mut List<proj T> holds proj(list)
 => list, keep
-export fn reduce<T, A>(list: List<T>, init: A, f: (A, T) -> A) [] -> A => list, f, !init {
+export fn reduce<T, A, [E]>(list: List<T>, init: A, f: (A, T) [E] -> A) -> A => list, f, !init {
     let acc = init
     for x in list {
         acc = f(acc, x)

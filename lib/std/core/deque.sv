@@ -50,10 +50,10 @@ export fn mut_deque_of<T canbe linear>(first: T, ...rest: T[]) [] -> +NonEmpty M
 
 // A deque of [size] elements, each from its index, in order.
 // @compilerrules [col-by]
-export fn deque_by<T>(size: Int, init: (Int) -> T) [] -> Deque<T> => size, init {
+export fn deque_by<T, [E]>(size: Int, init: (Int) [E] -> T) -> Deque<T> => size, init {
     return mut_deque_by(size, init)
 }
-export fn mut_deque_by<T>(size: Int, init: (Int) -> T) [] -> Mut Deque<T> => size, init {
+export fn mut_deque_by<T, [E]>(size: Int, init: (Int) [E] -> T) -> Mut Deque<T> => size, init {
     let d = empty_deque<T>()
     let i = 0
     while i < size {
@@ -139,7 +139,7 @@ export platform fn size<T canbe linear>(d: Deque<T>) [] -> Int => d
 // The terminal: consumes the deque and hands every element
 // to [each], front to back.
 // @compilerrules [linear-container]
-export fn drain<T canbe linear>(d: Deque<T>, each: (x: T) -> None) [] -> None
+export fn drain<T canbe linear, [E]>(d: Deque<T>, each: (x: T) [E] -> None) -> None
 =>[each] !x => !d, each {
     let m = into_mut(d)
     while size(m) > 0 {

@@ -548,6 +548,7 @@ fn func<V: Visitor>(c: &mut V, f: &ast::FnDecl) {
         stamped: _,
         generics: _,
         generic_canbe: _,
+        effect_generics,
         derived_return: _,
         params: ps,
         implicit_groups: _,
@@ -560,6 +561,8 @@ fn func<V: Visitor>(c: &mut V, f: &ast::FnDecl) {
         span: _,
     } = f;
     c.enter_generics(&f.generics, &f.generic_canbe);
+    // [effect-var] Which of them are effect variables.
+    c.enter_effect_generics(effect_generics);
     v::walk_fn(c, f);
     if let Some(t) = type_name {
         v::walk_type(c, t);

@@ -92,7 +92,7 @@ export fn both<A, B, E>(a: Ok A | Errs NonEmpty List<E>, b: Ok B | Errs NonEmpty
 // `f` of both values, or every error either holds — `a`'s
 // first, then `b`'s.
 // @compilerrules [type-result-errs]
-export fn map2<A, B, C, E>(a: Ok A | Errs NonEmpty List<E>, b: Ok B | Errs NonEmpty List<E>, f: (x: A, y: B) -> C, ?copy: (v: E) -> E) [] -> Ok C | Errs NonEmpty List<E>
+export fn map2<A, B, C, E, [Fx]>(a: Ok A | Errs NonEmpty List<E>, b: Ok B | Errs NonEmpty List<E>, f: (x: A, y: B) [Fx] -> C, ?copy: (v: E) -> E) -> Ok C | Errs NonEmpty List<E>
 =>[f] !x, !y => !a, !b, f {
     when a {
         is Ok {

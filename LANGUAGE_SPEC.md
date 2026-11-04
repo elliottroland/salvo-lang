@@ -5171,6 +5171,9 @@ Conventions:
     (capitalised), which is what tells a projection from array indexing `e[i]`
     (a value expression). This is how an actor's address comes back out of a
     multi-effect handle: `e[SomeActor]`.
+  * **`eff[]`** is the handle over no effects, the empty tuple (user decision
+    2026-10-30, with [effect-var]: what `eff[E]` is at an empty binding);
+    merging nothing gives it.
   * **Merge `eff[a, b]` / `eff[*]`** (value position): combine already-bound
     handle values into one handle carrying the union of their effects (deduped,
     and ordered to the expected handle type when one is known, so the positional
@@ -9049,7 +9052,8 @@ between endpoints and delivers what arrives into the scheduler.
   type arguments at every use — no turbofish, no `<T>` on the Kotlin fn.
   Erasure is per declaration, not per name: `eq<E>(a: eff[E], b: eff[E])`
   erases beside `eq(a: Box<T>, b: Box<T>)`, which keeps its `T`. A generic
-  that *also* occurs outside `Addr` stays a generic.
+  that *also* occurs outside `Addr` stays a generic. An effect variable
+  [effect-var] is never erased.
   * Because the emitters match declarations by address between the resolver's
     scopes and the symbol table, both are rebuilt over the erased copy; the
     checker's side tables from the original still apply, since erasure
@@ -10169,6 +10173,72 @@ between endpoints and delivers what arrives into the scheduler.
     parameter bindings/annotations per contract, and named fns wrap in
     mechanical adapter closures bridging the contract's calling
     convention to the declaration's actual modes.
+* [effect-var] **An effect variable, `[E]`, is a generic ranging over a set of
+  effects** (user decisions 2026-10-30: the bracket spelling; a *row* — any
+  number of effects, one variable per fn type — rather than a single effect;
+  `eff[E]`, `use` over it and `eff[]` as surface features; lazy adaptors in a
+  second step; the fusion revisit kept separate; no `[E canbe Throw]`).
+  `fn each<T, [E]>(xs: List<T>, f: (x: T) [E] -> None)`.
+  * **Declared on a fn only** for now (`effect-var:misplaced` elsewhere; a
+    struct's is the next step, ROADMAP §2c). It stays in `generics` at its
+    written position, and `FnDecl::effect_generics` says which ones are
+    variables; the name table marks a reference to one
+    (`Written::effect_var`).
+  * **Where it is written**: in an effect list (a fn's, a fn type's), and as a
+    handle, `eff[E]`. Anywhere else it is no type
+    (`effect-var:as-type`); a plain type parameter in an effect list is
+    `effect-var:not-declared`; `any E` is `effect-var:any` (each effect it is
+    bound to keeps its own strength); two in one fn type's list are
+    `effect-var:two-in-fn-type`; one no parameter mentions could never be
+    bound (`effect-var:undetermined`).
+  * **Inheritance** is [fn-effects]' unchanged: a fn writing no list inherits
+    `[E]` from its fn-typed parameters. **In the body `E` is opaque**: an
+    availability matched only exactly (the unify fallback skips a variable,
+    which as a pattern would match anything), so it is passed on and never
+    performed, handled or named away.
+  * **Binding**: `unify` binds a fn-type pattern's variable to the value's
+    effects beyond the ones the pattern names, *adding* to what an earlier
+    argument bound (two parameters sharing `E` bind the union; each value fits
+    by variance). The binding is a row, `Ty::effect_row` (`[effects]`, an
+    unwritable name like the spread marker); `eff[E]` against a handle binds
+    its effects, a single handle's one effect directly. Substituting splices
+    a row into an effect list and turns `eff[E]` into the handle over it
+    (`types::handle_over`); a variable nothing has bound yet leaves the list
+    **open** (`Ty::open_effects`), which any value fits, and an argument
+    after one that bound it still sees the list open
+    (`keep_effect_vars_open`), so it widens the row. A lambda checked against
+    an open list infers its effects from its body, with the list's named
+    effects available besides the scope's. A plain generic bound to a set of
+    effects is `effect-var:row-for-type`.
+  * **The pack**: a fn taking `[E]` takes **one** effect parameter for it,
+    the pack of the instances — the empty tuple (`eff[]`), the instance
+    itself for one, a tuple for several (`types::effect_pack_ty`, what the
+    call's recorded type argument for `E` is). The caller's leading
+    instances are grouped by `Checked::effect_packs`; a value passed where
+    the fn type takes `E` is called with `Checked::effect_slots` — a
+    lambda's own parameters bind each effect out of its pack, and any other
+    value (a named fn, a parameter, a field, a call's result) is wrapped in
+    the IR's pack adapter, typed by the position (`effect_adapted`), unless
+    it already takes exactly those effects one by one. A row's leaves accept
+    a binding spread over many instances: the value that performs one stated
+    its own requirement where it was checked.
+  * **Never erased** ([effect-generic-decl]): the pack differs with the
+    binding, where every actor address is one `usize`. IR `TypeParam::effect`
+    marks one, and an emitter renders `eff[E]` of one as `E` and `use` over
+    it as the pack itself.
+  * **Refused bindings**: a value that may throw (`effect-var:throw` — a
+    throw is control flow, a `ControlFlow` answer on Rust, not a handle; a
+    parameter whose type lists `Throw<…>` takes one); an actor effect where
+    the callee takes the variable's handle as `eff[E]`
+    (`effect-var:actor-handle` — an actor's address is not its instance,
+    which is what a pack holds).
+  * std's eager callback-taking fns written in Salvo take one (`map`,
+    `reduce`, `filter` over an iterator, `any`, `all`, `count`,
+    `find_first`, `find_last`, `partition`, `remove_*_while`, `update`,
+    `drain`, `to_map`, `map2`, `list_by`, `deque_by` and their `mut_`
+    forms); the lazy adaptors, platform fns and implicits stay pure (ROADMAP).
+  * The deadlock graph needs nothing: it reads handler dependencies, and a
+    pack carries only instances a caller already held.
 * [fn-once] `once` is the language-level **use**-multiplicity qualifier
   (decision L7b, 2026-09-02; generalized from calls to uses by a user
   decision 2026-09-07): it means the value may be used **at most once**.

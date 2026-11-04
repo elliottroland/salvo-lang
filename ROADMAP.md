@@ -803,7 +803,7 @@ deadlock graph is per program, so a wait cycle closing through a handler in
 *another* program of the same node group is invisible — the same shape as the
 "over types, not instances" gap, same deferred remedy.
 
-### 2c — After `protocol<E>`: fused emission back, effect polymorphism, `decode` as an implicit
+### 2c — After `protocol<E>`: fused emission back, effect variables' rest, `decode` as an implicit
 
 The `actor_group`-over-`?protocol` round (COMPLETED.md, 2026-09-28 evening)
 left three follow-ups the user has asked for, in this order.
@@ -816,30 +816,43 @@ left three follow-ups the user has asked for, in this order.
   is whether a fn declaring `[A, B]` should take one fused parameter again,
   and what that does to `[any E]`, forwarding into spawns, and the deadlock
   graph. The shapes that were deleted, and why, are in COMPLETED.md's
-  "One shape for effects" entry — read it before redesigning. **DECISION**
+  "One shape for effects" entry — read it before redesigning. Decided apart
+  from effect variables (user decision 2026-10-30): their pack exists only at
+  a variable's own parameter, so either outcome works with it. **DECISION**
   on the shape before code.
-- **Effect polymorphism** — `fn run<T, S, E>(t: T, func: (T) [E] -> S) [E]
-  -> S` (user has wanted it for fn-typed parameters; today [fn-effects]
-  makes `run` inherit `Logger` from `func: (T) [Logger] -> S`, but the effect
-  must be *named*, which is why std's `map`/`filter`/`reduce` take pure fn
-  types). Sketch from the 2026-09-28 discussion: a *single* effect variable
-  is cheap under one-shape — `run` never calls a member on `E`, it passes the
-  handle through, so Rust is `fn run<T, S, E>(e: &E, …, func: impl FnMut(&E,
-  T) -> S)` with no trait bound, Kotlin `fun <T, S, E> run(e: E, …)`; the
-  checker treats `E` as opaque in the body ([call-resolve]: `run` cannot
-  perform it, only hand it on). It must **not** be erased — `Console` and
-  `Logger` are different handle structs where every `Addr<E>` is one
-  `usize` — so `salvo_core::erase` needs "occurs in an effect list" as a
-  reason a generic stays. A *row* (`func` performs several unknown effects)
-  is where it gets expensive (no variadic generics on Rust; a bundle struct
-  is the fusion shape again), so start with one variable and see whether std
-  needs the row — `map(xs, (x) -> println(x))` needs one. To check: `[any E]`
-  with `E` a variable; a lambda with an *inferred* effect set against `[E]`
-  (bind when the set has one element, refuse naming the row otherwise); the
-  deadlock graph prices the concrete instantiation at `run`'s call sites.
-  Interacts with the fusion revisit (a fused value is one parameter whatever
-  the row), so decide the two together. **DECISION**: single variable first,
-  or the row.
+- **Effect variables, the rest** — the first step is built (COMPLETED.md,
+  2026-10-30: `[E]` on fns, std's eager callbacks). Decided and not built
+  yet, in order:
+  1. **Struct effect parameters, then the lazy adaptors** (user decision
+     2026-10-30: a second step). `struct Mapping<It, T, U, [E]> { f: (x: T)
+     [E] -> U }`, its `next` writing `[E]`; a type argument spelled as a list
+     (`Mapping<It, Int, Str, [Console]>`, `[]`, `[E]`), parsed where a type
+     argument starts (`[` there cannot be an array suffix). Rust: the stored
+     fn is `Arc<dyn Fn(&E, …) + Send + Sync>`, so the struct's `E` needs the
+     `Clone + Send + Sync + 'static` bounds a struct's generics have — a pack
+     of `Arc` handles meets them. The `for` over an effectful `next` already
+     threads its effects [fn-effects].
+  2. **Platform fns and intrinsics with callbacks** stay pure: `filter` over a
+     list, `sort_by`, `insert_sorted_by`, `search_sorted_by`, `set_by`,
+     `map_by`, `array_by`, test's `trapped_by`. Each is a host signature; an
+     effect variable there is a `<E>` and a leading pack in the host's code
+     too. Until then `filter(xs, (x) -> log(x))` over a *list* finds no
+     overload (the iterator overload takes one).
+  3. **Implicits stay pure** ([implicit-resolve]: a default is effect-free by
+     construction), so `?Next` of an effectful iterator does not fill `map`'s.
+     Open question, not a decision yet.
+  4. **An actor effect through `eff[E]`** is refused
+     (`effect-var:actor-handle`): the pack holds instances, an actor's address
+     is a `usize`. Converting at the boundary (`AddrInstance` per leaf going
+     in; nothing exists coming out) is the fix.
+  5. **A throw through a variable** is refused (`effect-var:throw`). Lifting it
+     needs a generic "may throw" answer on Rust ([rs-throw-controlflow]);
+     the user saw no gain in a `[E canbe Throw]` over a written
+     `Throw<X>` (2026-10-30). With `Throw<X>` in a parameter's type and a
+     value that does not throw, nothing binds `X` — check before relying on
+     it.
+  6. **A fn value passed with effect variables of its own** (a polymorphic
+     named fn as a value) is untested.
 - **`decode<T>` as an implicit** — scheduled with §0j step 9: codecs become
   comptime Salvo fns, and the stamped codec is this implicit. The reasoning
   stands — the other intrinsic whose lowering reads

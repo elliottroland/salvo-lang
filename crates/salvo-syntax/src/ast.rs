@@ -1274,6 +1274,11 @@ pub struct FnDecl {
     pub generics: Vec<Ident>,
     /// Per-type-parameter opt-ins: `<T canbe linear>` [linear-generics].
     pub generic_canbe: Vec<(Ident, TypeRef)>,
+    /// [effect-var] The generics written `[E]`: each ranges over a *set* of
+    /// effects, not a type. They are in `generics` too, in their written
+    /// position, so type arguments stay positional; this says which ones
+    /// are effect variables.
+    pub effect_generics: Vec<Ident>,
     /// `-> proj(param) T`: the returned value is derived from
     /// (borrows) the named kept parameter [proj-readonly-return].
     pub derived_return: Option<Ident>,
@@ -1775,7 +1780,7 @@ impl fmt::Display for TypeRef {
         // [effect-eff-handle] The internal handle name `Addr` reads as its surface
         // spelling `eff[A, B, …]` — never the old `Addr<…>`. (No binder, `@`,
         // or value-args ever attach to a handle type.)
-        if self.name.name == "Addr" && !self.args.is_empty() && !self.binder && self.at.is_none() {
+        if self.name.name == "Addr" && !self.binder && self.at.is_none() {
             let args: Vec<String> = self.args.iter().map(|a| a.to_string()).collect();
             return write!(f, "eff[{}]", args.join(", "));
         }

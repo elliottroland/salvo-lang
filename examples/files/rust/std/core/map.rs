@@ -43,10 +43,10 @@ pub fn to_map_platform<K: Clone, V: Clone>(pairs: &Vec<(K, V)>, hash: &mut dyn F
     crate::platform_std_core_map::to_map(pairs, &mut hash, &mut eq)
 }
 
-pub fn to_map<T: Clone, K: Clone, V: Clone>(items: &Vec<T>, entry: &mut dyn FnMut(&T) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
+pub fn to_map<T: Clone, K: Clone, V: Clone, E: Clone>(e: &E, items: &Vec<T>, entry: &mut dyn FnMut(&E, &T) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
     let mut map: crate::std_core_map::Map<K, V> = crate::std_core_map::Mut_Map_platform::<K, V>(vec![], &mut *hash, &mut *eq);
     for mut x in items.iter() {
-        let mut __destructured_1: (K, V) = entry(x);
+        let mut __destructured_1: (K, V) = entry(e, x);
         let mut k: K = __destructured_1.0;
         let mut v: V = __destructured_1.1;
         crate::std_core_map::put_platform::<K, V>(&mut map, k, v, &mut *hash, &mut *eq);
@@ -114,8 +114,8 @@ pub fn size_platform<K: Clone, V>(map: &crate::std_core_map::Map<K, V>) -> i32 {
     crate::platform_std_core_map::size(map)
 }
 
-pub fn drain<K: Clone, V>(mut map: crate::std_core_map::Map<K, V>, each: &mut dyn FnMut(V)) {
-    crate::std_core_list::drain::<V>(crate::std_core_map::into_values_platform::<K, V>(map), &mut *each);
+pub fn drain<K: Clone, V, E: Clone>(e: &E, mut map: crate::std_core_map::Map<K, V>, each: &mut dyn FnMut(&E, V)) {
+    crate::std_core_list::drain::<V, E>(e, crate::std_core_map::into_values_platform::<K, V>(map), &mut *each);
 }
 
 pub fn into_values_platform<K: Clone, V>(mut map: crate::std_core_map::Map<K, V>) -> Vec<V> {

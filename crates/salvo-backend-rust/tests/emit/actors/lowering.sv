@@ -381,7 +381,7 @@ handler Desking() of Desk {
     // again before the activation ends.
     send fn close_up(reason: Str) {
         // The drain of a state field is a take.
-        //~ emits: drain::<crate::scheduler::SalvoReply>(std::mem::take(&mut self.waiting), 
+        //~ emits: drain::<crate::scheduler::SalvoReply, ()>(&(), std::mem::take(&mut self.waiting), 
         drain(waiting, (r) -> send(r, "closed: ${reason}"))
         waiting = Mut List()
     }

@@ -130,7 +130,9 @@ pub fn a_queue_of_tickets(console: &crate::std_core_console::Console) {
         let mut next = __subject_2.unwrap();
         crate::redeem(console, next);
     }
-    crate::std_core_deque::drain::<crate::Ticket>(queue, &mut |__a0: crate::Ticket| crate::scrap(__a0));
+    crate::std_core_deque::drain::<crate::Ticket, ()>(&(), queue, &mut |mut __fx0, mut __a0| {
+        crate::scrap(__a0)
+    });
     crate::std_core_console::println(console, &String::from("6. queue drained"));
 }
 

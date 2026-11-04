@@ -396,30 +396,30 @@ pub fn main() {
             break;
         };
     }
-    let mut doubled: Vec<i32> = crate::std_core_seq::map__List_Fn::<i32, i32>(&xs, &mut |mut n| -> i32 {
+    let mut doubled: Vec<i32> = crate::std_core_seq::map__List_Fn::<i32, i32, ()>(&(), &xs, &mut |mut __leff0, mut n| -> i32 {
         i32::wrapping_mul(*n, 2i32)
     });
     let mut odd: Vec<i32> = crate::std_core_seq::filter_platform::<i32>(&xs, &mut |mut n| -> bool {
         (i32::wrapping_rem(*n, 2i32) == 1i32)
     }).into_iter().copied().collect::<Vec<_>>();
-    let mut total: i32 = crate::std_core_seq::reduce__List_A_Fn::<i32, i32>(&xs, 0i32, &mut |mut acc, mut n| -> i32 {
+    let mut total: i32 = crate::std_core_seq::reduce__List_A_Fn::<i32, i32, ()>(&(), &xs, 0i32, &mut |mut __leff0, mut acc, mut n| -> i32 {
         i32::wrapping_add(*acc, *n)
     });
     crate::std_core_console::println(&__handle_2, &format!("5. list: {} doubled, {} odd, total {}", crate::std_core_list::size_platform::<i32>(&doubled), crate::std_core_list::size_platform::<i32>(&odd), total));
     let mut words: Vec<String> = crate::std_core_list::List__T_TArray::<String>(String::from("ann"), vec![String::from("bo"), String::from("carol")]);
-    let mut lengths: Vec<i32> = crate::std_core_seq::map__It_Fn::<crate::std_core_list::ListIter<'_, String>, &String, i32>(&mut crate::std_core_list::iter::<String>(&words), &mut |mut w| -> i32 {
+    let mut lengths: Vec<i32> = crate::std_core_seq::map__It_Fn::<crate::std_core_list::ListIter<'_, String>, &String, i32, ()>(&(), &mut crate::std_core_list::iter::<String>(&words), &mut |mut __leff0, mut w| -> i32 {
         let w = *w;
         crate::std_core_string::size_platform(w)
     }, &mut |__a0: &mut crate::std_core_list::ListIter<'_, String>| crate::std_core_list::next__ListIter(&mut *__a0));
-    crate::std_core_console::println(&__handle_2, &{ let __part8 = crate::std_core_seq::reduce__It_A_Fn::<crate::std_core_list::ListIter<'_, i32>, i32, i32>(&mut crate::std_core_list::iter::<i32>(&lengths), &0i32, &mut |mut acc, mut n| -> i32 {
+    crate::std_core_console::println(&__handle_2, &{ let __part8 = crate::std_core_seq::reduce__It_A_Fn::<crate::std_core_list::ListIter<'_, i32>, i32, i32, ()>(&(), &mut crate::std_core_list::iter::<i32>(&lengths), &0i32, &mut |mut __leff0, mut acc, mut n| -> i32 {
         i32::wrapping_add(*acc, *n)
     }, &mut |__a0: &mut crate::std_core_list::ListIter<'_, i32>| (match crate::std_core_list::next__ListIter(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) })); format!("5. lengths: {}", __part8) });
     let mut word: String = String::from("iteration");
-    let mut vowels: Vec<char> = crate::std_core_seq::filter::<crate::std_core_string::StrIter<'_>, char>(&mut crate::std_core_string::iter(&word), &mut |mut c| -> bool {
+    let mut vowels: Vec<char> = crate::std_core_seq::filter::<crate::std_core_string::StrIter<'_>, char, ()>(&(), &mut crate::std_core_string::iter(&word), &mut |mut __leff0, mut c| -> bool {
         ((*c == 'i') || (*c == 'o'))
     }, &mut |__a0: &mut crate::std_core_string::StrIter<'_>| crate::std_core_string::next(&mut *__a0));
     crate::std_core_console::println(&__handle_2, &format!("5. vowels: {}", crate::std_core_list::size_platform::<char>(&vowels)));
-    crate::std_core_console::println(&__handle_2, &{ let __part9 = crate::std_core_seq::reduce__It_A_Fn::<crate::Halving, i32, i32>(&mut crate::halving(20i32), &0i32, &mut |mut acc, mut n| -> i32 {
+    crate::std_core_console::println(&__handle_2, &{ let __part9 = crate::std_core_seq::reduce__It_A_Fn::<crate::Halving, i32, i32, ()>(&(), &mut crate::halving(20i32), &0i32, &mut |mut __leff0, mut acc, mut n| -> i32 {
         i32::wrapping_add(*acc, *n)
     }, &mut |__a0: &mut crate::Halving| crate::next__Halving(&mut *__a0)); format!("5. halving total {}", __part9) });
     let mut collected: Vec<i32> = crate::std_core_seq::map_to::<Vec<i32>, crate::Countdown, i32, i32>(vec![], &mut crate::countdown(3i32), &mut |mut n| -> i32 {

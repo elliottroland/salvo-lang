@@ -69,14 +69,14 @@ fun<A, B, E> both(a: Union2<A, List<E>>, b: Union2<B, List<E>>, copy: (E) -> E):
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<A, B, C, E> map2(a: Union2<A, List<E>>, b: Union2<B, List<E>>, f: (A, B) -> C, copy: (E) -> E): Union2<C, List<E>> {
+fun<A, B, C, E, Fx> map2(fx: Fx, a: Union2<A, List<E>>, b: Union2<B, List<E>>, f: (Fx, A, B) -> C, copy: (E) -> E): Union2<C, List<E>> {
     return when {
         (a is Union2.U1<*, *>) -> {
             val a_1: A = ((a as Union2.U1<*, *>).value as A)
             when {
                 (b is Union2.U1<*, *>) -> {
                     val b_2: B = ((b as Union2.U1<*, *>).value as B)
-                    return Union2.U1<C, List<E>>(salvo.std.core.result.Ok(f(a_1, b_2)))
+                    return Union2.U1<C, List<E>>(salvo.std.core.result.Ok(f(fx, a_1, b_2)))
                 }
                 (b is Union2.U2<*, *>) -> {
                     val b_3: List<E> = ((b as Union2.U2<*, *>).value as List<E>)

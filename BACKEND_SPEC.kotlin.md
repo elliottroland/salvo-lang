@@ -742,6 +742,12 @@ Conventions:
   `use` emits `val <name>: <EffectType> = Handler(...)`; effect member
   calls dispatch through the resolved handler expression
   (`random_int.next_random()`).
+  * [effect-var] **An effect variable is a type parameter** (`fun <T, E>
+    drain(e: E, list: …, each: (E, T) -> Unit)`), the call passing the pack:
+    `Unit` for none (an empty tuple type and value both render as `Unit`),
+    the handle for one, a `Pair`/`Triple`/`TupleN` for several, which Kotlin
+    infers `E` from. `eff[E]` of the fn's own variable renders as `E`, and
+    `use` over it is the pack itself.
   * Generated effect-parameter and `use` variable names avoid the fn's
     parameters and locals (pre-scan of declared names; collisions get a
     numeric suffix: `console2`).

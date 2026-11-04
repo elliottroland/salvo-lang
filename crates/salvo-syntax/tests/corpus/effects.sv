@@ -59,3 +59,16 @@ fn describe_length(line: Str) [Console] -> None {
         }
     }
 }
+
+// [effect-var] An effect variable: a generic ranging over a set of effects,
+// named in fn types' effect lists and as a handle; `eff[]` handles none.
+fn each<T, [E]>(xs: List<T>, f: (x: T) [E] -> None) => xs, f {
+    for x in xs {
+        f(x)
+    }
+}
+
+fn later<[E]>(fx: eff[E], f: () [E, Console] -> None) [use] -> eff[] => fx, f {
+    use fx
+    return eff[]
+}

@@ -925,6 +925,25 @@ pub enum EffectsPassed {
     Inferred(Vec<Instance>),
 }
 
+/// [effect-var] One effect parameter a fn value is called with.
+#[derive(Clone, Debug, PartialEq)]
+pub enum EffectSlot {
+    /// A named effect: its instance.
+    One(Ty),
+    /// An effect variable: the pack of the effects it is bound to, in order.
+    Pack(Vec<Ty>),
+}
+
+impl EffectSlot {
+    /// The effects the slot carries.
+    pub fn effects(&self) -> &[Ty] {
+        match self {
+            EffectSlot::One(t) => std::slice::from_ref(t),
+            EffectSlot::Pack(ts) => ts,
+        }
+    }
+}
+
 impl EffectsPassed {
     pub fn receiver(&self) -> Option<&Instance> {
         match self {
@@ -1313,6 +1332,22 @@ pub struct Checked {
     /// through a fn value, or a task mint — passes ahead of its arguments, in
     /// the callee's declared order.
     pub effects_passed: HashMap<Key, EffectsPassed>,
+    /// [effect-var] At a call whose callee takes an effect variable: how the
+    /// call's leading instances (`effects_passed`) group into the callee's
+    /// effect parameters, one count per parameter in order. A variable's
+    /// parameter takes its instances as one **pack** (none, one, or a tuple
+    /// of several); every other takes one.
+    pub effect_packs: HashMap<Key, Vec<usize>>,
+    /// [effect-var] A fn value passed where the callee's fn type takes an
+    /// effect variable: the effect parameters it is called with there, one
+    /// per entry. At a lambda, they are its own; at any other value, the
+    /// adapter the lowering wraps it in takes them and hands the value the
+    /// effects its type performs.
+    pub effect_slots: HashMap<Key, Vec<EffectSlot>>,
+    /// [effect-var] At a value that is not a lambda and has `effect_slots`:
+    /// the fn type of the position, at the call — what its adapter's
+    /// parameters are, as a lambda's there would be.
+    pub effect_adapted: HashMap<Key, Ty>,
     /// [effect-handler-deps] [effect-prereq] Each handler's dependencies, by
     /// handler key: written ones with aliases flattened, then the
     /// prerequisites of its faces, each with the span it came from.
@@ -6107,7 +6142,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // allows, never more.
         let extra: Vec<String> = ge
             .iter()
-            .filter(|e| !we.contains(e))
+            .filter(|e| !crate::types::effects_fit(std::slice::from_ref(e), we))
             .map(|e| e.to_string())
             .collect();
         if !extra.is_empty() {
@@ -8386,10 +8421,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         // ignore) them, so the emitters adapt against the expectation, not
         // the declaration.
         let taken = match expected.map(|t| t.strip_quals()) {
+            // [effect-var] An open list takes what the fn performs: that is
+            // what binds the variable.
             Some(Ty::Fn {
                 effects: exp_effects,
                 ..
-            }) => exp_effects.clone(),
+            }) if !exp_effects.iter().any(Ty::is_open_effects) => exp_effects.clone(),
             _ => effects.clone(),
         };
         // [fn-effects] The variance rule's adapter, when the two differ: each
@@ -10481,6 +10518,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// starting effect environment [effect-fn-deps] [effect-no-dup].
     /// Returns `(env, can_use, can_spawn, can_wait)`.
     fn check_effect_list(&mut self, f: &'p FnDecl) -> (Vec<EffectAvail>, bool, bool) {
+        // [effect-var] A call binds an effect variable from its arguments, so
+        // one no parameter mentions could never be bound.
+        for g in &f.effect_generics {
+            if !f.params.iter().any(|p| ast_mentions_effect_var(&p.ty, &g.name)) {
+                self.error(g.span, messages::effect_var_undetermined(&g.name));
+            }
+        }
         let mut env: Vec<EffectAvail> = Vec::new();
         let mut can_use = false;
         let mut can_spawn = false;
@@ -10823,6 +10867,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         if origin != EffectOrigin::Written && out.iter().any(|e| e.ty == ty) {
             return;
         }
+        // [effect-var] Each effect a variable is bound to keeps its own
+        // identity strength, so `any` has nothing to qualify.
+        let any = if any && matches!(ty, Ty::Var(_)) {
+            self.error(r.span, messages::effect_var_any(&name));
+            false
+        } else {
+            any
+        };
         out.push(ListedEffect { ty, any, span: site, origin });
     }
 
@@ -10887,6 +10939,16 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// to a declared effect with the right number of type arguments.
     fn lower_effect_ref(&mut self, r: &TypeRef) -> Option<Ty> {
         let name = r.name.name.as_str();
+        // [effect-var] A type parameter in an effect list: an effect
+        // variable stands for the effects it is bound to; any other is a
+        // type, not an effect.
+        if self.names_generic(r) {
+            if self.names_effect_var(r) {
+                return Some(Ty::Var(name.to_string()));
+            }
+            self.error(r.span, messages::effect_var_not_declared(&name));
+            return None;
+        }
         let Some(effect) = self.named(r).effect else {
             self.error_unresolved(r.span, messages::name_resolve_unknown_effect(&name), name);
             return None;
@@ -12047,6 +12109,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             Some(w) => w.generic || self.generics.contains(r.name.name.as_str()),
             None => self.generics.contains(r.name.name.as_str()),
         }
+    }
+
+    /// [effect-var] Whether `r` names an effect variable (`[E]`) of the
+    /// declaration it is written in.
+    fn names_effect_var(&self, r: &TypeRef) -> bool {
+        r.args.is_empty() && self.resolution.names.written(r).is_some_and(|w| w.effect_var)
     }
 
     /// [lsp-definition] [name-table] A written name -> its declaration,
@@ -15256,6 +15324,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                 out.push(e.ty);
             }
         }
+        // [effect-var] One variable per fn type: a call binds it to what the
+        // value performs beyond the named effects, which two could not split.
+        let vars: Vec<&Ty> = out.iter().filter(|t| matches!(t, Ty::Var(_))).collect();
+        if let [a, b, ..] = vars.as_slice() {
+            let at = plain.iter().find_map(|e| match e {
+                EffectRef::Effect(r) if r.name.name == b.to_string() => Some(r.span),
+                _ => None,
+            });
+            if let Some(at) = at {
+                self.error(at, messages::effect_var_two_in_fn_type(a, b));
+            }
+        }
         out
     }
 
@@ -15385,6 +15465,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let found = visible.iter().find(|c| c.ty == *want).cloned();
             let found = found.or_else(|| {
+                // [effect-var] A variable is matched exactly.
+                if matches!(want, Ty::Var(_)) {
+                    return None;
+                }
                 let compatible: Vec<&EffectAvail> = visible
                     .iter()
                     .filter(|c| unify(want, &c.ty, &mut HashMap::new()))
@@ -19917,10 +20001,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [effect-alias] An alias of effects is effects too: `eff[IO]`.
             ast::Type::Named { qualifiers, base } => {
                 qualifiers.is_empty()
-                    && {
+                    && (self.names_effect_var(base) || {
                         let m = self.named(base);
                         m.effect.is_some() || m.effect_alias.is_some()
-                    }
+                    })
             }
             _ => false,
         }
@@ -20348,6 +20432,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         match ty {
             ast::Type::Literal { .. } => {}
             ast::Type::Named { qualifiers, base } => {
+                // [effect-var] An effect variable is not a type of values.
+                if self.names_effect_var(base) {
+                    self.error(base.span, messages::effect_var_as_type(&base.name.name));
+                    return;
+                }
                 self.require_name(base, false);
                 self.reject_effect_as_data(base);
                 self.reject_group_as_data(base);
@@ -24449,16 +24538,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .collect();
                     self.out.effects_passed.insert(self.key(*span), EffectsPassed::Leading(read));
                 }
-                match effects.len() {
-                    0 => Ty::Unknown,
-                    1 => Ty::Named { name: ADDR_TYPE.to_string(), args: effects },
-                    _ => Ty::Tuple(
-                        effects
-                            .into_iter()
-                            .map(|f| Ty::Named { name: ADDR_TYPE.to_string(), args: vec![f] })
-                            .collect(),
-                    ),
-                }
+                // [effect-var] Merging nothing is `eff[]`, the empty handle.
+                crate::types::handle_over(&effects)
             }
             // [actor-self-send] A selector is a *callee*, never a value: a
             // handler member is not a function value any more than an effect
@@ -25658,6 +25739,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
                 _ => (None, None, None, None),
             };
+        // [effect-var] An open list: a callee's effect variable nothing has
+        // bound yet. The body's effects are *inferred*, as with no expected
+        // type, and bind it; the list's named effects are supplied by the
+        // caller of the value, so the body has them besides the scope's.
+        let open_named: Option<Vec<Ty>> = exp_effects
+            .as_ref()
+            .filter(|e| e.iter().any(Ty::is_open_effects))
+            .map(|e| e.iter().filter(|t| !t.is_open_effects()).cloned().collect());
+        let exp_effects = if open_named.is_some() { None } else { exp_effects };
         let expected_fn = exp_params.is_some();
         // [fn-lambda-sig] A written clause says which parameters the lambda
         // consumes (`!p`) and which it keeps (`p`, the default). Nothing
@@ -25786,6 +25876,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             )),
             None => None,
         };
+        // [effect-var] The open list's named effects, as the value's own.
+        let open_mark = self.effect_env.len();
+        let pushed_open = saved_effects.is_none() && open_named.is_some();
+        if saved_effects.is_none() {
+            for ty in open_named.iter().flatten() {
+                self.effect_env.push(EffectAvail { ty: ty.clone(), binder: lambda_binder, declared: true, any: false });
+            }
+        }
         self.effect_uses.push(Vec::new());
         // A lambda body is a loop barrier: `break`/`continue` inside it
         // never bind a loop enclosing the lambda expression.
@@ -25836,7 +25934,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [ir-analyze] A lambda parameter's linear-obligation leak check
         // moved to the IR analysis.
         self.locals.pop();
-        let used = self.effect_uses.pop().unwrap_or_default();
+        let mut used = self.effect_uses.pop().unwrap_or_default();
+        // [effect-var] The open list's named effects are the value's,
+        // performed or not: the caller passes them.
+        if let Some(named) = &open_named {
+            let mut all = named.clone();
+            all.extend(used.into_iter().filter(|t| !named.contains(t)));
+            used = all;
+        }
         if let Some(saved) = saved_effects {
             self.effect_env = saved;
         } else if !used.is_empty() {
@@ -25852,6 +25957,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 })
                 .collect();
             self.out.effects_passed.insert(self.key(span), EffectsPassed::Inferred(stands));
+        }
+        if pushed_open {
+            self.effect_env.truncate(open_mark);
         }
         let ctx = self.lambda_ctx.pop().expect("lambda ctx pushed above");
         let consumes_captures = ctx.captures.iter().any(|c| c.moved);
@@ -28252,7 +28360,7 @@ fn fn_value_fits(candidate: &Ty, want: &Ty) -> bool {
                 })
                 && is_subtype(cr, wr)
                 && crate::types::contract_fits(cc.as_deref(), wc.as_deref(), cp.len())
-                && ce.iter().all(|e| we.contains(e))
+                && crate::types::effects_fit(ce, we)
         }
         _ => is_subtype(candidate, want),
     }
@@ -28345,6 +28453,27 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
         }
     }
     match (param, arg) {
+        // [effect-var] `eff[E]` against a handle of several effects (or of
+        // none), or once `E` binds a set: `E` takes the handle's effects.
+        (Ty::Named { name, args }, _)
+            if name == ADDR_TYPE
+                && matches!(args.as_slice(), [Ty::Var(g)] if matches!(arg, Ty::Tuple(_)) || subst.get(g).is_some_and(|b| b.as_effect_row().is_some())) =>
+        {
+            let [Ty::Var(g)] = args.as_slice() else { return false };
+            let effects: Option<Vec<Ty>> = match arg.strip_quals() {
+                Ty::Tuple(es) => es.iter().map(addr_effect).collect(),
+                other => addr_effect(other).map(|e| vec![e]),
+            };
+            let Some(effects) = effects else { return false };
+            let mut row = subst.get(g).map(effect_row_of).unwrap_or_default();
+            for e in effects {
+                if !row.contains(&e) {
+                    row.push(e);
+                }
+            }
+            subst.insert(g.clone(), Ty::effect_row(row));
+            true
+        }
         (Ty::Var(g), _) => {
             match subst.get(g) {
                 Some(bound) => {
@@ -28552,16 +28681,19 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
                 params: pp,
                 ret: pr,
                 contract: pc,
-                ..
+                effects: pe,
             },
             Ty::Fn {
                 params: ap,
                 ret: ar,
                 contract: ac,
-                ..
+                effects: ae,
             },
         ) => {
-            pp.len() == ap.len()
+            // [effect-var] The pattern's effect variable is bound to what the
+            // value performs beyond the effects the pattern names.
+            unify_effect_row(pe, ae, subst)
+                && pp.len() == ap.len()
                 && pp.iter().zip(ap).all(|(p, a)| {
                     // [fn-erased-variance] A value's parameter may carry fewer
                     // erased qualifiers than the pattern's: bind through the
@@ -28598,6 +28730,84 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
         (Ty::Any, _) => true,
         _ => param == arg,
     }
+}
+
+/// [effect-var] `exp`, the fn type an argument is checked against, with its
+/// effect list left open where the pattern names one of `effect_vars`: an
+/// earlier argument's binding is what the list holds so far, not all it may.
+fn keep_effect_vars_open(pattern: &Ty, exp: Ty, effect_vars: &[String]) -> Ty {
+    let Ty::Fn { effects: pe, .. } = pattern.strip_quals() else { return exp };
+    if !pe.iter().any(|e| matches!(e, Ty::Var(g) if effect_vars.contains(g))) {
+        return exp;
+    }
+    let open = |t: Ty| match t {
+        Ty::Fn { params, ret, contract, mut effects } => {
+            if !effects.iter().any(Ty::is_open_effects) {
+                effects.push(Ty::open_effects());
+            }
+            Ty::Fn { params, ret, contract, effects }
+        }
+        other => other,
+    };
+    match exp {
+        Ty::Qualified { quals, base } => Ty::Qualified { quals, base: Box::new(open(*base)) },
+        other => open(other),
+    }
+}
+
+/// [effect-var] The effects a binding of an effect variable stands for: a
+/// set, or the one effect a single handle (`eff[A]`) bound it to.
+pub(crate) fn effect_row_of(bound: &Ty) -> Vec<Ty> {
+    match bound.as_effect_row() {
+        Some(row) => row.to_vec(),
+        None if bound.is_unknown() => Vec::new(),
+        None => vec![bound.clone()],
+    }
+}
+
+/// [effect-var] The effect variables among `vars` whose handle `t` mentions
+/// (`eff[E]`).
+fn collect_handle_vars(t: &Ty, vars: &HashSet<&str>, out: &mut Vec<String>) {
+    match t {
+        Ty::Named { name, args } => {
+            if name == ADDR_TYPE {
+                if let [Ty::Var(g)] = args.as_slice() {
+                    if vars.contains(g.as_str()) && !out.contains(g) {
+                        out.push(g.clone());
+                    }
+                }
+            }
+            args.iter().for_each(|a| collect_handle_vars(a, vars, out));
+        }
+        Ty::Qualified { base, .. } => collect_handle_vars(base, vars, out),
+        Ty::Union(xs) | Ty::Tuple(xs) => xs.iter().for_each(|a| collect_handle_vars(a, vars, out)),
+        Ty::Array(e) => collect_handle_vars(e, vars, out),
+        Ty::Fn { params, ret, .. } => {
+            params.iter().for_each(|a| collect_handle_vars(a, vars, out));
+            collect_handle_vars(ret, vars, out);
+        }
+        _ => {}
+    }
+}
+
+/// [effect-var] Binds the effect variable of a fn-type pattern's effect list
+/// to the effects the value's list performs beyond the ones the pattern
+/// names, adding to what an earlier argument bound it to (two parameters
+/// sharing `E` bind the union; each value fits by [fn-effects] variance).
+/// A list with no variable constrains nothing here: variance is checked where
+/// the value is fitted. Never fails.
+fn unify_effect_row(pe: &[Ty], ae: &[Ty], subst: &mut HashMap<String, Ty>) -> bool {
+    let vars: Vec<&String> = pe.iter().filter_map(|e| match e { Ty::Var(g) => Some(g), _ => None }).collect();
+    let [g] = vars.as_slice() else { return true };
+    let mut row: Vec<Ty> = subst.get(*g).map(effect_row_of).unwrap_or_default();
+    for e in ae {
+        let named = !matches!(e, Ty::Var(_)) && pe.contains(e);
+        if !named && !e.is_open_effects() && !row.contains(e) {
+            row.push(e.clone());
+        }
+    }
+    subst.insert((*g).clone(), Ty::effect_row(row));
+    true
 }
 
 /// Replaces the callee's generic parameters with their bindings (`Unknown`
@@ -28978,13 +29188,18 @@ fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashS
             .get(&FnId::subst_key(name))
             .cloned()
             .unwrap_or_else(|| ty.clone()),
-        Ty::Named { name, args } => Ty::Named {
-            name: name.clone(),
-            args: args
-                .iter()
-                .map(|a| substitute_vars(a, subst, callee_generics))
-                .collect(),
-        },
+        Ty::Named { name, args } => {
+            let args: Vec<Ty> = args.iter().map(|a| substitute_vars(a, subst, callee_generics)).collect();
+            // [effect-var] `eff[E]` at `E`'s binding is the handle over its effects.
+            if name == ADDR_TYPE {
+                if let [one] = args.as_slice() {
+                    if let Some(row) = one.as_effect_row() {
+                        return crate::types::handle_over(row);
+                    }
+                }
+            }
+            Ty::Named { name: name.clone(), args }
+        }
         Ty::Qualified { quals, base } => {
             // Re-normalize through `qualify`: the substituted base may
             // itself be qualified (e.g. `Ok T` with `T = Ok Str`).
@@ -29027,11 +29242,36 @@ fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashS
                 .map(|p| substitute_vars(p, subst, callee_generics))
                 .collect(),
             contract: contract.clone(),
-            effects: effects.clone(),
+            effects: substitute_effects(effects, subst, callee_generics),
             ret: Box::new(substitute_vars(ret, subst, callee_generics)),
         },
         other => other.clone(),
     }
+}
+
+/// [effect-var] An effect list with the callee's generics substituted: an
+/// effect variable is spliced into the effects it is bound to, and one nothing
+/// has bound yet leaves the list **open** ([`Ty::open_effects`]).
+fn substitute_effects(effects: &[Ty], subst: &HashMap<String, Ty>, callee_generics: &HashSet<String>) -> Vec<Ty> {
+    let mut out: Vec<Ty> = Vec::new();
+    let push = |t: Ty, out: &mut Vec<Ty>| {
+        if !out.contains(&t) {
+            out.push(t);
+        }
+    };
+    for e in effects {
+        match e {
+            Ty::Var(g) if callee_generics.contains(g) => match subst.get(g) {
+                Some(bound) => match bound.as_effect_row() {
+                    Some(row) => row.iter().for_each(|t| push(t.clone(), &mut out)),
+                    None => push(bound.clone(), &mut out),
+                },
+                None => push(Ty::open_effects(), &mut out),
+            },
+            other => push(substitute_vars(other, subst, callee_generics), &mut out),
+        }
+    }
+    out
 }
 
 impl<'p, 'r> Checker<'p, 'r> {
@@ -30277,11 +30517,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                         }
                     }
                     pool[pi].subst = subst;
+                    // [effect-var] An effect variable an earlier argument
+                    // bound still grows with this one: the position stays
+                    // open, so a value performing more fits and widens it.
+                    let effect_vars: Vec<String> = match &candidates[pool[pi].index] {
+                        CallCand::Fn(entry) => entry.decl.effect_generics.iter().map(|g| g.name.clone()).collect(),
+                        _ => Vec::new(),
+                    };
                     pool[pi]
                         .rank
                         .patterns
                         .get(i)
-                        .map(|p| substitute_vars(p, &pool[pi].subst, &pool[pi].generics))
+                        .map(|p| keep_effect_vars_open(p, substitute_vars(p, &pool[pi].subst, &pool[pi].generics), &effect_vars))
                 }
                 None => None,
             };
@@ -31653,6 +31900,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.out.borrows.insert(self.key(span), Borrow { kind: BorrowKind::Held, from: positional, temporary });
             }
         }
+        // [effect-var] What each fn value is called with where the callee's
+        // fn type takes an effect variable, now that the call has bound it.
+        if !decl.effect_generics.is_empty() && !typed_only {
+            self.bind_effect_slots(decl, &subst, &callee_generics, args, &arg_tys, span);
+        }
         // The callee's declared effect dependencies must be satisfiable
         // here: each must match an instance in the caller's effect
         // environment (declared or `use`d).
@@ -31869,15 +32121,126 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
+        // [effect-var] An effect variable is rendered as the pack it is
+        // handed: the empty one where nothing bound it.
         let recorded: Vec<Ty> = decl
             .generics
             .iter()
-            .map(|g| subst.get(&g.name).cloned().unwrap_or(Ty::Unknown))
+            .map(|g| {
+                let effect_var = decl.effect_generics.iter().any(|e| e.name == g.name);
+                match subst.get(&g.name) {
+                    Some(b) if effect_var => crate::types::effect_pack_ty(&crate::threaded_effects(&effect_row_of(b))),
+                    // [effect-var] A set of effects is no binding for a
+                    // parameter that stands for one.
+                    Some(b) if b.as_effect_row().is_some() => {
+                        self.error(span, messages::effect_var_row_for_type(&g.name, &name));
+                        Ty::Unknown
+                    }
+                    Some(b) => b.clone(),
+                    None if effect_var => crate::types::effect_pack_ty(&[]),
+                    None => Ty::Unknown,
+                }
+            })
             .collect();
         if let Some(Callee::Fn { type_args, .. }) = self.out.calls.get_mut(&self.key(span)).map(|c| &mut c.callee) {
             *type_args = recorded;
         }
         subst
+    }
+
+    /// [effect-var] At a call of a fn taking effect variables, with `subst`
+    /// final: for each argument passed where the callee's fn type names a
+    /// variable, the effect parameters the callee calls it with
+    /// (`Checked::effect_slots`) — a lambda's own, which re-orders its
+    /// effects to match; any other value's adapter, unless the value already
+    /// takes exactly those. Also refuses an actor effect reaching a variable
+    /// whose handle the callee takes as `eff[E]`.
+    fn bind_effect_slots(
+        &mut self,
+        decl: &'p FnDecl,
+        subst: &HashMap<String, Ty>,
+        callee_generics: &HashSet<String>,
+        args: &[&'p Expr],
+        arg_tys: &[Ty],
+        span: Span,
+    ) {
+        let vars: HashSet<&str> = decl.effect_generics.iter().map(|g| g.name.as_str()).collect();
+        let row = |g: &str| -> Vec<Ty> {
+            subst.get(g).map(|b| crate::threaded_effects(&effect_row_of(b))).unwrap_or_default()
+        };
+        let fixed: Vec<&'p Param> = decl.params.iter().filter(|p| !p.variadic && !p.implicit).collect();
+        let saved = self.enter_generics(&decl.generics);
+        let lowered: Vec<Ty> = fixed.iter().map(|p| self.lower_type(&p.ty)).collect();
+        let ret = decl.return_type.as_ref().map(|t| self.lower_type(t));
+        self.generics = saved;
+        // [effect-var] An actor effect's handle is not its instance, which
+        // is what a pack holds: not through `eff[E]` yet.
+        let mut handled: Vec<String> = Vec::new();
+        for t in lowered.iter().chain(ret.iter()) {
+            collect_handle_vars(t, &vars, &mut handled);
+        }
+        for g in &handled {
+            for leaf in row(g) {
+                if let Ty::Named { name, .. } = leaf.strip_quals() {
+                    if self.symbols.effects.get(name.as_str()).is_some_and(|e| e.is_actor) {
+                        self.error(span, messages::effect_var_actor_handle(&g, &leaf));
+                    }
+                }
+            }
+        }
+        for (i, pattern) in lowered.iter().enumerate() {
+            let Ty::Fn { effects, .. } = pattern.strip_quals() else { continue };
+            if !effects.iter().any(|e| matches!(e, Ty::Var(g) if vars.contains(g.as_str()))) {
+                continue;
+            }
+            let slots: Vec<EffectSlot> = crate::threaded_effects(effects)
+                .iter()
+                .map(|e| match e {
+                    Ty::Var(g) if vars.contains(g.as_str()) => EffectSlot::Pack(row(g)),
+                    other => EffectSlot::One(substitute_vars(other, subst, callee_generics)),
+                })
+                .collect();
+            let flat: Vec<Ty> = slots.iter().flat_map(|s| s.effects().to_vec()).collect();
+            let Some(arg) = args.get(i).copied() else { continue };
+            let key = self.key(arg.span());
+            if let Expr::Lambda { .. } = arg {
+                // The lambda takes its effects in the slots' order; an
+                // inferred one stands for the instance in scope here.
+                let throws: Vec<Ty> = self
+                    .out
+                    .effects_taken
+                    .get(&key)
+                    .map(|t| t.iter().filter(|e| crate::types::is_throw_effect(e)).cloned().collect())
+                    .unwrap_or_default();
+                let visible = self.visible_avail();
+                let named: Vec<&Ty> = slots.iter().filter_map(|s| match s { EffectSlot::One(t) => Some(t), _ => None }).collect();
+                let mut stands: Vec<Instance> = flat
+                    .iter()
+                    .map(|t| match visible.iter().find(|a| a.ty == *t) {
+                        Some(a) if !named.contains(&t) => a.instance(),
+                        _ => Instance { ty: t.clone(), binder: Binder::Missing },
+                    })
+                    .collect();
+                stands.extend(throws.iter().map(|t| Instance { ty: t.clone(), binder: Binder::Missing }));
+                let mut taken = flat.clone();
+                taken.extend(throws);
+                self.out.effects_taken.insert(key, taken);
+                self.out.effects_passed.insert(key, EffectsPassed::Inferred(stands));
+                self.out.effect_slots.insert(key, slots);
+                continue;
+            }
+            // Any other value: as it is, when it already takes exactly the
+            // slots' effects one by one; else through an adapter.
+            let own: Vec<Ty> = match arg_tys.get(i).map(|t| t.strip_quals()) {
+                Some(Ty::Fn { effects, .. }) => crate::threaded_effects(effects),
+                _ => continue,
+            };
+            let one_by_one = slots.iter().all(|s| s.effects().len() == 1);
+            if !(one_by_one && own == flat) {
+                self.out.effect_slots.insert(key, slots);
+                self.out.effect_adapted.insert(key, substitute_vars(pattern, subst, callee_generics));
+            }
+        }
     }
 
     /// Resolves each effect dependency of a called fn against the caller's
@@ -31973,7 +32336,45 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         // [effect-use-no-dup] Innermost first, shadowed duplicates hidden.
         let visible = self.visible_avail();
+        // [effect-var] How the instances group into the callee's parameters.
+        let effect_vars: HashSet<&str> = decl.effect_generics.iter().map(|g| g.name.as_str()).collect();
+        let mut packs: Vec<usize> = Vec::new();
+        let mut packed = false;
         for (lowered, req_any) in wants {
+            // [effect-var] The callee's effect variable is one parameter, the
+            // pack of the instances of what it is bound to. Each is found as
+            // a callee's own requirement is, but accepts a binding spread
+            // over many instances: the value that performs it stated its own
+            // requirement where it was checked.
+            if let Ty::Var(g) = &lowered {
+                if effect_vars.contains(g.as_str()) {
+                    packed = true;
+                    let row: Vec<Ty> = subst.get(g).map(effect_row_of).unwrap_or_default();
+                    let mut n = 0;
+                    for leaf in row {
+                        if let Ty::Named { name: eff, args } = &leaf {
+                            if eff == THROW_EFFECT {
+                                let message = args.first().cloned().unwrap_or(Ty::Unknown);
+                                self.error(span, messages::effect_var_throw(&g, &message));
+                                continue;
+                            }
+                        }
+                        match visible.iter().find(|c| c.ty == leaf).cloned() {
+                            Some(avail) => {
+                                self.note_effect_use(&avail.ty);
+                                resolved.push(avail.instance());
+                            }
+                            None => {
+                                self.error(span, messages::effect_available_callee_no_handler(&leaf, &name));
+                                resolved.push(Instance { ty: leaf, binder: Binder::Missing });
+                            }
+                        }
+                        n += 1;
+                    }
+                    packs.push(n);
+                    continue;
+                }
+            }
             let want = substitute_vars(&lowered, subst, callee_generics);
             // [throw] A callee that may throw does not need a handler — it
             // needs a delimiter. The call is an *exit* of everything up to
@@ -31987,8 +32388,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             // Exact instance first, then a unique compatible match (the
             // callee's requirement may still contain unresolved parts).
+            // [effect-var] An effect variable (the caller's own) is matched
+            // exactly: as a pattern it would unify with anything.
             let found = visible.iter().find(|c| c.ty == want).cloned();
             let found = found.or_else(|| {
+                if matches!(want, Ty::Var(_)) {
+                    return None;
+                }
                 let compatible: Vec<&EffectAvail> = visible
                     .iter()
                     .filter(|c| unify(&want, &c.ty, &mut HashMap::new()))
@@ -31998,6 +32404,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     _ => None,
                 }
             });
+            packs.push(1);
             match found {
                 Some(avail) => {
                     // [effect-any] The identity rule (user decision
@@ -32020,8 +32427,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        if !resolved.is_empty() {
+        if !resolved.is_empty() || packed {
             self.out.effects_passed.insert(self.key(span), EffectsPassed::Leading(resolved));
+        }
+        if packed {
+            self.out.effect_packs.insert(self.key(span), packs);
         }
     }
 
@@ -32790,6 +33200,30 @@ fn proj_arm_indices(ty: &ast::Type) -> Vec<usize> {
         .filter(|(_, arm)| first_proj_span(arm).is_some())
         .map(|(i, _)| i)
         .collect()
+}
+
+/// [effect-var] Whether a written type names the effect variable `name` where
+/// a call can bind it: in a fn type's effect list, or as an `eff[…]` handle's
+/// effect.
+fn ast_mentions_effect_var(ty: &ast::Type, name: &str) -> bool {
+    fn in_ref(r: &TypeRef, name: &str) -> bool {
+        (r.name.name == ADDR_TYPE && r.args.iter().any(|a| matches!(a, ast::Type::Named { base, .. } if base.name.name == name)))
+            || r.args.iter().any(|a| ast_mentions_effect_var(a, name))
+    }
+    match ty {
+        ast::Type::Fn { params, effects, ret, .. } => {
+            effects.iter().flatten().any(|e| matches!(e, EffectRef::Effect(r) | EffectRef::AnyEffect(r) if r.name.name == name))
+                || params.iter().any(|p| ast_mentions_effect_var(p, name))
+                || ast_mentions_effect_var(ret, name)
+        }
+        ast::Type::Named { qualifiers, base } => qualifiers.iter().any(|q| in_ref(q, name)) || in_ref(base, name),
+        ast::Type::QualifiedGroup { qualifiers, base, .. } => {
+            qualifiers.iter().any(|q| in_ref(q, name)) || ast_mentions_effect_var(base, name)
+        }
+        ast::Type::Nullable { inner, .. } | ast::Type::Array { elem: inner, .. } => ast_mentions_effect_var(inner, name),
+        ast::Type::Union { arms, .. } | ast::Type::Tuple { elems: arms, .. } => arms.iter().any(|a| ast_mentions_effect_var(a, name)),
+        _ => false,
+    }
 }
 
 /// [iter-yield-proj] Whether a written type mentions a generic parameter by name.

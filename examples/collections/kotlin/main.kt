@@ -81,14 +81,14 @@ fun main() {
     val n2: Note = Note(text = "same")
     val notesEqual: Boolean = salvo.main.eq__Note_Note(n1, n2)
     salvo.std.core.console.println(__handle_2, "4. plain struct equality ${notesEqual}")
-    val squares: List<Int> = salvo.std.core.list.listBy(4, fun(i: Int): Int {
+    val squares: List<Int> = salvo.std.core.list.listBy(Unit, 4, fun(__leff0: Unit, i: Int): Int {
         return (i * i)
     })
     salvo.std.core.console.println(__handle_2, "5. generated ${salvo.std.core.list.toStr(squares, { __a0 -> (__a0).toString() })}")
     val deduped: salvo.platform.std.core.set.Set<Int> = salvo.std.core.set.toSetPlatform(primes, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     salvo.std.core.console.println(__handle_2, "5. to_set ${salvo.std.core.set.toStr(deduped, { __a0 -> (__a0).toString() })}")
     val words: List<String> = salvo.std.core.list.List__T_TArray("alpha", arrayOf<String>("be"))
-    val lengths: salvo.platform.std.core.map.Map<String, Int> = salvo.std.core.map.toMap(words, fun(w: String): kotlin.Pair<String, Int> {
+    val lengths: salvo.platform.std.core.map.Map<String, Int> = salvo.std.core.map.toMap(Unit, words, fun(__leff0: Unit, w: String): kotlin.Pair<String, Int> {
         return kotlin.run {
             val __part_5: Int = salvo.std.core.string.sizePlatform(w)
             kotlin.Pair(w, __part_5)

@@ -91,6 +91,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Ty::Named { name, args } => {
                 let args: Vec<Ty> = args.iter().filter(|a| !matches!(a, Ty::FnName(_))).map(|a| super::strip_nested_var_proj_in(a, true, &self.f.generics, &self.f.held_vars)).collect();
                 if name == "Addr" && args.len() == 1 {
+                    // [effect-var] `eff[E]` is the pack `E` is bound to.
+                    if matches!(args[0].strip_quals(), Ty::Var(v) if self.f.effect_vars.contains(v)) {
+                        return self.ty(&args[0]);
+                    }
                     // [actor-monitor-handler] a plain effect's addr is its handle.
                     if let Ty::Named { name: eff, .. } = args[0].strip_quals() {
                         if self.s.symbols.effects.get(eff.as_str()).is_some_and(|e| !e.is_actor) {
@@ -1141,6 +1145,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         });
         let mut tps = if erased_fn { Vec::new() } else { self.generics(&f.type_params, bound) };
         self.f.generics = f.type_params.iter().map(|t| t.name.clone()).collect();
+        self.f.effect_vars = f.type_params.iter().filter(|t| t.effect).map(|t| t.name.clone()).collect();
         // [rs-path] A handle into a container that is a type parameter is a
         // path type parameter of its own, walked through `Walk`.
         for (k, (c, e)) in Self::generic_path_pairs(f).into_iter().enumerate() {

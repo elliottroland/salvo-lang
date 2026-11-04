@@ -431,6 +431,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
         stamped: None,
         generics: f.generics.clone(),
         generic_canbe: f.generic_canbe.clone(),
+        effect_generics: f.effect_generics.clone(),
         derived_return: None,
         params: f.params.clone(),
         implicit_groups: vec![],
@@ -555,6 +556,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
         stamped: None,
         generics: f.generics.clone(),
         generic_canbe: f.generic_canbe.clone(),
+        effect_generics: f.effect_generics.clone(),
         derived_return: next_return.as_ref().and_then(crate::parser::first_proj_source),
         params: vec![Param {
             name: Ident {
@@ -708,6 +710,7 @@ fn test_fn(test: TestDecl, fn_name: String) -> FnDecl {
         stamped: None,
         generics: Vec::new(),
         generic_canbe: Vec::new(),
+        effect_generics: Vec::new(),
         derived_return: None,
         params: Vec::new(),
         implicit_groups: Vec::new(),

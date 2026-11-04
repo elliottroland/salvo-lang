@@ -44,18 +44,18 @@ pub fn mut_deque_of__T_TArray<T>(mut first: T, mut rest: Vec<T>) -> std::collect
     return crate::std_core_deque::deque_from_platform::<T>(first, rest);
 }
 
-pub fn deque_by<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T) -> std::collections::VecDeque<T> {
-    return crate::std_core_deque::mut_deque_by::<T>(size, &mut *init);
+pub fn deque_by<T: Clone, E: Clone>(e: &E, mut size: i32, init: &mut dyn FnMut(&E, i32) -> T) -> std::collections::VecDeque<T> {
+    return crate::std_core_deque::mut_deque_by::<T, E>(e, size, &mut *init);
 }
 
-pub fn mut_deque_by<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T) -> std::collections::VecDeque<T> {
+pub fn mut_deque_by<T: Clone, E: Clone>(e: &E, mut size: i32, init: &mut dyn FnMut(&E, i32) -> T) -> std::collections::VecDeque<T> {
     let mut d: std::collections::VecDeque<T> = crate::std_core_deque::empty_deque_platform::<T>();
     let mut i: i32 = 0i32;
     loop {
         if !((i < size)) {
             break;
         };
-        crate::std_core_deque::add_last_platform::<T>(&mut d, init(i));
+        crate::std_core_deque::add_last_platform::<T>(&mut d, init(e, i));
         i = i32::wrapping_add(i, 1i32);
     }
     return d;
@@ -121,7 +121,7 @@ pub fn size_platform<T>(d: &std::collections::VecDeque<T>) -> i32 {
     crate::platform_std_core_deque::size(d)
 }
 
-pub fn drain<T>(mut d: std::collections::VecDeque<T>, each: &mut dyn FnMut(T)) {
+pub fn drain<T, E: Clone>(e: &E, mut d: std::collections::VecDeque<T>, each: &mut dyn FnMut(&E, T)) {
     let mut m: std::collections::VecDeque<T> = crate::std_core_deque::into_mut_platform::<T>(d);
     loop {
         if !((crate::std_core_deque::size_platform::<T>(&m) > 0i32)) {
@@ -135,7 +135,7 @@ pub fn drain<T>(mut d: std::collections::VecDeque<T>, each: &mut dyn FnMut(T)) {
             } else {
                 panic!("salvo: unreachable at std.core.deque:146:33")
             }
-        }; each(__arg1) };
+        }; each(e, __arg1) };
     }
     crate::std_core_deque::end_empty_platform::<T>(m);
 }

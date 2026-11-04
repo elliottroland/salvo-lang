@@ -56,12 +56,12 @@ pub fn both<A: Clone, B: Clone, E: Clone>(mut a: crate::unions::Union2<A, Vec<E>
     };
 }
 
-pub fn map2<A: Clone, B: Clone, C: Clone, E: Clone>(mut a: crate::unions::Union2<A, Vec<E>>, mut b: crate::unions::Union2<B, Vec<E>>, f: &mut dyn FnMut(A, B) -> C, copy: &mut dyn FnMut(&E) -> E) -> crate::unions::Union2<C, Vec<E>> {
+pub fn map2<A: Clone, B: Clone, C: Clone, E: Clone, Fx: Clone>(fx: &Fx, mut a: crate::unions::Union2<A, Vec<E>>, mut b: crate::unions::Union2<B, Vec<E>>, f: &mut dyn FnMut(&Fx, A, B) -> C, copy: &mut dyn FnMut(&E) -> E) -> crate::unions::Union2<C, Vec<E>> {
     return if matches!(a, crate::unions::Union2::U1(_)) {
         let mut a_1 = match a { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         if matches!(b, crate::unions::Union2::U1(_)) {
             let mut b_2 = match b { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-            return crate::unions::Union2::U1(crate::std_core_result::Ok::<C>(f(a_1, b_2)));
+            return crate::unions::Union2::U1(crate::std_core_result::Ok::<C>(f(fx, a_1, b_2)));
         } else if matches!(b, crate::unions::Union2::U2(_)) {
             let mut b_3 = match b { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<E>>(b_3));

@@ -36,13 +36,13 @@ fn main() [use] {
     for v in map(iter(copy(ns)), (n) -> n * 2) { println("bare=${v}") }
     // The lambda's *inner* convention follows the declaration: its
     // parameter arrives borrowed, whatever the annotation says.
-    //~ emits(main.rs): &mut |mut n| -> i32 {
+    //~ emits(main.rs): &mut |mut __leff0, mut n| -> i32 {
     //~|         i32::wrapping_mul(*n, 3i32)
     for v in map(iter(ns), (n: Int) -> n * 3) { println("ann=${v}") }
     let ws = List("hi")
     // [iter-yield-proj] The element is a borrow, so the parameter is one
     // reference deeper than the annotation, and is peeled once.
-    //~ emits(main.rs): &mut |mut s| -> String {
+    //~ emits(main.rs): &mut |mut __leff0, mut s| -> String {
     //~|         let s = *s;
     //~|         crate::shout(s)
     for w in map(iter(copy(ws)), (s: Str) -> shout(s)) { println("str=${w}") }

@@ -24,8 +24,8 @@ pub fn next<'a, T: Clone>(p: &mut crate::std_core_array::ArrayIter<'a, T>) -> cr
     return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<&T>(elem_1));
 }
 
-pub fn drain<T>(mut items: Vec<T>, each: &mut dyn FnMut(T)) {
+pub fn drain<T, E: Clone>(e: &E, mut items: Vec<T>, each: &mut dyn FnMut(&E, T)) {
     let mut list: Vec<T> = vec![];
     crate::std_core_list::append_platform::<T>(&mut list, items);
-    crate::std_core_list::drain::<T>(list, &mut *each);
+    crate::std_core_list::drain::<T, E>(e, list, &mut *each);
 }

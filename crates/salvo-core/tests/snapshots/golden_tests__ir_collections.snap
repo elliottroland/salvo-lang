@@ -67,14 +67,14 @@ fn main@main() -> None {
   bind#27 let n2: Note@main = construct Note@main { text: "same" }
   bind#28 let notes_equal: Bool = call eq(Note, Note)@main(read n1, read n2)
   call println@std.core.console(read __handle~2, concat("4. plain struct equality ", call to_str(Bool)@std.core.basic(read notes_equal)))
-  bind#29 let squares: List<Int> = call list_by@std.core.list<Int>(4, lambda(lent i: Int) -> Int {
+  bind#29 let squares: List<Int> = call list_by@std.core.list<Int, ()>(tuple(), 4, lambda(lent __leff0: (), lent i: Int) -> Int {
     value (read i * read i)
   })
   call println@std.core.console(read __handle~2, concat("5. generated ", call to_str@std.core.list<Int>(read squares, fn to_str(Int)@std.core.basic)))
   bind#30 let deduped: Set<Int>(hash, eq@Int) = call to_set@std.core.set<Int>(read primes, fn hash(Int)@std.core.compare, fn eq(Int, Int)@std.core.basic)
   call println@std.core.console(read __handle~2, concat("5. to_set ", call to_str@std.core.set<Int>(read deduped, fn to_str(Int)@std.core.basic)))
   bind#31 let words: List<Str> = call List(T, T[])@std.core.list<Str>("alpha", array[Str[]]("be"))
-  bind#34 let lengths: Map<Str, Int>(hash, eq) = call to_map(List<T>, (T) -> (K, V))@std.core.map<Str, Str, Int>(read words, lambda(lent w: Str) -> (Str, Int) {
+  bind#34 let lengths: Map<Str, Int>(hash, eq) = call to_map(List<T>, (T) [E] -> (K, V))@std.core.map<Str, Str, Int, ()>(tuple(), read words, lambda(lent __leff0: (), lent w: Str) -> (Str, Int) {
     value branch#33 cond#0 true {
       bind#32 let __part~5: Int = call size@std.core.string(read w)
       value tuple(!read w, !read __part~5)

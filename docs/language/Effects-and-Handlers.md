@@ -253,6 +253,8 @@ A wider handle satisfies a narrower requirement: pass an `eff[Clock, Beep]` wher
 
 The one thing a handle cannot bridge is an effect it does not carry: `use c` makes exactly `E`'s members callable, and nothing else. A multi-effect handle `eff[A, B]` is a tuple of single handles — `use H()` of a multi-face handler yields `(eff[A], eff[B])`, which you destructure or bind whole (`use e` binds every effect in it). To pull one handle back out of a multi-effect one — an actor's address, say — **project** it by name: `e[A]` copies the `A` handle, `e[IO]` the handles an alias names. And to go the other way — assemble a unified handle from several you hold — **merge** them: `eff[clock, logger]` is one `eff[Clock, Log]`, and `eff[*]` bundles every handle currently in scope, which is how a composition root hands its whole capability set to the code it starts.
 
+`eff[]` is the handle over no effects, the empty tuple; merging nothing gives one. And a function generic over a *set* of effects, `fn later<[E]>(fx: eff[E], f: () [E] -> None)`, takes `eff[E]`: the handle over whatever the call binds `E` to, which `use fx` binds in the body ([Effect variables](Lambdas-and-Variadics.md#effect-variables-e)).
+
 ## Naming a group: effect aliases
 
 A signature that keeps repeating the same handful of effects can name them once:

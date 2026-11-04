@@ -154,6 +154,8 @@ pub struct Written {
     /// Whether the name is a type parameter of a declaration it is written
     /// in (a fn's, its container's, a refinement's).
     pub generic: bool,
+    /// [effect-var] Whether that type parameter is an effect variable (`[E]`).
+    pub effect_var: bool,
     name: u32,
     meaning: u32,
 }
@@ -202,6 +204,7 @@ impl<'p> Names<'p> {
             scopes: &'w [ModuleScope<'p>],
             template_refs: &'w HashMap<usize, usize>,
             generics: Vec<Vec<String>>,
+            effect_vars: Vec<Vec<String>>,
         }
         impl<'p> Visitor for Walk<'_, 'p> {
             fn visit_type_ref(&mut self, t: &TypeRef) {
@@ -224,8 +227,11 @@ impl<'p> Names<'p> {
                     }
                 };
                 let generic = self.generics.iter().any(|gs| gs.iter().any(|g| g == name));
+                // [effect-var] The innermost declaration naming it decides.
+                let effect_var = generic
+                    && self.generics.iter().zip(&self.effect_vars).rev().find(|(gs, _)| gs.iter().any(|g| g == name)).is_some_and(|(_, es)| es.iter().any(|e| e == name));
                 let idx = self.names.refs.len() as u32;
-                self.names.refs.push(Written { addr, file: self.file, at, span: t.name.span, generic, name: spelling, meaning });
+                self.names.refs.push(Written { addr, file: self.file, at, span: t.name.span, generic, effect_var, name: spelling, meaning });
                 self.names.by_addr.insert(addr, idx);
                 if t.name.span.is_numbered() {
                     let key = (t.name.span.file, t.name.span.node, t.name.span, spelling);
@@ -235,7 +241,7 @@ impl<'p> Names<'p> {
                         }
                         Some(Some(prev)) => {
                             let prev = self.names.refs[prev as usize];
-                            let agree = prev.generic == generic
+                            let agree = prev.generic == generic && prev.effect_var == effect_var
                                 && self.names.meanings[prev.meaning as usize].same(&self.names.meanings[meaning as usize]);
                             if !agree {
                                 self.names.by_copy.insert(key, None);
@@ -248,9 +254,16 @@ impl<'p> Names<'p> {
             fn enter_generics(&mut self, generics: &[Ident], canbe: &[(Ident, TypeRef)]) {
                 let gs = generics.iter().chain(canbe.iter().map(|(g, _)| g)).map(|g| g.name.clone()).collect();
                 self.generics.push(gs);
+                self.effect_vars.push(Vec::new());
+            }
+            fn enter_effect_generics(&mut self, effect_generics: &[Ident]) {
+                if let Some(top) = self.effect_vars.last_mut() {
+                    top.extend(effect_generics.iter().map(|g| g.name.clone()));
+                }
             }
             fn leave_generics(&mut self) {
                 self.generics.pop();
+                self.effect_vars.pop();
             }
         }
         let mut names = Names::default();
@@ -264,6 +277,7 @@ impl<'p> Names<'p> {
                 scopes,
                 template_refs,
                 generics: Vec::new(),
+                effect_vars: Vec::new(),
             };
             let t0 = std::time::Instant::now();
             crate::check_cache::walk_module(&mut walk, module.borrow());

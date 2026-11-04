@@ -36,7 +36,7 @@ handler Desking() of Desk {
     // The terminal: every parked token is answered, and the state is whole
     // again before the activation ends.
     send fn close_up(reason: Str) {
-        //~ emits: salvo.std.core.list.drain(waiting, fun(
+        //~ emits: salvo.std.core.list.drain(Unit, waiting, fun(
         //~ emits: waiting = mutableListOf<
         drain(waiting, (r) -> send(r, "closed: ${reason}"))
         waiting = Mut List()

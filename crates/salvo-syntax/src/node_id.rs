@@ -304,6 +304,7 @@ fn fn_decl<V: MutVisitor>(n: &mut V, f: &mut FnDecl) {
         stamped,
         generics,
         generic_canbe,
+        effect_generics,
         derived_return,
         params,
         implicit_groups,
@@ -331,6 +332,7 @@ fn fn_decl<V: MutVisitor>(n: &mut V, f: &mut FnDecl) {
     }
     idents(n, generics);
     canbe(n, generic_canbe);
+    idents(n, effect_generics);
     if let Some(d) = derived_return {
         n.visit_ident(d);
     }

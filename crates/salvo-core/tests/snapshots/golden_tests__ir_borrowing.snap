@@ -138,7 +138,7 @@ fn main@main() -> None {
     value !read __proj~5.name
   }))
   bind#17 let pass: Mut ListIter<Fighter@main> = call iter@std.core.list<Fighter@main>(read roster)
-  bind#18 let standing: Mut List<proj Fighter@main> = call filter(Mut It, (T) -> Bool)@std.core.seq<ListIter<Fighter@main>, proj Fighter@main>(read pass, lambda(lent f: Fighter@main) -> Bool {
+  bind#18 let standing: Mut List<proj Fighter@main> = call filter(Mut It, (T) [E] -> Bool)@std.core.seq<ListIter<Fighter@main>, proj Fighter@main, ()>(tuple(), read pass, lambda(lent __leff0: (), lent f: Fighter@main) -> Bool {
     return (read f.hp > 10)
   }, fn next(Mut ListIter<T>)@std.core.list)
   call println@std.core.console(read __handle~2, concat("1. ", call to_str(Int)@std.core.basic(call size@std.core.list<proj Fighter@main>(drop_mut(read standing))), " of ", call to_str(Int)@std.core.basic(call size@std.core.list<Fighter@main>(read roster)), " still standing"))
@@ -281,7 +281,7 @@ fn main@main() -> None {
   }
   branch#74 cond#0 call Idx.qualifies@std.core.index<List<Mut Fighter@main>>(read i, read squad, fn size@std.core.list) {
     branch#75 cond#0 call Idx.qualifies@std.core.index<List<Mut Fighter@main>>(read j, read squad, fn size@std.core.list) {
-      call update@std.core.list<Fighter@main>(read squad, read i, lambda(lent f: Mut Fighter@main) -> None {
+      call update@std.core.list<Fighter@main, ()>(tuple(), read squad, read i, lambda(lent __leff0: (), lent f: Mut Fighter@main) -> None {
         assign f.energy = (read f.energy + 1)
       })
       call println@std.core.console(read __handle~2, concat("3. ", call to_str(Int)@std.core.basic(branch#77 cond#0 true {

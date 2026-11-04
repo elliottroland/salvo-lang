@@ -423,6 +423,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
 
     pub fn addr_instance(&mut self, e: &Expr, addr: &Expr, indent: usize) -> String {
         let a = self.value(addr, indent);
+        // [effect-var] `use h` over an `eff[E]`: the pack is the instances.
+        if matches!(e.ty.strip_quals(), Ty::Var(v) if self.f.effect_vars.contains(v)) {
+            return a;
+        }
         let Ty::Named { name, .. } = e.ty.strip_quals() else {
             self.error(messages::rs_actor_addr_non_effect_type());
             return a;

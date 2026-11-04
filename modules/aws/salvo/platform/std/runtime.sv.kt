@@ -239,10 +239,10 @@ fun dropActorRec(a: ActorRec) {
     val ready: Boolean = __destructured_1.ready
     val proxy: Boolean = __destructured_1.proxy
     salvo.std.runtime.dropSlotPlatform(body)
-    salvo.std.core.deque.drain(queue, fun(e: Union3<Delivered, Answered, Reported>) {
+    salvo.std.core.deque.drain(Unit, queue, fun(__leff0: Unit, e: Union3<Delivered, Answered, Reported>) {
         return salvo.std.runtime.dropEntry(e)
     })
-    salvo.std.core.list.drain(watchers, fun(t: Token) {
+    salvo.std.core.list.drain(Unit, watchers, fun(__leff0: Unit, t: Token) {
         return salvo.std.runtime.dropToken(t)
     })
 }
@@ -302,7 +302,7 @@ fun dropPoolRec(p: PoolRec) {
     val owed: Int = __destructured_1.owed
     val dedicated: Boolean = __destructured_1.dedicated
     val retired: Boolean = __destructured_1.retired
-    salvo.std.core.deque.drain(tasks, fun(t: TaskRun) {
+    salvo.std.core.deque.drain(Unit, tasks, fun(__leff0: Unit, t: TaskRun) {
         return salvo.std.runtime.dropTaskRun(t)
     })
 }
@@ -836,7 +836,7 @@ class Scheduler : SchedTable {
             val t: Token = __subject_4!!
             salvo.std.runtime.deliverTo(actors, waiters, pools, t, salvo.std.runtime.erasePlatform(salvo.std.core.actor.Exit(reason = reason)))
         }
-        salvo.std.core.list.drain(watchers, fun(t: Token) {
+        salvo.std.core.list.drain(Unit, watchers, fun(__leff0: Unit, t: Token) {
             return salvo.std.runtime.dropToken(t)
         })
     }
@@ -1147,7 +1147,7 @@ class Scheduler : SchedTable {
             val t: Token = __subject_6!!
             salvo.std.runtime.deliverTo(actors, waiters, pools, t, salvo.std.runtime.erasePlatform(salvo.std.core.actor.Exit(reason = reason)))
         }
-        salvo.std.core.list.drain(watchers, fun(t: Token) {
+        salvo.std.core.list.drain(Unit, watchers, fun(__leff0: Unit, t: Token) {
             return salvo.std.runtime.dropToken(t)
         })
         salvo.std.runtime.retireIfDone(actors, pools, pool)

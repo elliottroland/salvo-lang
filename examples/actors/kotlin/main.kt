@@ -189,7 +189,7 @@ class Desking(private val room: Int) : Desk {
         }
     }
     override fun closeUp(reason: String) {
-        salvo.std.core.deque.drain(waiting, fun(r: salvo.SalvoReply) {
+        salvo.std.core.deque.drain(Unit, waiting, fun(__leff0: Unit, r: salvo.SalvoReply) {
             return salvo.SalvoSched.replyWire(r, "closed: ${reason}", salvo.StrCodec)
         })
         waiting = salvo.std.core.deque.mutDequeOf()

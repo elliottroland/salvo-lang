@@ -4,14 +4,14 @@ use crate::std_core_iterator::emitted;
 use crate::std_core_iterator::finished;
 
 
-pub fn map__It_Fn<It, T: Clone, U: Clone>(it: &mut It, f: &mut dyn FnMut(&T) -> U, next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>) -> Vec<U> {
+pub fn map__It_Fn<It, T: Clone, U: Clone, E: Clone>(e: &E, it: &mut It, f: &mut dyn FnMut(&E, &T) -> U, next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>) -> Vec<U> {
     let mut out: Vec<U> = vec![];
     loop {
         let mut __step_2: crate::unions::Union2<T, crate::std_core_iterator::Finished> = next(&mut *it);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             let mut x: T = __emitted_3;
-            crate::std_core_list::add_platform::<U>(&mut out, f(&x));
+            crate::std_core_list::add_platform::<U>(&mut out, f(e, &x));
         } else {
             break;
         };
@@ -19,14 +19,14 @@ pub fn map__It_Fn<It, T: Clone, U: Clone>(it: &mut It, f: &mut dyn FnMut(&T) -> 
     return out;
 }
 
-pub fn filter<'a, It, T: Clone>(it: &'a mut It, keep: &mut dyn FnMut(&T) -> bool, next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>) -> Vec<T> {
+pub fn filter<'a, It, T: Clone, E: Clone>(e: &E, it: &'a mut It, keep: &mut dyn FnMut(&E, &T) -> bool, next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>) -> Vec<T> {
     let mut out = vec![];
     loop {
         let mut __step_2: crate::unions::Union2<T, crate::std_core_iterator::Finished> = next(&mut *it);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             let mut x: T = __emitted_3;
-            if keep(&x) {
+            if keep(e, &x) {
                 crate::std_core_list::add_platform(&mut out, x);
             };
         } else {
@@ -36,14 +36,14 @@ pub fn filter<'a, It, T: Clone>(it: &'a mut It, keep: &mut dyn FnMut(&T) -> bool
     return out;
 }
 
-pub fn reduce__It_A_Fn<It, T: Clone, A: Clone>(it: &mut It, init: &A, f: &mut dyn FnMut(&A, &T) -> A, next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>) -> A {
+pub fn reduce__It_A_Fn<It, T: Clone, A: Clone, E: Clone>(e: &E, it: &mut It, init: &A, f: &mut dyn FnMut(&E, &A, &T) -> A, next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>) -> A {
     let mut acc: A = init.clone();
     loop {
         let mut __step_2: crate::unions::Union2<T, crate::std_core_iterator::Finished> = next(&mut *it);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             let mut x: T = __emitted_3;
-            acc = f(&acc, &x);
+            acc = f(e, &acc, &x);
         } else {
             break;
         };
@@ -51,10 +51,10 @@ pub fn reduce__It_A_Fn<It, T: Clone, A: Clone>(it: &mut It, init: &A, f: &mut dy
     return acc;
 }
 
-pub fn map__List_Fn<T: Clone, U: Clone>(list: &Vec<T>, f: &mut dyn FnMut(&T) -> U) -> Vec<U> {
+pub fn map__List_Fn<T: Clone, U: Clone, E: Clone>(e: &E, list: &Vec<T>, f: &mut dyn FnMut(&E, &T) -> U) -> Vec<U> {
     let mut out: Vec<U> = vec![];
     for mut x in list.iter() {
-        crate::std_core_list::add_platform::<U>(&mut out, f(x));
+        crate::std_core_list::add_platform::<U>(&mut out, f(e, x));
     }
     return out;
 }
@@ -64,10 +64,10 @@ pub fn filter_platform<'a, T: Clone>(list: &'a Vec<T>, keep: &mut dyn FnMut(&T) 
     crate::platform_std_core_seq::filter(list, &mut keep)
 }
 
-pub fn reduce__List_A_Fn<T: Clone, A: Clone>(list: &Vec<T>, mut init: A, f: &mut dyn FnMut(&A, &T) -> A) -> A {
+pub fn reduce__List_A_Fn<T: Clone, A: Clone, E: Clone>(e: &E, list: &Vec<T>, mut init: A, f: &mut dyn FnMut(&E, &A, &T) -> A) -> A {
     let mut acc: A = init.clone();
     for mut x in list.iter() {
-        acc = f(&acc, x);
+        acc = f(e, &acc, x);
     }
     return acc;
 }

@@ -1344,9 +1344,12 @@ impl<'s> Parser<'s> {
 
     /// `<A, B, C>` — declaration-site generic parameters.
     fn parse_generics(&mut self) -> Vec<Ident> {
-        let (generics, canbe, slots) = self.parse_generics_all();
+        let (generics, canbe, slots, effect_vars) = self.parse_generics_all();
         for (ident, _) in &canbe {
             self.error(messages::linear_generics_canbe_type_param_unsupported(), ident.span);
+        }
+        for e in &effect_vars {
+            self.error(messages::effect_var_misplaced(), e.span);
         }
         for slot in &slots {
             // [cmp-carry] A fn slot belongs to a declaration whose *values*
@@ -1364,31 +1367,62 @@ impl<'s> Parser<'s> {
     /// `<T, ?cmp: (T, T) -> Int = cmp>` — for a qualifier or an
     /// `intrinsic type`.
     fn parse_generics_slots(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<SlotDecl>) {
-        self.parse_generics_all()
+        let (generics, canbe, slots, effect_vars) = self.parse_generics_all();
+        for e in &effect_vars {
+            self.error(messages::effect_var_misplaced(), e.span);
+        }
+        (generics, canbe, slots)
     }
 
     /// Type parameters with optional per-parameter `canbe` opt-ins
     /// [linear-generics] [qual-canbe-optin]: `<T canbe linear, U>` — one
-    /// qualifier per `canbe` (the comma separates parameters).
-    fn parse_generics_canbe(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>) {
-        let (generics, canbe, slots) = self.parse_generics_all();
+    /// qualifier per `canbe` (the comma separates parameters) — and
+    /// [effect-var] effect variables, `[E]`.
+    fn parse_generics_canbe(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<Ident>) {
+        let (generics, canbe, slots, effect_vars) = self.parse_generics_all();
         for slot in &slots {
             let (name, span) = slot_name_span(slot);
             self.error(messages::cmp_carry_fn_slot_misplaced(&name), span);
         }
-        (generics, canbe)
+        (generics, canbe, effect_vars)
     }
 
-    fn parse_generics_all(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<SlotDecl>) {
+    fn parse_generics_all(&mut self) -> (Vec<Ident>, Vec<(Ident, TypeRef)>, Vec<SlotDecl>, Vec<Ident>) {
         let mut generics = Vec::new();
         let mut canbe = Vec::new();
         let mut slots: Vec<SlotDecl> = Vec::new();
+        let mut effect_vars: Vec<Ident> = Vec::new();
         if self.at(&TokenKind::Lt) {
             self.group_depth += 1;
             self.bump();
             loop {
                 if self.eat(&TokenKind::Gt).is_some() || self.at_eof() {
                     break;
+                }
+                // [effect-var] `[E]`: a parameter ranging over a set of
+                // effects. Kept in `generics` at its written position.
+                if self.at(&TokenKind::LBracket) {
+                    self.bump();
+                    match self.ident_type("effect variable") {
+                        Some(id) => {
+                            if self.expect(&TokenKind::RBracket).is_none() {
+                                break;
+                            }
+                            effect_vars.push(id.clone());
+                            generics.push(id);
+                        }
+                        None => {
+                            self.bump();
+                            continue;
+                        }
+                    }
+                    if self.eat(&TokenKind::Comma).is_none() {
+                        if self.expect(&TokenKind::Gt).is_none() {
+                            break;
+                        }
+                        break;
+                    }
+                    continue;
                 }
                 // [qual-value-arg] `?` in a `<…>` list is the old mixed
                 // spelling: slots are declared in a `(…)` block after the
@@ -1456,7 +1490,7 @@ impl<'s> Parser<'s> {
             }
             self.group_depth -= 1;
         }
-        (generics, canbe, slots)
+        (generics, canbe, slots, effect_vars)
     }
 
     /// [qual-value-arg] The declaration-side **slot block** (user decision
@@ -2490,6 +2524,7 @@ impl<'s> Parser<'s> {
                         stamped: None,
                         generics: Vec::new(),
                         generic_canbe: Vec::new(),
+                        effect_generics: Vec::new(),
                         derived_return: None,
                         params: Vec::new(),
                         implicit_groups: Vec::new(),
@@ -2703,8 +2738,8 @@ impl<'s> Parser<'s> {
         // [fn-type-named] A type-named fn's generics came from the type
         // (`fn Mut List<T>` → `T`, `fn Ok<T canbe linear>` → the opt-in);
         // only an ordinary fn reads `<…>` here.
-        let (generics, generic_canbe) = if type_name.is_some() {
-            (type_generics, type_canbe)
+        let (generics, generic_canbe, effect_generics) = if type_name.is_some() {
+            (type_generics, type_canbe, Vec::new())
         } else {
             self.parse_generics_canbe()
         };
@@ -2866,6 +2901,7 @@ impl<'s> Parser<'s> {
             stamped: None,
             generics,
             generic_canbe,
+            effect_generics,
             params,
             implicit_groups,
             derived_return,
@@ -3581,7 +3617,11 @@ impl<'s> Parser<'s> {
         let parse_one = |p: &mut Self| -> Option<(TypeRef, Vec<Ident>, Vec<(Ident, TypeRef)>)> {
             let name = p.type_ref_name()?;
             let (gen_idents, canbe) = if p.at(&TokenKind::Lt) {
-                p.parse_generics_canbe()
+                let (g, c, effect_vars) = p.parse_generics_canbe();
+                for e in &effect_vars {
+                    p.error(messages::effect_var_misplaced(), e.span);
+                }
+                (g, c)
             } else {
                 (Vec::new(), Vec::new())
             };
@@ -3647,19 +3687,15 @@ impl<'s> Parser<'s> {
                     return None;
                 }
             };
-            let span = r.span;
             args.push(Type::Named { qualifiers: Vec::new(), base: r });
-            let _ = span;
             if self.eat(&TokenKind::Comma).is_none() {
                 break;
             }
         }
         self.group_depth -= 1;
         let end = self.expect(&TokenKind::RBracket)?.span;
-        if args.is_empty() {
-            self.error(messages::effect_eff_handle_empty(), start.to(end));
-            return None;
-        }
+        // [effect-var] `eff[]` is the handle over no effects, as `()` is the
+        // tuple of no values: what `eff[E]` is when `E` binds the empty set.
         let base = TypeRef {
             name: Ident { name: ADDR_TYPE_NAME.to_string(), span: start },
             args,

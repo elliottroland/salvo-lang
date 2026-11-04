@@ -1,7 +1,7 @@
 //! Expressions (IR record §2): every construct lowered to the node set, every
 //! resolution copied from the checker.
 
-use crate::check::{Binder, Callee as CalleeKind, Constructed, EffectsPassed, FnValue, ImplicitArg, Instance, Move, NarrowBy, UnionTest};
+use crate::check::{Binder, Callee as CalleeKind, Constructed, EffectSlot, EffectsPassed, FnValue, ImplicitArg, Instance, Move, NarrowBy, UnionTest};
 use crate::param_mode::PassMode;
 use crate::types::Ty;
 use salvo_syntax::ast::{self, BinaryOp, Expr as AExpr, LambdaBody, Pattern, StrExprPart, UnaryOp};
@@ -92,10 +92,143 @@ impl<'a, 'p> Lower<'a, 'p> {
         if !matches!(e, AExpr::Ident(_)) && self.ctx.checked.move_at(self.key(e.span())).takes_root {
             mark_root_move(e, &mut raw);
         }
-        match self.ctx.checked.converts.get(&self.key(e.span())) {
+        let raw = match self.ctx.checked.converts.get(&self.key(e.span())) {
             Some(c) => apply_convert(c, raw, e.span()),
             None => raw,
+        };
+        // [effect-var] A fn value the callee calls with an effect variable's
+        // pack, which it does not take as it is: adapted. A lambda takes the
+        // slots itself.
+        if !matches!(e, AExpr::Lambda { .. }) {
+            let key = self.key(e.span());
+            if let (Some(slots), Some(at)) = (self.ctx.checked.effect_slots.get(&key).cloned(), self.ctx.checked.effect_adapted.get(&key).cloned()) {
+                return self.pack_adapter(raw, &slots, &at, e.span());
+            }
         }
+        raw
+    }
+
+    /// [effect-var] The effect parameters of a fn value called with `slots`,
+    /// one per slot, named `{prefix}{i}`: a named effect's instance, or an
+    /// effect variable's pack, whose members are bound out of it by the
+    /// statements returned. Also answers each effect with the local it is
+    /// reached through, in the slots' order.
+    fn slot_params(&mut self, slots: &[EffectSlot], prefix: &str, span: Span) -> (Vec<Param>, Vec<Stmt>, Vec<(Ty, Local)>) {
+        let (mut params, mut stmts, mut bound) = (Vec::new(), Vec::new(), Vec::new());
+        for (i, slot) in slots.iter().enumerate() {
+            let local = Local(format!("{prefix}{i}"));
+            let effects: Vec<Ty> = slot.effects().iter().map(|t| self.ctx.ir_ty(t)).collect();
+            if let (EffectSlot::One(_), [t]) | (EffectSlot::Pack(_), [t]) = (slot, effects.as_slice()) {
+                params.push(Param { local: local.clone(), ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None, span });
+                bound.push((t.clone(), local));
+                continue;
+            }
+            params.push(Param { local: local.clone(), ty: crate::types::effect_pack_ty(&effects), mode: PassMode::Lent, variadic: false, check: None, span });
+            for (j, t) in effects.into_iter().enumerate() {
+                let member = self.fresh("__pk");
+                let id = self.id();
+                let read = Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: local.clone(), steps: vec![Step::Tuple(j)] }, consume: false, moved: false } };
+                stmts.push(Stmt::Let { id, local: member.clone(), ty: t.clone(), value: read });
+                bound.push((t, member));
+            }
+        }
+        (params, stmts, bound)
+    }
+
+    /// [effect-var] `value` as a fn taking `slots`' effect parameters, which
+    /// hands it the effects its own type performs: a lambda calling it, with
+    /// the parameters a lambda at the position `at` would have. A value that
+    /// is a read (or a lambda capturing nothing) is read where it is called;
+    /// any other is evaluated once, first, and the adapter takes it.
+    fn pack_adapter(&mut self, value: Expr, slots: &[EffectSlot], at: &Ty, span: Span) -> Expr {
+        let Ty::Fn { effects, .. } = value.ty.strip_quals().clone() else {
+            return value;
+        };
+        let Ty::Fn { params, ret, contract, .. } = self.ctx.ir_ty(at).strip_quals().clone() else {
+            return value;
+        };
+        let own: Vec<Ty> = self.ctx.ir_tys(&crate::threaded_effects(&effects));
+        let (mut ps, mut stmts, bound) = self.slot_params(slots, "__fx", span);
+        let mut captures: Vec<Capture> = Vec::new();
+        let mut outer: Vec<Stmt> = Vec::new();
+        let value_ty = value.ty.clone();
+        let target = match &value.kind {
+            ExprKind::FnValue(r @ FnRef::Decl(_)) => r.clone(),
+            ExprKind::FnValue(FnRef::Local(l)) => {
+                captures.push(Capture { local: l.clone(), consumed: false, mutable: false });
+                FnRef::Local(l.clone())
+            }
+            ExprKind::Read { place, .. } if place.steps.is_empty() => {
+                captures.push(Capture { local: place.root.clone(), consumed: false, mutable: false });
+                FnRef::Local(place.root.clone())
+            }
+            ExprKind::Read { place, .. } => {
+                captures.push(Capture { local: place.root.clone(), consumed: false, mutable: false });
+                let l = self.fresh("__adapted");
+                let id = self.id();
+                stmts.push(Stmt::Let { id, local: l.clone(), ty: value_ty.clone(), value: value.clone() });
+                FnRef::Local(l)
+            }
+            ExprKind::Lambda { captures: inner, .. } if inner.is_empty() => {
+                let l = self.fresh("__adapted");
+                let id = self.id();
+                stmts.push(Stmt::Let { id, local: l.clone(), ty: value_ty.clone(), value: value.clone() });
+                FnRef::Local(l)
+            }
+            _ => {
+                let l = self.fresh("__adapted");
+                let id = self.id();
+                outer.push(Stmt::Let { id, local: l.clone(), ty: value_ty.clone(), value: value.clone() });
+                captures.push(Capture { local: l.clone(), consumed: true, mutable: false });
+                FnRef::Local(l)
+            }
+        };
+        let mut args: Vec<Expr> = Vec::new();
+        for t in &own {
+            let Some((_, l)) = bound.iter().find(|(b, _)| b == t) else {
+                self.error(span, messages::fn_effects_lower_adapter_effect(t));
+                return unsupported(value_ty, span, "effect pack adapter");
+            };
+            args.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false, moved: false } });
+        }
+        for (i, t) in params.iter().enumerate() {
+            let l = Local(format!("__a{i}"));
+            let mode = match contract.as_ref().and_then(|c| c.get(i)) {
+                Some(c) if !c.kept => PassMode::Moved,
+                Some(c) if c.mutable => PassMode::LentMut,
+                _ => PassMode::Lent,
+            };
+            ps.push(Param { local: l.clone(), ty: t.clone(), mode, variadic: false, check: None, span });
+            args.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: l, steps: Vec::new() }, consume: mode == PassMode::Moved, moved: false } });
+        }
+        let call = Expr { ty: (*ret).clone(), span, kind: ExprKind::Call { target, type_args: Vec::new(), args, moved: false } };
+        let flat: Vec<Ty> = slots.iter().flat_map(|s| s.effects().to_vec()).collect();
+        let ty = Ty::Fn { params, ret: ret.clone(), contract, effects: self.ctx.ir_tys(&flat) };
+        let lambda = Expr { ty, span, kind: ExprKind::Lambda { params: ps, ret: *ret, body: Block { stmts, value: Some(Box::new(call)), span }, captures } };
+        if outer.is_empty() {
+            lambda
+        } else {
+            self.block_expr(outer, lambda, span)
+        }
+    }
+
+    /// [effect-var] The leading arguments of the call at `span`: the
+    /// instances, a callee's effect variable's grouped into its pack.
+    fn group_packs(&mut self, reads: Vec<Expr>, span: Span) -> Vec<Expr> {
+        let Some(packs) = self.ctx.checked.effect_packs.get(&self.key(span)).cloned() else { return reads };
+        let mut it = reads.into_iter();
+        let mut out = Vec::new();
+        for n in packs {
+            let items: Vec<Expr> = it.by_ref().take(n).collect();
+            if n == 1 && items.len() == 1 {
+                out.extend(items);
+                continue;
+            }
+            let ty = crate::types::effect_pack_ty(&items.iter().map(|e| e.ty.clone()).collect::<Vec<_>>());
+            out.push(Expr { ty, span, kind: ExprKind::Tuple(items) });
+        }
+        out.extend(it);
+        out
     }
 
     fn lit(&mut self, span: Span, kind: ExprKind) -> Expr {
@@ -1178,7 +1311,8 @@ impl<'a, 'p> Lower<'a, 'p> {
     /// [effect-instance] The instances a call passes ahead of its arguments,
     /// the throw effect left out [throw].
     fn leading_instances(&mut self, passed: &[Instance], span: Span) -> Vec<Expr> {
-        passed.iter().filter(|i| !crate::types::is_throw_effect(&i.ty)).map(|i| self.effect_instance(i, span)).collect()
+        let reads: Vec<Expr> = passed.iter().filter(|i| !crate::types::is_throw_effect(&i.ty)).map(|i| self.effect_instance(i, span)).collect();
+        self.group_packs(reads, span)
     }
 
     fn call(&mut self, callee: &AExpr, args: &[AExpr], named: &[ast::NamedArg], span: Span) -> Expr {
@@ -1676,8 +1810,23 @@ impl<'a, 'p> Lower<'a, 'p> {
             let info = self.ctx.checked.lambda_info(self.key(span));
             (info.effects.cloned(), info.captures.cloned())
         };
-        // [fn-effects] the effects a lambda takes as leading parameters.
-        if let Some(effs) = lambda_effects {
+        // [effect-var] Called with a callee's effect variable's pack: the
+        // lambda takes the slots, binding each effect out of its pack.
+        let slots = self.ctx.checked.effect_slots.get(&self.key(span)).cloned();
+        let mut pack_stmts: Vec<Stmt> = Vec::new();
+        if let Some(slots) = slots {
+            let key = self.key(span);
+            let stands: Vec<Instance> = self.ctx.checked.effects_passed.get(&key).and_then(EffectsPassed::inferred).cloned().unwrap_or_default();
+            let (sps, stmts, bound) = self.slot_params(&slots, "__leff", span);
+            for (j, (t, local)) in bound.into_iter().enumerate() {
+                self.effect_env.push((Instance { ty: t.clone(), binder: Binder::Lambda(key) }, local.clone()));
+                if let Some(outer) = stands.get(j).filter(|o| o.binder != Binder::Missing) {
+                    self.effect_env.push((Instance { ty: self.ctx.ir_ty(&outer.ty), binder: outer.binder }, local));
+                }
+            }
+            ps.extend(sps);
+            pack_stmts = stmts;
+        } else if let Some(effs) = lambda_effects {
             let key = self.key(span);
             // [effect-instance] An inferred parameter stands for the instance
             // in scope here that the body's facts name.
@@ -1712,6 +1861,12 @@ impl<'a, 'p> Lower<'a, 'p> {
             LambdaBody::Block(b) => self.block(b, !ret.is_none_ty() && !ret.is_unknown()),
             // [expr-terminal-lambda] Filled by the parser before lowering.
             LambdaBody::Terminal => Block { stmts: Vec::new(), value: None, span },
+        };
+        let block = if pack_stmts.is_empty() {
+            block
+        } else {
+            pack_stmts.extend(block.stmts);
+            Block { stmts: pack_stmts, ..block }
         };
         self.effect_env.truncate(saved_env_len);
         self.loop_results = saved_loops;
@@ -2770,7 +2925,8 @@ impl<'a, 'p> Lower<'a, 'p> {
             let read: Vec<Instance> = self.ctx.checked.effects_passed.get(&self.key(span)).and_then(EffectsPassed::leading).cloned().unwrap_or_default();
             let reads: Vec<Expr> = read.iter().map(|i| self.effect_instance(i, span)).collect();
             let value = match reads.len() {
-                0 => unsupported(ty.clone(), span, "eff[*] with no handle in scope"),
+                // [effect-var] `eff[]`, the empty handle.
+                0 => Expr { ty, span, kind: ExprKind::Tuple(Vec::new()) },
                 1 => reads.into_iter().next().unwrap(),
                 _ => Expr { ty, span, kind: ExprKind::Tuple(reads) },
             };
@@ -2814,7 +2970,8 @@ impl<'a, 'p> Lower<'a, 'p> {
             })
             .collect();
         let value = match reads.len() {
-            0 => unsupported(ty.clone(), span, "merge with no effect"),
+            // [effect-var] `eff[]`, the empty handle.
+            0 => Expr { ty, span, kind: ExprKind::Tuple(Vec::new()) },
             1 => reads.into_iter().next().unwrap(),
             _ => Expr { ty, span, kind: ExprKind::Tuple(reads) },
         };

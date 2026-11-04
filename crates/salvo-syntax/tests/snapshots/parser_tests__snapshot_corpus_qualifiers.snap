@@ -564,6 +564,7 @@ Module {
                         stamped: None,
                         generics: [],
                         generic_canbe: [],
+                        effect_generics: [],
                         derived_return: None,
                         params: [
                             Param {
@@ -709,6 +710,7 @@ Module {
                         stamped: None,
                         generics: [],
                         generic_canbe: [],
+                        effect_generics: [],
                         derived_return: None,
                         params: [
                             Param {
@@ -885,6 +887,7 @@ Module {
                         stamped: None,
                         generics: [],
                         generic_canbe: [],
+                        effect_generics: [],
                         derived_return: None,
                         params: [
                             Param {
@@ -1059,6 +1062,7 @@ Module {
                 stamped: None,
                 generics: [],
                 generic_canbe: [],
+                effect_generics: [],
                 derived_return: None,
                 params: [],
                 implicit_groups: [],
@@ -1250,6 +1254,7 @@ Module {
                 stamped: None,
                 generics: [],
                 generic_canbe: [],
+                effect_generics: [],
                 derived_return: None,
                 params: [
                     Param {
@@ -1773,6 +1778,7 @@ Module {
                 stamped: None,
                 generics: [],
                 generic_canbe: [],
+                effect_generics: [],
                 derived_return: None,
                 params: [
                     Param {
@@ -2246,6 +2252,7 @@ Module {
                 stamped: None,
                 generics: [],
                 generic_canbe: [],
+                effect_generics: [],
                 derived_return: None,
                 params: [
                     Param {
@@ -2549,6 +2556,7 @@ Module {
                         stamped: None,
                         generics: [],
                         generic_canbe: [],
+                        effect_generics: [],
                         derived_return: None,
                         params: [
                             Param {

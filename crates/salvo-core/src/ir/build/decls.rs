@@ -222,6 +222,7 @@ fn type_params(generics: &[ast::Ident], canbe: &[(ast::Ident, ast::TypeRef)]) ->
         .map(|g| TypeParam {
             name: g.name.clone(),
             canbe_linear: canbe.iter().any(|(n, q)| n.name == g.name && q.name.name == "linear"),
+            effect: false,
         })
         .collect()
 }
@@ -649,7 +650,10 @@ fn fn_decl(
         type_params: {
             // A qualifier's fns are generic in the qualifier's parameters too.
             let mut tps = qualifier.map(|q| type_params(&q.generics, &q.generic_canbe)).unwrap_or_default();
-            tps.extend(type_params(&f.generics, &f.generic_canbe));
+            tps.extend(type_params(&f.generics, &f.generic_canbe).into_iter().map(|mut t| {
+                t.effect = f.effect_generics.iter().any(|e| e.name == t.name);
+                t
+            }));
             tps
         },
         params,

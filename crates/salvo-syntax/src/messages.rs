@@ -393,13 +393,55 @@ messages! {
          (`close@Fs(s)`) or a dot-notation call (`s.close@Fs()`)";
 
     // [effect-eff-handle]
-    /// An `eff[]` naming no effect.
-    effect_eff_handle_empty = "effect-eff-handle:empty" () =>
-        "`eff[…]` names at least one effect";
     /// `Addr<…>` written as a type.
     effect_eff_handle_addr_type = "effect-eff-handle:addr-type" () =>
         "`Addr<…>` is not a type you write: a first-class effect handle is spelled \
          `eff[E]` (several effects: `eff[A, B]`)";
+
+    // [effect-var]
+    /// `[E]` in the generics of something other than a function.
+    effect_var_misplaced = "effect-var:misplaced" () =>
+        "an effect variable `[E]` may only be declared on a function";
+    /// A plain type parameter written in an effect list.
+    effect_var_not_declared = "effect-var:not-declared" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is a type parameter, not an effect: declare it `[{name}]` to range over effects"
+    );
+    /// An effect variable written where a type is expected.
+    effect_var_as_type = "effect-var:as-type" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is an effect variable: it ranges over effects and is not a type of values \
+         (its handle is `eff[{name}]`)"
+    );
+    /// `any E` over an effect variable.
+    effect_var_any = "effect-var:any" (name: &dyn std::fmt::Display) => format!(
+        "`any {name}`: an effect variable keeps the identity of each effect it is bound to, \
+         so `any` cannot qualify it"
+    );
+    /// Two effect variables in one fn type's list.
+    effect_var_two_in_fn_type = "effect-var:two-in-fn-type" (a: &dyn std::fmt::Display, b: &dyn std::fmt::Display) => format!(
+        "a function type's effect list holds at most one effect variable (`{a}`, `{b}`): \
+         a call could not tell which of the value's effects each one stands for"
+    );
+    /// An effect variable no parameter mentions.
+    effect_var_undetermined = "effect-var:undetermined" (name: &dyn std::fmt::Display) => format!(
+        "effect variable `{name}` is not determined by any parameter: name it in a parameter's \
+         function type (`(x: T) [{name}] -> None`) or handle type (`eff[{name}]`)"
+    );
+    /// A throwing value bound to an effect variable.
+    effect_var_throw = "effect-var:throw" (name: &dyn std::fmt::Display, msg: &dyn std::fmt::Display) => format!(
+        "this function value may throw `{msg}`, and effect variable `{name}` cannot carry `Throw`: \
+         a throw is control flow, not a handle. Catch it inside the value with `try`, or have the \
+         parameter's type list `Throw<…>` itself"
+    );
+    /// A plain type parameter bound to several effects through a handle.
+    effect_var_row_for_type = "effect-var:row-for-type" (name: &dyn std::fmt::Display, callee: &dyn std::fmt::Display) => format!(
+        "`{name}` of `{callee}` stands for one effect, and this argument carries a set of them: \
+         a parameter ranging over a set of effects is declared `[{name}]`"
+    );
+    /// An actor effect reaching an effect variable through an `eff[E]` handle.
+    effect_var_actor_handle = "effect-var:actor-handle" (name: &dyn std::fmt::Display, actor: &dyn std::fmt::Display) => format!(
+        "effect variable `{name}` is bound to the actor effect `{actor}`, and the callee takes \
+         its handle as `eff[{name}]`, which does not support actor effects yet"
+    );
 
     // [effect-with-clause]
     /// The retired `use` spelling of a dependency clause.

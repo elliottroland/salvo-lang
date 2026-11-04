@@ -364,6 +364,70 @@ pub enum Ty {
 /// lowercase name, so no program type can collide [name-casing].
 pub const SPREAD_MARKER: &str = "...";
 
+/// [effect-var] What an effect variable is bound to at a call: the effects it
+/// stands for, `Ty::Named { name: EFFECT_ROW, args: effects }`. Lives only in
+/// a call's substitution — substituting it splices the effects into an effect
+/// list and turns `eff[E]` into the handle over them — and never reaches a
+/// backend. Unwritable, like [`SPREAD_MARKER`].
+pub const EFFECT_ROW: &str = "[effects]";
+
+/// [effect-var] An effect variable nothing has bound yet, as it stands in a
+/// substituted fn type's effect list: the list is **open**, and a value with
+/// any effects fits it (they are what binds the variable). Unwritable.
+pub const OPEN_EFFECTS: &str = "[..]";
+
+impl Ty {
+    /// [effect-var] An effect variable's binding.
+    pub fn effect_row(effects: Vec<Ty>) -> Ty {
+        Ty::Named { name: EFFECT_ROW.to_string(), args: effects }
+    }
+
+    /// [effect-var] The effects a binding stands for, if this is one.
+    pub fn as_effect_row(&self) -> Option<&[Ty]> {
+        match self {
+            Ty::Named { name, args } if name == EFFECT_ROW => Some(args),
+            _ => None,
+        }
+    }
+
+    /// [effect-var] The open-list marker.
+    pub fn open_effects() -> Ty {
+        Ty::Named { name: OPEN_EFFECTS.to_string(), args: Vec::new() }
+    }
+
+    pub fn is_open_effects(&self) -> bool {
+        matches!(self, Ty::Named { name, .. } if name == OPEN_EFFECTS)
+    }
+}
+
+/// [effect-var] The handle over a set of effects, `eff[…]`: a tuple of single
+/// handles, the one handle for one effect, and `eff[]` — the empty tuple —
+/// for none.
+pub fn handle_over(effects: &[Ty]) -> Ty {
+    let single = |e: &Ty| Ty::Named { name: "Addr".to_string(), args: vec![e.clone()] };
+    match effects {
+        [one] => single(one),
+        _ => Ty::Tuple(effects.iter().map(single).collect()),
+    }
+}
+
+/// [effect-var] What a callee taking effect variable `E` is handed for it: the
+/// **pack** of the instances, one value — the empty tuple for none, the
+/// instance itself for one, a tuple of them for several. The type a backend
+/// renders `E` as at that call.
+pub fn effect_pack_ty(effects: &[Ty]) -> Ty {
+    match effects {
+        [one] => one.clone(),
+        _ => Ty::Tuple(effects.to_vec()),
+    }
+}
+
+/// [effect-var] Whether an expected fn type's effect list fits a value
+/// performing `have`: every effect is expected, or the list is open.
+pub fn effects_fit(have: &[Ty], want: &[Ty]) -> bool {
+    want.iter().any(Ty::is_open_effects) || have.iter().all(|e| want.contains(e))
+}
+
 impl Ty {
     /// [type-union-spread] `...T`, as lowered: the spread marker over its variable.
     pub fn spread_marker(inner: Ty) -> Ty {
@@ -954,8 +1018,8 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
                 // where more are expected — the caller supplies what it
                 // declared and the value simply does not use all of it. The
                 // reverse would let a value perform an effect its call site
-                // cannot provide.
-                && ea.iter().all(|e| eb.contains(e))
+                // cannot provide. [effect-var] An open list fits any.
+                && effects_fit(ea, eb)
         }
         _ => false,
     }

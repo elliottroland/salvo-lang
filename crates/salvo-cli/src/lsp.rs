@@ -3487,7 +3487,7 @@ fn struct_signature(decl: &salvo_syntax::ast::StructDecl) -> String {
         sig.push_str("linear ");
     }
     sig.push_str(&format!("struct {}", decl.name.name));
-    sig.push_str(&generic_list_with_bounds(&decl.generics, &decl.generic_canbe));
+    sig.push_str(&generic_list_with_bounds(&decl.generics, &decl.generic_canbe, &[]));
     if !decl.auto_qualifiers.is_empty() {
         let quals: Vec<String> = decl.auto_qualifiers.iter().map(|q| q.to_string()).collect();
         sig.push_str(&format!(" canbe {}", quals.join(", ")));
@@ -3503,9 +3503,11 @@ fn struct_signature(decl: &salvo_syntax::ast::StructDecl) -> String {
 /// A `canbe` entry may name a parameter that is not in `generics` — the parser
 /// accepts `fn hold<T canbe linear>(…)` with the bound as the declaration — so
 /// those are appended rather than dropped.
+/// [effect-var] An effect variable reads as written: `[E]`.
 fn generic_list_with_bounds(
     generics: &[salvo_syntax::ast::Ident],
     bounds: &[(salvo_syntax::ast::Ident, salvo_syntax::ast::TypeRef)],
+    effect_vars: &[salvo_syntax::ast::Ident],
 ) -> String {
     let mut names: Vec<String> = generics.iter().map(|g| g.name.clone()).collect();
     for (g, _) in bounds {
@@ -3519,6 +3521,9 @@ fn generic_list_with_bounds(
     let rendered: Vec<String> = names
         .iter()
         .map(|name| {
+            if effect_vars.iter().any(|e| &e.name == name) {
+                return format!("[{name}]");
+            }
             let mut out = name.clone();
             for (g, bound) in bounds {
                 if &g.name == name {
@@ -3642,7 +3647,7 @@ fn type_signature(decl: &salvo_syntax::ast::TypeDecl) -> String {
     sig.push_str(&format!(
         "type {}{}",
         decl.name.name,
-        generic_list_with_bounds(&decl.generics, &decl.generic_canbe)
+        generic_list_with_bounds(&decl.generics, &decl.generic_canbe, &[])
     ));
     if !decl.auto_qualifiers.is_empty() {
         let quals: Vec<String> = decl.auto_qualifiers.iter().map(|q| q.to_string()).collect();
@@ -3772,7 +3777,7 @@ pub(crate) fn fn_decl_signature_with(decl: &FnDecl, inferred: Option<&[ParamDedu
     }
     // [linear-generics] [lsp-hover-linear] With bounds: `<T canbe linear>` is
     // what tells a reader this function may be handed an obligation.
-    sig.push_str(&generic_list_with_bounds(&decl.generics, &decl.generic_canbe));
+    sig.push_str(&generic_list_with_bounds(&decl.generics, &decl.generic_canbe, &decl.effect_generics));
     let params: Vec<String> = decl
         .params
         .iter()

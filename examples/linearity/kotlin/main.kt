@@ -87,7 +87,9 @@ fun aQueueOfTickets(console: salvo.std.core.console.Console) {
         val next: Ticket = __subject_2!!
         salvo.main.redeem(console, next)
     }
-    salvo.std.core.deque.drain(queue, ::scrap)
+    salvo.std.core.deque.drain(Unit, queue, fun(__fx0: Unit, __a0: Ticket) {
+        return salvo.main.scrap(__a0)
+    })
     salvo.std.core.console.println(console, "6. queue drained")
 }
 

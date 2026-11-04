@@ -421,7 +421,7 @@ impl crate::__Stateful_Desk for Desking {
         };
     }
     fn close_up(&mut self, reason: String) {
-        crate::std_core_deque::drain::<crate::scheduler::SalvoReply>(std::mem::take(&mut self.waiting), &mut |mut r| {
+        crate::std_core_deque::drain::<crate::scheduler::SalvoReply, ()>(&(), std::mem::take(&mut self.waiting), &mut |mut __leff0, mut r| {
             crate::scheduler::salvo_reply_wire::<String>(r, format!("closed: {}", reason))
         });
         self.waiting = crate::std_core_deque::mut_deque_of::<crate::scheduler::SalvoReply>();

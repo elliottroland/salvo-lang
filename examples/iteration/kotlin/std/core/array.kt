@@ -21,9 +21,9 @@ fun<T> next(p: ArrayIter<T>): Union2<T, salvo.std.core.iterator.Finished> {
     return Union2.U1<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(elem_1))
 }
 
-fun<T> drain(items: Array<T>, each: (T) -> Unit) {
+fun<T, E> drain(e: E, items: Array<T>, each: (E, T) -> Unit) {
     val list: salvo.platform.std.core.list.MutList<T> = mutableListOf<T>()
     salvo.std.core.list.appendPlatform(list, items)
-    salvo.std.core.list.drain(list, each)
+    salvo.std.core.list.drain(e, list, each)
 }
 

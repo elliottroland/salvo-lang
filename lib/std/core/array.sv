@@ -68,7 +68,7 @@ export fn next<T>(p: Mut ArrayIter<T>) [] -> Emitted (proj(p) T) | Finished => p
 // reason a list's [drain] is one: there is no half-drained state, so no path
 // can drop the elements it did not reach.
 // @compilerrules [linear-container, fn-effects]
-export fn drain<T canbe linear>(items: T[], each: (x: T) -> None) [] -> None
+export fn drain<T canbe linear, [E]>(items: T[], each: (x: T) [E] -> None) -> None
 =>[each] !x => !items, each {
     let list = Mut List<T>()
     list.append(items)

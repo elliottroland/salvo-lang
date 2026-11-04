@@ -412,10 +412,10 @@ pub fn drop_actor_rec(mut a: crate::std_runtime::ActorRec) {
     let mut ready: bool = __destructured_1.ready;
     let mut proxy: bool = __destructured_1.proxy;
     crate::std_runtime::drop_slot_platform::<crate::std_runtime::Body>(body);
-    crate::std_core_deque::drain::<crate::unions::Union3<crate::std_runtime::Delivered, crate::std_runtime::Answered, crate::std_runtime::Reported>>(queue, &mut |mut e| {
+    crate::std_core_deque::drain::<crate::unions::Union3<crate::std_runtime::Delivered, crate::std_runtime::Answered, crate::std_runtime::Reported>, ()>(&(), queue, &mut |mut __leff0, mut e| {
         crate::std_runtime::drop_entry(e)
     });
-    crate::std_core_list::drain::<crate::std_runtime::Token>(watchers, &mut |mut t| {
+    crate::std_core_list::drain::<crate::std_runtime::Token, ()>(&(), watchers, &mut |mut __leff0, mut t| {
         crate::std_runtime::drop_token(t)
     });
 }
@@ -511,7 +511,7 @@ pub fn drop_pool_rec(mut p: crate::std_runtime::PoolRec) {
     let mut owed: i32 = __destructured_1.owed;
     let mut dedicated: bool = __destructured_1.dedicated;
     let mut retired: bool = __destructured_1.retired;
-    crate::std_core_deque::drain::<crate::std_runtime::TaskRun>(tasks, &mut |mut t| {
+    crate::std_core_deque::drain::<crate::std_runtime::TaskRun, ()>(&(), tasks, &mut |mut __leff0, mut t| {
         crate::std_runtime::drop_task_run(t)
     });
 }
@@ -1259,7 +1259,7 @@ impl crate::std_runtime::__Stateful_SchedTable for Scheduler {
             let mut t = __subject_4.unwrap();
             crate::std_runtime::deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, t, crate::std_runtime::erase_platform::<crate::std_core_actor::Exit>(crate::std_core_actor::Exit { reason: (reason).clone() }));
         }
-        crate::std_core_list::drain::<crate::std_runtime::Token>(watchers, &mut |mut t| {
+        crate::std_core_list::drain::<crate::std_runtime::Token, ()>(&(), watchers, &mut |mut __leff0, mut t| {
             crate::std_runtime::drop_token(t)
         });
     }
@@ -1464,7 +1464,7 @@ impl crate::std_runtime::__Stateful_SchedTable for Scheduler {
             let mut t = __subject_6.unwrap();
             crate::std_runtime::deliver_to(&mut self.actors, &mut self.waiters, &mut self.pools, t, crate::std_runtime::erase_platform::<crate::std_core_actor::Exit>(crate::std_core_actor::Exit { reason: (reason).clone() }));
         }
-        crate::std_core_list::drain::<crate::std_runtime::Token>(watchers, &mut |mut t| {
+        crate::std_core_list::drain::<crate::std_runtime::Token, ()>(&(), watchers, &mut |mut __leff0, mut t| {
             crate::std_runtime::drop_token(t)
         });
         crate::std_runtime::retire_if_done(&mut self.actors, &mut self.pools, pool);

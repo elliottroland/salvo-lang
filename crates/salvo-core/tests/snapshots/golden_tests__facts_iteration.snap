@@ -346,9 +346,9 @@ main() -> None@main
   250:17  `"3. natural ${n}"`            Str
   250:31  `n`                            Int
   258:9   `doubled`                      Mut List<Int>
-  258:19  `map(xs, (n) -> n * 2)`        Mut List<Int>  -> std.core.seq::map(List<T>, (T) -> U)
+  258:19  `map(xs, (n) -> n * 2)`        Mut List<Int>  -> std.core.seq::map(List<T>, (T) [E] -> U)  [passes ]
   258:23  `xs`                           NonEmpty List<Int>
-  258:27  `(n) -> n * 2`                 (Int) -> Int
+  258:27  `(n) -> n * 2`                 (Int) -> Int  [stands for ]
   258:28  `n`                            Int
   258:34  `n * 2`                        Int  -> std.core.basic::times(Int, Int)
   258:34  `n`                            Int
@@ -364,10 +364,10 @@ main() -> None@main
   259:37  `2`                            Int
   259:42  `1`                            Int
   260:9   `total`                        Int
-  260:17  `reduce(xs, 0, (acc, n) -> …`  Int  -> std.core.seq::reduce(List<T>, A, (A, T) -> A)
+  260:17  `reduce(xs, 0, (acc, n) -> …`  Int  -> std.core.seq::reduce(List<T>, A, (A, T) [E] -> A)  [passes ]
   260:24  `xs`                           NonEmpty List<Int>
   260:28  `0`                            Int
-  260:31  `(acc, n) -> acc + n`          (Int, Int) -> Int
+  260:31  `(acc, n) -> acc + n`          (Int, Int) -> Int  [stands for ]
   260:32  `acc`                          Int
   260:37  `n`                            Int
   260:43  `acc + n`                      Int  -> std.core.basic::plus(Int, Int)
@@ -386,20 +386,20 @@ main() -> None@main
   263:29  `"bo"`                         Str
   263:35  `"carol"`                      Str
   264:9   `lengths`                      Mut List<Int>
-  264:19  `map(iter(words), (w) -> si…`  Mut List<Int>  -> std.core.seq::map(Mut It, (T) -> U)
+  264:19  `map(iter(words), (w) -> si…`  Mut List<Int>  -> std.core.seq::map(Mut It, (T) [E] -> U)  [passes ]
   264:23  `iter(words)`                  Mut ListIter<Str>  -> std.core.list::iter  [holds arg 0]
   264:28  `words`                        NonEmpty List<Str>
-  264:36  `(w) -> size(w)`               (proj Str) -> Int
+  264:36  `(w) -> size(w)`               (proj Str) -> Int  [stands for ]
   264:37  `w`                            proj Str
   264:43  `size(w)`                      Int  -> std.core.string::size
   264:48  `w`                            proj Str #{as Str}
   265:5   `println("5. lengths: ${red…`  None  -> std.core.console::println  [passes Console (use 206:5)]
   265:13  `"5. lengths: ${reduce(iter…`  Str
-  265:28  `reduce(iter(lengths), 0, (…`  Int  -> std.core.seq::reduce(Mut It, A, (A, T) -> A)
+  265:28  `reduce(iter(lengths), 0, (…`  Int  -> std.core.seq::reduce(Mut It, A, (A, T) [E] -> A)  [passes ]
   265:35  `iter(lengths)`                Mut ListIter<Int>  -> std.core.list::iter  [holds arg 0]
   265:40  `lengths`                      Mut List<Int> #{as List<Int>}
   265:50  `0`                            Int
-  265:53  `(acc, n) -> acc + n`          (Int, Int) -> Int
+  265:53  `(acc, n) -> acc + n`          (Int, Int) -> Int  [stands for ]
   265:54  `acc`                          Int
   265:59  `n`                            Int
   265:65  `acc + n`                      Int  -> std.core.basic::plus(Int, Int)
@@ -408,10 +408,10 @@ main() -> None@main
   269:9   `word`                         Str
   269:16  `"iteration"`                  Str
   270:9   `vowels`                       Mut List<Char>
-  270:18  `filter(iter(word), (c) -> …`  Mut List<Char>  -> std.core.seq::filter(Mut It, (T) -> Bool)  [holds arg 0]
+  270:18  `filter(iter(word), (c) -> …`  Mut List<Char>  -> std.core.seq::filter(Mut It, (T) [E] -> Bool)  [passes , holds arg 0]
   270:25  `iter(word)`                   Mut StrIter  -> std.core.string::iter  [holds arg 0]
   270:30  `word`                         Str
-  270:37  `(c) -> c == 'i' || c == 'o…`  (Char) -> Bool
+  270:37  `(c) -> c == 'i' || c == 'o…`  (Char) -> Bool  [stands for ]
   270:38  `c`                            Char
   270:44  `c == 'i' || c == 'o'`         Bool
   270:44  `c == 'i'`                     Bool  -> std.core.basic::eq(Char, Char)
@@ -426,11 +426,11 @@ main() -> None@main
   271:32  `vowels`                       Mut List<Char> #{as List<Char>}
   274:5   `println("5. halving total …`  None  -> std.core.console::println  [passes Console (use 206:5)]
   274:13  `"5. halving total ${reduce…`  Str
-  274:33  `reduce(halving(20), 0, (ac…`  Int  -> std.core.seq::reduce(Mut It, A, (A, T) -> A)
+  274:33  `reduce(halving(20), 0, (ac…`  Int  -> std.core.seq::reduce(Mut It, A, (A, T) [E] -> A)  [passes ]
   274:40  `halving(20)`                  Mut Halving  -> main::halving
   274:48  `20`                           Int
   274:53  `0`                            Int
-  274:56  `(acc, n) -> acc + n`          (Int, Int) -> Int
+  274:56  `(acc, n) -> acc + n`          (Int, Int) -> Int  [stands for ]
   274:57  `acc`                          Int
   274:62  `n`                            Int
   274:68  `acc + n`                      Int  -> std.core.basic::plus(Int, Int)

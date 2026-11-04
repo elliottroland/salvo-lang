@@ -32,6 +32,9 @@ pub trait Visitor {
     /// declaration boundaries (`salvo_core::check_cache::walk_item`), not by
     /// the walks here, which start inside one.
     fn enter_generics(&mut self, _generics: &[Ident], _canbe: &[(Ident, TypeRef)]) {}
+    /// [effect-var] Called right after `enter_generics` with the ones of them
+    /// written `[E]`; `leave_generics` ends both.
+    fn enter_effect_generics(&mut self, _effect_generics: &[Ident]) {}
     fn leave_generics(&mut self) {}
 }
 

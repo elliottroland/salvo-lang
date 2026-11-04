@@ -3,7 +3,7 @@ package salvo.std.core.seq
 import salvo.*
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<It, T, U> map__It_Fn(it: It, f: (T) -> U, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): salvo.platform.std.core.list.MutList<U> {
+fun<It, T, U, E> map__It_Fn(e: E, it: It, f: (E, T) -> U, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): salvo.platform.std.core.list.MutList<U> {
     val out: salvo.platform.std.core.list.MutList<U> = mutableListOf<U>()
     while (true) {
         val __step_2: Union2<T, salvo.std.core.iterator.Finished> = next(it)
@@ -11,7 +11,7 @@ fun<It, T, U> map__It_Fn(it: It, f: (T) -> U, next: (It) -> Union2<T, salvo.std.
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: T = ((__step_2 as Union2.U1<*, *>).value as T)
                 val x: T = __emitted_3
-                salvo.std.core.list.addPlatform(out, f(x))
+                salvo.std.core.list.addPlatform(out, f(e, x))
             }
             else -> {
                 break
@@ -22,7 +22,7 @@ fun<It, T, U> map__It_Fn(it: It, f: (T) -> U, next: (It) -> Union2<T, salvo.std.
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<It, T> filter(it: It, keep: (T) -> Boolean, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): salvo.platform.std.core.list.MutList<T> {
+fun<It, T, E> filter(e: E, it: It, keep: (E, T) -> Boolean, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): salvo.platform.std.core.list.MutList<T> {
     val out: salvo.platform.std.core.list.MutList<T> = mutableListOf<T>()
     while (true) {
         val __step_2: Union2<T, salvo.std.core.iterator.Finished> = next(it)
@@ -30,7 +30,7 @@ fun<It, T> filter(it: It, keep: (T) -> Boolean, next: (It) -> Union2<T, salvo.st
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: T = ((__step_2 as Union2.U1<*, *>).value as T)
                 val x: T = __emitted_3
-                if (keep(x)) {
+                if (keep(e, x)) {
                     salvo.std.core.list.addPlatform(out, x)
                 }
             }
@@ -43,7 +43,7 @@ fun<It, T> filter(it: It, keep: (T) -> Boolean, next: (It) -> Union2<T, salvo.st
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun<It, T, A> reduce__It_A_Fn(it: It, init: A, f: (A, T) -> A, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): A {
+fun<It, T, A, E> reduce__It_A_Fn(e: E, it: It, init: A, f: (E, A, T) -> A, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): A {
     var acc: A = init
     while (true) {
         val __step_2: Union2<T, salvo.std.core.iterator.Finished> = next(it)
@@ -51,7 +51,7 @@ fun<It, T, A> reduce__It_A_Fn(it: It, init: A, f: (A, T) -> A, next: (It) -> Uni
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: T = ((__step_2 as Union2.U1<*, *>).value as T)
                 val x: T = __emitted_3
-                acc = f(acc, x)
+                acc = f(e, acc, x)
             }
             else -> {
                 break
@@ -61,20 +61,20 @@ fun<It, T, A> reduce__It_A_Fn(it: It, init: A, f: (A, T) -> A, next: (It) -> Uni
     return acc
 }
 
-fun<T, U> map__List_Fn(list: List<T>, f: (T) -> U): salvo.platform.std.core.list.MutList<U> {
+fun<T, U, E> map__List_Fn(e: E, list: List<T>, f: (E, T) -> U): salvo.platform.std.core.list.MutList<U> {
     val out: salvo.platform.std.core.list.MutList<U> = mutableListOf<U>()
     for (x in salvo.platform.std.core.list.each(list)) {
-        salvo.std.core.list.addPlatform(out, f(x))
+        salvo.std.core.list.addPlatform(out, f(e, x))
     }
     return out
 }
 
 fun<T> filterPlatform(list: List<T>, keep: (T) -> Boolean): salvo.platform.std.core.list.MutList<T> = salvo.platform.std.core.seq.filter(list, keep)
 
-fun<T, A> reduce__List_A_Fn(list: List<T>, init: A, f: (A, T) -> A): A {
+fun<T, A, E> reduce__List_A_Fn(e: E, list: List<T>, init: A, f: (E, A, T) -> A): A {
     var acc: A = init
     for (x in salvo.platform.std.core.list.each(list)) {
-        acc = f(acc, x)
+        acc = f(e, acc, x)
     }
     return acc
 }

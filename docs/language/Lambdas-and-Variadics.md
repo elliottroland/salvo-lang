@@ -124,6 +124,35 @@ fn attempt(f: (n: Int) [Throw<Str>] -> Int, n: Int) [] -> Str => f {
 - **A function value carries no capability**, so storing or returning one is fine; what needs the effect is *calling* it. A stored effectful value called where its effects are unavailable is an error at the call.
 - `use` cannot appear in a function type: registering a handler is local to a body, so a lambda may `use` exactly when the function containing it may.
 
+### Effect variables: `[E]`
+
+Naming the effects a function value performs works when the function knows them. A function that only *calls* the value it is given, such as `map` or `drain`, does not care what they are, and naming any set would make it useless for every other. A generic written in brackets, `[E]`, is an **effect variable**: it ranges over a *set* of effects, and a call binds it to whatever the value it is handed performs.
+
+```
+fn each<T, [E]>(xs: List<T>, f: (x: T) [E] -> None) => xs, f {
+    for x in xs {
+        f(x)
+    }
+}
+
+fn main() [use] {
+    use StdConsole()
+    each(List(1, 2), (x) -> println("${x}"))   // E is [Console]
+    each(List(1, 2), (x) -> {})                // E is [], nothing is needed
+}
+```
+
+- **`each` inherits `[E]`** from `f`, as it would inherit a named effect, so its callers supply whatever `E` stands for.
+- **A call binds `E`** to what the value performs beyond the effects the parameter's type names itself: the effects a lambda's body uses, or the list a named function declares. Two parameters sharing `E` bind what either performs, and each value fits by the rule above.
+- **Inside the body `E` is opaque.** The function can pass it on, to `f` or to another function taking a variable, but cannot call a member of it, handle it with `try`, or name it in a written list that leaves it out. `[E, Console]` is a variable beside a named effect: the function performs `Console` itself and hands `E` on.
+- **Its handle is `eff[E]`.** A parameter `fx: eff[E]` is bound like a function value's effects are, and `use fx` makes the effects `E` stands for available in the body, which is how a function can hold a capability it cannot name. `eff[]` is the handle over no effects, as `()` is the tuple of no values.
+- **A variable is a set of effects, not a type of values.** `x: E` is an error, and so is a plain type parameter in an effect list: `[T]` must be declared `<[T]>` to mean one. `any E` is refused too: each effect a variable stands for keeps its own identity strength.
+- **One variable per function type.** `(x: T) [E, F] -> None` is refused, since a call could not tell which of the value's effects belong to which variable.
+- **A throw is not an effect a variable carries.** A function value that may throw cannot bind `E`; a parameter whose type lists `Throw<…>` itself takes one, and the function either catches it with `try` or passes it on in its own list.
+- **An actor effect does not reach a variable through `eff[E]` yet.** It may through a function value's effects: a callback that sends to an actor works.
+
+std's eager functions that take callbacks have an effect variable: `map`, `reduce`, `filter` over an iterator, `any`, `all`, `count`, `find_first`, `find_last`, `partition`, `remove_front_while`, `remove_back_while`, `update`, `drain`, `to_map`, `map2`, and the `_by` builders written in Salvo (`list_by`, `deque_by`). So a callback passed to them may log, count or print. The lazy adaptors (`mapping`, `filtering`, …) and the functions std implements on the platform (`sort_by`, `filter` over a list, `set_by`, `map_by`, `array_by`) still take pure callbacks.
+
 ## Variadic arguments
 
 Functions support variadic arguments. These get interpreted as an Array of the relevant type:

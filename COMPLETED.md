@@ -144,6 +144,64 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Effect variables: `[E]` ranges over a set of effects (user decisions, [effect-var])
+
+- **Decided (user)**, from the design round on ROADMAP §2c's effect
+  polymorphism:
+  - the spelling `<T, [E]>` ("happy with the spelling of [E]");
+  - a **row** — a variable stands for any number of effects, one variable
+    per fn type — over a single effect;
+  - `eff[E]`, `use` over it and `eff[]` are surface features ("a natural
+    evolution of the design"; `eff[]` "makes as much sense as an empty
+    tuple");
+  - the lazy adaptors are a second step; the fusion revisit is decided
+    separately; no `[E canbe Throw]` ("not sure what that gets us over just
+    specifying `[E, Throw<X>]`").
+- **The row is cheap because of `eff[…]`**: the pack a variable's parameter
+  takes *is* the handle over its effects — the empty tuple, the instance, a
+  tuple of instances — so a fn stays one Rust/Kotlin type parameter, `E`,
+  whatever is in it, and the packing happens only where concrete code meets
+  the variable. The sketch's worry (no variadic generics; a bundle struct is
+  fusion again) assumed the packing would be everywhere.
+- **Built**: the parser's `[E]` generic and `eff[]`; the name table's
+  `Written::effect_var`; the checker's lowering, the row binding in `unify`
+  (adding to an earlier argument's), open lists for unbound and
+  earlier-bound variables, lambda inference against an open list,
+  `effect_packs`/`effect_slots`/`effect_adapted`; the IR's pack grouping,
+  lambda slot parameters and pack adapter; both emitters' rendering
+  (`TypeParam::effect`); erasure skipping a variable; std's eager callbacks
+  (`map`, `reduce`, `filter` over an iterator, `any`, `all`, `count`,
+  `find_first`, `find_last`, `partition`, `remove_*_while`, `update`,
+  `drain` ×4, `to_map`, `map2`, `list_by`, `deque_by` and their `mut_`
+  forms). Rules: `effect-var:misplaced`, `not-declared`, `as-type`, `any`,
+  `two-in-fn-type`, `undetermined`, `throw`, `row-for-type`, `actor-handle`.
+- **Found building it**:
+  - A value passed where a variable binds needs an adapter whenever it is
+    not a lambda: a pure fn *parameter* forwarded to `map` takes no effect
+    parameter, and `map` now passes `&()`. The IR's pack adapter is typed by
+    the position (`effect_adapted`), as a lambda there would be, so the Rust
+    emitter's borrow-peeling (`let __a0 = *__a0;`) applies inside it; a value
+    a call answers is evaluated first, in a block whose closure is `move`.
+    The retagged-borrow adapters `fn_value_adapters.sv` pinned are these now.
+  - Rust's closure effect parameters were rendered from the *unsubstituted*
+    slot (`&E`), harmless until an effect list could hold a variable.
+  - `eff[E]` of an erased one-effect generic (`eq<E>(a: eff[E], …)`) must
+    keep rendering as the address type, so an emitter renders `eff[E]` as
+    `E` only for the fn's own effect variables.
+  - An empty merge was `Unknown` in the checker and unsupported in the IR;
+    it is `eff[]` now.
+  - A row's instances accept a binding spread over many (`any`): the lambda
+    that performs the effect checked its own requirement.
+- **Not built** (ROADMAP §2c): struct effect parameters and the lazy
+  adaptors; platform fns and intrinsics with callbacks; implicits; actor
+  effects through `eff[E]`; throws through a variable.
+- **Tests**: `tests/check/effect_var/` (every refusal), the run data
+  `effects/effect_variables.sv` (std callbacks with none, one and several
+  effects, a named fn, a forwarded pure parameter; a variable beside a
+  named effect, recursion, two parameters sharing one, `eff[E]` with `use`,
+  `eff[]`, a `Throw<…>` the parameter names), the parser corpus. 713 tests
+  under nextest.
+
 ### 2026-10-30 — A discharger's body ends its value, and `discard` is gone (user decision, [linear-group])
 
 - **Decided (user)**: dischargers need not call anything — consuming the

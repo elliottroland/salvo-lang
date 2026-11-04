@@ -226,7 +226,7 @@ impl crate::std_runtime_timers::__Stateful_DeadlineTable for Deadlines {
 }
 
 pub fn answer_all(mut due: Vec<crate::scheduler::SalvoReply>, mut now: i64) {
-    crate::std_core_list::drain::<crate::scheduler::SalvoReply>(due, &mut |mut r| {
+    crate::std_core_list::drain::<crate::scheduler::SalvoReply, ()>(&(), due, &mut |mut __leff0, mut r| {
         crate::scheduler::salvo_reply_wire::<crate::std_time::Fired>(r, crate::std_time::Fired { at: crate::std_time::Tick { nanos: now } })
     });
 }

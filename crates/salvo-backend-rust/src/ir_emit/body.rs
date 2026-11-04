@@ -87,6 +87,8 @@ pub(crate) struct FnState {
     /// The callee's type parameters as instantiated, while its arguments
     /// render: what a fn-typed slot means at this call.
     pub call_subst: HashMap<String, Ty>,
+    /// [effect-var] The current fn's effect variables: `eff[E]` renders as `E`.
+    pub effect_vars: HashSet<String>,
     /// [rs-mixed] Rendering a façade member: a self-send always enqueues.
     pub in_facade: bool,
     /// Type variables rendered as these types (a generic trait's member
@@ -2861,6 +2863,27 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             return self.fn_arg(&read, slot, pos, indent);
         }
         match &a.kind {
+            // [effect-var] A pack adapter around a value evaluated first:
+            // the value is bound, and the closure (rendered at the slot)
+            // takes it with it.
+            ExprKind::Branch { arms, otherwise: None, .. }
+                if matches!(arms.as_slice(), [(c, b)] if matches!(c.kind, ExprKind::Bool(true)) && matches!(b.value.as_deref(), Some(Expr { kind: ExprKind::Lambda { .. }, .. }))) =>
+            {
+                let (_, b) = &arms[0];
+                let Some(Expr { kind: ExprKind::Lambda { params, ret, body, .. }, .. }) = b.value.as_deref() else { unreachable!() };
+                let pad = Self::pad(indent);
+                let saved = self.f.kinds.clone();
+                let stmts = self.stmts(&b.stmts, indent + 1);
+                let c = self.lambda(params, ret, body, slot, pos, indent + 1);
+                let c = if c.starts_with("move ") { c } else { format!("move {c}") };
+                self.f.kinds = saved;
+                let block = format!("{{\n{stmts}{}{c}\n{pad}}}", Self::pad(indent + 1));
+                match pos {
+                    FnPos::Param | FnPos::DynParam => format!("&mut {block}"),
+                    FnPos::Stored => format!("std::sync::Arc::new({block})"),
+                    FnPos::Owned | FnPos::Local => block,
+                }
+            }
             ExprKind::Lambda { params, ret, body, .. } => {
                 let c = self.lambda(params, ret, body, slot, pos, indent);
                 match pos {
@@ -3004,7 +3027,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let mut modes = Vec::new();
         // [throw] A throw is not threaded in [rs-throw-controlflow].
         for (i, e) in salvo_core::threaded_effects(effects).iter().enumerate() {
-            let h = self.ty(e);
+            // [effect-var] An effect variable is the pack the call binds it to.
+            let h = self.ty(&super::decls::subst_ty(e, &self.f.call_subst));
             out.push((format!("__e{i}"), format!("&{h}")));
             modes.push(PassMode::Lent);
         }

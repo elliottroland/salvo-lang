@@ -48,7 +48,7 @@ fn main() [use] {
     use StdConsole()
     let xs = List(1, 2, 3, 4)
     // Lambdas are anonymous fns [kt-ir].
-    //~ emits: fun(n: Int): Int {
+    //~ emits: fun(__leff0: Unit, n: Int): Int {
     //~|         return (n * 2)
     let doubled = map(xs, (n) -> n * 2)
     //~ emits: return (a + b)
@@ -62,7 +62,7 @@ fn main() [use] {
     let arr_sum = reduce(iter(copy(arr)), 0, (a, b) -> a + b)
     // The generic overload for a pass subject gets the resolved `next` as
     // its implicit argument.
-    //~ emits: salvo.std.core.seq.map__It_Fn(salvo.std.core.array.iter(arr), fun(n: Int): Int {
+    //~ emits: salvo.std.core.seq.map__It_Fn(Unit, salvo.std.core.array.iter(arr), fun(__leff0: Unit, n: Int): Int {
     //~ emits: { __a0 -> salvo.std.core.array.next(__a0) })
     let arr_mapped = map(iter(arr), (n) -> n + 1)
     println("array: ${arr_sum} ${size(arr_mapped)}")

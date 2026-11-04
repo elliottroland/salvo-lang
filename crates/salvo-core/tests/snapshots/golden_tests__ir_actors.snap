@@ -75,7 +75,7 @@ impl Desking(lent room: Int) of Desk@main stateful {
   }
   fn close_up(moved reason: Str) -> None {
     obligation release [waiting]
-    call drain@std.core.deque<Reply<Str>>(drop_mut(!read waiting), lambda(lent r: Reply<Str>) -> None captures [reason] {
+    call drain@std.core.deque<Reply<Str>, ()>(tuple(), drop_mut(!read waiting), lambda(lent __leff0: (), lent r: Reply<Str>) -> None captures [reason] {
       value call send@std.core.actor<Str>(!read r, concat("closed: ", read reason))
     })
     assign waiting = call mut_deque_of()@std.core.deque<Reply<Str>>()

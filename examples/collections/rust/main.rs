@@ -163,14 +163,14 @@ pub fn main() {
     let mut n2: crate::Note = crate::Note { text: String::from("same") };
     let mut notes_equal: bool = crate::eq__Note_Note(&n1, &n2);
     crate::std_core_console::println(&__handle_2, &format!("4. plain struct equality {}", notes_equal));
-    let mut squares: Vec<i32> = crate::std_core_list::list_by::<i32>(4i32, &mut |mut i| -> i32 {
+    let mut squares: Vec<i32> = crate::std_core_list::list_by::<i32, ()>(&(), 4i32, &mut |mut __leff0, mut i| -> i32 {
         i32::wrapping_mul(i, i)
     });
     crate::std_core_console::println(&__handle_2, &format!("5. generated {}", crate::std_core_list::to_str::<i32>(&squares, &mut |__a0: &i32| format!("{}", *__a0))));
     let mut deduped: crate::std_core_set::Set<i32> = crate::std_core_set::to_set_platform::<i32>(&primes, &mut |__a0: &i32| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i32, __a1: &i32| ((*__a0) == (*__a1)));
     crate::std_core_console::println(&__handle_2, &format!("5. to_set {}", crate::std_core_set::to_str::<i32>(&deduped, &mut |__a0: &i32| format!("{}", *__a0))));
     let mut words: Vec<String> = crate::std_core_list::List__T_TArray::<String>(String::from("alpha"), vec![String::from("be")]);
-    let mut lengths: crate::std_core_map::Map<String, i32> = crate::std_core_map::to_map::<String, String, i32>(&words, &mut |mut w| -> (String, i32) {
+    let mut lengths: crate::std_core_map::Map<String, i32> = crate::std_core_map::to_map::<String, String, i32, ()>(&(), &words, &mut |mut __leff0, mut w| -> (String, i32) {
         {
             let mut __part_5: i32 = crate::std_core_string::size_platform(w);
             (w.clone(), __part_5)

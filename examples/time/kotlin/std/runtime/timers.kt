@@ -154,7 +154,7 @@ class Deadlines : DeadlineTable {
 }
 
 fun answerAll(due: salvo.platform.std.core.list.MutList<salvo.SalvoReply>, now: Long) {
-    salvo.std.core.list.drain(due, fun(r: salvo.SalvoReply) {
+    salvo.std.core.list.drain(Unit, due, fun(__leff0: Unit, r: salvo.SalvoReply) {
         return salvo.SalvoSched.replyWire(r, salvo.std.time.Fired(at = salvo.std.time.Tick(nanos = now)), salvo.std.time.__Codec_Fired)
     })
 }

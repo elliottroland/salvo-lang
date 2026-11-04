@@ -7,7 +7,9 @@
 // borrow (`filter`, `map`, `reduce` over a list iterator: `T = &String`, so
 // the slot is `&mut dyn FnMut(&&String)`) is adapted as a lambda or a named
 // fn already was: a closure peels the extra reference
-// (`&mut |__a0: &&String| keep(*__a0)`). The repro (a parameter) and its
+// (`let __a0 = *__a0; keep(__a0)`). Since the combinators take an effect
+// variable [effect-var], that closure is the IR's pack adapter, which also
+// takes the empty effect pack (`__fx0`). The repro (a parameter) and its
 // neighbours: forwarded two levels down, a local bound from a lambda or a
 // named fn, a field read (also into a plain generic slot, whose call-through
 // closure was typed by the uninstantiated `&T`), a forwarded implicit, a
@@ -28,7 +30,9 @@ fn long(s: Str) -> Bool {
 fn longs(ws: List<Str>, keep: (Str) -> Bool) [] -> Int => ws, keep {
     let it = iter(ws)
     // A parameter (and a forwarded implicit) peels the retagged borrow.
-    //~ emits: &mut |__a0: &&String| keep(*__a0)
+    //~ emits: &mut |mut __fx0, mut __a0| -> bool {
+    //~|         let __a0 = *__a0;
+    //~|         keep(__a0)
     return size(filter(it, keep))
 }
 
@@ -44,7 +48,8 @@ fn local_lambda(ws: List<Str>) [] -> Int => ws {
     let k: (Str) -> Bool = (s) -> size(s) > 1
     let it = iter(ws)
     // A local closure, a field, a generic body's parameter.
-    //~ emits: &mut |__a0: &&String| k(*__a0)
+    //~ emits: let __a0 = *__a0;
+    //~|         k(__a0)
     return size(filter(it, k))
 }
 
@@ -58,12 +63,16 @@ fn local_named(ws: List<Str>) [] -> Int => ws {
 // A field read, into a retagged slot and into a plain generic one.
 fn field(ws: List<Str>, p: Picker) [] -> Int => ws, p {
     let it = iter(ws)
-    //~ emits: &mut |__a0: &&String| (p.keep)(*__a0)
+    //~ emits: let __a0 = *__a0;
+    //~|         let mut __adapted_1 = p.keep.clone();
+    //~|         __adapted_1(__a0)
     return size(filter(it, p.keep))
 }
 fn field_any(ws: List<Str>, p: Picker) [] -> Bool => ws, p {
     // A plain generic slot types the call-through closure as instantiated.
-    //~ emits: crate::std_core_list::any::<String>(ws, &mut |__a0: &String| (p.keep)(__a0))
+    //~ emits: crate::std_core_list::any::<String, ()>(&(), ws, &mut |mut __fx0, mut __a0| -> bool {
+    //~|         let mut __adapted_1 = p.keep.clone();
+    //~|         __adapted_1(__a0)
     return any(ws, p.keep)
 }
 
@@ -82,13 +91,15 @@ fn lens(ws: List<Str>, f: (Str) -> Int) [] -> Int => ws, f {
 fn total(ws: List<Str>, f: (Int, Str) -> Int) [] -> Int => ws, f {
     let it = iter(ws)
     // A convention change and a retag in one adapter.
-    //~ emits: &mut |__a0: &i32, __a1: &&String| f((*__a0).clone(), *__a1)
+    //~ emits: &mut |mut __fx0, mut __a0, mut __a1| -> i32 {
+    //~|         let __a1 = *__a1;
+    //~|         f(*__a0, __a1)
     return reduce(it, 0, f)
 }
 
 // A generic body forwarding its own fn parameter.
 fn glongs<T>(xs: List<T>, keep: (T) -> Bool) [] -> Int => xs, keep {
-    //~ emits: &mut |__a0: &&T| keep(*__a0)
+    //~ emits: filter::<crate::std_core_list::ListIter<'_, T>, &T, ()>(&(), &mut it, &mut |mut __fx0, mut __a0| -> bool {
     let it = iter(xs)
     return size(filter(it, keep))
 }
@@ -101,13 +112,16 @@ fn picker() [] -> (Str) -> Bool {
 }
 fn from_call(ws: List<Str>) [] -> Int => ws {
     let it = iter(ws)
-    //~ emits: &mut { let __f = crate::picker(); move |__a0: &&String| __f(*__a0) }
+    //~ emits: &mut {
+    //~|         let mut __adapted_1 = crate::picker();
+    //~|         move |mut __fx0, mut __a0| -> bool {
     return size(filter(it, picker()))
 }
 fn from_call_local(ws: List<Str>) [] -> Int => ws {
     let k = picker()
     let it = iter(ws)
-    //~ emits: &mut |__a0: &&String| (k)(*__a0)
+    //~ emits: let __a0 = *__a0;
+    //~|         k(__a0)
     return size(filter(it, k))
 }
 
@@ -136,8 +150,8 @@ fn main() [use] -> None {
 // owned `Str` it keeps fills a slot whose parameter is `proj Str` (user
 // decision 2026-10-14, ROADMAP §7 option (b)). Rust adapts the convention:
 // a named fn's forwarding closure peels the element's extra reference
-// (`|__a0: &&String| { let __a0 = *__a0; crate::longer(__a0) }`), a
-// forwarded parameter goes through `fn_adapter` (`keep(*__a0)`), a slot
+// (`let __a0 = *__a0; crate::longer(__a0)`) — into an effect-polymorphic
+// combinator [effect-var], the IR's pack adapter, whatever the value — a slot
 // written `proj` passes the borrow as it is (`|__a0: &String|
 // crate::longer(__a0)`), and an owned key at a slot the call instantiates as
 // a borrow is lent twice (`&&String::from("def")`). The resolved implicits
@@ -161,7 +175,9 @@ fn add_len(a: Int, s: Str) -> Int {
 
 // A parameter forwarded into a view-element slot.
 fn keep_count(vs: List<proj Str>, keep: (Str) -> Bool) [] -> Int => vs, keep {
-    //~ emits: count::<&String>(vs, &mut |__a0: &&String| keep(*__a0))
+    //~ emits: count::<&String, ()>(&(), vs, &mut |mut __fx0, mut __a0| -> bool {
+    //~|         let __a0 = *__a0;
+    //~|         keep(__a0)
     return count(vs, keep)
 }
 
@@ -175,7 +191,9 @@ fn main() [use] -> None {
     let ws = List("def", "c", "ab")
     let vs = filter(iter(ws), (s) -> size(s) > 1)
     // Each combinator over the view list, with a named kept fn.
-    //~ emits: any::<&String>(&vs, &mut |__a0: &&String| { let __a0 = *__a0; crate::longer(__a0) })
+    //~ emits: any::<&String, ()>(&(), &vs, &mut |mut __fx0, mut __a0| -> bool {
+    //~|         let __a0 = *__a0;
+    //~|         crate::longer(__a0)
     println("any ${any(vs, longer)} ${any(vs, (s) -> size(s) > 5)}")
     println("all ${all(vs, long)} ${all(vs, longer)}")
     println("count ${count(vs, longer)}")
@@ -187,7 +205,9 @@ fn main() [use] -> None {
     for f in fs {
         println("filter ${f}")
     }
-    //~ emits: reduce__List_A_Fn::<&String, i32>(&vs, 0i32, &mut |__a0: &i32, __a1: &&String| { let __a1 = *__a1; crate::add_len(*__a0, __a1) })
+    //~ emits: reduce__List_A_Fn::<&String, i32, ()>(&(), &vs, 0i32, &mut |mut __fx0, mut __a0, mut __a1| -> i32 {
+    //~|         let __a1 = *__a1;
+    //~|         crate::add_len(*__a0, __a1)
     println("reduce ${reduce(vs, 0, add_len)}")
     // By a parameter, into a written `proj` slot, and through a local.
     println("param ${keep_count(vs, longer)} ${keep_count(vs, long)}")

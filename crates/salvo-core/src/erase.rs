@@ -262,7 +262,9 @@ pub fn erased_generics(program: &Program) -> Erased {
                     }
                     // A function's own name is never a type, so `current` is
                     // a name no type mentions.
-                    Item::Fn(f) if all_effect_only("", &f.generics, &fn_types(f), &erased, &decls, false) => {
+                    // [effect-var] An effect variable is never erased: the
+                    // pack it stands for differs with what it is bound to.
+                    Item::Fn(f) if f.effect_generics.is_empty() && all_effect_only("", &f.generics, &fn_types(f), &erased, &decls, false) => {
                         erased.fns.insert((module_idx, f.name.span));
                     }
                     _ => {}

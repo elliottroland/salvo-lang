@@ -134,6 +134,9 @@ pub struct TypeParam {
     pub name: String,
     /// [canbe-linear] the parameter may be instantiated at a linear type.
     pub canbe_linear: bool,
+    /// [effect-var] An effect variable (`[E]`): it stands for the pack of
+    /// the effects a call binds it to, and `eff[E]` is that pack.
+    pub effect: bool,
 }
 
 pub struct StructDecl {

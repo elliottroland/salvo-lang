@@ -83,6 +83,7 @@ area!(effect_at);
 area!(fn_effects);
 area!(multi_effect);
 area!(eff_handle);
+area!(effect_var);
 area!(groups);
 area!(prereqs);
 area!(aliases);

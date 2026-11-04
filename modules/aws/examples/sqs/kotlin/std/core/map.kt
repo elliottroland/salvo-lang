@@ -12,10 +12,10 @@ fun<K, V> mutMapByPlatform(size: Int, init: (Int) -> kotlin.Pair<K, V>, hash: (K
 
 fun<K, V> toMapPlatform(pairs: List<kotlin.Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.Map<K, V> = salvo.platform.std.core.map.toMap(pairs, hash, eq)
 
-fun<T, K, V> toMap(items: List<T>, entry: (T) -> kotlin.Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.Map<K, V> {
+fun<T, K, V, E> toMap(e: E, items: List<T>, entry: (E, T) -> kotlin.Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.Map<K, V> {
     val map: salvo.platform.std.core.map.MutMap<K, V> = salvo.std.core.map.Mut_Map_platform(arrayOf<kotlin.Pair<K, V>>(), hash, eq)
     for (x in salvo.platform.std.core.list.each(items)) {
-        val __destructured_1: kotlin.Pair<K, V> = entry(x)
+        val __destructured_1: kotlin.Pair<K, V> = entry(e, x)
         val k: K = __destructured_1.first
         val v: V = __destructured_1.second
         salvo.std.core.map.putPlatform(map, k, v, hash, eq)
@@ -53,8 +53,8 @@ fun<K, V> atPresentPlatform(map: salvo.platform.std.core.map.Map<K, V>, key: K, 
 
 fun<K, V> sizePlatform(map: salvo.platform.std.core.map.Map<K, V>): Int = salvo.platform.std.core.map.size(map)
 
-fun<K, V> drain(map: salvo.platform.std.core.map.Map<K, V>, each: (V) -> Unit) {
-    salvo.std.core.list.drain(salvo.std.core.map.intoValuesPlatform(map), each)
+fun<K, V, E> drain(e: E, map: salvo.platform.std.core.map.Map<K, V>, each: (E, V) -> Unit) {
+    salvo.std.core.list.drain(e, salvo.std.core.map.intoValuesPlatform(map), each)
 }
 
 fun<K, V> intoValuesPlatform(map: salvo.platform.std.core.map.Map<K, V>): List<V> = salvo.platform.std.core.map.intoValues(map)

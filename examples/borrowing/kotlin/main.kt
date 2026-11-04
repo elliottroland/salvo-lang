@@ -169,7 +169,7 @@ fun main() {
         __proj_5.name
     }}")
     val pass: salvo.std.core.list.ListIter<Fighter> = salvo.std.core.list.iter(roster)
-    val standing: salvo.platform.std.core.list.MutList<Fighter> = salvo.std.core.seq.filter(pass, fun(f: Fighter): Boolean {
+    val standing: salvo.platform.std.core.list.MutList<Fighter> = salvo.std.core.seq.filter(Unit, pass, fun(__leff0: Unit, f: Fighter): Boolean {
         return (f.hp > 10)
     }, { __a0 -> salvo.std.core.list.next__ListIter(__a0) })
     salvo.std.core.console.println(__handle_2, "1. ${salvo.std.core.list.sizePlatform(standing)} of ${salvo.std.core.list.sizePlatform(roster)} still standing")
@@ -312,7 +312,7 @@ fun main() {
     }
     if (salvo.std.core.index.Idx_qualifies(i, squad, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
         if (salvo.std.core.index.Idx_qualifies(j, squad, { __a0 -> salvo.std.core.list.sizePlatform(__a0) })) {
-            salvo.std.core.list.update(squad, i, fun(f: Fighter) {
+            salvo.std.core.list.update(Unit, squad, i, fun(__leff0: Unit, f: Fighter) {
                 f.energy = (f.energy + 1)
             })
             salvo.std.core.console.println(__handle_2, "3. ${kotlin.run {

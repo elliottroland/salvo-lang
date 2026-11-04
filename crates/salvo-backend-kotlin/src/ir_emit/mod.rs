@@ -277,6 +277,8 @@ struct ModuleEmitter<'a, 'p> {
     test_arms: HashMap<(u32, usize), ArmTest>,
     /// The locals the current fn assigns after binding (`var`, not `val`).
     assigned: HashSet<Local>,
+    /// [effect-var] The current fn's effect variables: `eff[E]` renders as `E`.
+    effect_vars: HashSet<String>,
 }
 
 fn kt_local(l: &Local) -> String {
@@ -293,7 +295,7 @@ fn kt_local(l: &Local) -> String {
 
 impl<'a, 'p> ModuleEmitter<'a, 'p> {
     fn new(s: &'a mut Shared<'p>, module: &'a IrModule) -> Self {
-        ModuleEmitter { s, module, out: String::new(), aliases: HashMap::new(), in_fn_params: HashSet::new(), narrowing_subject: None, ret_is_unit: false, current_impl: None, handle_locks: HashMap::new(), in_facade: false, test_arms: HashMap::new(), assigned: HashSet::new() }
+        ModuleEmitter { s, module, out: String::new(), aliases: HashMap::new(), in_fn_params: HashSet::new(), effect_vars: HashSet::new(), narrowing_subject: None, ret_is_unit: false, current_impl: None, handle_locks: HashMap::new(), in_facade: false, test_arms: HashMap::new(), assigned: HashSet::new() }
     }
 
     fn error(&mut self, msg: Message) {
@@ -493,6 +495,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                         self.s.needs_bytes = true;
                     }
                     if name == "Addr" && args.len() == 1 {
+                        // [effect-var] `eff[E]` is the pack `E` is bound to.
+                        if matches!(args[0].strip_quals(), Ty::Var(v) if self.effect_vars.contains(v)) {
+                            return self.ty(&args[0]);
+                        }
                         // [actor-monitor-handler] [kt-monitor] a plain effect's addr
                         // is the effect's handle, not a scheduler index.
                         if let Ty::Named { name: eff, .. } = args[0].strip_quals() {
@@ -567,6 +573,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Ty::Tuple(es) => {
                 let strs: Vec<String> = es.iter().map(|e| self.ty(e)).collect();
                 match strs.len() {
+                    // [effect-var] The empty pack, `eff[]`.
+                    0 => "Unit".to_string(),
                     2 => format!("kotlin.Pair<{}, {}>", strs[0], strs[1]),
                     3 => format!("kotlin.Triple<{}, {}, {}>", strs[0], strs[1], strs[2]),
                     n => {
@@ -1080,6 +1088,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             _ => false,
         });
         let tps = if erased_fn { String::new() } else { self.type_params(&f.type_params) };
+        self.effect_vars = f.type_params.iter().filter(|t| t.effect).map(|t| t.name.clone()).collect();
         let mut ps = self.params(&f.params);
         let ret = self.ret_ty(&f.ret);
         let is_member = member.is_some();
@@ -1526,6 +1535,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ExprKind::Tuple(es) => {
                 let a = self.exprs(es, indent);
                 match a.len() {
+                    // [effect-var] The empty pack, `eff[]`.
+                    0 => "Unit".to_string(),
                     2 => format!("kotlin.Pair({}, {})", a[0], a[1]),
                     3 => format!("kotlin.Triple({}, {}, {})", a[0], a[1], a[2]),
                     n => {
@@ -1723,6 +1734,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             ExprKind::AddrInstance { addr } => {
                 // [actor-use-addr] the send stub of the effect.
                 let a = self.expr(addr, indent);
+                // [effect-var] `use h` over an `eff[E]`: the pack is the instances.
+                if matches!(e.ty.strip_quals(), Ty::Var(v) if self.effect_vars.contains(v)) {
+                    return a;
+                }
                 let Ty::Named { name, .. } = e.ty.strip_quals() else {
                     self.error(messages::kt_actor_addr_non_effect_type());
                     return a;

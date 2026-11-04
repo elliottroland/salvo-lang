@@ -273,7 +273,7 @@ fn main() [use] {
     // The lambda returns the borrow itself: no clone, and the Copy index
     // is deref'd for the cast — which goes through `i64`, so a negative
     // literal index stays an *answer* rather than rustc's E0600 [col-bounds].
-    //~ emits: &mut |mut i| -> &String {
+    //~ emits: &mut |mut __leff0, mut i| -> &String {
     //~ emits: let mut __pick1: Option<&String> = crate::std_core_list::get_platform::<String>(&all, *i);
     //~ !emits: __pick1_3.clone()
     let picked = map(indices, (i) -> (get(all, i) ?: unreachable!()))

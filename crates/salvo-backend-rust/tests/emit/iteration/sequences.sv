@@ -47,10 +47,10 @@ iter fn iter(n: Naturals) -> Emitted Int | Finished {
 fn main() [use] {
     use StdConsole()
     let xs = List(1, 2, 3, 4)
-    //~ emits: map__List_Fn::<i32, i32>(&xs, &mut |mut n| -> i32 {
+    //~ emits: map__List_Fn::<i32, i32, ()>(&(), &xs, &mut |mut __leff0, mut n| -> i32 {
     //~|         i32::wrapping_mul(*n, 2i32)
     let doubled = map(xs, (n) -> n * 2)
-    //~ emits: reduce__List_A_Fn::<i32, i32>(&xs, 0i32, &mut |mut a, mut b| -> i32 {
+    //~ emits: reduce__List_A_Fn::<i32, i32, ()>(&(), &xs, 0i32, &mut |mut __leff0, mut a, mut b| -> i32 {
     //~|         i32::wrapping_add(*a, *b)
     let sum = reduce(xs, 0, (a, b) -> a + b)
     //~ emits: filter_platform::<i32>(&xs, &mut |mut n| -> bool {
@@ -58,8 +58,10 @@ fn main() [use] {
     let big = filter(xs, (n) -> n > 2)
     println("list: ${size(doubled)} ${sum} ${size(big)}")
     // A named fn as the callback wraps in an adapter: a fn item's own
-    // convention is by value, and `map` hands it `&T` [fn-contract].
-    //~ emits: (&xs, &mut |__a0: &i32| crate::double(*__a0))
+    // convention is by value, and `map` hands it `&T` [fn-contract]; the
+    // adapter also takes the empty effect pack `map` passes [effect-var].
+    //~ emits: (&(), &xs, &mut |mut __fx0, mut __a0| -> i32 {
+    //~|         crate::double(*__a0)
     let named = map(xs, double)
     println("named: ${size(named)}")
     let arr = array_of(10, 20, 30)
