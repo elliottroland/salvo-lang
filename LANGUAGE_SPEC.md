@@ -4012,8 +4012,17 @@ Conventions:
   T>` implicit, plus its own state; its `next` pulls one element at a time.
   `to_list(it)` drives one to its end as a list (a view of a borrowing
   source's elements, as `filter`'s is); a container's own `to_list` is more
-  specific and wins [fn-overload-rank]. There is no `count(it)`: see ROADMAP
-  0c item 17. Rust: [rs-lazy-adaptor].
+  specific and wins [fn-overload-rank]. Rust: [rs-lazy-adaptor].
+  * **Over a linear source** (user decision 2026-10-30, L8's composed-iterator
+    leftover): every adaptor's `It` is `canbe linear`, so `taking(lines, 10)`
+    over a linear `Lines` is a linear `Taking` — driven where it lives
+    [iter-drive-in-place], never as a loop's temporary — and **`detach(t) ->
+    It`** ends it, answering the source at the position it reached, for the
+    owner to close or read on (`close(detach(detach(m)))` peels a nest). The
+    name follows `Checked`'s `detach`. The adaptor cannot close the source
+    itself: it knows nothing about `It`, and a `close` usually needs effects.
+    The eager drivers that keep their source (`map`, `filter`, `reduce`,
+    `to_list`, `count`) opt `It` in too, since they hand it back.
 * [seq-iterator] std's sequence functions (`map`, `filter`, `reduce`) take their
   subject as an **iterator** and reach its `next` through a `?Next<It, T>`
   spread [implicit-group] — the group std declares for iteration — so any
@@ -10967,10 +10976,11 @@ between endpoints and delivers what arrives into the scheduler.
     variadic boundary arrays sat next to is tracked now, a consumed tail of
     obligations was the arrays' customer shape, and a map constructor's
     `(K, V)` entries were the tuples'. Both had been out since LC-3.
-  * **The casualty that remains** is the composed linear iterator (a wrapper iterator
-    over `open_lines(path("a"))` stores its source in an unopted field). The
-    fallible-open shape `Ok InStream | Err Checked<FsError>` was the other one and
-    shipped with phase 4 [linear-union-arm].
+  * **No casualty remains.** The composed linear iterator (a wrapper over
+    `open_lines(path("a"))` storing its source in an unopted field) was
+    answered 2026-10-30 by `canbe linear` adaptors and `detach` [seq-lazy];
+    the fallible-open shape `Ok InStream | Err Checked<FsError>` shipped with
+    phase 4 [linear-union-arm].
 * [linear-container] **A container is linear exactly when its element type
   is** (LC-1/LC-5, user decisions 2026-09-15/16 — the answer to roadmap L8's
   "composition plus conditional linearity are one design question"). This is

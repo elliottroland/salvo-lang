@@ -144,6 +144,10 @@ fun<It, T, U> mapping(it: It, f: (T) -> U, next: (It) -> Union2<T, salvo.std.cor
     return Mapping<It, T, U>(src = it, step = next, f = f)
 }
 
+fun<It, T, U> detach__Mapping(it: Mapping<It, T, U>): It {
+    return it.src
+}
+
 data class Filtering<It, T>(
     var src: It,
     var step: (It) -> Union2<T, salvo.std.core.iterator.Finished>,
@@ -165,12 +169,16 @@ fun<It, T> next__Filtering(t: Filtering<It, T>): Union2<T, salvo.std.core.iterat
             return Union2.U1<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(x_2))
         }
     }
-    throw AssertionError("salvo: unreachable at std.core.seq:187:5")
+    throw AssertionError("salvo: unreachable at std.core.seq:195:5")
     return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
 }
 
 fun<It, T> filtering(it: It, keep: (T) -> Boolean, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): Filtering<It, T> {
     return Filtering<It, T>(src = it, step = next, keep = keep)
+}
+
+fun<It, T> detach__Filtering(it: Filtering<It, T>): It {
+    return it.src
 }
 
 data class Taking<It, T>(
@@ -190,6 +198,10 @@ fun<It, T> next__Taking(t: Taking<It, T>): Union2<T, salvo.std.core.iterator.Fin
 
 fun<It, T> taking(it: It, n: Int, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): Taking<It, T> {
     return Taking<It, T>(src = it, step = next, left = n)
+}
+
+fun<It, T> detach__Taking(it: Taking<It, T>): It {
+    return it.src
 }
 
 data class TakingWhile<It, T>(
@@ -224,6 +236,10 @@ fun<It, T> takingWhile(it: It, keep: (T) -> Boolean, next: (It) -> Union2<T, sal
     return TakingWhile<It, T>(src = it, step = next, keep = keep, done = false)
 }
 
+fun<It, T> detach__TakingWhile(it: TakingWhile<It, T>): It {
+    return it.src
+}
+
 data class Skipping<It, T>(
     var src: It,
     var step: (It) -> Union2<T, salvo.std.core.iterator.Finished>,
@@ -249,6 +265,10 @@ fun<It, T> next__Skipping(t: Skipping<It, T>): Union2<T, salvo.std.core.iterator
 
 fun<It, T> skipping(it: It, n: Int, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): Skipping<It, T> {
     return Skipping<It, T>(src = it, step = next, left = n)
+}
+
+fun<It, T> detach__Skipping(it: Skipping<It, T>): It {
+    return it.src
 }
 
 data class SkippingWhile<It, T>(
@@ -278,12 +298,16 @@ fun<It, T> next__SkippingWhile(t: SkippingWhile<It, T>): Union2<T, salvo.std.cor
             return Union2.U1<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.emitted(x_3))
         }
     }
-    throw AssertionError("salvo: unreachable at std.core.seq:304:5")
+    throw AssertionError("salvo: unreachable at std.core.seq:344:5")
     return Union2.U2<T, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
 }
 
 fun<It, T> skippingWhile(it: It, skip: (T) -> Boolean, next: (It) -> Union2<T, salvo.std.core.iterator.Finished>): SkippingWhile<It, T> {
     return SkippingWhile<It, T>(src = it, step = next, skip = skip, started = false)
+}
+
+fun<It, T> detach__SkippingWhile(it: SkippingWhile<It, T>): It {
+    return it.src
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")

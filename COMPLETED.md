@@ -144,6 +144,23 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Lazy adaptors wrap obligations, and `detach` ends them (user decisions, [seq-lazy])
+
+- **Decided (user)**: a linear adaptor ends by handing its source back,
+  named `detach` after `Checked`'s (L8's composed-iterator leftover).
+- **Built**: `It canbe linear` on `Mapping`, `Filtering`, `Taking`,
+  `TakingWhile`, `Skipping`, `SkippingWhile`, their constructors and
+  `next`s, and a `detach(it) -> It => !it` for each (`return it.src`: the
+  fn fields drop); the eager drivers that keep their source (`map`,
+  `filter`, `reduce`, `to_list`, `count`) opt in too. Nothing in the
+  compiler changed — the conditional-container machinery already carried a
+  `canbe linear` struct's obligation, and decomposition settled it.
+- **Tests**: `check/linear/adaptors.sv` (detached, nested, counted in place,
+  a forgotten adaptor leaking, a temporary refused by
+  [iter-drive-in-place]), `run/linear/adaptors_over_an_obligation.sv` on both
+  backends.
+- **Spec bug fixed**: [seq-lazy] said there is no `count(it)`; there is.
+
 ### 2026-10-30 — Tuples hold obligations (user decision, [linear-container])
 
 - **Decided (user)**: a tuple owes when a component does, with nothing to
@@ -28656,9 +28673,9 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
 **Answered 2026-09-16** by [linear-container] (LC-1…LC-5 and D7-a…e): a
 container is linear exactly when its element type is, the opt-in is a
 `canbe linear` type parameter, and a container's terminal is a consuming
-callback (`drain`), not a `for`. Arrays and tuples joined 2026-10-30. What
-L8 left: a composed linear iterator (a wrapper storing its source in an
-unopted field) and a `drain` callback that needs effects (ROADMAP).
+callback (`drain`), not a `for`. Arrays, tuples and the lazy adaptors
+(`detach`) joined 2026-10-30. What L8 left: a `drain` callback that needs
+effects, which is effect polymorphism (ROADMAP 2c).
 
 ## Roadmap: effects
 

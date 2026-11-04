@@ -274,6 +274,15 @@ for x in taking(odd_squares, 3) {   // 1, 9, 25
 
 `to_list(it)` drives an iterator to its end and answers its elements as a list. Each adaptor is an ordinary iterator struct holding its source and the source's `next`, the same thing you would write by hand.
 
+An adaptor may wrap an iterator that owes, such as a file's `Lines`, and is then an obligation itself. Drive it where it lives, then `detach` it: that ends the adaptor and hands back the source, at the position it reached, for you to read on or close:
+
+```
+let first = taking(lines, 10)
+for line in first { println(line) }
+let rest = detach(first)          // the same `Lines`, ten lines in
+close(rest)
+```
+
 ## There is no iterator *type*
 
 Every iterator struct is its own type, so two producers have unrelated types:

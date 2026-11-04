@@ -22,7 +22,7 @@
 // back, which is what lets a caller drive it further.
 
 // Applies [f] to every element of [it], in order.
-export fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Next<It, T>) [] -> Mut List<U> => it: Mut, f {
+export fn map<It canbe linear, T, U>(it: Mut It, f: (T) -> U, ?Next<It, T>) [] -> Mut List<U> => it: Mut, f {
     let out = Mut List<U>()
     for x in it {
         add(out, f(x))
@@ -37,7 +37,7 @@ export fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Next<It, T>) [] -> Mut List<U>
 // element of an opaque iterator is stored, so the signature says it. For a list
 // of your own to keep, see [filter_to].
 // @compilerrules [copy-opt-in, proj-infer]
-export fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Next<It, T>) [] -> Mut List<proj T> holds proj(it)
+export fn filter<It canbe linear, T>(it: Mut It, keep: (T) -> Bool, ?Next<It, T>) [] -> Mut List<proj T> holds proj(it)
 => it: Mut, keep {
     let out: Mut List<proj T> = Mut List()
     for x in it {
@@ -50,7 +50,7 @@ export fn filter<It, T>(it: Mut It, keep: (T) -> Bool, ?Next<It, T>) [] -> Mut L
 
 // Folds [it] into a single value, starting from [init] and combining with
 // [f] — the accumulator first, the element second.
-export fn reduce<It, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Next<It, T>) [] -> A => it: Mut, init, f {
+export fn reduce<It canbe linear, T, A>(it: Mut It, init: A, f: (A, T) -> A, ?Next<It, T>) [] -> A => it: Mut, init, f {
     let acc = init
     for x in it {
         acc = f(acc, x)
@@ -149,13 +149,13 @@ export fn drop<T>(value: T) [] -> None => !value {
 
 // The source's elements, each passed through a function.
 // @compilerrules [seq-lazy]
-export struct Mapping<It, T, U> : Next<self, U> canbe Mut {
+export struct Mapping<It canbe linear, T, U> : Next<self, U> canbe Mut {
     src: It,
     step: (s: Mut It) -> Emitted T | Finished,
     f: (x: T) -> U
 }
 
-export fn next<It, T, U>(m: Mut Mapping<It, T, U>) [] -> Emitted U | Finished => m: Mut {
+export fn next<It canbe linear, T, U>(m: Mut Mapping<It, T, U>) [] -> Emitted U | Finished => m: Mut {
     let step = m.step
     let x = step(m.src)
     if x is Finished {
@@ -169,19 +169,27 @@ export fn next<It, T, U>(m: Mut Mapping<It, T, U>) [] -> Emitted U | Finished =>
 // An iterator over [f] of each element of [it], computed as it is
 // driven.
 // @compilerrules [seq-lazy]
-export fn mapping<It, T, U>(it: It, f: (x: T) -> U, ?Next<It, T>) [] -> Mut Mapping<It, T, U> => !it, !f {
+export fn mapping<It canbe linear, T, U>(it: It, f: (x: T) -> U, ?Next<It, T>) [] -> Mut Mapping<It, T, U> => !it, !f {
     return Mut Mapping<It, T, U> { src: it, step: copy(next), f: f }
+}
+
+// Ends the adaptor and answers the iterator it wraps, at the position it
+// reached: how an adaptor over an obligation ends (`close(detach(t))`), and
+// how a caller reads on past it.
+// @compilerrules [seq-lazy, linear-container]
+export fn detach<It canbe linear, T, U>(it: Mapping<It, T, U>) [] -> It => !it {
+    return it.src
 }
 
 // The source's elements a predicate accepts.
 // @compilerrules [seq-lazy]
-export struct Filtering<It, T> : Next<self, T> canbe Mut {
+export struct Filtering<It canbe linear, T> : Next<self, T> canbe Mut {
     src: It,
     step: (s: Mut It) -> Emitted T | Finished,
     keep: (x: T) -> Bool
 }
 
-export fn next<It, T>(t: Mut Filtering<It, T>) [] -> Emitted T | Finished => t: Mut {
+export fn next<It canbe linear, T>(t: Mut Filtering<It, T>) [] -> Emitted T | Finished => t: Mut {
     let step = t.step
     let keep = t.keep
     while true {
@@ -198,19 +206,27 @@ export fn next<It, T>(t: Mut Filtering<It, T>) [] -> Emitted T | Finished => t: 
 
 // An iterator over the elements of [it] that [keep] accepts.
 // @compilerrules [seq-lazy]
-export fn filtering<It, T>(it: It, keep: (x: T) -> Bool, ?Next<It, T>) [] -> Mut Filtering<It, T> => !it, !keep {
+export fn filtering<It canbe linear, T>(it: It, keep: (x: T) -> Bool, ?Next<It, T>) [] -> Mut Filtering<It, T> => !it, !keep {
     return Mut Filtering<It, T> { src: it, step: copy(next), keep: keep }
+}
+
+// Ends the adaptor and answers the iterator it wraps, at the position it
+// reached: how an adaptor over an obligation ends (`close(detach(t))`), and
+// how a caller reads on past it.
+// @compilerrules [seq-lazy, linear-container]
+export fn detach<It canbe linear, T>(it: Filtering<It, T>) [] -> It => !it {
+    return it.src
 }
 
 // The first [n] elements of the source.
 // @compilerrules [seq-lazy]
-export struct Taking<It, T> : Next<self, T> canbe Mut {
+export struct Taking<It canbe linear, T> : Next<self, T> canbe Mut {
     src: It,
     step: (s: Mut It) -> Emitted T | Finished,
     left: Int
 }
 
-export fn next<It, T>(t: Mut Taking<It, T>) [] -> Emitted T | Finished => t: Mut {
+export fn next<It canbe linear, T>(t: Mut Taking<It, T>) [] -> Emitted T | Finished => t: Mut {
     if t.left <= 0 {
         return finished()
     }
@@ -221,20 +237,28 @@ export fn next<It, T>(t: Mut Taking<It, T>) [] -> Emitted T | Finished => t: Mut
 
 // An iterator over the first [n] elements of [it].
 // @compilerrules [seq-lazy]
-export fn taking<It, T>(it: It, n: Int, ?Next<It, T>) [] -> Mut Taking<It, T> => !it, !n {
+export fn taking<It canbe linear, T>(it: It, n: Int, ?Next<It, T>) [] -> Mut Taking<It, T> => !it, !n {
     return Mut Taking<It, T> { src: it, step: copy(next), left: n }
+}
+
+// Ends the adaptor and answers the iterator it wraps, at the position it
+// reached: how an adaptor over an obligation ends (`close(detach(t))`), and
+// how a caller reads on past it.
+// @compilerrules [seq-lazy, linear-container]
+export fn detach<It canbe linear, T>(it: Taking<It, T>) [] -> It => !it {
+    return it.src
 }
 
 // The source's elements while a predicate accepts them.
 // @compilerrules [seq-lazy]
-export struct TakingWhile<It, T> : Next<self, T> canbe Mut {
+export struct TakingWhile<It canbe linear, T> : Next<self, T> canbe Mut {
     src: It,
     step: (s: Mut It) -> Emitted T | Finished,
     keep: (x: T) -> Bool,
     done: Bool
 }
 
-export fn next<It, T>(t: Mut TakingWhile<It, T>) [] -> Emitted T | Finished => t: Mut {
+export fn next<It canbe linear, T>(t: Mut TakingWhile<It, T>) [] -> Emitted T | Finished => t: Mut {
     if t.done {
         return finished()
     }
@@ -255,20 +279,28 @@ export fn next<It, T>(t: Mut TakingWhile<It, T>) [] -> Emitted T | Finished => t
 // An iterator over the elements of [it] up to the first one
 // [keep] refuses (which is consumed from the source and not emitted).
 // @compilerrules [seq-lazy]
-export fn taking_while<It, T>(it: It, keep: (x: T) -> Bool, ?Next<It, T>) [] -> Mut TakingWhile<It, T>
+export fn taking_while<It canbe linear, T>(it: It, keep: (x: T) -> Bool, ?Next<It, T>) [] -> Mut TakingWhile<It, T>
 => !it, !keep {
     return Mut TakingWhile<It, T> { src: it, step: copy(next), keep: keep, done: false }
 }
 
+// Ends the adaptor and answers the iterator it wraps, at the position it
+// reached: how an adaptor over an obligation ends (`close(detach(t))`), and
+// how a caller reads on past it.
+// @compilerrules [seq-lazy, linear-container]
+export fn detach<It canbe linear, T>(it: TakingWhile<It, T>) [] -> It => !it {
+    return it.src
+}
+
 // The source's elements after the first few.
 // @compilerrules [seq-lazy]
-export struct Skipping<It, T> : Next<self, T> canbe Mut {
+export struct Skipping<It canbe linear, T> : Next<self, T> canbe Mut {
     src: It,
     step: (s: Mut It) -> Emitted T | Finished,
     left: Int
 }
 
-export fn next<It, T>(t: Mut Skipping<It, T>) [] -> Emitted T | Finished => t: Mut {
+export fn next<It canbe linear, T>(t: Mut Skipping<It, T>) [] -> Emitted T | Finished => t: Mut {
     let step = t.step
     while t.left > 0 {
         t.left = t.left - 1
@@ -282,20 +314,28 @@ export fn next<It, T>(t: Mut Skipping<It, T>) [] -> Emitted T | Finished => t: M
 
 // An iterator over the elements of [it] after its first [n].
 // @compilerrules [seq-lazy]
-export fn skipping<It, T>(it: It, n: Int, ?Next<It, T>) [] -> Mut Skipping<It, T> => !it, !n {
+export fn skipping<It canbe linear, T>(it: It, n: Int, ?Next<It, T>) [] -> Mut Skipping<It, T> => !it, !n {
     return Mut Skipping<It, T> { src: it, step: copy(next), left: n }
+}
+
+// Ends the adaptor and answers the iterator it wraps, at the position it
+// reached: how an adaptor over an obligation ends (`close(detach(t))`), and
+// how a caller reads on past it.
+// @compilerrules [seq-lazy, linear-container]
+export fn detach<It canbe linear, T>(it: Skipping<It, T>) [] -> It => !it {
+    return it.src
 }
 
 // The source's elements from the first one a predicate refuses.
 // @compilerrules [seq-lazy]
-export struct SkippingWhile<It, T> : Next<self, T> canbe Mut {
+export struct SkippingWhile<It canbe linear, T> : Next<self, T> canbe Mut {
     src: It,
     step: (s: Mut It) -> Emitted T | Finished,
     skip: (x: T) -> Bool,
     started: Bool
 }
 
-export fn next<It, T>(t: Mut SkippingWhile<It, T>) [] -> Emitted T | Finished => t: Mut {
+export fn next<It canbe linear, T>(t: Mut SkippingWhile<It, T>) [] -> Emitted T | Finished => t: Mut {
     let step = t.step
     if t.started {
         return step(t.src)
@@ -317,16 +357,24 @@ export fn next<It, T>(t: Mut SkippingWhile<It, T>) [] -> Emitted T | Finished =>
 // An iterator over the elements of [it] from the first one [skip]
 // refuses.
 // @compilerrules [seq-lazy]
-export fn skipping_while<It, T>(it: It, skip: (x: T) -> Bool, ?Next<It, T>) [] -> Mut SkippingWhile<It, T>
+export fn skipping_while<It canbe linear, T>(it: It, skip: (x: T) -> Bool, ?Next<It, T>) [] -> Mut SkippingWhile<It, T>
 => !it, !skip {
     return Mut SkippingWhile<It, T> { src: it, step: copy(next), skip: skip, started: false }
+}
+
+// Ends the adaptor and answers the iterator it wraps, at the position it
+// reached: how an adaptor over an obligation ends (`close(detach(t))`), and
+// how a caller reads on past it.
+// @compilerrules [seq-lazy, linear-container]
+export fn detach<It canbe linear, T>(it: SkippingWhile<It, T>) [] -> It => !it {
+    return it.src
 }
 
 // Drives [it] to its end, answering its elements as a list — a
 // view of a borrowing source's elements, as [filter]'s answer is. A
 // container's own `to_list` is more specific, and wins.
 // @compilerrules [seq-lazy, fn-overload-rank]
-export fn to_list<It, T>(it: Mut It, ?Next<It, T>) [] -> Mut List<proj T> holds proj(it) => it: Mut {
+export fn to_list<It canbe linear, T>(it: Mut It, ?Next<It, T>) [] -> Mut List<proj T> holds proj(it) => it: Mut {
     let out: Mut List<proj T> = Mut List()
     for x in it {
         add(out, x)
@@ -337,7 +385,7 @@ export fn to_list<It, T>(it: Mut It, ?Next<It, T>) [] -> Mut List<proj T> holds 
 // Drives [it] to its end, answering how many elements it had. A
 // `count` of the program's own over a list is more specific and wins.
 // @compilerrules [seq-lazy]
-export fn count<It, T>(it: Mut It, ?Next<It, T>) [] -> Int => it: Mut {
+export fn count<It canbe linear, T>(it: Mut It, ?Next<It, T>) [] -> Int => it: Mut {
     let n = 0
     for _x in it {
         n = n + 1
