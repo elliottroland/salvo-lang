@@ -13,13 +13,13 @@ effect RawClock {
 
 // The host implements this one, in Kotlin or Rust: bodyless here, and
 // constructed at its `use` like any handler.
-platform handler HostRawClock(offset: Int) of RawClock
+platform handler HostRawClock(offset: Int) for RawClock
 
 effect Clock {
     fn stamp(label: Str) -> Str => label
 }
 
-handler DefaultClock [RawClock] of Clock {
+handler DefaultClock [RawClock] for Clock {
     fn stamp(label: Str) -> Str => label {
         return "${label}@${raw_now()}"
     }

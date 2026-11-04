@@ -42,7 +42,7 @@ export effect Random<T> {
     fn next_random() -> T
 }
 
-export handler Fixed<T>(value: T) of Random<T> {
+export handler Fixed<T>(value: T) for Random<T> {
     fn next_random() -> T {
         //~ error[effect-state-store:moved-out]
         return value
@@ -62,7 +62,7 @@ export effect Ping {
     fn ping()
 }
 
-export handler LoudPing of Ping {
+export handler LoudPing for Ping {
     //~ error[effect-member-no-effects:declared]
     fn ping() [Console] {
         println("ping")
@@ -76,7 +76,7 @@ export effect Stash {
     fn pick<T>(a: T, b: T) -> T => !a, !b
 }
 
-export handler FirstStash of Stash {
+export handler FirstStash for Stash {
     //~ error[deduce-default:kept-by-default-moved]
     fn pick<T>(a: T, b: T) -> T {
         return a

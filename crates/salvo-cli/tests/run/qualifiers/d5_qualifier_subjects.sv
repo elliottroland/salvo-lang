@@ -4,8 +4,8 @@
 
 //--- provenance_survives_mutation_where_state_does_not
 
-qualifier Checked of List<Int>
-provenance qualifier Trusted of List<Int>
+qualifier Checked for List<Int>
+provenance qualifier Trusted for List<Int>
 
 fn check(l: Mut List<Int>) -> +Checked Mut List<Int>
 => !l {

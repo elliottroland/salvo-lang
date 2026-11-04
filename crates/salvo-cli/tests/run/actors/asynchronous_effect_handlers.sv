@@ -9,7 +9,7 @@ actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
 
-handler Counting() of Counter {
+handler Counting() for Counter {
     mailbox { capacity: 8 }
 
     state {
@@ -48,7 +48,7 @@ actor effect Oracle {
     send fn divine(out: Reply<Int>) => !out
 }
 
-handler Delphi() of Oracle {
+handler Delphi() for Oracle {
     mailbox { capacity: 4 }
     state {
         n: Int = 0
@@ -60,7 +60,7 @@ handler Delphi() of Oracle {
     }
 }
 
-handler Forwarding(oracle: eff[Oracle]) of Random {
+handler Forwarding(oracle: eff[Oracle]) for Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -106,7 +106,7 @@ actor effect Counter {
     send fn report(out: Reply<Str>) => !out
 }
 
-handler Recording() of Log {
+handler Recording() for Log {
     mailbox { capacity: 1 }
 
     state {
@@ -122,7 +122,7 @@ handler Recording() of Log {
     }
 }
 
-handler Summing() of Tally {
+handler Summing() for Tally {
     mailbox { capacity: 8 }
 
     state {
@@ -138,7 +138,7 @@ handler Summing() of Tally {
     }
 }
 
-handler Counting() [Log, Tally] of Counter {
+handler Counting() [Log, Tally] for Counter {
     mailbox { capacity: 8 }
 
     send fn bump(n: Int) {
@@ -193,7 +193,7 @@ effect Random {
     fn next() -> Int
 }
 
-handler CyclicRandom(seed: Int) of Random {
+handler CyclicRandom(seed: Int) for Random {
     mailbox { capacity: 8 }
     state {
         cursor: Int = 0
@@ -215,7 +215,7 @@ actor effect Drawer {
     send fn draw(out: Reply<Int>) => !out
 }
 
-handler Drawing() [Random] of Drawer {
+handler Drawing() [Random] for Drawer {
     mailbox { capacity: 4 }
 
     send fn draw(out: Reply<Int>) {
@@ -250,13 +250,13 @@ effect Label {
     fn label(n: Int) -> Str
 }
 
-handler Hash() of Label {
+handler Hash() for Label {
     fn label(n: Int) -> Str {
         return "#${n}"
     }
 }
 
-handler Counted(seed: Int) [Console, Label] of Random {
+handler Counted(seed: Int) [Console, Label] for Random {
     mailbox { capacity: 8 }
     state {
         cursor: Int = 0
@@ -294,7 +294,7 @@ effect Random {
     fn next() -> Int
 }
 
-handler CyclicRandom(seed: Int) of Random {
+handler CyclicRandom(seed: Int) for Random {
     state {
         cursor: Int = 0
     }
@@ -309,7 +309,7 @@ actor effect Drawer {
     send fn draw(out: Reply<Int>) => !out
 }
 
-handler Drawing() [Random] of Drawer {
+handler Drawing() [Random] for Drawer {
     mailbox { capacity: 4 }
 
     send fn draw(out: Reply<Int>) {
@@ -344,7 +344,7 @@ actor effect Oracle {
     send fn divine(out: Reply<Int>) => !out
 }
 
-handler Delphi() of Oracle {
+handler Delphi() for Oracle {
     mailbox { capacity: 4 }
     state {
         n: Int = 0
@@ -356,7 +356,7 @@ handler Delphi() of Oracle {
     }
 }
 
-handler Parking(oracle: eff[Oracle]) of Random {
+handler Parking(oracle: eff[Oracle]) for Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -395,7 +395,7 @@ effect Random {
     fn next() -> Int
 }
 
-handler Chain() of Random {
+handler Chain() for Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0

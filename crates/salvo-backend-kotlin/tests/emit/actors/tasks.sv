@@ -13,7 +13,7 @@ actor effect Desk {
     send fn close_up(reason: Str) => !reason
 }
 
-handler Desking() of Desk {
+handler Desking() for Desk {
     mailbox { capacity: 8 }
 
     state {
@@ -105,7 +105,7 @@ actor effect Db {
     send fn query(id: Int, reply: Reply<Int>) => !reply
 }
 
-handler Rows() of Db {
+handler Rows() for Db {
     mailbox { capacity: 4 }
 
     send fn query(id: Int, reply: Reply<Int>) {
@@ -174,7 +174,7 @@ actor effect TimerCtl {
 //~ emits: fun __dispatch_ManualTime_TimerCtl(__handler: ManualTime, __msg: __Msg_TimerCtl)
 //~ emits: is __Msg_Timer -> salvo.main.__dispatch_ManualTime_Timer(handler, msg)
 //~ emits: is __Msg_TimerCtl -> salvo.main.__dispatch_ManualTime_TimerCtl(handler, msg)
-handler ManualTime() of Timer, TimerCtl {
+handler ManualTime() for Timer, TimerCtl {
     mailbox { capacity: 8 }
 
     state {
@@ -209,7 +209,7 @@ effect Stats {
 }
 
 //~ emits: class Counting : Tally, Stats {
-handler Counting() of Tally, Stats {
+handler Counting() for Tally, Stats {
     state {
         sum: Int = 0
     }
@@ -258,7 +258,7 @@ actor effect Counter {
     send fn crash()
 }
 
-handler Counting() of Counter {
+handler Counting() for Counter {
     mailbox { capacity: 8 }
 
     state {
@@ -309,7 +309,7 @@ actor effect Desk {
 // Parks every token it is given and answers none, which is legal because the
 // obligation lives in state [linear-state] — and is exactly the shape a
 // quiescence report has to be able to name.
-handler Desking() of Desk {
+handler Desking() for Desk {
     mailbox { capacity: 4 }
 
     state {
@@ -328,7 +328,7 @@ actor effect Client {
 
 // The gate: while the continuation is outstanding this actor serves nothing
 // else, so its mailbox is stalled for good.
-handler Clienting() of Client {
+handler Clienting() for Client {
     mailbox { capacity: 4 }
 
     send fn go(desk: eff[Desk]) {
@@ -371,7 +371,7 @@ actor effect Notices {
     send fn arrived(out: Reply<Str>, text: Str) => !out, !text
 }
 
-handler Rows() of Db {
+handler Rows() for Db {
     mailbox { capacity: 4 }
 
     send fn lookup(id: Int, out: Reply<Str>) {
@@ -386,7 +386,7 @@ handler Rows() of Db {
 //~ emits: handler.__addr = ctx.addr
 //~ emits: val c = handler.__parked.remove(slot) ?: return
 //~ emits: value as String
-handler Fetching() [Db] of Notices {
+handler Fetching() [Db] for Notices {
     mailbox { capacity: 4 }
 
     send fn fetch(id: Int, out: Reply<Str>) {
@@ -420,7 +420,7 @@ actor effect Log {
     send fn count(out: Reply<Int>) => !out
 }
 
-handler Counting() of Log {
+handler Counting() for Log {
     mailbox { capacity: 8 }
 
     state {
@@ -476,7 +476,7 @@ actor effect Counter {
     send fn report(out: Reply<Str>) => !out
 }
 
-handler Recording() of Log {
+handler Recording() for Log {
     mailbox { capacity: 1 }
 
     state {
@@ -492,7 +492,7 @@ handler Recording() of Log {
     }
 }
 
-handler Summing() of Tally {
+handler Summing() for Tally {
     mailbox { capacity: 8 }
 
     state {
@@ -510,7 +510,7 @@ handler Summing() of Tally {
 
 //~ emits: class Counting(private val __dep0: Log, private val __dep1: Tally) : Counter
 //~ emits: class __Actor_Counting(private val handler: Counting) : salvo.SalvoActor
-handler Counting() [Log, Tally] of Counter {
+handler Counting() [Log, Tally] for Counter {
     mailbox { capacity: 8 }
 
     send fn bump(n: Int) {

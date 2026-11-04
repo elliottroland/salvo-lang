@@ -41,7 +41,7 @@ effect Shower {
     fn show(s: Str?) -> None => s
 }
 
-handler PrintShower [Console] of Shower {
+handler PrintShower [Console] for Shower {
     fn show(s: Str?) -> None => s {
         println("shown ${inner(s)}")
     }

@@ -8,7 +8,7 @@
 // `Broken` too, and that site reports it as an unknown qualifier. (std
 // declares `Ok` and `Err`, so the case's own qualifier is `Fine` and the
 // unknown one `Broken`.)
-qualifier Fine<T> of T
+qualifier Fine<T> for T
 
 fn fine<T>(value: T) [] -> +Fine T => !value {
     return value
@@ -30,7 +30,7 @@ fn checks_an_unknown_name() -> Int {
 // [name-resolve] A `when` branch naming something unresolved reports the
 // name; the arms it fails to match must not also surface as a non-exhaustive
 // `when`.
-qualifier Sour<T> of T
+qualifier Sour<T> for T
 
 fn produce_known() -> Fine Int | Sour Str {
     return fine(1)
@@ -52,7 +52,7 @@ fn branches_on_an_unknown_name() -> Int {
 
 // [name-resolve] A name that exists in the *other* namespace is a position
 // mistake: say so rather than suggesting an import that cannot help.
-qualifier Tag of Int
+qualifier Tag for Int
 
 //~ error[name-resolve:unknown-type]
 fn tag_as_type(x: Tag) -> Int {

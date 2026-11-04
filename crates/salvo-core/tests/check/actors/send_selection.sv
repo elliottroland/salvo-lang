@@ -6,7 +6,7 @@ actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
 
-handler Counting() of Counter {
+handler Counting() for Counter {
     mailbox { capacity: 4 }
 
     send fn total(out: Reply<Int>) {
@@ -32,7 +32,7 @@ actor effect Log {
     send fn note(what: Str, level: Int = 1) => !what
 }
 
-handler Logging() of Log {
+handler Logging() for Log {
     mailbox { capacity: 4 }
 
     send fn note(what: Str, level: Int = 1) {}
@@ -59,7 +59,7 @@ actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
 
-handler Counting() of Counter {
+handler Counting() for Counter {
     mailbox { capacity: 4 }
 
     send fn total(out: Reply<Int>) {
@@ -97,7 +97,7 @@ effect Random {
     fn next() -> Int
 }
 
-handler Stepping(seed: Int) of Random {
+handler Stepping(seed: Int) for Random {
     mailbox { capacity: 8 }
     state {
         cursor: Int = 0
@@ -124,7 +124,7 @@ actor effect Sink {
     send fn put(a: Str) => !a
 }
 
-handler Dropping() of Sink {
+handler Dropping() for Sink {
     mailbox { capacity: 4 }
 
     send fn put(a: Int) {

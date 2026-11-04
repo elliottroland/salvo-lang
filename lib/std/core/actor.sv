@@ -112,7 +112,7 @@ export fn pool(size: Int) [spawn] -> Pool => size {
 // of the type system instead of a convention.
 // @compilerrules [waitfor-dedicated]
 // @compilerknown
-export provenance qualifier Dedicated of Pool
+export provenance qualifier Dedicated for Pool
 
 // Why a task or an unwatched actor died, delivered to a
 // pool's fault sink.

@@ -12,25 +12,25 @@ effect Store<T> {
     fn keep(value: T) -> Str => value
 }
 
-handler Plain of Greeter {
+handler Plain for Greeter {
     fn greet(name: Str) -> Str => name {
         return "hello ${name}"
     }
 }
 
-handler Formal of Greeter {
+handler Formal for Greeter {
     fn greet(name: Str) -> Str => name {
         return "Good day, ${name}"
     }
 }
 
-handler Loud [Greeter] of Greeter {
+handler Loud [Greeter] for Greeter {
     fn greet(name: Str) -> Str => name {
         return "${greet(name)}!"
     }
 }
 
-handler Counting [Greeter] of Greeter {
+handler Counting [Greeter] for Greeter {
     state {
         count: Int = 0
     }
@@ -40,13 +40,13 @@ handler Counting [Greeter] of Greeter {
     }
 }
 
-handler MemStore<T> of Store<T> {
+handler MemStore<T> for Store<T> {
     fn keep(value: T) -> Str => value {
         return "kept"
     }
 }
 
-handler Twice [Store<Int>] of Store<Int> {
+handler Twice [Store<Int>] for Store<Int> {
     fn keep(value: Int) -> Str => value {
         return "${keep(value)} ${keep(value)}"
     }

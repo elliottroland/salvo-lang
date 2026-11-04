@@ -103,7 +103,7 @@ platform fn items(n: Int) [] -> List<Item>
 
 // A claim the boundary can test (std's generic `NonEmpty` takes an implicit
 // `size`, which it cannot).
-qualifier Filled of List<Str> {
+qualifier Filled for List<Str> {
     fn qualifies(list: List<Str>) -> Bool {
         return list.size() > 0
     }
@@ -122,7 +122,7 @@ effect Lookup {
     fn parity(n: Int, done: Reply<"even" | "odd">) [] -> None => !n, !done
 }
 
-threadsafe platform handler HostLookup() of Lookup
+threadsafe platform handler HostLookup() for Lookup
 
 fn show(t: "gold" | "silver" | None) -> Str {
     when t {
@@ -258,7 +258,7 @@ platform fn items(n: Int) [] -> List<Item>
 
 // A claim the boundary can test (std's generic `NonEmpty` takes an implicit
 // `size`, which it cannot).
-qualifier Filled of List<Str> {
+qualifier Filled for List<Str> {
     fn qualifies(list: List<Str>) -> Bool {
         return list.size() > 0
     }
@@ -277,7 +277,7 @@ effect Lookup {
     fn parity(n: Int, done: Reply<"even" | "odd">) [] -> None => !n, !done
 }
 
-threadsafe platform handler HostLookup() of Lookup
+threadsafe platform handler HostLookup() for Lookup
 
 fn show(t: "gold" | "silver" | None) -> Str {
     when t {
@@ -413,7 +413,7 @@ platform fn items(n: Int) [] -> List<Item>
 
 // A claim the boundary can test (std's generic `NonEmpty` takes an implicit
 // `size`, which it cannot).
-qualifier Filled of List<Str> {
+qualifier Filled for List<Str> {
     fn qualifies(list: List<Str>) -> Bool {
         return list.size() > 0
     }
@@ -432,7 +432,7 @@ effect Lookup {
     fn parity(n: Int, done: Reply<"even" | "odd">) [] -> None => !n, !done
 }
 
-threadsafe platform handler HostLookup() of Lookup
+threadsafe platform handler HostLookup() for Lookup
 
 fn show(t: "gold" | "silver" | None) -> Str {
     when t {

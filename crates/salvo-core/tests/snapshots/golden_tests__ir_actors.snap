@@ -9,7 +9,7 @@ actor interface Counter {
   send fn total(moved out: Reply<Int>) -> None
 }
 
-impl Counting() of Counter@main stateful {
+impl Counting() for Counter@main stateful {
   mailbox construct Mailbox { capacity: 8 }
   state sum: Int = 0
   fn bump(lent n: Int) -> None {
@@ -27,7 +27,7 @@ actor interface Ledger {
   send fn reported(moved label: Str, moved out: Reply<Str>, lent total: Int) -> None
 }
 
-impl Bookkeeping() of Ledger@main deps [Counter@main] stateful {
+impl Bookkeeping() for Ledger@main deps [Counter@main] stateful {
   mailbox construct Mailbox { capacity: 4 }
   fn report(moved label: Str, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
@@ -47,7 +47,7 @@ actor interface Desk {
   send fn close_up(moved reason: Str) -> None
 }
 
-impl Desking(lent room: Int) of Desk@main stateful {
+impl Desking(lent room: Int) for Desk@main stateful {
   mailbox construct Mailbox { capacity: read room }
   state waiting: Mut Deque<Reply<Str>> = call mut_deque_of()@std.core.deque<Reply<Str>>()
   fn ticket(moved out: Reply<Str>) -> None {
@@ -86,7 +86,7 @@ actor interface Fragile {
   send fn crash() -> None
 }
 
-impl Breaking() of Fragile@main {
+impl Breaking() for Fragile@main {
   mailbox construct Mailbox { capacity: 1 }
   fn crash() -> None {
     bind#1 let empty: List<Int> = call List()@std.core.list<Int>()
@@ -228,7 +228,7 @@ enum __Cont_Desking {
 enum __Cont_Breaking {
 }
 
-impl __Stub_Counter(moved addr: eff[Counter@main]) of Counter@main {
+impl __Stub_Counter(moved addr: eff[Counter@main]) for Counter@main {
   fn bump(lent n: Int) -> None {
     send bump@Counter(read addr, !read n)
   }
@@ -239,7 +239,7 @@ impl __Stub_Counter(moved addr: eff[Counter@main]) of Counter@main {
   }
 }
 
-impl __Stub_Ledger(moved addr: eff[Ledger@main]) of Ledger@main {
+impl __Stub_Ledger(moved addr: eff[Ledger@main]) for Ledger@main {
   fn report(moved label: Str, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
@@ -252,7 +252,7 @@ impl __Stub_Ledger(moved addr: eff[Ledger@main]) of Ledger@main {
   }
 }
 
-impl __Stub_Desk(moved addr: eff[Desk@main]) of Desk@main {
+impl __Stub_Desk(moved addr: eff[Desk@main]) for Desk@main {
   fn ticket(moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
@@ -266,7 +266,7 @@ impl __Stub_Desk(moved addr: eff[Desk@main]) of Desk@main {
   }
 }
 
-impl __Stub_Fragile(moved addr: eff[Fragile@main]) of Fragile@main {
+impl __Stub_Fragile(moved addr: eff[Fragile@main]) for Fragile@main {
   fn crash() -> None {
     send crash@Fragile(read addr)
   }

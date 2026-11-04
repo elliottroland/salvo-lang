@@ -50,7 +50,7 @@ in-process fleet does not pin down (so the program prints the invariant, not
 the name). `Key` is erased from the type: callers pass a plain `Str`.
 
 **3 — scatter.** `route` picks *one* member. A policy that must read the
-message — fan it out — is a handler `of any Search` you write: `Scattering`
+message — fan it out — is a handler `for any Search` you write: `Scattering`
 asks the replica for the members and hands the query to `Gathering`, an actor
 that mints one continuation per member (`replyto partial()`), sums the
 answers, and discharges the caller's reply once. The reply token waits in a

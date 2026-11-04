@@ -10,7 +10,7 @@ effect Random<T> {
     fn next_random() -> T
 }
 
-handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
+handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) for Random<T> {
     state {
         i: Int = 0
     }

@@ -50,7 +50,7 @@ fn roots(salvo: Int) [] -> Str => salvo {
     return java
 }
 
-handler LabelsH of Labels {
+handler LabelsH for Labels {
     fn label(n: Int) -> Str {
         return "member, ${label(n)}, ${apply(label, n)}"
     }
@@ -89,7 +89,7 @@ effect Ops {
     fn apply(f: (x: Int) -> Int, n: Int) -> Int => f
 }
 
-handler OpsH of Ops {
+handler OpsH for Ops {
     fn apply(f: (x: Int) -> Int, n: Int) -> Int { return f(n) }
 }
 

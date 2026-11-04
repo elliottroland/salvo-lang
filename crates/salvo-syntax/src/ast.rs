@@ -433,7 +433,7 @@ pub struct StructDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
-    /// [comptime-qualifier] The comptime qualifiers `of Struct` written
+    /// [comptime-qualifier] The comptime qualifiers `for Struct` written
     /// before the declaration (`Named("rm") export struct Remove`): read by
     /// comptime code, erased everywhere else.
     pub annotations: Vec<TypeRef>,
@@ -956,7 +956,7 @@ pub struct FieldDecl {
     /// The `//` comment block directly above the declaration, one entry
     /// per line, `//` and one leading space stripped [doc-comment].
     pub docs: Vec<String>,
-    /// [comptime-qualifier] The comptime qualifiers `of Field` written
+    /// [comptime-qualifier] The comptime qualifiers `for Field` written
     /// before the field's name (`Short('p') port: Int`): read by comptime
     /// code, erased everywhere else.
     pub annotations: Vec<TypeRef>,
@@ -1006,7 +1006,7 @@ pub enum QualSubject {
     Provenance,
 }
 
-/// `qualifier Name<G> of Type with Other { field-overrides fns }`
+/// `qualifier Name<G> for Type with Other { field-overrides fns }`
 #[derive(Clone, Debug, PartialEq)]
 pub struct QualifierDecl {
     /// The `//` comment block directly above the declaration, one entry
@@ -1027,18 +1027,18 @@ pub struct QualifierDecl {
     pub subject: QualSubject,
     pub name: Ident,
     pub generics: Vec<Ident>,
-    /// [linear-container] `qualifier Idx<T canbe linear>(list: List<T>) of
+    /// [linear-container] `qualifier Idx<T canbe linear>(list: List<T>) for
     /// Int`: the type parameters the claim admits a linear instantiation of
     /// (2026-10-05, ROADMAP §0j step 6d), as on a fn or struct.
     pub generic_canbe: Vec<(Ident, TypeRef)>,
     /// [cmp-carry] The **slot list** in the generics, after the type parameters:
-    /// `qualifier Heap<T>(?cmp: (T, T) -> Int) of List<T>`, or a group spread
+    /// `qualifier Heap<T>(?cmp: (T, T) -> Int) for List<T>`, or a group spread
     /// (`?Ordered<T>`). The identity a use site writes (`Heap<Person>(cmp@Person)`)
     /// fills one.
     pub fn_slots: Vec<SlotDecl>,
     /// [qual-depend] The **value slots** in the block — unprefixed entries
     /// naming the values the claim depends on:
-    /// `qualifier KeyOf<K, V>(map: Map<K, V>) of K`. A use site fills one
+    /// `qualifier KeyOf<K, V>(map: Map<K, V>) for K`. A use site fills one
     /// with a **place** (`KeyOf(m)`), and the claim is bound to that
     /// place's fate roots.
     pub value_slots: Vec<ValueSlot>,
@@ -1053,7 +1053,7 @@ pub struct QualifierDecl {
     pub refns: Vec<RefnDecl>,
     /// True when the declaration had a `{ ... }` body (predicate qualifier).
     pub has_body: bool,
-    /// [comptime-qualifier] `comptime qualifier Short(c: Char) of Field`: a
+    /// [comptime-qualifier] `comptime qualifier Short(c: Char) for Field`: a
     /// qualifier on a `std.core.comptime` description, written on a declaration
     /// and read by comptime code; it has no body and claims nothing about a
     /// value.
@@ -1094,9 +1094,9 @@ pub struct EffectDecl {
     pub span: Span,
 }
 
-/// `handler CyclicRandom<T>(values: T[]) of Random<T> { state fns }`,
-/// `threadsafe platform handler StdConsole() of Console`, or `platform
-/// handler HostRawFs of RawFs` [platform-handler].
+/// `handler CyclicRandom<T>(values: T[]) for Random<T> { state fns }`,
+/// `threadsafe platform handler StdConsole() for Console`, or `platform
+/// handler HostRawFs for RawFs` [platform-handler].
 #[derive(Clone, Debug, PartialEq)]
 pub struct HandlerDecl {
     /// The `//` comment block directly above the declaration, one entry
@@ -1113,7 +1113,7 @@ pub struct HandlerDecl {
     /// rather than an enum: it is the only backing modifier there is, now
     /// that `external`/`define` are gone (user decision 2026-09-05).
     pub intrinsic: bool,
-    /// [platform-handler] `platform handler HostRawFs of RawFs`: a handler
+    /// [platform-handler] `platform handler HostRawFs for RawFs`: a handler
     /// of an *ordinary* Salvo effect whose implementation is a class the
     /// host supplies — a companion in the `platform/` tree of the module
     /// that declares it [platform-tree]. Bodyless in Salvo, and registered
@@ -1125,7 +1125,7 @@ pub struct HandlerDecl {
     /// *the compiler* implements the members, `platform` means the *build*
     /// does — and the grammar admits only one of them.
     pub platform: bool,
-    /// [platform-threadsafe] `threadsafe platform handler H of E` (user
+    /// [platform-threadsafe] `threadsafe platform handler H for E` (user
     /// decision 2026-09-26): the host class may be entered concurrently from
     /// any thread — it synchronizes internally, or holds nothing that needs
     /// it. A shareable `use` of it then binds **bare** on both backends (Rust
@@ -1140,20 +1140,20 @@ pub struct HandlerDecl {
     /// Constructor parameters, e.g. `(values: T[])`.
     pub params: Vec<Param>,
     /// The effects this handler *depends on*, written like a fn's
-    /// ([effect-handler-deps]): `handler Stamped [Logger, Clock] of Logger`.
+    /// ([effect-handler-deps]): `handler Stamped [Logger, Clock] for Logger`.
     /// They are supplied by the compiler at the `use` site, so they are
     /// unnamed — the members reach them by calling their members, exactly as
     /// any other code does. `None` when the list is absent, as on a fn.
     pub effects: Option<Vec<EffectRef>>,
     /// [effect-handler-multi] The effects this handler *implements*, in
-    /// declaration order: `handler ManualTime() of Timer, TimerCtl`. Always at
+    /// declaration order: `handler ManualTime() for Timer, TimerCtl`. Always at
     /// least one, and one is the common case — several is how a handler wears
     /// more than one face over the same state (T-4(a), user decision
     /// 2026-09-17), which a `spawn` answers one addr per and a `use` binds all
     /// of.
     pub of: Vec<Type>,
     /// [effect-any] Parallel to `of`: `true` where the face was written
-    /// `of any E` — the handler forwards to many instances and promises no
+    /// `for any E` — the handler forwards to many instances and promises no
     /// order, so a `use` of it binds `any E`, which satisfies `[any E]` only.
     pub of_any: Vec<bool>,
     /// [handler-init] `init { … }` — the body that runs **once, first**: as a
@@ -1371,7 +1371,7 @@ pub enum EffectRef {
     /// `local E` form that disclaimed seam rights was removed with it).
     Effect(TypeRef),
     /// [effect-any] `any Resizer` — the requirement that accepts a binding
-    /// spread over **many instances** (a router `of any Resizer`): the
+    /// spread over **many instances** (a router `for any Resizer`): the
     /// function assumes no order between its sends to the effect and no
     /// state shared across them. Bare `[E]` keeps the strong meaning — one
     /// instance, sends in order — so a group bound where `[E]` is required
@@ -1682,7 +1682,7 @@ pub fn is_identity_arg(arg: &Type) -> bool {
 /// or a `fns` group spread into one slot per member (user decision
 /// 2026-09-22).
 ///
-/// `qualifier Heap<T>(?Ordered<T>) of List<T>` is sugar for
+/// `qualifier Heap<T>(?Ordered<T>) for List<T>` is sugar for
 /// `qualifier Heap<T>(?cmp: (T, T) -> Int)`, exactly as `?Ordered<T>` in a
 /// parameter list is sugar for the members as implicit parameters
 /// [implicit-group]. One ordered list, because slots are filled positionally and
@@ -1721,7 +1721,7 @@ pub struct FnSlot {
 
 /// [qual-depend] A **value slot** in a qualifier's block — an unprefixed
 /// entry naming a value the claim depends on:
-/// `qualifier KeyOf<K, V>(map: Map<K, V>) of K`. A dependent `qualifies`
+/// `qualifier KeyOf<K, V>(map: Map<K, V>) for K`. A dependent `qualifies`
 /// takes it as a parameter after the subject; a use site fills it with a
 /// **place**, and the claim binds to that place's fate roots.
 #[derive(Clone, Debug, PartialEq)]

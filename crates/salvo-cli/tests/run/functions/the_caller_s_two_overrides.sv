@@ -4,11 +4,11 @@
 
 //--- overload_overrides
 
-qualifier Even of Int {
+qualifier Even for Int {
     fn qualifies(n: Int) -> Bool { return n % 2 == 0 }
 }
 
-qualifier Small of Int {
+qualifier Small for Int {
     fn qualifies(n: Int) -> Bool { return n < 10 }
 }
 

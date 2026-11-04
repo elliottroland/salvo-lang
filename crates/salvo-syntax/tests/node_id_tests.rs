@@ -10,11 +10,11 @@ import std.core.list
 struct Point canbe Mut { x: Int = 1, y: Int }
 type Shape = Point | Int
 effect Log { fn log(line: Str) -> None }
-handler Quiet(level: Int) of Log {
+handler Quiet(level: Int) for Log {
     state { n: Int = level }
     fn log(line: Str) -> None { n = n + 1 }
 }
-qualifier Small of Int { fn qualifies(v: Int) -> Bool { return v < 10 } }
+qualifier Small for Int { fn qualifies(v: Int) -> Bool { return v < 10 } }
 fn area(p: Point, k: Int = 2) -> Int => p { return p.x * p.y * k }
 ";
 

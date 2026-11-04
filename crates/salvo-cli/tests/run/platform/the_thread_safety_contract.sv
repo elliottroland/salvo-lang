@@ -11,13 +11,13 @@ effect RawClock {
     fn raw_now() [] -> Int
 }
 
-threadsafe platform handler HostRawClock(offset: Int) of RawClock
+threadsafe platform handler HostRawClock(offset: Int) for RawClock
 
 effect Clock {
     fn stamp(label: Str) -> Str => label
 }
 
-handler DefaultClock [RawClock] of Clock {
+handler DefaultClock [RawClock] for Clock {
     fn stamp(label: Str) -> Str => label {
         return "${label}@${raw_now()}"
     }

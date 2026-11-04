@@ -21,7 +21,7 @@ effect Greeter {
     fn greet() -> Str
 }
 
-handler FixedGreeter(text: Str) of Greeter {
+handler FixedGreeter(text: Str) for Greeter {
     fn greet() -> Str {
         return "hi"
     }
@@ -128,7 +128,7 @@ effect Greeter {
     fn greet() -> Str
 }
 
-handler FixedGreeter(text: Str) of Greeter {
+handler FixedGreeter(text: Str) for Greeter {
     fn greet() -> Str {
         return "hi"
     }

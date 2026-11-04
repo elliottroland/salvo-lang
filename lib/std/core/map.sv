@@ -139,7 +139,7 @@ export platform fn contains_key<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> 
 // stripped by any mutation of it (the conservative direction — `preserve`
 // entries opt specific calls back in, a later step of the sequence).
 // @compilerrules [qual-depend]
-export qualifier KeyOf<K, V>(map: Map<K, V>) of K {
+export qualifier KeyOf<K, V>(map: Map<K, V>) for K {
     fn qualifies(key: K, map: Map<K, V>(?hash, ?eq)) -> Bool {
         return contains_key(map, key)
     }

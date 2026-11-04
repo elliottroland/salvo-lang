@@ -1247,7 +1247,7 @@ mod tests {
                          export fn origin() [] -> Pt {\n    let p = Pt { x: 0, y: 0 }\n    return p\n}\n\n\
                          export struct Box<T> {\n    item: T,\n    count: Int\n}\n\n\
                          export fn boxed<T>(item: T) [] -> Box<T> => !item {\n    return Box { item: item, count: 1 }\n}\n\n\
-                         export qualifier Below(limit: Int) of Int {\n    fn qualifies(n: Int, limit: Int) -> Bool {\n        return n < limit\n    }\n}\n\n\
+                         export qualifier Below(limit: Int) for Int {\n    fn qualifies(n: Int, limit: Int) -> Bool {\n        return n < limit\n    }\n}\n\n\
                          export fn norm(p: Pt) [] -> Int => p {\n    return p.x * p.x + p.y * p.y\n}\n\n\
                          rename fn sum2 = add2(a: Int, b: Int)\n\n\
                          export fn add2(a: Int, b: Int) [] -> Int {\n    return a + b\n}\n",
@@ -1259,7 +1259,7 @@ mod tests {
                     (
                         "count.sv",
                         "export effect Counter {\n    fn bump(by: Int) -> Int\n}\n\n\
-                         export handler Tally(start: Int) of Counter {\n    state { total: Int = start }\n    fn bump(by: Int) -> Int {\n        total = total + by\n        return total\n    }\n}\n",
+                         export handler Tally(start: Int) for Counter {\n    state { total: Int = start }\n    fn bump(by: Int) -> Int {\n        total = total + by\n        return total\n    }\n}\n",
                     ),
                     (
                         "main.sv",

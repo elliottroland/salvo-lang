@@ -13,7 +13,7 @@ actor effect Bumps {
     send fn bump(n: Int)
 }
 
-handler Returning() of Bumps {
+handler Returning() for Bumps {
     mailbox { capacity: 8 }
 
     //~ error[actor-send-fn:return-type]
@@ -25,7 +25,7 @@ handler Returning() of Bumps {
 // The legal shape: no return type, and a reply travels as a parameter. This
 // must stay *clean* — it is the first-pass surface every later slice builds
 // on.
-handler Counting() of Bumps {
+handler Counting() for Bumps {
     mailbox { capacity: 8 }
 
     state {
@@ -41,7 +41,7 @@ handler Counting() of Bumps {
 // — on a function, and on a handler's dependency list (a supervisor spawns its
 // children). (Its refusal on a fn *type* is `member_tests.rs`'s: it is
 // reported four times.)
-handler Supervising() [spawn] of Bumps {
+handler Supervising() [spawn] for Bumps {
     mailbox { capacity: 8 }
 
     send fn bump(n: Int) {}

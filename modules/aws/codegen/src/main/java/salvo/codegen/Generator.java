@@ -599,7 +599,7 @@ final class Generator {
         // A fake that hands out or takes in bodies does so through the
         // `Streams` in scope, as every other producer does [stream-layer].
         String deps = streaming.isEmpty() ? "" : " [Streams]";
-        out.append("export handler Fake").append(settings.effect()).append("()").append(deps).append(" of ")
+        out.append("export handler Fake").append(settings.effect()).append("()").append(deps).append(" for ")
                 .append(settings.effect()).append(", ").append(calls).append(" {\n");
         out.append("    state {\n");
         out.append("        recorded: Mut List<Str> = Mut List()\n");

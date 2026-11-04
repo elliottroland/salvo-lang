@@ -2,11 +2,11 @@
 
 // A rename settles an ambiguity the ranking cannot: the renamed overload
 // answers *only* to the new name, so the old name is unambiguous again.
-qualifier Even of Int {
+qualifier Even for Int {
     fn qualifies(n: Int) -> Bool { return true }
 }
 
-qualifier Small of Int {
+qualifier Small for Int {
     fn qualifies(n: Int) -> Bool { return true }
 }
 

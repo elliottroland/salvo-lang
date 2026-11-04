@@ -1,6 +1,6 @@
 // [effect-state-store] [deduce-infer] Handler storage and member contracts.
 
-qualifier A<T> of List<T>
+qualifier A<T> for List<T>
 
 fn eat(list: List<Int>) -> None => !list { }
 
@@ -16,7 +16,7 @@ effect Keeper {
     fn keep(list: A List<Int>) -> None => list: A
 }
 
-handler KeepBin of Keeper {
+handler KeepBin for Keeper {
     state {
         held: List<Int> = List()
     }
@@ -33,7 +33,7 @@ effect Stasher {
     fn stash(list: A List<Int>) -> None => !list
 }
 
-handler StashBin of Stasher {
+handler StashBin for Stasher {
     state {
         held: List<Int> = List()
     }
@@ -56,7 +56,7 @@ effect Go {
     fn go() -> None
 }
 
-handler StateBin of Go {
+handler StateBin for Go {
     state {
         held: List<Int> = List()
     }
@@ -67,7 +67,7 @@ handler StateBin of Go {
     }
 }
 
-handler SeedBin(seed: List<Int>) of Go {
+handler SeedBin(seed: List<Int>) for Go {
     fn go() -> None {
         //~ error[effect-state-store:moved-out]
         eat(seed)
@@ -80,7 +80,7 @@ effect Read {
     fn read() -> List<Int>
 }
 
-handler ReadBin of Read {
+handler ReadBin for Read {
     state {
         held: List<Int> = List()
     }
@@ -97,7 +97,7 @@ effect Both {
     fn go_both() -> None
 }
 
-handler CopyBin(seed: List<Int>) of Both {
+handler CopyBin(seed: List<Int>) for Both {
     state {
         held: List<Int> = List()
     }
@@ -122,7 +122,7 @@ effect Count {
     fn go_count() -> None
 }
 
-handler CountBin of Count {
+handler CountBin for Count {
     state {
         count: Int = 0
     }
@@ -152,7 +152,7 @@ effect Take {
     fn look(p: Pair) -> None => p
 }
 
-handler Taker() of Take {
+handler Taker() for Take {
     fn take(p: Pair) -> None => !p {
         let {a, b} = p
         sink(a)

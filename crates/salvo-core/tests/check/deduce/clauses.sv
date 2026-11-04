@@ -4,8 +4,8 @@
 // *record* (kept, surviving qualifiers, the effect's form) is read from the
 // checker's tables in `deduce_tests.rs`.
 
-qualifier A<T> of List<T>
-qualifier B<T> of List<T>
+qualifier A<T> for List<T>
+qualifier B<T> for List<T>
 
 fn drop_a<T>(list: A B List<T>) [] -> None => list: B {}
 fn consume<T>(list: List<T>) [] -> None => !list {}

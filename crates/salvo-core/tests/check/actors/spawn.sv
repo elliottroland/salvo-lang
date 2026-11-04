@@ -16,13 +16,13 @@ actor effect Log {
     send fn note(what: Str) => !what
 }
 
-handler Printing() of Log {
+handler Printing() for Log {
     mailbox { capacity: 4 }
 
     send fn note(what: Str) {}
 }
 
-handler Counting() [Log] of Counter {
+handler Counting() [Log] for Counter {
     mailbox { capacity: 16 }
 
     state {
@@ -107,7 +107,7 @@ fn a_clause_construction_cannot_have_dependencies_of_its_own() [use, spawn] {
 // is an `Int`, checked as any struct field's value is) and the spawn's one
 // remaining clause is typed too: `on` takes a `Pool`, which `pool(n)` is the
 // way to get.
-handler Loud() of Log {
+handler Loud() for Log {
     //~ error[struct-decl:field-mismatch]
     mailbox { capacity: "lots" }
     send fn note(what: Str) {}
@@ -187,7 +187,7 @@ actor effect Audit {
     send fn audit(what: Str) => !what
 }
 
-handler Slow() [Counter] of Audit {
+handler Slow() [Counter] for Audit {
     mailbox { capacity: 2 }
 
     send fn audit(what: Str) {
@@ -320,7 +320,7 @@ actor effect Sink {
     send fn put(a: Int, b: Int)
 }
 
-handler Dropping() of Sink {
+handler Dropping() for Sink {
     mailbox { capacity: 1 }
 
     send fn put(a: Int) {}
@@ -338,7 +338,7 @@ actor effect TiedSink {
     send fn put(a: Str) => !a
 }
 
-handler TiedDropping() of TiedSink {
+handler TiedDropping() for TiedSink {
     mailbox { capacity: 1 }
 
     send fn put(a: Int) {}

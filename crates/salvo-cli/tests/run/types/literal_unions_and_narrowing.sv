@@ -9,7 +9,7 @@
 // union and constructed a third arm, and rustc and kotlinc refused the
 // output.
 //--- a_union_of_qualified_literals
-provenance qualifier Short of Str
+provenance qualifier Short for Str
 type Port = "port"
 type FieldName = Short Port | Short "verbose" | "host"
 

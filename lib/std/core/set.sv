@@ -125,7 +125,7 @@ export fn eq<T>(a: Set<T>(?hash, ?eq), b: Set<T>(?hash, ?eq)) [] -> Bool => a, b
 // it. (`to_list` over a `SortedSet` is in `std.core.sorted` and so cannot mint
 // it, which is why that one returns a plain list.)
 // @compilerrules [col-distinct, qual-ctor-same-file]
-export qualifier Distinct<T> of List<T>
+export qualifier Distinct<T> for List<T>
 
 // [col-insertion-order] The elements as a list, in insertion order — which
 // is also what makes a set iterable, below. A set holds no duplicates, so

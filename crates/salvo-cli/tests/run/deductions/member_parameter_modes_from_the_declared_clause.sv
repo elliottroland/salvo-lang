@@ -14,7 +14,7 @@ effect Sink {
     fn bump(t: Mut Token) -> None => t: Mut
 }
 
-handler Direct of Sink {
+handler Direct for Sink {
     fn take(t: Token) -> Int => !t {
         return t.id
     }
@@ -23,7 +23,7 @@ handler Direct of Sink {
     }
 }
 
-handler Doubling [Sink] of Sink {
+handler Doubling [Sink] for Sink {
     fn take(t: Token) -> Int => !t {
         return take(t) * 2
     }

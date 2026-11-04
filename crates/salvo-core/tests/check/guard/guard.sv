@@ -155,7 +155,7 @@ fn describe_exiting_assign(input: Str?, other: Str?) -> Str => input, other {
 // halves already worked; what the demo still waits for is only the `!is`
 // spelling. (The qualifier was `NonEmpty`, which std declares over its
 // collections.)
-qualifier Filled of Str {
+qualifier Filled for Str {
     fn qualifies(s: Str) -> Bool {
         return true
     }

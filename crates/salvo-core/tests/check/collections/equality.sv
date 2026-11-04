@@ -6,7 +6,7 @@
 // moment of the check, so `Tagged Point == Point` resolves the same
 // `eq(Point, Point)`. (Since 2026-09-21 the struct has to *have* one:
 // equality is opt-in, and `Eq<self> by auto` is the one-token way to ask.)
-qualifier Tagged of Point
+qualifier Tagged for Point
 
 struct Point : Eq<self> by auto {
     x: Int,

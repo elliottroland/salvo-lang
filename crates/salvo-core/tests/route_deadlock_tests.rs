@@ -1,7 +1,7 @@
 //! [actor-deadlock-cycle] [actor-route-stub] [effect-any] A routed protocol in the
 //! deadlock graph. The route `use any g` binds is derived in the IR
 //! (`__Route_X`), so it is no AST handler; the graph builds its node from the
-//! checker's `Route` construction, as a written `of any X` router gets one: a servant
+//! checker's `Route` construction, as a written `for any X` router gets one: a servant
 //! of its own, depending on its `RouteSelector<X>`. Since the router
 //! in-edges (2026-10-26), every dependency on `any X` points at it — an
 //! occupancy edge, since the route locks — next to its edge into `X`, and
@@ -31,7 +31,7 @@ actor effect Pong {
 fn ponging(gate: &str) -> String {
     format!(
         "
-handler Ponging() [any Ping] of Pong {{
+handler Ponging() [any Ping] for Pong {{
     mailbox {{ capacity: 1 }}
 
     send fn pong(out: Reply<Int>) {{
@@ -132,7 +132,7 @@ fn cycles(diags: &[Diag]) -> Vec<&Diag> {
 fn a_gate_cycle_through_a_route_is_refused() {
     let src = format!(
         "{PROTOCOLS}
-handler Pinging(back: eff[Pong]) of Ping {{
+handler Pinging(back: eff[Pong]) for Ping {{
     mailbox {{ capacity: 1 }}
 
     send fn ping(k: Key Str, out: Reply<Str>) {{
@@ -179,7 +179,7 @@ fn main(g: eff[ActorGroup<Ping>]) [use, spawn]
 fn a_routes_forward_is_not_a_cycle_of_its_protocol() {
     let src = format!(
         "{PROTOCOLS}
-handler Pinging() of Ping {{
+handler Pinging() for Ping {{
     mailbox {{ capacity: 1 }}
 
     send fn ping(k: Key Str, out: Reply<Str>) {{
@@ -210,7 +210,7 @@ fn main(g: eff[ActorGroup<Ping>]) [use, spawn]
 /// whose `changed` pokes it — a priced shareable handler [actor-monitor-handler] —
 /// and the `main` that routes `Ping` through it.
 const WATCHING: &str = "
-handler Watching<E>(config: RouteConfig = default_route_config()) [Pong] of RouteSelector<E> {
+handler Watching<E>(config: RouteConfig = default_route_config()) [Pong] for RouteSelector<E> {
     state {
         seen: Int = 0
     }
@@ -240,7 +240,7 @@ fn main(g: eff[ActorGroup<Ping>], b: eff[Pong]) [use, spawn]
 
 /// A `Ping` handler that answers at once and sends nothing.
 const ANSWERING: &str = "
-handler Pinging() of Ping {
+handler Pinging() for Ping {
     mailbox { capacity: 1 }
 
     send fn ping(k: Key Str, out: Reply<Str>) {
@@ -262,7 +262,7 @@ handler Pinging() of Ping {
 fn a_routes_selector_dependency_is_an_occupancy_edge() {
     let src = format!(
         "{PROTOCOLS}
-handler Pinging(back: eff[Pong]) of Ping {{
+handler Pinging(back: eff[Pong]) for Ping {{
     mailbox {{ capacity: 1 }}
 
     send fn ping(k: Key Str, out: Reply<Str>) {{
@@ -326,7 +326,7 @@ fn a_cycle_through_a_routes_selector_is_refused() {
                 "Pong → __Route_Ping's servant → Watching's lock → Pong \
                  (`Ponging`, `Watching`, `__Route_Ping`)"
             )
-            && found[0].source_line.contains("handler Ponging() [any Ping] of Pong"),
+            && found[0].source_line.contains("handler Ponging() [any Ping] for Pong"),
         "{:?}",
         found[0]
     );
@@ -335,7 +335,7 @@ fn a_cycle_through_a_routes_selector_is_refused() {
     assert_eq!(into, ["Pong → __Route_Ping's servant (Occupancy, Ponging)"], "{edges:#?}");
 
     let quiet = WATCHING
-        .replace(") [Pong] of RouteSelector<E>", ") of RouteSelector<E>")
+        .replace(") [Pong] for RouteSelector<E>", ") for RouteSelector<E>")
         .replace("        poke()\n", "");
     let src = format!("{PROTOCOLS}{ANSWERING}{}{quiet}", ponging("replyto"));
     let (diags, edges) = check(&src);
@@ -343,12 +343,12 @@ fn a_cycle_through_a_routes_selector_is_refused() {
     assert!(edges.iter().all(|e| !e.starts_with("Watching's lock")), "{edges:#?}");
 }
 
-/// A written router `of any Ping` that pokes `Pong` before it forwards to
+/// A written router `for any Ping` that pokes `Pong` before it forwards to
 /// the one member it holds; `state` is spliced in (empty for a bare one).
 fn fanning(state: &str, bump: &str) -> String {
     format!(
         "
-handler Fanning(to: eff[Ping]) [Pong] of any Ping {{
+handler Fanning(to: eff[Ping]) [Pong] for any Ping {{
     mailbox {{ capacity: 1 }}
 {state}
     send fn ping(k: Key Str, out: Reply<Str>) {{
@@ -410,7 +410,7 @@ fn a_stateful_written_router_is_an_occupancy_edge() {
     assert!(
         (found[0].error, found[0].id) == (true, "actor-mixed-handler:occupancy-cycle")
             && found[0].names("Fanning's servant → Pong → Fanning's servant (`Fanning`, `Ponging`)")
-            && found[0].source_line.contains("handler Ponging() [any Ping] of Pong"),
+            && found[0].source_line.contains("handler Ponging() [any Ping] for Pong"),
         "{:?}",
         found[0]
     );

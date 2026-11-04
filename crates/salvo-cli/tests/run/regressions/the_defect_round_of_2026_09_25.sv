@@ -48,7 +48,7 @@ effect Scale {
     fn times(a: M, b: M) -> M => a, b
 }
 
-handler Doubling of Scale {
+handler Doubling for Scale {
     fn times(a: M, b: M) -> M {
         return M { k: a.k * b.k * 2 }
     }
@@ -181,7 +181,7 @@ effect Same {
     fn eq(a: Point, b: Point) -> Bool => a, b
 }
 
-handler ByX of Same {
+handler ByX for Same {
     fn eq(a: Point, b: Point) -> Bool {
         return a.x == b.x
     }
@@ -246,7 +246,7 @@ export struct Bag<T> {
     items: List<T>
 }
 
-export qualifier Packed of Bag<Int>
+export qualifier Packed for Bag<Int>
 
 export fn eq<T>(a: Bag<T>, b: Bag<T>, ?eq: (x: T, y: T) -> Bool) [] -> Bool => a, b {
     return false
@@ -603,7 +603,7 @@ effect Gen {
     fn next(g: Mut Gauge) -> Emitted Int | Finished => g: Mut
 }
 
-handler ByThrees of Gen {
+handler ByThrees for Gen {
     fn next(g: Mut Gauge) -> Emitted Int | Finished => g: Mut {
         if g.n >= 2 {
             return finished()
@@ -808,7 +808,7 @@ effect Tell {
     fn tell() -> Int
 }
 
-handler Teller(n: Int = 7) of Tell {
+handler Teller(n: Int = 7) for Tell {
     fn tell() -> Int {
         return n
     }
@@ -819,7 +819,7 @@ effect Spanned {
     fn stride() -> Int
 }
 
-handler Span(lo: Int, hi: Int = lo + 10, step: Int = 1) of Spanned {
+handler Span(lo: Int, hi: Int = lo + 10, step: Int = 1) for Spanned {
     fn width() -> Int {
         return hi - lo
     }
@@ -832,7 +832,7 @@ effect Counted {
     fn count() -> Int
 }
 
-handler Bag(xs: List<Int>, n: Int = size(xs)) of Counted {
+handler Bag(xs: List<Int>, n: Int = size(xs)) for Counted {
     fn count() -> Int {
         return n + size(xs)
     }
@@ -842,7 +842,7 @@ effect Sum {
     fn sum() -> Int
 }
 
-handler Plus [Tell] of Sum {
+handler Plus [Tell] for Sum {
     fn sum() -> Int {
         return tell() + 1
     }
@@ -852,7 +852,7 @@ actor effect Desk {
     send fn ask(out: Reply<Int>) => !out
 }
 
-handler Desking(room: Int = 4, capacity: Int = 2) of Desk {
+handler Desking(room: Int = 4, capacity: Int = 2) for Desk {
     mailbox { capacity: capacity }
 
     send fn ask(out: Reply<Int>) {
@@ -860,7 +860,7 @@ handler Desking(room: Int = 4, capacity: Int = 2) of Desk {
     }
 }
 
-handler Telling() [Tell] of Desk {
+handler Telling() [Tell] for Desk {
     mailbox { capacity: 2 }
 
     send fn ask(out: Reply<Int>) {
@@ -872,7 +872,7 @@ effect Random {
     fn next() -> Int
 }
 
-handler CyclicRandom(seed: Int = 5, mult: Int = 31) of Random {
+handler CyclicRandom(seed: Int = 5, mult: Int = 31) for Random {
     mailbox { capacity: 8 }
     state {
         cursor: Int = 1
@@ -993,7 +993,7 @@ effect Fmt {
     fn tag() -> Str
 }
 
-handler Brackets of Fmt {
+handler Brackets for Fmt {
     fn to_str(p: Point) -> Str { return "<${p.x}, ${p.y}>" }
     fn tag() -> Str { return "fmt" }
 }
@@ -1066,7 +1066,7 @@ fn main() [use] -> None {
 //--- an_unannotated_lambda_takes_its_handler_constructor_parameters_type
 
 effect Calc { fn calc(n: Int) -> Int }
-handler Derived(step: (n: Int) -> Int) of Calc {
+handler Derived(step: (n: Int) -> Int) for Calc {
     fn calc(n: Int) -> Int { return step(n) }
 }
 fn main() [use] {
@@ -1085,7 +1085,7 @@ effect Lender {
     fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es
 }
 
-handler FirstLender of Lender {
+handler FirstLender for Lender {
     fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es {
         return at(es, 0)
     }
@@ -1121,7 +1121,7 @@ effect Roster {
     fn member(t: Team, i: Int) -> (ref(t) Mut Entity)? => t
 }
 
-handler Plain of Roster {
+handler Plain for Roster {
     fn member(t: Team, i: Int) -> (ref(t) Mut Entity)? => t {
         return pick(t, i)
     }
@@ -1211,7 +1211,7 @@ effect Lender {
     fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es
 }
 
-handler FirstLender of Lender {
+handler FirstLender for Lender {
     fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es {
         return at(es, 0)
     }
@@ -1602,7 +1602,7 @@ effect Shower {
     fn show(s: Str?) -> None => s
 }
 
-handler PrintShower [Console] of Shower {
+handler PrintShower [Console] for Shower {
     fn show(s: Str?) -> None => s {
         println("shown ${inner(s)}")
     }

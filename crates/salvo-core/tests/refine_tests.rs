@@ -96,7 +96,7 @@ export fn needs_nonempty<T>(s: NonEmpty Store<T>) -> Int => s {
 
 /// `NonEmpty` with the refinement that makes `push` establish it.
 const NONEMPTY: &str = r#"
-export qualifier NonEmpty<T> of Store<T> {
+export qualifier NonEmpty<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }

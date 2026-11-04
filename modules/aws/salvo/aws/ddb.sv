@@ -1413,7 +1413,7 @@ export effect DdbCalls {
 // them through [DdbCalls] — and answered with an empty output where the
 // operation's output has no required members, otherwise with `AwsError { code:
 // "NotStubbed" }`. A test that needs real answers implements [Ddb] itself.
-export handler FakeDdb() of Ddb, DdbCalls {
+export handler FakeDdb() for Ddb, DdbCalls {
     state {
         recorded: Mut List<Str> = Mut List()
     }

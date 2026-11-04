@@ -16,7 +16,7 @@ export fn needs_stocked<T>(s: Stocked Store<T>) -> Int => s {
     return 1
 }
 
-export qualifier Stocked<T> of Store<T> {
+export qualifier Stocked<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -54,7 +54,7 @@ import lib.push
 import lib.LibClaim
 import lib.needs_lib
 
-qualifier MyClaim<T> of Store<T> {
+qualifier MyClaim<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -77,7 +77,7 @@ export struct Store<T> canbe Mut {
     value: T
 }
 
-export qualifier LibClaim<T> of Store<T> {
+export qualifier LibClaim<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -106,7 +106,7 @@ export fn push<T>(s: Mut Store<T>, value: T) [] -> None => s: Mut, !value {
     s.value = value
 }
 
-export qualifier Stocked<T> of Store<T> {
+export qualifier Stocked<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }

@@ -66,7 +66,7 @@ fn pick(x: "B") [] -> Int => x { return 2 }
 
 // [type-literal-qualified] A literal listed under two qualifier sets is
 // refused, aliases expanded, naming both arms.
-export provenance qualifier Short of Str
+export provenance qualifier Short for Str
 type Port = "port"
 
 //~ error[type-literal-qualified:listed-twice]

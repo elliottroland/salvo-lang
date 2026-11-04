@@ -19,7 +19,7 @@ struct thing {
 
 //--- casing_qualifier
 //~ error[name-casing:type-name-lowercase]
-qualifier tag of Str
+qualifier tag for Str
 
 //--- casing_type
 //~ error[name-casing:type-name-lowercase]

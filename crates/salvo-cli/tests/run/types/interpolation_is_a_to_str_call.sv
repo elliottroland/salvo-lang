@@ -44,7 +44,7 @@ effect Fmt {
     fn to_str(p: Point) -> Str => p
 }
 
-handler Angle of Fmt {
+handler Angle for Fmt {
     fn to_str(p: Point) -> Str => p { return "<${p.x}>" }
 }
 

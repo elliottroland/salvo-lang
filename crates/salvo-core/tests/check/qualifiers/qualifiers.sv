@@ -5,7 +5,7 @@
 
 //--- duplicate_qualifier_is_rejected
 // [qual-no-dup]
-qualifier Ok<T> of T
+qualifier Ok<T> for T
 
 //~ error[qual-no-dup:applied-twice]
 fn f(x: Ok Ok Int) -> None {
@@ -13,7 +13,7 @@ fn f(x: Ok Ok Int) -> None {
 
 //--- qualifier_of_type_is_enforced
 // [qual-of]
-export qualifier Positive of Int {
+export qualifier Positive for Int {
     fn qualifies(int: Int) -> Bool {
         return int > 0
     }
@@ -26,7 +26,7 @@ export fn f(x: Positive Str) -> None {
 //--- constructor_must_live_with_its_qualifier
 // [qual-ctor-same-file]
 // FILE: quals.sv
-export qualifier Fancy of Int
+export qualifier Fancy for Int
 // FILE: other.sv
 import quals.Fancy
 
@@ -37,7 +37,7 @@ fn make() -> +Fancy Int {
 
 //--- constructor_return_type_must_be_simple
 // [qual-ctor-simple]
-export qualifier Fancy of Int
+export qualifier Fancy for Int
 
 //~ error[qual-ctor-simple:union]
 export fn make() -> +Fancy (Int | Str) {
@@ -46,7 +46,7 @@ export fn make() -> +Fancy (Int | Str) {
 
 //--- constructive_qualifier_cannot_be_is_tested
 // [qual-constructive]
-export qualifier Fancy of Int
+export qualifier Fancy for Int
 
 export fn f(x: Int) -> None {
     //~ error[qual-constructive:is-test]
@@ -56,7 +56,7 @@ export fn f(x: Int) -> None {
 
 //--- qualifies_signature_is_validated
 // [qual-predicate]
-export qualifier Weird of Int {
+export qualifier Weird for Int {
     //~ error[qual-predicate:return-type]
     fn qualifies(int: Int) -> Str {
         return "nope"
@@ -67,7 +67,7 @@ export qualifier Weird of Int {
 // [qual-constructive] [qual-ctor-fn]
 // Plain values never satisfy a constructive qualifier: the assignment is a
 // type error, so the only way in is the constructor fn.
-export qualifier Fancy of Int
+export qualifier Fancy for Int
 
 export fn f() -> None {
     //~ error[var-let-infer:annotation-mismatch]

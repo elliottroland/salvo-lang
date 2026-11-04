@@ -849,7 +849,7 @@ messages! {
     );
     /// A type's refinement naming a qualifier its author is not trusted with.
     qual_refn_type_foreign_qualifier = "qual-refn-type:foreign-qualifier" (ty: &str, verb: &str, q: &str) => format!(
-        "`{ty}`'s body cannot {verb} `{q}`: a type may refine a generic claim (`of T`) \
+        "`{ty}`'s body cannot {verb} `{q}`: a type may refine a generic claim (`for T`) \
          or one declared in its own file, and `{q}` is about one particular type \
          declared elsewhere; state it in `{q}`'s body instead"
     );
@@ -1643,7 +1643,7 @@ messages! {
     );
 
     // [qual-of]
-    /// A refined qualifier whose `of` type is not the parameter's.
+    /// A refined qualifier whose `for` type is not the parameter's.
     qual_of_wrong_subject = "qual-of:wrong-subject" (q: &str, of: &dyn std::fmt::Display, base: &str, refn: &str, param: &str, ty: &dyn std::fmt::Display) => format!(
         "`{q}` applies to `{of}`, not to `{base}`: `{refn}` is declared `{param}: {ty}`"
     );
@@ -2947,7 +2947,7 @@ messages! {
     /// An effect in a data position.
     effect_not_data_data_position = "effect-not-data:data-position" (name: &dyn std::fmt::Display) => format!(
         "`{name}` is an effect, not a data type: effects appear in a function's effect \
-         list (`[{name}]`) or a handler's `of` clause, and their handlers are reached \
+         list (`[{name}]`) or a handler's `for` clause, and their handlers are reached \
          with `use`"
     );
 
@@ -4453,7 +4453,7 @@ messages! {
     );
 
     // [qual-of]
-    /// A qualifier whose `of` type does not fit.
+    /// A qualifier whose `for` type does not fit.
     qual_of_does_not_apply = "qual-of:does-not-apply" (qualifier: &dyn std::fmt::Display, base: &dyn std::fmt::Display) => format!(
         "qualifier `{qualifier}` does not apply to `{base}`"
     );
@@ -4468,7 +4468,7 @@ messages! {
     /// A `qualifies` that does not take exactly one parameter.
     qual_predicate_param_count = "qual-predicate:param-count" () =>
         "`qualifies` must take exactly one parameter (the candidate value)";
-    /// A `qualifies` whose parameter does not accept the `of` type.
+    /// A `qualifies` whose parameter does not accept the `for` type.
     qual_predicate_param_type = "qual-predicate:param-type" (of_ty: &dyn std::fmt::Display) => format!(
         "`qualifies` must accept a `{of_ty}` parameter"
     );

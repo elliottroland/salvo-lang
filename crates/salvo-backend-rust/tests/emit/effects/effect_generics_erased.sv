@@ -7,7 +7,7 @@
 // monomorphic items, and `spawn Registering<Ping>()` needs no turbofish.
 actor effect Ping { send fn ping(n: Int) => !n
     send fn count(out: Reply<Int>) => !out }
-handler Pinging() [Console] of Ping {
+handler Pinging() [Console] for Ping {
     mailbox { capacity: 4 }
     state {
         seen: Int = 0
@@ -30,7 +30,7 @@ actor effect Reg<E> {
 
 //~ emits(main.rs): pub struct Registering {
 //~ !emits(main.rs): Registering::<
-handler Registering<E>() of Reg<E> {
+handler Registering<E>() for Reg<E> {
     mailbox { capacity: 8 }
     state {
         all: Mut List<eff[E]> = Mut List()

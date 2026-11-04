@@ -58,7 +58,7 @@ export fn range(end: Int) -> Mut RangeIter {
 // identities and places: compile-time known, so
 // nothing tracks it and nothing can invalidate it.
 // @compilerrules [qual-const, cmp-carry, qual-depend]
-export qualifier InRange(lo: Int, hi: Int) of Int {
+export qualifier InRange(lo: Int, hi: Int) for Int {
     // Why a value failed: "70000 is not in 1..65535".
     //
     // @whynot [n] is not in [lo]..[hi]

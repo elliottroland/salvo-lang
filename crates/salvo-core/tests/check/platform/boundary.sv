@@ -4,7 +4,7 @@
 // prove it of a host value — is trusted when the platform declaration sits in
 // its module, as its constructors are (here), and refused from another
 // (`other.sv`) (ABI D7).
-qualifier Clean of Str
+qualifier Clean for Str
 
 platform fn scrub(s: Str) [] -> Clean Str => s
 
@@ -22,7 +22,7 @@ struct Box { v: Str }
 platform fn peek(b: Box) [] -> proj(b) Str => b
 
 // FILE: lib.sv
-export qualifier Clean of Str
+export qualifier Clean for Str
 
 // FILE: other.sv
 import lib.Clean

@@ -9,7 +9,7 @@ effect Stash {
     fn pick<T>(a: T, b: T) -> T => !a, !b
 }
 
-handler FirstStash of Stash {
+handler FirstStash for Stash {
     fn pick<T>(a: T, b: T) -> T
     => !a, !b {
         return a

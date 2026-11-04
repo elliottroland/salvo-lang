@@ -369,7 +369,7 @@ Conventions:
     listed values (with `other(…)` offered when the union is open); a plain
     base value must be narrowed first. A value reaches an `Other` arm only
     through `std.core.other`'s `other(…)` — `Other` is an ordinary
-    `provenance qualifier Other<T> of T` with no rules of its own.
+    `provenance qualifier Other<T> for T` with no rules of its own.
   * **Narrowing**: `is "A"` (the check is the literal alone), `is Kms` for
     a named literal sub-union, `is Other` for the rest; `when` over a
     subject is exhaustive over the literals as over any arms.
@@ -832,7 +832,7 @@ Conventions:
   2026-10-30; it was five declarations, one per container, since 2026-09-13):
 
   ```
-  export qualifier NonEmpty<T canbe linear> of T {
+  export qualifier NonEmpty<T canbe linear> for T {
       fn qualifies(value: T, ?size: (value: T) -> Int) -> Bool {
           return size(value) > 0
       }
@@ -842,7 +842,7 @@ Conventions:
   * The `size` is an **implicit of `qualifies`** (as `Idx`'s is [col-idx]),
     not a slot in the header: it is resolved where the claim is tested, at the
     subject's concrete type, so nothing about it prints in the type. The
-    test binds the qualifier's generics by unifying its `of` with the
+    test binds the qualifier's generics by unifying its `for` with the
     subject (`check_predicate_quals`), so `xs is NonEmpty` over a
     `Mut List<Int>` passes `size(List<T>)`. A `Mut` subject is dropped to its
     plain type for the call, which on Kotlin turns a `Mut Str`'s
@@ -879,7 +879,7 @@ Conventions:
   * The constructors are Salvo (2026-10-30): only the empty `Mut List()` is
     intrinsic, and the others `add` into it [col-of-nonempty].
 * [col-sorted-list] std declares
-  `qualifier Sorted<T>(?cmp: (T, T) -> Int) of List<T>` in
+  `qualifier Sorted<T>(?cmp: (T, T) -> Int) for List<T>` in
   `std.core.list` — a **state claim** over a list, and a different mechanic from
   the `SortedSet`/`SortedMap` types [col-sorted], which are a representation.
   A `Sorted List<T>` still reaches the whole list surface.
@@ -926,7 +926,7 @@ Conventions:
     [col-key-eligible] — checked where the claim is written, and where a call
     infers it (a constructor's `+Q` lives beside the return type rather than
     in it, so the inferred path re-applies it before checking).
-* [col-distinct] std declares `qualifier Distinct<T> of List<T>` in
+* [col-distinct] std declares `qualifier Distinct<T> for List<T>` in
   **`std.core.set`**, not `std.core.list`: a constructor must sit beside its qualifier
   [qual-ctor-same-file], and a *set* is what can honestly promise the claim —
   `to_list(set)` answers `-> +Distinct List<T>`. Mint-only, like `Sorted`.
@@ -952,7 +952,7 @@ Conventions:
     (`Emitted Enumerated<T>`), which body inference cannot see through a
     generic constructor — the exact case the written form exists for
     [proj-infer].
-* [col-idx] `std.core.index` declares `qualifier Idx<C canbe linear>(c: C) of
+* [col-idx] `std.core.index` declares `qualifier Idx<C canbe linear>(c: C) for
   Int` [qual-depend] — `0 <= index < size(c)`, about one particular
   container — with **total overloads** consuming it: `get(list, index:
   Idx(list) Int) -> proj(list) T` (no `None` arm), its handle twin `at(list,
@@ -1006,7 +1006,7 @@ Conventions:
   (Kotlin `copyOf`); `noremote` like every platform type; no `==`. The
   operations are Salvo over private `int_*`/`long_*` platform fns, since two
   platform fns of one module may not overload.
-* [ref-notsame] `std.core.ref` declares `qualifier NotSame<T>(a: T) of T`
+* [ref-notsame] `std.core.ref` declares `qualifier NotSame<T>(a: T) for T`
   [qual-depend] — `b` is a different element from `a` — the proof that two
   bound mutable handles cannot alias [fate-elem-distinct] (user decision
   2026-10-10, retiring `std.core.index`'s `NotEq` on indices: a proof about the
@@ -1066,7 +1066,7 @@ Conventions:
     element out of a `List<T?>` is `replace(xs, i, None)`. It takes a linear
     element type too, since a **qualifier's type parameter may `canbe
     linear`** (user decision 2026-10-05): `qualifier Idx<C canbe linear>(c:
-    C) of Int` claims an index of a list of obligations. Since 2026-10-05 a
+    C) for Int` claims an index of a list of obligations. Since 2026-10-05 a
     platform fn of `std.core.list` (the host writes; `std.core.index`'s `Idx` refines
     it to keep the claims) [col-idx].
 * [str-mut-results] **A list made from a string is the caller's own**:
@@ -1094,7 +1094,7 @@ Conventions:
   platform boundary, the second a report.
 * [col-span] `std.core.string` declares `struct Span { start: Int, end: Int }`
   — a struct, not a tuple, because a qualifier cannot apply to a tuple
-  [qual-union-arm] — and `qualifier SpanOf(str: Str) of Span`
+  [qual-union-arm] — and `qualifier SpanOf(str: Str) for Span`
   [qual-depend]: `0 <= start <= end <= size(str)`, the parse-don't-validate
   pattern for a multi-part precondition (the pair is claimed *whole*, so
   the cross-field fact rides along). `substr(str, at: SpanOf(str) Span) ->
@@ -1746,9 +1746,13 @@ Conventions:
 
 ## Qualifiers
 
-* [qual-of] `qualifier Q<G> of T` declares a qualifier applying to `T`
-  (its `of` type). `Q T` behaves like a distinct type for overloading.
-  * Applicability is checked by unification against the `of` type at
+* [qual-of] `qualifier Q<G> for T` declares a qualifier applying to `T`
+  (its `for` type). `Q T` behaves like a distinct type for overloading.
+  * **Spelled `for`** (user decision 2026-10-30, with handlers'
+    [effect-decl]): it was `of`, a keyword used only here and in a handler's
+    head; `for` was already a keyword, so `of` went back to being a name.
+    The label keeps its old spelling.
+  * Applicability is checked by unification against the `for` type at
     *declaration sites* (fn signatures, `let` annotations, struct fields)
     — not during type lowering, which runs repeatedly.
 * [qual-no-dup] The same qualifier cannot be applied twice to one type
@@ -1788,17 +1792,17 @@ Conventions:
     (a rename is not importable [fn-rename]), the same escape
     `first(NonEmpty List<T>)` makes by delegating to `get` [col-of-nonempty].
   * A user's same-name qualifier over a particular subject (`qualifier
-    NonEmpty<T> of List<T>`) now sits beside std's generic one as an overload
+    NonEmpty<T> for List<T>`) now sits beside std's generic one as an overload
     rather than shadowing it, and std's type-body refinements, which name the
     claim, reach it by name. Recorded in ROADMAP.md as an open defect.
-  * The subject is keyed **syntactically, by the `of` type's base name**
-    (`List`, `Set`, …). A generic `of` (`qualifier Ok<T> of T`) has no base
+  * The subject is keyed **syntactically, by the `for` type's base name**
+    (`List`, `Set`, …). A generic `for` (`qualifier Ok<T> for T`) has no base
     name, accepts every subject, and so cannot be told apart from another
     declaration of its name — which therefore stays a duplicate. Syntactic on
     purpose: resolution, the [mod-collision] checks, the refinement matcher
     and both backends need the same answer, and only the checker can unify.
   * **Same name *and* same subject is not an overload but a replacement.** A
-    module declaring its own `NonEmpty of List<T>` shadows std's, exactly as
+    module declaring its own `NonEmpty for List<T>` shadows std's, exactly as
     before; two in *one* module are a duplicate ("nothing at a use site could
     tell them apart"), as are two in different implicitly visible `std.core`
     modules.
@@ -1828,7 +1832,7 @@ Conventions:
   predicate, not in a pairwise relation.
   * The `with` *keyword* survives only for the handler-dependency clause
     (`use H() with Dep()`); it is no longer a qualifier clause, and a `with`
-    after a qualifier's `of` type is a parse error.
+    after a qualifier's `for` type is a parse error.
   * Provenance qualifiers always composed freely [qual-subject]; now every
     qualifier does.
 * [qual-union-arm] In an un-parenthesized union, a qualifier binds to the
@@ -1867,7 +1871,7 @@ Conventions:
 * [qual-value-arg] A qualifier's (or an `intrinsic type`'s) **value
   arguments live in a round-bracket block after the type generics**, at the
   declaration and at every use (user decision 2026-09-23):
-  `qualifier Sorted<T>(?cmp: (T, T) -> Int) of List<T>`,
+  `qualifier Sorted<T>(?cmp: (T, T) -> Int) for List<T>`,
   `Heap(min_by_age) Mut List<Person>`, `SortedSet<Str>(by_len)`. The `?`
   prefix marks **implicit** entries (fn slots, resolved by name
   [implicit-resolve], and group spreads `?Ordered<T>`); identities are
@@ -1885,7 +1889,7 @@ Conventions:
   `name: Type` entries in its block — making it a **dependent claim**: a
   fact about the subject's relationship to another value (user decisions
   2026-09-23; the refinement-types sequence, step 2). std's first is
-  `std.core.map`'s `qualifier KeyOf<K, V>(map: Map<K, V>) of K`.
+  `std.core.map`'s `qualifier KeyOf<K, V>(map: Map<K, V>) for K`.
   * **The runtime tier is a dependent `qualifies`**: the subject first,
     then one parameter per value slot, each matching its slot's type —
     `KeyOf`'s is exactly `contains_key`. Tested with the **filled block**:
@@ -1949,7 +1953,7 @@ Conventions:
 * [qual-const] A qualifier's value slot may be filled with a **constant**
   — the third slot kind, after fn identities [cmp-carry] and places
   [qual-depend] (user decisions 2026-09-23; the refinement-types sequence,
-  step 6): `std.core.range`'s `qualifier InRange(lo: Int, hi: Int) of Int`,
+  step 6): `std.core.range`'s `qualifier InRange(lo: Int, hi: Int) for Int`,
   used as `InRange(0, 65535) Int`. Compile-time known, so nothing tracks
   it and nothing can invalidate it; the dependent `qualifies` receives the
   constants as ordinary arguments (`n is InRange(0, 100)` lowers to
@@ -1994,8 +1998,8 @@ Conventions:
     as they consume a refinement's.
   * Rendered in hover beside additions and removals ([qual-refn-docs]:
     `[list: +NonEmpty preserve Idx]`).
-* [qual-generic] Qualifiers can be generic, and as generic as their `of`
-  type or less (`qualifier Ok<T> of T`, `qualifier Ints of Pair<Int,
+* [qual-generic] Qualifiers can be generic, and as generic as their `for`
+  type or less (`qualifier Ok<T> for T`, `qualifier Ints for Pair<Int,
   Int>`). Nested qualified types (`Ok (Ok Str | Err Int)`) are legal but
   discouraged.
   * `substitute_vars` re-normalizes `Ty::Qualified` through `qualify()` so
@@ -2003,8 +2007,8 @@ Conventions:
   * Constructing one in a single expression works for *distinct*
     qualifiers and not for a repeat of the same one — see [qual-group].
 * [qual-subject] A qualifier declares what its claim is *about* (D5, user
-  decisions 2026-09-03). `qualifier Q of T` is a **state** claim — about
-  the value's *contents*. `provenance qualifier Q of T` is a
+  decisions 2026-09-03). `qualifier Q for T` is a **state** claim — about
+  the value's *contents*. `provenance qualifier Q for T` is a
   **provenance** claim — about what the value *passed through*, which is
   content-independent. Two families use the one kind (user decision
   2026-09-23): **authority** (`Authenticated`, `EnvironmentId` — the value
@@ -2049,7 +2053,7 @@ Conventions:
 * [qual-predicate] A qualifier with a body is a *predicate qualifier*: it
   declares `fn qualifies(x: OfType) -> Bool`.
   * The `qualifies` signature is validated: exactly one param accepting
-    the `of` type, returns `Bool`, no deductions; effects are allowed
+    the `for` type, returns `Bool`, no deductions; effects are allowed
     (see [is-qualifies-effects]).
 * [is-qualifies] The `is` keyword is backed by the `qualifies` function
   for predicate qualifiers: `x is Positive` on a non-union subject calls
@@ -2126,7 +2130,7 @@ Conventions:
     (`fn ok<T>(value: T) -> +Ok T`).
 * [qual-ctor-same-file] Constructor functions must be declared in the same
   file as their qualifier — or, for a **generic state** qualifier (`qualifier
-  NonEmpty<T> of T`), in the file that declares the subject type
+  NonEmpty<T> for T`), in the file that declares the subject type
   [qual-refn-type] (user decision 2026-10-30): a claim that belongs to no one
   subject is vouched for by the author of the type it is about.
 * [qual-arm-infer] **Provenance-arm inference** (user decision 2026-10-12): at a
@@ -2146,7 +2150,7 @@ Conventions:
   literal or wrapped explicitly with `other(…)` [type-literal], never
   auto-wrapped into the open arm.
 * [qual-result-tags] std ships the result tags in `std.core.result`:
-  `provenance qualifier Ok<T> of T`, `provenance qualifier Err<T> of T` (provenance
+  `provenance qualifier Ok<T> for T`, `provenance qualifier Err<T> for T` (provenance
   as of 2026-09-23 [qual-subject]), and their constructors
   `ok`/`err` (2026-09-03), so `-> Ok Int | Err Str` needs no local
   declarations. Nothing about them is intrinsic — they are ordinary
@@ -2161,7 +2165,7 @@ Conventions:
     Result<T, E> = Ok T | Err E` alias would only hide the arms.
 * [type-result-errs] **The accumulating outcome, `Ok T | Errs NonEmpty List<E>`**
   (the CLI design record X12, Q11, the arm's name `Errs`; built 2026-10-20), in
-  `std.core.result`: every error, not the first. `provenance qualifier Errs<T> of
+  `std.core.result`: every error, not the first. `provenance qualifier Errs<T> for
   T`, its constructors `errs(e)` (one error) and `Errs(list)`, and
   `both(a, b)` (both values as a pair) and `map2(a, b, f)`, which keep
   collecting after a failure: two failures give `a`'s errors then `b`'s.
@@ -2171,7 +2175,7 @@ Conventions:
     reads its elements as views, so moving each outcome out needs a
     consuming iteration std does not have yet.
 * [qual-ctor-simple] Constructor return types must be simple (no
-  union/tuple); the constructed qualifier must satisfy the `of` type.
+  union/tuple); the constructed qualifier must satisfy the `for` type.
 * [qual-ctor-predicate] Predicate qualifiers may have constructor
   functions too: the constructor asserts its predicate holds *by
   construction*, so callers get `Q T` without a runtime `is` check (no
@@ -2351,7 +2355,7 @@ Conventions:
     type as its base (`qual-refn-type:other-subject`): a type speaks for its
     own values.
   * **Only a claim its author is trusted with** — a *generic* state qualifier
-    (`of T`, which no subject's author owns), or one declared in the same
+    (`for T`, which no subject's author owns), or one declared in the same
     file (`qual-refn-type:foreign-qualifier`). The same trust lets the
     type's file establish such a claim with `+Q` [deduce-reapply]
     [qual-ctor-same-file]. A claim about one particular type declared
@@ -3948,7 +3952,7 @@ Conventions:
   two sources at once — which a step function expresses directly; `iter fn`
   is the sugar [iter-fn] and `Iter` the source side [iter-group].
   * `Emitted` is a *provenance qualifier* (`provenance qualifier Emitted<T>
-    of T` [qual-subject]) so the element
+    for T` [qual-subject]) so the element
     keeps its own type, which is also what keeps the end of a sequence of
     optionals distinguishable: `Emitted None | Finished` has two arms where
     `None | None` would have one. `Finished` is a fieldless struct — it has
@@ -4985,7 +4989,10 @@ Conventions:
     [rs-borrows].
 
 * [effect-decl] `effect E<G> { fn member(...) -> T }` declares an effect:
-  a set of functions available to code that depends on `E`.
+  a set of functions available to code that depends on `E`. A handler names
+  the effects it implements after `for`: `handler Counting() for Tally {
+  … }` (user decision 2026-10-30; it was `of`, as a qualifier's subject was
+  [qual-of]).
 * [effect-member-generics] Effect member fns may declare their *own*
   generics (`fn pick<T>(a: T, b: T) -> T`); they bind per call from the
   argument types (progressively — later params and the return type see
@@ -5041,7 +5048,7 @@ Conventions:
     generated struct field's name — the `next` body's `__p.<field>` reads
     and the IR read it back from that node.
 * [effect-handler-multi] **A handler may implement several effects**, one face
-  per effect: `handler ManualTime() of Timer, TimerCtl` (T-4(a), user decision
+  per effect: `handler ManualTime() for Timer, TimerCtl` (T-4(a), user decision
   2026-09-17; built 2026-09-18). One handler, one piece of state, one mailbox
   when it is an actor's — and one *typed face* per protocol.
   * **What it replaces**: the forwarding split. Two protocols over one state
@@ -5132,7 +5139,7 @@ Conventions:
       Under "copies only by opt-in" they were a copy nobody wrote.
 * [effect-not-data] An effect names a *capability*, not a type of values.
   It may appear in a fn's effect list (`[Console]`), in a **handler's** effect
-  list and its `of` clause; every data position — struct field, parameter,
+  list and its `for` clause; every data position — struct field, parameter,
   return type, `let` annotation, type alias, union or tuple component — is an
   error (user decision 2026-09-03). The value would have to be a handler
   instance, and those are reached through `use`.
@@ -5221,7 +5228,7 @@ Conventions:
     class's parameter from an empty argument list.
 * [effect-handler-deps] A handler declares the effects it *depends on* as an
   **effect list on the declaration**, exactly as a fn does:
-  `handler Stamped [Logger, Clock] of Logger` (user decision 2026-09-14,
+  `handler Stamped [Logger, Clock] for Logger` (user decision 2026-09-14,
   replacing constructor parameters of effect type — the names could not be
   used for anything, and an effect in a data position is now always
   [effect-not-data]). Declared on the *handler*, not the effect —
@@ -5284,7 +5291,7 @@ Conventions:
     substituted (`Log<T> [Sink<T>]` at `Log<Str>` implies `Sink<Str>`).
   * **Handlers**: every non-platform, non-intrinsic handler of `Fs` gains
     `Streams` as a dependency, unless it wears `Streams` as a face itself
-    (`of Fs, Streams`). A `use` without a `Streams` bound reports the
+    (`for Fs, Streams`). A `use` without a `Streams` bound reports the
     prerequisite by name (`handler \`MemFs\` implements \`Fs\`, which needs
     \`Streams\` in scope`), recognised by the entry's `Prereq` origin.
   * **Expanded where effect lists are lowered** (2026-10-20, the pipeline record
@@ -5461,7 +5468,7 @@ Conventions:
   across them" — and accepts every binding, since a single instance is a
   group of one. Contextual: `any` followed by an effect name.
   * **The binding side**: a handler declares the weaker guarantee in its
-    `of` clause, per face — `handler RoundRobin(members) of any Resizer` —
+    `for` clause, per face — `handler RoundRobin(members) for any Resizer` —
     and a `use` of it binds `any Resizer`, which satisfies **only**
     `[any Resizer]`. A router that forwards to many members and omits `any`
     is telling a lie the checker cannot see: the one gap, accepted.
@@ -5523,11 +5530,11 @@ Conventions:
     a silent divergence rather than a diagnostic (found exactly that way in
     the Kotlin emitter, 2026-09-14).
 * [effect-intercept] A handler constructor parameter of the **same** effect
-  the handler implements is *interception*: `handler RestrictedFs(root: Str) [Fs] of Fs`. The dependency binds **strictly outward** — to the
+  the handler implements is *interception*: `handler RestrictedFs(root: Str) [Fs] for Fs`. The dependency binds **strictly outward** — to the
   instance in scope *before* this handler's own `use` — so an interceptor
   wraps the handler it shadows, and interceptors stack (an interceptor may
   wrap an interceptor). User decision 2026-09-14 (FILE_SYSTEM.md §5.1,
-  option O-R2), where `RestrictedFs of Fs` over a `MemFs`/`DefaultFs` is
+  option O-R2), where `RestrictedFs for Fs` over a `MemFs`/`DefaultFs` is
   the customer that made it load-bearing.
   * **Acyclicity survives unchanged.** Every dependency edge still points
     at a registration that precedes this one, and "precedes" is
@@ -6126,9 +6133,9 @@ Conventions:
     and the language server answers from that record before its usual tables.
 * [comptime-qualifier] **A comptime qualifier describes a declaration and is
   read by comptime code** (the CLI design record round 1 D-1, §10.1c (B), Q5; built
-  2026-10-20): `export comptime qualifier Short(c: Char) of Field`, written
+  2026-10-20): `export comptime qualifier Short(c: Char) for Field`, written
   before a field's name (`Short('p') port: InRange(1, 65535) Int = 8080`),
-  and `comptime qualifier Named(name: Str) of Struct`, written before a
+  and `comptime qualifier Named(name: Str) for Struct`, written before a
   struct declaration, ahead of its modifiers and on its line or the line
   above (`Named("rm") export struct Remove`), as Kotlin places annotations.
   * **Its subject is `std.core.comptime`'s `Field` or `Struct`** (`Arm` and
@@ -6165,7 +6172,7 @@ Conventions:
   `[arm.type](value)`, a call to its claim's type-named constructor
   [fn-type-named] — `Ok(value)` for an `Ok Str` arm, as one writes it, with
   the subject passed as the type argument when the claim is generic over it
-  (`qualifier Ok<T> of T`, so `Ok<Str>(value)`); a plain named arm calls its
+  (`qualifier Ok<T> for T`, so `Ok<Str>(value)`); a plain named arm calls its
   base's type-named fn; `None` is written `None`, and calling a `None` arm is
   an error. The parser carries the callee as the splice's name and the
   expansion names it per copy; the checker sees the ordinary call.
@@ -6642,14 +6649,14 @@ Conventions:
   and [implicit-resolve]'s per-call-site locality stops being a hazard because
   what one call site resolved is published by the type it produced.
   * The declaration writes a **fn slot** in its generics list —
-    `qualifier Heap<T>(?cmp: (T, T) -> Int) of List<T>`,
+    `qualifier Heap<T>(?cmp: (T, T) -> Int) for List<T>`,
     `intrinsic type SortedSet<T>(?cmp: (T, T) -> Int)` — spelled like the implicit
     parameter it is resolved as [implicit-param]. **There is no default to
     write**: the slot's *name* is what an unwritten one resolves by, which is how
     an implicit parameter already works [implicit-resolve] (user decision
     2026-09-22 — an earlier `= cmp` form restated the mechanism and is gone). A **`fns` group spreads into a slot list** exactly as it
     does into a parameter list (user decision 2026-09-22):
-    `qualifier Heap<T>(?Ordered<T>) of List<T>` declares one slot per member, at
+    `qualifier Heap<T>(?Ordered<T>) for List<T>` declares one slot per member, at
     the position the spread is written, and two entries asking for the same
     position at the same type merge [implicit-group].
   * A use site fills the slot with an **identity**: a bare name
@@ -6699,8 +6706,8 @@ Conventions:
   * **Type arguments first, slots after** — one positional reading for a
     qualifier and a keyed type alike (user decision 2026-09-22):
     `Heap<Person>(cmp@Person) Mut List<Person>`, `SortedSet<Str>(my_cmp)`. A
-    slot's type is instantiated by matching the qualifier's `of` type against the
-    value, so `Heap<T>(?cmp: (T, T) -> Int) of List<T>` on a `List<Person>` wants
+    slot's type is instantiated by matching the qualifier's `for` type against the
+    value, so `Heap<T>(?cmp: (T, T) -> Int) for List<T>` on a `List<Person>` wants
     `(Person, Person) -> Int`. An argument nobody wrote — a type argument or a
     slot — is **unconstrained**, which is what keeps every mention of one
     qualifier the same arity.
@@ -7000,9 +7007,9 @@ Conventions:
 * [fs-host-split] The host-backed filesystem is its own module, **`fs.host`**:
   `effect RawFs` (the path operations and the opens; plain `Long` handles into
   the host stream table [stream-table], bare `FsError`s),
-  `platform handler HostRawFs of RawFs` (std ships
+  `platform handler HostRawFs for RawFs` (std ships
   `lib/platform/std/fs/host.{kt,rs}` [platform-handler]) and
-  `handler DefaultFs [RawFs] of Fs`, which mints the tokens, wraps failures
+  `handler DefaultFs [RawFs] for Fs`, which mints the tokens, wraps failures
   in `Checked<FsError>` and discharges in Salvo — the host never holds an
   obligation.
   * The split was load-bearing while the fused emission existed (a dependent
@@ -7010,7 +7017,7 @@ Conventions:
     is one shape and the split is a matter of what a module drags in.
   * `[RawFs]` stays greppable as the audit: nothing but a composition root
     (`use HostRawFs()`) and `DefaultFs` reaches raw handles.
-* [fs-double] `fs.mem` ships **`MemFs of Fs, Streams`**: an in-memory
+* [fs-double] `fs.mem` ships **`MemFs for Fs, Streams`**: an in-memory
   filesystem *and* stream table in pure Salvo, with no dependency and no host
   anywhere, so a test that registers it touches no disk. One handler wearing
   both faces (user decision 2026-09-29, 29), because a write stream must
@@ -7077,7 +7084,7 @@ Conventions:
     handler**, which is what keeps the colouring honest: the shape of a fn
     cannot depend on which handler flows in, so it is exactly the effect
     annotation the author already writes.
-  * `Throw` has **no handlers**: `handler X of Throw` is an error, and it
+  * `Throw` has **no handlers**: `handler X for Throw` is an error, and it
     is never threaded as an effect parameter (both backends exclude it).
     What *provides* it is an enclosing `try`, or a caller that declares it
     in turn.
@@ -7289,7 +7296,7 @@ docs/language/ remains the source of truth for everything that does.
       so a bare name there is the servant send.
   * **Dependencies are the servant's** (the first-slice cut lifted
     2026-10-20, user decision R6 of the pipeline record: one experience for every
-    handler). `handler H [Clock] of E` with send members declares what its
+    handler). `handler H [Clock] for E` with send members declares what its
     `send fn` members may call, written or implied by a face's
     prerequisite [effect-prereq]; the spawn resolves them exactly as an
     actor spawn does — a `with` item [effect-with-clause] or synthesized from the
@@ -7454,7 +7461,7 @@ docs/language/ remains the source of truth for everything that does.
   decision 2026-09-16, replacing the frozen `capacity N` spawn clause):
 
   ```
-  handler Desking(room: Int) of Desk {
+  handler Desking(room: Int) for Desk {
       mailbox { capacity: room }
       …
   }
@@ -8266,7 +8273,7 @@ docs/language/ remains the source of truth for everything that does.
     *outward* [effect-intercept], so the chain ends at the innermost instance.
     An edge from a handler's **own-effect dependency** is therefore dropped,
     while an `Addr` of its own protocol (a genuine peer mesh) still counts.
-  * **A router is a servant node** [effect-any]: a handler `of any E`, and
+  * **A router is a servant node** [effect-any]: a handler `for any E`, and
     the route a `use any` binds [actor-route-stub] (derived in the IR, so its node
     is built from the checker's `Constructed::Route` construction,
     2026-10-20), is `H's servant`,
@@ -8274,7 +8281,7 @@ docs/language/ remains the source of truth for everything that does.
   * **Router in-edges** [effect-any] (2026-10-26): a dependency declared
     `[any E]` (not on a face of the declarer's own — interception) is an
     edge into `E` **and** into the node of every router of `E` in the
-    program — each written `of any E` handler's, and `__Route_E`'s when `E`
+    program — each written `for any E` handler's, and `__Route_E`'s when `E`
     is routed — since a binding of `any E` may be any of them, over types.
     A router binds shareable, so its member runs on the caller's thread,
     and the edge's kind is what the caller does there:
@@ -8298,11 +8305,11 @@ docs/language/ remains the source of truth for everything that does.
     `Pong` — is an occupancy error, anchored at the dependency on `any
     Ping`. A strong `[E]` lands on `E` alone: a strong requirement refuses
     a router's binding. **A send through an `eff[E]` lands on every written
-    `of any E` router too** (user decision 2026-10-30), since the addr cannot
+    `for any E` router too** (user decision 2026-10-30), since the addr cannot
     say whether it answers with a member of `E` or a spawned router (the gap
     [effect-any] records), of the sender's kind — a spawned router is an
     actor, so no occupancy; a route cannot be spawned, so it gets none. So
-    `Ponger` gated on its `eff[Ping]`, beside `handler R() [Pong] of any
+    `Ponger` gated on its `eff[Ping]`, beside `handler R() [Pong] for any
     Ping` gated on `Pong`, is a gate cycle through `R`'s servant
     (`check/actors/deadlock.sv`). This may add a warning to a program that
     spawns routers; before, such a cycle went unseen.
@@ -8449,7 +8456,7 @@ the same day. **Not part of `std.core`**: the surface is imported, and one
     `after_nanos` stays tracked until it fires (the old runtime untracked it),
     which is never visible, since `on_idle` cannot fire while a deadline is
     pending.
-* [time-manual] **`handler ManualTime() of Timer, TimerCtl`** is the
+* [time-manual] **`handler ManualTime() for Timer, TimerCtl`** is the
   pure-Salvo fake — `MemFs`'s answer applied to time [effect-handler-multi].
   Virtual time starts at zero and moves only through
   `TimerCtl.advance(by)`, firing every deadline it iterators **in deadline
@@ -8498,7 +8505,7 @@ the same day. **Not part of `std.core`**: the surface is imported, and one
     is behind both.
 
     ```
-    handler TestTicker(timer: eff[Timer]) [waitfor] of Ticker {
+    handler TestTicker(timer: eff[Timer]) [waitfor] for Ticker {
         fn tick() -> Tick {
             let fired = waitfor answer: Reply<Fired> { timer.after(nanos(0), answer) }
             return fired.at
@@ -8550,7 +8557,7 @@ surface is imported — `import std.args` brings `Args`, `args()` and `HostArgs`
     Rust `std::env::args()` includes it and the handler drops it with
     `skip(1)`. A program name is *not* an argument and is read from neither
     here [backend-parity].
-  * **`threadsafe platform handler HostArgs() of Args`** is the host's argv,
+  * **`threadsafe platform handler HostArgs() for Args`** is the host's argv,
     read the one way each backend offers. Stateless, so sharing it across
     threads needs no synchronization [platform-threadsafe]. Std ships both
     host implementations (`lib/platform/std/args.{rs,kt}`).
@@ -8577,7 +8584,7 @@ is a module of its own, imported like `args` [mod-import-module], so a function
 can have one capability without the other.
 
 * [cli-process] **`effect Process { fn exit(code: Int) -> Never }`** ends the
-  process with status `code`; `threadsafe platform handler HostProcess() of
+  process with status `code`; `threadsafe platform handler HostProcess() for
   Process` is the host's exit. An effect for the reason `Args` is [cli-args]:
   ending the process is something a function does to the world, so it is in
   the signature, and a test can bind a handler that records the code.
@@ -8597,7 +8604,7 @@ can have one capability without the other.
     `Nothing` already fits.
 * [cli-env] **`effect Env { fn env(name: Str) -> Str? => name }`** reads an
   environment variable, `None` when it is unset; `threadsafe platform handler
-  HostEnv() of Env` reads the host's (`System.getenv`, `std::env::var`). A
+  HostEnv() for Env` reads the host's (`System.getenv`, `std::env::var`). A
   variable that is not valid Unicode is `None` on Rust, where a `Str` could
   not hold it; the JVM decodes it.
 * [args-lex] **`args.lex` splits a command line into tokens** with no
@@ -8665,7 +8672,7 @@ can have one capability without the other.
     scan's are added (`group_errors`), and its value taken once every check
     passed (`built`).
 * [args-commands] **A `Subcommand` field takes a sub-command** (the CLI design record
-  §10.2, Q14, D-3, D-4): `export comptime qualifier Subcommand of Field`, on
+  §10.2, Q14, D-3, D-4): `export comptime qualifier Subcommand for Field`, on
   a field whose type is a union of command structs, each declaring
   `FromArgs`; `(A | B)?` makes the command optional.
   * A command's name is its spec's: `Named`'s, or `command_name` of its
@@ -8723,7 +8730,7 @@ can have one capability without the other.
   or errors as `args_or_exit` does. It rests on [fn-value] (the implicit
   keeps the claim `+Valid` gains) and [fn-throw-value] (the implicit's
   throw lands in the `try`).
-  * **Comptime qualifiers**: `Short(c: Char) of Field`, `Positional of
+  * **Comptime qualifiers**: `Short(c: Char) for Field`, `Positional of
     Field` (taken in field order), `Named(name: Str) of Struct` (the command
     name; otherwise `command_name(T.name)`). A struct's doc comment is the
     about line, a field's its help.
@@ -8769,7 +8776,7 @@ between endpoints and delivers what arrives into the scheduler.
     sorts in a membership list. Distinct from the `Node` step ④ mints *after*
     a handshake.
 * [net-host] `threadsafe platform handler HostTcpTransport(bind: NodeEndpoint)
-  of Transport` is std's first `threadsafe` host [platform-threadsafe] — a
+  for Transport` is std's first `threadsafe` host [platform-threadsafe] — a
   transport is reached from every pool at once — with one class per backend
   in `lib/platform/std/net.{rs,kt}`, both signing the contract. The wire is
   identical on both: one TCP connection per peer, opened lazily by the first
@@ -8793,7 +8800,7 @@ between endpoints and delivers what arrives into the scheduler.
   pair, `kill(node)` takes a node off until something `attach`es there again,
   `delivered(out)` counts routed frames; `route(from, to, out: Reply<eff[
   Inbound]?>)` answers the listener or `None`. `handler MemTransport(me:
-  NodeEndpoint, net: eff[MemNet]) of Transport` is **stateless** — the
+  NodeEndpoint, net: eff[MemNet]) for Transport` is **stateless** — the
   network holds everything — so a `use` binds it bare and shareable; its
   `deliver` waits on the network for the route (a `waitfor` on the caller's
   thread, serving the caller's pool meanwhile [waitfor-pump]) and sends to
@@ -8930,9 +8937,9 @@ between endpoints and delivers what arrives into the scheduler.
   * **The runtime's outbound is an actor**: `route_frames(out: eff[Outbound])`
     (Salvo since 2026-10-06: it hands the host the named fn `forward_frame`
     through `bind_outbound` [platform-fn-value], which decodes the endpoint
-    and sends `send_frame` to the actor) binds the current node's wire (`Sending [Transport] of Outbound` in std
+    and sends `send_frame` to the actor) binds the current node's wire (`Sending [Transport] for Outbound` in std
     hands frames to the transport in scope), `add_route(node, at)` says where
-    a node's frames go, and `Receiving of Inbound` hands arriving frames to
+    a node's frames go, and `Receiving for Inbound` hands arriving frames to
     `deliver_frame`. A frame for an unknown target, with mismatched bits or a
     malformed payload is **dropped, never delivered wrong**.
   * [net-connect] **`connect(me) -> Bool`** (2026-09-27) is the three bindings
@@ -9172,7 +9179,7 @@ between endpoints and delivers what arrives into the scheduler.
   an operand that does not open a call or a member.
   * **The route is derived, not written** (R7): one per routed protocol, in
     the protocol's own module, by the IR (`ir::build::actors`, beside the
-    `__Stub_E` it derives) — `__Route_E(group) [RouteSelector<E>] of any E`,
+    `__Stub_E` it derives) — `__Route_E(group) [RouteSelector<E>] for any E`,
     with the view version its selector last saw as state, each member
     `route_pick(group, seen[, key_hash(k)])`, then `seen` updated, then a
     forward to the answer. The checker types the operand, requires a
@@ -9187,7 +9194,7 @@ between endpoints and delivers what arrives into the scheduler.
   * **Its deadlock node** [actor-deadlock-cycle] [effect-any] (2026-10-20,
     PIPELINE R8 piece 6): the derived route is no AST handler, so the graph
     builds its node from the route construction — `__Route_E's servant`, as a written
-    `of any E` router gets one: its `RouteSelector<E>` dependency's
+    `for any E` router gets one: its `RouteSelector<E>` dependency's
     occupancy edges, to the mixed servants and priced shareable handlers of
     `RouteSelector` in the program, each anchored at `E`'s first `use any`.
     Every dependency on `any E` points at it, as occupancy (the route locks
@@ -9222,7 +9229,7 @@ between endpoints and delivers what arrives into the scheduler.
     `view_wait`) — behind the replica by one message, never in the send
     path, and no hop. A group with no replica on this node has an empty
     view, so its stub waits: route a group from the node that opened it.
-  * **`Key`** (`export provenance qualifier Key<T> of T`, std `net`) marks
+  * **`Key`** (`export provenance qualifier Key<T> for T`, std `net`) marks
     the parameter whose value decides the member: `send fn reserve(sku: Key
     Str, …)`. Recorded at the effect (`route_keys`) and **erased at
     lowering**, so the parameter's type is the plain one and a caller passes
@@ -9425,7 +9432,7 @@ between endpoints and delivers what arrives into the scheduler.
   * **Only in the file that declares `Q`** [qual-ctor-same-file], which is the
     same party already trusted to mint the claim with `-> +Q T` [qual-ctor-fn]
     and to speak for someone else's call with a `refn` [qual-refn]. Elsewhere it
-    is an error naming both remedies. A **generic state** qualifier (`of T`) may
+    is an error naming both remedies. A **generic state** qualifier (`for T`) may
     also be established by the file that declares the subject's type
     [qual-refn-type] — `std.core.deque` writes `-> +NonEmpty Deque<T>` for
     the host's `deque_from`.
@@ -11769,7 +11776,7 @@ between endpoints and delivers what arrives into the scheduler.
     a type)`) — no import fixes a position mistake.
   * Positions covered: fn params and return types, `let` annotations,
     struct fields, handler ctor params and state fields, effect-member
-    signatures, type-alias targets, qualifier `of` types and field
+    signatures, type-alias targets, qualifier `for` types and field
     overrides, `with` [qual-with] and `canbe` [qual-canbe-optin] clauses,
     array-init element types, and `is` / `when` checks. Reported from
     `validate_type` / `validate_quals` / `parse_check` at *declaration
@@ -11788,7 +11795,7 @@ between endpoints and delivers what arrives into the scheduler.
 * [name-dot] A struct or qualifier may be declared with a *dot-name*
   `Ns.Name` (N1, user decisions 2026-09-03), giving the Kotlin
   wrapper-type idiom (`Environment.Id`) without nested declarations.
-  Dot-names are legal in every type position: annotations, `of` types,
+  Dot-names are legal in every type position: annotations, `for` types,
   `is` checks, `+Q` constructors, `canbe` clauses, deduction clauses,
   struct literals.
   * `Ns` must be a **namespace** — a `namespace X { … }` block [mod-namespace],
@@ -12663,7 +12670,7 @@ replaced the working document TESTING.md).
   and the parse error says so. No shipped source used one; a platform handler
   of an ordinary effect [platform-handler] covers the same ground, and the
   form may return when a need for it appears.
-* [platform-handler] `platform handler H of E` declares a handler of an
+* [platform-handler] `platform handler H for E` declares a handler of an
   **ordinary** Salvo effect whose implementation is a class the *build*
   supplies, in the target language (FS-1 resolved as O-M2, user decision
   2026-09-14; the deferred 2026-09-05 proposal, un-deferred because
@@ -12702,7 +12709,7 @@ replaced the working document TESTING.md).
     no body (no members, no state — the host class holds both); no effect
     dependencies (a dependency is supplied to *members*, and these members
     are host code, which performs no Salvo effect — put an ordinary Salvo
-    handler in between, `handler DefaultFs [RawFs] of Fs`); not generic (the
+    handler in between, `handler DefaultFs [RawFs] for Fs`); not generic (the
     host writes one concrete class).
 * [platform-type] **`platform type Name` is an opaque handle to a host
   object** (user decision 2026-10-02, the runtime record): Salvo sees a name and
@@ -12932,7 +12939,7 @@ replaced the working document TESTING.md).
     no host project, another ABI revision, or signatures changed since it was
     generated — and `salvo platform generate` in that directory as the fix.
     A build that does not reach the dependency's platform code does not look.
-* [platform-threadsafe] `threadsafe platform handler H of E` states the host
+* [platform-threadsafe] `threadsafe platform handler H for E` states the host
   class's **thread-safety contract** (user decision 2026-09-26, closing the
   2026-09-20 "assumed thread-safe" stance): the instance may be entered
   concurrently from any thread, because the host synchronizes internally or
@@ -13029,7 +13036,7 @@ replaced the working document TESTING.md).
   per-table counters starting at 1 made likely. Making the mismatch a
   compile-time error is ROADMAP §4b item 4.
 * [handler-state] **A handler's state initialiser may read its constructor's
-  parameters** (user decision 2026-09-30): `handler Counting(start: Int) of
+  parameters** (user decision 2026-09-30): `handler Counting(start: Int) for
   Counter { at: Int = start * 2 }`. The state is built once, at construction,
   so the parameters are in scope read-only. Kotlin initialises the field from
   the constructor's `val`; Rust inside `new`.

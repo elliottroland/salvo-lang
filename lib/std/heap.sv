@@ -15,7 +15,7 @@
 // are different types that refuse to mix.
 // @compilerrules [cmp-carry]
 // @compilerknown
-export qualifier Heap<T>(?Ordered<T>) of List<T>
+export qualifier Heap<T>(?Ordered<T>) for List<T>
 
 // Returns an empty List which trivially supports the heap property. The
 // ordering arrives as an ordinary implicit parameter, and the return type

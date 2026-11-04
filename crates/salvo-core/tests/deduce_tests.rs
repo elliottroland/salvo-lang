@@ -73,9 +73,9 @@ fn effect_form(program: &Program, checked: &Checked, fn_name: &str, param: &str)
 
 const QUALIFIED_LISTS: &str = r#"
 
-qualifier A<T> of List<T>
-qualifier B<T> of List<T>
-qualifier C<T> of List<T>
+qualifier A<T> for List<T>
+qualifier B<T> for List<T>
+qualifier C<T> for List<T>
 
 fn drop_a<T>(list: A B List<T>) [] -> None => list: B {}
 fn consume<T>(list: List<T>) [] -> None => !list {}
@@ -149,7 +149,7 @@ fn caller<T>(list: A B C List<T>) -> None => list: -A {{
 fn a_mut_parameter_defaults_to_exhaustive_mut() {
     let src = "
 
-qualifier A<T> of List<T>
+qualifier A<T> for List<T>
 
 fn mutate<T>(list: Mut List<T>) [] -> None => list: Mut {}
 

@@ -12,7 +12,7 @@
 
 // A value outside the listed literals of a union.
 // @compilerrules [qual-constructive]
-export provenance qualifier Other<T> of T
+export provenance qualifier Other<T> for T
 
 // Tags [value] as the open arm of a literal union: a value the
 // union does not list, such as a service's enum value this client predates.

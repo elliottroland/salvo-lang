@@ -22,7 +22,7 @@ export fn touch<T>(s: Mut Store<T>) [] -> None => s: Mut {
     s.value = s.value
 }
 
-export qualifier Stocked<T> of Store<T> {
+export qualifier Stocked<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -73,7 +73,7 @@ fn an_established_claim_does_not_survive_a_branch(s: Stocked Mut Store<Int>, con
 // (user decision 2026-10-12): a refinement that drops the `Mut` still
 // matches by base type. Extra qualifiers on the refn become a precondition
 // [qual-refn-narrow], not a mismatch.
-export qualifier Loose<T> of Store<T> {
+export qualifier Loose<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }

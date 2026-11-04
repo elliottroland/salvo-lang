@@ -40,7 +40,7 @@ export effect Args {
 // synchronization.
 // @compilerrules [cli-args, platform-threadsafe]
 // @compilerknown
-export threadsafe platform handler HostArgs() of Args
+export threadsafe platform handler HostArgs() for Args
 
 // ===== parsing a command line =====
 //
@@ -954,22 +954,22 @@ import std.throw
 
 // A field's short name: `Short('p') port: Int` is `-p` too.
 // @compilerrules [args-derive]
-export comptime qualifier Short(c: Char) of Field
+export comptime qualifier Short(c: Char) for Field
 
 // A field taken by position rather than by name.
 // @compilerrules [args-derive]
-export comptime qualifier Positional of Field
+export comptime qualifier Positional for Field
 
 // A field whose union of command structs is chosen by the
 // first word: `Subcommand command: Clone | Remote`.
 // @compilerrules [args-commands]
-export comptime qualifier Subcommand of Field
+export comptime qualifier Subcommand for Field
 
 // A command's name, when its type's will not do:
 // `Named("rm") struct Remove`. Otherwise a command is named after its type
 // (`command_name`).
 // @compilerrules [args-derive, args-runtime]
-export comptime qualifier Named(name: Str) of Struct
+export comptime qualifier Named(name: Str) for Struct
 
 // What makes `T` parseable from a command line; stamped with
 // `: FromArgs<self> by args`. Both members name `T` only in their return
@@ -1032,7 +1032,7 @@ export fn args_or_exit<T>(args: List<Str>, ?FromArgs<T>) [Console, Process] -> T
 // `validate` in scope, so the answer is the validated type (the CLI design record
 // §5.2, Q16): with
 //
-//     qualifier Valid of Serve
+//     qualifier Valid for Serve
 //
 //     fn validate(o: Serve) [Throw<ArgError>] -> +Valid Serve => !o {
 //         if o.min_workers > o.max_workers {

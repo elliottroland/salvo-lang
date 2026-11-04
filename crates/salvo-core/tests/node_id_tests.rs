@@ -146,7 +146,7 @@ fn two_stamps_at_one_site_keep_their_own_references() {
 /// the handler's.
 #[test]
 fn a_handler_member_is_keyed_by_its_own_id() {
-    let main = "effect Count {\n    fn bump(by: Int) -> Bool\n}\nhandler Counter() of Count {\n    fn bump(by: Int) -> Bool {\n        return eq(by, 1)\n    }\n}\n";
+    let main = "effect Count {\n    fn bump(by: Int) -> Bool\n}\nhandler Counter() for Count {\n    fn bump(by: Int) -> Bool {\n        return eq(by, 1)\n    }\n}\n";
     let (program, checked) = checked(main);
     let file = main_file(&program);
     let item = program.modules[file].items.iter().position(|i| matches!(i, salvo_syntax::ast::Item::Handler(_))).unwrap();
@@ -182,7 +182,7 @@ fn a_copied_node_is_listed_where_it_lands() {
 fn every_row_belongs_to_one_declaration() {
     let main = "\
 effect Counter {\n    fn get() -> Int\n}\n\
-handler Count() of Counter {\n    fn get() -> Int {\n        let one = 1\n        return one\n    }\n}\n\
+handler Count() for Counter {\n    fn get() -> Int {\n        let one = 1\n        return one\n    }\n}\n\
 fn twice(n: Int) -> Int {\n    let m = n\n    return m\n}\n\
 fn broken() -> Int {\n    return nope\n}\n";
     let (program, checked) = checked_with_errors(main);

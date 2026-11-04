@@ -163,7 +163,7 @@ An optional `T?` is the union `T | None`.
 | `struct Name<T> canbe Mut wire { field: Ty }` | a struct. It may also be `export`, `opaque` or `linear`, and a field may be `canbe_mut` or have a default |
 | `union Name = A \| B` | a named union type |
 | `interface Name [Prereq] { fn m(…) -> T }` | an effect. An `actor interface` is an actor effect, and its `send fn` members are messages |
-| `impl H(ctor params) of Face deps [Dep] stateful { … }` | a handler: constructor parameters, the effects it depends on, its `state` fields, an optional `mailbox`, `init` and member bodies. It may also be `platform`, `threadsafe` or `intrinsic` |
+| `impl H(ctor params) for Face deps [Dep] stateful { … }` | a handler: constructor parameters, the effects it depends on, its `state` fields, an optional `mailbox`, `init` and member bodies. It may also be `platform`, `threadsafe` or `intrinsic` |
 | `fn name@module<T>(effects; params; ?implicits) -> T` | a function. `;` separates the leading effect parameters, the declared ones and the trailing implicit ones |
 | `intrinsic fn …`, `platform fn …` | a function with no body. A backend lowers an intrinsic from its own table, and the host implements a platform function ([Backends](Backends.md)) |
 | `qualifies fn …` | the test of a predicate qualifier |
@@ -406,7 +406,7 @@ A handler is an `impl`. Its state fields are `state` lines, and its members
 are ordinary function bodies:
 
 ```
-impl TickingClock() of Clock@main stateful {
+impl TickingClock() for Clock@main stateful {
   state tick: Int = 0
   fn now() -> Int {
     assign tick = (read tick + 5)
@@ -453,7 +453,7 @@ wrote:
   }
   ```
 
-* **`impl __Stub_E(moved addr: eff[E]) of E`**: the effect implemented by
+* **`impl __Stub_E(moved addr: eff[E]) for E`**: the effect implemented by
   sending each member to an address. This is what `use addr` binds.
 
 The wire codecs, the scheduler's parking of a member that waits, and the

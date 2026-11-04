@@ -11,7 +11,7 @@ struct Person {
 // Predicate qualifiers become top-level fns taking borrows, named with
 // their subject [fn-emit-name].
 //~ emits: pub fn Surname__Person_qualifies(person: &crate::Person) -> bool
-qualifier Surname of Person {
+qualifier Surname for Person {
     surname: Str
 
     fn qualifies(person: Person) -> Bool {
@@ -20,7 +20,7 @@ qualifier Surname of Person {
 }
 
 //~ emits: pub fn Positive__Int_qualifies(mut int: i32) -> bool
-qualifier Positive of Int {
+qualifier Positive for Int {
     fn qualifies(int: Int) -> Bool {
         return int > 0
     }
@@ -87,7 +87,7 @@ fn main() [use] {
 // [qual-ctor-predicate] Predicate-qualifier constructors emit as plain
 // fns after erasure; overloads on the qualified type resolve statically
 // (mangled name).
-export qualifier Positive of Int {
+export qualifier Positive for Int {
     fn qualifies(int: Int) -> Bool {
         return int > 0
     }

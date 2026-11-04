@@ -25,4 +25,4 @@ export effect Env {
 // `std::env::var`. Stateless, so sharing it across threads needs no
 // synchronization.
 // @compilerrules [cli-env, platform-threadsafe]
-export threadsafe platform handler HostEnv() of Env
+export threadsafe platform handler HostEnv() for Env

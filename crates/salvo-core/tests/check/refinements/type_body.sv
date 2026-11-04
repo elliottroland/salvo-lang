@@ -1,5 +1,5 @@
 // [qual-refn-type] A type's body may hold refinements, for a claim its author
-// is trusted with: a generic one (`of T`), or one declared in the same file.
+// is trusted with: a generic one (`for T`), or one declared in the same file.
 // std's `NonEmpty` is the generic claim; a `Stack` here says what its own
 // `push` does to it.
 
@@ -101,7 +101,7 @@ export fn put<T>(b: Mut Box<T>, value: T) [] -> None => b: Mut, !value {
 }
 
 // FILE: q.sv
-export qualifier Filled<T> of List<T> {
+export qualifier Filled<T> for List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return list.size() > 0
     }

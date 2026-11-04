@@ -13,13 +13,13 @@ effect RawClock {
 
 // The host implements this one, in Kotlin or Rust: bodyless here, and
 // constructed at its `use` like any handler.
-platform handler HostRawClock(offset: Int) of RawClock
+platform handler HostRawClock(offset: Int) for RawClock
 
 effect Clock {
     fn stamp(label: Str) -> Str => label
 }
 
-handler DefaultClock [RawClock] of Clock {
+handler DefaultClock [RawClock] for Clock {
     fn stamp(label: Str) -> Str => label {
         return "${label}@${raw_now()}"
     }
@@ -112,7 +112,7 @@ export effect Telemetry {
     fn record(name: Str, value: Int) [] -> None => name, value
 }
 
-export platform handler HostTelemetry of Telemetry
+export platform handler HostTelemetry for Telemetry
 // FILE: main.sv
 import obs.telemetry.Telemetry
 import obs.telemetry.HostTelemetry

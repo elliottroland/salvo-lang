@@ -7,7 +7,7 @@
 // Rust carries no trace of the refinement.
 //--- a_refined_program
 
-qualifier NonEmpty<T> of List<T> {
+qualifier NonEmpty<T> for List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return size(list) > 0
     }

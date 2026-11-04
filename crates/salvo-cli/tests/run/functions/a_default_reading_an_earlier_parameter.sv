@@ -26,7 +26,7 @@ effect Spanned {
     fn width() -> Int
 }
 
-handler Span(lo: Int, hi: Int, top: Int = hi + 10) of Spanned {
+handler Span(lo: Int, hi: Int, top: Int = hi + 10) for Spanned {
     fn width() -> Int {
         return top - lo
     }

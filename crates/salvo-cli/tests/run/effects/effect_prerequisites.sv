@@ -12,7 +12,7 @@ export effect Streams {
     fn next_id() -> Int
 }
 
-export handler Counter() of Streams {
+export handler Counter() for Streams {
     state {
         n: Int = 0
     }
@@ -28,7 +28,7 @@ export effect Files [Streams] {
     fn open(path: Str) -> Str => path
 }
 
-export handler MemFiles() of Files {
+export handler MemFiles() for Files {
     fn open(path: Str) -> Str => path {
         return "${path}#${next_id()}"
     }

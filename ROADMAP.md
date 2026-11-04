@@ -416,16 +416,16 @@ Parked (user, 2026-10-14): the user expects to move away from state structs and 
 
 ### 0bc — What the generic `NonEmpty` left (2026-10-30)
 
-`NonEmpty` is one `qualifier NonEmpty<T canbe linear> of T` in
+`NonEmpty` is one `qualifier NonEmpty<T canbe linear> for T` in
 `std.core.nonempty`, refined in each type's body [qual-refn-type]
 (COMPLETED.md, 2026-10-30). Left over:
 
 - **The "testable where written" rule, not built** (user decision 4.b: only
-  as a general rule). The general form: a predicate qualifier whose `of`
+  as a general rule). The general form: a predicate qualifier whose `for`
   unification fixes all its generics, written over a concrete subject, must
   have its `qualifies` implicits resolvable where it is written — so
   `NonEmpty Int` is refused at the type rather than at the first `is`. What
-  building it takes: at `validate_type`, unify the qualifier's `of` with the
+  building it takes: at `validate_type`, unify the qualifier's `for` with the
   written base, skip a subject that still has type variables, and probe
   `resolve_implicit_value` for each implicit without recording; a new
   diagnostic for the miss (the resolver's are worded for a call), reported
@@ -433,11 +433,11 @@ Parked (user, 2026-10-14): the user expects to move away from state structs and 
 - **Open defect: a program's same-name qualifier over a particular subject
   now overloads std's generic one instead of shadowing it** [qual-overload],
   and std's type-body refinements, which name the claim, reach it by name.
-  Repro: declare `qualifier NonEmpty<T> of List<T> { fn qualifies(list:
+  Repro: declare `qualifier NonEmpty<T> for List<T> { fn qualifies(list:
   List<T>) -> Bool { return list.size() > 1 } }` (a stricter meaning) and
   `add(xs, 1)` to an empty `Mut List<Int>`: `List`'s `refn add => list:
   +NonEmpty` establishes the program's claim too, which is false for a
-  one-element list. Before, the program's `of List<T>` replaced std's (same
+  one-element list. Before, the program's `for List<T>` replaced std's (same
   subject). The tests that declared their own `NonEmpty` were renamed
   `Filled`. Fix candidates: let a program's declaration of a std qualifier's
   name shadow it whatever the subject, or key claims by declaration rather
@@ -556,7 +556,7 @@ repros are over the real std.
     `build_produces_a_runnable_artifact_…`, which hold those programs since
     2026-10-29).
 - **From the second wave (parser and salvo-core tests to ids)**:
-  - **a missing diagnostic?** `handler Working() of Work` with no `Work`
+  - **a missing diagnostic?** `handler Working() for Work` with no `Work`
     declared reports nothing, in a file whose parse error elsewhere still
     lets `fn-uniform:unknown-fn` through (`check/syntax/expressions.sv#the_receiver_form_is_not_the_self_send`);
   - **inconsistent**: a top-level `refn` reports `qual-refn-scope:top-level-refn`

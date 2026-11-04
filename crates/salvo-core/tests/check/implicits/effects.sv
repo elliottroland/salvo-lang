@@ -8,7 +8,7 @@ effect Show {
     fn show(v: Int, ?fmt: (Int) -> Str) -> Str => v
 }
 
-handler Angle of Show {
+handler Angle for Show {
     fn show(v: Int, ?fmt: (Int) -> Str) -> Str => v { return fmt(v) }
 }
 
@@ -32,7 +32,7 @@ effect Display {
     fn display(v: Int) -> Str => v
 }
 
-handler Bracket(?fmt: (n: Int) -> Str) of Display {
+handler Bracket(?fmt: (n: Int) -> Str) for Display {
     fn display(v: Int) -> Str => v { return fmt(v) }
 }
 
@@ -52,7 +52,7 @@ effect Show<T> {
     fn show(v: T) -> Str => v
 }
 
-handler Plain<T> of Show<T> {
+handler Plain<T> for Show<T> {
     fn show(v: T) -> Str => v { return "plain" }
 }
 
@@ -60,7 +60,7 @@ handler Plain<T> of Show<T> {
 // storage outlives every member call, so handing it out is `copy(prefix)`.
 // What this is about is the type argument a constructor argument binds, so a
 // literal answer says the same thing.
-handler Prefixed<T>(prefix: Str) of Show<T> {
+handler Prefixed<T>(prefix: Str) for Show<T> {
     fn show(v: T) -> Str => v { return "p" }
 }
 
@@ -98,7 +98,7 @@ effect Fmt {
     fn describe(p: Point) -> Str => p
 }
 
-handler Plain of Fmt {
+handler Plain for Fmt {
     fn describe(p: Point) -> Str { return "p" }
 }
 

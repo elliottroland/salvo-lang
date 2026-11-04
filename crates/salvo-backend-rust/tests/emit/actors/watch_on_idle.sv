@@ -10,7 +10,7 @@ actor effect Counter {
     send fn crash()
 }
 
-handler Counting() of Counter {
+handler Counting() for Counter {
     mailbox { capacity: 8 }
 
     state {
@@ -63,7 +63,7 @@ actor effect Desk {
 // Parks every token it is given and answers none, which is legal because the
 // obligation lives in state [linear-state] — and is exactly the shape a
 // quiescence report has to be able to name.
-handler Desking() of Desk {
+handler Desking() for Desk {
     mailbox { capacity: 4 }
 
     state {
@@ -82,7 +82,7 @@ actor effect Client {
 
 // The gate: while the continuation is outstanding this actor serves nothing
 // else, so its mailbox is stalled for good.
-handler Clienting() of Client {
+handler Clienting() for Client {
     mailbox { capacity: 4 }
 
     send fn go(desk: eff[Desk]) {

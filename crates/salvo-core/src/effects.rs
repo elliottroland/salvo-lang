@@ -56,7 +56,7 @@ pub fn effect_only_args(r: &salvo_syntax::ast::TypeRef, is_effect: &impl Fn(&str
     })
 }
 
-/// [effect-any] Whether `program` declares a handler `of any E` for the
+/// [effect-any] Whether `program` declares a handler `for any E` for the
 /// actor effect `effect` — a router. Only then does an actor effect need
 /// the monitor adapter a plain effect always has: a router is the one
 /// actor-effect handler whose `use` binds shareable (as a lock, or bare),
@@ -72,7 +72,7 @@ pub fn has_any_router<'a>(
     })
 }
 
-/// The base name of an `of` clause entry.
+/// The base name of an `for` clause entry.
 fn of_base_name(of: &salvo_syntax::ast::Type) -> Option<&str> {
     match of {
         salvo_syntax::ast::Type::Named { base, .. } => Some(base.name.name.as_str()),

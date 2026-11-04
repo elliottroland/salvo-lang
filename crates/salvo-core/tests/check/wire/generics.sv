@@ -12,7 +12,7 @@ actor effect Reg<E> {
     send fn twin(other: eff[Reg<E>]) => !other
 }
 
-handler Registering<E>() of Reg<E> {
+handler Registering<E>() for Reg<E> {
     mailbox { capacity: 4 }
     state {
         all: Mut List<eff[E]> = Mut List()

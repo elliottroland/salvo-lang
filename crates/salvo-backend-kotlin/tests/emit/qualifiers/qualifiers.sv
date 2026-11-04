@@ -15,7 +15,7 @@ struct Person {
 
 // Predicate qualifiers become top-level `qualifies` functions.
 //~ emits: fun Surname_qualifies(person: Person): Boolean
-qualifier Surname of Person {
+qualifier Surname for Person {
     surname: Str
 
     fn qualifies(person: Person) -> Bool {
@@ -24,7 +24,7 @@ qualifier Surname of Person {
 }
 
 //~ emits: fun Positive_qualifies(int: Int): Boolean
-qualifier Positive of Int {
+qualifier Positive for Int {
     fn qualifies(int: Int) -> Bool {
         return int > 0
     }
@@ -99,7 +99,7 @@ fn main() [use] {
 // functions (same-file rule still applies): the constructor asserts the
 // predicate by construction, qualifiers erase, and overloads on the
 // qualified type resolve statically.
-export qualifier Positive of Int {
+export qualifier Positive for Int {
     fn qualifies(int: Int) -> Bool {
         return int > 0
     }

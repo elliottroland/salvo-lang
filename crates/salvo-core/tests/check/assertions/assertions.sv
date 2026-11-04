@@ -154,7 +154,7 @@ fn the_names_are_contextual(assert: Int, unreachable: Int) -> Int => assert, unr
 // [qual-whynot] `whynot?(x is Q)` is a `Str?` — usable where one is expected
 // and refused where a `Str` is — and explains a predicate test only: a binding
 // and a union arm test are refused.
-qualifier Even of Int {
+qualifier Even for Int {
     // @whynot [n] is odd
     fn qualifies(n: Int) -> Bool {
         return true

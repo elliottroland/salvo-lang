@@ -10,7 +10,7 @@ actor effect Desk {
     send fn close_up(reason: Str) => !reason
 }
 
-handler Desking() of Desk {
+handler Desking() for Desk {
     mailbox { capacity: 8 }
 
     state {
@@ -70,7 +70,7 @@ actor effect TimerCtl {
     send fn pending(out: Reply<Int>) => !out
 }
 
-handler ManualTime() of Timer, TimerCtl {
+handler ManualTime() for Timer, TimerCtl {
     mailbox { capacity: 8 }
 
     state {
@@ -104,7 +104,7 @@ effect Stats {
     fn total() -> Int
 }
 
-handler Counting() of Tally, Stats {
+handler Counting() for Tally, Stats {
     state {
         sum: Int = 0
     }
@@ -154,7 +154,7 @@ actor effect Desk {
 // Parks every token it is given and answers none, which is legal because the
 // obligation lives in state [linear-state] — and is exactly the shape a
 // quiescence report has to be able to name.
-handler Desking() of Desk {
+handler Desking() for Desk {
     mailbox { capacity: 4 }
 
     state {
@@ -173,7 +173,7 @@ actor effect Client {
 
 // The gate: while the continuation is outstanding this actor serves nothing
 // else, so its mailbox is stalled for good.
-handler Clienting() of Client {
+handler Clienting() for Client {
     mailbox { capacity: 4 }
 
     send fn go(desk: eff[Desk]) {
@@ -210,7 +210,7 @@ actor effect Notices {
     send fn arrived(out: Reply<Str>, text: Str) => !out, !text
 }
 
-handler Rows() of Db {
+handler Rows() for Db {
     mailbox { capacity: 4 }
 
     send fn lookup(id: Int, out: Reply<Str>) {
@@ -218,7 +218,7 @@ handler Rows() of Db {
     }
 }
 
-handler Fetching() [Db] of Notices {
+handler Fetching() [Db] for Notices {
     mailbox { capacity: 4 }
 
     send fn fetch(id: Int, out: Reply<Str>) {
@@ -256,7 +256,7 @@ actor effect Trace {
     send fn report(out: Reply<Str>) => !out
 }
 
-handler Echoing() of Echo {
+handler Echoing() for Echo {
     mailbox { capacity: 4 }
 
     send fn ping(out: Reply<Str>) {
@@ -264,7 +264,7 @@ handler Echoing() of Echo {
     }
 }
 
-handler Tracing() [Echo] of Trace {
+handler Tracing() [Echo] for Trace {
     mailbox { capacity: 4 }
 
     state {
@@ -310,7 +310,7 @@ actor effect Steps {
     send fn again(n: Int, out: Reply<Str>) => !n, !out
 }
 
-handler Stepping() of Steps {
+handler Stepping() for Steps {
     mailbox { capacity: 4 }
 
     state {
@@ -352,7 +352,7 @@ actor effect Counter {
     send fn crash()
 }
 
-handler Counting() of Counter {
+handler Counting() for Counter {
     mailbox { capacity: 8 }
 
     state {

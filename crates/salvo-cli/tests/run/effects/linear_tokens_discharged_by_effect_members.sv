@@ -18,7 +18,7 @@ effect Tape {
     fn close(s: OutTape) -> Str => !s
 }
 
-handler MemTape of Tape {
+handler MemTape for Tape {
     fn open_read(path: Str) -> Mut InTape => path {
         return Mut InTape { handle: size(path) }
     }

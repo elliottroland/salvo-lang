@@ -16,14 +16,14 @@ const STD_PRELUDE: &str = concat!(
      export intrinsic fn add<T>(list: Mut List<T>, elem: T) [] -> None => list: Mut, !elem\n\
      export intrinsic fn get<T>(list: List<T>, index: Int) [] -> T? => list, index\n\
      export intrinsic fn size<T>(list: List<T>) [] -> Int => list\n\
-     export qualifier Emitted<T> of T\n\
+     export qualifier Emitted<T> for T\n\
      export struct Finished {}\n\
      export fn emitted<T>(value: T) [] -> +Emitted T => !value {\n    return value\n}\n\
      export fn finished() [] -> Finished {\n    return Finished {}\n}\n\
      export fns Next<It, T> {\n    fn next(it: Mut It) -> Emitted T | Finished => it: Mut\n}\n\
      export fns Iter<C, It, T> => iter with next {\n    fn iter(collection: C) -> Mut It\n    fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut\n}\n\
      export effect Console {\n    fn print(message: Str) -> None => !message\n}\n\
-     export handler StdConsole of Console {\n    fn print(message: Str) -> None => !message {}\n}\n\
+     export handler StdConsole for Console {\n    fn print(message: Str) -> None => !message {}\n}\n\
      export fn println(message: Str) [Console] -> None => !message {}\n",
     // [op-equality] [op-order] What the comparison operators call.
     "export intrinsic fn eq(a: Int, b: Int) [] -> Bool => a, b\n",

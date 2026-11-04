@@ -131,7 +131,7 @@ fn main() [use] {
 // and loop bodies are re-checked with their exit state so back-edge flows
 // (use early, consume late) surface. Consume-then-revive per iteration
 // stays clean.
-qualifier NonEmpty<T> of List<T> {
+qualifier NonEmpty<T> for List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return list.size() > 0
     }

@@ -66,7 +66,7 @@ export struct Conf { d: Duration = Duration { nanos: 5L } }
 export effect Table {
     fn size() -> Int
 }
-export handler Circle() of Table {
+export handler Circle() for Table {
     fn size() -> Int { return 3 }
 }
 // FILE: lib/shapes.sv
@@ -86,14 +86,14 @@ struct Tok { f: (x: Int) -> Int }
 effect Box {
     fn get() -> Int
 }
-handler Boxing() of Box {
+handler Boxing() for Box {
     fn get() -> Int { return 7 }
 }
 
 actor effect Bin {
     send fn go(v: A | B | None, done: Reply<Int>) => !v, !done
 }
-handler Binning() of Bin {
+handler Binning() for Bin {
     mailbox { capacity: 4 }
     send fn go(v: A | B | None, done: Reply<Int>) {
         if v is A {

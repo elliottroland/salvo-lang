@@ -12,7 +12,7 @@ effect Random<T> {
     fn next_random() -> T
 }
 
-handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
+handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) for Random<T> {
     state {
         i: Int = 0
     }
@@ -84,14 +84,14 @@ effect Store<T> {
     fn keep(value: T) -> Str => value
 }
 
-handler MemStore<T> of Store<T> {
+handler MemStore<T> for Store<T> {
     fn keep(value: T) -> Str => value {
         return "kept"
     }
 }
 
 //~ emits: class Twice<T>(private val __dep0: Store<T>) : Store<T>
-handler Twice<T> [Store<T>] of Store<T> {
+handler Twice<T> [Store<T>] for Store<T> {
     fn keep(value: T) -> Str => value {
         return "${keep(value)} twice"
     }
@@ -129,7 +129,7 @@ effect Stash {
     fn pick<T>(a: T, b: T) -> T => !a, !b
 }
 
-handler FirstStash of Stash {
+handler FirstStash for Stash {
     fn pick<T>(a: T, b: T) -> T
     => !a, !b {
         return a
@@ -157,7 +157,7 @@ effect Random<T> {
     fn next_random() -> T
 }
 
-handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
+handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) for Random<T> {
     state {
         i: Int = 0
     }
@@ -194,7 +194,7 @@ effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler ConsoleLogger [Console] of Logger {
+handler ConsoleLogger [Console] for Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
@@ -252,7 +252,7 @@ effect Show<T> {
 }
 
 // Stateless *and* generic: nothing but the `use` site can say what `T` is.
-handler Plain<T> of Show<T> {
+handler Plain<T> for Show<T> {
     fn show(v: T) -> Str => v {
         return "plain"
     }
@@ -264,7 +264,7 @@ effect Tag<T> {
 
 // Generic with state: the constructor argument used to be the only thing
 // that could bind `T`, and still works.
-handler Prefixed<T>(prefix: Str) of Tag<T> {
+handler Prefixed<T>(prefix: Str) for Tag<T> {
     fn tagged(v: T) -> Str => v {
         return "${prefix}!"
     }
@@ -305,7 +305,7 @@ effect Vault {
 
 //~ emits: override fun close__InFile(f: InFile): String {
 //~ emits: override fun close__OutFile(f: OutFile): String {
-handler Files of Vault {
+handler Files for Vault {
     fn close(f: InFile) -> Str => !f {
         return "closed in ${f.id}"
     }

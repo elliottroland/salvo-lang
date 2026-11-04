@@ -12,7 +12,7 @@ export effect Random {
 // entropy — and by the test's seed in an actor test, so a run repeats.
 // Not cryptographic.
 // @compilerrules [std-random-default, test-actor]
-export handler DefaultRandom() of Random {
+export handler DefaultRandom() for Random {
     fn random() -> Double {
         return random_double()
     }

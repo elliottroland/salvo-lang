@@ -8,8 +8,8 @@ struct Store<T> canbe Mut {
 }
 
 // `Stocked` was `NonEmpty`, which std declares over its collections.
-qualifier Stocked<T> of Store<T>
-provenance qualifier Authenticated<T> of Store<T>
+qualifier Stocked<T> for Store<T>
+provenance qualifier Authenticated<T> for Store<T>
 
 fn stocked<T>(s: Store<T>) -> +Stocked Store<T>
 => !s {
@@ -50,10 +50,10 @@ fn survives(s: Mut Authenticated Store<Int>) -> None {
 // is retired — provenance with state, provenance with provenance, and two
 // state claims alike, with no declared compatibility.
 struct Request { body: Str }
-qualifier Validated of Request
-qualifier Checked of Request
-provenance qualifier FromCache of Request
-provenance qualifier Signed of Request
+qualifier Validated for Request
+qualifier Checked for Request
+provenance qualifier FromCache for Request
+provenance qualifier Signed for Request
 
 fn compose_a(r: Signed Validated Request) -> Str { return r.body }
 fn compose_b(r: Signed FromCache Request) -> Str { return r.body }
@@ -65,7 +65,7 @@ fn compose_two_state(r: Validated Checked Request) -> Str { return r.body }
 // where a handle came from, so a body (a `qualifies` predicate or field
 // overrides, which are claims about contents) is a contradiction.
 //~ error[qual-subject:provenance-body]
-provenance qualifier Positive of Int {
+provenance qualifier Positive for Int {
     fn qualifies(v: Int) -> Bool { return v > 0 }
 }
 
@@ -100,7 +100,7 @@ fn stored(r: Request) -> Str
 // declaration, because an origin is orthogonal to every claim about
 // contents.
 struct Box canbe Mut { n: Int }
-qualifier Filled of Box
+qualifier Filled for Box
 fn fill() -> +Filled Box { return Box { n: 1 } }
 fn tagged() -> Ok Filled Box {
     return ok(fill())
@@ -115,7 +115,7 @@ effect Pick {
     fn pick() -> None
 }
 
-handler First(s: Stocked Store<Int>) of Pick {
+handler First(s: Stocked Store<Int>) for Pick {
     fn pick() -> None {
     }
 }

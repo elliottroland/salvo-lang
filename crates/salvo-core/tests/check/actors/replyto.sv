@@ -11,13 +11,13 @@ actor effect Log {
     send fn note(what: Str) => !what
 }
 
-handler Printing() of Log {
+handler Printing() for Log {
     mailbox { capacity: 4 }
 
     send fn note(what: Str) {}
 }
 
-handler Counting() [Log] of Counter {
+handler Counting() [Log] for Counter {
     mailbox { capacity: 16 }
 
     state {
@@ -51,7 +51,7 @@ actor effect Describe {
     send fn go(out: Reply<Int>) => !out
 }
 
-handler Describing() [Counter] of Describe {
+handler Describing() [Counter] for Describe {
     mailbox { capacity: 1 }
 
     send fn go(out: Reply<Int>) {
@@ -77,7 +77,7 @@ actor effect Capture {
     send fn arrived(id: Int, sum: Int)
 }
 
-handler Capturing() [Counter] of Capture {
+handler Capturing() [Counter] for Capture {
     mailbox { capacity: 1 }
 
     send fn go() {
@@ -97,7 +97,7 @@ actor effect Typed {
     send fn wrong(id: Int, text: Str) => !text
 }
 
-handler Typing() [Counter] of Typed {
+handler Typing() [Counter] for Typed {
     mailbox { capacity: 1 }
 
     send fn go() {
@@ -114,7 +114,7 @@ actor effect Mistyped {
     send fn wrong(id: Int, text: Str) => !text
 }
 
-handler Mistyping() [Counter] of Mistyped {
+handler Mistyping() [Counter] for Mistyped {
     mailbox { capacity: 1 }
 
     send fn go() {
@@ -133,7 +133,7 @@ actor effect Lambda {
     send fn arrived(sum: Int)
 }
 
-handler Lambdaing() [Counter] of Lambda {
+handler Lambdaing() [Counter] for Lambda {
     mailbox { capacity: 1 }
 
     send fn go() {
@@ -158,7 +158,7 @@ actor effect Waiting {
     send fn got(n: Int)
 }
 
-handler Parking() [Counter] of Waiting {
+handler Parking() [Counter] for Waiting {
     mailbox { capacity: 1 }
 
     send fn ask() {
@@ -191,7 +191,7 @@ fn a_parking_handler_declared_after_its_use_is_refused() [use, spawn] {
     ask_later()
 }
 
-handler LaterParking() [Counter] of LaterWaiting {
+handler LaterParking() [Counter] for LaterWaiting {
     mailbox { capacity: 1 }
 
     send fn ask_later() {
@@ -217,7 +217,7 @@ actor effect Remote {
     send fn ask_remote()
 }
 
-handler RemoteAsking() [Counter] of Remote {
+handler RemoteAsking() [Counter] for Remote {
     mailbox { capacity: 1 }
 
     send fn ask_remote() {
@@ -247,7 +247,7 @@ export actor effect Waiting {
     send fn got(n: Int)
 }
 
-export handler Srv() [Counter] of Waiting {
+export handler Srv() [Counter] for Waiting {
     mailbox { capacity: 1 }
 
     send fn ask() {
@@ -260,7 +260,7 @@ effect Ping {
     fn ping() -> Int
 }
 
-handler Srv() of Ping {
+handler Srv() for Ping {
     fn ping() -> Int {
         return 1
     }
@@ -280,7 +280,7 @@ actor effect Tally {
     send fn tally(out: Reply<Int>) => !out
 }
 
-handler Tallying() of Tally {
+handler Tallying() for Tally {
     mailbox { capacity: 4 }
 
     state {

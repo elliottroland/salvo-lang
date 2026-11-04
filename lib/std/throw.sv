@@ -36,7 +36,7 @@ export effect Throw<M> {
 // availability alone.
 // @compilerrules [throw-try, qual-erasure]
 // @compilerknown
-export provenance qualifier Thrown<M> of M
+export provenance qualifier Thrown<M> for M
 
 // Tags a value as the thrown arm of an outcome union
 // without throwing anything — for code that produces an outcome by hand

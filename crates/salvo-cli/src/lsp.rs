@@ -3544,14 +3544,14 @@ fn generic_list(generics: &[salvo_syntax::ast::Ident]) -> String {
     format!("<{}>", names.join(", "))
 }
 
-/// `provenance qualifier Authenticated of Request with Old`.
+/// `provenance qualifier Authenticated for Request with Old`.
 fn qualifier_signature(decl: &salvo_syntax::ast::QualifierDecl) -> String {
     let mut sig = String::new();
     if decl.subject == QualSubject::Provenance {
         sig.push_str("provenance ");
     }
     sig.push_str(&format!(
-        "qualifier {}{} of {}",
+        "qualifier {}{} for {}",
         decl.name.name,
         generic_list(&decl.generics),
         decl.of
@@ -3617,7 +3617,7 @@ fn fns_signature(decl: &salvo_syntax::ast::FnsDecl) -> String {
     sig
 }
 
-/// `handler CyclicRandom<T>(values: List<T>) of Random<T>` — several faces
+/// `handler CyclicRandom<T>(values: List<T>) for Random<T>` — several faces
 /// comma-separated, as the declaration writes them [effect-handler-multi].
 fn handler_signature(decl: &salvo_syntax::ast::HandlerDecl) -> String {
     let params: Vec<String> = decl
@@ -3632,7 +3632,7 @@ fn handler_signature(decl: &salvo_syntax::ast::HandlerDecl) -> String {
     };
     let faces: Vec<String> = decl.of.iter().map(|of| of.to_string()).collect();
     format!(
-        "handler {}{}{} of {}",
+        "handler {}{}{} for {}",
         decl.name.name,
         generic_list(&decl.generics),
         params,

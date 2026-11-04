@@ -26,7 +26,7 @@ struct Environment.Name {
     value: Str
 }
 
-qualifier Environment.Tag of Str
+qualifier Environment.Tag for Str
 
 fn tag(value: Str) -> +Environment.Tag Str
 => !value {

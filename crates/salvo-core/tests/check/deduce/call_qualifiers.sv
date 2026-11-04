@@ -6,7 +6,7 @@
 // `take_head` (`[list: Mut]` on a `Filled Mut` param) the variable
 // is no longer `Filled`, so a second call fails overload resolution.
 // The explicit-empty `[list:]` form strips all declared qualifiers.
-qualifier Filled<T> of List<T> {
+qualifier Filled<T> for List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return list.size() > 0
     }
@@ -31,7 +31,7 @@ fn main() [use] {
 //--- an_empty_deduction_strips_every_declared_qualifier
 // `[list:]` strips every declared qualifier: after `weaken` the value
 // no longer satisfies a `Filled`-requiring overload.
-qualifier Filled<T> of List<T> {
+qualifier Filled<T> for List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return list.size() > 0
     }
@@ -61,7 +61,7 @@ fn main() [use] {
 // conservative: the join keeps only the qualifiers common to all paths,
 // so an overload requiring the maybe-removed qualifier no longer resolves
 // (nested inside the `is` branch that established it).
-qualifier Filled<T> of List<T> {
+qualifier Filled<T> for List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return list.size() > 0
     }
@@ -93,7 +93,7 @@ fn partial(flag: Bool) {
 //
 // The reproduction of the unsoundness: `clear` declares only `Mut`,
 // so its exhaustive list drops the caller's `Filled`.
-qualifier Filled of List<Int> {
+qualifier Filled for List<Int> {
     fn qualifies(list: List<Int>) -> Bool {
         return list.size() > 0
     }
@@ -120,13 +120,13 @@ fn main() [use] {
 // The delta form keeps everything it does not name — legal on a
 // parameter nothing can invalidate (no `Mut`): here `Checked` survives
 // even though the callee never declares it.
-qualifier Filled of List<Int> {
+qualifier Filled for List<Int> {
     fn qualifies(list: List<Int>) -> Bool {
         return list.size() > 0
     }
 }
 
-qualifier Checked of List<Int> {
+qualifier Checked for List<Int> {
     fn qualifies(list: List<Int>) -> Bool {
         return true
     }
@@ -153,7 +153,7 @@ fn main() [use] {
 // mutate it: a written delta is the author's contract, trusted rather
 // than second-guessed (a body that *does* mutate cannot keep
 // everything — see the `grow` case below).
-qualifier Filled of List<Int> {
+qualifier Filled for List<Int> {
     fn qualifies(list: List<Int>) -> Bool {
         return list.size() > 0
     }
@@ -166,7 +166,7 @@ fn describe(list: Checked Mut List<Int>) -> Int {
     return list.size()
 }
 
-qualifier Checked of List<Int> {
+qualifier Checked for List<Int> {
     fn qualifies(list: List<Int>) -> Bool {
         return true
     }
@@ -193,7 +193,7 @@ fn main() [use] {
 // by the body-validation pass with a more precise message naming the
 // qualifier it may lose; reproducing it needs a qualifier on the
 // parameter's type for the body to actually invalidate.
-qualifier Filled of List<Int> {
+qualifier Filled for List<Int> {
     fn qualifies(list: List<Int>) -> Bool {
         return list.size() > 0
     }

@@ -3,8 +3,8 @@
 
 //--- union_wrap_requires_matching_arm
 // [type-union-arm-identity]
-export qualifier Ok<T> of T
-export qualifier Err<T> of T
+export qualifier Ok<T> for T
+export qualifier Err<T> for T
 
 //~ error[deduce-default:kept-by-default-moved]
 export fn as_err<T>(value: T) -> +Err T {

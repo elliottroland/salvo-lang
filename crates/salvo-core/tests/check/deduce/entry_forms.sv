@@ -3,7 +3,7 @@
 
 //--- exhaustive_and_delta_do_not_mix
 // Mixing exhaustive and delta in one entry.
-qualifier A of Int
+qualifier A for Int
 
 //~ error[deduce-syntax:exhaustive-and-delta]
 fn f(x: A Int) -> None => x: A -A {
@@ -13,7 +13,7 @@ fn f(x: A Int) -> None => x: A -A {
 // [deduce-reapply] `+Qual` says the function **establishes** the claim
 // (user decisions 2026-09-22): legal in the qualifier's own file, whether or
 // not the parameter already declares it, and trusted there.
-qualifier A of Int
+qualifier A for Int
 
 fn f(x: Int) -> None
 => x: +A {
@@ -21,7 +21,7 @@ fn f(x: Int) -> None
 
 //--- an_establishing_entry_must_apply_to_the_parameters_type
 // …but the claim still has to make sense for the parameter's type.
-qualifier A of Int
+qualifier A for Int
 
 fn f(s: Str) -> None
 //~ error[deduce-reapply:does-not-apply]
@@ -63,7 +63,7 @@ effect Sink {
     fn eat(h: Handle) -> None => !h
 }
 
-handler Bin of Sink {
+handler Bin for Sink {
     fn eat(h: Handle) -> None => !h {
     }
 }

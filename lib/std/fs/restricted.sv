@@ -71,7 +71,7 @@ fn fs_escaped(path: Str) [] -> Checked<FsError> => path {
     return checked<FsError>(PathEscapes { path: copy(path) })
 }
 
-export handler RestrictedFs(root: Path) [Fs] of Fs {
+export handler RestrictedFs(root: Path) [Fs] for Fs {
     fn open_read(path: Path) -> Ok InStream | Err Checked<FsError> => path {
         let path_text = to_str(path)
         let real = fs_resolve(to_str(root), path_text)

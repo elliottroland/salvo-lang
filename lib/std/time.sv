@@ -304,7 +304,7 @@ export fn elapsed(since: Tick) [Ticker] -> Duration => since {
 
 // The machine's monotonic clock.
 // @compilerrules [time-ticker]
-export handler DefaultTicker() of Ticker {
+export handler DefaultTicker() for Ticker {
     fn tick() -> Tick {
         return Tick {nanos: monotonic_nanos()}
     }
@@ -319,7 +319,7 @@ export handler DefaultTicker() of Ticker {
 // backend to decide, and the drift model above is readable where it is
 // implemented.
 // @compilerrules [time-clock]
-export handler DefaultClock() of Clock {
+export handler DefaultClock() for Clock {
     state {
         base_tick: Long = monotonic_nanos()
         base_epoch: Long = epoch_nanos()
@@ -397,7 +397,7 @@ export actor effect Timer {
 // the runtime and returns, so the queue only ever holds requests that have not
 // been registered yet.
 // @compilerrules [time-timer]
-export handler DefaultTimer() of Timer {
+export handler DefaultTimer() for Timer {
     mailbox { capacity: 64 }
 
     send fn after(wait: Duration, done: Reply<Fired>) => !wait, !done {
@@ -440,7 +440,7 @@ export actor effect TimerCtl {
 // deadlines, the two must agree, and the way to make them agree is a handler of
 // your own whose reading is a deadline of zero on this very timer:
 //
-//     handler TestTicker(timer: eff[Timer]) of Ticker {
+//     handler TestTicker(timer: eff[Timer]) for Ticker {
 //         fn tick() -> Tick {
 //             let fired = waitfor answer: Reply<Fired> {
 //                 timer.after(nanos(0), answer)
@@ -453,7 +453,7 @@ export actor effect TimerCtl {
 // [Ticker], [Clock] or both — is the test's business. Prefer passing time as
 // data over reading it at all; see `examples/time/`.
 // @compilerrules [time-manual, time-coupling]
-export handler ManualTime() of Timer, TimerCtl {
+export handler ManualTime() for Timer, TimerCtl {
     mailbox { capacity: 64 }
 
     // Virtual monotonic nanoseconds. A real [Tick]'s origin is arbitrary, so

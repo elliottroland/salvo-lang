@@ -29,7 +29,7 @@ export linear intrinsic type Reply<T>
 export intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value
 export intrinsic type Pool
 export intrinsic fn pool(size: Int) [spawn] -> Pool => size
-export provenance qualifier Dedicated of Pool
+export provenance qualifier Dedicated for Pool
 export intrinsic fn thread() [spawn] -> Dedicated Pool
 ",
     // [op-equality] [op-order] What the comparison operators call.
@@ -127,7 +127,7 @@ fn diagnostics(src: &str) -> Vec<(bool, String)> {
 fn several_faces_answer_a_tuple_rather_than_an_addr() {
     let errs = errors(
         r#"
-handler ManualTime() of Timer, TimerCtl {
+handler ManualTime() for Timer, TimerCtl {
     mailbox { capacity: 4 }
 
     state {

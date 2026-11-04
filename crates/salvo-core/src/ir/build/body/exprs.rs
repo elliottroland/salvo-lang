@@ -2237,7 +2237,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             self.error(span, messages::effect_available_lower_no_instance(&t));
         }
         // [str-drop-mut] `qualifies` reads its subject at the plain type
-        // (`NonEmpty<T> of T` binds `T` to `Str` for a `Mut Str`): a `Mut`
+        // (`NonEmpty<T> for T` binds `T` to `Str` for a `Mut Str`): a `Mut`
         // subject is dropped to it, which is a real conversion on a backend
         // that renders `Mut` as a type of its own.
         let subject = if subject.ty.quals().iter().any(|q| q.name == "Mut") {
@@ -2421,7 +2421,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     Ty::Array(_) => "[]".to_string(),
                     _ => return None,
                 };
-                // The declaration about this base, else a generic one (`of
+                // The declaration about this base, else a generic one (`for
                 // T`) — the checker's `qualifier_for` order.
                 many.iter()
                     .copied()

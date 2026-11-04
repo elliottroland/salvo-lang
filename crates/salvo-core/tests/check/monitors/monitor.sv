@@ -9,7 +9,7 @@ effect Random {
     fn next() -> Int
 }
 
-handler CyclicRandom(seed: Int) of Random {
+handler CyclicRandom(seed: Int) for Random {
     state {
         cursor: Int = 0
     }
@@ -24,7 +24,7 @@ actor effect Drawer {
     send fn draw(out: Reply<Int>) => !out
 }
 
-handler Drawing() [Random] of Drawer {
+handler Drawing() [Random] for Drawer {
     mailbox { capacity: 4 }
 
     send fn draw(out: Reply<Int>) {
@@ -70,7 +70,7 @@ fn a_monitor_spawn_refuses_a_pool() [use, spawn] {
 // (user decision): a monitor may declare deps, captured as owned handles from
 // the **enclosing scope** at the spawn. With no binding in scope the
 // resolution fails by name; with one, the spawn is legal.
-handler Quiet() of Console {
+handler Quiet() for Console {
     fn print(message: Str) -> None => message {}
     fn printerr(message: Str) -> None => message {}
     fn readln() -> Str? {
@@ -78,7 +78,7 @@ handler Quiet() of Console {
     }
 }
 
-handler Noisy(seed: Int) [Console] of Random {
+handler Noisy(seed: Int) [Console] for Random {
     state {
         cursor: Int = 0
     }
@@ -106,7 +106,7 @@ effect Peek {
     fn peek() -> Int
 }
 
-handler Wide(seed: Int) of Random, Peek {
+handler Wide(seed: Int) for Random, Peek {
     state {
         cursor: Int = 0
     }
@@ -131,7 +131,7 @@ fn a_multi_face_monitor_spawn_is_refused() [use, spawn] {
 // by value, and both backends store a handler's callback in a form that
 // crosses threads, so `Derived(step: (n: Int) -> Int)` is spawned as a
 // monitor and `use`d alike.
-handler Derived(step: (n: Int) -> Int) of Random {
+handler Derived(step: (n: Int) -> Int) for Random {
     state {
         cursor: Int = 0
     }
@@ -169,7 +169,7 @@ effect Beacon {
     fn shine() -> Int
 }
 
-handler ViaDrawer [Drawer] of Beacon {
+handler ViaDrawer [Drawer] for Beacon {
     fn shine() -> Int {
         return waitfor got: Reply<Int> {
             draw(got)
@@ -181,13 +181,13 @@ effect Store<T> {
     fn keep(value: T) -> Int => value
 }
 
-handler MemStore of Store<Int> {
+handler MemStore for Store<Int> {
     fn keep(value: Int) -> Int => value {
         return 1
     }
 }
 
-handler ViaStore [Store<Int>] of Beacon {
+handler ViaStore [Store<Int>] for Beacon {
     fn shine() -> Int {
         return keep(3)
     }
@@ -205,7 +205,7 @@ fn dependencies_of_every_shape_bind_with_a_plain_use() [use, spawn] {
 // [effect-handle] [actor-monitor-handler] The generic monitor (user decision
 // 2026-09-20): a stateful handler of a generic effect *instance* shares by
 // default like any other.
-handler Keeping of Store<Int> {
+handler Keeping for Store<Int> {
     state {
         total: Int = 0
     }
@@ -229,7 +229,7 @@ fn a_stateful_handler_of_a_generic_instance_shares() [use] {
 // 2026-09-20): a shareable construction may capture a handle for an effect
 // that arrived through the enclosing *signature*: the handle threads in from
 // the caller. Interception wiring in a fn that received the effects it wires.
-handler Relaying [Random] of Beacon {
+handler Relaying [Random] for Beacon {
     fn shine() -> Int {
         return next()
     }
@@ -252,7 +252,7 @@ fn a_signature_supplied_dependency_can_be_captured() [use] {
 // decision 2026-09-20): a written item satisfies the dependency it matches,
 // and the rest still inherit from the scope. One child, two dependencies,
 // one of each.
-handler Shining of Beacon {
+handler Shining for Beacon {
     fn shine() -> Int { return 1 }
 }
 
@@ -260,7 +260,7 @@ actor effect Asker {
     send fn ask(out: Reply<Int>) => !out
 }
 
-handler Asking() [Random, Beacon] of Asker {
+handler Asking() [Random, Beacon] for Asker {
     mailbox { capacity: 4 }
 
     send fn ask(out: Reply<Int>) {
@@ -275,7 +275,7 @@ fn a_partial_with_clause_inherits_the_rest() [use, spawn] {
 
 // [actor-spawn-inherit] Two compatible instances in scope is an
 // **ambiguity**, not a guess: the clause is how the program says which one.
-handler AnyKeeping<T> of Store<T> {
+handler AnyKeeping<T> for Store<T> {
     fn keep(value: T) -> Int => value { return 1 }
 }
 
@@ -283,7 +283,7 @@ actor effect StoreAsker {
     send fn ask_store(out: Reply<Int>) => !out
 }
 
-handler StoreAsking<T>() [Store<T>] of StoreAsker {
+handler StoreAsking<T>() [Store<T>] for StoreAsker {
     mailbox { capacity: 4 }
 
     send fn ask_store(out: Reply<Int>) {
@@ -305,15 +305,15 @@ effect Greeter {
     fn greet(name: Str) -> Str => name
 }
 
-handler Plain of Greeter {
+handler Plain for Greeter {
     fn greet(name: Str) -> Str => name { return "plain" }
 }
 
-handler Formal of Greeter {
+handler Formal for Greeter {
     fn greet(name: Str) -> Str => name { return "formal" }
 }
 
-handler Loud [Greeter] of Greeter {
+handler Loud [Greeter] for Greeter {
     fn greet(name: Str) -> Str => name {
         return greet(name)
     }
@@ -329,7 +329,7 @@ fn a_with_clause_may_override_the_self_dep() [use] {
 // [effect-with-clause] An item the handler does not depend on is a mistake,
 // and a clause item with dependencies *of its own* has no scope to resolve
 // them: both named where they are written.
-handler Watching [Beacon] of Beacon {
+handler Watching [Beacon] for Beacon {
     fn shine() -> Int { return shine() }
 }
 
@@ -354,16 +354,16 @@ effect Pong {
     fn pong() -> Int
 }
 
-handler BasePing of Ping {
+handler BasePing for Ping {
     fn ping() -> Int { return 1 }
 }
 
-handler BasePong of Pong {
+handler BasePong for Pong {
     fn pong() -> Int { return 2 }
 }
 
 //~ error[actor-mixed-handler:occupancy-cycle]
-handler Pinger [Pong] of Ping {
+handler Pinger [Pong] for Ping {
     state {
         a: Int = 0
     }
@@ -373,7 +373,7 @@ handler Pinger [Pong] of Ping {
     }
 }
 
-handler Ponger [Ping] of Pong {
+handler Ponger [Ping] for Pong {
     state {
         b: Int = 0
     }
@@ -406,19 +406,19 @@ effect Pong {
     fn pong() -> Int
 }
 
-handler BasePing of Ping {
+handler BasePing for Ping {
     fn ping() -> Int { return 1 }
 }
 
-handler BasePong of Pong {
+handler BasePong for Pong {
     fn pong() -> Int { return 2 }
 }
 
-handler Pinger [Pong] of Ping {
+handler Pinger [Pong] for Ping {
     fn ping() -> Int { return pong() + 1 }
 }
 
-handler Ponger [Ping] of Pong {
+handler Ponger [Ping] for Pong {
     fn pong() -> Int { return ping() + 1 }
 }
 

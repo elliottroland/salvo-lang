@@ -4,7 +4,7 @@
 // naming the tag. `Q.qualifies(…)` stays callable directly, with the
 // subject then the slot values, and checked.
 
-qualifier Small(hi: Int) of Int {
+qualifier Small(hi: Int) for Int {
     // @whynot [n] is not below [hi], [[sic]
     fn qualifies(n: Int, hi: Int) -> Bool {
         return n < hi
@@ -18,7 +18,7 @@ fn says_why(n: Int) [] -> Str? => n {
     return whynot?(n is Small(10) Int)
 }
 
-qualifier Bad of Int {
+qualifier Bad for Int {
     // @whynot [m] is wrong
     //~ error[qual-whynot:unknown-slot]
     fn qualifies(n: Int) -> Bool {
@@ -30,7 +30,7 @@ qualifier Bad of Int {
     }
 }
 
-qualifier Within(xs: List<Int>) of Int {
+qualifier Within(xs: List<Int>) for Int {
     // @whynot [n] is not in [xs]
     //~ error[qual-whynot:slot-type]
     fn qualifies(n: Int, xs: List<Int>) -> Bool {
@@ -38,7 +38,7 @@ qualifier Within(xs: List<Int>) of Int {
     }
 }
 
-qualifier Below(hi: Int) of Int {
+qualifier Below(hi: Int) for Int {
     fn qualifies(n: Int, hi: Int) -> Bool {
         return n < hi
     }
@@ -52,7 +52,7 @@ fn calls_qualifies_wrongly(n: Int) [] -> Bool => n {
 
 // [is-qualifies-effects] A `qualifies` that performs effects needs them
 // where it is called by hand, as any fn does.
-qualifier Noisy of Int {
+qualifier Noisy for Int {
     fn qualifies(n: Int) [Console] -> Bool {
         println("checking ${n}")
         return n > 0

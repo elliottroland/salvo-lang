@@ -369,7 +369,7 @@ export effect SqsCalls {
 // them through [SqsCalls] — and answered with an empty output where the
 // operation's output has no required members, otherwise with `AwsError { code:
 // "NotStubbed" }`. A test that needs real answers implements [Sqs] itself.
-export handler FakeSqs() of Sqs, SqsCalls {
+export handler FakeSqs() for Sqs, SqsCalls {
     state {
         recorded: Mut List<Str> = Mut List()
     }

@@ -4,8 +4,8 @@
 
 //--- nested_coercion
 
-qualifier Ok<T> of T
-qualifier Err<T> of T
+qualifier Ok<T> for T
+qualifier Err<T> for T
 
 type Result = Ok Int | Err Str
 

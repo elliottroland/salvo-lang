@@ -13,7 +13,7 @@ actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
 
-handler Counting() of Counter {
+handler Counting() for Counter {
     mailbox { capacity: 8 }
 
     state {
@@ -66,7 +66,7 @@ Where several `send fn`s of the name are visible, the mint picks among them as a
 Inside an actor, `replyto` more often targets one of the actor's **own** members — usually a private one. A `send fn` that no face declares is a private member: nothing outside the handler can send to it, and the only ways in are `k@self(…)` from a sibling member and `replyto k(…)`. Its parameters are consumed like any message's, so its clause is written out, and its trailing parameter is the answer the continuation carries:
 
 ```
-handler Gathering() of Gather {
+handler Gathering() for Gather {
     mailbox { capacity: 16 }
     state {
         total: Int = 0
@@ -140,7 +140,7 @@ At the bottom is module `net`'s transport: bytes between two **endpoints**.
 ```
 import std.net
 
-handler Receiving() [Console] of Inbound {           // frames arrive as messages
+handler Receiving() [Console] for Inbound {           // frames arrive as messages
     mailbox { capacity: 16 }
     send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {
         println("${to_str(from)}: ${str_of_bytes(frame) ?: "?"}")
@@ -216,13 +216,13 @@ Three small readers go with a group: `pending(addr)` answers how much a member h
 
 ### One member of many: `any`
 
-A function written against one actor — `bump(2); bump(3); total(out)` — relies on its sends arriving in order at one instance. A group cannot promise that, so a function that is happy with *any* member says so in its effect list, and a handler that forwards to many members says so in its `of` clause:
+A function written against one actor — `bump(2); bump(3); total(out)` — relies on its sends arriving in order at one instance. A group cannot promise that, so a function that is happy with *any* member says so in its effect list, and a handler that forwards to many members says so in its `for` clause:
 
 ```
 fn thumbnail(img: Image) [any Resizer] -> Image { … }    // any Resizer will do: one send, one reply
 fn tally(items: List<Int>) [Resizer] -> Int { … }         // needs ONE Resizer, in order
 
-handler RoundRobin(members: List<eff[Resizer]>) of any Resizer { … }   // forwards; promises no order
+handler RoundRobin(members: List<eff[Resizer]>) for any Resizer { … }   // forwards; promises no order
 ```
 
 Bare `[E]` keeps the strong meaning, so binding a group where `[Resizer]` is required is an error at the call, and a program written before groups existed cannot be broken by binding one under it. `[any E]` accepts every binding — a single instance is a group of one — and is viral downward. The full rule is in [Effects and handlers](Effects-and-Handlers.md#many-instances-any-e-and-of-any-e).
@@ -245,7 +245,7 @@ use any stock                     // …and the route, binding `any Inventory`
 checkout(["apple", "pear", "apple"])   // "apple" lands on the same shard both times
 ```
 
-The route is a handler the compiler derives for you, once per protocol: one `of any Inventory` whose every member asks `RouteSelector<Inventory>` which member takes this send and forwards to it. A selector works in two phases over a **view** of the group — every member the local replica knows, with `local` beside each, in the same order on every node:
+The route is a handler the compiler derives for you, once per protocol: one `for any Inventory` whose every member asks `RouteSelector<Inventory>` which member takes this send and forwards to it. A selector works in two phases over a **view** of the group — every member the local replica knows, with `local` beside each, in the same order on every node:
 
 ```
 effect RouteSelector<E> {
@@ -260,4 +260,4 @@ Something a selector reads outside the view — an election's answer — reaches
 
 std ships three selectors. **`LeastLoaded<E>(prefer_local)`** takes the lightest queue, local members first when asked. **`Sharded<E>()`** takes the member that owns the key — `Key` on a parameter says which argument decides, and is erased from the type, so callers pass a plain value — and two sends for the same key land on the same member in order, a stronger guarantee than `any` claims. **`Elected<E>()`** takes the member on the leader's node, asking `Leader.leader()` when the view changes: a Salvo election, a platform handler over a lease store, or `StaticLeader(node)` for a test. A selector of your own is a handler of `RouteSelector<E>`.
 
-A policy that must read the message — scatter a query to every member and merge the answers, race two members and take the first, retry on a member's death — is not a selector: it is a handler `of any E` you write for that protocol, forwarding as `RoundRobin` does and receiving through an actor of its own. `examples/cluster/` has one of each, beside a singleton behind `Elected`, shards under `Sharded`, and a node leaving the group with its members withdrawn and the election following.
+A policy that must read the message — scatter a query to every member and merge the answers, race two members and take the first, retry on a member's death — is not a selector: it is a handler `for any E` you write for that protocol, forwarding as `RoundRobin` does and receiving through an actor of its own. `examples/cluster/` has one of each, beside a singleton behind `Elected`, shards under `Sharded`, and a node leaving the group with its members withdrawn and the election following.

@@ -16,7 +16,7 @@ fn overdue@main(lent ticker: Ticker; lent started: Tick, lent budget: Duration) 
   return (call cmp(Duration, Duration)@std.time(call elapsed@std.time(read ticker, read started), read budget) > 0)
 }
 
-impl SteppingTicker(lent step: Duration) of Ticker stateful {
+impl SteppingTicker(lent step: Duration) for Ticker stateful {
   state at: Long = 0L
   fn tick() -> Tick {
     assign at = (read at + read step.nanos)
@@ -29,7 +29,7 @@ actor interface Session {
   send fn expire(moved started: Tick, moved budget: Duration, moved out: Reply<Str>, moved f: Fired) -> None
 }
 
-impl Sessions() of Session@main deps [Timer] stateful {
+impl Sessions() for Session@main deps [Timer] stateful {
   mailbox construct Mailbox { capacity: 8 }
   fn open(moved started: Tick, moved budget: Duration, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
@@ -43,7 +43,7 @@ impl Sessions() of Session@main deps [Timer] stateful {
   }
 }
 
-impl TestTicker(lent timer: eff[Timer]) of Ticker {
+impl TestTicker(lent timer: eff[Timer]) for Ticker {
   fn tick() -> Tick {
     bind#1 let fired: Fired = waitfor answer: Reply<Fired> {
       obligation gain [answer]
@@ -59,7 +59,7 @@ actor interface Sleeper {
   send fn woke(moved started: Tick, moved out: Reply<Str>, moved f: Fired) -> None
 }
 
-impl Napping() of Sleeper@main deps [Timer, Ticker] stateful {
+impl Napping() for Sleeper@main deps [Timer, Ticker] stateful {
   mailbox construct Mailbox { capacity: 8 }
   fn nap(moved wait: Duration, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
@@ -144,7 +144,7 @@ enum __Cont_Napping {
   Woke(started: Tick, out: Reply<Str>)
 }
 
-impl __Stub_Session(moved addr: eff[Session@main]) of Session@main {
+impl __Stub_Session(moved addr: eff[Session@main]) for Session@main {
   fn open(moved started: Tick, moved budget: Duration, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
@@ -157,7 +157,7 @@ impl __Stub_Session(moved addr: eff[Session@main]) of Session@main {
   }
 }
 
-impl __Stub_Sleeper(moved addr: eff[Sleeper@main]) of Sleeper@main {
+impl __Stub_Sleeper(moved addr: eff[Sleeper@main]) for Sleeper@main {
   fn nap(moved wait: Duration, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]

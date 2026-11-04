@@ -119,7 +119,7 @@ fn main() [Throw<Str>] -> None {
 // which `Never` forbids.
 // (Its member's body falls through, which a `-> Never` member may not.)
 //~ error[throw:no-handlers]
-handler Swallow of Throw<Str> {
+handler Swallow for Throw<Str> {
     //~ error[fn-must-return:missing-return]
     fn throw(message: Str) -> Never => !message {
         note(message)

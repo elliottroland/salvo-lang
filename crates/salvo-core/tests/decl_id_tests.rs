@@ -58,7 +58,7 @@ fn id_of(program: &Program, shown: &str) -> DeclId {
 const MAIN: &str = "\
 struct Point { x: Int }
 effect Log { fn log(line: Str) -> None }
-handler Quiet of Log { fn log(line: Str) -> None {} }
+handler Quiet for Log { fn log(line: Str) -> None {} }
 fn size(p: Point) -> Int { p.x }
 fn size(s: Str) -> Int { 1 }
 fn label<T>(v: T) -> Str { \"v\" }
@@ -91,7 +91,7 @@ fn an_id_survives_body_edits_reordering_and_other_files() {
     let reordered = "\
 fn label<U>(v: U) -> Str { \"w\" }
 fn size(s: Str) -> Int { 1 }
-handler Quiet of Log { fn log(line: Str) -> None {} }
+handler Quiet for Log { fn log(line: Str) -> None {} }
 fn size(p: Point) -> Int { p.x }
 effect Log { fn log(line: Str) -> None }
 struct Point { x: Int }

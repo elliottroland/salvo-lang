@@ -17,7 +17,7 @@ actor effect Work {
     send fn step(n: Int)
 }
 
-handler Working() of Work {
+handler Working() for Work {
     mailbox { capacity: 1 }
 
     state {
@@ -35,7 +35,7 @@ handler Working() of Work {
 
 // The target must exist and be a `send fn`: a member that answers would have
 // to wait for itself.
-handler Later() of Log {
+handler Later() for Log {
     mailbox { capacity: 1 }
 
     send fn note(what: Str) {
@@ -49,7 +49,7 @@ actor effect Ready {
     fn ready() -> Bool
 }
 
-handler Readying() of Ready {
+handler Readying() for Ready {
     mailbox { capacity: 1 }
 
     send fn start(n: Int) {
@@ -77,7 +77,7 @@ actor effect Typed {
     send fn step(n: Int)
 }
 
-handler Typing() of Typed {
+handler Typing() for Typed {
     mailbox { capacity: 1 }
 
     send fn start(n: Int) {
@@ -92,7 +92,7 @@ handler Typing() of Typed {
 // enclosing handler only immediately after `@`, so it stays an ordinary name
 // elsewhere, and a local of that name can never shadow the form, which is
 // what the selector spelling buys over the `self.k(…)` receiver it replaced.
-handler Selfish() of Log {
+handler Selfish() for Log {
     mailbox { capacity: 1 }
 
     send fn note(what: Str) {
@@ -110,7 +110,7 @@ fn plain() -> Int {
 // The self-dispatch diagnostic names the remedy that exists: calling one's
 // own effect member unqualified is still refused, but for a `send fn` the
 // message points at `k@self(…)`.
-handler Counting2() of Counter {
+handler Counting2() for Counter {
     mailbox { capacity: 1 }
 
     state {
@@ -135,7 +135,7 @@ handler Counting2() of Counter {
 // clause. (The deadlock graph's nodes are effects, so forwarding to another
 // `Counter` is a `Counter → Counter` edge, and the back-pressure warning is
 // what it reports.)
-handler Sneaky(inner: eff[Counter]) of Counter {
+handler Sneaky(inner: eff[Counter]) for Counter {
     mailbox { capacity: 4 }
     state {
         sum: Int = 0
@@ -149,7 +149,7 @@ handler Sneaky(inner: eff[Counter]) of Counter {
 
 // [copy-scalar-free] The clause names what is consumed, so the requirement is
 // about a non-scalar parameter.
-handler Careless() of Counter {
+handler Careless() for Counter {
     mailbox { capacity: 4 }
     state {
         sum: Int = 0
@@ -167,7 +167,7 @@ effect Random {
     fn next() -> Int
 }
 
-handler CyclicRandom(seed: Int) of Random {
+handler CyclicRandom(seed: Int) for Random {
     mailbox { capacity: 8 }
     state {
         cursor: Int = 0
@@ -184,11 +184,11 @@ handler CyclicRandom(seed: Int) of Random {
 // [handler-init] `init { … }` is checked as a parameterless private member;
 // `self@Face` is the handler's own address as one of its actor faces.
 actor effect Registry { send fn register(who: eff[Counter]) => !who }
-handler Registering() of Registry {
+handler Registering() for Registry {
     mailbox { capacity: 4 }
     send fn register(who: eff[Counter]) => !who {}
 }
-handler Announcing(reg: eff[Registry]) of Counter {
+handler Announcing(reg: eff[Registry]) for Counter {
     mailbox { capacity: 4 }
     state {
         sum: Int = 0
@@ -208,7 +208,7 @@ fn init_and_self_addr_check_clean() [use, spawn] {
 
 // …refused outside a handler, for a face the handler lacks or a plain one,
 // and a handler using it is spawn-only.
-handler Twice() of Counter {
+handler Twice() for Counter {
     mailbox { capacity: 4 }
     init {}
     //~ error[handler-init:member-named-init]
@@ -217,7 +217,7 @@ handler Twice() of Counter {
     send fn bump(n: Int) { let _me = self@Log }
     send fn total(out: Reply<Int>) { out.send(0) }
 }
-handler Named() of Counter {
+handler Named() for Counter {
     mailbox { capacity: 4 }
     send fn bump(n: Int) { let _me = self@Counter }
     send fn total(out: Reply<Int>) { out.send(0) }

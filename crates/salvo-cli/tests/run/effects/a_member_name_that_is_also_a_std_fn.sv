@@ -9,7 +9,7 @@ effect Tally {
     fn read() -> Int
 }
 
-handler Summing() of Tally {
+handler Summing() for Tally {
     state {
         sum: Int = 0
     }
@@ -27,7 +27,7 @@ effect Shout {
     fn to_upper(s: Str) -> Str => !s
 }
 
-handler Excited() of Shout {
+handler Excited() for Shout {
     fn to_upper(s: Str) -> Str {
         return "${s}!"
     }
@@ -68,7 +68,7 @@ effect Tally {
     fn read() -> Int
 }
 
-handler Summing() of Tally {
+handler Summing() for Tally {
     state {
         sum: Int = 0
     }
@@ -86,7 +86,7 @@ effect Shout {
     fn to_upper(s: Str) -> Str => !s
 }
 
-handler Excited() of Shout {
+handler Excited() for Shout {
     fn to_upper(s: Str) -> Str {
         return "${s}!"
     }

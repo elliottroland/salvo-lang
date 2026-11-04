@@ -166,7 +166,7 @@ fn describe(e: DdbFailure) [] -> Str => e {
 // DynamoDB in memory, written the way a test would: a flat map from a
 // `table\tid` key to the whole item, with the set of known tables alongside.
 // The generated effect is the contract, so any handler of it will do.
-handler MemDdb() of Ddb {
+handler MemDdb() for Ddb {
     state {
         rows: Mut Map<Str, Map<Str, AttributeValue>> = Mut Map()
         tables: Mut Set<Str> = Mut Set()

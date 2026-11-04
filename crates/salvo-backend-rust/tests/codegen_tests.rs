@@ -184,7 +184,7 @@ struct Person {
     age: Int
 }
 
-qualifier Surname of Person {
+qualifier Surname for Person {
     surname: Str
 
     fn qualifies(person: Person) -> Bool {
@@ -192,7 +192,7 @@ qualifier Surname of Person {
     }
 }
 
-qualifier Positive of Int {
+qualifier Positive for Int {
     fn qualifies(int: Int) -> Bool {
         return int > 0
     }
@@ -268,7 +268,7 @@ effect Random<T> {
     fn next_random() -> T
 }
 
-handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
+handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) for Random<T> {
     state {
         i: Int = 0
     }
@@ -488,13 +488,13 @@ effect RawClock {
 
 // The host implements this one, in Kotlin or Rust: bodyless here, and
 // constructed at its `use` like any handler.
-platform handler HostRawClock(offset: Int) of RawClock
+platform handler HostRawClock(offset: Int) for RawClock
 
 effect Clock {
     fn stamp(label: Str) -> Str => label
 }
 
-handler DefaultClock [RawClock] of Clock {
+handler DefaultClock [RawClock] for Clock {
     fn stamp(label: Str) -> Str => label {
         return "${label}@${raw_now()}"
     }
@@ -634,13 +634,13 @@ effect RawClock {
     fn raw_now() [] -> Int
 }
 
-threadsafe platform handler HostRawClock(offset: Int) of RawClock
+threadsafe platform handler HostRawClock(offset: Int) for RawClock
 
 effect Clock {
     fn stamp(label: Str) -> Str => label
 }
 
-handler DefaultClock [RawClock] of Clock {
+handler DefaultClock [RawClock] for Clock {
     fn stamp(label: Str) -> Str => label {
         return "${label}@${raw_now()}"
     }
@@ -817,7 +817,7 @@ effect Random<T> {
     fn next_random() -> T
 }
 
-handler CyclicRandom<T>(values: T[]) of Random<T> {
+handler CyclicRandom<T>(values: T[]) for Random<T> {
     state {
         i: Int = 0
     }
@@ -1135,7 +1135,7 @@ actor effect Counting {
 
 // The receiver records rather than prints: a `deliver` answers as soon as
 // the frame is handed over, so a print here would race main's own.
-handler Tallying(label: Str) of Inbound, Counting {
+handler Tallying(label: Str) for Inbound, Counting {
     mailbox { capacity: 16 }
     state {
         seen: Mut List<Str> = Mut List<Str>()

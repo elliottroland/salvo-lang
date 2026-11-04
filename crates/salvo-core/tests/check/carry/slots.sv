@@ -3,7 +3,7 @@
 // A fn slot must have a fn type — the same requirement an implicit parameter
 // has, and for the same reason [implicit-param]. (`NoSlot` was `Bad`.)
 //~ error[cmp-carry:slot-not-fn-type]
-qualifier NoSlot<T>(?cmp: Int) of List<T>
+qualifier NoSlot<T>(?cmp: Int) for List<T>
 
 // [struct-slot] [cmp-carry] A **struct** declares fn slots as a type
 // declaration does: the identity is in the type, so two differently ordered

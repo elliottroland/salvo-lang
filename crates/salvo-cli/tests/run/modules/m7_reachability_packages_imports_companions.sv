@@ -15,7 +15,7 @@ fn main() [use] -> None {
 }
 // FILE: lib.sv
 
-export qualifier Loud of Str
+export qualifier Loud for Str
 
 export fn loud(s: Str) -> +Loud Str
 => !s {

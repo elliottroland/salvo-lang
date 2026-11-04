@@ -80,7 +80,7 @@ struct Tag {
 }
 
 // FILE: main.sv
-qualifier Tag of Int
+qualifier Tag for Int
 
 //~ error[name-resolve:unknown-type]
 fn f(x: Tag) [] -> Int {
@@ -103,9 +103,9 @@ export linear struct Ticket {
 
 export type Alias = Int
 
-export qualifier Tagged of Int
+export qualifier Tagged for Int
 
-export provenance qualifier Vetted of Shape
+export provenance qualifier Vetted for Shape
 
 export effect Logger {
     fn log(m: Str) -> None => !m
@@ -119,9 +119,9 @@ export effect Host {
     fn tick() [] -> Int
 }
 
-export platform handler HostTick of Host
+export platform handler HostTick for Host
 
-export handler Loud of Logger {
+export handler Loud for Logger {
     fn log(m: Str) -> None {}
 }
 

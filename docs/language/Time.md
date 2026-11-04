@@ -59,7 +59,7 @@ That is a stance rather than a mechanism, and the reason for it is not only test
 Where a reading genuinely cannot be passed in — how long a handler's *own* work took is not something its caller could have stamped — the reading and the deadlines must agree, and they are made to agree by writing a clock over the timer the test advances. A reading is a deadline of zero:
 
 ```
-handler TestTicker(timer: eff[Timer]) of Ticker {
+handler TestTicker(timer: eff[Timer]) for Ticker {
     fn tick() -> Tick {
         let fired = waitfor answer: Reply<Fired> { timer.after(nanos(0), answer) }
         return fired.at

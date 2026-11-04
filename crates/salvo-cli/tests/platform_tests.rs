@@ -84,13 +84,13 @@ effect RawClock {
     fn raw_now() [] -> Int
 }
 
-platform handler HostRawClock(offset: Int) of RawClock
+platform handler HostRawClock(offset: Int) for RawClock
 
 effect Clock {
     fn stamp(label: Str) -> Str => label
 }
 
-handler DefaultClock [RawClock] of Clock {
+handler DefaultClock [RawClock] for Clock {
     fn stamp(label: Str) -> Str => label {
         return "${label}@${raw_now()}"
     }
@@ -223,7 +223,7 @@ effect Stop {
     fn halt(why: Str) [] -> Never => why
 }
 
-platform handler HostStop() of Stop
+platform handler HostStop() for Stop
 
 platform fn bail(why: Str) [] -> Never => why
 
@@ -284,7 +284,7 @@ actor effect Holder {
     send fn hold(t: Tally, done: Reply<Int>) => !t, !done
 }
 
-handler Holding() of Holder {
+handler Holding() for Holder {
     mailbox { capacity: 4 }
     send fn hold(t: Tally, done: Reply<Int>) {
         done.send(bump(t))
@@ -393,7 +393,7 @@ export effect Apply {
     fn apply(f: (n: Int) -> Int, x: Int) -> Int => f, x
 }
 
-export platform handler HostApply() of Apply
+export platform handler HostApply() for Apply
 "#;
     const MAIN_SV: &str = r#"import host
 
@@ -594,7 +594,7 @@ fn the_platform_tree_mirrors_the_source_tree() {
             dir.join("telemetry.sv"),
             "export effect Telemetry {\n    \
              fn record(name: Str, value: Int) [] -> None => name, value\n}\n\n\
-             export platform handler HostTelemetry of Telemetry\n",
+             export platform handler HostTelemetry for Telemetry\n",
         )
         .unwrap();
         fs::write(
@@ -633,7 +633,7 @@ effect Greeter {
     fn greet(n: Int) [] -> Str => n
 }
 
-platform handler HostGreeter of Greeter
+platform handler HostGreeter for Greeter
 
 fn main() [use] {
     use StdConsole()
@@ -867,7 +867,7 @@ effect Slow {
     fn later(n: Int, done: Reply<Int>) [] -> None => !n, !done
 }
 
-threadsafe platform handler HostSlow of Slow
+threadsafe platform handler HostSlow for Slow
 
 send fn labelled(label: Str, out: Reply<Str>, n: Int) => !label, !out, !n {
     out.send(\"${label} ${n}\")
@@ -942,7 +942,7 @@ effect Clock {
     fn now() [] -> Int
 }
 
-platform handler HostClock(offset: Int) of Clock
+platform handler HostClock(offset: Int) for Clock
 
 platform fn shout(s: Str) [] -> Str => s
 
@@ -1023,7 +1023,7 @@ effect Greeter {
     fn greet(g: Greeting) [] -> Str => g
 }
 
-platform handler HostGreeter() of Greeter
+platform handler HostGreeter() for Greeter
 
 platform fn shout(s: Str) [] -> Str => s
 
@@ -1171,7 +1171,7 @@ platform fn items(n: Int) [] -> List<Item>
 
 // [platform-check] A predicate claim the boundary can test: std's generic
 // `NonEmpty` takes an implicit `size`, which it cannot.
-qualifier Filled of List<Str> {
+qualifier Filled for List<Str> {
     fn qualifies(list: List<Str>) -> Bool {
         return list.size() > 0
     }
@@ -1190,7 +1190,7 @@ effect Lookup {
     fn parity(n: Int, done: Reply<\"even\" | \"odd\">) [] -> None => !n, !done
 }
 
-threadsafe platform handler HostLookup() of Lookup
+threadsafe platform handler HostLookup() for Lookup
 
 fn show(t: \"gold\" | \"silver\" | None) -> Str {
     when t {
@@ -1286,11 +1286,11 @@ fn a_dependencys_host_project_is_checked_before_its_code() {
     .unwrap();
     fs::write(
         lib.join("salvo/lib.sv"),
-        "export effect Greet {\n    fn greet() -> Str\n}\n\nexport handler Plain() of Greet {\n    \
+        "export effect Greet {\n    fn greet() -> Str\n}\n\nexport handler Plain() for Greet {\n    \
          fn greet() -> Str { return \"plain\" }\n}\n",
     )
     .unwrap();
-    fs::write(lib.join("salvo/lib/host.sv"), "import lib\n\nexport platform handler HostGreet of Greet\n").unwrap();
+    fs::write(lib.join("salvo/lib/host.sv"), "import lib\n\nexport platform handler HostGreet for Greet\n").unwrap();
     fs::write(
         lib.join("salvo/platform/lib/host.rs"),
         "use crate::lib::*;\npub struct HostGreet;\nimpl HostGreet { pub fn new() -> Self { HostGreet } }\n\
@@ -1327,7 +1327,7 @@ fn a_dependencys_host_project_is_checked_before_its_code() {
     let (ok, stderr) = compile();
     assert!(ok, "{stderr}");
     // The signatures changed and nobody regenerated.
-    let host_sv = "import lib\n\nexport platform handler HostGreet of Greet\n";
+    let host_sv = "import lib\n\nexport platform handler HostGreet for Greet\n";
     fs::write(lib.join("salvo/lib/host.sv"), format!("{host_sv}\nexport platform fn shout(s: Str) [] -> Str => s\n")).unwrap();
     let (ok, stderr) = compile();
     assert!(!ok && stderr.contains("generated from platform signatures that have changed since"), "{stderr}");

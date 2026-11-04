@@ -26,7 +26,7 @@ A backend that does not implement an intrinsic fn, or cannot lower it for a part
 
 The standard library's collection and string surface (`list`, `Mut List`, `add`, `get`, `first`, `size`, `iter`, and the string functions from `char_at` to `split`, `trim`, `join` and `parse_int`) is intrinsic for the same reason, which is what keeps `size(xs)` compiling to `xs.size` in Kotlin and `(xs.len() as i32)` in Rust rather than to a wrapper function nobody wants. Because the lowering sees the *resolved* declaration, the three `size` overloads — on `Str`, on `List<T>`, and on an array — are three separate lowerings rather than one template guessing from arity.
 
-Handlers reach the host the same way: `threadsafe platform handler StdConsole() of Console` is bodyless in Salvo, and its host files (`lib/platform/std/core/console.rs` and `.kt`) implement `print`, `printerr` and `readln` against the generated interface.
+Handlers reach the host the same way: `threadsafe platform handler StdConsole() for Console` is bodyless in Salvo, and its host files (`lib/platform/std/core/console.rs` and `.kt`) implement `print`, `printerr` and `readln` against the generated interface.
 
 The `Mut` auto-qualifier is also handled at this level: a type declaration can opt into it with `canbe Mut` (`intrinsic type List<T> canbe Mut`), and each backend decides what `Mut` means. Kotlin maps `Mut List<T>` to `MutableList<T>` and `Mut Str` to `StringBuilder` — the one place a qualifier survives erasure — while Rust maps both `List<T>` and `Mut List<T>` to `Vec<T>`, and both `Str` and `Mut Str` to `String`, because there mutability shows up in bindings and references instead. Where the two types really differ, a *drop* of the `Mut` is a conversion (`.toString()` for a Kotlin builder) and the compiler records the drop for the backend to render; where they do not — `MutableList<T>` is a `List<T>` — it renders nothing.
 
@@ -71,7 +71,7 @@ effect RawClock {
     fn raw_now() [] -> Int
 }
 
-platform handler HostRawClock of RawClock
+platform handler HostRawClock for RawClock
 ```
 
 It is bodyless, because its members live in the target language, and it is otherwise an ordinary handler: registered with `use`, one instance per registration, constructor parameters passed through to the host class.
@@ -95,12 +95,12 @@ class HostRawClock : RawClockPlatform {
 }
 ```
 
-`main` stays the program's entry point, because the instance is constructed *inside* the program. Constructor parameters are how a host implementation is configured — `platform handler HostS3(bucket: Str) of Store`, registered as `use HostS3("my-bucket")`, becomes a class with a `bucket` parameter.
+`main` stays the program's entry point, because the instance is constructed *inside* the program. Constructor parameters are how a host implementation is configured — `platform handler HostS3(bucket: Str) for Store`, registered as `use HostS3("my-bucket")`, becomes a class with a `bucket` parameter.
 
 Three restrictions, each following from the implementation not being Salvo's:
 
 * **No body in Salvo** — no members, no state. The host class holds both.
-* **No effect dependencies.** A handler's dependencies are supplied to its *members*, and these members are host code, which performs no Salvo effect: the host reaches the outside world directly. Write an ordinary Salvo handler that depends on this one's effect when something has to sit in between — `handler DefaultClock [RawClock] of Clock` is exactly that.
+* **No effect dependencies.** A handler's dependencies are supplied to its *members*, and these members are host code, which performs no Salvo effect: the host reaches the outside world directly. Write an ordinary Salvo handler that depends on this one's effect when something has to sit in between — `handler DefaultClock [RawClock] for Clock` is exactly that.
 * **Not generic**: the host writes one concrete class.
 
 ### The thread-safety contract: `threadsafe`
@@ -108,8 +108,8 @@ Three restrictions, each following from the implementation not being Salvo's:
 A `use` of a platform handler is a handle like any handler's, and a handle locks a *stateful* handler's members and runs a *stateless* handler's on the shared instance. Which a host is, is a fact about the *host class*, which the compiler cannot see — so the declaration states it:
 
 ```
-threadsafe platform handler HostTcpTransport(port: Int) of Transport
-platform handler HostRawFs of RawFs
+threadsafe platform handler HostTcpTransport(port: Int) for Transport
+platform handler HostRawFs for RawFs
 ```
 
 **Without the word, the compiler serializes the instance** — every member runs under one lock, on both backends — so a host that keeps plain fields and never thought about threads works identically everywhere and pays only the lock. `HostRawFs` is written that way. **With `threadsafe`, the host promises it may be entered concurrently** (it synchronizes internally, or holds nothing that needs it) and the compiler shares the raw instance with no lock. On Rust the promise is half-checked: the host's members take `&self`, so a field that is not `Sync` does not compile; on Kotlin the host is trusted.
@@ -123,7 +123,7 @@ effect Slow {
     fn later(n: Int, done: Reply<Int>) [] -> None => !done
 }
 
-threadsafe platform handler HostSlow of Slow
+threadsafe platform handler HostSlow for Slow
 ```
 ```kotlin
 override fun later(n: Int, done: salvo.SalvoReply) {

@@ -69,11 +69,11 @@ export fn by_name(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.name, b.name)
 }
 
-export qualifier Heap<T>(?cmp: (T, T) -> Int) of List<T>
+export qualifier Heap<T>(?cmp: (T, T) -> Int) for List<T>
 
 // [cmp-carry] The same thing through a **group spread**: one slot per member of
 // the group, which is what `?Ordered<T>` means in a slot list.
-export qualifier Ranked<T>(?Ordered<T>) of List<T>
+export qualifier Ranked<T>(?Ordered<T>) for List<T>
 
 export fn empty_ranked<T>(?cmp: (T, T) -> Int) [] -> +Ranked<T>(?cmp) Mut List<T> {
     return Mut List()
@@ -279,8 +279,8 @@ fn provenance_arm_is_inferred_from_a_bare_value() {
     // [qual-arm-infer] A bare value that is the payload of exactly one
     // provenance-tagged arm is wrapped into it: `return n` for an
     // `Ok Int | Err Str` return is implicitly `Ok(n)`.
-    let prelude = "provenance qualifier Ok<T> of T\n\
-         provenance qualifier Err<T> of T\n\
+    let prelude = "provenance qualifier Ok<T> for T\n\
+         provenance qualifier Err<T> for T\n\
          fn Ok<T canbe linear>(v: T) [] -> +Ok T => !v {\n    return v\n}\n\
          fn Err<T canbe linear>(v: T) [] -> +Err T => !v {\n    return v\n}\n";
 
@@ -307,7 +307,7 @@ fn provenance_arm_is_inferred_from_a_bare_value() {
     // [qual-arm-infer] Not for a literal union with an open provenance arm: a
     // plain value must be wrapped explicitly with the open constructor.
     let open = errors(
-        "provenance qualifier Other<T> of T\n\
+        "provenance qualifier Other<T> for T\n\
          fn other<T>(v: T) [] -> +Other T => !v {\n    return v\n}\n\
          type Class = \"A\" | \"B\" | Other Str\n\
          fn f(s: Str) -> Class => s {\n    return s\n}\n",

@@ -33,7 +33,7 @@ export intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !va
 export intrinsic fn array_of<T>(...elems: T[]) [] -> T[]
 export intrinsic type Pool
 export intrinsic fn pool(size: Int) [spawn] -> Pool => size
-export provenance qualifier Dedicated of Pool
+export provenance qualifier Dedicated for Pool
 export intrinsic fn thread() [spawn] -> Dedicated Pool
 export struct Fault { reason: Str }
 export actor effect Faults {
@@ -67,13 +67,13 @@ actor effect Log {
     send fn note(what: Str) => !what
 }
 
-handler Printing() of Log {
+handler Printing() for Log {
     mailbox { capacity: 4 }
 
     send fn note(what: Str) {}
 }
 
-handler Counting() [Log] of Counter {
+handler Counting() [Log] for Counter {
     mailbox { capacity: 16 }
 
     state {
@@ -159,7 +159,7 @@ fn diagnostics_with_ids(src: &str) -> Vec<(bool, Option<&'static str>)> {
 fn replyto_needs_a_member_of_its_own_handler() {
     let unknown = errors(
         "\
-handler Asking() [Counter] of Log {
+handler Asking() [Counter] for Log {
     mailbox { capacity: 1 }
 
     send fn note(what: Str) {
@@ -178,7 +178,7 @@ handler Asking() [Counter] of Log {
 #[test]
 fn the_receiver_spelling_of_a_self_send_is_a_parse_error() {
     let source = "\
-handler Working() of Log {
+handler Working() for Log {
     send fn note(what: Str) {
         self.note(what)
     }
@@ -191,12 +191,12 @@ handler Working() of Log {
     );
 }
 
-/// [effect-any] The shared shape: a router `of any Counter` in front of two
+/// [effect-any] The shared shape: a router `for any Counter` in front of two
 /// members. Forwarding to a member of the effect it implements is not
 /// self-dispatch (the receiver is an addr), and the deadlock graph gives the
 /// router a node of its own, so `Counter → Counter` is not reported.
 const ROUTER: &str = r#"
-handler Spraying(a: eff[Counter], b: eff[Counter]) of any Counter {
+handler Spraying(a: eff[Counter], b: eff[Counter]) for any Counter {
     mailbox { capacity: 16 }
     state {
         flip: Bool = false

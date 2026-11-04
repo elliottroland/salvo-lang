@@ -34,7 +34,7 @@ actor effect Lookup {
 
 // ------------------------------------------------------------- members ----
 
-handler Sequencing(who: Str) of Sequencer {
+handler Sequencing(who: Str) for Sequencer {
     mailbox { capacity: 16 }
     state {
         n: Int = 0
@@ -45,7 +45,7 @@ handler Sequencing(who: Str) of Sequencer {
     }
 }
 
-handler Stocking(shard: Str) of Inventory {
+handler Stocking(shard: Str) for Inventory {
     mailbox { capacity: 32 }
     state {
         served: Int = 0
@@ -57,7 +57,7 @@ handler Stocking(shard: Str) of Inventory {
 }
 
 // One index holds a slice of the corpus and answers how often a word occurs.
-handler Indexing(words: List<Str>) of Search {
+handler Indexing(words: List<Str>) for Search {
     mailbox { capacity: 16 }
     send fn query(word: Str, out: Reply<Int>) => !word, !out {
         let n = 0
@@ -71,7 +71,7 @@ handler Indexing(words: List<Str>) of Search {
 }
 
 // A replica that answers at once…
-handler Looking(who: Str) of Lookup {
+handler Looking(who: Str) for Lookup {
     mailbox { capacity: 16 }
     send fn lookup(key: Str, out: Reply<Str>) => !key, !out {
         out.send("${key} from ${who}")
@@ -82,7 +82,7 @@ handler Looking(who: Str) of Lookup {
 // when it fires. `replyto` mints the continuation onto its own `answer`, a
 // **private** send member — no face declares it, so nothing outside this
 // handler can send to it, and its clause is written out like a free send fn's.
-handler SlowLooking(who: Str, timer: eff[Timer]) of Lookup {
+handler SlowLooking(who: Str, timer: eff[Timer]) for Lookup {
     mailbox { capacity: 16 }
     send fn lookup(key: Str, out: Reply<Str>) => !key, !out {
         timer.after(millis(150), replyto answer(key, out))
@@ -95,13 +95,13 @@ handler SlowLooking(who: Str, timer: eff[Timer]) of Lookup {
 // ------------------------------------------------ hand-written routers ----
 //
 // `use any group` picks ONE member per send. A policy that must read the
-// message — fan it out, race two copies — is a handler `of any E` written for
+// message — fan it out, race two copies — is a handler `for any E` written for
 // that protocol: `any`, because it promises no order between two sends.
 
 // Scatter: ask every member, sum the answers, reply once. The router itself
 // is stateless and `use`-bound; the collecting is an actor's, since something
 // has to receive the partial answers.
-handler Scattering(group: eff[ActorGroup<Search>], gather: eff[Gather]) of any Search {
+handler Scattering(group: eff[ActorGroup<Search>], gather: eff[Gather]) for any Search {
     mailbox { capacity: 16 }
     send fn query(word: Str, out: Reply<Int>) => !word, !out {
         let members = waitfor ms: Reply<List<eff[Search]>> { group.members(ms) }
@@ -117,7 +117,7 @@ actor effect Gather {
 // partial answer is in. A linear value in state lives in a container — the
 // queue owes, `remove_first` moves one obligation out — which is the shape
 // `examples/actors/` explains.
-handler Gathering() of Gather {
+handler Gathering() for Gather {
     mailbox { capacity: 16 }
     state {
         pending: Mut Deque<Reply<Int>> = mut_deque_of()
@@ -149,7 +149,7 @@ handler Gathering() of Gather {
 // Hedge: two members race, the first answer is the answer, the second is
 // dropped — a `Reply` is discharged exactly once, so the second arrival has
 // nothing to send to.
-handler Hedging(group: eff[ActorGroup<Lookup>], racer: eff[Race]) of any Lookup {
+handler Hedging(group: eff[ActorGroup<Lookup>], racer: eff[Race]) for any Lookup {
     mailbox { capacity: 16 }
     send fn lookup(key: Str, out: Reply<Str>) => !key, !out {
         let members = waitfor ms: Reply<List<eff[Lookup]>> { group.members(ms) }
@@ -161,7 +161,7 @@ actor effect Race {
     send fn race(key: Str, members: List<eff[Lookup]>, out: Reply<Str>) => !key, !members, !out
 }
 
-handler Racing() of Race {
+handler Racing() for Race {
     mailbox { capacity: 16 }
     state {
         pending: Mut Deque<Reply<Str>> = mut_deque_of()
@@ -191,7 +191,7 @@ handler Racing() of Race {
 // anyway; an election whose answer moves on its own calls `refresh()` on the
 // group. A Raft would serve the same effect, and nothing that routes through
 // `Elected` would change.
-handler LastHost(nodes: eff[NodeGroup], me: NodeEndpoint) of Leader {
+handler LastHost(nodes: eff[NodeGroup], me: NodeEndpoint) for Leader {
     fn leader() -> NodeId? {
         let peers = waitfor out: Reply<List<Node>> { nodes.members(out) }
         let best_host = copy(me.host)
@@ -268,7 +268,7 @@ actor effect Boot {
     send fn stop(done: Reply<Bool>) => !done
 }
 
-handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet]) [Transport, spawn] of Boot {
+handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet]) [Transport, spawn] for Boot {
     mailbox { capacity: 2 }
     state {
         nodes: eff[NodeGroup]? = None

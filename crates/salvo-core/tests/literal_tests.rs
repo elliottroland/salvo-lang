@@ -61,7 +61,7 @@ fn g() [] -> Mixed {{
 
 // ===== [type-literal-qualified] qualified literals =====
 
-const SHORT: &str = "export provenance qualifier Short of Str\ntype Port = \"port\"\n\
+const SHORT: &str = "export provenance qualifier Short for Str\ntype Port = \"port\"\n\
 type Field = Short Port | Short \"verbose\" | \"host\"\n";
 
 /// [type-literal-qualified] `is Short` on a union of qualified literals is a

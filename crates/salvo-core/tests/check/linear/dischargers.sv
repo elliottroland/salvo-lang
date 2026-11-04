@@ -92,7 +92,7 @@ export effect Sink {
     fn peek(t: Token) -> Int => t
 }
 
-handler Direct of Sink {
+handler Direct for Sink {
     fn close(t: Token) -> Str => !t {
         return "closed"
     }
@@ -126,7 +126,7 @@ effect Fs {
     fn close(s: OutStream) -> Str => !s
 }
 
-handler MemFs of Fs {
+handler MemFs for Fs {
     fn close(s: InStream) -> Str => !s {
         //~ error[ir-linear-check:leak-at-exit]
         let _other = OutStream { handle: 9 }
@@ -143,7 +143,7 @@ handler MemFs of Fs {
 import main.Sink
 import main.Token
 
-handler Fake of Sink {
+handler Fake for Sink {
     fn close(t: Token) -> Str => !t {
         return "faked"
     }
@@ -170,7 +170,7 @@ effect Desk {
     fn take(t: Ticket) -> None => !t
 }
 
-handler Clerk of Desk {
+handler Clerk for Desk {
     //~ error[ir-linear-check:leak-at-exit]
     fn take(t: Ticket) -> None => !t {
     }

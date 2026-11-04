@@ -15,7 +15,7 @@ actor effect CreditApi {
     send fn credit(id: Int, out: Reply<Bool>) => !out
 }
 
-handler Orders(credit: eff[CreditApi]) of OrderApi {
+handler Orders(credit: eff[CreditApi]) for OrderApi {
     mailbox { capacity: 1 }
 
     send fn place(id: Int, out: Reply<Str>) {
@@ -29,7 +29,7 @@ handler Orders(credit: eff[CreditApi]) of OrderApi {
     }
 }
 
-handler Credit(orders: eff[OrderApi]) of CreditApi {
+handler Credit(orders: eff[OrderApi]) for CreditApi {
     mailbox { capacity: 1 }
 
     send fn credit(id: Int, out: Reply<Bool>) {
@@ -55,7 +55,7 @@ actor effect ClockApi {
     send fn now(out: Reply<Int>) => !out
 }
 
-handler Timing(clock: eff[ClockApi]) of TimerApi {
+handler Timing(clock: eff[ClockApi]) for TimerApi {
     mailbox { capacity: 1 }
 
     send fn after(ms: Int, out: Reply<Int>) {
@@ -66,7 +66,7 @@ handler Timing(clock: eff[ClockApi]) of TimerApi {
     }
 }
 
-handler Clocking() [TimerApi] of ClockApi {
+handler Clocking() [TimerApi] for ClockApi {
     mailbox { capacity: 1 }
 
     send fn now(out: Reply<Int>) {
@@ -92,7 +92,7 @@ actor effect CreditApi {
     send fn credit(id: Int, out: Reply<Bool>) => !out
 }
 
-handler Orders(credit: eff[CreditApi]) of OrderApi {
+handler Orders(credit: eff[CreditApi]) for OrderApi {
     mailbox { capacity: 1 }
 
     send fn place(id: Int, out: Reply<Str>) {
@@ -106,7 +106,7 @@ handler Orders(credit: eff[CreditApi]) of OrderApi {
     }
 }
 
-handler Credit(orders: eff[OrderApi]) of CreditApi {
+handler Credit(orders: eff[OrderApi]) for CreditApi {
     mailbox { capacity: 1 }
 
     send fn credit(id: Int, out: Reply<Bool>) {
@@ -134,13 +134,13 @@ actor effect Log {
     send fn note(what: Str) => !what
 }
 
-handler Printing() of Log {
+handler Printing() for Log {
     mailbox { capacity: 4 }
 
     send fn note(what: Str) {}
 }
 
-handler Counting() [Log] of Counter {
+handler Counting() [Log] for Counter {
     mailbox { capacity: 16 }
 
     state {
@@ -156,7 +156,7 @@ handler Counting() [Log] of Counter {
         out.send(sum)
     }
 }
-handler Caching() [Counter] of Counter {
+handler Caching() [Counter] for Counter {
     mailbox { capacity: 1 }
 
     send fn bump(n: Int) {
@@ -183,13 +183,13 @@ actor effect Log {
     send fn note(what: Str) => !what
 }
 
-handler Printing() of Log {
+handler Printing() for Log {
     mailbox { capacity: 4 }
 
     send fn note(what: Str) {}
 }
 
-handler Counting() [Log] of Counter {
+handler Counting() [Log] for Counter {
     mailbox { capacity: 16 }
 
     state {
@@ -210,7 +210,7 @@ actor effect Waiting {
     send fn got(n: Int)
 }
 
-handler Asking(c: eff[Counter]) of Waiting {
+handler Asking(c: eff[Counter]) for Waiting {
     mailbox { capacity: 1 }
 
     send fn ask() {
@@ -235,13 +235,13 @@ actor effect Log {
     send fn note(what: Str) => !what
 }
 
-handler Printing() of Log {
+handler Printing() for Log {
     mailbox { capacity: 4 }
 
     send fn note(what: Str) {}
 }
 
-handler Counting() [Log] of Counter {
+handler Counting() [Log] for Counter {
     mailbox { capacity: 16 }
 
     state {
@@ -270,7 +270,7 @@ send fn answer(peer: eff[Peer], back: eff[Counter], n: Int) => !peer, !back {
     peer.ping(back)
 }
 
-handler Peering(counter: eff[Counter]) of Peer {
+handler Peering(counter: eff[Counter]) for Peer {
     mailbox { capacity: 1 }
 
     send fn ping(back: eff[Counter]) {
@@ -278,7 +278,7 @@ handler Peering(counter: eff[Counter]) of Peer {
     }
 }
 
-handler Working(peer: eff[Peer], back: eff[Counter]) [Ask] of Counter {
+handler Working(peer: eff[Peer], back: eff[Counter]) [Ask] for Counter {
     mailbox { capacity: 1 }
 
     send fn bump(n: Int) {
@@ -301,13 +301,13 @@ actor effect Log {
     send fn note(what: Str) => !what
 }
 
-handler Printing() of Log {
+handler Printing() for Log {
     mailbox { capacity: 4 }
 
     send fn note(what: Str) {}
 }
 
-handler Counting() [Log] of Counter {
+handler Counting() [Log] for Counter {
     mailbox { capacity: 16 }
 
     state {
@@ -335,7 +335,7 @@ send fn answer(peer: eff[Peer], back: eff[Counter], n: Int) => !peer, !back {
     peer.ping(back)
 }
 
-handler Peering(counter: eff[Counter]) of Peer {
+handler Peering(counter: eff[Counter]) for Peer {
     mailbox { capacity: 1 }
 
     send fn ping(back: eff[Counter]) {
@@ -343,7 +343,7 @@ handler Peering(counter: eff[Counter]) of Peer {
     }
 }
 
-handler Working(peer: eff[Peer], back: eff[Counter]) [Ask] of Counter {
+handler Working(peer: eff[Peer], back: eff[Counter]) [Ask] for Counter {
     mailbox { capacity: 1 }
 
     send fn bump(n: Int) {
@@ -372,7 +372,7 @@ actor effect AuditApi {
     send fn check(out: Reply<Int>) => !out
 }
 
-handler Orders(credit: eff[CreditApi]) of OrderApi {
+handler Orders(credit: eff[CreditApi]) for OrderApi {
     mailbox { capacity: 1 }
 
     send fn place(id: Int, out: Reply<Str>) {
@@ -384,7 +384,7 @@ handler Orders(credit: eff[CreditApi]) of OrderApi {
     send fn poke(id: Int) {}
 }
 
-handler Credit(orders: eff[OrderApi], audit: eff[AuditApi]) of CreditApi {
+handler Credit(orders: eff[OrderApi], audit: eff[AuditApi]) for CreditApi {
     mailbox { capacity: 1 }
 
     send fn credit(id: Int, out: Reply<Bool>) {
@@ -402,7 +402,7 @@ handler Credit(orders: eff[OrderApi], audit: eff[AuditApi]) of CreditApi {
 
 // [actor-deadlock-cycle] [effect-any] An `eff[Ping]` may be a member of `Ping`
 
-// or a spawned `of any Ping` router, which the addr cannot say, so a send
+// or a spawned `for any Ping` router, which the addr cannot say, so a send
 
 // through it lands on every written router of `Ping` too (user decision
 
@@ -417,7 +417,7 @@ actor effect Pong {
     send fn pong(n: Int, out: Reply<Int>) => !out
 }
 
-handler R() [Pong] of any Ping {
+handler R() [Pong] for any Ping {
     mailbox { capacity: 1 }
 
     send fn ping(out: Reply<Int>) {
@@ -428,7 +428,7 @@ handler R() [Pong] of any Ping {
     }
 }
 
-handler Ponger(p: eff[Ping]) of Pong {
+handler Ponger(p: eff[Ping]) for Pong {
     mailbox { capacity: 1 }
 
     send fn pong(n: Int, out: Reply<Int>) {

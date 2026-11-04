@@ -248,7 +248,7 @@ struct Range : FromArgs<self> by args {
     max: Int = 10
 }
 
-qualifier Valid of Range
+qualifier Valid for Range
 
 fn validate(o: Range) [Throw<ArgError>] -> +Valid Range => !o {
     if o.min > o.max {

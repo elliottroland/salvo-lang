@@ -5,7 +5,7 @@ Salvo introduces the notion of _qualifiers_, which act like annotations on data 
 A qualifier is defined by being attached to another type. We can then use this quality to define more specific functions on types. So, for our `Person` type, we could define a qualifier of having a surname:
 
 ```
-qualifier Surname of Person
+qualifier Surname for Person
 ```
 
 Here, `Surname` is the name of the qualifier, and `Person` is the type it applies to. When we show the full syntax for functions, we will show how they can be used to define semantics around this. For now, it suffices to point out that when we refer to a `Surname Person` it in some sense represents a new type, allowing to overload functions as follows:
@@ -133,19 +133,19 @@ to obtain it live together.
 A predicate qualifier is one whose claim can be *tested*. In this case, we define the function `qualifies` inside the qualifier, which takes a parameter of the given type and returns a boolean. This function does not support deductions because it can only ever be additive to the qualifiers of the type and can never move the value. It can, however, require effects, in which case the effects must have handlers in the context like any other function call:
 
 ```
-qualifier Positive of Int {
+qualifier Positive for Int {
     fn qualifies(int: Int) -> Bool {
         return int > 0
     }
 }
 
-qualifier NonNegative of Int {
+qualifier NonNegative for Int {
     fn qualifies(int: Int) -> Bool {
         return int >= 0
     }
 }
 
-qualifier Negative of Int {
+qualifier Negative for Int {
     fn qualifies(int: Int) -> Bool {
         return int < 0
     }
@@ -155,7 +155,7 @@ qualifier Negative of Int {
 A predicate qualifier can also say **why** a value fails, in a `@whynot` tag in the doc comment of its `qualifies` ([doc tags](Modules.md#documentation-comments)). The message is plain language around `[name]`s, which are `qualifies`' parameters: the value tested, and any slot of a scalar type (`Int`, `Long`, `Double`, `Bool`, `Char`, `Str`). Nothing else can be named, so the message can only say what the test had in hand.
 
 ```
-qualifier InRange(lo: Int, hi: Int) of Int {
+qualifier InRange(lo: Int, hi: Int) for Int {
     // @whynot [n] is not in [lo]..[hi]
     fn qualifies(n: Int, lo: Int, hi: Int) -> Bool { return n >= lo && n <= hi }
 }
@@ -177,7 +177,7 @@ if number is Positive {
 When a predicate qualifier is applied to a struct, it can specify more specific versions of the types of that struct's fields. These more specific types are not checked by the compiler, but they are cast and asserted when used in the code. Thus, if not carefully managed, these can result in runtime exceptions.
 
 ```
-qualifier Surname of Person {
+qualifier Surname for Person {
     surname: Str // More specific type for the `surname` field when `Surname` applies
 
     fn qualifies(person: Person) -> Bool {
@@ -196,7 +196,7 @@ Predicate qualifiers apply to an existing value, and need not be present in the 
 
 ```
 // No body -- we're using a constructive qualifier
-qualifier RandomPositive of Int
+qualifier RandomPositive for Int
 
 // `-> Int as RandomPositive` marks this as a constructor for the qualifier.
 // Callers see the return type `RandomPositive Int`.
@@ -214,7 +214,7 @@ fn random_positive_int() [Random<Int>] -> +RandomPositive Int {
 Constructor functions are not limited to constructive qualifiers: a predicate qualifier may declare constructors too. The constructor asserts that its predicate holds _by construction_, so callers get the qualified type without a runtime `qualifies` check. The same rules apply — constructors must live in the same file as the qualifier and return a simple type:
 
 ```
-qualifier NonEmpty<T> of List<T> {
+qualifier NonEmpty<T> for List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return list.size() > 0
     }
@@ -228,13 +228,13 @@ fn one_of<T>(first: T, ...rest: T[]) -> +NonEmpty List<T> => !first, !rest {
 
 std's own `NonEmpty` is the generic one in `std.core.nonempty`, over anything with a `size`, and its list constructors are shaped this way: `List()` for an empty list, `List(first, ...rest)` for one that is known non-empty. `Sorted` is std's too, and `Distinct` in `std.core.set`; see "Collections".
 
-A claim like std's `NonEmpty`, generic over its subject (`of T`), belongs to no one type, so the file that declares a type may establish it about that type as well — `std.core.deque` writes `-> +NonEmpty Deque<T>` over a host function.
+A claim like std's `NonEmpty`, generic over its subject (`for T`), belongs to no one type, so the file that declares a type may establish it about that type as well — `std.core.deque` writes `-> +NonEmpty Deque<T>` over a host function.
 
 This is also how union arms are tagged in practice: a generic constructor applies the tag, and the tagged value then coerces into the union:
 
 ```
-provenance qualifier Ok<T> of T
-provenance qualifier Err<T> of T
+provenance qualifier Ok<T> for T
+provenance qualifier Err<T> for T
 
 fn ok<T>(value: T) -> +Ok T {
     return value
@@ -260,12 +260,12 @@ Constructive qualifiers can also be entirely handled by the backend implementati
 
 The qualifiers above answer *how* a value gained a tag — by predication or by construction. A second, independent question is what the tag is a claim *about*, and that one changes the semantics:
 
-* A **state** qualifier is a claim about the value's **contents**: `NonEmpty`, `Sorted`, `Positive`. This is the default, and it is what `qualifier Q of T` declares.
+* A **state** qualifier is a claim about the value's **contents**: `NonEmpty`, `Sorted`, `Positive`. This is the default, and it is what `qualifier Q for T` declares.
 * A **provenance** qualifier is a claim about where the **handle** came from: `Authenticated`, `Validated`, an id minted for one particular struct. Declare it by prefixing `provenance`.
 
 ```
-qualifier NonEmpty<T> of List<T>              // about the contents
-provenance qualifier Authenticated of Request // about the origin
+qualifier NonEmpty<T> for List<T>              // about the contents
+provenance qualifier Authenticated for Request // about the origin
 ```
 
 The difference matters because a function that mutates a value invalidates claims about its contents. A call that takes `Mut` and does not promise to keep `NonEmpty` strips it, since adding or removing elements could make it false. But mutating a request's body does not change the fact that the request was authenticated, so provenance qualifiers survive every call:
@@ -322,7 +322,7 @@ A deduction clause is written by the function's author, so it can only state wha
 The party that can is the qualifier. A **refinement** is a statement about a function you do not own, written by the qualifier whose claim it is about:
 
 ```
-qualifier NonEmpty<T> of List<T> {
+qualifier NonEmpty<T> for List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return list.size() > 0
     }
@@ -367,8 +367,8 @@ A refinement is **trusted**, exactly as `-> +Q T` is: nothing proves that `add` 
 **All matching refinements apply.** One refinement refines every in-scope overload of the name it names whose parameters its gate accepts (the gate is positional, by base type — qualifiers, including `Mut`, are ignored — with a trailing `*` for the rest). At a call, every refinement whose parameters the arguments fit applies, and their effects compose:
 
 ```
-qualifier Q1<T> of List<T> { ... refn something(list: List<T>, *) => list: +Q1 }
-qualifier Q2<T> of List<T> { ... refn something(list: List<T>, *) => list: +Q2 }
+qualifier Q1<T> for List<T> { ... refn something(list: List<T>, *) => list: +Q1 }
+qualifier Q2<T> for List<T> { ... refn something(list: List<T>, *) => list: +Q2 }
 ```
 
 Both `Q1` and `Q2` are established — qualifiers compose freely. The one thing a refinement may not do is contradict itself: establishing and invalidating the same qualifier (`+Q -Q`) for one parameter is an error at the declaration.

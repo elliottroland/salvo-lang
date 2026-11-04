@@ -13,7 +13,7 @@ effect Sink<T> {
     fn accept(value: T) -> Str => value
 }
 
-handler Relay<T> [Console] of Sink<T> {
+handler Relay<T> [Console] for Sink<T> {
     fn accept(value: T) -> Str => value {
         println("relayed")
         return "ok"
@@ -36,7 +36,7 @@ actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
 
-handler Counting() of Counter {
+handler Counting() for Counter {
     mailbox { capacity: 4 }
     state {
         sum: Int = 0
@@ -54,7 +54,7 @@ actor effect Ledger {
     send fn reported(out: Reply<Int>, total: Int) => !out, !total
 }
 
-handler Bookkeeping() [Counter] of Ledger {
+handler Bookkeeping() [Counter] for Ledger {
     mailbox { capacity: 4 }
     send fn report(out: Reply<Int>) {
         total()
@@ -90,7 +90,7 @@ effect Clock {
     fn now() -> Int
 }
 
-handler TickingClock of Clock {
+handler TickingClock for Clock {
     state {
         t: Int = 0
     }
@@ -101,17 +101,17 @@ effect Logger {
     fn log(m: Str) -> None => m
 }
 
-handler PlainLogger [Console] of Logger {
+handler PlainLogger [Console] for Logger {
     fn log(m: Str) -> None => m { println("log: ${m}") }
 }
 
-handler Stamped [Logger, Clock] of Logger {
+handler Stamped [Logger, Clock] for Logger {
     fn log(m: Str) -> None => m {
         log("[t=${now()}] ${m}")
     }
 }
 
-handler FixedClock of Clock {
+handler FixedClock for Clock {
     fn now() -> Int { return 99 }
 }
 
@@ -119,7 +119,7 @@ actor effect Reporter {
     send fn report(what: Str, done: Reply<Int>) => !what, !done
 }
 
-handler Reporting() [Logger] of Reporter {
+handler Reporting() [Logger] for Reporter {
     mailbox { capacity: 4 }
 
     send fn report(what: Str, done: Reply<Int>) {

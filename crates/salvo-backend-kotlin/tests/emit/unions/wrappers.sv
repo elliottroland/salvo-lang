@@ -113,8 +113,8 @@ export fn main() [use] -> None {
 // [type-union] Constructor arguments, tuple elements and lambda tail returns
 // receive expected types, so union wrapping is recorded and emitted.
 // (`NESTED_COERCION_DEMO` in codegen_tests.rs.)
-qualifier Ok<T> of T
-qualifier Err<T> of T
+qualifier Ok<T> for T
+qualifier Err<T> for T
 
 type Result = Ok Int | Err Str
 

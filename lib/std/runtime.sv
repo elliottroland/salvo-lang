@@ -83,7 +83,7 @@ effect RuntimeHost {
     fn mono_nanos() -> Long
 }
 
-threadsafe platform handler HostRuntime() of RuntimeHost
+threadsafe platform handler HostRuntime() for RuntimeHost
 
 // [mod-use] The runtime's host, bound once for the process: every function
 // here reaches it without declaring it.
@@ -498,7 +498,7 @@ effect SchedTable {
     fn virtual_work(own: Int) -> RunActor | RunTask | None => !own
 }
 
-handler Scheduler() of SchedTable {
+handler Scheduler() for SchedTable {
     state {
         actors: Mut List<Mut ActorRec> = Mut List()
         waiters: Mut List<Mut WaiterRec> = Mut List()

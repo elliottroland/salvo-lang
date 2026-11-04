@@ -13,7 +13,7 @@ effect Show {
     fn show(v: Int, ?fmt: (Int) -> Str) -> Str => v
 }
 
-handler Angle of Show {
+handler Angle for Show {
     // The implementation has to match it exactly (stateless: `&self`).
     //~ emits: fn show(&self, v: i32, fmt: &mut dyn FnMut(i32) -> String) -> String {
     fn show(v: Int, ?fmt: (Int) -> Str) -> Str => v {

@@ -101,7 +101,7 @@ fn probe() -> None {
 //--- the_receiver_form_is_not_the_self_send
 // [actor-self-send] `self.step(n)` is the retired spelling: a parse error
 // naming `k@self(…)`.
-handler Working() of Work {
+handler Working() for Work {
     mailbox { capacity: 1 }
 
     send fn start(n: Int) {

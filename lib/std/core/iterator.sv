@@ -20,7 +20,7 @@
 // have one. Erased in generated code.
 // @compilerrules [qual-constructive, qual-erasure]
 // @compilerknown
-export provenance qualifier Emitted<T> of T
+export provenance qualifier Emitted<T> for T
 
 // The end arm. A fieldless struct rather than a qualifier because there is
 // nothing for it to qualify: it carries no element, and reusing `None` would

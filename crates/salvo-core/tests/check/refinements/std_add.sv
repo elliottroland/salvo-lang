@@ -5,7 +5,7 @@
 // `add`'s exhaustive `[list: Mut]` drops `Filled` [deduce-syntax], and
 // `Filled`'s own refinement puts it back, so the `Filled` overload still
 // resolves after the mutation.
-qualifier Filled<T> of List<T> {
+qualifier Filled<T> for List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return list.size() > 0
     }
@@ -26,7 +26,7 @@ fn main() [use] {
 
 //--- without_the_refinement_std_add_strips_the_claim
 // The control: without the refinement, std's `add` strips the claim.
-qualifier Filled<T> of List<T> {
+qualifier Filled<T> for List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return list.size() > 0
     }

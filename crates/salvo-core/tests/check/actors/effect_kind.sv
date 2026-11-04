@@ -12,13 +12,13 @@ actor effect Log {
     send fn note(what: Str) => !what
 }
 
-handler Printing() of Log {
+handler Printing() for Log {
     mailbox { capacity: 4 }
 
     send fn note(what: Str) {}
 }
 
-handler Counting() [Log] of Counter {
+handler Counting() [Log] for Counter {
     mailbox { capacity: 16 }
 
     state {
@@ -80,7 +80,7 @@ effect Pinged {
     fn ping() -> Int
 }
 
-handler Pinging() of Pinged {
+handler Pinging() for Pinged {
     fn ping() -> Int {
         return 1
     }
@@ -103,7 +103,7 @@ effect Boxed {
     fn boxed() -> Int
 }
 
-handler Boxing() of Boxed {
+handler Boxing() for Boxed {
     //~ error[actor-mailbox:nothing-to-enqueue]
     mailbox { capacity: 1 }
 

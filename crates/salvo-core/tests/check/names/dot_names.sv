@@ -12,7 +12,7 @@ struct Environment.Id {
     value: Str
 }
 
-qualifier Environment.Tag of Str
+qualifier Environment.Tag for Str
 
 //--- the namespace must be a struct in the same file
 // [name-dot] The namespace must be a struct declared in the same file.

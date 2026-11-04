@@ -5,8 +5,8 @@
 // Two qualifiers may share a name when their subjects differ, and each
 // applies to its own. Before overloading the second declaration was a
 // "duplicate qualifier" error and only one subject could have the name.
-qualifier Filled<T> of List<T>
-qualifier Filled<T> of Set<T>
+qualifier Filled<T> for List<T>
+qualifier Filled<T> for Set<T>
 
 fn several_subjects(a: Filled List<Int>, b: Filled Set<Int>) [] -> None => a, b {
 }
@@ -20,6 +20,6 @@ fn not_a_subject(n: Filled Int) [] -> None => n {
 //--- one_name_twice_over_one_subject_is_a_duplicate
 // Two declarations of one name over **one** subject are a duplicate, not an
 // overload: nothing at a use site could tell them apart.
-qualifier Twice<T> of List<T>
+qualifier Twice<T> for List<T>
 //~ error[mod-collision:duplicate]
-qualifier Twice<T> of List<T>
+qualifier Twice<T> for List<T>

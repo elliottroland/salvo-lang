@@ -43,7 +43,7 @@ fn overdue(started: Tick, budget: Duration) [Ticker] -> Bool {
 // A scripted clock: a handler of your own whose readings come from its
 // constructor. No timer, no actors, no virtual time — the cheapest determinism
 // there is, and enough for code that only measures locally.
-handler SteppingTicker(step: Duration) of Ticker {
+handler SteppingTicker(step: Duration) for Ticker {
     state {
         at: Long = 0
     }
@@ -71,7 +71,7 @@ actor effect Session {
     => !started, !budget, !out, !f
 }
 
-handler Sessions() [Timer] of Session {
+handler Sessions() [Timer] for Session {
     mailbox { capacity: 8 }
 
     send fn open(started: Tick, budget: Duration, out: Reply<Str>) {
@@ -103,7 +103,7 @@ handler Sessions() [Timer] of Session {
 // as a handler dependency, because a handler with dependencies of its own cannot
 // be *constructed* in a spawn's `with` clause: there is no scope on the child to
 // resolve them from, so an addr is what crosses.
-handler TestTicker(timer: eff[Timer]) of Ticker {
+handler TestTicker(timer: eff[Timer]) for Ticker {
     fn tick() -> Tick {
         let fired = waitfor answer: Reply<Fired> {
             timer.after(nanos(0), answer)
@@ -119,7 +119,7 @@ actor effect Sleeper {
     send fn woke(started: Tick, out: Reply<Str>, f: Fired) => !started, !out, !f
 }
 
-handler Napping() [Timer, Ticker] of Sleeper {
+handler Napping() [Timer, Ticker] for Sleeper {
     mailbox { capacity: 8 }
 
     send fn nap(wait: Duration, out: Reply<Str>) {

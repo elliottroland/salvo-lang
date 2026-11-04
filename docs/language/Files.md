@@ -144,7 +144,7 @@ fn main() [use] {
 }
 ```
 
-`MemFs` fakes `Fs` **and** `Streams` — one handler wearing both faces (`of Fs, Streams`), since a write stream has to publish into its file map when it closes — so a test needs no filesystem and no host at all, and one `use` stands in for all four host lines. Its files are **bytes**, as a real one's are, and it counts byte offsets exactly as the host does, because a fake that stored text and counted characters would let tests pass while production broke.
+`MemFs` fakes `Fs` **and** `Streams` — one handler wearing both faces (`for Fs, Streams`), since a write stream has to publish into its file map when it closes — so a test needs no filesystem and no host at all, and one `use` stands in for all four host lines. Its files are **bytes**, as a real one's are, and it counts byte offsets exactly as the host does, because a fake that stored text and counted characters would let tests pass while production broke.
 
 A stream belongs to the provider that minted it. Handing a `MemFs` stream to the host's `Streams` (or the reverse) is a program bug and **traps**; every stream table draws its handles from one process-wide counter, so the wrong table always finds an *unknown* handle rather than someone else's live stream. The rule of thumb is all-host or all-mem, never a mix.
 

@@ -34,7 +34,7 @@ cargo run -- run --backend kotlin --src examples/qualifiers/salvo
    `head(xs)` stops compiling until an `add` re-establishes it. `sum` writes no
    deduction list at all — the compiler infers that it keeps the list and
    mutates nothing, so a caller's claims survive the call.
-4. **State versus provenance.** `provenance qualifier Authenticated of Request`
+4. **State versus provenance.** `provenance qualifier Authenticated for Request`
    is a claim about *where the handle came from*, so it is exempt from the rule
    that a mutating call invalidates unlisted claims — a request does not stop
    having been authenticated because a handler wrote to it. `Fresh` is an

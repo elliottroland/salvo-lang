@@ -16,13 +16,13 @@ effect Net {
     fn close(handle: Int) -> Str
 }
 
-handler MemFs of Fs {
+handler MemFs for Fs {
     fn close(handle: Int) -> Str {
         return "fs"
     }
 }
 
-handler MemNet of Net {
+handler MemNet for Net {
     fn close(handle: Int) -> Str {
         return "net"
     }

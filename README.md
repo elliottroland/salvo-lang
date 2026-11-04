@@ -174,7 +174,7 @@ fn main() [use] {
   flow; `when o { is Ok { o := -Ok … } }` reads the union inside an `Ok`
   claim). A qualifier is a claim about a
   value's *contents* (`NonEmpty`) or about where the *handle* came from
-  (`provenance qualifier Authenticated of Request`) — only the former can
+  (`provenance qualifier Authenticated for Request`) — only the former can
   be invalidated by mutation. A qualifier, or a type in its own body, can
   also state what functions do to a claim they do not know (`refn add(list:
   Mut List<T>, elem: T) => list: +NonEmpty`), which is how a mutating call
@@ -207,7 +207,7 @@ fn main() [use] {
   **the one the handler implements**, which is interception: the
   dependency binds strictly outward, so a policy handler wraps the one
   already registered, and a later `use` shadows an earlier one. One handler may
-  implement **several effects** (`of Timer, TimerCtl`): one state, one face per
+  implement **several effects** (`for Timer, TimerCtl`): one state, one face per
   effect, which is how a public protocol and an administrative one share an
   implementation — and a `spawn` of one hands back an addr per face, so who holds
   which face decides what they may do. A function

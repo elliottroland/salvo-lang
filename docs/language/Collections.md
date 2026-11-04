@@ -133,7 +133,7 @@ Two lists sorted differently are two types and refuse to mix, and a signature th
 `Sorted` and `Distinct` (below) are about a *list*. `NonEmpty` is about anything with a `size` — `List`, `Set`, `Map`, `SortedSet`, `SortedMap`, `Deque`, `Str` — because it is **one generic qualifier**, in `std.core.nonempty`:
 
 ```
-export qualifier NonEmpty<T canbe linear> of T {
+export qualifier NonEmpty<T canbe linear> for T {
     fn qualifies(value: T, ?size: (value: T) -> Int) -> Bool {
         return size(value) > 0
     }

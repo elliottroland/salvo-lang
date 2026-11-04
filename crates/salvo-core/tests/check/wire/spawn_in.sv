@@ -4,8 +4,8 @@ import std.net
 
 actor effect Ping { send fn ping() }
 actor effect Pong { send fn pong() }
-handler Pinging() of Ping { mailbox { capacity: 1 } send fn ping() {} }
-handler Both() of Ping, Pong { mailbox { capacity: 1 } send fn ping() {} send fn pong() {} }
+handler Pinging() for Ping { mailbox { capacity: 1 } send fn ping() {} }
+handler Both() for Ping, Pong { mailbox { capacity: 1 } send fn ping() {} send fn pong() {} }
 
 fn main(pings: eff[ActorGroup<Ping>], pongs: eff[ActorGroup<Pong>], n: Int) [spawn] -> None
     => !pings, !pongs {

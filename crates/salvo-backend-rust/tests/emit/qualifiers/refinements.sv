@@ -10,7 +10,7 @@
 // [qual-refn] [qual-erasure] The same source and the same expected stdout as
 // the Kotlin backend asserts — which is the parity claim itself. The emitted
 // Rust carries no trace of the refinement.
-qualifier NonEmpty<T> of List<T> {
+qualifier NonEmpty<T> for List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return size(list) > 0
     }

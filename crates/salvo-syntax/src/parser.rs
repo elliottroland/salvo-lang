@@ -150,7 +150,7 @@ pub const WHYNOT_FORM: &str = "whynot";
 pub const ACTOR_MODIFIER: &str = "actor";
 
 /// [platform-threadsafe] The contextual modifier that states a platform
-/// handler's thread-safety contract: `threadsafe platform handler H of E`
+/// handler's thread-safety contract: `threadsafe platform handler H for E`
 /// (user decision 2026-09-26). The host class may be entered concurrently
 /// from any thread; without it the compiler serializes the instance on both
 /// backends. Contextual like `actor` — an ordinary identifier everywhere
@@ -851,7 +851,7 @@ impl<'s> Parser<'s> {
                         t.comptime = true;
                         Some(Item::Type(t))
                     }
-                    // [comptime-qualifier] `comptime qualifier Short(c: Char) of Field`.
+                    // [comptime-qualifier] `comptime qualifier Short(c: Char) for Field`.
                     TokenKind::KwQualifier => {
                         self.bump();
                         let mut q = self.parse_qualifier(false, QualSubject::Provenance)?;
@@ -995,7 +995,7 @@ impl<'s> Parser<'s> {
             TokenKind::KwQualifier => self
                 .parse_qualifier(false, QualSubject::State)
                 .map(Item::Qualifier),
-            // [qual-subject] `provenance qualifier Q of T`: a claim about
+            // [qual-subject] `provenance qualifier Q for T`: a claim about
             // where the handle came from, not about its contents.
             TokenKind::KwProvenance => {
                 self.bump();
@@ -1008,13 +1008,13 @@ impl<'s> Parser<'s> {
                 self.parse_qualifier(false, QualSubject::Provenance)
                     .map(Item::Qualifier)
             }
-            // [platform-handler] `platform handler H of E`: a host
+            // [platform-handler] `platform handler H for E`: a host
             // implementation of a Salvo effect.
             TokenKind::KwPlatform => {
                 self.bump();
                 self.parse_platform_rest(false)
             }
-            // [platform-threadsafe] `threadsafe platform handler H of E`: the
+            // [platform-threadsafe] `threadsafe platform handler H for E`: the
             // host class is safe to enter concurrently, so the compiler shares
             // it without a lock on either backend. Contextual: `threadsafe`
             // is an ordinary name everywhere but directly before `platform`.
@@ -1432,7 +1432,7 @@ impl<'s> Parser<'s> {
                 // [qual-value-arg] `?` in a `<…>` list is the old mixed
                 // spelling: slots are declared in a `(…)` block after the
                 // type generics (user decision 2026-09-23) —
-                // `qualifier Sorted<T>(?cmp: (T, T) -> Int) of List<T>`.
+                // `qualifier Sorted<T>(?cmp: (T, T) -> Int) for List<T>`.
                 // Parsed as before for recovery; the error stops the build.
                 if let Some(q) = self.eat(&TokenKind::Question).map(|t| t.span) {
                     self.error(messages::qual_value_arg_slot_in_generics(), q);
@@ -1504,7 +1504,7 @@ impl<'s> Parser<'s> {
     /// for a qualifier or an `intrinsic type`. A `?`-led entry is an
     /// implicit (a fn slot or a group spread); an unprefixed `name: Type`
     /// entry is a **value slot** [qual-depend]
-    /// (`qualifier KeyOf<K, V>(map: Map<K, V>) of K`), which only a
+    /// (`qualifier KeyOf<K, V>(map: Map<K, V>) for K`), which only a
     /// qualifier may declare; constants join in a later step of the
     /// refinement-types sequence.
     fn parse_slot_block(&mut self) -> (Vec<SlotDecl>, Vec<ValueSlot>) {
@@ -1971,7 +1971,7 @@ impl<'s> Parser<'s> {
         let (generics, generic_canbe, mut fn_slots) = self.parse_generics_slots();
         let (block_slots, value_slots) = self.parse_slot_block();
         fn_slots.extend(block_slots);
-        self.expect(&TokenKind::KwOf)?;
+        self.expect(&TokenKind::KwFor)?;
         let of = self.parse_type()?;
         // [qual-no-with] The `with` compatibility clause is retired (user
         // decision 2026-10-12): qualifiers compose freely, so there is no
@@ -2417,7 +2417,7 @@ impl<'s> Parser<'s> {
                 }
                 Some(Item::Fn(f))
             }
-            // [platform-handler] `platform handler HostRawFs of RawFs`: a
+            // [platform-handler] `platform handler HostRawFs for RawFs`: a
             // host implementation of an *ordinary* Salvo effect, registered
             // with `use` like any handler.
             TokenKind::KwHandler => self
@@ -2469,7 +2469,7 @@ impl<'s> Parser<'s> {
             params = self.parse_params()?.0;
         }
         // [effect-handler-deps] The effects the handler depends on, written
-        // exactly as a fn's: `handler Stamped [Logger, Clock] of Logger`.
+        // exactly as a fn's: `handler Stamped [Logger, Clock] for Logger`.
         // They have no names because nothing can refer to them — a member
         // body calls their members like any other code.
         let effects = if self.at(&TokenKind::LBracket) {
@@ -2477,10 +2477,10 @@ impl<'s> Parser<'s> {
         } else {
             None
         };
-        self.expect(&TokenKind::KwOf)?;
+        self.expect(&TokenKind::KwFor)?;
         // [effect-handler-multi] One effect or several, comma-separated: the
         // handler wears one face per effect over one piece of state.
-        // [effect-any] `of any E`: this face forwards to many instances.
+        // [effect-any] `for any E`: this face forwards to many instances.
         let mut of_any = vec![self.eat_any_prefix()];
         let mut of = vec![self.parse_type()?];
         while self.eat(&TokenKind::Comma).is_some() {
@@ -7547,9 +7547,9 @@ impl<'s> Parser<'s> {
     /// line as its clause (the defect that retired the clause's original
     /// `use` spelling — 2026-09-19, and the reason the word is now `with`,
     /// user decision 2026-09-20). `with` is a keyword already — the
-    /// qualifier-compatibility clause uses it (`qualifier Q of T with A`) —
+    /// qualifier-compatibility clause uses it (`qualifier Q for T with A`) —
     /// and the two positions cannot be confused: one follows a qualifier's
-    /// `of` type, the other a `use`/`spawn` handler expression.
+    /// `for` type, the other a `use`/`spawn` handler expression.
     fn parse_with_clause(&mut self) -> Option<Vec<Expr>> {
         let mut items = Vec::new();
         // The clause's old spelling is a plain parse error naming the new

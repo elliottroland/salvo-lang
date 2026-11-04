@@ -16,7 +16,7 @@ struct Environment {
     id: Environment.Id
 }
 
-qualifier Environment.Tag of Str
+qualifier Environment.Tag for Str
 
 fn tag(v: Str) -> +Environment.Tag Str
 => !v {
@@ -80,7 +80,7 @@ struct Environment.Name {
     value: Str
 }
 
-qualifier Environment.Tag of Str
+qualifier Environment.Tag for Str
 
 fn tag(value: Str) -> +Environment.Tag Str
 => !value {

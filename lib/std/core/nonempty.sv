@@ -19,7 +19,7 @@
 // the file that declares a type is trusted to establish it about that type —
 // which is how `List(first, ...rest)` returns `+NonEmpty List<T>`.
 // @compilerrules [col-nonempty, qual-refn-type]
-export qualifier NonEmpty<T canbe linear> of T {
+export qualifier NonEmpty<T canbe linear> for T {
     fn qualifies(value: T, ?size: (value: T) -> Int) -> Bool {
         return size(value) > 0
     }

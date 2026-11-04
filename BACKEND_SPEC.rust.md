@@ -1954,7 +1954,7 @@ effects" keeps the history).
   | `Checked<T>` | `crate::std_core_checked::Checked { value: T }` |
   | `Reply<T>` parameter | `crate::scheduler::SalvoReply`; `.hosted()` answers the `SalvoHostReply` whose `send(v)` may run on any thread, exactly once [platform-reply] |
   | `InStream` / `OutStream` | `crate::std_stream::InStream { handle: i64 }`; the table is Salvo (`runtime.streams`); host code reaches it through `crate::hoststreams::salvo_stream_register_in/out` and `salvo_stream_take_in` (an `Arc<Mutex<SalvoIn>>` reader) [stream-table] |
-  | `platform handler H(p: T) of E` | `pub struct H` with `pub fn new(p: T) -> Self`, implementing `crate::<module of E>::EPlatformSync` (`&self`) when `threadsafe`, `EPlatform` (`&mut self`) otherwise [rs-platform-handler] |
+  | `platform handler H(p: T) for E` | `pub struct H` with `pub fn new(p: T) -> Self`, implementing `crate::<module of E>::EPlatformSync` (`&self`) when `threadsafe`, `EPlatform` (`&mut self`) otherwise [rs-platform-handler] |
   | a member parameter | kept non-`Copy`: `&T`; kept `Mut`: `&mut T`; consumed, or `Copy`: `T` [rs-borrows] |
   | a fn-typed parameter | lent: `&mut dyn FnMut(…)` (the wrapper hands it on as `&mut name`, which also fits a host's `&mut impl FnMut`); `once`: `impl FnOnce(…)`; **kept** (`=> !hook`) outside the runtime: the pointer `fn(…) -> R`, the call site's capture-free adapter coercing to it [platform-fn-value]; kept in the runtime: `Box<dyn FnOnce/FnMut + Send + 'static>` [runtime-kept-fn] |
 
@@ -2045,7 +2045,7 @@ effects" keeps the history).
   `EPlatformSync: Send + Sync` (`&self`) when a `threadsafe` one does — and
   the adapter `pub struct __Platform_E<T>(pub T)`, with `impl<T: EPlatform>
   __Stateful_E` and `impl<T: EPlatformSync> __Stateless_E` forwarding each
-  member [platform-abi]. A `platform handler H of E` in module `M` emits
+  member [platform-abi]. A `platform handler H for E` in module `M` emits
   `pub type __Platform_H = <E path>::__Platform_E<crate::platform_<M>::H>`
   with an inherent `new(p: T)` building the host struct (an inherent impl on
   one instantiation of a local type, so several handlers of one effect each

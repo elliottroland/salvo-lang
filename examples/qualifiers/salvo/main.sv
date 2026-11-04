@@ -11,7 +11,7 @@
 // The default kind: a claim about the value's *contents*. The `qualifies` body
 // is what an `is` check runs, so the claim can be established at run time as
 // well as by construction.
-qualifier NonEmpty<T> of List<T> {
+qualifier NonEmpty<T> for List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return size(list) > 0
     }
@@ -38,7 +38,7 @@ fn head(list: NonEmpty List<Int>) -> Int => list {
 
 // A constructive qualifier has no predicate — there is nothing to test, the
 // claim is made by going through the constructor [qual-ctor-fn].
-qualifier Celsius of Int
+qualifier Celsius for Int
 
 fn celsius(degrees: Int) -> +Celsius Int {
     return degrees
@@ -90,7 +90,7 @@ struct Request canbe Mut {
     touches: Int
 }
 
-provenance qualifier Authenticated of Request
+provenance qualifier Authenticated for Request
 
 // Minting a provenance claim: there is no predicate to satisfy, so the
 // constructor is the only way in [qual-ctor-fn].
@@ -100,7 +100,7 @@ fn authenticate(request: Mut Request) -> +Authenticated Mut Request => !request 
 
 // A state claim about the same struct, for the contrast: this one *is* about
 // contents, so a mutating call takes it away.
-qualifier Fresh of Request
+qualifier Fresh for Request
 
 fn freshen(request: Mut Request) -> +Fresh Mut Request => !request {
     return request

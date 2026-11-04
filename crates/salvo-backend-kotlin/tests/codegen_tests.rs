@@ -94,7 +94,7 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
         "std/core/rawclock.sv",
         SourceSet::classify(Path::new("std/core/rawclock.sv")).unwrap(),
         "export effect RawClock {\n    fn raw_now() [] -> Int\n}\n\n\
-         export platform handler HostRawClock of RawClock\n"
+         export platform handler HostRawClock for RawClock\n"
             .to_string(),
         true,
     );
@@ -290,7 +290,7 @@ struct Person {
     age: Int
 }
 
-qualifier Surname of Person {
+qualifier Surname for Person {
     surname: Str
 
     fn qualifies(person: Person) -> Bool {
@@ -298,7 +298,7 @@ qualifier Surname of Person {
     }
 }
 
-qualifier Positive of Int {
+qualifier Positive for Int {
     fn qualifies(int: Int) -> Bool {
         return int > 0
     }
@@ -393,7 +393,7 @@ effect Random<T> {
     fn next_random() -> T
 }
 
-handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
+handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) for Random<T> {
     state {
         i: Int = 0
     }
@@ -1011,13 +1011,13 @@ effect RawClock {
 
 // The host implements this one, in Kotlin or Rust: bodyless here, and
 // constructed at its `use` like any handler.
-platform handler HostRawClock(offset: Int) of RawClock
+platform handler HostRawClock(offset: Int) for RawClock
 
 effect Clock {
     fn stamp(label: Str) -> Str => label
 }
 
-handler DefaultClock [RawClock] of Clock {
+handler DefaultClock [RawClock] for Clock {
     fn stamp(label: Str) -> Str => label {
         return "${label}@${raw_now()}"
     }
@@ -1159,13 +1159,13 @@ effect RawClock {
     fn raw_now() [] -> Int
 }
 
-threadsafe platform handler HostRawClock(offset: Int) of RawClock
+threadsafe platform handler HostRawClock(offset: Int) for RawClock
 
 effect Clock {
     fn stamp(label: Str) -> Str => label
 }
 
-handler DefaultClock [RawClock] of Clock {
+handler DefaultClock [RawClock] for Clock {
     fn stamp(label: Str) -> Str => label {
         return "${label}@${raw_now()}"
     }
@@ -1269,7 +1269,7 @@ actor effect Counting {
 
 // The receiver records rather than prints: a `deliver` answers as soon as
 // the frame is handed over, so a print here would race main's own.
-handler Tallying(label: Str) of Inbound, Counting {
+handler Tallying(label: Str) for Inbound, Counting {
     mailbox { capacity: 16 }
     state {
         seen: Mut List<Str> = Mut List<Str>()
@@ -1344,7 +1344,7 @@ fn an_unused_threadsafe_platform_handler_is_never_constructed() {
 /// backends run the same source to the same output with no refinement
 /// machinery anywhere in between.
 const REFN_DEMO: &str = r#"
-qualifier NonEmpty<T> of List<T> {
+qualifier NonEmpty<T> for List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return size(list) > 0
     }

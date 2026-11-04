@@ -160,7 +160,7 @@ impl<'a> Dumper<'a> {
                     .zip(&h.face_any)
                     .map(|(f, any)| if *any { format!("any {f}") } else { f.to_string() })
                     .collect();
-                let _ = write!(self.out, " of {}", faces.join(", "));
+                let _ = write!(self.out, " for {}", faces.join(", "));
                 if !h.deps.is_empty() {
                     let ds: Vec<String> = h.deps.iter().map(|t| t.to_string()).collect();
                     let _ = write!(self.out, " deps [{}]", ds.join(", "));

@@ -15,7 +15,7 @@ export fn push<T>(s: Mut Store<T>, value: T) [] -> None => s: Mut, !value {
 // parameter *name* still matches, and a compatible base still matches; only
 // a genuinely non-matching shape, a missing fn, or a deduction naming a
 // non-parameter is an error.
-qualifier RenamedParam<T> of Store<T> {
+qualifier RenamedParam<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -23,7 +23,7 @@ qualifier RenamedParam<T> of Store<T> {
     refn push(store: Mut Store<T>, value: T) => store: +RenamedParam
 }
 
-qualifier NoMut<T> of Store<T> {
+qualifier NoMut<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -31,7 +31,7 @@ qualifier NoMut<T> of Store<T> {
     refn push(s: Store<T>, value: T) => s: +NoMut
 }
 
-qualifier Wildcard<T> of Store<T> {
+qualifier Wildcard<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -39,7 +39,7 @@ qualifier Wildcard<T> of Store<T> {
     refn push(s: Mut Store<T>, *) => s: +Wildcard
 }
 
-qualifier NoSuchFn<T> of Store<T> {
+qualifier NoSuchFn<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -48,7 +48,7 @@ qualifier NoSuchFn<T> of Store<T> {
     refn shove(s: Mut Store<T>, value: T) => s: +NoSuchFn
 }
 
-qualifier NotAParam<T> of Store<T> {
+qualifier NotAParam<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -60,7 +60,7 @@ qualifier NotAParam<T> of Store<T> {
 // [qual-refn-match] A type parameter has to be bound, and the diagnostic
 // names the remedy rather than reporting a shape mismatch: `U` is neither
 // the qualifier's parameter nor the refinement's own.
-qualifier Unbound<T> of Store<T> {
+qualifier Unbound<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -72,13 +72,13 @@ qualifier Unbound<T> of Store<T> {
 // [qual-refn] A qualifier may only speak about its *own* claim. That is
 // what makes "opting into a qualifier opts into its refinements" honest,
 // and it is why conflicts reduce to two qualifiers that cannot co-apply.
-qualifier Ordered<T> of Store<T> {
+qualifier Ordered<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
 }
 
-qualifier Stocked<T> of Store<T> {
+qualifier Stocked<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -93,9 +93,9 @@ qualifier Stocked<T> of Store<T> {
 // so handing one out is not a refinement's business. Inside a qualifier body
 // the own-claim rule fires first, which makes the same point: a qualifier
 // speaks only for itself.
-provenance qualifier Trusted<T> of Store<T>
+provenance qualifier Trusted<T> for Store<T>
 
-qualifier Vouched<T> of Store<T> {
+qualifier Vouched<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -104,7 +104,7 @@ qualifier Vouched<T> of Store<T> {
     refn push(s: Mut Store<T>, value: T) => s: +Trusted
 }
 
-qualifier Mutable<T> of Store<T> {
+qualifier Mutable<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -115,7 +115,7 @@ qualifier Mutable<T> of Store<T> {
 
 // [qual-refn] There is nothing to refine about a parameter the call takes
 // away: a caller knows nothing about a moved value afterwards.
-qualifier Taken<T> of Store<T> {
+qualifier Taken<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -125,7 +125,7 @@ qualifier Taken<T> of Store<T> {
 }
 
 // [qual-refn] The claim has to be about the parameter's type [qual-of].
-qualifier Counted<T> of Store<T> {
+qualifier Counted<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }

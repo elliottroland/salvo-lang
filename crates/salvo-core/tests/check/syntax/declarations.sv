@@ -91,7 +91,7 @@ external type LinkedList<T>
 //~ error[effect-handler-multi:missing-member]
 //~ error[effect-handler-multi:missing-member]
 //~ error[effect-handler-multi:missing-member]
-external handler StdConsole of Console
+external handler StdConsole for Console
 
 //--- define_fn
 // `define` is gone too: the same identifier-at-item-position parse error.
@@ -113,7 +113,7 @@ define type LinkedList<T> {
 //~ error[effect-handler-multi:missing-member]
 //~ error[effect-handler-multi:missing-member]
 //~ error[effect-handler-multi:missing-member]
-define handler StdConsole of Console {
+define handler StdConsole for Console {
 }
 
 //--- noremote_on_a_fn_is_an_error
@@ -130,7 +130,7 @@ platform type Client = Int
 
 //--- one_init_block
 // [handler-init] A handler has at most one `init` block.
-handler H() of R {
+handler H() for R {
     init {}
     //~ error[handler-init:duplicate]
     init {}
@@ -140,7 +140,7 @@ handler H() of R {
 // [handler-state-infer] A bare field in the handler body (not in a
 // `state { }` block) is an error naming the block.
 effect E { fn get() -> Int }
-handler H() of E {
+handler H() for E {
     //~ error[handler-state-name:bare-field]
     sum: Int = 0
     fn get() -> Int { return sum }
@@ -152,7 +152,7 @@ handler H() of E {
 // field recovery stops at a line start, so the body loop made no progress
 // and pushed a diagnostic per turn until memory ran out (found 2026-10-20
 // compiling a stale scratch project; the parse never returned).
-handler H() of C {
+handler H() for C {
     //~ error[syntax-expected:identifier]
     //~ error[handler-state-name:bare-field]
     is

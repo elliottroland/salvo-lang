@@ -40,7 +40,7 @@ fn main() [use] -> None {
 //--- a_fn_value_is_one_rule_by_name_and_as_an_implicit
 struct Range { min: Int, max: Int }
 
-qualifier Valid of Range
+qualifier Valid for Range
 
 fn validate(o: Range) [] -> +Valid Range => !o {
     return o

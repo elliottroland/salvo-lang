@@ -24,7 +24,7 @@ Effects have _handlers_, which define their concrete implementations:
 // names it itself, `state Tally { … }`. The constructor parameters, the state
 // fields and every member's parameters and locals are one set of names: a
 // member reads all of them bare, so none may repeat another.
-handler CyclicRandom<T>(values: T[]) of Random<T> {
+handler CyclicRandom<T>(values: T[]) for Random<T> {
     state {
         i = 0
     }
@@ -53,7 +53,7 @@ fn main() [use] -> None {
 The effects a function depends on are declared in the square brackets before its arrow. In the above example, the `main` function (which is also the entry point to any Salvo program) starts with the special `use` effect, which is what allows it to use the `use` keyword. If a function does not declare a dependency on this, then `use` is not available to it. If the initial square brackets are not present in a function declaration, then it is assumed to be empty and that function is "pure".
 
 An effect names a *capability*, not a type of values. It can appear in a
-function's effect list and in a handler's `of` clause, and nowhere else: a
+function's effect list and in a handler's `for` clause, and nowhere else: a
 struct field, parameter, return type or `let` annotation of effect type is
 a compile-time error. Handlers are not values either — `use` is the only
 thing that produces one, and you reach it by calling the effect's members
@@ -69,7 +69,7 @@ println("...")                     // and this is how you use it
 A generic handler can be registered at a type by writing it on the `use`:
 
 ```
-handler Plain<T> of Show<T> { ... }
+handler Plain<T> for Show<T> { ... }
 
 use Plain<Int>()        // registers `Show<Int>`
 ```
@@ -167,10 +167,10 @@ Both are effects for the reason `Args` is: a function that can end the process, 
 
 ## Handlers with dependencies, and interception
 
-A handler may need an effect of its own to do its job. It declares that the way a function does — an effect list before the `of` clause — and the compiler supplies it where the handler is registered. Callers never mention it:
+A handler may need an effect of its own to do its job. It declares that the way a function does — an effect list before the `for` clause — and the compiler supplies it where the handler is registered. Callers never mention it:
 
 ```
-handler ConsoleLogger [Console] of Logger {
+handler ConsoleLogger [Console] for Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")      // Console reaches the body
     }
@@ -190,7 +190,7 @@ The dependency is declared on the *handler*, not on the effect: two implementati
 The list may name **the very effect the handler implements**, which is *interception*: a handler that wraps the one already in scope.
 
 ```
-handler Loud [Greeter] of Greeter {
+handler Loud [Greeter] for Greeter {
     fn greet(name: Str) -> Str => name {
         return "${greet(name)}!"        // the *wrapped* greeter
     }
@@ -225,10 +225,10 @@ export effect Fs [Streams] {
 `Streams` is a **prerequisite** of `Fs`. Three things follow:
 
 * **Wherever `Fs` is, `Streams` is.** A function declaring `[Fs]` may call `Streams` members, and so may a function value of type `(Str) [Fs] -> Str`. Prerequisites are transitive, and the implied effect is the one `Fs`'s own module named: it is available even in a module that never imports it, and a module declaring an unrelated `Streams` of its own does not change which one it is.
-* **Every handler of `Fs` reaches `Streams`** as though it had declared the dependency — `handler MemFs of Fs` may call `from_bytes` without writing `[Streams]`.
+* **Every handler of `Fs` reaches `Streams`** as though it had declared the dependency — `handler MemFs for Fs` may call `from_bytes` without writing `[Streams]`.
 * **Binding an `Fs` handler needs a `Streams` already bound**, exactly as a dependent handler does, and the error names the prerequisite: `use HostStreams()` first, then `use DefaultFs()`.
 
-A prerequisite is not inheritance. A handler of `Fs` does not implement `Streams`; it uses the one bound around it. That is the point: every producer of streams — the filesystem, a network client, a test's buffers — mints into the same `Streams` instance, so one stream type is read the same way whoever opened it. A handler that wants to supply the prerequisite itself wears both faces (`of Fs, Streams`) and then depends on nothing for it.
+A prerequisite is not inheritance. A handler of `Fs` does not implement `Streams`; it uses the one bound around it. That is the point: every producer of streams — the filesystem, a network client, a test's buffers — mints into the same `Streams` instance, so one stream type is read the same way whoever opened it. A handler that wants to supply the prerequisite itself wears both faces (`for Fs, Streams`) and then depends on nothing for it.
 
 The rules at the declaration: a prerequisite names a plain effect (not `use`, `spawn`, or `any E`); an exported effect's prerequisites are exported too, since every module naming the effect needs them; the prerequisites may not form a cycle; and actor effects neither have nor are prerequisites, for now.
 
@@ -278,7 +278,7 @@ An alias is exported like anything else (`export effects IO = [...]`) and import
 A handler's state fields have initialisers, but an initialiser is an expression that sees only the constructor parameters. Anything a handler must *do* as it starts — register itself somewhere, compute state from a dependency — goes in its **`init` block**, which runs once, first:
 
 ```
-handler Working(registry: eff[Registry], who: Str) of Worker {
+handler Working(registry: eff[Registry], who: Str) for Worker {
     mailbox { capacity: 8 }
     state {
         started: Int = 0
@@ -297,13 +297,13 @@ For a spawned handler, `init` is the actor's **first activation**: the spawn enq
 
 ## One handler, several effects
 
-A handler may implement more than one effect, and the effects are simply listed: `handler H() of Public, Admin`. It stays one handler with one piece of state — what it gains is a *face* per effect, which is how a public protocol and an administrative one share an implementation without a second handler forwarding into the first.
+A handler may implement more than one effect, and the effects are simply listed: `handler H() for Public, Admin`. It stays one handler with one piece of state — what it gains is a *face* per effect, which is how a public protocol and an administrative one share an implementation without a second handler forwarding into the first.
 
 ```
 effect Tally { fn bump(n: Int) -> None }
 effect Stats { fn total() -> Int }
 
-handler Counting() of Tally, Stats {
+handler Counting() for Tally, Stats {
     state {
         sum: Int = 0
     }
@@ -337,7 +337,7 @@ effect Random {
     fn next() -> Int
 }
 
-handler CyclicRandom(seed: Int) of Random {
+handler CyclicRandom(seed: Int) for Random {
     state {
         cursor: Int = 0
     }
@@ -357,7 +357,7 @@ fn main() [use, spawn] {
 
 The price of sharing used to be "a monitor declares no dependencies"; since 2026-09-20 a monitor **may** declare dependencies. They are captured as **handles at construction**, resolved from the enclosing scope exactly as a `use` resolves them, so the bindings are fixed for the instance's life. The availability rule keeps the capture acyclic — a dependency was bound before this handler, so no lock order can cycle by construction — and where a member *can* wait (a dependency with mixed handlers, a `waitfor` in a member), the wait is **priced, not refused**: the handler gets a node in the same deadlock graph actors use (`H's lock`), and a cycle through held locks is reported before it runs.
 
-A monitor serializes with a lock where an actor serializes with a mailbox, and one piece of state can be under only one of them — so a handler is one or the other, read off its shape: mutable state with `send fn` members is an actor's, mutable state with only plain members shares as a monitor. Fit: passive shared state — counters, caches, configuration, cursors, `Random`. A generic effect instance shares like any other: `handler CyclicRandom of Random<Int>` gets a monitor of `Random<Int>`, so genericity costs nothing here.
+A monitor serializes with a lock where an actor serializes with a mailbox, and one piece of state can be under only one of them — so a handler is one or the other, read off its shape: mutable state with `send fn` members is an actor's, mutable state with only plain members shares as a monitor. Fit: passive shared state — counters, caches, configuration, cursors, `Random`. A generic effect instance shares like any other: `handler CyclicRandom for Random<Int>` gets a monitor of `Random<Int>`, so genericity costs nothing here.
 
 ## Every binding is a handle
 
@@ -379,12 +379,12 @@ A dependent handler captures its dependencies as handles **at construction** —
 
 In the generated code the handle carries the effect's name: `fn work(console: &Console)` on Rust, `fun work(console: Console)` on Kotlin. The mangled names (`__Stateless_E`, `__Stateful_E`, `__Mon_E`) are the traits and wrappers behind it.
 
-## Many instances: `[any E]` and `of any E`
+## Many instances: `[any E]` and `for any E`
 
 A bare `[E]` claims **identity**: that `E` is *one* instance, so two sends to it arrive in order and see the same state. A function written `bump(2); bump(3); total(out)` relies on that, and nothing in its body says so. A binding spread over many instances — a router in front of a fleet — cannot give it, so the weakening is spelled where the requirement is:
 
 ```
-handler RoundRobin(members: List<eff[Resizer]>) of any Resizer {   // forwards; promises no order
+handler RoundRobin(members: List<eff[Resizer]>) for any Resizer {   // forwards; promises no order
     mailbox { capacity: 16 }
     next: Int = 0
     send fn resize(name: Str, w: Int, out: Reply<Str>) => !name, !out {
@@ -406,7 +406,7 @@ tally(["dog.png"])       // error: `tally` declares `[Resizer]` — one instance
                          //        but `Resizer` is bound to many instances here
 ```
 
-- **`of any E`** on a handler's face says the handler forwards to many instances. A `use` of it binds `any E`, which satisfies only `[any E]`. It is also the one handler of an actor effect that `use` binds *shareable* — bare when stateless, a monitor when it keeps a cursor — since a group handle is always shareable.
+- **`for any E`** on a handler's face says the handler forwards to many instances. A `use` of it binds `any E`, which satisfies only `[any E]`. It is also the one handler of an actor effect that `use` binds *shareable* — bare when stateless, a monitor when it keeps a cursor — since a group handle is always shareable.
 - **`[any E]`** in an effect list says "each send may go to a different instance; I assume no order and no shared state between them." It accepts every binding, a single instance being a group of one, and it is viral downward: a body holding `[any E]` may call `E` directly and callees declaring `[any E]`, never a callee that assumes one instance. Bare `[E]` keeps the strong meaning, so a program written before groups existed cannot be broken by binding one under it.
 - A fn type carries no strength (no `any`): the function that takes the value writes `[any E]` itself if any instance will do, which weakens the requirement it inherits.
 
@@ -417,7 +417,7 @@ tally(["dog.png"])       // error: `tally` declares `[Resizer]` — one instance
 A spawned handler **inherits its dependencies from the spawning scope** (user decision 2026-09-20). A handler declares what it needs, the spawn says where it runs, and the wiring in between is the compiler's:
 
 ```
-handler Drawing() [Random] of Drawer { … }
+handler Drawing() [Random] for Drawer { … }
 
 fn main() [use, spawn] {
     use CyclicRandom(7)                   // one shared instance
@@ -456,7 +456,7 @@ The effects a function receives *are* handles — on the Kotlin backend an objec
 The other way to share mutable state keeps a mailbox: a handler of a plain effect may declare `send fn` members beside its plain ones, and the two halves divide the work. The send members and the state form the **servant** — an ordinary actor over a handler-local protocol, with a `mailbox` like any other — and the plain members form the **façade**, running on the caller's thread: a façade member sends to its own servant and waits for the answer.
 
 ```
-handler CyclicRandom(seed: Int) of Random {
+handler CyclicRandom(seed: Int) for Random {
     mailbox { capacity: 8 }
     cursor: Int = 0                          // the servant's, and only the servant's
 
@@ -489,7 +489,7 @@ State is **confined**: only send members touch it, so every access is a serializ
 
 Send members reach their siblings the same way: a bare call naming another of the handler's `send fn` members enqueues on the servant's own mailbox — "finish this activation, then that one" — so a request can travel member to member without leaving the actor. `k@self(…)` is the explicit spelling of the same send, available in either member kind, and it is how the call says what it means where a bare name would be ambiguous with an effect member in scope.
 
-A mixed handler may declare dependencies like any handler (`handler Counted(seed: Int) [Console, Label] of Random`), and they belong to the servant: its send members call them, the spawn supplies them as an actor spawn does — a `with` item, or the spawning scope's own instance — and the façade carries none, so a sync member that calls one is refused with the remedy (send to a member that does). A send member whose sibling shares a name with a dependency's member says which it means: `k@self(…)` or `k@Label(…)`.
+A mixed handler may declare dependencies like any handler (`handler Counted(seed: Int) [Console, Label] for Random`), and they belong to the servant: its send members call them, the spawn supplies them as an actor spawn does — a `with` item, or the spawning scope's own instance — and the façade carries none, so a sync member that calls one is refused with the remedy (send to a member that does). A send member whose sibling shares a name with a dependency's member says which it means: `k@self(…)` or `k@Label(…)`.
 
 A mixed handler is spawn-only (`use` would leave its sends nowhere to arrive). By default its servant answers every request within the activation that received it, which is what makes a façade's wait end after one straight-line activation rather than after an event that may never come. A send member that declares `defer` on a reply parameter opts out of that default: the answer may outlive the activation — forwarded to another actor whose discharge ends the caller's wait, or parked in a continuation on one of the servant's own members with `replyto`, exactly as an actor parks — and the deadlock graph prices the deferral.
 

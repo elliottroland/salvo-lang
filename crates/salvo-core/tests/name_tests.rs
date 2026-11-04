@@ -103,7 +103,7 @@ fn unknown_names_are_reported_at_declaration_sites() {
             "name-resolve:unknown-type",
         ),
         (
-            "qualifier Q of Nope\n",
+            "qualifier Q for Nope\n",
             "name-resolve:unknown-type",
         ),
     ];

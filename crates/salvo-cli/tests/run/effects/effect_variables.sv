@@ -13,7 +13,7 @@ effect Tally {
     fn total() -> Int
 }
 
-handler Counting() of Tally {
+handler Counting() for Tally {
     state {
         n: Int = 0
     }
@@ -89,7 +89,7 @@ effect Say {
     fn say(s: Str) -> None => s
 }
 
-handler Printing() [Console] of Say {
+handler Printing() [Console] for Say {
     fn say(s: Str) { println(s) }
 }
 
@@ -98,7 +98,7 @@ effect Tally {
     fn total() -> Int
 }
 
-handler Counting() of Tally {
+handler Counting() for Tally {
     state {
         n: Int = 0
     }
@@ -110,7 +110,7 @@ effect Bumps {
     fn bump2() -> None
 }
 
-handler Counting2() [Console] of Bumps {
+handler Counting2() [Console] for Bumps {
     fn bump2() { println("bump2") }
 }
 
@@ -204,7 +204,7 @@ effect Tally {
     fn total() -> Int
 }
 
-handler Counting() of Tally {
+handler Counting() for Tally {
     state {
         n: Int = 0
     }
@@ -294,7 +294,7 @@ effect Tally {
     fn total() -> Int
 }
 
-handler Counting() of Tally {
+handler Counting() for Tally {
     state {
         n: Int = 0
     }
@@ -339,7 +339,7 @@ actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
 
-handler Counting() of Counter {
+handler Counting() for Counter {
     mailbox { capacity: 8 }
     state {
         sum: Int = 0
@@ -356,7 +356,7 @@ effect Say {
     fn say(s: Str) -> None => s
 }
 
-handler Printing() [Console] of Say {
+handler Printing() [Console] for Say {
     fn say(s: Str) { println(s) }
 }
 
@@ -428,7 +428,7 @@ effect Tally {
     fn total() -> Int
 }
 
-handler Counting() of Tally {
+handler Counting() for Tally {
     state {
         n: Int = 0
     }

@@ -12,7 +12,7 @@ effect Random {
     fn next() -> Int
 }
 
-handler CyclicRandom(seed: Int) of Random {
+handler CyclicRandom(seed: Int) for Random {
     mailbox { capacity: 8 }
     state {
         cursor: Int = 0
@@ -51,7 +51,7 @@ effect Peek {
     fn peek() -> Int
 }
 
-handler Peeking() of Peek {
+handler Peeking() for Peek {
     mailbox { capacity: 2 }
     state {
         hidden: Int = 0
@@ -78,7 +78,7 @@ fn a_mixed_handler_cannot_be_use_bound() [use] {
 // [actor-mixed-handler] [actor-mailbox] Send members are delivered through a
 // mailbox, so a mixed handler without the slot is told to add one.
 //~ error[actor-mailbox:no-capacity]
-handler NoBox() of Peek {
+handler NoBox() for Peek {
     state {
         tally: Int = 0
     }
@@ -102,7 +102,7 @@ handler NoBox() of Peek {
 // carries the free send fn's obligations: the clause must be written out (a
 // scheduled body consumes what it is given). [copy-scalar-free] A Copy scalar
 // is never consumed, so the required clause names only `why`.
-handler Sloppy() of Peek {
+handler Sloppy() for Peek {
     mailbox { capacity: 2 }
     state {
         tally: Int = 0
@@ -120,7 +120,7 @@ handler Sloppy() of Peek {
 
 // [actor-mixed-handler] The servant's dispatch is by member name, so
 // overloading a local send member is refused for now.
-handler Twice() of Peek {
+handler Twice() for Peek {
     mailbox { capacity: 2 }
     state {
         tally: Int = 0
@@ -145,7 +145,7 @@ handler Twice() of Peek {
 // are the **servant's** (the cut lifted 2026-10-20, user decision R6): a send
 // member calls them, and the spawn resolves them like any actor spawn's, from
 // the spawning scope here [actor-spawn-inherit].
-handler Noisy() [Console] of Peek {
+handler Noisy() [Console] for Peek {
     mailbox { capacity: 2 }
     state {
         tally: Int = 0
@@ -169,7 +169,7 @@ fn a_mixed_handlers_dependencies_belong_to_the_servant() [Console, use, spawn] {
 // [actor-mixed-handler] The confinement half: a sync member runs on the
 // caller's thread over the façade value, which carries no dependency, so it
 // cannot call one.
-handler Leaky() [Console] of Peek {
+handler Leaky() [Console] for Peek {
     mailbox { capacity: 2 }
 
     send fn poke() {
@@ -190,7 +190,7 @@ effect Tick {
     fn poke() -> None
 }
 
-handler Ambiguous() [Tick] of Peek {
+handler Ambiguous() [Tick] for Peek {
     mailbox { capacity: 2 }
 
     send fn poke() {
@@ -206,7 +206,7 @@ handler Ambiguous() [Tick] of Peek {
     }
 }
 
-handler SaysSelf() [Tick] of Peek {
+handler SaysSelf() [Tick] for Peek {
     mailbox { capacity: 2 }
 
     send fn poke() {
@@ -221,7 +221,7 @@ handler SaysSelf() [Tick] of Peek {
     }
 }
 
-handler SaysTick() [Tick] of Peek {
+handler SaysTick() [Tick] for Peek {
     mailbox { capacity: 2 }
 
     send fn poke() {
@@ -238,7 +238,7 @@ handler SaysTick() [Tick] of Peek {
 
 // [actor-mixed-handler] One face for now: the façade value behind several
 // effect types has no representation yet.
-handler Wide(seed: Int) of Random, Peek {
+handler Wide(seed: Int) for Random, Peek {
     mailbox { capacity: 2 }
     state {
         cursor: Int = 0
@@ -274,7 +274,7 @@ actor effect Oracle {
     send fn divine(out: Reply<Int>) => !out
 }
 
-handler Forwarding(oracle: eff[Oracle]) of Random {
+handler Forwarding(oracle: eff[Oracle]) for Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -297,7 +297,7 @@ fn stash(keep: Reply<Int>) [] -> None => !keep {
     send(keep, 0)
 }
 
-handler Latch() of Random {
+handler Latch() for Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -318,7 +318,7 @@ handler Latch() of Random {
 
 // And with the declaration, the escape is legal, plus the upper bound: a
 // declared `defer` whose body answers in-frame anyway is fine (SH-10(b)).
-handler DeclaredForwarding(oracle: eff[Oracle]) of Random {
+handler DeclaredForwarding(oracle: eff[Oracle]) for Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -336,7 +336,7 @@ handler DeclaredForwarding(oracle: eff[Oracle]) of Random {
     }
 }
 
-handler Prompt() of Random {
+handler Prompt() for Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -358,7 +358,7 @@ handler Prompt() of Random {
 // `send fn` by bare call (user decision 2026-09-19), a self-enqueue, and
 // `@self` is the explicit spelling, in send members and in sync members
 // alike. The whole chain checks clean.
-handler Chain() of Random {
+handler Chain() for Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -387,7 +387,7 @@ handler Chain() of Random {
 // [linear-defer] A reply riding a bare sibling call's payload leaves the
 // activation, so the escape hook fires exactly as it does for an addr send:
 // the member must declare `defer`.
-handler UndeclaredChain() of Random {
+handler UndeclaredChain() for Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -413,7 +413,7 @@ handler UndeclaredChain() of Random {
 // The bare-call resolution reaches `send fn` siblings only: a sync member
 // named bare from a send member stays unresolved, as sibling members always
 // were outside this rule.
-handler SyncChain() of Random {
+handler SyncChain() for Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -440,7 +440,7 @@ handler SyncChain() of Random {
 // member may mint a continuation on another of its own send members,
 // provided the captured reply is declared `defer`. The whole rung-4 shape
 // checks clean.
-handler Delphi() of Oracle {
+handler Delphi() for Oracle {
     mailbox { capacity: 4 }
     state {
         n: Int = 0
@@ -452,7 +452,7 @@ handler Delphi() of Oracle {
     }
 }
 
-handler Parking(oracle: eff[Oracle]) of Random {
+handler Parking(oracle: eff[Oracle]) for Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -477,7 +477,7 @@ handler Parking(oracle: eff[Oracle]) of Random {
 // [linear-defer] The capture hook still holds: parking a received reply in a
 // continuation lets its answer outlive the activation, so it must be
 // declared `defer`, and the diagnostic names the declaration.
-handler UndeclaredParking(oracle: eff[Oracle]) of Random {
+handler UndeclaredParking(oracle: eff[Oracle]) for Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0

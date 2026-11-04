@@ -33,7 +33,7 @@ effect Vault {
 //~ emits: impl crate::__Stateless_Vault for Files {
 //~ emits: fn close__InFile(&self, f: crate::InFile) -> String {
 //~ emits: fn close__OutFile(&self, f: crate::OutFile) -> String {
-handler Files of Vault {
+handler Files for Vault {
     fn close(f: InFile) -> Str => !f {
         return "closed in ${f.id}"
     }
@@ -81,7 +81,7 @@ effect Sink {
 // The handlers, independent and dependent alike (stateless: `&self`).
 //~ emits: fn take(&self, t: crate::Token) -> i32 {
 //~ emits: fn bump(&self, t: &mut crate::Token) {
-handler Direct of Sink {
+handler Direct for Sink {
     fn take(t: Token) -> Int => !t {
         return t.id
     }
@@ -90,7 +90,7 @@ handler Direct of Sink {
     }
 }
 
-handler Doubling [Sink] of Sink {
+handler Doubling [Sink] for Sink {
     fn take(t: Token) -> Int => !t {
         return take(t) * 2
     }
@@ -138,7 +138,7 @@ effect Tape {
     fn close(s: OutTape) -> Str => !s
 }
 
-handler MemTape of Tape {
+handler MemTape for Tape {
     fn open_read(path: Str) -> Mut InTape => path {
         return Mut InTape { handle: size(path) }
     }

@@ -5,7 +5,7 @@ that holds a position in a sequence, and it is advanced by a `next` returning
 either an element or the end:
 
 ```
-provenance qualifier Emitted<T> of T
+provenance qualifier Emitted<T> for T
 struct Finished {}
 
 fns Next<It, T, [E]> {

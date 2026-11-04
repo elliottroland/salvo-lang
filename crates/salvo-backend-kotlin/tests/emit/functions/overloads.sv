@@ -47,11 +47,11 @@ fn main() [use] {
 // re-resolving anything [kt-fn-mangling] — so the point of the pair is that
 // the two backends produce the same answers from the same source.
 // (`OVERLOAD_OVERRIDE_DEMO` in codegen_tests.rs.)
-qualifier Even of Int {
+qualifier Even for Int {
     fn qualifies(n: Int) -> Bool { return n % 2 == 0 }
 }
 
-qualifier Small of Int {
+qualifier Small for Int {
     fn qualifies(n: Int) -> Bool { return n < 10 }
 }
 

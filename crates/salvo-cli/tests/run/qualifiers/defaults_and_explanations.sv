@@ -32,13 +32,13 @@ fn main() [use] -> None {
 // to `qualifies`, and a predicate-qualified default is tested with it where
 // it is applied.
 //--- char_and_str_qualifier_constants
-qualifier Prefix(p: Str) of Str {
+qualifier Prefix(p: Str) for Str {
     fn qualifies(s: Str, p: Str) -> Bool {
         return starts_with(s, p)
     }
 }
 
-qualifier Initial(c: Char) of Str {
+qualifier Initial(c: Char) for Str {
     fn qualifies(s: Str, c: Char) -> Bool {
         return char_at(s, 0) == c
     }
@@ -72,13 +72,13 @@ fn main() [use] -> None {
 // [qual-const] The same program with a failing `Char` default: it traps
 // naming the claim with its constant.
 //--- a_failing_char_qualifier_default_traps
-qualifier Prefix(p: Str) of Str {
+qualifier Prefix(p: Str) for Str {
     fn qualifies(s: Str, p: Str) -> Bool {
         return starts_with(s, p)
     }
 }
 
-qualifier Initial(c: Char) of Str {
+qualifier Initial(c: Char) for Str {
     fn qualifies(s: Str, c: Char) -> Bool {
         return char_at(s, 0) == c
     }
@@ -118,20 +118,20 @@ fn main() [use] -> None {
 //--- whynot_messages
 import std.args
 
-qualifier Even of Int {
+qualifier Even for Int {
     // @whynot [n] is odd
     fn qualifies(n: Int) -> Bool {
         return n % 2 == 0
     }
 }
 
-qualifier Small(hi: Int) of Int {
+qualifier Small(hi: Int) for Int {
     fn qualifies(n: Int, hi: Int) -> Bool {
         return n < hi
     }
 }
 
-qualifier Brief(most: Int) of Str {
+qualifier Brief(most: Int) for Str {
     // @whynot "[s]" is longer than [most] characters
     fn qualifies(s: Str, most: Int) -> Bool {
         return size(s) <= most
@@ -142,7 +142,7 @@ struct P {
     x: Int
 }
 
-qualifier Origin of P {
+qualifier Origin for P {
     fn qualifies(p: P) -> Bool {
         return p.x == 0
     }

@@ -155,7 +155,7 @@ export struct Span {
 // claimed *whole*: parse, don't validate. Tested with the filled block
 // (`sp is SpanOf(s)`); the total [substr] below consumes it.
 // @compilerrules [qual-depend, col-span]
-export qualifier SpanOf(str: Str) of Span {
+export qualifier SpanOf(str: Str) for Span {
     fn qualifies(span: Span, str: Str) -> Bool {
         return span.start >= 0 && span.start <= span.end && span.end <= size(str)
     }

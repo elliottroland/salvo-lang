@@ -298,7 +298,7 @@ export fn pretty(value: Json) -> Str
 // std `ddb` (the model only; the client is SD-6)
 export type Attr = S Str | N Str | B Bytes | Bool | Null
                  | List<Attr> | Map<Str, Attr> | SS List<Str> | NS List<Str> | BS List<Bytes>
-export provenance qualifier S<T> of T     // and N, B, SS, NS, BS: tags, as Ok/Err are
+export provenance qualifier S<T> for T     // and N, B, SS, NS, BS: tags, as Ok/Err are
 export type Item = Map<Str, Attr>
 ```
 

@@ -6,7 +6,7 @@ effect Counter {
     fn bump() -> Int
 }
 
-handler MemCounter of Counter {
+handler MemCounter for Counter {
     state {
         n: Int = 0
     }
@@ -36,7 +36,7 @@ effect Sink {
     fn kept() -> Int
 }
 
-handler Bin of Sink {
+handler Bin for Sink {
     state {
         //~ error[default-fits:mismatch]
         held: Int = "not an int"
@@ -81,7 +81,7 @@ fn in_a_list(xs: List<Counter>) -> Int => xs {
 }
 
 // [effect-not-data] The two positions that legitimately name an effect — a
-// fn's effect list and a handler's `of` clause — keep working.
+// fn's effect list and a handler's `for` clause — keep working.
 fn in_an_effect_list() [Counter] -> Int {
     return bump()
 }
@@ -104,7 +104,7 @@ fn use_registers() [use] -> Int {
 
 // [effect-handler-deps] A handler declares its dependencies as an effect list,
 // exactly as a fn does: the member bodies may use that effect.
-handler CountingLogger [Counter] of Logger {
+handler CountingLogger [Counter] for Logger {
     fn log(m: Str) -> None => m {
         let _n = bump()
     }
@@ -114,7 +114,7 @@ handler CountingLogger [Counter] of Logger {
 // error, with no exception left anywhere in the language (user decision
 // 2026-09-14: the old names could not be used for anything).
 //~ error[effect-not-data:data-position]
-handler ParamLogger(counter: Counter) of Logger {
+handler ParamLogger(counter: Counter) for Logger {
     fn log(m: Str) -> None => m {
     }
 }
@@ -123,19 +123,19 @@ handler ParamLogger(counter: Counter) of Logger {
 // registers nothing) and `Throw` (a throw needs a delimiter, not a handler),
 // and no effect twice.
 //~ error[effect-handler-deps:use]
-handler H1 [use] of Logger {
+handler H1 [use] for Logger {
     fn log(m: Str) -> None => m {
     }
 }
 
 //~ error[effect-handler-deps:throw]
-handler H2 [Throw<Str>] of Logger {
+handler H2 [Throw<Str>] for Logger {
     fn log(m: Str) -> None => m {
     }
 }
 
 //~ error[effect-handler-deps:duplicate]
-handler H3 [Counter, Counter] of Logger {
+handler H3 [Counter, Counter] for Logger {
     fn log(m: Str) -> None => m {
     }
 }
@@ -145,7 +145,7 @@ handler H3 [Counter, Counter] of Logger {
 // naming two remedies a member cannot use (a member may not declare effects
 // [effect-member-no-effects] and may not `use`). Recorded as a gap in
 // ROADMAP.md.
-handler Twice of Counter {
+handler Twice for Counter {
     fn bump() -> Int {
         //~ error[effect-available:own-effect]
         //~ error[effect-available:own-effect]
@@ -156,7 +156,7 @@ handler Twice of Counter {
 // [effect-intercept] A handler *may* depend on the effect it implements — that
 // is interception — and the declaration alone says nothing about
 // availability: the binding rule lives at the `use`.
-handler Wrapper [Counter] of Counter {
+handler Wrapper [Counter] for Counter {
     fn bump() -> Int {
         return bump() + 1
     }
@@ -210,13 +210,13 @@ effect Beta {
     fn b(m: Str) -> None => m
 }
 
-handler AlphaViaBeta [Beta] of Alpha {
+handler AlphaViaBeta [Beta] for Alpha {
     fn a(m: Str) -> None => m {
         b(m)
     }
 }
 
-handler BetaViaAlpha [Alpha] of Beta {
+handler BetaViaAlpha [Alpha] for Beta {
     fn b(m: Str) -> None => m {
         a(m)
     }

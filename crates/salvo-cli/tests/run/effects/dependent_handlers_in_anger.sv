@@ -14,7 +14,7 @@ export effect Logger {
     fn log(message: Str) -> None => message
 }
 
-export handler ConsoleLogger [Console] of Logger {
+export handler ConsoleLogger [Console] for Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
@@ -59,7 +59,7 @@ effect Audit {
     fn note(message: Str) -> None => message
 }
 
-handler CyclicRandom<T>(values: T[]) of Random<T> {
+handler CyclicRandom<T>(values: T[]) for Random<T> {
     state {
         i: Int = 0
     }
@@ -70,7 +70,7 @@ handler CyclicRandom<T>(values: T[]) of Random<T> {
     }
 }
 
-handler MemCounter of Counter {
+handler MemCounter for Counter {
     state {
         n: Int = 0
     }
@@ -78,7 +78,7 @@ handler MemCounter of Counter {
     fn total() -> Int { return n }
 }
 
-handler ConsoleLogger [Console] of Logger {
+handler ConsoleLogger [Console] for Logger {
     state {
         seen: Int = 0
     }
@@ -88,7 +88,7 @@ handler ConsoleLogger [Console] of Logger {
     }
 }
 
-handler CountingAudit [Console, Counter] of Audit {
+handler CountingAudit [Console, Counter] for Audit {
     fn note(message: Str) -> None => message {
         bump()
         println("[${total()}] ${message}")
@@ -150,7 +150,7 @@ effect Tally {
     fn tally() -> Int
 }
 
-handler MemTally of Tally {
+handler MemTally for Tally {
     state {
         sum: Int = 0
     }
@@ -158,13 +158,13 @@ handler MemTally of Tally {
     fn tally() -> Int { return sum }
 }
 
-handler ConsoleLogger [Console] of Logger {
+handler ConsoleLogger [Console] for Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }
 }
 
-handler LoggingAudit [Logger] of Audit {
+handler LoggingAudit [Logger] for Audit {
     state {
         count: Int = 0
     }
@@ -174,7 +174,7 @@ handler LoggingAudit [Logger] of Audit {
     }
 }
 
-qualifier Loud of Str {
+qualifier Loud for Str {
     fn qualifies(text: Str) [Console] -> Bool {
         println("checking ${text}")
         return text.size() > 3
@@ -225,7 +225,7 @@ export effect Logger {
     fn log(message: Str) -> None => message
 }
 
-export handler ConsoleLogger [Console] of Logger {
+export handler ConsoleLogger [Console] for Logger {
     state {
         tag: Str = "M"
     }
@@ -269,14 +269,14 @@ effect Counter {
     fn total() -> Int
 }
 
-handler PrefixLogger(prefix: Str, level: Int) [Console] of Logger {
+handler PrefixLogger(prefix: Str, level: Int) [Console] for Logger {
     fn log(message: Str) -> None => message {
         println("${prefix}[${level}] ${message}")
         tallied(message)
     }
 }
 
-handler MemSink of Sink {
+handler MemSink for Sink {
     state {
         held: Mut List<Int> = Mut List()
     }
@@ -284,7 +284,7 @@ handler MemSink of Sink {
     fn kept() -> Int { return size(held) }
 }
 
-handler MemCounter of Counter {
+handler MemCounter for Counter {
     state {
         n: Int = 0
     }
@@ -345,13 +345,13 @@ effect Store<T> {
     fn keep(value: T) -> Str => value
 }
 
-handler MemStore<T> of Store<T> {
+handler MemStore<T> for Store<T> {
     fn keep(value: T) -> Str => value {
         return "kept"
     }
 }
 
-handler Twice<T> [Store<T>] of Store<T> {
+handler Twice<T> [Store<T>] for Store<T> {
     fn keep(value: T) -> Str => value {
         return "${keep(value)} twice"
     }

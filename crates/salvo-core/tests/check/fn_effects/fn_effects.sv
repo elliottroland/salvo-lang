@@ -19,10 +19,10 @@ effect Counter {
     fn bump() -> None
 }
 
-handler QuietLogger of Logger {
+handler QuietLogger for Logger {
     fn log(message: Str) -> None => message {}
 }
-handler ZeroCounter of Counter {
+handler ZeroCounter for Counter {
     fn bump() -> None {}
 }
 

@@ -338,7 +338,7 @@ pub fn abi_stamp(program: &Program, symbols: &Symbols<'_>, owner: Option<&str>) 
                     let params: Vec<String> = h.params.iter().map(|p| format!("{}: {}", p.name.name, p.ty)).collect();
                     let of: Vec<String> = h.of.iter().map(|t| t.to_string()).collect();
                     parts.push(format!(
-                        "{}platform handler {}({}) of {}",
+                        "{}platform handler {}({}) for {}",
                         if h.threadsafe { "threadsafe " } else { "" },
                         h.name.name,
                         params.join(", "),

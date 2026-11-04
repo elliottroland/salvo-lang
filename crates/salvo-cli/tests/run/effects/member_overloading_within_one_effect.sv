@@ -15,7 +15,7 @@ effect Vault {
     fn describe(f: InFile) -> Str => f
 }
 
-handler Files of Vault {
+handler Files for Vault {
     fn close(f: InFile) -> Str => !f {
         return "closed in ${f.id}"
     }

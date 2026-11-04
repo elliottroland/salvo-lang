@@ -10,7 +10,7 @@ effect Random<T> {
 }
 
 //~ emits: impl<T: Clone + Send + Sync + 'static> crate::__Stateful_Random<T> for CyclicRandom<T>
-handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
+handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) for Random<T> {
     state {
         i: Int = 0
     }
@@ -63,7 +63,7 @@ export effect Weird {
     fn pick<T>(value: T) -> T => !value
 }
 
-export handler PassThrough of Weird {
+export handler PassThrough for Weird {
     fn pick<T>(value: T) -> T
     => !value {
         return value
@@ -83,7 +83,7 @@ export effect Stash {
     fn pick<T>(a: T, b: T) -> T => !a, !b
 }
 
-export handler FirstStash of Stash {
+export handler FirstStash for Stash {
     fn pick<T>(a: T, b: T) -> T
     => !a, !b {
         return a
@@ -108,7 +108,7 @@ effect Random<T> {
     fn next_random() -> T
 }
 
-handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) of Random<T> {
+handler CyclicRandom<T>(values: List<T>, ?copy: (v: T) -> T) for Random<T> {
     state {
         i: Int = 0
     }

@@ -29,7 +29,7 @@ const STD_ARRAY: &str = "export struct ArrayIter<T> canbe Mut {\n    at: Int\n}\
 const STD_PRELUDE: &str = concat!(
     "export intrinsic type Int\nexport intrinsic type Str\nexport intrinsic type Bool\n\
      export intrinsic fn copy<T>(value: T) [] -> T => value\n\
-     export qualifier Emitted<T> of T\n\
+     export qualifier Emitted<T> for T\n\
      export struct Finished {}\n\
      export fn emitted<T>(value: T) [] -> +Emitted T => !value {\n    return value\n}\n\
      export fn finished() [] -> Finished {\n    return Finished {}\n}\n\
@@ -105,10 +105,10 @@ effect Counter {
     fn bump() -> None
 }
 
-handler QuietLogger of Logger {
+handler QuietLogger for Logger {
     fn log(message: Str) -> None => message {}
 }
-handler ZeroCounter of Counter {
+handler ZeroCounter for Counter {
     fn bump() -> None {}
 }
 

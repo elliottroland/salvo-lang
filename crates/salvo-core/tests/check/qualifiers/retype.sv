@@ -12,7 +12,7 @@ struct Person canbe Mut {
     name: Str
 }
 
-qualifier Surname of Person
+qualifier Surname for Person
 
 fn note(text: Str) [] -> None => text {}
 fn read(p: Person) [] -> None => p {}
@@ -90,7 +90,7 @@ struct Person canbe Mut {
     name: Str
 }
 
-qualifier Surname of Person
+qualifier Surname for Person
 
 fn two() [] -> Ok Int | Err Str { return err("e") }
 

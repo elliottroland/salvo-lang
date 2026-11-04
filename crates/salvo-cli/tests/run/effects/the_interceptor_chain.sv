@@ -14,7 +14,7 @@ effect Counter {
     fn total() -> Int
 }
 
-handler MemCounter of Counter {
+handler MemCounter for Counter {
     state {
         n: Int = 0
     }
@@ -26,13 +26,13 @@ effect Logger {
     fn log(m: Str) -> None => m
 }
 
-handler PlainLogger [Console] of Logger {
+handler PlainLogger [Console] for Logger {
     fn log(m: Str) -> None => m {
         println("log: ${m}")
     }
 }
 
-handler Shout [Logger, Counter] of Logger {
+handler Shout [Logger, Counter] for Logger {
     fn log(m: Str) -> None => m {
         bump()
         log("${m}!")

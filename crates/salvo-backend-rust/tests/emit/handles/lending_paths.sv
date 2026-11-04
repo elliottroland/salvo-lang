@@ -184,7 +184,7 @@ effect Lender {
     fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es
 }
 
-handler FirstLender of Lender {
+handler FirstLender for Lender {
     fn lease(es: List<Mut Entity>) -> (ref(es) Mut Entity)? => es {
         return at(es, 0)
     }
@@ -248,7 +248,7 @@ effect Roster {
     fn member(t: Team, i: Int) -> (ref(t) Mut Entity)? => t
 }
 
-handler Plain of Roster {
+handler Plain for Roster {
     fn member(t: Team, i: Int) -> (ref(t) Mut Entity)? => t {
         return pick(t, i)
     }

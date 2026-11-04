@@ -83,7 +83,7 @@ fn std_imports_its_own_runtime_module() {
 /// anywhere else is `check/exports/std_internal.sv`.)
 #[test]
 fn a_module_level_use_is_the_runtime_module_s_alone() {
-    let runtime = "effect Ticks {\n    fn tick() -> Int\n}\n\nhandler Ticking() of Ticks {\n    fn tick() -> Int {\n        return 1\n    }\n}\n\n\
+    let runtime = "effect Ticks {\n    fn tick() -> Int\n}\n\nhandler Ticking() for Ticks {\n    fn tick() -> Int {\n        return 1\n    }\n}\n\n\
                    use Ticking()\n\nexport fn twice() [] -> Int {\n    return tick() + tick()\n}\n";
     let errs = std_diags(&[("runtime.sv", runtime)]);
     assert!(errs.is_empty(), "the runtime module may bind at module level: {errs:?}");

@@ -42,7 +42,7 @@ effect Note {
     fn note(m: Str) -> None => !m
 }
 
-handler Keeper of Note {
+handler Keeper for Note {
     state {
         //~ error[linear-state:field]
         held: Lines = open_lines("a")
@@ -53,7 +53,7 @@ handler Keeper of Note {
 
 // A *container* field is legal, and an activation that drains it puts a
 // fresh one back — which is the whole of LC-4's discipline.
-handler ListKeeper of Note {
+handler ListKeeper for Note {
     state {
         held: Mut List<Lines> = Mut List()
     }

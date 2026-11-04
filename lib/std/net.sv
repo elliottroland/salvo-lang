@@ -256,7 +256,7 @@ export actor effect Outbound {
     send fn send_frame(to: NodeEndpoint, frame: Bytes) => !to, !frame
 }
 
-export handler Sending() [Transport] of Outbound {
+export handler Sending() [Transport] for Outbound {
     mailbox { capacity: 256 }
 
     send fn send_frame(to: NodeEndpoint, frame: Bytes) => !to, !frame {
@@ -269,7 +269,7 @@ export handler Sending() [Transport] of Outbound {
 // frame to the runtime. `listen(at, spawn Receiving())` is a node's whole
 // receive path.
 // @compilerrules [net-addr-routable]
-export handler Receiving() of Inbound {
+export handler Receiving() for Inbound {
     mailbox { capacity: 256 }
 
     send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {
@@ -509,7 +509,7 @@ fn leave_group(known: Map<NodeId, Node>) [] -> None => known {
 // delivery. The double every later step tests on, over `MemTransport`.
 // @compilerrules [node-group]
 export handler StaticNodeGroup(name: Str, all: List<NodeEndpoint>) [Transport, spawn]
-    of NodeGroup {
+    for NodeGroup {
     mailbox { capacity: 64 }
 
     state {
@@ -604,7 +604,7 @@ fn known_nodes(known: Map<NodeId, Node>) [] -> List<Node> => known {
 // its partition policy is the recorded follow-up.
 // @compilerrules [node-group]
 export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport, spawn]
-    of NodeGroup {
+    for NodeGroup {
     mailbox { capacity: 64 }
 
     state {
@@ -846,7 +846,7 @@ export fn join<E>(group: eff[ActorGroup<E>], member: eff[E]) [] -> None => group
 // view by one message, never in the send path.
 // @compilerrules [actor-group, actor-route-stub]
 export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
-    of ActorGroup<E>, NodeGroupWatcher {
+    for ActorGroup<E>, NodeGroupWatcher {
     mailbox { capacity: 64 }
 
     state {
@@ -1107,7 +1107,7 @@ export effect RouteSelector<E> {
 // into the `key` its selector's `select` receives. At most one per member.
 // @compilerrules [actor-route-stub, qual-erasure]
 // @compilerknown
-export provenance qualifier Key<T> of T
+export provenance qualifier Key<T> for T
 
 // The canonical hash of a key argument — over its wire encoding,
 // so both backends agree on the member a key lands on. Exported for the
@@ -1182,7 +1182,7 @@ fn route_view<E>(group: eff[ActorGroup<E>]) [] -> RouteView<E> => group {
 // across the wire. Load is read per send ([pending]). `None` for an empty
 // view.
 // @compilerrules [actor-route-stub]
-export handler LeastLoaded<E>(prefer_local: Bool, config: RouteConfig = default_route_config()) of RouteSelector<E> {
+export handler LeastLoaded<E>(prefer_local: Bool, config: RouteConfig = default_route_config()) for RouteSelector<E> {
     fn config() -> RouteConfig {
         return copy(config)
     }
@@ -1223,7 +1223,7 @@ export handler LeastLoaded<E>(prefer_local: Bool, config: RouteConfig = default_
 // everywhere. A member joining reshuffles keys (consistent hashing is a
 // recorded follow-up). A send with no key goes to the first member.
 // @compilerrules [actor-route-stub]
-export handler Sharded<E>(config: RouteConfig = default_route_config()) of RouteSelector<E> {
+export handler Sharded<E>(config: RouteConfig = default_route_config()) for RouteSelector<E> {
     fn config() -> RouteConfig {
         return copy(config)
     }
@@ -1256,7 +1256,7 @@ export effect Leader {
 // The leader fixed by configuration — for a test, or a
 // deployment where one node is the primary by decree.
 // @compilerrules [actor-route-stub]
-export handler StaticLeader(node: NodeId) of Leader {
+export handler StaticLeader(node: NodeId) for Leader {
     fn leader() -> NodeId? {
         return copy(node)
     }
@@ -1266,7 +1266,7 @@ export handler StaticLeader(node: NodeId) of Leader {
 // changes, and kept. `None` — so the send waits — while there is no leader or
 // the leader hosts no member yet.
 // @compilerrules [actor-route-stub]
-export handler Elected<E>(config: RouteConfig = default_route_config()) [Leader] of RouteSelector<E> {
+export handler Elected<E>(config: RouteConfig = default_route_config()) [Leader] for RouteSelector<E> {
     state {
         chosen: eff[E]? = None
     }
@@ -1303,7 +1303,7 @@ export handler Elected<E>(config: RouteConfig = default_route_config()) [Leader]
 // files. [bind] is the endpoint this node listens on and reports as its
 // `local_endpoint`.
 // @compilerrules [platform-tree, platform-threadsafe]
-export threadsafe platform handler HostTcpTransport(bind: NodeEndpoint) of Transport
+export threadsafe platform handler HostTcpTransport(bind: NodeEndpoint) for Transport
 
 // ------------------------------------------------------------------ mem ----
 
@@ -1351,7 +1351,7 @@ export actor effect MemNet {
     send fn delivered(out: Reply<Int>) => !out
 }
 
-export handler MemNetwork() of MemNet {
+export handler MemNetwork() for MemNet {
     mailbox { capacity: 64 }
 
     state {
@@ -1412,7 +1412,7 @@ export handler MemNetwork() of MemNet {
 // thread, which serves the caller's pool meanwhile, so a node
 // delivering from inside an activation does not wedge its own pool.
 // @compilerrules [effect-handle, waitfor-pump]
-export handler MemTransport(me: NodeEndpoint, net: eff[MemNet]) of Transport {
+export handler MemTransport(me: NodeEndpoint, net: eff[MemNet]) for Transport {
     fn listen(at: NodeEndpoint, sink: eff[Inbound]) -> Ok None | Err NetError => at, !sink {
         net.attach(copy(at), sink)
         return ok(None)

@@ -34,8 +34,8 @@ fn List<T>(first: T, second: T) -> Mut List<T> => !first, !second {
 // qualifier, no base type. A `-> +Good T` establishment lifts into the
 // constructor clause, so the named qualifier is carried there. (`Good`/`Bad`
 // were `Ok`/`Err`, which std declares.)
-provenance qualifier Good<T> of T
-provenance qualifier Bad<T> of T
+provenance qualifier Good<T> for T
+provenance qualifier Bad<T> for T
 
 fn Good<T canbe linear>(value: T) [] -> +Good T => !value {
     return value

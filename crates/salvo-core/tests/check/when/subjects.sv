@@ -3,8 +3,8 @@
 
 //--- when_must_be_exhaustive
 // [when-exhaustive]
-export qualifier Ok<T> of T
-export qualifier Err<T> of T
+export qualifier Ok<T> for T
+export qualifier Err<T> for T
 
 export fn f(x: Ok Int | Err Str) -> Int {
     //~ error[when-exhaustive:missing-arms]
@@ -29,7 +29,7 @@ export fn f(x: Int) -> None {
 
 //--- when_field_subject_is_rejected
 // [when-union-subject] `when` still requires a plain variable subject.
-export qualifier Ok<T> of T
+export qualifier Ok<T> for T
 
 //~ error[deduce-default:kept-by-default-moved]
 export fn ok<T>(value: T) -> +Ok T {

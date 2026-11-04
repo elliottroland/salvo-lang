@@ -103,8 +103,8 @@ pub struct ModuleScope<'p> {
     pub fn_groups: HashMap<&'p str, &'p FnsDecl>,
     pub handlers: HashMap<&'p str, &'p HandlerDecl>,
     /// [qual-overload] Visible qualifiers, as **overload sets**: one name may
-    /// be declared over several *subject types* (`NonEmpty of List<T>` and
-    /// `NonEmpty of Set<T>`), and which one a use means is decided by the
+    /// be declared over several *subject types* (`NonEmpty for List<T>` and
+    /// `NonEmpty for Set<T>`), and which one a use means is decided by the
     /// subject, the way a fn overload is decided by its arguments. Almost
     /// every name has exactly one, which is the fast path the checker takes.
     pub qualifiers: HashMap<&'p str, Vec<&'p QualifierDecl>>,
@@ -508,8 +508,8 @@ impl<'p> ModuleItems<'p> {
     /// [mod-collision] Non-fn declarations, with the *subject* that
     /// distinguishes same-named qualifiers [qual-overload]: `NonEmpty of
     /// List<T>` and `NonEmpty of Set<T>` are two declarations, not a
-    /// duplicate, so the collision key carries the `of` type's base name.
-    /// A generic `of` (`qualifier Ok<T> of T`) has no base name and so
+    /// duplicate, so the collision key carries the `for` type's base name.
+    /// A generic `for` (`qualifier Ok<T> for T`) has no base name and so
     /// collides with everything of its name — which is the conservative
     /// answer, since it would accept the same subjects.
     fn non_fn_names(&self) -> Vec<(NameKind, &'p str, Option<String>, usize, Span)> {
@@ -1907,7 +1907,7 @@ fn add_items<'p>(
                 // declaration joins the set only when its subject is new.
                 // Same name *and* same subject is the old single-entry case,
                 // where a later level replaces an earlier one — which is what
-                // lets a module declare its own `NonEmpty of List<T>` and
+                // lets a module declare its own `NonEmpty for List<T>` and
                 // shadow std's rather than becoming ambiguous with it.
                 let entry = scope.qualifiers.entry(name).or_default();
                 match entry

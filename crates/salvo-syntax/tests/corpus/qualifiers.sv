@@ -1,29 +1,29 @@
-qualifier Surname of Person
+qualifier Surname for Person
 
-qualifier Old of Person
+qualifier Old for Person
 
-qualifier Ok<T> of T
-qualifier Err<T> of T
+qualifier Ok<T> for T
+qualifier Err<T> for T
 
-qualifier Something<S, T> of Pair<S, T>
-qualifier FirstStr<T> of Pair<Str, T>
-qualifier Ints of Pair<Int, Int>
+qualifier Something<S, T> for Pair<S, T>
+qualifier FirstStr<T> for Pair<Str, T>
+qualifier Ints for Pair<Int, Int>
 
 type Result<S, T> = Ok S | Err T
 
-qualifier Positive of Int {
+qualifier Positive for Int {
     fn qualifies(int: Int) -> Bool {
         return int > 0
     }
 }
 
-qualifier NonNegative of Int {
+qualifier NonNegative for Int {
     fn qualifies(int: Int) -> Bool {
         return int >= 0
     }
 }
 
-qualifier HasSurname of Person {
+qualifier HasSurname for Person {
     surname: Str
 
     fn qualifies(person: Person) -> Bool {
@@ -31,7 +31,7 @@ qualifier HasSurname of Person {
     }
 }
 
-qualifier RandomPositive of Int
+qualifier RandomPositive for Int
 
 // Constructor function: `-> Int as RandomPositive` marks it; return points
 // return plain Int values which gain the qualifier by construction.
@@ -86,7 +86,7 @@ fn read_only(list: Mut List<Int>) [Console] -> None => list: Mut {
 // claim. `add` mutates its list, so [deduce-syntax] forbids it from
 // promising `NonEmpty` back — but appending can never empty a list, and the
 // qualifier that owns the claim may say so.
-qualifier NonEmpty<T> of List<T> {
+qualifier NonEmpty<T> for List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return size(list) > 0
     }

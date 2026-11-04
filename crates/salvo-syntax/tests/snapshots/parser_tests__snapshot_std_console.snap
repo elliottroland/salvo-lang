@@ -292,7 +292,7 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "Console",
-                                span: 709..716,
+                                span: 710..717,
                             },
                             args: [],
                             value_args: [],
@@ -301,7 +301,7 @@ Module {
                             binder: false,
                             established: false,
                             alias: None,
-                            span: 709..716,
+                            span: 710..717,
                         },
                     },
                 ],
@@ -313,7 +313,7 @@ Module {
                 state: [],
                 state_name: None,
                 fns: [],
-                span: 685..716,
+                span: 685..717,
             },
         ),
         Fn(
@@ -328,7 +328,7 @@ Module {
                 is_send: false,
                 name: Ident {
                     name: "println",
-                    span: 728..735,
+                    span: 729..736,
                 },
                 type_name: None,
                 scoped_to: None,
@@ -343,14 +343,14 @@ Module {
                     Param {
                         name: Ident {
                             name: "message",
-                            span: 736..743,
+                            span: 737..744,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "Str",
-                                    span: 745..748,
+                                    span: 746..749,
                                 },
                                 args: [],
                                 value_args: [],
@@ -359,13 +359,13 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 745..748,
+                                span: 746..749,
                             },
                         },
                         variadic: false,
                         implicit: false,
                         default: None,
-                        span: 736..748,
+                        span: 737..749,
                     },
                 ],
                 implicit_groups: [],
@@ -375,7 +375,7 @@ Module {
                             TypeRef {
                                 name: Ident {
                                     name: "Console",
-                                    span: 751..758,
+                                    span: 752..759,
                                 },
                                 args: [],
                                 value_args: [],
@@ -384,7 +384,7 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 751..758,
+                                span: 752..759,
                             },
                         ),
                     ],
@@ -395,12 +395,12 @@ Module {
                             target: Param {
                                 name: Ident {
                                     name: "message",
-                                    span: 771..778,
+                                    span: 772..779,
                                 },
                                 path: [],
                             },
                             kind: KeepAll,
-                            span: 771..778,
+                            span: 772..779,
                         },
                     ],
                 ),
@@ -410,7 +410,7 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "None",
-                                span: 763..767,
+                                span: 764..768,
                             },
                             args: [],
                             value_args: [],
@@ -419,7 +419,7 @@ Module {
                             binder: false,
                             established: false,
                             alias: None,
-                            span: 763..767,
+                            span: 764..768,
                         },
                     },
                 ),
@@ -433,7 +433,7 @@ Module {
                                     callee: Ident(
                                         Ident {
                                             name: "print",
-                                            span: 785..790,
+                                            span: 786..791,
                                         },
                                     ),
                                     type_args: [],
@@ -441,12 +441,12 @@ Module {
                                         Ident(
                                             Ident {
                                                 name: "message",
-                                                span: 791..798,
+                                                span: 792..799,
                                             },
                                         ),
                                     ],
                                     named: [],
-                                    span: 785..799,
+                                    span: 786..800,
                                 },
                             ),
                             Expr(
@@ -454,7 +454,7 @@ Module {
                                     callee: Ident(
                                         Ident {
                                             name: "print",
-                                            span: 804..809,
+                                            span: 805..810,
                                         },
                                     ),
                                     type_args: [],
@@ -465,18 +465,18 @@ Module {
                                                     "\n",
                                                 ),
                                             ],
-                                            span: 810..814,
+                                            span: 811..815,
                                         },
                                     ],
                                     named: [],
-                                    span: 804..815,
+                                    span: 805..816,
                                 },
                             ),
                         ],
-                        span: 779..817,
+                        span: 780..818,
                     },
                 ),
-                span: 725..817,
+                span: 726..818,
             },
         ),
     ],

@@ -59,7 +59,7 @@ what most code that "needs the time" actually needs.
 **5 — virtual time, in pure Salvo.** `ManualTime` is the fake, and it is
 ordinary Salvo you could have written: a list of deadlines, a list of reply
 tokens, and time that moves only when told. It wears **two faces** —
-`handler ManualTime() of Timer, TimerCtl` — so the spawn answers one addr per
+`handler ManualTime() for Timer, TimerCtl` — so the spawn answers one addr per
 face and least authority falls out of the types: `sessions` is handed the
 `Timer` and *cannot* reach `advance`. The two lines before the advance are the
 ones to copy:
@@ -83,7 +83,7 @@ a *scripted* ticker it would be comparing an unrelated clock against the timer's
 virtual time. `TestTicker` makes them one clock, in six lines:
 
 ```
-handler TestTicker(timer: eff[Timer]) [waitfor] of Ticker {
+handler TestTicker(timer: eff[Timer]) [waitfor] for Ticker {
     fn tick() -> Tick {
         let fired = waitfor answer: Reply<Fired> {
             timer.after(nanos(0), answer)

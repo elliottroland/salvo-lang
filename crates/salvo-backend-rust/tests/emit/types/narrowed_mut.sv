@@ -134,7 +134,7 @@ effect Bag {
     fn dump() -> Str
 }
 
-handler Holder of Bag {
+handler Holder for Bag {
     state {
         held: Ok Mut List<Int> | Err Str = ok(Mut List(0))
     }

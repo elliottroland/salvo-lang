@@ -259,7 +259,7 @@ A handler's constructor parameters take defaults by the same rules, wherever
 the handler is constructed — `use`, `spawn`, and an item of a `with` clause:
 
 ```
-handler Span(lo: Int, hi: Int = lo + 10, step: Int = 1) of Spanned { … }
+handler Span(lo: Int, hi: Int = lo + 10, step: Int = 1) for Spanned { … }
 
 use Span(5)                          // hi = 15, step = 1
 use Span(5, step = 2)                // hi = 15 — the middle one left to its default

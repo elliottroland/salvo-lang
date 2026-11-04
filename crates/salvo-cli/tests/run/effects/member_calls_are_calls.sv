@@ -13,7 +13,7 @@ effect Log {
     fn total(first: Int, ...rest: Int[]) -> Int
 }
 
-handler Printing of Log {
+handler Printing for Log {
     fn log(msg: Str, level: Int = 1) -> Str => msg {
         return "${msg}@${level}"
     }
@@ -50,11 +50,11 @@ effect Strs {
     fn put(x: Str) -> Str => x
 }
 
-handler IntsH of Ints {
+handler IntsH for Ints {
     fn put(x: Int) -> Str { return "int ${x}" }
 }
 
-handler StrsH of Strs {
+handler StrsH for Strs {
     fn put(x: Str) -> Str => x { return "str ${x}" }
 }
 
@@ -80,7 +80,7 @@ effect Ops {
     fn map(n: Int, f: (x: Int) -> Int) -> Int => f
 }
 
-handler OpsH of Ops {
+handler OpsH for Ops {
     fn map(n: Int, f: (x: Int) -> Int) -> Int => f { return f(n) }
 }
 
@@ -107,7 +107,7 @@ effect Fmt {
     fn show(p: Point) -> Str => p
 }
 
-handler Brackets of Fmt {
+handler Brackets for Fmt {
     fn show(p: Point) -> Str => p { return "[${p.x}]" }
 }
 

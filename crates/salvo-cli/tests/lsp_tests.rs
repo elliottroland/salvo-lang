@@ -724,7 +724,7 @@ fn goto_definition_resolves_names() {
     // 3     fn beep() -> Int
     // 4 }
     // 5
-    // 6 handler Loud of Beeper {
+    // 6 handler Loud for Beeper {
     // 7     fn beep() -> Int {
     // 8         return 7
     // 9     }
@@ -746,7 +746,7 @@ fn goto_definition_resolves_names() {
                 \x20   fn beep() -> Int\n\
                 }\n\
                 \n\
-                handler Loud of Beeper {\n\
+                handler Loud for Beeper {\n\
                 \x20   fn beep() -> Int {\n\
                 \x20       return 7\n\
                 \x20   }\n\
@@ -800,8 +800,8 @@ fn goto_definition_resolves_names() {
     assert_eq!(loc["uri"].as_str(), Some(uri.as_str()), "loc: {loc}");
     assert_eq!(loc["range"]["start"], json!({"line": 6, "character": 8}));
 
-    // The effect name in the handler's `of` clause.
-    let loc = definition(&mut lsp, 14, &uri, 6, 16);
+    // The effect name in the handler's `for` clause.
+    let loc = definition(&mut lsp, 14, &uri, 6, 17);
     assert_eq!(loc["range"]["start"], json!({"line": 2, "character": 7}));
 
     // [lsp-fn-origin] A fn's hover says which module it came from — the
@@ -1073,7 +1073,7 @@ effect Log {
     fn write(line: Str) -> None => line
 }
 
-handler StdLog of Log {
+handler StdLog for Log {
     state {
         // How many lines we have written.
         count: Int = 0
@@ -1282,7 +1282,7 @@ fn hover_merges_refinement_docs() {
     std::fs::create_dir_all(&root).unwrap();
     // Line numbers matter below; keep this source in sync with them.
     let source = "\
-qualifier NonEmpty<T> of List<T> {
+qualifier NonEmpty<T> for List<T> {
     fn qualifies(list: List<T>) -> Bool {
         return list.size() > 0
     }
@@ -1356,7 +1356,7 @@ fn hover_covers_fns_groups_and_short_qualifies_bodies() {
     // 1     fn show(v: T) -> Str
     // 2 }
     // 3
-    // 4 qualifier Positive of Int {
+    // 4 qualifier Positive for Int {
     // 5     fn qualifies(int: Int) -> Bool {
     // 6         return int > 0
     // 7     }
@@ -1365,7 +1365,7 @@ fn hover_covers_fns_groups_and_short_qualifies_bodies() {
                 \x20   fn show(v: T) -> Str\n\
                 }\n\
                 \n\
-                qualifier Positive of Int {\n\
+                qualifier Positive for Int {\n\
                 \x20   fn qualifies(int: Int) -> Bool {\n\
                 \x20       return int > 0\n\
                 \x20   }\n\
@@ -1412,7 +1412,7 @@ fn hover_covers_fns_groups_and_short_qualifies_bodies() {
             "params": {
                 "textDocument": {"uri": uri, "version": 2},
                 "contentChanges": [{
-                    "text": "qualifier Big of Int {\n\
+                    "text": "qualifier Big for Int {\n\
                              \x20   fn qualifies(int: Int) -> Bool {\n\
                              \x20       let limit = 10\n\
                              \x20       return int > limit\n\
@@ -1463,7 +1463,7 @@ fn hover_reaches_obligation_and_is_check_names() {
     // 9     return c.face
     // 10 }
     // 11
-    // 12 qualifier Positive of Int {
+    // 12 qualifier Positive for Int {
     // 13     fn qualifies(int: Int) -> Bool {
     // 14         return int > 0
     // 15     }
@@ -1487,7 +1487,7 @@ fn hover_reaches_obligation_and_is_check_names() {
                 \x20   return c.face\n\
                 }\n\
                 \n\
-                qualifier Positive of Int {\n\
+                qualifier Positive for Int {\n\
                 \x20   fn qualifies(int: Int) -> Bool {\n\
                 \x20       return int > 0\n\
                 \x20   }\n\
@@ -1750,7 +1750,7 @@ fn hover_shows_preserve_refinements() {
 struct Box canbe Mut { n: Int }
 struct Key { s: Str }
 
-qualifier Inside(box: Box) of Key {
+qualifier Inside(box: Box) for Key {
     fn qualifies(key: Key, box: Box) -> Bool {
         return box.n > 0
     }
@@ -2250,7 +2250,7 @@ effect Board {
     fn after() -> None
 }
 
-handler DiskBoard of Board {
+handler DiskBoard for Board {
     fn before() -> None {
         // load [
         notice

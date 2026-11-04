@@ -69,8 +69,8 @@ fn main() [use] -> None {
 // receive expected types, so union wrapping is recorded and emitted.
 // Also covers: a fn-type `let` annotation is dropped in Rust
 // (`impl Trait` is invalid on bindings [fn-contract]).
-qualifier Ok<T> of T
-qualifier Err<T> of T
+qualifier Ok<T> for T
+qualifier Err<T> for T
 
 type Result = Ok Int | Err Str
 

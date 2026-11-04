@@ -12,7 +12,7 @@ effect Random {
     fn next() -> Int
 }
 
-handler CyclicRandom(seed: Int) of Random {
+handler CyclicRandom(seed: Int) for Random {
     mailbox { capacity: 8 }
     state {
         cursor: Int = 0
@@ -34,7 +34,7 @@ actor effect Drawer {
     send fn draw(out: Reply<Int>) => !out
 }
 
-handler Feedback() [Drawer] of Random {
+handler Feedback() [Drawer] for Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -53,7 +53,7 @@ handler Feedback() [Drawer] of Random {
 }
 
 //~ error[actor-mixed-handler:occupancy-cycle]
-handler Drawing() [Random] of Drawer {
+handler Drawing() [Random] for Drawer {
     mailbox { capacity: 4 }
 
     send fn draw(out: Reply<Int>) {
@@ -72,7 +72,7 @@ effect Random {
     fn next() -> Int
 }
 
-handler CyclicRandom(seed: Int) of Random {
+handler CyclicRandom(seed: Int) for Random {
     mailbox { capacity: 8 }
     state {
         cursor: Int = 0
@@ -94,7 +94,7 @@ actor effect Drawer {
     send fn draw(out: Reply<Int>) => !out
 }
 
-handler Feedback(drawer: eff[Drawer]) of Random {
+handler Feedback(drawer: eff[Drawer]) for Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -114,7 +114,7 @@ handler Feedback(drawer: eff[Drawer]) of Random {
 }
 
 //~ error[actor-mixed-handler:occupancy-cycle]
-handler Drawing() [Random] of Drawer {
+handler Drawing() [Random] for Drawer {
     mailbox { capacity: 4 }
 
     send fn draw(out: Reply<Int>) {
@@ -129,7 +129,7 @@ effect Random {
     fn next() -> Int
 }
 
-handler CyclicRandom(seed: Int) of Random {
+handler CyclicRandom(seed: Int) for Random {
     mailbox { capacity: 8 }
     state {
         cursor: Int = 0
@@ -151,7 +151,7 @@ actor effect Drawer {
     send fn draw(out: Reply<Int>) => !out
 }
 
-handler Drawing() [Random] of Drawer {
+handler Drawing() [Random] for Drawer {
     mailbox { capacity: 4 }
 
     send fn draw(out: Reply<Int>) {
@@ -176,7 +176,7 @@ effect Random {
     fn next() -> Int
 }
 
-handler CyclicRandom(seed: Int) of Random {
+handler CyclicRandom(seed: Int) for Random {
     mailbox { capacity: 8 }
     state {
         cursor: Int = 0
@@ -198,7 +198,7 @@ actor effect Drawer {
     send fn draw(out: Reply<Int>) => !out
 }
 
-handler Feedback(drawer: eff[Drawer]) of Random {
+handler Feedback(drawer: eff[Drawer]) for Random {
     mailbox { capacity: 4 }
     state {
         tally: Int = 0
@@ -221,7 +221,7 @@ handler Feedback(drawer: eff[Drawer]) of Random {
 }
 
 //~ error[actor-mixed-handler:occupancy-cycle]
-handler Drawing() [Random] of Drawer {
+handler Drawing() [Random] for Drawer {
     mailbox { capacity: 4 }
 
     send fn draw(out: Reply<Int>) {

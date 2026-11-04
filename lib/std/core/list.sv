@@ -715,7 +715,7 @@ export fn to_str<T>(list: List<T>, ?to_str: (x: T) -> Str) [] -> Str => list {
 // makes the two different types, so they refuse to mix.
 // @compilerrules [col-sorted-list, col-sorted, cmp-carry]
 // @compilerknown
-export qualifier Sorted<T>(?cmp: (T, T) -> Int) of List<T> {
+export qualifier Sorted<T>(?cmp: (T, T) -> Int) for List<T> {
     // [qual-refn] The claim's owner states what the insert below does to it,
     // because the primitive cannot: a function that mutates may not promise back
     // a qualifier it has never heard of [deduce-syntax], and inserting at the

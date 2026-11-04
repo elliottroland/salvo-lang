@@ -10,7 +10,7 @@
 //! A refinement lets the *claim's owner* state it instead:
 //!
 //! ```text
-//! qualifier NonEmpty<T> of List<T> {
+//! qualifier NonEmpty<T> for List<T> {
 //!     fn qualifies(list: List<T>) -> Bool { return list.size() > 0 }
 //!
 //!     // Adding to a list makes it non-empty.
@@ -169,7 +169,7 @@ enum Owner<'p> {
     Qualifier(&'p QualifierDecl),
     /// [qual-refn-type] A type's body (a struct, or an opaque type's refns-only
     /// body): the type's author stating what its own functions do to a
-    /// claim it may establish — a generic one (`of T`), or one declared in
+    /// claim it may establish — a generic one (`for T`), or one declared in
     /// the same file.
     Type { name: &'p Ident, generics: &'p [Ident] },
 }
@@ -538,7 +538,7 @@ fn resolve_refn<'p>(
             continue;
         };
         // The matched overload's parameter at that position — what the
-        // qualifier's `of` type is checked against. Non-implicit slots only.
+        // qualifier's `for` type is checked against. Non-implicit slots only.
         let Some(p) = entry.decl.params.iter().filter(|p| !p.implicit).nth(pos) else {
             continue;
         };
@@ -710,14 +710,14 @@ fn check_refined_qual<'p>(
     // [qual-overload] Several qualifiers may share this name over different
     // subject types, and the refined parameter says which one the refinement
     // is about — matched here by *base name*, which is all this pass can see
-    // without the checker's unification (the same comparison the `of` check
+    // without the checker's unification (the same comparison the `for` check
     // below makes). With one candidate the parameter is not consulted, so a
-    // generic `of` still resolves.
+    // generic `for` still resolves.
     let candidates = scope.qualifiers.get(q).map(|v| v.as_slice()).unwrap_or(&[]);
     let qd = match candidates {
         [] => None,
         [one] => Some(*one),
-        // The declaration about this base first, a generic one (`of T`)
+        // The declaration about this base first, a generic one (`for T`)
         // otherwise — the checker's `qualifier_for` order.
         many => param_base(&param.ty).and_then(|base| {
             many.iter()
@@ -756,7 +756,7 @@ fn check_refined_qual<'p>(
         return None;
     }
     // [qual-refn-type] A type's author may state a claim it is trusted with
-    // about its type: a generic one (`of T`, which no subject's author owns)
+    // about its type: a generic one (`for T`, which no subject's author owns)
     // or one declared in the same file — the same rule as a `+Q` it writes
     // in a return type [deduce-reapply].
     if let Owner::Type { name: tname, .. } = owner {
@@ -773,10 +773,10 @@ fn check_refined_qual<'p>(
             return None;
         }
     }
-    // The claim has to be about the parameter's type: the qualifier's `of`
+    // The claim has to be about the parameter's type: the qualifier's `for`
     // type must accept it [qual-of]. Compared by base name, which is what
-    // this pass can see without the checker's unification — a generic `of`
-    // (`qualifier Ok<T> of T`) accepts anything.
+    // this pass can see without the checker's unification — a generic `for`
+    // (`qualifier Ok<T> for T`) accepts anything.
     //
     // [qual-preserve] A `preserve` entry reads the other way round: the
     // parameter is not the claim's *subject* but the value it depends on,
@@ -1133,11 +1133,11 @@ fn normalize(ty: &Type, generics: &[&str]) -> String {
     }
 }
 
-/// The base type name a qualifier's `of` type demands, or `None` when it is
+/// The base type name a qualifier's `for` type demands, or `None` when it is
 /// a bare type parameter (which accepts anything).
-/// [qual-overload] The base name of a qualifier's `of` type — the *subject*
-/// that distinguishes same-named qualifiers. `None` for a generic `of`
-/// (`qualifier Ok<T> of T`), which accepts any subject and so cannot be
+/// [qual-overload] The base name of a qualifier's `for` type — the *subject*
+/// that distinguishes same-named qualifiers. `None` for a generic `for`
+/// (`qualifier Ok<T> for T`), which accepts any subject and so cannot be
 /// told apart by one. Syntactic on purpose: it is what a pass without the
 /// checker's unification can see, and both backends need the same answer.
 pub fn of_base(of: &Type, generics: &[Ident]) -> Option<String> {

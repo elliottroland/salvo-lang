@@ -9,7 +9,7 @@ effect Apply {
     fn once_apply(f: once () -> Int) -> Int => !f
 }
 
-handler Applying() of Apply {
+handler Applying() for Apply {
     fn apply(f: (n: Int) -> Int, x: Int) -> Int => f, x {
         let y = f(x)
         return f(y)

@@ -6,7 +6,7 @@
 effect Clock {
     fn now() -> Int
 }
-handler Ticking() of Clock {
+handler Ticking() for Clock {
     state { tick: Int = 0 }
     fn now() -> Int {
         tick = tick + 1
@@ -45,7 +45,7 @@ fn as_a_statement() [use] {
 // is wanted (the narrow-from-wide direction, done by projection rather than
 // subsumption).
 effect Beep { fn beep() -> Int }
-handler Both() of Clock, Beep {
+handler Both() for Clock, Beep {
     state { n: Int = 0 }
     fn now() -> Int {
         n = n + 1
@@ -68,7 +68,7 @@ effect C { fn c() -> Int }
 // multi-face `use H()` as a value yields `(eff[A], eff[B])`, which
 // destructures into the individual handles; `use e` over the whole tuple
 // binds every effect.
-handler Both() of A, B {
+handler Both() for A, B {
     state { n: Int = 0 }
     fn a() -> Int {
         n = n + 1
@@ -90,7 +90,7 @@ fn main() [use] {
 // non-consuming copy of the sub-handle carrying the named effects, a subset
 // of what `e` carries. Yields a single handle for one effect, a tuple for
 // several; an alias expands.
-handler All() of A, B, C {
+handler All() for A, B, C {
     fn a() -> Int { return 1 }
     fn b() -> Int { return 2 }
     fn c() -> Int { return 3 }
@@ -112,7 +112,7 @@ fn projects() [use] {
 
 // [effect-eff-handle] Projecting an effect the handle does not carry is
 // refused ("does not carry effect `B`").
-handler OnlyA() of A {
+handler OnlyA() for A {
     fn a() -> Int { return 1 }
 }
 fn projects_an_absent_effect() [use] {
@@ -124,8 +124,8 @@ fn projects_an_absent_effect() [use] {
 // [effect-eff-handle] Merge `eff[a, b]`: combine already-bound handles into
 // one handle carrying the union of their effects, which `use` then binds
 // whole.
-handler HA() of A { fn a() -> Int { return 1 } }
-handler HB() of B { fn b() -> Int { return 2 } }
+handler HA() for A { fn a() -> Int { return 1 } }
+handler HB() for B { fn b() -> Int { return 2 } }
 fn run(caps: eff[A, B]) [use] -> Int => caps {
     use caps
     return a() + b()

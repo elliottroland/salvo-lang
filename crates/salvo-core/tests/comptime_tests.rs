@@ -386,10 +386,10 @@ fn docs_are_the_doc_comment_or_none() {
 
 // ===== [comptime-qualifier] qualifiers on declarations, read by comptime =====
 
-const ANNOTATED: &str = "comptime qualifier Short(c: Char) of Field\n\
-                         comptime qualifier Positional of Field\n\
-                         comptime qualifier Named(name: Str) of Struct\n\
-                         qualifier Small(hi: Int) of Int {\n    fn qualifies(n: Int, hi: Int) -> Bool {\n        return n < hi\n    }\n}\n\n\
+const ANNOTATED: &str = "comptime qualifier Short(c: Char) for Field\n\
+                         comptime qualifier Positional for Field\n\
+                         comptime qualifier Named(name: Str) for Struct\n\
+                         qualifier Small(hi: Int) for Int {\n    fn qualifies(n: Int, hi: Int) -> Bool {\n        return n < hi\n    }\n}\n\n\
                          // Serves.\n\
                          Named(\"srv\")\n\
                          struct Serve {\n    Short('p') port: Small(100) Int = 80,\n    host: Str,\n    Positional Short('f') files: List<Str>\n}\n\n";

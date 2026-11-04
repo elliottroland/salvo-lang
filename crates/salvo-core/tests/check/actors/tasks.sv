@@ -10,13 +10,13 @@ actor effect Log {
     send fn note(what: Str) => !what
 }
 
-handler Printing() of Log {
+handler Printing() for Log {
     mailbox { capacity: 4 }
 
     send fn note(what: Str) {}
 }
 
-handler Counting() [Log] of Counter {
+handler Counting() [Log] for Counter {
     mailbox { capacity: 16 }
 
     state {
@@ -83,7 +83,7 @@ effect Notes {
     fn note(m: Str) -> None => m
 }
 
-handler Quiet() of Notes {
+handler Quiet() for Notes {
     fn note(m: Str) -> None => m {
     }
 }
@@ -165,7 +165,7 @@ actor effect Audit {
     send fn audit(what: Str) => !what
 }
 
-handler Fetching() [Counter] of Audit {
+handler Fetching() [Counter] for Audit {
     mailbox { capacity: 2 }
 
     send fn audit(what: Str) {

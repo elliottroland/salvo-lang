@@ -12,7 +12,7 @@ actor effect Counting {
 
 // The receiver records rather than prints: a `deliver` answers as soon as
 // the frame is handed over, so a print here would race main's own.
-handler Tallying(label: Str) of Inbound, Counting {
+handler Tallying(label: Str) for Inbound, Counting {
     mailbox { capacity: 16 }
     state {
         seen: Mut List<Str> = Mut List<Str>()
@@ -84,7 +84,7 @@ actor effect Seen {
 
 // Records the one frame it expects and answers whoever asked for it —
 // ordering by data dependency, since the frame arrives on a socket thread.
-handler Echoing() of Inbound, Seen {
+handler Echoing() for Inbound, Seen {
     mailbox { capacity: 16 }
     state {
         got: Str = ""

@@ -23,6 +23,6 @@ effect Fmt {
     //~ error[op-unique-shape:outside-home]
     fn to_str(x: Int) -> Str => x
 }
-handler Plain of Show {
+handler Plain for Show {
     fn to_str(p: Pt) -> Str { return "pt" }
 }

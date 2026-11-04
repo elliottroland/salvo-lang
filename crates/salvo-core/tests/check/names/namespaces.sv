@@ -7,7 +7,7 @@
 // struct.
 namespace Plain {
     struct S { value: Str }
-    qualifier Tag of Str
+    qualifier Tag for Str
 }
 
 fn pick_plain() [] -> Plain.S {

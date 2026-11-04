@@ -204,7 +204,7 @@ effect Parking {
     fn shutdown() -> None
 }
 
-handler Parked() of Parking {
+handler Parked() for Parking {
     state {
         waiting: Mut List<Token> = Mut List()
     }
@@ -235,7 +235,7 @@ effect Closing {
     fn shutdown() -> None
 }
 
-handler Holey() of Closing {
+handler Holey() for Closing {
     state {
         waiting: Mut List<Token> = Mut List()
     }
@@ -255,7 +255,7 @@ effect Holding {
     fn hold(t: Token) -> None => !t
 }
 
-handler Held() of Holding {
+handler Held() for Holding {
     state {
         //~ error[linear-state:field]
         held: Token = mint(0)
@@ -276,7 +276,7 @@ effect Counting {
     fn total() -> Int
 }
 
-handler Tally() of Counting {
+handler Tally() for Counting {
     state {
         sum: Int = 0
     }

@@ -274,7 +274,7 @@ So a qualifier can carry the function as a **slot**, fixed where the value is
 constructed. Type arguments come first, slots after:
 
 ```
-qualifier Heap<T>(?Ordered<T>) of List<T> with NonEmpty
+qualifier Heap<T>(?Ordered<T>) for List<T> with NonEmpty
 ```
 
 A use site fills the slot with a **function identity** — a bare name
@@ -332,7 +332,7 @@ with. Every piece of this page appears in it.
 The claim, with its slot:
 
 ```
-export qualifier Heap<T>(?Ordered<T>) of List<T> with NonEmpty
+export qualifier Heap<T>(?Ordered<T>) for List<T> with NonEmpty
 ```
 
 Construction takes the ordering as an ordinary implicit, and the return type

@@ -70,7 +70,7 @@ effect Show {
 }
 
 //~ emits: override fun show(v: Int, fmt: (Int) -> String): String {
-handler Angle of Show {
+handler Angle for Show {
     fn show(v: Int, ?fmt: (Int) -> Str) -> Str => v {
         return "<${fmt(v)}>"
     }

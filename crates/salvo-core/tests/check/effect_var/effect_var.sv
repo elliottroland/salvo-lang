@@ -67,7 +67,7 @@ fn calls() [Say] {
     each(List(1), (x) -> say("x"))
 }
 
-handler Speaker() of Say {
+handler Speaker() for Say {
     fn say(s: Str) -> None => s {}
 }
 
@@ -75,7 +75,7 @@ effect Other {
     fn other() -> None
 }
 
-handler Quiet() of Other {
+handler Quiet() for Other {
     fn other() -> None {}
 }
 
@@ -185,7 +185,7 @@ actor effect Ping {
     send fn ping(n: Int)
 }
 
-handler Pinger() of Ping {
+handler Pinger() for Ping {
     mailbox { capacity: 4 }
     send fn ping(n: Int) {}
 }

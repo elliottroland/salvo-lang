@@ -1002,7 +1002,7 @@ fn a_changed_protocol_needs_a_version_bump() {
     let program = |member: &str| {
         format!(
             "actor effect Counter {{\n    send fn bump(n: {member}) => !n\n}}\n\
-             handler Counting() of Counter {{\n    mailbox {{ capacity: 4 }}\n    send fn bump(n: {member}) {{ }}\n}}\n\
+             handler Counting() for Counter {{\n    mailbox {{ capacity: 4 }}\n    send fn bump(n: {member}) {{ }}\n}}\n\
              fn main() [use] {{\n    use StdConsole()\n    println(\"ok\")\n}}\n"
         )
     };
@@ -1149,8 +1149,8 @@ fn a_dependency_brings_its_host_libraries_only_when_reached() {
     )
     .unwrap();
     fs::write(lib.join("salvo/lib.sv"), "export effect Greet {\n    fn greet() -> Str\n}\n\n\
-         export handler Plain() of Greet {\n    fn greet() -> Str { return \"plain\" }\n}\n").unwrap();
-    fs::write(lib.join("salvo/lib/host.sv"), "import lib\n\nexport platform handler HostGreet of Greet\n").unwrap();
+         export handler Plain() for Greet {\n    fn greet() -> Str { return \"plain\" }\n}\n").unwrap();
+    fs::write(lib.join("salvo/lib/host.sv"), "import lib\n\nexport platform handler HostGreet for Greet\n").unwrap();
     fs::write(lib.join("salvo/platform/lib/host.rs"), "use crate::lib::*;\npub struct HostGreet;\n\
          impl HostGreet { pub fn new() -> Self { HostGreet } }\n\
          impl crate::lib::GreetPlatform for HostGreet { fn greet(&mut self) -> String { \"host\".into() } }\n").unwrap();
@@ -1215,7 +1215,7 @@ effect Counter {
     fn next(step: Int) -> Int => step
 }
 
-platform handler HostCounter(start: Int) of Counter
+platform handler HostCounter(start: Int) for Counter
 
 fn describe(r: Ok Int | Err Str) [] -> Str => r {
     when r {

@@ -134,7 +134,7 @@ fn export_is_refused_on_non_declarations() {
     for (src, want) in [
         ("export import core.Str\n", "there is no re-export"),
         (
-            "qualifier NonEmpty of Int\nexport refn add(x: Mut Int) => x: +NonEmpty\n",
+            "qualifier NonEmpty for Int\nexport refn add(x: Mut Int) => x: +NonEmpty\n",
             "travels with the qualifier",
         ),
         (

@@ -14,8 +14,8 @@
 // qualifier only decides which one.
 // @compilerrules [qual-constructive, qual-ctor-same-file, qual-erasure]
 // @compilerknown
-export provenance qualifier Ok<T> of T
-export provenance qualifier Err<T> of T
+export provenance qualifier Ok<T> for T
+export provenance qualifier Err<T> for T
 
 // Tags a value as the success arm of a result union. The
 // value is moved into the result, so nothing is kept ([] deductions);
@@ -53,7 +53,7 @@ export fn Err<T canbe linear>(value: T) [] -> +Err T => !value {
 // them; `both`, `map2` and `all` keep collecting after a failure. A
 // provenance tag like `Err`, minted by its constructor below.
 // @compilerrules [type-result-errs]
-export provenance qualifier Errs<T> of T
+export provenance qualifier Errs<T> for T
 
 // The failure arm of an accumulating outcome, from one error.
 // @compilerrules [type-result-errs]

@@ -42,7 +42,7 @@ export effect Streams {
     fn next_id() -> Int
 }
 
-export handler Counter() of Streams {
+export handler Counter() for Streams {
     state {
         n: Int = 0
     }
@@ -60,7 +60,7 @@ export effect Files [Streams] {
 }
 
 // A handler of `Files` reaches `Streams` without writing `[Streams]`.
-export handler MemFiles() of Files {
+export handler MemFiles() for Files {
     fn open(path: Str) -> Str => path {
         return "${path}#${next_id()}"
     }
@@ -86,7 +86,7 @@ fn f() [Files] -> Str {
 
 // FILE: transitive.sv
 // [effect-prereq] Transitive: `A [B]`, `B [C]` puts `C` in scope wherever `A`
-// is; a handler implementing the prerequisite itself (`of A, B`) depends on
+// is; a handler implementing the prerequisite itself (`for A, B`) depends on
 // nothing for it.
 effect C {
     fn c() -> Int
@@ -97,10 +97,10 @@ effect B [C] {
 effect A [B] {
     fn a() -> Int
 }
-handler HC() of C {
+handler HC() for C {
     fn c() -> Int { return 3 }
 }
-handler HAB() of A, B {
+handler HAB() for A, B {
     fn a() -> Int { return c() + 1 }
     fn b() -> Int { return c() }
 }
@@ -142,7 +142,7 @@ fn g() [Log<Str>] {
 export effect X {
     fn x() -> Int
 }
-export handler HX() of X {
+export handler HX() for X {
     fn x() -> Int { return 1 }
 }
 
@@ -151,7 +151,7 @@ import x.X
 export effect Y {
     fn y() -> Int
 }
-export handler HY() [X] of Y {
+export handler HY() [X] for Y {
     fn y() -> Int { return x() }
 }
 

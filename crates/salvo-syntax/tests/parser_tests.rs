@@ -410,7 +410,7 @@ fn ids_of(source: &str) -> Vec<&'static str> {
 fn dot_names_parse_in_declarations_and_types() {
     let source = "struct Environment {\n    id: Environment.Id\n}\n\n\
                   struct Environment.Id {\n    value: Str\n}\n\n\
-                  qualifier Environment.Tag of Str\n\n\
+                  qualifier Environment.Tag for Str\n\n\
                   fn tag(v: Str) -> +Environment.Tag Str {\n    return v\n}\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
@@ -486,12 +486,12 @@ fn type_named_fn_parses() {
     assert_eq!(f3.generic_canbe.len(), 1, "the `<T canbe linear>` opt-in is recorded");
 }
 
-// [qual-subject] `provenance qualifier Q of T` parses with the provenance
+// [qual-subject] `provenance qualifier Q for T` parses with the provenance
 // subject; a plain declaration defaults to state.
 #[test]
 fn provenance_qualifiers_parse() {
-    let source = "qualifier Validated of Request\n\
-                  provenance qualifier Authenticated of Request\n";
+    let source = "qualifier Validated for Request\n\
+                  provenance qualifier Authenticated for Request\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
@@ -634,7 +634,7 @@ fn docs_survive_declaration_modifiers() {
          intrinsic fn e(x: Int) [] -> Int\n\
          \n\
          // A provenance qualifier.\n\
-         provenance qualifier P of Int\n\
+         provenance qualifier P for Int\n\
          \n\
          // An intrinsic type.\n\
          intrinsic type T\n",
@@ -915,12 +915,12 @@ fn a_when_with_a_subject_is_still_the_arm_form() {
 
 // --- platform handlers [platform-handler] ---
 
-/// [platform-handler] `platform handler HostRawFs of RawFs` parses as a
+/// [platform-handler] `platform handler HostRawFs for RawFs` parses as a
 /// handler carrying the flag: bodyless, and otherwise the same grammar as
 /// any handler — the modifier says only who supplies the members.
 #[test]
 fn platform_handler_parses_with_the_flag() {
-    let source = "platform handler HostRawFs of RawFs\n";
+    let source = "platform handler HostRawFs for RawFs\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
@@ -940,7 +940,7 @@ fn platform_handler_parses_with_the_flag() {
 /// grammar keeps them: `use HostS3("bucket")` passes them through.
 #[test]
 fn platform_handler_takes_constructor_parameters() {
-    let source = "platform handler HostS3(bucket: Str) of Fs\n";
+    let source = "platform handler HostS3(bucket: Str) for Fs\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
@@ -957,14 +957,14 @@ fn platform_handler_takes_constructor_parameters() {
 
 // --- the thread-safety contract [platform-threadsafe] ---
 
-/// [platform-threadsafe] `threadsafe platform handler H of E` parses as a
+/// [platform-threadsafe] `threadsafe platform handler H for E` parses as a
 /// platform handler carrying the contract flag; without the word the flag is
 /// off. `export` precedes it as it precedes every modifier.
 #[test]
 fn threadsafe_platform_handler_parses_with_the_flag() {
-    let source = "threadsafe platform handler HostTcp(port: Int) of Transport\n\
-                  export threadsafe platform handler HostUdp of Transport\n\
-                  platform handler HostRawFs of RawFs\n";
+    let source = "threadsafe platform handler HostTcp(port: Int) for Transport\n\
+                  export threadsafe platform handler HostUdp for Transport\n\
+                  platform handler HostRawFs for RawFs\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
@@ -1012,9 +1012,9 @@ fn threadsafe_is_an_ordinary_identifier_elsewhere() {
 /// handler — the flag defaults off, so nothing existing changes meaning.
 #[test]
 fn a_plain_handler_is_not_a_platform_handler() {
-    let source = "handler Loud of Console {\n    \
+    let source = "handler Loud for Console {\n    \
                   fn print(message: Str) -> None => message {\n    }\n}\n\
-                  intrinsic handler StdConsole of Console\n";
+                  intrinsic handler StdConsole for Console\n";
     let (module, _diagnostics) = salvo_syntax::parse_module(source);
     for item in &module.items {
         let salvo_syntax::ast::Item::Handler(h) = item else {
@@ -1201,7 +1201,7 @@ fn conditional_response_negation_and_chain_parse() {
 /// Bool-conditional `-> subject is Q` response.
 #[test]
 fn refn_at_wildcard_and_response_parse() {
-    let source = "qualifier Q<T> of List<T> {\n    \
+    let source = "qualifier Q<T> for List<T> {\n    \
         fn qualifies(l: List<T>) -> Bool { return true }\n    \
         refn add@core.list(l: Mut List<T>, *) => l: +Q\n    \
         refn empty@core.list(l: List<T>, *) -> l !is Q\n}\n";
@@ -1233,7 +1233,7 @@ fn refn_at_wildcard_and_response_parse() {
 /// [qual-refn-match]) and a deduction list of additions and removals.
 #[test]
 fn a_refinement_parses_in_a_qualifier_body() {
-    let source = "qualifier NonEmpty<T> of List<T> {\n    \
+    let source = "qualifier NonEmpty<T> for List<T> {\n    \
                   fn qualifies(list: List<T>) -> Bool {\n        \
                   return true\n    }\n\n    \
                   // Adding an element makes the list non-empty.\n    \
@@ -1506,7 +1506,7 @@ actor effect Counter {
     send fn report(out: Reply<Int>)
 }
 
-handler Counting() of Counter {
+handler Counting() for Counter {
     state {
         sum: Int = 0
     }
@@ -1632,7 +1632,7 @@ actor effect Counter {
     send fn totalled(n: Int)
 }
 
-handler Counting() of Counter {
+handler Counting() for Counter {
     state {
         sum: Int = 0
     }
@@ -1994,7 +1994,7 @@ actor effect E {
     send fn ping()
 }
 
-handler H(room: Int) of E {
+handler H(room: Int) for E {
     mailbox { capacity: room }
     state {
         seen: Int = 0
@@ -2002,7 +2002,7 @@ handler H(room: Int) of E {
     send fn ping() {}
 }
 
-handler Odd() of E {
+handler Odd() for E {
     mailbox { capacity: 1 }
     state {
         mailbox: Int = 3
@@ -2043,7 +2043,7 @@ handler Odd() of E {
     );
 }
 
-/// [effect-handler-multi] `of E1, E2, …`: one handler, one face per effect. The
+/// [effect-handler-multi] `for E1, E2, …`: one handler, one face per effect. The
 /// list is the whole of the syntax the step adds, and one face keeps parsing
 /// exactly as it did.
 #[test]
@@ -2059,13 +2059,13 @@ actor effect TimerCtl {
     send fn advance(millis: Int) => !millis
 }
 
-handler ManualTime() of Timer, TimerCtl {
+handler ManualTime() for Timer, TimerCtl {
     mailbox { capacity: 8 }
     send fn after(millis: Int) {}
     send fn advance(millis: Int) {}
 }
 
-handler Ticking() of Timer {
+handler Ticking() for Timer {
     mailbox { capacity: 1 }
     send fn after(millis: Int) {}
 }
@@ -2140,7 +2140,7 @@ actor effect Work {
     send fn step(n: Int) => !n
 }
 
-handler Working() of Work {
+handler Working() for Work {
     mailbox { capacity: 1 }
 
     send fn start(n: Int) {
@@ -2180,7 +2180,7 @@ handler Working() of Work {
 #[test]
 fn a_defer_deduction_parses() {
     let source = "\
-handler H() of E {
+handler H() for E {
     mailbox { capacity: 2 }
     send fn after(d: Int, out: Reply<Int>) => !d, defer out {
     }
@@ -2507,13 +2507,13 @@ fn noremote_parses_on_structs_and_types() {
 }
 
 /// [effect-any] `any` is contextual, in two places: an effect-list entry
-/// (`[any Resizer]`) and a handler's `of` clause (`of any Resizer, Stats`),
+/// (`[any Resizer]`) and a handler's `for` clause (`for any Resizer, Stats`),
 /// per face. A variable named `any` stays a variable.
 #[test]
 fn any_parses_in_effect_lists_and_of_clauses() {
     use salvo_syntax::ast::{EffectRef, Item};
     let source = "\
-handler Router(members: List<eff[Resizer]>) of any Resizer, Stats {
+handler Router(members: List<eff[Resizer]>) for any Resizer, Stats {
     send fn resize(name: Str) {}
 }
 
@@ -2569,7 +2569,7 @@ fn main() [spawn] {
 fn init_block_and_self_addr_parse() {
     use salvo_syntax::ast::{Expr, Item, Stmt};
     let source = "\
-handler H() of Reg<E> {
+handler H() for Reg<E> {
     state {
         init: Int = 0
     }
@@ -3159,7 +3159,7 @@ fn flattened_replyto_keeps_the_gate() {
 fn handler_state_block_parses_inferred_and_annotated() {
     let source = "\
 effect E { fn get() -> Int }
-handler H() of E {
+handler H() for E {
     state {
         seen = Mut Map<Str, Int>()
         sum: Int = 0
@@ -3306,14 +3306,14 @@ fn a_default_test_compares_with_none_only() {
     assert!(diags.iter().all(|d| !d.is_error()), "{diags:?}");
 }
 
-/// [comptime-qualifier] `comptime qualifier Short(c: Char) of Field`, and the
+/// [comptime-qualifier] `comptime qualifier Short(c: Char) for Field`, and the
 /// qualifiers written before a field's name and before a declaration — on
 /// its line or the line above, ahead of `export` — with the doc comment above
 /// them kept as the declaration's.
 #[test]
 fn comptime_qualifiers_parse_where_they_are_written() {
     use salvo_syntax::ast::Item;
-    let source = "comptime qualifier Short(c: Char) of Field\n\n\
+    let source = "comptime qualifier Short(c: Char) for Field\n\n\
                   // Serves.\n\
                   Named(\"srv\")\n\
                   export struct Serve {\n    Short('p') Env(\"PORT\") port: Int = 8080,\n    host: Str\n}\n\n\

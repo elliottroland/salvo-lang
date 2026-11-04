@@ -12,7 +12,7 @@ actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
 
-handler Counting() of Counter {
+handler Counting() for Counter {
     mailbox { capacity: 2 }
     state {
         sum: Int = 0
@@ -34,7 +34,7 @@ actor effect Boot {
     send fn boot(at: NodeEndpoint, net: eff[MemNet], done: Reply<Bool>) => !at, !net, !done
 }
 
-handler Booting() [Transport, spawn] of Boot {
+handler Booting() [Transport, spawn] for Boot {
     mailbox { capacity: 1 }
     send fn boot(at: NodeEndpoint, net: eff[MemNet], done: Reply<Bool>) => !at, !net, !done {
         bring_up(at, net)

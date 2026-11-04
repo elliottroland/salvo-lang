@@ -54,9 +54,9 @@ export effect RawFs {
 // state, so the compiler serializes the instance on both backends and the
 // host keeps plain maps.
 // @compilerrules [platform-handler, platform-threadsafe]
-export platform handler HostRawFs of RawFs
+export platform handler HostRawFs for RawFs
 
-export handler DefaultFs [RawFs] of Fs {
+export handler DefaultFs [RawFs] for Fs {
     fn open_read(path: Path) -> Ok InStream | Err Checked<FsError> => path {
         let path_text = to_str(path)
         let r = raw_open_read(path_text)

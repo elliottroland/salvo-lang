@@ -1071,7 +1071,7 @@ struct EffectAvail {
     binder: Binder,
     declared: bool,
     /// [effect-any] The binding is spread over many instances (a `use` of
-    /// a handler `of any E`, or a `[any E]` declaration): it satisfies a
+    /// a handler `for any E`, or a `[any E]` declaration): it satisfies a
     /// `[any E]` requirement only.
     any: bool,
 }
@@ -1833,7 +1833,7 @@ pub struct HandlerShape {
     pub name: String,
     /// [type-identity] Its key, which `parking_handlers` holds.
     pub key: String,
-    /// Each face, by effect key, with whether it is `of any E` [effect-any].
+    /// Each face, by effect key, with whether it is `for any E` [effect-any].
     pub faces: Vec<(String, bool)>,
     /// Whether a member is a `send fn` [actor-mixed-handler].
     pub sends: bool,
@@ -3132,7 +3132,7 @@ struct Checker<'p, 'r> {
     /// around `resolve_implicits`, empty elsewhere.
     call_fixed_params: HashSet<String>,
     /// [effect-handler-deps] The effects declared by the handler whose
-    /// members are being checked (`handler H [E1, E2] of E`), empty
+    /// members are being checked (`handler H [E1, E2] for E`), empty
     /// elsewhere. A member may use them exactly as if it had declared them,
     /// which it may not ([effect-member-no-effects]).
     handler_deps: Vec<EffectAvail>,
@@ -4591,7 +4591,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// each `Reply<T>` parameter's `T`. Refuses what cannot be checked or
     /// trusted, and warns where a check walks a collection (D10 C3).
     fn check_platform_boundary(&mut self, module: &'p Module) {
-        // [type-identity] By key: a handler's `of` names the effect as its own
+        // [type-identity] By key: a handler's `for` names the effect as its own
         // file resolves it, and two modules may declare an effect of one name.
         let platform_handled = |key: &str, symbols: &Symbols<'p>, out: &Checked| {
             symbols.handlers.values().any(|h| {
@@ -12026,7 +12026,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // order: one instance, one binding per effect it implements, so a
         // caller reaches whichever face its own effect list names.
         self.out.handles.insert(self.key(span), concrete.clone());
-        // [effect-any] A face written `of any E` binds the weak
+        // [effect-any] A face written `for any E` binds the weak
         // availability: the handler forwards to many instances and promises
         // no order, so only a `[any E]` requirement may lean on it.
         let of_any: Vec<bool> = self
@@ -18984,9 +18984,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [cmp-carry] The fn type a **qualifier's** slot demands, over the types the
-    /// qualified value is made of: `Heap<T>(?cmp: (T, T) -> Int) of List<T>`
+    /// qualified value is made of: `Heap<T>(?cmp: (T, T) -> Int) for List<T>`
     /// applied to a `List<Person>` wants `(Person, Person) -> Int`. The
-    /// qualifier's own type parameters come from its `of` type matched against
+    /// qualifier's own type parameters come from its `for` type matched against
     /// the value, which is the same reading `Ok Str` implies `Ok<Str>` by.
     fn qual_slot_ty(&mut self, qual: &str, index: usize, base: &Ty) -> Option<Ty> {
         let decl = self.qual_decl(qual)?;
@@ -20126,7 +20126,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [effect-handler-deps] The effects a handler declares as dependencies
-    /// (`handler Stamped [Logger, Clock] of Logger`), lowered and validated:
+    /// (`handler Stamped [Logger, Clock] for Logger`), lowered and validated:
     /// they are supplied by the compiler at the `use` site, so the list is
     /// unnamed and every entry must be an effect a `use` could provide.
     /// `use` and `Throw` are refused — a handler registers nothing, and a
@@ -20206,7 +20206,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         // [effect-prereq] A handler of an effect with prerequisites reaches
-        // them as dependencies — unless it implements one itself (`of Fs,
+        // them as dependencies — unless it implements one itself (`for Fs,
         // Streams`). Not a platform or intrinsic handler: the host constructs
         // those and has nothing to pass them.
         if !h.platform && !h.intrinsic {
@@ -20230,7 +20230,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [effect-not-data] An effect names a *capability*, not a type of
     /// values: it may appear in a fn's effect list, in a handler's effect
-    /// list and its `of` clause, and nowhere else. Using one as a struct
+    /// list and its `for` clause, and nowhere else. Using one as a struct
     /// field, parameter, return, or `let` annotation is an error — the value
     /// would have to be a handler instance, which only `use` produces, and
     /// neither backend can render it (Rust emits a bare trait, `E0782`).
@@ -20356,7 +20356,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// Validates a written type: every name resolves [name-resolve], and
     /// every qualifier application is well formed — duplicates,
-    /// `of`-type applicability, pairwise `with` compatibility. Called at
+    /// `for`-type applicability, pairwise `with` compatibility. Called at
     /// declaration sites (fn signatures, `let` annotations, struct
     /// fields, ...) so each error is reported once; type *lowering* runs
     /// repeatedly and stays silent.
@@ -20976,7 +20976,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
-        // Each qualifier must apply to the base type (per its `of` type)
+        // Each qualifier must apply to the base type (per its `for` type)
         // [qual-of].
         if !matches!(base, Ty::Unknown | Ty::Var(_)) {
             for (q, decl) in qualifiers.iter().zip(&decls) {
@@ -21065,8 +21065,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [qual-overload] The qualifier a use of `name` means. One name may be
-    /// declared over several **subject types** (`NonEmpty of List<T>` beside
-    /// `NonEmpty of Set<T>`), and the subject decides which — the way a fn
+    /// declared over several **subject types** (`NonEmpty for List<T>` beside
+    /// `NonEmpty for Set<T>`), and the subject decides which — the way a fn
     /// overload is decided by its arguments.
     ///
     /// With a single candidate the subject is not consulted at all, so a use
@@ -21078,13 +21078,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             [] => None,
             [one] => Some(*one),
             many => {
-                // Against the *base* type: a qualifier's `of` is about the
-                // data, so a `Mut Set<Str>` subject picks the `of Set<T>`
+                // Against the *base* type: a qualifier's `for` is about the
+                // data, so a `Mut Set<Str>` subject picks the `for Set<T>`
                 // declaration exactly as a plain `Set<Str>` does.
                 let subject = subject?.strip_quals().clone();
                 // A declaration about this subject's own type beats a generic
-                // one (`of T`) that accepts it too: std's `NonEmpty` and a
-                // program's `NonEmpty of List<T>`. The IR picks the same way
+                // one (`for T`) that accepts it too: std's `NonEmpty` and a
+                // program's `NonEmpty for List<T>`. The IR picks the same way
                 // (`qual_fn_ref`), so the two agree on which `qualifies` runs.
                 let fits: Vec<&'p QualifierDecl> =
                     many.iter().copied().filter(|d| self.qual_applies(d, &subject)).collect();
@@ -21108,7 +21108,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [deduce-reapply] [qual-ctor-same-file] [qual-refn-type] Whether this
     /// file is trusted to establish `name` about a value whose base type is
     /// `subject`: the qualifier's own file always; and, for a generic
-    /// *state* claim (`qualifier NonEmpty<T> of T`), which no subject's
+    /// *state* claim (`qualifier NonEmpty<T> for T`), which no subject's
     /// author owns, the file that declares the subject type — `subject` is
     /// the subject's key [type-identity].
     fn may_establish(&self, name: &str, subject: Option<&str>) -> bool {
@@ -21124,7 +21124,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             })
     }
 
-    /// Whether a qualifier's `of` type accepts the given base type.
+    /// Whether a qualifier's `for` type accepts the given base type.
     fn qual_applies(&mut self, decl: &'p QualifierDecl, base: &Ty) -> bool {
         if matches!(base, Ty::Unknown | Ty::Var(_)) {
             return true;
@@ -21490,7 +21490,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// Validates a qualifier declaration: predicate qualifiers need a
     /// well-formed `qualifies` function [qual-predicate]; field overrides
-    /// must refine real fields of the `of` struct [qual-field-override];
+    /// must refine real fields of the `for` struct [qual-field-override];
     /// bodiless (constructive) qualifiers take neither [qual-constructive].
     /// [doc-tags] The tags of every doc block in `module`: a tag this
     /// version does not know, an `@param` naming no parameter, and an
@@ -22113,7 +22113,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// Validates a qualifier-constructor signature (`fn f(...) -> T as Q`)
     /// [qual-ctor-fn]: same file as the qualifier [qual-ctor-same-file],
-    /// simple return type, `of`-type satisfaction [qual-ctor-simple].
+    /// simple return type, `for`-type satisfaction [qual-ctor-simple].
     /// Both constructive and predicate qualifiers may have constructors
     /// [qual-ctor-predicate]: a predicate-qualifier constructor asserts
     /// its predicate holds by construction, so callers get the qualified
@@ -27206,7 +27206,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // implicits.
             let qual_generics: Vec<Ident> = decl.map(|d| d.generics.clone()).unwrap_or_default();
             let mut slot_subst: HashMap<String, Ty> = HashMap::new();
-            // [col-nonempty] A generic `of` binds too: `NonEmpty<T> of T`
+            // [col-nonempty] A generic `for` binds too: `NonEmpty<T> for T`
             // tested at a `Mut List<Int>` has `T` ↦ `List<Int>`, so its
             // `?size` is the list's `size`, not whichever `size` happens to
             // fit an unknown parameter.

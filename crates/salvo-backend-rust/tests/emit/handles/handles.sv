@@ -15,7 +15,7 @@ effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler PlainLogger of Logger {
+handler PlainLogger for Logger {
     fn log(message: Str) -> None => message { }
 }
 
@@ -52,7 +52,7 @@ effect Clock {
     fn now() -> Int
 }
 
-handler TickingClock of Clock {
+handler TickingClock for Clock {
     state {
         t: Int = 0
     }
@@ -63,17 +63,17 @@ effect Logger {
     fn log(m: Str) -> None => m
 }
 
-handler PlainLogger [Console] of Logger {
+handler PlainLogger [Console] for Logger {
     fn log(m: Str) -> None => m { println("log: ${m}") }
 }
 
-handler Stamped [Logger, Clock] of Logger {
+handler Stamped [Logger, Clock] for Logger {
     fn log(m: Str) -> None => m {
         log("[t=${now()}] ${m}")
     }
 }
 
-handler FixedClock of Clock {
+handler FixedClock for Clock {
     fn now() -> Int { return 99 }
 }
 
@@ -81,7 +81,7 @@ actor effect Reporter {
     send fn report(what: Str, done: Reply<Int>) => !what, !done
 }
 
-handler Reporting() [Logger] of Reporter {
+handler Reporting() [Logger] for Reporter {
     mailbox { capacity: 4 }
 
     send fn report(what: Str, done: Reply<Int>) {
@@ -136,7 +136,7 @@ export effect Logger {
 // One struct for the handler; the dependency is a handle field.
 //~ emits 1: pub struct PlainLogger {
 //~ emits: __dep0: crate::std_core_console::Console,
-export handler PlainLogger [Console] of Logger {
+export handler PlainLogger [Console] for Logger {
     fn log(m: Str) -> None => m {
         println("log: ${m}")
     }
@@ -172,7 +172,7 @@ export effect Logger {
     fn log(message: Str) -> None => message
 }
 
-export handler ConsoleLogger [Console] of Logger {
+export handler ConsoleLogger [Console] for Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }

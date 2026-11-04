@@ -13,7 +13,7 @@ effect Net {
     fn close(handle: Int) -> Str
 }
 
-handler MemStore of Store {
+handler MemStore for Store {
     fn open(path: Str) -> Int => path {
         return 7
     }
@@ -22,7 +22,7 @@ handler MemStore of Store {
     }
 }
 
-handler MemNet of Net {
+handler MemNet for Net {
     fn close(handle: Int) -> Str {
         return "net closed ${handle}"
     }

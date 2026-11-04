@@ -28,11 +28,11 @@ export fn by_name(a: Person, b: Person) [] -> Int => a, b {
     return cmp(a.name, b.name)
 }
 
-export qualifier Heap<T>(?cmp: (T, T) -> Int) of List<T>
+export qualifier Heap<T>(?cmp: (T, T) -> Int) for List<T>
 
 // [cmp-carry] The same thing through a **group spread**: one slot per member of
 // the group, which is what `?Ordered<T>` means in a slot list.
-export qualifier Ranked<T>(?Ordered<T>) of List<T>
+export qualifier Ranked<T>(?Ordered<T>) for List<T>
 
 export fn empty_ranked<T>(?cmp: (T, T) -> Int) [] -> +Ranked<T>(?cmp) Mut List<T> {
     return Mut List()

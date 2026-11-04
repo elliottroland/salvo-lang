@@ -62,7 +62,7 @@ actor effect Db {
     send fn query(id: Int, reply: Reply<Int>) => !reply
 }
 
-handler Rows() of Db {
+handler Rows() for Db {
     mailbox { capacity: 4 }
 
     send fn query(id: Int, reply: Reply<Int>) {
@@ -120,7 +120,7 @@ actor effect Log {
     send fn count(out: Reply<Int>) => !out
 }
 
-handler Counting() of Log {
+handler Counting() for Log {
     mailbox { capacity: 8 }
 
     state {

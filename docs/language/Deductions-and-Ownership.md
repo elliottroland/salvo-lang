@@ -8,7 +8,7 @@ Suppose that we have the standard library's mutable list (`intrinsic type List<T
 
 ```
 // Tells us that there is at least one element in the list
-qualifier NonEmpty<T> of List<T>
+qualifier NonEmpty<T> for List<T>
 ```
 
 If we remove an element from the list, then we don't know if it's non-empty any more. We can capture this as follows:

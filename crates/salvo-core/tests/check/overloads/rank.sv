@@ -87,11 +87,11 @@ fn any_accepts_everything() -> None {
 // **More qualifiers say more**, and the *kind* of qualifier never ranks:
 // two candidates with one qualifier each are unrankable, which is an
 // ambiguity the caller settles with a rename (`rename.sv`).
-qualifier Even of Int {
+qualifier Even for Int {
     fn qualifies(n: Int) -> Bool { return true }
 }
 
-qualifier Small of Int {
+qualifier Small for Int {
     fn qualifies(n: Int) -> Bool { return true }
 }
 

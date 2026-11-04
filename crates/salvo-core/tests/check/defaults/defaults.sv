@@ -16,7 +16,7 @@ struct WrongField { n: Int = "x" }
 fn wrong_param(n: Int = "x") [] -> Int => n { return n }
 
 effect WrongE { fn get() -> Int }
-handler WrongState() of WrongE {
+handler WrongState() for WrongE {
     //~ error[default-fits:mismatch]
     state { n: Int = "x" }
     fn get() -> Int { return n }
@@ -30,7 +30,7 @@ struct RangedField { n: InRange(1, 10) Int = 8080 }
 fn ranged_param(n: InRange(1, 10) Int = 8080) [] -> Int => n { return 0 }
 
 effect RangedE { fn get() -> Int }
-handler RangedState() of RangedE {
+handler RangedState() for RangedE {
     state { n: InRange(1, 10) Int = 8080 }
     fn get() -> Int { return 0 }
 }
@@ -39,7 +39,7 @@ handler RangedState() of RangedE {
 // still refused, naming the qualifier: a constructive claim (nothing tests
 // it), and a predicate whose `qualifies` needs an implicit the site may not
 // have.
-qualifier Big of Int {
+qualifier Big for Int {
     fn qualifies(n: Int, ?limit: (n: Int) -> Bool) -> Bool { return limit(n) }
 }
 

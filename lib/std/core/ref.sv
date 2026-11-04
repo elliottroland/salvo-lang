@@ -19,7 +19,7 @@ intrinsic fn same<T>(a: T, b: T) [] -> Bool => a, b
 // strips it, like any dependent claim.
 // @compilerrules [ref-notsame, fate-elem-distinct, rs-path, qual-depend]
 // @compilerknown
-export qualifier NotSame<T>(a: T) of T {
+export qualifier NotSame<T>(a: T) for T {
     fn qualifies(b: T, a: T) -> Bool {
         return !same(a, b)
     }

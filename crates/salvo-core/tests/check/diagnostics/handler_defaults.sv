@@ -6,7 +6,7 @@ effect Spanned {
     fn width() -> Int
 }
 
-handler Span(lo: Int, hi: Int = lo + 10, step: Int = 1) of Spanned {
+handler Span(lo: Int, hi: Int = lo + 10, step: Int = 1) for Spanned {
     fn width() -> Int {
         return (hi - lo) * step
     }
@@ -19,7 +19,7 @@ effect Twice {
     fn twice() -> Int
 }
 
-handler Doubling [Spanned] of Twice {
+handler Doubling [Spanned] for Twice {
     fn twice() -> Int {
         return width() * 2
     }
@@ -29,7 +29,7 @@ actor effect Desk {
     send fn ask(out: Reply<Int>) => !out
 }
 
-handler Desking(room: Int = 4, capacity: Int = 2) of Desk {
+handler Desking(room: Int = 4, capacity: Int = 2) for Desk {
     mailbox { capacity: capacity }
     send fn ask(out: Reply<Int>) {
         send(out, room)
@@ -75,7 +75,7 @@ effect Tell {
 }
 
 //~ error[name-ident-resolve:unknown]
-handler Teller(a: Int = b, b: Int) of Tell {
+handler Teller(a: Int = b, b: Int) for Tell {
     fn tell() -> Int {
         return a + b
     }
@@ -89,7 +89,7 @@ fn noisy() [Console] -> Int {
 }
 
 //~ error[effect-available:callee-no-handler]
-handler NoisyTeller(n: Int = noisy()) [Console] of Tell {
+handler NoisyTeller(n: Int = noisy()) [Console] for Tell {
     fn tell() -> Int {
         return n
     }

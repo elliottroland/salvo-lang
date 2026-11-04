@@ -9,7 +9,7 @@ effect Random<T> {
     fn next_random() -> T
 }
 
-handler CyclicRandom<T>(values: T[]) of Random<T> {
+handler CyclicRandom<T>(values: T[]) for Random<T> {
     state {
         i: Int = 0
     }

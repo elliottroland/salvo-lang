@@ -43,7 +43,7 @@ put to the user; all as recommended):
 | 10 | A handle from the wrong provider | **trap** with a message (a program bug, not a condition) — and a roadmap item to make it a *compile-time* error, §9 |
 | 11 | Stream table | process-global from day one, shared by `HostRawFs` and `HostByteSource` |
 | 12 | The `InStream` move | both `InStream` and `OutStream` move; `import std.stream.InStream` beside `import std.fs` is accepted (no re-export) |
-| 13 | Fakes for streams | `MemByteSource` alone now; `MemHost of Fs, ByteSource` when a test needs a `MemFs` stream read asynchronously (the mem pair does not share a table, deliberately) |
+| 13 | Fakes for streams | `MemByteSource` alone now; `MemHost for Fs, ByteSource` when a test needs a `MemFs` stream read asynchronously (the mem pair does not share a table, deliberately) |
 | 14 | smithy-rs codegen is **not published** to Maven | depend on `smithy-kotlin-codegen`; reimplement the Rust naming rules (snake-casing, reserved words) — small, and the correction to D2's rationale |
 | 15 | Handler constructor | one `AwsConfig { credentials: Credentials, region: Region, endpoint: Str? }`, `Credentials = ProfileCredentials \| EnvironmentCredentials \| DefaultChain`; `endpoint` is what LocalStack needs |
 | 16 | Enum tag names | namespaced under the enum's type (`StorageClass.Standard`) — needs **dot-names under a `type`**, a small language extension, over prefixed names. **Superseded 2026-09-30**: an enum's values are its literals |
@@ -87,8 +87,8 @@ layering, not a rule change, and it **replaces decisions 11–13 and the
 | 24 | Names | `Streams`, `HostStreams`, `MemStreams`; `receive(s, reply: Reply<Received>)`, `Received = Ok Packet \| End \| Err Checked<StreamError>`, `Packet { bytes, stream }`; `FsError` keeps the path kinds, `StreamError` takes `InvalidUtf8`, `StaleHandle` and an `IoError` of its own |
 | 25 | Non-blocking copy | `pipe(from: InStream, to: OutStream, done: Reply<Ok Long \| Err Checked<StreamError>>)` beside the synchronous `copy_stream` — GetObject to a file |
 | 26 | Synchronous reads of a network stream | allowed, blocking the worker as a slow disk does, and documented; `receive`/`pipe` are the non-blocking route |
-| 28 | Host layering for streams | `RawStreams` (plain handles and errors) + `threadsafe platform handler HostRawStreams` + `DefaultStreams [RawStreams] of Streams` in Salvo — the `RawFs`/`HostRawFs`/`DefaultFs` shape, since a host class never holds an obligation. Replaces "HostStreams" |
-| 29 | The mem world | **`handler MemFs of Fs, Streams`**: one table, one file map, both faces (a write stream must publish into the file map on close); no separate `MemStreams` until a test without a filesystem needs one |
+| 28 | Host layering for streams | `RawStreams` (plain handles and errors) + `threadsafe platform handler HostRawStreams` + `DefaultStreams [RawStreams] for Streams` in Salvo — the `RawFs`/`HostRawFs`/`DefaultFs` shape, since a host class never holds an obligation. Replaces "HostStreams" |
+| 29 | The mem world | **`handler MemFs for Fs, Streams`**: one table, one file map, both faces (a write stream must publish into the file map on close); no separate `MemStreams` until a test without a filesystem needs one |
 | 30 | Stream error kinds | `InvalidUtf8 { source }`, `StaleHandle { source }`, `StreamFailed { source, message }` — `source` rather than `path`, since an S3 body has none; `fs.IoError` stays with the path operations |
 | 31 | The host table's home | each backend's runtime, behind a small read/write/flush/close interface, so every host file registers into it whatever modules a program reaches |
 | 32 | Bindings | a host program binds four handlers; **handler bundles** are a recorded future item (ROADMAP §4b item 6), with streams + fs their first customer |
@@ -378,9 +378,9 @@ export effect Sqs {
     …
 }
 
-export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs
+export threadsafe platform handler HostSqs(config: AwsConfig) for Sqs
 // generated too (18): a recording double for tests
-export handler FakeSqs() of Sqs { … }
+export handler FakeSqs() for Sqs { … }
 ```
 
 `threadsafe` [platform-threadsafe]: calls arrive from every pool at once and
@@ -424,8 +424,8 @@ export effect Streams {
     fn from_bytes(bytes: Bytes) -> InStream => !bytes
 }
 
-export threadsafe platform handler HostStreams() of Streams   // the one process table
-export handler MemStreams() of Streams                         // pure Salvo
+export threadsafe platform handler HostStreams() for Streams   // the one process table
+export handler MemStreams() for Streams                         // pure Salvo
 
 // Copies without blocking a worker: `receive` into `write`, until `End`.
 export fn pipe(from: InStream, to: OutStream, done: Reply<Ok Long | Err Checked<StreamError>>) [Streams]

@@ -6,7 +6,7 @@
 struct Box canbe Mut { n: Int }
 struct Key { s: Str }
 
-qualifier Inside(box: Box) of Key {
+qualifier Inside(box: Box) for Key {
     fn qualifies(key: Key, box: Box) -> Bool {
         return box.n > 0
     }
@@ -84,7 +84,7 @@ fn reassigning_the_linked_value_strips(key: Key) [] -> Bool => key {
 
 // [qual-depend] A dependent predicate's `qualifies` takes the subject and
 // then one parameter per value slot; fewer is an error naming the count.
-qualifier Short(box: Box) of Key {
+qualifier Short(box: Box) for Key {
     //~ error[qual-depend:param-count]
     fn qualifies(key: Key) -> Bool {
         return true
@@ -128,7 +128,7 @@ fn an_alias_of_the_value_still_matches(key: Key, box: Box) [] -> Int => key, box
 
 // --- [qual-preserve] A refinement that preserves a dependent claim ---
 
-qualifier Held(box: Box) of Key {
+qualifier Held(box: Box) for Key {
     fn qualifies(key: Key, box: Box) -> Bool {
         return box.n > 0
     }

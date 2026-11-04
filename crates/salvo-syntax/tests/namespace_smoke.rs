@@ -26,9 +26,9 @@ fn item_names(src: &str) -> Vec<String> {
 fn flat_namespace_members_get_dotted_names() {
     let src = "\
 namespace AttributeValue {
-    qualifier S of Str
-    qualifier N of Str
-    qualifier M of Str
+    qualifier S for Str
+    qualifier N for Str
+    qualifier M for Str
 }
 ";
     let names = item_names(src);

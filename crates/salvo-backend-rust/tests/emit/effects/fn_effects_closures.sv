@@ -15,7 +15,7 @@ effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler ConsoleLogger [Console] of Logger {
+handler ConsoleLogger [Console] for Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")
     }

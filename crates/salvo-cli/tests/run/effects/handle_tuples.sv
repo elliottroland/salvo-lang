@@ -15,17 +15,17 @@ effect B {
 effect C {
     fn c() -> Int
 }
-handler HA() of A {
+handler HA() for A {
     fn a() -> Int {
         return 1
     }
 }
-handler HB() of B {
+handler HB() for B {
     fn b() -> Int {
         return 2
     }
 }
-handler HC() of C {
+handler HC() for C {
     fn c() -> Int {
         return 3
     }

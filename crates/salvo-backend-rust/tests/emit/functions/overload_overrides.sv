@@ -13,11 +13,11 @@
 // shadows the
 // function in Rust's value namespace (E0618), where Kotlin keeps functions
 // and properties apart, so such a call is spelled as a path.
-qualifier Even of Int {
+qualifier Even for Int {
     fn qualifies(n: Int) -> Bool { return n % 2 == 0 }
 }
 
-qualifier Small of Int {
+qualifier Small for Int {
     fn qualifies(n: Int) -> Bool { return n < 10 }
 }
 

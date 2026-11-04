@@ -19,13 +19,13 @@ actor effect Notices {
     send fn arrived(id: Int, text: Str) => !id, !text
 }
 
-handler Rows() of Db {
+handler Rows() for Db {
     mailbox { capacity: 8 }
 
     send fn lookup(id: Int, out: Reply<Str>) { out.send("r") }
 }
 
-handler Fetching() [Db] of Notices {
+handler Fetching() [Db] for Notices {
     mailbox { capacity: 8 }
 
     send fn fetch(id: Int) {
@@ -55,14 +55,14 @@ actor effect Ask {
     send fn go(id: Int) => !id
 }
 
-handler Rows() of Db {
+handler Rows() for Db {
     mailbox { capacity: 8 }
 
     send fn lookup(id: Int, out: Reply<Str>) { out.send("r") }
     send fn arrived(id: Int, text: Str) {}
 }
 
-handler Asking() [Db] of Ask {
+handler Asking() [Db] for Ask {
     mailbox { capacity: 4 }
 
     send fn go(id: Int) {

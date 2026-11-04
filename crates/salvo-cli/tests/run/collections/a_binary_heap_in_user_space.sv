@@ -6,7 +6,7 @@
 
 // [cmp-carry] A binary heap in **user space**: a claim on an ordinary list,
 // carrying the ordering it is kept by, with mutators that keep the claim.
-export qualifier Heap<T>(?cmp: (T, T) -> Int) of List<T>
+export qualifier Heap<T>(?cmp: (T, T) -> Int) for List<T>
 
 export fn empty_heap<T>(?cmp: (T, T) -> Int) [] -> +Heap<T>(?cmp) Mut List<T> {
     return Mut List()

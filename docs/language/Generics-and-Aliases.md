@@ -12,16 +12,16 @@ struct Pair<S, T> {
 }
 
 // Qualifier can be as generic as type or less. This governs which `Pair`s the qualifier can apply to.
-qualifier Something<S, T> of Pair<S, T>
-qualifier FirstStr<T> of Pair<Str, T>
-qualifier Ints of Pair<Int, Int>
+qualifier Something<S, T> for Pair<S, T>
+qualifier FirstStr<T> for Pair<Str, T>
+qualifier Ints for Pair<Int, Int>
 ```
 
 Using qualifiers and generics we can implement the equivalent of a `Result` type from Rust. `std.core` ships exactly this pair, so you do not have to declare it — but nothing about it is built in, and the declarations are just:
 
 ```
-provenance qualifier Ok<T> of T
-provenance qualifier Err<T> of T
+provenance qualifier Ok<T> for T
+provenance qualifier Err<T> for T
 
 let result: Ok Int | Err Str = get_age()
 

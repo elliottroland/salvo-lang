@@ -15,7 +15,7 @@ parameters after the subject:
 
 ```
 // std.core.map — the claim that a key is present in one particular map.
-qualifier KeyOf<K, V>(map: Map<K, V>) of K {
+qualifier KeyOf<K, V>(map: Map<K, V>) for K {
     fn qualifies(key: K, map: Map<K, V>) -> Bool {
         return contains_key(map, key)
     }
@@ -56,7 +56,7 @@ needs it:
 
 ```
 // The claim: 0 <= index < size(c), about one particular container.
-export qualifier Idx<C>(c: C) of Int {
+export qualifier Idx<C>(c: C) for Int {
     fn qualifies(index: Int, c: C, ?size: (c: C) -> Int) -> Bool {
         return index >= 0 && index < size(c)
     }
@@ -137,10 +137,10 @@ one of them:
 
 * **A place** — everything above.
 * **A constant**, compile-time known, so nothing can invalidate it:
-  `std.core.range` declares `qualifier InRange(lo: Int, hi: Int) of Int`, used as
+  `std.core.range` declares `qualifier InRange(lo: Int, hi: Int) for Int`, used as
   `InRange(0, 65535) Int`. A constant is an `Int`, a `Char` or a `Str`
-  literal, of the slot's own type: `qualifier Prefix(p: Str) of Str` is
-  written `Prefix("arn:") Str`, and `qualifier Initial(c: Char) of Str`
+  literal, of the slot's own type: `qualifier Prefix(p: Str) for Str` is
+  written `Prefix("arn:") Str`, and `qualifier Initial(c: Char) for Str`
   `Initial('p') Str`. Two claims are the same fact only when their
   constants are equal.
 * **A function identity** — the ordering a structure is kept by:
@@ -161,7 +161,7 @@ one of them:
 
 ```
 struct Span { start: Int, end: Int }
-qualifier SpanOf(str: Str) of Span
+qualifier SpanOf(str: Str) for Span
 
 fn substr(str: Str, at: SpanOf(str) Span) -> Str     // total
 ```

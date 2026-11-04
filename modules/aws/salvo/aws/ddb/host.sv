@@ -15,4 +15,4 @@ import aws.ddb
 // Rust) and completes its reply from there, so no Salvo worker waits.
 // `threadsafe`: the SDK client is safe to share, so the instance is used from
 // every pool with no lock.
-export threadsafe platform handler HostDdb(config: AwsConfig) of Ddb
+export threadsafe platform handler HostDdb(config: AwsConfig) for Ddb

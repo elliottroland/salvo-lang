@@ -7,9 +7,9 @@
 // field type's qualifier constants, and the struct itself compiles and runs
 // with the qualifiers erased.
 //--- comptime_qualifiers
-comptime qualifier Short(c: Char) of Field
-comptime qualifier Positional of Field
-comptime qualifier Named(name: Str) of Struct
+comptime qualifier Short(c: Char) for Field
+comptime qualifier Positional for Field
+comptime qualifier Named(name: Str) for Struct
 
 Named("srv")
 struct Serve {

@@ -99,7 +99,7 @@ effect Counter {
     fn next(step: Int) -> Int => step
 }
 
-platform handler HostCounter(start: Int) of Counter
+platform handler HostCounter(start: Int) for Counter
 
 fn describe(r: Ok Int | Err Str) [] -> Str => r {
     when r {
@@ -162,7 +162,7 @@ effect Stop {
     fn halt(why: Str) [] -> Never => why
 }
 
-platform handler HostStop() of Stop
+platform handler HostStop() for Stop
 
 platform fn bail(why: Str) [] -> Never => why
 
@@ -274,7 +274,7 @@ actor effect Holder {
     send fn hold(t: Tally, done: Reply<Int>) => !t, !done
 }
 
-handler Holding() of Holder {
+handler Holding() for Holder {
     mailbox { capacity: 4 }
     send fn hold(t: Tally, done: Reply<Int>) {
         done.send(bump(t))
@@ -368,7 +368,7 @@ export effect Apply {
     fn apply(f: (n: Int) -> Int, x: Int) -> Int => f, x
 }
 
-export platform handler HostApply() of Apply
+export platform handler HostApply() for Apply
 // FILE: main.sv
 import host
 
@@ -665,7 +665,7 @@ effect Slow {
     fn later(n: Int, done: Reply<Int>) [] -> None => !n, !done
 }
 
-threadsafe platform handler HostSlow of Slow
+threadsafe platform handler HostSlow for Slow
 
 send fn labelled(label: Str, out: Reply<Str>, n: Int) => !label, !out, !n {
     out.send("${label} ${n}")
@@ -724,7 +724,7 @@ effect Slow {
     fn later(n: Int, done: Reply<Int>) [] -> None => !n, !done
 }
 
-threadsafe platform handler HostSlow of Slow
+threadsafe platform handler HostSlow for Slow
 
 send fn labelled(label: Str, out: Reply<Str>, n: Int) => !label, !out, !n {
     out.send("${label} ${n}")

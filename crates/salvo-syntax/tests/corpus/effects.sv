@@ -9,7 +9,7 @@ effect Console {
 // [effect-alias] An effect-group alias: shorthand for its member list.
 effects Chatty = [Random<Int>, Console]
 
-handler CyclicRandom<T>(values: T[]) of Random<T> {
+handler CyclicRandom<T>(values: T[]) for Random<T> {
     state {
         i: Int = 0
     }
@@ -20,7 +20,7 @@ handler CyclicRandom<T>(values: T[]) of Random<T> {
     }
 }
 
-handler StdConsole of Console {
+handler StdConsole for Console {
     fn println(message: Str) -> None {
     }
 }

@@ -32,7 +32,7 @@ effect Clock {
 // declared with an initializer, and private to it. This one is a fake clock:
 // each reading is five ticks after the last, so the program's output does not
 // depend on when it ran.
-handler TickingClock of Clock {
+handler TickingClock for Clock {
     state {
         tick: Int = 0
     }
@@ -80,7 +80,7 @@ effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler PlainLogger [Console] of Logger {
+handler PlainLogger [Console] for Logger {
     fn log(message: Str) -> None => message {
         println("   ${message}")
     }
@@ -89,7 +89,7 @@ handler PlainLogger [Console] of Logger {
 // A handler that throws its input away — used in section 5. It needs nothing at
 // all, which is the point: `Logger` says nothing about how logging happens, so
 // "not at all" is a legitimate implementation.
-handler QuietLogger of Logger {
+handler QuietLogger for Logger {
     fn log(message: Str) -> None => message {
     }
 }
@@ -109,7 +109,7 @@ handler QuietLogger of Logger {
 // from the *enclosing signature* as well as from a binding — which is what
 // lets the wiring live in `interception` below, a function that only
 // receives the effects it wires.
-handler Stamped [Logger, Clock] of Logger {
+handler Stamped [Logger, Clock] for Logger {
     fn log(message: Str) -> None => message {
         log("[t=${now()}] ${message}")
     }
@@ -117,7 +117,7 @@ handler Stamped [Logger, Clock] of Logger {
 
 // A second one, with state of its own. Interceptors stack: registering this
 // over `Stamped` numbers the line the stamping logger will then print.
-handler Numbered [Logger] of Logger {
+handler Numbered [Logger] for Logger {
     state {
         seen: Int = 0
     }
@@ -174,13 +174,13 @@ effect Metrics {
     fn record(what: Str) -> None => what
 }
 
-handler ConsoleAudit [Console] of Audit {
+handler ConsoleAudit [Console] for Audit {
     fn record(what: Str) -> None => what {
         println("   audit: ${what}")
     }
 }
 
-handler ConsoleMetrics [Console] of Metrics {
+handler ConsoleMetrics [Console] for Metrics {
     fn record(what: Str) -> None => what {
         println("   metric: ${what}")
     }
@@ -210,7 +210,7 @@ effect Setting<T> {
     fn setting(?copy: (v: T) -> T) -> T
 }
 
-handler Fixed<T>(value: T) of Setting<T> {
+handler Fixed<T>(value: T) for Setting<T> {
     // The handler keeps its constructor argument for its whole life, so a
     // member cannot hand the stored value out — every call would be moving
     // the same one. `copy` is the opt-in that says "an independent value"

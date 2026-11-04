@@ -10,7 +10,7 @@ struct Person {
     age: Int
 }
 
-qualifier Surname of Person {
+qualifier Surname for Person {
     surname: Str
 
     fn qualifies(person: Person) -> Bool {
@@ -18,7 +18,7 @@ qualifier Surname of Person {
     }
 }
 
-qualifier Positive of Int {
+qualifier Positive for Int {
     fn qualifies(int: Int) -> Bool {
         return int > 0
     }

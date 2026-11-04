@@ -9,7 +9,7 @@ effect Log {
     fn log(s: Str) -> None => s
 }
 
-handler Quiet() of Log {
+handler Quiet() for Log {
     fn log(s: Str) -> None => s {}
 }
 

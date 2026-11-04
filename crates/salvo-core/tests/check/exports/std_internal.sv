@@ -32,7 +32,7 @@ effect Ticks {
     fn tick() -> Int
 }
 
-handler Ticking() of Ticks {
+handler Ticking() for Ticks {
     fn tick() -> Int {
         return 1
     }

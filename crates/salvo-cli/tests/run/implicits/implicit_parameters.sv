@@ -120,7 +120,7 @@ fn main() [use] {
 
 // The claim a ranked list carries: the ordering it is ranked by, named in the
 // qualifier's own **fn slot**.
-qualifier Ranked<T>(?cmp: (T, T) -> Int) of List<T>
+qualifier Ranked<T>(?cmp: (T, T) -> Int) for List<T>
 
 // [fn-attached] The obligation names the capability; this file's `cmp` fulfils
 // it, so `cmp` is declared on `Person` and travels with it.
@@ -804,7 +804,7 @@ effect Show {
     fn show(v: Int, ?fmt: (Int) -> Str) -> Str => v
 }
 
-handler Angle of Show {
+handler Angle for Show {
     fn show(v: Int, ?fmt: (Int) -> Str) -> Str => v {
         return "<${fmt(v)}>"
     }
@@ -920,7 +920,7 @@ effect Bag {
     fn dump() -> Str
 }
 
-handler Holder of Bag {
+handler Holder for Bag {
     state {
         held: Ok Mut List<Int> | Err Str = ok(Mut List(0))
     }

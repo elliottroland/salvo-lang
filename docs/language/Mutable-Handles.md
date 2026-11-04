@@ -256,7 +256,7 @@ duel(at(squad, i) ?: unreachable!(), at(squad, j) ?: unreachable!())     // erro
 names a different element from `a` [ref-notsame].
 
 ```
-export qualifier NotSame<T>(a: T) of T {
+export qualifier NotSame<T>(a: T) for T {
     fn qualifies(b: T, a: T) -> Bool {
         return !same(a, b)
     }

@@ -2,7 +2,7 @@
 // a claim with exactly those constants — carried, matched, or the plain
 // overload takes the call.
 
-qualifier Percent(lo: Int, hi: Int) of Int {
+qualifier Percent(lo: Int, hi: Int) for Int {
     fn qualifies(n: Int, lo: Int, hi: Int) -> Bool {
         return n >= lo && n <= hi
     }
@@ -29,13 +29,13 @@ fn different_constants_refuse(n: Int) [] -> Int => n {
 // and `Prefix("arn:")` fill slots of their own type, establish by `is`, and
 // agree exactly — a `Prefix("arm:")` claim does not fill a
 // `Prefix("arn:")` position.
-qualifier Prefix(p: Str) of Str {
+qualifier Prefix(p: Str) for Str {
     fn qualifies(s: Str, p: Str) -> Bool {
         return true
     }
 }
 
-qualifier Tag(c: Char) of Int {
+qualifier Tag(c: Char) for Int {
     fn qualifies(n: Int, c: Char) -> Bool {
         return true
     }
@@ -74,7 +74,7 @@ fn an_int_in_a_char_slot(n: Int) [] -> Bool => n {
 // [qual-depend] `i++` rebinds the variable, so dependent claims bound to
 // its old value strip too — the step is a reassignment in every flow
 // sense [op-inc-dec].
-qualifier Above(floor: Int) of Int {
+qualifier Above(floor: Int) for Int {
     fn qualifies(n: Int, floor: Int) -> Bool {
         return n > floor
     }

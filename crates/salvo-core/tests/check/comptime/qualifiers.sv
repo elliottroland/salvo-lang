@@ -1,10 +1,10 @@
 // ===== [comptime-qualifier] qualifiers on declarations, read by comptime =====
 // What a test reads off them is comptime_tests.rs's; these are the refusals.
 
-comptime qualifier Short(c: Char) of Field
-comptime qualifier Positional of Field
-comptime qualifier Named(name: Str) of Struct
-qualifier Small(hi: Int) of Int {
+comptime qualifier Short(c: Char) for Field
+comptime qualifier Positional for Field
+comptime qualifier Named(name: Str) for Struct
+qualifier Small(hi: Int) for Int {
     fn qualifies(n: Int, hi: Int) -> Bool {
         return n < hi
     }
@@ -57,7 +57,7 @@ comptime fn on_an_arm() [] -> Int {
 // `[arm.type](value)` — its claim's constructor, told the subject when the
 // claim is generic — and `None` by `None`; calling a `None` arm is refused.
 struct Two { n: Int, m: Int }
-provenance qualifier Tag<T> of T
+provenance qualifier Tag<T> for T
 fn Tag<T>(value: T) [] -> +Tag T => !value {
     return value
 }
@@ -152,13 +152,13 @@ comptime fn no_literals() [] -> Int {
 // [comptime-qualifier] A comptime qualifier's declaration and its uses are
 // checked: its subject, its body, its constants, and where it is written —
 // one error per misplaced qualifier.
-comptime qualifier Short(c: Char) of Field
-comptime qualifier Named(name: Str) of Struct
+comptime qualifier Short(c: Char) for Field
+comptime qualifier Named(name: Str) for Struct
 //~ error[comptime-qualifier:subject]
-comptime qualifier Bad of Int
+comptime qualifier Bad for Int
 //~ error[comptime-qualifier:slot-type]
-comptime qualifier Wide(x: List<Int>) of Field
-qualifier Plain of Int
+comptime qualifier Wide(x: List<Int>) for Field
+qualifier Plain for Int
 
 struct S {
     //~ error[qual-const:slot-mismatch]

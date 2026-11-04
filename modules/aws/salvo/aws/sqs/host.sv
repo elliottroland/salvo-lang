@@ -15,4 +15,4 @@ import aws.sqs
 // Rust) and completes its reply from there, so no Salvo worker waits.
 // `threadsafe`: the SDK client is safe to share, so the instance is used from
 // every pool with no lock.
-export threadsafe platform handler HostSqs(config: AwsConfig) of Sqs
+export threadsafe platform handler HostSqs(config: AwsConfig) for Sqs

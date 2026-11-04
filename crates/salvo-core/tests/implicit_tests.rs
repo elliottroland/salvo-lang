@@ -75,7 +75,7 @@ effect Show<T> {
     fn show(v: T) -> Str => v
 }
 
-handler Plain<T> of Show<T> {
+handler Plain<T> for Show<T> {
     fn show(v: T) -> Str => v { return "plain" }
 }
 
@@ -84,7 +84,7 @@ handler Plain<T> of Show<T> {
 // which these tests cannot write (their prelude has no std). What they are
 // about is the type argument a constructor argument binds, so a literal answer
 // says the same thing.
-handler Prefixed<T>(prefix: Str) of Show<T> {
+handler Prefixed<T>(prefix: Str) for Show<T> {
     fn show(v: T) -> Str => v { return "p" }
 }
 "#;
@@ -95,7 +95,7 @@ handler Prefixed<T>(prefix: Str) of Show<T> {
 fn written_type_arguments_must_agree_with_the_constructor() {
     let errs = errors(&format!(
         "{HANDLER_PRELUDE}\n\
-         handler Echo<T>(seed: T) of Show<T> {{\n\
+         handler Echo<T>(seed: T) for Show<T> {{\n\
          fn show(v: T) -> Str => v {{ return \"e\" }}\n\
          }}\n\
          fn probe() [use] -> Str {{\n\

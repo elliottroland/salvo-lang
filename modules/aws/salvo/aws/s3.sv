@@ -769,7 +769,7 @@ export effect S3Calls {
 // "NotStubbed" }`. A body it is handed is closed unread, and a body it answers
 // with is empty, minted in the `Streams` in scope. A test that needs real
 // answers implements [S3] itself.
-export handler FakeS3() [Streams] of S3, S3Calls {
+export handler FakeS3() [Streams] for S3, S3Calls {
     state {
         recorded: Mut List<Str> = Mut List()
     }

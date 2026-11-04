@@ -8,7 +8,7 @@ interface Clock {
   fn now() -> Int
 }
 
-impl TickingClock() of Clock@main stateful {
+impl TickingClock() for Clock@main stateful {
   state tick: Int = 0
   fn now() -> Int {
     assign tick = (read tick + 5)
@@ -29,24 +29,24 @@ interface Logger {
   fn log(lent message: Str) -> None
 }
 
-impl PlainLogger() of Logger@main deps [Console] {
+impl PlainLogger() for Logger@main deps [Console] {
   fn log(lent message: Str) -> None {
     call println@std.core.console(read __dep0, concat("   ", read message))
   }
 }
 
-impl QuietLogger() of Logger@main {
+impl QuietLogger() for Logger@main {
   fn log(lent message: Str) -> None {
   }
 }
 
-impl Stamped() of Logger@main deps [Logger@main, Clock@main] {
+impl Stamped() for Logger@main deps [Logger@main, Clock@main] {
   fn log(lent message: Str) -> None {
     member log@Logger(read __dep0, concat("[t=", call to_str(Int)@std.core.basic(member now@Clock(read __dep1)), "] ", read message))
   }
 }
 
-impl Numbered() of Logger@main deps [Logger@main] stateful {
+impl Numbered() for Logger@main deps [Logger@main] stateful {
   state seen: Int = 0
   fn log(lent message: Str) -> None {
     assign seen = (read seen + 1)
@@ -87,13 +87,13 @@ interface Metrics {
   fn record(lent what: Str) -> None
 }
 
-impl ConsoleAudit() of Audit@main deps [Console] {
+impl ConsoleAudit() for Audit@main deps [Console] {
   fn record(lent what: Str) -> None {
     call println@std.core.console(read __dep0, concat("   audit: ", read what))
   }
 }
 
-impl ConsoleMetrics() of Metrics@main deps [Console] {
+impl ConsoleMetrics() for Metrics@main deps [Console] {
   fn record(lent what: Str) -> None {
     call println@std.core.console(read __dep0, concat("   metric: ", read what))
   }
@@ -112,7 +112,7 @@ interface Setting<T> {
   fn setting(lent copy: (T) -> T) -> T
 }
 
-impl Fixed<T>(lent value: T) of Setting@main<T> {
+impl Fixed<T>(lent value: T) for Setting@main<T> {
   fn setting(; ?lent copy: (T) -> T) -> T {
     return call local copy(read value)
   }

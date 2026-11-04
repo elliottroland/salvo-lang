@@ -285,7 +285,7 @@ fn build(
         }
     }
     // [actor-deadlock-cycle] [effect-any] [actor-route-stub] The routers of each
-    // actor effect — every written `of any E` face, and the route a `use
+    // actor effect — every written `for any E` face, and the route a `use
     // any` derives for a routed protocol — which is where an edge into
     // `any E` lands besides `E` (a binding of `any E` may be any of them).
     // A router binds shareable, so its member runs on the caller's thread:
@@ -349,7 +349,7 @@ fn build(
             // exactly as from an actor handler. Its own face is skipped:
             // interception binds outward, so it closes no cycle.
             let mixed = h.shape.sends && !h.shape.faces.is_empty() && h.shape.faces.iter().all(|(of, _)| is_plain(of));
-            // [effect-any] A router `of any E` is a servant too: it is not a
+            // [effect-any] A router `for any E` is a servant too: it is not a
             // member of `E` but a forwarder in front of them, so it is a node
             // of its own, and what leaves it is what it does *besides*
             // forwarding. Its forward to `E` is no edge: every edge into the
@@ -524,7 +524,7 @@ fn build(
     }
     // [actor-route-stub] [effect-any] Every protocol a `use any` routes has a
     // route the IR derives (`ir::build::actors`, `__Route_X`), which is no
-    // AST handler — so its node is built here, as the one an `of any X`
+    // AST handler — so its node is built here, as the one an `for any X`
     // router gets above: a servant of its own, depending on the
     // `RouteSelector<X>` the `use any` found, whose mixed servants and
     // priced shareable handlers are occupancy edges. Its sites are the
@@ -769,7 +769,7 @@ fn report(
 }
 
 /// [actor-mixed-handler] [effect-any] [actor-route-stub] A servant node's inputs: a mixed
-/// handler's servant, an `of any X` router, or a derived route. One shape,
+/// handler's servant, an `for any X` router, or a derived route. One shape,
 /// so the three cannot drift apart.
 struct Servant<'a> {
     /// The handler, which names the node and the edges.
@@ -777,7 +777,7 @@ struct Servant<'a> {
     /// The faces it wears, plain: a dependency on one of them binds outward
     /// (interception), so it closes no cycle.
     own_faces: &'a [&'a str],
-    /// [effect-any] The faces it routes (`of any E`, or the route's `E`):
+    /// [effect-any] The faces it routes (`for any E`, or the route's `E`):
     /// a send to one is its forward, which is no edge — every edge into the
     /// router comes with the same edge into `E`.
     forwards: &'a [&'a str],
@@ -929,7 +929,7 @@ fn deps_of(out: &Checked, h: &Handler<'_>) -> Vec<(String, Span, bool)> {
 struct Router {
     node: String,
     occupies: bool,
-    /// A written `of any E` handler, which a program may spawn and hand out
+    /// A written `for any E` handler, which a program may spawn and hand out
     /// as an `eff[E]`; the derived route of a `use any` is never spawned.
     written: bool,
 }
@@ -962,7 +962,7 @@ fn router_targets(
 
 /// [actor-deadlock-cycle] [effect-any] Where a **send through an `eff[E]`**
 /// lands besides `E` (user decision 2026-10-30): an addr cannot say whether
-/// it is a member of `E` or a spawned `of any E` router, so the send lands on
+/// it is a member of `E` or a spawned `for any E` router, so the send lands on
 /// every written router of `E` too (but the sending node itself), of the
 /// sender's kind — a spawned router is an actor, so no occupancy. The
 /// derived route of a `use any` is never behind an addr.

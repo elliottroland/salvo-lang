@@ -28,7 +28,7 @@ const DECLARATION_KEYWORDS: &[&str] = &[
     "platform", "import", "provenance", "refn", "rename", "state",
 ];
 const OTHER_KEYWORDS: &[&str] = &[
-    "as", "of", "with", "canbe", "is", "use",
+    "as", "with", "canbe", "is", "use",
     // [obligation-spelling] The obligation keywords.
     "proj", "once", "linear",
     // [ref-handle] The container-named handle (`ref(c) Mut T`).
@@ -110,7 +110,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.declaration.salvo",
         "the effect-alias grouping",
     ),
-    // [platform-threadsafe] `threadsafe platform handler H of E`: only
+    // [platform-threadsafe] `threadsafe platform handler H for E`: only
     // `platform` may follow it, mirroring the parser's own lookahead.
     (
         "\\\\bthreadsafe(?=\\\\s+platform\\\\b)",
@@ -201,14 +201,14 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.other.salvo",
         "a capability effect in an effect list",
     ),
-    // `[any E]` and `of any E`: the entry that accepts a binding spread over
-    // many instances [effect-any]. A bracket or comma (or `of`) before, an
+    // `[any E]` and `for any E`: the entry that accepts a binding spread over
+    // many instances [effect-any]. A bracket or comma (or `for`) before, an
     // *effect name* after — which is capitalized [name-casing], and is what
     // tells it from a variable.
     (
-        "(?<=[\\\\[,]|\\\\bof)\\\\s*(any)\\\\b(?=\\\\s+[A-Z])",
+        "(?<=[\\\\[,]|\\\\bfor)\\\\s*(any)\\\\b(?=\\\\s+[A-Z])",
         "keyword.other.salvo",
-        "an any-instance effect entry in an effect list or an `of` clause",
+        "an any-instance effect entry in an effect list or a `for` clause",
     ),
     // `on POOL`, the placement clause of a spawn or a mint. A name follows;
     // a *use* of a variable called `on` is followed by an operator, a comma,
@@ -659,7 +659,7 @@ mod tests {
         // otherwise consume `canbe` and leave `once` unmatched: TextMate
         // takes the first pattern that matches at a position.
         let canbe_clause = grammar.find("(canbe)\\\\s+(once").expect("canbe clause pattern");
-        let plain = grammar.find("(as|of|with|canbe").expect("plain keyword pattern");
+        let plain = grammar.find("(as|with|canbe").expect("plain keyword pattern");
         assert!(
             canbe_clause < plain,
             "the `canbe once` pattern must come before the plain keyword alternation"

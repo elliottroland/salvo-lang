@@ -21,7 +21,7 @@ export fn push<T>(s: Mut Store<T>, value: T) [] -> None => s: Mut, !value {
 }
 
 // `Stocked` (non-empty) with the refinement that makes `push` establish it.
-export qualifier Stocked<T> of Store<T> {
+export qualifier Stocked<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -45,7 +45,7 @@ fn a_refinement_establishes_a_qualifier_at_a_call_site(s: Mut Store<Int>) -> Non
 
 // The control: without the refinement the same program is rejected, so the
 // acceptance above is the refinement's doing and not something else.
-qualifier Bare<T> of Store<T> {
+qualifier Bare<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -63,7 +63,7 @@ fn without_the_refinement_the_qualifier_is_gone(s: Mut Store<Int>) -> None {
 
 // [qual-refn] `-Q` is the other direction: the qualifier declares that a
 // call *invalidates* its claim, even one that keeps everything else.
-qualifier Fragile<T> of Store<T> {
+qualifier Fragile<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -99,7 +99,7 @@ fn a_refinement_can_invalidate_a_qualifier(s: Fragile Store<Int>) -> None {
 // only a `+Q`/`-Q` contradiction for one qualifier is an error. And a
 // conflict is precisely "these could not have been written together", not
 // "there are two of them".
-qualifier Ordered<T> of Store<T> {
+qualifier Ordered<T> for Store<T> {
     fn qualifies(s: Store<T>) -> Bool {
         return true
     }
@@ -130,7 +130,7 @@ fn compatible_refinements_both_apply(s: Mut Store<Int>) -> None {
 // may still carry refinements, which is what the move into the qualifier
 // needs: `Minted` is mint-only and has an insert to speak about. A body makes
 // a qualifier predicate only when it holds a `qualifies`.
-qualifier Minted<T> of Store<T> {
+qualifier Minted<T> for Store<T> {
     refn push(s: Mut Store<T>, value: T) => s: +Minted
 }
 

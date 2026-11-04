@@ -1,4 +1,4 @@
-// [effect-any] The shared shape: a router `of any Counter` in front of two
+// [effect-any] The shared shape: a router `for any Counter` in front of two
 // members. Forwarding to a member of the effect it implements is not
 // self-dispatch (the receiver is an addr), and the deadlock graph gives the
 // router a node of its own, so `Counter → Counter` is not reported: this
@@ -13,13 +13,13 @@ actor effect Log {
     send fn note(what: Str) => !what
 }
 
-handler Printing() of Log {
+handler Printing() for Log {
     mailbox { capacity: 4 }
 
     send fn note(what: Str) {}
 }
 
-handler Counting() [Log] of Counter {
+handler Counting() [Log] for Counter {
     mailbox { capacity: 16 }
 
     state {
@@ -35,7 +35,7 @@ handler Counting() [Log] of Counter {
         out.send(sum)
     }
 }
-handler Spraying(a: eff[Counter], b: eff[Counter]) of any Counter {
+handler Spraying(a: eff[Counter], b: eff[Counter]) for any Counter {
     mailbox { capacity: 16 }
     state {
         flip: Bool = false

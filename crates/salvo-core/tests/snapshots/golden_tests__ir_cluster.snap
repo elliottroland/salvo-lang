@@ -20,7 +20,7 @@ actor interface Lookup {
   send fn lookup(moved key: Str, moved out: Reply<Str>) -> None
 }
 
-impl Sequencing(lent who: Str) of Sequencer@main stateful {
+impl Sequencing(lent who: Str) for Sequencer@main stateful {
   mailbox construct Mailbox { capacity: 16 }
   state n: Int = 0
   fn next(moved out: Reply<Str>) -> None {
@@ -31,7 +31,7 @@ impl Sequencing(lent who: Str) of Sequencer@main stateful {
   }
 }
 
-impl Stocking(lent shard: Str) of Inventory@main stateful {
+impl Stocking(lent shard: Str) for Inventory@main stateful {
   mailbox construct Mailbox { capacity: 32 }
   state served: Int = 0
   fn reserve(moved sku: Str, lent qty: Int, moved out: Reply<Str>) -> None {
@@ -42,7 +42,7 @@ impl Stocking(lent shard: Str) of Inventory@main stateful {
   }
 }
 
-impl Indexing(lent words: List<Str>) of Search@main {
+impl Indexing(lent words: List<Str>) for Search@main {
   mailbox construct Mailbox { capacity: 16 }
   fn query(moved word: Str, moved out: Reply<Int>) -> None {
     obligation gain-params [out]
@@ -57,7 +57,7 @@ impl Indexing(lent words: List<Str>) of Search@main {
   }
 }
 
-impl Looking(lent who: Str) of Lookup@main {
+impl Looking(lent who: Str) for Lookup@main {
   mailbox construct Mailbox { capacity: 16 }
   fn lookup(moved key: Str, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
@@ -66,7 +66,7 @@ impl Looking(lent who: Str) of Lookup@main {
   }
 }
 
-impl SlowLooking(lent who: Str, lent timer: eff[Timer]) of Lookup@main stateful {
+impl SlowLooking(lent who: Str, lent timer: eff[Timer]) for Lookup@main stateful {
   mailbox construct Mailbox { capacity: 16 }
   fn lookup(moved key: Str, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
@@ -80,7 +80,7 @@ impl SlowLooking(lent who: Str, lent timer: eff[Timer]) of Lookup@main stateful 
   }
 }
 
-impl Scattering(lent group: eff[ActorGroup<Search@main>], lent gather: eff[Gather@main]) of any Search@main {
+impl Scattering(lent group: eff[ActorGroup<Search@main>], lent gather: eff[Gather@main]) for any Search@main {
   mailbox construct Mailbox { capacity: 16 }
   fn query(moved word: Str, moved out: Reply<Int>) -> None {
     obligation gain-params [out]
@@ -98,7 +98,7 @@ actor interface Gather {
   send fn scatter(moved word: Str, moved members: List<eff[Search@main]>, moved out: Reply<Int>) -> None
 }
 
-impl Gathering() of Gather@main stateful {
+impl Gathering() for Gather@main stateful {
   mailbox construct Mailbox { capacity: 16 }
   state pending: Mut Deque<Reply<Int>> = call mut_deque_of()@std.core.deque<Reply<Int>>()
   state left: Int = 0
@@ -137,7 +137,7 @@ impl Gathering() of Gather@main stateful {
   }
 }
 
-impl Hedging(lent group: eff[ActorGroup<Lookup@main>], lent racer: eff[Race@main]) of any Lookup@main {
+impl Hedging(lent group: eff[ActorGroup<Lookup@main>], lent racer: eff[Race@main]) for any Lookup@main {
   mailbox construct Mailbox { capacity: 16 }
   fn lookup(moved key: Str, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
@@ -155,7 +155,7 @@ actor interface Race {
   send fn race(moved key: Str, moved members: List<eff[Lookup@main]>, moved out: Reply<Str>) -> None
 }
 
-impl Racing() of Race@main stateful {
+impl Racing() for Race@main stateful {
   mailbox construct Mailbox { capacity: 16 }
   state pending: Mut Deque<Reply<Str>> = call mut_deque_of()@std.core.deque<Reply<Str>>()
   fn race(moved key: Str, moved members: List<eff[Lookup@main]>, moved out: Reply<Str>) -> None {
@@ -186,7 +186,7 @@ impl Racing() of Race@main stateful {
   }
 }
 
-impl LastHost(lent nodes: eff[NodeGroup], lent me: NodeEndpoint) of Leader {
+impl LastHost(lent nodes: eff[NodeGroup], lent me: NodeEndpoint) for Leader {
   fn leader() -> NodeId? {
     bind#1 let peers: List<Node> = waitfor out: Reply<List<Node>> {
       obligation gain [out]
@@ -355,7 +355,7 @@ actor interface Boot {
   send fn stop(moved done: Reply<Bool>) -> None
 }
 
-impl Booting(lent at: NodeEndpoint, lent all: List<NodeEndpoint>, lent net: eff[MemNet]) of Boot@main deps [Transport] stateful {
+impl Booting(lent at: NodeEndpoint, lent all: List<NodeEndpoint>, lent net: eff[MemNet]) for Boot@main deps [Transport] stateful {
   mailbox construct Mailbox { capacity: 2 }
   state nodes: eff[NodeGroup]? = none[None]
   fn boot(moved done: Reply<eff[Sequencer@main]>) -> None {
@@ -458,7 +458,7 @@ fn main@main() -> None {
   call two_ids@main(read __handle~6, read __handle~2, !read seq)
 }
 
-export impl __Route_Inventory(lent group: eff[ActorGroup<Inventory@main>]) of any Inventory@main deps [RouteSelector<Inventory@main>] stateful {
+export impl __Route_Inventory(lent group: eff[ActorGroup<Inventory@main>]) for any Inventory@main deps [RouteSelector<Inventory@main>] stateful {
   mailbox construct Mailbox { capacity: 1 }
   state seen: Long = -1L
   fn reserve(moved sku: Str, lent qty: Int, moved out: Reply<Str>) -> None {
@@ -470,7 +470,7 @@ export impl __Route_Inventory(lent group: eff[ActorGroup<Inventory@main>]) of an
   }
 }
 
-export impl __Route_Sequencer(lent group: eff[ActorGroup<Sequencer@main>]) of any Sequencer@main deps [RouteSelector<Sequencer@main>] stateful {
+export impl __Route_Sequencer(lent group: eff[ActorGroup<Sequencer@main>]) for any Sequencer@main deps [RouteSelector<Sequencer@main>] stateful {
   mailbox construct Mailbox { capacity: 1 }
   state seen: Long = -1L
   fn next(moved out: Reply<Str>) -> None {
@@ -575,7 +575,7 @@ enum __Cont___Route_Sequencer {
   Next()
 }
 
-impl __Stub_Sequencer(moved addr: eff[Sequencer@main]) of Sequencer@main {
+impl __Stub_Sequencer(moved addr: eff[Sequencer@main]) for Sequencer@main {
   fn next(moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
@@ -583,7 +583,7 @@ impl __Stub_Sequencer(moved addr: eff[Sequencer@main]) of Sequencer@main {
   }
 }
 
-impl __Stub_Inventory(moved addr: eff[Inventory@main]) of Inventory@main {
+impl __Stub_Inventory(moved addr: eff[Inventory@main]) for Inventory@main {
   fn reserve(moved sku: Str, lent qty: Int, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
@@ -591,7 +591,7 @@ impl __Stub_Inventory(moved addr: eff[Inventory@main]) of Inventory@main {
   }
 }
 
-impl __Stub_Search(moved addr: eff[Search@main]) of Search@main {
+impl __Stub_Search(moved addr: eff[Search@main]) for Search@main {
   fn query(moved word: Str, moved out: Reply<Int>) -> None {
     obligation gain-params [out]
     obligation release [out]
@@ -599,7 +599,7 @@ impl __Stub_Search(moved addr: eff[Search@main]) of Search@main {
   }
 }
 
-impl __Stub_Lookup(moved addr: eff[Lookup@main]) of Lookup@main {
+impl __Stub_Lookup(moved addr: eff[Lookup@main]) for Lookup@main {
   fn lookup(moved key: Str, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
@@ -607,7 +607,7 @@ impl __Stub_Lookup(moved addr: eff[Lookup@main]) of Lookup@main {
   }
 }
 
-impl __Stub_Gather(moved addr: eff[Gather@main]) of Gather@main {
+impl __Stub_Gather(moved addr: eff[Gather@main]) for Gather@main {
   fn scatter(moved word: Str, moved members: List<eff[Search@main]>, moved out: Reply<Int>) -> None {
     obligation gain-params [out]
     obligation release [out]
@@ -615,7 +615,7 @@ impl __Stub_Gather(moved addr: eff[Gather@main]) of Gather@main {
   }
 }
 
-impl __Stub_Race(moved addr: eff[Race@main]) of Race@main {
+impl __Stub_Race(moved addr: eff[Race@main]) for Race@main {
   fn race(moved key: Str, moved members: List<eff[Lookup@main]>, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
@@ -623,7 +623,7 @@ impl __Stub_Race(moved addr: eff[Race@main]) of Race@main {
   }
 }
 
-impl __Stub_Boot(moved addr: eff[Boot@main]) of Boot@main {
+impl __Stub_Boot(moved addr: eff[Boot@main]) for Boot@main {
   fn boot(moved done: Reply<eff[Sequencer@main]>) -> None {
     obligation gain-params [done]
     obligation release [done]

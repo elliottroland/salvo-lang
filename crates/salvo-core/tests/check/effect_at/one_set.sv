@@ -15,7 +15,7 @@ effect Store {
     fn close(handle: Int) -> Str
 }
 
-handler MemStore of Store {
+handler MemStore for Store {
     fn close(handle: Int) -> Str {
         return "store"
     }
@@ -59,7 +59,7 @@ effect Sink {
     fn keep<T>(x: T) -> Str => x
 }
 
-handler Bin of Sink {
+handler Bin for Sink {
     fn keep<T>(x: T) -> Str => x {
         return "any"
     }
@@ -81,7 +81,7 @@ effect Store {
     fn close(handle: Int) -> Str
 }
 
-handler MemStore of Store {
+handler MemStore for Store {
     fn close(handle: Int) -> Str {
         return "store"
     }
@@ -118,7 +118,7 @@ effect Ops {
     fn apply(f: (x: Int) -> Int, n: Int) -> Int => f
 }
 
-handler OpsH of Ops {
+handler OpsH for Ops {
     fn apply(f: (x: Int) -> Int, n: Int) -> Int { return f(n) }
 }
 
@@ -137,7 +137,7 @@ effect Ops {
     fn apply(f: (x: Int) -> Int, n: Int) -> Int => f
 }
 
-handler OpsH of Ops {
+handler OpsH for Ops {
     fn apply(f: (x: Int) -> Int, n: Int) -> Int { return f(n) }
 }
 

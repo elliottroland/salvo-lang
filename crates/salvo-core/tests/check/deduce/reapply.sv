@@ -8,7 +8,7 @@
 // The shared shape: a qualifier whose file owns a mutator over it. `heap_add`
 // mutates through `add`, whose own exhaustive clause strips the claim, and
 // nothing but `heap_add` knows it is re-established.
-qualifier H<T> of List<T>
+qualifier H<T> for List<T>
 
 fn heap_add<T>(heap: H<T> Mut List<T>, elem: T) [] -> None
 => heap: +H<T> Mut, !elem {
@@ -66,7 +66,7 @@ fn not_a_list(n: Int) [] -> None
 // without naming it: every operation that reads the claim binds the slot
 // [cmp-binder], so a claim with no identity is one nothing can use. The
 // remedy is in the message.
-qualifier HC<T>(?cmp: (T, T) -> Int) of List<T>
+qualifier HC<T>(?cmp: (T, T) -> Int) for List<T>
 
 fn make_heap_c<T>(xs: Mut List<T>, ?cmp: (T, T) -> Int) [] -> None
 //~ error[deduce-reapply:no-identity]
@@ -85,4 +85,4 @@ fn heap_add<T>(heap: H<T> Mut List<T>, elem: T) [] -> None
 }
 
 // FILE: q.sv
-export qualifier H<T> of List<T>
+export qualifier H<T> for List<T>

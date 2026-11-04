@@ -31,7 +31,7 @@ effect Stats {
 // The shape the step exists for: one actor, one mailbox, two typed faces, and
 // a `spawn` that answers one addr per face — so a holder of the public face
 // cannot name the admin one.
-handler ManualTime() of Timer, TimerCtl {
+handler ManualTime() for Timer, TimerCtl {
     mailbox { capacity: 8 }
 
     state {
@@ -74,7 +74,7 @@ fn public_face_only() [spawn] -> None {
 // A single face still answers a bare `eff[E]`: the tuple is what *several*
 // faces produce, so nothing about the one-face spawn changes. Asserted by
 // *using* the value as an addr, since a tuple has no members to send to.
-handler Ticking() of Timer {
+handler Ticking() for Timer {
     mailbox { capacity: 4 }
 
     send fn after(millis: Int, out: Reply<Str>) {
@@ -93,7 +93,7 @@ fn one_face() [spawn] -> None {
 // it used to be the target compiler's missing-trait-method complaint, which
 // put a Salvo mistake in a foreign diagnostic.
 //~ error[effect-handler-multi:missing-member]
-handler Half() of Timer, TimerCtl {
+handler Half() for Timer, TimerCtl {
     mailbox { capacity: 4 }
 
     send fn after(millis: Int, out: Reply<Str>) {
@@ -109,7 +109,7 @@ handler Half() of Timer, TimerCtl {
 // [actor-mixed-handler] is a different construct, classified by shape, with
 // every face plain.
 //~ error[actor-mixed-handler:two-kinds]
-handler Mixed() of Timer, Stats {
+handler Mixed() for Timer, Stats {
     mailbox { capacity: 4 }
 
     send fn after(millis: Int, out: Reply<Str>) {
@@ -124,7 +124,7 @@ handler Mixed() of Timer, Stats {
 // Naming a face twice says nothing new and would make a `spawn` answer the
 // same addr twice ("already implements `Stats`").
 //~ error[effect-handler-multi:face-twice]
-handler Twice() of Stats, Stats {
+handler Twice() for Stats, Stats {
     fn total() -> Int {
         return 0
     }
@@ -133,7 +133,7 @@ handler Twice() of Stats, Stats {
 // A `use` binds **every** face, which is what makes the synchronous
 // public-face/admin-face pair writable: one instance, two effect lists that
 // reach it.
-handler Counting() of Tally, Stats {
+handler Counting() for Tally, Stats {
     state {
         sum: Int = 0
     }
@@ -165,7 +165,7 @@ actor effect Worker {
     send fn go(n: Int) => n
 }
 
-handler Working() [Tally] of Worker {
+handler Working() [Tally] for Worker {
     mailbox { capacity: 4 }
 
     send fn go(n: Int) {
@@ -190,7 +190,7 @@ effect Admin {
     fn status() -> Str
 }
 
-handler Serving() of Health, Admin {
+handler Serving() for Health, Admin {
     fn status() -> Str {
         return "ok"
     }
@@ -206,7 +206,7 @@ effect Pong {
     fn ping(m: Str) -> Str => !m
 }
 
-handler Both() of Ping, Pong {
+handler Both() for Ping, Pong {
     fn ping(n: Int) -> Str {
         return "int"
     }
@@ -230,7 +230,7 @@ effect Admin {
     fn status() -> Int
 }
 
-handler Serving() of Health, Admin {
+handler Serving() for Health, Admin {
     //~ error[effect-handler-multi:member-conflict]
     fn status() -> Str {
         return "ok"

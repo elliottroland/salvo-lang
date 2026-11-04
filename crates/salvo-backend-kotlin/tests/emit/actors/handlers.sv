@@ -15,7 +15,7 @@ actor effect Counter {
 }
 
 //~ emits: class __Actor_Counting(private val handler: Counting) : salvo.SalvoActor
-handler Counting() of Counter {
+handler Counting() for Counter {
     mailbox { capacity: 8 }
 
     state {
@@ -59,7 +59,7 @@ effect Random {
     fn next() -> Int
 }
 
-handler CyclicRandom(seed: Int) of Random {
+handler CyclicRandom(seed: Int) for Random {
     state {
         cursor: Int = 0
     }
@@ -74,7 +74,7 @@ actor effect Drawer {
     send fn draw(out: Reply<Int>) => !out
 }
 
-handler Drawing() [Random] of Drawer {
+handler Drawing() [Random] for Drawer {
     mailbox { capacity: 4 }
 
     send fn draw(out: Reply<Int>) {
@@ -110,7 +110,7 @@ effect Label {
     fn label(n: Int) -> Str
 }
 
-handler Hash() of Label {
+handler Hash() for Label {
     fn label(n: Int) -> Str {
         return "#${n}"
     }
@@ -120,7 +120,7 @@ handler Hash() of Label {
 // only the addr and the constructor parameters.
 //~ emits: class Counted(private val seed: Int, private val __dep0: 
 //~ emits: class __Fac_Counted(private val __addr: Int, private val seed: Int) : Random
-handler Counted(seed: Int) [Console, Label] of Random {
+handler Counted(seed: Int) [Console, Label] for Random {
     mailbox { capacity: 8 }
     state {
         cursor: Int = 0
@@ -162,7 +162,7 @@ effect Random {
 //~ emits: class __Actor_CyclicRandom(private val handler: CyclicRandom) : salvo.SalvoActor
 //~ emits: class __Fac_CyclicRandom(private val __addr: Int, private val seed: Int) : Random {
 //~ emits: salvo.SalvoSched.send(__addr, __Priv_CyclicRandom.Advance(
-handler CyclicRandom(seed: Int) of Random {
+handler CyclicRandom(seed: Int) for Random {
     mailbox { capacity: 8 }
     state {
         cursor: Int = 0
@@ -184,7 +184,7 @@ actor effect Drawer {
     send fn draw(out: Reply<Int>) => !out
 }
 
-handler Drawing() [Random] of Drawer {
+handler Drawing() [Random] for Drawer {
     mailbox { capacity: 4 }
 
     send fn draw(out: Reply<Int>) {

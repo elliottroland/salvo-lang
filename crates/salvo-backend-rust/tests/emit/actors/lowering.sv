@@ -16,7 +16,7 @@ actor effect Counter {
 }
 
 //~ emits: impl crate::scheduler::SalvoActor for __Actor_Counting
-handler Counting() of Counter {
+handler Counting() for Counter {
     mailbox { capacity: 8 }
 
     state {
@@ -73,7 +73,7 @@ effect Random {
     fn next() -> Int
 }
 
-handler CyclicRandom(seed: Int) of Random {
+handler CyclicRandom(seed: Int) for Random {
     state {
         cursor: Int = 0
     }
@@ -88,7 +88,7 @@ actor effect Drawer {
     send fn draw(out: Reply<Int>) => !out
 }
 
-handler Drawing() [Random] of Drawer {
+handler Drawing() [Random] for Drawer {
     mailbox { capacity: 4 }
 
     send fn draw(out: Reply<Int>) {
@@ -132,7 +132,7 @@ effect Random {
 // The façade, implementing the effect.
 //~ emits: pub struct __Fac_CyclicRandom {
 //~ emits: impl crate::__Stateless_Random for __Fac_CyclicRandom {
-handler CyclicRandom(seed: Int) of Random {
+handler CyclicRandom(seed: Int) for Random {
     mailbox { capacity: 8 }
     state {
         cursor: Int = 0
@@ -156,7 +156,7 @@ actor effect Drawer {
     send fn draw(out: Reply<Int>) => !out
 }
 
-handler Drawing() [Random] of Drawer {
+handler Drawing() [Random] for Drawer {
     mailbox { capacity: 4 }
 
     send fn draw(out: Reply<Int>) {
@@ -193,13 +193,13 @@ effect Label {
     fn label(n: Int) -> Str
 }
 
-handler Hash() of Label {
+handler Hash() for Label {
     fn label(n: Int) -> Str {
         return "#${n}"
     }
 }
 
-handler Counted(seed: Int) [Console, Label] of Random {
+handler Counted(seed: Int) [Console, Label] for Random {
     mailbox { capacity: 8 }
     state {
         cursor: Int = 0
@@ -259,7 +259,7 @@ actor effect Counter {
     send fn report(out: Reply<Str>) => !out
 }
 
-handler Recording() of Log {
+handler Recording() for Log {
     mailbox { capacity: 1 }
 
     state {
@@ -275,7 +275,7 @@ handler Recording() of Log {
     }
 }
 
-handler Summing() of Tally {
+handler Summing() for Tally {
     mailbox { capacity: 8 }
 
     state {
@@ -301,7 +301,7 @@ handler Summing() of Tally {
 //~ !emits: __Prov_
 //~ !emits: __Deps_
 //~ !emits: __Impl_
-handler Counting() [Log, Tally] of Counter {
+handler Counting() [Log, Tally] for Counter {
     mailbox { capacity: 8 }
 
     send fn bump(n: Int) {
@@ -352,7 +352,7 @@ actor effect Desk {
     send fn close_up(reason: Str) => !reason
 }
 
-handler Desking() of Desk {
+handler Desking() for Desk {
     mailbox { capacity: 8 }
 
     state {
@@ -435,7 +435,7 @@ actor effect TimerCtl {
 // The delivery asks each protocol in turn.
 //~ emits: match msg.downcast::<crate::__Msg_Timer>()
 //~ emits: match msg.downcast::<crate::__Msg_TimerCtl>()
-handler ManualTime() of Timer, TimerCtl {
+handler ManualTime() for Timer, TimerCtl {
     mailbox { capacity: 8 }
 
     state {
@@ -472,7 +472,7 @@ effect Stats {
 // The synchronous handler's faces.
 //~ emits: impl crate::__Stateful_Tally for Counting {
 //~ emits: impl crate::__Stateful_Stats for Counting {
-handler Counting() of Tally, Stats {
+handler Counting() for Tally, Stats {
     state {
         sum: Int = 0
     }
@@ -531,7 +531,7 @@ actor effect Notices {
     send fn arrived(out: Reply<Str>, text: Str) => !out, !text
 }
 
-handler Rows() of Db {
+handler Rows() for Db {
     mailbox { capacity: 4 }
 
     send fn lookup(id: Int, out: Reply<Str>) {
@@ -550,7 +550,7 @@ handler Rows() of Db {
 // `resume` dispatches the parked continuation.
 //~ emits: let Some(__cont) = self.handler.__parked.remove(&slot)
 //~ emits: *value.downcast::<String>().expect("the awaited answer")
-handler Fetching() [Db] of Notices {
+handler Fetching() [Db] for Notices {
     mailbox { capacity: 4 }
 
     send fn fetch(id: Int, out: Reply<Str>) {
@@ -584,7 +584,7 @@ actor effect Counter {
     send fn bump(n: Int) => !n
 }
 
-handler Counting<T>(seed: T) of Counter {
+handler Counting<T>(seed: T) for Counter {
     mailbox { capacity: 8 }
 
     send fn bump(n: Int) {}

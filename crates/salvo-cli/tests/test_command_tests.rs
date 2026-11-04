@@ -532,7 +532,7 @@ actor effect Hoard {
 }
 
 // Keeps every reply, answering none.
-handler Hoarding() of Hoard {
+handler Hoarding() for Hoard {
     mailbox { capacity: 2 }
     state {
         kept: Mut List<Reply<Int>> = Mut List()

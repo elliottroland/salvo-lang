@@ -28,4 +28,4 @@ export effect Process {
 // `std::process::exit` / `exitProcess`. Nothing unwinds, so no `catch` or
 // actor fault handling sees it.
 // @compilerrules [cli-process]
-export threadsafe platform handler HostProcess() of Process
+export threadsafe platform handler HostProcess() for Process

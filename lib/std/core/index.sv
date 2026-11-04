@@ -15,7 +15,7 @@
 // `Mut IntBuffer` the buffer's — so nothing about it prints in the type.
 // `<C canbe linear>`: a list of obligations keeps its claims too.
 // @compilerrules [qual-depend, col-idx]
-export qualifier Idx<C canbe linear>(c: C) of Int {
+export qualifier Idx<C canbe linear>(c: C) for Int {
     fn qualifies(index: Int, c: C, ?size: (c: C) -> Int) -> Bool {
         return index >= 0 && index < size(c)
     }

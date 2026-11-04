@@ -785,7 +785,7 @@ nothing but the monitor.
   locked), a **stateful** one behind the effect's lock wrapper
   (`val random: Random<Int> = __Mon_Random(CyclicRandom(…))`, [kt-monitor]).
   The `__Mon_E` class is emitted for **every** effect, actor effects included
-  (a router `of any E` with a cursor is a stateful handler of it). A `use
+  (a router `for any E` with a cursor is a stateful handler of it). A `use
   addr` binds the value: a plain effect's `eff[E]` is already the handle,
   and an actor's send stub is stateless and binds raw — so a send through
   the binding blocks only on the mailbox, never on a lock. `init` runs on the
@@ -1031,7 +1031,7 @@ nothing but the monitor.
   since 2026-09-28 [actor-group]).
 * [kt-monitor] [effect-any] An actor effect gets the monitor class
   (`__Mon_E(inner)`, locking forwards) only when the program declares
-  a handler `of any E`; the forwards then cover its send members too, since a
+  a handler `for any E`; the forwards then cover its send members too, since a
   `use`-bound router runs them inline. Without a router, nothing is emitted.
 * [kt-wire] [actor-route-stub] Runtime: `viewSet`, `viewMembers` forward to the
   routing service, which keeps the views; `keyHash` (FNV-1a 64, identical
@@ -1072,7 +1072,7 @@ nothing but the monitor.
   | `Checked<T>` | `salvo.std.core.checked.Checked(value)` |
   | `Reply<T>` parameter | `salvo.SalvoReply`; `.hosted()` answers the host reply whose `send(v)` may run on any thread, exactly once [platform-reply] |
   | `InStream` / `OutStream` | `salvo.std.stream.InStream(handle: Long)`; the table is Salvo (`runtime.streams`); host code reaches it through `hoststreams.kt`'s `SalvoStreams.registerIn/registerOut` and `takeIn` (a `SalvoIn` reader whose failures are `SalvoFaultException`) [stream-table] |
-  | `platform handler H(p: T) of E` | `class H(p: T) : EPlatform`, every member `override`n [kt-platform-handler] |
+  | `platform handler H(p: T) for E` | `class H(p: T) : EPlatform`, every member `override`n [kt-platform-handler] |
 
 * [kt-abi] [platform-abi] **The Kotlin host project** is `emit_abi`: the
   ordinary emission in ABI mode — kept modules are those holding a
@@ -1116,7 +1116,7 @@ nothing but the monitor.
   platform handler implements, `E`'s module emits `interface EPlatform` (E's
   members) and `open class __Platform_E(private val impl: EPlatform) : E`,
   forwarding each member — the adapter [platform-abi]. A `platform handler H
-  of E` in module `M` emits `class __Platform_H(p: T) :
+  for E` in module `M` emits `class __Platform_H(p: T) :
   <E's package>.__Platform_E(salvo.platform.<M>.H(p))`, and the `use` site
   constructs `salvo.<M>.__Platform_H(args)`, fully qualified because a `use`
   may sit in any module. `M` is the module that *declared* the handler, from

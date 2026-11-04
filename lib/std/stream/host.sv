@@ -84,7 +84,7 @@ send fn host_received(reply: Reply<Received>, handle: Long, got: Ok Bytes | End 
 // stream out, works on it with no lock held, and checks it back in. Stateless,
 // so the compiler shares it with no lock.
 // @compilerrules [stream-table]
-export handler HostRawStreams() of RawStreams {
+export handler HostRawStreams() for RawStreams {
     fn raw_read_line(handle: Long) -> Str | None {
         return next_line(handle)
     }
@@ -261,7 +261,7 @@ fn kind(source: Str, f: Fault) [] -> StreamError => !source, f {
 
 // `Streams` over the host's table: wraps each failure in `Checked` and
 // discharges each token, delegating the work downwards.
-export handler DefaultStreams [RawStreams] of Streams {
+export handler DefaultStreams [RawStreams] for Streams {
     fn read_line(s: InStream) -> Str | None => s {
         return raw_read_line(s.handle)
     }

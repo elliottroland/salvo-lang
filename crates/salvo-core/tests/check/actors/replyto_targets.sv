@@ -14,7 +14,7 @@ effect Count {
     fn total(out: Reply<Int>) -> None => !out
 }
 
-handler Asker() [Count] of Ask {
+handler Asker() [Count] for Ask {
     mailbox { capacity: 1 }
 
     send fn go(out: Reply<Int>) {
@@ -38,7 +38,7 @@ effect Count {
     fn total(out: Reply<Int>) -> None => !out
 }
 
-handler Asker() [Count] of Ask {
+handler Asker() [Count] for Ask {
     mailbox { capacity: 1 }
 
     send fn go(out: Reply<Int>) {

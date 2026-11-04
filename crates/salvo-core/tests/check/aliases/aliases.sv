@@ -10,7 +10,7 @@
 effect Clock {
     fn now() -> Int
 }
-handler Ticking() of Clock {
+handler Ticking() for Clock {
     state { tick: Int = 0 }
     fn now() -> Int {
         tick = tick + 1
@@ -60,7 +60,7 @@ fn leaky() [ConsoleOnly] -> None {
 effect Logger {
     fn log(m: Str) -> None => m
 }
-handler StampLog() [App] of Logger {
+handler StampLog() [App] for Logger {
     fn log(m: Str) -> None => m {
         print("${now()} ${m}")
     }
@@ -69,7 +69,7 @@ handler StampLog() [App] of Logger {
 effect Reporter [App] {
     fn report(w: Str) -> None => w
 }
-handler Rep() of Reporter {
+handler Rep() for Reporter {
     fn report(w: Str) -> None => w {
         print("${now()} ${w}")
     }
@@ -111,7 +111,7 @@ fn in_a_handle_type() [use] {
 export effect Clock {
     fn now() -> Int
 }
-export handler Ticking() of Clock {
+export handler Ticking() for Clock {
     state { tick: Int = 0 }
     fn now() -> Int {
         tick = tick + 1

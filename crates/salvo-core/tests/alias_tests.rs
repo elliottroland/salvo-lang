@@ -72,7 +72,7 @@ const CLOCK: &str = "\
 effect Clock {
     fn now() -> Int
 }
-handler Ticking() of Clock {
+handler Ticking() for Clock {
     state { tick: Int = 0 }
     fn now() -> Int {
         tick = tick + 1
@@ -82,7 +82,7 @@ handler Ticking() of Clock {
 effect Console {
     fn print(message: Str) -> None => message
 }
-handler Out() of Console {
+handler Out() for Console {
     fn print(message: Str) -> None => message {}
 }
 ";

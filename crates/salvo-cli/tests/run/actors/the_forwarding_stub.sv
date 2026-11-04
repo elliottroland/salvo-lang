@@ -9,7 +9,7 @@ actor effect Log {
     send fn count(out: Reply<Int>) => !out
 }
 
-handler Counting() of Log {
+handler Counting() for Log {
     mailbox { capacity: 8 }
 
     state {
@@ -188,7 +188,7 @@ actor effect Db {
     send fn query(id: Int, reply: Reply<Int>) => !reply
 }
 
-handler Rows() of Db {
+handler Rows() for Db {
     mailbox { capacity: 4 }
 
     send fn query(id: Int, reply: Reply<Int>) {
@@ -244,7 +244,7 @@ actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
 
-handler Timing(at: Int) of TimerApi {
+handler Timing(at: Int) for TimerApi {
     mailbox { capacity: 4 }
 
     send fn after(ms: Int, out: Reply<Int>) {
@@ -254,7 +254,7 @@ handler Timing(at: Int) of TimerApi {
 
 // The T-5 shape: a handler whose member *waits* for another actor's answer.
 // It declares the capability, so every spawn of it must give it a thread.
-handler Clocking() [TimerApi] of ClockApi {
+handler Clocking() [TimerApi] for ClockApi {
     mailbox { capacity: 4 }
 
     send fn now(out: Reply<Int>) {
@@ -265,7 +265,7 @@ handler Clocking() [TimerApi] of ClockApi {
     }
 }
 
-handler Counting() of Counter {
+handler Counting() for Counter {
     mailbox { capacity: 4 }
 
     state {

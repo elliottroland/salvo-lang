@@ -17,7 +17,7 @@ effect Show<T> {
 //~ emits: __phantom_T: std::marker::PhantomData<T>,
 //~ emits: __phantom_T: std::marker::PhantomData
 //~| 
-handler Plain<T> of Show<T> {
+handler Plain<T> for Show<T> {
     fn show(v: T) -> Str => v {
         return "plain"
     }
@@ -29,7 +29,7 @@ effect Tag<T> {
 
 // Generic with state: the constructor argument used to be the only thing
 // that could bind `T`, and still works.
-handler Prefixed<T>(prefix: Str) of Tag<T> {
+handler Prefixed<T>(prefix: Str) for Tag<T> {
     fn tagged(v: T) -> Str => v {
         return "${prefix}!"
     }

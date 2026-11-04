@@ -2,7 +2,7 @@
 
 An **actor** is an effect handler bound asynchronously. That sentence is the
 whole design: `actor effect Counter { send fn bump(n: Int) }` declares a
-protocol, `handler Counting() of Counter` implements it exactly as a
+protocol, `handler Counting() for Counter` implements it exactly as a
 synchronous handler does — plus a `mailbox { capacity: 8 }` slot saying how deep
 its queue is — and `spawn Counting() on workers` brings it to life with that
 mailbox instead of binding it inline. Nothing about the

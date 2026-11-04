@@ -15,7 +15,7 @@ actor effect Ponger {
     send fn ping(out: Reply<Int>) => !out
 }
 
-handler Ponging() of Ponger {
+handler Ponging() for Ponger {
     mailbox { capacity: 16 }
 
     send fn ping(out: Reply<Int>) {
@@ -28,7 +28,7 @@ actor effect Pinger {
     send fn got(n: Int, done: Reply<Int>, v: Int) => !done
 }
 
-handler Pinging() [Ponger] of Pinger {
+handler Pinging() [Ponger] for Pinger {
     mailbox { capacity: 16 }
 
     send fn start(n: Int, done: Reply<Int>) {
@@ -51,7 +51,7 @@ actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
 
-handler Counting() of Counter {
+handler Counting() for Counter {
     mailbox { capacity: 128 }
 
     state {
@@ -84,7 +84,7 @@ actor effect Alarms {
     send fn rang(f: Fired) => !f
 }
 
-handler Alarming() [Timer] of Alarms {
+handler Alarming() [Timer] for Alarms {
     mailbox { capacity: 16 }
 
     state {

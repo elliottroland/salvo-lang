@@ -79,9 +79,9 @@ struct Person canbe Mut {
     name: Str
 }
 
-qualifier Ok<T> of T
-qualifier Err<T> of T
-qualifier Surname of Person
+qualifier Ok<T> for T
+qualifier Err<T> for T
+qualifier Surname for Person
 
 fn note(text: Str) [] -> None => text {}
 fn read(p: Person) [] -> None => p {}

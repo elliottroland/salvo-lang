@@ -13,7 +13,7 @@ export effect Console {
 
 // The host's standard streams.
 // @compilerrules [std-console]
-export threadsafe platform handler StdConsole() of Console
+export threadsafe platform handler StdConsole() for Console
 
 export fn println(message: Str) [Console] -> None => message {
     print(message)

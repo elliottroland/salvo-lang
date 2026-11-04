@@ -72,7 +72,7 @@ export effect Clock {
     fn now() -> Long
 }
 
-export handler Fixed(at: Long) of Clock {
+export handler Fixed(at: Long) for Clock {
     fn now() -> Long { return copy(at) }
 }
 
@@ -124,7 +124,7 @@ actor effect Counter {
     send fn total(out: Reply<Str>) => !out
 }
 
-handler Counting() of Counter {
+handler Counting() for Counter {
     mailbox { capacity: 4 }
     state {
         seen: Str = ""
@@ -172,7 +172,7 @@ export effect Log {
     fn note(s: Str) -> None => !s
 }
 
-export handler Lines() [Console] of Log {
+export handler Lines() [Console] for Log {
     state {
         all: Str = ""
     }
@@ -190,7 +190,7 @@ export actor effect Log {
     send fn total(out: Reply<Int>) => !out
 }
 
-export handler Summing() of Log {
+export handler Summing() for Log {
     mailbox { capacity: 4 }
     state {
         sum: Int = 0

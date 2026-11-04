@@ -13,7 +13,7 @@ effect Bag {
     fn count<T>(...xs: T[]) -> Int => xs
 }
 
-handler Counting() of Bag {
+handler Counting() for Bag {
     fn count<T>(...xs: T[]) -> Int => xs {
         return size(xs)
     }

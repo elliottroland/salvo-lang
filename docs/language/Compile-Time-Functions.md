@@ -597,9 +597,9 @@ carry: the short flag a parser accepts for it, or that it is positional. A
 **comptime qualifier** says it, written before the field's name:
 
 ```
-export comptime qualifier Short(c: Char) of Field
-export comptime qualifier Positional of Field
-export comptime qualifier Named(name: Str) of Struct
+export comptime qualifier Short(c: Char) for Field
+export comptime qualifier Positional for Field
+export comptime qualifier Named(name: Str) for Struct
 
 Named("srv")
 struct Serve {
