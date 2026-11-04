@@ -838,12 +838,10 @@ left three follow-ups the user has asked for, in this order.
      field read. Going in is converted (2026-10-30). The way out needs an
      address from an actor's instance, which the stub holds but nothing
      reads back.
-  5. **A throw through a variable** is refused (`effect-var:throw`). Lifting it
-     needs a generic "may throw" answer on Rust ([rs-throw-controlflow]);
-     the user saw no gain in a `[E canbe Throw]` over a written
-     `Throw<X>` (2026-10-30). With `Throw<X>` in a parameter's type and a
-     value that does not throw, nothing binds `X` — check before relying on
-     it.
+  5. **A throw through a variable** is refused (`effect-var:throw`). Lifting
+     it needs a generic "may throw" answer on Rust ([rs-throw-controlflow]);
+     the user saw no gain in a `[E canbe Throw]` over a written `Throw<X>`
+     (2026-10-30), which works, a generic `X` included (2026-10-30).
   7. **A pure fn value without a wrapper** (user request 2026-10-30:
      consider it). Today a value that is not a lambda and performs nothing —
      `map(xs, f)` with `f: (x: Int) -> Int` a parameter, a named fn, a

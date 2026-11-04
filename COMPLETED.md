@@ -144,6 +144,21 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A generic `Throw<X>` is bound by the value's throws (ROADMAP §2c, [effect-var] [throw])
+
+- **Checked, as the roadmap asked**: with `f: () [E, Throw<X>] -> None`,
+  nothing bound `X`. It was broken three ways, two of them before effect
+  variables: `unify` never looked inside a fn type's effects, so `X` was
+  never bound from `Throw<Str>`; a lambda checked against `Throw<Unknown>`
+  took that as its type; and Kotlin, which infers type arguments from
+  argument types — where a throw is not rendered — could not infer `X` even
+  for `attempt<X>(f: () [Throw<X>] -> None)` (rustc could, from the closure).
+- **Built**: a named effect's generics bind from the value's instance;
+  a lambda against an unbound `Throw<X>` collects its throws as a `try`
+  does and is typed by them; a generic no parameter or result names outside
+  an effect list settles to `Never` (rendered `()` / `Nothing`); Kotlin
+  writes the type arguments of a call to such a fn.
+
 ### 2026-10-30 — An actor's address reaches an effect variable (ROADMAP §2c, [effect-var])
 
 - **Built**: a handle passed or stored as `eff[E]` is made `E`'s pack —

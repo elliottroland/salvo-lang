@@ -383,3 +383,39 @@ fn main() [use, spawn] {
 //= stdout
 //= both
 //= sum 5
+
+//--- a_generic_throw_beside_a_variable
+// A parameter's `Throw<X>` with `X` generic: a lambda's throws bind `X`, and a
+// lambda that throws nothing binds it to the bottom type. Kotlin cannot infer
+// such an `X` from the arguments, so the call writes it.
+import std.throw
+
+fn guarded<[E], X>(f: () [E, Throw<X>] -> None) [E] -> Str => f {
+    let r = try { f() }
+    when r {
+        is Ok { return "ok" }
+        is Thrown { return "caught" }
+    }
+}
+
+fn attempt<X>(f: () [Throw<X>] -> None) [] -> Str => f {
+    let r = try { f() }
+    when r {
+        is Ok { return "ok" }
+        is Thrown { return "caught" }
+    }
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    println(guarded(() -> println("fine")))
+    println(guarded(() -> throw("no")))
+    println(guarded(() -> throw(3)))
+    println(attempt(() -> throw("no")))
+}
+//= stdout
+//= fine
+//= ok
+//= caught
+//= caught
+//= caught

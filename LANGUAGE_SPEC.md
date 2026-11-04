@@ -10252,6 +10252,16 @@ between endpoints and delivers what arrives into the scheduler.
     binding, where every actor address is one `usize`. IR `TypeParam::effect`
     marks one, and an emitter renders `eff[E]` of one as `E` and `use` over
     it as the pack itself.
+  * **A generic throw beside it** (`f: () [E, Throw<X>] -> None`): `unify`
+    binds a named entry's own generics from the value's instance of it
+    (`Throw<X>` from `Throw<Str>`), with or without a variable in the list.
+    A lambda checked against a `Throw<…>` whose message nothing has bound
+    yet infers it from its body's throws, as a `try` collects them; one that
+    throws nothing leaves `X` unbound, and a generic that no parameter's or
+    result's type names outside an effect list settles to `Never` there —
+    a backend must still name one. Kotlin writes such a call's type
+    arguments: it infers them from argument types, which render no throw
+    [fn-effects].
   * **Refused bindings**: a value that may throw (`effect-var:throw` — a
     throw is control flow, a `ControlFlow` answer on Rust, not a handle; a
     parameter whose type lists `Throw<…>` takes one); an actor effect whose

@@ -1916,7 +1916,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 let name = self.fn_name(id);
                 let tas: Vec<String> = type_args.iter().map(|t| self.ty(t)).collect();
                 let ta = if tas.is_empty() || tas.iter().any(|t| t == "Any") { String::new() } else { format!("<{}>", tas.join(", ")) };
-                let _ = ta;
+                // [throw] Kotlin infers a call's type arguments from its
+                // arguments, which cannot name one only a `Throw<X>` mentions
+                // (a fn type renders no throw): those calls write them.
+                let invisible = self.ir_fn(id).is_some_and(|f| {
+                    f.type_params.iter().any(|t| !t.effect && !f.params.iter().any(|p| kt_mentions_var(&p.ty, &t.name)) && !kt_mentions_var(&f.ret, &t.name))
+                });
+                let name = if invisible && !ta.is_empty() { format!("{name}{ta}") } else { name };
                 // [generic-union-span] A type parameter bound to a span of
                 // ≥2 union arms makes the callee's slots nested where the
                 // argument/result is flat: rewrap each argument flat→nested,
@@ -2658,4 +2664,18 @@ fn assigned_locals(b: &Block) -> HashSet<Local> {
     let mut out = HashSet::new();
     block(b, &mut out);
     out
+}
+
+/// [throw] Whether `t` names the type variable `v` where Kotlin sees it: a fn
+/// type's throw is not rendered, so its effects do not count.
+fn kt_mentions_var(t: &Ty, v: &str) -> bool {
+    match t {
+        Ty::Var(x) => x == v,
+        Ty::Named { args, .. } | Ty::Union(args) | Ty::Tuple(args) => args.iter().any(|a| kt_mentions_var(a, v)),
+        Ty::Qualified { base, .. } | Ty::Array(base) => kt_mentions_var(base, v),
+        Ty::Fn { params, ret, effects, .. } => {
+            params.iter().any(|p| kt_mentions_var(p, v)) || kt_mentions_var(ret, v) || salvo_core::threaded_effects(effects).iter().any(|e| kt_mentions_var(e, v))
+        }
+        _ => false,
+    }
 }

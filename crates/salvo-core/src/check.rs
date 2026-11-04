@@ -25934,6 +25934,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
         }
+        // [throw] An expected `Throw<X>` whose message nothing has bound yet
+        // (a generic only a throw names): the body's throws decide it,
+        // collected as a `try` collects them.
+        let unbound_throw = |t: &Ty| matches!(t, Ty::Named { name, args } if name == THROW_EFFECT && args.first().is_none_or(|m| m.is_unknown()));
+        let throw_open = written_effects.is_none() && exp_effects.as_ref().is_some_and(|e| e.iter().any(unbound_throw));
+        let exp_effects: Option<Vec<Ty>> = exp_effects.map(|e| e.into_iter().filter(|t| !(throw_open && unbound_throw(t))).collect());
         let env_effects: Option<Vec<Ty>> = written_effects.clone().or_else(|| exp_effects.clone());
         // [fate-lambda] Everything below this frame boundary is a
         // capture; the body's reads/mutations of such variables are
@@ -26006,10 +26012,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [effect-var] The open list's named effects, as the value's own.
         let open_mark = self.effect_env.len();
         let pushed_open = saved_effects.is_none() && open_named.is_some();
+        // [effect-var] [throw] A named `Throw<X>` whose message nothing has
+        // bound yet: the body's throws decide it, collected as a `try`
+        // collects them, and become the value's own `Throw<…>`.
+        let open_throw = throw_open
+            || (saved_effects.is_none() && open_named.iter().flatten().any(|t| matches!(t, Ty::Named { name, args } if name == THROW_EFFECT && args.first().is_none_or(|m| m.is_unknown()))));
+        let open_named: Option<Vec<Ty>> = open_named.map(|n| {
+            n.into_iter().filter(|t| !(open_throw && matches!(t, Ty::Named { name, .. } if name == THROW_EFFECT))).collect()
+        });
         if saved_effects.is_none() {
             for ty in open_named.iter().flatten() {
                 self.effect_env.push(EffectAvail { ty: ty.clone(), binder: lambda_binder, declared: true, any: false });
             }
+        }
+        if open_throw {
+            self.try_stack.push(TryCtx { entry_depth: self.locals.len(), sites: Vec::new() });
         }
         self.effect_uses.push(Vec::new());
         // A lambda body is a loop barrier: `break`/`continue` inside it
@@ -26062,12 +26079,32 @@ impl<'p, 'r> Checker<'p, 'r> {
         // moved to the IR analysis.
         self.locals.pop();
         let mut used = self.effect_uses.pop().unwrap_or_default();
+        let mut thrown: Option<Ty> = None;
         // [effect-var] The open list's named effects are the value's,
         // performed or not: the caller passes them.
         if let Some(named) = &open_named {
             let mut all = named.clone();
             all.extend(used.into_iter().filter(|t| !named.contains(t)));
             used = all;
+        }
+        if open_throw {
+            let ctx = self.try_stack.pop().expect("lambda throw ctx pushed above");
+            let mut messages: Vec<Ty> = Vec::new();
+            for (_, ty) in &ctx.sites {
+                if !messages.contains(ty) {
+                    messages.push(ty.clone());
+                }
+            }
+            if !messages.is_empty() {
+                let message_ty = self.mk_union(messages);
+                for (site_span, site_message) in &ctx.sites {
+                    let _ = self.throw_message_arm(*site_span, site_message, &message_ty);
+                }
+                thrown = Some(Ty::Named { name: THROW_EFFECT.to_string(), args: vec![message_ty] });
+            }
+        }
+        if let Some(t) = &thrown {
+            used.push(t.clone());
         }
         if let Some(saved) = saved_effects {
             self.effect_env = saved;
@@ -26096,7 +26133,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         // caller passes); otherwise the inferred set is the type's.
         // [fn-lambda-sig] A written list is declared, so it is the type's
         // where no fn type is expected.
-        let effects = exp_effects.or(written_effects).unwrap_or(used);
+        let effects = exp_effects
+            .map(|mut e| {
+                e.extend(thrown.clone());
+                e
+            })
+            .or(written_effects)
+            .unwrap_or(used);
         // What the emitters need: the effect values this lambda takes as
         // leading parameters, in order.
         self.out
@@ -29027,12 +29070,19 @@ fn collect_handle_vars(t: &Ty, vars: &HashSet<&str>, out: &mut Vec<String>) {
 /// A list with no variable constrains nothing here: variance is checked where
 /// the value is fitted. Never fails.
 fn unify_effect_row(pe: &[Ty], ae: &[Ty], subst: &mut HashMap<String, Ty>) -> bool {
+    // A named entry may be generic itself (`Throw<X>`): the value's instance
+    // of it binds it, and is not the variable's.
+    let mut named: Vec<bool> = Vec::with_capacity(ae.len());
+    for e in ae {
+        let hit = !matches!(e, Ty::Var(_))
+            && pe.iter().any(|p| !matches!(p, Ty::Var(_)) && !p.is_open_effects() && (p == e || (crate::types::mentions_var(p) && unify(p, e, subst))));
+        named.push(hit);
+    }
     let vars: Vec<&String> = pe.iter().filter_map(|e| match e { Ty::Var(g) => Some(g), _ => None }).collect();
     let [g] = vars.as_slice() else { return true };
     let mut row: Vec<Ty> = subst.get(*g).map(effect_row_of).unwrap_or_default();
-    for e in ae {
-        let named = !matches!(e, Ty::Var(_)) && pe.contains(e);
-        if !named && !e.is_open_effects() && !row.contains(e) {
+    for (e, hit) in ae.iter().zip(named) {
+        if !hit && !e.is_open_effects() && !row.contains(e) {
             row.push(e.clone());
         }
     }
@@ -32358,6 +32408,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
+        // [throw] The generics no parameter's or result's type mentions
+        // outside an effect list.
+        let only_in_effects: HashSet<String> = {
+            let saved = self.enter_generics(&decl.generics);
+            let tys: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).chain(std::iter::once(ret.clone())).collect();
+            self.generics = saved;
+            decl.generics.iter().filter(|g| !tys.iter().any(|t| ty_mentions_var(t, &g.name))).map(|g| g.name.clone()).collect()
+        };
         // [effect-var] An effect variable is rendered as the pack it is
         // handed: the empty one where nothing bound it.
         let recorded: Vec<Ty> = decl
@@ -32375,6 +32433,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     Some(b) => b.clone(),
                     None if effect_var => crate::types::effect_pack_ty(&[]),
+                    // [throw] A parameter only a `Throw<X>` names, at a call
+                    // whose value throws nothing: nothing is thrown, so `X`
+                    // is the bottom type — a backend must still name one.
+                    None if only_in_effects.contains(&g.name) => Ty::Never,
                     None => Ty::Unknown,
                 }
             })
