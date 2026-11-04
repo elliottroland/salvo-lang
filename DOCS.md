@@ -65,15 +65,97 @@ COMPLETED.md, then delete this file.
 - **Which modules**: the project's own files (std for std's manifest). No
   dependencies.
 
+## Style guide for std's doc comments (step 2)
+
+The reader is a programmer who knows some other language well and is new to
+Salvo: they read a module page in the wiki, or hover a name in an editor.
+`lib/std/core/seq.sv` is the worked exemplar; read it first.
+
+**What a doc comment is.** A declaration's docs are the `//` lines directly
+above it, no blank line between. A module's docs are the file's first comment
+run followed by a blank line (so a module doc must be separated from the first
+declaration's docs by a blank line). Struct fields and effect/qualifier members
+take docs the same way. `[name]` links to a declaration (`[map]`, `[List]`,
+`[std.core.list]`); a parameter or generic name in brackets renders as code.
+Tags: `@param name text`, `@returns text`, `@throws text`, `@see text`,
+`@todo`, `@whynot`, `@compilerrules [labels]`, `@compilerknown`.
+
+**Module docs** (the top of the page) — like a Java class overview:
+1. One or two sentences: what the module is for.
+2. How it behaves: the model a user needs (ordering, ownership/borrowing,
+   when effects happen, what is copied, what is lazy), its guarantees, its
+   costs where they matter (O(n), allocation, blocking).
+3. An example using the module's main types and functions together, then
+   short sections (`**Bold lead.** prose`) for the caveats, each with an
+   example where it helps.
+
+**Declaration docs:**
+- First sentence: a summary that stands alone (it is the contents table and
+  the index entry). For a fn, what it does or answers ("Answers…" is fine;
+  "The elements of…" for a pure query is fine); for a type, what a value is.
+- Then behavior: edge cases (empty, absent, out of range), what is moved,
+  borrowed or copied, effects performed, what it costs if not obvious.
+- An example (` ``` ` fence) for every fn and type a user calls directly and
+  whose use is not obvious from the signature; always for actors, handlers,
+  effects and the entry points of a module. Comment expected results inline
+  (`// [2, 4]`).
+- `@param` for each parameter whose role the summary does not already make
+  plain; for an implicit (`?add`, `?copy`), say "found at the call site:".
+  `@returns` when the answer needs more than the summary says. `@throws` for
+  each thrown error.
+- Overloads share a heading; give each a short doc saying how it differs
+  (`[map] over a list itself: …`).
+- Struct fields, effect members, qualifier parameters: a phrase each.
+
+**Language:** plain words; explain Salvo terms on first use in a module or
+link the overview topic (`see the Iterators topic` is fine). No history ("user
+decision 2026-…", "since B3.3"), no ROADMAP references, no compiler-internal
+vocabulary (canonical keys, stamps, lowering) unless the reader must know it.
+Keep the house style: answers/answer for return values is fine, no em-dash
+chains, short sentences.
+
+**Rule labels:** never `[rule-label]` in a comment outside a fn body. Move the
+labels to a `// @compilerrules [a, b]` line, the last line of the doc block
+(or of a free-standing section comment). Keep every label that was there
+(unless it was plainly wrong). Comments *inside* fn bodies keep their labels.
+`@compilerknown` lines stay exactly where they are.
+
+**Maintainer notes** (why the implementation is the way it is, backend
+details, alternatives rejected) are not user docs. Move them into the body of
+the fn as a comment when it has one; otherwise into a free-standing comment
+block above the doc block, separated from it by a blank line (never as the
+first comment of the file — that would become the module doc). Drop what the
+spec or COMPLETED.md already records and the `@compilerrules` labels point
+at.
+
+**Never change code.** Doc-only edits; the check below enforces it.
+
+**Checks** (no cargo needed; they use the built `target/debug/salvo`):
+- `python3 tools/check-doc-examples.py <files>` type-checks every
+  ```` ``` ```` / ```` ```salvo ```` fence. A body fence is wrapped in
+  `fn example() [use] -> None { use StdConsole() … }` (so `println` works) and
+  imports the module (unless `std.core.*`); a fence with a top-level
+  declaration is checked as written (wrap statements in a `fn` yourself). A
+  fence whose first line is `no-check` is skipped; use it only for an example
+  that shows an error on purpose or needs a whole program. Use ```` ```text
+  ```` for non-Salvo blocks.
+- `python3 tools/check-doc-examples.py --code-unchanged <files>`: no
+  non-comment line changed against HEAD.
+- `cd lib && ../target/debug/salvo analyze` (std analysed from disk): 0 errors.
+- `cd lib && ../target/debug/salvo docs --out ../tmp/wiki-<area>`, then read
+  the module pages: links resolve, nothing reads oddly.
+
 ## Status
 
 - [x] 1. Generator (commit "Add salvo docs…"): `[docs]` section, `salvo docs [--src] [--out] [--check]`,
       pages above; wiki regenerated; `sync-wiki.sh` deleted; docs test moved;
       spec rule `[cli-docs]`, Command-Line and Manifest pages; commit.
-- [ ] 2. std doc comments rewritten, area by area (core first, then
-      collections, iteration/seq, strings/bytes, fs/stream, time, runtime,
-      net/actors, args, test, rest); rule labels out of prose; commit per area
-      or few areas.
+- [x] 2. std doc comments rewritten (all 47 non-test files; seq.sv the
+      exemplar, seven sub-agents for the rest, working notes in tmp/*/WORKING.md);
+      356 examples type-check; docs test widened to every comment outside a
+      fn body; doc tooling fixes (no-check marker dropped, one-line struct
+      fields, comptime fns listed, duplicate anchors, `@param` on handlers);
+      defects in ROADMAP §0bd; COMPLETED entry written; commit.
 - [ ] 3. `docs/language/` narrative restructure, topic by topic; tag Salvo
       fences `salvo`; link module pages; commit.
 - [ ] 4. ROADMAP item for compiled doc examples; COMPLETED entries; retire
@@ -86,5 +168,11 @@ COMPLETED.md, then delete this file.
   as a build (`grep -c 'new' f && touch f && cargo build`).
 - After editing std `.sv`: `touch crates/salvo-cli/src/analysis.rs` before
   building (the embed), and `zsh tmp/regen.sh` before the suite.
-- The test `std_docs_cite_rules_only_in_compilerrules` already polices doc
-  blocks; module headers and body comments are where labels remain.
+- The test `std_docs_cite_rules_only_in_compilerrules` polices every comment
+  of a std module outside a fn body (a test annex: its doc blocks only).
+- For step 3: the `Person` example in `docs/language/Compile-Time-Functions.md`
+  and `Comparison-and-Hashing.md` hashes every field but compares equality by
+  age only, breaking the hash/eq contract; fix it while rewriting.
+- Sub-agents found: `[name]` links to a declaration on another page when the
+  name is unique across pages (e.g. `[deliver]` → `std.runtime.routing`), so
+  backtick a name that is not meant as a link.

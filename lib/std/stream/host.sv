@@ -1,25 +1,73 @@
-// The host's streams: the raw seam over the process-wide stream table, and the
-// handler that turns it into `stream`'s `Streams` — the `fs.host` shape
-// (`RawFs`, `HostRawFs`, `DefaultFs`) for streams.
+// The machine's streams: the handlers that give [std.stream]'s [Streams]
+// effect its host implementation, over the one process-wide stream table
+// every host stream is registered in.
 //
-// Its own module, so a program that fakes the world (`MemFs`) never reaches a
-// host class.
+// Two handlers, bound in this order at a program's composition root:
+//
+// - [HostRawStreams] implements [RawStreams], the same operations in plain
+//   values: a stream is a `Long` handle and a failure an ordinary
+//   [StreamError].
+// - [DefaultStreams] implements [Streams] over [RawStreams]: it hands out
+//   and takes back the linear `InStream`/`OutStream` tokens, and wraps each
+//   failure in `Checked`, so it cannot be dropped unread.
+//
+// ```
+// import std.stream
+// import std.stream.host
+//
+// fn main() [use] -> None {
+//     use StdConsole()
+//     use HostRawStreams()                             // the host's stream table
+//     use DefaultStreams()                             // `Streams` over it
+//     let p = lines(from_bytes(to_bytes("one\ntwo\n")))
+//     for line in p {
+//         println(line)                                // one, then two
+//     }
+//     let closed = close(p)
+//     if closed is Err {
+//         ignore(closed)
+//     }
+// }
+// ```
+//
+// A program that reads files binds [std.fs.host]'s [HostRawFs] and
+// [DefaultFs] after these two: what [HostRawFs] opens is registered in the
+// same table, so a file, a network body and a buffer are all read by the
+// same [Streams].
+//
+// **Only for the real world.** A program or test that fakes the filesystem
+// binds [std.fs.mem]'s [MemFs] instead, which implements [Streams] itself,
+// and never imports this module. Do not mix the two: a stream belongs to
+// the table that minted it, and handing a `MemFs` stream to these handlers
+// (or the reverse) traps.
+//
+// **Behavior.** Lines are split out of a read-ahead buffer in front of the
+// host stream, which later reads take from first; text is decoded strictly
+// as UTF-8; a read or write failure is recorded and reported by `flush` or
+// `close`; and `receive` reads on a host thread of its own, so it cannot be
+// used in an actor test. The table
+// itself is [std.runtime.streams], whose page has the details.
+// @compilerrules [stream-table, stream-provider]
 
 import std.stream
 import std.runtime.streams
 
 // ===== the raw seam =====
 
-// The host's stream table, in plain values: handles are `Long`s and failures
-// are droppable kinds, so the platform class implements an interface with no
-// obligations in it. Every host producer — a file `HostRawFs` opened, a body a
-// network client received — registers into the same table, which is what lets
-// one `Streams` read them all.
+// The operations of [Streams] in plain values, over the host's stream table:
+// a stream is its `Long` handle, and a failure is a [StreamError] that may
+// be dropped.
 //
-// Read errors are *recorded* by the host rather than returned: a failed
-// `raw_read_line` reports the end of the stream and `raw_close_read` reports
-// why. Write errors behave the same way, surfacing at `raw_flush` /
-// `raw_close_write`. A handle the table never minted traps.
+// Nothing here is linear, so an implementation (a platform class, or a fake
+// for a test of [DefaultStreams]) holds no obligations; [DefaultStreams]
+// adds the tokens and the `Checked` wrapper on top. Every host producer (a
+// file `HostRawFs` opened, a body a network client received) registers in
+// the same table, which is what lets one [Streams] read them all.
+//
+// Failures are **recorded**, not returned by every call: a failed
+// [raw_read_line] reports the end of the stream and [raw_close_read]
+// reports why, and a failed write surfaces at [raw_flush] or
+// [raw_close_write]. A handle the table never minted traps.
 // @compilerrules [stream-provider]
 export effect RawStreams {
     // The next line, without its terminator; absent at the end of the stream
@@ -27,7 +75,8 @@ export effect RawStreams {
     fn raw_read_line(handle: Long) -> Str | None
     // Everything left in the stream.
     fn raw_read_all(handle: Long) -> Ok Str | Err StreamError
-    // Up to `max` bytes, undecoded.
+    // Up to `max` bytes, undecoded. May answer fewer before the end; an empty
+    // answer means the end.
     fn raw_read_bytes(handle: Long, max: Int) -> Ok Bytes | Err StreamError
     // Up to `max` bytes appended to `buf`, answering how many.
     fn raw_read_to_bytes(handle: Long, buf: Mut Bytes, max: Int) -> Ok Int | Err StreamError => buf: Mut
@@ -42,9 +91,11 @@ export effect RawStreams {
     // Releases the read handle, reporting any failure recorded on it.
     fn raw_close_read(handle: Long) -> Ok None | Err StreamError
 
-    // Accepts text, answering how many bytes of it were written.
+    // Accepts text, answering how many bytes of it were written: none once
+    // a failure is recorded.
     fn raw_write(handle: Long, text: Str) -> Long => text
-    // Accepts bytes as they are, answering how many were written.
+    // Accepts bytes as they are, answering how many were written: none once
+    // a failure is recorded.
     fn raw_write_bytes(handle: Long, data: Bytes) -> Long => data
     // Bytes accepted so far.
     fn raw_write_position(handle: Long) -> Long
@@ -53,22 +104,22 @@ export effect RawStreams {
     // Flushes and releases the write handle.
     fn raw_close_write(handle: Long) -> Ok None | Err StreamError
 
-    // Reads the next bytes on a thread of the host's own and
-    // answers on [reply]: the bytes (never empty), or `End`,
-    // or a failure. At `End` or a failure the host has already released the
-    // handle, so there is nothing left to close.
+    // Reads the next bytes on a thread of the host's own and answers on
+    // [reply]: the bytes (never empty), or `End`, or a failure. At `End` or a
+    // failure the host has already released the handle, so there is nothing
+    // left to close.
     // @compilerrules [stream-receive, platform-reply]
     fn raw_receive(handle: Long, reply: Reply<Ok Bytes | End | Err StreamError>) -> None => !reply
-    // Registers a readable stream over [data] in the
-    // process's table, answering its handle.
+    // Registers a readable stream over [data] in the process's table,
+    // answering its handle.
     // @compilerrules [stream-from-bytes]
     fn raw_from_bytes(data: Bytes) -> Long => !data
 }
 
-// The host's answer, turned into a `Received`: the token the
+// The host's answer to a receive, turned into a `Received`: the token the
 // request gave up is minted again around the same handle, so it travels back
-// to the caller inside the packet. At `End` or a failure the host released the
-// handle, so no token is minted and nothing is owed.
+// to the caller inside the packet. At `End` or a failure the host released
+// the handle, so no token is minted and nothing is owed.
 // @compilerrules [stream-receive]
 send fn host_received(reply: Reply<Received>, handle: Long, got: Ok Bytes | End | Err StreamError)
 => !reply, !handle, !got {
@@ -79,10 +130,17 @@ send fn host_received(reply: Reply<Received>, handle: Long, got: Ok Bytes | End 
     }
 }
 
-// The one implementation of `RawStreams`, in Salvo over the runtime's
-// stream table (`runtime.streams`,): each member checks the
-// stream out, works on it with no lock held, and checks it back in. Stateless,
-// so the compiler shares it with no lock.
+// The host's [RawStreams]: the process's stream table, read and written.
+//
+// Each member checks the stream's entry out of the table, works on it with
+// no lock held, and checks it back in, so operations on different streams
+// never wait for each other. A line is split out of a read-ahead buffer,
+// which later reads take from first; text is decoded strictly as UTF-8.
+// The handler holds no state of its own (the table is the runtime's), so
+// it is shared by every thread without a lock.
+//
+// [raw_receive] starts a host thread for each call. Bind [DefaultStreams]
+// after this one to get [Streams]; see the module's example.
 // @compilerrules [stream-table]
 export handler HostRawStreams() for RawStreams {
     fn raw_read_line(handle: Long) -> Str | None {
@@ -214,10 +272,10 @@ export handler HostRawStreams() for RawStreams {
         return ok(None)
     }
 
-    // The read runs on a thread of the runtime's, and its
-    // chunk comes back as a task that turns it into this protocol's answer.
-    // @compilerrules [stream-receive]
     fn raw_receive(handle: Long, reply: Reply<Ok Bytes | End | Err StreamError>) -> None => !reply {
+        // The read runs on a thread of the runtime's, and its chunk comes
+        // back as a task that turns it into this protocol's answer
+        // [stream-receive].
         receive(handle, replyto chunk_received(reply))
     }
 
@@ -226,8 +284,7 @@ export handler HostRawStreams() for RawStreams {
     }
 }
 
-// A chunk from the runtime's reader, as `raw_receive`'s
-// answer.
+// A chunk from the runtime's reader, as [raw_receive]'s answer.
 // @compilerrules [stream-receive]
 send fn chunk_received(reply: Reply<Ok Bytes | End | Err StreamError>, c: Chunk) => !reply, !c {
     if c.fault is Fault f {
@@ -259,8 +316,41 @@ fn kind(source: Str, f: Fault) [] -> StreamError => !source, f {
     return StreamFailed { source: source, message: copy(f.message) }
 }
 
-// `Streams` over the host's table: wraps each failure in `Checked` and
-// discharges each token, delegating the work downwards.
+// The host's [Streams]: the stream tokens and checked errors, over whatever
+// [RawStreams] is bound.
+//
+// Each member takes the handle out of the token, calls the matching
+// [RawStreams] member, and wraps a failure in `Checked<StreamError>`. The
+// `close` members and `receive` consume the token, which is what
+// discharges it. Bind
+// [HostRawStreams] before this one.
+//
+// ```
+// import std.stream
+// import std.stream.host
+//
+// fn main() [use] -> None {
+//     use StdConsole()
+//     use HostRawStreams()
+//     use DefaultStreams()
+//     let s = from_bytes(to_bytes("hello"))
+//     let got = waitfor r: Reply<Received> {
+//         receive(s, r)                                // read on a host thread
+//     }
+//     when got {
+//         is Ok {
+//             let {bytes, stream} = got
+//             println("${size(bytes)} bytes")          // 5 bytes
+//             let closed = close(stream)
+//             if closed is Err {
+//                 ignore(closed)
+//             }
+//         }
+//         is End { println("empty") }
+//         is Err { ignore(got) }
+//     }
+// }
+// ```
 export handler DefaultStreams [RawStreams] for Streams {
     fn read_line(s: InStream) -> Str | None => s {
         return raw_read_line(s.handle)
@@ -314,11 +404,11 @@ export handler DefaultStreams [RawStreams] for Streams {
         }
     }
 
-    // The token is given up here — `receive` consumes it, so
-    // this is a discharge context — and the handle alone goes
-    // to the host, which completes the continuation from its own thread.
-    // @compilerrules [stream-receive, linear-group]
     fn receive(s: InStream, reply: Reply<Received>) -> None => !s, !reply {
+        // The token is given up here (`receive` consumes it, so this is a
+        // discharge context) and the handle alone goes to the host, which
+        // completes the continuation from its own thread
+        // [stream-receive] [linear-group].
         let handle = copy(s.handle)
         raw_receive(copy(handle), replyto host_received(reply, handle))
     }

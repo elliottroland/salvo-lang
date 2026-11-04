@@ -1,10 +1,38 @@
-// The filesystem of the machine the program runs on: the raw host seam and
-// the handler that turns it into `fs`'s `Fs`. What it opens is registered in
-// the host's stream table, so the streams are read by `stream.host`'s
-// `DefaultStreams` — which is why a host filesystem is bound over host streams:
-// `use HostRawStreams()`, `use DefaultStreams()`, then `use HostRawFs()`,
-// `use DefaultFs()`.
+// The filesystem of the machine the program runs on: [DefaultFs], the
+// handler a program binds to give `Fs` the real disk, and the host layer
+// under it.
 //
+// The machine's filesystem is bound at the program's entry point in four
+// lines, the streams first because `Fs` needs a `Streams` to open files
+// into: the host's stream table and its handler from `std.stream.host`,
+// then the host's files and [DefaultFs] from here.
+//
+// ```
+// import std.fs
+// import std.fs.path
+// import std.fs.host
+// import std.stream.host
+//
+// fn main() [use] -> None {
+//     use StdConsole()
+//     use HostRawStreams()
+//     use DefaultStreams()
+//     use HostRawFs()
+//     use DefaultFs()
+//     println("${exists(path("salvo.toml"))}")
+// }
+// ```
+//
+// Paths are passed to the host as their text. A relative path is relative
+// to the directory the program was started in, and `/` separates segments
+// on every host.
+//
+// What this filesystem opens is read through the host's `Streams`, the same
+// one that reads network bodies, so a stream from here must not be handed
+// to a `MemFs`, nor the other way round: a stream belongs to the provider
+// that opened it, and using it with another stops the program.
+// @compilerrules [stream-provider]
+
 // Its own module, and deliberately: a program that fakes the filesystem
 // (`fs.mem`) imports `fs` without reaching this module at all. `DefaultFs` is
 // a *dependent* handler, and a reachable dependent handler switches the whole
@@ -17,14 +45,17 @@ import std.stream
 
 // ===== the raw seam =====
 
-// The host's filesystem, in plain values: handles are `Long`s and failures
-// are droppable kinds, so the platform class implements an interface with no
-// obligations in it. Reachable only by declaring `[RawFs]`, which nothing
-// but a composition root and `DefaultFs` does — which is what keeps the
-// audit a grep.
+// The host's filesystem in plain values: the layer under [DefaultFs].
 //
-// The opens answer a handle in the host's *stream* table: reading and writing
-// it is `stream.host`'s `RawStreams`, whose host class reads the same table.
+// Files are named by their path's text, an open file is a `Long` handle in
+// the host's stream table, and failures are plain [FsError]s with no
+// obligation. Application code declares `Fs`, never this: only a program's
+// entry point (to bind [HostRawFs]) and [DefaultFs] reach it, which keeps
+// every use of the raw layer easy to find. Its members mirror `Fs`'s.
+//
+// The handles index the host's *stream* table, so reading and writing them
+// is `std.stream.host`'s `RawStreams`, whose host class reads the same
+// table.
 export effect RawFs {
     // Opens a file for reading, from the beginning.
     fn raw_open_read(path: Str) -> Ok Long | Err FsError => path
@@ -48,14 +79,25 @@ export effect RawFs {
     fn raw_rename_path(from: Str, to: Str) -> Ok None | Err FsError => from, to
 }
 
-// The one implementation of `RawFs`: a host class per backend, shipped with
-// std. Deliberately *not* `threadsafe`:
-// an open-file table keyed by handle is one-writer
-// state, so the compiler serializes the instance on both backends and the
-// host keeps plain maps.
+// Deliberately *not* `threadsafe`: an open-file table keyed by handle is
+// one-writer state, so the compiler serializes the instance on both
+// backends and the host keeps plain maps.
+
+// The host's implementation of [RawFs], shipped with std for each backend.
+// Bind it with `use HostRawFs()`, after the host's streams and before
+// [DefaultFs].
 // @compilerrules [platform-handler, platform-threadsafe]
 export platform handler HostRawFs for RawFs
 
+// The machine's filesystem, as `Fs`: what a program binds, with `use
+// DefaultFs()`, to read and write real files.
+//
+// It works over [RawFs], which must be bound first ([HostRawFs]), and needs
+// a `Streams` around it, since that is what it opens files into. Each open
+// answers a stream token that must be closed, and each failure the host
+// reports is answered as `Err Checked<FsError>`. The dependency on [RawFs]
+// is supplied where the handler is bound, so no function that uses files
+// mentions it.
 export handler DefaultFs [RawFs] for Fs {
     fn open_read(path: Path) -> Ok InStream | Err Checked<FsError> => path {
         let path_text = to_str(path)

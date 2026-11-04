@@ -40,7 +40,7 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
                 let mut __pick1_1 = __pick1.unwrap();
                 __pick1_1
             } else {
-                panic!("salvo: unreachable at std.fs.restricted:36:35")
+                panic!("salvo: unreachable at std.fs.restricted:78:35")
             }
         };
         if (&seg[..] == &String::from("..")[..]) {
@@ -72,7 +72,7 @@ pub fn fs_resolve(root: &String, path: &String) -> Option<String> {
                 let mut __pick2_2 = __pick2.unwrap();
                 (__pick2_2).clone()
             } else {
-                panic!("salvo: unreachable at std.fs.restricted:59:40")
+                panic!("salvo: unreachable at std.fs.restricted:101:40")
             }
         });
         j = i32::wrapping_sub(j, 1i32);

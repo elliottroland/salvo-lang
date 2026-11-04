@@ -102,7 +102,7 @@ class Deadlines : DeadlineTable {
                         __pick1_1
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime.timers:75:32")
+                        throw AssertionError("salvo: unreachable at std.runtime.timers:121:32")
                     }
                 }
             } <= now)) {
@@ -194,7 +194,7 @@ class Wheeling : Wheel {
                 salvo.std.runtime.parkNanosPlatform(salvo.std.runtime.thisParkerPlatform(), wait)
             }
         }
-        throw AssertionError("salvo: unreachable at std.runtime.timers:124:9")
+        throw AssertionError("salvo: unreachable at std.runtime.timers:173:9")
     }
 }
 

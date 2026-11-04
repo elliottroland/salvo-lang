@@ -22,7 +22,7 @@ fun fsResolve(root: String, path: String): String? {
                     __pick1_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.fs.restricted:36:35")
+                    throw AssertionError("salvo: unreachable at std.fs.restricted:78:35")
                 }
             }
         }
@@ -57,7 +57,7 @@ fun fsResolve(root: String, path: String): String? {
                     __pick2_2
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.fs.restricted:59:40")
+                    throw AssertionError("salvo: unreachable at std.fs.restricted:101:40")
                 }
             }
         })

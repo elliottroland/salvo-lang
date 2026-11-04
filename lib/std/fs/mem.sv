@@ -1,22 +1,62 @@
-// An in-memory filesystem: a `MemFs` fakes the whole of `Fs` *and* `Streams`
-// — one handler wearing both faces, since a write stream has to publish into
-// the file map when it closes — so a test needs no disk and no host handler
-// at all. A test of anything else that produces streams (a fake network
-// client minting bodies) binds `MemFs` too: its streams are the `Streams` in
-// scope.
+// An in-memory filesystem, [MemFs], for tests: the whole `Fs` surface, and
+// the streams it opens, with no disk and no host underneath.
 //
-// A fresh `MemFs` is **empty**; write into it with the ordinary surface
-// (`write_str`, `open_write`) and read it back. Directories are implicit:
-// a path is a key, and a directory exists exactly while something under it
-// does.
+// Bind it where a program would bind the machine's filesystem, and the
+// code under it reads and writes files as usual. One `use MemFs()` stands
+// in for all four of the host's lines, because the handler provides both
+// `Fs` and `Streams`: a file written through it has to land in its own map
+// of files when the stream is closed. A test of other code that produces
+// streams (a fake network client handing out bodies) binds `MemFs` too, and
+// its streams are then `MemFs`'s.
 //
-// A file here is **bytes**, exactly as it is on a real filesystem, and every
-// offset counts bytes. That is the hazard this type exists to get right: a
-// fake that stored text and counted characters would let unit tests pass
-// while production broke the moment a file left ASCII. Text reads decode
-// strictly, off the same bytes, and a decode failure is *recorded* and
-// reported by `close` — the host's behavior, reproduced rather than
-// approximated.
+// ```
+// import std.fs
+// import std.fs.path
+// import std.fs.mem
+//
+// fn main() [use] -> None {
+//     use StdConsole()
+//     use MemFs()
+//     let wrote = write_str(path("logs/today.txt"), "started\n")
+//     if wrote is Err {
+//         ignore(wrote)
+//     }
+//     println("${exists(path("logs"))}")                 // true: a file is in it
+//     let names = list_dir(path("logs"))
+//     when names {
+//         is Ok { println("${names}") }                  // [today.txt]
+//         is Err { ignore(names) }
+//     }
+// }
+// ```
+//
+// **It starts empty.** A fresh `MemFs` holds no files; a test writes what
+// it needs with the ordinary functions ([write_str], `open_write`) before
+// running the code under test, and each `use MemFs()` is a filesystem of
+// its own.
+//
+// **Directories are implicit.** A file's path is a key in a map, and a
+// directory exists exactly while some file is under it. `create_dirs`
+// therefore does nothing and succeeds; deleting a directory that still has
+// files is an `IoError`, and once its last file is gone it no longer
+// exists. `list_dir` answers the names sorted, and `rename_path` renames
+// files only: a directory's path is `NotFound` to it.
+//
+// **Files are bytes**, as on a real disk, and every offset counts bytes, so
+// code that confuses characters with bytes fails here the way it would in
+// production. Text is decoded as strict UTF-8: a text read of bytes that
+// are not valid UTF-8 fails (a line read stops there), and `close` reports
+// the failure again, as the host does.
+//
+// **When writes appear.** A read sees the file as it was when the stream
+// was opened. What a write stream writes appears in the file when the
+// stream is flushed or closed, replacing what was there.
+//
+// A stream belongs to the provider that opened it: handing a `MemFs` stream
+// to the host's `Streams`, or a host stream to `MemFs`, stops the program.
+// Use all-host or all-memory, never a mix. `MemFs` starts no threads of its
+// own, so an actor test may use it.
+// @compilerrules [stream-provider]
 
 import std.fs
 import std.fs.path
@@ -32,6 +72,32 @@ struct MemRead { source: Str, data: Bytes, at: Int, failed: Bool }
 // Closing (or flushing) publishes the buffer.
 struct MemWrite { path: Str, buffer: Bytes }
 
+// A filesystem in memory, providing `Fs` and `Streams` together: what a
+// test binds, with `use MemFs()`, instead of the machine's filesystem. The
+// module documentation above describes how it behaves.
+//
+// ```
+// import std.fs
+// import std.fs.path
+// import std.fs.mem
+//
+// fn roundtrip() [use] -> Bool {
+//     use MemFs()
+//     let wrote = write_str(path("a.txt"), "héllo")
+//     if wrote is Err {
+//         ignore(wrote)
+//         return false
+//     }
+//     let back = read_to_str(path("a.txt"))
+//     when back {
+//         is Ok { return back == "héllo" }
+//         is Err {
+//             ignore(back)
+//             return false
+//         }
+//     }
+// }
+// ```
 export handler MemFs for Fs, Streams {
     state {
         files: Mut Map<Str, Bytes> = Mut Map()

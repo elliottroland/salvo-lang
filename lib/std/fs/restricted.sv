@@ -1,18 +1,64 @@
-// A filesystem scoped to one directory: `RestrictedFs(root)` **intercepts**
-// `Fs`, so it wraps whichever filesystem is already registered — the host's
-// in production, a `MemFs` in a test of the restriction itself.
+// A filesystem confined to one directory: [RestrictedFs] wraps the
+// filesystem already bound and lets the code under it reach only the files
+// under a root directory.
 //
-// Paths are **rebased**: the code under it writes `"notes/a.txt"` and never
-// learns where it is really running, which is half the point of the handler.
-// A path that resolves outside the root is refused *distinguishably*, as
-// `Err PathEscapes`, because this is a least-authority tool for honest code
-// rather than a boundary against an adversary inside the process.
+// Bind it inside the scope it should confine. It **intercepts** `Fs`: it
+// passes every operation on to whichever filesystem was bound before it,
+// so the same handler confines the machine's files in production and a
+// `MemFs` in a test. The code under it was not written to be confined and
+// does not need to be.
 //
-// The containment check is **lexical**, and therefore **not symlink-safe**: a
-// symlink inside the root pointing outside it escapes. Closing that needs the
-// host (`openat2(RESOLVE_BENEATH)`, `O_RESOLVE_BENEATH`, cap-std), which under
-// this layering belongs to `RawFs` — recorded as the hardening path rather
-// than pretended away here.
+// ```
+// import std.fs
+// import std.fs.path
+// import std.fs.mem
+// import std.fs.restricted
+//
+// fn main() [use] -> None {
+//     use StdConsole()
+//     use MemFs()
+//     if true {
+//         use RestrictedFs(path("sandbox"))
+//         let wrote = write_str(path("notes/a.txt"), "hi")    // writes sandbox/notes/a.txt
+//         if wrote is Err {
+//             ignore(wrote)
+//         }
+//         let secret = read_to_str(path("../secret.txt"))
+//         when secret {
+//             is Ok { println("read outside the sandbox") }
+//             is Err { println("${detach(secret)}") }      // path escapes the root: ../secret.txt
+//         }
+//     }
+//     println("${exists(path("sandbox/notes/a.txt"))}")   // true
+// }
+// ```
+//
+// **Paths are rebased.** Every path the code under it uses is taken
+// relative to the root: `notes/a.txt` becomes `<root>/notes/a.txt`, and the
+// code never learns where it is really running. Write relative paths in
+// code meant to run confined.
+//
+// **Escapes are refused, and say so.** A path that would leave the root is
+// answered as `Err PathEscapes`, not as `NotFound`. That covers an absolute
+// path (it names a place of its own, which is not this handler's to grant)
+// and a relative one whose `..` segments climb above the root:
+// `sub/../probe.txt` stays inside, `../secret.txt` does not. `exists` has
+// no error to answer, so for an escaping path it answers `false`.
+//
+// **Not a security boundary.** The check is on the text of the path alone.
+// A symbolic link inside the root that points outside it is followed by the
+// host, so the confinement keeps honest code to its directory but does not
+// stand up to code trying to get out. Only the opens are checked; reading
+// and writing a stream that was opened is the `Streams` handler's, as
+// usual.
+
+// Closing the symlink hole needs the host (`openat2(RESOLVE_BENEATH)`,
+// `O_RESOLVE_BENEATH`, cap-std), which under this layering belongs to
+// `RawFs`: recorded as the hardening path rather than pretended away here.
+
+import std.fs
+import std.fs.path
+import std.stream
 
 // The path a restricted handler actually uses, or `None` when the request
 // resolves outside its root. Absolute paths are refused outright: they say
@@ -20,10 +66,6 @@
 //
 // Resolution is right to left, counting the `..` segments still owed, which
 // is how `a/../b` stays inside while `../b` does not — and needs no stack.
-import std.fs
-import std.fs.path
-import std.stream
-
 fn fs_resolve(root: Str, path: Str) [] -> Str? => root, path {
     if starts_with(path, "/") {
         return None
@@ -71,6 +113,30 @@ fn fs_escaped(path: Str) [] -> Checked<FsError> => path {
     return checked<FsError>(PathEscapes { path: copy(path) })
 }
 
+// Confines the filesystem bound before it to the directory [root]: every
+// path is taken relative to [root], and one that would leave it is refused
+// as `Err PathEscapes`.
+//
+// [root] itself is a path in the filesystem being wrapped, relative to its
+// working directory or absolute. Binding the handler consumes it, so pass a
+// `copy` when the path is needed again afterwards. The module documentation
+// above describes the rules and their limits.
+//
+// ```
+// import std.fs
+// import std.fs.path
+// import std.fs.mem
+// import std.fs.restricted
+//
+// fn confined(root: Path) [use] -> None => !root {
+//     use MemFs()
+//     use RestrictedFs(root)
+//     let gone = delete(path("/etc/hosts"))                  // refused: absolute
+//     if gone is Err {
+//         ignore(gone)
+//     }
+// }
+// ```
 export handler RestrictedFs(root: Path) [Fs] for Fs {
     fn open_read(path: Path) -> Ok InStream | Err Checked<FsError> => path {
         let path_text = to_str(path)

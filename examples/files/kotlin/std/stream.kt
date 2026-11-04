@@ -49,7 +49,7 @@ fun toStr(kind: Union2<InvalidUtf8, StreamFailed>): String {
             return "stream failed: ${kind_2.source}: ${kind_2.message}"
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream:54:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream:130:5"))
         }
     }
 }
@@ -216,7 +216,7 @@ fun pipeStep(streams: Streams, to: OutStream, done: salvo.SalvoReply, moved: Lon
                     salvo.SalvoSched.replyWire(done, Union2.U2<Long, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>>(closed_5), salvo.Union2Codec(salvo.LongCodec, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(__Codec_InvalidUtf8, __Codec_StreamFailed))))
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream:194:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream:351:13"))
                 }
             }
         }
@@ -232,13 +232,13 @@ fun pipeStep(streams: Streams, to: OutStream, done: salvo.SalvoReply, moved: Lon
                     salvo.std.core.checked.ignore(closed_8)
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream:201:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream:358:13"))
                 }
             }
             salvo.SalvoSched.replyWire(done, Union2.U2<Long, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>>(got_6), salvo.Union2Codec(salvo.LongCodec, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(__Codec_InvalidUtf8, __Codec_StreamFailed))))
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream:186:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream:343:5"))
         }
     }
 }
@@ -262,7 +262,7 @@ fun next__Lines(streams: Streams, p: Lines): Union2<String, salvo.std.core.itera
             return Union2.U2<String, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream:231:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream:413:5"))
         }
     }
 }
@@ -384,7 +384,7 @@ fun readInt(streams: Streams, s: InStream): Union3<Int, End, salvo.std.core.chec
             return Union3.U3<Int, End, salvo.std.core.checked.Checked<Union2<InvalidUtf8, StreamFailed>>>(r_3)
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream:380:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream:646:5"))
         }
     }
 }
@@ -454,7 +454,7 @@ fun fixedBytes(v: Long, width: Int): salvo.platform.std.core.bytes.Bytes {
                     __pick1_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.stream:441:34")
+                    throw AssertionError("salvo: unreachable at std.stream:751:34")
                 }
             }
         })
@@ -486,7 +486,7 @@ fun readFixed(streams: Streams, s: InStream, width: Int): Union3<Long, End, salv
                 __pick2_3
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.stream:460:48")
+                throw AssertionError("salvo: unreachable at std.stream:770:48")
             }
         }
     }).toInt()).toLong()
@@ -507,7 +507,7 @@ fun readFixed(streams: Streams, s: InStream, width: Int): Union3<Long, End, salv
                     __pick3_4
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.stream:467:55")
+                    throw AssertionError("salvo: unreachable at std.stream:777:55")
                 }
             }
         }).toInt()).toLong())

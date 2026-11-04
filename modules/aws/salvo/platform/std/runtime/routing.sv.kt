@@ -496,7 +496,7 @@ fun bumpIn(versions: salvo.platform.std.core.map.MutMap<Int, Long>, waiters: sal
                         __pick1_1
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime.routing:184:32")
+                        throw AssertionError("salvo: unreachable at std.runtime.routing:322:32")
                     }
                 }
             }
@@ -510,7 +510,7 @@ fun bumpIn(versions: salvo.platform.std.core.map.MutMap<Int, Long>, waiters: sal
                         __pick2_3
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime.routing:185:52")
+                        throw AssertionError("salvo: unreachable at std.runtime.routing:323:52")
                     }
                 }
             }
@@ -666,7 +666,7 @@ class Routes : RouteTable {
                         __pick3_1
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime.routing:344:46")
+                        throw AssertionError("salvo: unreachable at std.runtime.routing:482:46")
                     }
                 }
             })
@@ -753,7 +753,7 @@ class Routes : RouteTable {
                         __pick4_1
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime.routing:418:38")
+                        throw AssertionError("salvo: unreachable at std.runtime.routing:556:38")
                     }
                 }
             } == key)) {
@@ -856,7 +856,7 @@ class Routes : RouteTable {
                             __pick5_1
                         }
                         else -> {
-                            throw AssertionError("salvo: unreachable at std.runtime.routing:513:41")
+                            throw AssertionError("salvo: unreachable at std.runtime.routing:651:41")
                         }
                     }
                 }
@@ -926,7 +926,7 @@ fun wakeSenders(waiters: salvo.platform.std.core.list.MutList<salvo.platform.std
                     __pick6_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime.routing:572:41")
+                    throw AssertionError("salvo: unreachable at std.runtime.routing:710:41")
                 }
             }
         })
@@ -959,7 +959,7 @@ fun restage(routes: salvo.platform.std.core.map.Map<Long, salvo.platform.std.cor
                     __pick7_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime.routing:595:46")
+                    throw AssertionError("salvo: unreachable at std.runtime.routing:733:46")
                 }
             }
         })
@@ -1059,7 +1059,7 @@ fun sendRemote(addr: Int, proto: String, payload: salvo.platform.std.core.bytes.
             return
         }
     }
-    throw AssertionError("salvo: unreachable at std.runtime.routing:702:5")
+    throw AssertionError("salvo: unreachable at std.runtime.routing:854:5")
 }
 
 fun answerRemote(t: ReplyParts, payload: salvo.platform.std.core.bytes.Bytes) {
@@ -1296,7 +1296,7 @@ fun viewMembers(group: Int): List<Int> {
                         __pick8_1
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime.routing:983:53")
+                        throw AssertionError("salvo: unreachable at std.runtime.routing:1159:53")
                     }
                 }
             }), salvo.std.runtime.routing.identity(kotlin.run {
@@ -1307,7 +1307,7 @@ fun viewMembers(group: Int): List<Int> {
                         __pick9_2
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime.routing:983:104")
+                        throw AssertionError("salvo: unreachable at std.runtime.routing:1159:104")
                     }
                 }
             }))) {
@@ -1323,7 +1323,7 @@ fun viewMembers(group: Int): List<Int> {
                     __pick10_3
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime.routing:988:43")
+                    throw AssertionError("salvo: unreachable at std.runtime.routing:1164:43")
                 }
             }
         })

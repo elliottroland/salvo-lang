@@ -389,7 +389,7 @@ pub fn drain<T, E: Clone>(e: &E, mut list: Vec<T>, each: &mut dyn FnMut(&E, T)) 
                 let mut __pick1_1 = __pick1.unwrap();
                 __pick1_1
             } else {
-                panic!("salvo: unreachable at std.core.list:319:32")
+                panic!("salvo: unreachable at std.core.list:607:32")
             }
         }; each(e, __arg1) };
     }
@@ -419,7 +419,7 @@ pub fn first<T>(list: &Vec<T>) -> &T {
             let mut __pick2_1 = __pick2.unwrap();
             __pick2_1
         } else {
-            panic!("salvo: unreachable at std.core.list:344:28")
+            panic!("salvo: unreachable at std.core.list:650:28")
         }
     };
 }
@@ -457,7 +457,7 @@ pub fn remove_front_while<T, E: Clone>(e: &E, list: &mut Vec<T>, keep: &mut dyn 
                 let mut __pick3_1 = __pick3.unwrap();
                 __pick3_1
             } else {
-                panic!("salvo: unreachable at std.core.list:392:50")
+                panic!("salvo: unreachable at std.core.list:720:50")
             }
         }))) {
             break;
@@ -476,7 +476,7 @@ pub fn remove_back_while<T, E: Clone>(e: &E, list: &mut Vec<T>, keep: &mut dyn F
                 let mut __pick4_1 = __pick4.unwrap();
                 __pick4_1
             } else {
-                panic!("salvo: unreachable at std.core.list:405:47")
+                panic!("salvo: unreachable at std.core.list:739:47")
             }
         }))) {
             break;
@@ -502,7 +502,7 @@ pub fn sub_list<T: Clone>(list: &Vec<T>, mut from: i32, mut to: i32, copy: &mut 
                 let mut __pick5_1 = __pick5.unwrap();
                 __pick5_1
             } else {
-                panic!("salvo: unreachable at std.core.list:424:39")
+                panic!("salvo: unreachable at std.core.list:769:39")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
@@ -590,7 +590,7 @@ pub fn contains<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) ->
                 let mut __pick6_1 = __pick6.unwrap();
                 __pick6_1
             } else {
-                panic!("salvo: unreachable at std.core.list:479:31")
+                panic!("salvo: unreachable at std.core.list:854:31")
             }
         }, elem) {
             return true;
@@ -616,7 +616,7 @@ pub fn all<T: Clone, E: Clone>(e: &E, list: &Vec<T>, pick: &mut dyn FnMut(&E, &T
                 let mut __pick7_1 = __pick7.unwrap();
                 __pick7_1
             } else {
-                panic!("salvo: unreachable at std.core.list:498:34")
+                panic!("salvo: unreachable at std.core.list:882:34")
             }
         })) {
             return false;
@@ -639,7 +639,7 @@ pub fn count<T: Clone, E: Clone>(e: &E, list: &Vec<T>, pick: &mut dyn FnMut(&E, 
                 let mut __pick8_1 = __pick8.unwrap();
                 __pick8_1
             } else {
-                panic!("salvo: unreachable at std.core.list:512:33")
+                panic!("salvo: unreachable at std.core.list:901:33")
             }
         }) {
             n = i32::wrapping_add(n, 1i32);
@@ -663,7 +663,7 @@ pub fn partition<T: Clone, E: Clone>(e: &E, list: &Vec<T>, pick: &mut dyn FnMut(
                 let mut __pick9_1 = __pick9.unwrap();
                 __pick9_1
             } else {
-                panic!("salvo: unreachable at std.core.list:530:33")
+                panic!("salvo: unreachable at std.core.list:926:33")
             }
         };
         if pick(e, x) {
@@ -914,7 +914,7 @@ pub fn both<A: Clone, B: Clone, E: Clone>(mut a: crate::unions::Union2<A, Vec<E>
             let mut b_3 = match b { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<E>>(b_3));
         } else {
-            panic!("salvo: unhandled union arm at std.core.result:78:13");
+            panic!("salvo: unhandled union arm at std.core.result:193:13");
         }
     } else if matches!(a, crate::unions::Union2::U2(_)) {
         let mut a_4 = match a { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
@@ -925,10 +925,10 @@ pub fn both<A: Clone, B: Clone, E: Clone>(mut a: crate::unions::Union2<A, Vec<E>
             let mut b_6 = match b { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<E>>(crate::std_core_result::joined::<E>(a_4, b_6, &mut *copy)));
         } else {
-            panic!("salvo: unhandled union arm at std.core.result:84:13");
+            panic!("salvo: unhandled union arm at std.core.result:199:13");
         }
     } else {
-        panic!("salvo: unhandled union arm at std.core.result:76:5");
+        panic!("salvo: unhandled union arm at std.core.result:191:5");
     };
 }
 
@@ -942,7 +942,7 @@ pub fn map2<A: Clone, B: Clone, C: Clone, E: Clone, Fx: Clone>(fx: &Fx, mut a: c
             let mut b_3 = match b { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<E>>(b_3));
         } else {
-            panic!("salvo: unhandled union arm at std.core.result:99:13");
+            panic!("salvo: unhandled union arm at std.core.result:221:13");
         }
     } else if matches!(a, crate::unions::Union2::U2(_)) {
         let mut a_4 = match a { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
@@ -953,10 +953,10 @@ pub fn map2<A: Clone, B: Clone, C: Clone, E: Clone, Fx: Clone>(fx: &Fx, mut a: c
             let mut b_6 = match b { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<E>>(crate::std_core_result::joined::<E>(a_4, b_6, &mut *copy)));
         } else {
-            panic!("salvo: unhandled union arm at std.core.result:105:13");
+            panic!("salvo: unhandled union arm at std.core.result:227:13");
         }
     } else {
-        panic!("salvo: unhandled union arm at std.core.result:97:5");
+        panic!("salvo: unhandled union arm at std.core.result:219:5");
     };
 }
 
@@ -971,7 +971,7 @@ pub fn joined<X: Clone>(mut a: Vec<X>, mut b: Vec<X>, copy: &mut dyn FnMut(&X) -
     if crate::std_core_nonempty::NonEmpty_qualifies::<Vec<X>>(&errors, &mut |__a0: &Vec<X>| crate::std_core_list::size_platform(__a0)) {
         return errors;
     };
-    return panic!("salvo: two non-empty lists joined are not empty at std.core.result:127:5");
+    return panic!("salvo: two non-empty lists joined are not empty at std.core.result:250:5");
 }
 
 // ===== std/core/string.rs =====
@@ -1121,7 +1121,7 @@ pub fn substr(str: &String, at: &crate::std_core_string::Span) -> String {
             let mut __pick1_1 = __pick1.unwrap();
             __pick1_1
         } else {
-            panic!("salvo: unreachable at std.core.string:169:45")
+            panic!("salvo: unreachable at std.core.string:323:45")
         }
     };
 }

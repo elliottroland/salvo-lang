@@ -1,21 +1,149 @@
-// `runtime.routing`: addrs and answers across nodes, a service on the
-// runtime's core [runtime-layers] (runtime step 11). It keeps who is
-// where — the node every pool belongs to, the capability bits of every actor
-// whose addr has left its node, the proxies standing for actors elsewhere and
-// the credits each holds — and turns a send to a proxy, an answer to a token
-// minted elsewhere, a credit and a handshake into **frames**: Salvo values in
-// the canonical encoding [net-wire-format] (D4), the same bytes on both backends.
+// Addresses and answers across nodes: the service that makes an `eff[E]`
+// or a `Reply<T>` that crossed the wire work on the other node exactly as
+// it does here. It keeps who is where (the node every pool belongs to, the
+// identity of every actor whose address has left its node, the proxies
+// standing for actors elsewhere and the credits each holds), and turns a
+// send to a proxy, an answer to a reply minted elsewhere, a credit and a
+// handshake into **frames**: Salvo values in the canonical wire encoding,
+// the same bytes on both backends.
 //
-// What stays with the host is what only the generated code knows: how to
-// encode a message of a given protocol, how to decode one for a given actor
-// or waiting frame, and where a node's frames leave the process. Those are
-// the platform fns below.
+// Like [std.runtime], whose service it is, this module is std's own: a
+// program reaches it through [std.net] and [std.codec], and through
+// addresses and replies that arrive in messages. A process is one node
+// and may host more ([new_node]), each with pools of its own ([pool_at]),
+// which is how two nodes run in one process over an in-memory transport.
 //
-// Lock order: the core's scheduler, then this module's table — never the
-// reverse. No member of the table calls the core; the exported functions do,
-// outside it. The core calls [credit_back] with its own lock held, which is
-// why staging a frame and sending it are separate: frames are sent by
-// [flush], with no lock held, through the outbound hook.
+// **How an address crosses.** An address leaves its node as its identity,
+// a [RemoteRef]: the node, the actor's index there, and random bits minted
+// the first time the address leaves. Arriving ([import_addr]), it becomes
+// one of three things. An identity of this node whose bits match is the
+// actor itself. An identity of this node with the wrong bits is the one
+// shared dead entry, so a forged or stale address is a send to the dead:
+// the bits are what make an address a capability on the wire. Any other
+// identity becomes a **proxy**, made once per identity: a record in the
+// scheduler's actor table whose sends are handed back to this module,
+// encoded and sent as frames to the node the actor lives on.
+//
+// **Credits.** A mailbox's capacity holds across nodes. A new proxy asks
+// the actor's node for credits, and is granted the room its mailbox has
+// left beyond what other senders already hold, at least one. Each send
+// through the proxy spends a credit; with none left, the sender parks
+// until a grant arrives, exactly as a local send waits on a full mailbox.
+// As each message from that node leaves the actor's mailbox, one credit is
+// granted back.
+//
+// **Answers.** A reply minted here travels as [ReplyParts]: the node, what
+// it answers (an actor's continuation, a waiting frame, a task) and its
+// slot. A task's body stays here, keyed by the slot, until the answer comes
+// back. Answering such a reply on another node ([answer_remote]) sends an
+// answer frame back to the node that minted it, where it is decoded and
+// delivered as an ordinary answer.
+//
+// **Nothing is delivered wrong.** A frame for a node not hosted here, for
+// an actor that does not exist, with bits that do not match, or with a
+// payload that does not decode is dropped ([deliver]). Nothing is resent
+// either: a frame the transport loses is lost, so delivery is at most once.
+//
+// **A node that leaves** ([node_left]) is forgotten: its route and its
+// protocol table go, and every proxy for an actor on it dies, as if it had
+// faulted, with the reason "node left". Watchers of those proxies are sent
+// an `Exit`, senders waiting for credit stop, and later sends do nothing.
+//
+// ```
+// no-check
+// import std.net
+// import std.codec
+// import std.time
+//
+// actor effect Counter {
+//     send fn bump(n: Int)
+//     send fn total(out: Reply<Int>) => !out
+// }
+//
+// handler Counting() for Counter {
+//     mailbox { capacity: 2 }
+//
+//     state {
+//         sum: Int = 0
+//     }
+//
+//     send fn bump(n: Int) {
+//         sum = sum + n
+//     }
+//
+//     send fn total(out: Reply<Int>) {
+//         out.send(sum)
+//     }
+// }
+//
+// // Brings up the node the calling thread belongs to: its wire actors on a
+// // pool of that node, and its route.
+// fn bring_up(at: NodeEndpoint) [Transport, spawn] -> None => at {
+//     let _connected = connect(copy(at), pool(1))
+// }
+//
+// actor effect Boot {
+//     send fn boot(at: NodeEndpoint, done: Reply<Bool>) => !at, !done
+// }
+//
+// // Run on node B's pool, so the node it brings up is B.
+// handler Booting() [Transport, spawn] for Boot {
+//     mailbox { capacity: 1 }
+//
+//     send fn boot(at: NodeEndpoint, done: Reply<Bool>) {
+//         bring_up(at)
+//         done.send(true)
+//     }
+// }
+//
+// fn main() [use, spawn] {
+//     use StdConsole()
+//     let a = NodeEndpoint { host: "a", port: 1 }
+//     let b = NodeEndpoint { host: "b", port: 1 }
+//     let net = spawn MemNetwork() on pool(1)        // the in-memory wire
+//
+//     // Node A is this one; node B is hosted beside it.
+//     use MemTransport(copy(a), copy(net))
+//     bring_up(copy(a))
+//     let pb = pool_at(new_node(), 1)
+//     let booter = spawn Booting() with MemTransport(copy(b), copy(net)) on pb
+//     let _up = waitfor done: Reply<Bool> { booter.boot(copy(b), done) }
+//
+//     // A counter on node B. Its address crosses as bytes, and comes back
+//     // on node A as a proxy.
+//     let there = spawn Counting() on pb
+//     let far = decode<eff[Counter]>(encode(copy(there)))
+//     if far is None {
+//         return
+//     }
+//     let timer = spawn DefaultTimer() on pool(1)
+//     let _t = waitfor f: Reply<Fired> { timer.after(millis(300), f) }
+//     println("credits: ${credits(far) ?: -1}")      // credits: 2
+//     for i in range(0, 5) {
+//         far.bump(i)                                // through a 2-message mailbox
+//     }
+//     let sum = waitfor out: Reply<Int> { far.total(out) }
+//     println("total over the wire: ${sum}")         // total over the wire: 10
+// }
+// ```
+//
+// **What stays with the host** is what only the generated code knows: how
+// to encode a message of a given protocol, how to decode one for a given
+// actor or waiting frame, and where a node's frames leave the process.
+// Those are the platform functions below.
+//
+// **Locks and costs.** This module's table has a lock of its own. The
+// order is the scheduler's lock, then this one, never the reverse: no
+// member of the table calls the scheduler, and the scheduler calls
+// [credit_back] with its own lock held, which is why a frame is first
+// staged and later sent by [flush], with no lock held, through the node's
+// outbound hook. A frame for a node with no route yet, or from a node
+// whose outbound hook is not bound, waits and goes once both are known.
+// Every remote send encodes its message and its frame. The first send
+// through a new proxy waits one round trip for its first credits. Every
+// identity imported adds a proxy record to the scheduler's table for the
+// life of the process.
+// @compilerrules [runtime-layers, net-wire-format, net-addr-routable, net-addr-capability, net-remote-backpressure, node-exit]
 
 import std.runtime
 
@@ -57,7 +185,8 @@ platform fn control_message(sink: Int, from: Long, payload: Bytes) [] -> Dyn? =>
 // @compilerrules [net-addr-routable]
 platform fn wire_out(from: Long, to: Bytes, frame: Bytes) [] -> None => from, !to, !frame
 
-// ---- the frames [net-wire-format] (D4)
+// ---- the frames
+// @compilerrules [net-wire-format]
 
 // 0: a message for a hosted actor, encoded with its protocol's hash.
 struct MsgFrame { to: Long, actor: Long, bits: Long, from: Long, proto: Str, payload: Bytes }
@@ -73,15 +202,22 @@ struct OpenFrame { to: Long, actor: Long, bits: Long, from: Long }
 struct ControlFrame { to: Long, from: Long, channel: Str, payload: Bytes }
 type Frame = MsgFrame | AnswerFrame | GrantFrame | OpenFrame | ControlFrame
 
-// The routable identity of an actor.
-// @compilerrules [net-addr-routable]
+// The identity an actor's address has on the wire: the [node] it lives on,
+// its index [actor] there, and the random [bits] that make the address hard
+// to guess. Equal identities name the same actor, wherever they are read.
+// @compilerrules [net-addr-routable, net-addr-capability]
 export struct RemoteRef : Hashed<self> by auto {
     node: Long,
     actor: Long,
     bits: Long
 }
 
-// A reply token's wire form.
+// A reply's wire form.
+//
+// [node] is the node that minted it; [kind] is 0 for an actor's
+// continuation, 1 for a waiting frame and 2 for a task; [id] is the actor,
+// the waiter or the exported task; [slot] is the reply's slot; [bits], for
+// an actor's continuation, are the actor's.
 // @compilerrules [net-addr-routable]
 export struct ReplyParts {
     node: Long,
@@ -111,7 +247,9 @@ fn drop_exported_task(t: ExportedTask) [] -> None => !t {
     drop_body(body)
 }
 
-// What importing an identity needs done outside the table.
+// What looking up an identity found: the index [idx] of the actor or proxy
+// that stands for it. The other two outcomes are internal: a proxy, or the
+// shared dead entry, to be made outside the table's lock.
 export struct Found { idx: Int }
 struct MakeProxy {}
 struct MakeDead {}
@@ -614,25 +752,30 @@ fn fresh_node() [] -> Long {
 
 // ---- for the host's shims
 
-// The node the calling thread's pool belongs to.
+// The node the calling thread's pool belongs to: the node a send from here
+// comes from, and the one a pool made here belongs to.
 // @compilerrules [net-addr-routable]
 export fn here_node() [] -> Long {
     return node_of_pool(current_pool())
 }
 
-// A pool made by the calling thread belongs to its node.
+// Records that [pool] belongs to the calling thread's node. [std.core.actor]'s
+// `pool` calls it, so a pool made inside an actor on a virtual node belongs
+// to that node.
 // @compilerrules [net-addr-routable]
 export fn adopt(pool: Int) [] -> None => !pool {
     adopt_pool(pool, here_node())
 }
 
-// Hosts a fresh virtual node in this process.
+// Hosts a fresh virtual node in this process, and answers its id: random,
+// and never negative.
 // @compilerrules [net-addr-routable]
 export fn new_node() [] -> Long {
     return add_node()
 }
 
-// A pool of [n] workers belonging to [node].
+// Makes a pool of [n] worker threads belonging to [node], and answers its
+// index: what runs there runs on that node.
 // @compilerrules [net-addr-routable]
 export fn pool_at(node: Long, n: Int) [] -> Int => !node, n {
     let p = new_pool_of(n, -1)
@@ -640,14 +783,16 @@ export fn pool_at(node: Long, n: Int) [] -> Int => !node, n {
     return p
 }
 
-// The routable identity of local index [addr].
+// The identity of the actor at local index [addr]. A proxy's is the remote
+// actor's; a local actor's bits are minted the first time it is asked for.
 // @compilerrules [net-addr-routable]
 export fn identity(addr: Int) [] -> RemoteRef => addr {
     return identity_of(copy(addr), actor_pool(copy(addr)))
 }
 
-// Whether two addrs name one actor: the same index, or the
-// same identity (an actor of a virtual node and its proxy on another).
+// Whether two addresses name one actor: the same index, or the same
+// identity, as an actor of one node and its proxy on another have. What
+// `==` on two `eff[E]` answers.
 // @compilerrules [net-addr-routable]
 export fn same_actor(a: Int, b: Int) [] -> Bool => a, b {
     if a == b {
@@ -659,10 +804,13 @@ export fn same_actor(a: Int, b: Int) [] -> Bool => a, b {
     return identity(a) == identity(b)
 }
 
-// A decoded identity as a local index:
-// the actor itself when it is this node's and the bits match (a forged one
-// answers the one shared dead entry), a proxy otherwise — made once, with an
-// OPEN frame asking the host for credits.
+// The local index for an address decoded off the wire, as identity
+// ([node], [actor], [bits]).
+//
+// The actor itself, when the identity is this node's and the bits match;
+// the one shared dead entry, when it is this node's and they do not (a
+// forged or unknown address); otherwise a proxy, made the first time the
+// identity is seen, which asks the actor's node for credits.
 // @compilerrules [net-addr-routable, net-addr-capability]
 export fn import_addr(node: Long, actor: Long, bits: Long) [] -> Int => !node, !actor, !bits {
     let r = RemoteRef { node: node, actor: actor, bits: bits }
@@ -684,15 +832,19 @@ export fn import_addr(node: Long, actor: Long, bits: Long) [] -> Int => !node, !
     return got
 }
 
-// Whether [addr] is a proxy of an actor elsewhere.
+// Whether the actor at [addr] is a proxy for an actor on another node.
 // @compilerrules [net-addr-routable]
 export fn remote(addr: Int) [] -> Bool => addr {
     return is_proxy(addr)
 }
 
-// Sends a message already encoded
-// under protocol [proto] to proxy [addr], waiting for a credit first; to a
-// proxy that died (its node left), the silent no-op.
+// Sends [payload], a message already encoded under protocol [proto], to
+// the actor proxy [addr] stands for.
+//
+// It spends a credit, waiting for one first if there is none: that is how a
+// remote mailbox's capacity slows a sender. A send through a proxy that
+// has died (its node left) does nothing, and so does one through an
+// address that is not a proxy.
 // @compilerrules [net-addr-routable, net-remote-backpressure]
 export fn send_remote(addr: Int, proto: Str, payload: Bytes) [] -> None => !addr, !proto, !payload {
     let r = proxy_ref(copy(addr))
@@ -718,8 +870,8 @@ export fn send_remote(addr: Int, proto: Str, payload: Bytes) [] -> None => !addr
     }
 }
 
-// Answers a token minted elsewhere: a REPLY
-// frame back to its node.
+// Answers a reply minted on another node with [payload], the answer
+// already encoded: an answer frame back to the node in [t].
 // @compilerrules [net-addr-routable, net-wire-format]
 export fn answer_remote(t: ReplyParts, payload: Bytes) [] -> None => !t, !payload {
     let from = here_node()
@@ -728,8 +880,8 @@ export fn answer_remote(t: ReplyParts, payload: Bytes) [] -> None => !t, !payloa
     flush()
 }
 
-// A reply token's wire form. Exporting a task moves its body
-// here until its answer returns, keyed by its slot.
+// The wire form of a reply about to leave this node. A task's body is kept
+// here, keyed by the slot, until its answer comes back.
 // @compilerrules [net-addr-routable]
 export fn export_reply(e: Exported) [] -> ReplyParts => !e {
     let {kind, id, slot, body} = e
@@ -749,15 +901,17 @@ export fn export_reply(e: Exported) [] -> ReplyParts => !e {
     return ReplyParts { node: copy(me.node), kind: 0, id: copy(me.actor), slot: slot, bits: copy(me.bits) }
 }
 
-// The core's call when a message that came from node
-// [from] leaves actor [addr]'s mailbox: a credit goes back. Staged, since
-// the core's lock is held; [flush] sends it.
+// Grants node [from] one credit back for the actor at [addr]: the
+// scheduler's call when a message that came from [from] leaves the actor's
+// mailbox. The scheduler's lock is held, so the grant is only staged;
+// [flush] sends it.
 // @compilerrules [net-remote-backpressure]
 export fn credit_back(addr: Int, pool: Int, from: Long) [] -> None => !addr, !pool, !from {
     grant(addr, pool, from, 1)
 }
 
-// Sends every staged frame, with no lock held.
+// Sends every staged frame through its node's outbound hook. Called with
+// no lock held.
 export fn flush() [] -> None {
     let out = take_outbox()
     for s in out {
@@ -765,36 +919,40 @@ export fn flush() [] -> None {
     }
 }
 
-// Records where node [node]'s frames go: its encoded
-// endpoint.
+// Records where frames for [node] go: its endpoint, encoded in [at]. Frames
+// that were waiting for the route are sent.
 // @compilerrules [net-addr-routable]
 export fn route(node: Long, at: Bytes) [] -> None => !node, !at {
     add_route(node, at)
     flush()
 }
 
-// The current node's outbound hook is bound.
+// Records that the current node's outbound hook is bound, so its frames
+// can leave. Frames that were waiting for it are sent.
 // @compilerrules [net-addr-routable]
 export fn outbound_bound() [] -> None {
     set_outbound(here_node())
     flush()
 }
 
-// Whether the current node's outbound hook is bound.
+// Whether the current node is on the wire: its outbound hook is bound.
+// What [std.net]'s `connected` answers.
 // @compilerrules [net-connect]
 export fn connected() [] -> Bool {
     return has_outbound(here_node())
 }
 
-// A proxy's credit balance, or `None` for a local
-// actor.
+// How many credits the proxy at [addr] holds: how many messages it may
+// send before it waits. `None` for an actor that is not a proxy.
 // @compilerrules [net-remote-backpressure]
 export fn credits(addr: Int) [] -> Int? => addr {
     return credits_of(addr)
 }
 
-// `pending(addr)`: messages in flight to
-// a proxy, the queue's depth for a local actor.
+// How much work is in front of the actor at [addr]: for a local actor, the
+// messages in its mailbox; for a proxy, the messages sent through it whose
+// credit has not come back. What [std.net]'s `pending` answers, and what a
+// least-loaded route reads.
 // @compilerrules [actor-group, net-remote-backpressure]
 export fn pending(addr: Int) [] -> Int => addr {
     if is_proxy(copy(addr)) {
@@ -803,15 +961,18 @@ export fn pending(addr: Int) [] -> Int => addr {
     return mailbox_queued(addr)
 }
 
-// The current node's control frames on
-// [channel] go to [sink].
+// Sends the current node's control frames on [channel] to the actor at
+// [sink].
+//
+// Each arrives as a message to the handler's private `control(from, data)`
+// member: how a node group or an actor group hears from its peers.
 // @compilerrules [node-group, actor-group]
 export fn watch_control(channel: Str, sink: Int) [] -> None => !channel, !sink {
     watch_channel(here_node(), channel, sink)
 }
 
-// A CONTROL frame on [channel] from the current
-// node to node [to].
+// Sends [payload] on [channel] from the current node to node [to], as a
+// control frame.
 // @compilerrules [node-group, actor-group]
 export fn send_control(to: Long, channel: Str, payload: Bytes) [] -> None => !to, !channel, !payload {
     let from = here_node()
@@ -820,15 +981,17 @@ export fn send_control(to: Long, channel: Str, payload: Bytes) [] -> None => !to
     flush()
 }
 
-// A CONTROL frame for whichever node receives it: a HELLO's,
-// handed to the transport directly, since the peer has no route yet.
+// A control frame on [channel] for whichever node receives it, encoded:
+// the first frame of a handshake, which the caller hands to the transport
+// itself, since the peer has no route yet.
 // @compilerrules [node-group]
 export fn control_frame(channel: Str, payload: Bytes) [] -> Bytes => !channel, !payload {
     return encode<Frame>(ControlFrame { to: 0, from: here_node(), channel: channel, payload: payload })
 }
 
-// Node [node] has left: its route and protocol
-// table are forgotten, and every proxy of an actor on it dies.
+// Forgets [node], which has left: its route and protocol table go, and
+// every proxy for an actor on it dies with the reason "node left", so its
+// watchers are sent an `Exit`.
 // @compilerrules [node-group, node-exit]
 export fn node_left(node: Long) [] -> None => !node {
     for idx in forget_node(node) {
@@ -836,35 +999,40 @@ export fn node_left(node: Long) [] -> None => !node {
     }
 }
 
-// This program's protocol table, registered at start-up.
+// Registers this program's protocol table, (name, hash) pairs, at
+// start-up: what a handshake tells a peer.
 // @compilerrules [actor-protocol-hash]
 export fn register_protocols(table: List<(Str, Str)>) [] -> None => !table {
     set_protocols(table)
 }
 
+// This program's protocol table, as registered.
+// @compilerrules [actor-protocol-hash]
 export fn local_protocols() [] -> List<(Str, Str)> {
     return protocols()
 }
 
-// Peer [node]'s table, as its handshake carried it.
+// Records [node]'s protocol table, as its handshake carried it.
 // @compilerrules [actor-protocol-hash]
 export fn set_peer_protocols(node: Long, table: List<(Str, Str)>) [] -> None => !node, !table {
     set_peer(node, table)
 }
 
-// A peer's hash for a protocol: `None` for an unknown peer
-// or a protocol it does not have.
+// [node]'s hash for [protocol]: `None` for a peer not met or a protocol it
+// does not have. Two nodes may talk on a protocol only when the hashes
+// agree.
 // @compilerrules [actor-protocol-hash]
 export fn peer_protocol(node: Long, protocol: Str) [] -> Str? => node, protocol {
     return peer_hash(node, protocol)
 }
 
-// Delivers one frame that arrived on the wire.
-// A frame for a node not hosted here, a target that does not exist, a bits
-// mismatch or a malformed payload is dropped, never delivered wrong.
-// Answers whether it was delivered. Payloads are
-// decoded with no lock held: an `Addr` or a `Reply` in one asks this module
-// for its identity.
+// Delivers one frame that arrived on the wire, and answers whether it was
+// delivered.
+//
+// A frame for a node not hosted here, for a target that does not exist,
+// with bits that do not match, or whose payload does not decode is dropped,
+// never delivered wrong. Payloads are decoded with no lock held, since an
+// address or a reply inside one asks this module for its identity.
 // @compilerrules [net-addr-routable, net-wire-format, backend-never-wrong]
 export fn deliver(data: Bytes) [] -> Bool => data {
     let f = decode<Frame>(data)
@@ -958,17 +1126,25 @@ fn deliver_answer(a: AnswerFrame) [] -> Bool => a {
     return false
 }
 
-// ---- the route stubs' views [actor-route-stub]
+// ---- the route stubs' views
+//
+// What `use any group` reads on every send: each actor group's members,
+// mirrored here by its replica, and a version that moves whenever they
+// change or the group is refreshed.
+// @compilerrules [actor-route-stub]
 
-// The replica of [group] mirrors its member set here, after
-// every change; waiting senders wake.
+// Sets the mirrored [members] of [group], by actor index: the group's
+// replica calls it after every change. The view's version moves, and
+// senders waiting for it wake.
 // @compilerrules [actor-route-stub]
 export fn view_set(group: Int, members: List<Int>) [] -> None => !group, !members {
     set_view(group, members)
 }
 
-// The mirrored members of [group], by (node, actor id): the same
-// order on every node and both backends.
+// The mirrored members of [group], sorted by (node, actor index): the same
+// order on every node and both backends, so a selector that picks by
+// position picks alike everywhere. It sorts on every call, in time
+// quadratic in the number of members.
 // @compilerrules [actor-route-stub]
 export fn view_members(group: Int) [] -> List<Int> => group {
     let left: Mut List<Int> = Mut List()
@@ -997,23 +1173,27 @@ fn before(a: RemoteRef, b: RemoteRef) [] -> Bool => a, b {
     return a.actor <= b.actor
 }
 
-// [group]'s view version: moved by every change of its members
-// and by every `refresh`.
+// [group]'s view version: moved by every change of its members and by
+// every refresh. A route selector compares it to the last it saw.
 // @compilerrules [actor-route-stub]
 export fn view_version(group: Int) [] -> Long => group {
     return version_of(group)
 }
 
-// Moves [group]'s view version without changing its members:
-// what something a selector reads outside the view (an election) calls when
-// its answer changes.
+// Moves [group]'s view version without changing its members.
+//
+// For something a selector reads outside the view, such as an election's
+// leader: whoever decides it calls this when the answer changes, and every
+// route over the group looks again.
 // @compilerrules [actor-route-stub]
 export fn view_refresh(group: Int) [] -> None => !group {
     bump(group)
 }
 
-// Waits until [group]'s version moves past [seen], or [nanos]
-// pass, whichever is first.
+// Parks the calling thread until [group]'s version moves past [seen], or
+// [nanos] nanoseconds pass, whichever is first. Answers at once if the
+// version has already moved. How a send waits when its selector finds no
+// member.
 // @compilerrules [actor-route-stub]
 export fn view_wait(group: Int, seen: Long, nanos: Long) [] -> None => !group, !seen, !nanos {
     let me = this_parker()

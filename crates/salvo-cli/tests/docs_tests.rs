@@ -100,11 +100,12 @@ fn std_sources(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// [doc-compilerrules] std's documentation cites compiler rules only in an
-/// `@compilerrules` tag, which hover leaves out, and every rule it cites
-/// exists. A documentation block is the run of comment lines directly above
-/// a declaration [doc-comment]; a cited rule is a bracketed label the specs
-/// define (`[symbol]` references are not labels, so they are left alone).
+/// [doc-compilerrules] std's comments cite compiler rules only in an
+/// `@compilerrules` tag, which hover and `salvo docs` leave out, or inside a
+/// fn body; and every rule `@compilerrules` cites exists. A cited rule is a
+/// bracketed label the specs define (`[symbol]` references are not labels,
+/// so they are left alone). A test annex is held to its doc blocks only
+/// [doc-comment].
 #[test]
 fn std_docs_cite_rules_only_in_compilerrules() {
     let labels = defined_labels();
@@ -129,6 +130,12 @@ fn std_docs_cite_rules_only_in_compilerrules() {
     for file in &files {
         let text = std::fs::read_to_string(file).unwrap();
         let lines: Vec<&str> = text.lines().collect();
+        // A module's comments cite rules only inside fn bodies, where they
+        // are notes for the compiler's maintainers; a test annex's, only
+        // outside its doc blocks.
+        let annex = file.to_string_lossy().ends_with(".test.sv");
+        let bodies = fn_body_lines(&text);
+        let in_body = |line: usize| bodies.iter().any(|(a, b)| *a < line && line < *b);
         let mut i = 0;
         while i < lines.len() {
             if !lines[i].trim_start().starts_with("//") {
@@ -150,7 +157,7 @@ fn std_docs_cite_rules_only_in_compilerrules() {
                         let at = format!("{}:{}", file.strip_prefix(repo_root()).unwrap().display(), start + n + 1);
                         if tag && !labels.contains(label) {
                             unknown.push(format!("{at}: `{label}`"));
-                        } else if !tag && documents && labels.contains(label) {
+                        } else if !tag && labels.contains(label) && if annex { documents } else { !in_body(start + n) } {
                             inline.push(format!("{at}: [{label}]"));
                         }
                     }
@@ -159,8 +166,35 @@ fn std_docs_cite_rules_only_in_compilerrules() {
             }
         }
     }
-    assert!(inline.is_empty(), "std documentation cites rules in its prose, where hover shows them; move them to `@compilerrules`:\n{}", inline.join("\n"));
+    assert!(inline.is_empty(), "std's comments cite rules in their prose, where hover and the wiki show them; move them to `@compilerrules` (inside a fn body a comment may cite them):\n{}", inline.join("\n"));
     assert!(unknown.is_empty(), "`@compilerrules` cites rules no spec defines:\n{}", unknown.join("\n"));
+}
+
+/// The 0-based lines that open and close each fn body of `src`, members
+/// included: a line strictly between the two is inside the body.
+fn fn_body_lines(src: &str) -> Vec<(usize, usize)> {
+    use salvo_syntax::ast::{FnDecl, Item};
+    let (module, _) = salvo_syntax::parse_module(src);
+    let line = |offset: u32| src[..offset as usize].matches('\n').count();
+    let mut out = Vec::new();
+    let mut add = |fs: &[FnDecl]| {
+        for f in fs {
+            if let Some(b) = &f.body {
+                out.push((line(b.span.start), line(b.span.end)));
+            }
+        }
+    };
+    for item in &module.items {
+        match item {
+            Item::Fn(f) => add(std::slice::from_ref(f)),
+            Item::Effect(e) => add(&e.fns),
+            Item::Handler(h) => add(&h.fns),
+            Item::Fns(g) => add(&g.fns),
+            Item::Qualifier(q) => add(&q.fns),
+            _ => {}
+        }
+    }
+    out
 }
 
 /// [diag-id] Every diagnostic id names a rule a spec defines (its label,
@@ -318,7 +352,7 @@ fn salvo_docs_writes_wiki_pages() {
     .unwrap();
     std::fs::write(
         root.join("src/shapes.sv"),
-        "// Shapes and their areas.\n//\n// Start with [Shape].\n\n// A square, by its side.\n//\n// ```\n// let s = Shape { side: 2 }\n// ```\nexport struct Shape {\n    // The length of a side.\n    side: Int\n}\n\n// The area of [s], a [Shape].\n//\n// @param s  the shape\n// @compilerrules [fn-overload] hidden\nexport fn area(s: Shape) -> Int {\n    return s.side * s.side\n}\n\nfn hidden() -> Int {\n    return 0\n}\n",
+        "// Shapes and their areas.\n//\n// Start with [Shape].\n\n// A square, by its side.\n//\n// ```\n// no-check\n// let s = Shape { side: 2 }\n// ```\nexport struct Shape {\n    // The length of a side.\n    side: Int\n}\n\n// The area of [s], a [Shape].\n//\n// @param s  the shape\n// @compilerrules [fn-overload] hidden\nexport fn area(s: Shape) -> Int {\n    return s.side * s.side\n}\n\nfn hidden() -> Int {\n    return 0\n}\n",
     )
     .unwrap();
     std::fs::write(root.join("guide/Start.md"), "# Shop\n\nRead [the tour](Tour.md) first.\n").unwrap();
@@ -333,7 +367,7 @@ fn salvo_docs_writes_wiki_pages() {
     assert!(!module.contains("hidden"), "a private fn and `@compilerrules` are left out: {module}");
     assert!(module.contains("Start with [`Shape`](#struct-shape)."), "{module}");
     assert!(module.contains("The area of `s`, a [`Shape`](#struct-shape)."), "{module}");
-    assert!(module.contains("```rust\nlet s = Shape { side: 2 }\n```"), "{module}");
+    assert!(module.contains("```rust\nlet s = Shape { side: 2 }\n```"), "the checker's `no-check` marker is left out [doc-example-nocheck]: {module}");
     assert!(module.contains("- `side: Int` — The length of a side."), "{module}");
     assert!(module.contains("**Parameters**"), "{module}");
     let home = read("Home.md");

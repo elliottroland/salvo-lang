@@ -21559,7 +21559,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     fns(&e.fns, &mut visit);
                 }
                 Item::Handler(h) => {
-                    visit(&h.docs, &h.name, Owner::Other);
+                    // A handler's constructor parameters are documented as
+                    // a fn's are.
+                    visit(&h.docs, &h.name, Owner::Fn(&h.params, false));
                     fns(&h.fns, &mut visit);
                 }
                 Item::Fns(p) => {

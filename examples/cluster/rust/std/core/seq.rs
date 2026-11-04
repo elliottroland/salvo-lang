@@ -173,7 +173,7 @@ pub fn next__Filtering<It, T: Clone, E: Clone>(e: &E, t: &mut crate::std_core_se
             return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<T>(x_2));
         };
     }
-    panic!("salvo: unreachable at std.core.seq:196:5");
+    panic!("salvo: unreachable at std.core.seq:308:5");
     return crate::unions::Union2::U2(crate::std_core_iterator::finished());
 }
 
@@ -345,7 +345,7 @@ pub fn next__SkippingWhile<It, T: Clone, E: Clone>(e: &E, t: &mut crate::std_cor
             return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<T>(x_3));
         };
     }
-    panic!("salvo: unreachable at std.core.seq:345:5");
+    panic!("salvo: unreachable at std.core.seq:519:5");
     return crate::unions::Union2::U2(crate::std_core_iterator::finished());
 }
 

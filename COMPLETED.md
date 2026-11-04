@@ -102,6 +102,11 @@ cargo run -- lsp
 # (a test fails if the checked-in copy is stale):
 cargo run -- lang tm-grammar --out vscode/syntaxes/salvo.tmLanguage.json
 
+# std's documentation [cli-docs] [doc-example-nocheck]:
+(cd lib && ../target/debug/salvo docs)          # regenerate the wiki checkout
+python3 tools/check-doc-examples.py             # type-check every doc example (~20s)
+python3 tools/check-doc-examples.py --code-unchanged   # a doc-only edit changed no code
+
 # Verify generated Kotlin manually (the CLI prints the entry point):
 kotlinc $(find out -name '*.kt') -d classes && kotlin -cp classes salvo.main.MainKt
 # Verify generated Rust manually (the CLI prints the exact command):
@@ -143,6 +148,54 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-30 — std's doc comments rewritten for readers new to Salvo (user request, [doc-compilerrules] [doc-example-nocheck])
+
+- **Asked** (user, 2026-10-30): std's comments should explain how things
+  work to someone who does not know Salvo's insides, Java's
+  `ConcurrentHashMap` docs the model; examples in module docs and for
+  functions and actors; more detail for the runtime; no `[rule-label]` in the
+  comments, kept only in `@compilerrules` lines and in fn bodies (user, yes
+  to both).
+- **Built**: every non-test std module (47 files, about 14.6k lines) has a
+  module doc saying what it is for, how it behaves, its guarantees and costs,
+  with an example using its main types and functions, and every exported
+  declaration a summary that stands alone, its edge cases and an example
+  where use is not obvious. `std.core.seq` was written first as the
+  exemplar, the style guide went into DOCS.md, and seven sub-agents did the
+  rest in parallel, comments only. History ("user decision …") and
+  maintainer notes left the doc blocks: into fn bodies, or a free-standing
+  block above. 356 doc examples, every one type-checked
+  (`tools/check-doc-examples.py`, new; `--code-unchanged` proved no code
+  line moved), most also run on a backend to confirm the results their
+  comments state.
+- **The docs test widened** (`std_docs_cite_rules_only_in_compilerrules`):
+  a module's comments cite rules only in `@compilerrules` or inside a fn
+  body (found by the parsed bodies' spans); a test annex is still held to
+  its doc blocks only.
+- **Tooling that fell out**: a fence's `no-check` first line is dropped by
+  `doc::split`, so hover and `salvo docs` never show it, and a fence's lines
+  are never read as tags; a field written on its struct's line (`struct
+  Unreachable { to: NodeEndpoint }`) no longer takes the struct's doc as its
+  own; `salvo docs` lists exported `comptime fn`s (read from the file, since
+  the expansion removes them) with their kind bound, and numbers two
+  headings GitHub would anchor alike (`fn ok`, `fn Ok` → `#fn-ok-1`);
+  `@param` is accepted on a handler, for its constructor parameters.
+- **Spec fixes the rewrite found**: the head line of [col-insertion-order]
+  had been lost (its body sat under [col-deque]); [col-duplicate-keys] and
+  [backend-parity], cited across the spec and the runtime files, were never
+  defined, and now are; `NodeId`'s field is `value`, not `id`. Stale
+  comments corrected: sorted containers' custom orderings work (the doc said
+  "not built"), they are sorted arrays searched by bisection rather than
+  trees, Kotlin's `Map`/`Set` are std's own insertion-ordered tables rather
+  than `LinkedHashMap`, floats do have `cmp`, `actor_group` spawns its
+  replica on a new pool, `NodeGroup.leave` does not stop the node, and
+  `read_bytes` may answer short before the end. Labels no spec defines
+  (`cmp-canonical`, retired with the `@Type` selector; `mod-private`) were
+  dropped.
+- **Defects found and not fixed**: ROADMAP §0bd (a union's `Ordered by
+  auto` recursing, host short reads ending `read_int`, Kotlin's fault-sink
+  pool, Kotlin's linear sorted search, and two inference rough edges).
 
 ### 2026-10-30 — `salvo docs` writes a project's documentation as wiki pages (user decisions, [cli-docs])
 
@@ -39898,6 +39951,17 @@ snapshot diffs.
   looked harmless. Check the edited text in the same shell command as the
   build (`grep -c 'new text' file && touch file && cargo build`), and trust
   a run's output only when it shows the change you expect.
+
+- **Writing a std doc example** (2026-10-30, the std docs rewrite). The
+  checker imports the documented module, so an example in a std-internal
+  module (`std.runtime*`) cannot be checked and is `no-check`; so is one
+  spanning two files. A fence cannot mix top-level declarations with loose
+  statements (wrap them in a `fn`). Reads lag edits here too: a check run
+  right after a write can report "0 examples" or pass on the old text; and
+  a `let it = iter(xs)` cannot then be handed to an adaptor (`taking(it, 2)`
+  moves a binding that shares `xs`'s fate), so examples pass `iter(xs)`
+  inline. Effect members and handler members render only on hover, not on
+  the wiki page, so keep their docs short.
 
 - **A `qualifies` call is typed by what the test binds, and only by that**
   (2026-10-30): nothing but `check_predicate_quals`'s substitution fixes the

@@ -348,7 +348,7 @@ class ManualTime : Timer, TimerCtl {
                         __pick1_2
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.time:494:55")
+                        throw AssertionError("salvo: unreachable at std.time:694:55")
                     }
                 }
             }
@@ -420,7 +420,7 @@ fun earliestDue(deadlines: List<Long>, target: Long): Int? {
                     __pick2_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.time:519:44")
+                    throw AssertionError("salvo: unreachable at std.time:719:44")
                 }
             }
         }

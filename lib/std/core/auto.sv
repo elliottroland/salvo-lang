@@ -1,31 +1,75 @@
-// The structural implementations — the ones `by auto` stamps (user decisions
-// 2026-09-28, the comptime rounds). Each is a `comptime fn` [comptime-bound]:
-// compile-time code over a type's fields or arms, instantiated at a concrete
-// type by a `by` clause and never called as itself. What a body may know about
-// `T` is `std.core.comptime`'s model: `T.fields` is a `List<Field>`, `T.arms` a
-// `List<Arm>`, and a `[when field.kind]` is a `when` over `Kind`.
+// The structural `cmp`, `eq`, `hash` and `to_str` that `by auto` writes for
+// a struct or a named union: compare, digest or print a value by its fields,
+// in declaration order.
 //
-// [obligation-by] `struct Point : Ordered<self> by auto, Hashed<self> by auto`
-// stamps `cmp`, `hash` and `eq` for `Point`, each declared on the type
-// [fn-attached]. [fn-by] `fn cmp(a: Point, b: Point) -> Int by auto` stamps
-// one member, which is how a type mixes a structural `cmp` with a
-// hand-written `eq`. Nothing here applies on its own: being in `std.core` means
-// `auto` can be named without an import, and nothing more.
+// A type asks for them on the obligations it declares, and gets ordinary
+// functions declared on the type, exactly as if it had written them:
 //
-// What a stamped body needs of the type is checked where the type is
-// declared: `cmp(a.[field], b.[field])` resolves per field, so a field with
-// no `cmp` in scope — a `Double`, a function — is reported at that field, as
-// "in `cmp` from `auto` for `Point.y: Double`: …" [comptime-instantiate].
+// ```
+// struct Point : Ordered<self> by auto, Hashed<self> by auto, ToStr<self> by auto {
+//     x: Int,
+//     y: Int
+// }
 //
-// The contracts are `std.core.compare`'s: `cmp` is lexicographic in declaration
-// order for a struct and by arm index then payload for a union; `eq` and
-// `hash` walk the same fields, so they agree by construction
-// [cmp-hash-values].
+// fn main() [use] -> None {
+//     use StdConsole()
+//     let p = Point { x: 1, y: 2 }
+//     let q = Point { x: 1, y: 3 }
+//     println("${p < q} ${p == q}")                    // true false
+//     println("${p}")                                  // Point { x: 1, y: 2 }
+// }
+// ```
+//
+// `: Ordered<self> by auto` writes `cmp`, `: Eq<self> by auto` writes `eq`,
+// `: Hashed<self> by auto` writes `hash` and `eq`, and `: ToStr<self> by
+// auto` writes `to_str`. `auto` is this module, which every file can name
+// without an import. Nothing is written unless a type asks: a struct with
+// no `cmp` cannot be compared, and one with no `to_str` does not
+// interpolate.
+//
+// **One function at a time.** `by auto` also works on a single declaration,
+// which is how a type mixes written and hand-written members. The
+// declaration names its parameters as the group member does (`a` and `b`
+// for `cmp` and `eq`, `value` for `hash` and `to_str`):
+//
+// ```
+// struct Version : Eq<self> by auto {
+//     major: Int,
+//     minor: Int
+//
+//     fn cmp(a: Version, b: Version) -> Int by auto
+// }
+//
+// fn to_str(v: Version) [] -> Str => v {
+//     return "${v.major}.${v.minor}"
+// }
+// ```
+//
+// **What the functions mean.** For a struct, `cmp` is lexicographic in field
+// declaration order, so the order of the fields is part of the meaning;
+// `eq` and `hash` walk the same fields, so the three agree, as
+// [std.core.compare] requires. For a union, values in different arms order
+// by the arms' declared positions, and values in the same arm by that arm's
+// own function. `to_str` prints a struct in the shape of its literal, the
+// same text on both backends.
+//
+// **Where errors land.** Each function calls the same function on every
+// field, so every field's type needs one. A field without it is reported at
+// that field, when the type is declared:
+// "in `hash` from `auto` for `Reading.value: Double`: no matching overload
+// for `hash(Double)`". A `canbe Mut` struct is refused a `hash` outright: a
+// key that can change while a collection holds it corrupts the collection.
+//
+// How a compile-time function like these is written is the Compile-time
+// functions topic; what their bodies may know about a type is
+// [std.core.comptime].
+// @compilerrules [comptime-bound, obligation-by, fn-attached, fn-by, comptime-instantiate, cmp-hash-values]
 
 // ===== structs =====
 
-// Lexicographic by field, in declaration order — so field order is part of
-// the meaning, as it always was for the structural `cmp`.
+// Orders two struct values field by field, in declaration order: the first
+// field that differs decides, and two values whose fields all tie are
+// equal. Each field is compared with its own type's `cmp`.
 export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {
     [for field in T.fields] {
         let c = cmp@[site](a.[field], b.[field])
@@ -36,6 +80,9 @@ export comptime fn cmp<T is Struct>(a: T, b: T) [] -> Int => a, b {
     return 0
 }
 
+// Whether two struct values are equal: every field equal, by its own type's
+// `eq`, checked in declaration order and stopping at the first that
+// differs.
 export comptime fn eq<T is Struct>(a: T, b: T) [] -> Bool => a, b {
     [for field in T.fields] {
         if !eq@[site](a.[field], b.[field]) {
@@ -45,9 +92,12 @@ export comptime fn eq<T is Struct>(a: T, b: T) [] -> Bool => a, b {
     return true
 }
 
+// The hash of a struct value, folding its fields' own hashes in declaration
+// order with `mix_hash`.
+//
 // A `canbe Mut` struct is refused: a key that can change while a container
 // holds it corrupts the container's lookup, so only an immutable struct may
-// be one.
+// be one. Write the `hash` by hand if you need one anyway.
 // @compilerrules [col-hashed-ordered]
 export comptime fn hash<T is Struct>(value: T) [] -> Long => value {
     [if T.mutable] {
@@ -60,9 +110,13 @@ export comptime fn hash<T is Struct>(value: T) [] -> Long => value {
     return h
 }
 
-// The literal's own shape, `Point { x: 1, y: 2 }` — identical on both
-// backends, which is the whole reason the language fixes it rather than
-// deferring to `Debug` or `toString`.
+// The text of a struct value in the shape of its literal,
+// `Point { x: 1, y: 2 }`, identical on both backends.
+//
+// Each field is interpolated, so it renders as `"${value}"` would render it:
+// the basic types natively, a nested struct by its own `to_str` (which it
+// must have). The language fixes the format, rather than leaving it to each
+// backend's own debug text, so that a program prints the same everywhere.
 // @compilerrules [interp-to-str]
 export comptime fn to_str<T is Struct>(value: T) [] -> Str => value {
     let out: Mut Str = Mut Str("${T.name} {")
@@ -83,8 +137,18 @@ export comptime fn to_str<T is Struct>(value: T) [] -> Str => value {
 
 // ===== unions =====
 
-// Arms order by their declared position; two values in
-// the same arm order by the arm's own `cmp`.
+// Orders two values of a named union: by the position of their arms in the
+// declaration, and two values in the same arm by that arm's own `cmp`. Two
+// `None`s tie.
+//
+// ```
+// struct Manual : Ordered<self> by auto, Hashed<self> by auto { note: Str }
+// struct Imported : Ordered<self> by auto, Hashed<self> by auto { feed: Str, n: Int }
+// type Source = Manual | Imported : Ordered<self> by auto, Hashed<self> by auto
+// ```
+//
+// Each arm needs a `cmp` of its own (and an `eq` and a `hash` for
+// `Hashed`), here also from `by auto`.
 // @compilerrules [type-union-arm-identity]
 export comptime fn cmp<T is Union>(a: T, b: T) [] -> Int => a, b {
     [when a] {
@@ -107,6 +171,8 @@ export comptime fn cmp<T is Union>(a: T, b: T) [] -> Int => a, b {
     }
 }
 
+// Whether two values of a named union are equal: in the same arm, and equal
+// by that arm's own `eq`. Two `None`s are equal.
 export comptime fn eq<T is Union>(a: T, b: T) [] -> Bool => a, b {
     [when a] {
         [x] {
@@ -127,6 +193,8 @@ export comptime fn eq<T is Union>(a: T, b: T) [] -> Bool => a, b {
     }
 }
 
+// The hash of a value of a named union: its arm's position, mixed with the
+// arm's own hash of the value.
 export comptime fn hash<T is Union>(value: T) [] -> Long => value {
     [when value] {
         [arm] {
@@ -139,6 +207,8 @@ export comptime fn hash<T is Union>(value: T) [] -> Long => value {
     }
 }
 
+// The text of a value of a named union: the text of the arm it holds, by
+// that arm's own `to_str`, or `None` for the `None` arm.
 export comptime fn to_str<T is Union>(value: T) [] -> Str => value {
     [when value] {
         [arm] {

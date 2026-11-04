@@ -152,7 +152,7 @@ pub fn to_str__SortedMap<K: Clone, V: Clone>(map: &crate::std_core_sorted::Sorte
                 let mut __pick1_1 = __pick1.unwrap();
                 __pick1_1
             } else {
-                panic!("salvo: unreachable at std.core.sorted:174:43")
+                panic!("salvo: unreachable at std.core.sorted:315:43")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
@@ -189,7 +189,7 @@ pub fn eq__SortedMap_SortedMap<K: Clone, V: Clone>(a: &crate::std_core_sorted::S
                 let mut __pick2_1 = __pick2.unwrap();
                 __pick2_1
             } else {
-                panic!("salvo: unreachable at std.core.sorted:209:29")
+                panic!("salvo: unreachable at std.core.sorted:352:29")
             }
         }, theirs_2)) {
             return false;
@@ -209,7 +209,7 @@ pub fn min<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> T {
             let mut __pick3_1 = __pick3.unwrap();
             __pick3_1
         } else {
-            panic!("salvo: unreachable at std.core.sorted:249:28")
+            panic!("salvo: unreachable at std.core.sorted:403:28")
         }
     };
 }
@@ -221,7 +221,7 @@ pub fn max<T: Clone>(set: &crate::std_core_sorted::SortedSet<T>) -> T {
             let mut __pick4_1 = __pick4.unwrap();
             __pick4_1
         } else {
-            panic!("salvo: unreachable at std.core.sorted:253:28")
+            panic!("salvo: unreachable at std.core.sorted:408:28")
         }
     };
 }
@@ -233,7 +233,7 @@ pub fn first_key<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, 
             let mut __pick5_1 = __pick5.unwrap();
             __pick5_1
         } else {
-            panic!("salvo: unreachable at std.core.sorted:257:34")
+            panic!("salvo: unreachable at std.core.sorted:413:34")
         }
     };
 }
@@ -245,7 +245,7 @@ pub fn last_key<K: Clone, V: Clone>(map: &crate::std_core_sorted::SortedMap<K, V
             let mut __pick6_1 = __pick6.unwrap();
             __pick6_1
         } else {
-            panic!("salvo: unreachable at std.core.sorted:261:33")
+            panic!("salvo: unreachable at std.core.sorted:418:33")
         }
     };
 }

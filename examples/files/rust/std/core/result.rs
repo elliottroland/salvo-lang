@@ -38,7 +38,7 @@ pub fn both<A: Clone, B: Clone, E: Clone>(mut a: crate::unions::Union2<A, Vec<E>
             let mut b_3 = match b { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<E>>(b_3));
         } else {
-            panic!("salvo: unhandled union arm at std.core.result:78:13");
+            panic!("salvo: unhandled union arm at std.core.result:193:13");
         }
     } else if matches!(a, crate::unions::Union2::U2(_)) {
         let mut a_4 = match a { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
@@ -49,10 +49,10 @@ pub fn both<A: Clone, B: Clone, E: Clone>(mut a: crate::unions::Union2<A, Vec<E>
             let mut b_6 = match b { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<E>>(crate::std_core_result::joined::<E>(a_4, b_6, &mut *copy)));
         } else {
-            panic!("salvo: unhandled union arm at std.core.result:84:13");
+            panic!("salvo: unhandled union arm at std.core.result:199:13");
         }
     } else {
-        panic!("salvo: unhandled union arm at std.core.result:76:5");
+        panic!("salvo: unhandled union arm at std.core.result:191:5");
     };
 }
 
@@ -66,7 +66,7 @@ pub fn map2<A: Clone, B: Clone, C: Clone, E: Clone, Fx: Clone>(fx: &Fx, mut a: c
             let mut b_3 = match b { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<E>>(b_3));
         } else {
-            panic!("salvo: unhandled union arm at std.core.result:99:13");
+            panic!("salvo: unhandled union arm at std.core.result:221:13");
         }
     } else if matches!(a, crate::unions::Union2::U2(_)) {
         let mut a_4 = match a { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
@@ -77,10 +77,10 @@ pub fn map2<A: Clone, B: Clone, C: Clone, E: Clone, Fx: Clone>(fx: &Fx, mut a: c
             let mut b_6 = match b { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_result::Errs::<Vec<E>>(crate::std_core_result::joined::<E>(a_4, b_6, &mut *copy)));
         } else {
-            panic!("salvo: unhandled union arm at std.core.result:105:13");
+            panic!("salvo: unhandled union arm at std.core.result:227:13");
         }
     } else {
-        panic!("salvo: unhandled union arm at std.core.result:97:5");
+        panic!("salvo: unhandled union arm at std.core.result:219:5");
     };
 }
 
@@ -95,5 +95,5 @@ pub fn joined<X: Clone>(mut a: Vec<X>, mut b: Vec<X>, copy: &mut dyn FnMut(&X) -
     if crate::std_core_nonempty::NonEmpty_qualifies::<Vec<X>>(&errors, &mut |__a0: &Vec<X>| crate::std_core_list::size_platform(__a0)) {
         return errors;
     };
-    return panic!("salvo: two non-empty lists joined are not empty at std.core.result:127:5");
+    return panic!("salvo: two non-empty lists joined are not empty at std.core.result:250:5");
 }

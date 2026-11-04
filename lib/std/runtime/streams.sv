@@ -1,38 +1,83 @@
-// `runtime.streams`: the process's host stream table, a service on the
-// runtime's core [runtime-layers] (the runtime record).
+// The process's host stream table: every stream the host opens (a file, a
+// network body, a buffer of bytes) is registered here under a handle, and
+// read and written through it, whoever opened it.
 //
-// Every host producer — a file `HostRawFs` opened, a body a network client
-// received, a buffer — registers a host stream here and gets a handle back,
-// and `stream.host`'s `HostRawStreams` reads and writes whatever is
-// registered, whoever registered it. The table, the read-ahead buffer, line
-// splitting, the byte position, failure recording and strict decoding are
-// Salvo; the host supplies only the stream objects and four leaf operations
-// on them (read a chunk, write, flush, close).
+// This is std's own module, as everything under `std.runtime` is: a program
+// cannot import it. A program reads and writes streams through [std.stream]'s
+// [Streams] effect; on the host, [std.stream.host]'s [HostRawStreams] is the
+// handler that works on this table, and [std.fs.host]'s [HostRawFs]
+// registers the files it opens here. Host code (an SDK's glue, written in
+// Rust or Kotlin) registers its own streams through the runtime's entry
+// points, `salvo_stream_register_in`/`_out` on Rust and
+// `SalvoStreams.registerIn`/`registerOut` on Kotlin, and gets back a handle
+// to wrap in a stream token.
 //
-// The table is locked only to find an entry: an operation **checks the entry
-// out**, works on it with no lock held, and checks it back in, so a slow read
-// of one stream never blocks another. A stream token is linear, so two
-// operations on one handle at once are a host program's doing (a reader
-// thread); the second waits until the first checks the entry back in.
+// **What is Salvo and what is the host's.** The table, the read-ahead buffer,
+// line splitting, the byte position, failure recording and strict UTF-8
+// decoding are all written here, in Salvo. The host supplies only the stream
+// objects ([HostIn], [HostOut]) and a few leaf operations on them: read a
+// chunk, write, flush, close, and a stream over bytes in memory.
+//
+// **Checking out.** The table is locked only while an entry is found. An
+// operation **checks the entry out** of the table, works on it with no lock
+// held, and checks it back in, so a slow read of one stream never blocks
+// work on another. A second operation on a handle that is checked out waits
+// until the entry comes back. Stream tokens are linear, so a program cannot
+// start two operations on one stream at once; the wait is for host code,
+// such as the reader thread [receive] starts.
+//
+// ```
+// no-check
+// // How stream.host's HostRawStreams reads up to `max` bytes.
+// let e = checkout_in(copy(handle))
+// let r = read_up_to(e, max)
+// let source = copy(e.source)
+// checkin_in(handle, e)
+// if r.fault is Fault f {
+//     return err(kind(source, f))
+// }
+// return ok(r.data)
+// ```
+//
+// **Failures are recorded.** When a read fails, or its bytes are not valid
+// UTF-8, the failure is recorded on the entry: that read and every later one
+// report the end of the stream, and closing it answers the failure. A failed
+// write is recorded the same way; later writes are skipped, and the next
+// flush or the close answers it.
+//
+// **A handle belongs to one table.** Every stream table in the program, this
+// one and the in-memory ones ([std.fs.mem]'s [MemFs]), draws its handles from
+// one counter ([fresh_handle]). A handle this table did not mint is
+// another provider's stream, which is a program bug, and the operation traps
+// rather than reading the wrong stream.
+// @compilerrules [runtime-layers, stream-table, stream-provider, stream-handle]
 
 import std.runtime
 
-// ---- what only the host can do [platform-type]
+// ---- what only the host can do
+// @compilerrules [platform-type]
 
-// A host stream to read: `Box<dyn Read + Send>`, an `InputStream`.
+// A host stream open for reading: a `Box<dyn Read + Send>` on Rust, an
+// `InputStream` on Kotlin.
+//
+// Linear: whoever holds one must close it. An entry in the table holds it
+// until the stream is closed or [take_for_host] hands it to host code.
 export linear platform type HostIn canbe Mut
 
-// A host stream to write.
+// A host stream open for writing: a `Box<dyn Write + Send>` on Rust, an
+// `OutputStream` on Kotlin. Linear, like [HostIn].
 export linear platform type HostOut canbe Mut
 
-// What one host read answers: up to the asked-for bytes (none at the end),
-// or what failed.
+// What one host read answers: the bytes read, or what failed.
 export struct HostRead {
+    // Up to the number of bytes asked for; none at the end of the stream.
     data: Bytes,
+    // The host's message when the read failed.
     error: Str?
 }
 
-// Reads up to [max] bytes; empty at the end of the stream.
+// Reads up to [max] bytes in one host read; empty at the end of the
+// stream. A read may answer fewer bytes than asked for before the end.
 platform fn host_read(h: Mut HostIn, max: Int) [] -> HostRead => h: Mut, max
 
 // Releases the stream.
@@ -50,42 +95,60 @@ platform fn host_close_out(h: Mut HostOut) [] -> Str? => !h
 // A host stream over [data]: what `raw_from_bytes` registers.
 platform fn host_bytes_in(data: Bytes) [] -> Mut HostIn => !data
 
-// A handle this table never minted is another provider's
-// stream — a `MemFs` token handed to the host — which is a program bug, and
-// traps naming the rule.
+// Traps for a handle this table never minted: another provider's stream (a
+// `MemFs` token handed to the host), which is a program bug. The trap names
+// the rule.
 // @compilerrules [stream-provider]
 platform fn not_ours(handle: Long) [] -> Never => handle
 
 // ---- the entries
 
-// A failure recorded against a stream: strict decoding
-// ([utf8]) or what the host reported. Once one is recorded, later reads
-// report the end and the close reports why; the same for writes at flush and
-// close.
+// A failure recorded against a stream: bytes that were not valid UTF-8, or
+// an error the host reported.
+//
+// Once a read records one, that read and every later one report the end of
+// the stream, and [close_in] answers it. Once a write records one, later
+// writes are skipped, and [flush] or [close_out] answers it.
 // @compilerrules [stream-table]
 export struct Fault {
+    // `true` when the failure is bytes that did not decode as UTF-8.
     utf8: Bool,
+    // The host's message; empty for a decoding failure.
     message: Str
 }
 
-// A readable stream. [position] counts bytes *handed to the
-// reader* — bytes read ahead for a line do not count until they are taken —
-// so a file's position is exactly the offset `open_read_at` takes.
+// A readable stream in the table: the host stream and what this module
+// keeps about it.
+//
+// Linear, because it owns the host stream: it is closed by [close_in], or
+// handed to host code by [take_for_host].
 // @compilerrules [stream-table]
 export linear struct InEntry canbe Mut {
+    // What the stream is, for error messages: a path, or a description.
     source: Str,
+    // The host stream.
     host: Mut HostIn,
+    // Bytes handed to the reader so far. Bytes read ahead for a line do not
+    // count until they are taken, so for a file this is exactly the offset
+    // `open_read_at` would resume at.
     position: Long,
+    // Bytes read from the host and not yet handed out.
     ahead: Mut Bytes,
+    // The failure recorded on the stream, if any.
     failed: Fault?
 }
 
-// A writable stream. [position] counts bytes accepted.
+// A writable stream in the table. Linear, because it owns the host stream:
+// it is closed by [close_out].
 // @compilerrules [stream-table]
 export linear struct OutEntry canbe Mut {
+    // What the stream is, for error messages: a path, or a description.
     source: Str,
+    // The host stream.
     host: Mut HostOut,
+    // Bytes accepted so far.
     position: Long,
+    // The failure recorded on the stream, if any.
     failed: Fault?
 }
 
@@ -105,8 +168,8 @@ fn drop_out_entry(e: Mut OutEntry) [] -> None => !e {
 struct Busy {}
 struct Unknown {}
 
-// A receive in flight: the answer's token, until the reader
-// thread has read.
+// A receive in flight: the reply to answer, kept until the reader thread
+// has read. One dropped unanswered is answered with the end of the stream.
 // @compilerrules [stream-receive]
 linear struct Pending { handle: Long, done: Reply<Chunk> }
 
@@ -121,8 +184,8 @@ effect StreamTable {
     fn put_out(handle: Long, e: Mut OutEntry) -> None => !handle, !e
     fn take_in(handle: Long, me: Parker) -> Mut InEntry | Busy | Unknown => handle, !me
     fn take_out(handle: Long, me: Parker) -> Mut OutEntry | Busy | Unknown => handle, !me
-    // Entries checked out are not in the table; [remove] forgets one for
-    // good (a close).
+    // Entries checked out are not in the table; this forgets [handle] for
+    // good (a close), waking whoever waits for it.
     fn forget(handle: Long) -> None => handle
     fn add_pending(p: Pending) -> None => !p
     fn take_pending(handle: Long) -> Pending? => handle
@@ -232,39 +295,58 @@ fn unbusy(busy: Mut List<Long>, waiting: Mut List<Parker>, handle: Long) [] -> N
     }
 }
 
-// ---- registering [stream-table]
+// ---- registering
+// @compilerrules [stream-table]
 
-// A handle for a new stream, unique in the process: every
-// stream table, host and in-memory, draws from this one counter, so a handle
-// reaching the wrong table is unknown there rather than another stream's.
+// A handle for a new stream, unique in the process.
+//
+// Every stream table, the host's and the in-memory ones, draws from this
+// one counter, so a handle that reaches the wrong table is unknown there
+// rather than another stream's. Handles start at 1 and only go up.
 // @compilerrules [stream-handle]
 export fn fresh_handle() [] -> Long {
     return next_handle()
 }
 
-// Registers a readable host stream named [source], at byte [position].
+// Registers a readable host stream and answers its handle.
+//
+// @param source    what the stream is, for error messages: a path, or a
+//                  description
+// @param host      the host stream; the table owns it from now on
+// @param position  the byte offset the stream starts at (non-zero for a
+//                  file opened part-way)
 export fn register_in(source: Str, host: Mut HostIn, position: Long) [] -> Long => !source, !host, !position {
     let handle = fresh_handle()
     put_in(copy(handle), Mut InEntry { source: source, host: host, position: position, ahead: mut_bytes(), failed: None })
     return handle
 }
 
-// Registers a writable host stream named [source], at byte [position].
+// Registers a writable host stream and answers its handle.
+//
+// @param source    what the stream is, for error messages
+// @param host      the host stream; the table owns it from now on
+// @param position  the byte offset writing starts at (the size of a file
+//                  opened to append)
 export fn register_out(source: Str, host: Mut HostOut, position: Long) [] -> Long => !source, !host, !position {
     let handle = fresh_handle()
     put_out(copy(handle), Mut OutEntry { source: source, host: host, position: position, failed: None })
     return handle
 }
 
-// Registers a readable stream over [data].
+// Registers a readable stream over bytes in memory and answers its handle:
+// what `Streams.from_bytes` mints on the host. Its source is `<bytes>`.
 export fn register_bytes(data: Bytes) [] -> Long => !data {
     return register_in("<bytes>", host_bytes_in(data), 0L)
 }
 
 // ---- checking out
 
-// The readable entry [handle], checked out: waits while another operation
-// has it; traps for a handle the table never minted.
+// Checks the readable entry [handle] out of the table, for the caller to
+// work on with no lock held.
+//
+// Waits while another operation has the entry checked out, and traps for a
+// handle this table never minted. Every checkout must be followed by
+// [checkin_in], or by [close_in] when the operation ends the stream.
 // @compilerrules [stream-provider]
 export fn checkout_in(handle: Long) [] -> Mut InEntry => handle {
     while true {
@@ -280,7 +362,8 @@ export fn checkout_in(handle: Long) [] -> Mut InEntry => handle {
     return checkout_in(handle)
 }
 
-// The writable entry [handle], checked out.
+// Checks the writable entry [handle] out of the table: [checkout_in] for
+// the write side, ended by [checkin_out] or [close_out].
 export fn checkout_out(handle: Long) [] -> Mut OutEntry => handle {
     while true {
         let got = take_out(copy(handle), this_parker())
@@ -295,17 +378,20 @@ export fn checkout_out(handle: Long) [] -> Mut OutEntry => handle {
     return checkout_out(handle)
 }
 
-// Checks [e] back in under [handle].
+// Puts a readable entry back in the table under its handle, waking any
+// operation waiting for it.
 export fn checkin_in(handle: Long, e: Mut InEntry) [] -> None => !handle, !e {
     put_in(handle, e)
 }
 
+// Puts a writable entry back in the table under its handle, waking any
+// operation waiting for it.
 export fn checkin_out(handle: Long, e: Mut OutEntry) [] -> None => !handle, !e {
     put_out(handle, e)
 }
 
-// Closes a checked-out readable entry for good, answering any failure
-// recorded on it.
+// Closes a checked-out readable entry for good, answering the failure
+// recorded on it, if any. The handle is unknown to the table afterwards.
 export fn close_in(handle: Long, e: Mut InEntry) [] -> Fault? => !handle, !e {
     forget(handle)
     let {source, host, position, ahead, failed} = e
@@ -314,7 +400,11 @@ export fn close_in(handle: Long, e: Mut InEntry) [] -> Fault? => !handle, !e {
 }
 
 // Flushes and closes a checked-out writable entry for good, answering what
-// failed: a failure recorded before, then the flush's, then the close's.
+// failed, if anything. The handle is unknown to the table afterwards.
+//
+// Only one failure is answered: one recorded by an earlier write first,
+// then the flush's, then the close's. The host stream is closed whichever
+// failed.
 export fn close_out(handle: Long, e: Mut OutEntry) [] -> Fault? => !handle, !e {
     forget(handle)
     let {source, host, position, failed} = e
@@ -332,7 +422,8 @@ export fn close_out(handle: Long, e: Mut OutEntry) [] -> Fault? => !handle, !e {
     return None
 }
 
-// ---- reading [stream-table]
+// ---- reading
+// @compilerrules [stream-table]
 
 fn record(e: Mut InEntry, message: Str) [] -> Fault => e: Mut, !message {
     let f = Fault { utf8: false, message: message }
@@ -350,15 +441,25 @@ fn take_ahead(e: Mut InEntry, n: Int) [] -> Bytes => e: Mut, n {
     return front
 }
 
-// A read's outcome: the bytes (a line, everything left, a chunk), whether
-// the stream had ended, and the failure that stopped it.
+// What a read answers: the bytes, whether the stream had ended, and the
+// failure that stopped it.
 export struct Read {
+    // A line, everything left, or a chunk, depending on the read.
     data: Bytes,
+    // `true` when there was nothing left to read, or a failure stopped it.
     end: Bool,
+    // The failure recorded on the stream, by this read or an earlier one.
     fault: Fault?
 }
 
-// The next line, without `\n` or `\r\n`; `end` at the end of the stream.
+// Reads the next line, without its terminator.
+//
+// A line ends at `\n`, and a `\r` just before it is dropped too. The last
+// line of a stream need not end in a terminator. The host is read 8 KiB at
+// a time and what follows the line stays in the read-ahead for the next
+// read, so only the line and its terminator count towards the position. The
+// answer is `end` when nothing is left, or when a failure is or was
+// recorded. The bytes are not decoded; [decode] does that.
 export fn read_line(e: Mut InEntry) [] -> Read => e: Mut {
     if e.failed is Fault f {
         return Read { data: bytes_of(), end: true, fault: copy(f) }
@@ -389,7 +490,9 @@ export fn read_line(e: Mut InEntry) [] -> Read => e: Mut {
     return read_line(e)
 }
 
-// Everything left.
+// Reads everything left in the stream: the read-ahead, then the host's
+// bytes, 64 KiB at a time, until the end. A failure part-way answers no
+// bytes, with the failure.
 export fn read_all(e: Mut InEntry) [] -> Read => e: Mut {
     if e.failed is Fault f {
         return Read { data: bytes_of(), end: true, fault: copy(f) }
@@ -409,7 +512,13 @@ export fn read_all(e: Mut InEntry) [] -> Read => e: Mut {
     return read_all(e)
 }
 
-// Up to [max] bytes; none at the end.
+// Reads up to [max] bytes.
+//
+// Bytes in the read-ahead are answered first, and alone, even when there
+// are fewer than [max]; otherwise this is one host read. So the answer may
+// be shorter than asked for before the end. An empty answer with `end`
+// means the stream has ended; a [max] of 0 or less answers no bytes and
+// does not end it.
 export fn read_up_to(e: Mut InEntry, max: Int) [] -> Read => e: Mut, max {
     if e.failed is Fault f {
         return Read { data: bytes_of(), end: true, fault: copy(f) }
@@ -432,7 +541,9 @@ export fn read_up_to(e: Mut InEntry, max: Int) [] -> Read => e: Mut, max {
     return Read { data: copy(got.data), end: size(got.data) == 0, fault: None }
 }
 
-// Decodes [data] strictly, recording a failure against [e].
+// Decodes bytes as UTF-8, strictly: `None` when they are not valid, which
+// also records the failure on the entry, so later reads end and the close
+// reports it.
 // @compilerrules [stream-table]
 export fn decode(e: Mut InEntry, data: Bytes) [] -> Str? => e: Mut, data {
     let text = str_of_bytes(data)
@@ -442,7 +553,8 @@ export fn decode(e: Mut InEntry, data: Bytes) [] -> Str? => e: Mut, data {
     return text
 }
 
-// ---- writing [stream-table]
+// ---- writing
+// @compilerrules [stream-table]
 
 // (A field narrowed by a test cannot be assigned a wider value in the same
 // fn, so recording goes through here.)
@@ -450,7 +562,9 @@ fn record_out(e: Mut OutEntry, message: Str) [] -> None => e: Mut, !message {
     e.failed = Fault { utf8: false, message: message }
 }
 
-// Accepts [data], answering how many bytes: none once a failure is recorded.
+// Writes all of [data] to the host stream and answers how many bytes that
+// was: all of them, or none when the write failed (which records the
+// failure) or a failure was already recorded.
 export fn write(e: Mut OutEntry, data: Bytes) [] -> Long => e: Mut, data {
     if e.failed is Fault earlier {
         return 0L
@@ -464,7 +578,11 @@ export fn write(e: Mut OutEntry, data: Bytes) [] -> Long => e: Mut, data {
     return to_long(size(data))
 }
 
-// Pushes accepted bytes on, answering (and clearing) a recorded failure.
+// Flushes the host stream and answers the recorded failure, if any: the
+// flush's own, or one an earlier write recorded.
+//
+// The failure is cleared once answered, so writes after a reported flush
+// are attempted again.
 export fn flush(e: Mut OutEntry) [] -> Fault? => e: Mut {
     let failed = host_flush(e.host)
     if failed is Str message {
@@ -475,23 +593,38 @@ export fn flush(e: Mut OutEntry) [] -> Fault? => e: Mut {
     return f
 }
 
-// ---- receiving [stream-receive]
+// ---- receiving
+// @compilerrules [stream-receive]
 
-// One received chunk: the bytes (never empty unless [end]), whether the
-// stream ended, the failure that stopped it, and the stream's name.
+// What [receive] answers: one chunk of a stream, or its end.
 export struct Chunk {
+    // Up to 64 KiB; never empty unless [end] is `true`.
     data: Bytes,
+    // `true` when the stream ended or failed; it has been closed.
     end: Bool,
+    // The failure that stopped the stream, if one did.
     fault: Fault?,
+    // What the stream is, for error messages.
     source: Str
 }
 
-// Reads the next bytes of [handle] on a thread of its own and answers
-// [done] from there: the caller's worker never waits. At the end, or on a
-// failure, the stream is closed before answering. Until it answers, the
-// program has an outside source of work, so a frame
-// waiting on [done] is neither idle nor deadlocked.
-// @compilerrules [platform-threadsafe]
+// Reads the next chunk of a stream without blocking the caller, and answers
+// on a reply.
+//
+// Returns at once. Each call starts a host thread of its own, which reads
+// up to 64 KiB and answers [done] from there, so no worker of the
+// program's waits on a slow source. At the end, or on a failure, the stream
+// is closed and leaves the table before the answer is sent; otherwise it is
+// checked back in for the next read. Until the answer is sent the program
+// has an outside source of work, so a frame waiting on [done] is neither
+// idle nor reported as deadlocked.
+//
+// An actor test cannot use this: a host thread's work would arrive off the
+// virtual clock, so opening one stops the test with a report.
+//
+// @param handle  the stream to read; it must not be in use by anything else
+// @param done    answered once, with a [Chunk]
+// @compilerrules [platform-threadsafe, stream-receive, test-actor]
 export fn receive(handle: Long, done: Reply<Chunk>) [] -> None => !handle, !done {
     add_pending(Pending { handle: copy(handle), done: done })
     external_begin()
@@ -519,11 +652,16 @@ fn read_and_answer(handle: Long) [] -> None => !handle {
     external_end()
 }
 
-// ---- for host code [stream-table]
+// ---- for host code
+// @compilerrules [stream-table]
 
-// Takes the readable stream [handle] out of the table for good, for host
-// code that reads it itself (a request body an SDK uploads): the read-ahead,
-// position and any recorded failure travel with it.
+// Takes a readable stream out of the table for good, for host code that
+// reads it itself (a request body an SDK uploads).
+//
+// The entry's read-ahead, position and any recorded failure travel with it,
+// so the host reads on from exactly where Salvo stopped. The handle is
+// unknown to the table afterwards. Host code reaches this through
+// `salvo_stream_take_in` on Rust and `SalvoStreams.takeIn` on Kotlin.
 export fn take_for_host(handle: Long) [] -> Mut InEntry => !handle {
     let e = checkout_in(copy(handle))
     forget(handle)

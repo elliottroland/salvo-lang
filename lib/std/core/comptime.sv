@@ -1,47 +1,76 @@
-// What a `comptime fn` may know about a type — declared here so the surface
-// is readable, greppable and hoverable, and so a `[when field.kind]` is an
-// ordinary `when` over a union rather than a rule of its own (user decisions
-// 2026-09-29, comptime round 8; the kind split from the type 2026-10-20).
+// What a compile-time function may know about a type: its fields, its arms,
+// their names, types and defaults.
 //
-// [comptime-fields] These types exist at **compile time only**. The compiler
-// fills them for the body of a `comptime fn` — `T` is a `Struct` or a `Union`
-// by its bound, `T.fields` is its `List<Field>`, a `[for field in T.fields]`
-// binder is a `Field` — and nothing constructs one or holds one as a value; a
-// `comptime struct` in an ordinary type position is refused where it is
-// written. Their shape is the compiler's: this module mirrors it, and a test
-// keeps the two in step.
+// A `comptime fn` is code that runs over the *shape* of a type while the
+// program is compiled, and is stamped out once per type that asks for it,
+// as `by auto` does for `cmp` and `hash` ([std.core.auto]). Inside one, the
+// bound type parameter `T` is described by the structs declared here: `T` is
+// a [Struct] or a [Union], `T.fields` is a list of [Field]s, and
+// `[for field in T.fields]` unrolls its body once per field:
 //
-// A binder's `.type` is the type itself, spliced **as a type** in brackets
-// wherever one is written inside the body (`let x: [field.type] = …`,
-// `of_json<[field.type]>(…)`) and compared with `field.type is Str`
-// [comptime-inline]. What kind of type it is — a struct, a
-// union, … — is a separate projection, `.kind`, so a program type that happens
-// to be called `Union` is never mistaken for the kind [comptime-kind].
+// ```
+// comptime fn field_names<T is Struct>(value: T) [] -> Str => value {
+//     let out: Mut Str = Mut Str("")
+//     [for field in T.fields] {
+//         [if !field.first] {
+//             append@string(out, ", ")
+//         }
+//         append@string(out, field.name)
+//     }
+//     return out
+// }
+//
+// struct Point { x: Int, y: Int }
+//
+// fn names(value: Point) [] -> Str by field_names    // answers "x, y"
+// ```
+//
+// **Compile time only.** None of these types exists while the program runs.
+// The compiler fills them in for the body of a `comptime fn`; nothing
+// constructs one, and naming one in an ordinary type position is an error.
+// They are declared here so that their members can be read, searched and
+// shown on hover.
+//
+// **A type and its kind.** A binder's `.type` is the type itself: written
+// in brackets, it can be used as a type inside the body
+// (`let x: [field.type] = …`), and `field.type is Str` compares it. What
+// *kind* of type it is (a struct, a union, a tuple…) is a separate member,
+// `.kind`, a [Kind], so a program type that happens to be called `Union` is
+// never mistaken for the kind. A `[when field.kind]` must handle every kind,
+// so a kind added to the language is an error in each comptime fn that has
+// not considered it.
+//
+// The Compile-time functions topic explains how a comptime fn is written and
+// stamped.
+// @compilerrules [comptime-fields, comptime-inline, comptime-kind]
 
-// A struct: its declared fields, in declaration order.
+// A struct type: its name, its fields in declaration order, and what it
+// declares about itself.
 // @compilerknown
 export comptime struct Struct {
     // The declared name, as a `Str` literal in each copy (`T.name`).
     name: Str,
-    // The fields, in declaration order — what `[for field in T.fields]` unrolls.
+    // The fields, in declaration order: what `[for field in T.fields]`
+    // unrolls.
     fields: List<Field>,
-    // Whether the declaration says `canbe Mut`. A structural `hash` refuses a
-    // mutable struct.
+    // Whether the declaration says `canbe Mut`. The structural `hash` of
+    // `std.core.auto` refuses a mutable struct.
     // @compilerrules [col-hashed-ordered]
     mutable: Bool,
-    // The doc comment above the declaration, as text, or `None` (`T.docs`,
-    // tested with `[if T.docs is None]`).
+    // The doc comment above the declaration, as text, or `None`. Tested with
+    // `[if T.docs is None]`.
     // @compilerrules [comptime-docs]
     docs: Str?
 }
 
-// A named union (`type Source = A | B | None`): its declared arms, `None`
-// included, in declaration order.
+// A named union type (`type Source = A | B | None`): its declared arms,
+// `None` included, in declaration order.
 // @compilerrules [type-union-arm-identity]
 // @compilerknown
 export comptime struct Union {
+    // The declared name, as a `Str` literal in each copy.
     name: Str,
-    // The arms — what `[for arm in T.arms]` unrolls, and what a
+    // The arms: what `[for arm in T.arms]` unrolls, and what a
     // `[when value] { [arm] { … } }` dispatches over.
     arms: List<Arm>,
     // The doc comment above the declaration, or `None`.
@@ -49,52 +78,82 @@ export comptime struct Union {
     docs: Str?
 }
 
-// A tuple type: its elements, in order.
+// A tuple type: its element types, in order.
 // @compilerknown
 export comptime struct Tuple {
+    // The element types, in order.
     elems: List<Type>
 }
 
-// A function type. A `comptime fn` can call one, not look inside it.
+// A function type. A comptime fn can call a value of one, but not look
+// inside it.
 // @compilerknown
 export comptime struct FnType {}
 
-// A type declared `intrinsic type` (`Int`, `Str`, `List<T>`): nothing to look
-// inside; the comptime fn calls the capability at it.
+// A type declared `intrinsic type`, such as `Int`, `Str` or `List<T>`:
+// there is nothing to look inside, so a comptime fn calls the functions it
+// needs at it.
 // @compilerknown
 export comptime struct Basic {
+    // The type's name.
     name: Str
 }
 
-// A type parameter of the struct being stamped (`Wrapper<T>`'s `T`): opaque
-// to the comptime fn, like a `Basic`.
+// A type parameter of the struct being stamped, such as the `T` of
+// `Wrapper<T>`: opaque to the comptime fn, like a [Basic].
 // @compilerknown
 export comptime struct Generic {
+    // The type parameter's name.
     name: Str
 }
 
-// The two kinds a comptime fn cannot look inside, when it does not care which.
+// The two kinds a comptime fn cannot look inside, for when it does not care
+// which: `is Opaque` matches a [Basic] or a [Generic].
 // @compilerknown
 export comptime type Opaque = Basic | Generic
 
-// Every kind — what `.kind` is. A `[when field.kind] { is Struct { … } … }` is
-// exhaustive over these arms, with no `else`, so
-// a kind added to the language is an error in every comptime fn that did not
-// consider it.
+// Every kind of type: what a field's or an arm's `.kind` is.
+//
+// A `[when field.kind]` must handle every arm, with no `else`, so a kind
+// added to the language is an error in every comptime fn that did not
+// consider it, rather than a case silently skipped.
+//
+// ```
+// comptime fn kinds<T is Struct>(value: T) [] -> Str => value {
+//     let out: Mut Str = Mut Str("")
+//     [for field in T.fields] {
+//         [when field.kind] {
+//             is Struct { append@string(out, "s") }
+//             is Union { append@string(out, "u") }
+//             is Tuple { append@string(out, "t") }
+//             is FnType { append@string(out, "f") }
+//             is Opaque { append@string(out, "o") }
+//         }
+//     }
+//     return out
+// }
+//
+// struct Row { id: Int, tags: List<Str> }
+//
+// fn row_kinds(value: Row) [] -> Str by kinds         // answers "oo"
+// ```
 // @compilerrules [when-exhaustive]
 // @compilerknown
 export comptime type Kind = Struct | Union | Tuple | FnType | Opaque
 
-// A type itself, as a binder's `.type` holds it: usable as a type inside the
-// body, compared with `is <Type>`; its description is the binder's `.kind`.
-// A literal union's members are `.literals`, a `List<Literal>` a `[for lit in
-// field.type.literals]` walks.
+// A type itself, as a binder's `.type` holds it.
+//
+// Written in brackets it is usable as a type inside the body
+// (`[field.type]`), and `field.type is Str` compares it; what kind of type it
+// is, is the binder's `.kind`. The members of a literal union
+// (`"json" | "text"`) are `.literals`, a list of [Literal]s that
+// `[for lit in field.type.literals]` walks.
 // @compilerrules [comptime-literals]
 // @compilerknown
 export comptime struct Type {}
 
-// One member of a literal union (`"json"` of `"json" | "text"`), in
-// declaration order.
+// One member of a literal union, such as `"json"` of `"json" | "text"`, as
+// `[for lit in field.type.literals]` walks them in declaration order.
 // @compilerrules [comptime-literals]
 // @compilerknown
 export comptime struct Literal {
@@ -102,18 +161,22 @@ export comptime struct Literal {
     value: Value,
     // Its text: a literal of the union of the members' texts.
     name: Str,
+    // Its position among the members, from zero.
     index: Int,
+    // Whether it is the first member.
     first: Bool,
+    // Whether it is the last member.
     last: Bool
 }
 
-// A value a declaration writes, as a field's `.default` holds it: in a copy it
-// is that expression, evaluated where it was declared.
+// A value written in a declaration, as a field's `.default` holds it: in each
+// copy it is that expression, evaluated where it was declared, so a default
+// that calls a private function of its module still works.
 // @compilerrules [comptime-default]
 // @compilerknown
 export comptime struct Value {}
 
-// One field of a `Struct`.
+// One field of a [Struct], as `[for field in T.fields]` binds it.
 // @compilerknown
 export comptime struct Field {
     // The declared name: a literal of the union of the struct's field names
@@ -121,19 +184,21 @@ export comptime struct Field {
     // exhaustive `[when field.name]`, and a `Str` literal in each copy.
     // @compilerrules [comptime-name]
     name: Str,
-    // The declared type's kind.
+    // What kind of type the field has.
     // @compilerrules [comptime-kind]
     kind: Kind,
-    // The declared type; usable as a type inside the body.
+    // The declared type; usable as a type inside the body as `[field.type]`.
     type: Type,
     // The declared position, from zero.
     index: Int,
+    // Whether it is the first field.
     first: Bool,
+    // Whether it is the last field.
     last: Bool,
-    // The declared default (`port: Int = 8080`), or `None` when the field has
-    // none: read as an expression in a copy (`field.default`), evaluated
-    // where the struct is declared, and tested with `[if field.default is
-    // None]`. A declared `= None` is a default.
+    // The declared default (`port: Int = 8080`), or `None` when the field
+    // has none: read as an expression in a copy (`field.default`), evaluated
+    // where the struct is declared, and tested with
+    // `[if field.default is None]`. A declared `= None` is a default.
     // @compilerrules [comptime-default]
     default: Value?,
     // The doc comment above the field, its lines joined, or `None`: a `Str`
@@ -142,15 +207,23 @@ export comptime struct Field {
     docs: Str?
 }
 
-// One arm of a `Union`. `name` is the struct's name for a struct arm, the
-// type's text otherwise (`None`) — a literal of the union of the arm names.
+// One arm of a [Union], as `[for arm in T.arms]` or a `[when value]` arm
+// binds it.
 // @compilerknown
 export comptime struct Arm {
+    // The struct's name for a struct arm, otherwise the type's text (`None`):
+    // a literal of the union of the arm names.
     name: Str,
+    // What kind of type the arm is.
     kind: Kind,
+    // The arm's type; usable as a type inside the body as `[arm.type]`.
     type: Type,
+    // The declared position, from zero. Arms order by it in the structural
+    // `cmp`.
     index: Int,
+    // Whether it is the first arm.
     first: Bool,
+    // Whether it is the last arm.
     last: Bool,
     // The doc comment of the declaration the arm names (a struct, or a
     // `type`), or `None`.

@@ -85,7 +85,32 @@ pub fn split(docs: &[String]) -> DocParts {
             out.tags.push(tag);
         }
     };
+    let mut fence: Option<String> = None;
+    let mut skip_marker = false;
     for (i, line) in docs.iter().enumerate() {
+        // [doc-example-nocheck] A fence's first line `no-check` is for the
+        // example checker (`tools/check-doc-examples.py`), not the reader.
+        if std::mem::take(&mut skip_marker) && line.trim() == "no-check" {
+            continue;
+        }
+        let trimmed = line.trim_start();
+        if open.is_none() && trimmed.starts_with("```") {
+            let ticks: String = trimmed.chars().take_while(|c| *c == '`').collect();
+            match &fence {
+                Some(f) if trimmed.trim_end() == f.as_str() => fence = None,
+                Some(_) => {}
+                None => {
+                    fence = Some(ticks);
+                    skip_marker = true;
+                }
+            }
+            out.prose.push(line.clone());
+            continue;
+        }
+        if fence.is_some() {
+            out.prose.push(line.clone());
+            continue;
+        }
         if let Some((name, first)) = opens_tag(line) {
             close(&mut open, &mut out);
             open = Some((DocTag { name, target: None, text: String::new(), line: i }, vec![first.to_string()]));
@@ -204,6 +229,15 @@ mod tests {
     #[test]
     fn an_at_inside_a_line_is_prose() {
         let d = split(&lines(&["Mail rolae@example.com, or @ someone."]));
+        assert!(d.tags.is_empty());
+    }
+
+    /// [doc-example-nocheck] A fence's `no-check` marker is dropped, and a
+    /// fence's lines are prose even when one opens with `@`.
+    #[test]
+    fn a_fence_keeps_its_lines_and_loses_its_marker() {
+        let d = split(&lines(&["An example.", "```", "no-check", "@x", "let y = 1", "```", "no-check stays here"]));
+        assert_eq!(d.prose, lines(&["An example.", "```", "@x", "let y = 1", "```", "no-check stays here"]));
         assert!(d.tags.is_empty());
     }
 

@@ -1,45 +1,76 @@
-// [args-lex] The bottom layer of command-line parsing: a command line split
-// into tokens by the usual conventions, with no knowledge of which flags
-// exist (the CLI design record §4.0, Q18). `args` reads the tokens against what a
-// command accepts; nothing here knows what a flag takes.
+// Splits a command line into tokens by the usual Unix conventions, without
+// knowing which options a program has. It is the first step of the parsers
+// that `std.args` derives; most programs never call it, and read their
+// options through those parsers instead.
 //
-// - `--name` and `--name=value` are long flags; the value, when attached, is
-//   kept, and whether a flag may have one is decided above.
-// - `-abc` is a bundle of short flags. `-p8080` is a bundle too: which
-//   letters are switches and where a value starts is decided above, since
-//   only the command knows whether `-p` takes one.
-// - `--` ends the options: every token after it is a word, `--` included
-//   only once.
-// - A lone `-` is a word (by convention, standard input), and so is a
-//   negative number (`-3`, `-.5`), so `--offset -3` reads its value.
-// - There are no abbreviations: `--po` is not `--port`, which keeps adding
-//   a flag from breaking a script that used a prefix.
+// Each argument becomes one token, in order:
+//
+// - `--name` and `--name=value` are a [LongToken]. An attached value is
+//   kept; whether the option may have one is for the parser to decide.
+// - `-abc` is a [ShortToken], a bundle of single-letter options, and so is
+//   `-p8080`. Only the parser knows whether `-p` takes a value, so the
+//   letters are left together for it to split.
+// - `--` is an [EndToken], and every argument after it is a [WordToken],
+//   however it is spelled (a second `--` included).
+// - Anything else is a [WordToken]: a value or a positional argument. A
+//   lone `-` (by convention, standard input) is a word, and so is a
+//   negative number (`-3`, `-.5`), so `--offset -3` reads `-3` as the
+//   value.
+//
+// There are no abbreviations: `--po` is the option `po`, not a prefix of
+// `--port`, so adding an option never changes what an existing script
+// means.
+//
+// ```
+// for t in lex(List("-vp8080", "--out=a.txt", "-", "--", "-x")) {
+//     when t {
+//         is LongToken { println("long ${t.name} = ${t.value ?: "-"}") }   // long out = a.txt
+//         is ShortToken { println("short ${t.letters}") }                  // short vp8080
+//         is WordToken { println("word ${t.value}") }                      // word -, then word -x
+//         is EndToken { println("end") }                                   // end
+//     }
+// }
+// ```
+// @compilerrules [args-lex]
 
-// A long flag: `--port` or `--port=8080`.
+// A long option: `--port`, or `--port=8080` with its value attached.
 export struct LongToken {
     // The name, without the dashes: `port`.
     name: Str,
-    // The value after `=`, when one is attached.
+    // The text after the first `=`, or `None` when there is no `=`
+    // (`--x=` has the value `""`, and `--a=b=c` the value `b=c`).
     value: Str?
 }
 
-// A bundle of short flags: `-jt`, or `-p8080`.
+// A bundle of single-letter options after one dash: `-v`, `-jt`, or
+// `-p8080`, which may be `-p` with the value `8080`.
 export struct ShortToken {
     // The letters after the dash: `jt`, `p8080`.
     letters: Str
 }
 
-// A word: a value or a positional argument.
+// A word: an option's value or a positional argument, including a lone
+// `-`, a negative number, and anything after `--`.
 export struct WordToken {
+    // The argument as it was given.
     value: Str
 }
 
-// `--`: the end of the options.
+// The first `--` on the line: the end of the options.
 export struct EndToken {}
 
+// One argument of a command line, as [lex] reads it.
 export type Token = LongToken | ShortToken | WordToken | EndToken
 
-// The tokens of a command line, in order.
+// The tokens of a command line, one per argument, in order.
+//
+// ```
+// let tokens = lex(List("--port", "80", "-v"))
+// println("${size(tokens)}")                           // 3
+// ```
+//
+// @param args  the arguments, without the program name (as `args()`
+//              answers them)
 export fn lex(args: List<Str>) [] -> List<Token> => args {
     let out: Mut List<Token> = Mut List<Token>()
     let ended = false

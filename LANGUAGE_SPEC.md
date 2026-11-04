@@ -779,6 +779,11 @@ Conventions:
   of pairs, and from a list of anything plus a rule
   (`to_map(words, (w) -> (w, size(w)))`). Duplicate keys are last-wins
   throughout [col-duplicate-keys].
+* [col-duplicate-keys] **A repeated key keeps its first place and takes its
+  last value**, wherever a map or set is built from entries that repeat one:
+  the `Map(…)`/`Set(…)` constructors, `to_map`, `to_set` and the sorted
+  containers' constructors. `put` of a present key is the same rule
+  [col-insertion-order]: the value changes, the position does not.
   * **Known limitation**: a *bare inline literal* argument to one of these
     does not determine the callee's type parameter
     (`to_set([1, 2])` — "cannot infer type argument `T`"), because the
@@ -1118,7 +1123,7 @@ Conventions:
     ([kt-deque]), one host type for `Deque` and `Mut Deque` on both. A
     `copy` on Kotlin is always a new deque, since a plain `Deque` may be an
     object someone else holds as `Mut`.
-
+* [col-insertion-order] `Set<T>` and `Map<K, V>` **iterate in insertion
   order, on every backend** (user decision 2026-09-12) — with
   `LinkedHashMap`'s exact semantics: writing a key that is already present
   keeps its original position, and removing one is O(1) and leaves the order
@@ -8921,7 +8926,7 @@ between endpoints and delivers what arrives into the scheduler.
     builder, and each node's outbound hook. The route-stub views and
     `key_hash` stay host-side until step 12.
   * **`NodeId`** (2026-09-27) is the identity of a node as a Salvo struct
-    (`struct NodeId : Hashed<self> by auto { id: Long }`), answered by
+    (`struct NodeId : Hashed<self> by auto { value: Long }`), answered by
     `this_node()`/`new_node()`/`node_of(addr)` and taken by `pool_at`,
     `Node.id`, `Leader.leader() -> NodeId?` and the mechanisms' members. It
     has a wire form because it is compared across machines; a raw `Long` no
@@ -13251,6 +13256,12 @@ replaced the working document TESTING.md).
 * [backend-never-wrong] A backend must never emit silently wrong code:
   unsupported constructs are codegen/checker errors. Each backend spec
   lists its current deliberate cuts.
+* [backend-parity] **A program means the same on every backend**: the same
+  output, the same order of iteration, the same values at the edges (a
+  `Byte` is 0..255, a float prints alike) and the same failures. Where the
+  hosts disagree, Salvo picks one behaviour and std or the runtime implements
+  it on both, rather than leaving it to the host ([col-insertion-order] over
+  `HashMap` order, [col-bounds] over a host's out-of-range exception).
 
 ## The IR (`salvo_core::ir`; narrative in docs/language/The-IR.md)
 
@@ -13654,7 +13665,11 @@ replaced the working document TESTING.md).
     — GitHub's own anchor, `#fn-map` — with the hover's signature and the
     doc block [doc-comment]; a fn's overloads share a heading, a struct
     lists its fields, an effect its members. Comptime-stamped and generated
-    fns are left out.
+    fns are left out; an exported `comptime fn` is listed as written (the
+    expansion removes it from the program, so it is read from the file),
+    its kind bound shown (`<T is Struct>`). Two headings GitHub would anchor
+    alike (`fn ok`, `fn Ok`) are told apart as GitHub does, `-1` on the
+    second.
   * **Code is fenced `rust`**: GitHub cannot highlight Salvo. A doc
     comment's bare fence and a topic's ```` ```salvo ```` become ```` ```rust ````.
   * **`[symbol]`** [doc-symbol-ref] links: a declaration's own names
@@ -13678,6 +13693,18 @@ replaced the working document TESTING.md).
     stop it: a page is the declarations as written.
   * std's manifest names the repository's wiki checkout, so `salvo docs` in
     `lib/` regenerates it, and the docs test runs `--check` there.
+* [doc-example-nocheck] **std's doc examples type-check.**
+  `tools/check-doc-examples.py` makes each ```` ``` ````/```` ```salvo ````
+  fence of a std doc comment a program and runs `salvo analyze` on it: a
+  fence of statements is wrapped in `fn example() [use] -> None { use
+  StdConsole() … }`, one holding top-level declarations is checked as
+  written, one holding a `test` block is checked as a test annex, and the
+  documented module is imported unless it is in `std.core`. A fence whose
+  first line is `no-check` is skipped, for an example that cannot stand alone
+  (one about a std-internal module, or one spanning two files); hover and
+  `salvo docs` leave that line out [doc-tags]. `--code-unchanged` checks that
+  a doc-only edit left every non-comment line as it is at `HEAD`. Doc examples
+  are not yet compiled with the program (ROADMAP).
 * [cli-analyze] `salvo analyze [--src DIR] [--format text|json]` (`--src` from the manifest when omitted [manifest])
   runs the front half of the pipeline — parse,
   resolve, type-check — and reports every diagnostic without generating
@@ -13894,7 +13921,9 @@ replaced the working document TESTING.md).
   over the lines below it until the next tag, a bare `//` line, or the end
   of the block, its lines joined by spaces (so it wraps freely,
   [lsp-comment-continuation] lining up the continuation). An `@` inside a
-  line is prose. `salvo_syntax::doc` reads them.
+  line is prose, and so is every line of a code fence (whose `no-check`
+  marker, when it is the fence's first line, is dropped
+  [doc-example-nocheck]). `salvo_syntax::doc` reads them.
   * Only `@whynot` changes what a program does; the others are for the
     reader. **Hover** shows the prose and then a section per kind —
     **Parameters**, **Returns**, **Throws**, **Why not**, **See also**,
@@ -13903,7 +13932,8 @@ replaced the working document TESTING.md).
   * **Warnings, never errors**, at the documented declaration's name (doc
     lines carry no spans): a tag this version does not know (naming the
     ones it does), an `@param` with no name or naming no parameter, an
-    `@param` on a declaration that is not a fn, and an `@whynot` anywhere
+    `@param` on a declaration that is not a fn (a handler's constructor
+    parameters count as a fn's), and an `@whynot` anywhere
     but a qualifier's `fn qualifies`. A `@whynot` that names what it may not
     is [qual-whynot]'s error.
   * The TextMate grammar colours a tag opening a comment line
@@ -13915,9 +13945,12 @@ replaced the working document TESTING.md).
   optional comment on how the group applies here. It is for the source's
   readers, not the declaration's users: **hover leaves it out**, and
   go-to-definition shows it where it is written. A tag whose text does not
-  open with a well-formed list is a warning [doc-tags]. std's doc comments
-  cite rules this way, never inline in their prose; a rule cited in prose
-  would be shown to every user hovering the name. Whether a cited label
+  open with a well-formed list is a warning [doc-tags]. std's comments cite
+  rules this way, never inline in their prose, except inside a fn body
+  (user decision 2026-10-30): a rule cited in a doc block would be shown to
+  every user hovering the name, and a module's other comments are read
+  alongside its docs. A body comment is for the compiler's maintainers and
+  cites what it likes. Whether a cited label
   exists is the repository's test to check (`docs_tests`), not the
   compiler's: the compiler does not read the specs.
 * [doc-compilerknown] **`@compilerknown` marks a std declaration the compiler

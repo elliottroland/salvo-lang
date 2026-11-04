@@ -570,7 +570,7 @@ impl crate::std_time::__Stateful_TimerCtl for ManualTime {
                     let mut __pick1_2 = __pick1.unwrap();
                     __pick1_2
                 } else {
-                    panic!("salvo: unreachable at std.time:494:55")
+                    panic!("salvo: unreachable at std.time:694:55")
                 }
             };
             crate::std_core_list::remove_at_platform::<i64>(&mut self.deadlines, at);
@@ -654,7 +654,7 @@ pub fn earliest_due(deadlines: &Vec<i64>, mut target: i64) -> Option<i32> {
                 let mut __pick2_1 = __pick2.unwrap();
                 __pick2_1
             } else {
-                panic!("salvo: unreachable at std.time:519:44")
+                panic!("salvo: unreachable at std.time:719:44")
             }
         };
         if ((at <= target) && ((best < 0i32) || (at < best_at))) {

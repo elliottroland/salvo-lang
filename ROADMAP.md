@@ -51,7 +51,7 @@ struct or the arms of any union).
 Twelve worked examples in `examples/` carry the checked-in generated code for both
 targets and the output they print; the first dependency, `modules/aws/`, keeps
 its four (`profile`, `sqs`, `s3`, `ddb`) and its own checks (`modules/aws/check.sh`)
-outside the compiler's tests. 711 tests green (nextest); std's own Salvo tests run inside one of them.
+outside the compiler's tests. 720 tests green (nextest); std's own Salvo tests run inside one of them.
 
 ## The sequence
 
@@ -451,6 +451,50 @@ Parked (user, 2026-10-14): the user expects to move away from state structs and 
   ir_emit/decls.rs` `boundary_check`).
 - (The variadic constructors' copied tail is gone: they consume it now —
   COMPLETED.md, 2026-10-30, "Constructors consume their tail".)
+
+### 0bd — Defects the std documentation rewrite found (2026-10-30)
+
+Writing and checking an example for every std module (`tools/check-doc-examples.py`,
+[doc-example-nocheck]) turned these up. Repros are as found; the first three
+are wrong behaviour, the rest rough edges.
+
+- **A union's `Ordered<self> by auto` recurses forever when an arm has no
+  `cmp`** [backend-never-wrong]. Accepted without a word, and the stamped
+  `cmp` calls itself for two values of the same arm (a stack overflow on
+  Rust; Kotlin's output has `cmp(Union2.U1(a), Union2.U1(b))` inside `cmp`).
+  It should be the missing-`cmp` error a struct field gets.
+  ```
+  struct Manual { note: Str }
+  struct Imported { feed: Str, n: Int }
+  type Source = Manual | Imported : Ordered<self> by auto
+  fn f(a: Source, b: Source) [] -> Bool => a, b { return a < b }
+  // f(Manual { note: "b" }, Manual { note: "a" }) never returns
+  ```
+- **A host stream's short read ends a fixed-width read** (`std.stream`). The
+  host's `read_bytes` may answer fewer bytes than asked before the end (the
+  read-ahead alone, or one host read), and `read_int`/`read_long`/`read_value`
+  take a short answer for the end: after `read_line` of `"a\n"` and
+  `read_bytes(s, 8188)` over 8188 `x`s, `read_int` on the four bytes that
+  follow fails with "the stream ended inside a number". `read_fixed` should
+  loop until it has its width or an empty answer. (`read_bytes`'s doc now
+  says only an empty answer is the end.)
+- **Kotlin: a pool with a fault sink does not compile.** `pool(2, sink)`
+  emits a `poolWithSink` lambda naming `__Msg_Faults` and `Fault`, which
+  kotlinc cannot resolve; Rust runs it. No test drives a fault sink end to
+  end. Repro: the `Faults` example in `std.core.actor`'s docs.
+- **Kotlin's sorted search is a scan.** `binary_search` and `add_sorted`'s
+  lower bound use `indexOfFirst` in `lib/platform/std/core/list.kt` (O(n));
+  Rust bisects. The docs state both costs; bisect on Kotlin too.
+- **An untyped lambda's `proj` element misleads an implicit.**
+  `filter_to(Mut List<Int>(), iter(xs), (x) -> x > 2)` fails "no `add` fits
+  `(Mut List<Int>, proj ?) -> None`", and `partition(nums, (x) -> x % 2 ==
+  0)` fails "`nums` holds a borrowed value … expects an owned one"; with
+  `(x: Int) ->` both pass. Infer the lambda's parameter as the element's
+  value type, or say "annotate the lambda's parameter".
+- **`to_list(range(0, 3))` is refused as a view of a temporary**, though a
+  range computes its elements and nothing borrows the temporary.
+- **Not a defect, possibly a DECISION**: Salvo has no hex integer literals
+  (`0xCA` is "invalid numeric literal"); std's byte examples write decimals.
 
 ### 0ae — Recorded, not scheduled: per-declaration reuse in the check cache (measured 2026-10-28, A4)
 

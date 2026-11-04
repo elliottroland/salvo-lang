@@ -1,70 +1,124 @@
-// `net`: actors across machines.
+// Actors across machines: a program's actors run on several **nodes**
+// (processes, or virtual nodes inside one process) and reach each other by
+// address, with the same `send`, `waitfor` and `Reply` they use in one
+// process.
 //
-// The design has one line: **the network enters at the actor group, never at
-// the spawn.** Every actor is spawned by the node that hosts it; what crosses
-// the wire is addresses and messages, never construction; and a function
-// declaring `[E]` never learns whether `E` is one local handler, an actor on
-// another machine, or a group of a hundred across a fleet.
+// The network enters at the **actor group**, never at the spawn. Every actor
+// is spawned by the node that hosts it, on that node's own pools; what
+// crosses the wire is addresses and messages, never construction. A function
+// that declares `[any E]` cannot tell whether its sends go to a local actor,
+// to an actor on another machine, or to one of a hundred spread over a
+// fleet. A program touches four layers, bottom up:
 //
-// This module is that stack, bottom up. Each layer is ordinary Salvo over the
-// one below, and a program touches only the top three:
+// - **A transport** moves bytes between [NodeEndpoint]s. [HostTcpTransport]
+//   is the real one, over TCP; [MemTransport] over a [MemNetwork] runs many
+//   nodes in one process, with the faults a test wants to script.
+// - **A node group** ([NodeGroup]) is the membership of machines.
+//   [StaticNodeGroup] takes a fixed list of endpoints, [GossipNodeGroup] a
+//   few seeds. Spawning one connects the node to the wire and introduces it
+//   to its peers.
+// - **An actor group** ([ActorGroup]) is the set of actors of one protocol
+//   across those nodes. [actor_group] opens it on this node, and
+//   `spawn H() on p in group` adds a member.
+// - **A route** binds a group where a function expects one actor: after
+//   `use any group`, each send goes to the member a [RouteSelector] picks:
+//   [LeastLoaded], [Sharded] by a [Key] argument, or [Elected] behind a
+//   [Leader].
 //
-//   1. **The transport** — `Transport` (outbound: `deliver`, `listen`) and
-//      `Inbound` (arriving frames as messages). Bytes between endpoints, at
-//      most once and in order per pair, nothing more. `HostTcpTransport` is
-//      the machine's, the one piece the platform owns; `MemTransport` over a
-//      `MemNetwork` runs any number of virtual nodes in one process.
-//   2. **The wire format** — `encode`/`decode`, the canonical encoding every
-//      type has unless declared `noremote`, and the per-protocol hash two
-//      nodes compare before they speak. Fixed in the compiler, identical on
-//      both backends, so a Kotlin node and a Rust node are peers.
-//   3. **Routing** — an `eff[E]` that crosses the wire arrives as a proxy
-//      with the same `send`; replies come back over the wire; a mailbox's
-//      `capacity` holds across machines through credits. `NodeId` names a
-//      node; `this_node`, `new_node`, `pool_at` host virtual nodes.
-//      `connect(me)` binds the scheduler to the transport — its outbound
-//      actor, its inbound actor, its own route — and a node group's `init`
-//      calls it when nothing has. Everything the runtime needs underneath
-//      (`add_route`, `route_frames`, `deliver_frame`, the control frames the
-//      group protocols travel on)
-//      is private to this file: a program never calls it, and the comments
-//      on each say what it does.
-//   4. **Node groups** — `NodeGroup`, the membership of *machines*: a
-//      mechanism (`StaticNodeGroup`, `GossipNodeGroup`) spawned on a node
-//      with a `Transport` in scope, answering `members` and telling every
-//      `NodeGroupWatcher` who subscribed. The handshake (group name,
-//      endpoint, protocol table) is the runtime's and common to every
-//      mechanism.
-//   5. **Actor groups** — `ActorGroup<E>`, the membership of *actors* of one
-//      protocol across those nodes: `actor_group<E>(nodes)` starts this
-//      node's replica and publishes it by name, `spawn H() on p in group`
-//      joins a member, `members`/`subscribe` read the set. `[any E]` is the
-//      claim a function makes when any member will do.
-//   6. **Routes** — `use any group` binds `any E` to whichever member a
-//      `RouteSelector<E>` policy chooses per send: `LeastLoaded`, `Sharded` by a
-//      `Key`-marked argument, `Elected` behind a `Leader`.
+// A server and a client, each the `main` of its own process. The protocol
+// is an ordinary actor effect, and `hello` is written against it alone:
 //
-// Rules: [net-transport] [net-host] [net-mem] [net-wire-format] [net-noremote]
-// [actor-protocol-hash] [net-addr-routable] [net-addr-capability] [net-remote-backpressure]
-// [net-connect] [node-group] [actor-group] [effect-any] [actor-route-stub].
+// ```
+// import std.time
 //
-// Two halves of the transport, deliberately asymmetric:
+// actor effect Greeter {
+//     send fn greet(name: Str, out: Reply<Str>) => !name, !out
+// }
 //
-// * **Outbound** is a plain effect, [Transport]: `deliver(to, frame)` is a
-//   call the sender makes on its own thread, and it answers whether the frame
-//   was handed to the wire.
-// * **Inbound** is an *actor* effect, [Inbound]: bytes arrive on a thread the
-//   host owns (a socket reader), and the only way work from a foreign thread
-//   enters the scheduler is a send. So a node that wants to receive spawns an
-//   actor serving `Inbound` and registers its addr with `listen`; the
-//   transport sends every arriving frame to it. That is the same host→runtime
-//   upcall the timer makes when a deadline fires [time-timer].
+// handler Greeting(who: Str) for Greeter {
+//     mailbox { capacity: 16 }
+//     send fn greet(name: Str, out: Reply<Str>) => !name, !out {
+//         out.send("hello ${name}, from ${who}")
+//     }
+// }
 //
-// The platform owns the transport only: [HostTcpTransport] is the host
-// class, declared `threadsafe` because a transport is called from every pool
-// [platform-threadsafe]; [MemTransport] is the pure-Salvo double every test
-// runs on — N virtual endpoints in one process, with the faults a test wants
-// to script.
+// // Any greeter will do: nothing here names a node.
+// fn hello(name: Str) [any Greeter] -> Str => !name {
+//     return waitfor out: Reply<Str> { greet(name, out) }
+// }
+//
+// fn fleet() [] -> List<NodeEndpoint> {
+//     return List(NodeEndpoint { host: "10.0.0.1", port: 7000 }, NodeEndpoint { host: "10.0.0.2", port: 7000 })
+// }
+//
+// // The server joins the node group, hosts one greeter and serves for an
+// // hour: the program ends when `main` returns.
+// fn server_main() [use, spawn] {
+//     let me = NodeEndpoint { host: "10.0.0.1", port: 7000 }
+//     use HostTcpTransport(copy(me))
+//     let p = pool(2)
+//     let nodes = spawn StaticNodeGroup("demo", fleet()) on p
+//     let greeters = actor_group<Greeter>(nodes)
+//     spawn Greeting(to_str(me)) on p in greeters
+//     let timer = spawn DefaultTimer() on pool(1)
+//     let _done = waitfor f: Reply<Fired> { timer.after(hours(1), f) }
+// }
+//
+// // The client joins the same node group and opens the same actor group,
+// // where the server's greeter appears. Its first send waits until it has.
+// fn client_main() [use, spawn] {
+//     use StdConsole()
+//     use HostTcpTransport(NodeEndpoint { host: "10.0.0.2", port: 7000 })
+//     let nodes = spawn StaticNodeGroup("demo", fleet()) on pool(1)
+//     let greeters = actor_group<Greeter>(nodes)
+//     use LeastLoaded<Greeter>(true)
+//     use any greeters
+//     println(hello("ann"))                   // hello ann, from 10.0.0.1:7000
+// }
+// ```
+//
+// Either process may start first: each node group greets every listed
+// endpoint as it starts, and whichever node comes up second completes the
+// handshake.
+//
+// **What can cross.** A message crosses the wire in the canonical encoding
+// of [std.codec], which both backends share, so a Kotlin node and a Rust node
+// can be peers. Every type has a wire form unless it is declared `noremote`
+// or holds something that is. [actor_group] refuses, at compile time, a
+// protocol whose messages carry such a payload. Two nodes compare a hash of
+// each protocol when they meet, and a peer whose version of a protocol
+// differs never sees this node's members of it.
+//
+// **Addresses across machines.** An `eff[E]` that crosses the wire arrives
+// as a **proxy**: the same type and the same `send`, with a mailbox on
+// another node behind it. A `Reply` crosses the same way, and its answer
+// comes back over the wire. A proxy honours its mailbox's `capacity`: a send
+// blocks when the far mailbox is full, as a local send does. An address
+// carries unguessable bits checked on delivery, so holding an address is
+// still what entitles you to send to it.
+//
+// **Delivery.** Frames between two nodes arrive at most once and in order,
+// and nothing more: a frame the wire loses is lost, and only a failure the
+// transport can see is reported (a [NetError] from `deliver`). A program
+// that needs more builds it as a protocol of its own.
+//
+// **Nodes leaving.** A node that calls `leave()` on its node group tells
+// every peer. The peers drop it from the node group, withdraw its members
+// from every actor group, and kill their proxies of its actors: a send to
+// one does nothing, and a `watch` on one fires. A node that stops without
+// leaving is not noticed yet; detecting it is future work.
+//
+// **One process, many nodes.** [new_node] hosts a virtual node in this
+// process and [pool_at] gives it pools; an address of an actor spawned
+// there reaches other nodes as a proxy, as from another machine. Over
+// [MemTransport], a whole cluster
+// runs in one process with no socket, which is how its tests and
+// `examples/cluster` run. An actor test (see the Testing topic) must use
+// [MemTransport]: a host transport's threads are outside its virtual clock.
+//
+// The Concurrency topic, section "Across machines", tells the same story at
+// more length.
+// @compilerrules [net-transport, net-host, net-mem, net-wire-format, net-noremote, actor-protocol-hash, net-addr-routable, net-addr-capability, net-remote-backpressure, net-connect, node-group, actor-group, effect-any, actor-route-stub, time-timer, platform-threadsafe]
 
 import std.time.Duration
 import std.codec.encode
@@ -74,30 +128,59 @@ import std.runtime.addr_index
 import std.runtime.addr_of
 import std.runtime.pool_of
 
-// Where a transport can dial: known **before** any contact, which is what
-// makes it the currency of node discovery. For TCP it is a host and a port;
-// for [MemTransport] it is a virtual node's name. Printable, hashable and
-// orderable, so it keys maps and sorts in a membership list.
+// An address a transport can reach: a host and a port.
 //
-// Distinct from a `Node`, which the network sequence's step ④ mints *after*
-// a handshake and which carries an identity and a build — an endpoint says
-// nothing about who answers there.
+// An endpoint is known before any contact, which is why node groups are
+// configured with them. For [HostTcpTransport] it is a TCP host name or IP
+// address and a port; for [MemTransport] it is any name you choose for a
+// virtual node. It says nothing about who answers there: that is a [Node],
+// learnt when two nodes meet. Endpoints compare, hash and order by their
+// fields, so they key maps and sort.
+//
+// ```
+// let e = NodeEndpoint { host: "10.0.0.5", port: 7000 }
+// println(to_str(e))                                   // 10.0.0.5:7000
+// ```
 export struct NodeEndpoint : Ordered<self> by auto, Hashed<self> by auto {
     host: Str,
     port: Int
 }
 
+// An endpoint as `host:port`.
 export fn to_str(e: NodeEndpoint) [] -> Str => e {
     return "${e.host}:${e.port}"
 }
 
-// Why a frame did not go: the destination is not reachable from here (no
-// route, connection refused, or — under [MemTransport] — partitioned or
-// killed), or the wire failed after a connection existed.
+// Nobody could be reached at the endpoint.
 export struct Unreachable { to: NodeEndpoint }
+// The connection to the endpoint failed: [reason] is the transport's account.
 export struct WireFailed { to: NodeEndpoint, reason: Str }
+// Why a transport could not take a frame, or could not listen.
+//
+// [Unreachable] means nobody could be reached at the endpoint: over TCP, the
+// connection was refused or could not be made; over [MemTransport], the
+// endpoint is partitioned from this one, killed, or has no listener.
+// [WireFailed] means a connection failed: over TCP, either `listen` could
+// not bind its port, or a write on an open connection failed, in which case
+// the connection is dropped and the next `deliver` to that endpoint
+// connects afresh. Neither is thrown: a [Transport] call answers it as an
+// `Err`.
+//
+// ```
+// fn report(outcome: Ok None | Err NetError) [Console] -> None => outcome {
+//     when outcome {
+//         is Ok { println("sent") }
+//         is Err {
+//             let e: NetError = outcome
+//             println(to_str(e))                       // unreachable: b:1
+//         }
+//     }
+// }
+// ```
 export type NetError = Unreachable | WireFailed
 
+// A failure as one line of text: `unreachable: b:1`, or
+// `wire failed to b:1: ` and the transport's reason.
 export fn to_str(e: NetError) [] -> Str => e {
     when e {
         is Unreachable { return "unreachable: ${to_str(e.to)}" }
@@ -105,73 +188,158 @@ export fn to_str(e: NetError) [] -> Str => e {
     }
 }
 
-// What a receiver serves: one member, one frame at a time, from whoever sent
-// it. An **actor** effect, because frames arrive from a thread the scheduler
-// does not own and a send is the only door in.
+// The receiving side of a transport: an actor that is sent each frame that
+// arrives at an endpoint, with the endpoint it came from.
 //
-// The frame is opaque `Bytes`: this layer does not know what a protocol is.
-// The codecs (step ②) decode it one level up, in the actor that registered.
+// Frames arrive on threads the transport owns (for TCP, one reader thread
+// per connection), and a message is the only way work from such a thread
+// enters the scheduler. So receiving is an **actor** effect: a node spawns
+// an actor serving `Inbound` and registers its address with
+// `Transport.listen`, and the transport sends it one `receive_frame` per
+// frame, in the order each sender sent them. The frame is opaque `Bytes`;
+// what it means is up to the actor that registered.
+//
+// A program rarely serves this itself: [connect] registers the runtime's
+// own receiver, which routes each frame to the actor, reply or proxy it is
+// for. Serving it is how you use a transport as a plain message pipe:
+//
+// ```
+// actor effect Tally {
+//     send fn seen(out: Reply<Int>) => !out
+// }
+//
+// // Counts the frames that arrive, and answers how many on request.
+// handler Tallying() for Inbound, Tally {
+//     mailbox { capacity: 16 }
+//     state {
+//         n: Int = 0
+//     }
+//     send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {
+//         n = n + 1
+//     }
+//     send fn seen(out: Reply<Int>) => !out {
+//         out.send(n)
+//     }
+// }
+// ```
 // @compilerrules [actor-effect-kind]
 export actor effect Inbound {
     send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame
 }
 
-// The wire. A plain effect — its members are calls on the caller's thread —
-// with the delivery side handed to an [Inbound] actor at `listen`.
+// Moves frames of bytes between endpoints: the bottom layer of the network,
+// which the runtime uses to carry messages between nodes.
 //
-// **Delivery is at most once and in order per (sender, receiver) pair**, and
-// nothing more: a frame that is not delivered is *lost*, and the caller learns
-// so only when the transport can tell (an `Err` from `deliver`), never when it
-// cannot (the wire dropped it after accepting). Anything stronger is a
-// protocol over this, not a promise of it.
+// Sending is a plain call on the caller's thread: `deliver` answers `Ok`
+// when the transport has taken the frame, or a [NetError] when it could
+// not. Receiving goes to an [Inbound] actor registered with `listen`.
+//
+// **Delivery is at most once and in order per pair of endpoints**, and
+// nothing more. `Ok` means the transport accepted the frame (for TCP, that
+// it was written to a connected socket), not that the far side has it. A
+// frame lost after that is lost silently. Anything stronger is a protocol
+// over this one.
+//
+// std has two handlers: [HostTcpTransport], over TCP, and [MemTransport],
+// over a [MemNetwork] in this process. A node binds one with `use`, and
+// everything that needs the wire (its node group, [connect]) finds it there.
+// Over [MemTransport], with a test's faults:
+//
+// ```
+// fn main() [use, spawn] {
+//     use StdConsole()
+//     let a = NodeEndpoint { host: "a", port: 1 }
+//     let b = NodeEndpoint { host: "b", port: 1 }
+//     let net = spawn MemNetwork() on pool(1)
+//     use MemTransport(copy(a), copy(net))
+//     let sink = spawn Printing() on pool(1)
+//     let _l = listen(copy(b), sink)            // b's listener (node b's job, normally)
+//     let sent = deliver(copy(b), to_bytes("one"))
+//     println("${sent is Ok}")                  // true
+//     net.partition(copy(a), copy(b))
+//     let lost = deliver(copy(b), to_bytes("two"))
+//     println("${lost is Ok}")                  // false: unreachable
+// }
+//
+// handler Printing() for Inbound {
+//     mailbox { capacity: 16 }
+//     send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {}
+// }
+// ```
 export effect Transport {
-    // Start receiving at [at]: every frame that arrives there is sent to
-    // [sink]. One listener per endpoint; a second `listen` at the same
-    // endpoint replaces the first.
+    // Starts receiving at [at]: every frame that arrives there is sent to
+    // [sink]. A second `listen` at the same endpoint replaces the sink. Over
+    // TCP, `Err` when the port cannot be bound; and while a TCP listener is
+    // open the program is not considered idle, since a frame may arrive.
     fn listen(at: NodeEndpoint, sink: eff[Inbound]) -> Ok None | Err NetError => at, !sink
-    // Stop receiving at [at]. Frames in flight to it are lost.
+    // Stops receiving at [at]. Frames still on their way there are lost.
     fn unlisten(at: NodeEndpoint) -> None => at
-    // Hand [frame] to the wire for [to]. `Ok` means the transport accepted
-    // it — for TCP, that it was written to a connected socket — not that
-    // the far side has it.
+    // Hands [frame] to the wire for [to]: `Ok` when the transport took it.
+    // Over TCP the first frame to an endpoint opens the connection, and the
+    // caller's thread waits while it connects.
     fn deliver(to: NodeEndpoint, frame: Bytes) -> Ok None | Err NetError => to, !frame
-    // The endpoint frames sent by this node carry as their `from`. Set once
-    // by the constructor of the host handler; a test double answers the
-    // virtual node it stands for.
+    // The endpoint this node's frames carry as their `from`: the one the
+    // handler was made with.
     fn local_endpoint() -> NodeEndpoint
 }
 
 // -------------------------------------------------------------- routing ----
 
-// The identity of a node: a process, or one of the virtual
-// nodes a process hosts for the in-process double. Minted by the runtime at
-// start (`this_node`) or on demand (`new_node`), unique across a node group
-// with overwhelming probability, and compared everywhere — a proxy's home,
-// a `Node` in a group, the leader an election answers — so it has a wire
-// form: an `Addr` that crosses the wire is `(node, actor, bits)`.
+// The identity of a node: a process, or a virtual node a process hosts.
+//
+// The runtime gives each process a random identity when it starts, and
+// [new_node] makes more. Every actor carries the node it was spawned on
+// ([node_of]), an address that crosses the wire carries it, and a [Node]
+// in a node group pairs it with the endpoint it answers at. Two ids compare
+// equal exactly when they name the same node.
 // @compilerrules [net-addr-routable]
 export struct NodeId : Hashed<self> by auto {
     value: Long
 }
 
-// The identity of the node this code runs on: every actor
-// carries the node it was spawned on.
+// The node this code runs on: the node of the pool the current actor (or
+// `main`) runs on. Compare it with [node_of] to tell whether an actor is
+// local.
 // @compilerrules [net-addr-routable]
 export fn this_node() [] -> NodeId {
     return NodeId { value: here_node() }
 }
 
-// Hosts a fresh **virtual node** in this process: the
-// in-process double of another machine. Pools made with [pool_at] belong to
-// it, actors spawned on them carry it, and an addr of one that crosses to
-// another node — virtual or not — is reached through a proxy, so every remote
-// path runs without a socket.
+// Hosts a fresh **virtual node** in this process, and answers its id.
+//
+// A virtual node stands in for another machine. Pools made for it with
+// [pool_at] belong to it, and actors spawned on those pools carry it, so an
+// address of one of them that crosses the wire to another node arrives as a
+// proxy, and its messages travel through the transport as frames. Together
+// with [MemTransport], this runs a whole cluster in one process. A virtual
+// node is on the wire once something running on it calls [connect] or
+// spawns a node group, with that node's own transport in scope.
+//
+// ```
+// fn main() [use, spawn] {
+//     use StdConsole()
+//     let other = new_node()
+//     let there = spawn Counting() on pool_at(other, 1)
+//     println("${eq(node_of(there), other)}")          // true
+//     println("${eq(node_of(there), this_node())}")    // false
+// }
+//
+// actor effect Counter {
+//     send fn bump(n: Int)
+// }
+//
+// handler Counting() for Counter {
+//     mailbox { capacity: 8 }
+//     send fn bump(n: Int) {}
+// }
+// ```
 // @compilerrules [net-addr-routable]
 export fn new_node() [spawn] -> NodeId {
     return NodeId { value: new_node@runtime.routing() }
 }
 
-// A pool of [size] workers belonging to [node].
+// A pool of [size] worker threads belonging to [node]: what runs that
+// node's actors. `this_node()` inside them answers [node].
 // @compilerrules [net-addr-routable]
 export fn pool_at(node: NodeId, size: Int) [spawn] -> Pool => node, size {
     return pool_of(pool_at(node.value, size))
@@ -233,9 +401,32 @@ fn deliver_frame(data: Bytes) [] -> Bool => data {
     return deliver(data)
 }
 
-// For an addr that crossed the wire, how many more
-// messages its mailbox has granted room for; `None` for a local actor. What a
-// pick reads as a remote member's load (step ⑤).
+// How many more messages a proxy may send before it waits for room in the
+// far mailbox; `None` for an actor on this node.
+//
+// A proxy is the address of an actor on another node. A mailbox's
+// `capacity` holds across the wire through **credits**: the far node grants
+// a proxy room, each send spends a credit, and each message the far actor
+// takes off its queue grants one back. A send through a proxy with no
+// credits blocks until one arrives, as a send to a full local mailbox does.
+// This is the number a route selector can read as a remote member's load.
+//
+// ```
+// fn main() [use, spawn] {
+//     use StdConsole()
+//     let here = spawn Counting() on pool(1)
+//     println("${credits(here) is None}")              // true: a local actor
+// }
+//
+// actor effect Counter {
+//     send fn bump(n: Int)
+// }
+//
+// handler Counting() for Counter {
+//     mailbox { capacity: 8 }
+//     send fn bump(n: Int) {}
+// }
+// ```
 // @compilerrules [net-remote-backpressure]
 export fn credits<E>(a: eff[E]) [] -> Int? => a {
     let c = credits(addr_index(a))
@@ -248,14 +439,24 @@ export fn credits<E>(a: eff[E]) [] -> Int? => a {
     return c
 }
 
-// The outbound protocol: the runtime sends every frame it
-// wants on the wire here, and the one handler of it hands them to the
-// `Transport` in scope.
+// The runtime's outgoing frames: the protocol of the actor that puts them
+// on the wire.
+//
+// Every frame the runtime wants sent (a message to a proxy, a reply, a
+// credit, a group's handshake) is sent to this actor as `send_frame`, and the
+// actor calls `Transport.deliver` for it. Sending is an actor's job so that
+// the transport's call, which may wait on a socket, never runs while the
+// scheduler holds its lock. [connect] spawns the one handler, [Sending]; a
+// program does not send to it.
 // @compilerrules [net-addr-routable]
 export actor effect Outbound {
     send fn send_frame(to: NodeEndpoint, frame: Bytes) => !to, !frame
 }
 
+// The runtime's outgoing side: hands each frame to the [Transport] it was
+// spawned with. A frame the transport refuses is dropped, as the transport's
+// at-most-once delivery allows. [connect] spawns it, with room for 256
+// frames in its mailbox.
 export handler Sending() [Transport] for Outbound {
     mailbox { capacity: 256 }
 
@@ -265,9 +466,12 @@ export handler Sending() [Transport] for Outbound {
     }
 }
 
-// The inbound side: the `Inbound` handler that hands every
-// frame to the runtime. `listen(at, spawn Receiving())` is a node's whole
-// receive path.
+// The runtime's incoming side: an [Inbound] actor that hands each arriving
+// frame to the runtime, which finds the actor, reply or proxy it is for. A
+// frame for an actor that does not exist, or with an address whose
+// capability bits do not match, is dropped. [connect] spawns it and
+// registers it with `Transport.listen`, with room for 256 frames in its
+// mailbox.
 // @compilerrules [net-addr-routable]
 export handler Receiving() for Inbound {
     mailbox { capacity: 256 }
@@ -277,44 +481,52 @@ export handler Receiving() for Inbound {
     }
 }
 
-// Whether the current node is connected to the wire: its
-// outbound side bound by [connect]. What makes `connect` idempotent, and what
-// a program asks before it decides to.
+// Whether the current node is on the wire: whether [connect] has run on
+// it, directly or from a node group.
 // @compilerrules [net-connect]
 export fn connected() [] -> Bool {
     return connected@runtime.routing()
 }
 
-// Connects the current node to the wire, at endpoint [me]:
-// the three bindings between the scheduler and the `Transport` in scope,
-// which every node needs exactly once before it can reach or be reached by
-// another —
+// Connects the current node to the wire at endpoint [me], over the
+// [Transport] in scope, and answers whether this call did it.
 //
-// 1. **outbound**: a `Sending` actor is spawned and bound with
-//    `route_frames`; every frame the runtime wants on the wire (a message to
-//    a proxy, a reply, a credit, a HELLO) is queued to it, and its
-//    activation calls `Transport.deliver` with the scheduler's lock released;
-// 2. **inbound**: a `Receiving` actor is spawned and registered with
-//    `listen(me, …)`; the transport sends each frame that arrives at [me] to
-//    it, and its activation hands the bytes back to the runtime with
-//    `deliver_frame` — a send being the only way work from a host thread
-//    enters the scheduler;
-// 3. **the self-route**: `add_route(this_node(), me)` records that frames
-//    for *this* node go to [me] — routes to peers are learnt in the node
-//    group's handshake, but a node's own endpoint is something only it knows.
+// A node must be connected before it can reach another or be reached. The
+// call spawns two actors, a [Sending] that puts the runtime's frames on the
+// wire and a [Receiving] that listens at [me] and hands arriving frames back,
+// and records that frames for this node go to [me]. Where other nodes are
+// is learnt when they meet, through a node group.
 //
-// Answers whether **this call** connected the node: `false` when it was
-// already connected, in which case nothing is rebound and no actor is
-// spawned. The two actors run on `pool(1)`, or on [on] when given. A program
-// calls it when it wants the wire up before any group exists, or wants to
-// place the wire actors itself; otherwise a node group's `init` connects the
-// node at the transport's own endpoint when nothing has (user decision
-// 2026-09-28), so a fresh node needs only its transport and its group.
+// A program seldom needs it: a node group connects its node as it starts, at
+// the transport's own `local_endpoint`, when nothing has. Call it to bring
+// the wire up before any group exists, or to choose the pool the two actors
+// run on (the overload with [on]; this one uses a new `pool(1)`).
+//
+// It is idempotent: on a node already connected it answers `false` and
+// spawns and binds nothing.
+//
+// ```
+// fn main() [use, spawn] {
+//     use StdConsole()
+//     let me = NodeEndpoint { host: "a", port: 1 }
+//     let net = spawn MemNetwork() on pool(1)
+//     use MemTransport(copy(me), net)
+//     println("${connected()}")                        // false
+//     println("${connect(copy(me))}")                  // true: this call connected
+//     println("${connect(copy(me))}")                  // false: already connected
+//     println("${connected()}")                        // true
+// }
+// ```
+//
+// @param me  this node's endpoint: where it listens, and where its peers
+//            send its frames
+// @returns   `true` when this call connected the node
 // @compilerrules [net-connect]
 export fn connect(me: NodeEndpoint) [Transport, spawn] -> Bool => !me {
     return connect(me, pool(1))
 }
 
+// [connect] with the two wire actors on the pool [on].
 export fn connect(me: NodeEndpoint, on: Pool) [Transport, spawn] -> Bool => !me, !on {
     if connected@net() {
         return false
@@ -329,34 +541,77 @@ export fn connect(me: NodeEndpoint, on: Pool) [Transport, spawn] -> Bool => !me,
 
 // ----------------------------------------------------------- node group ----
 
-// A member of a node group: the identity the handshake minted and
-// the endpoint it answers at. What a mechanism knows *after* contact; a
-// `NodeEndpoint` is what it knows before.
+// A member of a node group: a node's identity, and the endpoint it answers
+// at. Where a [NodeEndpoint] is known before contact, a `Node` is what two
+// nodes learn of each other when they meet.
 // @compilerrules [node-group]
 export struct Node : Hashed<self> by auto {
     id: NodeId,
     at: NodeEndpoint
 }
 
-// Membership of **nodes**: one actor effect, whose handlers are
-// the mechanisms — a fixed list, gossip over seeds, a heartbeat store. Every
-// handler serves this face the same way; what differs is how it learns who is
-// there and how it notices who has gone.
+// The membership of **machines**: which nodes are in the cluster, as this
+// node knows it.
+//
+// A node group is an actor, one per node, spawned with the node's
+// [Transport] in scope. Its handlers are the ways of finding peers:
+// [StaticNodeGroup] for a fixed list of endpoints, [GossipNodeGroup] for a
+// few seeds that introduce the rest. Each starts itself as it is spawned:
+// it connects the node to the wire if nothing has ([connect]) and greets the
+// endpoints it knows. When two nodes meet they exchange the group's name
+// (nodes of differently named groups ignore each other), their endpoints,
+// and a hash of every actor protocol they speak ([peer_protocol]).
+//
+// A node group is what [actor_group] needs to find the other nodes'
+// members. Ask it `members` for the nodes it knows now, or `subscribe` an
+// actor serving [NodeGroupWatcher] to hear of each node as it arrives and
+// goes:
+//
+// ```
+// handler Announcing() [Console] for NodeGroupWatcher {
+//     mailbox { capacity: 32 }
+//     send fn joined(n: Node) => !n {
+//         println("+ ${to_str(n.at)}")
+//     }
+//     send fn left(n: Node, why: Str) => !n, !why {
+//         println("- ${to_str(n.at)} (${why})")
+//     }
+// }
+//
+// fn main() [use, spawn] {
+//     use StdConsole()
+//     let me = NodeEndpoint { host: "10.0.0.1", port: 7000 }
+//     let seeds = List(NodeEndpoint { host: "10.0.0.9", port: 7000 })
+//     use HostTcpTransport(copy(me))
+//     let p = pool(1)
+//     let nodes = spawn GossipNodeGroup("shop", seeds) on p
+//     nodes.subscribe(spawn Announcing() on p)         // + 10.0.0.9:7000, …
+//     let peers = waitfor out: Reply<List<Node>> { nodes.members(out) }
+//     println("${size(peers)} peers so far")
+// }
+// ```
+//
+// A node is seen to go when it sends `leave`: its peers drop it, and every
+// proxy of an actor on it dies. A node that stops without leaving stays a
+// member; noticing it is future work.
 // @compilerrules [node-group]
 export actor effect NodeGroup {
-    // Everyone this node currently knows, itself excluded.
+    // Answers every node this node knows of, itself excluded.
     send fn members(out: Reply<List<Node>>) => !out
-    // Hear about arrivals and departures.
+    // Subscribes [w]: it first hears `joined` for every node already known,
+    // then hears of every arrival and departure.
     send fn subscribe(w: eff[NodeGroupWatcher]) => !w
-    // Tell every peer this node is going, and stop.
+    // Tells every known peer this node is leaving.
     send fn leave()
 }
 
-// What a subscriber hears. [why] on a departure is `"left"` for
-// an announced one, or the mechanism's account of an unannounced one.
+// What a subscriber to a [NodeGroup] hears: a node joining, and a node
+// leaving.
 // @compilerrules [node-group]
 export actor effect NodeGroupWatcher {
+    // [n] has joined, or was already known when the subscriber subscribed.
     send fn joined(n: Node) => !n
+    // [n] has gone; [why] is `"left"` when it announced it with `leave`.
     send fn left(n: Node, why: Str) => !n, !why
 }
 
@@ -372,12 +627,12 @@ export actor effect NodeGroupWatcher {
 // carries it as **control frames** and nothing more. A control frame names a
 // channel, and the actor listening on that channel at the node it reaches
 // (`watch_control`) receives its payload as a private `control(from, data)`
-// message [actor-private-send] — a node group's mechanism on the channel
-// `""`, an actor group's replica on its group's name. The payloads are the
-// canonical encodings of the types below [net-wire-format]. Control frames
-// travel through the runtime rather than as an actor protocol, so a
-// mechanism never sends the protocol it serves, which keeps gossip out of
-// the deadlock graph's send-cycle warning [actor-deadlock-cycle].
+// message: a node group's mechanism on the channel `""`, an actor group's
+// replica on its group's name. The payloads are the canonical encodings of
+// the types below. Control frames travel through the runtime rather than as
+// an actor protocol, so a mechanism never sends the protocol it serves,
+// which keeps gossip out of the deadlock graph's send-cycle warning.
+// @compilerrules [actor-private-send, net-wire-format, actor-deadlock-cycle]
 
 struct Hello { group: Str, at: NodeEndpoint, protocols: List<(Str, Str)> }
 struct Ack { group: Str, at: NodeEndpoint, protocols: List<(Str, Str)> }
@@ -399,10 +654,11 @@ fn send_control(to: NodeId, channel: Str, payload: Bytes) [] -> None => to, chan
     send_control(to.value, copy(channel), payload)
 }
 
-// [node-group] A control frame on [channel] for **whichever node receives
-// it**: what a HELLO is, since before the handshake the peer's identity is
-// not known and it has no route — it is handed to the transport directly.
-// (Now `runtime.routing`'s own, called directly [runtime-handles].)
+// `control_frame`: a control frame on a channel for **whichever node
+// receives it**: what a HELLO is, since before the handshake the peer's
+// identity is not known and it has no route, so it is handed to the
+// transport directly. (Now `runtime.routing`'s own, called directly.)
+// @compilerrules [node-group, runtime-handles]
 
 // Peer [node] has left: the runtime forgets its route
 // and protocol table, and every proxy of an actor on it dies — a send to one
@@ -412,9 +668,9 @@ fn node_left(node: NodeId) [] -> None => node {
     node_left(node.value)
 }
 
-// [actor-protocol-hash] This program's protocol table, which every [Hello] and
-// [Ack] carries.
-// (Now `runtime.routing`'s own, called directly [runtime-handles].)
+// `local_protocols`: this program's protocol table, which every [Hello]
+// and [Ack] carries. (Now `runtime.routing`'s own, called directly.)
+// @compilerrules [actor-protocol-hash, runtime-handles]
 
 // Records peer [node]'s protocol table, as its handshake
 // carried it: what [peer_protocol] answers from.
@@ -423,9 +679,23 @@ fn set_peer_protocols(node: NodeId, table: List<(Str, Str)>) [] -> None => node,
     set_peer_protocols(node.value, copy(table))
 }
 
-// A peer's hash for the protocol named [protocol], as its
-// handshake carried it; `None` for an unknown peer or one without the
-// protocol.
+// A peer node's hash for the actor protocol named [protocol]; `None` for a
+// node not met, or one that does not speak the protocol.
+//
+// The hash is the one the peer sent when the two nodes met.
+//
+// Every actor effect whose messages can cross the wire has a hash computed
+// by the compiler from its shape: the same on both backends, and different
+// once a message is added, removed or changed. Two nodes whose hashes for a
+// protocol differ cannot exchange its messages, and an [ActorGroup] ignores
+// the other's members. This program's own hash for a protocol `P` is
+// `protocol<P>().hash`.
+//
+// ```
+// fn speaks_greeter(n: Node) [] -> Bool => n {
+//     return !(peer_protocol(n.id, "Greeter") is None)
+// }
+// ```
 // @compilerrules [actor-protocol-hash]
 export fn peer_protocol(node: NodeId, protocol: Str) [] -> Str? => node, protocol {
     return peer_protocol(node.value, protocol)
@@ -503,10 +773,37 @@ fn leave_group(known: Map<NodeId, Node>) [] -> None => known {
     }
 }
 
-// Fixed membership: every endpoint is known up front, so the
-// mechanism is "say HELLO to each, and report who answers". Death detection
-// is the transport's: a LEAVE, or — once step ④'s follow-up lands — a failed
-// delivery. The double every later step tests on, over `MemTransport`.
+// A [NodeGroup] over a fixed list of endpoints: every node of the cluster is
+// known up front.
+//
+// As it starts, it connects the node if nothing has, then greets every
+// endpoint in [all] other than its own, once. A node that is not up yet is
+// met later, when it starts and greets this one, so the nodes may start in
+// any order.
+// Every node that answers to the same [name] becomes a member. It notices a
+// departure only when the node sends `leave`.
+//
+// ```
+// fn main() [use, spawn] {
+//     let me = NodeEndpoint { host: "10.0.0.1", port: 7000 }
+//     let fleet = List(
+//         copy(me),
+//         NodeEndpoint { host: "10.0.0.2", port: 7000 },
+//         NodeEndpoint { host: "10.0.0.3", port: 7000 }
+//     )
+//     use HostTcpTransport(copy(me))
+//     let nodes = spawn StaticNodeGroup("demo", fleet) on pool(1)
+//     let _pings = actor_group<Ping>(nodes)
+// }
+//
+// actor effect Ping {
+//     send fn ping(out: Reply<Str>) => !out
+// }
+// ```
+//
+// [name] is the group's name: nodes of differently named groups ignore each
+// other. [all] lists every node's endpoint; this node's own may be in it,
+// and is skipped.
 // @compilerrules [node-group]
 export handler StaticNodeGroup(name: Str, all: List<NodeEndpoint>) [Transport, spawn]
     for NodeGroup {
@@ -596,12 +893,35 @@ fn known_nodes(known: Map<NodeId, Node>) [] -> List<Node> => known {
     return all_known
 }
 
-// Gossip membership: a node knows only some [seeds] to start
-// with; every node it meets is told who else it knows, and tells everyone
-// else about it, so the group converges on a full mesh from any connected set
-// of seeds. Death is a LEAVE (or, once the failure follow-up lands, a failed
-// delivery). The mechanism most deployments want when the fleet is not fixed;
-// its partition policy is the recorded follow-up.
+// A [NodeGroup] that starts from a few known nodes and learns the rest:
+// for a cluster whose nodes are not all known in advance.
+//
+// As it starts, it connects the node if nothing has and greets each of
+// [seeds]. When it meets a new node, it tells that node of every node it
+// already knows, and tells each of those of the newcomer; a node told of an
+// endpoint greets it in turn. So from any seeds that connect the cluster,
+// every node comes to know every other. A greeting that cannot be delivered
+// (the node is not up yet) is retried the next time that endpoint is
+// introduced. It notices a departure only when the node sends `leave`, and
+// it has no policy yet for a network partition.
+//
+// ```
+// fn main() [use, spawn] {
+//     let me = NodeEndpoint { host: "10.0.0.7", port: 7000 }
+//     use HostTcpTransport(copy(me))
+//     let seeds = List(NodeEndpoint { host: "10.0.0.1", port: 7000 })
+//     let nodes = spawn GossipNodeGroup("shop", seeds) on pool(1)
+//     let _ids = actor_group<Ping>(nodes)
+// }
+//
+// actor effect Ping {
+//     send fn ping(out: Reply<Str>) => !out
+// }
+// ```
+//
+// [name] is the group's name: nodes of differently named groups ignore each
+// other. [seeds] are some nodes to start from; this node's own endpoint may
+// be among them, and is skipped.
 // @compilerrules [node-group]
 export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport, spawn]
     for NodeGroup {
@@ -703,12 +1023,17 @@ fn dial(dialed: Mut Set<Str>, group: Str, e: NodeEndpoint) [Transport] -> None
 
 // ---------------------------------------------------------- actor group ----
 
-// A protocol named as a value: what a replica is told which
-// effect a group is of, so a peer whose hash for it differs is refused before
-// any message is exchanged. `E` types the value and is erased in the output;
-// the value carries what erasure drops, which is how
-// a generic fn (`actor_group<E>`) gets to hold the name and hash of an `E`
-// it cannot see.
+// (Maintainer note.) `E` types the value and is erased in the output; the
+// value carries what erasure drops, which is how a generic fn
+// (`actor_group<E>`) gets to hold the name and hash of an `E` it cannot see.
+
+// An actor protocol as a value: its name and the hash of its shape, which
+// two nodes compare to tell whether they speak the same version of it.
+//
+// [protocol] makes one. [actor_group] takes one as an implicit parameter,
+// filled at the call, so a program seldom handles it; a function of your
+// own that is generic over a protocol takes the same implicit and passes it
+// on.
 // @compilerrules [actor-protocol-hash, effect-generic-decl]
 // @compilerknown
 export struct Protocol<E> {
@@ -716,49 +1041,114 @@ export struct Protocol<E> {
     hash: Str
 }
 
-// The protocol [E], as a value. The
-// **one** intrinsic that reads its type argument: an effect-only generic is
-// erased in the output, so the name and hash of `E` exist only where `E` is
-// written concretely, and this is the function the checker finds for an
-// implicit `?protocol: () -> Protocol<E>` once the call's `E` is known
-// — passed as an adapter closure whose body is the
-// literal, exactly as std's `iter` fills an `?Iterable`. A program never
-// needs to write `protocol<Ping>()` itself: it writes `actor_group<Ping>(…)`
-// and the implicit is filled. Resolving it for an `E` whose payloads have no
-// wire form is refused: a group of `E` could not span nodes.
+// (Maintainer note.) The one intrinsic that reads its type argument: an
+// effect-only generic is erased in the output, so the name and hash of `E`
+// exist only where `E` is written concretely. The checker finds it for an
+// implicit `?protocol: () -> Protocol<E>` once the call's `E` is known, and
+// passes it as an adapter closure whose body is the literal, as std's `iter`
+// fills an `?Iterable`.
+
+// The actor protocol [E] as a value: its name, as written, and the hash of
+// its shape.
+//
+// This is what fills an implicit `?protocol: () -> Protocol<E>` once the
+// call's `E` is known, so `actor_group<Ping>(nodes)` needs nothing more. A
+// protocol whose messages carry a `noremote` payload has no wire form and no
+// hash, and asking for one is a compile-time error.
+//
+// ```
+// actor effect Ping {
+//     send fn ping(out: Reply<Str>) => !out
+// }
+//
+// fn ping_name() [] -> Str {
+//     let p = protocol<Ping>()
+//     return copy(p.name)                              // Ping
+// }
+// ```
 // @compilerrules [actor-protocol-hash, implicit-intrinsic, implicit-resolve, net-noremote]
 export intrinsic fn protocol<E>() [] -> Protocol<E>
 
-// Membership of **actors of one protocol**, across every node
-// of a group — the other membership level, beside `NodeGroup`. An
-// `ActorGroup<E>` is a set of `eff[E]`, one replica per node, the replicas
-// finding each other by name through the node group's peers and exchanging
-// their sets; a member may live on any node, and an addr answered by
-// `members` routes there like any addr. Generic over the
-// *effect*: `ActorGroup<Counter>` and
-// `ActorGroup<Ledger>` are distinct types, so a group can only ever hold the
-// protocol it is of.
+// The set of actors serving protocol `E` across a cluster's nodes: what a
+// program sends to when any one of several actors will do.
+//
+// Every node that opens the group with [actor_group] runs a **replica** of
+// it, and the replicas of one name find each other through the node group
+// and exchange their members. Each replica answers the members it knows of,
+// on every node, as addresses that work wherever they arrive: a member on
+// another node is reached through a proxy. A replica learns of another
+// node's members a moment after the nodes meet, not at once.
+//
+// Members are added with `spawn H() on p in group`, or with [join] for an
+// actor already running. A member whose node leaves is withdrawn from every
+// replica, and subscribers hear of it. The group's type says which protocol
+// it holds, so an `ActorGroup<Ping>` only ever has `eff[Ping]` members.
+//
+// To send to *a* member rather than list them, bind the group with
+// `use any group` under a [RouteSelector].
+//
+// ```
+// handler Noticing() [Console] for ActorGroupWatcher<Ping> {
+//     mailbox { capacity: 16 }
+//     send fn joined(member: eff[Ping]) => !member {
+//         println("+ a Ping on this node: ${eq(node_of(member), this_node())}")
+//     }
+//     send fn left(member: eff[Ping]) => !member {
+//         println("- a Ping")
+//     }
+// }
+//
+// fn main() [use, spawn] {
+//     use StdConsole()
+//     let me = NodeEndpoint { host: "a", port: 1 }
+//     let net = spawn MemNetwork() on pool(1)
+//     use MemTransport(copy(me), net)
+//     let p = pool(1)
+//     let nodes = spawn StaticNodeGroup("demo", List(copy(me))) on p
+//     let pings = actor_group<Ping>(nodes)
+//     pings.subscribe(spawn Noticing() on p)
+//     spawn Pinging("one") on p in pings               // + a Ping on this node: true
+//     let all = waitfor out: Reply<List<eff[Ping]>> { pings.members(out) }
+//     for m in all {
+//         println(waitfor r: Reply<Str> { m.ping(r) }) // pong from one
+//     }
+// }
+//
+// actor effect Ping {
+//     send fn ping(out: Reply<Str>) => !out
+// }
+//
+// handler Pinging(who: Str) for Ping {
+//     mailbox { capacity: 8 }
+//     send fn ping(out: Reply<Str>) => !out { out.send("pong from ${who}") }
+// }
+// ```
 // @compilerrules [actor-group, net-addr-routable, effect-generic-decl]
 // @compilerknown
 export actor effect ActorGroup<E> {
-    // Register [member] here; every replica learns of it.
+    // Adds [member]; every replica of the group comes to know it.
     send fn join(member: eff[E]) => !member
-    // Withdraw [member].
+    // Withdraws [member] from this replica. The other nodes' replicas keep
+    // it until its node leaves.
     send fn leave(member: eff[E]) => !member
-    // Every member known to this replica, across nodes.
+    // Answers every member this replica knows of, on every node.
     send fn members(out: Reply<List<eff[E]>>) => !out
-    // Hear about arrivals and departures.
+    // Subscribes [w] to hear of members joining and leaving from now on.
     send fn subscribe(w: eff[ActorGroupWatcher<E>]) => !w
-    // Something a route selector reads outside the view changed
-    // (an election's answer): every route over this group re-reads its view.
+    // Tells every route over this group that something its selector reads
+    // outside the members has changed (an election's answer), so the
+    // selector's `changed` runs again before the next pick.
     // @compilerrules [actor-route-stub]
     send fn refresh()
 }
 
-// What a subscriber hears.
+// What a subscriber to an [ActorGroup] hears: a member joining, and a
+// member leaving.
 // @compilerrules [actor-group]
 export actor effect ActorGroupWatcher<E> {
+    // [member] has joined the group, on this node or another.
     send fn joined(member: eff[E]) => !member
+    // [member] has been withdrawn, or its node has left.
     send fn left(member: eff[E]) => !member
 }
 
@@ -780,73 +1170,132 @@ fn share_members<E>(name: Str, hash: Str, node: NodeId, members: List<eff[E]>) [
     send_control(copy(node), copy(name), encode((copy(hash), copy(members))))
 }
 
-// How loaded a member looks from here:
-// the queue depth of a local actor, or the messages in flight to a remote one
-// that its host has not yet dequeued. What a pick compares (step ⑦).
+// How many messages are waiting for an actor, as seen from this node.
+//
+// For an actor on this node it is the length of its queue; for a proxy, the
+// messages sent through it that the far node has not yet taken off the
+// queue. It is a moment's reading: it changes with every send. [LeastLoaded] reads
+// it per send to pick the lightest member.
+//
+// ```
+// fn lighter(a: eff[Ping], b: eff[Ping]) [] -> eff[Ping] => a, b {
+//     if pending(a) <= pending(b) {
+//         return copy(a)
+//     }
+//     return copy(b)
+// }
+//
+// actor effect Ping {
+//     send fn ping(out: Reply<Str>) => !out
+// }
+// ```
 // @compilerrules [actor-group, net-remote-backpressure]
 export fn pending<E>(a: eff[E]) [] -> Int => a {
     return pending(addr_index(a))
 }
 
-// Opens the group of protocol [E] over [nodes] on this node:
-// one replica, spawned on the current pool, published under the group's name
-// so the replicas other nodes open under the same name find it — the same
-// name from two nodes is one group. Written with the protocol as a type
-// argument, `actor_group<Ping>(nodes)`, which is also where a protocol that
-// cannot cross a node boundary is refused. A peer whose hash of
-// the protocol differs is invisible: its members are never merged.
+// Opens the [ActorGroup] of protocol `E` on this node, over the node group
+// [nodes], and answers its replica.
 //
-// A node group is about **machines** and a program has one; an actor group
-// is about the **actors of one protocol** across them, and a program opens
-// one per protocol it routes to or lists the members of.
+// Written with the protocol as a type argument: `actor_group<Ping>(nodes)`.
+// The group is named after the protocol, and the replicas that other nodes
+// of the node group open under the same name are the same group: they
+// exchange members as the nodes meet. A node whose version of the protocol
+// differs (its hash does not match) is ignored, so its members never appear
+// here. The replica runs on a pool of its own.
 //
-// An ordinary fn: the protocol's name and hash are constants of the *written*
-// `E`, and an effect-only generic is erased in the output,
-// so this body cannot produce them — the implicit
-// [protocol] is filled at the call, where `E` is concrete, with the one
-// intrinsic that reads its type argument.
-// A generic caller forwards its own `?protocol`, as with
-// any implicit.
+// A program has one node group, about machines, and opens one actor group
+// per protocol whose actors it spreads across them. A protocol whose
+// messages carry a `noremote` payload cannot cross a node boundary, and
+// opening a group of it is a compile-time error.
+//
+// ```
+// fn open(nodes: eff[NodeGroup]) [spawn] -> eff[ActorGroup<Ping>] => !nodes {
+//     let pings = actor_group<Ping>(nodes)
+//     spawn Pinging() on pool(1) in pings
+//     return pings
+// }
+//
+// actor effect Ping {
+//     send fn ping(out: Reply<Str>) => !out
+// }
+//
+// handler Pinging() for Ping {
+//     mailbox { capacity: 8 }
+//     send fn ping(out: Reply<Str>) => !out { out.send("pong") }
+// }
+// ```
+//
+// @param nodes     this node's node group, through which the replicas meet
+// @param protocol  found at the call site: the protocol's name and hash
 // @compilerrules [actor-group, net-noremote, effect-generic-decl, actor-protocol-hash, implicit-resolve, implicit-forward]
 export fn actor_group<E>(nodes: eff[NodeGroup], ?protocol: () -> Protocol<E>) [spawn] -> eff[ActorGroup<E>]
     => !nodes {
+    // An ordinary fn: the protocol's name and hash are constants of the
+    // *written* `E`, and an effect-only generic is erased in the output, so
+    // this body cannot produce them. The implicit `protocol` is filled at the
+    // call, where `E` is concrete, with the one intrinsic that reads its type
+    // argument; a generic caller forwards its own `?protocol`, as with any
+    // implicit.
     let proto = protocol()
     let name = copy(proto.name)
     return actor_group<E>(name, nodes)
 }
 
-// Several groups of one protocol, told apart by [name]. The
-// subscription to the node group is sent from here rather than from the
-// replica's `init`: sent by the replica it would be a `NodeGroupWatcher →
-// NodeGroup → NodeGroupWatcher` edge in the deadlock graph
-// — a real one, since the node group sends `joined`
-// back — and sent from the opener's frame it is not.
+// [actor_group] under a [name] of your own, for several groups of one
+// protocol: `actor_group<Ping>("east", nodes)` and
+// `actor_group<Ping>("west", nodes)` are two groups.
 // @compilerrules [actor-group, actor-deadlock-cycle]
 export fn actor_group<E>(name: Str, nodes: eff[NodeGroup], ?protocol: () -> Protocol<E>) [spawn] -> eff[ActorGroup<E>]
     => !name, !nodes {
+    // The subscription to the node group is sent from here rather than from
+    // the replica's `init`: sent by the replica it would be a
+    // `NodeGroupWatcher -> NodeGroup -> NodeGroupWatcher` edge in the deadlock
+    // graph (a real one, since the node group sends `joined` back), and sent
+    // from the opener's frame it is not. [actor-deadlock-cycle]
     let (group, watcher) = spawn ActorGrouping<E>(name, protocol()) on pool(1)
     nodes.subscribe(watcher)
     return group
 }
 
-// Registers [member] in [group]. `spawn Pinging() on p in pings`
-// is the same thing written at the spawn.
+// Adds [member] to [group]; every replica of the group comes to know it.
+// `spawn Pinging() on p in pings` is the same, written at the spawn.
+//
+// ```
+// fn add(pings: eff[ActorGroup<Ping>], p: Pool) [spawn] -> None => pings, !p {
+//     let one = spawn Pinging() on p
+//     join(pings, one)
+// }
+//
+// actor effect Ping {
+//     send fn ping(out: Reply<Str>) => !out
+// }
+//
+// handler Pinging() for Ping {
+//     mailbox { capacity: 8 }
+//     send fn ping(out: Reply<Str>) => !out { out.send("pong") }
+// }
+// ```
 // @compilerrules [actor-group]
 export fn join<E>(group: eff[ActorGroup<E>], member: eff[E]) [] -> None => group, !member {
     (group.join)(member)
 }
 
-// The std replica. State: members as a list of addrs (an addr
-// has no `hash` yet, so membership is checked by `eq`), the peer replicas, the
-// subscribers. Its second face hears the node group: a node's arrival is
-// where the replica first shares with that node's replica, and a node's
-// departure withdraws every member it hosted. After every change
-// it mirrors the member set into the runtime (`view_set`), which is what a
-// `use any` route reads on the sender's thread — the replica is behind the
-// view by one message, never in the send path.
+// The replica of an actor group that [actor_group] spawns: one per node and
+// group. Its [NodeGroupWatcher] face hears the node group, so it shares its
+// members with each node that arrives and withdraws the members of each
+// node that leaves. A program opens groups with [actor_group] rather than
+// spawning this itself.
 // @compilerrules [actor-group, actor-route-stub]
 export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
     for ActorGroup<E>, NodeGroupWatcher {
+    // State: members as a list of addrs (an addr has no `hash` yet, so
+    // membership is checked by `eq`), the peer replicas, the subscribers. A
+    // node's arrival is where the replica first shares with that node's
+    // replica. After every change it mirrors the member set into the runtime
+    // (`view_set`), which is what a `use any` route reads on the sender's
+    // thread: the replica is behind the view by one message, never in the
+    // send path.
     mailbox { capacity: 64 }
 
     state {
@@ -1000,8 +1449,18 @@ fn withdraw<E>(list: Mut List<eff[E]>, a: eff[E]) [] -> Bool => list: Mut, !a {
     return true
 }
 
-// The node an addr lives on — for a log line, and for the
-// group's peer check.
+// The node an actor lives on: the node of the pool it was spawned on, also
+// for a proxy of an actor on another node.
+//
+// ```
+// fn is_local(a: eff[Ping]) [] -> Bool => a {
+//     return eq(node_of(a), this_node())
+// }
+//
+// actor effect Ping {
+//     send fn ping(out: Reply<Str>) => !out
+// }
+// ```
 // @compilerrules [net-addr-routable]
 export fn node_of<E>(a: eff[E]) [] -> NodeId => a {
     return NodeId { value: identity(addr_index(a)).node }
@@ -1045,79 +1504,151 @@ fn view_wait<E>(group: eff[ActorGroup<E>], seen: Long, nanos: Long) [] -> None
     view_wait(addr_index(group), seen, nanos)
 }
 
-// One member as a route selector sees it: where it is, and
-// whether it is on this node. Load is read when it is wanted, with
-// [pending], since it changes with every send.
+// One member of a group as a [RouteSelector] sees it.
+//
+// Its load is not here, since it changes with every send: read it when it is
+// wanted, with [pending].
 // @compilerrules [actor-route-stub]
 export struct RouteMember<E> {
     addr: eff[E],
     local: Bool
 }
 
-// What a selector chooses from: every member the local replica
-// knows, in a stable order (by node, then actor — the same on every node).
+// The members a [RouteSelector] chooses from: every member this node's
+// replica of the group knows, in an order that is the same on every node
+// (by node, then by actor).
 // @compilerrules [actor-route-stub]
 export struct RouteView<E> {
     members: List<RouteMember<E>>
 }
 
-// The default waits, as a fn: the default of every std
-// policy's `config` parameter. (A field default is inlined where the literal
-// is written, which would need `Duration` imported there.)
+// (Maintainer note.) A fn rather than a field default: a field default is
+// inlined where the literal is written, which would need `Duration`
+// imported there.
+
+// The default waits of a route: 1 ms at first, doubling up to 5 s. The
+// default of the `config` parameter of [LeastLoaded], [Sharded] and
+// [Elected].
 // @compilerrules [actor-route-stub]
 export fn default_route_config() [] -> RouteConfig {
     return RouteConfig {}
 }
 
-// How a `use any` route waits while its selector answers
-// `None`: [first_wait], doubling up to [max_wait], waking at once whenever
-// the view changes. A send waits as long as it takes.
+// How long a route waits between asks while its selector finds no member:
+// [first_wait] at first, doubling each time up to [max_wait].
+//
+// A waiting send also wakes at once whenever the group's members change.
+// There is no time limit: the send waits until the selector picks a member,
+// which is how a send to an empty group, or to a group without a leader,
+// waits for one rather than failing.
+//
+// ```
+// import std.time
+//
+// fn quick() [] -> RouteConfig {
+//     return RouteConfig { first_wait: millis(10), max_wait: seconds(1) }
+// }
+// ```
 // @compilerrules [actor-route-stub]
 export struct RouteConfig {
     first_wait: Duration = Duration { nanos: 1000000L },
     max_wait: Duration = Duration { nanos: 5000000000L }
 }
 
-// The policy behind a `use any` route, in two phases.
-// [changed] runs when the view has changed since this selector last saw it
-// (a member joined or left, or the group was refreshed): a selector derives
-// whatever it chooses by — a probability per member, a leader, a ring — and
-// keeps it in its state. [select] runs per send, with the same view and the
-// hash of the send's `Key` argument when the protocol marks one. `None` means
-// nothing is eligible yet: the stub waits and asks again, which is how an
-// empty group and a group with no leader wait rather than fail. std ships
-// [LeastLoaded], [Sharded] and [Elected]; a policy of your own is a handler
-// of this.
+// (Maintainer note.) `config` is the policy's because the policy is what
+// says `None` (user decision R7).
+
+// The policy that picks which member of a group takes each send, under
+// `use any group`.
 //
-// [config] is how long a route waits between asks while [select] answers
-// `None` (user decision R7: the waits are the policy's, since the policy is
-// what says `None`). std's policies take it as a constructor parameter that
-// defaults to [default_route_config].
+// `use any group` binds `any E` to a route: every send to `E` in its scope
+// asks the selector in scope for a member and goes to it. The selector works
+// in two phases over a [RouteView] of the group:
+//
+// - `changed` runs when the members have changed since the selector last
+//   saw them, or the group was refreshed (`ActorGroup.refresh`). A selector
+//   that chooses by something derived from the members (a leader, a ring, a
+//   weight per member) works it out here and keeps it in its state.
+// - `select` runs for every send, with the view and, when the protocol marks
+//   a parameter [Key], the hash of that argument. It answers the member to
+//   send to, or `None` when no member is eligible yet: the send then waits,
+//   as `config` says, and asks again.
+//
+// The view is read on the sender's thread from a copy the replica keeps up
+// to date, so a pick costs no message to the replica. std has three
+// selectors, [LeastLoaded], [Sharded] and [Elected]; a selector of your own
+// is a handler of this effect:
+//
+// ```
+// // The first member on this node, or the first of all when none is local.
+// handler LocalFirst<E>(config: RouteConfig = default_route_config()) for RouteSelector<E> {
+//     fn config() -> RouteConfig {
+//         return copy(config)
+//     }
+//     fn changed(view: RouteView<E>) -> None => view {}
+//     fn select(view: RouteView<E>, key: Long?) -> eff[E]? => view, key {
+//         for m in view.members {
+//             if m.local {
+//                 return copy(m.addr)
+//             }
+//         }
+//         let first = get(view.members, 0) ?: return None
+//         return copy(first.addr)
+//     }
+// }
+//
+// fn ask(pings: eff[ActorGroup<Ping>]) [use] -> Str => !pings {
+//     use LocalFirst<Ping>()
+//     use any pings
+//     return waitfor out: Reply<Str> { ping(out) }
+// }
+//
+// actor effect Ping {
+//     send fn ping(out: Reply<Str>) => !out
+// }
+// ```
 // @compilerrules [actor-route-stub]
 // @compilerknown
 export effect RouteSelector<E> {
+    // The members are now [view]: work out whatever the picks depend on.
     fn changed(view: RouteView<E>) -> None => view
+    // Answers the member for one send, given the hash of its `Key` argument
+    // as [key] if it has one; `None` to make the send wait.
     fn select(view: RouteView<E>, key: Long?) -> eff[E]? => view, key
+    // Answers how long a send waits between asks while `select` answers
+    // `None`.
     fn config() -> RouteConfig
 }
 
-// Marks the parameter of a `send fn` whose value decides the
-// member: `send fn reserve(sku: Key Str, ...)`. A claim about the handle,
-// erased like any qualifier; the stub hashes the argument
-// into the `key` its selector's `select` receives. At most one per member.
+// Marks the parameter of a `send fn` whose value decides which member of a
+// group takes the message, for a selector such as [Sharded].
+//
+// The route hashes the argument (with [key_hash]) and hands the hash to the
+// selector's `select`. The mark is erased from the type, so a caller passes
+// a plain value. A `send fn` may mark at most one parameter.
+//
+// ```
+// actor effect Inventory {
+//     send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !out
+// }
+//
+// fn reserve_one(sku: Str) [any Inventory] -> Str => !sku {
+//     return waitfor out: Reply<Str> { reserve(sku, 1, out) }
+// }
+// ```
 // @compilerrules [actor-route-stub, qual-erasure]
 // @compilerknown
 export provenance qualifier Key<T> for T
 
-// The canonical hash of a key argument — over its wire encoding,
-// so both backends agree on the member a key lands on. Exported for the
-// generated `route` stubs, which call it from the program's own module; a
-// program has no reason to.
+// The hash of a [Key] argument, computed over its wire encoding so that
+// both backends, and every node, agree on the member a key lands on. The
+// routes the compiler derives call it; a program has no need to.
 // @compilerrules [actor-route-stub]
 export intrinsic fn key_hash<T>(k: T) [] -> Long => k
 
-// What a stub's send goes to, and the view version its selector
-// has now seen.
+// What [route_pick] answers: the member a send goes to, and the version of
+// the group's members the selector has now seen. Used by the routes the
+// compiler derives.
 // @compilerrules [actor-route-stub]
 // @compilerknown
 export struct RoutePick<E> {
@@ -1125,10 +1656,11 @@ export struct RoutePick<E> {
     version: Long
 }
 
-// The route's whole send path: read the view, tell the selector
-// when it changed since [seen], ask it, and wait while it answers `None`, as
-// long as the selector's `config` says. Exported for the routes the compiler
-// derives, which call it from the protocol's own module.
+// One pick of a route: reads the group's members, runs the selector's
+// `changed` if they changed since version [seen], asks its `select`, and
+// waits while it answers `None`, as long as its `config` says. The routes
+// the compiler derives for `use any` call it from the protocol's module; a
+// program has no need to.
 // @compilerrules [actor-route-stub]
 // @compilerknown
 export fn route_pick<E>(group: eff[ActorGroup<E>], seen: Long) [RouteSelector<E>] -> RoutePick<E>
@@ -1136,6 +1668,7 @@ export fn route_pick<E>(group: eff[ActorGroup<E>], seen: Long) [RouteSelector<E>
     return route_keyed(group, seen, None)
 }
 
+// [route_pick] for a send with a [Key] argument, whose hash is [key].
 // @compilerknown
 export fn route_pick<E>(group: eff[ActorGroup<E>], seen: Long, key: Long) [RouteSelector<E>] -> RoutePick<E>
 => group, !seen, !key {
@@ -1177,10 +1710,28 @@ fn route_view<E>(group: eff[ActorGroup<E>]) [] -> RouteView<E> => group {
     return RouteView { members: copy(members) }
 }
 
-// The default policy: the least loaded member, local members
-// first when [prefer_local] — a hop within the node is cheaper than one
-// across the wire. Load is read per send ([pending]). `None` for an empty
-// view.
+// The selector that sends each message to the member with the fewest
+// messages waiting ([pending]), read at every send.
+//
+// With [prefer_local], a member on this node is taken over any member on
+// another, since a message within the node does not cross the wire; the
+// load decides among members on the same side. With no members it answers
+// `None`, so the send waits for one.
+//
+// ```
+// fn fresh_id(seq: eff[ActorGroup<Sequencer>]) [use] -> Str => !seq {
+//     use LeastLoaded<Sequencer>(true)
+//     use any seq
+//     return waitfor out: Reply<Str> { next(out) }
+// }
+//
+// actor effect Sequencer {
+//     send fn next(out: Reply<Str>) => !out
+// }
+// ```
+//
+// [config] says how long a send waits between asks while the group is
+// empty; it defaults to [default_route_config].
 // @compilerrules [actor-route-stub]
 export handler LeastLoaded<E>(prefer_local: Bool, config: RouteConfig = default_route_config()) for RouteSelector<E> {
     fn config() -> RouteConfig {
@@ -1218,10 +1769,31 @@ export handler LeastLoaded<E>(prefer_local: Bool, config: RouteConfig = default_
     }
 }
 
-// The member that owns the send's key: the view's members are in
-// a stable order on every node, so `key mod n` lands on the same member
-// everywhere. A member joining reshuffles keys (consistent hashing is a
-// recorded follow-up). A send with no key goes to the first member.
+// The selector that sends each message to the member that owns its [Key]:
+// two sends with the same key go to the same member, in order.
+//
+// The member is the key's hash modulo the number of members, over a view
+// whose order is the same on every node, so every node sends a key to the
+// same member. When a member joins or leaves, many keys move to another
+// member (there is no consistent hashing yet). A message with no `Key`
+// parameter goes to the first member. With no members it answers `None`,
+// so the send waits for one.
+//
+// ```
+// actor effect Inventory {
+//     send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !out
+// }
+//
+// fn shop(stock: eff[ActorGroup<Inventory>]) [use, Console] -> None => !stock {
+//     use Sharded<Inventory>()
+//     use any stock
+//     println(waitfor out: Reply<Str> { reserve("apple", 1, out) })
+//     println(waitfor out: Reply<Str> { reserve("apple", 2, out) })    // the same member
+// }
+// ```
+//
+// [config] says how long a send waits between asks while the group is
+// empty; it defaults to [default_route_config].
 // @compilerrules [actor-route-stub]
 export handler Sharded<E>(config: RouteConfig = default_route_config()) for RouteSelector<E> {
     fn config() -> RouteConfig {
@@ -1243,18 +1815,40 @@ export handler Sharded<E>(config: RouteConfig = default_route_config()) for Rout
     }
 }
 
-// Who leads: `None` while an election is in progress. A Salvo
-// election or a platform handler over a lease store serve it alike; std ships
-// [StaticLeader] for a fixed one. Asked when a route's view changes, not per
-// send: whatever runs the election calls `refresh()` on the groups that
-// route by it when its answer changes.
+// Answers which node leads, for [Elected]: `None` while there is no leader
+// (an election is under way).
+//
+// Whoever serves it decides: an election written in Salvo, a platform
+// handler over a lease store, or [StaticLeader] for a fixed one. [Elected]
+// asks it only when the group's members change, not at every send, so when
+// the answer changes on its own, whatever decides it calls `refresh()` on
+// every group routed by it.
+//
+// ```
+// // The node whose host name sorts last leads.
+// handler LastHost(nodes: eff[NodeGroup], me: NodeEndpoint) for Leader {
+//     fn leader() -> NodeId? {
+//         let peers = waitfor out: Reply<List<Node>> { nodes.members(out) }
+//         let best_host = copy(me.host)
+//         let best = this_node()
+//         for n in peers {
+//             if n.at.host > best_host {
+//                 best_host = copy(n.at.host)
+//                 best = copy(n.id)
+//             }
+//         }
+//         return best
+//     }
+// }
+// ```
 // @compilerrules [actor-route-stub]
 export effect Leader {
+    // Answers the node that leads now, or `None` while there is none.
     fn leader() -> NodeId?
 }
 
-// The leader fixed by configuration — for a test, or a
-// deployment where one node is the primary by decree.
+// A [Leader] that always answers [node]: for a test, or for a deployment
+// whose primary node is fixed by configuration.
 // @compilerrules [actor-route-stub]
 export handler StaticLeader(node: NodeId) for Leader {
     fn leader() -> NodeId? {
@@ -1262,9 +1856,34 @@ export handler StaticLeader(node: NodeId) for Leader {
     }
 }
 
-// The member the current leader hosts: worked out when the view
-// changes, and kept. `None` — so the send waits — while there is no leader or
-// the leader hosts no member yet.
+// The selector that sends every message to the member on the leader's
+// node, as the [Leader] in scope answers it.
+//
+// It asks the leader when the group's members change (or the group is
+// refreshed) and keeps the answer. While there is no leader, or the leader's
+// node hosts no member of the group, it answers `None` and sends wait. When
+// the leader's node leaves, its members are withdrawn, and the next pick
+// asks the leader again: this is how a singleton fails over.
+//
+// ```
+// import std.time
+//
+// actor effect Sequencer {
+//     send fn next(out: Reply<Str>) => !out
+// }
+//
+// fn ids(seq: eff[ActorGroup<Sequencer>], primary: NodeId) [use, Console] -> None => !seq, !primary {
+//     use StaticLeader(primary)
+//     use Elected<Sequencer>(config = RouteConfig { first_wait: millis(10), max_wait: seconds(1) })
+//     use any seq
+//     let first = waitfor out: Reply<Str> { next(out) }
+//     let second = waitfor out: Reply<Str> { next(out) }
+//     println("${first} ${second}")                    // both from the primary's member
+// }
+// ```
+//
+// [config] says how long a send waits between asks while there is no member
+// to pick; it defaults to [default_route_config].
 // @compilerrules [actor-route-stub]
 export handler Elected<E>(config: RouteConfig = default_route_config()) [Leader] for RouteSelector<E> {
     state {
@@ -1293,64 +1912,148 @@ export handler Elected<E>(config: RouteConfig = default_route_config()) [Leader]
 
 // ---------------------------------------------------------------- host ----
 
-// The machine's transport: TCP, one connection per peer, length-prefixed
-// frames. The host class lives in std's `platform/net/` tree, one file per
-// backend.
+// (Maintainer note.) The host class lives in `lib/platform/std/net.{rs,kt}`,
+// one per backend, both signing the `threadsafe` contract: a transport is
+// reached from every pool of the program at once, so the host synchronizes
+// its own connection table and the compiler shares the instance with no
+// lock.
+
+// The transport over TCP: what each node of a real cluster uses, one node
+// per process.
 //
-// `threadsafe`: a transport is reached from every pool
-// of the program at once, so the host synchronizes its own connection table
-// and the compiler shares the instance with no lock. Signed in the host
-// files. [bind] is the endpoint this node listens on and reports as its
-// `local_endpoint`.
+// [bind] is this node's endpoint: `listen` opens a TCP listener there (a
+// node group or [connect] does that for you), and it is the `from` of every
+// frame this node sends. The first frame to a peer opens one TCP connection
+// to it, which carries every later frame; the caller's thread waits while
+// it connects, with no time limit of its own. A connection that cannot be
+// made answers [Unreachable]; a write that fails answers [WireFailed] and
+// drops the connection, and the next frame connects again. Both backends
+// put the same bytes on the wire, so a Kotlin node and a Rust node can talk.
+//
+// Frames travel as plain TCP, neither encrypted nor authenticated: bind to
+// an address only the cluster's own machines can reach. Each listener and
+// each accepted connection has a thread of its own, and while a listener is
+// open the program is not considered idle. An actor test cannot use it; it
+// uses [MemTransport].
+//
+// ```
+// fn main() [use, spawn] {
+//     let me = NodeEndpoint { host: "10.0.0.1", port: 7000 }
+//     use HostTcpTransport(copy(me))
+//     let nodes = spawn StaticNodeGroup("demo", List(copy(me), NodeEndpoint { host: "10.0.0.2", port: 7000 })) on pool(1)
+//     let peers = waitfor out: Reply<List<Node>> { nodes.members(out) }
+// }
+// ```
 // @compilerrules [platform-tree, platform-threadsafe]
 export threadsafe platform handler HostTcpTransport(bind: NodeEndpoint) for Transport
 
 // ------------------------------------------------------------------ mem ----
 
-// The in-process double, in two pieces that mirror what a real network is:
-// **one network** many nodes share, and **one transport per node** over it.
+// (Maintainer note.) Why two pieces: a handler of *several plain effects*
+// cannot yet be shared stateful (one lock behind several faces has no
+// backend form), so the fault controls could not ride on `MemTransport` as
+// a second face the way `ManualTime` carries `TimerCtl`. An actor face costs
+// nothing, and faults belong to the network, not to one node.
+
+// An in-memory network that many virtual nodes share, with the faults a
+// test wants to script: the protocol of [MemNetwork].
 //
-// [MemNet] is the network — an actor holding the listener table and the
-// faults a test scripts (a partition, a dead node), so the whole test has one
-// place to say "a cannot reach b". [MemTransport] is a node's transport: a
-// stateless handler holding the network's addr and the endpoint it stands
-// for, whose `deliver` asks the network where the frame goes and sends it
-// there. One `MemNetwork` is spawned per test; one `MemTransport` is bound
-// per virtual node, exactly as one `HostTcpTransport` is bound per process.
+// The in-memory double of a real network comes in two pieces, as a real
+// network does: **one network**, a [MemNetwork] actor spawned once, and
+// **one transport per node**, a [MemTransport] for each node's endpoint. The
+// network holds who listens where, and the faults: `partition` severs two
+// endpoints, `heal` restores them, and `kill` takes a node off until
+// something listens there again. Everything above the transport runs on it
+// as it does over TCP: the same frames, the same actors, the same errors.
+// What it does not do is serialize frames for a socket, so it cannot find a
+// fault in a host transport.
 //
-// It **runs the same code** the real transport does above it: the same
-// `Inbound` actors, the same frames, the same `Err`s. What it does not do is
-// serialize — a frame is delivered as the `Bytes` value that was sent, so a
-// codec bug is invisible here until step ② adds the encode/decode pair on
-// both sides of `deliver`.
+// Two nodes in one process: `a` is `main`'s own node, and `b` is a virtual
+// node, booted from an actor on its own pool with its own transport.
 //
-// (Why two pieces: a handler of *several plain effects* cannot yet be shared
-// stateful — one lock behind several faces has no backend form — so the
-// fault controls could not ride on `MemTransport` as a second face the way
-// `ManualTime` carries `TimerCtl`. An actor face costs nothing, and the split
-// reads better anyway: faults belong to the network, not to one node.)
+// ```
+// import std.time
+//
+// actor effect Ping {
+//     send fn ping(out: Reply<Str>) => !out
+// }
+//
+// handler Pinging(who: Str) for Ping {
+//     mailbox { capacity: 8 }
+//     send fn ping(out: Reply<Str>) => !out { out.send("pong from ${who}") }
+// }
+//
+// actor effect Boot {
+//     send fn boot(done: Reply<Bool>) => !done
+// }
+//
+// // Brings up a node from inside it: everything spawned here is on it.
+// handler Booting(all: List<NodeEndpoint>) [Transport, spawn] for Boot {
+//     mailbox { capacity: 1 }
+//     send fn boot(done: Reply<Bool>) => !done {
+//         let p = pool(1)
+//         let nodes = spawn StaticNodeGroup("demo", copy(all)) on p
+//         let pings = actor_group<Ping>(nodes)
+//         spawn Pinging("b") on p in pings
+//         done.send(true)
+//     }
+// }
+//
+// fn main() [use, spawn] {
+//     use StdConsole()
+//     let a = NodeEndpoint { host: "a", port: 1 }
+//     let b = NodeEndpoint { host: "b", port: 1 }
+//     let all = List(copy(a), copy(b))
+//     let net = spawn MemNetwork() on pool(1)
+//
+//     use MemTransport(copy(a), copy(net))
+//     let p = pool(1)
+//     let nodes = spawn StaticNodeGroup("demo", copy(all)) on p
+//     let pings = actor_group<Ping>(nodes)
+//     spawn Pinging("a") on p in pings
+//
+//     let pb = pool_at(new_node(), 1)
+//     let booter = spawn Booting(all) with MemTransport(copy(b), copy(net)) on pb
+//     let _up = waitfor done: Reply<Bool> { booter.boot(done) }
+//
+//     // A moment for the nodes to meet.
+//     let timer = spawn DefaultTimer() on pool(1)
+//     let _t = waitfor f: Reply<Fired> { timer.after(millis(500), f) }
+//     let seen = waitfor out: Reply<List<eff[Ping]>> { pings.members(out) }
+//     println("${size(seen)} members")                 // 2 members
+//     net.partition(copy(a), copy(b))                  // from here, a and b cannot talk
+// }
+// ```
 export actor effect MemNet {
-    // Register [sink] as the listener at [at], replacing any previous one
-    // and reviving a killed node.
+    // Registers [sink] as the listener at [at], replacing any previous one,
+    // and brings a killed endpoint back. `MemTransport.listen` sends it.
     send fn attach(at: NodeEndpoint, sink: eff[Inbound]) => !at, !sink
-    // Drop the listener at [at].
+    // Drops the listener at [at]. `MemTransport.unlisten` sends it.
     send fn detach(at: NodeEndpoint) => !at
-    // Where a frame from [from] to [to] goes: the listener's addr, or `None`
-    // when [to] is unreachable from [from] — partitioned, killed, or nobody
-    // listening. Answering `Some` counts the delivery.
+    // Answers the listener a frame from [from] to [to] goes to, or `None`
+    // when [to] is partitioned from [from], killed, or has no listener; an
+    // answered listener counts as one delivered frame. `MemTransport.deliver`
+    // asks it.
     send fn route(from: NodeEndpoint, to: NodeEndpoint, out: Reply<eff[Inbound]?>) => !from, !to, !out
-    // Sever [a] from [b] in both directions until `heal`.
+    // Severs [a] from [b], in both directions, until `heal(a, b)`.
     send fn partition(a: NodeEndpoint, b: NodeEndpoint) => !a, !b
-    // Undo `partition(a, b)`.
+    // Undoes `partition(a, b)`.
     send fn heal(a: NodeEndpoint, b: NodeEndpoint) => !a, !b
-    // Take [node] off the network: its listener is dropped and every frame to
-    // it is unreachable until something `attach`es there again.
+    // Takes [node] off the network: its listener is dropped, and every frame
+    // to it is unreachable until something listens there again.
     send fn kill(node: NodeEndpoint) => !node
-    // How many frames have been routed so far — the assertion a test wants
-    // after a partition ("nothing got through").
+    // Answers how many frames have been routed so far: what a test checks
+    // after a partition to see that nothing got through.
     send fn delivered(out: Reply<Int>) => !out
 }
 
+// The in-memory network: spawn one per test (or per in-process cluster) and
+// give its address to each node's [MemTransport].
+//
+// It is one actor, so every frame between its nodes passes through its
+// mailbox (64 messages) to find its listener. A pair partitioned with
+// `partition` stays so until `heal`, in both directions; a killed endpoint
+// stays dead until something listens there again.
 export handler MemNetwork() for MemNet {
     mailbox { capacity: 64 }
 
@@ -1404,13 +2107,26 @@ export handler MemNetwork() for MemNet {
     }
 }
 
-// One virtual node's transport over a shared [MemNet]. Stateless — the
-// network holds everything — so a `use` binds it bare and shareable, and it
-// crosses into any actor that needs the wire.
+// One node's [Transport] over a shared [MemNetwork]: [me] is the endpoint
+// it stands for, and [net] the network.
 //
-// `deliver` waits on the network for the route: a `waitfor` on the caller's
-// thread, which serves the caller's pool meanwhile, so a node
-// delivering from inside an activation does not wedge its own pool.
+// It holds no state of its own, so it can be bound with `use` and handed to
+// any actor. `listen` registers with the network and always answers `Ok`;
+// `deliver` asks the network for the listener at the destination and sends
+// the frame to it, answering [Unreachable] when the two endpoints are
+// partitioned, the destination is killed, or nobody listens there. While it
+// waits for the network's answer, the caller's thread serves its own pool,
+// so delivering from inside an actor cannot stall that actor's pool.
+//
+// ```
+// fn main() [use, spawn] {
+//     let a = NodeEndpoint { host: "a", port: 1 }
+//     let net = spawn MemNetwork() on pool(1)
+//     use MemTransport(copy(a), net)
+//     let nodes = spawn StaticNodeGroup("solo", List(copy(a))) on pool(1)
+//     let peers = waitfor out: Reply<List<Node>> { nodes.members(out) }
+// }
+// ```
 // @compilerrules [effect-handle, waitfor-pump]
 export handler MemTransport(me: NodeEndpoint, net: eff[MemNet]) for Transport {
     fn listen(at: NodeEndpoint, sink: eff[Inbound]) -> Ok None | Err NetError => at, !sink {

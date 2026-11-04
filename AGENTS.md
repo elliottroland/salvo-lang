@@ -137,6 +137,9 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
 
 (cd lib && ../target/debug/salvo docs)  # regenerate wiki/ from docs/language/ and std's doc comments
                                  # (`--check` is what the docs test runs)
+python3 tools/check-doc-examples.py   # type-check every example in std's doc
+                                 # comments (~20s); after editing std's docs, also
+                                 # `--code-unchanged` (no code line moved)
 
 cargo run -- test --src lib      # the standard library's own tests, in Salvo
                                  # (`lib/std/**/*.test.sv`); one `cargo test` runs this

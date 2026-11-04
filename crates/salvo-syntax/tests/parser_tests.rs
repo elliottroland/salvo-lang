@@ -580,6 +580,20 @@ fn docs_are_the_comment_block_directly_above() {
     );
 }
 
+// [doc-comment] A field that does not open its line has no docs: the run
+// above the line documents the struct, not a field written beside it.
+#[test]
+fn a_field_on_its_structs_line_has_no_docs_of_its_own() {
+    let docs = docs_of("// A failed send.\nexport struct Unreachable { to: Int }\n");
+    assert_eq!(
+        docs,
+        vec![
+            ("Unreachable".to_string(), vec!["A failed send.".to_string()]),
+            ("Unreachable.to".to_string(), Vec::new()),
+        ]
+    );
+}
+
 // [doc-comment] A trailing comment documents nothing: it shares its line
 // with code, so it is neither the previous declaration's docs nor the next
 // one's.

@@ -23,7 +23,6 @@ use crate::span::Span;
 use crate::token::{StrPart, Token, TokenKind};
 
 pub struct Parser<'s> {
-    #[allow(dead_code)]
     source: &'s str,
     tokens: Vec<Token>,
     pos: usize,
@@ -1874,7 +1873,13 @@ impl<'s> Parser<'s> {
     /// form is for `state { … }` blocks only (handlers and `iter fn`s); a
     /// struct field or qualifier override always writes its type.
     fn parse_field_decl(&mut self, allow_inferred: bool) -> Option<FieldDecl> {
-        let docs = self.docs_here();
+        // [doc-comment] A field that does not open its line (one of a one-line
+        // `struct S { f: T }`) has no docs: the run above the line is the
+        // struct's.
+        let at = self.peek().span.start;
+        let line_start = self.line_starts[self.line_of(at) as usize] as usize;
+        let opens_line = self.source.get(line_start..at as usize).is_none_or(|before| before.trim().is_empty());
+        let docs = if opens_line { self.docs_here() } else { Vec::new() };
         // [comptime-qualifier] `Short('p') port: Int`: comptime qualifiers
         // before the field's name. A field name is lowercase [name-casing],
         // so an uppercase name here can only be one.

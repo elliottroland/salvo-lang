@@ -1,74 +1,143 @@
-// Time: spans, the two timelines, and the effects that read them.
+// Time: spans of time, points on two clocks, the effects that read the
+// clocks, and a timer that fires after a delay.
 //
-// Not part of `std.core`, so it is imported — and since the surface is a dozen
-// names, one line brings all of it [mod-import-module]:
+// The module is not part of `std.core`; one line brings all of it:
 //
-//     import std.time
+// ```
+// import std.time
+// ```
 //
-// **Three types, one representation.** A [Duration] is a span, an [Instant] is
-// a point on the wall clock, a [Tick] is a point on the monotonic clock, and
-// each is a single `Long` of nanoseconds. One field is deliberate: struct
-// equality is structural [col-equality] and fields are public, so a
-// two-field `{secs, nanos}` form would make non-canonical values
-// constructible — `{secs: 1, nanos: 0}` and `{secs: 0, nanos: 1000000000}`
-// mean one span and would compare unequal. With nanoseconds in a `Long`,
-// every value is canonical by construction, and both backends carry an
-// `i64` / `Long` [time-types].
+// **Three types.** A [Duration] is a span of time ("1.5 seconds"). An
+// [Instant] is a point on the **wall clock**, the clock that says what day
+// and second it is. A [Tick] is a point on the **monotonic clock**, which
+// only ever moves forward and is what intervals are measured with. Each is
+// a struct holding one `Long` of nanoseconds, so values are plain data:
+// compared with `==` and `<`, used as map keys, passed in messages.
 //
-// **Why two point types.** The wall clock can jump — NTP steps and slews it,
-// a suspend advances it while the monotonic clock stops — so a deadline
-// measured against it would move under the program. The monotonic clock never
-// jumps but has no epoch, so it cannot say what day it is. Fusing them is
-// what Go's `time.Time` does, and the price is a documented rule about when
-// the monotonic reading is silently dropped. Keeping them apart makes the
-// mistake a type error instead: `between` takes two of *one* timeline, and
-// comparing an `Instant` with a `Tick` is refused where it is written, since
-// equality demands the same base type [col-equality].
+// ```
+// let budget = millis(1500)
+// let longer = budget + seconds(2)                       // 3500ms
+// let late = longer > budget                             // true
+// let stamp = epoch_milli(1700000000000L)
+// let next_minute = stamp + minutes(1)
+// println("${longer}, ${to_epoch_second(next_minute)}")  // 3500ms, 1700000060
+// ```
 //
-// **What is not here.** Dates, zones and formatting: a calendar type
-// (`DateTime`) is a *view* of an [Instant] in a zone, with its own arithmetic
-// ("one month later" is not a number of nanoseconds), and it is a separate
-// design. [Instant]'s range in nanoseconds is 1678–2262, which is the right
-// window for machine events; historical dates belong to the calendar layer.
+// The arithmetic is named functions, and the ones named for an operator are
+// that operator: `plus`, `minus` and `times` are `+`, `-` and `*`, so
+// `d1 + d2`, `at - d` and `d * 3L` all work. Interpolating a `Duration`
+// prints it with the largest unit that divides it exactly (`1500ms`, `2s`).
 //
-// Deadlines are monotonic, so [Timer] fires carry a [Tick]. Reading the wall
-// clock is the [Clock] effect and reading the monotonic clock is [Ticker] —
-// both of them capabilities, because a function that secretly reads a clock
-// is a function whose answer depends on when you called it.
+// **Why two kinds of point.** The wall clock can jump: time
+// synchronization steps it and slows it down, and a machine that sleeps
+// wakes with its wall clock advanced while its monotonic clock stood still.
+// A timeout measured against the wall clock could therefore expire early or
+// never. The monotonic clock never jumps, but its starting point is
+// arbitrary, so a `Tick` on its own cannot say what time it is. Measure with
+// ticks; record and report with instants. Mixing them is a type error:
+// [between] takes two points of one clock, and an `Instant` cannot be
+// compared with a `Tick`.
+//
+// **Reading a clock is an effect.** A function whose answer depends on when
+// it is called has a dependency, and Salvo puts dependencies in signatures:
+// [Ticker] reads the monotonic clock and [Clock] the wall clock.
+// [DefaultTicker] and [DefaultClock] are the machine's; a test binds a
+// handler of its own to decide what the clock says.
+//
+// ```
+// fn timed(budget: Duration) [Ticker, Console] -> None {
+//     let started = tick()
+//     println("working")
+//     let took = elapsed(started)
+//     if took > budget {
+//         println("slow: ${took}")
+//     }
+// }
+//
+// fn main() [use] -> None {
+//     use StdConsole()
+//     use DefaultTicker()
+//     timed(millis(100))
+// }
+// ```
+//
+// Better still, where a time can be passed as a value, pass it: a function
+// that takes its times as parameters reads no clock, declares no effect and
+// is tested by calling it.
+//
+// **Waiting is a message.** A handler runs to completion and cannot block in
+// the middle, so "wait two seconds" means "send me a message in two
+// seconds": [Timer] is an actor effect whose `after` takes the reply to send.
+// [DefaultTimer] is the machine's timer, and [ManualTime] is a timer whose
+// time moves only when a test says so.
+//
+// **What is not here.** Dates, time zones and formatting. A calendar date
+// is a view of an [Instant] in a zone, with its own arithmetic ("one month
+// later" is not a fixed number of nanoseconds), and is not part of this
+// module. An `Instant` covers the years 1678 to 2262, the right window for
+// machine events.
+// @compilerrules [mod-import-module, col-equality, time-types]
 
 import std.runtime.now_nanos
 import std.runtime.timers.after_nanos
 
-// A span of time, in nanoseconds, and the currency of every time API here:
-// `after` takes one, `between` answers one, and both timelines add one.
+// A span of time, in nanoseconds: what a [Timer] waits, what [between]
+// answers, and what moves a point along its clock.
 //
-// **Signed**, which is what makes `between` total: arguments in the wrong
-// order answer a negative span rather than trapping or clamping at zero.
-// A `Long` of nanoseconds spans ±292 years.
+// Durations are **signed**, so [between] with its arguments the other way
+// round answers a negative span rather than failing. A `Long` of
+// nanoseconds spans about ±292 years. Make one with [nanos], [micros],
+// [millis], [seconds], [minutes] or [hours], and read it back with
+// [to_nanos], [to_millis] and the like.
+//
+// ```
+// let d = seconds(2) - millis(500)
+// println("${d} = ${to_millis(d)} ms")                   // 1500ms = 1500 ms
+// let negative = abs(millis(1) - millis(3))              // 2ms
+// ```
+// @compilerrules [time-types]
 export struct Duration : Ordered<self> by auto, Hashed<self> by auto {
+    // The span in nanoseconds; negative for a span that runs backwards.
     nanos: Long
 }
 
 // A point on the **wall clock**, as nanoseconds since the Unix epoch
-// (1970-01-01T00:00:00Z), and what [Clock] answers.
+// (1970-01-01T00:00:00Z). [Clock]'s `now` answers one.
 //
-// It is what a program records, logs and compares against a deadline it was
-// *given*; it is the wrong thing to measure an interval with, because the
-// clock under it can be adjusted between two readings. Measure with [Tick].
+// An `Instant` is what a program records, logs and compares against a time
+// it was given, such as an expiry date. It is the wrong thing to measure an
+// interval with, because the wall clock can be adjusted between two
+// readings; measure with [Tick].
+//
+// ```
+// let created = epoch_second(1700000000L)
+// let expires = created + hours(24)
+// println("${to_epoch_milli(expires)}")                  // 1700086400000
+// ```
+// @compilerrules [time-types]
 export struct Instant : Ordered<self> by auto, Hashed<self> by auto {
+    // Nanoseconds since the Unix epoch; negative before 1970.
     nanos: Long
 }
 
-// A point on the **monotonic clock**, and what [Ticker] answers.
+// A point on the **monotonic clock**, the clock intervals and deadlines are
+// measured on. [Ticker]'s `tick` answers one.
 //
-// The origin is arbitrary — a process start, a boot, an unspecified moment
-// possibly in the future — and no API reveals it, so a `Tick` on its own says
-// nothing about *when*. What it is for is intervals: two of them subtract into
-// a [Duration] that no clock adjustment can distort, which is why deadlines
-// and [Fired] payloads are expressed in ticks. To learn the wall time a tick
-// happened at, ask a [Clock] with [to_instant] — an estimate, for the reasons
-// documented there.
+// The monotonic clock's starting point is arbitrary (the start of the
+// process, a boot, any moment) and nothing reveals it, so a `Tick` on its
+// own says nothing about *when*. What it is for is intervals: two ticks
+// subtract into a [Duration] that no clock adjustment can distort, which is
+// why deadlines and [Fired] carry ticks. To learn the wall time a tick
+// corresponds to, ask a [Clock] with its `to_instant`, which is an estimate.
+//
+// ```
+// let start = Tick { nanos: 0L }
+// let stop = start + millis(250)
+// println("${between(start, stop)}")                     // 250ms
+// ```
+// @compilerrules [time-types]
 export struct Tick : Ordered<self> by auto, Hashed<self> by auto {
+    // Nanoseconds from the clock's arbitrary starting point.
     nanos: Long
 }
 
@@ -104,8 +173,7 @@ export fn hours(n: Long) [] -> Duration {
     return Duration {nanos: n * 3600000000000L}
 }
 
-// [d] in whole nanoseconds, which is exact: nanoseconds are the
-// representation.
+// [d] in nanoseconds. This is exact: nanoseconds are what a span holds.
 export fn to_nanos(d: Duration) [] -> Long => d {
     return d.nanos
 }
@@ -116,6 +184,10 @@ export fn to_micros(d: Duration) [] -> Long => d {
 }
 
 // [d] in whole milliseconds, truncated toward zero.
+//
+// ```
+// let ms = to_millis(micros(2999))                       // 2
+// ```
 export fn to_millis(d: Duration) [] -> Long => d {
     return d.nanos / 1000000L
 }
@@ -125,17 +197,21 @@ export fn to_seconds(d: Duration) [] -> Long => d {
     return d.nanos / 1000000000L
 }
 
-// The sum of two spans.
+// The sum of two spans: what `d1 + d2` means.
+// @compilerrules [op-arith]
 export fn plus(d1: Duration, d2: Duration) [] -> Duration => d1, d2 {
     return Duration {nanos: d1.nanos + d2.nanos}
 }
 
-// [d2] taken off [d1], which may be negative.
+// [d2] taken off [d1], which is negative when [d2] is the longer: what
+// `d1 - d2` means.
+// @compilerrules [op-arith]
 export fn minus(d1: Duration, d2: Duration) [] -> Duration => d1, d2 {
     return Duration {nanos: d1.nanos - d2.nanos}
 }
 
-// [d] repeated [n] times.
+// [d] repeated [n] times: what `d * n` means.
+// @compilerrules [op-arith]
 export fn times(d: Duration, n: Long) [] -> Duration => d {
     return Duration {nanos: d.nanos * n}
 }
@@ -148,16 +224,23 @@ export fn abs(d: Duration) [] -> Duration => !d {
     return d
 }
 
-// The text form of [d]: an integer and the largest unit that divides it
-// exactly — `2s`, `1500ms`, `250us`, `37ns`, `0s`. Deliberately never
-// fractional, so the rendering loses nothing and does not depend on how a
-// backend prints a floating-point number.
+// The text form of [d]: a whole number and the largest unit that divides
+// the span exactly, one of `s`, `ms`, `us` and `ns`. Zero is `0s`, and a
+// negative span starts with `-`. This is what interpolating a `Duration`
+// prints.
 //
-// Seconds is the largest unit it will use: two minutes reads `120s`, not `2m`.
-// Minutes and hours invite a *composite* reading (`1h30m`), which is a
-// formatting decision this function is the wrong size for — and which belongs
-// with the calendar layer, where the units have calendars behind them.
+// The number is never fractional, so the text loses nothing and reads the
+// same on every backend. Seconds is the largest unit used: two minutes is
+// `120s`, not `2m`.
+//
+// ```
+// println("${seconds(2)} ${millis(1500)} ${micros(250)} ${nanos(37L)}")   // 2s 1500ms 250us 37ns
+// println("${minutes(2)} ${millis(0) - millis(5)}")      // 120s -5ms
+// ```
 export fn to_str(d: Duration) [] -> Str => d {
+    // Minutes and hours invite a composite reading (`1h30m`), which is a
+    // formatting decision this function is the wrong size for, and which
+    // belongs with a calendar layer.
     if d.nanos < 0 {
         let positive = Duration {nanos: 0L - d.nanos}
         return "-${to_str(positive)}"
@@ -184,9 +267,14 @@ export fn epoch_nano(n: Long) [] -> Instant {
     return Instant {nanos: n}
 }
 
-// The wall-clock point [n] milliseconds after the Unix epoch — the epoch
-// number most systems hand out, so this is the usual way in from the outside
-// world.
+// The wall-clock point [n] milliseconds after the Unix epoch. Most systems
+// hand out times in epoch milliseconds, so this is the usual way in from
+// outside the program.
+//
+// ```
+// let at = epoch_milli(1700000000000L)
+// println("${to_epoch_second(at)}")                      // 1700000000
+// ```
 export fn epoch_milli(n: Long) [] -> Instant {
     return Instant {nanos: n * 1000000L}
 }
@@ -201,8 +289,8 @@ export fn to_epoch_nano(at: Instant) [] -> Long => at {
     return at.nanos
 }
 
-// [at] as whole milliseconds since the Unix epoch, truncated toward zero —
-// the number to hand to a system that speaks epoch millis.
+// [at] as whole milliseconds since the Unix epoch, truncated toward zero:
+// the number to hand to a system that speaks epoch milliseconds.
 export fn to_epoch_milli(at: Instant) [] -> Long => at {
     return at.nanos / 1000000L
 }
@@ -212,48 +300,79 @@ export fn to_epoch_second(at: Instant) [] -> Long => at {
     return at.nanos / 1000000000L
 }
 
-// The span from [start] to [end] — negative when [end] is the earlier of the
-// two, since a [Duration] is signed. Named for how it reads at the call site:
-// the argument order *is* the direction of the answer.
+// The span from [start] to [end] on the wall clock, negative when [end] is
+// the earlier. The argument order is the direction of the answer.
+//
+// ```
+// let a = epoch_second(100L)
+// let b = epoch_second(160L)
+// println("${between(a, b)} ${between(b, a)}")           // 60s -60s
+// ```
 export fn between(start: Instant, end: Instant) [] -> Duration => start, end {
     return Duration {nanos: end.nanos - start.nanos}
 }
 
-// The span from [start] to [end] on the monotonic clock — the honest way to
-// measure an interval, because no clock adjustment can distort it.
+// The span from [start] to [end] on the monotonic clock, negative when
+// [end] is the earlier. This is the reliable way to measure an interval,
+// because no clock adjustment can distort it; [elapsed] measures up to now.
 export fn between(start: Tick, end: Tick) [] -> Duration => start, end {
     return Duration {nanos: end.nanos - start.nanos}
 }
 
-// [d] after [at].
+// The wall-clock point [d] after [at]: what `at + d` means.
+// @compilerrules [op-arith]
 export fn plus(at: Instant, d: Duration) [] -> Instant => at, d {
     return Instant {nanos: at.nanos + d.nanos}
 }
 
-// [d] before [at].
+// The wall-clock point [d] before [at]: what `at - d` means.
+// @compilerrules [op-arith]
 export fn minus(at: Instant, d: Duration) [] -> Instant => at, d {
     return Instant {nanos: at.nanos - d.nanos}
 }
 
-// [d] after [at].
+// The monotonic point [d] after [at]: what `at + d` means, and how a
+// deadline is computed.
+// @compilerrules [op-arith]
 export fn plus(at: Tick, d: Duration) [] -> Tick => at, d {
     return Tick {nanos: at.nanos + d.nanos}
 }
 
-// [d] before [at].
+// The monotonic point [d] before [at]: what `at - d` means.
+// @compilerrules [op-arith]
 export fn minus(at: Tick, d: Duration) [] -> Tick => at, d {
     return Tick {nanos: at.nanos - d.nanos}
 }
 
 // --------------------------------------------------------------- clocks ----
 
-// The monotonic clock: a capability, because a function whose
-// answer depends on *when* it was called has a dependency, and Salvo's
-// dependencies live in signatures.
+// The monotonic clock, as an effect: the capability to measure how long
+// something takes.
 //
-// This is the effect to bind for measuring — a latency, a timeout, an
-// interval — and the one a test replaces to make those measurements
-// deterministic.
+// Declare `[Ticker]` on a function that measures a latency, a timeout or an
+// interval. [DefaultTicker] is the machine's clock; a test binds a handler
+// of its own to make the readings whatever it wants. In an actor test, the
+// machine's clock is the virtual one, which starts at zero.
+//
+// ```
+// handler SteppingTicker(step: Duration) for Ticker {
+//     state {
+//         at: Long = 0L
+//     }
+//
+//     fn tick() -> Tick {
+//         at = at + step.nanos
+//         return Tick {nanos: at}
+//     }
+// }
+//
+// fn main() [use] -> None {
+//     use StdConsole()
+//     use SteppingTicker(millis(500))
+//     let started = tick()
+//     println("${elapsed(started)}")                     // 500ms
+// }
+// ```
 // @compilerrules [time-ticker]
 export effect Ticker {
     // The monotonic clock's reading now. Two readings subtract into the time
@@ -261,26 +380,42 @@ export effect Ticker {
     fn tick() -> Tick
 }
 
-// The wall clock: what day and second it is, as an [Instant],
-// plus the bridge between the two timelines.
+// The wall clock, as an effect: what day and second it is, and the bridge
+// between the wall clock and the monotonic one.
 //
-// Reading it is a capability for the same reason [Ticker] is, and replacing it
-// is how a test decides what "now" means.
+// Reading it is a capability for the same reason [Ticker] is, and binding a
+// handler of your own is how a test decides what "now" means.
+//
+// The conversions `to_instant` and `to_tick` are **estimates**. Nothing
+// reveals the monotonic clock's starting point, so the only way to relate
+// the two clocks is to read both at nearly the same moment and keep the
+// difference, and that difference drifts as the wall clock is adjusted.
+// That is why they belong to a handler: [DefaultClock] measures the
+// difference once, when it is made, so its conversions keep order (an
+// earlier tick converts to an earlier instant), and a test's handler can
+// make them exact.
+//
+// ```
+// use DefaultClock()
+// use DefaultTicker()
+// let started = now()
+// let set = to_epoch_second(started) > 1600000000L       // true on a machine whose clock is set
+// let wall = to_instant(tick())                          // the wall time of this tick, estimated
+// ```
 // @compilerrules [time-clock]
 export effect Clock {
     // The wall clock's reading now.
     fn now() -> Instant
 
-    // The wall-clock time [at] happened at — an **estimate**, and the reason
-    // this is a member of an effect rather than a free function.
+    // The estimated wall-clock time of the monotonic reading [at]; see
+    // [Clock] for why it is an estimate.
     //
     // Nothing exposes the monotonic clock's origin, so the only way to relate
     // the two timelines is to read both at nearly the same moment and keep
     // the difference. That difference then drifts: the wall clock is slewed
     // and stepped under it, and a suspend moves one clock and not the other.
     // A handler therefore owns the correlation, which is what makes the
-    // conversion available at all — and exact in a test, where the handler is
-    // told what it is.
+    // conversion available at all, and exact in a test.
     //
     // The correlation is taken once, so the conversion is a fixed affine map
     // and preserves order: earlier ticks convert to earlier instants. A
@@ -288,21 +423,32 @@ export effect Clock {
     // and could answer out of order, which is the worse surprise.
     fn to_instant(at: Tick) -> Instant => at
 
-    // The monotonic reading that matches the wall-clock time [at], by the
-    // same estimate and with the same caveats as [to_instant]. Useful for
-    // "how long until this deadline I was handed", where the deadline arrived
-    // as a wall-clock time and the waiting must be monotonic.
+    // The estimated monotonic reading of the wall-clock time [at], with the
+    // same caveats as `to_instant`: how to wait for a deadline that arrived
+    // as a wall-clock time.
     fn to_tick(at: Instant) -> Tick => at
 }
 
-// How long ago [since] was — `between(since, tick())`, which is
-// the shape almost every measurement takes.
+// How long ago [since] was on the monotonic clock: `between(since,
+// tick())`, the shape almost every measurement takes.
+//
+// ```
+// use DefaultTicker()
+// let started = tick()
+// println("took ${elapsed(started)}")
+// ```
 // @compilerrules [time-ticker]
 export fn elapsed(since: Tick) [Ticker] -> Duration => since {
     return between(since, tick())
 }
 
-// The machine's monotonic clock.
+// The machine's monotonic clock. In an actor test it reads the virtual
+// clock the test's scheduler moves, which starts at zero.
+//
+// ```
+// use DefaultTicker()
+// let t = tick()
+// ```
 // @compilerrules [time-ticker]
 export handler DefaultTicker() for Ticker {
     fn tick() -> Tick {
@@ -310,14 +456,22 @@ export handler DefaultTicker() for Ticker {
     }
 }
 
-// The machine's wall clock, with the correlation between the two
-// timelines taken once — here, at construction, where the two readings are as
-// close together as a pair of calls can be.
-//
 // Ordinary Salvo over the two readings rather than an intrinsic handler:
 // the arithmetic is the same on both backends, so there is nothing for a
-// backend to decide, and the drift model above is readable where it is
+// backend to decide, and the drift model is readable where it is
 // implemented.
+
+// The machine's wall clock. It relates the two clocks once, when the
+// handler is made, by reading both one after the other; `to_instant` and
+// `to_tick` use that one measurement from then on, so they keep order but
+// do not follow later adjustments of the wall clock. `now` always reads the
+// clock live.
+//
+// ```
+// use DefaultClock()
+// let at = now()
+// println("${to_epoch_milli(at)}")
+// ```
 // @compilerrules [time-clock]
 export handler DefaultClock() for Clock {
     state {
@@ -338,66 +492,92 @@ export handler DefaultClock() for Clock {
     }
 }
 
-// The monotonic clock's reading, in nanoseconds from an
-// arbitrary origin. The plumbing under [DefaultTicker] and [DefaultClock] —
-// bind [Ticker] instead, so the dependency is visible in your signature.
-// In an actor test, the clock the scheduler moves.
+// The monotonic clock's reading, in nanoseconds from an arbitrary starting
+// point. It is what [DefaultTicker] and [DefaultClock] are built on; declare
+// [Ticker] instead, so the dependency shows in your signature. In an actor
+// test it reads the virtual clock the scheduler moves.
 // @compilerrules [time-clock, test-actor]
 export fn monotonic_nanos() [] -> Long {
     return now_nanos()
 }
 
-// The wall clock's reading, in nanoseconds since the Unix epoch.
-// The plumbing under [DefaultClock]; bind [Clock] instead.
+// The wall clock's reading, in nanoseconds since the Unix epoch. It is what
+// [DefaultClock] is built on; declare [Clock] instead.
 // @compilerrules [time-clock]
 export platform fn epoch_nanos() [] -> Long
 
 // ---------------------------------------------------------------- timer ----
 
-// A deadline that has passed, and what [Timer]'s answer carries.
+// What a [Timer] sends when a wait is over.
 //
-// [at] is the monotonic reading the deadline came due at — a [Tick] rather
-// than an [Instant], because a deadline that moved when the wall clock was
-// adjusted would not be a deadline. It is the time the timer *fired*, not the
-// time the continuation runs: the answer is queued like every other, so a busy
-// actor reads a slightly older `at` than its own [tick] would say.
+// [at] is the monotonic reading the deadline came due at. It is a [Tick]
+// rather than an [Instant] because a deadline that moved when the wall
+// clock was adjusted would not be a deadline. It is the time the timer
+// fired, not the time the reply is handled: the reply waits in the
+// receiver's mailbox like any message, so a busy actor reads an `at`
+// slightly older than its own `tick` would say.
 // @compilerrules [time-timer]
 export struct Fired {
+    // When the deadline came due.
     at: Tick
 }
 
-// Sleeping, as an effect — the capability to have something
-// happen later.
+// A timer, as an actor effect: the capability to have a message sent after
+// a delay.
 //
-// An **actor effect**, which is what run-to-completion leaves: a handler
-// cannot block mid-body, so "wait for two seconds" can only mean
-// "park a continuation and be resumed". `after` therefore takes the
-// continuation rather than returning anything, and the caller mints it with
-// `replyto` (in a handler) or `waitfor` (anywhere — a wait needs no
-// declaration, and serves its pool while it waits).
+// A handler runs to completion and cannot block in the middle of its work,
+// so a wait cannot be a call that returns later. `after` instead takes the
+// reply to send when the time is up, and returns at once. Inside a handler,
+// make the reply with `replyto` naming the message to receive; anywhere
+// else, `waitfor` waits for it (and lets the pool run other work while it
+// waits).
 //
-// There is no cancellation: a timer nobody wants any more fires into a
-// continuation that finds its work already done — one no-op activation, the
-// same shape as losing a race. A cancel handle can be added if that ever
-// measures.
+// ```
+// fn main() [use, spawn] -> None {
+//     use StdConsole()
+//     let timer = spawn DefaultTimer() on pool(1)
+//     let fired = waitfor answer: Reply<Fired> {
+//         timer.after(millis(10), answer)
+//     }
+//     println("fired at tick ${fired.at.nanos}")
+// }
+// ```
+//
+// There is no cancellation: a timer nobody wants any more still fires, and
+// the message it sends should find its work already done and do nothing.
 // @compilerrules [time-timer, actor-kind]
 export actor effect Timer {
-    // Consume [done] once at least [wait] has passed. A `wait` of zero or less
-    // fires as soon as the scheduler looks, which is still a later activation
-    // and never a call inside `after`.
+    // Sends [done] once at least [wait] has passed. A [wait] of zero or less
+    // fires as soon as the scheduler looks, which is still a later
+    // activation and never inside the call to `after`.
     send fn after(wait: Duration, done: Reply<Fired>) => !wait, !done
 }
 
-// The machine's timer: one deadline structure and one thread for
-// the whole program, however many deadlines are outstanding — the runtime's
-// wheel (`runtime.after_nanos`), written in Salvo over a parker.
+// The machine's timer. One timer serves the whole program however many
+// waits are outstanding, with one deadline structure and one thread, and it
+// is spawned like any actor: `spawn DefaultTimer() on pool(1)`.
 //
-// Spawned like any actor — `spawn DefaultTimer() on pool(1)` — and the
-// mailbox bounds *registrations*, not deadlines: `after` hands the deadline to
-// the runtime and returns, so the queue only ever holds requests that have not
-// been registered yet.
+// Its mailbox holds requests that have not been registered yet, not the
+// waits themselves: `after` hands the deadline over and returns, so many
+// more than 64 waits can be outstanding. In an actor test the waits are on
+// the virtual clock, so an hour's timer fires at once.
+//
+// ```
+// fn main() [use, spawn] -> None {
+//     use StdConsole()
+//     let timer = spawn DefaultTimer() on pool(1)
+//     use DefaultTicker()
+//     let started = tick()
+//     let fired = waitfor answer: Reply<Fired> {
+//         timer.after(millis(20), answer)
+//     }
+//     println("${between(started, fired.at) >= millis(20)}")    // true: at least 20ms passed
+// }
+// ```
 // @compilerrules [time-timer]
 export handler DefaultTimer() for Timer {
+    // The runtime's wheel (`runtime.after_nanos`), written in Salvo over a
+    // parker, keeps the deadlines.
     mailbox { capacity: 64 }
 
     send fn after(wait: Duration, done: Reply<Fired>) => !wait, !done {
@@ -407,51 +587,71 @@ export handler DefaultTimer() for Timer {
 
 // ----------------------------------------------------------- manual time ----
 
-// The administrative face of a fake clock: the protocol that
-// *moves* virtual time, kept separate from [Timer] so that holding one says
-// nothing about holding the other.
+// The control side of a [ManualTime]: the message that moves its virtual
+// time forward.
 //
-// That separation is the point of the two-face handler below. A spawn answers
-// an addr per face, so the code under test is handed the [Timer] and cannot
-// reach `advance`, while the test keeps the control addr — least authority
-// falling out of the types rather than out of discipline.
+// It is a separate effect from [Timer] so that holding one says nothing
+// about holding the other. Spawning a [ManualTime] answers one address per
+// effect: the code under test is handed the `Timer` and cannot move time,
+// while the test keeps the `TimerCtl`.
 // @compilerrules [time-manual]
 export actor effect TimerCtl {
-    // Move virtual time forward by [by], firing every deadline it iterators, in
-    // deadline order.
+    // Moves virtual time forward by [by], firing every deadline it reaches,
+    // in deadline order.
     send fn advance(by: Duration) => !by
 }
 
-// A timer that only moves when told to: `MemFs`'s answer applied
-// to time, and ordinary Salvo — no runtime, no threads, no sleeping in a test.
+// A timer whose time moves only when a test says so: the test-side
+// counterpart of [DefaultTimer], written in ordinary Salvo with no threads
+// and no real waiting.
 //
-// Virtual time starts at zero and advances only through [advance], so a test
-// that would otherwise wait two seconds runs in microseconds and always reports
-// the same thing. Deadlines fire in deadline order, each carrying the virtual
-// [Tick] it was set for, and virtual `now` moves *to* each deadline as it fires
-// — so a chain of timers sees the times it would see in production.
+// Virtual time starts at zero and moves only through `advance` (a message
+// of [TimerCtl]), so a test of code that waits two seconds runs in
+// microseconds and reports the same thing every time. An advance fires the
+// deadlines it reaches in deadline order, each carrying the virtual [Tick]
+// it was set for, and virtual time stands at each deadline while it fires,
+// so a chain of timers sees the times it would see in production. A wait of
+// zero or less fires at once, without an advance.
 //
-// One caveat, and it is the reason [on_idle] exists: `advance` is a message
-// like any other, so it races the `after` registrations of the code under test.
-// Sequence the test with a quiescence hook — "everything I sent has settled" —
-// and then advance.
-//
-// Where the code under test *reads* a clock as well as setting
-// deadlines, the two must agree, and the way to make them agree is a handler of
-// your own whose reading is a deadline of zero on this very timer:
-//
-//     handler TestTicker(timer: eff[Timer]) for Ticker {
-//         fn tick() -> Tick {
-//             let fired = waitfor answer: Reply<Fired> {
-//                 timer.after(nanos(0), answer)
-//             }
-//             return fired.at
+// ```
+// fn main() [use, spawn] -> None {
+//     use StdConsole()
+//     let p = pool(1)
+//     let (timer, ctl) = spawn ManualTime() on p
+//     let fired = waitfor answer: Reply<Fired> {
+//         timer.after(seconds(2), answer)
+//         waitfor settled: Reply<Idle> {
+//             on_idle(p, settled)
 //         }
+//         ctl.advance(seconds(5))
 //     }
+//     println("${fired.at.nanos}")                       // 2000000000
+// }
+// ```
 //
-// std does not ship it: it is six lines, and which effect a test fakes —
-// [Ticker], [Clock] or both — is the test's business. Prefer passing time as
-// data over reading it at all; see `examples/time/`.
+// **Settle, then advance.** `advance` is a message like any other, so it
+// races the `after` calls of the code under test. Wait for the pool to go
+// idle with `on_idle` first, as above, so that every wait has been
+// registered before time moves.
+//
+// **A clock that agrees with the timer.** When the code under test reads a
+// clock as well as setting deadlines, the two must agree. A [Ticker] whose
+// reading is a wait of zero on this same timer makes them one clock:
+//
+// ```
+// handler TestTicker(timer: eff[Timer]) for Ticker {
+//     fn tick() -> Tick {
+//         let fired = waitfor answer: Reply<Fired> {
+//             timer.after(nanos(0L), answer)
+//         }
+//         return fired.at
+//     }
+// }
+// ```
+//
+// std does not ship it, because which effect a test fakes ([Ticker],
+// [Clock] or both) is the test's business. Prefer passing time as a value
+// over reading it at all; `examples/time/` works through all of this.
 // @compilerrules [time-manual, time-coupling]
 export handler ManualTime() for Timer, TimerCtl {
     mailbox { capacity: 64 }

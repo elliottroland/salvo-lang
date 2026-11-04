@@ -100,7 +100,7 @@ pub fn to_str__NetError(mut e: crate::unions::Union2<&crate::std_net::Unreachabl
         let mut e_2 = match e { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         return format!("wire failed to {}: {}", crate::std_net::to_str__NodeEndpoint(&e_2.to), e_2.reason);
     } else {
-        panic!("salvo: unhandled union arm at std.net:102:5");
+        panic!("salvo: unhandled union arm at std.net:185:5");
     };
 }
 
@@ -848,7 +848,7 @@ pub fn handshake(transport: &crate::std_net::Transport, group: &String, mut from
     } else if msg.is_none() {
         return None;
     } else {
-        panic!("salvo: unhandled union arm at std.net:458:5");
+        panic!("salvo: unhandled union arm at std.net:728:5");
     };
 }
 
@@ -924,7 +924,7 @@ impl StaticNodeGroup {
             let mut event_4 = match &event { Some(crate::unions::Union3::U3(__v)) => __v, _ => unreachable!() };
         } else if event.is_none() {
         } else {
-            panic!("salvo: unhandled union arm at std.net:559:9");
+            panic!("salvo: unhandled union arm at std.net:856:9");
         };
     }
 }
@@ -1088,7 +1088,7 @@ impl GossipNodeGroup {
             }
         } else if event.is_none() {
         } else {
-            panic!("salvo: unhandled union arm at std.net:647:9");
+            panic!("salvo: unhandled union arm at std.net:967:9");
         };
     }
 }
@@ -1785,7 +1785,7 @@ pub fn route_keyed(route_selector: &crate::std_net::RouteSelector, mut group: us
             wait = cap;
         };
     }
-    panic!("salvo: unreachable at std.net:1151:5");
+    panic!("salvo: unreachable at std.net:1684:5");
     return crate::std_net::route_keyed(route_selector, group, seen, key);
 }
 

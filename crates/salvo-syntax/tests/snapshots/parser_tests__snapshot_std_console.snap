@@ -3,19 +3,52 @@ source: crates/salvo-syntax/tests/parser_tests.rs
 expression: "parse_clean(&std_core(\"console.sv\"))"
 ---
 Module {
-    docs: [],
+    docs: [
+        "The program's standard streams: printing to standard output and standard",
+        "error, and reading lines from standard input.",
+        "",
+        "Like every interaction with the world in Salvo, the console is an",
+        "**effect**: a function that prints says `[Console]` in its signature, and",
+        "its caller either says so too or provides a handler with `use`. `main`",
+        "provides the host's streams with `use StdConsole()`; a test can provide a",
+        "handler of its own that records what was printed.",
+        "",
+        "```",
+        "fn greet(name: Str) [Console] -> None => name {",
+        "    println(\"hello, ${name}\")",
+        "}",
+        "",
+        "fn main() [use] -> None {",
+        "    use StdConsole()",
+        "    print(\"your name? \")",
+        "    let name = readln() ?: \"stranger\"                // None at end of input",
+        "    greet(name)",
+        "    printerr(\"done\\n\")",
+        "}",
+        "```",
+        "",
+        "**Newlines are explicit.** [print] and [printerr] write exactly the text",
+        "they are given; [println] adds `\"\\n\"`. Standard output is flushed before",
+        "[readln] waits, so a prompt printed without a newline is on the screen.",
+        "Under `salvo test` standard input is closed, so `readln` answers `None`",
+        "at once.",
+        "@compilerrules [std-console]",
+    ],
     items: [
         Effect(
             EffectDecl {
                 docs: [
                     "The console: standard output, standard error and standard input.",
+                    "",
+                    "Its members are called like functions wherever the effect is available.",
+                    "The handler for the host's streams is [StdConsole].",
                     "@compilerrules [std-console]",
                 ],
                 exported: true,
                 is_actor: false,
                 name: Ident {
                     name: "Console",
-                    span: 114..121,
+                    span: 1395..1402,
                 },
                 generics: [],
                 prereqs: [],
@@ -33,7 +66,7 @@ Module {
                         is_send: false,
                         name: Ident {
                             name: "print",
-                            span: 192..197,
+                            span: 1473..1478,
                         },
                         type_name: None,
                         scoped_to: None,
@@ -48,14 +81,14 @@ Module {
                             Param {
                                 name: Ident {
                                     name: "message",
-                                    span: 198..205,
+                                    span: 1479..1486,
                                 },
                                 ty: Named {
                                     qualifiers: [],
                                     base: TypeRef {
                                         name: Ident {
                                             name: "Str",
-                                            span: 207..210,
+                                            span: 1488..1491,
                                         },
                                         args: [],
                                         value_args: [],
@@ -64,13 +97,13 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 207..210,
+                                        span: 1488..1491,
                                     },
                                 },
                                 variadic: false,
                                 implicit: false,
                                 default: None,
-                                span: 198..210,
+                                span: 1479..1491,
                             },
                         ],
                         implicit_groups: [],
@@ -81,12 +114,12 @@ Module {
                                     target: Param {
                                         name: Ident {
                                             name: "message",
-                                            span: 223..230,
+                                            span: 1504..1511,
                                         },
                                         path: [],
                                     },
                                     kind: KeepAll,
-                                    span: 223..230,
+                                    span: 1504..1511,
                                 },
                             ],
                         ),
@@ -96,7 +129,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "None",
-                                        span: 215..219,
+                                        span: 1496..1500,
                                     },
                                     args: [],
                                     value_args: [],
@@ -105,14 +138,14 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 215..219,
+                                    span: 1496..1500,
                                 },
                             },
                         ),
                         response: None,
                         constructs: None,
                         body: None,
-                        span: 189..219,
+                        span: 1470..1500,
                     },
                     FnDecl {
                         docs: [
@@ -127,7 +160,7 @@ Module {
                         is_send: false,
                         name: Ident {
                             name: "printerr",
-                            span: 298..306,
+                            span: 1579..1587,
                         },
                         type_name: None,
                         scoped_to: None,
@@ -142,14 +175,14 @@ Module {
                             Param {
                                 name: Ident {
                                     name: "message",
-                                    span: 307..314,
+                                    span: 1588..1595,
                                 },
                                 ty: Named {
                                     qualifiers: [],
                                     base: TypeRef {
                                         name: Ident {
                                             name: "Str",
-                                            span: 316..319,
+                                            span: 1597..1600,
                                         },
                                         args: [],
                                         value_args: [],
@@ -158,13 +191,13 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 316..319,
+                                        span: 1597..1600,
                                     },
                                 },
                                 variadic: false,
                                 implicit: false,
                                 default: None,
-                                span: 307..319,
+                                span: 1588..1600,
                             },
                         ],
                         implicit_groups: [],
@@ -175,12 +208,12 @@ Module {
                                     target: Param {
                                         name: Ident {
                                             name: "message",
-                                            span: 332..339,
+                                            span: 1613..1620,
                                         },
                                         path: [],
                                     },
                                     kind: KeepAll,
-                                    span: 332..339,
+                                    span: 1613..1620,
                                 },
                             ],
                         ),
@@ -190,7 +223,7 @@ Module {
                                 base: TypeRef {
                                     name: Ident {
                                         name: "None",
-                                        span: 324..328,
+                                        span: 1605..1609,
                                     },
                                     args: [],
                                     value_args: [],
@@ -199,20 +232,21 @@ Module {
                                     binder: false,
                                     established: false,
                                     alias: None,
-                                    span: 324..328,
+                                    span: 1605..1609,
                                 },
                             },
                         ),
                         response: None,
                         constructs: None,
                         body: None,
-                        span: 295..328,
+                        span: 1576..1609,
                     },
                     FnDecl {
                         docs: [
-                            "Reads the next line of standard input, without its line terminator —",
-                            "`None` at the end of the input. Whatever was printed before it is",
-                            "flushed first, so a prompt is on the screen while the program waits.",
+                            "Reads the next line of standard input, without its line terminator",
+                            "(`\\n` or `\\r\\n`), or `None` at the end of the input or on a read",
+                            "error. Whatever was printed before it is flushed first, so a prompt is",
+                            "on the screen while the program waits.",
                         ],
                         exported: false,
                         intrinsic: false,
@@ -223,7 +257,7 @@ Module {
                         is_send: false,
                         name: Ident {
                             name: "readln",
-                            span: 574..580,
+                            span: 1898..1904,
                         },
                         type_name: None,
                         scoped_to: None,
@@ -245,7 +279,7 @@ Module {
                                     base: TypeRef {
                                         name: Ident {
                                             name: "Str",
-                                            span: 586..589,
+                                            span: 1910..1913,
                                         },
                                         args: [],
                                         value_args: [],
@@ -254,25 +288,29 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 586..589,
+                                        span: 1910..1913,
                                     },
                                 },
-                                span: 586..590,
+                                span: 1910..1914,
                             },
                         ),
                         response: None,
                         constructs: None,
                         body: None,
-                        span: 571..590,
+                        span: 1895..1914,
                     },
                 ],
-                span: 107..592,
+                span: 1388..1916,
             },
         ),
         Handler(
             HandlerDecl {
                 docs: [
-                    "The host's standard streams.",
+                    "The host's standard streams, as a [Console] handler: `use StdConsole()`.",
+                    "",
+                    "It is declared `threadsafe`: the host's streams may be entered from",
+                    "several threads at once, so the handler is shared without a lock around",
+                    "each call.",
                     "@compilerrules [std-console]",
                 ],
                 exported: true,
@@ -281,7 +319,7 @@ Module {
                 threadsafe: true,
                 name: Ident {
                     name: "StdConsole",
-                    span: 693..703,
+                    span: 2224..2234,
                 },
                 generics: [],
                 params: [],
@@ -292,7 +330,7 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "Console",
-                                span: 710..717,
+                                span: 2241..2248,
                             },
                             args: [],
                             value_args: [],
@@ -301,7 +339,7 @@ Module {
                             binder: false,
                             established: false,
                             alias: None,
-                            span: 710..717,
+                            span: 2241..2248,
                         },
                     },
                 ],
@@ -313,12 +351,18 @@ Module {
                 state: [],
                 state_name: None,
                 fns: [],
-                span: 685..717,
+                span: 2216..2248,
             },
         ),
         Fn(
             FnDecl {
-                docs: [],
+                docs: [
+                    "Prints to standard output, followed by a newline.",
+                    "",
+                    "```",
+                    "println(\"total: ${1 + 2}\")                           // total: 3",
+                    "```",
+                ],
                 exported: true,
                 intrinsic: false,
                 platform: false,
@@ -328,7 +372,7 @@ Module {
                 is_send: false,
                 name: Ident {
                     name: "println",
-                    span: 729..736,
+                    span: 2398..2405,
                 },
                 type_name: None,
                 scoped_to: None,
@@ -343,14 +387,14 @@ Module {
                     Param {
                         name: Ident {
                             name: "message",
-                            span: 737..744,
+                            span: 2406..2413,
                         },
                         ty: Named {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
                                     name: "Str",
-                                    span: 746..749,
+                                    span: 2415..2418,
                                 },
                                 args: [],
                                 value_args: [],
@@ -359,13 +403,13 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 746..749,
+                                span: 2415..2418,
                             },
                         },
                         variadic: false,
                         implicit: false,
                         default: None,
-                        span: 737..749,
+                        span: 2406..2418,
                     },
                 ],
                 implicit_groups: [],
@@ -375,7 +419,7 @@ Module {
                             TypeRef {
                                 name: Ident {
                                     name: "Console",
-                                    span: 752..759,
+                                    span: 2421..2428,
                                 },
                                 args: [],
                                 value_args: [],
@@ -384,7 +428,7 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 752..759,
+                                span: 2421..2428,
                             },
                         ),
                     ],
@@ -395,12 +439,12 @@ Module {
                             target: Param {
                                 name: Ident {
                                     name: "message",
-                                    span: 772..779,
+                                    span: 2441..2448,
                                 },
                                 path: [],
                             },
                             kind: KeepAll,
-                            span: 772..779,
+                            span: 2441..2448,
                         },
                     ],
                 ),
@@ -410,7 +454,7 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "None",
-                                span: 764..768,
+                                span: 2433..2437,
                             },
                             args: [],
                             value_args: [],
@@ -419,7 +463,7 @@ Module {
                             binder: false,
                             established: false,
                             alias: None,
-                            span: 764..768,
+                            span: 2433..2437,
                         },
                     },
                 ),
@@ -433,7 +477,7 @@ Module {
                                     callee: Ident(
                                         Ident {
                                             name: "print",
-                                            span: 786..791,
+                                            span: 2455..2460,
                                         },
                                     ),
                                     type_args: [],
@@ -441,12 +485,12 @@ Module {
                                         Ident(
                                             Ident {
                                                 name: "message",
-                                                span: 792..799,
+                                                span: 2461..2468,
                                             },
                                         ),
                                     ],
                                     named: [],
-                                    span: 786..800,
+                                    span: 2455..2469,
                                 },
                             ),
                             Expr(
@@ -454,7 +498,7 @@ Module {
                                     callee: Ident(
                                         Ident {
                                             name: "print",
-                                            span: 805..810,
+                                            span: 2474..2479,
                                         },
                                     ),
                                     type_args: [],
@@ -465,18 +509,18 @@ Module {
                                                     "\n",
                                                 ),
                                             ],
-                                            span: 811..815,
+                                            span: 2480..2484,
                                         },
                                     ],
                                     named: [],
-                                    span: 805..816,
+                                    span: 2474..2485,
                                 },
                             ),
                         ],
-                        span: 780..818,
+                        span: 2449..2487,
                     },
                 ),
-                span: 726..818,
+                span: 2395..2487,
             },
         ),
     ],
