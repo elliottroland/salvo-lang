@@ -34,7 +34,7 @@ target = "kotlin"
 out = "build/kotlin"
 ```
 
-Every command reads it — `salvo run`, `compile`, `build`, `test`, `analyze`,
+Every command reads it — `salvo run`, `compile`, `build`, `test`, `analyze`, `docs`,
 `platform generate`, the language server — and a flag on the command line wins
 over what the manifest states. Under `backend = "*"` a command runs once per
 backend: `salvo compile` in an example directory regenerates both checked-in
@@ -212,6 +212,30 @@ Per-backend settings. Each `target`, `out` and `platform` overrides the
 | `artifacts` | kotlin | array of strings | Maven coordinates (`group:artifact:version`) the platform companions need, resolved by Gradle. |
 | `gradle` | kotlin | string (default `gradle` on PATH) | The Gradle to resolve `artifacts` with: a path (a `gradlew` wrapper works) or a command name. |
 | `libs` | kotlin | string | A directory whose `*.jar` files go on the Kotlin classpath, for libraries no repository has. |
+
+### `[docs]`
+
+What `salvo docs` writes: the project's documentation as GitHub-wiki pages —
+a page per module from its doc comments, an index of every documented name,
+and the overview pages named here.
+
+| Key | Type | Meaning |
+|---|---|---|
+| `out` | string (default `<[build] out>/docs`) | The directory the pages are written into; `--out` overrides it. Every `.md` there is treated as generated: a page the project no longer has is removed. |
+| `home` | string | A Markdown file that becomes the `Home` page, followed by a table of the modules. Its links to other topic pages also set the sidebar's order. |
+| `topics` | string | A directory of Markdown pages, each one wiki page named by its file. A link to a module's `.sv` file becomes a link to that module's page. |
+
+The standard library's manifest writes the repository's wiki:
+
+```toml
+[docs]
+out = "../wiki"
+home = "../docs/language/README.md"
+topics = "../docs/language"
+```
+
+`salvo docs --check` writes nothing and fails when the pages there are not
+what it would write.
 
 ### `[dependencies]`
 

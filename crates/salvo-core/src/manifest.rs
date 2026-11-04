@@ -108,6 +108,9 @@ pub struct Manifest {
     /// output the report shows.
     #[serde(default)]
     pub test: TestSection,
+    /// [cli-docs] What `salvo docs` writes, and from what.
+    #[serde(default)]
+    pub docs: DocsSection,
     /// [manifest-deps] Dependency name → required version. Sorted, so the
     /// load order is stable.
     #[serde(default)]
@@ -148,6 +151,19 @@ pub struct BuildSection {
     /// directory; a `[backend]` section's `platform` overrides it. No
     /// default: a project with platform files names where they are.
     pub platform: Option<String>,
+}
+
+/// [cli-docs] `[docs]`: what `salvo docs` writes. Every path is relative to
+/// the manifest's directory.
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct DocsSection {
+    /// The directory the pages are written into; default `<[build] out>/docs`.
+    pub out: Option<String>,
+    /// The Markdown file that becomes the `Home` page.
+    pub home: Option<String>,
+    /// A directory of Markdown topic pages, each one page.
+    pub topics: Option<String>,
 }
 
 /// [test-output] `[test]`: what `salvo test` does by default. A flag overrides

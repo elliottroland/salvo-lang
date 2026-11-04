@@ -3478,7 +3478,7 @@ fn qualifies_section(
 }
 
 /// A struct's declaration line, without its body: `struct Person canbe Mut`.
-fn struct_signature(decl: &salvo_syntax::ast::StructDecl) -> String {
+pub(crate) fn struct_signature(decl: &salvo_syntax::ast::StructDecl) -> String {
     // [linear-group] [lsp-hover-linear] The `linear` modifier leads the
     // signature, as it does in source: it is the obligation, so a hover that
     // omitted it described the type as if it were ordinary data.
@@ -3504,7 +3504,7 @@ fn struct_signature(decl: &salvo_syntax::ast::StructDecl) -> String {
 /// accepts `fn hold<T canbe linear>(…)` with the bound as the declaration — so
 /// those are appended rather than dropped.
 /// [effect-var] An effect variable reads as written: `[E]`.
-fn generic_list_with_bounds(
+pub(crate) fn generic_list_with_bounds(
     generics: &[salvo_syntax::ast::Ident],
     bounds: &[(salvo_syntax::ast::Ident, salvo_syntax::ast::TypeRef)],
     effect_vars: &[salvo_syntax::ast::Ident],
@@ -3545,7 +3545,7 @@ fn generic_list(generics: &[salvo_syntax::ast::Ident]) -> String {
 }
 
 /// `provenance qualifier Authenticated for Request with Old`.
-fn qualifier_signature(decl: &salvo_syntax::ast::QualifierDecl) -> String {
+pub(crate) fn qualifier_signature(decl: &salvo_syntax::ast::QualifierDecl) -> String {
     let mut sig = String::new();
     if decl.subject == QualSubject::Provenance {
         sig.push_str("provenance ");
@@ -3561,7 +3561,7 @@ fn qualifier_signature(decl: &salvo_syntax::ast::QualifierDecl) -> String {
 
 /// `effect Random<T>` plus its member signatures, which are the whole
 /// point of hovering an effect.
-fn effect_signature(decl: &salvo_syntax::ast::EffectDecl) -> String {
+pub(crate) fn effect_signature(decl: &salvo_syntax::ast::EffectDecl) -> String {
     let mut sig = format!("effect {}{}", decl.name.name, generic_list(&decl.generics));
     if !decl.fns.is_empty() {
         sig.push_str(" {");
@@ -3584,7 +3584,7 @@ fn effect_signature(decl: &salvo_syntax::ast::EffectDecl) -> String {
 
 /// [doc-comment] `fns Next<It, T> { fn next(it: Mut It) -> … }` — the
 /// members are the point of a group, so they are always shown.
-fn fns_signature(decl: &salvo_syntax::ast::FnsDecl) -> String {
+pub(crate) fn fns_signature(decl: &salvo_syntax::ast::FnsDecl) -> String {
     // [effect-var] A group's effect variable shows as `[E]`, and a member's
     // effect list as written.
     let mut sig = format!("fns {}{}", decl.name.name, generic_list_with_bounds(&decl.generics, &[], &decl.effect_generics));
@@ -3619,7 +3619,7 @@ fn fns_signature(decl: &salvo_syntax::ast::FnsDecl) -> String {
 
 /// `handler CyclicRandom<T>(values: List<T>) for Random<T>` — several faces
 /// comma-separated, as the declaration writes them [effect-handler-multi].
-fn handler_signature(decl: &salvo_syntax::ast::HandlerDecl) -> String {
+pub(crate) fn handler_signature(decl: &salvo_syntax::ast::HandlerDecl) -> String {
     let params: Vec<String> = decl
         .params
         .iter()
@@ -3641,7 +3641,7 @@ fn handler_signature(decl: &salvo_syntax::ast::HandlerDecl) -> String {
 }
 
 /// `type Number = Int | Long`, or `intrinsic type List<T> canbe Mut`.
-fn type_signature(decl: &salvo_syntax::ast::TypeDecl) -> String {
+pub(crate) fn type_signature(decl: &salvo_syntax::ast::TypeDecl) -> String {
     let mut sig = String::new();
     // [linear-group] [lsp-hover-linear] `linear intrinsic type Reply<T>`, in
     // the source order of its modifiers.
@@ -3666,7 +3666,7 @@ fn type_signature(decl: &salvo_syntax::ast::TypeDecl) -> String {
     sig
 }
 
-fn fn_signature(program: &Program, checked: &Checked, key: DeclId) -> Option<String> {
+pub(crate) fn fn_signature(program: &Program, checked: &Checked, key: DeclId) -> Option<String> {
     let module = program.modules.get(checked.decls.loc(key)?.file)?;
     let decl = checked.decls.fn_decl(&program.modules, key)?;
     // [lsp-hover-iter-fn] An `iter fn` is desugared into a minter and a
@@ -3683,7 +3683,7 @@ fn fn_signature(program: &Program, checked: &Checked, key: DeclId) -> Option<Str
 
 /// [lsp-hover-iter-fn] Whether `f` is the `next` an `iter fn` became: it
 /// carries the state's name, and its one parameter is the generated `__p`.
-fn is_generated_next(f: &FnDecl) -> bool {
+pub(crate) fn is_generated_next(f: &FnDecl) -> bool {
     f.iter_state_name.is_some() && f.name.name == "next" && f.params.len() == 1 && f.params[0].name.name == "__p"
 }
 
@@ -3714,7 +3714,7 @@ fn iter_fn_minter<'a>(module: &'a salvo_syntax::ast::Module, decl: &FnDecl) -> O
 
 /// [lsp-hover-iter-fn] `iter fn name(params) [effects] -> Emitted T | Finished`
 /// for the minter or the `next` an `iter fn` became, from the two of them.
-fn iter_fn_signature(module: &salvo_syntax::ast::Module, decl: &FnDecl) -> Option<String> {
+pub(crate) fn iter_fn_signature(module: &salvo_syntax::ast::Module, decl: &FnDecl) -> Option<String> {
     let (minter, next) = iter_fn_halves(module, decl)?;
     let mut sig = fn_decl_signature(minter, None);
     // Swap the generated return type for the declared element shape.

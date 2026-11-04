@@ -223,6 +223,20 @@ enum Command {
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
     },
+    /// [cli-docs] Write the project's documentation as GitHub-wiki pages: a
+    /// page per module from its doc comments, an index, and the `[docs]`
+    /// home and topic pages.
+    Docs {
+        /// Source directory; default the manifest's source root.
+        #[arg(long)]
+        src: Option<PathBuf>,
+        /// Where to write the pages, over `[docs] out`.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Write nothing; fail when the pages there are not what this would write.
+        #[arg(long)]
+        check: bool,
+    },
     /// Print a phase's output for the program's modules [cli-dump]: every user
     /// module, `--module` alone, or with `--all` every module the program
     /// reaches (std included) with every name's candidates listed in full.
@@ -336,6 +350,7 @@ fn main() -> ExitCode {
             skip_tests,
         } => build_command(backend, src, main_file, out, skip_tests),
         Command::Analyze { src, format } => analyze(src, format),
+        Command::Docs { src, out, check } => docs_command(src, out, check),
         Command::Dump { phase, src, all, module, expr_types, rows } => dump_command(phase, src, all, module, expr_types, rows),
         Command::Test {
             backend,
@@ -503,6 +518,59 @@ fn init(path: PathBuf) -> ExitCode {
 /// There is no `--backend`: checking is backend-neutral, and nothing a
 /// backend selects participates in it (companions are copied, never
 /// checked).
+/// [cli-docs] `salvo docs`: analyzes the project (errors do not stop it — a
+/// page is the declarations as written), builds its pages, and writes or
+/// checks them.
+fn docs_command(src: Option<PathBuf>, out: Option<PathBuf>, check: bool) -> ExitCode {
+    let inputs = match resolve_inputs(src, None, None, "rust", false) {
+        Ok(i) => i,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let analysis = match analysis::analyze_sources(&inputs.layout.src, inputs.project.clone(), "", &Default::default()) {
+        Ok(a) => a,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let project = inputs.project.as_ref();
+    let dir = project.map(|p| p.dir.clone()).unwrap_or_else(|| inputs.layout.src.clone());
+    let section = project.map(|p| p.manifest.docs.clone()).unwrap_or_default();
+    let build_out = project.and_then(|p| p.manifest.build.out.clone()).unwrap_or_else(|| "build".to_string());
+    let out = out.unwrap_or_else(|| dir.join(section.out.clone().unwrap_or_else(|| format!("{build_out}/docs"))));
+    let title = project.and_then(|p| p.manifest.project.name.clone()).unwrap_or_else(|| "this project".to_string());
+    let cfg = salvo_cli::site::Config { out: out.clone(), home: section.home.map(|h| dir.join(h)), topics: section.topics.map(|t| dir.join(t)), title };
+    let pages = match salvo_cli::site::generate(&analysis, &cfg) {
+        Ok(p) => p,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
+    };
+    match salvo_cli::site::write(&pages, &out, check) {
+        Ok(n) if check => {
+            eprintln!("docs: up to date ({n} pages in {})", out.display());
+            ExitCode::SUCCESS
+        }
+        Ok(n) => {
+            eprintln!("docs: wrote {n} pages into {}", out.display());
+            ExitCode::SUCCESS
+        }
+        Err(problems) => {
+            for p in &problems {
+                eprintln!("docs: {p}");
+            }
+            if check {
+                eprintln!("docs: run `salvo docs` to regenerate {}", out.display());
+            }
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn analyze(src: Option<PathBuf>, format: Format) -> ExitCode {
     // [manifest] `--src` or the manifest's source root.
     let inputs = match resolve_inputs(src, None, None, "rust", false) {

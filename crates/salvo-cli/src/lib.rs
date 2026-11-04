@@ -6,3 +6,4 @@ pub mod analysis;
 pub mod docs;
 pub mod lang;
 pub mod lsp;
+pub mod site;

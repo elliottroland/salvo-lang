@@ -18,3 +18,11 @@ backend = "*"
 # sockets, both languages side by side. Their paths under the root are module
 # paths too: `platform/std/time.kt` is the host file of `std.time`.
 platform = "platform"
+
+# [cli-docs] `salvo docs` writes std's documentation into the wiki checkout:
+# the language overview's index as the home page, its pages as topics, and a
+# page per module.
+[docs]
+out = "../wiki"
+home = "../docs/language/README.md"
+topics = "../docs/language"

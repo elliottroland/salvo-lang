@@ -13639,6 +13639,45 @@ replaced the working document TESTING.md).
   and never overwrites an existing `src/main.sv`. The scaffold runs as-is:
   `salvo init` then `salvo run` with no flags prints the starter output,
   reading the generated manifest.
+* [cli-docs] `salvo docs [--src DIR] [--out DIR] [--check]` writes a
+  project's documentation as **GitHub-wiki pages** (user decisions
+  2026-10-30): Markdown, since a wiki serves nothing else, with HTML only
+  where GitHub keeps it (it strips scripts, `style` and `class`).
+  * **Pages**: `Home` (the `[docs] home` file, then a table of the modules),
+    one per topic (each `.md` of `[docs] topics`, named by its file, ordered
+    as `home` links them), one per module (`std.core.list` is
+    `std-core-list`; dots in a wiki page name are unreliable), `Index`,
+    `_Sidebar` and `_Footer`. Each opens with a comment naming its source.
+  * **A module's page** is its module docs [doc-module], a contents table,
+    then its exported declarations by kind (types, effects, handlers,
+    qualifiers, groups, functions), each under a `### <kind> <name>` heading
+    — GitHub's own anchor, `#fn-map` — with the hover's signature and the
+    doc block [doc-comment]; a fn's overloads share a heading, a struct
+    lists its fields, an effect its members. Comptime-stamped and generated
+    fns are left out.
+  * **Code is fenced `rust`**: GitHub cannot highlight Salvo. A doc
+    comment's bare fence and a topic's ```` ```salvo ```` become ```` ```rust ````.
+  * **`[symbol]`** [doc-symbol-ref] links: a declaration's own names
+    (parameters, generics, fields) are code, a documented name links to its
+    heading (one on this page first, then a unique one, then a unique type),
+    a module path to its page, anything else is code. The tags are sections
+    as in hover [doc-tags]; `@compilerrules` and `@compilerknown` are left
+    out.
+  * **Finding things** is `Index`: every documented name A to Z, with its
+    kind, module and first sentence. There is nowhere to run a search box.
+  * **Topics** lose their first `# Title` (the wiki titles a page by its
+    file), `](Page.md)` links lose `.md`, and a link to a module's `.sv`
+    file becomes a link to its page — so a topic links the library both in
+    the repository and in the wiki.
+  * **The modules** are the project's own: std's tree for a std project,
+    else every file that is neither std nor a dependency; never a test
+    annex.
+  * `--check` writes nothing and fails when the directory holds a page that
+    differs or one this would not write (every `.md` there is the
+    generator's). Without it, stale pages are removed. Analysis errors do not
+    stop it: a page is the declarations as written.
+  * std's manifest names the repository's wiki checkout, so `salvo docs` in
+    `lib/` regenerates it, and the docs test runs `--check` there.
 * [cli-analyze] `salvo analyze [--src DIR] [--format text|json]` (`--src` from the manifest when omitted [manifest])
   runs the front half of the pipeline — parse,
   resolve, type-check — and reports every diagnostic without generating

@@ -2,7 +2,7 @@
 //!
 //! `docs/language/` is the narrative specification and the source of truth for
 //! behaviour; `wiki/` is a **generated** copy of it for reading on GitHub
-//! (`tools/sync-wiki.sh`). Both facts are only true if something checks them,
+//! (`salvo docs`, run in `lib/`). Both facts are only true if something checks them,
 //! which is what these tests do — the same reasoning that makes
 //! `every_examples_checked_in_*_is_current` a test rather than a habit.
 
@@ -69,15 +69,16 @@ fn the_wiki_is_current_when_present() {
         eprintln!("skipping: no wiki/ checkout");
         return;
     }
-    let out = Command::new("bash")
-        .arg(root.join("tools/sync-wiki.sh"))
-        .arg("--check")
-        .current_dir(&root)
+    // [cli-docs] std's manifest names the wiki as its docs output, so the
+    // check runs where that manifest is.
+    let out = Command::new(env!("CARGO_BIN_EXE_salvo"))
+        .args(["docs", "--check"])
+        .current_dir(root.join("lib"))
         .output()
-        .expect("run tools/sync-wiki.sh");
+        .expect("run salvo docs --check");
     assert!(
         out.status.success(),
-        "wiki/ is out of date — run tools/sync-wiki.sh\n{}",
+        "wiki/ is out of date — run `salvo docs` in lib/\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
 }
@@ -297,4 +298,52 @@ fn std_compiler_known_names_are_tagged() {
         }
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+/// [cli-docs] `salvo docs` over a small project with a `[docs]` section: a
+/// page per module with each exported declaration under its own heading,
+/// `[symbol]` links to those headings, the home and topic pages with their
+/// links rewritten, the index and the sidebar; `--check` passes on what it
+/// wrote and fails once a page changes.
+#[test]
+fn salvo_docs_writes_wiki_pages() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("docs_site");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::create_dir_all(root.join("guide")).unwrap();
+    std::fs::write(
+        root.join("salvo.toml"),
+        "[project]\nname = \"shop\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"src\"\n\n[docs]\nout = \"wiki\"\nhome = \"guide/Start.md\"\ntopics = \"guide\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/shapes.sv"),
+        "// Shapes and their areas.\n//\n// Start with [Shape].\n\n// A square, by its side.\n//\n// ```\n// let s = Shape { side: 2 }\n// ```\nexport struct Shape {\n    // The length of a side.\n    side: Int\n}\n\n// The area of [s], a [Shape].\n//\n// @param s  the shape\n// @compilerrules [fn-overload] hidden\nexport fn area(s: Shape) -> Int {\n    return s.side * s.side\n}\n\nfn hidden() -> Int {\n    return 0\n}\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("guide/Start.md"), "# Shop\n\nRead [the tour](Tour.md) first.\n").unwrap();
+    std::fs::write(root.join("guide/Tour.md"), "# Tour\n\nSee [shapes](../src/shapes.sv#struct-shape).\n\n```salvo\nlet x = 1\n```\n").unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_salvo")).args(args).current_dir(&root).output().expect("run salvo docs");
+    let out = run(&["docs"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let read = |name: &str| std::fs::read_to_string(root.join("wiki").join(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
+    let module = read("shapes.md");
+    assert!(module.contains("### struct Shape"), "{module}");
+    assert!(module.contains("### fn area"), "{module}");
+    assert!(!module.contains("hidden"), "a private fn and `@compilerrules` are left out: {module}");
+    assert!(module.contains("Start with [`Shape`](#struct-shape)."), "{module}");
+    assert!(module.contains("The area of `s`, a [`Shape`](#struct-shape)."), "{module}");
+    assert!(module.contains("```rust\nlet s = Shape { side: 2 }\n```"), "{module}");
+    assert!(module.contains("- `side: Int` — The length of a side."), "{module}");
+    assert!(module.contains("**Parameters**"), "{module}");
+    let home = read("Home.md");
+    assert!(home.contains("# Shop") && home.contains("[the tour](Tour)") && home.contains("[`shapes`](shapes)"), "{home}");
+    let tour = read("Tour.md");
+    assert!(!tour.contains("# Tour") && tour.contains("[shapes](shapes#struct-shape)") && tour.contains("```rust\nlet x = 1"), "{tour}");
+    assert!(read("Index.md").contains("| [`area`](shapes#fn-area) | function | [`shapes`](shapes) | The area of `s`, a [`Shape`](shapes#struct-shape). |"));
+    assert!(read("_Sidebar.md").contains("* [Tour](Tour)"));
+    assert!(run(&["docs", "--check"]).status.success());
+    std::fs::write(root.join("wiki/Tour.md"), "edited\n").unwrap();
+    let stale = run(&["docs", "--check"]);
+    assert!(!stale.status.success() && String::from_utf8_lossy(&stale.stderr).contains("out of date: Tour.md"));
 }

@@ -144,6 +144,28 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — `salvo docs` writes a project's documentation as wiki pages (user decisions, [cli-docs])
+
+- **Decided** (user, 2026-10-30): `salvo docs` collects the doc comments
+  into pages with an index; the format is **GitHub-wiki Markdown** (GitHub
+  serves no `.html` pages and strips scripts, `style` and `class`), so code
+  is fenced `rust` and finding things is a generated `Index` page; a
+  `[docs]` manifest section names `out`, `home` (one file) and `topics` (a
+  directory); the repository's wiki needs nothing special. Compiled doc
+  examples are for later (ROADMAP).
+- **Built**: `crates/salvo-cli/src/site.rs` (`generate`, `write`), the
+  `Docs` command (`--src`, `--out`, `--check`), `DocsSection` in the
+  manifest. Pages: `Home` (the home file, then a module table), a page per
+  topic and per module (`std-core-list`: dots in wiki page names are
+  unreliable), `Index`, `_Sidebar` (overview in the home file's link order,
+  library by package in `<details>`, index), `_Footer`. A module page reuses
+  hover's signature renderers (made `pub(crate)` in `lsp.rs`), so the two
+  agree. `lib/salvo.toml` writes `../wiki`; `tools/sync-wiki.sh` is deleted
+  and the docs test runs `salvo docs --check` in `lib/`. The wiki's
+  hand-written Home prose moved into `docs/language/README.md`, the home
+  file. Rejected: a standalone HTML site with a search box (not servable by
+  a wiki; kept as a later second format).
+
 ### 2026-10-30 — Handlers and qualifiers name their subject with `for` (user decision, [qual-of] [effect-decl])
 
 - **Decided** (user, 2026-10-30): `handler H() of E` and `qualifier Q<T>

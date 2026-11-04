@@ -49,7 +49,7 @@ which rules are in play and where they live in the code*.
 | File | What it is | When to load |
 |---|---|---|
 | `docs/language/` | Narrative language spec, as pages — source of truth | The pages your task touches |
-| `wiki/` | **Generated** copy of `docs/language/` for reading on GitHub (`tools/sync-wiki.sh`); a separate git repository, gitignored here, and expected to be present | Never edit it — edit `docs/language/` |
+| `wiki/` | **Generated** documentation for reading on GitHub — `docs/language/` and a page per std module (`salvo docs` in `lib/`, configured by `lib/salvo.toml`'s `[docs]`); a separate git repository, gitignored here, and expected to be present | Never edit it — edit `docs/language/` or std's doc comments |
 | `LANGUAGE_SPEC.md` | Labeled rules + compiler decisions (backend-neutral) | Always |
 | `BACKEND_SPEC.kotlin.md` | Kotlin interpretation of the rules + `kt-` rules | Only when working on the Kotlin backend (`salvo-backend-kotlin`, `lib/platform/std/**/*.kt`) |
 | `BACKEND_SPEC.rust.md` | Rust interpretation of the rules + `rs-` rules (deductions → borrows) | Only when working on the Rust backend (`salvo-backend-rust`, `lib/platform/std/**/*.rs`) |
@@ -135,7 +135,7 @@ SALVO_E2E_FRESH=1 cargo nextest run --no-fail-fast
 SALVO_SKIP_E2E=1 cargo test # inner loop only: skips the kotlinc/rustc tests
 INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after reviewing diffs
 
-tools/sync-wiki.sh               # regenerate wiki/ from docs/language/
+(cd lib && ../target/debug/salvo docs)  # regenerate wiki/ from docs/language/ and std's doc comments
                                  # (`--check` is what the docs test runs)
 
 cargo run -- test --src lib      # the standard library's own tests, in Salvo
@@ -359,7 +359,7 @@ Salvo source.
     `crates/**/tests/corpus/*.sv`, inline `.sv` sources in Rust tests,
     `examples/**` (source *and* its checked-in generated code and expected
     output), `docs/language/` / LANGUAGE_SPEC.md / BACKEND_SPEC.*.md snippets
-    (and `tools/sync-wiki.sh` afterwards, so `wiki/` follows),
+    (and `salvo docs` in `lib/` afterwards, so `wiki/` follows),
     README, and the syntax references in COMPLETED.md and ROADMAP.md
     (neither is a historical archive — record the change in the decision log
     instead of leaving stale syntax in prose).

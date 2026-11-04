@@ -1,5 +1,13 @@
 # The Salvo language
 
+Salvo is an experimental high-level language which compiles to both Rust and Kotlin and provides simple primitives for safe and easily-distributed software development. Salvo is an acronym which represents the interlocking values that the language seeks to provide:
+
+* **Simplicity**: Things should have few parts (not complex) and easy to understand (not complicated), but if we must choose one then the latter: each part should be independently intelligible. When there are many parts, we shouldn't need to understand everything in order to understand anything. Salvo has a minimal syntax to avoid having a million ways of doing the same thing, and the more complicated features are opt-in so that you can gradually learn and integrate with them.
+* **Affordancy**: It should be clear what can and will happen when an action is taken. The contribution a change makes to the system should be clear. Salvo has a type system which exposes what you can do with data via "qualifiers". These qualifiers allow users to encode unique behaviors and freely annotate types with references to functions and local variables.
+* **Locality**: The more assumptions two parts of a system make about one another, the closer they should be. The fewer assumptions they make about one another, the more decoupled they should be. Salvo has no hidden state, and uses algebraic effects to capture what a function can do when executing.
+* **Verifiability**: The correctness of a system or change should be provable. The design of the system and signals produced by it should be such that this proof of easy. Salvo has a strong static type system, including things like linear types (for ensuring that data is not accidentally dropped), exhaustive whens over arbitrary unions, a deduction system on functions, and more. Salvo makes testing a first-class citizen, built into the compiler around its qualifiers and actor-based concurrency.
+* **Orthogonality**: The system should be divided into components which solve distinct problems and can change independently from one another. Salvo's features compose naturally and solve independent problems. Structs hold data, function define behavior, qualifiers refine data types, and effects carry capabilities for functions.
+
 Salvo lang is an experimental high level programming language with C-like syntax which can transpile into Rust and Kotlin. The aim of the language is to support the transition from the JVM to a non-garbage collected language by using a language we can work with both of them. This has the following goals:
 
 * No explicit pointer or references.
@@ -16,12 +24,14 @@ ambiguous, these pages decide.
 
 Two companions, with different jobs:
 
-* **`../../LANGUAGE_SPEC.md`** — the same features as short *labeled rules*
-  (`[qual-erasure]`, `[deduce-syntax]`), plus the compiler decisions under
-  each. Written for whoever changes the compiler; a reader learning Salvo
-  does not need it.
-* **`../../wiki/`** — a generated copy of these pages for reading on GitHub
-  (`tools/sync-wiki.sh`). Never edit it; edit here.
+* **`LANGUAGE_SPEC.md`**, at the repository's root — the same features as
+  short *labeled rules* (`[qual-erasure]`, `[deduce-syntax]`), plus the
+  compiler decisions under each. Written for whoever changes the compiler; a
+  reader learning Salvo does not need it.
+* **The wiki** — these pages and a page per standard-library module, generated
+  by `salvo docs` (run in `lib/`; `lib/salvo.toml`'s `[docs]` section says
+  what goes in). Never edit it; edit these pages, or the doc comments in
+  `lib/std`.
 
 ## Reading order
 
