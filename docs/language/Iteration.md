@@ -6,11 +6,11 @@
 trait bound. The standard library's own example is iteration:
 
 ```
-fns Next<It, T> {
-    fn next(it: Mut It) -> Emitted T | Finished => it: Mut
+fns Next<It, T, [E]> {
+    fn next(it: Mut It) [E] -> Emitted T | Finished => it: Mut
 }
 
-fn map<It, T, U>(it: Mut It, f: (T) -> U, ?Next<It, T>) -> Mut List<U> => it: Mut, f {
+fn map<It, T, U, [E]>(it: Mut It, f: (T) [E] -> U, ?Next<It, T, [E]>) -> Mut List<U> => it: Mut, f {
     let out = Mut List<U>()
     for x in it {
         add(out, f(x))
@@ -24,6 +24,9 @@ A `for` over a **type parameter** works because `for x in it` is the call
 it is a parameter, which a call reaches before any declared `next`, so the loop
 drives by calling it and takes the element type from its result. Nothing about
 `for` is special-cased for std — this is how any combinator of your own reads.
+`E` is what the callback and the iterator's `next` perform, which the caller
+supplies; a combinator that writes `?Next<It, T>` takes only an iterator
+whose `next` performs nothing ([Implicit parameters](Implicit-Parameters.md)).
 
 There is no `Next` *type* and nothing implements it: `map` needs a `next` for
 whatever `it` is, and the call site supplies one. The subject is an

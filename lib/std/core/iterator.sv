@@ -62,10 +62,16 @@ export fn finished() [] -> Finished {
 // element says `copy`; one that *computes* its elements
 // declares `: Next<self, T>` and owns them. A reading combinator's
 // `?Next<It, T>` accepts either. A group emits nothing on any backend.
-// @compilerrules [iter-protocol, group-obligation, implicit-group, group-self, iter-yield-proj, copy-opt-in]
+//
+// `E` is what advancing performs: nothing, written by leaving it out
+// (`: Next<self, Int>`), or the effects a `next` that reads a stream needs
+// (`: Next<self, Str, [Streams]>`). A combinator spreads `?Next<It, T, [E]>`
+// sharing its own effect variable, so the effects are the caller's and are
+// handed in with the callback's.
+// @compilerrules [iter-protocol, group-obligation, implicit-group, group-self, iter-yield-proj, copy-opt-in, effect-var]
 // @compilerknown
-export fns Next<It, T> {
-    fn next(it: Mut It) -> Emitted T | Finished => it: Mut
+export fns Next<It, T, [E]> {
+    fn next(it: Mut It) [E] -> Emitted T | Finished => it: Mut
 }
 
 // What a **source** is: a type an `iter` mints an iterator from.
@@ -85,10 +91,11 @@ export fns Next<It, T> {
 // Spread as `?Iter<C, It, T>`, the group brings in `iter: (C) -> Mut It` and
 // `next: (Mut It) -> Emitted T | Finished`, so a combinator over a generic
 // *source* writes `for x in c` and the loop mints with the one and drives
-// with the other.
-// @compilerrules [iter-group, implicit-with]
+// with the other. `E` is what driving performs, as for `Next`; minting
+// performs nothing.
+// @compilerrules [iter-group, implicit-with, effect-var]
 // @compilerknown
-export fns Iter<C, It, T> => iter with next {
+export fns Iter<C, It, T, [E]> => iter with next {
     fn iter(collection: C) -> Mut It
-    fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut
+    fn next(iterator: Mut It) [E] -> Emitted T | Finished => iterator: Mut
 }

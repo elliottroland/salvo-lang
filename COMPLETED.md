@@ -144,6 +144,43 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — `fns` groups take effect variables, and a left-out one is `[]` (user decisions, [effect-var] [implicit-group])
+
+- **Decided** (user, 2026-10-30): option B of the effectful-implicits round —
+  a group may declare an effect variable (`fns Next<It, T, [E]>`), a spread
+  shares the fn's (`?Next<It, T, [E]>`), its effects are the caller's. No
+  special case for `Next` and `Iter`: **any** list of generics may leave a
+  trailing effect variable out, meaning `[]`. Option A (implicits stay
+  pure, `for` the only driver) and C (a hidden variable on every implicit,
+  which would let `?hash`/`?cmp` perform effects unseen) were rejected.
+- **Built**: `FnsDecl::effect_generics`; members' effect lists lowered
+  (`member_fn_ty` built every member's type pure until now); spreads and
+  obligations take row arguments (`validate_group_arg`) and a left-out one
+  (`omits_trailing_effect_var`, at spreads, obligations, slot spreads and
+  struct types); a spread's members inherit as fn-typed parameters do
+  (`spread_effects`) and determine a variable they name; obligations refuse
+  a member performing more than their row (`group-obligation:member-effects`,
+  which caught std's `Lines`, `Chunks` and lazy adaptors); at a call a
+  member over the callee's variable resolves at an open position and widens
+  the row, then is adapted (`ImplicitAdapt` on `ImplicitArg::{Resolved,
+  Forwarded}`, IR `implicit_adapter`). std: `Next` and `Iter` take `[E]`;
+  `map`/`filter`/`reduce` share it with the callback, `to_list`/`count` and
+  every lazy adaptor (`Taking` and `Skipping` too) take one, `Lines`/`Chunks`
+  declare `[Streams]`. An `iter fn`'s generated obligation carries its
+  effects; a `by` clause leaves the variable out. LSP hover shows a group's
+  `[E]` and its members' lists.
+- **Fell out**: a call through a struct's fn field over the struct's
+  variable passed no pack when the row was empty (`Later<[]>`'s field call
+  failed both compilers; `record_field_packs`, IR `pack_fn_ty`). On Rust, a
+  lambda argument's body counted as a mutable lend of the call
+  ([rs-mut-arg-hoist]), so `taking(iter(xs), 2, |…| next(&mut *__a0))`
+  hoisted `iter(xs)` and the closure, which then lost the slot type its
+  borrowed return's lifetime is inferred from. A pure iterator through a
+  combinator now gets the adapter (`fun(__fx0: Unit, __a0: …) = next(__a0)`),
+  the cost ROADMAP item 5 holds until it bites.
+- **Found, not fixed**: a generic struct's fn field called at a concrete
+  type fails rustc (`&T` stored, a value passed); in ROADMAP §2c.
+
 ### 2026-10-30 — `array_by` takes an effect variable; no list-to-array conversion (user decisions, [effect-var] [col-by])
 
 - **Decided** (user, 2026-10-30): an array is not built from a list (no
@@ -39813,6 +39850,14 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **An agent's file edits can land after the next command runs** (seen
+  2026-10-30, effectful implicits). A `cargo build` started right after an
+  edit compiled the old text, and a later build then saw nothing newer, so
+  three "fixes" were tested against a binary without them and a revert
+  looked harmless. Check the edited text in the same shell command as the
+  build (`grep -c 'new text' file && touch file && cargo build`), and trust
+  a run's output only when it shows the change you expect.
 
 - **A `qualifies` call is typed by what the test binds, and only by that**
   (2026-10-30): nothing but `check_predicate_quals`'s substitution fixes the

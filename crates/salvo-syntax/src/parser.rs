@@ -2349,7 +2349,11 @@ impl<'s> Parser<'s> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwFns)?.span;
         let name = self.ident_type("fns group")?;
-        let generics = self.parse_generics();
+        // [effect-var] A group may declare effect variables, as a fn does.
+        let (generics, canbe, effect_generics) = self.parse_generics_canbe();
+        for (ident, _) in &canbe {
+            self.error(messages::linear_generics_canbe_type_param_unsupported(), ident.span);
+        }
         // [implicit-with] The group's own clause, before the body: `fns
         // Hashed<T> => eq with hash { … }`. Spreading a group opts into its
         // deductions along with its members (user decision 2026-09-26), so the
@@ -2388,6 +2392,7 @@ impl<'s> Parser<'s> {
             docs,
             name,
             generics,
+            effect_generics,
             fns,
             deductions,
             span: start.to(end),

@@ -881,7 +881,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     None => unsupported(fn_ty, span, "interpolation"),
                 },
                 ArmText::Call { callee: CalleeKind::Fn { decl, .. }, implicits } => {
-                    let arg = ImplicitArg::Resolved { name: "to_str".into(), key: *decl, nested: implicits.clone(), want: fn_ty, carried: false };
+                    let arg = ImplicitArg::Resolved { name: "to_str".into(), key: *decl, adapt: None, nested: implicits.clone(), want: fn_ty, carried: false };
                     self.implicit_list(&[arg], &[], span).pop().unwrap()
                 }
                 ArmText::Call { .. } => {
@@ -1257,20 +1257,33 @@ impl<'a, 'p> Lower<'a, 'p> {
                     None => out.push(unsupported(Ty::Unknown, at, format!("given implicit `{name}` without a value"))),
                 },
                 // [implicit-forward] The enclosing fn's implicit, by its local.
-                ImplicitArg::Forwarded { name } => match self.lookup(name).map(|b| (b.local.clone(), b.ty.clone())) {
-                    Some((l, ty)) => out.push(Expr { ty, span: at, kind: ExprKind::FnValue(FnRef::Local(l)) }),
+                ImplicitArg::Forwarded { name, adapt } => match self.lookup(name).map(|b| (b.local.clone(), b.ty.clone())) {
+                    Some((l, ty)) => {
+                        let value = Expr { ty, span: at, kind: ExprKind::FnValue(FnRef::Local(l)) };
+                        // [effect-var] Called with the callee's packs.
+                        match adapt {
+                            Some(a) => out.push(self.pack_adapter(value, &a.slots, &a.at, at)),
+                            None => out.push(value),
+                        }
+                    }
                     None => {
                         self.error(at, messages::implicit_forward_lower_not_in_scope(name));
                         out.push(unsupported(Ty::Unknown, at, "forwarded implicit"));
                     }
                 },
+                ImplicitArg::Resolved { key, nested, adapt: Some(adapt), .. } => {
+                    let e = self.implicit_adapter(*key, nested, adapt, at);
+                    out.push(e);
+                }
                 ImplicitArg::Resolved { key, nested, want, .. } => {
                     let id = *key;
                     let want = self.ctx.ir_ty(want);
-                    // [effect-var] An implicit is effect-free [implicit-resolve],
-                    // so a fn taking effect variables fills one only with them
-                    // bound to nothing: it is handed an empty pack for each.
-                    let packs = self.fn_taken(id).map(|t| crate::threaded_effects(&t).len()).unwrap_or(0);
+                    // [effect-var] A fn whose effect variables nothing binds
+                    // here (the position performs nothing) is handed an
+                    // empty pack for each; one the position calls with the
+                    // instances it takes, one by one, is passed as it is.
+                    let own_vars = self.ctx.fn_by_key(id).is_some_and(|d| !d.effect_generics.is_empty());
+                    let packs = if own_vars { self.fn_taken(id).map(|t| crate::threaded_effects(&t).len()).unwrap_or(0) } else { 0 };
                     if nested.is_empty() && packs == 0 {
                         out.push(Expr { ty: want, span: at, kind: ExprKind::FnValue(FnRef::Decl(id)) });
                     } else {
@@ -1298,6 +1311,58 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
         }
         out
+    }
+
+    /// [effect-var] [implicit-group] A declared fn filling an implicit the
+    /// callee calls with its effect variables' packs (`?Next<It, T, [E]>`):
+    /// a lambda taking the slots and the position's parameters, which hands
+    /// the fn the effects it performs — grouped into its own packs, where it
+    /// has effect variables of its own — then the arguments, then its own
+    /// implicits [implicit-recursive].
+    fn implicit_adapter(&mut self, id: crate::DeclId, nested: &[ImplicitArg], adapt: &crate::check::ImplicitAdapt, span: Span) -> Expr {
+        let Ty::Fn { params, ret, contract, .. } = self.ctx.ir_ty(&adapt.at).strip_quals().clone() else {
+            return unsupported(Ty::Unknown, span, "implicit adapter");
+        };
+        let (mut ps, stmts, bound) = self.slot_params(&adapt.slots, "__fx", span);
+        let mut effects: Vec<Expr> = Vec::new();
+        for t in self.ctx.ir_tys(&adapt.own) {
+            let Some((_, l)) = bound.iter().find(|(b, _)| *b == t) else {
+                self.error(span, messages::fn_effects_lower_adapter_effect(&t));
+                return unsupported(Ty::Unknown, span, "implicit adapter");
+            };
+            effects.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: l.clone(), steps: Vec::new() }, consume: false, moved: false } });
+        }
+        let mut args: Vec<Expr> = if adapt.packs.is_empty() {
+            effects
+        } else {
+            let mut it = effects.into_iter();
+            let mut grouped = Vec::new();
+            for &n in &adapt.packs {
+                let items: Vec<Expr> = it.by_ref().take(n).collect();
+                if n == 1 && items.len() == 1 {
+                    grouped.extend(items);
+                    continue;
+                }
+                let ty = crate::types::effect_pack_ty(&items.iter().map(|e| e.ty.clone()).collect::<Vec<_>>());
+                grouped.push(Expr { ty, span, kind: ExprKind::Tuple(items) });
+            }
+            grouped
+        };
+        for (i, t) in params.iter().enumerate() {
+            let l = Local(format!("__a{i}"));
+            let mode = match contract.as_ref().and_then(|c| c.get(i)) {
+                Some(c) if !c.kept => PassMode::Moved,
+                Some(c) if c.mutable => PassMode::LentMut,
+                _ => PassMode::Lent,
+            };
+            ps.push(Param { local: l.clone(), ty: t.clone(), mode, variadic: false, check: None, span });
+            args.push(Expr { ty: t.clone(), span, kind: ExprKind::Read { place: Place { root: l, steps: Vec::new() }, consume: mode == PassMode::Moved, moved: false } });
+        }
+        args.extend(self.implicit_list(nested, &[], span));
+        let call = Expr { ty: (*ret).clone(), span, kind: ExprKind::Call { target: FnRef::Decl(id), type_args: Vec::new(), args, moved: false } };
+        let flat: Vec<Ty> = adapt.slots.iter().flat_map(|s| s.effects().to_vec()).collect();
+        let ty = Ty::Fn { params, ret: ret.clone(), contract, effects: self.ctx.ir_tys(&flat) };
+        Expr { ty, span, kind: ExprKind::Lambda { params: ps, ret: *ret, body: Block { stmts, value: Some(Box::new(call)), span }, captures: Vec::new() } }
     }
 
     /// [effect-member-overload] [fn-value] An effect's member as a value (R10
@@ -1463,7 +1528,12 @@ impl<'a, 'p> Lower<'a, 'p> {
         let target = self.expr(callee);
         let tmp = self.fresh("__callee");
         let id = self.id();
-        let tt = target.ty.clone();
+        // [effect-var] A struct's fn field over its effect variable takes the
+        // variable's pack: the local holding it is typed so.
+        let tt = match self.ctx.checked.effect_packs.get(&key) {
+            Some(packs) if matches!(callee_kind, Some(CalleeKind::Field { .. })) => pack_fn_ty(&target.ty, packs),
+            _ => target.ty.clone(),
+        };
         // [fn-effects] As through a local: the effects the value performs are
         // its leading arguments (found beside B1 census D19, 2026-10-27 — a
         // computed callee with effects had none passed, and both target
@@ -3627,4 +3697,24 @@ fn is_effect_var_handle(ty: &ast::Type, vars: &[ast::Ident]) -> bool {
     matches!(ty, ast::Type::Named { qualifiers, base }
         if qualifiers.is_empty() && base.name.name == crate::check::ADDR_TYPE
             && matches!(base.args.as_slice(), [ast::Type::Named { base: v, .. }] if vars.iter().any(|g| g.name == v.name.name)))
+}
+
+/// [effect-var] The fn type `t` with its effects grouped as `packs` says (one
+/// count per effect parameter): a count other than one is the pack of those
+/// effects, an empty one included.
+fn pack_fn_ty(t: &Ty, packs: &[usize]) -> Ty {
+    let Ty::Fn { params, ret, contract, effects } = t.strip_quals() else { return t.clone() };
+    let threaded = crate::threaded_effects(effects);
+    let mut it = threaded.into_iter();
+    let mut grouped: Vec<Ty> = Vec::new();
+    for &n in packs {
+        let items: Vec<Ty> = it.by_ref().take(n).collect();
+        if n == 1 && items.len() == 1 {
+            grouped.extend(items);
+        } else {
+            grouped.push(crate::types::effect_pack_ty(&items));
+        }
+    }
+    grouped.extend(it);
+    Ty::Fn { params: params.clone(), ret: ret.clone(), contract: contract.clone(), effects: grouped }
 }

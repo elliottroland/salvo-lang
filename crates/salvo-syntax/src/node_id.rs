@@ -105,10 +105,13 @@ pub fn number(module: &mut Module) {
             Item::Fns(g) => {
                 let mut fns = std::mem::take(&mut g.fns);
                 run(&mut n, 0, &mut |n| {
-                    let FnsDecl { docs: _, exported: _, name, generics, fns: _, deductions, span } = g;
+                    let FnsDecl { docs: _, exported: _, name, generics, effect_generics, fns: _, deductions, span } = g;
                     n.visit_span(span);
                     n.visit_ident(name);
                     for g in generics {
+                        n.visit_ident(g);
+                    }
+                    for g in effect_generics {
                         n.visit_ident(g);
                     }
                     for d in deductions {
@@ -186,10 +189,13 @@ pub fn walk_module<V: MutVisitor>(v: &mut V, module: &mut Module) {
             }
             Item::Fns(g) => {
                 let mut fns = std::mem::take(&mut g.fns);
-                let FnsDecl { docs: _, exported: _, name, generics, fns: _, deductions, span } = g;
+                let FnsDecl { docs: _, exported: _, name, generics, effect_generics, fns: _, deductions, span } = g;
                 v.visit_span(span);
                 v.visit_ident(name);
                 for g in generics {
+                    v.visit_ident(g);
+                }
+                for g in effect_generics {
                     v.visit_ident(g);
                 }
                 for d in deductions {

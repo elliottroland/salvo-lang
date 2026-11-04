@@ -307,18 +307,26 @@ fn main@main() -> None {
   bind#41 let words: List<Str> = call List(T, T[])@std.core.list<Str>("ann", array[Str[]]("bo", "carol"))
   bind#42 let lengths: Mut List<Int> = call map(Mut It, (T) [E] -> U)@std.core.seq<ListIter<Str>, proj Str, Int, ()>(tuple(), call iter@std.core.list<Str>(read words), lambda(lent __leff0: (), lent w: proj Str) -> Int {
     value call size@std.core.string(borrow_as[proj Str -> Str](read w))
-  }, fn next(Mut ListIter<T>)@std.core.list)
+  }, lambda(lent __fx0: (), lent_mut __a0: Mut ListIter<Str>) -> proj Str | Finished {
+    value call next(Mut ListIter<T>)@std.core.list(read __a0)
+  })
   call println@std.core.console(read __handle~2, concat("5. lengths: ", call to_str(Int)@std.core.basic(call reduce(Mut It, A, (A, T) [E] -> A)@std.core.seq<ListIter<Int>, Int, Int, ()>(tuple(), call iter@std.core.list<Int>(drop_mut(read lengths)), 0, lambda(lent __leff0: (), lent acc: Int, lent n: Int) -> Int {
     value (read acc + read n)
-  }, fn next(Mut ListIter<T>)@std.core.list))))
+  }, lambda(lent __fx0: (), lent_mut __a0: Mut ListIter<Int>) -> Int | Finished {
+    value call next(Mut ListIter<T>)@std.core.list(read __a0)
+  }))))
   bind#43 let word: Str = "iteration"
   bind#44 let vowels: Mut List<Char> = call filter(Mut It, (T) [E] -> Bool)@std.core.seq<StrIter, Char, ()>(tuple(), call iter@std.core.string(read word), lambda(lent __leff0: (), lent c: Char) -> Bool {
     value ((read c == 'i') || (read c == 'o'))
-  }, fn next@std.core.string)
+  }, lambda(lent __fx0: (), lent_mut __a0: Mut StrIter) -> Char | Finished {
+    value call next@std.core.string(read __a0)
+  })
   call println@std.core.console(read __handle~2, concat("5. vowels: ", call to_str(Int)@std.core.basic(call size@std.core.list<Char>(drop_mut(read vowels)))))
   call println@std.core.console(read __handle~2, concat("5. halving total ", call to_str(Int)@std.core.basic(call reduce(Mut It, A, (A, T) [E] -> A)@std.core.seq<Halving@main, Int, Int, ()>(tuple(), call halving@main(20), 0, lambda(lent __leff0: (), lent acc: Int, lent n: Int) -> Int {
     value (read acc + read n)
-  }, fn next(Mut Halving)@main))))
+  }, lambda(lent __fx0: (), lent_mut __a0: Mut Halving@main) -> Int | Finished {
+    value call next(Mut Halving)@main(read __a0)
+  }))))
   bind#45 let collected: Mut List<Int> = call map_to@std.core.seq<List<Int>, Countdown@main, Int, Int>(call Mut_List()@std.core.list<Int>(), call countdown@main(3), lambda(lent n: Int) -> Int {
     value (read n * 10)
   }, fn add@std.core.list, fn next(Mut Countdown)@main)

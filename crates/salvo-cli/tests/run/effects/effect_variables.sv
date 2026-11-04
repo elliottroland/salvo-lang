@@ -505,3 +505,167 @@ fn main() [use] -> None {
 //= init 0
 //= init 1
 //= 3 4 11 10 11 4
+
+//--- an_implicit_group_takes_an_effect_variable
+// [effect-var] [implicit-group] A `fns` group declares one; a spread
+// shares the fn's, an obligation fills it or leaves it out (`[]`), and a
+// pure fill beside an effectful one is adapted to take the pack.
+// A group takes an effect variable: a spread shares the fn's, and an
+// obligation fills it, or leaves it out for `[]`.
+fns Gen<S, [E]> {
+    fn gen(s: S) [E] -> Int
+}
+
+struct Pure : Gen<self> {
+    n: Int
+}
+
+fn gen(p: Pure) -> Int {
+    return p.n
+}
+
+struct Loud : Gen<self, [Console]> {
+    n: Int
+}
+
+fn gen(l: Loud) [Console] -> Int {
+    println("loud ${l.n}")
+    return l.n
+}
+
+// No callback: `E` is what the fill performs.
+fn twice<S, [E]>(s: S, ?Gen<S, [E]>) -> Int => s {
+    return gen(s) + gen(s)
+}
+
+// Shared with a callback: the row is both.
+fn applied<S, [E]>(s: S, f: (x: Int) [E] -> Int, ?Gen<S, [E]>) -> Int => s, f {
+    return f(gen(s))
+}
+
+fn noisy(x: Int) [Console] -> Int {
+    println("noisy ${x}")
+    return x
+}
+
+// A struct's trailing effect variable left out is `[]`.
+struct Later<[E]> {
+    n: Int,
+    run: (x: Int) [E] -> Int
+}
+
+fn fire(l: Later) -> Int => l {
+    return l.run(l.n)
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    println("${twice(Pure { n: 1 })}")
+    println("${twice(Loud { n: 2 })}")
+    println("${applied(Pure { n: 3 }, (x) -> x + 1)}")
+    println("${applied(Loud { n: 4 }, (x) -> x * 2)}")
+    println("${applied(Pure { n: 5 }, noisy)}")
+    let l: Later = Later { n: 6, run: (x) -> x + 1 }
+    println("${fire(l)}")
+}
+//= stdout
+//= 2
+//= loud 2
+//= loud 2
+//= 4
+//= 4
+//= loud 4
+//= 8
+//= noisy 5
+//= 5
+//= 7
+
+//--- std_combinators_drive_effectful_iterators
+// [effect-var] [seq-iterator] [seq-lazy] `Next` takes an effect variable, so
+// std's combinators and lazy adaptors drive an iterator whose `next`
+// performs effects, beside a callback that may perform its own.
+struct Ticks : Next<self, Int, [Console]> canbe Mut {
+    at: Int,
+    n: Int
+}
+
+fn next(t: Mut Ticks) [Console] -> Emitted Int | Finished => t: Mut {
+    if t.at >= t.n {
+        return finished()
+    }
+    t.at = t.at + 1
+    println("tick ${t.at}")
+    return emitted(t.at)
+}
+
+fn ticks(n: Int) -> Mut Ticks {
+    return Mut Ticks { at: 0, n: n }
+}
+
+fn shout(x: Int) [Console] -> Int {
+    println("shout ${x}")
+    return x * 100
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    let a = map(ticks(2), (x) -> x * 10)
+    println("map ${a}")
+    let t3 = ticks(3)
+    let b = filter(t3, (x) -> x > 1)
+    println("filter ${size(b)}")
+    let c = reduce(ticks(3), 0, (acc, x) -> acc + x)
+    println("reduce ${c}")
+    println("count ${count(ticks(2))}")
+    let m = mapping(ticks(2), (x) -> shout(x))
+    let d = to_list(m)
+    println("to_list ${d}")
+    let xs = List(1, 2)
+    let pm = mapping(iter(xs), shout)
+    let e = to_list(pm)
+    println("pure source ${e}")
+    let tk = taking(ticks(5), 2)
+    let f = to_list(tk)
+    println("taking ${f}")
+    for x in filtering(ticks(3), (x) -> x != 2) {
+        println("for ${x}")
+    }
+    let g = map(ticks(2), shout)
+    println("both ${g}")
+}
+//= stdout
+//= tick 1
+//= tick 2
+//= map [10, 20]
+//= tick 1
+//= tick 2
+//= tick 3
+//= filter 2
+//= tick 1
+//= tick 2
+//= tick 3
+//= reduce 6
+//= tick 1
+//= tick 2
+//= count 2
+//= tick 1
+//= shout 1
+//= tick 2
+//= shout 2
+//= to_list [100, 200]
+//= shout 1
+//= shout 2
+//= pure source [100, 200]
+//= tick 1
+//= tick 2
+//= taking [1, 2]
+//= tick 1
+//= for 1
+//= tick 2
+//= tick 3
+//= for 3
+//= tick 1
+//= shout 1
+//= tick 2
+//= shout 2
+//= both [100, 200]

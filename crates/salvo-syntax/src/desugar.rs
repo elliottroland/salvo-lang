@@ -338,6 +338,30 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
             rename_value_arg_root(&mut ob_elem, &p.name.name, &format!("self.{hidden}"));
         }
     }
+    // [effect-var] [iter-fn] The generated `next` performs the `iter fn`'s
+    // effects, so the obligation's row names them (`Next<self, T,
+    // [Console]>`); a pure one leaves the row out, `[]`.
+    let mut ob_args = vec![
+        Type::Named {
+            qualifiers: vec![],
+            base: type_ref("self", span),
+        },
+        ob_elem,
+    ];
+    let row: Vec<Type> = f
+        .effects
+        .iter()
+        .flatten()
+        .filter_map(|e| match e {
+            EffectRef::Effect(r) => Some(Type::Named { qualifiers: vec![], base: r.clone() }),
+            _ => None,
+        })
+        .collect();
+    if !row.is_empty() {
+        let mut r = type_ref(crate::ast::EFFECT_ROW_TYPE_NAME, span);
+        r.args = row;
+        ob_args.push(Type::Named { qualifiers: vec![], base: r });
+    }
     let pass_struct = StructDecl {
         annotations: Vec::new(),
         fns: Vec::new(),
@@ -373,13 +397,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
                     name: known::NEXT_GROUP.to_string(),
                     span: struct_span,
                 },
-                args: vec![
-                    Type::Named {
-                        qualifiers: vec![],
-                        base: type_ref("self", span),
-                    },
-                    ob_elem,
-                ],
+                args: ob_args,
                 from: Vec::new(),
                 span,
             },

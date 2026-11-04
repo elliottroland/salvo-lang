@@ -3585,7 +3585,9 @@ fn effect_signature(decl: &salvo_syntax::ast::EffectDecl) -> String {
 /// [doc-comment] `fns Next<It, T> { fn next(it: Mut It) -> … }` — the
 /// members are the point of a group, so they are always shown.
 fn fns_signature(decl: &salvo_syntax::ast::FnsDecl) -> String {
-    let mut sig = format!("fns {}{}", decl.name.name, generic_list(&decl.generics));
+    // [effect-var] A group's effect variable shows as `[E]`, and a member's
+    // effect list as written.
+    let mut sig = format!("fns {}{}", decl.name.name, generic_list_with_bounds(&decl.generics, &[], &decl.effect_generics));
     if !decl.fns.is_empty() {
         sig.push_str(" {");
         for f in &decl.fns {
@@ -3594,14 +3596,19 @@ fn fns_signature(decl: &salvo_syntax::ast::FnsDecl) -> String {
                 .iter()
                 .map(|p| format!("{}: {}", p.name.name, p.ty))
                 .collect();
+            let effects = match &f.effects {
+                Some(es) => format!(" [{}]", es.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", ")),
+                None => String::new(),
+            };
             let ret = match &f.return_type {
                 Some(t) => format!(" -> {t}"),
                 None => String::new(),
             };
             sig.push_str(&format!(
-                "\n    fn {}({}){}",
+                "\n    fn {}({}){}{}",
                 f.name.name,
                 params.join(", "),
+                effects,
                 ret
             ));
         }

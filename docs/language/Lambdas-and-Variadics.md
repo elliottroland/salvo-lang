@@ -151,6 +151,8 @@ fn main() [use] {
 - **A throw is not an effect a variable carries.** A function value that may throw cannot bind `E`; a parameter whose type lists `Throw<…>` itself takes one, and the function either catches it with `try` or passes it on in its own list. The message may be generic, `f: () [E, Throw<X>] -> None`: a lambda's throws bind `X`, and one that throws nothing binds it to `Never`.
 - **An actor's address passed as `eff[E]` becomes its instance in `E`'s pack**, so `later(counter, () -> bump(2))` works. What does not work yet is the way back: a function returning `eff[E]`, or a struct's `eff[E]` field read, where `E` holds an actor effect, is refused, since nothing turns the instance back into an address.
 - **A struct may have one too**, for a function it stores: `struct Later<[E]> { run: () [E] -> None }`. Its type names what the variable is bound to as a list, `Later<[Console]>`, `Later<[]>`, or `Later<[E]>` inside a function generic over `E`, and a function that calls the stored value declares `[E]` itself, since it has no fn-typed parameter to inherit it from:
+- **So may a `fns` group**, for what its members perform: `fns Next<It, T, [E]> { fn next(it: Mut It) [E] -> … }`. A spread names the function's own variable, `?Next<It, T, [E]>`, so the members' effects are the caller's, inherited as a fn-typed parameter's are ([Implicit parameters](Implicit-Parameters.md)).
+- **A trailing effect variable may be left out, and then it is `[]`**, in any list of generics: `Later` is `Later<[]>`, and `?Next<It, T>` asks for an iterator whose `next` performs nothing.
 
 ```
 fn fire<[E]>(l: Later<[E]>) [E] => l {
@@ -159,7 +161,7 @@ fn fire<[E]>(l: Later<[E]>) [E] => l {
 }
 ```
 
-std's functions that take callbacks have an effect variable: `map`, `reduce`, `filter` over an iterator, `any`, `all`, `count`, `find_first`, `find_last`, `partition`, `remove_front_while`, `remove_back_while`, `update`, `drain`, `to_map`, `map2`, the `_by` builders written in Salvo (`list_by`, `deque_by`), and the lazy adaptors (`mapping`, `filtering`, `taking_while`, `skipping_while`), whose callbacks run as the adaptor is driven. So a callback passed to them may log, count or print. So do the ones std implements on the platform (`filter` over a list, `set_by`, `map_by`): the host takes the callback pure, and std's wrapper hands it one that passes the pack. `array_by` takes one as well. An adaptor whose callback performs effects cannot fill an implicit `?Next` (an implicit performs nothing), so `to_list(mapping(it, f))` needs a pure `f` while `for x in mapping(it, f)` takes any.
+std's functions that take callbacks have an effect variable: `map`, `reduce`, `filter` over an iterator, `any`, `all`, `count`, `find_first`, `find_last`, `partition`, `remove_front_while`, `remove_back_while`, `update`, `drain`, `to_map`, `map2`, the `_by` builders written in Salvo (`list_by`, `deque_by`), and the lazy adaptors (`mapping`, `filtering`, `taking_while`, `skipping_while`), whose callbacks run as the adaptor is driven. So a callback passed to them may log, count or print. So do the ones std implements on the platform (`filter` over a list, `set_by`, `map_by`): the host takes the callback pure, and std's wrapper hands it one that passes the pack. `array_by` takes one as well. The iterator combinators share theirs with the iterator's `next` (`?Next<It, T, [E]>`), so the iterator may perform effects too: `to_list(mapping(lines, f))` drives a stream's lines through an `f` that logs.
 
 ## Variadic arguments
 

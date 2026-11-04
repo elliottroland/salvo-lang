@@ -6195,6 +6195,7 @@ Module {
                         span: 9643..9644,
                     },
                 ],
+                effect_generics: [],
                 fns: [
                     FnDecl {
                         docs: [],

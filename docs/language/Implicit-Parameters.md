@@ -121,9 +121,29 @@ by spreading a group; declaring the members individually (`?hash: …, ?eq: …`
 how a signature takes them unrelated.
 
 `std.core` declares the ones everything else builds on: `Ordered<T>` (`cmp`),
-`Eq<T>` (`eq`), `Hashed<T>` (`hash` and `eq` together), `Next<It, T>`
+`Eq<T>` (`eq`), `Hashed<T>` (`hash` and `eq` together), `Next<It, T, [E]>`
 (`next`), `Ref<C, L, T>` (`at`). A type joins any of them by declaring the
 function — there is nothing to register.
+
+A group may declare an **effect variable**
+([Lambdas](Lambdas-and-Variadics.md)) for what its members perform. `Next`
+does, because advancing an iterator may read a stream:
+
+```
+fns Next<It, T, [E]> {
+    fn next(it: Mut It) [E] -> Emitted T | Finished => it: Mut
+}
+
+fn map<It, T, U, [E]>(it: Mut It, f: (T) [E] -> U, ?Next<It, T, [E]>) -> Mut List<U> => it: Mut, f { ... }
+```
+
+The spread shares `map`'s own `E` with the callback, so `E` is whatever the
+two perform together, and the caller supplies it, as it would for an
+effectful callback alone: `map(lines(s), f)` needs `Streams` at the call. A
+spread that leaves the variable out, `?Next<It, T>`, is `?Next<It, T, []>`,
+and only a pure `next` fills it. Where a pure function fills a position over
+the variable, the compiler wraps it in a small function that takes the
+effects and ignores them.
 
 ### Details worth knowing
 
@@ -160,9 +180,12 @@ function — there is nothing to register.
   A chain longer than four is shortened in the middle (`… 6 more …`), and
   one that would nest more than 8 levels deep, or that needs itself, is
   refused the same way.
-- **An implicitly resolved function is effect-free.** A fn type without an
-  effect list means "performs nothing", and an effectful function does not
-  fit there — so resolution can never quietly add an effect to a caller.
+- **An implicitly resolved function performs only what its position says.**
+  A fn type without an effect list means "performs nothing", and an
+  effectful function does not fit there — so resolution can never quietly
+  add an effect to a caller. A position over the callee's effect variable
+  (`?Next<It, T, [E]>`) takes one, and its effects are the caller's, named
+  in the callee's signature by the variable.
 - **An effect's members are candidates too.** The members of every effect
   with a handler in scope are functions of the fn that declares the effect,
   so they compete with the visible functions of the name and are ranked with

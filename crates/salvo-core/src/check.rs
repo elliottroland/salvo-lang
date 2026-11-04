@@ -1683,6 +1683,25 @@ pub enum ArmText {
     Call { callee: Callee, implicits: Vec<ImplicitArg> },
 }
 
+/// [effect-var] [implicit-group] An implicit filled where the callee's fn
+/// type takes an effect variable (`?Next<It, T, [E]>`): the callee calls it
+/// with the variable's pack, so the value is adapted, as a fn value passed
+/// as an argument is (`Checked::effect_slots`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImplicitAdapt {
+    /// The effect parameters the callee calls it with.
+    pub slots: Vec<EffectSlot>,
+    /// The position's fn type at the call: the adapter's parameters.
+    pub at: Ty,
+    /// The effects the value performs at this call, in its own order: what
+    /// the adapter hands it.
+    pub own: Vec<Ty>,
+    /// How `own` groups into the value's effect parameters, one count per
+    /// parameter, where the value has effect variables of its own (a lazy
+    /// adaptor's `next`); empty when each effect is one.
+    pub packs: Vec<usize>,
+}
+
 /// What a call site puts in an implicit parameter [implicit-resolve].
 #[derive(Clone, Debug, PartialEq)]
 pub enum ImplicitArg {
@@ -1696,11 +1715,19 @@ pub enum ImplicitArg {
     /// the same name and a matching type [implicit-forward]. Inside generic
     /// code this is the only possibility, since nothing about an opaque `T`
     /// is knowable [call-resolve].
-    Forwarded { name: String },
+    Forwarded {
+        name: String,
+        /// [effect-var] How it is adapted to be called with the callee's
+        /// effect variables' packs, when it is not taken as it is.
+        adapt: Option<ImplicitAdapt>,
+    },
     /// Resolved to a declared fn, by name and type [implicit-resolve].
     Resolved {
         name: String,
         key: DeclId,
+        /// [effect-var] How it is adapted to be called with the callee's
+        /// effect variables' packs (`?Next<It, T, [E]>`).
+        adapt: Option<ImplicitAdapt>,
         /// [implicit-recursive] The implicits of the resolved fn itself,
         /// filled in turn (`eq` for `List<T>` needs an `eq` for `T`); empty
         /// for a fn with none. One level per nesting, depth-capped.
@@ -5438,12 +5465,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.generics = saved;
                 lowered
             };
-            for a in &ob.args {
+            for (i, a) in ob.args.iter().enumerate() {
                 if !is_self_ref(a) {
-                    self.validate_type(a);
+                    self.validate_group_arg(group, i, a);
                 }
             }
-            let args: Vec<Ty> = ob
+            let mut args: Vec<Ty> = ob
                 .args
                 .iter()
                 .map(|a| {
@@ -5454,6 +5481,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 })
                 .collect();
+            // [effect-var] A trailing effect variable left out is `[]`.
+            if omits_trailing_effect_var(&group.generics, &group.effect_generics, args.len()) {
+                args.push(Ty::effect_row(Vec::new()));
+            }
             if args.len() != group.generics.len() {
                 self.error(
                     ob.span,
@@ -5478,6 +5509,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [iter-for].
             for member in &group.fns {
                 let outer = self.enter_generics(&group.generics);
+                self.enter_effect_vars(&group.effect_generics);
                 let member_ty = self.member_fn_ty(member);
                 self.generics = outer;
                 let expected = substitute_vars(&member_ty, &subst, &bound);
@@ -5528,6 +5560,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                             (strip_ret_arm_proj(&expected), strip_ret_arm_proj(&candidate))
                         };
                         if tys_match_renamed(&expected_m, &candidate, &mut fwd, &mut rev) {
+                            // [effect-var] [group-obligation] The member may
+                            // perform what the obligation's row lets it, and
+                            // no more: a `next` reading a stream declares
+                            // `: Next<self, Str, [Streams]>`.
+                            if let (Ty::Fn { effects: we, .. }, Ty::Fn { effects: ce, .. }) = (expected_m.strip_quals(), candidate.strip_quals()) {
+                                let extra: Vec<String> = crate::threaded_effects(ce)
+                                    .iter()
+                                    .filter(|e| !we.iter().any(|w| w == *e || matches!((w, e), (Ty::Var(a), Ty::Var(b)) if fwd.get(a) == Some(b))))
+                                    .map(|e| e.to_string())
+                                    .collect();
+                                if !extra.is_empty() {
+                                    self.error(
+                                        ob.span,
+                                        messages::group_obligation_member_effects(&name.name, &member.name.name, &extra.join(", "), &ob.name.name),
+                                    );
+                                }
+                            }
                             // [iter-yield-proj] `proj` strips from types, so the
                             // shapes match either way; the *borrowness* has to
                             // agree separately. An obligation at `proj T`
@@ -6300,11 +6349,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             // The spread's type arguments bind the group's generics. Written
             // types, so they are validated like any other declaration site —
             // which is also what reports `self` here, since only an obligation
-            // binds it [group-self].
-            for a in &g.args {
-                self.validate_type(a);
+            // binds it [group-self]. [effect-var] A row fills an effect
+            // variable, and a trailing one left out is `[]`.
+            for (i, a) in g.args.iter().enumerate() {
+                self.validate_group_arg(group, i, a);
             }
-            let args: Vec<Ty> = g.args.iter().map(|a| self.lower_type(a)).collect();
+            let mut args: Vec<Ty> = g.args.iter().map(|a| self.lower_type(a)).collect();
+            if omits_trailing_effect_var(&group.generics, &group.effect_generics, args.len()) {
+                args.push(Ty::effect_row(Vec::new()));
+            }
             if args.len() != group.generics.len() {
                 self.error(
                     g.span,
@@ -6326,6 +6379,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 group.generics.iter().map(|p| p.name.clone()).collect();
             for member in &group.fns {
                 let saved = self.enter_generics(&group.generics);
+                self.enter_effect_vars(&group.effect_generics);
                 let ty = self.member_fn_ty(member);
                 self.generics = saved;
                 let ty = substitute_vars(&ty, &subst, &group_generics);
@@ -6618,6 +6672,92 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.out.decls.loc(key).and_then(|l| self.out.effects_taken_by(l.file, decl)).cloned().unwrap_or_default()
     }
 
+    /// [effect-var] [implicit-group] The effects an implicit fill performs at
+    /// the position `want`, in its own order, and how they group into its
+    /// effect parameters (empty: one each) — a resolved fn's at the
+    /// generics `want` binds, a forwarded implicit's, a written value's. A
+    /// member value carries its instance and performs nothing.
+    fn implicit_fill_effects(&mut self, arg: &ImplicitArg, want: &Ty, named: &'p [ast::NamedArg]) -> (Vec<Ty>, Vec<usize>) {
+        let own_of = |t: &Ty| match t.strip_quals() {
+            Ty::Fn { effects, .. } => crate::threaded_effects(effects),
+            _ => Vec::new(),
+        };
+        match arg {
+            ImplicitArg::Resolved { key, .. } => {
+                let Some(decl) = self.fn_decl_by_key(*key) else { return (Vec::new(), Vec::new()) };
+                let Ok(fit) = self.fn_value_fit(*key, decl, want) else { return (Vec::new(), Vec::new()) };
+                let own = own_of(&fit.ty);
+                let packs = if decl.effect_generics.is_empty() {
+                    Vec::new()
+                } else {
+                    crate::threaded_effects(&self.decl_effects_taken(*key, decl))
+                        .iter()
+                        .map(|e| match e {
+                            Ty::Var(g) if decl.effect_generics.iter().any(|v| v.name == *g) => {
+                                crate::threaded_effects(&fit.binding.get(g).map(effect_row_of).unwrap_or_default()).len()
+                            }
+                            _ => 1,
+                        })
+                        .collect()
+                };
+                (own, packs)
+            }
+            ImplicitArg::Forwarded { name, .. } => {
+                let own = self.own_implicits.iter().find(|p| p.local == *name).map(|p| own_of(&p.ty)).unwrap_or_default();
+                (own, Vec::new())
+            }
+            ImplicitArg::Given { name, .. } => {
+                let got = named.iter().find(|a| a.name.name == *name).and_then(|a| self.out.expr_ty.get(&self.key(a.value.span())).cloned());
+                (got.map(|t| own_of(&t)).unwrap_or_default(), Vec::new())
+            }
+            _ => (Vec::new(), Vec::new()),
+        }
+    }
+
+    /// [effect-var] [implicit-group] Adapts the fill `arg` of `imp`, which the
+    /// callee calls with the packs of `evars`, at the row the call bound: a
+    /// resolved or forwarded fn is wrapped (`ImplicitAdapt`) unless it takes
+    /// exactly those effects one by one; a written value is slotted as an
+    /// argument is (`slot_value`).
+    fn adapt_implicit_fill(
+        &mut self,
+        arg: &mut ImplicitArg,
+        imp: &ImplicitParam,
+        evars: &[String],
+        subst: &HashMap<String, Ty>,
+        callee_generics: &HashSet<String>,
+        named: &'p [ast::NamedArg],
+    ) {
+        let Ty::Fn { effects: pe, .. } = imp.ty.strip_quals() else { return };
+        let slots: Vec<EffectSlot> = crate::threaded_effects(pe)
+            .iter()
+            .map(|e| match e {
+                Ty::Var(g) if evars.contains(g) => EffectSlot::Pack(crate::threaded_effects(&subst.get(g).map(effect_row_of).unwrap_or_default())),
+                other => EffectSlot::One(substitute_vars(other, subst, callee_generics)),
+            })
+            .collect();
+        let at = substitute_vars(&imp.ty, subst, callee_generics);
+        let flat: Vec<Ty> = slots.iter().flat_map(|s| s.effects().to_vec()).collect();
+        let one_by_one = slots.iter().all(|s| s.effects().len() == 1);
+        if let ImplicitArg::Given { name, .. } = arg {
+            if let Some(a) = named.iter().find(|a| a.name.name == *name) {
+                let got = self.out.expr_ty.get(&self.key(a.value.span())).cloned();
+                self.slot_value(&a.value, got.as_ref(), slots, at);
+            }
+            return;
+        }
+        let (own, packs) = self.implicit_fill_effects(arg, &at, named);
+        let adapt = (!(one_by_one && own == flat && packs.is_empty())).then(|| ImplicitAdapt { slots, at: at.clone(), own, packs });
+        match arg {
+            ImplicitArg::Resolved { adapt: a, want, .. } => {
+                *a = adapt;
+                *want = at;
+            }
+            ImplicitArg::Forwarded { adapt: a, .. } => *a = adapt,
+            _ => {}
+        }
+    }
+
     fn fn_value_ty(&mut self, key: DeclId, decl: &'p FnDecl) -> Ty {
         let saved = self.enter_generics(&decl.generics);
         let mut params: Vec<Ty> = decl.params.iter().map(|p| self.lower_type(&p.ty)).collect();
@@ -6898,11 +7038,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         } else {
             None
         };
+        // [effect-var] [implicit-group] A member may perform the group's
+        // effect variable (`fns Next<It, T, [E]> { fn next(it: Mut It) [E]
+        // -> … }`); a member without a list performs nothing.
+        let effects = self.lower_fn_effects(member.effects.as_deref());
         Ty::Fn {
             params,
             ret: Box::new(ret),
             contract,
-            effects: Vec::new(),
+            effects,
         }
     }
 
@@ -7023,6 +7167,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [implicit-with] Where each **bound** parameter's value came from, for
         // the one-source check below.
         let mut sources: Vec<(usize, &str, &'static str)> = Vec::new();
+        // [effect-var] The fills the callee calls with an effect variable's
+        // pack, adapted once every fill has widened the row.
+        let mut adapting: Vec<(usize, ImplicitParam, Vec<String>)> = Vec::new();
         // [type-unknown-lenient] A group whose member could not be filled
         // (`?Hashed<K>` at a key with no `hash`) is one mistake: its other
         // members are not reported again (ROADMAP 0ar: `Set(Q { x: 1 })`
@@ -7035,6 +7182,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             // The type as this call needs it, with the callee's type
             // arguments substituted in.
             let want = substitute_vars(&imp.ty, subst, callee_generics);
+            // [effect-var] A member performing the callee's effect variable
+            // (`?Next<It, T, [E]>`'s `next`): the explicit arguments bound
+            // what the row holds so far, not all it may, so the position is
+            // left open and what fills it widens the row — its effects are
+            // the caller's, passed in the pack.
+            let evars = fn_effect_vars(&imp.ty, callee_generics);
+            let want = if evars.is_empty() { want } else { keep_effect_vars_open(&imp.ty, want, &evars) };
             let errors_before = self.out.errors.len();
             let Some((arg, identity)) =
                 self.fill_one_implicit(imp, callee, &want, named, subst, span)
@@ -7044,6 +7198,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 continue;
             };
+            if !evars.is_empty() {
+                let own = self.implicit_fill_effects(&arg, &want, named).0;
+                if let Ty::Fn { effects: pe, .. } = imp.ty.strip_quals() {
+                    unify_effect_row(pe, &own, subst);
+                }
+                adapting.push((filled.len(), imp.clone(), evars));
+            }
             if let Some(component) = imp.bound {
                 sources.push((
                     component,
@@ -7104,6 +7265,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
             filled.push(arg);
+        }
+        // [effect-var] Each fill the callee calls with a pack, adapted at the
+        // row every fill widened.
+        for (at, imp, evars) in adapting {
+            self.adapt_implicit_fill(&mut filled[at], &imp, &evars, subst, callee_generics, named);
         }
         // A named argument matching no implicit parameter is a mistake, not
         // a silent no-op — unless it fills an ordinary defaulted parameter
@@ -7460,7 +7626,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                         messages::cmp_carry_override_carried(&callee, &imp.name, &own.local),
                                     );
                                 }
-                                return Some((ImplicitArg::Forwarded { name: own.local.clone() }, None));
+                                return Some((ImplicitArg::Forwarded { name: own.local.clone(), adapt: None }, None));
                             }
                         }
                         FnId::Named { .. } => {
@@ -7485,6 +7651,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                         ImplicitArg::Resolved {
                                             name: imp.name.clone(),
                                             key,
+                                            adapt: None,
                                             // [implicit-recursive] Its own implicits
                                             // are filled where it is used.
                                             nested,
@@ -7585,6 +7752,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     return Some((
                         ImplicitArg::Forwarded {
                             name: own.local.clone(),
+                            adapt: None,
                         },
                         // The enclosing fn's own binding, whatever it is:
                         // inside generic code the identity is a name only its
@@ -7651,6 +7819,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         ImplicitArg::Resolved {
                             name: imp.name.clone(),
                             key: found,
+                            adapt: None,
                             nested: std::mem::take(&mut self.last_nested),
                             want: want.clone(),
                             carried: false,
@@ -9727,7 +9896,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.check_reapplied_deductions(f);
         // Validate the declared effect list (unknown effects, duplicates)
         // and build the fn's effect environment.
-        let (effects, can_use, can_spawn) = self.check_effect_list(f);
+        let (effects, can_use, can_spawn) = self.check_effect_list(f, &implicits);
         // [fn-effects] The fn's own list, expanded: a fn named as a *value*
         // builds its `Ty::Fn` from this table, whichever body names it
         // first (the pipeline record step 7).
@@ -10582,11 +10751,13 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Validates a fn's declared effect list and lowers it into the
     /// starting effect environment [effect-fn-deps] [effect-no-dup].
     /// Returns `(env, can_use, can_spawn, can_wait)`.
-    fn check_effect_list(&mut self, f: &'p FnDecl) -> (Vec<EffectAvail>, bool, bool) {
+    fn check_effect_list(&mut self, f: &'p FnDecl, implicits: &[ImplicitParam]) -> (Vec<EffectAvail>, bool, bool) {
         // [effect-var] A call binds an effect variable from its arguments, so
-        // one no parameter mentions could never be bound.
+        // one no parameter mentions could never be bound. A group spread
+        // naming it (`?Next<It, T, [E]>`) binds it from what fills it.
         for g in &f.effect_generics {
-            if !f.params.iter().any(|p| ast_mentions_effect_var(&p.ty, &g.name)) {
+            let in_spread = f.implicit_groups.iter().any(|s| s.args.iter().any(|a| ast_mentions_effect_var(a, &g.name)));
+            if !in_spread && !f.params.iter().any(|p| ast_mentions_effect_var(&p.ty, &g.name)) {
                 self.error(g.span, messages::effect_var_undetermined(&g.name));
             }
         }
@@ -10614,6 +10785,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if !env.iter().any(|a| a.ty == ty) {
                         env.push(EffectAvail { ty, binder, declared: true, any: false });
                     }
+                }
+            }
+            // [effect-var] [implicit-group] A spread's members are fn-typed
+            // parameters too: `?Next<It, T, [E]>`'s `next` performs `E`.
+            for ty in spread_effects(f, implicits) {
+                if !env.iter().any(|a| a.ty == ty) {
+                    env.push(EffectAvail { ty, binder, declared: true, any: false });
                 }
             }
         }
@@ -12193,6 +12371,19 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn enter_effect_vars(&mut self, names: &[Ident]) {
         for g in names {
             self.generics.insert(effect_var_mark(&g.name));
+        }
+    }
+
+    /// [effect-var] The `i`th written argument of a spread or an obligation
+    /// of `group`: a row fills one of its effect variables and nothing else,
+    /// and an effect variable takes a row.
+    fn validate_group_arg(&mut self, group: &'p ast::FnsDecl, i: usize, a: &'p ast::Type) {
+        let takes_row = group.generics.get(i).is_some_and(|g| group.effect_generics.iter().any(|e| e.name == g.name));
+        match (is_row_arg(a), takes_row) {
+            (true, true) => {}
+            (true, false) => self.error(a.span(), messages::effect_var_row_misplaced(&group.name.name)),
+            (false, true) => self.error(a.span(), messages::effect_var_row_expected(&group.name.name)),
+            (false, false) => self.validate_type(a),
         }
     }
 
@@ -18928,10 +19119,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                         );
                         continue;
                     };
-                    for a in &spread.args {
-                        self.validate_type(a);
+                    for (i, a) in spread.args.iter().enumerate() {
+                        self.validate_group_arg(group, i, a);
                     }
-                    if spread.args.len() != group.generics.len() {
+                    let found = spread.args.len();
+                    if found != group.generics.len() && !omits_trailing_effect_var(&group.generics, &group.effect_generics, found) {
                         self.error(
                             spread.span,
                             messages::implicit_group_type_arg_count(
@@ -19061,7 +19253,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     else {
                         continue;
                     };
-                    let args: Vec<Ty> = spread.args.iter().map(|a| self.lower_type(a)).collect();
+                    let mut args: Vec<Ty> = spread.args.iter().map(|a| self.lower_type(a)).collect();
+                    // [effect-var] A trailing effect variable left out is `[]`.
+                    if omits_trailing_effect_var(&group.generics, &group.effect_generics, args.len()) {
+                        args.push(Ty::effect_row(Vec::new()));
+                    }
                     if args.len() != group.generics.len() {
                         continue;
                     }
@@ -19075,6 +19271,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         group.generics.iter().map(|g| g.name.clone()).collect();
                     for member in &group.fns {
                         let inner = self.enter_generics(&group.generics);
+                        self.enter_effect_vars(&group.effect_generics);
                         let ty = self.member_fn_ty(member);
                         self.generics = inner;
                         push_slot(
@@ -19539,6 +19736,11 @@ impl<'p, 'r> Checker<'p, 'r> {
         // own, different all-or-none arity rule for `?cmp`-style arguments
         // [qual-value-arg] and would otherwise double-report).
         let declared_generics = meaning.declared_generics().map(|gs| gs.len());
+        // [effect-var] A struct's trailing effect variable may be left out,
+        // meaning `[]`: `Later` is `Later<[]>`. A literal written with no
+        // arguments (`Later { … }`) infers them all, that one included.
+        let omits_effect = meaning.structure.is_some_and(|d| omits_trailing_effect_var(&d.generics, &d.effect_generics, base.args.len()))
+            && !(self.in_struct_lit_ty && base.args.is_empty());
         if let Some(expected) = declared_generics {
             // [effect-eff-handle] `eff[A, B, …]` parses straight to this same
             // `Addr` name with one argument per effect — a legitimate
@@ -19547,7 +19749,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // declaration. Exempt here the same way a struct literal's
             // written type is exempt: `Addr`'s own arity is governed by
             // [effect-eff-handle], not this check.
-            if expected > 0 && base.args.len() != expected && !self.in_struct_lit_ty && name != ADDR_TYPE {
+            if expected > 0 && base.args.len() != expected && !omits_effect && !self.in_struct_lit_ty && name != ADDR_TYPE {
                 self.error(
                     base.span,
                     messages::qual_value_arg_type_arg_count(&name, &expected, &base.args.len()),
@@ -19628,10 +19830,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             let key = meaning.key(self.symbols).unwrap_or(name).to_string();
             let slots = self.type_fn_slots(&key);
             if slots.is_empty() {
-                base.args
+                let mut args: Vec<Ty> = base.args
                     .iter()
                     .map(|a| self.lower_type_subst(a, subst, depth))
-                    .collect()
+                    .collect();
+                if omits_effect {
+                    args.push(Ty::effect_row(Vec::new()));
+                }
+                args
             } else {
                 let generics: Vec<String> = meaning
                     .opaque
@@ -21497,7 +21703,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.generics = saved;
         // [is-qualifies-effects] [effect-instance] Its effects are needed
         // here, and given as at any call.
-        self.check_callee_effects(&f.name.name, f, &subst, &gens, span);
+        self.check_callee_effects(&f.name.name, f, &[], &subst, &gens, span);
         let of = match &q.of {
             ast::Type::Named { base, .. } => Some(base.name.name.clone()),
             _ => None,
@@ -29028,6 +29234,51 @@ fn effect_var_mark(name: &str) -> String {
     format!("[{name}]")
 }
 
+/// [effect-var] Whether `found` arguments leave out exactly the trailing
+/// effect variable of `generics`, which then means `[]` (user decision
+/// 2026-10-30: any list of generics may leave it out).
+pub(crate) fn omits_trailing_effect_var(generics: &[Ident], effect_generics: &[Ident], found: usize) -> bool {
+    found + 1 == generics.len() && generics.last().is_some_and(|g| effect_generics.iter().any(|e| e.name == g.name))
+}
+
+/// [effect-var] The callee's effect variables a fn type's effect list names
+/// (an implicit member's, `?Next<It, T, [E]>`'s `next`): only an effect
+/// variable may stand in an effect list, so a callee generic there is one.
+fn fn_effect_vars(ty: &Ty, callee_generics: &HashSet<String>) -> Vec<String> {
+    match ty.strip_quals() {
+        Ty::Fn { effects, .. } => effects
+            .iter()
+            .filter_map(|e| match e {
+                Ty::Var(g) if callee_generics.contains(g) => Some(g.clone()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// [effect-var] [implicit-group] The effects the members of `f`'s group
+/// spreads perform, in their order: the written `?name: …` implicits are
+/// parameters already, and inherit as those do.
+fn spread_effects(f: &FnDecl, implicits: &[ImplicitParam]) -> Vec<Ty> {
+    let mut out: Vec<Ty> = Vec::new();
+    for imp in implicits.iter().filter(|i| !f.params.iter().any(|p| p.implicit && p.name.name == i.name)) {
+        if let Ty::Fn { effects, .. } = imp.ty.strip_quals() {
+            for e in effects.iter().filter(|e| !e.is_open_effects()) {
+                if !out.contains(e) {
+                    out.push(e.clone());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// [effect-var] Whether the written argument `a` is an effect row (`[A, B]`).
+fn is_row_arg(a: &ast::Type) -> bool {
+    matches!(a, ast::Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name == salvo_syntax::ast::EFFECT_ROW_TYPE_NAME)
+}
+
 /// [effect-var] The effects a binding of an effect variable stands for: a
 /// set, or the one effect a single handle (`eff[A]`) bound it to.
 pub(crate) fn effect_row_of(bound: &Ty) -> Vec<Ty> {
@@ -29764,18 +30015,63 @@ impl<'p, 'r> Checker<'p, 'r> {
                     return Ty::Unknown;
                 }
                 self.record_callee(self.key(span), Callee::Field { contract: Vec::new() });
-                if let (false, Some(callee)) = (base_checked, callee) {
-                    return self.check_value_call(callee, args, span);
-                }
-                // The receiver was checked on its own, so the field read the
-                // IR lowers as the callee is typed here.
-                if let Some(callee) = callee {
-                    self.out.expr_ty.insert(self.key(callee.span()), fty.clone());
-                }
-                self.record_field_ref(recv, field);
-                self.check_fn_value_call(&fty, &format!("`{}`", field.name), args, span)
+                let ret = if let (false, Some(callee)) = (base_checked, callee) {
+                    self.check_value_call(callee, args, span)
+                } else {
+                    // The receiver was checked on its own, so the field read the
+                    // IR lowers as the callee is typed here.
+                    if let Some(callee) = callee {
+                        self.out.expr_ty.insert(self.key(callee.span()), fty.clone());
+                    }
+                    self.record_field_ref(recv, field);
+                    self.check_fn_value_call(&fty, &format!("`{}`", field.name), args, span)
+                };
+                self.record_field_packs(recv, &field.name, span);
+                ret
             }
         }
+    }
+
+    /// [effect-var] A call through a struct's fn field whose declared type
+    /// takes the struct's effect variable: the field holds a fn taking that
+    /// variable's **pack**, so the call's instances are grouped into it —
+    /// none (`eff[]`) where the struct's row is empty, as `Later` is
+    /// `Later<[]>`.
+    fn record_field_packs(&mut self, recv: &Ty, name: &str, span: Span) {
+        let Ty::Named { name: sname, args } = recv.strip_quals() else { return };
+        let Some(decl) = self.symbols.structs.get(sname.as_str()).copied() else { return };
+        if decl.effect_generics.is_empty() {
+            return;
+        }
+        let Some(written) = decl.fields.iter().find(|f| f.name.name == name).and_then(|f| f.ty.as_ref()) else { return };
+        let saved = self.enter_generics(&decl.generics);
+        self.enter_effect_vars(&decl.effect_generics);
+        let declared = self.lower_type(written);
+        self.generics = saved;
+        let Ty::Fn { effects, .. } = declared.strip_quals() else { return };
+        let at: HashMap<&str, usize> = decl
+            .generics
+            .iter()
+            .enumerate()
+            .filter(|(_, g)| decl.effect_generics.iter().any(|e| e.name == g.name))
+            .map(|(i, g)| (g.name.as_str(), i))
+            .collect();
+        if !effects.iter().any(|e| matches!(e, Ty::Var(g) if at.contains_key(g.as_str()))) {
+            return;
+        }
+        let packs: Vec<usize> = crate::threaded_effects(effects)
+            .iter()
+            .map(|e| match e {
+                Ty::Var(g) => match at.get(g.as_str()) {
+                    Some(i) => crate::threaded_effects(&args.get(*i).map(effect_row_of).unwrap_or_default()).len(),
+                    None => 1,
+                },
+                _ => 1,
+            })
+            .collect();
+        let key = self.key(span);
+        self.out.effect_packs.insert(key, packs);
+        self.out.effects_passed.entry(key).or_insert(EffectsPassed::Leading(Vec::new()));
     }
 
     /// A call through a computed callee (`adder()(1)`, `(b.f)(3)`): the callee
@@ -32195,7 +32491,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         // The callee's declared effect dependencies must be satisfiable
         // here: each must match an instance in the caller's effect
         // environment (declared or `use`d).
-        self.check_callee_effects(name, decl, &subst, &callee_generics, span);
+        let implicits = best_key.and_then(|k| self.out.implicit_params.get(&Key::name_of(k)).cloned()).unwrap_or_default();
+        self.check_callee_effects(name, decl, &implicits, &subst, &callee_generics, span);
         let saved = self.enter_generics(&decl.generics);
         let ret = self.fn_return_ty(decl);
         self.generics = saved;
@@ -32586,6 +32883,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         &mut self,
         name: &str,
         decl: &'p FnDecl,
+        // [effect-var] [implicit-group] The callee's implicit parameters, as
+        // expanded: a spread's members inherit as fn-typed parameters do.
+        implicits: &[ImplicitParam],
         subst: &HashMap<String, Ty>,
         callee_generics: &HashSet<String>,
         span: Span,
@@ -32650,6 +32950,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [fn-effects] Only a callee with no written list inherits.
             for p in decl.params.iter().filter(|_| decl.effects.is_none()) {
                 for ty in self.inherited_fn_effects(&p.ty) {
+                    if !inherited.iter().any(|(w, _)| *w == ty) {
+                        inherited.push((ty, false));
+                    }
+                }
+            }
+            if decl.effects.is_none() {
+                for ty in spread_effects(decl, implicits) {
                     if !inherited.iter().any(|(w, _)| *w == ty) {
                         inherited.push((ty, false));
                     }

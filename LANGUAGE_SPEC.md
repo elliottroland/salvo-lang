@@ -4241,9 +4241,11 @@ Conventions:
       [call-resolve], and a call through one now **checks its arguments**
       (by base shape) and its arity: `f(1)` with `f: (Str) -> Int` was
       accepted until 2026-10-05 and refused by the target compiler.
-  * A fn type carries no effects here, so an implicitly resolved default is
-    effect-free by construction: [fn-effects] variance already refuses an
-    effectful function where a pure one is expected.
+  * A fn type with no effect list performs nothing, so an implicitly
+    resolved default there is effect-free: [fn-effects] variance refuses an
+    effectful function where a pure one is expected. A position over the
+    callee's effect variable (`?Next<It, T, [E]>`'s `next`) takes one, and
+    its effects are the caller's [effect-var].
 * [implicit-resolve] A call fills each implicit parameter, in this order:
   1. a `name = value` argument written at the call site
      [implicit-override];
@@ -4437,6 +4439,12 @@ Conventions:
     binder nothing tells them apart, and [var-no-shadow] would refuse them in
     the body. The message names both types; the remedy is to write the clashing
     ones out individually.
+  * **A group may declare an effect variable** [effect-var] (user decision
+    2026-10-30): `fns Next<It, T, [E]> { fn next(it: Mut It) [E] -> … }`. A
+    member's effect list names it (`member_fn_ty` lowers members' lists); a
+    spread fills it with a list or the fn's own variable (`?Next<It, T,
+    [E]>`, sharing the callback's), and leaving the trailing one out is `[]`,
+    so `?Next<It, T>` asks for a pure iterator.
   * **A spread resolves every member, used or not** (user decision 2026-09-22):
     `?Hashed<T>` asks the call site for exactly what the group declares, so a `T`
     with a `hash` and no `eq` is the ordinary missing-implicit error naming `eq`.
@@ -4463,10 +4471,18 @@ Conventions:
     own type parameters, and `(A, A)` never matches `(A, B)`. The member's
     parameter *names* belong to the group and are not required of the
     implementation (unlike [qual-refn-match], which picks an overload
-    someone already declared). Effects are deliberately not compared: the
-    group declares none, each implementation declares its own. A failure is
-    an error at the declaration naming the missing signature with `self`
-    substituted.
+    someone already declared). A failure is an error at the declaration
+    naming the missing signature with `self` substituted.
+  * **Effects**: a matching member may perform what the obligation's row
+    names and no more [effect-var] — `linear struct Lines : Next<self, Str,
+    [Streams]>` for a `next` that reads, `: Next<self, Int>` (the row left
+    out, `[]`) for a pure one, `Mapping<…, [E]> : Next<self, U, [E]>` for a
+    lazy adaptor over its own variable. One performing more is
+    `group-obligation:member-effects`, naming the row to write. An `iter
+    fn`'s generated obligation carries the fn's effect list as its row
+    [iter-fn]; a `by` clause, whose arguments are all `self`, leaves it out,
+    so the stamped member's declared list drops the variable
+    [obligation-by].
   * The obligation adds no scope and no dispatch: the satisfying fn is an
     ordinary overload, and calls to it resolve as ever [fn-overload]. The
     clause moves the *check* to the declaration; nothing is designated in
@@ -10184,7 +10200,8 @@ between endpoints and delivers what arrives into the scheduler.
   `eff[E]`, `use` over it and `eff[]` as surface features; lazy adaptors in a
   second step; the fusion revisit kept separate; no `[E canbe Throw]`).
   `fn each<T, [E]>(xs: List<T>, f: (x: T) [E] -> None)`.
-  * **Declared on a fn or a struct** (`effect-var:misplaced` elsewhere). It
+  * **Declared on a fn, a struct or a `fns` group** (`effect-var:misplaced`
+    elsewhere; a group's since 2026-10-30, [implicit-group]). It
     stays in `generics` at its written position, and `effect_generics` says
     which ones are variables; the name table marks a reference to one
     (`Written::effect_var`), and a reference the checker makes up is marked
@@ -10204,6 +10221,31 @@ between endpoints and delivers what arrives into the scheduler.
     over the struct's `E`. A literal leaves a fn field's list open while the
     variable is undetermined, so the value binds it, and its value is
     slotted as a call argument is (`slot_value`).
+  * **Left out, it is `[]`** (user decision 2026-10-30: any list of
+    generics, no special case): an argument list one short of a declaration
+    whose last generic is an effect variable gets the empty row
+    (`omits_trailing_effect_var`) — `Later` is `Later<[]>`, `?Next<It, T>`
+    and `: Next<self, Int>` are pure. A struct literal written with no
+    arguments still infers them all. A call through a struct's fn field over
+    the struct's variable passes that variable's pack, the empty one too
+    (`record_field_packs`; the IR types the callee local by `pack_fn_ty`) —
+    `Later<[]>`'s field call passed none until 2026-10-30.
+  * **A group's** [implicit-group]: a spread's members are the fn's
+    implicit parameters, and inherit as fn-typed parameters do
+    (`spread_effects`, in `check_effect_list` and `check_callee_effects`
+    alike, after the parameters'); a variable a spread names is determined.
+    At a call, a member over the callee's variable is resolved at a position
+    left **open** (`fn_effect_vars`, `keep_effect_vars_open`): what fills it
+    widens the row (`implicit_fill_effects`, then `unify_effect_row`), so a
+    pure callback beside a `next` that reads binds `E` to `[Streams]`. Once
+    every fill has widened it, each is adapted to take the packs
+    (`adapt_implicit_fill`): a resolved or forwarded fn carries an
+    `ImplicitAdapt` (the slots, the position's type at the call, its own
+    effects and how they group into its own packs), lowered as a lambda
+    (`implicit_adapter`; a forwarded one through `pack_adapter`) unless it
+    takes exactly the slots' effects one by one; a written one is slotted as
+    an argument is. A pure fill is adapted too (the cost ROADMAP §2c item 5
+    holds until it bites).
   * **A row's effects keep one canonical order**, by their spelling
     (`Ty::effect_row`): the pack is positional, and `[Console, Tally]` found
     from an annotation and `[Tally, Console]` from a lambda's body are one
@@ -10248,8 +10290,7 @@ between endpoints and delivers what arrives into the scheduler.
     it already takes exactly those effects one by one. The other way round, a
     named fn with variables of its own, passed as a value, is adapted to
     gather the position's effects into its packs (`effect_packs` at its
-    name); filling an implicit, which performs nothing, it is handed an
-    empty pack per variable. A `for` driving an effectful `next` groups its
+    name); filling a pure implicit, it is handed an empty pack per variable. A `for` driving an effectful `next` groups its
     packs at its synthetic key. A row's leaves accept
     a binding spread over many instances: the value that performs one stated
     its own requirement where it was checked.
@@ -10288,8 +10329,13 @@ between endpoints and delivers what arrives into the scheduler.
     parameters (`ir::platform_callback_effects`). `array_by`, an intrinsic,
     takes one too: its templates pass the pack [col-by], and on Rust a lambda
     argument to an intrinsic is rendered at the declared fn-typed slot under
-    the call's bindings, so its parameters start with the pack's. Implicits
-    stay pure (ROADMAP).
+    the call's bindings, so its parameters start with the pack's. The
+    iteration groups take one (`fns Next<It, T, [E]>`, `fns Iter<C, It, T,
+    [E]>`, [iter-protocol]): `map`, `filter` and `reduce` over an iterator
+    share theirs with the callback's, `to_list` and `count` gained one, every
+    lazy adaptor (`Taking` and `Skipping` too) holds its source's `next` over
+    its own and declares `: Next<self, T, [E]>`, and `Lines` and `Chunks`
+    declare `[Streams]`. `map_to` and `filter_to` stay pure.
   * The deadlock graph needs nothing: it reads handler dependencies, and a
     pack carries only instances a caller already held.
 * [fn-once] `once` is the language-level **use**-multiplicity qualifier

@@ -87,7 +87,7 @@ fn handles() [use] {
 }
 
 //--- an_effect_variable_on_an_effect
-// A function or a struct declares one; nothing else does.
+// A function, a struct or a `fns` group declares one; nothing else does.
 //~ error[effect-var:misplaced]
 effect Later<[E]> {
     fn later() -> None
@@ -117,6 +117,64 @@ fn wrong_arg(l: Later<Int>) => l {
 }
 
 fn fine(a: Later<[]>, b: Later<[Console]>) => a, b {
+}
+
+// A trailing effect variable left out is `[]`.
+fn left_out(a: Later) -> Later<[]> => !a {
+    return a
+}
+
+//--- group_effect_variables
+// [implicit-group] A `fns` group declares one: a spread or an obligation
+// fills it with a list, or leaves the trailing one out for `[]`.
+fns Gen<S, [E]> {
+    fn gen(s: S) [E] -> Int
+}
+
+// A list fills an effect variable, and nothing else.
+//~ error[effect-var:row-misplaced]
+fn wrong_list<S>(s: S, ?Gen<[Console], [Console]>) => s {
+}
+
+// An effect variable takes a list.
+//~ error[effect-var:row-expected]
+fn wrong_arg<S>(s: S, ?Gen<S, Int>) => s {
+}
+
+// A member performing what its obligation's row does not name.
+//~ error[group-obligation:member-effects]
+struct Quiet : Gen<self> {
+    n: Int
+}
+
+fn gen(q: Quiet) [Console] -> Int {
+    println("quiet")
+    return q.n
+}
+
+struct Loud : Gen<self, [Console]> {
+    n: Int
+}
+
+fn gen(l: Loud) [Console] -> Int {
+    println("loud")
+    return l.n
+}
+
+// The spread names the fn's own variable, which a fill binds.
+fn shared<S, [E]>(s: S, ?Gen<S, [E]>) -> Int => s {
+    return gen(s)
+}
+
+// Left out, the spread is pure.
+fn pure_spread<S>(s: S, ?Gen<S>) -> Int => s {
+    return gen(s)
+}
+
+fn calls() [Console] {
+    let _a = shared(Loud { n: 1 })
+    //~ error[implicit-resolve:no-fit]
+    let _b = pure_spread(Loud { n: 2 })
 }
 
 //--- an_actor_effect_through_a_handle

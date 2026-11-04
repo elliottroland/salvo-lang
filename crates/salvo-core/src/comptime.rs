@@ -1999,6 +1999,12 @@ impl<'w> Stamper<'w> {
             }
         }
         let mut names = Vec::new();
+        // [effect-var] A `by` clause's arguments are all `self`, so a trailing
+        // effect variable of the group is left out — `[]`: the declared
+        // member performs nothing.
+        if let Some(effs) = &mut f.effects {
+            effs.retain(|e| !matches!(e, EffectRef::Effect(r) | EffectRef::AnyEffect(r) if group.effect_generics.iter().any(|g| g.name == r.name.name)));
+        }
         for (i, g) in group.generics.iter().enumerate() {
             let fresh = format!("__Group{i}");
             let mut rename = RenameIdent { from: g.name.clone(), to: fresh.clone() };

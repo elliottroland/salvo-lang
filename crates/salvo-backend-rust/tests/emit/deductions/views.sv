@@ -231,8 +231,9 @@ fn main() [use] -> None {
         //~ emits: (*crate::std_core_list::first::<&String>(&vs))
         println("first ${first(vs)}")
     }
-    // A `?Next` adapter.
-    //~ emits: &mut |__a0: &mut crate::std_core_list::ListIter<'_, &String>| (match crate::std_core_list::next__ListIter(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v),
+    // A `?Next` adapter, taking the call's pack first [effect-var].
+    //~ emits: &mut |mut __fx0, mut __a0| -> crate::unions::Union2<&String, crate::std_core_iterator::Finished> {
+    //~|         (match crate::std_core_list::next__ListIter(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v),
     let ms = map(iter(vs), (s) -> size(s))
     println("map ${size(ms)} ${get(ms, 1) ?: 0}")
     let fs = filter(iter(vs), (s) -> size(s) > 2)

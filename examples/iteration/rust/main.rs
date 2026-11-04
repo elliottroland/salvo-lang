@@ -410,18 +410,26 @@ pub fn main() {
     let mut lengths: Vec<i32> = crate::std_core_seq::map__It_Fn::<crate::std_core_list::ListIter<'_, String>, &String, i32, ()>(&(), &mut crate::std_core_list::iter::<String>(&words), &mut |mut __leff0, mut w| -> i32 {
         let w = *w;
         crate::std_core_string::size_platform(w)
-    }, &mut |__a0: &mut crate::std_core_list::ListIter<'_, String>| crate::std_core_list::next__ListIter(&mut *__a0));
-    crate::std_core_console::println(&__handle_2, &{ let __part8 = crate::std_core_seq::reduce__It_A_Fn::<crate::std_core_list::ListIter<'_, i32>, i32, i32, ()>(&(), &mut crate::std_core_list::iter::<i32>(&lengths), &0i32, &mut |mut __leff0, mut acc, mut n| -> i32 {
+    }, &mut |mut __fx0, mut __a0| -> crate::unions::Union2<&String, crate::std_core_iterator::Finished> {
+        crate::std_core_list::next__ListIter(&mut *__a0)
+    });
+    { let __arg10 = { let __part9 = crate::std_core_seq::reduce__It_A_Fn::<crate::std_core_list::ListIter<'_, i32>, i32, i32, ()>(&(), &mut crate::std_core_list::iter::<i32>(&lengths), &0i32, &mut |mut __leff0, mut acc, mut n| -> i32 {
         i32::wrapping_add(*acc, *n)
-    }, &mut |__a0: &mut crate::std_core_list::ListIter<'_, i32>| (match crate::std_core_list::next__ListIter(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) })); format!("5. lengths: {}", __part8) });
+    }, &mut |mut __fx0, mut __a0| -> crate::unions::Union2<i32, crate::std_core_iterator::Finished> {
+        (match crate::std_core_list::next__ListIter(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) })
+    }); format!("5. lengths: {}", __part9) }; crate::std_core_console::println(&__handle_2, &__arg10) };
     let mut word: String = String::from("iteration");
     let mut vowels: Vec<char> = crate::std_core_seq::filter::<crate::std_core_string::StrIter<'_>, char, ()>(&(), &mut crate::std_core_string::iter(&word), &mut |mut __leff0, mut c| -> bool {
         ((*c == 'i') || (*c == 'o'))
-    }, &mut |__a0: &mut crate::std_core_string::StrIter<'_>| crate::std_core_string::next(&mut *__a0));
+    }, &mut |mut __fx0, mut __a0| -> crate::unions::Union2<char, crate::std_core_iterator::Finished> {
+        crate::std_core_string::next(&mut *__a0)
+    });
     crate::std_core_console::println(&__handle_2, &format!("5. vowels: {}", crate::std_core_list::size_platform::<char>(&vowels)));
-    crate::std_core_console::println(&__handle_2, &{ let __part9 = crate::std_core_seq::reduce__It_A_Fn::<crate::Halving, i32, i32, ()>(&(), &mut crate::halving(20i32), &0i32, &mut |mut __leff0, mut acc, mut n| -> i32 {
+    { let __arg13 = { let __part12 = crate::std_core_seq::reduce__It_A_Fn::<crate::Halving, i32, i32, ()>(&(), &mut crate::halving(20i32), &0i32, &mut |mut __leff0, mut acc, mut n| -> i32 {
         i32::wrapping_add(*acc, *n)
-    }, &mut |__a0: &mut crate::Halving| crate::next__Halving(&mut *__a0)); format!("5. halving total {}", __part9) });
+    }, &mut |mut __fx0, mut __a0| -> crate::unions::Union2<i32, crate::std_core_iterator::Finished> {
+        crate::next__Halving(&mut *__a0)
+    }); format!("5. halving total {}", __part12) }; crate::std_core_console::println(&__handle_2, &__arg13) };
     let mut collected: Vec<i32> = crate::std_core_seq::map_to::<Vec<i32>, crate::Countdown, i32, i32>(vec![], &mut crate::countdown(3i32), &mut |mut n| -> i32 {
         i32::wrapping_mul(*n, 10i32)
     }, &mut |__a0: &mut Vec<i32>, __a1: i32| crate::std_core_list::add_platform(&mut *__a0, __a1), &mut |__a0: &mut crate::Countdown| crate::next__Countdown(&mut *__a0));

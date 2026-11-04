@@ -4,10 +4,10 @@ use crate::std_core_iterator::emitted;
 use crate::std_core_iterator::finished;
 
 
-pub fn map__It_Fn<It, T: Clone, U: Clone, E: Clone>(e: &E, it: &mut It, f: &mut dyn FnMut(&E, &T) -> U, next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>) -> Vec<U> {
+pub fn map__It_Fn<It, T: Clone, U: Clone, E: Clone>(e: &E, it: &mut It, f: &mut dyn FnMut(&E, &T) -> U, next: &mut dyn FnMut(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>) -> Vec<U> {
     let mut out: Vec<U> = vec![];
     loop {
-        let mut __step_2: crate::unions::Union2<T, crate::std_core_iterator::Finished> = next(&mut *it);
+        let mut __step_2: crate::unions::Union2<T, crate::std_core_iterator::Finished> = next(e, &mut *it);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             let mut x: T = __emitted_3;
@@ -19,10 +19,10 @@ pub fn map__It_Fn<It, T: Clone, U: Clone, E: Clone>(e: &E, it: &mut It, f: &mut 
     return out;
 }
 
-pub fn filter<'a, It, T: Clone, E: Clone>(e: &E, it: &'a mut It, keep: &mut dyn FnMut(&E, &T) -> bool, next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>) -> Vec<T> {
+pub fn filter<'a, It, T: Clone, E: Clone>(e: &E, it: &'a mut It, keep: &mut dyn FnMut(&E, &T) -> bool, next: &mut dyn FnMut(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>) -> Vec<T> {
     let mut out = vec![];
     loop {
-        let mut __step_2: crate::unions::Union2<T, crate::std_core_iterator::Finished> = next(&mut *it);
+        let mut __step_2: crate::unions::Union2<T, crate::std_core_iterator::Finished> = next(e, &mut *it);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             let mut x: T = __emitted_3;
@@ -36,10 +36,10 @@ pub fn filter<'a, It, T: Clone, E: Clone>(e: &E, it: &'a mut It, keep: &mut dyn 
     return out;
 }
 
-pub fn reduce__It_A_Fn<It, T: Clone, A: Clone, E: Clone>(e: &E, it: &mut It, init: &A, f: &mut dyn FnMut(&E, &A, &T) -> A, next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>) -> A {
+pub fn reduce__It_A_Fn<It, T: Clone, A: Clone, E: Clone>(e: &E, it: &mut It, init: &A, f: &mut dyn FnMut(&E, &A, &T) -> A, next: &mut dyn FnMut(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>) -> A {
     let mut acc: A = init.clone();
     loop {
-        let mut __step_2: crate::unions::Union2<T, crate::std_core_iterator::Finished> = next(&mut *it);
+        let mut __step_2: crate::unions::Union2<T, crate::std_core_iterator::Finished> = next(e, &mut *it);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             let mut x: T = __emitted_3;
@@ -107,7 +107,7 @@ pub fn drop<T: Clone>(mut value: T) {
 #[derive(Clone)]
 pub struct Mapping<It, T, U, E> {
     pub src: It,
-    pub step: std::sync::Arc<dyn Fn(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync>,
+    pub step: std::sync::Arc<dyn Fn(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync>,
     pub f: std::sync::Arc<dyn Fn(&E, &T) -> U + Send + Sync>,
 }
 
@@ -123,7 +123,7 @@ impl<It: std::fmt::Debug, T: std::fmt::Debug, U: std::fmt::Debug, E: std::fmt::D
 
 pub fn next__Mapping<It, T: Clone, U: Clone, E: Clone>(e: &E, m: &mut crate::std_core_seq::Mapping<It, T, U, E>) -> crate::unions::Union2<U, crate::std_core_iterator::Finished> {
     let mut step = m.step.clone();
-    let mut x: crate::unions::Union2<T, crate::std_core_iterator::Finished> = step(&mut m.src);
+    let mut x: crate::unions::Union2<T, crate::std_core_iterator::Finished> = step(e, &mut m.src);
     if matches!(x, crate::unions::Union2::U2(_)) {
         let mut x_1 = match &x { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());
@@ -134,7 +134,7 @@ pub fn next__Mapping<It, T: Clone, U: Clone, E: Clone>(e: &E, m: &mut crate::std
     return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<U>(y));
 }
 
-pub fn mapping<It, T: Clone, U: Clone, E: Clone>(mut it: It, f: impl Fn(&E, &T) -> U + Send + Sync + 'static, next: impl Fn(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync + 'static) -> crate::std_core_seq::Mapping<It, T, U, E> {
+pub fn mapping<It, T: Clone, U: Clone, E: Clone>(mut it: It, f: impl Fn(&E, &T) -> U + Send + Sync + 'static, next: impl Fn(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync + 'static) -> crate::std_core_seq::Mapping<It, T, U, E> {
     return crate::std_core_seq::Mapping { src: it, step: std::sync::Arc::new(next), f: std::sync::Arc::new(f) };
 }
 
@@ -145,7 +145,7 @@ pub fn detach__Mapping<It, T: Clone, U: Clone, E: Clone>(mut it: crate::std_core
 #[derive(Clone)]
 pub struct Filtering<It, T, E> {
     pub src: It,
-    pub step: std::sync::Arc<dyn Fn(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync>,
+    pub step: std::sync::Arc<dyn Fn(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync>,
     pub keep: std::sync::Arc<dyn Fn(&E, &T) -> bool + Send + Sync>,
 }
 
@@ -163,7 +163,7 @@ pub fn next__Filtering<It, T: Clone, E: Clone>(e: &E, t: &mut crate::std_core_se
     let mut step = t.step.clone();
     let mut keep = t.keep.clone();
     loop {
-        let mut x: crate::unions::Union2<T, crate::std_core_iterator::Finished> = step(&mut t.src);
+        let mut x: crate::unions::Union2<T, crate::std_core_iterator::Finished> = step(e, &mut t.src);
         if matches!(x, crate::unions::Union2::U2(_)) {
             let mut x_1 = match &x { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_iterator::finished());
@@ -173,11 +173,11 @@ pub fn next__Filtering<It, T: Clone, E: Clone>(e: &E, t: &mut crate::std_core_se
             return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<T>(x_2));
         };
     }
-    panic!("salvo: unreachable at std.core.seq:195:5");
+    panic!("salvo: unreachable at std.core.seq:196:5");
     return crate::unions::Union2::U2(crate::std_core_iterator::finished());
 }
 
-pub fn filtering<It, T: Clone, E: Clone>(mut it: It, keep: impl Fn(&E, &T) -> bool + Send + Sync + 'static, next: impl Fn(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync + 'static) -> crate::std_core_seq::Filtering<It, T, E> {
+pub fn filtering<It, T: Clone, E: Clone>(mut it: It, keep: impl Fn(&E, &T) -> bool + Send + Sync + 'static, next: impl Fn(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync + 'static) -> crate::std_core_seq::Filtering<It, T, E> {
     return crate::std_core_seq::Filtering { src: it, step: std::sync::Arc::new(next), keep: std::sync::Arc::new(keep) };
 }
 
@@ -186,13 +186,13 @@ pub fn detach__Filtering<It, T: Clone, E: Clone>(mut it: crate::std_core_seq::Fi
 }
 
 #[derive(Clone)]
-pub struct Taking<It, T> {
+pub struct Taking<It, T, E> {
     pub src: It,
-    pub step: std::sync::Arc<dyn Fn(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync>,
+    pub step: std::sync::Arc<dyn Fn(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync>,
     pub left: i32,
 }
 
-impl<It: std::fmt::Debug, T: std::fmt::Debug> std::fmt::Debug for Taking<It, T> {
+impl<It: std::fmt::Debug, T: std::fmt::Debug, E: std::fmt::Debug> std::fmt::Debug for Taking<It, T, E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Taking")
             .field("src", &self.src)
@@ -202,27 +202,27 @@ impl<It: std::fmt::Debug, T: std::fmt::Debug> std::fmt::Debug for Taking<It, T> 
     }
 }
 
-pub fn next__Taking<It, T: Clone>(t: &mut crate::std_core_seq::Taking<It, T>) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> {
+pub fn next__Taking<It, T: Clone, E: Clone>(e: &E, t: &mut crate::std_core_seq::Taking<It, T, E>) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> {
     if (t.left <= 0i32) {
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());
     };
     t.left = i32::wrapping_sub(t.left, 1i32);
     let mut step = t.step.clone();
-    return step(&mut t.src);
+    return step(e, &mut t.src);
 }
 
-pub fn taking<It, T: Clone>(mut it: It, mut n: i32, next: impl Fn(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync + 'static) -> crate::std_core_seq::Taking<It, T> {
+pub fn taking<It, T: Clone, E: Clone>(mut it: It, mut n: i32, next: impl Fn(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync + 'static) -> crate::std_core_seq::Taking<It, T, E> {
     return crate::std_core_seq::Taking { src: it, step: std::sync::Arc::new(next), left: n };
 }
 
-pub fn detach__Taking<It, T: Clone>(mut it: crate::std_core_seq::Taking<It, T>) -> It {
+pub fn detach__Taking<It, T: Clone, E: Clone>(mut it: crate::std_core_seq::Taking<It, T, E>) -> It {
     return it.src;
 }
 
 #[derive(Clone)]
 pub struct TakingWhile<It, T, E> {
     pub src: It,
-    pub step: std::sync::Arc<dyn Fn(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync>,
+    pub step: std::sync::Arc<dyn Fn(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync>,
     pub keep: std::sync::Arc<dyn Fn(&E, &T) -> bool + Send + Sync>,
     pub done: bool,
 }
@@ -243,7 +243,7 @@ pub fn next__TakingWhile<It, T: Clone, E: Clone>(e: &E, t: &mut crate::std_core_
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());
     };
     let mut step = t.step.clone();
-    let mut x: crate::unions::Union2<T, crate::std_core_iterator::Finished> = step(&mut t.src);
+    let mut x: crate::unions::Union2<T, crate::std_core_iterator::Finished> = step(e, &mut t.src);
     if matches!(x, crate::unions::Union2::U2(_)) {
         let mut x_1 = match &x { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         t.done = true;
@@ -258,7 +258,7 @@ pub fn next__TakingWhile<It, T: Clone, E: Clone>(e: &E, t: &mut crate::std_core_
     return crate::unions::Union2::U2(crate::std_core_iterator::finished());
 }
 
-pub fn taking_while<It, T: Clone, E: Clone>(mut it: It, keep: impl Fn(&E, &T) -> bool + Send + Sync + 'static, next: impl Fn(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync + 'static) -> crate::std_core_seq::TakingWhile<It, T, E> {
+pub fn taking_while<It, T: Clone, E: Clone>(mut it: It, keep: impl Fn(&E, &T) -> bool + Send + Sync + 'static, next: impl Fn(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync + 'static) -> crate::std_core_seq::TakingWhile<It, T, E> {
     return crate::std_core_seq::TakingWhile { src: it, step: std::sync::Arc::new(next), keep: std::sync::Arc::new(keep), done: false };
 }
 
@@ -267,13 +267,13 @@ pub fn detach__TakingWhile<It, T: Clone, E: Clone>(mut it: crate::std_core_seq::
 }
 
 #[derive(Clone)]
-pub struct Skipping<It, T> {
+pub struct Skipping<It, T, E> {
     pub src: It,
-    pub step: std::sync::Arc<dyn Fn(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync>,
+    pub step: std::sync::Arc<dyn Fn(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync>,
     pub left: i32,
 }
 
-impl<It: std::fmt::Debug, T: std::fmt::Debug> std::fmt::Debug for Skipping<It, T> {
+impl<It: std::fmt::Debug, T: std::fmt::Debug, E: std::fmt::Debug> std::fmt::Debug for Skipping<It, T, E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Skipping")
             .field("src", &self.src)
@@ -283,34 +283,34 @@ impl<It: std::fmt::Debug, T: std::fmt::Debug> std::fmt::Debug for Skipping<It, T
     }
 }
 
-pub fn next__Skipping<It, T: Clone>(t: &mut crate::std_core_seq::Skipping<It, T>) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> {
+pub fn next__Skipping<It, T: Clone, E: Clone>(e: &E, t: &mut crate::std_core_seq::Skipping<It, T, E>) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> {
     let mut step = t.step.clone();
     loop {
         if !((t.left > 0i32)) {
             break;
         };
         t.left = i32::wrapping_sub(t.left, 1i32);
-        let mut x: crate::unions::Union2<T, crate::std_core_iterator::Finished> = step(&mut t.src);
+        let mut x: crate::unions::Union2<T, crate::std_core_iterator::Finished> = step(e, &mut t.src);
         if matches!(x, crate::unions::Union2::U2(_)) {
             let mut x_1 = match &x { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_iterator::finished());
         };
     }
-    return step(&mut t.src);
+    return step(e, &mut t.src);
 }
 
-pub fn skipping<It, T: Clone>(mut it: It, mut n: i32, next: impl Fn(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync + 'static) -> crate::std_core_seq::Skipping<It, T> {
+pub fn skipping<It, T: Clone, E: Clone>(mut it: It, mut n: i32, next: impl Fn(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync + 'static) -> crate::std_core_seq::Skipping<It, T, E> {
     return crate::std_core_seq::Skipping { src: it, step: std::sync::Arc::new(next), left: n };
 }
 
-pub fn detach__Skipping<It, T: Clone>(mut it: crate::std_core_seq::Skipping<It, T>) -> It {
+pub fn detach__Skipping<It, T: Clone, E: Clone>(mut it: crate::std_core_seq::Skipping<It, T, E>) -> It {
     return it.src;
 }
 
 #[derive(Clone)]
 pub struct SkippingWhile<It, T, E> {
     pub src: It,
-    pub step: std::sync::Arc<dyn Fn(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync>,
+    pub step: std::sync::Arc<dyn Fn(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync>,
     pub skip: std::sync::Arc<dyn Fn(&E, &T) -> bool + Send + Sync>,
     pub started: bool,
 }
@@ -329,11 +329,11 @@ impl<It: std::fmt::Debug, T: std::fmt::Debug, E: std::fmt::Debug> std::fmt::Debu
 pub fn next__SkippingWhile<It, T: Clone, E: Clone>(e: &E, t: &mut crate::std_core_seq::SkippingWhile<It, T, E>) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> {
     let mut step = t.step.clone();
     if t.started {
-        return step(&mut t.src);
+        return step(e, &mut t.src);
     };
     let mut skip = t.skip.clone();
     loop {
-        let mut x: crate::unions::Union2<T, crate::std_core_iterator::Finished> = step(&mut t.src);
+        let mut x: crate::unions::Union2<T, crate::std_core_iterator::Finished> = step(e, &mut t.src);
         if matches!(x, crate::unions::Union2::U2(_)) {
             let mut x_1 = match &x { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             return crate::unions::Union2::U2(crate::std_core_iterator::finished());
@@ -345,11 +345,11 @@ pub fn next__SkippingWhile<It, T: Clone, E: Clone>(e: &E, t: &mut crate::std_cor
             return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<T>(x_3));
         };
     }
-    panic!("salvo: unreachable at std.core.seq:344:5");
+    panic!("salvo: unreachable at std.core.seq:345:5");
     return crate::unions::Union2::U2(crate::std_core_iterator::finished());
 }
 
-pub fn skipping_while<It, T: Clone, E: Clone>(mut it: It, skip: impl Fn(&E, &T) -> bool + Send + Sync + 'static, next: impl Fn(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync + 'static) -> crate::std_core_seq::SkippingWhile<It, T, E> {
+pub fn skipping_while<It, T: Clone, E: Clone>(mut it: It, skip: impl Fn(&E, &T) -> bool + Send + Sync + 'static, next: impl Fn(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished> + Send + Sync + 'static) -> crate::std_core_seq::SkippingWhile<It, T, E> {
     return crate::std_core_seq::SkippingWhile { src: it, step: std::sync::Arc::new(next), skip: std::sync::Arc::new(skip), started: false };
 }
 
@@ -357,10 +357,10 @@ pub fn detach__SkippingWhile<It, T: Clone, E: Clone>(mut it: crate::std_core_seq
     return it.src;
 }
 
-pub fn to_list<'a, It, T: Clone>(it: &'a mut It, next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>) -> Vec<T> {
+pub fn to_list<'a, It, T: Clone, E: Clone>(e: &E, it: &'a mut It, next: &mut dyn FnMut(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>) -> Vec<T> {
     let mut out = vec![];
     loop {
-        let mut __step_2: crate::unions::Union2<T, crate::std_core_iterator::Finished> = next(&mut *it);
+        let mut __step_2: crate::unions::Union2<T, crate::std_core_iterator::Finished> = next(e, &mut *it);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             let mut x: T = __emitted_3;
@@ -372,10 +372,10 @@ pub fn to_list<'a, It, T: Clone>(it: &'a mut It, next: &mut dyn FnMut(&mut It) -
     return out;
 }
 
-pub fn count<It, T: Clone>(it: &mut It, next: &mut dyn FnMut(&mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>) -> i32 {
+pub fn count<It, T: Clone, E: Clone>(e: &E, it: &mut It, next: &mut dyn FnMut(&E, &mut It) -> crate::unions::Union2<T, crate::std_core_iterator::Finished>) -> i32 {
     let mut n: i32 = 0i32;
     loop {
-        let mut __step_2: crate::unions::Union2<T, crate::std_core_iterator::Finished> = next(&mut *it);
+        let mut __step_2: crate::unions::Union2<T, crate::std_core_iterator::Finished> = next(e, &mut *it);
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match __step_2 { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
             let mut _x: T = __emitted_3;

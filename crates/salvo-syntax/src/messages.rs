@@ -399,9 +399,10 @@ messages! {
          `eff[E]` (several effects: `eff[A, B]`)";
 
     // [effect-var]
-    /// `[E]` in the generics of something other than a function.
+    /// `[E]` in the generics of something other than a function, a struct or
+    /// a `fns` group.
     effect_var_misplaced = "effect-var:misplaced" () =>
-        "an effect variable `[E]` may only be declared on a function";
+        "an effect variable `[E]` may only be declared on a function, a struct or a `fns` group";
     /// A plain type parameter written in an effect list.
     effect_var_not_declared = "effect-var:not-declared" (name: &dyn std::fmt::Display) => format!(
         "`{name}` is a type parameter, not an effect: declare it `[{name}]` to range over effects"
@@ -434,8 +435,8 @@ messages! {
     );
     /// An effect row written where no effect variable takes it.
     effect_var_row_misplaced = "effect-var:row-misplaced" (owner: &dyn std::fmt::Display) => format!(
-        "an effect list here is not a type: it fills a struct's effect variable, and this \
-         position of `{owner}` is not one"
+        "an effect list here is not a type: it fills an effect variable of a struct or a \
+         `fns` group, and this position of `{owner}` is not one"
     );
     /// A struct's effect variable given a type.
     effect_var_row_expected = "effect-var:row-expected" (owner: &dyn std::fmt::Display) => format!(
@@ -3456,6 +3457,12 @@ messages! {
     group_obligation_no_member = "group-obligation:no-member" (name: &dyn std::fmt::Display, obligation: &dyn std::fmt::Display, member: &dyn std::fmt::Display, params: &dyn std::fmt::Display, ret: &dyn std::fmt::Display) => format!(
         "`{name}` declares `: {obligation}` but no visible `{member}` matches `fn \
          {member}({params}) -> {ret}`"
+    );
+    /// [effect-var] An obligation's member performing effects the obligation
+    /// does not let it.
+    group_obligation_member_effects = "group-obligation:member-effects" (name: &dyn std::fmt::Display, member: &dyn std::fmt::Display, extra: &dyn std::fmt::Display, group: &dyn std::fmt::Display) => format!(
+        "`{name}`'s `{member}` performs `[{extra}]`, which its `: {group}` does not declare: \
+         write them as the group's effect argument (`{group}<…, [{extra}]>`)"
     );
 
     // [handler-init]

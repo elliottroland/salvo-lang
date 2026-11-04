@@ -1,13 +1,14 @@
 // [obligation-by] [comptime-instantiate] A template's effect list and
-// deductions do not count: the group's member is pure and keeps its
-// parameter, so a body that prints, or moves the parameter, is an error of
-// the stamped body — at the `by` site, with the stamp's prefix.
+// deductions do not count: the group's member is pure (its effect variable
+// left out, `[]`) and keeps its parameter, so a body that prints, or moves
+// the parameter, is an error of the stamped body — at the `by` site, with
+// the stamp's prefix.
 //
 // A derive whose template declares what its group's member does not: an
 // effect (`Console`), and a move of its parameter (`=> !v`).
 // FILE: derive.sv
-export fns Loud<T> {
-    fn loud(v: T) -> Int
+export fns Loud<T, [E]> {
+    fn loud(v: T) [E] -> Int
 }
 
 export fns Taken<T> {
@@ -31,8 +32,9 @@ import derive
 struct P : Loud<self> by derive, Taken<self> by derive { x: Int, y: Str }
 
 // [fn-by] The same template under a written declaration that says what the
-// body does is accepted: the declaration is the contract.
-struct R : Loud<self>, Taken<self> {
+// body does is accepted: the declaration is the contract, and the
+// obligation's row lets it print [effect-var].
+struct R : Loud<self, [Console]>, Taken<self> {
     x: Int,
     y: Str
 

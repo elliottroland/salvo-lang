@@ -4121,6 +4121,7 @@ Module {
                         span: 2716..2717,
                     },
                 ],
+                effect_generics: [],
                 fns: [
                     FnDecl {
                         docs: [],

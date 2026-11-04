@@ -213,7 +213,7 @@ send fn pipe_step(to: OutStream, done: Reply<Ok Long | Err Checked<StreamError>>
 // stream, so it carries the obligation too — bind it, loop over it, and
 // discharge it when you are done.
 // @compilerrules [linear-group]
-export linear struct Lines : Next<self, Str> canbe Mut {
+export linear struct Lines : Next<self, Str, [Streams]> canbe Mut {
     s: InStream
 }
 
@@ -248,7 +248,7 @@ export fn close(p: Lines) [Streams] -> Ok None | Err Checked<StreamError> => !p 
 // is up to [size] bytes. Like [Lines] it holds the stream, so it carries the
 // obligation too.
 // @compilerrules [linear-group]
-export linear struct Chunks : Next<self, Bytes> canbe Mut {
+export linear struct Chunks : Next<self, Bytes, [Streams]> canbe Mut {
     s: InStream,
     // How many bytes a step asks for.
     size: Int

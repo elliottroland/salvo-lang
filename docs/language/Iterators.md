@@ -8,12 +8,13 @@ either an element or the end:
 provenance qualifier Emitted<T> of T
 struct Finished {}
 
-fns Next<It, T> {
-    fn next(it: Mut It) -> Emitted T | Finished => it: Mut
+fns Next<It, T, [E]> {
+    fn next(it: Mut It) [E] -> Emitted T | Finished => it: Mut
 }
 ```
 
-`Emitted` is a qualifier so the element keeps its own type, which is also what
+`E` is what advancing performs, usually nothing: an obligation or a spread
+that leaves it out means `[]`. `Emitted` is a qualifier so the element keeps its own type, which is also what
 keeps the end of a sequence of optionals distinguishable: `Emitted None |
 Finished` has two arms where `None | None` would have one. `Finished` is a
 fieldless struct because it has nothing to qualify.
@@ -58,6 +59,21 @@ The `: Next<self, (A, B)>` clause is optional. It promises the `next`, checked
 at the struct, where a misspelled one is caught (declaring the clause without
 a matching `next` is an error naming the missing signature), and it says what
 the iterator yields to a combinator that infers its element type from it.
+
+A `next` that performs effects names them in the clause, as the group's effect
+argument. std's stream lines are one:
+
+```
+linear struct Lines : Next<self, Str, [Streams]> canbe Mut { ... }
+
+fn next(p: Mut Lines) [Streams] -> Emitted Str | Finished => p: Mut { ... }
+```
+
+A `next` performing more than its clause names is an error at the struct. Every
+combinator in std drives such an iterator — `map(lines, f)`, `to_list(mapping(lines,
+f))`, `count(lines)` — and its caller supplies the effects, as it does for a
+callback's. An `iter fn` with an effect list gets that list in its struct's
+clause.
 
 ### Which `next` a `for` calls
 
@@ -191,9 +207,9 @@ having an `iter` that takes it; declaring the `Iter` group as an obligation
 states the pair and checks it at the type:
 
 ```
-fns Iter<C, It, T> => iter with next {
+fns Iter<C, It, T, [E]> => iter with next {
     fn iter(collection: C) -> Mut It
-    fn next(iterator: Mut It) -> Emitted T | Finished => iterator: Mut
+    fn next(iterator: Mut It) [E] -> Emitted T | Finished => iterator: Mut
 }
 
 struct Bag : Iter<self, BagIter, Int> {

@@ -1142,6 +1142,13 @@ the blanket rule:
     makes of it. Covered and proven-pair calls plan nothing either — they
     render their own positions and preamble, and leave no read borrow
     standing.
+  * **A lambda argument is not a mutable lend of what its body lends**
+    (found with effectful implicits, 2026-10-30, [effect-var]): its body runs
+    later, over its own parameters, so the `next(&mut *__a0)` in a `?Next`
+    fill's adapter does not make `taking(iter(xs), 2, |…| …)` hoist
+    `iter(xs)` — hoisted, the closure is bound ahead of the call and loses
+    the slot type rustc infers its borrowed return's lifetime from
+    ("lifetime may not live long enough").
 
 ## Unions [rs-union-enums]
 

@@ -821,18 +821,25 @@ left three follow-ups the user has asked for, in this order.
   a variable's own parameter, so either outcome works with it. **DECISION**
   on the shape before code.
 - **Effect variables, the rest** — built (COMPLETED.md, 2026-10-30): `[E]`
-  on fns and structs, std's callbacks, the lazy adaptors and `array_by`. The
+  on fns, structs and `fns` groups, std's callbacks, the lazy adaptors,
+  `array_by`, and the iteration groups (effectful iterators drive every
+  combinator). The
   private ordering primitives (`sort_by`, `insert_sorted_by`,
   `search_sorted_by`) are fed implicits only, and test's `trapped_by` its own
-  lambda: none needs one. Left:
-  1. **Implicits stay pure** ([implicit-resolve]: a default is effect-free by
-     construction), so `?Next` of an effectful iterator — a lazy adaptor over
-     an effectful callback, `Lines` — does not fill `map`'s or `to_list`'s
-     (`for` drives one). Decided (user, 2026-10-30): a group may declare an
-     effect variable (`fns Next<It, T, [E]>`), spread sharing the callee's
-     (`?Next<It, T, [E]>`), its effects the caller's; any list of generics
-     may leave a trailing effect variable out, meaning `[]` — no special
-     case for `Next` and `Iter`.
+  lambda: none needs one. `Ordered`, `Eq`, `Hashed` and `ToStr` declare no
+  variable (a hash or a comparison that performs effects is not wanted);
+  `map_to`/`filter_to` stay pure. A `by` obligation's arguments are all
+  `self`, so it cannot write a row (`Loud<self, [Console]> by derive` is
+  `obligation-by:group-arg-not-self`); allowing a row there is open, with no
+  user yet. Left:
+  1. **A generic struct's fn field called at a concrete type fails rustc**
+     (found 2026-10-30, not an effect-variable defect): the stored fn renders
+     `Arc<dyn Fn(&T) -> T>` (a type variable is never known to be `Copy`,
+     [rs-fn-param-convention]), and a call at `T = Int` passes the value
+     (`__callee_1(b.v)`, E0308; rustc suggests `&b.v`). Repro: `struct
+     Boxed<T> { v: T, run: (x: T) -> T }`, `fn fire(b: Boxed<Int>) -> Int =>
+     b { return b.run(b.v) }`, called with `Boxed<Int> { v: 3, run: (x) -> x
+     * 2 }`; Kotlin prints `6`.
   2. **Building an array in a generic body fails on Kotlin**: `array_of(a,
      b)` and `array_by(n, f)` with element type `T` emit `arrayOf<T>(…)` /
      `Array<T>(n) { … }`, and kotlinc refuses both ("cannot use 'T' as

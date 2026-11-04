@@ -350,18 +350,26 @@ fun main() {
     val words: List<String> = salvo.std.core.list.List__T_TArray("ann", arrayOf<String>("bo", "carol"))
     val lengths: salvo.platform.std.core.list.MutList<Int> = salvo.std.core.seq.map__It_Fn(Unit, salvo.std.core.list.iter(words), fun(__leff0: Unit, w: String): Int {
         return salvo.std.core.string.sizePlatform(w)
-    }, { __a0 -> salvo.std.core.list.next__ListIter(__a0) })
+    }, fun(__fx0: Unit, __a0: salvo.std.core.list.ListIter<String>): Union2<String, salvo.std.core.iterator.Finished> {
+        return salvo.std.core.list.next__ListIter(__a0)
+    })
     salvo.std.core.console.println(__handle_2, "5. lengths: ${salvo.std.core.seq.reduce__It_A_Fn(Unit, salvo.std.core.list.iter(lengths), 0, fun(__leff0: Unit, acc: Int, n: Int): Int {
         return (acc + n)
-    }, { __a0 -> salvo.std.core.list.next__ListIter(__a0) })}")
+    }, fun(__fx0: Unit, __a0: salvo.std.core.list.ListIter<Int>): Union2<Int, salvo.std.core.iterator.Finished> {
+        return salvo.std.core.list.next__ListIter(__a0)
+    })}")
     val word: String = "iteration"
     val vowels: salvo.platform.std.core.list.MutList<Char> = salvo.std.core.seq.filter(Unit, salvo.std.core.string.iter(word), fun(__leff0: Unit, c: Char): Boolean {
         return ((c == 'i') || (c == 'o'))
-    }, { __a0 -> salvo.std.core.string.next(__a0) })
+    }, fun(__fx0: Unit, __a0: salvo.std.core.string.StrIter): Union2<Char, salvo.std.core.iterator.Finished> {
+        return salvo.std.core.string.next(__a0)
+    })
     salvo.std.core.console.println(__handle_2, "5. vowels: ${salvo.std.core.list.sizePlatform(vowels)}")
     salvo.std.core.console.println(__handle_2, "5. halving total ${salvo.std.core.seq.reduce__It_A_Fn(Unit, salvo.main.halving(20), 0, fun(__leff0: Unit, acc: Int, n: Int): Int {
         return (acc + n)
-    }, ::next__Halving)}")
+    }, fun(__fx0: Unit, __a0: Halving): Union2<Int, salvo.std.core.iterator.Finished> {
+        return salvo.main.next__Halving(__a0)
+    })}")
     val collected: salvo.platform.std.core.list.MutList<Int> = salvo.std.core.seq.mapTo(mutableListOf<Int>(), salvo.main.countdown(3), fun(n: Int): Int {
         return (n * 10)
     }, { __a0, __a1 -> salvo.std.core.list.addPlatform(__a0, __a1) }, ::next__Countdown)

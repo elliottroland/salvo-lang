@@ -2400,8 +2400,15 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         let mut mut_roots: Vec<String> = params.iter().zip(args).filter(|(p, _)| p.mode == PassMode::LentMut && !matches!(p.ty.strip_quals(), Ty::Fn { .. })).filter_map(|(_, a)| read_root(a)).collect();
         mut_roots.extend(extra.iter().cloned());
-        // A mutable lend nested in an argument counts too.
+        // A mutable lend nested in an argument counts too — not one in a
+        // lambda's body, which lends the lambda's own parameters when it runs
+        // (a `?Next` fill adapted to take the call's pack [effect-var]):
+        // hoisted ahead of the call, a lambda loses the slot type rustc
+        // infers its borrows' lifetimes from.
         for a in args {
+            if matches!(a.kind, ExprKind::Lambda { .. }) {
+                continue;
+            }
             let mut found: Vec<String> = Vec::new();
             walk_expr(a, &mut |_| {}, &mut |e| {
                 if let ExprKind::Call { target: FnRef::Decl(id), args: inner, .. } = &e.kind {

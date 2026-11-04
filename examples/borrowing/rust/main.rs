@@ -38,6 +38,7 @@ pub mod platform_std_core_seq;
 #[path = "platform/std/core/string.rs"]
 pub mod platform_std_core_string;
 
+use crate::std_core_iterator::Finished;
 use crate::std_core_index::Idx__Int_qualifies;
 use crate::std_core_list::ListIter;
 use crate::std_core_list::List__T_TArray;
@@ -232,7 +233,9 @@ pub fn main() {
     let mut standing: Vec<&crate::Fighter> = crate::std_core_seq::filter::<crate::std_core_list::ListIter<'_, crate::Fighter>, &crate::Fighter, ()>(&__tmp2, &mut pass, &mut |mut __leff0, mut f| -> bool {
         let f = *f;
         return (f.hp > 10i32);
-    }, &mut |__a0: &mut crate::std_core_list::ListIter<'_, crate::Fighter>| crate::std_core_list::next__ListIter(&mut *__a0));
+    }, &mut |mut __fx0, mut __a0| -> crate::unions::Union2<&crate::Fighter, crate::std_core_iterator::Finished> {
+        crate::std_core_list::next__ListIter(&mut *__a0)
+    });
     crate::std_core_console::println(&__handle_2, &format!("1. {} of {} still standing", crate::std_core_list::size_platform(&standing), crate::std_core_list::size_platform::<crate::Fighter>(&roster)));
     let mut bench: Vec<crate::Fighter> = crate::std_core_list::Mut_List::<crate::Fighter>(crate::Fighter { name: String::from("Cy"), hp: 12i32, energy: 2i32 }, vec![]);
     crate::std_core_list::add_platform::<crate::Fighter>(&mut bench, crate::Fighter { name: String::from("Dee"), hp: 6i32, energy: 7i32 });

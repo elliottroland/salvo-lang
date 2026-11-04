@@ -275,6 +275,11 @@ pub struct FnsDecl {
     pub exported: bool,
     pub name: Ident,
     pub generics: Vec<Ident>,
+    /// [effect-var] Which of `generics` are effect variables (`fns Next<It,
+    /// T, [E]>`): a member's effect list may name one, and a spread or an
+    /// obligation fills it with a row, or leaves the trailing one out for
+    /// `[]`.
+    pub effect_generics: Vec<Ident>,
     /// Member signatures: bodiless, like an effect's [effect-decl].
     pub fns: Vec<FnDecl>,
     /// [implicit-with] The group's own deduction clause — `fns Hashed<T>

@@ -629,9 +629,11 @@ pub(crate) fn walk_item<V: Visitor>(c: &mut V, it: &Item) {
         _ => (&[], &[]),
     };
     c.enter_generics(generics, canbe_list);
-    // [effect-var] A struct's effect variables.
-    if let Item::Struct(d) = it {
-        c.enter_effect_generics(&d.effect_generics);
+    // [effect-var] A struct's or a group's effect variables.
+    match it {
+        Item::Struct(d) => c.enter_effect_generics(&d.effect_generics),
+        Item::Fns(d) => c.enter_effect_generics(&d.effect_generics),
+        _ => {}
     }
     walk_item_in(c, it);
     c.leave_generics();
@@ -790,7 +792,7 @@ fn walk_item_in<V: Visitor>(c: &mut V, it: &Item) {
                 func(c, f);
             }
         }
-        Item::Fns(ast::FnsDecl { docs: _, exported: _, name: _, generics: _, fns, deductions, span: _ }) => {
+        Item::Fns(ast::FnsDecl { docs: _, exported: _, name: _, generics: _, effect_generics: _, fns, deductions, span: _ }) => {
             for f in fns {
                 func(c, f);
             }
