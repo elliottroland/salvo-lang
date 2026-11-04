@@ -23,7 +23,6 @@ fn next(l: Mut Ticks) -> Emitted Int | Finished => l: Mut {
 
 fn close(l: Ticks) [Console] -> None => !l {
     println("closed lines")
-    discard(l)
 }
 
 linear struct Take : Next<self, Int> canbe Mut {

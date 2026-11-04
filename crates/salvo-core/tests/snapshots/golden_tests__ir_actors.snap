@@ -67,7 +67,6 @@ impl Desking(lent room: Int) of Desk@main stateful {
         call send@std.core.actor<Str>(!read next~1, concat("served ", read name))
       }
       arm#1 (none) {
-        call discard@std.core.basic<Str>(!read name)
       }
       arm#2 (else) {
         unreachable("unhandled union arm") at main:118:9
@@ -103,7 +102,6 @@ impl Breaking() of Fragile@main {
         }
       }
     }
-    call discard@std.core.basic<Int>(!read boom)
   }
 }
 

@@ -158,11 +158,9 @@ handler MemTape of Tape {
     // stateless, so its receiver is `&self` [rs-handle].)
     //~ emits: fn close__InTape(&self, s: crate::InTape) -> String {
     fn close(s: InTape) -> Str => !s {
-        discard(s)
         return "closed in"
     }
     fn close(s: OutTape) -> Str => !s {
-        discard(s)
         return "closed out"
     }
 }

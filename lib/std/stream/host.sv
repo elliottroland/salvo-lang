@@ -308,7 +308,6 @@ export handler DefaultStreams [RawStreams] of Streams {
 
     fn close(s: InStream) -> Ok None | Err Checked<StreamError> => !s {
         let r = raw_close_read(s.handle)
-        discard(s)
         when r {
             is Ok { return ok(None) }
             is Err { return err(checked<StreamError>(r)) }
@@ -321,7 +320,6 @@ export handler DefaultStreams [RawStreams] of Streams {
     // @compilerrules [stream-receive, linear-group]
     fn receive(s: InStream, reply: Reply<Received>) -> None => !s, !reply {
         let handle = copy(s.handle)
-        discard(s)
         raw_receive(copy(handle), replyto host_received(reply, handle))
     }
 
@@ -355,7 +353,6 @@ export handler DefaultStreams [RawStreams] of Streams {
 
     fn close(s: OutStream) -> Ok None | Err Checked<StreamError> => !s {
         let r = raw_close_write(s.handle)
-        discard(s)
         when r {
             is Ok { return ok(None) }
             is Err { return err(checked<StreamError>(r)) }

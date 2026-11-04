@@ -247,8 +247,7 @@ test "an unwatched death reaches the pool's sink" {
     let w = waiter()
     let {token, wid} = w
     let sink = spawn_body(main_pool(), 4, body_of((kind, slot, msg) -> {
-        let reason: Str = unerase(msg)
-        discard(reason)
+        let _reason: Str = unerase(msg)
     }))
     let pool = new_pool_of(1, copy(sink))
     let fragile = spawn_body(pool, 2, body_of((kind, slot, msg) -> {

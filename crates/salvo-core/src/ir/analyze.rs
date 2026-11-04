@@ -49,15 +49,17 @@ pub fn analyze_full(
     for d in parse.iter().filter(|d| d.is_error()) {
         gate.break_file(d.file);
     }
-    // Analyze only the user's own modules: std (and a dependency) is checked
-    // elsewhere. (Under the std-cache path std's rows are the std-only
-    // check's, seeded whole, so its IR would build — emission builds it,
-    // and the TESTS.md C2 differential found it identical to a full check's —
-    // but its analyses are not the project's to report.) The user modules
-    // are always fully checked, so their tables are complete.
+    // Analyze only the user's own modules, and std's **on-disk** ones — the
+    // files of std being developed [std-shadow], whose analyses are the
+    // developer's to see (2026-10-30: a discharger with its `discard` taken
+    // out analysed clean in `lib/`, because only the repository's tests ran
+    // the IR checks over std). The embedded std is checked by those tests.
+    // (Under the std-cache path std's rows are the std-only check's, seeded
+    // whole, so its IR builds — emission builds it, and the TESTS.md C2
+    // differential found it identical to a full check's.)
     let wanted: std::collections::HashSet<&crate::ModulePath> = program
         .units()
-        .filter(|u| !u.file.is_std)
+        .filter(|u| !u.file.is_std || u.file.is_shadow)
         .map(|u| &u.file.module)
         .collect();
     let (mut ir, _build_errors, failed) = super::build::build_program_gated(program, symbols, resolution, checked, Some(&wanted), &gate);

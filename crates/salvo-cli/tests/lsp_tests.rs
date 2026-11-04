@@ -1557,7 +1557,7 @@ export linear struct Ticket {
 
 fn redeem(ticket: Ticket) -> Int => !ticket {
     let id = copy(ticket.id)
-    discard(ticket)
+    // A discharger: consuming it here ends it.
     return id
 }
 

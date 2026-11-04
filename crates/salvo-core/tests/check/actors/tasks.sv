@@ -117,7 +117,7 @@ fn a_free_send_fn_is_not_called(out: Reply<Int>) [] -> None => !out {
 fn a_free_send_fn_is_not_a_value() [] -> None {
     //~ error[actor-free-send-fn:not-a-value]
     let f = finish
-    discard(f)
+    drop(f)
 }
 
 // [task-mint] The mint that makes a free function a citizen of the
@@ -174,8 +174,6 @@ handler Fetching() [Counter] of Audit {
         total(replyto arrived(what) on pool(1))
     }
     send fn arrived(what: Str, sum: Int) => !what {
-        discard(what)
-        discard(sum)
     }
 }
 

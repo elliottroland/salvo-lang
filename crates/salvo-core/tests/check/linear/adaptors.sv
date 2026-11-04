@@ -20,7 +20,6 @@ fn next(l: Mut Ticks) [] -> Emitted Int | Finished => l: Mut {
 }
 
 fn close(l: Ticks) [] -> None => !l {
-    discard(l)
 }
 
 fn detached() {

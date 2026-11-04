@@ -376,6 +376,10 @@ pub struct FateFacts {
     /// terms — the caller's elements, which the fn owes nothing for and may
     /// not move out.
     pub kept_tails: Vec<String>,
+    /// [linear-group] The linear types this fn **discharges** (keys
+    /// [type-identity]): a consumed parameter of one is settled when the body
+    /// ends, once its linear fields are moved out (`Checked::discharges`).
+    pub discharges: Vec<String>,
     /// [fate-move-mode] The bindings (by their stamp, the binding's node
     /// [node-id]) that may take ownership — the checker's judgment where the
     /// binding is (`Checked::bind_facts`): the flow pass decides which do.

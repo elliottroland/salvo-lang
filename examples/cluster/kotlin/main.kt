@@ -512,7 +512,6 @@ class Racing : Race {
                 salvo.SalvoSched.replyWire(out_1, answer, salvo.StrCodec)
             }
             (out == null) -> {
-                kotlin.run { answer; Unit }
             }
             else -> {
                 throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:177:9"))

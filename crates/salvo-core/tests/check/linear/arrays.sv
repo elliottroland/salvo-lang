@@ -5,7 +5,6 @@
 linear struct Ticket { id: Int }
 
 fn spend(t: Ticket) [] -> None => !t {
-    discard(t)
 }
 
 // A loop may read a linear array…

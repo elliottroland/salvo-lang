@@ -4,7 +4,7 @@ linear struct Lines {
     name: Str
 }
 
-fn close(l: Lines) -> None => !l { discard(l) }
+fn close(l: Lines) -> None => !l {}
 
 fn open_lines(n: Str) -> Lines => !n {
     return Lines { name: n }

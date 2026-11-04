@@ -90,7 +90,6 @@ handler Clienting() of Client {
     }
 
     send fn answered(word: Str) {
-        discard(word)
     }
 }
 

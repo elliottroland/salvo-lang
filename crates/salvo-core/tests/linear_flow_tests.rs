@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use salvo_core::Program;
 
 /// Shared by every case (each case is its own module).
-const HELPERS: &str = "linear struct Token { id: Int }\n\nfn spend(t: Token) [] -> None => !t {\n    discard(t)\n}\n\nfn mint(id: Int) [] -> Token {\n    return Token { id: id }\n}\n\nfn peek(t: Token) [] -> Int {\n    return t.id\n}\n\nlinear struct Pair { a: Token, b: Token }\n\nfn close(p: Pair) [] -> None => !p {\n    spend(p.a)\n    spend(p.b)\n}\n\nfn mkpair() [] -> Pair {\n    return Pair { a: mint(1), b: mint(2) }\n}\n\nfn maybe(c: Bool) [] -> Token? {\n    if c {\n        return mint(1)\n    }\n    return None\n}\n\nfn res(c: Bool) [] -> Ok Token | Err Str {\n    if c {\n        return mint(1)\n    }\n    return \"no\"\n}\n\n";
+const HELPERS: &str = "linear struct Token { id: Int }\n\nfn spend(t: Token) [] -> None => !t {\n}\n\nfn mint(id: Int) [] -> Token {\n    return Token { id: id }\n}\n\nfn peek(t: Token) [] -> Int {\n    return t.id\n}\n\nlinear struct Pair { a: Token, b: Token }\n\nfn close(p: Pair) [] -> None => !p {\n    spend(p.a)\n    spend(p.b)\n}\n\nfn mkpair() [] -> Pair {\n    return Pair { a: mint(1), b: mint(2) }\n}\n\nfn maybe(c: Bool) [] -> Token? {\n    if c {\n        return mint(1)\n    }\n    return None\n}\n\nfn res(c: Bool) [] -> Ok Token | Err Str {\n    if c {\n        return mint(1)\n    }\n    return \"no\"\n}\n\n";
 
 /// `(name, source)`.
 const CASES: &[(&str, &str)] = &[
@@ -107,7 +107,9 @@ const EXPECTED: &[(&str, &[(u32, u32, &str)])] = &[
     ("arm_returns", &[]),
     ("nested_if", &[(4, 9, "some")]),
     ("two_names", &[(4, 5, "some"), (4, 5, "some")]),
-    ("param_owned", &[(2, 5, "some")]),
+    // [linear-group] `f` consumes a `Token` in `Token`'s own file, so it is a
+    // discharger: the path that skips `spend` ends `t` (user decision 2026-10-30).
+    ("param_owned", &[]),
     ("param_kept", &[]),
     ("opt_if_is", &[]),
     ("opt_if_is_drop", &[(3, 5, "some")]),

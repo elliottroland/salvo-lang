@@ -97,7 +97,7 @@ handler Selfish() of Log {
 
     send fn note(what: Str) {
         let self = 1
-        discard(self)
+        drop(self)
         note@self(what)
     }
 }

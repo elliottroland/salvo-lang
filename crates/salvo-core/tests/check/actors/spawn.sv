@@ -194,8 +194,7 @@ handler Slow() [Counter] of Audit {
         let sum = waitfor out: Reply<Int> {
             total(out)
         }
-        discard(what)
-        discard(sum)
+        drop(sum)
     }
 }
 

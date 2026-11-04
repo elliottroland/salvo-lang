@@ -898,9 +898,9 @@ nothing but the monitor.
 * [platform-intrinsic-fn] Every std lowering lives in this crate's `intrinsics.rs`
   (`fn_call`), keyed by the checker-resolved declaration (name + first
   parameter's base type name, so `size(Str)` / `size(List<T>)` /
-  `size(T[])` are three entries). `copy` [kt-copy] and `discard` are the
-  exceptions: they dispatch on the argument's own type, so
-  `emit_intrinsic_call` handles them before consulting the table. An
+  `size(T[])` are three entries). `copy` [kt-copy] is the exception: it
+  dispatches on the argument's own type, so `emit_intrinsic_call` handles
+  it before consulting the table. An
   intrinsic with no entry is a codegen error naming it.
   * A lowering is handed the call's resolved type arguments
     ([call-type-args]) and spells them out where kotlinc cannot infer them:
@@ -1196,9 +1196,8 @@ nothing but the monitor.
 * [fn-once] `Once` erases: the parameter emits the ordinary Kotlin
   function type, and the at-most-once protocol is enforced by the
   checker alone.
-* [linear-discard] `discard(x)` lowers to `(x).let {}` — evaluate and
-  ignore [platform-intrinsic-fn]; linearity is purely static [linear-static], with
-  no runtime component on the JVM.
+* [linear-static] Linearity is purely static, with no runtime component on
+  the JVM: a discharger's end emits nothing [linear-group].
 * [fate-lambda] Kotlin lambdas capture lexically (aliases), unchanged
   by L4: the checker's capture contract (mutated captures consumed at
   creation, closures poisoned by root mutations) is what keeps the

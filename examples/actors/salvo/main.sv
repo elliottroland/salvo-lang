@@ -117,7 +117,7 @@ handler Desking(room: Int) of Desk {
         let next = remove_first(waiting)
         when next {
             is Reply<Str> { next.send("served ${name}") }
-            is None { discard(name) }
+            is None {}
         }
     }
 
@@ -147,7 +147,6 @@ handler Breaking() of Fragile {
         let empty: List<Int> = List<Int>()
         // Reading past the end answers `None`; asserting it is the fault.
         let boom = get(empty, 7) ?: unreachable!()
-        discard(boom)
     }
 }
 

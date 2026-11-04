@@ -3729,14 +3729,6 @@ messages! {
          `Mut List<{linear}>` or a `Mut Map<K, {linear}>`, whose terminal is `drain`"
     );
 
-    // [linear-discard]
-    /// `discard` of a linear value outside its type's own dischargers.
-    linear_discard_linear = "linear-discard:linear" (arg_ty: &dyn std::fmt::Display, set: &dyn std::fmt::Display) => format!(
-        "`discard` cannot drop a linear value (`{arg_ty}`) here: that is the leak the \
-         obligation exists to prevent — discharge it with {set}, or `discard` it inside \
-         one of those (a fn, or an effect member, declared in the type's own file and \
-         consuming it — for a member, inside any handler's implementation of it)"
-    );
 
     // [linear-generics]
     /// A function value instantiating an unopted generic with a linear type.
@@ -3807,12 +3799,12 @@ messages! {
     linear_obligation_no_discharger = "linear-obligation:no-discharger" (what: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
         "{what} has no discharger: nothing in this file consumes a `{name}` — no fn, and \
          no member of an effect declared here — so the obligation has no legal death; \
-         declare one (e.g. `fn close(x: {name}) -> None => !x {{ discard(x) }}`)"
+         declare one (e.g. `fn close(x: {name}) -> None => !x {{}}`)"
     );
     /// A linear value dropped in statement position.
     linear_obligation_dropped_statement = "linear-obligation:dropped-statement" () =>
         "this expression produces a linear value that is dropped immediately; bind it, \
-         move it onward, or pass it to `discard`";
+         move it onward, or pass it to one of its dischargers";
 
     // [linear-opaque]
     /// A linear intrinsic type nothing in its file consumes.
@@ -5033,7 +5025,7 @@ messages! {
     // [linear-obligation]
     /// An assignment over a local (or state field) that still owes a linear value.
     linear_obligation_assign_drops = "linear-obligation:assign-drops" (x: &dyn std::fmt::Display) => format!(
-        "assigning to `{x}` drops the linear value it still owns; move it onward or `discard({x})` first"
+        "assigning to `{x}` drops the linear value it still owns; move it onward or discharge it first"
     );
     /// A linear value consumed on some of the paths that join, and not others.
     linear_obligation_some_paths = "linear-obligation:some-paths" (name: &dyn std::fmt::Display) => format!(

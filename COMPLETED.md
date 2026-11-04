@@ -144,6 +144,40 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — A discharger's body ends its value, and `discard` is gone (user decision, [linear-group])
+
+- **Decided (user)**: dischargers need not call anything — consuming the
+  value in its own file is explicit enough — so `discard` leaves the
+  language. "I'm a bit nervous about allowing functions to accidentally
+  discharge linear obligations, but let's go with it for now and see if it
+  bites. We can always re-introduce an explicit discharge action later." It
+  reverses 2026-09-12's "a discharger is not an exemption".
+- **What the user had seen was decomposition, not the rule**: `detach<T
+  canbe linear>` needed no `discard` because a field of a `canbe linear` `T`
+  counts as linear, and moving the last linear field out settles a struct;
+  `ignore<T>` did call `discard`, and every discharger of a type with no
+  linear fields (`Tok`, `InStream`, `Checked<Int>`) had to.
+- **Built**:
+  - `Checked::discharges` records, per fn and per handler member, the
+    linear types it discharges (the `own_discharges` the `discard` check
+    used), carried to `FateFacts::discharges`; the ledger skips such a
+    parameter's `GainParams` when it has no linear field. A type with linear
+    fields still owes them: `discard(box)` used to drop a `Box`'s inner
+    `Tok` unreported, and nothing can now.
+  - `discard` removed: the intrinsic, its call-site check and
+    `linear-discard:linear`, both backends' lowering, [linear-discard] (the
+    plain drop is [linear-drop], std's `drop<T>`), and every call site
+    (std's dischargers, tests, examples). The non-linear ones became `drop(…)`.
+- **Found on the way**: the LSP and `salvo analyze` never ran the IR
+  analyses (the flow rules and the linear check) on std's own files, even
+  opened as their own program in `lib/` — only the repository's tests did,
+  so commenting out `ignore`'s `discard` analysed clean. `analyze_full` now
+  includes std's on-disk (shadow) files [std-shadow].
+- **Consequences visible in the tests**: a single-file program's every fn
+  consuming its own linear type is a discharger, so "consumed on some paths
+  only" no longer fires for one (`linear_flow_tests`'s `param_owned`), and
+  `dischargers.sv`'s `vanish(l) => !l {}` is legal.
+
 ### 2026-10-30 — Lazy adaptors wrap obligations, and `detach` ends them (user decisions, [seq-lazy])
 
 - **Decided (user)**: a linear adaptor ends by handing its source back,

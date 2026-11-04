@@ -36,7 +36,6 @@ fn open_file(name: Str) [Console] -> FileHandle => !name {
 // obligation still has to end — `discard` is the terminal, legal only here.
 fn close(handle: FileHandle) [Console] -> None => !handle {
     println("1. close ${handle.name}")
-    discard(handle)
 }
 
 // Two exits, two releases. Leave one out and the compiler says which path

@@ -458,6 +458,7 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
         });
         fate.name_span = f.name.span;
         fate.linear_state = linear_state.clone();
+        fate.discharges = ctx.checked.discharges.get(&ctx.checked.key_at(file_idx, f.name.span)).cloned().unwrap_or_default();
         d.fate = fate;
         d
     };
@@ -626,6 +627,7 @@ fn fn_decl(
     let mut fate = std::mem::take(&mut lower.fate);
     fate.name_span = f.name.span;
     fate.kept_tails = kept_tails;
+    fate.discharges = ctx.checked.discharges.get(&ctx.checked.key_at(file_idx, f.name.span)).cloned().unwrap_or_default();
     errors.extend(lower.finish());
     // [ref-anchor] Handle parameters and the container each names.
     let ref_anchors: Vec<(usize, usize)> = f

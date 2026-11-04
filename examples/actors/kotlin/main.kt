@@ -182,7 +182,6 @@ class Desking(private val room: Int) : Desk {
                 salvo.SalvoSched.replyWire(next_1, "served ${name}", salvo.StrCodec)
             }
             (next == null) -> {
-                kotlin.run { name; Unit }
             }
             else -> {
                 throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:118:9"))
@@ -267,7 +266,6 @@ class Breaking : Fragile {
                 }
             }
         }
-        kotlin.run { boom; Unit }
     }
 }
 

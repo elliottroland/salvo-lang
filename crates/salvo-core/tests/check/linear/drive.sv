@@ -19,7 +19,7 @@ fn next(h: Mut Handle) [] -> Emitted Int | Finished => h: Mut {
     return emitted(v)
 }
 
-fn close(h: Handle) [] -> None => !h { discard(h) }
+fn close(h: Handle) [] -> None => !h {}
 
 // [linear-generics] [linear-group] A generic pass the fn **owns** —
 // `<It canbe linear>`, `=> !it` — may be carrying a resource, and the loop is

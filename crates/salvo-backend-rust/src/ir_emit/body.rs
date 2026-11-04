@@ -3697,10 +3697,6 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let b = self.borrow(&args[1], indent);
             return format!("std::ptr::eq({a}, {b})");
         }
-        if name == "discard" {
-            let v = self.value(&args[0], indent);
-            return if is_copy_ty(&args[0].ty) { format!("{{ let _ = {v}; }}") } else { format!("std::mem::drop({v})") };
-        }
         if let Some(code) = self.actor_intrinsic(e, name, recv, type_args, args, indent) {
             return code;
         }

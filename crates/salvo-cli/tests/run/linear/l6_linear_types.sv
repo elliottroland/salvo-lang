@@ -8,7 +8,7 @@ linear struct FileHandle {
     fd: Int
 }
 
-fn close(x: FileHandle) -> None => !x { discard(x) }
+fn close(x: FileHandle) -> None => !x {}
 
 
 fn open_file(path: Str) [Console] -> FileHandle => !path {
@@ -30,7 +30,6 @@ fn main() [use] -> None {
     let temp = open_file("scratch")
     close(temp)
     let note = "note"
-    discard(note)
     println("done")
 }
 //= stdout

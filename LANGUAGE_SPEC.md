@@ -725,8 +725,10 @@ Conventions:
     stays owed, which is what the spelling says. There is no
     `to_str(Checked<T>)`: it would need the element's own `to_str` as an
     implicit, which waits on recursive implicit resolution (user, 2026-09-26).
-  * `ignore` refuses a **linear** `T`: discarding the wrapper would discharge the
-    inner obligation too, which nothing has looked at. `detach` takes
+  * `ignore` refuses a **linear** `T`: ending the wrapper would end the
+    inner obligation too, which nothing has looked at. (Both are
+    dischargers by consuming a `Checked` in its own file [linear-group];
+    `ignore`'s body is empty.) `detach` takes
     `<T canbe linear>` and hands the obligation on.
 * [col-bounds] **An index-taking operation answers; it does not fail.** An
   out-of-range index is an ordinary outcome in Salvo, reported the way the
@@ -3890,7 +3892,7 @@ Conventions:
     fn that owns the iterator — take a **consuming callback**
     (`end: (x: It) -> None` with `=>[end] !x`) and hand the iterator to it
     after the loop; callers pass the type's own discharger for a linear
-    pass and std's `drop` for a plain one [linear-discard]. (This
+    pass and std's `drop` for a plain one [linear-group]. (This
     replaces the deleted `?Linear<It>` spread.)
 * [iter-mint] `iter` converts a **container** into a fresh iterator
   (`fn iter<T>(list: List<T>) [] -> Mut ListIter<T> => list`), and that is
@@ -10831,16 +10833,32 @@ between endpoints and delivers what arrives into the scheduler.
     declare a member that disposes of another module's linear type.
   * Discharger status attaches to the **member declaration**, so **every
     handler's implementation** of a consuming member is a discharge context
-    [linear-discard] — the real handler, a test double in another module, an
-    interceptor discharging by forwarding into the handler it wraps. An
-    *overloaded* member gives each body its own contract: the
-    `close(InStream)` implementation may discard an `InStream`, not an
-    `OutStream` [effect-member-overload]. A **keeping** member's body may
-    not discard at all.
-  * **A discharger is not an exemption**: inside it, the consumed
-    parameter still owes, and the obligation must terminate on every
-    path — `discard(x)` as the terminal [linear-discard], or a forward
-    into another consuming fn (`shutdown(t) { stop(t) }`).
+    — the real handler, a test double in another module, an interceptor
+    discharging by forwarding into the handler it wraps. An *overloaded*
+    member gives each body its own contract: the `close(InStream)`
+    implementation ends an `InStream`, not an `OutStream`
+    [effect-member-overload]. A **keeping** member's body ends nothing.
+  * **A discharger's body ending ends the value** (user decision
+    2026-10-30, reversing 2026-09-12's "a discharger is not an exemption"):
+    the consumed parameter of the type is settled when the body finishes, on
+    every path, with nothing to write — `fn close(t: Ticket) => !t {}` is a
+    complete discharger, and the body may read the value up to its end.
+    Consuming the value in its own file is the explicit act. Two limits:
+    * **Linear fields still owe.** A discharger of a container (`linear
+      struct Box { item: Ticket }`) moves each linear field out — into
+      their own dischargers, or onward — before it ends; only the
+      container's own obligation is the body's to end. (`discard(box)`
+      dropped the inner obligation unreported, the hole this closed.)
+    * **Only the parameter.** A value of the type the body makes, or a
+      local narrowed from another parameter, owes as anywhere else.
+    * `discard`, which used to be the terminal, is gone (it was the only
+      way to end a value with no linear fields); std's `drop<T>` is the
+      plain drop for an ordinary value. Implemented by the IR ledger
+      (`Checked::discharges` → `FateFacts::discharges`: such a parameter's
+      `GainParams` is skipped when it has no linear field).
+    * The trade-off, accepted to see if it bites (user, 2026-10-30): a
+      same-file fn meant to forward its value that forgets to now ends it
+      silently, where `discard` marked the intent.
   * **A `close` never implies linearity.** Only the modifier does; a bare
     consuming function of a non-linear type is an ordinary function.
     Attaching an obligation on the strength of a function name is what
@@ -10908,22 +10926,13 @@ between endpoints and delivers what arrives into the scheduler.
     decided by the expression's type alone, with no path in it. Each
     obligation errors once: a value reported at a merge or an assignment
     owes nothing after it.
-* [linear-discard] `std.core.discard` —
-  `intrinsic fn discard<T canbe linear>(value: T) -> None` — deliberately => !value
-  drops a value, consuming it. For a **linear** value it is the
-  obligation's **terminal**, legal only inside a *discharger* of the
-  value's type (a same-file consuming fn [linear-group]; user decision
-  2026-09-12, revising 2026-09-08's blanket refusal): anywhere else it is
-  an error naming the discharge set — dropping a handle elsewhere is
-  exactly the leak the obligation exists to prevent. It remains the
-  unrestricted escape hatch for non-linear values (decision L6c), and
-  std's `fn drop<T>(value: T) -> None => !value` is the *passable* form
-  for consuming-callback positions — deliberately without `canbe linear`,
-  so a linear argument is refused by the instantiation ban
-  [linear-generics]. Lowered per
-  backend [platform-intrinsic-fn]: Rust `drop(value)`; Kotlin evaluates and
-  ignores (`(value).let {}`). Failure/panic paths are out of scope
-  until Salvo has such semantics.
+* [linear-drop] std's `fn drop<T>(value: T) -> None => !value` drops an
+  **ordinary** value, consuming it, and is the passable form for
+  consuming-callback positions (`drain(xs, drop)`). Deliberately without
+  `canbe linear`, so a linear argument is refused by the instantiation ban
+  [linear-generics]: a linear value ends only in a discharger
+  [linear-group]. (`std.core.discard`, an intrinsic that also ended a linear
+  value inside its dischargers, was removed 2026-10-30.)
 * [linear-union-arm] **A union arm may be linear** (O-C2, user decision
   2026-09-12): a union value *is* the value — one handle, not a box
   holding one — so `fn open(path: Str) -> Ok InputStream | Err Str` is
@@ -11135,9 +11144,7 @@ between endpoints and delivers what arrives into the scheduler.
     checked under the worst case — including that forwarding an opted
     `T` to an unopted generic is an error (compositional);
   * for bodiless intrinsics the opt-in is a trusted audit claim; std's
-    audit opts in `List`, `Mut List`, `add`, `size`, `discard`
-    (whose declaration is honestly
-    `intrinsic fn discard<T canbe linear>(value: T) -> None`) and — since
+    audit opts in `List`, `Mut List`, `add`, `size` and — since
     2026-09-16 — the take-by-move and terminal surface (`remove_first`,
     `remove_at`, `drain`; `remove`, `replace`, `drain` on a map) and, since
     2026-10-02, the borrowing reads (`get`, `at`, `first` [proj-linear]),
@@ -12469,10 +12476,9 @@ replaced the working document TESTING.md).
   lowering a single generic template could not express. An intrinsic fn a
   backend does not implement, or an argument type it cannot lower, is a
   codegen error [backend-never-wrong].
-  * Two kinds live here. `copy` [copy-fn] and `discard`
-    [linear-discard] dispatch on the argument's *type or shape*, which is
-    the whole reason they are intrinsics, and each backend lowers them
-    itself. Everything else std declares — the `std.core.list`, `std.core.array`
+  * Two kinds live here. `copy` [copy-fn] dispatches on the argument's
+    *type or shape*, which is the whole reason it is an intrinsic, and each
+    backend lowers it itself. Everything else std declares — the `std.core.list`, `std.core.array`
     and `std.core.string` surface — is a table entry.
   * A call's type arguments reach the lowering ([call-type-args]), which
     is how Kotlin's list constructors spell out an element type kotlinc

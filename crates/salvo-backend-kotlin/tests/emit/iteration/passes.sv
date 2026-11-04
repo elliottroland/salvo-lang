@@ -220,7 +220,6 @@ fn next(l: Mut Ticks) -> Emitted Int | Finished => l: Mut {
 }
 
 fn close(l: Ticks) [Console] -> None => !l {
-    discard(l)
     println("closed")
 }
 

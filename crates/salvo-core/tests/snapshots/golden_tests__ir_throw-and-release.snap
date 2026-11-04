@@ -14,10 +14,7 @@ fn open_file@main(lent console: Console; moved name: Str) -> FileHandle@main {
 }
 
 fn close@main(lent console: Console; moved handle: FileHandle@main) -> None {
-  obligation gain-params [handle]
   call println@std.core.console(read console, concat("1. close ", read handle.name))
-  obligation release [handle]
-  call discard@std.core.basic<FileHandle@main>(!read handle)
 }
 
 fn read_size@main(lent console: Console; moved name: Str, lent want: Int) -> Int {
@@ -89,7 +86,7 @@ fn report@main(lent console: Console; lent label: Str, lent config: Str) -> None
       call println@std.core.console(read console, concat("3. ", read label, ": rejected — ", read outcome~2))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:116:5
+      unreachable("unhandled union arm") at main:115:5
     }
   }
 }
@@ -116,7 +113,7 @@ fn main@main() -> None {
       call println@std.core.console(read __handle~2, concat("3. guarded: rejected — ", read guarded~4))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:143:5
+      unreachable("unhandled union arm") at main:142:5
     }
   }
   bind#9 let mixed: Int | Str | Int = try[Int | Str | Int] {
@@ -140,12 +137,12 @@ fn main@main() -> None {
           call println@std.core.console(read __handle~2, concat("3. mixed: length ", call to_str(Int)@std.core.basic(read why~8)))
         }
         arm#2 (else) {
-          unreachable("unhandled union arm") at main:163:13
+          unreachable("unhandled union arm") at main:162:13
         }
       }
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:157:5
+      unreachable("unhandled union arm") at main:156:5
     }
   }
   bind#22 let outer: Int | Str = try[Int | Str] {
@@ -164,7 +161,7 @@ fn main@main() -> None {
         value call parse_port@main("also nope")
       }
       arm#2 (else) {
-        unreachable("unhandled union arm") at main:180:9
+        unreachable("unhandled union arm") at main:179:9
       }
     }
   }
@@ -178,7 +175,7 @@ fn main@main() -> None {
       call println@std.core.console(read __handle~2, concat("3. outer caught: ", read outer~12))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:191:5
+      unreachable("unhandled union arm") at main:190:5
     }
   }
 }

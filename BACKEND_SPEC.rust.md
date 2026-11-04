@@ -753,7 +753,7 @@ the blanket rule:
     *value* wherever a value is needed (`*n`, `*__a1`): in operators, in
     casts, and in an argument to a by-value parameter.
   * An intrinsic argument whose parameter the declaration **consumes**
-    (`=> !value` — `send`, `discard`, `add`, `insert_sorted_by`, `put`,
+    (`=> !value` — `send`, `add`, `insert_sorted_by`, `put`,
     `reduce`'s seed) is a **value**, not a place: the lowering takes
     ownership, so the same rendering an ordinary consuming call gets applies
     (a real partial move stays a move [fate-move-mode], a read the caller
@@ -1755,9 +1755,8 @@ effects" keeps the history).
   (`fn_call`), keyed by the checker-resolved declaration (name + first
   parameter's base type name, so `size(Str)` / `size(List<T>)` /
   `size(T[])` are distinct entries). It is the one place the emitter reads
-  the AST [rs-ir]. `copy` [rs-copy] and `discard` [linear-discard] are the
-  exceptions: they dispatch on the argument's type, so the emitter lowers
-  them itself. An intrinsic with no entry is a codegen error naming it.
+  the AST [rs-ir]. `copy` [rs-copy] is the exception: it dispatches on the
+  argument's type, so the emitter lowers it itself. An intrinsic with no entry is a codegen error naming it.
   Most of std's surface is not intrinsic at all but **platform fns**,
   called through their wrappers (`crate::std_core_list::add_platform::<i32>(&mut xs, 3i32)`,
   [platform-fn]).
@@ -2090,9 +2089,9 @@ effects" keeps the history).
   one is a `move` closure with typed parameters
   (`crate::once_it(move |mut a: i32| -> i32 { a })`). Calling the parameter
   is a plain call (the by-value `call_once` is implicit).
-* [linear-discard] `discard(x)` lowers to `std::mem::drop(x);` on the moved
-  value [platform-intrinsic-fn]; linearity itself is purely static [linear-static] —
-  no `#[must_use]`, no `Drop` impls are generated.
+* [linear-static] Linearity is purely static — no `#[must_use]`, no `Drop`
+  impls are generated, and a discharger's end emits nothing [linear-group]:
+  the parameter goes out of scope as any owned value does.
 * [struct-spread] `P {...p, f: v}` binds the base once and builds the literal
   field by field, moving the fields not written out of it:
 

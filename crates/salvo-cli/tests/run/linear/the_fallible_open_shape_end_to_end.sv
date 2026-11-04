@@ -10,7 +10,6 @@ linear struct InputStream {
 
 fn close(s: InputStream) [Console] -> None => !s {
     println("closed ${s.path}")
-    discard(s)
 }
 
 fn open(path: Str) -> Ok InputStream | Err Str

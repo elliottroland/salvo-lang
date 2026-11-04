@@ -19,7 +19,6 @@
 linear struct Token { id: Int }
 
 fn spend(t: Token) [] -> None => !t {
-    discard(t)
 }
 
 fn mint(id: Int) [] -> Token {
@@ -172,7 +171,6 @@ linear struct Ticket : Hashed<self> by auto {
 }
 
 fn punch(t: Ticket) [] -> None => !t {
-    discard(t)
 }
 
 //~ error[linear-composite:position]

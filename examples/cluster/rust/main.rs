@@ -1025,7 +1025,6 @@ impl Racing {
             let mut out_1 = out.unwrap();
             crate::scheduler::salvo_reply_wire::<String>(out_1, answer);
         } else if out.is_none() {
-            std::mem::drop(answer);
         } else {
             panic!("salvo: unhandled union arm at main:177:9");
         };

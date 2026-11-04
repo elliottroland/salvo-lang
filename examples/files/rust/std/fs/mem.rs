@@ -288,7 +288,6 @@ impl crate::std_stream::__Stateful_Streams for MemFs {
         let mut failed: bool = open.failed;
         let mut source: String = (open.source).clone();
         crate::std_core_map::remove_platform::<i64, crate::std_fs_mem::MemRead>(&mut self.reads, &s.handle, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
-        std::mem::drop(s);
         if failed {
             return crate::unions::Union2::U2(crate::std_core_result::err::<crate::std_core_checked::Checked<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>>(crate::std_core_checked::checked::<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>(crate::unions::Union2::U1(crate::std_stream::InvalidUtf8 { source: source }))));
         };
@@ -318,7 +317,6 @@ impl crate::std_stream::__Stateful_Streams for MemFs {
         let mut open: crate::std_fs_mem::MemWrite = crate::std_fs_mem::mem_write_state(&self.writes, s.handle);
         crate::std_core_map::put_platform::<String, crate::std_core_bytes::Bytes>(&mut self.files, (open.path).clone(), (open.buffer).clone(), &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
         crate::std_core_map::remove_platform::<i64, crate::std_fs_mem::MemWrite>(&mut self.writes, &s.handle, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
-        std::mem::drop(s);
         return crate::unions::Union2::U1(crate::std_core_result::ok::<()>(()));
     }
     fn receive(&mut self, s: crate::std_stream::InStream, reply: crate::scheduler::SalvoReply) {
@@ -327,7 +325,6 @@ impl crate::std_stream::__Stateful_Streams for MemFs {
             let mut got_1 = match got { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
             let mut open: crate::std_fs_mem::MemRead = crate::std_fs_mem::mem_read_state(&self.reads, s.handle);
             crate::std_core_map::remove_platform::<i64, crate::std_fs_mem::MemRead>(&mut self.reads, &s.handle, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
-            std::mem::drop(s);
             (reply).send(std::boxed::Box::<crate::unions::Union3<crate::std_stream::Packet, crate::std_stream::End, crate::std_core_checked::Checked<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>>>::new(crate::unions::Union3::U3(crate::std_core_result::err::<crate::std_core_checked::Checked<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>>(crate::std_core_checked::checked::<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>(crate::unions::Union2::U2(crate::std_stream::StreamFailed { source: (open.source).clone(), message: String::from("read failed") }))))));
             crate::std_core_checked::ignore::<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>(got_1);
             return;
@@ -336,7 +333,6 @@ impl crate::std_stream::__Stateful_Streams for MemFs {
         let mut data: crate::std_core_bytes::Bytes = got_2;
         if (crate::std_core_bytes::size_platform(&data) == 0i32) {
             crate::std_core_map::remove_platform::<i64, crate::std_fs_mem::MemRead>(&mut self.reads, &s.handle, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
-            std::mem::drop(s);
             (reply).send(std::boxed::Box::<crate::unions::Union3<crate::std_stream::Packet, crate::std_stream::End, crate::std_core_checked::Checked<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>>>::new(crate::unions::Union3::U2(crate::std_stream::End {})));
             return;
         };
@@ -372,7 +368,7 @@ pub fn mem_find_newline(data: &crate::std_core_bytes::Bytes, mut from: i32) -> i
                 let mut __pick1_1 = __pick1.unwrap();
                 __pick1_1
             } else {
-                panic!("salvo: unreachable at std.fs.mem:328:35")
+                panic!("salvo: unreachable at std.fs.mem:324:35")
             }
         }) as i32) == 10i32) {
             return i;
@@ -394,7 +390,7 @@ pub fn mem_append(writes: &mut crate::std_core_map::Map<i64, crate::std_fs_mem::
 pub fn mem_read_state(reads: &crate::std_core_map::Map<i64, crate::std_fs_mem::MemRead>, mut handle: i64) -> crate::std_fs_mem::MemRead {
     let mut open: Option<&crate::std_fs_mem::MemRead> = crate::std_core_map::get_platform::<i64, crate::std_fs_mem::MemRead>(reads, &handle, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
     if open.is_none() {
-        panic!("salvo: {} at std.fs.mem:356:9", format!("stream handle {} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]", handle));
+        panic!("salvo: {} at std.fs.mem:352:9", format!("stream handle {} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]", handle));
     };
     let mut open_1 = open.unwrap();
     return crate::std_fs_mem::MemRead { source: (open_1.source).clone(), data: (open_1.data).clone(), at: open_1.at, failed: open_1.failed };
@@ -403,7 +399,7 @@ pub fn mem_read_state(reads: &crate::std_core_map::Map<i64, crate::std_fs_mem::M
 pub fn mem_write_state(writes: &crate::std_core_map::Map<i64, crate::std_fs_mem::MemWrite>, mut handle: i64) -> crate::std_fs_mem::MemWrite {
     let mut open: Option<&crate::std_fs_mem::MemWrite> = crate::std_core_map::get_platform::<i64, crate::std_fs_mem::MemWrite>(writes, &handle, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));
     if open.is_none() {
-        panic!("salvo: {} at std.fs.mem:364:9", format!("stream handle {} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]", handle));
+        panic!("salvo: {} at std.fs.mem:360:9", format!("stream handle {} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]", handle));
     };
     let mut open_1 = open.unwrap();
     return crate::std_fs_mem::MemWrite { path: (open_1.path).clone(), buffer: (open_1.buffer).clone() };
@@ -427,7 +423,7 @@ pub fn mem_read_line(reads: &mut crate::std_core_map::Map<i64, crate::std_fs_mem
             let mut __pick2_1 = __pick2.unwrap();
             __pick2_1
         } else {
-            panic!("salvo: unreachable at std.fs.mem:388:42")
+            panic!("salvo: unreachable at std.fs.mem:384:42")
         }
     };
     let mut next_at: i32 = stop;
@@ -458,7 +454,7 @@ pub fn mem_read_all(reads: &mut crate::std_core_map::Map<i64, crate::std_fs_mem:
             let mut __pick3_1 = __pick3.unwrap();
             __pick3_1
         } else {
-            panic!("salvo: unreachable at std.fs.mem:412:46")
+            panic!("salvo: unreachable at std.fs.mem:408:46")
         }
     };
     let mut text: Option<String> = crate::std_core_bytes::str_of_bytes_platform(&rest);
@@ -492,7 +488,7 @@ pub fn mem_read_bytes(reads: &mut crate::std_core_map::Map<i64, crate::std_fs_me
             let mut __pick4_1 = __pick4.unwrap();
             __pick4_1
         } else {
-            panic!("salvo: unreachable at std.fs.mem:438:48")
+            panic!("salvo: unreachable at std.fs.mem:434:48")
         }
     };
     crate::std_core_map::put_platform::<i64, crate::std_fs_mem::MemRead>(&mut *reads, handle, crate::std_fs_mem::MemRead { source: (source).clone(), data: bytes, at: stop, failed: false }, &mut |__a0: &i64| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&(*__a0), &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &i64, __a1: &i64| ((*__a0) == (*__a1)));

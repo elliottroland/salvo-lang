@@ -13,7 +13,7 @@ linear struct Handle {
     fd: Int
 }
 
-fn close(x: Handle) -> None => !x { discard(x) }
+fn close(x: Handle) -> None => !x {}
 
 fn open_handle(fd: Int) [] -> Handle {
     return Handle { fd: fd }

@@ -18,7 +18,6 @@ fun<T> checked(value: T): Checked<T> {
 }
 
 fun<T> ignore(checked: Checked<T>) {
-    kotlin.run { checked; Unit }
 }
 
 fun<T> detach(checked: Checked<T>): T {

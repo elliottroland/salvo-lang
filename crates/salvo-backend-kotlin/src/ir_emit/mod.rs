@@ -2003,10 +2003,6 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 }
             };
         }
-        if name == "discard" {
-            let v = self.expr(&args[0], indent);
-            return format!("kotlin.run {{ {v}; Unit }}");
-        }
         // [kt-actor] a reply's answer travels encoded.
         if name == "send" && recv == Some("Reply") && args.len() == 2 {
             if let Ty::Named { name: r, args: targs } = args[0].ty.strip_quals() {

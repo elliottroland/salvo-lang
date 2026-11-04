@@ -69,7 +69,6 @@ pub fn issue(console: &crate::std_core_console::Console, mut id: i32, mut seat: 
 
 pub fn redeem(console: &crate::std_core_console::Console, mut ticket: crate::Ticket) {
     crate::std_core_console::println(console, &format!("1. redeemed #{}", ticket.id));
-    std::mem::drop(ticket);
 }
 
 pub fn one_use(console: &crate::std_core_console::Console) {
@@ -108,7 +107,6 @@ pub fn generic_handoff(console: &crate::std_core_console::Console) {
 }
 
 pub fn scrap(mut ticket: crate::Ticket) {
-    std::mem::drop(ticket);
 }
 
 pub fn a_queue_of_tickets(console: &crate::std_core_console::Console) {
@@ -122,7 +120,7 @@ pub fn a_queue_of_tickets(console: &crate::std_core_console::Console) {
         crate::redeem(console, first_1);
     } else if first.is_none() {
     } else {
-        panic!("salvo: unhandled union arm at main:136:5");
+        panic!("salvo: unhandled union arm at main:134:5");
     };
     loop {
         let mut __subject_2: Option<crate::Ticket> = crate::std_core_deque::remove_first_platform::<crate::Ticket>(&mut queue);

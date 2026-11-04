@@ -176,7 +176,7 @@ handler Racing() of Race {
         let out = remove_first(pending)
         when out {
             is Reply<Str> { out.send(answer) }
-            is None { discard(answer) }
+            is None {}
         }
     }
 }

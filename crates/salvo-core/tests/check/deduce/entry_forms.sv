@@ -65,7 +65,6 @@ effect Sink {
 
 handler Bin of Sink {
     fn eat(h: Handle) -> None => !h {
-        discard(h)
     }
 }
 

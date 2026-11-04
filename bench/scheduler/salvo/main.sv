@@ -36,7 +36,6 @@ handler Pinging() [Ponger] of Pinger {
     }
 
     send fn got(n: Int, done: Reply<Int>, v: Int) {
-        discard(v)
         if n <= 1 {
             done.send(0)
         } else {
@@ -104,7 +103,6 @@ handler Alarming() [Timer] of Alarms {
     }
 
     send fn rang(f: Fired) {
-        discard(f)
         left = left - 1
         if left == 0 {
             drain(waiting, (r) -> send(r, 0))
@@ -127,7 +125,6 @@ fn main() [use, spawn] {
     let r1 = waitfor done: Reply<Int> {
         ping.start(1000000, done)
     }
-    discard(r1)
     println("ping-pong ${ms_since(t1)} ms")
 
     let counters: Mut List<eff[Counter]> = Mut List()
@@ -165,6 +162,5 @@ fn main() [use, spawn] {
     let r4 = waitfor done: Reply<Int> {
         alarms.arm(10000, done)
     }
-    discard(r4)
     println("timers ${ms_since(t4)} ms")
 }

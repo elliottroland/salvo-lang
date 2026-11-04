@@ -35,7 +35,6 @@ fn issue(id: Int, seat: Str) [Console] -> Ticket => !seat {
 // same file as the declaration, which is what keeps the escape hatch honest.
 fn redeem(ticket: Ticket) [Console] -> None => !ticket {
     println("1. redeemed #${ticket.id}")
-    discard(ticket)
 }
 
 // ===== 2. the obligation moves =====
@@ -119,7 +118,6 @@ fn generic_handoff() [Console] -> None {
 // A second discharger, and a quiet one: a `drain` callback is a *pure*
 // position, so a discharger that prints cannot fill it.
 fn scrap(ticket: Ticket) [] -> None => !ticket {
-    discard(ticket)
 }
 
 fn a_queue_of_tickets() [Console] -> None {

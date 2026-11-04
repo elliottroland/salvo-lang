@@ -223,7 +223,6 @@ fn drop_entry(e: Entry) [] -> None => !e {
     } elif e is Answered a {
         drop_answered(a)
     } else {
-        discard(e)
     }
 }
 

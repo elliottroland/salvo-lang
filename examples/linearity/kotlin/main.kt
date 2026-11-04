@@ -22,7 +22,6 @@ fun issue(console: salvo.std.core.console.Console, id: Int, seat: String): Ticke
 
 fun redeem(console: salvo.std.core.console.Console, ticket: Ticket) {
     salvo.std.core.console.println(console, "1. redeemed #${ticket.id}")
-    kotlin.run { ticket; Unit }
 }
 
 fun oneUse(console: salvo.std.core.console.Console) {
@@ -61,7 +60,6 @@ fun genericHandoff(console: salvo.std.core.console.Console) {
 }
 
 fun scrap(ticket: Ticket) {
-    kotlin.run { ticket; Unit }
 }
 
 fun aQueueOfTickets(console: salvo.std.core.console.Console) {
@@ -78,7 +76,7 @@ fun aQueueOfTickets(console: salvo.std.core.console.Console) {
         (first == null) -> {
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:136:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:134:5"))
         }
     }
     while (true) {

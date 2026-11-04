@@ -36,12 +36,12 @@ fn a_trailing_lambda_captures_the_rest_of_the_block() {
     let stmts = body_stmts(
         "fn f() [] -> None {\n    \
          let out = map(xs, (e) -> ...)\n    \
-         discard(e)\n    \
-         discard(out)\n\
+         drop(e)\n    \
+         drop(out)\n\
          }\n",
     );
     // The first statement is `let out = map(xs, (e) -> ...)`; its value holds
-    // the lambda, whose body is now the rest of the block (two `discard`s).
+    // the lambda, whose body is now the rest of the block (two `drop`s).
     let Stmt::Let { value, .. } = &stmts[0] else {
         panic!("expected a let, got {:?}", stmts[0]);
     };
@@ -67,7 +67,7 @@ fn two_terminal_lambdas_in_one_statement_are_refused() {
     let (_m, diags) = parse_module(
         "fn f() [] -> None {\n    \
          let x = both(map(a, (p) -> ...), map(b, (q) -> ...))\n    \
-         discard(p)\n\
+         drop(p)\n\
          }\n",
     );
     assert!(

@@ -8,14 +8,13 @@ linear struct FileHandle {
 }
 
 fn close(handle: FileHandle) -> None => !handle {
-    // release the resource
-    discard(handle)
+    // release the resource; consuming `handle` here is what ends it
 }
 ```
 
-The **discharge set** is every function — and every *effect member* — declared in the *type's own file* that consumes a parameter of the type — `close` for a file, `stop` *or* `join` for a thread handle, `remove(cache, entry)` for a pooled one (the extra parameters are ordinary parameters). A `linear struct` whose file has no such function is an error at the struct: the obligation would have no legal death. Leak diagnostics name the whole set. `discard(handle)` is the obligation's terminal, legal **only** inside a discharger — and a discharger gets no exemption: its own body must terminate the obligation on every path, by `discard` or by forwarding into another discharger (`fn shutdown(t: Thread) => !t { stop(t) }`).
+The **discharge set** is every function — and every *effect member* — declared in the *type's own file* that consumes a parameter of the type — `close` for a file, `stop` *or* `join` for a thread handle, `remove(cache, entry)` for a pooled one (the extra parameters are ordinary parameters). A `linear struct` whose file has no such function is an error at the struct: the obligation would have no legal death. Leak diagnostics name the whole set. A discharger's body ending is the obligation's end: the parameter it consumes is settled however the body finishes, and it may read the value up to then. Consuming the value in the type's own file is the explicit act, so a discharger may also forward instead (`fn shutdown(t: Thread) => !t { stop(t) }`). A type with linear fields is the exception: its discharger still moves each linear field out, since only the container's own obligation is the body's to end.
 
-When the discharger is an effect member, the declaration is what carries that status, so **every handler's implementation of it** is a discharge context — the real one, a test double in another module, an interceptor that discharges by forwarding into the handler it wraps. That is how a stream token stays linear while `close` is a member of `Fs`: one declaration, many implementations, all of them allowed to end the obligation and none of them able to end anybody else's (a member consuming an `InStream` may not `discard` an `OutStream`).
+When the discharger is an effect member, the declaration is what carries that status, so **every handler's implementation of it** is a discharge context — the real one, a test double in another module, an interceptor that discharges by forwarding into the handler it wraps. That is how a stream token stays linear while `close` is a member of `Fs`: one declaration, many implementations, all of them ending the obligation and none of them able to end anybody else's (a member consuming an `InStream` does not end an `OutStream` it makes).
 
 Every value of a linear type carries an **obligation**: on every path, it must be *moved onward* before it goes out of scope. Moving is anything the ownership system already recognizes — passing it to a consuming call (`close(handle)`), returning it, spreading it, a move-mode binding handing it to a new owner. Each move transfers the obligation with the value: a function that receives a linear value by move must discharge it in turn; a function that *keeps* (borrows) a linear parameter leaves the obligation with its caller; a derived (fate-linked) variable is an alias and carries no obligation of its own.
 
@@ -44,16 +43,9 @@ fn overwrite() {
 }
 ```
 
-There is no escape hatch: `discard(x)`, which deliberately drops an ordinary value, refuses a linear one and names its `close` — dropping a handle is exactly the leak the obligation exists to prevent.
+There is no escape hatch: `drop(x)`, which deliberately drops an ordinary value, refuses a linear one — dropping a handle is exactly the leak the obligation exists to prevent.
 
-```
-fn deliberate() {
-    let h = open("data.txt")
-    discard(h)                  // ERROR: `discard` cannot drop a linear value; call `close(h)`
-}
-```
-
-The `maybe_leak` shape above — a value that must be released however the block ends — is written out: `close(h)` on each path. The compiler names the path you missed, which is the whole point; there is no construct that discharges an obligation implicitly (`defer` did, and was removed 2026-09-10 for exactly that reason).
+The `maybe_leak` shape above — a value that must be released however the block ends — is written out: `close(h)` on each path. The compiler names the path you missed, which is the whole point; outside a discharger nothing discharges an obligation implicitly (`defer` did, and was removed 2026-09-10 for exactly that reason).
 
 ```
 fn no_leak(flag: Bool) {
@@ -87,6 +79,6 @@ Rules that keep the obligation sound:
   A variadic tail the callee *keeps* cannot take linear values: it is lent to the call and handed back, so a value moved into it would still be owed.
 
 - **Handler state may hold obligations, and the actor owes until it ends.** A queue of parked reply tokens (`waiting: Mut List<Reply<Str>>`) is what the concurrency surface is for, so a handler field may hold a container of obligations. Within one activation the discipline is unchanged — take one out, and either discharge it or put something back — and a member that *returns* with a state field moved out is an error, because it would leave the actor with a hole a later activation would read. This is the one place the promise weakens: static analysis cannot know what an actor holds at an arbitrary future point, so the guarantee becomes "the actor owes until it ends", and what a *death* does with parked obligations is what `watch` reports. A **bare** obligation in a field is refused, naming the container: taking it out would leave that hole and nothing could be put back, so its obligation would have no reachable discharge at all.
-- **Generics opt in per type parameter**: an unconstrained `T` cannot be instantiated with a linear type, but a function may declare `fn hold<T canbe linear>(value: T) -> T` — the same `canbe linear` phrase as on type declarations, now opting the *function's handling* in. Inside the body, `T` values are treated as linear (they must be discharged on every path); in exchange, callers may instantiate `T` with linear types, and an opted `T` forwarded to another generic requires that one to be opted too. The standard library's collection surface is audited and opted where sound (`List`, `Mut List`, `add`, `size`, `remove_first`, `remove_at`, `drain`, and a map's `remove`/`replace`/`drain`), and since containers carry obligations those opt-ins are permissions to *store* as well as to call. `get` and `first` are opted too, since they answer a projection that cannot be consumed, and `copy` refuses linear values outright. `discard`'s declaration is simply `intrinsic fn discard<T canbe linear>(value: T) -> None => !value`. One extra rule: a linear value cannot be passed to a variadic tail the callee keeps (see above).
+- **Generics opt in per type parameter**: an unconstrained `T` cannot be instantiated with a linear type, but a function may declare `fn hold<T canbe linear>(value: T) -> T` — the same `canbe linear` phrase as on type declarations, now opting the *function's handling* in. Inside the body, `T` values are treated as linear (they must be discharged on every path); in exchange, callers may instantiate `T` with linear types, and an opted `T` forwarded to another generic requires that one to be opted too. The standard library's collection surface is audited and opted where sound (`List`, `Mut List`, `add`, `size`, `remove_first`, `remove_at`, `drain`, and a map's `remove`/`replace`/`drain`), and since containers carry obligations those opt-ins are permissions to *store* as well as to call. `get` and `first` are opted too, since they answer a projection that cannot be consumed, and `copy` refuses linear values outright. One extra rule: a linear value cannot be passed to a variadic tail the callee keeps (see above).
 - **Lambdas may read but not swallow**: a lambda can read-capture a linear value (an alias), but a capture the body mutates would move the obligation into the closure — an error.
 - **Purely static, on both backends**: like the rest of the ownership system, linearity is a protocol the compiler enforces; there is no runtime component and no destructor on either backend, and the discipline is identical on the JVM and in Rust.

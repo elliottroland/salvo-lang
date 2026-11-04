@@ -23,7 +23,7 @@ linear struct FileHandle {
     fd: Int
 }
 
-fn close(x: FileHandle) -> None => !x { discard(x) }
+fn close(x: FileHandle) -> None => !x {}
 
 
 fn open_file(n: Int) [Console] -> FileHandle {

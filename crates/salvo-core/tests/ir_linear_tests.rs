@@ -52,7 +52,7 @@ fn ir_linear_check_has_no_false_positives() {
 fn ir_linear_check_catches_a_dropped_linear_arm() {
     let src = "\
 export linear struct Problem { code: Int }\n\
-export fn close(p: Problem) -> None => !p { discard(p) }\n\
+export fn close(p: Problem) -> None => !p {}\n\
 export fn attempt() -> Ok Int | Err Problem { return Err Problem { code: 1 } }\n\
 export fn drops_it() -> Int { return attempt() ?: return 0 }\n";
     let program = salvo_testkit::front::clean_program("kt", &[("main.sv", src)]);
@@ -79,7 +79,7 @@ fn ir_linear_check_catches_a_leak_across_a_throwing_call() {
     let src = "\
 import std.throw.Throw\n\
 export linear struct Handle { fd: Int }\n\
-export fn close(x: Handle) -> None => !x { discard(x) }\n\
+export fn close(x: Handle) -> None => !x {}\n\
 export fn open_handle(fd: Int) -> Handle { return Handle { fd: fd } }\n\
 export fn risky(flag: Bool) [Throw<Str>] -> None { if flag { throw(\"no\") } }\n\
 export fn probe(flag: Bool) [Throw<Str>] -> None {\n\
@@ -124,7 +124,6 @@ fn ir_linear_check_release_before_an_escaping_pick_is_not_a_leak() {
 export struct FsError { code: Int }\n\
 export linear struct Stream { fd: Int }\n\
 export fn close_stream(s: Stream) -> Ok None | Err Checked<FsError> => !s {\n\
-    discard(s)\n\
     return ok(None)\n\
 }\n\
 export fn use_escape(s: Stream) -> None => !s {\n\
@@ -142,7 +141,7 @@ fn ir_linear_check_binding_a_borrowed_field_is_not_a_leak() {
     let src = "\
 export linear struct Res { fd: Int }\n\
 export linear struct Holder { res: Res }\n\
-export fn consume(r: Res) -> None => !r { discard(r) }\n\
+export fn consume(r: Res) -> None => !r {}\n\
 export fn peek(h: Holder) -> Int {\n\
     let r = h.res\n\
     return r.fd\n\
@@ -161,7 +160,7 @@ fn a_linear_binding_takes_ownership_where_it_is_made() {
     let src = "\
 export linear struct Tok { id: Long }\n\
 export linear struct Pair { a: Tok, b: Tok }\n\
-export fn drop_tok(t: Tok) -> None => !t { discard(t) }\n\
+export fn drop_tok(t: Tok) -> None => !t {}\n\
 export fn mkt() -> Tok { return Tok { id: 1 } }\n\
 export fn reassigned_before_the_use() -> None {\n\
     let p = mkt()\n\

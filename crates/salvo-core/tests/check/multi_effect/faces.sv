@@ -58,8 +58,8 @@ fn main() [spawn] -> None {
         timer.after(1, f)
         ctl.advance(1)
     }
-    discard(n)
-    discard(s)
+    drop(n)
+    drop(s)
 }
 
 // The addrs are typed by their own face, which is where least authority comes
@@ -85,7 +85,7 @@ handler Ticking() of Timer {
 fn one_face() [spawn] -> None {
     let timer = spawn Ticking() on pool(1)
     let s = waitfor f: Reply<Str> { timer.after(1, f) }
-    discard(s)
+    drop(s)
 }
 
 // Conformance: a face whose member nobody implements is an error *here*,
@@ -154,7 +154,7 @@ fn work() [Tally, Stats] -> Int {
 
 fn bound_by_one_use() [use] -> None {
     use Counting()
-    discard(work())
+    drop(work())
 }
 
 // A multi-face handler **constructed in a spawn's `with` clause** is refused
@@ -176,7 +176,7 @@ handler Working() [Tally] of Worker {
 fn built_in_a_clause() [spawn] -> None {
     //~ error[actor-spawn-expr:with-several-faces]
     let w = spawn Working() with Counting() on pool(1)
-    discard(w)
+    drop(w)
 }
 
 // One method may implement a same-named member of two faces — when the

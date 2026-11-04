@@ -1,18 +1,19 @@
 // [linear-group] The same-file discharge model: a linear type's dischargers
 // are the fns — and the members of effects — declared in its own file that
-// consume it, and only there may `discard` end one.
+// consume it, and a discharger's body ending ends the value (user decision
+// 2026-10-30, which retired `discard`).
 
 linear struct Lines {
     name: Str
 }
 
-fn close(l: Lines) -> None => !l { discard(l) }
+fn close(l: Lines) -> None => !l {}
 
 fn open_lines(n: Str) -> Lines => !n {
     return Lines { name: n }
 }
 
-// [linear-discard] `drop` (std's uniform consuming callback) deliberately
+// [linear-group] `drop` (std's uniform consuming callback) deliberately
 // lacks `canbe linear`: handing it a linear value is refused by the
 // instantiation ban — `drop` never discharges an obligation.
 fn drop_refuses_a_linear_value() -> None {
@@ -21,16 +22,16 @@ fn drop_refuses_a_linear_value() -> None {
     drop(l)
 }
 
-// [linear-group] A discharger may *forward* instead of discarding: the
-// obligation terminates by moving into another same-file consumer.
+// [linear-group] A discharger may *forward* instead: the obligation
+// terminates by moving into another same-file consumer.
 fn shutdown(l: Lines) -> None => !l {
     close(l)
 }
 
-// [linear-group] A same-file consuming fn that neither discards nor forwards
-// leaks — being a discharger is not an exemption (user decision 2026-09-12:
-// the obligation must terminate on every path).
-//~ error[ir-linear-check:leak-at-exit]
+// [linear-group] A same-file consuming fn that does nothing with it ends it:
+// consuming the value in its own file is the explicit act (user decision
+// 2026-10-30, reversing 2026-09-12's "being a discharger is not an
+// exemption", which `discard` was the escape from).
 fn vanish(l: Lines) -> None => !l {
 }
 
@@ -40,9 +41,9 @@ linear struct Thread {
     id: Int
 }
 
-fn stop(t: Thread) -> None => !t { discard(t) }
+fn stop(t: Thread) -> None => !t {}
 
-fn join(t: Thread) -> None => !t { discard(t) }
+fn join(t: Thread) -> None => !t {}
 
 fn start() -> Thread {
     return Thread { id: 1 }
@@ -63,7 +64,7 @@ linear struct Entry {
     id: Int
 }
 
-fn remove(cache: Mut Cache, e: Entry) -> None => cache: Mut, !e { discard(e) }
+fn remove(cache: Mut Cache, e: Entry) -> None => cache: Mut, !e {}
 
 fn mint() -> Entry {
     return Entry { id: 1 }
@@ -80,8 +81,8 @@ fn a_context_carrying_discharge_works(cache: Mut Cache) -> None => cache: Mut {
 // 2026-09-14, FILE_SYSTEM.md §5.8): a **consuming effect member** declared in
 // the linear type's own file joins the discharge set, so a token whose only
 // `close` is a `Sink` member has a legal death — and every handler's
-// implementation of that member is a discharge context, which is where
-// `discard` terminates the obligation.
+// implementation of that member is a discharge context: its body ending ends
+// the obligation.
 export linear struct Token {
     handle: Int
 }
@@ -93,7 +94,6 @@ export effect Sink {
 
 handler Direct of Sink {
     fn close(t: Token) -> Str => !t {
-        discard(t)
         return "closed"
     }
     fn peek(t: Token) -> Int => t {
@@ -101,20 +101,6 @@ handler Direct of Sink {
     }
 }
 
-// [linear-group] [linear-discard] A **keeping** member is not a discharger:
-// its body may not `discard` what it promised back.
-handler Discarding of Sink {
-    fn close(t: Token) -> Str => !t {
-        discard(t)
-        return "closed"
-    }
-    //~ error[deduce-default:promised-back-moved]
-    fn peek(t: Token) -> Int => t {
-        //~ error[linear-discard:linear]
-        discard(t)
-        return 0
-    }
-}
 
 // [linear-group] A leak still leaks, and the hint names the *member* as the
 // terminal.
@@ -125,7 +111,7 @@ fn a_leak_names_the_member_as_the_discharge() [Sink] -> Int {
 }
 
 // [linear-group] An **overloaded** consuming member gives each of its bodies
-// its *own* contract: `close(InStream)` may discard an `InStream`, not an
+// its *own* contract: `close(InStream)` ends an `InStream`, not an
 // `OutStream` — the fs shape exactly [effect-member-overload].
 linear struct InStream {
     handle: Int
@@ -142,14 +128,11 @@ effect Fs {
 
 handler MemFs of Fs {
     fn close(s: InStream) -> Str => !s {
-        let other = OutStream { handle: 9 }
-        //~ error[linear-discard:linear]
-        discard(other)
-        discard(s)
+        //~ error[ir-linear-check:leak-at-exit]
+        let _other = OutStream { handle: 9 }
         return "in"
     }
     fn close(s: OutStream) -> Str => !s {
-        discard(s)
         return "out"
     }
 }
@@ -162,7 +145,6 @@ import main.Token
 
 handler Fake of Sink {
     fn close(t: Token) -> Str => !t {
-        discard(t)
         return "faked"
     }
     fn peek(t: Token) -> Int => t {
@@ -179,7 +161,6 @@ export linear struct Ticket {
 }
 
 export fn close(t: Ticket) -> None => !t {
-    discard(t)
 }
 
 // FILE: office.sv
@@ -190,9 +171,8 @@ effect Desk {
 }
 
 handler Clerk of Desk {
+    //~ error[ir-linear-check:leak-at-exit]
     fn take(t: Ticket) -> None => !t {
-        //~ error[linear-discard:linear]
-        discard(t)
     }
 }
 
@@ -206,7 +186,6 @@ export linear struct Handle {
 }
 
 export fn close(h: Handle) -> None => !h {
-    discard(h)
 }
 
 export fn open(fd: Int) -> Handle {
@@ -219,7 +198,6 @@ export linear struct Handle {
 }
 
 export fn close(h: Handle) -> None => !h {
-    discard(h)
 }
 
 export fn open(fd: Int) -> Handle {

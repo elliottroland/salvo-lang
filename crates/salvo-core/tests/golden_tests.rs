@@ -55,7 +55,7 @@ fn example_facts_are_stable() {
 fn dump_inlines_a_linear_leak_and_still_produces_the_ir() {
     let src = "\
 export linear struct Problem { code: Int }\n\
-export fn close(p: Problem) -> None => !p { discard(p) }\n\
+export fn close(p: Problem) -> None => !p {}\n\
 export fn attempt() -> Ok Int | Err Problem { return Err Problem { code: 1 } }\n\
 export fn drops_it() -> Int { return attempt() ?: return 0 }\n";
     let program = salvo_testkit::front::clean_program("kt", &[("main.sv", src)]);

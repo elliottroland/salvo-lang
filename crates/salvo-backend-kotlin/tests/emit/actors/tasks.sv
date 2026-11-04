@@ -29,7 +29,7 @@ handler Desking() of Desk {
         let next = remove_first(waiting)
         when next {
             is Reply<Str> { next.send("served ${name}") }
-            is None { discard(name) }
+            is None {}
         }
     }
 
@@ -336,7 +336,6 @@ handler Clienting() of Client {
     }
 
     send fn answered(word: Str) {
-        discard(word)
     }
 }
 

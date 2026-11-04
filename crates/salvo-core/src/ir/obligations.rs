@@ -43,6 +43,7 @@ pub fn annotate(program: &mut Program, symbols: &Symbols) {
 
 fn annotate_fn(f: &mut FnDecl, symbols: &Symbols) {
     let own: HashSet<String> = f.type_params.iter().filter(|p| p.canbe_linear).map(|p| p.name.clone()).collect();
+    let discharges = f.fate.discharges.clone();
     let Some(body) = &mut f.body else { return };
     // [ref-handle] Parameters not moved in (lent/kept) are borrows: a narrow
     // of one carries no obligation, however linear its type.
@@ -65,6 +66,10 @@ fn annotate_fn(f: &mut FnDecl, symbols: &Symbols) {
     let gained: Vec<ObligationRef> = declared
         .iter()
         .filter(|p| p.mode == PassMode::Moved && !borrowed.contains(&p.local.0) && a.is_linear(&p.ty))
+        // [linear-group] A discharger ends the value it consumes: the
+        // parameter owes only its linear fields, which must still be moved
+        // out (user decision 2026-10-30, replacing `discard`).
+        .filter(|p| !discharges_whole(&discharges, &p.ty, &a))
         .map(|p| a.ref_of(Place { root: p.local.clone(), steps: Vec::new() }, &p.ty))
         .collect();
     if !gained.is_empty() {
@@ -431,4 +436,13 @@ fn walk_expr(e: &Expr, f: &mut impl FnMut(&Expr)) {
         ExprKind::Switch { subject, .. } => walk_expr(subject, f),
         _ => {}
     }
+}
+
+/// [linear-group] Whether a discharger's consumed parameter of type `ty` is
+/// ended by the body itself: its type is one the fn discharges and it has no
+/// linear field left to move out (a linear field still owes, and is settled
+/// by decomposition as anywhere else).
+fn discharges_whole(discharges: &[String], ty: &Ty, a: &Annotator<'_, '_>) -> bool {
+    let Ty::Named { name, .. } = ty.strip_quals() else { return false };
+    discharges.iter().any(|d| d == name) && crate::linear::linear_fields(a.symbols, a.own, ty).is_empty()
 }

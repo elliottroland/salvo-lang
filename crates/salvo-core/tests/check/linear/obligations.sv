@@ -20,7 +20,7 @@ linear struct FileHandle {
     fd: Int
 }
 
-fn close(x: FileHandle) -> None => !x { discard(x) }
+fn close(x: FileHandle) -> None => !x {}
 
 // [linear-composite] [linear-group] `Box2` is a `linear struct` with a
 // concrete linear field — legal since 2026-09-12: the container carries
@@ -30,13 +30,14 @@ linear struct Box2 {
     item: FileHandle
 }
 
-fn close(x: Box2) -> None => !x { discard(x) }
+// A discharger of a container still moves its linear fields out.
+fn close(x: Box2) -> None => !x { close(x.item) }
 
 linear struct Conn {
     tags: Mut List<Int>
 }
 
-fn close(x: Conn) -> None => !x { discard(x) }
+fn close(x: Conn) -> None => !x {}
 
 fn open_file(path: Str) -> FileHandle => !path {
     return FileHandle {fd: size(path)}
@@ -100,7 +101,7 @@ fn ok_pass() {
     close_file(h)
 }
 
-fn ok_discard() {
+fn ok_close() {
     let h = open_file("data.txt")
     close(h)
 }
@@ -157,7 +158,7 @@ linear struct FileHandle {
     fd: Int
 }
 
-fn close(x: FileHandle) -> None => !x { discard(x) }
+fn close(x: FileHandle) -> None => !x {}
 
 //~ error[deduce-default:kept-by-default-moved]
 fn hold<T>(value: T) -> T {
@@ -168,8 +169,7 @@ fn generic_refused() {
     let h = FileHandle {fd: 1}
     //~ error[linear-generics:not-opted]
     let kept = hold(h)
-    //~ error[linear-discard:linear]
-    discard(kept)
+    close(kept)
 }
 
 // [linear-container] A constructor consumes its tail, so a list of
@@ -194,7 +194,7 @@ linear struct FileHandle {
     fd: Int
 }
 
-fn close(x: FileHandle) -> None => !x { discard(x) }
+fn close(x: FileHandle) -> None => !x {}
 
 fn open_file(n: Int) -> FileHandle {
     return FileHandle {fd: n}

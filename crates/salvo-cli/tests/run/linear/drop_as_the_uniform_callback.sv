@@ -1,4 +1,4 @@
-// [fn-value-select] [linear-discard] `drop` as the uniform callback
+// [fn-value-select] [linear-group] `drop` as the uniform callback
 //
 // Compile-and-run data ([test-run-data]), moved from the codegen tests.
 
@@ -21,7 +21,7 @@ fn next(h: Mut Handle) -> Emitted Int | Finished => h: Mut {
     return emitted(v)
 }
 
-fn close(h: Handle) -> None => !h { discard(h) }
+fn close(h: Handle) -> None => !h {}
 
 struct Counter : Next<self, Int> canbe Mut {
     at: Int

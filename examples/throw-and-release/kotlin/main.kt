@@ -20,7 +20,6 @@ fun openFile(console: salvo.std.core.console.Console, name: String): FileHandle 
 
 fun close(console: salvo.std.core.console.Console, handle: FileHandle) {
     salvo.std.core.console.println(console, "1. close ${handle.name}")
-    kotlin.run { handle; Unit }
 }
 
 fun readSize(console: salvo.std.core.console.Console, name: String, want: Int): Int {
@@ -90,7 +89,7 @@ fun report(console: salvo.std.core.console.Console, label: String, config: Strin
             salvo.std.core.console.println(console, "3. ${label}: rejected — ${outcome_2}")
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:116:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:115:5"))
         }
     }
 }
@@ -120,7 +119,7 @@ fun main() {
             salvo.std.core.console.println(__handle_2, "3. guarded: rejected — ${guarded_4}")
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:143:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:142:5"))
         }
     }
     val mixed: Union2<Int, Union2<String, Int>> = try {
@@ -151,12 +150,12 @@ fun main() {
                     salvo.std.core.console.println(__handle_2, "3. mixed: length ${why_8}")
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:163:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:162:13"))
                 }
             }
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:157:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:156:5"))
         }
     }
     val outer: Union2<Int, String> = try {
@@ -177,7 +176,7 @@ fun main() {
                 salvo.main.parsePort("also nope")
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:180:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:179:9"))
             }
         })
     } catch (__signal: ThrowSignal) {
@@ -193,7 +192,7 @@ fun main() {
             salvo.std.core.console.println(__handle_2, "3. outer caught: ${outer_12}")
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:191:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:190:5"))
         }
     }
 }

@@ -31,7 +31,7 @@ Linear-Types.md. LANGUAGE_SPEC.md rules relied on, each verified present:
 [qual-constructive] [qual-ctor-fn] [qual-field-override] [cmp-auto] [cmp-groups]
 [fn-attached] [group-obligation] [implicit-group] [implicit-resolve]
 [implicit-fn-only] [interp-struct] [interp-to-str] [type-checked]
-[linear-obligation] [linear-discard] [throw] [throw-try] [effect-not-data]
+[linear-obligation] [linear-group] [throw] [throw-try] [effect-not-data]
 [platform-effect] [platform-handler] [platform-intrinsic-std-only] [net-wire-format]
 [net-noremote] [actor-protocol-hash] [backend-never-wrong] [mod-export] [name-casing]
 [col-hashed-ordered]. Backend labels cited as representational facts only:

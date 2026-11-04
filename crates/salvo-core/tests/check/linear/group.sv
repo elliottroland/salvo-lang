@@ -3,8 +3,8 @@
 // obligation is discharged, because a same-file discharger must be supplied.
 //
 // Two things this settles that the `canbe linear` spelling could not: a
-// `close` is **required** of anything claiming to be linear, and `discard` no
-// longer discharges — dropping a handle is the leak the obligation exists to
+// `close` is **required** of anything claiming to be linear, and nothing else
+// discharges — dropping a handle is the leak the obligation exists to
 // prevent. The presence of a `close` never implies linearity either; only the
 // marker does.
 
@@ -12,14 +12,16 @@ linear struct Lines {
     name: Str
 }
 
-fn close(l: Lines) -> None => !l { discard(l) }
+fn close(l: Lines) -> None => !l {}
 
 fn open_lines(n: Str) -> Lines => !n {
     return Lines { name: n }
 }
 
 // The `close` implementation is where a linear value legitimately dies — the
-// one place linearity would otherwise make impossible to write.
+// one place linearity would otherwise make impossible to write. Consuming it
+// in its own file is enough: the body ending ends it (user decision
+// 2026-10-30, replacing `discard`).
 fn declaring_the_obligation_with_its_close_is_clean() -> None {
     let l = open_lines("a")
     close(l)
@@ -32,20 +34,7 @@ linear struct Leaky {
     fd: Int
 }
 
-// [linear-discard] The rule that changed: `discard` is no longer the escape
-// hatch for a linear value, and the diagnostic names what is.
-fn discard_cannot_drop_a_linear_value() -> None {
-    let l = open_lines("a")
-    //~ error[linear-discard:linear]
-    discard(l)
-}
-
-// It still drops a non-linear one: that is what it is for now.
-fn discard_still_drops_a_plain_value() -> None {
-    discard("note")
-}
-
-// The leak diagnostic names `close`, not `discard`.
+// The leak diagnostic names the discharger, `close`.
 fn a_leak_names_close_as_the_discharge() -> None {
     //~ error[ir-linear-check:leak-at-exit]
     let _l = open_lines("a")
@@ -59,7 +48,7 @@ struct Plain {
     fd: Int
 }
 
-fn close(p: Plain) -> None => !p { discard(p) }
+fn close(p: Plain) -> None => !p {}
 
 fn make_plain() -> Plain {
     return Plain { fd: 1 }

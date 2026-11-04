@@ -368,7 +368,6 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun close__InStream(s: salvo.std.stream.InStream): Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> {
         val r: Union2<Unit, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = __dep0.rawCloseRead(s.handle)
-        kotlin.run { s; Unit }
         return when {
             (r is Union2.U1<*, *>) -> {
                 val r_1: Unit = ((r as Union2.U1<*, *>).value as Unit)
@@ -379,14 +378,13 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:312:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:311:9"))
             }
         }
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun receive(s: salvo.std.stream.InStream, reply: salvo.SalvoReply) {
         val handle: Long = s.handle
-        kotlin.run { s; Unit }
         __dep0.rawReceive(handle, kotlin.run { val __c0 = reply; val __c1 = handle; salvo.SalvoSched.mintTask(salvo.SalvoSched.currentPool(), { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union3Codec(salvo.BytesCodec, salvo.std.stream.__Codec_End, salvo.Union2Codec(salvo.std.stream.__Codec_InvalidUtf8, salvo.std.stream.__Codec_StreamFailed))) }) { __v -> salvo.std.stream.host.hostReceived(__c0, __c1, __v as Union3<salvo.platform.std.core.bytes.Bytes, salvo.std.stream.End, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>) } })
     }
     override fun fromBytes(data: salvo.platform.std.core.bytes.Bytes): salvo.std.stream.InStream {
@@ -417,14 +415,13 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:350:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:348:9"))
             }
         }
     }
     @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
     override fun close__OutStream(s: salvo.std.stream.OutStream): Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> {
         val r: Union2<Unit, Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = __dep0.rawCloseWrite(s.handle)
-        kotlin.run { s; Unit }
         return when {
             (r is Union2.U1<*, *>) -> {
                 val r_1: Unit = ((r as Union2.U1<*, *>).value as Unit)
@@ -435,7 +432,7 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:359:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:356:9"))
             }
         }
     }

@@ -77,14 +77,6 @@ export intrinsic fn copy<T>(value: proj T) [] -> T => value
 // `remove(cache, handle)` for a pooled handle). A `linear struct` with no
 // discharger is an error at the struct: the obligation would have no
 // legal death.
-//
-// `discard` is the obligation's **terminal**: inside a discharger — and
-// only there — `discard(value)` ends the obligation. Everywhere else,
-// dropping a handle is exactly the leak linearity exists to prevent, and
-// a discharger's own body must terminate the obligation on every path
-// (a `discard`, or a forward into another consuming fn).
-// @compilerrules [linear-group, linear-discard]
-export intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value
 
 // The obligation "this type has a text form". Declaring
 // `: ToStr<self>` on a type is a *convenience*: it does not enable

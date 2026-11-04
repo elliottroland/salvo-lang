@@ -21,7 +21,6 @@ fn open_handle(fd: Int) [] -> Handle {
 }
 
 fn close_handle(h: Handle) [] -> None => !h {
-    discard(h)
 }
 
 fn note(text: Str) [] -> None => text {}

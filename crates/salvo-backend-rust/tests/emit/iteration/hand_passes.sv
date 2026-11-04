@@ -317,7 +317,7 @@ fn next(h: Mut Handle) -> Emitted Int | Finished => h: Mut {
     return emitted(v)
 }
 
-fn close(h: Handle) -> None => !h { discard(h) }
+fn close(h: Handle) -> None => !h {}
 
 // Owns the pass and takes its discharge as a consuming callback (user
 // decision 2026-09-12: no implicit discharge sites — the loop drives in

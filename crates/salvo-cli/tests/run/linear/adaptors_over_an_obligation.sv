@@ -25,7 +25,6 @@ fn next(l: Mut Ticks) [] -> Emitted Int | Finished => l: Mut {
 
 fn close(l: Ticks) [Console] -> None => !l {
     println("closed at ${l.at}")
-    discard(l)
 }
 
 fn main() [use] {

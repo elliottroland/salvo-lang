@@ -10,7 +10,6 @@
 linear struct Ticket { id: Int }
 
 fn spend(t: Ticket) [] -> None => !t {
-    discard(t)
 }
 
 // Reads every ticket, then ends the array.

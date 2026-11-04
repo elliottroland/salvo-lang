@@ -34,11 +34,9 @@ handler MemTape of Tape {
         return size(text)
     }
     fn close(s: InTape) -> Str => !s {
-        discard(s)
         return "closed in"
     }
     fn close(s: OutTape) -> Str => !s {
-        discard(s)
         return "closed out"
     }
 }

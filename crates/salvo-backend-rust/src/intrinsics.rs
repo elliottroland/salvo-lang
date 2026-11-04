@@ -44,9 +44,9 @@ pub enum Spread {
 /// `size(T[])` are three different lowerings.
 ///
 /// `None` means this backend has no lowering, which the caller reports.
-/// `copy` and `discard` are absent deliberately: they dispatch on the
+/// `copy` is absent deliberately: it dispatches on the
 /// argument's *type* rather than the declaration, so the emitter lowers
-/// them itself ([rs-copy], [linear-discard]).
+/// it itself ([rs-copy]).
 pub fn fn_call(
     name: &str,
     recv: Option<&str>,

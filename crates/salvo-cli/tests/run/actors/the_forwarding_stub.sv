@@ -116,7 +116,6 @@ fn sum_down(xs: Mut List<Int>) [] -> Int => xs: Mut {
         total = total + n
         n
     } else { 0 }
-    discard(last)
     return total
 }
 

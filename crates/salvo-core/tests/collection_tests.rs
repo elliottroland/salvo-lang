@@ -54,7 +54,7 @@ fn a_fn_typed_local_outranks_a_same_named_effect_member() {
 fn a_linear_element_is_refused_by_the_instantiation_ban() {
     let ids = error_ids(
         "linear struct Handle {\n    id: Int\n}\n\n\
-         fn close(h: Handle) -> None => !h {\n    discard(h)\n}\n\n\
+         fn close(h: Handle) -> None => !h {\n}\n\n\
          fn probe() -> Int {\n    let h = Handle { id: 1 }\n    let s = Set(h)\n    \
          return size(s)\n}\n",
     );

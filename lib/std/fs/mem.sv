@@ -235,7 +235,6 @@ export handler MemFs of Fs, Streams {
         let failed = copy(open.failed)
         let source = copy(open.source)
         remove(reads, s.handle)
-        discard(s)
         if failed {
             // The recorded read failure, reported where the host reports it.
             return err(checked<StreamError>(InvalidUtf8 { source: source }))
@@ -253,7 +252,6 @@ export handler MemFs of Fs, Streams {
         if got is Err {
             let open = mem_read_state(reads, s.handle)
             remove(reads, s.handle)
-            discard(s)
             reply.send(err(checked<StreamError>(StreamFailed { source: copy(open.source), message: "read failed" })))
             ignore(got)
             return None
@@ -261,7 +259,6 @@ export handler MemFs of Fs, Streams {
         let data: Bytes = got
         if size(data) == 0 {
             remove(reads, s.handle)
-            discard(s)
             reply.send(End {})
             return None
         }
@@ -302,7 +299,6 @@ export handler MemFs of Fs, Streams {
         let open = mem_write_state(writes, s.handle)
         put(files, copy(open.path), copy(open.buffer))
         remove(writes, s.handle)
-        discard(s)
         return ok(None)
     }
 }

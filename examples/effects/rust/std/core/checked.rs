@@ -20,7 +20,6 @@ pub fn checked<T>(mut value: T) -> crate::std_core_checked::Checked<T> {
 }
 
 pub fn ignore<T: Clone>(mut checked: crate::std_core_checked::Checked<T>) {
-    std::mem::drop(checked);
 }
 
 pub fn detach<T>(mut checked: crate::std_core_checked::Checked<T>) -> T {

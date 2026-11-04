@@ -134,7 +134,6 @@ export fn plain() [] -> Int {
 }
 
 export fn close(t: Ticket) [] -> None => !t {
-    discard(t)
 }
 
 // FILE: main.sv

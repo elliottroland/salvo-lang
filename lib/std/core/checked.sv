@@ -26,7 +26,6 @@ export fn checked<T canbe linear>(value: T) -> Checked<T> => !value {
 // A linear [T] is refused here, because discarding the wrapper would discharge
 // the *inner* obligation too, which nothing has looked at.
 export fn ignore<T>(checked: Checked<T>) => !checked {
-    discard(checked)
 }
 
 // Discharges the obligation and answers the value inside, which is what a

@@ -61,7 +61,7 @@ test "drain consumes the deque, handing every element over" {
     let d: Mut Deque<Str> = mut_deque_of("b", "c")
     add_first(d, "a")
     expect_eq(to_str(d), "[a, b, c]")
-    drain(d, (x) -> discard(x))
+    drain(d, drop)
 }
 
 test "a proven index reads and writes a deque, and growth keeps the claim" {

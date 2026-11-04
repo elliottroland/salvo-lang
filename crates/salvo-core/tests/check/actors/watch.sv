@@ -43,7 +43,7 @@ fn watch_takes_an_addr_and_a_reply_token() [use, spawn] {
     let e = waitfor out: Reply<Exit> {
         watch(c, out)
     }
-    discard(e.reason)
+    drop(e.reason)
 }
 
 // [actor-watch] [linear-obligation] The registration *is* the obligation:
@@ -54,9 +54,9 @@ fn a_watch_token_that_is_never_registered_leaks() [use, spawn] {
     let c = spawn Counting() with Printing() on pool(1)
     //~ error[ir-linear-check:leak-at-exit]
     let e = waitfor out: Reply<Exit> {
-        discard(c)
+        drop(c)
     }
-    discard(e.reason)
+    drop(e.reason)
 }
 
 // [actor-watch] [actor-spawn-effect] Watching is a `spawn`-capability

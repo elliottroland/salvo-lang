@@ -268,7 +268,6 @@ actor effect Ask {
 send fn answer(peer: eff[Peer], back: eff[Counter], n: Int) => !peer, !back {
     //~ warning[actor-deadlock-cycle:send-cycle]
     peer.ping(back)
-    discard(n)
 }
 
 handler Peering(counter: eff[Counter]) of Peer {
@@ -276,7 +275,6 @@ handler Peering(counter: eff[Counter]) of Peer {
 
     send fn ping(back: eff[Counter]) {
         counter.bump(1)
-        discard(back)
     }
 }
 
@@ -284,7 +282,6 @@ handler Working(peer: eff[Peer], back: eff[Counter]) [Ask] of Counter {
     mailbox { capacity: 1 }
 
     send fn bump(n: Int) {
-        discard(n)
     }
     send fn total(out: Reply<Int>) {
         ask(replyto answer(copy(peer), copy(back)))
@@ -336,7 +333,6 @@ actor effect Ask {
 
 send fn answer(peer: eff[Peer], back: eff[Counter], n: Int) => !peer, !back {
     peer.ping(back)
-    discard(n)
 }
 
 handler Peering(counter: eff[Counter]) of Peer {
@@ -344,7 +340,6 @@ handler Peering(counter: eff[Counter]) of Peer {
 
     send fn ping(back: eff[Counter]) {
         counter.bump(1)
-        discard(back)
     }
 }
 
@@ -352,11 +347,10 @@ handler Working(peer: eff[Peer], back: eff[Counter]) [Ask] of Counter {
     mailbox { capacity: 1 }
 
     send fn bump(n: Int) {
-        discard(n)
     }
     send fn total(out: Reply<Int>) {
-        discard(copy(peer))
-        discard(copy(back))
+        drop(copy(peer))
+        drop(copy(back))
         out.send(0)
     }
 }

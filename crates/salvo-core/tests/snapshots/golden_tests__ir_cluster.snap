@@ -178,7 +178,6 @@ impl Racing() of Race@main stateful {
         call send@std.core.actor<Str>(!read out~1, !read answer)
       }
       arm#1 (none) {
-        call discard@std.core.basic<Str>(!read answer)
       }
       arm#2 (else) {
         unreachable("unhandled union arm") at main:177:9

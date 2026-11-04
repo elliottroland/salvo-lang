@@ -1391,6 +1391,13 @@ pub struct Checked {
     /// lent, or lent mutably. Recomputed every check, from `deductions` and
     /// `param_mutations`.
     pub param_modes: HashMap<Key, Vec<crate::param_mode::PassMode>>,
+    /// [linear-group] The linear types each **discharger** ends, by the fn's
+    /// (or handler member's) name: the types of the consumed parameters
+    /// declared in the fn's own file — or, for a member, the types the effect
+    /// member it implements consumes. The IR ledger settles such a parameter
+    /// when the body ends, once its linear fields are moved out (user
+    /// decision 2026-10-30, replacing `discard`). Keys [type-identity].
+    pub discharges: HashMap<Key, Vec<String>>,
     /// [backend-core-layers] std's declarations, at their names, that *are*
     /// a primitive the backends spell natively (the pipeline record D3.3(a), (b)):
     /// recomputed every check.
@@ -3264,12 +3271,11 @@ struct Checker<'p, 'r> {
     /// [linear-group] The parameter name of the designated `close` currently
     /// being checked, if this fn is one: its obligation is discharged by
     /// being closed.
-    /// [linear-group] The linear types the *current fn* may `discard`: it
-    /// is a **discharger** of each — declared in the same file as the type,
-    /// consuming a parameter of it (user decision 2026-09-12; replaces the
-    /// designated-`close` exemption). Inside the fn the obligation still
-    /// owes until terminated on every path — `discard` or a forward into
-    /// another consuming fn.
+    /// [linear-group] The linear types the *current fn* **discharges**:
+    /// declared in the same file as the type, consuming a parameter of it
+    /// (user decision 2026-09-12). The body ending ends such a parameter,
+    /// once its linear fields are moved out (user decision 2026-10-30, which
+    /// retired `discard`); recorded as `Checked::discharges` for the ledger.
     own_discharges: std::collections::HashSet<String>,
     /// Whether the current fn has a *written* deduction list: written
     /// contracts never gain claims — a kept parameter stays kept and
@@ -3964,10 +3970,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             })
             .unwrap_or_default();
         self.own_contract = self.effective_contract(Some(key), f);
-        // [linear-group] Is this fn a **discharger**? For each
-        // consumed parameter whose type is a linear struct
-        // declared in this same file, `discard` becomes legal
-        // in this body (user decision 2026-09-12).
+        // [linear-group] Is this fn a **discharger**? Each consumed
+        // parameter whose type is a linear struct declared in this same
+        // file is ended by the body (user decisions 2026-09-12, 2026-10-30).
         if body {
             self.own_discharges = f
                 .params
@@ -3993,10 +3998,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .is_some_and(|c| {
                             c.iter().any(|d| d.param == p.name.name && !d.kept)
                         });
-                    // [type-identity] By key: `discard` compares the value's type.
+                    // [type-identity] By key, as the IR's types carry it.
                     consumed.then_some(key)
                 })
                 .collect();
+            if !self.own_discharges.is_empty() {
+                let mut types: Vec<String> = self.own_discharges.iter().cloned().collect();
+                types.sort();
+                let at = self.key(f.name.span);
+                self.out.discharges.insert(at, types);
+            }
         }
         // [actor-free-send-fn] The send kind's refusal list, at the
         // declaration where the author is deciding.
@@ -4221,15 +4232,21 @@ impl<'p, 'r> Checker<'p, 'r> {
             };
             let member_state: &[ast::FieldDecl] =
                 if facade { &[] } else { &h.state };
-            // [linear-group] [linear-discard] A handler member
+            // [linear-group] A handler member
             // implementing a **consuming** effect member is a
             // discharge context: discharger status attaches to
             // the *member declaration*, so every handler's body
-            // for it may terminate the obligation with `discard`
+            // for it ends the obligation it consumes
             // — wherever the handler lives, including a test
             // double in another module (user decision
             // 2026-09-14, entailed by stream ops being members).
             let context = self.member_discharge_context(h, f);
+            if !context.is_empty() {
+                let mut types: Vec<String> = context.iter().cloned().collect();
+                types.sort();
+                let at = self.key(f.name.span);
+                self.out.discharges.insert(at, types);
+            }
             let saved_discharges =
                 std::mem::replace(&mut self.own_discharges, context);
             // [fate-move-mode] A member's clause is written, and
@@ -14717,9 +14734,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [linear-generics] Whether values of this struct *can* owe: the
     /// `linear struct` marker, or a conditional container (`canbe linear`
     /// reaching a field). What gates being a discharger — a same-file
-    /// consuming fn of a `Box<T canbe linear>` may `discard` its parameter
-    /// whatever the instantiation, since a plain instantiation's discard
-    /// is an ordinary drop.
+    /// consuming fn of a `Box<T canbe linear>` ends its parameter whatever
+    /// the instantiation (its linear fields still move out).
     fn linear_capable(&self, name: &str) -> bool {
         if self.opaque_linear(name) {
             return true;
@@ -14747,11 +14763,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// phase 4's `close(s: InStream)` is an `Fs` member, not a free fn, and
     /// `lib/std/core/fs.sv` declares the token and the effect together.
     ///
-    /// Any of these is a legal terminal for the obligation. `discard` is
-    /// legal only inside one of them — and for a member that means inside
-    /// **every handler's implementing body**, wherever the handler lives,
-    /// since discharger status attaches to the *member declaration*
-    /// [linear-discard].
+    /// Any of these is a legal terminal for the obligation, and its body
+    /// ending ends it — for a member, **every handler's implementing body**,
+    /// wherever the handler lives, since discharger status attaches to the
+    /// *member declaration*.
     fn discharge_set(&self, type_name: &str) -> Vec<String> {
         crate::linear::discharge_set(self.symbols, self.resolution, self.scope, self.inferred, type_name)
     }
@@ -15003,7 +15018,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         && matches!(d.kind, ast::DeductionKind::Moved)
                 });
                 // [type-identity] By key, resolved where the member is
-                // declared: `discard` compares the value's type.
+                // declared: the ledger compares the value's type.
                 moved.then_some(key)
             })
             .collect()
@@ -30915,27 +30930,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             // takes the unit value, not an optional.
             self.note_none_unit(args[i], &pt);
         }
-        // [linear-discard] `discard` is the obligation's **terminal**, and
-        // it is legal only inside a *discharger* of the value's type — a fn
-        // declared in the type's own file that consumes a parameter of it
-        // (user decision 2026-09-12; before, discard refused linear values
-        // outright and the designated `close` parameter was silently
-        // exempt). Anywhere else, dropping a handle is precisely the leak
-        // the obligation exists to prevent. Keyed on core's `intrinsic fn
-        // discard` rather than on the bare name [platform-intrinsic-std-only].
-        if best.decl.name.name == "discard" && best.decl.intrinsic && args.len() == 1 {
-            let arg_ty = arg_tys[0].clone();
-            if self.ty_own_linear(&arg_ty) {
-                let allowed = match arg_ty.strip_quals() {
-                    Ty::Named { name, .. } => self.own_discharges.contains(name.as_str()),
-                    _ => false,
-                };
-                if !allowed {
-                    let set = self.linear_discharge_hint(&arg_ty);
-                    self.error(span, messages::linear_discard_linear(&arg_ty, &set));
-                }
-            }
-        }
         // [iter-mut-param] The callback half of the rule: a callee that
         // **keeps** a fn-typed parameter calls it long after this call returns
         // — a composed pass calls it once per element, for as long as the pass
@@ -31126,10 +31120,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.call_fixed_params = HashSet::new();
         // [linear-generics] An unconstrained generic parameter cannot be
         // instantiated with a linear type: generic code neither knows
-        // nor honors the obligation. `discard` is the one blessed
-        // generic (deliberately dropping is its purpose); `copy` refuses
-        // with its own message (duplicating an obligation is
-        // meaningless).
+        // nor honors the obligation. `copy` refuses with its own message
+        // (duplicating an obligation is meaningless).
         let opted: HashSet<&str> = decl
             .generic_canbe
             .iter()

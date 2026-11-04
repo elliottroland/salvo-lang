@@ -557,7 +557,6 @@ linear struct Ticket { id: Int }
 
 fn redeem(t: Ticket) [Console] -> None => !t {
     println("redeemed ${t.id}")
-    discard(t)
 }
 
 fn tickets() [Console] -> None {
