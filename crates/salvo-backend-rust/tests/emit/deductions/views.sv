@@ -26,7 +26,9 @@ fn pick(ws: List<Str>, keep: (Str) -> Bool) [] -> Mut List<proj Str> holds proj(
     // that all re-point share a fresh variable declared before them; an arm
     // that returns its re-point shadows inside it; a value that flows out of
     // its arm or loop stays an assignment.
-    //~ emits:     let mut out: Vec<&String> = crate::std_core_seq::filter_platform::<String>(ws, &mut *keep);
+    //~ emits:     let mut out: Vec<&String> = crate::std_core_seq::filter_platform::<String, ()>(&__tmp2, ws, &mut |mut __fx0, mut __a0| -> bool {
+    //~|         keep(__a0)
+    //~|     });
     //~|     return out;
     out = filter(ws, keep)
     return out
@@ -68,6 +70,7 @@ fn early(ws: List<Str>, quit: Bool) [Console] -> Mut List<proj Str> holds proj(w
     let local = List("aa", "b")
     let out = filter(local, (s) -> size(s) > 1)
     //~ emits:     if quit {
+    //~|         let mut __tmp2 = ();
     //~|         let mut out: Vec<&String> = 
     if quit {
         out = filter(ws, (s) -> size(s) > 1)

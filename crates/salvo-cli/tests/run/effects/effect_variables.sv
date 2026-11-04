@@ -419,3 +419,55 @@ fn main() [use] -> None {
 //= caught
 //= caught
 //= caught
+
+//--- platform_functions_take_effectful_callbacks
+// std's platform functions with callbacks take an effect variable too: the
+// host takes the callback pure, and the wrapper hands it a closure over the pack.
+effect Tally {
+    fn bump() -> None
+    fn total() -> Int
+}
+
+handler Counting() of Tally {
+    state {
+        n: Int = 0
+    }
+    fn bump() { n = n + 1 }
+    fn total() -> Int { return n }
+}
+
+fn entry(i: Int) [Tally] -> (Int, Int) {
+    bump()
+    return (i, i * 10)
+}
+
+fn shown(i: Int) [Console] -> Int {
+    println("set ${i}")
+    return i
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    use Counting()
+    let xs = List(1, 2, 3, 4)
+    let big = filter(xs, (x) -> {
+        bump()
+        return x > 2
+    })
+    println("big ${size(big)}")
+    let m = map_by(3, (i) -> entry(i))
+    println("map ${size(m)}")
+    let s = set_by(2, (i) -> shown(i))
+    println("set ${size(s)}")
+    let pure = filter(xs, (x) -> x > 1)
+    println("pure ${size(pure)}")
+    println("total ${total()}")
+}
+//= stdout
+//= big 2
+//= map 3
+//= set 0
+//= set 1
+//= set 2
+//= pure 3
+//= total 7

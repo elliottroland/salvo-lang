@@ -69,7 +69,7 @@ fun<T, U, E> map__List_Fn(e: E, list: List<T>, f: (E, T) -> U): salvo.platform.s
     return out
 }
 
-fun<T> filterPlatform(list: List<T>, keep: (T) -> Boolean): salvo.platform.std.core.list.MutList<T> = salvo.platform.std.core.seq.filter(list, keep)
+fun<T, E> filterPlatform(e: E, list: List<T>, keep: (E, T) -> Boolean): salvo.platform.std.core.list.MutList<T> = salvo.platform.std.core.seq.filter(list, { __x0 -> keep(e, __x0) })
 
 fun<T, A, E> reduce__List_A_Fn(e: E, list: List<T>, init: A, f: (E, A, T) -> A): A {
     var acc: A = init

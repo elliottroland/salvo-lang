@@ -10277,8 +10277,11 @@ between endpoints and delivers what arrives into the scheduler.
     `map2`, `list_by`, `deque_by` and their `mut_` forms), and so do the lazy
     adaptors (`Mapping`, `Filtering`, `TakingWhile`, `SkippingWhile`, whose
     constructors write `[]` — they store the callback, not call it — and
-    whose `next` writes `[E]`); platform fns and implicits stay pure
-    (ROADMAP).
+    whose `next` writes `[E]`), and the platform ones (`filter` over a list,
+    `map_by`, `set_by` and their `mut_` forms): the host keeps its pure
+    signature, and the wrapper hands it a closure over the fn's effect
+    parameters (`ir::platform_callback_effects`). `array_by`, an intrinsic,
+    and implicits stay pure (ROADMAP).
   * The deadlock graph needs nothing: it reads handler dependencies, and a
     pack carries only instances a caller already held.
 * [fn-once] `once` is the language-level **use**-multiplicity qualifier

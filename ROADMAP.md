@@ -822,12 +822,10 @@ left three follow-ups the user has asked for, in this order.
   on the shape before code.
 - **Effect variables, the rest** — built (COMPLETED.md, 2026-10-30): `[E]`
   on fns and structs, std's callbacks and lazy adaptors. Left:
-  2. **Platform fns and intrinsics with callbacks** stay pure: `filter` over a
-     list, `sort_by`, `insert_sorted_by`, `search_sorted_by`, `set_by`,
-     `map_by`, `array_by`, test's `trapped_by`. Each is a host signature; an
-     effect variable there is a `<E>` and a leading pack in the host's code
-     too. Until then `filter(xs, (x) -> log(x))` over a *list* finds no
-     overload (the iterator overload takes one).
+  2. **`array_by`**, an intrinsic, takes a pure `init` (each backend lowers it
+     as a template). The private ordering primitives (`sort_by`,
+     `insert_sorted_by`, `search_sorted_by`) are fed implicits only, and
+     test's `trapped_by` its own lambda: none needs one.
   3. **Implicits stay pure** ([implicit-resolve]: a default is effect-free by
      construction), so `?Next` of an effectful iterator — a lazy adaptor over
      an effectful callback, `Lines` — does not fill `map`'s or `to_list`'s

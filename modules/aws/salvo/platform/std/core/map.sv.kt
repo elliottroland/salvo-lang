@@ -10,9 +10,9 @@ fun<K, V> Map_platform(entries: Array<kotlin.Pair<K, V>>, hash: (K) -> Long, eq:
 
 fun<K, V> Mut_Map_platform(entries: Array<kotlin.Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.MutMap<K, V> = salvo.platform.std.core.map.Mut_Map(entries, hash, eq)
 
-fun<K, V> mapByPlatform(size: Int, init: (Int) -> kotlin.Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.Map<K, V> = salvo.platform.std.core.map.mapBy(size, init, hash, eq)
+fun<K, V, E> mapByPlatform(e: E, size: Int, init: (E, Int) -> kotlin.Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.Map<K, V> = salvo.platform.std.core.map.mapBy(size, { __x0 -> init(e, __x0) }, hash, eq)
 
-fun<K, V> mutMapByPlatform(size: Int, init: (Int) -> kotlin.Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.MutMap<K, V> = salvo.platform.std.core.map.mutMapBy(size, init, hash, eq)
+fun<K, V, E> mutMapByPlatform(e: E, size: Int, init: (E, Int) -> kotlin.Pair<K, V>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.MutMap<K, V> = salvo.platform.std.core.map.mutMapBy(size, { __x0 -> init(e, __x0) }, hash, eq)
 
 fun<K, V> toMapPlatform(pairs: List<kotlin.Pair<K, V>>, hash: (K) -> Long, eq: (K, K) -> Boolean): salvo.platform.std.core.map.Map<K, V> = salvo.platform.std.core.map.toMap(pairs, hash, eq)
 

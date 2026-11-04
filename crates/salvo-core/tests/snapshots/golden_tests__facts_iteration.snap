@@ -354,9 +354,9 @@ main() -> None@main
   258:34  `n`                            Int
   258:38  `2`                            Int
   259:9   `odd`                          Mut List<Int>
-  259:15  `filter(xs, (n) -> n % 2 ==…`  Mut List<Int>  -> std.core.seq::filter(List<T>, (T) -> Bool)  [holds arg 0]
+  259:15  `filter(xs, (n) -> n % 2 ==…`  Mut List<Int>  -> std.core.seq::filter(List<T>, (T) [E] -> Bool)  [passes , holds arg 0]
   259:22  `xs`                           NonEmpty List<Int>
-  259:26  `(n) -> n % 2 == 1`            (Int) -> Bool
+  259:26  `(n) -> n % 2 == 1`            (Int) -> Bool  [stands for ]
   259:27  `n`                            Int
   259:33  `n % 2 == 1`                   Bool  -> std.core.basic::eq(Int, Int)
   259:33  `n % 2`                        Int  -> std.core.basic::rem(Int, Int)

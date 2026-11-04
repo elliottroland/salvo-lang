@@ -70,7 +70,7 @@ export fn map<T, U, [E]>(list: List<T>, f: (T) [E] -> U) -> Mut List<U> => list,
     }
     return out
 }
-export platform fn filter<T>(list: List<T>, keep: (T) -> Bool) [] -> Mut List<proj T> holds proj(list)
+export platform fn filter<T, [E]>(list: List<T>, keep: (T) [E] -> Bool) -> Mut List<proj T> holds proj(list)
 => list, keep
 export fn reduce<T, A, [E]>(list: List<T>, init: A, f: (A, T) [E] -> A) -> A => list, f, !init {
     let acc = init

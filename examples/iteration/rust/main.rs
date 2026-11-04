@@ -399,7 +399,7 @@ pub fn main() {
     let mut doubled: Vec<i32> = crate::std_core_seq::map__List_Fn::<i32, i32, ()>(&(), &xs, &mut |mut __leff0, mut n| -> i32 {
         i32::wrapping_mul(*n, 2i32)
     });
-    let mut odd: Vec<i32> = crate::std_core_seq::filter_platform::<i32>(&xs, &mut |mut n| -> bool {
+    let mut odd: Vec<i32> = crate::std_core_seq::filter_platform::<i32, ()>(&(), &xs, &mut |mut __leff0, mut n| -> bool {
         (i32::wrapping_rem(*n, 2i32) == 1i32)
     }).into_iter().copied().collect::<Vec<_>>();
     let mut total: i32 = crate::std_core_seq::reduce__List_A_Fn::<i32, i32, ()>(&(), &xs, 0i32, &mut |mut __leff0, mut acc, mut n| -> i32 {

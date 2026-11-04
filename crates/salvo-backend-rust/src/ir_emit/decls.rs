@@ -1344,6 +1344,18 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             .skip(f.effect_params)
             .map(|(i, p)| {
                 let n = rs_ident(&p.local.0);
+                // [effect-var] A callback over the fn's effects is handed to
+                // the host as a closure that passes them.
+                if let Some(fx) = salvo_core::ir::platform_callback_effects(f, p) {
+                    let arity = match p.ty.strip_quals() {
+                        Ty::Fn { params, .. } => params.len(),
+                        _ => 0,
+                    };
+                    let xs: Vec<String> = (0..arity).map(|k| format!("__x{k}")).collect();
+                    let mut call: Vec<String> = fx.iter().map(|l| rs_ident(&l.0)).collect();
+                    call.extend(xs.iter().cloned());
+                    return format!("&mut |{}| {n}({})", xs.join(", "), call.join(", "));
+                }
                 let lent_fn = matches!(self.s.unalias(&p.ty).strip_quals(), Ty::Fn { .. }) && p.mode != PassMode::Moved && self.s.kept_param(f, i).is_none() && !self.s.once_param(f, i);
                 if lent_fn {
                     rebind.push_str(&format!("{pad}let mut {n} = {n};\n"));

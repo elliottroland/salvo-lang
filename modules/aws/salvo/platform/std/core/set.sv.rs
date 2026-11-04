@@ -27,18 +27,16 @@ pub fn Mut_Set_platform<T: Clone>(mut elems: Vec<T>, hash: &mut dyn FnMut(&T) ->
     crate::platform_std_core_set::Mut_Set(elems, &mut hash, &mut eq)
 }
 
-pub fn set_by_platform<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::std_core_set::Set<T> {
-    let mut init = init;
+pub fn set_by_platform<T: Clone, E: Clone>(e: &E, mut size: i32, init: &mut dyn FnMut(&E, i32) -> T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::std_core_set::Set<T> {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_std_core_set::set_by(size, &mut init, &mut hash, &mut eq)
+    crate::platform_std_core_set::set_by(size, &mut |__x0| init(e, __x0), &mut hash, &mut eq)
 }
 
-pub fn mut_set_by_platform<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::std_core_set::Set<T> {
-    let mut init = init;
+pub fn mut_set_by_platform<T: Clone, E: Clone>(e: &E, mut size: i32, init: &mut dyn FnMut(&E, i32) -> T, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::std_core_set::Set<T> {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_std_core_set::mut_set_by(size, &mut init, &mut hash, &mut eq)
+    crate::platform_std_core_set::mut_set_by(size, &mut |__x0| init(e, __x0), &mut hash, &mut eq)
 }
 
 pub fn to_set_platform<T: Clone>(list: &Vec<T>, hash: &mut dyn FnMut(&T) -> i64, eq: &mut dyn FnMut(&T, &T) -> bool) -> crate::std_core_set::Set<T> {

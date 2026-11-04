@@ -10,9 +10,9 @@ fun<T> Set_platform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): 
 
 fun<T> Mut_Set_platform(elems: Array<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.std.core.set.MutSet<T> = salvo.platform.std.core.set.Mut_Set(elems, hash, eq)
 
-fun<T> setByPlatform(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.std.core.set.Set<T> = salvo.platform.std.core.set.setBy(size, init, hash, eq)
+fun<T, E> setByPlatform(e: E, size: Int, init: (E, Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.std.core.set.Set<T> = salvo.platform.std.core.set.setBy(size, { __x0 -> init(e, __x0) }, hash, eq)
 
-fun<T> mutSetByPlatform(size: Int, init: (Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.std.core.set.MutSet<T> = salvo.platform.std.core.set.mutSetBy(size, init, hash, eq)
+fun<T, E> mutSetByPlatform(e: E, size: Int, init: (E, Int) -> T, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.std.core.set.MutSet<T> = salvo.platform.std.core.set.mutSetBy(size, { __x0 -> init(e, __x0) }, hash, eq)
 
 fun<T> toSetPlatform(list: List<T>, hash: (T) -> Long, eq: (T, T) -> Boolean): salvo.platform.std.core.set.Set<T> = salvo.platform.std.core.set.toSet(list, hash, eq)
 

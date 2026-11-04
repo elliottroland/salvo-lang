@@ -53,7 +53,7 @@ fn main() [use] {
     let doubled = map(xs, (n) -> n * 2)
     //~ emits: return (a + b)
     let sum = reduce(xs, 0, (a, b) -> a + b)
-    //~ emits: filterPlatform(xs, fun(n: Int): Boolean {
+    //~ emits: filterPlatform(Unit, xs, fun(__leff0: Unit, n: Int): Boolean {
     let big = filter(xs, (n) -> n > 2)
     println("list: ${size(doubled)} ${sum} ${size(big)}")
     let named = map(xs, double)

@@ -1114,7 +1114,21 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 .params
                 .iter()
                 .skip(f.effect_params)
-                .map(|p| kt_local(&p.local))
+                .map(|p| match salvo_core::ir::platform_callback_effects(f, p) {
+                    // [effect-var] A callback over the fn's effects is handed
+                    // to the host as a lambda that passes them.
+                    Some(fx) => {
+                        let arity = match p.ty.strip_quals() {
+                            Ty::Fn { params, .. } => params.len(),
+                            _ => 0,
+                        };
+                        let xs: Vec<String> = (0..arity).map(|k| format!("__x{k}")).collect();
+                        let mut call: Vec<String> = fx.iter().map(kt_local).collect();
+                        call.extend(xs.iter().cloned());
+                        format!("{{ {} -> {}({}) }}", xs.join(", "), kt_local(&p.local), call.join(", "))
+                    }
+                    None => kt_local(&p.local),
+                })
                 .collect();
             let call = format!("{}.{}({})", host_package(f.id.module()), kt_ident(&f.name), args.join(", "));
             // [platform-check] the wrapper checks the result (D7); a host

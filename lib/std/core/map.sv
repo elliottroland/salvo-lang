@@ -50,11 +50,11 @@ export platform fn Mut Map<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) 
 // * i))` maps each index to its square. A repeated key takes the value of its
 // last appearance [col-duplicate-keys].
 // @compilerrules [col-by]
-export platform fn map_by<K, V canbe linear>(size: Int, init: (Int) -> (K, V), ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
+export platform fn map_by<K, V canbe linear, [E]>(size: Int, init: (Int) [E] -> (K, V), ?Hashed<K>) -> Map<K, V>(?hash, ?eq)
 => size, init
 
 // Mutable variant
-export platform fn mut_map_by<K, V canbe linear>(size: Int, init: (Int) -> (K, V), ?Hashed<K>) [] -> Mut Map<K, V>(?hash, ?eq)
+export platform fn mut_map_by<K, V canbe linear, [E]>(size: Int, init: (Int) [E] -> (K, V), ?Hashed<K>) -> Mut Map<K, V>(?hash, ?eq)
 => size, init
 
 // A map from a list of pairs — the first element of each pair

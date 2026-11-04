@@ -47,11 +47,11 @@ export platform fn Mut Set<T>(...elems: T[], ?Hashed<T>) [] -> Mut Set<T>(?hash,
 // Builds a set from [size] generated elements. Duplicates collapse,
 // so the result may hold fewer than [size].
 // @compilerrules [col-by]
-export platform fn set_by<T>(size: Int, init: (Int) -> T, ?Hashed<T>) [] -> Set<T>(?hash, ?eq)
+export platform fn set_by<T, [E]>(size: Int, init: (Int) [E] -> T, ?Hashed<T>) -> Set<T>(?hash, ?eq)
 => size, init
 
 // Mutable variant
-export platform fn mut_set_by<T>(size: Int, init: (Int) -> T, ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)
+export platform fn mut_set_by<T, [E]>(size: Int, init: (Int) [E] -> T, ?Hashed<T>) -> Mut Set<T>(?hash, ?eq)
 => size, init
 
 // The elements of [list] as a set, in first-appearance order;

@@ -27,18 +27,16 @@ pub fn Mut_Map_platform<K: Clone, V>(mut entries: Vec<(K, V)>, hash: &mut dyn Fn
     crate::platform_std_core_map::Mut_Map(entries, &mut hash, &mut eq)
 }
 
-pub fn map_by_platform<K: Clone, V>(mut size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
-    let mut init = init;
+pub fn map_by_platform<K: Clone, V, E: Clone>(e: &E, mut size: i32, init: &mut dyn FnMut(&E, i32) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_std_core_map::map_by(size, &mut init, &mut hash, &mut eq)
+    crate::platform_std_core_map::map_by(size, &mut |__x0| init(e, __x0), &mut hash, &mut eq)
 }
 
-pub fn mut_map_by_platform<K: Clone, V>(mut size: i32, init: &mut dyn FnMut(i32) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
-    let mut init = init;
+pub fn mut_map_by_platform<K: Clone, V, E: Clone>(e: &E, mut size: i32, init: &mut dyn FnMut(&E, i32) -> (K, V), hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {
     let mut hash = hash;
     let mut eq = eq;
-    crate::platform_std_core_map::mut_map_by(size, &mut init, &mut hash, &mut eq)
+    crate::platform_std_core_map::mut_map_by(size, &mut |__x0| init(e, __x0), &mut hash, &mut eq)
 }
 
 pub fn to_map_platform<K: Clone, V: Clone>(pairs: &Vec<(K, V)>, hash: &mut dyn FnMut(&K) -> i64, eq: &mut dyn FnMut(&K, &K) -> bool) -> crate::std_core_map::Map<K, V> {

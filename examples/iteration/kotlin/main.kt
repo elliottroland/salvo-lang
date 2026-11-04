@@ -340,7 +340,7 @@ fun main() {
     val doubled: salvo.platform.std.core.list.MutList<Int> = salvo.std.core.seq.map__List_Fn(Unit, xs, fun(__leff0: Unit, n: Int): Int {
         return (n * 2)
     })
-    val odd: salvo.platform.std.core.list.MutList<Int> = salvo.std.core.seq.filterPlatform(xs, fun(n: Int): Boolean {
+    val odd: salvo.platform.std.core.list.MutList<Int> = salvo.std.core.seq.filterPlatform(Unit, xs, fun(__leff0: Unit, n: Int): Boolean {
         return ((n % 2) == 1)
     })
     val total: Int = salvo.std.core.seq.reduce__List_A_Fn(Unit, xs, 0, fun(__leff0: Unit, acc: Int, n: Int): Int {

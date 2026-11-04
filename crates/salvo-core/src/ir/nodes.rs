@@ -290,6 +290,21 @@ pub enum FnKind {
     Qualifies,
 }
 
+/// [effect-var] [platform-fn] The effect parameters a platform fn's callback
+/// parameter `p` is called with: the fn's own, matched by type (an effect
+/// variable's pack, mostly). `None` for a parameter that is no callback or
+/// performs nothing. The host takes the callback pure, so the wrapper hands
+/// it a closure over these.
+pub fn platform_callback_effects(f: &FnDecl, p: &Param) -> Option<Vec<Local>> {
+    let Ty::Fn { effects, .. } = p.ty.strip_quals() else { return None };
+    let threaded = crate::threaded_effects(effects);
+    if threaded.is_empty() {
+        return None;
+    }
+    let own = &f.params[..f.effect_params];
+    threaded.iter().map(|e| own.iter().find(|q| q.ty == *e).map(|q| q.local.clone())).collect()
+}
+
 pub struct FnDecl {
     pub id: DeclId,
     pub name: String,

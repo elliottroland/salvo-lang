@@ -297,7 +297,7 @@ fn main@main() -> None {
   bind#38 let doubled: Mut List<Int> = call map(List<T>, (T) [E] -> U)@std.core.seq<Int, Int, ()>(tuple(), read xs, lambda(lent __leff0: (), lent n: Int) -> Int {
     value (read n * 2)
   })
-  bind#39 let odd: Mut List<Int> = call filter(List<T>, (T) -> Bool)@std.core.seq<Int>(read xs, lambda(lent n: Int) -> Bool {
+  bind#39 let odd: Mut List<Int> = call filter(List<T>, (T) [E] -> Bool)@std.core.seq<Int, ()>(tuple(), read xs, lambda(lent __leff0: (), lent n: Int) -> Bool {
     value ((read n % 2) == 1)
   })
   bind#40 let total: Int = call reduce(List<T>, A, (A, T) [E] -> A)@std.core.seq<Int, Int, ()>(tuple(), read xs, 0, lambda(lent __leff0: (), lent acc: Int, lent n: Int) -> Int {

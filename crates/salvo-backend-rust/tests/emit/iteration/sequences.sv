@@ -53,7 +53,7 @@ fn main() [use] {
     //~ emits: reduce__List_A_Fn::<i32, i32, ()>(&(), &xs, 0i32, &mut |mut __leff0, mut a, mut b| -> i32 {
     //~|         i32::wrapping_add(*a, *b)
     let sum = reduce(xs, 0, (a, b) -> a + b)
-    //~ emits: filter_platform::<i32>(&xs, &mut |mut n| -> bool {
+    //~ emits: filter_platform::<i32, ()>(&(), &xs, &mut |mut __leff0, mut n| -> bool {
     //~|         (*n > 2i32)
     let big = filter(xs, (n) -> n > 2)
     println("list: ${size(doubled)} ${sum} ${size(big)}")

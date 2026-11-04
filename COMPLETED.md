@@ -144,6 +144,15 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — std's platform callbacks take effect variables (ROADMAP §2c, [effect-var])
+
+- **Built**: `filter` over a list, `map_by`, `set_by` and their `mut_`
+  forms take `[E]`, with no host change: the wrapper a platform fn emits
+  hands the host a closure over the fn's effect parameters
+  (`ir::platform_callback_effects`; `&mut |__x0| keep(e, __x0)` on Rust,
+  `{ __x0 -> keep(e, __x0) }` on Kotlin), so the host signature stays pure.
+  `filter(xs, (x) -> log(x))` over a list finds its overload now.
+
 ### 2026-10-30 — A generic `Throw<X>` is bound by the value's throws (ROADMAP §2c, [effect-var] [throw])
 
 - **Checked, as the roadmap asked**: with `f: () [E, Throw<X>] -> None`,
