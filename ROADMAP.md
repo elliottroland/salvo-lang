@@ -821,35 +821,68 @@ left three follow-ups the user has asked for, in this order.
   a variable's own parameter, so either outcome works with it. **DECISION**
   on the shape before code.
 - **Effect variables, the rest** — built (COMPLETED.md, 2026-10-30): `[E]`
-  on fns and structs, std's callbacks and lazy adaptors. Left:
-  2. **`array_by`**, an intrinsic, takes a pure `init` (each backend lowers it
-     as a template). The private ordering primitives (`sort_by`,
-     `insert_sorted_by`, `search_sorted_by`) are fed implicits only, and
-     test's `trapped_by` its own lambda: none needs one.
-  3. **Implicits stay pure** ([implicit-resolve]: a default is effect-free by
+  on fns and structs, std's callbacks, the lazy adaptors and `array_by`. The
+  private ordering primitives (`sort_by`, `insert_sorted_by`,
+  `search_sorted_by`) are fed implicits only, and test's `trapped_by` its own
+  lambda: none needs one. Left:
+  1. **Implicits stay pure** ([implicit-resolve]: a default is effect-free by
      construction), so `?Next` of an effectful iterator — a lazy adaptor over
      an effectful callback, `Lines` — does not fill `map`'s or `to_list`'s
-     (`for` drives one). **DECISION**: whether an implicit may perform
-     effects, and whose.
-  4. **An actor effect back out of `eff[E]`** is refused
+     (`for` drives one). Decided (user, 2026-10-30): a group may declare an
+     effect variable (`fns Next<It, T, [E]>`), spread sharing the callee's
+     (`?Next<It, T, [E]>`), its effects the caller's; any list of generics
+     may leave a trailing effect variable out, meaning `[]` — no special
+     case for `Next` and `Iter`.
+  2. **Building an array in a generic body fails on Kotlin**: `array_of(a,
+     b)` and `array_by(n, f)` with element type `T` emit `arrayOf<T>(…)` /
+     `Array<T>(n) { … }`, and kotlinc refuses both ("cannot use 'T' as
+     reified type parameter"). Repro: `fn pair<T>(a: T, b: T) -> T[] => !a,
+     !b { return array_of(a, b) }`, or `fn mk<T, [E]>(n: Int, f: (x: Int)
+     [E] -> T) -> T[] => f { return array_by(n, f) }`, called at `Int`;
+     Rust runs both. Erasing (`arrayOf<Any?>(…) as Array<T>`) compiles but
+     throws `ClassCastException` at a concrete caller, so the fix is a
+     Salvo diagnostic (an array built at an opaque element type) — or the
+     array lowering a boxed one on Kotlin. There is no list-to-array
+     conversion (user decision 2026-10-30): `array_by` taking an effect
+     variable covered what it was wanted for.
+  3. **An actor effect back out of `eff[E]`** is refused
      (`effect-var:actor-handle`): a returned `eff[E]`, a struct's `eff[E]`
      field read. Going in is converted (2026-10-30). The way out needs an
      address from an actor's instance, which the stub holds but nothing
      reads back.
-  5. **A throw through a variable** is refused (`effect-var:throw`). Lifting
+  4. **A throw through a variable** is refused (`effect-var:throw`). Lifting
      it needs a generic "may throw" answer on Rust ([rs-throw-controlflow]);
      the user saw no gain in a `[E canbe Throw]` over a written `Throw<X>`
      (2026-10-30), which works, a generic `X` included (2026-10-30).
-  7. **A pure fn value without a wrapper** (user request 2026-10-30:
-     consider it). Today a value that is not a lambda and performs nothing —
-     `map(xs, f)` with `f: (x: Int) -> Int` a parameter, a named fn, a
-     field — is wrapped in the IR's pack adapter, because the callee calls
-     it with the empty pack first (`&()`, `Unit`). Options to weigh: the
-     callee's call skips an empty pack (a second, pack-less fn type at
-     every position, so a value's type would depend on its binding); the
-     pack becomes the *last* parameter so a backend can drop a unit one
-     (Kotlin cannot overload on it, Rust closures have fixed arity); or the
-     wrapper stays and only its spelling improves.
+  5. **A pure fn value without a wrapper** — held until it bites (user
+     decision 2026-10-30, option (a)). What is wrapped: a value that is not
+     a lambda — a named fn, a fn parameter, a field, a call's result — that
+     performs fewer effects than the slot it fills: a pure `double` where
+     `E` binds nothing, and equally a pure `double` sharing `E` with a
+     lambda that prints (it gets a `Console`-taking adapter). The callee
+     calls it with its pack first, so the IR's pack adapter takes the pack
+     and drops it. A lambda is not wrapped (it takes the pack as an unused
+     parameter, `__leff0`). With effectful implicits, a pure iterator's
+     `next` filling `?Next<It, T, [E]>` is such a value: Rust already wraps
+     every implicit in a closure, Kotlin's `::next` becomes an adapter, one
+     extra direct call per element. The options weighed:
+     - **(a) Keep the wrapper** (chosen). No new machinery.
+     - **(b) A pure instantiation**: emit, beside a fn generic over `E`, a
+       copy at `E = []` with the pack parameter and the callbacks' pack
+       arguments removed. It removes the adapter only where the whole
+       variable binds nothing, so a pure iterator beside an effectful `f`
+       keeps it unless the implicit has its own variable (`?Next<It, T,
+       [F]>`, up to four copies per combinator). Costs: a copy of every
+       effect-polymorphic fn some caller uses purely, transitively, and a
+       rule for fn *values* of such fns (`let m = map`) and for structs
+       (`Mapping<…, []>`'s stored `f` would change type with the binding).
+     - **(c) Move the pack last**: does not help — a pure fn of arity n is
+       still not a fn of arity n + 1 on either backend.
+     - **(d) Erase an empty pack in the emitters only**: a variable bound
+       to `[]` still has its slot in the callee's signature; not separable
+       from (b).
+     The way out if profiling finds the adapter in a hot loop: (b), with a
+     separate variable for the implicit.
 - **`decode<T>` as an implicit** — scheduled with §0j step 9: codecs become
   comptime Salvo fns, and the stamped codec is this implicit. The reasoning
   stands — the other intrinsic whose lowering reads

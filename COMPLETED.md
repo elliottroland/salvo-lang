@@ -144,6 +144,29 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — `array_by` takes an effect variable; no list-to-array conversion (user decisions, [effect-var] [col-by])
+
+- **Decided** (user, 2026-10-30): an array is not built from a list (no
+  `into_array`, no `array_of(...list)`); `array_by` takes `[E]` instead.
+  Also decided: the pure-value adapter is kept until it bites (ROADMAP §2c
+  item 5, option (a)).
+- **Built**: `array_by<T, [E]>(size, init: (Int) [E] -> T) [E]` — an
+  intrinsic states its effect list ([decl-explicit]), so the `[E]` after
+  the parameters is required. The templates bind the pack, the size and the
+  callback in order and call `init` with the pack first: Kotlin
+  `run { val __e = …; …; Array<T>(__n) { __i -> __f(__e, __i) } }`, Rust a
+  block borrowing the pack (`let __e = &(…)`) around
+  `(0..n).map(|__i| __f(__e, __i))`.
+- **Fell out**: on Rust a lambda passed to an intrinsic was rendered at its
+  own type, which carries no pack, so its parameters were typed one place
+  off (`__leff0: i32`); `intrinsic_call` now renders a lambda at a slot
+  over effects against the declared slot under the call's bindings, as an
+  ordinary call does.
+- **Found, not fixed**: an array built at an opaque element type fails on
+  Kotlin (`array_of`/`array_by` in a fn generic over `T`: "cannot use 'T'
+  as reified type parameter"); the erased workaround throws
+  `ClassCastException` at the caller. In ROADMAP §2c with its repro.
+
 ### 2026-10-30 — std's platform callbacks take effect variables (ROADMAP §2c, [effect-var])
 
 - **Built**: `filter` over a list, `map_by`, `set_by` and their `mut_`

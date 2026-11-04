@@ -324,9 +324,16 @@ pub fn fn_call(
 
         // [col-by] The generated constructors: the callback is called once
         // per index, in order. `(0..n)` yields `i32`, which is what the
-        // callback's parameter is [rs-fn-param-convention].
+        // callback's parameter is [rs-fn-param-convention]. [effect-var]
+        // `a(0)` is the callback's pack, borrowed and passed to it first at
+        // every index.
         ("array_by", Some("Int")) => {
-            format!("(0..({})).map({}).collect::<Vec<_>>()", a(0), a(1))
+            format!(
+                "{{ let __e = &({}); let __n = {}; let mut __f = {}; (0..(__n)).map(|__i| __f(__e, __i)).collect::<Vec<_>>() }}",
+                a(0),
+                a(1),
+                a(2)
+            )
         }
 
         // std.core.set -------------------------------------------------------

@@ -3765,6 +3765,20 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 }
                 continue;
             }
+            // [effect-var] A lambda at a slot over effects takes the pack
+            // first: rendered at the declared slot, under the call's
+            // bindings, so its parameters line up with what the template
+            // passes it.
+            if let Some(p) = p.filter(|p| {
+                matches!(x.kind, ExprKind::Lambda { .. }) && matches!(p.ty.strip_quals(), Ty::Fn { effects, .. } if !salvo_core::threaded_effects(effects).is_empty())
+            }) {
+                let subst = self.s.fn_decl(id).map(|f| call_subst_of(&f, type_args, args)).unwrap_or_default();
+                let saved = std::mem::replace(&mut self.f.call_subst, subst);
+                let code = self.fn_arg(x, &p.ty, FnPos::Local, indent);
+                self.f.call_subst = saved;
+                a.push(code);
+                continue;
+            }
             let code = match p.map(|p| p.mode) {
                 Some(PassMode::Moved) | None => self.value(x, indent),
                 _ => self.raw(x, indent),

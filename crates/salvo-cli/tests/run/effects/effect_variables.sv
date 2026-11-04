@@ -471,3 +471,37 @@ fn main() [use] -> None {
 //= set 2
 //= pure 3
 //= total 7
+
+//--- array_by_takes_an_effectful_callback
+// [effect-var] [col-by] `array_by` takes an effect variable: its generator
+// may perform effects, called once per index in order, written as a lambda,
+// a named fn, or forwarded from a fn generic over its own variable.
+fn noisy(i: Int) [Console] -> Int {
+    println("init ${i}")
+    return i + 10
+}
+
+fn build<[E]>(n: Int, f: (x: Int) [E] -> Int) -> Int[] => f {
+    return array_by(n, f)
+}
+
+fn doubled<[E]>(n: Int, f: (x: Int) [E] -> Int) -> Int[] => f {
+    return array_by(n, (i) -> f(i) * 2)
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    let pure = array_by(3, (i) -> i * 2)
+    let lam = array_by(2, (i) -> noisy(i))
+    let named = array_by(1, noisy)
+    let fwd = build(2, noisy)
+    let twice = doubled(2, (i) -> i + 1)
+    println("${size(pure)} ${pure[2]} ${lam[1]} ${named[0]} ${fwd[1]} ${twice[1]}")
+}
+//= stdout
+//= init 0
+//= init 1
+//= init 0
+//= init 0
+//= init 1
+//= 3 4 11 10 11 4

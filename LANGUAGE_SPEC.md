@@ -709,10 +709,15 @@ Conventions:
   `array_by`, `list_by`/`mut_list_by`, `set_by`/`mut_set_by` (duplicates
   collapse, so the result may be smaller), `map_by`/`mut_map_by` (the
   callback returns a `(K, V)` pair; a repeated key takes its last value).
-  * On Kotlin the callback is handed to a builder (`Array(n, init)`,
+  * On Kotlin the callback is handed to a builder (`Array(n) { i -> … }`,
     `MutableList(n, init)`) or to `.map(init)` rather than being invoked
     inline: an immediately applied lambda literal has no expected type, and
     kotlinc then demands an explicit parameter type.
+  * Each generator takes an effect variable [effect-var], so `init` may
+    perform effects. `array_by` is an intrinsic, and its templates call
+    `init` with the pack first at every index (`__f(__e, __i)`, the pack
+    borrowed on Rust), after binding the pack, the size and the callback in
+    order.
 * [type-checked] **`Checked<T>` is std's "you must look at this"**: a
   `linear struct` in `std.core.checked` wrapping a value whose obligation is
   discharged by `detach` (read it) or `ignore` (say you meant not to). Dropping
@@ -10281,7 +10286,10 @@ between endpoints and delivers what arrives into the scheduler.
     `map_by`, `set_by` and their `mut_` forms): the host keeps its pure
     signature, and the wrapper hands it a closure over the fn's effect
     parameters (`ir::platform_callback_effects`). `array_by`, an intrinsic,
-    and implicits stay pure (ROADMAP).
+    takes one too: its templates pass the pack [col-by], and on Rust a lambda
+    argument to an intrinsic is rendered at the declared fn-typed slot under
+    the call's bindings, so its parameters start with the pack's. Implicits
+    stay pure (ROADMAP).
   * The deadlock graph needs nothing: it reads handler dependencies, and a
     pack carries only instances a caller already held.
 * [fn-once] `once` is the language-level **use**-multiplicity qualifier

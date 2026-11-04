@@ -335,9 +335,10 @@ Conventions:
   are *physical* in Rust, so the checker's `WrapOption` coercion emits
   `Some(code)` [type-nullable] (Kotlin ignores the same coercion).
 * [type-array] `T[]` maps to `Vec<T>`; `array_of` emits `vec![...]` and
-  `array_by(n, f)` an iterator-map-collect
-  (`(0..(3i32)).map(|mut k: i32| -> i32 { … }).collect::<Vec<_>>()`,
-  [col-by]); indexing casts the `i32` index (`v[(i) as usize]`).
+  `array_by(n, f)` an iterator-map-collect over a block binding the pack, the
+  size and the callback
+  (`{ let __e = &(()); let __n = 3i32; let mut __f = |__e0: &(), mut k: i32| -> i32 { … }; (0..(__n)).map(|__i| __f(__e, __i)).collect::<Vec<_>>() }`,
+  [col-by] [effect-var]); indexing casts the `i32` index (`v[(i) as usize]`).
 * [rs-iter-pass] Iteration is **passes all the way down** [iter-protocol]:
   there is no iterator type and no runtime support module for one. A pass is a
   plain struct, `next` is a plain function, and a `for` over one is a `loop`

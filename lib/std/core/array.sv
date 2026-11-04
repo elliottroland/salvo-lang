@@ -22,7 +22,7 @@ export intrinsic fn array_of<T canbe linear>(...elems: T[]) [] -> T[] => !elems
 // Builds an array of [size] elements, each from its index: `array_by(3, i ->
 // i * 2)` is `[0, 2, 4]`. The generator is called once per index, in order.
 // @compilerrules [col-by]
-export intrinsic fn array_by<T>(size: Int, init: (Int) -> T) [] -> T[] => size, init
+export intrinsic fn array_by<T, [E]>(size: Int, init: (Int) [E] -> T) [E] -> T[] => size, init
 
 // Returns the number of elements in the array
 export intrinsic fn size<T canbe linear>(array: T[]) [] -> Int => array

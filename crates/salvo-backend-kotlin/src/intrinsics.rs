@@ -213,8 +213,17 @@ pub fn fn_call(
         // narrower type on purpose — the harness wants *every* death it can
         // survive, ours (`AssertionError`) and the host's (a null dereference,
         // an index out of bounds, a division by zero) alike.
+        // [effect-var] `a(0)` is the callback's pack, passed to it first at
+        // every index; bound ahead of the loop so each argument is evaluated
+        // once, in order.
         ("array_by", Some("Int")) => {
-            format!("Array<{}>({}, {})", elem(), a(0), a(1))
+            format!(
+                "run {{ val __e = {}; val __n = {}; val __f = {}; Array<{}>(__n) {{ __i -> __f(__e, __i) }} }}",
+                a(0),
+                a(1),
+                a(2),
+                elem()
+            )
         }
         // std.core.set -------------------------------------------------------
         // [col-key-eligible] An owned read of a snapshot element. Identity
