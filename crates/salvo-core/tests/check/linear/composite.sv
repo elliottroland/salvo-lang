@@ -64,12 +64,12 @@ handler ListKeeper of Note {
     }
 }
 
-// Written type positions: a tuple component. An array of linear elements is a
-// linear array [linear-container], so taking one and dropping it is a leak.
+// Written type positions: an array or a tuple of linear values is linear
+// itself [linear-container], so taking one and dropping it is a leak.
 //~ error[ir-linear-check:leak-at-exit]
 fn take_array(x: Lines[]) -> None => !x {}
 
-//~ error[linear-container:position]
+//~ error[ir-linear-check:leak-at-exit]
 fn take_tuple(x: (Lines, Int)) -> None => !x {}
 
 // [linear-union-arm] Union arms are *not* composites (O-C2, user decision
@@ -88,11 +88,10 @@ fn take_optional(x: Lines?) -> None => !x {}
 //~ error[ir-linear-check:leak-at-exit]
 fn take_nested(x: List<List<Lines>>) -> None => !x {}
 
-// The inferred store: a tuple literal, which has no written type to refuse.
-// (The array-literal half went with collection literals [col-no-literal]: a
-// constructor call is checked against its callee's `canbe linear`.)
-fn literal_composites_are_refused() -> None {
-    //~ error[linear-container:position]
+// The inferred store: a tuple literal of an obligation is linear itself
+// [linear-container], so dropping it is a leak.
+fn literal_composites_owe() -> None {
+    //~ error[ir-linear-check:leak-at-exit]
     let _t = (open_lines("a"), 1)
 }
 

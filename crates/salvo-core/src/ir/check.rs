@@ -608,6 +608,8 @@ fn apply(o: &Obligation, owed: &mut Owed) {
 fn split_last_field(place: &Place) -> Option<(Key, String)> {
     match place.steps.last() {
         Some(Step::Field(f)) if place.steps.len() == 1 => Some((place.root.0.clone(), f.clone())),
+        // [linear-container] A tuple component, by position.
+        Some(Step::Tuple(i)) if place.steps.len() == 1 => Some((place.root.0.clone(), i.to_string())),
         _ => None,
     }
 }

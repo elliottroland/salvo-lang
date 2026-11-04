@@ -144,6 +144,26 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Tuples hold obligations (user decision, [linear-container])
+
+- **Decided (user)**: a tuple owes when a component does, with nothing to
+  write, as an array does (L8's second leftover; LC-3 had refused tuples).
+- **Built**: `ty_own_linear` and `ast_type_own_linear` see through
+  `Ty::Tuple`; the written-tuple and tuple-literal refusals are gone;
+  `var_in_composite` treats a tuple as a carrier; the ledger settles a tuple
+  by decomposition, its components keyed by position (`linear_fields` answers
+  `"0"`, `"1"` for a tuple, `split_last_field` reads `Step::Tuple`), so
+  `spend(p.0)` on the last linear component settles `p`. Destructuring needed
+  nothing: the ledger already gained each linear local of an `Unpack`.
+- **The customer works**: `Map("a": reply_a, "b": reply_b)` — `Map<K, V
+  canbe linear>` held obligations since 2026-09-16, but its constructor's
+  `(K, V)` entries could not, so a map of obligations was built one `replace`
+  at a time.
+- **Tests**: `check/linear/tuples.sv` (destructuring, by component, a
+  dropped tuple, a half-moved one, a `_` in a pattern, `copy`), the old
+  refusals in `composite.sv`/`containers.sv` now positive or leaks, and
+  `run/linear/tuples_of_obligations.sv` on both backends.
+
 ### 2026-10-30 — Constructors consume their tail, and arrays hold obligations (user decisions, [fn-variadic] [linear-container])
 
 - **Decided (user)**: (a) a constructor consumes its variadic tail as it
@@ -28636,9 +28656,9 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
 **Answered 2026-09-16** by [linear-container] (LC-1…LC-5 and D7-a…e): a
 container is linear exactly when its element type is, the opt-in is a
 `canbe linear` type parameter, and a container's terminal is a consuming
-callback (`drain`), not a `for`. Arrays joined 2026-10-30. What L8 left: a
-composed linear iterator (a wrapper storing its source in an unopted field),
-tuples (LC-3, refused), and a `drain` callback that needs effects (ROADMAP).
+callback (`drain`), not a `for`. Arrays and tuples joined 2026-10-30. What
+L8 left: a composed linear iterator (a wrapper storing its source in an
+unopted field) and a `drain` callback that needs effects (ROADMAP).
 
 ## Roadmap: effects
 

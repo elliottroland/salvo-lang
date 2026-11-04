@@ -189,11 +189,11 @@ fn an_array_is_drained(x: Token[]) [] -> None => !x {
     drain(x, spend)
 }
 
-// A tuple keeps the general composite refusal — which names the containers
-// that *do* hold obligations.
-
-//~ error[linear-container:position]
-fn a_tuple_is_still_refused(x: (Token, Int)) [] -> None => !x {}
+// A tuple too: destructuring it moves its components out.
+fn a_tuple_is_destructured(x: (Token, Int)) [] -> None => !x {
+    let (t, _) = x
+    spend(t)
+}
 
 // ===== LC-4: handler state =====
 

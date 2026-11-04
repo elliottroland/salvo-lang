@@ -15068,6 +15068,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [linear-container] An array of linear elements is linear itself,
             // as a `List` of them is.
             ast::Type::Array { elem, .. } => self.ast_type_own_linear(elem),
+            ast::Type::Tuple { elems, .. } => elems.iter().find_map(|e| self.ast_type_own_linear(e)),
             // A union value is one value, so an arm's obligation is the
             // union's — which is why writing one is a store.
             ast::Type::Union { arms, .. } => arms.iter().find_map(|a| self.ast_type_own_linear(a)),
@@ -15175,14 +15176,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [linear-container] An array is a conditional container, as
             // `List<T canbe linear>` is (user decision 2026-10-30): the array
             // carries its elements' obligation, and `drain`/`append` end it.
-            ast::Type::Array { .. } => {}
-            ast::Type::Tuple { elems, .. } => {
-                for e in elems {
-                    if let Some(linear) = self.ast_type_own_linear(e) {
-                        found.push((e.span(), linear, "a tuple component".to_string()));
-                    }
-                }
-            }
+            // [linear-container] So is a tuple (user decision 2026-10-30): it
+            // owes when a component does.
+            ast::Type::Array { .. } | ast::Type::Tuple { .. } => {}
             // [linear-union-arm] A union arm may be linear (O-C2, user
             // decision 2026-09-12): a union value is one handle, so the
             // obligation is the union's and narrowing settles it —
@@ -19995,7 +19991,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [linear-container] An array carries its elements' obligation,
             // as an opted container does; only what its element nests counts.
             ast::Type::Array { elem, .. } => self.var_in_composite(elem, var),
-            ast::Type::Tuple { elems, .. } => elems.iter().any(|e| inside(e)),
+            ast::Type::Tuple { elems, .. } => elems.iter().any(|e| self.var_in_composite(e, var)),
             // [linear-union-arm] A union — and `T?`, which is one — is **not**
             // a composite (O-C2): the value *is* the value, so an arm carries
             // the obligation and narrowing settles it. That is what makes
@@ -23750,17 +23746,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 for (i, e) in elems.iter().enumerate() {
                     tys.push(self.check_expr(e, expected_elems.map(|ts| &ts[i])));
                 }
-                // [linear-composite] A tuple is a composite too.
-                for (e, ty) in elems.iter().zip(&tys) {
-                    if self.ty_own_linear(ty) {
-                        let linear = format!("{ty}");
-                        self.refuse_linear_composite(
-                            e.span(),
-                            &linear,
-                            "a tuple component".to_string(),
-                        );
-                    }
-                }
+                // [linear-container] A tuple of obligations is linear itself;
+                // its components move in.
                 // Storing a value in a tuple literal moves it
                 // [deduce-consume].
                 for e in elems {

@@ -80,6 +80,10 @@ fn ty_own_linear_guarded(symbols: &Symbols, own: &HashSet<String>, ty: &Ty, dept
         // is linear exactly when they are (user decision 2026-10-30), and is
         // emptied by `drain` or `append`.
         Ty::Array(elem) => ty_own_linear_guarded(symbols, own, elem, depth + 1),
+        // [linear-container] A tuple owes when any component does (user
+        // decision 2026-10-30): it is one value, ended whole, by
+        // destructuring, or by moving its linear components out.
+        Ty::Tuple(elems) => elems.iter().any(|e| ty_own_linear_guarded(symbols, own, e, depth + 1)),
         Ty::Var(name) => own.contains(name),
         _ => false,
     }
@@ -132,6 +136,16 @@ pub fn linear_arm_names(symbols: &Symbols, own: &HashSet<String>, ty: &Ty) -> Ve
 /// or an unknown type. Used to decide when a linear container is settled by
 /// decomposition (all its linear fields moved out).
 pub fn linear_fields(symbols: &Symbols, own: &HashSet<String>, ty: &Ty) -> Vec<String> {
+    // [linear-container] A tuple's linear components, by position: moving
+    // them all out settles the tuple, as a struct's fields do.
+    if let Ty::Tuple(elems) = ty.strip_quals() {
+        return elems
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| ty_own_linear(symbols, own, e))
+            .map(|(i, _)| i.to_string())
+            .collect();
+    }
     let Ty::Named { name, args } = ty.strip_quals() else { return Vec::new() };
     let Some(s) = symbols.structs.get(name.as_str()) else { return Vec::new() };
     let generic_names: HashSet<&str> = s.generics.iter().map(|g| g.name.as_str()).collect();

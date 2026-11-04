@@ -10946,12 +10946,10 @@ between endpoints and delivers what arrives into the scheduler.
     of obligations (`handles: Mut List<Lines>`), which makes the struct a
     resource too: contagion stays **spelled**, so the diagnostic asks for
     `linear struct` [linear-group];
-  * a **written composite** with a linear component and no opt-in, one level
-    at a time so a nested one reports at its own node: a tuple component —
-    but **not** a union arm [linear-union-arm], an array element, or an opted
-    container position [linear-container];
-  * a **tuple literal** whose element type is linear (nothing written to
-    refuse);
+  * a **written type argument** with a linear argument in an unopted
+    position, one level at a time so a nested one reports at its own node —
+    but **not** a union arm [linear-union-arm], an array element, a tuple
+    component, or an opted container position [linear-container];
   * a **struct literal** field taking a linear value where the field's
     declared type is generic and unopted (`struct Box<T> { item: T }`), which
     is the store the struct's own declaration cannot see;
@@ -10965,10 +10963,10 @@ between endpoints and delivers what arrives into the scheduler.
     Neither is `T?`, which is a union — and that is what makes every
     take-by-move signature (`remove_first(list) -> T?`) express "the
     obligation comes back out" rather than "the obligation is stored".
-  * **Tuples stay out** of the opt-in (LC-3): a tuple has the union-arm
-    alternative for the two-things case. **Arrays are in** since 2026-10-30
-    [linear-container]: the variadic boundary they sat next to is tracked
-    now, and a consumed tail of obligations was the customer shape.
+  * **Arrays and tuples are in** since 2026-10-30 [linear-container]: the
+    variadic boundary arrays sat next to is tracked now, a consumed tail of
+    obligations was the arrays' customer shape, and a map constructor's
+    `(K, V)` entries were the tuples'. Both had been out since LC-3.
   * **The casualty that remains** is the composed linear iterator (a wrapper iterator
     over `open_lines(path("a"))` stores its source in an unopted field). The
     fallible-open shape `Ok InStream | Err Checked<FsError>` was the other one and
@@ -11000,6 +10998,15 @@ between endpoints and delivers what arrives into the scheduler.
     not reach would be owed by nobody, the reason a list's terminal is a
     callback (D7-a, 2026-09-16). An array has no positional take, as Rust's
     `Vec` has none: a move out of an array is always the whole array.
+  * **Tuples** too (user decision 2026-10-30): `(Ticket, Int)` owes when a
+    component does, with nothing to write — a tuple has no declaration to
+    spell `linear` on, as a struct does. It ends whole (passed on,
+    returned, stored), by destructuring (`let (t, n) = p`, each linear name
+    owing), or by moving each linear component out (`spend(p.0)`), the
+    decomposition a linear struct's fields follow; a component left behind,
+    or a `_` in its place in a pattern, is a leak. `copy` refuses one, as it
+    refuses any linear value. The customer was `Map("a": reply_a, "b":
+    reply_b)`, whose entries are pairs.
   * **Which containers**: `List` and `Map` **values** (LC-3). `Set`,
     `SortedSet` and map **keys** are refused, and the diagnostic says *why* —
     insertion deduplicates, so an equal element or a repeated key drops one of
