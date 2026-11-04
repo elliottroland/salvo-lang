@@ -64,8 +64,9 @@ handler ListKeeper of Note {
     }
 }
 
-// Written type positions: an array element and a tuple component.
-//~ error[linear-container:position]
+// Written type positions: a tuple component. An array of linear elements is a
+// linear array [linear-container], so taking one and dropping it is a leak.
+//~ error[ir-linear-check:leak-at-exit]
 fn take_array(x: Lines[]) -> None => !x {}
 
 //~ error[linear-container:position]

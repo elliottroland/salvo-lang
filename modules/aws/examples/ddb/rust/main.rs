@@ -104,7 +104,7 @@ use crate::aws_ddb::DeleteTableOutput;
 use crate::aws_ddb::GetItemInput;
 use crate::aws_ddb::GetItemOutput;
 use crate::aws_ddb::KeySchemaElement;
-use crate::std_core_list::List__T;
+use crate::std_core_list::List__T_TArray;
 use crate::std_core_map::Map;
 use crate::std_core_map::Map_platform;
 use crate::std_core_map::Mut_Map_platform;
@@ -218,7 +218,7 @@ pub fn round_trip(ddb: &crate::aws_ddb::Ddb, console: &crate::std_core_console::
     let mut made: crate::unions::Union2<crate::aws_ddb::CreateTableOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> = {
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|_| None));
-        ddb.create_table(crate::aws_ddb::CreateTableInput { attribute_definitions: Some(crate::std_core_list::List__T::<crate::aws_ddb::AttributeDefinition>(crate::aws_ddb::AttributeDefinition { attribute_name: String::from("id"), attribute_type: String::from("S") })), table_name: (table).clone(), key_schema: Some(crate::std_core_list::List__T::<crate::aws_ddb::KeySchemaElement>(crate::aws_ddb::KeySchemaElement { attribute_name: String::from("id"), key_type: String::from("HASH") })), local_secondary_indexes: None, global_secondary_indexes: None, billing_mode: None, provisioned_throughput: None, stream_specification: None, sse_specification: None, tags: None, table_class: None, deletion_protection_enabled: None, warm_throughput: None, resource_policy: None, on_demand_throughput: None, global_table_source_arn: None, global_table_settings_replication_mode: None, vector_indexes: None }, r);
+        ddb.create_table(crate::aws_ddb::CreateTableInput { attribute_definitions: Some(crate::std_core_list::List__T_TArray::<crate::aws_ddb::AttributeDefinition>(crate::aws_ddb::AttributeDefinition { attribute_name: String::from("id"), attribute_type: String::from("S") }, vec![])), table_name: (table).clone(), key_schema: Some(crate::std_core_list::List__T_TArray::<crate::aws_ddb::KeySchemaElement>(crate::aws_ddb::KeySchemaElement { attribute_name: String::from("id"), key_type: String::from("HASH") }, vec![])), local_secondary_indexes: None, global_secondary_indexes: None, billing_mode: None, provisioned_throughput: None, stream_specification: None, sse_specification: None, tags: None, table_class: None, deletion_protection_enabled: None, warm_throughput: None, resource_policy: None, on_demand_throughput: None, global_table_source_arn: None, global_table_settings_replication_mode: None, vector_indexes: None }, r);
         *crate::scheduler::salvo_wait(__wid).downcast::<crate::unions::Union2<crate::aws_ddb::CreateTableOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>>>().expect("the awaited answer")
     };
     if matches!(made, crate::unions::Union2::U1(_)) {

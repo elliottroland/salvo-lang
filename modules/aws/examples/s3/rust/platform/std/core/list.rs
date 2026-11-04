@@ -39,10 +39,10 @@ pub fn add<T>(list: &mut List<T>, elem: T) {
     list.push(elem);
 }
 
-// [col-of-nonempty] The variadic constructor's tail, copied in: it stays the
-// caller's.
-pub fn add_all<T: Clone>(list: &mut List<T>, items: &Vec<T>) {
-    list.extend(items.iter().cloned());
+// [linear-container] An array's elements moved onto the end, in order: the
+// array is spent.
+pub fn append<T>(list: &mut List<T>, items: Vec<T>) {
+    list.extend(items);
 }
 
 pub fn remove_first<T>(list: &mut List<T>) -> Option<T> {

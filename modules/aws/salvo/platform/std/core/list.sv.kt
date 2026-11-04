@@ -10,28 +10,18 @@ fun<T> List(): List<T> {
     return mutableListOf<T>()
 }
 
-fun<T> List__T(first: T): List<T> {
-    return salvo.std.core.list.Mut_List__T(first)
-}
-
 fun<T> List__T_TArray(first: T, rest: Array<T>): List<T> {
-    return salvo.std.core.list.Mut_List__T_TArray(first, rest)
+    return salvo.std.core.list.Mut_List(first, rest)
 }
 
-fun<T> Mut_List__T(first: T): salvo.platform.std.core.list.MutList<T> {
+fun<T> Mut_List(first: T, rest: Array<T>): salvo.platform.std.core.list.MutList<T> {
     val list: salvo.platform.std.core.list.MutList<T> = mutableListOf<T>()
     salvo.std.core.list.addPlatform(list, first)
+    salvo.std.core.list.appendPlatform(list, rest)
     return list
 }
 
-fun<T> Mut_List__T_TArray(first: T, rest: Array<T>): salvo.platform.std.core.list.MutList<T> {
-    val list: salvo.platform.std.core.list.MutList<T> = mutableListOf<T>()
-    salvo.std.core.list.addPlatform(list, first)
-    salvo.std.core.list.addAllPlatform(list, rest)
-    return list
-}
-
-fun<T> addAllPlatform(list: salvo.platform.std.core.list.MutList<T>, items: Array<T>) = salvo.platform.std.core.list.addAll(list, items)
+fun<T> appendPlatform(list: salvo.platform.std.core.list.MutList<T>, items: Array<T>) = salvo.platform.std.core.list.append(list, items)
 
 fun<T> listBy(size: Int, init: (Int) -> T): List<T> {
     return salvo.std.core.list.mutListBy(size, init)
@@ -111,7 +101,7 @@ fun<T> drain(list: List<T>, each: (T) -> Unit) {
                     __pick1_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:328:32")
+                    throw AssertionError("salvo: unreachable at std.core.list:319:32")
                 }
             }
         })
@@ -136,7 +126,7 @@ fun<T> first(list: List<T>): T {
                 __pick2_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.core.list:353:28")
+                throw AssertionError("salvo: unreachable at std.core.list:344:28")
             }
         }
     }
@@ -175,7 +165,7 @@ fun<T> removeFrontWhile(list: salvo.platform.std.core.list.MutList<T>, keep: (T)
                     __pick3_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:401:50")
+                    throw AssertionError("salvo: unreachable at std.core.list:392:50")
                 }
             }
         })))) {
@@ -197,7 +187,7 @@ fun<T> removeBackWhile(list: salvo.platform.std.core.list.MutList<T>, keep: (T) 
                     __pick4_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:414:47")
+                    throw AssertionError("salvo: unreachable at std.core.list:405:47")
                 }
             }
         })))) {
@@ -226,7 +216,7 @@ fun<T> subList(list: List<T>, from: Int, to: Int, copy: (T) -> T): salvo.platfor
                     __pick5_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:433:39")
+                    throw AssertionError("salvo: unreachable at std.core.list:424:39")
                 }
             }
         }))
@@ -333,7 +323,7 @@ fun<T> contains(list: List<T>, elem: T, eq: (T, T) -> Boolean): Boolean {
                     __pick6_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:488:31")
+                    throw AssertionError("salvo: unreachable at std.core.list:479:31")
                 }
             }
         }, elem)) {
@@ -362,7 +352,7 @@ fun<T> all(list: List<T>, pick: (T) -> Boolean): Boolean {
                     __pick7_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:507:34")
+                    throw AssertionError("salvo: unreachable at std.core.list:498:34")
                 }
             }
         }))) {
@@ -388,7 +378,7 @@ fun<T> count(list: List<T>, pick: (T) -> Boolean): Int {
                     __pick8_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:521:33")
+                    throw AssertionError("salvo: unreachable at std.core.list:512:33")
                 }
             }
         })) {
@@ -415,7 +405,7 @@ fun<T> partition(list: List<T>, pick: (T) -> Boolean, copy: (T) -> T): kotlin.Pa
                     __pick9_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.list:539:33")
+                    throw AssertionError("salvo: unreachable at std.core.list:530:33")
                 }
             }
         }

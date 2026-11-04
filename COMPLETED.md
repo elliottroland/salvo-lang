@@ -144,6 +144,53 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — Constructors consume their tail, and arrays hold obligations (user decisions, [fn-variadic] [linear-container])
+
+- **Decided (user)**: (a) a constructor consumes its variadic tail as it
+  consumes its first element, so `List(1, ...xs)` spends `xs`; (b) every
+  collection constructor does, `Set`/`Map`/the sorted pair included; (c) the
+  narrow scope for linear arrays, with `append` and an array `drain` as
+  public std API.
+- **Built**:
+  - **A variadic tail follows its deduction entry.** The IR builder already
+    marked a consumed tail's reads (a spread's array included) as moves; the
+    checker stops refusing a linear value in a *consumed* variadic position
+    (`linear-generics:variadic` is now the kept-tail refusal), and Rust moves
+    a consumed spread rather than cloning it (`__v.extend(xs)`, and
+    `Spread::Owned` on the intrinsic path). A kept tail is borrowed inside
+    its callee (`FateFacts::kept_tails`): passed as an owned array, owing
+    nothing.
+  - **Arrays are conditional linear containers**: `ty_own_linear` sees
+    through `Ty::Array`, `ast_type_own_linear` too, a written `Tok[]` is no
+    longer a refused composite, and `var_in_composite` treats an array as the
+    opted container it now is.
+  - **The ledger's loop bug**: a `for`'s element was gained *after* the loop,
+    so a body moving it on read as a release before the gain and a leak at
+    the exit. It is gained at the top of the body now, every pass. Nothing
+    had exercised it: a `for` over a linear list binds borrowed elements.
+  - **A `for` may read a linear array but not move its elements out**
+    (`ir-linear-check:array-for`, from the ledger walk: the body gains its
+    binding and the iterable is an array) — the reason a list's terminal is
+    a callback (D7-a, 2026-09-16) applies unchanged.
+  - **std**: `append<T canbe linear>(list: Mut List<T>, items: T[]) => list:
+    Mut, !items` (a host fn: `extend`/`addAll`, with refinements keeping
+    `NonEmpty` and preserving `Idx`), `drain<T canbe linear>(items: T[],
+    each)` written over it, the list and deque constructors collapsed back to
+    one `<T canbe linear>(first, ...rest) => !first, !rest` pair each
+    (`add_all` and the one-element overloads gone), and `!elems`/`!entries`
+    on `Set`, `Map`, the sorted pair, `array_of` and `heap_of`. `Mut Str`,
+    `bytes_of` and `mut_bytes` keep their parts: they only read them.
+- **Tests**: `check/linear/arrays.sv` (reads, the refused loop, a forgotten
+  tail, a kept tail refusing linear values, `append`, a spent spread), the
+  old variadic refusals rewritten as linear lists built in one call, and a
+  run test on both backends (`run/linear/arrays_of_obligations.sv`). Two
+  run tests relied on a reusable spread or element (`Set(p, …)` then `p`) and
+  now copy.
+- **Corrected along the way**: I had told the user the consuming `for` was
+  L8's open part. L8 was answered 2026-09-16 ([linear-container]); its
+  `drain`-not-`for` decision (D7-a) is exactly this one. COMPLETED's L8
+  heading said "Open" and now records the answer.
+
 ### 2026-10-30 — `@compilerknown` marks the std names the compiler depends on (user decisions, [doc-compilerknown])
 
 - **Decided (user)**: a tag for "any types, functions, modules, or whatever
@@ -28586,8 +28633,12 @@ LANGUAGE_SPEC.md rules and tests at every affected layer.
 
 ### L8 — Composition and conditional linearity
 
-**Open** — see ROADMAP.md. How an obligation travels through a container, and
-when a container is linear at all.
+**Answered 2026-09-16** by [linear-container] (LC-1…LC-5 and D7-a…e): a
+container is linear exactly when its element type is, the opt-in is a
+`canbe linear` type parameter, and a container's terminal is a consuming
+callback (`drain`), not a `for`. Arrays joined 2026-10-30. What L8 left: a
+composed linear iterator (a wrapper storing its source in an unopted field),
+tuples (LC-3, refused), and a `drain` callback that needs effects (ROADMAP).
 
 ## Roadmap: effects
 

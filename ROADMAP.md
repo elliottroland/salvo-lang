@@ -449,10 +449,8 @@ Parked (user, 2026-10-14): the user expects to move away from state structs and 
   concrete there), carry them in `BoundaryCheck::Qualifies`, and have both
   backends' boundary code pass them (`kotlin ir_emit/boundary.rs`, `rust
   ir_emit/decls.rs` `boundary_check`).
-- **The variadic list constructor copies a fresh tail on Rust**: `List(1, 2,
-  3)` builds `vec![2, 3]` and `add_all` clones each element out of it, since
-  the tail is kept (a spread of a place must stay usable). A literal tail
-  could be moved instead.
+- (The variadic constructors' copied tail is gone: they consume it now —
+  COMPLETED.md, 2026-10-30, "Constructors consume their tail".)
 
 ### 0ae — Recorded, not scheduled: per-declaration reuse in the check cache (measured 2026-10-28, A4)
 

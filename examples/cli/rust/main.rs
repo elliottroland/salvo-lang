@@ -56,7 +56,6 @@ use crate::std_args::GroupSpec;
 use crate::std_args::HelpRequested;
 use crate::std_core_range::InRange__Int_qualifies;
 use crate::std_args::Invalid;
-use crate::std_core_list::List__T;
 use crate::std_core_list::List__T_TArray;
 use crate::std_args::Missing;
 use crate::std_args::MissingOne;
@@ -332,8 +331,8 @@ pub fn main() {
     crate::show(&__handle_2, &crate::std_core_list::List__T_TArray::<String>(String::from("fetch"), vec![String::from("--from-stdin")]));
     crate::show(&__handle_2, &crate::std_core_list::List__T_TArray::<String>(String::from("serve"), vec![String::from("-p"), String::from("0"), String::from("--output"), String::from("xml"), String::from("--cert"), String::from("c.pem")]));
     crate::show(&__handle_2, &crate::std_core_list::List__T_TArray::<String>(String::from("fetch"), vec![String::from("--url"), String::from("u"), String::from("--file"), String::from("f")]));
-    crate::show(&__handle_2, &crate::std_core_list::List__T::<String>(String::from("deploy")));
-    crate::show(&__handle_2, &crate::std_core_list::List__T::<String>(String::from("--help")));
+    crate::show(&__handle_2, &crate::std_core_list::List__T_TArray::<String>(String::from("deploy"), vec![]));
+    crate::show(&__handle_2, &crate::std_core_list::List__T_TArray::<String>(String::from("--help"), vec![]));
     crate::show(&__handle_2, &crate::std_core_list::List__T_TArray::<String>(String::from("serve"), vec![String::from("--help")]));
     let mut tool: crate::Tool = crate::std_args::args_or_exit::<crate::Tool>(&__handle_2, &__handle_6, &__handle_4.args(), &mut || crate::arg_spec__SpecTool(), &mut |__a0: &crate::std_args::Found| crate::from_found__Found_OkToolOrErrsNonEmptyListArgError(__a0));
     crate::std_core_console::println(&__handle_2, &format!("argv: {}", crate::describe(&tool)));

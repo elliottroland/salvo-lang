@@ -18,8 +18,9 @@ fun<T> Err(value: T): T {
     return value
 }
 
+@Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun<E> errs(first: E): List<E> {
-    return salvo.std.core.list.List__T(first)
+    return salvo.std.core.list.List__T_TArray(first, @Suppress("UNCHECKED_CAST") (arrayOf<Any?>() as Array<E>))
 }
 
 fun<T> Errs(value: T): T {

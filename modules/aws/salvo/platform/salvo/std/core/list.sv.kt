@@ -33,9 +33,9 @@ fun <T> add(list: MutList<T>, elem: T) {
     list.add(elem)
 }
 
-// [col-of-nonempty] The variadic constructor's tail, copied in: it stays the
-// caller's.
-fun <T> addAll(list: MutList<T>, items: Array<T>) {
+// [linear-container] An array's elements moved onto the end, in order: the
+// array is spent.
+fun <T> append(list: MutList<T>, items: Array<T>) {
     list.addAll(items)
 }
 

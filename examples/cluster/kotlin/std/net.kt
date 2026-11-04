@@ -710,7 +710,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
                         val n_2: Node = n!!
                         salvo.std.core.list.addPlatform(others, n_2.at)
                     }
-                    salvo.std.net.introduce(id, salvo.std.core.list.List__T(event_1.at))
+                    salvo.std.net.introduce(id, salvo.std.core.list.List__T_TArray(event_1.at, arrayOf<NodeEndpoint>()))
                 }
                 salvo.std.net.introduce(event_1.node, others)
                 salvo.std.core.set.addPlatform(dialed, salvo.std.net.toStr__NodeEndpoint(event_1.at), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
@@ -918,7 +918,7 @@ class ActorGrouping(private val name: String, private val proto: Protocol) : Act
             salvo.SalvoSched.sendWire(w, __Msg_ActorGroupWatcher.Joined(member), __PROTO_ActorGroupWatcher, __Codec___Msg_ActorGroupWatcher)
         }
         for (p in salvo.platform.std.core.list.each(peers)) {
-            salvo.std.net.shareMembers(name, proto.hash, p, salvo.std.core.list.List__T(member))
+            salvo.std.net.shareMembers(name, proto.hash, p, salvo.std.core.list.List__T_TArray(member, arrayOf<Int>()))
         }
     }
     override fun leave(member: Int) {

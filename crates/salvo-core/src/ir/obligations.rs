@@ -3,7 +3,8 @@
 //! fn's outstanding linear-obligation set changes (the IR-checker record §3 D3):
 //!
 //! - `GainParams` at the top of the body: linear parameters moved into the fn.
-//! - `Gain` after a binding (`Let`/`Unpack`/`ForEach`) of a linear value.
+//! - `Gain` after a binding (`Let`/`Unpack`) of a linear value, and at the
+//!   top of a `ForEach`'s body for its element (a new value every pass).
 //! - `Release` after a statement whose expression consumes a linear value
 //!   (`Read { consume: true }`): the move hands the obligation on.
 //! - `Discharge` where a `Narrow` proves a linear arm absent on a path (the
@@ -45,7 +46,14 @@ fn annotate_fn(f: &mut FnDecl, symbols: &Symbols) {
     let Some(body) = &mut f.body else { return };
     // [ref-handle] Parameters not moved in (lent/kept) are borrows: a narrow
     // of one carries no obligation, however linear its type.
-    let borrowed: HashSet<String> = f.params.iter().filter(|p| p.mode != PassMode::Moved).map(|p| p.local.0.clone()).collect();
+    // [fn-variadic] A kept variadic tail is passed as an owned array but is
+    // the caller's: a borrow too.
+    let borrowed: HashSet<String> = f
+        .params
+        .iter()
+        .filter(|p| p.mode != PassMode::Moved || f.fate.kept_tails.contains(&p.local.0))
+        .map(|p| p.local.0.clone())
+        .collect();
     let tys = std::cell::RefCell::new(f.params.iter().map(|p| (p.local.0.clone(), p.ty.clone())).collect());
     let a = Annotator { symbols, own: &own, borrowed: &borrowed, assigns: &f.fate.assign_spans, state: &f.fate.linear_state, binds: &f.fate.binds, tys, spans: Default::default() };
 
@@ -56,7 +64,7 @@ fn annotate_fn(f: &mut FnDecl, symbols: &Symbols) {
     let declared = &f.params[f.effect_params.min(end)..end];
     let gained: Vec<ObligationRef> = declared
         .iter()
-        .filter(|p| p.mode == PassMode::Moved && a.is_linear(&p.ty))
+        .filter(|p| p.mode == PassMode::Moved && !borrowed.contains(&p.local.0) && a.is_linear(&p.ty))
         .map(|p| a.ref_of(Place { root: p.local.clone(), steps: Vec::new() }, &p.ty))
         .collect();
     if !gained.is_empty() {
@@ -167,6 +175,15 @@ impl Annotator<'_, '_> {
             let leaves = matches!(s, Stmt::Return(..) | Stmt::Break | Stmt::Continue);
             if !releases.is_empty() {
                 out.push(Stmt::Obligation(Obligation { kind: ObligationKind::Release, refs: releases, span }));
+            }
+            // [ir-obligation] A loop binding is a new value on every pass: it is
+            // gained at the top of the body, not after the loop — after it, the
+            // binding is out of scope, and a body that moves it on would read as
+            // a release before the gain and a leak at the exit.
+            if let (Stmt::ForEach { body, .. }, Some(refs)) = (&mut s, gain.clone()) {
+                body.stmts.insert(0, Stmt::Obligation(Obligation { kind: ObligationKind::Gain, refs, span }));
+                out.push(s);
+                continue;
             }
             out.push(s);
             if !leaves {

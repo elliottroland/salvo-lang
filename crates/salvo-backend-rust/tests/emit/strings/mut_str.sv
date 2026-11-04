@@ -92,9 +92,10 @@ fn main() [use] {
 
 //--- a_spread_into_a_variadic_intrinsic_is_the_collection
 // [fn-variadic] A `...spread` into a variadic intrinsic *is* the whole
-// collection: `vec![parts]` would be a vector of one vector. Cloned rather
-// than moved, matching Kotlin's `listOf(*arr)` — and the string parts are
-// borrowed, since `mut_str` reads them.
+// collection: `vec![parts]` would be a vector of one vector. `Mut Str` keeps
+// its parts (it only reads them), so that spread is cloned and `parts` stays
+// usable; `Set` consumes its tail (user decision 2026-10-30), so the last
+// use moves the array in.
 export fn main() [use] {
     use StdConsole()
     let parts = array_of("a", "b")
@@ -104,7 +105,7 @@ export fn main() [use] {
     // now have a *first* parameter, which a spread may not supply
     // [fn-variadic], so a lone spread reaches the purely variadic intrinsics —
     // which is where this lowering lives anyway.
-    //~ emits: Set_platform::<String>(parts.clone(), 
+    //~ emits: Set_platform::<String>(parts, 
     let xs = Set(...parts)
     println("${sb} ${size(xs)}")
 }

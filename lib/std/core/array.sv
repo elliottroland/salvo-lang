@@ -15,7 +15,9 @@
 // variadic boundary, so a program that never spreads rarely needs one — a
 // `List` is the ordinary sequence.
 // @compilerrules [fn-variadic, col-no-literal]
-export intrinsic fn array_of<T canbe linear>(...elems: T[]) [] -> T[]
+// The elements are moved in, as into any constructor: `array_of(...xs)` spends
+// `xs`.
+export intrinsic fn array_of<T canbe linear>(...elems: T[]) [] -> T[] => !elems
 
 // Builds an array of [size] elements, each from its index: `array_by(3, i ->
 // i * 2)` is `[0, 2, 4]`. The generator is called once per index, in order.
@@ -58,4 +60,17 @@ export fn next<T>(p: Mut ArrayIter<T>) [] -> Emitted (proj(p) T) | Finished => p
     }
     p.at = p.at + 1
     return emitted(elem)
+}
+
+// The **terminal** of an array: consumes it and hands every element to
+// [each], in order — how an array of obligations ends when its elements go
+// separate ways (`drain(handles, close)`). A function, not a `for`, for the
+// reason a list's [drain] is one: there is no half-drained state, so no path
+// can drop the elements it did not reach.
+// @compilerrules [linear-container, fn-effects]
+export fn drain<T canbe linear>(items: T[], each: (x: T) -> None) [] -> None
+=>[each] !x => !items, each {
+    let list = Mut List<T>()
+    list.append(items)
+    drain(list, each)
 }

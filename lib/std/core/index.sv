@@ -26,6 +26,7 @@ export qualifier Idx<C canbe linear>(c: C) of Int {
     // strips them. Each container's own; the refinement lives with the claim
     // [qual-refn-scope], so they are all here.
     refn add<T>(list: Mut List<T>, elem: T) => list: preserve Idx
+    refn append<T>(list: Mut List<T>, items: T[]) => list: preserve Idx
     refn swap<T>(list: Mut List<T>, i: Int, j: Int) => list: preserve Idx
     // [col-replace] The total write.
     refn replace<T>(list: Mut List<T>, index: Idx(list) Int, value: T) => list: preserve Idx

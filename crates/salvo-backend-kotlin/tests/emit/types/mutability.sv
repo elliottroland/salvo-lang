@@ -10,7 +10,7 @@ export fn fill(target: Mut List<Int>, n: Int) -> None => target: Mut {
 
 export fn main() [use] -> None {
     use StdConsole
-    //~ emits: val items: salvo.platform.std.core.list.MutList<Int> = salvo.std.core.list.Mut_List__T(1)
+    //~ emits: val items: salvo.platform.std.core.list.MutList<Int> = salvo.std.core.list.Mut_List(1, arrayOf<Int>())
     let items: Mut List<Int> = Mut List(1)
     fill(items, 2)
     println("size: ${items.size()}")

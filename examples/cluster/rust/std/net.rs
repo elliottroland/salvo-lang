@@ -1,6 +1,6 @@
 use crate::std_core_bytes::Bytes;
 use crate::std_time::Duration;
-use crate::std_core_list::List__T;
+use crate::std_core_list::List__T_TArray;
 use crate::std_core_map::Map;
 use crate::std_core_map::Mut_Map_platform;
 use crate::std_core_set::Mut_Set_platform;
@@ -1062,7 +1062,7 @@ impl GossipNodeGroup {
                     let mut n_2 = n.unwrap();
                     crate::std_core_list::add_platform::<crate::std_net::NodeEndpoint>(&mut others, (n_2.at).clone());
                 };
-                crate::std_net::introduce(&(id).clone(), &crate::std_core_list::List__T::<crate::std_net::NodeEndpoint>((event_1.at).clone()));
+                crate::std_net::introduce(&(id).clone(), &crate::std_core_list::List__T_TArray::<crate::std_net::NodeEndpoint>((event_1.at).clone(), vec![]));
             }
             crate::std_net::introduce(&(event_1.node).clone(), &others);
             crate::std_core_set::add_platform::<String>(&mut self.dialed, crate::std_net::to_str__NodeEndpoint(&event_1.at), &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
@@ -1423,7 +1423,7 @@ impl crate::std_net::__Stateful_ActorGroup for ActorGrouping {
             crate::scheduler::salvo_send_wire(w, crate::std_net::__Msg_ActorGroupWatcher::Joined(member), crate::std_net::__PROTO_ActorGroupWatcher);
         }
         for mut p in self.peers.iter() {
-            crate::std_net::share_members(&self.name, &self.proto.hash, &(p).clone(), &crate::std_core_list::List__T::<usize>(member));
+            crate::std_net::share_members(&self.name, &self.proto.hash, &(p).clone(), &crate::std_core_list::List__T_TArray::<usize>(member, vec![]));
         }
     }
     fn leave(&mut self, member: usize) {

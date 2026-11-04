@@ -140,6 +140,8 @@ fn max(...ints: Int[]) -> Int? {
 }
 ```
 
+A variadic parameter takes a deduction entry like any other. Kept (the default, or `=> ints`), it lends its arguments to the call: a spread `max(...xs)` leaves `xs` usable. Consumed (`=> !rest`), it moves them in, a spread's array with them, so `List(a, ...xs)` spends `xs` just as it spends `a`. Every standard-library constructor consumes its tail, which is what lets a tail hold linear values (see "Linear types").
+
 Variadic arguments are assigned with the remainder left after the non-variadic arguments are assigned. For example, we might write the following overload for the above function:
 
 ```

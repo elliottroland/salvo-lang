@@ -172,12 +172,13 @@ fn generic_refused() {
     discard(kept)
 }
 
-fn variadic_refused() {
+// [linear-container] A constructor consumes its tail, so a list of
+// obligations is built in one call — and owes, until it is drained.
+fn variadic_builds_a_linear_list() {
     let h = FileHandle {fd: 1}
     let h2 = FileHandle {fd: 2}
-    //~ error[linear-container:position]
-    //~ error[linear-generics:variadic]
-    let _xs = List(h, h2)
+    let xs = List(h, h2)
+    drain(xs, close)
 }
 
 //--- l7a_generic_linear_opt_in
@@ -231,14 +232,20 @@ fn bad_clause<T canbe Mut>(value: T) -> T
     return value
 }
 
-// Variadic positions refuse linear values; [linear-composite] a linear
-// value cannot be stored in a variadic `T[]`.
-fn variadic_refused() {
+// [linear-generics] A variadic tail the callee consumes takes linear values;
+// one it keeps refuses them, since the array would be handed back owing.
+fn kept_tail(...hs: FileHandle[]) -> Int => hs {
+    return size(hs)
+}
+
+fn variadic_consumed_and_kept() {
     let h = open_file(1)
     let h2 = open_file(2)
-    //~ error[linear-container:position]
+    let xs = Mut List(h, h2)
+    drain(xs, close)
+    let h3 = open_file(3)
     //~ error[linear-generics:variadic]
-    let _xs = Mut List(h, h2)
+    let _n = kept_tail(h3)
 }
 
 fn ok_hold() {

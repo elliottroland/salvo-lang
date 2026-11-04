@@ -27,8 +27,9 @@ export iterable platform type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) ca
     refn add(set: Mut Set<T>, elem: T) => set: +NonEmpty
 }
 
-// Constructor. The elements are stored in the new set, so they are moved: a
-// variadic tail is owned, and needs no entry in the clause.
+// Constructor. The elements are stored in the new set, so they are moved, the
+// variadic tail with them: `Set(a, ...xs)` spends `xs` (user decision
+// 2026-10-30).
 // A duplicate element is dropped — the last one wins, as it does in a set
 // literal [col-duplicate-keys], so the result may be smaller than the
 // argument list.
@@ -38,10 +39,10 @@ export iterable platform type Set<T>(?hash: (T) -> Long, ?eq: (T, T) -> Bool) ca
 // mutable pair), the key carried verbatim to the platform shim's
 // `<Key>_platform` wrapper.
 // @compilerrules [deduce-syntax, fn-type-named]
-export platform fn Set<T>(...elems: T[], ?Hashed<T>) [] -> Set<T>(?hash, ?eq)
+export platform fn Set<T>(...elems: T[], ?Hashed<T>) [] -> Set<T>(?hash, ?eq) => !elems
 
 // Mutable constructor
-export platform fn Mut Set<T>(...elems: T[], ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq)
+export platform fn Mut Set<T>(...elems: T[], ?Hashed<T>) [] -> Mut Set<T>(?hash, ?eq) => !elems
 
 // Builds a set from [size] generated elements. Duplicates collapse,
 // so the result may hold fewer than [size].

@@ -3761,10 +3761,12 @@ messages! {
          `{ty}`: `{name}` does not declare `<{var_name} canbe linear>`, so it does not \
          honor the use obligation"
     );
-    /// A linear value in a variadic position.
+    /// A linear value in a kept variadic position.
     linear_generics_variadic = "linear-generics:variadic" () =>
-        "a linear value cannot be passed in a variadic position (variadic arguments are \
-         not tracked); add it to the collection individually instead";
+        "a linear value cannot be passed to a variadic tail the function keeps: the \
+         tail is one array, lent to the call and handed back, and a linear value moved \
+         into it would still be owed — pass it to a function that consumes its tail \
+         (`=> !rest`)";
     /// An effect member instantiated with a linear type it does not opt into.
     linear_generics_effect_member_not_opted = "linear-generics:effect-member-not-opted" (var_name: &dyn std::fmt::Display, member: &dyn std::fmt::Display, bound: &dyn std::fmt::Display) => format!(
         "cannot instantiate generic parameter `{var_name}` of effect member `{member}` \
@@ -5009,6 +5011,13 @@ messages! {
     ir_linear_check_leak_across_throw = "ir-linear-check:leak-across-throw" (subject: &dyn std::fmt::Display, arms: &dyn std::fmt::Display) => format!(
         "{subject} still owns a linear value{arms} across a call that may throw: the code after it does not run on \
          the throw path, so release it before the call, or move it onward so the obligation travels with it"
+    );
+    /// A `for` that moves the elements out of a linear array.
+    ir_linear_check_array_for = "ir-linear-check:array-for" (ty: &dyn std::fmt::Display) => format!(
+        "a `for` cannot move the elements out of a linear array (`{ty}`): a loop can stop \
+         early, and the elements it did not reach would be owed by nobody. Empty the \
+         array whole — `drain(items, each)` hands every element to `each`, \
+         `append(list, items)` moves them into a list — or loop over it to read only"
     );
     /// A linear value still owed when a path leaves; `arms` names its live linear arms (" (the `T` arm)"), or is empty.
     ir_linear_check_leak_at_exit = "ir-linear-check:leak-at-exit" (subject: &dyn std::fmt::Display, arms: &dyn std::fmt::Display) => format!(

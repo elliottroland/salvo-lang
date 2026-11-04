@@ -37,15 +37,15 @@ export iterable platform type List<T canbe linear> canbe Mut : Iter<self, ListIt
     // (`std.heap`'s `heapify`).
     refn swap(list: NonEmpty Mut List<T>, i: Int, j: Int) => list: +NonEmpty
 
-    // Appending to a non-empty list keeps it non-empty (the items may be
-    // none).
-    refn add_all(list: NonEmpty Mut List<T>, items: T[]) => list: +NonEmpty
+    // Appending to a non-empty list keeps it non-empty (the array may be
+    // empty, so it establishes nothing).
+    refn append(list: NonEmpty Mut List<T>, items: T[]) => list: +NonEmpty
 }
 
 // Constructors, in two shapes (user decision 2026-09-23).
 // Writing a *first* element gives a `NonEmpty` list, and nothing tests it at
-// the call: the `add`s in the body establish the claim, by `List`'s own
-// refinement above.
+// the call: `add` establishes the claim, by `List`'s own refinement above, and
+// `append` keeps it.
 //
 //     List()             // List<T>, empty
 //     List(1, 2, 3)      // NonEmpty List<T> — the claim comes free
@@ -61,18 +61,16 @@ export iterable platform type List<T canbe linear> canbe Mut : Iter<self, ListIt
 // for the mutable pair). There is no separate lowercase constructor — the type
 // name is the name.
 //
-// The elements are stored in the new list, so they are moved: a variadic tail is
-// owned, and needs no entry in the clause.
-// @compilerrules [col-of-nonempty, fn-variadic, fn-type-named, deduce-syntax, qual-refn-type]
+// The elements are stored in the new list, so they are moved — the tail as
+// much as the first (user decision 2026-10-30): `List(a, ...xs)` spends `xs`.
+// That is what lets a list of obligations be built in one call,
+// `List(reply_a, reply_b)`.
+// @compilerrules [col-of-nonempty, fn-variadic, fn-type-named, deduce-syntax, qual-refn-type, linear-container]
 export fn List<T canbe linear>() [] -> List<T> {
     return Mut List<T>()
 }
 
-export fn List<T canbe linear>(first: T) [] -> NonEmpty List<T> => !first {
-    return Mut List(first)
-}
-
-export fn List<T>(first: T, ...rest: T[]) [] -> NonEmpty List<T> => !first, rest {
+export fn List<T canbe linear>(first: T, ...rest: T[]) [] -> NonEmpty List<T> => !first, !rest {
     return Mut List(first, ...rest)
 }
 
@@ -81,30 +79,23 @@ export fn List<T>(first: T, ...rest: T[]) [] -> NonEmpty List<T> => !first, rest
 // so `remove_at` strips it and `add` puts it back.
 //
 // The empty one is the list's one intrinsic constructor: everything else is
-// built from it with `add`, whose refinement above is what makes the result
-// `NonEmpty`. A variadic tail is never linear (an array cannot hold an
-// obligation), so a linear element has the one-element overload, and the
-// variadic one is over any other `T`.
+// built from it with `add` and `append`.
 // @compilerrules [qual-subject, qual-refn, backend-intrinsic, linear-container]
 export intrinsic fn Mut List<T canbe linear>() [] -> Mut List<T>
 
-export fn Mut List<T canbe linear>(first: T) [] -> NonEmpty Mut List<T> => !first {
+export fn Mut List<T canbe linear>(first: T, ...rest: T[]) [] -> NonEmpty Mut List<T> => !first, !rest {
     let list = Mut List<T>()
     list.add(first)
+    list.append(rest)
     return list
 }
 
-export fn Mut List<T>(first: T, ...rest: T[]) [] -> NonEmpty Mut List<T> => !first, rest {
-    let list = Mut List<T>()
-    list.add(first)
-    add_all(list, rest)
-    return list
-}
-
-// Appends a copy of every element of [items], in order. The tail of
-// [Mut List] is the caller's — a spread of a place stays usable — and a
-// generic element has no `copy` a Salvo body could call, so the host copies.
-platform fn add_all<T>(list: Mut List<T>, items: T[]) [] -> None => list: Mut, items
+// Moves every element of [items] onto the end of [list], in order, spending
+// the array. One of the two ways an array of obligations ends (the other is
+// its [drain]): a `for` may read a linear array but not move its elements out,
+// since a loop can stop early and leave the rest owed by nobody.
+// @compilerrules [linear-container]
+export platform fn append<T canbe linear>(list: Mut List<T>, items: T[]) [] -> None => list: Mut, !items
 
 // Builds a list of [size] elements, each from its index:
 // `list_by(3, i -> i * 2)` is `[0, 2, 4]`. The generator is called once per

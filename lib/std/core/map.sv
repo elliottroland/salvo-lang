@@ -30,8 +30,9 @@ export iterable platform type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K
 }
 
 // Constructor, from entries written as pairs: `Map(("a", 1), ("b", 2))`.
-// The keys and values are stored in the new map, so they are moved: a
-// variadic tail is owned and needs no entry in the clause.
+// The keys and values are stored in the new map, so they are moved, the
+// variadic tail with them: `Map(e, ...es)` spends `es` (user decision
+// 2026-10-30).
 // A repeated key keeps the position of its first appearance and takes the
 // value of its last [col-duplicate-keys].
 //
@@ -40,10 +41,10 @@ export iterable platform type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K
 // mutable pair), the key carried verbatim to the platform shim's
 // `<Key>_platform` wrapper.
 // @compilerrules [deduce-syntax, fn-type-named]
-export platform fn Map<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq)
+export platform fn Map<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) [] -> Map<K, V>(?hash, ?eq) => !entries
 
 // Mutable constructor
-export platform fn Mut Map<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) [] -> Mut Map<K, V>(?hash, ?eq)
+export platform fn Mut Map<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) [] -> Mut Map<K, V>(?hash, ?eq) => !entries
 
 // Builds a map from [size] generated entries: `map_by(3, i -> (i, i
 // * i))` maps each index to its square. A repeated key takes the value of its

@@ -286,7 +286,8 @@ fn main() [use] -> None {
     let b = Bag<Int> { items: List(2, 1), n: 5 }
     println("${a == b} ${a}")
     let p = Point { x: 1, y: 2 }
-    let s = Set(p, Point { x: 1, y: 2 })
+    // A constructor consumes its elements, so the set gets a copy.
+    let s = Set(copy(p), Point { x: 1, y: 2 })
     println("${p} ${size(s)}")
 }
 //= stdout

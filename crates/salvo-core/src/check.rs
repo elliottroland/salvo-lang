@@ -15065,6 +15065,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 None
             }
             ast::Type::QualifiedGroup { base, .. } => self.ast_type_own_linear(base),
+            // [linear-container] An array of linear elements is linear itself,
+            // as a `List` of them is.
+            ast::Type::Array { elem, .. } => self.ast_type_own_linear(elem),
             // A union value is one value, so an arm's obligation is the
             // union's — which is why writing one is a store.
             ast::Type::Union { arms, .. } => arms.iter().find_map(|a| self.ast_type_own_linear(a)),
@@ -15169,11 +15172,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 }
             }
-            ast::Type::Array { elem, .. } => {
-                if let Some(linear) = self.ast_type_own_linear(elem) {
-                    found.push((elem.span(), linear, "an array's element type".to_string()));
-                }
-            }
+            // [linear-container] An array is a conditional container, as
+            // `List<T canbe linear>` is (user decision 2026-10-30): the array
+            // carries its elements' obligation, and `drain`/`append` end it.
+            ast::Type::Array { .. } => {}
             ast::Type::Tuple { elems, .. } => {
                 for e in elems {
                     if let Some(linear) = self.ast_type_own_linear(e) {
@@ -19990,7 +19992,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .any(|(i, a)| !opted.contains(&i) && inside(a))
             }
             ast::Type::QualifiedGroup { base, .. } => self.var_in_composite(base, var),
-            ast::Type::Array { elem, .. } => inside(elem),
+            // [linear-container] An array carries its elements' obligation,
+            // as an opted container does; only what its element nests counts.
+            ast::Type::Array { elem, .. } => self.var_in_composite(elem, var),
             ast::Type::Tuple { elems, .. } => elems.iter().any(|e| inside(e)),
             // [linear-union-arm] A union — and `T?`, which is one — is **not**
             // a composite (O-C2): the value *is* the value, so an arm carries
@@ -31290,18 +31294,27 @@ impl<'p, 'r> Checker<'p, 'r> {
             // mentioned by a later one: the IR reads a call's arguments in
             // order, so that is the flow pass's to report
             // [flow-use-after-move], from the moves recorded below.
+            // [fn-variadic] Whether the variadic tail is consumed: then each
+            // element (and a spread's array) moves into the call, which the IR
+            // records as moves [flow-use-after-move].
+            let tail_consumed = decl
+                .params
+                .iter()
+                .find(|p| p.variadic)
+                .and_then(|p| contract.iter().find(|d| d.param == p.name.name))
+                .is_some_and(|d| !d.kept);
             for (i, arg) in args.iter().enumerate() {
                 if i >= fixed_count {
-                    // [linear-generics] Variadic positions are untracked
-                    // by the flow analysis, so a linear value passed
-                    // there would leave its obligation unresolvable
-                    // (physically moved, statically still owed).
+                    // [linear-generics] A *kept* tail lends its elements to
+                    // the call and hands them back, which a linear value cannot
+                    // survive: the tail is assembled into one array, so the
+                    // value would be moved in and owed out.
                     let ty = self
                         .out
                         .ty_of(self.file_idx, arg.span())
                         .cloned()
                         .unwrap_or(Ty::Unknown);
-                    if self.ty_own_linear(&ty) {
+                    if !tail_consumed && self.ty_own_linear(&ty) {
                         self.error(arg.span(), messages::linear_generics_variadic());
                     }
                     continue;

@@ -16,7 +16,7 @@ pub fn empty_deque_platform<T>() -> std::collections::VecDeque<T> {
     crate::platform_std_core_deque::empty_deque()
 }
 
-pub fn deque_from_platform<T: Clone>(mut first: T, mut rest: Vec<T>) -> std::collections::VecDeque<T> {
+pub fn deque_from_platform<T>(mut first: T, mut rest: Vec<T>) -> std::collections::VecDeque<T> {
     crate::platform_std_core_deque::deque_from(first, rest)
 }
 
@@ -32,13 +32,7 @@ pub fn deque_of<T>() -> std::collections::VecDeque<T> {
     return crate::std_core_deque::empty_deque_platform::<T>();
 }
 
-pub fn deque_of__T<T>(mut first: T) -> std::collections::VecDeque<T> {
-    let mut d: std::collections::VecDeque<T> = crate::std_core_deque::empty_deque_platform::<T>();
-    crate::std_core_deque::add_last_platform::<T>(&mut d, first);
-    return d;
-}
-
-pub fn deque_of__T_TArray<T: Clone>(mut first: T, mut rest: Vec<T>) -> std::collections::VecDeque<T> {
+pub fn deque_of__T_TArray<T>(mut first: T, mut rest: Vec<T>) -> std::collections::VecDeque<T> {
     return crate::std_core_deque::deque_from_platform::<T>(first, rest);
 }
 
@@ -46,13 +40,7 @@ pub fn mut_deque_of<T>() -> std::collections::VecDeque<T> {
     return crate::std_core_deque::empty_deque_platform::<T>();
 }
 
-pub fn mut_deque_of__T<T>(mut first: T) -> std::collections::VecDeque<T> {
-    let mut d: std::collections::VecDeque<T> = crate::std_core_deque::empty_deque_platform::<T>();
-    crate::std_core_deque::add_last_platform::<T>(&mut d, first);
-    return d;
-}
-
-pub fn mut_deque_of__T_TArray<T: Clone>(mut first: T, mut rest: Vec<T>) -> std::collections::VecDeque<T> {
+pub fn mut_deque_of__T_TArray<T>(mut first: T, mut rest: Vec<T>) -> std::collections::VecDeque<T> {
     return crate::std_core_deque::deque_from_platform::<T>(first, rest);
 }
 
@@ -145,7 +133,7 @@ pub fn drain<T>(mut d: std::collections::VecDeque<T>, each: &mut dyn FnMut(T)) {
                 let mut __pick1_1 = __pick1.unwrap();
                 __pick1_1
             } else {
-                panic!("salvo: unreachable at std.core.deque:157:33")
+                panic!("salvo: unreachable at std.core.deque:146:33")
             }
         }; each(__arg1) };
     }

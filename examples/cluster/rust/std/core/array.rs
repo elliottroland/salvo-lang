@@ -1,4 +1,5 @@
 use crate::std_core_iterator::Finished;
+use crate::std_core_list::append_platform;
 use crate::std_core_iterator::emitted;
 use crate::std_core_iterator::finished;
 
@@ -21,4 +22,10 @@ pub fn next<'a, T: Clone>(p: &mut crate::std_core_array::ArrayIter<'a, T>) -> cr
     p.at = i32::wrapping_add(p.at, 1i32);
     let mut elem_1 = elem.unwrap();
     return crate::unions::Union2::U1(crate::std_core_iterator::emitted::<&T>(elem_1));
+}
+
+pub fn drain<T>(mut items: Vec<T>, each: &mut dyn FnMut(T)) {
+    let mut list: Vec<T> = vec![];
+    crate::std_core_list::append_platform::<T>(&mut list, items);
+    crate::std_core_list::drain::<T>(list, &mut *each);
 }

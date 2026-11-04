@@ -173,7 +173,7 @@ fun main() {
         return (f.hp > 10)
     }, { __a0 -> salvo.std.core.list.next__ListIter(__a0) })
     salvo.std.core.console.println(__handle_2, "1. ${salvo.std.core.list.sizePlatform(standing)} of ${salvo.std.core.list.sizePlatform(roster)} still standing")
-    val bench: salvo.platform.std.core.list.MutList<Fighter> = salvo.std.core.list.Mut_List__T(Fighter(name = "Cy", hp = 12, energy = 2))
+    val bench: salvo.platform.std.core.list.MutList<Fighter> = salvo.std.core.list.Mut_List(Fighter(name = "Cy", hp = 12, energy = 2), arrayOf<Fighter>())
     salvo.std.core.list.addPlatform(bench, Fighter(name = "Dee", hp = 6, energy = 7))
     salvo.std.core.console.println(__handle_2, "2. bench ${salvo.std.core.list.sizePlatform(bench)}, front ${kotlin.run {
         val __proj_7: Fighter = kotlin.run {
@@ -452,7 +452,7 @@ fun main() {
         }
         __proj_35.energy
     }}")
-    val camp: Camp = Camp(supplies = 10, banners = salvo.std.core.list.Mut_List__T("red"))
+    val camp: Camp = Camp(supplies = 10, banners = salvo.std.core.list.Mut_List("red", arrayOf<String>()))
     val banners: salvo.platform.std.core.list.MutList<String> = camp.banners
     salvo.main.spend(camp, 3)
     salvo.main.hoist(camp, "blue")

@@ -17,6 +17,8 @@ add(seen, "ada")
 
 A map's entries are written as `key: value` *arguments* — the same `k: v` pair sugar any `(K, V)[]` variadic accepts. (A `key: value` with an *identifier* key is still fine here; there is no struct-literal ambiguity inside a call.)
 
+A constructor takes ownership of what it stores, a spread array included: `List(0, ...xs)` spends `xs` as it spends `0`, so copy the array first if you need it again. An array's elements also move onto an existing list with `append(list, items)`, and `drain(items, each)` hands each one to a callback; both spend the array.
+
 Besides the constructors, each collection can be **generated** from a size and a rule, or **converted** from another:
 
 ```

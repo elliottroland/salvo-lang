@@ -183,11 +183,14 @@ fn a_set_of_obligations_is_refused_because_dedup_is_dropping(s: Mut Set<Ticket>)
 //~ error[linear-composite:position]
 fn a_map_key_cannot_be_an_obligation(m: Mut Map<Ticket, Int>) [] -> None => !m {}
 
-// [linear-container] Arrays and tuples stay out of the first round, so they
-// keep the general composite refusal — which names the containers that *do*
-// hold obligations.
-//~ error[linear-container:position]
-fn an_array_is_still_refused(x: Token[]) [] -> None => !x {}
+// [linear-container] An array holds obligations as a list does (user decision
+// 2026-10-30): it is linear when its element is, and `drain`/`append` end it.
+fn an_array_is_drained(x: Token[]) [] -> None => !x {
+    drain(x, spend)
+}
+
+// A tuple keeps the general composite refusal — which names the containers
+// that *do* hold obligations.
 
 //~ error[linear-container:position]
 fn a_tuple_is_still_refused(x: (Token, Int)) [] -> None => !x {}

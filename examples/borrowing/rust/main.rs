@@ -41,7 +41,7 @@ pub mod platform_std_core_string;
 use crate::std_core_index::Idx__Int_qualifies;
 use crate::std_core_list::ListIter;
 use crate::std_core_list::List__T_TArray;
-use crate::std_core_list::Mut_List__T;
+use crate::std_core_list::Mut_List;
 use crate::std_core_ref::NotSame_qualifies;
 use crate::std_core_list::add_platform;
 use crate::std_core_list::at_platform;
@@ -233,7 +233,7 @@ pub fn main() {
         return (f.hp > 10i32);
     }, &mut |__a0: &mut crate::std_core_list::ListIter<'_, crate::Fighter>| crate::std_core_list::next__ListIter(&mut *__a0));
     crate::std_core_console::println(&__handle_2, &format!("1. {} of {} still standing", crate::std_core_list::size_platform(&standing), crate::std_core_list::size_platform::<crate::Fighter>(&roster)));
-    let mut bench: Vec<crate::Fighter> = crate::std_core_list::Mut_List__T::<crate::Fighter>(crate::Fighter { name: String::from("Cy"), hp: 12i32, energy: 2i32 });
+    let mut bench: Vec<crate::Fighter> = crate::std_core_list::Mut_List::<crate::Fighter>(crate::Fighter { name: String::from("Cy"), hp: 12i32, energy: 2i32 }, vec![]);
     crate::std_core_list::add_platform::<crate::Fighter>(&mut bench, crate::Fighter { name: String::from("Dee"), hp: 6i32, energy: 7i32 });
     crate::std_core_console::println(&__handle_2, &format!("2. bench {}, front {} (a reading, not a handle)", crate::std_core_list::size_platform::<crate::Fighter>(&bench), {
         let mut __proj_7: &crate::Fighter = {
@@ -383,7 +383,7 @@ pub fn main() {
         };
         __proj_35.energy
     }));
-    let mut camp: crate::Camp = crate::Camp { supplies: 10i32, banners: crate::std_core_list::Mut_List__T::<String>(String::from("red")) };
+    let mut camp: crate::Camp = crate::Camp { supplies: 10i32, banners: crate::std_core_list::Mut_List::<String>(String::from("red"), vec![]) };
     crate::spend(&mut camp, 3i32);
     crate::hoist(&mut camp, String::from("blue"));
     crate::std_core_console::println(&__handle_2, &format!("5. supplies {}, banners {}", camp.supplies, crate::std_core_list::to_str::<String>(&camp.banners, &mut |__a0: &String| format!("{}", __a0))));

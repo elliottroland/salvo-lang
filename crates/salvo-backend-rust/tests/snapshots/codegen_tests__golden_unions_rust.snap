@@ -260,7 +260,6 @@ use crate::std_core_iterator::Finished;
 use crate::std_core_index::Idx__Int_qualifies;
 use crate::std_core_index::IndicesIter;
 use crate::std_core_string::Mut_Str;
-use crate::std_core_string::append_platform;
 use crate::std_core_checked::checked;
 use crate::std_core_iterator::emitted;
 use crate::std_core_iterator::finished;
@@ -280,29 +279,19 @@ pub fn List<T>() -> Vec<T> {
     return vec![];
 }
 
-pub fn List__T<T>(mut first: T) -> Vec<T> {
-    return crate::std_core_list::Mut_List__T::<T>(first);
+pub fn List__T_TArray<T>(mut first: T, mut rest: Vec<T>) -> Vec<T> {
+    return crate::std_core_list::Mut_List::<T>(first, rest);
 }
 
-pub fn List__T_TArray<T: Clone>(mut first: T, mut rest: Vec<T>) -> Vec<T> {
-    return crate::std_core_list::Mut_List__T_TArray::<T>(first, rest.clone());
-}
-
-pub fn Mut_List__T<T>(mut first: T) -> Vec<T> {
+pub fn Mut_List<T>(mut first: T, mut rest: Vec<T>) -> Vec<T> {
     let mut list: Vec<T> = vec![];
     crate::std_core_list::add_platform::<T>(&mut list, first);
+    crate::std_core_list::append_platform::<T>(&mut list, rest);
     return list;
 }
 
-pub fn Mut_List__T_TArray<T: Clone>(mut first: T, mut rest: Vec<T>) -> Vec<T> {
-    let mut list: Vec<T> = vec![];
-    crate::std_core_list::add_platform::<T>(&mut list, first);
-    crate::std_core_list::add_all_platform::<T>(&mut list, &rest);
-    return list;
-}
-
-pub fn add_all_platform<T: Clone>(list: &mut Vec<T>, items: &Vec<T>) {
-    crate::platform_std_core_list::add_all(list, items)
+pub fn append_platform<T>(list: &mut Vec<T>, mut items: Vec<T>) {
+    crate::platform_std_core_list::append(list, items)
 }
 
 pub fn list_by<T: Clone>(mut size: i32, init: &mut dyn FnMut(i32) -> T) -> Vec<T> {
@@ -401,7 +390,7 @@ pub fn drain<T>(mut list: Vec<T>, each: &mut dyn FnMut(T)) {
                 let mut __pick1_1 = __pick1.unwrap();
                 __pick1_1
             } else {
-                panic!("salvo: unreachable at std.core.list:328:32")
+                panic!("salvo: unreachable at std.core.list:319:32")
             }
         }; each(__arg1) };
     }
@@ -431,7 +420,7 @@ pub fn first<T>(list: &Vec<T>) -> &T {
             let mut __pick2_1 = __pick2.unwrap();
             __pick2_1
         } else {
-            panic!("salvo: unreachable at std.core.list:353:28")
+            panic!("salvo: unreachable at std.core.list:344:28")
         }
     };
 }
@@ -469,7 +458,7 @@ pub fn remove_front_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool
                 let mut __pick3_1 = __pick3.unwrap();
                 __pick3_1
             } else {
-                panic!("salvo: unreachable at std.core.list:401:50")
+                panic!("salvo: unreachable at std.core.list:392:50")
             }
         }))) {
             break;
@@ -488,7 +477,7 @@ pub fn remove_back_while<T>(list: &mut Vec<T>, keep: &mut dyn FnMut(&T) -> bool)
                 let mut __pick4_1 = __pick4.unwrap();
                 __pick4_1
             } else {
-                panic!("salvo: unreachable at std.core.list:414:47")
+                panic!("salvo: unreachable at std.core.list:405:47")
             }
         }))) {
             break;
@@ -514,7 +503,7 @@ pub fn sub_list<T: Clone>(list: &Vec<T>, mut from: i32, mut to: i32, copy: &mut 
                 let mut __pick5_1 = __pick5.unwrap();
                 __pick5_1
             } else {
-                panic!("salvo: unreachable at std.core.list:433:39")
+                panic!("salvo: unreachable at std.core.list:424:39")
             }
         }));
         i = i32::wrapping_add(i, 1i32);
@@ -602,7 +591,7 @@ pub fn contains<T: Clone>(list: &Vec<T>, elem: &T, eq: &mut dyn FnMut(&T, &T) ->
                 let mut __pick6_1 = __pick6.unwrap();
                 __pick6_1
             } else {
-                panic!("salvo: unreachable at std.core.list:488:31")
+                panic!("salvo: unreachable at std.core.list:479:31")
             }
         }, elem) {
             return true;
@@ -628,7 +617,7 @@ pub fn all<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> bool {
                 let mut __pick7_1 = __pick7.unwrap();
                 __pick7_1
             } else {
-                panic!("salvo: unreachable at std.core.list:507:34")
+                panic!("salvo: unreachable at std.core.list:498:34")
             }
         })) {
             return false;
@@ -651,7 +640,7 @@ pub fn count<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool) -> i32 {
                 let mut __pick8_1 = __pick8.unwrap();
                 __pick8_1
             } else {
-                panic!("salvo: unreachable at std.core.list:521:33")
+                panic!("salvo: unreachable at std.core.list:512:33")
             }
         }) {
             n = i32::wrapping_add(n, 1i32);
@@ -675,7 +664,7 @@ pub fn partition<T: Clone>(list: &Vec<T>, pick: &mut dyn FnMut(&T) -> bool, copy
                 let mut __pick9_1 = __pick9.unwrap();
                 __pick9_1
             } else {
-                panic!("salvo: unreachable at std.core.list:539:33")
+                panic!("salvo: unreachable at std.core.list:530:33")
             }
         };
         if pick(x) {
@@ -886,7 +875,7 @@ pub fn NonEmpty_qualifies<T>(value: &T, size: &mut dyn FnMut(&T) -> i32) -> bool
 }
 
 // ===== std/core/result.rs =====
-use crate::std_core_list::List__T;
+use crate::std_core_list::List__T_TArray;
 use crate::std_core_nonempty::NonEmpty_qualifies;
 use crate::std_core_list::add_platform;
 use crate::std_core_list::size_platform;
@@ -909,7 +898,7 @@ pub fn Err<T>(mut value: T) -> T {
 }
 
 pub fn errs<E: Clone>(mut first: E) -> Vec<E> {
-    return crate::std_core_list::List__T::<E>(first);
+    return crate::std_core_list::List__T_TArray::<E>(first, vec![]);
 }
 
 pub fn Errs<T>(mut value: T) -> T {
@@ -1939,10 +1928,10 @@ pub fn add<T>(list: &mut List<T>, elem: T) {
     list.push(elem);
 }
 
-// [col-of-nonempty] The variadic constructor's tail, copied in: it stays the
-// caller's.
-pub fn add_all<T: Clone>(list: &mut List<T>, items: &Vec<T>) {
-    list.extend(items.iter().cloned());
+// [linear-container] An array's elements moved onto the end, in order: the
+// array is spent.
+pub fn append<T>(list: &mut List<T>, items: Vec<T>) {
+    list.extend(items);
 }
 
 pub fn remove_first<T>(list: &mut List<T>) -> Option<T> {

@@ -1,15 +1,18 @@
 // [fn-variadic] mixing plain arguments with a `...spread`.
 
 //--- mixed_tail_assembled_once
-// The shape: a lone `...spread` after the leading arguments *is* the tail.
-// The constructor keeps it (`=> !first, rest`), so a spread of a place stays
-// usable, and the call clones it into the owned parameter [fn-variadic].
+// The list constructors consume their tail (`=> !first, !rest`, user decision
+// 2026-10-30), so a spread moves its array into the call: a lone spread *is*
+// the tail, passed as it is, and one among other elements is extended into the
+// assembled vector by value — neither is cloned.
 export fn main() [use] {
     use StdConsole()
     let rest = array_of(2, 3)
-    // [col-of-nonempty] The list constructors are Salvo now, so this is an
-    // ordinary call: the leading element, then the tail.
-    //~ emits: crate::std_core_list::List__T_TArray::<i32>(1i32, rest.clone())
+    //~ emits: crate::std_core_list::List__T_TArray::<i32>(1i32, rest)
     let all = List(1, ...rest)
-    println("${size(all)}")
+    let more = array_of(5, 6)
+    //~ emits: { let mut __v = Vec::new(); __v.push(4i32); __v.extend(more); __v }
+    //~ !emits: more.iter().cloned()
+    let both = List(3, 4, ...more)
+    println("${size(all)} ${size(both)}")
 }

@@ -76,6 +76,10 @@ fn ty_own_linear_guarded(symbols: &Symbols, own: &HashSet<String>, ty: &Ty, dept
                 .any(|arg| ty_own_linear_guarded(symbols, own, arg, depth + 1))
         }
         Ty::Union(arms) => arms.iter().any(|a| ty_own_linear_guarded(symbols, own, a, depth + 1)),
+        // [linear-container] An array holds its elements as a list does: it
+        // is linear exactly when they are (user decision 2026-10-30), and is
+        // emptied by `drain` or `append`.
+        Ty::Array(elem) => ty_own_linear_guarded(symbols, own, elem, depth + 1),
         Ty::Var(name) => own.contains(name),
         _ => false,
     }

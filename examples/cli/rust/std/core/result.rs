@@ -1,4 +1,4 @@
-use crate::std_core_list::List__T;
+use crate::std_core_list::List__T_TArray;
 use crate::std_core_nonempty::NonEmpty_qualifies;
 use crate::std_core_list::add_platform;
 use crate::std_core_list::size_platform;
@@ -21,7 +21,7 @@ pub fn Err<T>(mut value: T) -> T {
 }
 
 pub fn errs<E: Clone>(mut first: E) -> Vec<E> {
-    return crate::std_core_list::List__T::<E>(first);
+    return crate::std_core_list::List__T_TArray::<E>(first, vec![]);
 }
 
 pub fn Errs<T>(mut value: T) -> T {

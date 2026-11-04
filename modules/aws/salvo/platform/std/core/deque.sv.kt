@@ -18,24 +18,12 @@ fun<T> dequeOf(): kotlin.collections.ArrayDeque<T> {
     return salvo.std.core.deque.emptyDequePlatform()
 }
 
-fun<T> dequeOf__T(first: T): kotlin.collections.ArrayDeque<T> {
-    val d: salvo.platform.std.core.deque.MutDeque<T> = salvo.std.core.deque.emptyDequePlatform()
-    salvo.std.core.deque.addLastPlatform(d, first)
-    return d
-}
-
 fun<T> dequeOf__T_TArray(first: T, rest: Array<T>): kotlin.collections.ArrayDeque<T> {
     return salvo.std.core.deque.dequeFromPlatform(first, rest)
 }
 
 fun<T> mutDequeOf(): salvo.platform.std.core.deque.MutDeque<T> {
     return salvo.std.core.deque.emptyDequePlatform()
-}
-
-fun<T> mutDequeOf__T(first: T): salvo.platform.std.core.deque.MutDeque<T> {
-    val d: salvo.platform.std.core.deque.MutDeque<T> = salvo.std.core.deque.emptyDequePlatform()
-    salvo.std.core.deque.addLastPlatform(d, first)
-    return d
 }
 
 fun<T> mutDequeOf__T_TArray(first: T, rest: Array<T>): salvo.platform.std.core.deque.MutDeque<T> {
@@ -107,7 +95,7 @@ fun<T> drain(d: kotlin.collections.ArrayDeque<T>, each: (T) -> Unit) {
                     __pick1_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.deque:157:33")
+                    throw AssertionError("salvo: unreachable at std.core.deque:146:33")
                 }
             }
         })

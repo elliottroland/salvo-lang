@@ -1343,6 +1343,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     let mut parts = String::from("{ let mut __v = Vec::new(); ");
                     for x in es {
                         match &x.kind {
+                            // [fn-variadic] A spread the callee consumes moves its
+                            // array in; one it keeps is copied, the caller's array
+                            // staying usable.
+                            ExprKind::Spread { value } if matches!(value.kind, ExprKind::Read { consume: true, .. }) => {
+                                let v = self.value(value, indent);
+                                parts.push_str(&format!("__v.extend({v}); "));
+                            }
                             ExprKind::Spread { value } => {
                                 let v = self.raw(value, indent);
                                 parts.push_str(&format!("__v.extend({v}.iter().cloned()); "));
@@ -3715,8 +3722,14 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     }
                     ExprKind::Array(es) if es.len() == 1 => {
                         if let ExprKind::Spread { value } = &es[0].kind {
-                            a.push(self.raw(value, indent));
-                            spread = Spread::Borrowed;
+                            // [fn-variadic] A consumed spread is the callee's.
+                            if matches!(value.kind, ExprKind::Read { consume: true, .. }) {
+                                a.push(self.value(value, indent));
+                                spread = Spread::Owned;
+                            } else {
+                                a.push(self.raw(value, indent));
+                                spread = Spread::Borrowed;
+                            }
                         }
                     }
                     _ => {

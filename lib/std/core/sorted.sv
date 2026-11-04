@@ -34,7 +34,8 @@ export iterable platform type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut : Iter
     refn add(set: Mut SortedSet<T>, elem: T) => set: +NonEmpty
 }
 
-// Constructor. The elements are stored, so they are moved; duplicates
+// Constructor. The elements are stored, so they are moved, a spread's array
+// with them; duplicates
 // collapse, and the result is in order however the arguments were written.
 //
 // The constructor **is** the type-named function:
@@ -42,10 +43,10 @@ export iterable platform type SortedSet<T>(?cmp: (T, T) -> Int) canbe Mut : Iter
 // `Mut_SortedSet` for the mutable pair), the key carried verbatim to the
 // platform shim's `<Key>_platform` wrapper.
 // @compilerrules [fn-type-named]
-export platform fn SortedSet<T>(...elems: T[], ?Ordered<T>) [] -> SortedSet<T>(?cmp)
+export platform fn SortedSet<T>(...elems: T[], ?Ordered<T>) [] -> SortedSet<T>(?cmp) => !elems
 
 // Mutable constructor
-export platform fn Mut SortedSet<T>(...elems: T[], ?Ordered<T>) [] -> Mut SortedSet<T>(?cmp)
+export platform fn Mut SortedSet<T>(...elems: T[], ?Ordered<T>) [] -> Mut SortedSet<T>(?cmp) => !elems
 
 // Adds an element, reporting whether it was new.
 export platform fn add<T>(set: Mut SortedSet<T>(?cmp), elem: T) [] -> Bool => set: Mut, !elem
@@ -122,10 +123,10 @@ export iterable platform type SortedMap<K, V>(?cmp: (K, K) -> Int) canbe Mut : I
 // `Mut_SortedMap` for the mutable pair), the key carried verbatim to the
 // platform shim's `<Key>_platform` wrapper.
 // @compilerrules [fn-type-named]
-export platform fn SortedMap<K, V>(...entries: (K, V)[], ?Ordered<K>) [] -> SortedMap<K, V>(?cmp)
+export platform fn SortedMap<K, V>(...entries: (K, V)[], ?Ordered<K>) [] -> SortedMap<K, V>(?cmp) => !entries
 
 // Mutable constructor
-export platform fn Mut SortedMap<K, V>(...entries: (K, V)[], ?Ordered<K>) [] -> Mut SortedMap<K, V>(?cmp)
+export platform fn Mut SortedMap<K, V>(...entries: (K, V)[], ?Ordered<K>) [] -> Mut SortedMap<K, V>(?cmp) => !entries
 
 // Possibly gets the value stored under [key], **borrowed** out of the map.
 // @compilerrules [copy-opt-in]

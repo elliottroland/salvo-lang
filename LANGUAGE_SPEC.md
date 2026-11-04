@@ -787,30 +787,26 @@ Conventions:
   ```
   export intrinsic fn Mut List<T canbe linear>() [] -> Mut List<T>
 
-  export fn Mut List<T>(first: T, ...rest: T[]) [] -> NonEmpty Mut List<T> => !first, rest {
+  export fn Mut List<T canbe linear>(first: T, ...rest: T[]) [] -> NonEmpty Mut List<T> => !first, !rest {
       let list = Mut List<T>()
       list.add(first)
-      add_all(list, rest)
+      list.append(rest)
       return list
   }
   ```
 
   So `List()` is empty, `List(1, 2, 3)` and `List(a, ...rest)` are
   `NonEmpty`, and nothing is tested at run time: `add`'s refinement
-  [qual-refn-type] establishes the claim, and `add_all`'s keeps it. Only the
+  [qual-refn-type] establishes the claim, and `append`'s keeps it. Only the
   empty `Mut List()` is intrinsic (user decision 2026-10-30, the constructors
   were all intrinsic before); `List(…)` returns `Mut List(…)`, dropping the
-  `Mut`. The tail is kept, not consumed, so a spread of a place stays usable
-  [fn-variadic]; a private host helper, `add_all`, copies its elements in,
-  since a Salvo body has no `copy` for a generic element on Kotlin, and the
-  list's own `refn add_all(list: NonEmpty Mut List<T>, …)` keeps the claim
-  across it. A linear element has a one-element overload of each
-  (`List<T canbe linear>(first: T)`), and the variadic one is over any other
-  `T`, as `deque_of` was already: an array cannot hold an obligation, and the
-  IR ledger cannot see that a `canbe linear` tail is never linear. `Deque`'s
-  constructors claim it too (`-> +NonEmpty Deque<T>` over the host's
-  `deque_from`, trusted in the deque's file). `Set`/`Map` and the sorted pair
-  keep the single variadic shape.
+  `Mut`. **The tail is consumed like the first** (user decision 2026-10-30):
+  `List(a, ...xs)` spends `xs`, and an element type may be linear, so
+  `List(reply_a, reply_b)` is a list of obligations built in one call
+  [linear-container]. `Deque`'s constructors take the same shape and claim it
+  too (`-> +NonEmpty Deque<T>` over the host's `deque_from`, trusted in the
+  deque's file); `Set`/`Map` and the sorted pair keep the single variadic
+  shape, and consume it as well.
   * A **lone `...spread` reaches neither shape**: a spread may not supply a
     required parameter [fn-variadic], and the empty shape takes no arguments.
     An array becomes a list through `map_to` or a loop with `add`.
@@ -845,7 +841,7 @@ Conventions:
     plain type for the call, which on Kotlin turns a `Mut Str`'s
     `StringBuilder` into a `String`.
   * **What establishes it is each type's to say**, in its own body
-    [qual-refn-type]: `List`'s `add`, `swap` and `add_all`, `Set`'s and `SortedSet`'s
+    [qual-refn-type]: `List`'s `add`, `swap` and `append`, `Set`'s and `SortedSet`'s
     `add`, `Map`'s and `SortedMap`'s `put`, `Deque`'s `add_first` and
     `add_last`, and `Str`'s `append` and `set` — the last two only *keep* it
     [qual-refn-narrow], since appending an empty text to an empty string
@@ -4077,21 +4073,28 @@ Conventions:
     [col-of-nonempty].
   * A spread into a **variadic intrinsic** is passed on as the collection,
     not as one element: Kotlin uses its own spread (`listOf(*arr)`) and
-    Rust takes the vector itself (cloned, since Salvo does not track a
-    variadic position, so the array stays usable). Splicing it as one
-    argument built a collection *of one array* — which kotlinc catches for
-    `listOf` but not for `StringBuilder`, where `append(Any?)` accepts it
-    and prints `[Ljava.lang.String;@…` [backend-never-wrong].
-  * A variadic position is otherwise untracked by the flow analysis, so an
-    intrinsic that merely *reads* its parts must borrow them in Rust: an
-    owned splice would move a variable the checker still considers live.
-    * For the same reason a spread of a **place** into an *owning* variadic
-      parameter is **cloned**, on the ordinary call path as well as the
-      intrinsic one: the parameter is owned in the emitted Rust (it is built
-      from the arguments) while the caller's array stays live, so moving it
-      made `f(...rest)` followed by any further use of `rest` a raw rustc
-      E0382 (fixed on the intrinsic path 2026-09-13 with the sorted
-      collections, and on the ordinary path later the same day).
+    Rust takes the vector itself. Splicing it as one argument built a
+    collection *of one array* — which kotlinc catches for `listOf` but not
+    for `StringBuilder`, where `append(Any?)` accepts it and prints
+    `[Ljava.lang.String;@…` [backend-never-wrong].
+  * **The tail's deduction entry says what happens to its arguments**, like
+    any parameter's (user decision 2026-10-30; until then a variadic position
+    was untracked): a **consumed** tail (`=> !rest`) moves each element into
+    the call, and a spread's array with them — `List(a, ...xs)` spends `xs`,
+    and a later use of it is [flow-use-after-move] — so a consumed tail may
+    take linear values [linear-generics]. A **kept** tail lends them, and a
+    spread of a place stays usable.
+    * Every tail is passed as an owned array (the parameter is built from
+      the arguments, [fn-param-mode]), so a kept spread of a place is
+      **cloned** in Rust and a consumed one moved, on the ordinary call path
+      as well as the intrinsic one; inside the callee a kept tail is the
+      caller's, owing nothing and giving nothing away (`kept_tails` in the
+      IR's fate facts). Before the clone, `f(...rest)` followed by any
+      further use of `rest` was a raw rustc E0382 (fixed 2026-09-13).
+    * Every std constructor consumes its tail: `List`, `Mut List`, `deque_of`,
+      `Set`, `Map`, the sorted pair, `array_of` and `heap_of`. Functions
+      that only *read* their parts keep them (`Mut Str(...parts)`,
+      `bytes_of`).
   * **A tail may mix plain arguments with a spread** — `List(first,
     ...rest)` — since 2026-09-13. Kotlin always could, its spread being an
     operator on an argument (`listOf(first, *rest)`); Rust needs the tail as
@@ -10944,12 +10947,11 @@ between endpoints and delivers what arrives into the scheduler.
     resource too: contagion stays **spelled**, so the diagnostic asks for
     `linear struct` [linear-group];
   * a **written composite** with a linear component and no opt-in, one level
-    at a time so a nested one reports at its own node: an array element
-    (`Lines[]`), a tuple component — but **not** a union arm
-    [linear-union-arm], and not an opted container position
-    [linear-container];
-  * an **array or tuple literal** whose element type is linear (nothing
-    written to refuse);
+    at a time so a nested one reports at its own node: a tuple component —
+    but **not** a union arm [linear-union-arm], an array element, or an opted
+    container position [linear-container];
+  * a **tuple literal** whose element type is linear (nothing written to
+    refuse);
   * a **struct literal** field taking a linear value where the field's
     declared type is generic and unopted (`struct Box<T> { item: T }`), which
     is the store the struct's own declaration cannot see;
@@ -10963,10 +10965,10 @@ between endpoints and delivers what arrives into the scheduler.
     Neither is `T?`, which is a union — and that is what makes every
     take-by-move signature (`remove_first(list) -> T?`) express "the
     obligation comes back out" rather than "the obligation is stored".
-  * **Arrays and tuples stay out** of the opt-in for now (LC-3): an array
-    sits next to the untracked variadic boundary, and a tuple has the
-    union-arm alternative for the two-things case. Neither is a customer
-    shape; extend if one appears.
+  * **Tuples stay out** of the opt-in (LC-3): a tuple has the union-arm
+    alternative for the two-things case. **Arrays are in** since 2026-10-30
+    [linear-container]: the variadic boundary they sat next to is tracked
+    now, and a consumed tail of obligations was the customer shape.
   * **The casualty that remains** is the composed linear iterator (a wrapper iterator
     over `open_lines(path("a"))` stores its source in an unopted field). The
     fallible-open shape `Ok InStream | Err Checked<FsError>` was the other one and
@@ -10989,6 +10991,15 @@ between endpoints and delivers what arrives into the scheduler.
     `List<Mut List<Token>>` owe while `List<Int>` is an ordinary list.
     Depth-guarded, and mutually recursive containers terminate
     conservatively.
+  * **Arrays** too (user decision 2026-10-30): `T[]` is linear when `T` is,
+    with no opt-in to write, since an array is built only by `array_of` and a
+    variadic call. It is ended whole — `drain(items, each)` hands every
+    element to a consuming callback, `append(list, items)` moves them onto a
+    list — and a `for` may **read** a linear array but not move its elements
+    out (`ir-linear-check:array-for`): a loop can stop early, and what it did
+    not reach would be owed by nobody, the reason a list's terminal is a
+    callback (D7-a, 2026-09-16). An array has no positional take, as Rust's
+    `Vec` has none: a move out of an array is always the whole array.
   * **Which containers**: `List` and `Map` **values** (LC-3). `Set`,
     `SortedSet` and map **keys** are refused, and the diagnostic says *why* —
     insertion deduplicates, so an equal element or a repeated key drops one of
@@ -11021,7 +11032,11 @@ between endpoints and delivers what arrives into the scheduler.
         binding as `.as_ref().unwrap().clone()`, which duplicates an
         obligation for a `Clone` handle and does not compile at all for a
         reply token — found while writing [time-manual]'s deadline queue.
-    * **the terminal**: `drain(list, each)` / `drain(map, each)` consumes the
+    * **in, many at once**: `append(list, items)` moves an array's elements
+      onto the end (2026-10-30), and the constructors consume their variadic
+      tails [fn-variadic], so `List(a, b, c)` holds three obligations.
+    * **the terminal**: `drain(list, each)` / `drain(map, each)` / `drain(items,
+      each)` over an array consumes the
       container and hands every element to a consuming callback
       (`=>[each] !x`). A container that is neither drained nor moved onward is
       an ordinary leak whose diagnostic names **`drain`**, which is the whole
@@ -11113,9 +11128,10 @@ between endpoints and delivers what arrives into the scheduler.
     message (duplicating an obligation is meaningless). Since
     [linear-container] the opt-ins are permissions to **store** as well: the
     container carries the obligation, and its terminal is where it dies;
-  * a linear value cannot be passed in a *variadic* position (variadic
-    arguments are untracked, so the obligation would be physically
-    moved but statically unresolvable);
+  * a linear value cannot be passed to a variadic tail the callee **keeps**
+    (the tail is one array, lent to the call and handed back, so the value
+    would be moved in and still owed); a consumed tail takes it
+    [fn-variadic];
   * `canbe` on a type parameter is accepted on **fns**, **structs** and
     **type declarations** (the last since 2026-09-16, which is what makes an
     opaque container conditional [linear-container]); on a qualifier's or an
@@ -13195,7 +13211,11 @@ replaced the working document TESTING.md).
   D3): `GainParams` (linear parameters moved in), `Gain` (a binding of a linear
   value — including a synthetic one, with its linear union *arms* named),
   `Release` (a consuming read moves the value on), and `Discharge` (a `Narrow`
-  proves a linear arm absent, or a value is settled in place). A linear struct
+  proves a linear arm absent, or a value is settled in place). A `for`'s
+  element is gained at the top of the loop body, a new value every pass
+  (2026-10-30; it was gained after the loop, so a body moving it on read as a
+  release before the gain and a leak at the exit — invisible until a loop
+  could own linear elements). A linear struct
   is settled by **decomposition** — moving out all its linear fields; a borrow
   (`ref`/`proj`, and a lent parameter) owes nothing. The dump shows the ledger,
   which is what makes the reasoning auditable.

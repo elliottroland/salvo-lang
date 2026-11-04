@@ -219,6 +219,22 @@ fn walk_block(block: &Block, owed: &mut Owed, ctx: &Ctx, out: &mut Vec<IrDiagnos
                 return Flow::Leaves;
             }
             Stmt::Loop { id, body } | Stmt::ForEach { id, body, .. } => {
+                // [linear-container] A `for` that takes each element of a
+                // linear array as its own (its body gains the binding) would
+                // leave the elements it does not reach owed by nobody when it
+                // stops early — and a loop can always stop early. A linear
+                // array is emptied whole, by `drain` or `append`; refused once,
+                // and the array taken as settled so nothing cascades.
+                if let Stmt::ForEach { local, iterable, .. } = s {
+                    let moves_out = matches!(body.stmts.first(), Some(Stmt::Obligation(o))
+                        if o.kind == ObligationKind::Gain && o.refs.iter().any(|r| r.place.root == *local && r.place.steps.is_empty()));
+                    if moves_out && matches!(iterable.ty.strip_quals(), Ty::Array(_)) {
+                        out.push(IrDiagnostic::flow_rule(iterable.span, messages::ir_linear_check_array_for(&iterable.ty)));
+                        if let ExprKind::Read { place, .. } = &iterable.kind {
+                            owed.remove(&place_key(place));
+                        }
+                    }
+                }
                 // The loop body is its own path, entered with the current set
                 // as its loop base; a `break value` carries no obligation.
                 let base = owed.clone();

@@ -142,7 +142,7 @@ fn main@main() -> None {
     return (read f.hp > 10)
   }, fn next(Mut ListIter<T>)@std.core.list)
   call println@std.core.console(read __handle~2, concat("1. ", call to_str(Int)@std.core.basic(call size@std.core.list<proj Fighter@main>(drop_mut(read standing))), " of ", call to_str(Int)@std.core.basic(call size@std.core.list<Fighter@main>(read roster)), " still standing"))
-  bind#19 let bench: Mut List<Fighter@main> = call Mut_List(T)@std.core.list<Fighter@main>(construct Fighter@main { name: "Cy", hp: 12, energy: 2 })
+  bind#19 let bench: Mut List<Fighter@main> = call Mut_List(T, T[])@std.core.list<Fighter@main>(construct Fighter@main { name: "Cy", hp: 12, energy: 2 }, array[Fighter@main[]]())
   call add@std.core.list<Fighter@main>(read bench, construct Fighter@main { name: "Dee", hp: 6, energy: 7 })
   call println@std.core.console(read __handle~2, concat("2. bench ", call to_str(Int)@std.core.basic(call size@std.core.list<Fighter@main>(drop_mut(read bench))), ", front ", branch#25 cond#0 true {
     bind#24 let __proj~7: proj Fighter@main = branch#23 cond#0 true {
@@ -421,7 +421,7 @@ fn main@main() -> None {
     }
     value !read __proj~35.energy
   })))
-  bind#129 let camp: Mut Camp@main = construct Mut Camp@main { supplies: 10, banners: call Mut_List(T)@std.core.list<Str>("red") }
+  bind#129 let camp: Mut Camp@main = construct Mut Camp@main { supplies: 10, banners: call Mut_List(T, T[])@std.core.list<Str>("red", array[Str[]]()) }
   alias#130 banners: Mut List<Str> = camp.banners
   call spend@main(read camp, 3)
   call hoist@main(read camp, "blue")

@@ -25,7 +25,7 @@ export fn heap_of<T>(?Ordered<T>) -> +Heap<T>(?cmp) Mut List<T> {
     return Mut List()
 }
 
-export fn heap_of<T>(first: T, ...elems: T[], ?Ordered<T>) -> Heap<T>(?cmp) NonEmpty Mut List<T> => !first, elems {
+export fn heap_of<T>(first: T, ...elems: T[], ?Ordered<T>) -> Heap<T>(?cmp) NonEmpty Mut List<T> => !first, !elems {
     let list = Mut List(first, ...elems)
     heapify(list)
     return list

@@ -371,6 +371,11 @@ pub struct FateFacts {
     /// [linear-state] In a handler member: the state fields holding
     /// obligations, which the member must leave whole.
     pub linear_state: Vec<String>,
+    /// [fn-variadic] The variadic parameters the fn **keeps**: passed as an
+    /// owned array (every tail is, [fn-param-mode]) but lent in Salvo's
+    /// terms — the caller's elements, which the fn owes nothing for and may
+    /// not move out.
+    pub kept_tails: Vec<String>,
     /// [fate-move-mode] The bindings (by their stamp, the binding's node
     /// [node-id]) that may take ownership — the checker's judgment where the
     /// binding is (`Checked::bind_facts`): the flow pass decides which do.

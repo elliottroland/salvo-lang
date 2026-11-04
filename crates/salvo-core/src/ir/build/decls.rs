@@ -549,10 +549,24 @@ fn fn_decl(
         params.push(Param { local, ty: t.clone(), mode: PassMode::Lent, variadic: false, check: None, span: f.span });
     }
     let effect_params = params.len();
+    // [fn-variadic] A tail the fn keeps is the caller's, however it is passed.
+    let kept_tails: Vec<String> = f
+        .params
+        .iter()
+        .filter(|p| p.variadic)
+        .filter(|p| {
+            ctx.checked
+                .deductions
+                .get(&crate::check::Key::name_of(id))
+                .and_then(|ds| ds.iter().find(|d| d.param == p.name.name))
+                .is_none_or(|d| d.kept)
+        })
+        .map(|p| p.name.name.clone())
+        .collect();
     for p in f.params.iter().filter(|p| !p.implicit) {
         let mode = mode_of(ctx, Some(id), &f.params, p);
         let ty = ctx.written_ty(file_idx, &p.ty);
-        lower.bind_owned(&p.name.name, ty.clone(), mode == PassMode::Moved);
+        lower.bind_owned(&p.name.name, ty.clone(), mode == PassMode::Moved && !kept_tails.contains(&p.name.name));
         params.push(Param { local: Local(p.name.name.clone()), ty, mode, variadic: p.variadic, check: None, span: p.span });
     }
     let mut implicit_params = 0;
@@ -611,6 +625,7 @@ fn fn_decl(
     };
     let mut fate = std::mem::take(&mut lower.fate);
     fate.name_span = f.name.span;
+    fate.kept_tails = kept_tails;
     errors.extend(lower.finish());
     // [ref-anchor] Handle parameters and the container each names.
     let ref_anchors: Vec<(usize, usize)> = f
