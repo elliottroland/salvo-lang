@@ -10254,10 +10254,13 @@ between endpoints and delivers what arrives into the scheduler.
     it as the pack itself.
   * **Refused bindings**: a value that may throw (`effect-var:throw` — a
     throw is control flow, a `ControlFlow` answer on Rust, not a handle; a
-    parameter whose type lists `Throw<…>` takes one); an actor effect where
-    the callee takes the variable's handle as `eff[E]`
-    (`effect-var:actor-handle` — an actor's address is not its instance,
-    which is what a pack holds).
+    parameter whose type lists `Throw<…>` takes one); an actor effect whose
+    handle comes back *out* as `eff[E]` — a callee's return, a struct field
+    read (`effect-var:actor-handle`: a pack holds instances, and an actor's
+    address is not one, nor made back from one). Going *in*, a handle passed
+    or stored as `eff[E]` is made the pack (`effect_pack_of`: each member
+    an `AddrInstance`, in the row's order). A struct over an effect variable
+    has no wire form.
   * std's callback-taking fns written in Salvo take one (`map`, `reduce`,
     `filter` over an iterator, `any`, `all`, `count`, `find_first`,
     `find_last`, `partition`, `remove_*_while`, `update`, `drain`, `to_map`,

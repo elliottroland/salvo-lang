@@ -330,3 +330,56 @@ fn main() [use] -> None {
 //= [1]
 //= [6]
 //= total 1
+
+//--- an_actor_effect_through_a_handle
+// An actor's address passed as `eff[E]` is made its instance, the pack's
+// member: alone, and beside a plain effect's handle.
+actor effect Counter {
+    send fn bump(n: Int)
+    send fn total(out: Reply<Int>) => !out
+}
+
+handler Counting() of Counter {
+    mailbox { capacity: 8 }
+    state {
+        sum: Int = 0
+    }
+    send fn bump(n: Int) {
+        sum = sum + n
+    }
+    send fn total(out: Reply<Int>) {
+        out.send(sum)
+    }
+}
+
+effect Say {
+    fn say(s: Str) -> None => s
+}
+
+handler Printing() [Console] of Say {
+    fn say(s: Str) { println(s) }
+}
+
+// A handle over an actor's effect, bound in a body generic over `E`.
+fn later<[E]>(fx: eff[E], f: () [E] -> None) [use] => fx, f {
+    use fx
+    f()
+}
+
+fn main() [use, spawn] {
+    use StdConsole()
+    let s = use Printing()
+    let counter = spawn Counting() on pool(1)
+    later(counter, () -> bump(2))
+    later(eff[s, counter], () -> {
+        say("both")
+        bump(3)
+    })
+    let sum = waitfor out: Reply<Int> {
+        counter.total(out)
+    }
+    println("sum ${sum}")
+}
+//= stdout
+//= both
+//= sum 5

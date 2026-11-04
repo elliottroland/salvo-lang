@@ -120,8 +120,9 @@ fn fine(a: Later<[]>, b: Later<[Console]>) => a, b {
 }
 
 //--- an_actor_effect_through_a_handle
-// An actor's handle is not its instance, which is what a pack holds: an
-// actor effect cannot reach an effect variable through `eff[E]` yet.
+// An actor's handle is not its instance, which is what a pack holds: one
+// passed in as `eff[E]` is made the instance, but none is made back into an
+// address yet — a returned `eff[E]`, or one read out of a struct's field.
 actor effect Ping {
     send fn ping(n: Int)
 }
@@ -136,9 +137,23 @@ fn later<[E]>(fx: eff[E], f: () [E] -> None) [use] => fx, f {
     f()
 }
 
+fn give<[E]>(fx: eff[E], f: () [E] -> None) [] -> eff[E] => !fx, f {
+    return fx
+}
+
+struct Held<[E]> {
+    fx: eff[E]
+}
+
 fn main() [use, spawn] {
     let p = spawn Pinger() on pool(1)
-    use p
+    let q = copy(p)
+    use q
+    // Going in is fine.
+    later(copy(p), () -> ping(1))
     //~ error[effect-var:actor-handle]
-    later(p, () -> ping(1))
+    let _back = give(copy(p), () -> ping(2))
+    let h = Held { fx: copy(p) }
+    //~ error[effect-var:actor-handle]
+    let _out = h.fx
 }

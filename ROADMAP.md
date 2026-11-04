@@ -833,10 +833,11 @@ left three follow-ups the user has asked for, in this order.
      an effectful callback, `Lines` — does not fill `map`'s or `to_list`'s
      (`for` drives one). **DECISION**: whether an implicit may perform
      effects, and whose.
-  4. **An actor effect through `eff[E]`** is refused
-     (`effect-var:actor-handle`): the pack holds instances, an actor's address
-     is a `usize`. Converting at the boundary (`AddrInstance` per leaf going
-     in; nothing exists coming out) is the fix.
+  4. **An actor effect back out of `eff[E]`** is refused
+     (`effect-var:actor-handle`): a returned `eff[E]`, a struct's `eff[E]`
+     field read. Going in is converted (2026-10-30). The way out needs an
+     address from an actor's instance, which the stub holds but nothing
+     reads back.
   5. **A throw through a variable** is refused (`effect-var:throw`). Lifting it
      needs a generic "may throw" answer on Rust ([rs-throw-controlflow]);
      the user saw no gain in a `[E canbe Throw]` over a written

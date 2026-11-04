@@ -144,6 +144,16 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — An actor's address reaches an effect variable (ROADMAP §2c, [effect-var])
+
+- **Built**: a handle passed or stored as `eff[E]` is made `E`'s pack —
+  each member an `AddrInstance`, in the row's order (`effect_pack_of`) — so
+  an actor's address becomes its instance, and `later(counter, () ->
+  bump(2))` runs on both backends. The refusal narrowed to the way back out:
+  a returned `eff[E]`, a struct's `eff[E]` field read.
+- **Found on the way**: a struct over an effect variable got a Kotlin wire
+  codec (its `eff[E]` field looked like an address); it has no wire form now.
+
 ### 2026-10-30 — A struct takes an effect variable, and the lazy adaptors do (user decision, [effect-var])
 
 - **Decided (user)**: the second step of effect variables, as planned —

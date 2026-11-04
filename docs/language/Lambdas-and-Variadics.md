@@ -149,7 +149,7 @@ fn main() [use] {
 - **A variable is a set of effects, not a type of values.** `x: E` is an error, and so is a plain type parameter in an effect list: `[T]` must be declared `<[T]>` to mean one. `any E` is refused too: each effect a variable stands for keeps its own identity strength.
 - **One variable per function type.** `(x: T) [E, F] -> None` is refused, since a call could not tell which of the value's effects belong to which variable.
 - **A throw is not an effect a variable carries.** A function value that may throw cannot bind `E`; a parameter whose type lists `Throw<…>` itself takes one, and the function either catches it with `try` or passes it on in its own list.
-- **An actor effect does not reach a variable through `eff[E]` yet.** It may through a function value's effects: a callback that sends to an actor works.
+- **An actor's address passed as `eff[E]` becomes its instance in `E`'s pack**, so `later(counter, () -> bump(2))` works. What does not work yet is the way back: a function returning `eff[E]`, or a struct's `eff[E]` field read, where `E` holds an actor effect, is refused, since nothing turns the instance back into an address.
 - **A struct may have one too**, for a function it stores: `struct Later<[E]> { run: () [E] -> None }`. Its type names what the variable is bound to as a list, `Later<[Console]>`, `Later<[]>`, or `Later<[E]>` inside a function generic over `E`, and a function that calls the stored value declares `[E]` itself, since it has no fn-typed parameter to inherit it from:
 
 ```

@@ -216,43 +216,58 @@ impl<'a, 'p> Lower<'a, 'p> {
     }
 
     /// [effect-var] Each argument at a parameter written `eff[E]`, `E` an
-    /// effect variable of `decl`, that is a handle over several effects in
-    /// another order than `E`'s pack keeps them in (`Ty::effect_row`'s):
-    /// bound once and rebuilt in that order.
+    /// effect variable of `decl`: made `E`'s pack ([`Self::effect_pack_of`]).
     fn reorder_effect_handles(&mut self, decl: &ast::FnDecl, args: Vec<Expr>, span: Span) -> Vec<Expr> {
         let fixed: Vec<&ast::Param> = decl.params.iter().filter(|p| !p.implicit).collect();
-        let mut out = Vec::with_capacity(args.len());
-        for (i, a) in args.into_iter().enumerate() {
-            let is_handle_param = fixed.get(i).is_some_and(|p| matches!(&p.ty, ast::Type::Named { qualifiers, base }
-                if qualifiers.is_empty() && base.name.name == crate::check::ADDR_TYPE
-                    && matches!(base.args.as_slice(), [ast::Type::Named { base: v, .. }] if decl.effect_generics.iter().any(|g| g.name == v.name.name))));
-            let leaves = crate::check::handle_leaves(&a.ty);
-            let (true, Some(leaves)) = (is_handle_param, leaves) else {
-                out.push(a);
-                continue;
-            };
-            let mut order: Vec<usize> = (0..leaves.len()).collect();
-            order.sort_by_key(|&k| leaves[k].1.to_string());
-            if order.iter().enumerate().all(|(n, k)| n == *k) || leaves.iter().any(|(path, _)| path.len() != 1) {
-                out.push(a);
-                continue;
-            }
-            let tmp = self.fresh("__handle");
-            let id = self.id();
-            let tty = a.ty.clone();
-            let elems: Vec<Ty> = match tty.strip_quals() {
-                Ty::Tuple(es) => es.clone(),
-                _ => Vec::new(),
-            };
-            let reads: Vec<Expr> = order
-                .iter()
-                .map(|&k| Expr { ty: elems.get(k).cloned().unwrap_or(Ty::Unknown), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: vec![Step::Tuple(k)] }, consume: false, moved: false } })
-                .collect();
-            let ty = Ty::Tuple(reads.iter().map(|r| r.ty.clone()).collect());
-            let value = Expr { ty, span, kind: ExprKind::Tuple(reads) };
-            out.push(self.block_expr(vec![Stmt::Let { id, local: tmp, ty: tty, value: a }], value, span));
+        args.into_iter()
+            .enumerate()
+            .map(|(i, a)| match fixed.get(i) {
+                Some(p) if is_effect_var_handle(&p.ty, &decl.effect_generics) => self.effect_pack_of(a, span),
+                _ => a,
+            })
+            .collect()
+    }
+
+    /// [effect-var] A handle value as the pack of an effect variable it is
+    /// bound to: its instances, in the row's canonical order
+    /// (`Ty::effect_row`'s), an actor's address made its instance. A handle
+    /// over plain effects already in that order is its pack as it is.
+    pub(crate) fn effect_pack_of(&mut self, a: Expr, span: Span) -> Expr {
+        let Some(leaves) = crate::check::handle_leaves(&a.ty) else { return a };
+        if leaves.iter().any(|(path, _)| path.len() > 1) {
+            return a;
         }
-        out
+        let actor = |t: &Ty| matches!(t.strip_quals(), Ty::Named { name, .. } if self.ctx.symbols.effects.get(name.as_str()).is_some_and(|e| e.is_actor));
+        let mut order: Vec<usize> = (0..leaves.len()).collect();
+        order.sort_by_key(|&k| leaves[k].1.to_string());
+        let in_order = order.iter().enumerate().all(|(n, k)| n == *k);
+        if in_order && !leaves.iter().any(|(_, e)| actor(e)) {
+            return a;
+        }
+        let single = !matches!(a.ty.strip_quals(), Ty::Tuple(_));
+        let tmp = self.fresh("__handle");
+        let id = self.id();
+        let tty = a.ty.clone();
+        let elems: Vec<Ty> = match tty.strip_quals() {
+            Ty::Tuple(es) => es.clone(),
+            other => vec![other.clone()],
+        };
+        let members: Vec<Expr> = order
+            .iter()
+            .map(|&k| {
+                let steps = if single { Vec::new() } else { vec![Step::Tuple(k)] };
+                let read = Expr { ty: elems.get(k).cloned().unwrap_or(Ty::Unknown), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps }, consume: false, moved: false } };
+                let effect = self.ctx.ir_ty(&leaves[k].1);
+                Expr { ty: effect, span, kind: ExprKind::AddrInstance { addr: Box::new(read) } }
+            })
+            .collect();
+        let value = if single {
+            members.into_iter().next().unwrap_or_else(|| unsupported(Ty::Unknown, span, "effect pack"))
+        } else {
+            let ty = crate::types::effect_pack_ty(&members.iter().map(|m| m.ty.clone()).collect::<Vec<_>>());
+            Expr { ty, span, kind: ExprKind::Tuple(members) }
+        };
+        self.block_expr(vec![Stmt::Let { id, local: tmp, ty: tty, value: a }], value, span)
     }
 
     /// [effect-var] The leading arguments of the call at `span`: the
@@ -1790,6 +1805,11 @@ impl<'a, 'p> Lower<'a, 'p> {
             match &f.kind {
                 ast::StructLitFieldKind::Named { name, value } => {
                     let v = self.expr(value);
+                    // [effect-var] A handle stored as `eff[E]` is `E`'s pack.
+                    let at_var = decl.is_some_and(|d| {
+                        d.fields.iter().any(|df| df.name.name == name.name && df.ty.as_ref().is_some_and(|t| is_effect_var_handle(t, &d.effect_generics)))
+                    });
+                    let v = if at_var { self.effect_pack_of(v, value.span()) } else { v };
                     written.push((name.name.clone(), v));
                     written_ast.push(value);
                 }
@@ -3600,4 +3620,11 @@ fn is_ast_place(e: &AExpr) -> bool {
         AExpr::Field { base, .. } | AExpr::TupleIndex { base, .. } => is_ast_place(base),
         _ => false,
     }
+}
+
+/// [effect-var] Whether a written type is `eff[E]`, `E` one of `vars`.
+fn is_effect_var_handle(ty: &ast::Type, vars: &[ast::Ident]) -> bool {
+    matches!(ty, ast::Type::Named { qualifiers, base }
+        if qualifiers.is_empty() && base.name.name == crate::check::ADDR_TYPE
+            && matches!(base.args.as_slice(), [ast::Type::Named { base: v, .. }] if vars.iter().any(|g| g.name == v.name.name)))
 }

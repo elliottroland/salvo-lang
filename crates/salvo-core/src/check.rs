@@ -25039,6 +25039,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn field_ty_or_error(&mut self, base_ty: &Ty, field: &Ident) -> Ty {
+        self.refuse_actor_handle_field(base_ty, field);
         match self.field_ty(base_ty, &field.name) {
             Some(t) => t,
             None => {
@@ -32384,6 +32385,31 @@ impl<'p, 'r> Checker<'p, 'r> {
         subst
     }
 
+    /// [effect-var] Reading a struct's `eff[E]` field where `E` is bound to an
+    /// actor effect: the field holds the pack, the actor's instance, which no
+    /// address is made back from yet (`effect-var:actor-handle`).
+    fn refuse_actor_handle_field(&mut self, base_ty: &Ty, field: &Ident) {
+        let Ty::Named { name, args } = base_ty.strip_quals() else { return };
+        let Some(decl) = self.symbols.structs.get(name.as_str()).copied() else { return };
+        if decl.effect_generics.is_empty() {
+            return;
+        }
+        let Some(df) = decl.fields.iter().find(|f| f.name.name == field.name) else { return };
+        let Some(ast::Type::Named { base, .. }) = df.ty.as_ref() else { return };
+        if base.name.name != ADDR_TYPE {
+            return;
+        }
+        let [ast::Type::Named { base: v, .. }] = base.args.as_slice() else { return };
+        let Some(at) = decl.generics.iter().position(|g| g.name == v.name.name && decl.effect_generics.iter().any(|e| e.name == g.name)) else { return };
+        for leaf in args.get(at).map(effect_row_of).unwrap_or_default() {
+            if let Ty::Named { name: e, .. } = leaf.strip_quals() {
+                if self.symbols.effects.get(e.as_str()).is_some_and(|d| d.is_actor) {
+                    self.error(field.span, messages::effect_var_actor_handle(&v.name.name, &leaf));
+                }
+            }
+        }
+    }
+
     /// [effect-var] At a call of a fn taking effect variables, with `subst`
     /// final: for each argument passed where the callee's fn type names a
     /// variable, the effect parameters the callee calls it with
@@ -32410,9 +32436,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         let ret = decl.return_type.as_ref().map(|t| self.lower_type(t));
         self.generics = saved;
         // [effect-var] An actor effect's handle is not its instance, which
-        // is what a pack holds: not through `eff[E]` yet.
+        // is what a pack holds: a handle going *in* is converted (the
+        // lowering's `effect_pack_of`), one coming back out is not yet.
         let mut handled: Vec<String> = Vec::new();
-        for t in lowered.iter().chain(ret.iter()) {
+        for t in ret.iter() {
             collect_handle_vars(t, &vars, &mut handled);
         }
         for g in &handled {

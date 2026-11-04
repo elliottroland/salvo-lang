@@ -195,7 +195,8 @@ fn wire_blocker_at(symbols: &Symbols<'_>, ty: &Ty, depth: usize) -> Option<WireB
 /// The block in a struct declaration's fields, at `args`.
 fn struct_blocker(symbols: &Symbols<'_>, decl: &StructDecl, args: &[Ty], depth: usize) -> Option<WireBlock> {
     let name = &decl.name.name;
-    if decl.noremote || decl.comptime {
+    // [effect-var] A pack of instances never crosses a wire.
+    if decl.noremote || decl.comptime || !decl.effect_generics.is_empty() {
         return Some(WireBlock::NoRemote(name.clone()));
     }
     let subst: HashMap<String, Ty> = decl
@@ -235,6 +236,11 @@ fn struct_blocker(symbols: &Symbols<'_>, decl: &StructDecl, args: &[Ty], depth: 
 /// parameters left free: what the emitters ask before generating a codec for
 /// it (a generic struct's codec is conditional on its arguments).
 pub fn struct_has_wire_form(symbols: &Symbols<'_>, decl: &StructDecl) -> bool {
+    // [effect-var] A struct over an effect variable holds a pack of
+    // instances, which never crosses a wire.
+    if !decl.effect_generics.is_empty() {
+        return false;
+    }
     // The declaration itself, not a lookup by name: a program's own struct
     // may share a name with one of std's private ones (`Token`), and the
     // name-keyed table holds only one of them.
