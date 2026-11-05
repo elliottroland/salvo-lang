@@ -185,7 +185,10 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   definition, and an example's declarations back to their comment
   (`site_location`).
 - **Measured**: std's ~356 examples add ~2.8s to `cd lib && salvo analyze`
-  (0.8s → 3.6s; the CLI uses no cache). Checking them as separate programs
+  (0.8s → 3.6s; the CLI uses no cache). In the editor, an edit in
+  `lib/std/heap.sv` took 3.3s with every file's examples, so the language
+  server checks only the open documents' (`Examples::Open`): 0.88s, std's
+  tree having no cache at all (ROADMAP §0be). Checking them as separate programs
   took ~0.36s each, mostly std; ten took 1.8s, which led to the defect below.
 - **Fell out of building it**:
   - **An empty file took 1.4s to parse**: `module_docs` searched every

@@ -303,9 +303,9 @@ pub fn analyze_for_document_cached(
     match salvo_core::Project::find(path)? {
         Some(project) => {
             let src = project.src();
-            analyze_project(&src, Some(project), "", overlay, Some(cache), Some(std_front), Some(check_cache))
+            analyze_project_with(&src, Some(project), "", overlay, Some(cache), Some(std_front), true, Some(check_cache), Examples::Open)
         }
-        None => analyze_project(fallback, None, "", overlay, Some(cache), Some(std_front), Some(check_cache)),
+        None => analyze_project_with(fallback, None, "", overlay, Some(cache), Some(std_front), true, Some(check_cache), Examples::Open),
     }
 }
 
@@ -318,7 +318,17 @@ fn analyze_project(
     std_front: Option<&StdFront>,
     check_cache: Option<&mut salvo_core::CheckCache>,
 ) -> Result<Analysis, String> {
-    analyze_project_with(src, project, native_ext, overlay, cache, std_front, true, check_cache)
+    analyze_project_with(src, project, native_ext, overlay, cache, std_front, true, check_cache, Examples::All)
+}
+
+/// [doc-example] Whose doc examples an analysis checks: every own file's
+/// (`salvo analyze`, `salvo docs`), or only those of the documents open in
+/// the editor (the language server: a keystroke in one file does not check
+/// the examples of every other).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Examples {
+    All,
+    Open,
 }
 
 /// [`analyze_project`], with `front_half` saying whether the std front may
@@ -337,6 +347,7 @@ fn analyze_project_with(
     std_front: Option<&StdFront>,
     front_half: bool,
     check_cache: Option<&mut salvo_core::CheckCache>,
+    examples: Examples,
 ) -> Result<Analysis, String> {
     if !src.is_dir() {
         return Err(format!(
@@ -439,7 +450,9 @@ fn analyze_project_with(
     // (through the cache: an unedited example is a hit).
     {
         let std_project = project.as_ref().is_some_and(|p| p.is_std());
-        let hosts: Vec<usize> = (first..sources.files.len()).filter(|&i| own_file(&sources.files[i], std_project)).collect();
+        let open = |f: &salvo_core::SourceFile| examples == Examples::All || overlay.contains_key(&root.join(&f.name));
+        let hosts: Vec<usize> =
+            (first..sources.files.len()).filter(|&i| own_file(&sources.files[i], std_project) && open(&sources.files[i])).collect();
         for host in hosts {
             let found = salvo_core::doc_examples::extract(&sources.files[host], host, &modules[host]);
             sources.files.extend(found);
@@ -1123,7 +1136,7 @@ mod tests {
             Some(project) => (project.src(), Some(project)),
             None => (dir.to_path_buf(), None),
         };
-        analyze_project_with(&src, project, "", &overlay, Some(&mut cache), front, front_half, None).expect("analysis")
+        analyze_project_with(&src, project, "", &overlay, Some(&mut cache), front, front_half, None, Examples::All).expect("analysis")
     }
 
     // [lsp-std-front] std's expansion is a function of std alone: expanding
@@ -1375,7 +1388,7 @@ mod tests {
         let mut parse = ParseCache::new();
         let mut checks = salvo_core::CheckCache::new();
         let mut analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
-            analyze_project_with(&src, None, "", overlay, Some(&mut parse), Some(&front), true, checks).expect("analysis")
+            analyze_project_with(&src, None, "", overlay, Some(&mut parse), Some(&front), true, checks, Examples::All).expect("analysis")
         };
         let mut overlay: HashMap<PathBuf, String> = HashMap::new();
         let first = analyze(&overlay, Some(&mut checks));
@@ -1415,7 +1428,7 @@ mod tests {
             let mut parse = ParseCache::new();
             let mut checks = salvo_core::CheckCache::new();
             let mut analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
-                analyze_project_with(&src, project.clone(), "", overlay, Some(&mut parse), Some(&front), true, checks).expect("analysis")
+                analyze_project_with(&src, project.clone(), "", overlay, Some(&mut parse), Some(&front), true, checks, Examples::All).expect("analysis")
             };
             let mut overlay: HashMap<PathBuf, String> = HashMap::new();
             let first = analyze(&overlay, Some(&mut checks));

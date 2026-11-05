@@ -13732,6 +13732,9 @@ replaced the working document TESTING.md).
     unless `--module` names one.
   * **Scope**: every project's own files (never a test annex); std's
     examples only when std itself is analysed (`std = true`) [std-root]. The
+    language server checks only the examples of the documents open in the
+    editor (`analysis::Examples::Open`), so a keystroke does not check every
+    file's: in `lib/` all of std's made an edit ~3.3s, its own file's ~0.9s. The
     fences of `docs/language/` are not examples. A docs test asserts that
     `salvo analyze` in `lib/` reports nothing, and
     `tools/check-doc-examples.py --code-unchanged` checks that a doc-only
