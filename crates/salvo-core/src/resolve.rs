@@ -619,6 +619,13 @@ pub const TEST_MODULE: &str = salvo_syntax::known::TEST_MODULE;
 pub const THROW_MODULE: &str = salvo_syntax::known::THROW_MODULE;
 
 pub fn resolve(program: &Program) -> Resolution<'_> {
+    resolve_given(program, &[])
+}
+
+/// [lsp-scope-cache] [`resolve`] with some files' scopes over the stamped
+/// program `extra` (by id, as an earlier analysis built them): what the
+/// interfaces do not give, these may.
+pub fn resolve_given<'p>(program: &'p Program, extra: &[Option<GivenScope>]) -> Resolution<'p> {
     // [comptime-instantiate] [decl-id] An expanded program comes with the
     // interfaces comptime stamped against: every file's scope by id, built
     // once over the unstamped program. A scope that took in no module the
@@ -634,6 +641,8 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
                 let changed = ids.modules.iter().any(|m| interfaces.changed.contains(*m));
                 (!changed).then(|| GivenScope { ids: ids.clone(), errors: errors.clone() })
             })
+            .zip(extra.iter().cloned().chain(std::iter::repeat(None)))
+            .map(|(g, e)| g.or(e))
             .collect();
         if given.len() == program.files.len() {
             let r = resolve_impl(&program.files, &program.modules, &|_| true, false, &given);
@@ -652,6 +661,9 @@ pub fn resolve(program: &Program) -> Resolution<'_> {
             }
             return r;
         }
+    }
+    if extra.len() == program.files.len() {
+        return resolve_impl(&program.files, &program.modules, &|_| true, false, extra);
     }
     resolve_sources(&program.files, &program.modules)
 }

@@ -14137,6 +14137,10 @@ replaced the working document TESTING.md).
   through the standalone std analysis, which builds them for every file, so
   a project analysis leaves std's entries empty (it was 17ms of every edit's
   ~85ms, debug, `examples/cluster`).
+  * In the language server (`Examples::Open`) a view shows only an open
+    document or an example made from one, so the indexes cover those
+    (2026-10-31, ROADMAP §0be stage (c)): in `lib/`, where every file is
+    the project's, building them for all 74 cost 24ms of each keystroke.
 * [lsp-std-front] **std's front half is shared across analyses** (2026-10-20,
   the pipeline record step 8): the server parses, expands and checks the embedded std
   once (`salvo_core::StdFront`, `std_front.rs` since 2026-10-28, with the
@@ -14235,6 +14239,47 @@ replaced the working document TESTING.md).
   (`modules/aws` and two written programs) and
   `the_check_cache_covers_a_std_tree` (`lib/`); the CLI and the compile
   paths do not use it.
+  * The `written_types` rows a step wrote are kept one per node (the last
+    plain write, else the first write-where-absent), which has the same
+    effect on any table: a body walk lowers a callee's signature at every
+    call, and a std tree's body steps wrote ~210k rows for ~5k nodes
+    (2026-10-31, 32ms of a cached check's 44).
+* [lsp-ir-cache] **A file the check did not walk keeps its IR findings**
+  (2026-10-31, ROADMAP §0be stage (c), `ir::analyze::analyze_cached`, kept in
+  the `CheckCache`): its IR diagnostics, the bindings the flow pass decided
+  take ownership [fate-move-mode] and whether each of its fns throws, while
+  its module is the one analysed and what its analyses read of the rest of
+  the program beyond the interfaces is as it was — the gate the program's
+  errors set [ir-analyze], the tables the checker fills from bodies that one
+  declaration's IR reads about another (deductions, pass modes, primitives,
+  lends, dischargers, effects, established claims, effect prerequisites,
+  implicit parameters, handler shapes and dependencies) and the ones every
+  check recomputes (protocol hashes, the parking set, route keys), compared
+  without positions. Anything else builds every file again. The IR is then
+  built for the other files only (`ir::build_files_gated`). A file whose
+  findings land in, or are rendered from, another file (a move in copied
+  code) is never kept, nor one whose build failed; a generated declaration
+  belongs to the file whose module holds it.
+* [lsp-scope-cache] **A scope no edit can change is not built again**
+  (2026-10-31, ROADMAP §0be stage (c), `check_cache::ScopeCache`): the server
+  keeps every file's scope by id [decl-id] twice — as the expansion built
+  it over the declarations as written (`Interfaces`), and as resolution
+  built it over the stamped program — and hands the next analysis a file's
+  scope (`GivenScope`) when the files are the same and neither the file nor
+  any module the scope takes in changed its interface (its text outside the
+  plain bodies and comments, `interface_of`); a file whose own text changed
+  keeps its scope only when building it reported nothing. Over the stamped
+  program a file comptime stamped into counts as changed whenever its
+  module is a new one, since its declarations are not all in its text. In
+  `lib/` every file sees `std.core.auto`, whose templates the stamping takes
+  out, so before this every scope was built twice per keystroke. The debug
+  build's check that a resolution through given scopes equals one building
+  them all covers both.
+* [lsp-read-cache] **The server reads a file again only when it changed**
+  (2026-10-31): with `source::cache_reads` on (the language server), `add_dir`
+  keeps each source text it read with the file's size and modification
+  time, and hands it back while both are as they were (an edit of `lib/`
+  read 74 files, 25–40ms on a loaded machine).
 * [lsp-hover-iter-fn] An `iter fn`'s minter and generated `next` both hover as
   the `iter fn` written (`iter fn upto(n: Int) -> Emitted Int | Finished`),
   with its docs and without the `next` overload set.

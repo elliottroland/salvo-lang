@@ -130,6 +130,12 @@ pub fn expand_comptime<M: crate::expand::ModuleSlot>(files: &[SourceFile], modul
     run(files, modules, None, &[]).0
 }
 
+/// [lsp-scope-cache] [`expand_comptime`] with the scopes of some files
+/// `given` (by id, as an earlier analysis built them): those are not built.
+pub fn expand_comptime_given<M: crate::expand::ModuleSlot>(files: &[SourceFile], modules: &mut [M], given: &[Option<crate::resolve::GivenScope>]) -> ComptimeOutput {
+    run(files, modules, None, given).0
+}
+
 /// [lsp-std-front] Runs the expansion over a std on its own (`files` is the
 /// embedded std, nothing else), and keeps what [`expand_comptime_after`]
 /// needs to expand a project over the result.
@@ -160,11 +166,20 @@ pub fn expand_comptime_after(
     modules: &mut [std::sync::Arc<Module>],
     prefix: &StdComptime,
     std_scopes: &[std::sync::Arc<crate::scope_ids::ScopeIds>],
+    given: &[Option<crate::resolve::GivenScope>],
 ) -> ComptimeOutput {
     // [decl-id] std's scopes are the front's, as for the program's own
-    // resolution (`resolve::std_given`).
-    let given = crate::resolve::std_given(files, std_scopes).unwrap_or_default();
-    run(files, modules, Some((prefix.tables.clone(), prefix.files)), &given).0
+    // resolution (`resolve::std_given`); [lsp-scope-cache] the rest's those
+    // `given`.
+    let mut all = crate::resolve::std_given(files, std_scopes).unwrap_or_default();
+    if !all.is_empty() {
+        for (slot, g) in all.iter_mut().zip(given) {
+            if slot.is_none() {
+                *slot = g.clone();
+            }
+        }
+    }
+    run(files, modules, Some((prefix.tables.clone(), prefix.files)), &all).0
 }
 
 /// The expansion: the files from `start` on (every file without a `base`)

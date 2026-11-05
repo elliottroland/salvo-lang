@@ -507,15 +507,26 @@ fn analyze_project_with(
     }
     drop(t);
     let t = salvo_core::timing::phase("expand");
+    // [lsp-scope-cache] The scopes no edit can have changed are the last
+    // expansion's.
+    let mut check_cache = check_cache;
+    let pre_expansion: Vec<Arc<Module>> = modules.clone();
+    let given = match check_cache.as_deref_mut() {
+        Some(c) => c.scopes.plan(&sources.files, &modules),
+        None => Vec::new(),
+    };
     let expansion = match front {
         Some(front) => {
             let mut std_diagnostics = front.parse_diagnostics().to_vec();
             std_diagnostics.append(&mut diagnostics);
             diagnostics = std_diagnostics;
-            front.expand_after(&sources.files, &mut modules, per_file_tests)
+            front.expand_after_given(&sources.files, &mut modules, per_file_tests, &given)
         }
-        None => salvo_core::expand::expand_program(&sources.files, &mut modules, per_file_tests),
+        None => salvo_core::expand::expand_program_given(&sources.files, &mut modules, per_file_tests, &given),
     };
+    if let (Some(c), Some(interfaces)) = (check_cache.as_deref_mut(), &expansion.interfaces) {
+        c.scopes.record(&sources.files, &pre_expansion, interfaces);
+    }
     drop(t);
     diagnostics.extend(expansion.diagnostics);
     if let Some(cache) = cache.as_deref_mut() {
@@ -550,16 +561,32 @@ fn analyze_project_with(
         drop(t2);
         let t2 = salvo_core::timing::phase("  resolve: scopes");
         // [lsp-std-front] std's scopes are the front's, viewed.
-        let resolution = match front {
-            Some(front) => front.resolve(&program),
-            None => salvo_core::resolve(&program),
+        // [lsp-scope-cache] The scopes over the stamped program no edit can
+        // have changed are the last resolution's. A stamped module holds
+        // declarations its text does not show, so a new one counts as
+        // changed.
+        let given = match check_cache.as_deref_mut() {
+            Some(c) => c.stamped_scopes.plan_with(&program.files, &program.modules, &|f| !Arc::ptr_eq(&program.modules[f], &pre_expansion[f])),
+            None => Vec::new(),
         };
+        let resolution = match front {
+            Some(front) => front.resolve_given(&program, &given),
+            None => salvo_core::resolve::resolve_given(&program, &given),
+        };
+        if let Some(c) = check_cache.as_deref_mut() {
+            c.stamped_scopes.record_scopes(&program.files, &program.modules, &resolution.scope_ids, &resolution.scope_errors);
+        }
         drop(t2);
         let t2 = salvo_core::timing::phase("  resolve: lsp indexes");
         // [lsp-index-viewable] Only for the files a view of this analysis can
         // show: an embedded std file is opened through `analyze_std`'s own
         // analysis, never this one (`doc_view`), so its entries stay empty.
-        let viewable: Vec<bool> = program.files.iter().map(|f| !f.is_std || f.is_shadow).collect();
+        // [lsp-index-viewable] The language server asks about open documents
+        // only (and the examples made from them), so with `Examples::Open`
+        // the indexes cover those: an edit pays for the documents in view,
+        // not the whole tree (24ms of a `lib/` keystroke, 2026-10-31).
+        let in_view = |f: &salvo_core::SourceFile| examples == Examples::All || f.doc_example.is_some() || overlay.contains_key(&root.join(&f.name));
+        let viewable: Vec<bool> = program.files.iter().map(|f| (!f.is_std || f.is_shadow) && in_view(f)).collect();
         let overloads = overload_index(&resolution, &viewable);
         let completions = completion_index(&resolution, &viewable);
         let type_completions = type_completion_index(&resolution, &viewable);
@@ -567,7 +594,7 @@ fn analyze_project_with(
         drop(t);
         // `check_program` folds resolution errors into its own.
         let t = salvo_core::timing::phase("check");
-        let mut checked = match (std_front.map(|f| f.cache()), check_cache) {
+        let mut checked = match (std_front.map(|f| f.cache()), check_cache.as_deref_mut()) {
             (Some(cache), Some(check_cache)) if std_cache_applies(&program, cache) => {
                 salvo_core::check_project_cached(&program, &resolution, &symbols, cache, check_cache)
             }
@@ -588,7 +615,15 @@ fn analyze_project_with(
         // only (`ir::gate`). They are listed after the checker's.
         let ir_diags = {
             let _t = salvo_core::timing::phase("ir analyze");
-            let (ir_diags, decision) = salvo_core::ir::analyze::analyze_full(&program, &symbols, &resolution, &checked, &diagnostics);
+            // [lsp-ir-cache] With the check cache, a file it did not walk
+            // keeps its findings.
+            let (ir_diags, decision) = match check_cache {
+                Some(c) => {
+                    let walked = c.walked().to_vec();
+                    salvo_core::ir::analyze::analyze_cached(&program, &symbols, &resolution, &checked, &diagnostics, &walked, &mut c.ir)
+                }
+                None => salvo_core::ir::analyze::analyze_full(&program, &symbols, &resolution, &checked, &diagnostics),
+            };
             // [fate-link] [fate-move-mode] A binding that took ownership
             // presents no links (the IR decides which did).
             salvo_core::ir::analyze::drop_owned_fate_reads(&mut checked, &decision);
@@ -1257,6 +1292,8 @@ mod tests {
             ("fn_refs", rows(&c.fn_refs, n, p)),
             ("refs", rows(&c.refs, n, p)),
             ("calls", rows(&c.calls, n, p)),
+            // [lsp-ir-cache] What the IR decided shows in the fate links kept.
+            ("fate_reads", rows(&c.fate_reads, n, p)),
             ("local_decls", locals),
             ("errors", errors),
             ("ir diagnostics", ir),
@@ -1510,6 +1547,10 @@ mod tests {
                 let walked: Vec<&str> = checks.walked().iter().map(|&f| cached.program.files[f].name.as_str()).collect();
                 assert_eq!(walked, [name], "editing {name}");
                 assert_eq!(checks.walked(), [file(name)]);
+                // [lsp-ir-cache] The IR is built for what was walked only.
+                assert_eq!(checks.ir.built(), [file(name)], "editing {name}");
+                // [lsp-scope-cache] and every scope is the last expansion's.
+                assert_eq!(checks.scopes.given(), all, "editing {name}");
             }
             let uncached = analyze(&overlay, None);
             for ((what, a), (_, b)) in view(&cached, 0).into_iter().zip(view(&uncached, 0)) {
@@ -1562,6 +1603,52 @@ mod tests {
             let uncached = analyze(&overlay, None);
             for ((what, a), (_, b)) in view(&cached, n).into_iter().zip(view(&uncached, n)) {
                 assert!(a == b, "{what} differ after editing {name}:\n{a:#?}\nwithout the cache:\n{b:#?}");
+            }
+        }
+    }
+
+    // [lsp-ir-cache] A file the check did not walk keeps its IR findings (a
+    // use after a move in `u`) while another file's body is edited; an edit
+    // that changes the program's gate (an error in a body) builds everything
+    // again; and each analysis reports what one without the caches does.
+    #[test]
+    fn a_file_not_walked_keeps_its_ir_findings() {
+        let front = build_std_front("");
+        let n = front.files().len();
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let src = repo.join("tmp/check_cache_test/ir_cache");
+        let _ = std::fs::remove_dir_all(&src);
+        std::fs::create_dir_all(&src).unwrap();
+        let t = "export struct Token {\n    v: Int\n}\n\n\
+                 export fn spend(t: Token) [] -> Int => !t {\n    return t.v\n}\n\n\
+                 export fn other() [] -> Int {\n    return 1\n}\n";
+        let u = "import t\n\nfn twice() [] -> Int {\n    let k = Token { v: 1 }\n    let a = spend(k)\n    let b = spend(k)\n    return a + b + other()\n}\n";
+        std::fs::write(src.join("t.sv"), t).unwrap();
+        std::fs::write(src.join("u.sv"), u).unwrap();
+        let root = src.canonicalize().unwrap();
+        let mut parse = ParseCache::new();
+        let mut checks = salvo_core::CheckCache::new();
+        let mut analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
+            analyze_project_with(&src, None, "", overlay, Some(&mut parse), Some(&front), true, checks, Examples::All).expect("analysis")
+        };
+        let first = analyze(&HashMap::new(), Some(&mut checks));
+        let file = |name: &str| (n..first.program.files.len()).find(|&i| first.program.files[i].name == name).unwrap();
+        let moved = |a: &Analysis| a.diagnostics.iter().any(|d| d.file == file("u.sv") && d.message.contains("consumed (moved)"));
+        assert!(moved(&first), "{:#?}", first.diagnostics);
+        let edits: [(String, Vec<usize>); 2] = [
+            (t.replace("    return 1\n", "    return 2\n"), vec![file("t.sv")]),
+            (t.replace("    return 1\n", "    return \"one\"\n"), vec![file("t.sv"), file("u.sv")]),
+        ];
+        for (text, built) in edits {
+            analyze(&HashMap::new(), Some(&mut checks));
+            let overlay: HashMap<PathBuf, String> = [(root.join("t.sv"), text)].into_iter().collect();
+            let cached = analyze(&overlay, Some(&mut checks));
+            assert_eq!(checks.walked(), [file("t.sv")]);
+            assert_eq!(checks.ir.built(), built.as_slice());
+            assert!(moved(&cached), "{:#?}", cached.diagnostics);
+            let uncached = analyze(&overlay, None);
+            for ((what, a), (_, b)) in view(&cached, n).into_iter().zip(view(&uncached, n)) {
+                assert!(a == b, "{what} differ:\n{a:#?}\nwithout the cache:\n{b:#?}");
             }
         }
     }

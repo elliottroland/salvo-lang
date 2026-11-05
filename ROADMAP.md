@@ -449,7 +449,7 @@ that would make the std/project split unnecessary. **User decisions
 each stage — (a) the check cache without the std front, so `lib/` gets one
 (**built** 2026-10-31, COMPLETED.md), (b) dependency-based invalidation
 (built), (c) resolve and the IR analyses cached per
-file, (d) the std front folded into the cache; the goal today is editing std,
+file (built), (d) the std front folded into the cache; the goal today is editing std,
 designed for big user projects (gathers kept per file). Where an edit in
 `lib/std/heap.sv` goes after (a), release build, 414ms wall with the 120ms
 debounce: IR 73 (build 59), check 63 (inserting the 73 cached files' rows
@@ -459,6 +459,14 @@ debounce: IR 73 (build 59), check 63 (inserting the 73 cached files' rows
 - a body edit in a file holding a comptime template walks the files whose
   copies moved (with (b): `args.sv`'s examples deriving `FromArgs`); a
   copy's range could be remapped through its template file's cut regions.
+
+Stage (c), **built** 2026-10-31 (COMPLETED.md): a `heap.sv` body edit 421ms →
+236ms wall (release, analysis 276 → 95), a signature edit 503 → 254ms. Left
+in a body edit's 95ms: check 30 (inserting cached rows 11, the facts step's
+inserts 8), resolve 23 (the name table 11, built whole), expand 18, load 12
+(walking the tree's directories), parse 5; ~20ms of serializing and
+publishing outside the analysis. A `std.core` signature edit still walks and
+builds everything (723ms).
 
 Stage (b), dependency invalidation, **built** 2026-10-31 (COMPLETED.md): a
 `heap.sv` signature edit 829ms → 452ms (release, 10 of 74 files walked); an

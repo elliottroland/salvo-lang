@@ -175,6 +175,13 @@ pub fn expand_program<M: ModuleSlot>(files: &[SourceFile], modules: &mut [M], pe
     program_expansion(per_file, comptime)
 }
 
+/// [lsp-scope-cache] [`expand_program`] with the scopes of some files
+/// `given`, as an earlier analysis built them.
+pub fn expand_program_given(files: &[SourceFile], modules: &mut [Arc<Module>], per_file: Vec<Vec<FileTest>>, given: &[Option<crate::resolve::GivenScope>]) -> Expansion {
+    let comptime = crate::comptime::expand_comptime_given(files, modules, given);
+    program_expansion(per_file, comptime)
+}
+
 /// [lsp-std-front] What [`expand_program`] does, over a program whose leading
 /// files are a std that `prefix` recorded the expansion of
 /// (`comptime::expand_comptime_prefix`), already expanded: only the files
@@ -186,8 +193,9 @@ pub fn expand_program_after(
     per_file: Vec<Vec<FileTest>>,
     prefix: &crate::comptime::StdComptime,
     std_scopes: &[Arc<crate::scope_ids::ScopeIds>],
+    given: &[Option<crate::resolve::GivenScope>],
 ) -> Expansion {
-    let comptime = crate::comptime::expand_comptime_after(files, modules, prefix, std_scopes);
+    let comptime = crate::comptime::expand_comptime_after(files, modules, prefix, std_scopes, given);
     program_expansion(per_file, comptime)
 }
 

@@ -143,7 +143,13 @@ impl StdFront {
     /// `per_file`, aligned with `files`) — merged with std's expansion
     /// output, which is not recomputed.
     pub fn expand_after(&self, files: &[SourceFile], modules: &mut [Arc<Module>], per_file: Vec<Vec<FileTest>>) -> Expansion {
-        let rest = crate::expand::expand_program_after(files, modules, per_file, &self.comptime, &self.scopes);
+        self.expand_after_given(files, modules, per_file, &[])
+    }
+
+    /// [lsp-scope-cache] [`StdFront::expand_after`] with the scopes of some
+    /// later files `given`, as an earlier analysis built them.
+    pub fn expand_after_given(&self, files: &[SourceFile], modules: &mut [Arc<Module>], per_file: Vec<Vec<FileTest>>, given: &[Option<crate::resolve::GivenScope>]) -> Expansion {
+        let rest = crate::expand::expand_program_after(files, modules, per_file, &self.comptime, &self.scopes, given);
         let mut expansion = Expansion {
             interfaces: rest.interfaces,
             tests: rest.tests,
@@ -190,6 +196,15 @@ impl StdFront {
     /// ([`StdFront::applies`]) — `resolve::resolve_over` — and in full
     /// otherwise.
     pub fn resolve<'p>(&self, program: &'p Program) -> Resolution<'p> {
+        self.resolve_given(program, &[])
+    }
+
+    /// [lsp-scope-cache] [`StdFront::resolve`] with some files' scopes
+    /// `extra`, as an earlier analysis built them.
+    pub fn resolve_given<'p>(&self, program: &'p Program, extra: &[Option<crate::resolve::GivenScope>]) -> Resolution<'p> {
+        if program.interfaces.is_some() {
+            return crate::resolve::resolve_given(program, extra);
+        }
         if self.applies(&program.files) {
             crate::resolve::resolve_over(program, &self.scopes)
         } else {

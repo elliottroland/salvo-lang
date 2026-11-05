@@ -189,6 +189,119 @@ pub struct CheckCache {
     type_nodes: Vec<Vec<usize>>,
     /// The files the last check walked, in order.
     walked: Vec<usize>,
+    /// [lsp-ir-cache] The IR analyses' findings per file, which stand for a
+    /// file only while its rows do.
+    pub ir: crate::ir::analyze::IrCache,
+    /// [lsp-scope-cache] Every file's scope by id, as the last expansion
+    /// built it over the declarations as written, and as the last resolution
+    /// built it over the stamped program.
+    pub scopes: ScopeCache,
+    pub stamped_scopes: ScopeCache,
+}
+
+/// [lsp-scope-cache] The scopes (by id [decl-id]) an expansion built over a
+/// program's declarations as written, and what each was built from: kept so
+/// that the next analysis of the same files builds again only the scopes an
+/// edit can change.
+#[derive(Default)]
+pub struct ScopeCache {
+    files: Vec<FileId>,
+    /// Each file's module before expansion, and its interface hash
+    /// (`interface_of`).
+    modules: Vec<Arc<Module>>,
+    ifaces: Vec<u64>,
+    scopes: Vec<Option<crate::resolve::GivenScope>>,
+    /// The files whose scopes the last expansion was given.
+    given: usize,
+}
+
+impl ScopeCache {
+    /// How many scopes the last expansion was given rather than built.
+    pub fn given(&self) -> usize {
+        self.given
+    }
+
+    /// The scopes that stand for `modules` (each file's before expansion):
+    /// a file's when the files are the same, and neither the file nor any
+    /// module its scope takes in has changed its interface — the text
+    /// outside its plain bodies and comments, which is all a scope is built
+    /// from. A file whose own text changed keeps its scope only when
+    /// building it reported nothing (a report is placed in its text).
+    pub fn plan(&mut self, files: &[crate::source::SourceFile], modules: &[Arc<Module>]) -> Vec<Option<crate::resolve::GivenScope>> {
+        self.plan_with(files, modules, &|_| false)
+    }
+
+    /// [`ScopeCache::plan`] where the files `opaque` says hold declarations
+    /// their text does not show (a module comptime stamped into) count as
+    /// changed whenever their module is a new one.
+    pub fn plan_with(&mut self, files: &[crate::source::SourceFile], modules: &[Arc<Module>], opaque: &dyn Fn(usize) -> bool) -> Vec<Option<crate::resolve::GivenScope>> {
+        let n = files.len();
+        let same = self.files.len() == n && self.files.iter().zip(files).all(|(a, b)| *a == FileId::of(b)) && self.modules.len() == n;
+        if !same {
+            *self = ScopeCache::default();
+            return Vec::new();
+        }
+        let mut edited: HashSet<usize> = HashSet::new();
+        let mut reshaped: HashSet<&crate::source::ModulePath> = HashSet::new();
+        for f in 0..n {
+            if Arc::ptr_eq(&self.modules[f], &modules[f]) {
+                continue;
+            }
+            edited.insert(f);
+            if opaque(f) || interface_of(&files[f].content, &modules[f]).1 != self.ifaces[f] {
+                reshaped.insert(&files[f].module);
+            }
+        }
+        let given: Vec<Option<crate::resolve::GivenScope>> = (0..n)
+            .map(|f| {
+                let g = self.scopes.get(f)?.as_ref()?;
+                if reshaped.contains(&files[f].module) || g.ids.modules.iter().any(|m| reshaped.contains(*m)) {
+                    return None;
+                }
+                if edited.contains(&f) && !g.errors.is_empty() {
+                    return None;
+                }
+                Some(g.clone())
+            })
+            .collect();
+        self.given = given.iter().filter(|g| g.is_some()).count();
+        given
+    }
+
+    /// Records the scopes an expansion built (or was given) over `modules`.
+    pub fn record(&mut self, files: &[crate::source::SourceFile], modules: &[Arc<Module>], interfaces: &crate::resolve::Interfaces) {
+        self.record_scopes(files, modules, &interfaces.scope_ids, &interfaces.scope_errors);
+    }
+
+    /// Records scopes by id and what building each reported, over `modules`.
+    pub fn record_scopes(
+        &mut self,
+        files: &[crate::source::SourceFile],
+        modules: &[Arc<Module>],
+        scope_ids: &[Arc<crate::scope_ids::ScopeIds>],
+        scope_errors: &[Arc<Vec<FileDiagnostic>>],
+    ) {
+        let n = files.len();
+        if scope_ids.len() != n || scope_errors.len() != n || modules.len() != n {
+            *self = ScopeCache::default();
+            return;
+        }
+        let same = self.files.len() == n && self.modules.len() == n;
+        let ifaces: Vec<u64> = (0..n)
+            .map(|f| match (same, self.modules.get(f)) {
+                (true, Some(m)) if Arc::ptr_eq(m, &modules[f]) => self.ifaces[f],
+                _ => interface_of(&files[f].content, &modules[f]).1,
+            })
+            .collect();
+        self.files = files.iter().map(FileId::of).collect();
+        self.modules = modules.to_vec();
+        self.ifaces = ifaces;
+        self.scopes = scope_ids
+            .iter()
+            .zip(scope_errors)
+            .map(|(ids, errors)| Some(crate::resolve::GivenScope { ids: ids.clone(), errors: errors.clone() }))
+            .collect();
+    }
 }
 
 impl CheckCache {
@@ -300,7 +413,11 @@ impl CheckCache {
     /// Not used for this check, which walks all of `files`: what it held
     /// goes, since it is of no use to the next check either.
     pub(crate) fn skip(&mut self, files: &[usize]) {
-        *self = CheckCache::default();
+        // The scopes and the IR findings answer to their own checks.
+        let ir = std::mem::take(&mut self.ir);
+        let scopes = std::mem::take(&mut self.scopes);
+        let stamped_scopes = std::mem::take(&mut self.stamped_scopes);
+        *self = CheckCache { ir, scopes, stamped_scopes, ..CheckCache::default() };
         self.walked = files.to_vec();
     }
 
@@ -343,6 +460,9 @@ impl CheckCache {
                     // dropped): nothing a later check could look up.
                     None => false,
                 });
+            }
+            for step in &mut steps {
+                step.written = compress_written(std::mem::take(&mut step.written));
             }
             let mut rows = parts[f].take().unwrap_or_default();
             rows.param_mutations = mutations
@@ -389,6 +509,30 @@ impl CheckCache {
         }
         self.type_nodes.truncate(n);
     }
+}
+
+/// [lsp-check-cache] A step's `written_types` rows with the same effect on
+/// any table they are applied to, one per node: the last plain write when
+/// there is one (it overwrites whatever came before), else the first
+/// write-where-absent. A body walk lowers a callee's signature at every
+/// call, so a std tree's body steps wrote ~210k rows for ~5k nodes, and
+/// applying them was most of a cached check (2026-10-31, 32ms of 44).
+fn compress_written(rows: Vec<(usize, usize, Ty, bool)>) -> Vec<(usize, usize, Ty, bool)> {
+    let mut at: HashMap<usize, usize> = HashMap::with_capacity(rows.len() / 8);
+    let mut out: Vec<(usize, usize, Ty, bool)> = Vec::new();
+    for row in rows {
+        match at.get(&row.0) {
+            None => {
+                at.insert(row.0, out.len());
+                out.push(row);
+            }
+            // A plain write replaces what the node had.
+            Some(&i) if !row.3 => out[i] = row,
+            // A write where absent after another write does nothing.
+            Some(_) => {}
+        }
+    }
+    out
 }
 
 /// [lsp-check-cache] Whether a fn's body is read by no interface: an

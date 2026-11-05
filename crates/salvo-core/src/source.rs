@@ -272,6 +272,38 @@ pub struct CompanionFile {
 /// holds the tests of module `heap`, and becomes module `heap.test`.
 pub const TEST_SUFFIX: &str = ".test";
 
+/// [lsp-read-cache] Whether `add_dir` keeps what it read, for a process that
+/// loads the same tree again and again (the language server, once per
+/// edit): a file whose size and modification time are what they were is
+/// not read again.
+static CACHE_READS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// [lsp-read-cache] Turns the read cache on for this process.
+pub fn cache_reads() {
+    CACHE_READS.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// [lsp-read-cache] A source file's text: read, or with the read cache on,
+/// the text last read while the file's size and modification time stay
+/// what they were then.
+fn read_source(path: &Path) -> std::io::Result<String> {
+    if !CACHE_READS.load(std::sync::atomic::Ordering::Relaxed) {
+        return std::fs::read_to_string(path);
+    }
+    type Reads = std::collections::HashMap<PathBuf, (u64, std::time::SystemTime, String)>;
+    static READS: std::sync::Mutex<Option<Reads>> = std::sync::Mutex::new(None);
+    let meta = std::fs::metadata(path)?;
+    let stamp = (meta.len(), meta.modified()?);
+    if let Some((len, at, text)) = READS.lock().unwrap().as_ref().and_then(|r| r.get(path)) {
+        if (*len, *at) == stamp {
+            return Ok(text.clone());
+        }
+    }
+    let text = std::fs::read_to_string(path)?;
+    READS.lock().unwrap().get_or_insert_with(Default::default).insert(path.to_path_buf(), (stamp.0, stamp.1, text.clone()));
+    Ok(text)
+}
+
 /// The full set of sources for a compilation: user sources plus the
 /// standard library.
 #[derive(Debug, Default)]
@@ -551,7 +583,7 @@ impl SourceSet {
                     // backend) reads no host file at all, which in std's tree
                     // is 4MB a keystroke.
                     if !pf.generated && ext == native_ext {
-                        let content = match std::fs::read_to_string(&path) {
+                        let content = match read_source(&path) {
                             Ok(content) => content,
                             Err(err) => {
                                 errors.push(format!("failed to read `{}`: {err}", path.display()));
@@ -586,7 +618,7 @@ impl SourceSet {
                 let Some(module) = Self::classify_companion(rel, native_ext) else {
                     continue;
                 };
-                match std::fs::read_to_string(&path) {
+                match read_source(&path) {
                     Ok(content) => self.add_companion(rel.to_path_buf(), module, content, false),
                     Err(err) => {
                         errors.push(format!("failed to read `{}`: {err}", path.display()))
@@ -609,7 +641,7 @@ impl SourceSet {
             if annex && !tests {
                 continue;
             }
-            match std::fs::read_to_string(&path) {
+            match read_source(&path) {
                 Ok(content) if annex => {
                     self.add_test(rel.display().to_string(), module, content)
                 }

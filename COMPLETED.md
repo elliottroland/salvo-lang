@@ -149,6 +149,42 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-31 — The IR, the scopes and the reads are cached per file (user decisions, ROADMAP §0be stage (c))
+
+- **Decided** (user, 2026-10-31): stage (c) of the one-cache plan, measured
+  first. Baseline, release, a `lib/std/heap.sv` body edit: 421ms wall,
+  analysis 276 (IR 70, check 63 of which inserting cached rows 42, resolve
+  58 of which the LSP indexes 24, load 40, expand 37 of which the
+  interfaces' scopes 23).
+- **Built**, in order of yield:
+  - [lsp-ir-cache] the IR's findings per file (`IrCache` in the
+    `CheckCache`), kept for a file the check did not walk while a
+    position-free fingerprint of what one declaration's IR reads about
+    another (and the gate) is unchanged; only the other files are built
+    (`build_files_gated`);
+  - [lsp-index-viewable] the LSP indexes for open documents only;
+  - [lsp-scope-cache] scopes by id kept across analyses, both the
+    expansion's and the stamped resolution's (`ScopeCache`, `expand_program_given`,
+    `resolve_given`). The stamped one mattered most: every `lib/` file sees
+    `std.core.auto`, which stamping changes, so no scope was ever reused;
+  - the check cache's `written_types` rows kept one per node: a body walk
+    writes a callee's signature types at every call, 210k rows for 5k nodes;
+  - [lsp-read-cache] file texts kept by size and modification time.
+- **Measured** (release, medians of 5): `heap.sv` body edit 421 → 236ms
+  (analysis 276 → 95), signature edit 503 → 254ms (342 → 113), a `std.core`
+  signature 800 → 723ms (everything is walked and built, as it must be),
+  `modules/aws` body ~190ms, unchanged.
+- **Found**: deductions cannot change from a body edit alone today (a body
+  that moves a kept parameter is an error, not an inferred move), so the
+  fingerprint is stable under ordinary edits; it stays as the guard for
+  what may be inferred later.
+- **Shown by** `a_file_not_walked_keeps_its_ir_findings` (a use after a move
+  in an unwalked file stays reported; an error elsewhere rebuilds
+  everything), the assertions added to `the_check_cache_covers_a_std_tree`
+  (a body edit builds the edited file's IR alone and is given every scope),
+  and every cache test's comparison with an uncached analysis, which now
+  includes the fate links the IR's decisions drop.
+
 ### 2026-10-31 — Qualifiers have keys, as types have (user decision, [qual-identity])
 
 - **Decided** (user, 2026-10-31: "Let's give them proper keys", before cache

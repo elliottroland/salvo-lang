@@ -207,6 +207,21 @@ pub fn build_program_gated<'p>(
     modules: Option<&HashSet<&crate::ModulePath>>,
     gate: &'p super::gate::Gate,
 ) -> (Program, Vec<String>, HashSet<(usize, usize)>) {
+    let want = |_: usize, file: &crate::source::SourceFile| modules.is_none_or(|m| m.contains(&file.module));
+    build_files_gated(program, symbols, resolution, checked, &want, gate)
+}
+
+/// [ir-analyze] [lsp-ir-cache] `build_program_gated` over the files `want`
+/// takes (by index and file), whatever their modules: what the language
+/// server builds when the other files' analyses are kept.
+pub fn build_files_gated<'p>(
+    program: &'p CoreProgram,
+    symbols: &'p Symbols<'p>,
+    resolution: &'p Resolution<'p>,
+    checked: &'p Checked,
+    want: &dyn Fn(usize, &crate::source::SourceFile) -> bool,
+    gate: &'p super::gate::Gate,
+) -> (Program, Vec<String>, HashSet<(usize, usize)>) {
     let _t = crate::timing::phase("ir build");
     let mut facts_by_decl: HashMap<DeclId, Vec<&crate::check::BindFact>> = HashMap::new();
     for (k, fact) in &checked.bind_facts {
@@ -224,10 +239,8 @@ pub fn build_program_gated<'p>(
     let mut built: Vec<(usize, decls::ModuleBuild)> = Vec::new();
     let t = crate::timing::phase("  ir build: bodies");
     for (file_idx, (file, module)) in program.files.iter().zip(&program.modules).enumerate() {
-        if let Some(wanted) = modules {
-            if !wanted.contains(&file.module) {
-                continue;
-            }
+        if !want(file_idx, file) {
+            continue;
         }
         if gate.files.contains(&file_idx) {
             continue;

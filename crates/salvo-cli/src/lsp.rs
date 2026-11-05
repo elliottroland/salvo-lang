@@ -169,6 +169,9 @@ fn spawn_parent_death_watchdog() {}
 /// Backend-neutral, like `salvo analyze` [cli-analyze]: nothing a backend
 /// selects participates in checking.
 pub fn run() -> ExitCode {
+    // [lsp-read-cache] Every edit loads the tree again: unchanged files are
+    // not read again.
+    salvo_core::source::cache_reads();
     match serve() {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {

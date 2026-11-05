@@ -45,6 +45,141 @@ pub fn analyze_full(
     checked: &Checked,
     parse: &[FileDiagnostic],
 ) -> (Vec<FileDiagnostic>, super::Decision) {
+    analyze_with(program, symbols, resolution, checked, parse, None)
+}
+
+/// [lsp-ir-cache] `analyze_full` keeping what each file's analysis found in
+/// `cache`, for the next analysis of the same program: a file the check did
+/// not walk (`walked` is what it walked), whose module is the one analysed,
+/// is not built again while what its analysis reads of the rest of the
+/// program is as it was (`fingerprint`).
+pub fn analyze_cached(
+    program: &Program,
+    symbols: &Symbols,
+    resolution: &Resolution,
+    checked: &Checked,
+    parse: &[FileDiagnostic],
+    walked: &[usize],
+    cache: &mut IrCache,
+) -> (Vec<FileDiagnostic>, super::Decision) {
+    analyze_with(program, symbols, resolution, checked, parse, Some((walked, cache)))
+}
+
+/// [lsp-ir-cache] What one file's IR analyses found, kept across analyses.
+struct IrFile {
+    /// The module analysed: what was found stands for it only while the
+    /// program holds this very `Arc`.
+    module: std::sync::Arc<salvo_syntax::ast::Module>,
+    diagnostics: Vec<FileDiagnostic>,
+    /// The bindings the flow pass decided take ownership [fate-move-mode].
+    decided: Vec<crate::check::Key>,
+    /// Whether each of its fns throws, which the linear check of every
+    /// other file reads.
+    throws: Vec<(crate::DeclId, bool)>,
+}
+
+/// [lsp-ir-cache] The IR analyses' findings per file, kept by the language
+/// server beside its check cache.
+#[derive(Default)]
+pub struct IrCache {
+    files: Vec<String>,
+    fingerprint: u64,
+    entries: HashMap<usize, IrFile>,
+    /// The files the last analysis built (the rest it kept).
+    built: Vec<usize>,
+}
+
+impl IrCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The files the last analysis built: every other file it analyses was
+    /// kept.
+    pub fn built(&self) -> &[usize] {
+        &self.built
+    }
+}
+
+/// [lsp-ir-cache] What a file's IR analyses read of the rest of the program
+/// beyond the interfaces (whose changes walk the file in the check, and so
+/// build it here): the gate the program's errors set, and every table the
+/// checker fills from bodies that one declaration's IR reads about another
+/// — deductions, pass modes, lends, dischargers, effects, established
+/// claims, implicit parameters, handler shapes — or that is recomputed every
+/// check. Positions take no part: a body edit moves the declarations after
+/// it, which says nothing new about them.
+fn fingerprint(gate: &super::gate::Gate, checked: &Checked) -> u64 {
+    use std::hash::{Hash, Hasher};
+    fn h<T: Hash>(t: &T) -> u64 {
+        let mut s = std::collections::hash_map::DefaultHasher::new();
+        t.hash(&mut s);
+        s.finish()
+    }
+    // A table's rows in any order: the sum of each row's hash.
+    fn table<V>(rows: &HashMap<crate::check::Key, V>, keep: impl Fn(&crate::check::Key) -> bool, show: impl Fn(&V) -> String) -> u64 {
+        let mut sum: u64 = rows.len() as u64;
+        for (k, v) in rows {
+            if keep(k) {
+                sum = sum.wrapping_add(h(&(k, show(v))));
+            }
+        }
+        sum
+    }
+    let all = |_: &crate::check::Key| true;
+    let name = |k: &crate::check::Key| k.node.0 == crate::check::NAME_NODE;
+    let debug = |v: &dyn std::fmt::Debug| format!("{v:?}");
+    let sorted = |set: &std::collections::HashSet<(usize, usize)>| {
+        let mut v: Vec<_> = set.iter().copied().collect();
+        v.sort_unstable();
+        v
+    };
+    let mut files: Vec<usize> = gate.files.iter().copied().collect();
+    files.sort_unstable();
+    let parts: Vec<u64> = vec![
+        h(&files),
+        h(&sorted(&gate.interfaces)),
+        h(&sorted(&gate.bodies)),
+        table(&checked.deductions, all, |v| debug(v)),
+        table(&checked.param_modes, all, |v| debug(v)),
+        table(&checked.primitives, all, |v| debug(v)),
+        table(&checked.fn_lends, all, |v| debug(v)),
+        table(&checked.discharges, all, |v| debug(v)),
+        table(&checked.effects_taken, name, |v| debug(v)),
+        table(&checked.established_quals, all, |v| debug(v)),
+        table(&checked.effect_prereqs, all, |v| debug(v)),
+        table(&checked.handler_deps, all, |v| debug(&v.iter().map(|(t, _)| t).collect::<Vec<_>>())),
+        table(&checked.handler_shapes, all, |v| debug(&crate::check::HandlerShape { any_deps: Vec::new(), ..v.clone() })),
+        table(&checked.implicit_params, all, |v| {
+            debug(&v.iter().map(|p| crate::check::ImplicitParam { span: Span::default(), ..p.clone() }).collect::<Vec<_>>())
+        }),
+        h(&format!("{:?}", checked.protocol_hashes)),
+        {
+            let mut p: Vec<&String> = checked.parking_handlers.iter().collect();
+            p.sort();
+            h(&p)
+        },
+        {
+            let mut r: Vec<String> = checked.route_keys.iter().map(|(k, v)| {
+                let mut v: Vec<_> = v.iter().collect();
+                v.sort();
+                format!("{k}: {v:?}")
+            }).collect();
+            r.sort();
+            h(&r)
+        },
+    ];
+    h(&parts)
+}
+
+fn analyze_with(
+    program: &Program,
+    symbols: &Symbols,
+    resolution: &Resolution,
+    checked: &Checked,
+    parse: &[FileDiagnostic],
+    mut cache: Option<(&[usize], &mut IrCache)>,
+) -> (Vec<FileDiagnostic>, super::Decision) {
     let mut gate = super::gate::Gate::new(program, &resolution.decls, &checked.errors);
     for d in parse.iter().filter(|d| d.is_error()) {
         gate.break_file(d.file);
@@ -57,12 +192,24 @@ pub fn analyze_full(
     // (Under the std-cache path std's rows are the std-only check's, seeded
     // whole, so its IR builds — emission builds it, and the TESTS.md C2
     // differential found it identical to a full check's.)
-    let wanted: std::collections::HashSet<&crate::ModulePath> = program
-        .units()
-        .filter(|u| !u.file.is_std || u.file.is_shadow)
-        .map(|u| &u.file.module)
-        .collect();
-    let (mut ir, _build_errors, failed) = super::build::build_program_gated(program, symbols, resolution, checked, Some(&wanted), &gate);
+    let wanted = |f: &crate::source::SourceFile| !f.is_std || f.is_shadow;
+    // [lsp-ir-cache] The files whose findings stand: kept, not built.
+    let mut kept: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    if let Some((walked, cache)) = cache.as_mut() {
+        let _t = crate::timing::phase("  ir analyze: plan");
+        let fp = fingerprint(&gate, checked);
+        let same = cache.fingerprint == fp && cache.files.len() == program.files.len() && cache.files.iter().zip(&program.files).all(|(a, b)| *a == b.name);
+        if !same {
+            cache.entries.clear();
+            cache.fingerprint = fp;
+            cache.files = program.files.iter().map(|f| f.name.clone()).collect();
+        }
+        let walked: std::collections::HashSet<usize> = walked.iter().copied().collect();
+        cache.entries.retain(|f, e| !walked.contains(f) && program.modules.get(*f).is_some_and(|m| std::sync::Arc::ptr_eq(m, &e.module)));
+        kept = cache.entries.keys().copied().collect();
+    }
+    let want = |i: usize, f: &crate::source::SourceFile| wanted(f) && !kept.contains(&i);
+    let (mut ir, _build_errors, failed) = super::build::build_files_gated(program, symbols, resolution, checked, &want, &gate);
     let checkable = super::gate::Checkable::new(program, symbols, &resolution.decls, &gate, &failed);
     super::obligations::annotate(&mut ir, symbols);
 
@@ -70,8 +217,15 @@ pub fn analyze_full(
     // so a file-local span becomes a file-attributed diagnostic.
     let file_of: HashMap<&str, usize> = program.files.iter().enumerate().map(|(i, f)| (f.name.as_str(), i)).collect();
 
-    let mut out = Vec::new();
-    let throws = super::check::throws_map(&ir);
+    let mut throws = super::check::throws_map(&ir);
+    if let Some((_, cache)) = cache.as_ref() {
+        for e in cache.entries.values() {
+            throws.extend(e.throws.iter().cloned());
+        }
+    }
+    // What each built file found, and whether all of it is the file's own:
+    // a finding placed in or rendered from another file is never kept.
+    let mut found: HashMap<usize, (Vec<FileDiagnostic>, bool)> = HashMap::new();
     for module in &ir.modules {
         let file = file_of.get(module.file_name.as_str()).copied().unwrap_or(0);
         let scope = resolution.scopes.get(file);
@@ -80,6 +234,7 @@ pub fn analyze_full(
         // path-exit leaks are the harness's business, its flow rules (a value
         // consumed on some paths only, an assignment dropping one) are not.
         let linear = !program.files.get(file).is_some_and(|f| f.is_test);
+        let (out, own) = found.entry(file).or_insert_with(|| (Vec::new(), true));
         for decl in &module.decls {
             if !checkable.check(decl) {
                 continue;
@@ -101,6 +256,7 @@ pub fn analyze_full(
                 // [node-origin] A move in copied code is named where it lands,
                 // its line counted in the file it lands in.
                 let (moved_file, moved_at) = crate::origin::landing(&program.modules, file, d.moved_at);
+                *own &= moved_file == file;
                 d.moved_at = moved_at;
                 let moved_content = program.files.get(moved_file).map_or(content, |f| f.content.as_str());
                 out.push(report(d.span, d.render(moved_content)));
@@ -125,11 +281,66 @@ pub fn analyze_full(
                 out.push(report(d.span, message));
             }
         }
+        *own &= out.iter().all(|d| d.file == file);
+    }
+    let mut out: Vec<FileDiagnostic> = Vec::new();
+    let mut decision = std::mem::take(&mut ir.decision);
+    match cache {
+        Some((_, cache)) => {
+            // The built files' findings are kept for the next analysis; the
+            // kept files' join them.
+            let mut decided: HashMap<usize, Vec<crate::check::Key>> = HashMap::new();
+            for k in &decision.decided {
+                if let Some(loc) = resolution.decls.loc(k.decl) {
+                    decided.entry(loc.file).or_default().push(*k);
+                }
+            }
+            let mut fn_throws: HashMap<usize, Vec<(crate::DeclId, bool)>> = HashMap::new();
+            for module in &ir.modules {
+                let Some(&file) = file_of.get(module.file_name.as_str()) else { continue };
+                let entry = fn_throws.entry(file).or_default();
+                for d in &module.decls {
+                    if let super::Decl::Fn(f) = d {
+                        entry.push((f.id, f.throws.is_some()));
+                    }
+                }
+            }
+            cache.built = (0..program.files.len()).filter(|&i| want(i, &program.files[i])).collect();
+            for &f in &cache.built {
+                let (diagnostics, own) = found.remove(&f).unwrap_or((Vec::new(), true));
+                out.extend(diagnostics.iter().cloned());
+                // A file whose build failed somewhere is built again: its
+                // gating is the program's.
+                if own && !failed.iter().any(|(file, _)| *file == f) {
+                    cache.entries.insert(f, IrFile {
+                        module: program.modules[f].clone(),
+                        diagnostics,
+                        decided: decided.remove(&f).unwrap_or_default(),
+                        throws: fn_throws.remove(&f).unwrap_or_default(),
+                    });
+                }
+            }
+            for f in &kept {
+                if let Some(e) = cache.entries.get(f) {
+                    out.extend(e.diagnostics.iter().cloned());
+                    decision.decided.extend(e.decided.iter().copied());
+                }
+            }
+            // Findings in no built file (a generated declaration's).
+            for (_, (diagnostics, _)) in found {
+                out.extend(diagnostics);
+            }
+        }
+        None => {
+            for (_, (diagnostics, _)) in found {
+                out.extend(diagnostics);
+            }
+        }
     }
     // A leak reachable by more than one walk path reports once.
     out.sort_by(|a, b| (a.file, a.span.expn, a.span.start, &a.message).cmp(&(b.file, b.span.expn, b.span.start, &b.message)));
     out.dedup_by(|a, b| a.file == b.file && (a.span.expn, a.span.start) == (b.span.expn, b.span.start) && a.message == b.message);
-    (out, ir.decision)
+    (out, decision)
 }
 
 /// [node-origin] The stamp of the fn an IR declaration was built from, when a
