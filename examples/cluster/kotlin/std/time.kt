@@ -247,6 +247,18 @@ object __Codec_Fired : salvo.WireCodec<Fired> {
 
 interface Timer {
     fun after(wait: Duration, done: salvo.SalvoReply)
+    data class After(
+        val wait: Duration,
+        val done: salvo.SalvoReply,
+    )
+}
+
+object __Codec_Timer_After : salvo.WireCodec<Timer.After> {
+    override fun enc(v: Timer.After, out: salvo.WireOut) {
+        __Codec_Duration.enc(v.wait, out)
+        salvo.ReplyCodec.enc(v.done, out)
+    }
+    override fun dec(inp: salvo.WireIn): Timer.After = Timer.After(__Codec_Duration.dec(inp), salvo.ReplyCodec.dec(inp))
 }
 
 class __Mon_Timer(
@@ -304,6 +316,16 @@ class __Actor_DefaultTimer(private val handler: DefaultTimer) : salvo.SalvoActor
 
 interface TimerCtl {
     fun advance(by: Duration)
+    data class Advance(
+        val by: Duration,
+    )
+}
+
+object __Codec_TimerCtl_Advance : salvo.WireCodec<TimerCtl.Advance> {
+    override fun enc(v: TimerCtl.Advance, out: salvo.WireOut) {
+        __Codec_Duration.enc(v.by, out)
+    }
+    override fun dec(inp: salvo.WireIn): TimerCtl.Advance = TimerCtl.Advance(__Codec_Duration.dec(inp))
 }
 
 class __Mon_TimerCtl(

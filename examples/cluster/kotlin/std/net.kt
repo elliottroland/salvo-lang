@@ -69,6 +69,18 @@ fun toStr__NetError(e: Union2<Unreachable, WireFailed>): String {
 
 interface Inbound {
     fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.std.core.bytes.Bytes)
+    data class ReceiveFrame(
+        val from: NodeEndpoint,
+        val frame: salvo.platform.std.core.bytes.Bytes,
+    )
+}
+
+object __Codec_Inbound_ReceiveFrame : salvo.WireCodec<Inbound.ReceiveFrame> {
+    override fun enc(v: Inbound.ReceiveFrame, out: salvo.WireOut) {
+        __Codec_NodeEndpoint.enc(v.from, out)
+        salvo.BytesCodec.enc(v.frame, out)
+    }
+    override fun dec(inp: salvo.WireIn): Inbound.ReceiveFrame = Inbound.ReceiveFrame(__Codec_NodeEndpoint.dec(inp), salvo.BytesCodec.dec(inp))
 }
 
 class __Mon_Inbound(
@@ -203,6 +215,18 @@ fun credits(a: Int): Int? {
 
 interface Outbound {
     fun sendFrame(to: NodeEndpoint, frame: salvo.platform.std.core.bytes.Bytes)
+    data class SendFrame(
+        val to: NodeEndpoint,
+        val frame: salvo.platform.std.core.bytes.Bytes,
+    )
+}
+
+object __Codec_Outbound_SendFrame : salvo.WireCodec<Outbound.SendFrame> {
+    override fun enc(v: Outbound.SendFrame, out: salvo.WireOut) {
+        __Codec_NodeEndpoint.enc(v.to, out)
+        salvo.BytesCodec.enc(v.frame, out)
+    }
+    override fun dec(inp: salvo.WireIn): Outbound.SendFrame = Outbound.SendFrame(__Codec_NodeEndpoint.dec(inp), salvo.BytesCodec.dec(inp))
 }
 
 class __Mon_Outbound(
@@ -337,6 +361,33 @@ interface NodeGroup {
     fun members(out: salvo.SalvoReply)
     fun subscribe(w: Int)
     fun leave()
+    data class Members(
+        val out: salvo.SalvoReply,
+    )
+    data class Subscribe(
+        val w: Int,
+    )
+    class Leave
+}
+
+object __Codec_NodeGroup_Members : salvo.WireCodec<NodeGroup.Members> {
+    override fun enc(v: NodeGroup.Members, out: salvo.WireOut) {
+        salvo.ReplyCodec.enc(v.out, out)
+    }
+    override fun dec(inp: salvo.WireIn): NodeGroup.Members = NodeGroup.Members(salvo.ReplyCodec.dec(inp))
+}
+
+object __Codec_NodeGroup_Subscribe : salvo.WireCodec<NodeGroup.Subscribe> {
+    override fun enc(v: NodeGroup.Subscribe, out: salvo.WireOut) {
+        salvo.AddrCodec.enc(v.w, out)
+    }
+    override fun dec(inp: salvo.WireIn): NodeGroup.Subscribe = NodeGroup.Subscribe(salvo.AddrCodec.dec(inp))
+}
+
+object __Codec_NodeGroup_Leave : salvo.WireCodec<NodeGroup.Leave> {
+    override fun enc(v: NodeGroup.Leave, out: salvo.WireOut) {
+    }
+    override fun dec(inp: salvo.WireIn): NodeGroup.Leave = NodeGroup.Leave()
 }
 
 class __Mon_NodeGroup(
@@ -363,6 +414,28 @@ class __Mon_NodeGroup(
 interface NodeGroupWatcher {
     fun joined(n: Node)
     fun left(n: Node, why: String)
+    data class Joined(
+        val n: Node,
+    )
+    data class Left(
+        val n: Node,
+        val why: String,
+    )
+}
+
+object __Codec_NodeGroupWatcher_Joined : salvo.WireCodec<NodeGroupWatcher.Joined> {
+    override fun enc(v: NodeGroupWatcher.Joined, out: salvo.WireOut) {
+        __Codec_Node.enc(v.n, out)
+    }
+    override fun dec(inp: salvo.WireIn): NodeGroupWatcher.Joined = NodeGroupWatcher.Joined(__Codec_Node.dec(inp))
+}
+
+object __Codec_NodeGroupWatcher_Left : salvo.WireCodec<NodeGroupWatcher.Left> {
+    override fun enc(v: NodeGroupWatcher.Left, out: salvo.WireOut) {
+        __Codec_Node.enc(v.n, out)
+        salvo.StrCodec.enc(v.why, out)
+    }
+    override fun dec(inp: salvo.WireIn): NodeGroupWatcher.Left = NodeGroupWatcher.Left(__Codec_Node.dec(inp), salvo.StrCodec.dec(inp))
 }
 
 class __Mon_NodeGroupWatcher(
@@ -1387,6 +1460,86 @@ interface MemNet {
     fun heal(a: NodeEndpoint, b: NodeEndpoint)
     fun kill(node: NodeEndpoint)
     fun delivered(out: salvo.SalvoReply)
+    data class Attach(
+        val at: NodeEndpoint,
+        val sink: Int,
+    )
+    data class Detach(
+        val at: NodeEndpoint,
+    )
+    data class Route(
+        val from: NodeEndpoint,
+        val to: NodeEndpoint,
+        val out: salvo.SalvoReply,
+    )
+    data class Partition(
+        val a: NodeEndpoint,
+        val b: NodeEndpoint,
+    )
+    data class Heal(
+        val a: NodeEndpoint,
+        val b: NodeEndpoint,
+    )
+    data class Kill(
+        val node: NodeEndpoint,
+    )
+    data class Delivered(
+        val out: salvo.SalvoReply,
+    )
+}
+
+object __Codec_MemNet_Attach : salvo.WireCodec<MemNet.Attach> {
+    override fun enc(v: MemNet.Attach, out: salvo.WireOut) {
+        __Codec_NodeEndpoint.enc(v.at, out)
+        salvo.AddrCodec.enc(v.sink, out)
+    }
+    override fun dec(inp: salvo.WireIn): MemNet.Attach = MemNet.Attach(__Codec_NodeEndpoint.dec(inp), salvo.AddrCodec.dec(inp))
+}
+
+object __Codec_MemNet_Detach : salvo.WireCodec<MemNet.Detach> {
+    override fun enc(v: MemNet.Detach, out: salvo.WireOut) {
+        __Codec_NodeEndpoint.enc(v.at, out)
+    }
+    override fun dec(inp: salvo.WireIn): MemNet.Detach = MemNet.Detach(__Codec_NodeEndpoint.dec(inp))
+}
+
+object __Codec_MemNet_Route : salvo.WireCodec<MemNet.Route> {
+    override fun enc(v: MemNet.Route, out: salvo.WireOut) {
+        __Codec_NodeEndpoint.enc(v.from, out)
+        __Codec_NodeEndpoint.enc(v.to, out)
+        salvo.ReplyCodec.enc(v.out, out)
+    }
+    override fun dec(inp: salvo.WireIn): MemNet.Route = MemNet.Route(__Codec_NodeEndpoint.dec(inp), __Codec_NodeEndpoint.dec(inp), salvo.ReplyCodec.dec(inp))
+}
+
+object __Codec_MemNet_Partition : salvo.WireCodec<MemNet.Partition> {
+    override fun enc(v: MemNet.Partition, out: salvo.WireOut) {
+        __Codec_NodeEndpoint.enc(v.a, out)
+        __Codec_NodeEndpoint.enc(v.b, out)
+    }
+    override fun dec(inp: salvo.WireIn): MemNet.Partition = MemNet.Partition(__Codec_NodeEndpoint.dec(inp), __Codec_NodeEndpoint.dec(inp))
+}
+
+object __Codec_MemNet_Heal : salvo.WireCodec<MemNet.Heal> {
+    override fun enc(v: MemNet.Heal, out: salvo.WireOut) {
+        __Codec_NodeEndpoint.enc(v.a, out)
+        __Codec_NodeEndpoint.enc(v.b, out)
+    }
+    override fun dec(inp: salvo.WireIn): MemNet.Heal = MemNet.Heal(__Codec_NodeEndpoint.dec(inp), __Codec_NodeEndpoint.dec(inp))
+}
+
+object __Codec_MemNet_Kill : salvo.WireCodec<MemNet.Kill> {
+    override fun enc(v: MemNet.Kill, out: salvo.WireOut) {
+        __Codec_NodeEndpoint.enc(v.node, out)
+    }
+    override fun dec(inp: salvo.WireIn): MemNet.Kill = MemNet.Kill(__Codec_NodeEndpoint.dec(inp))
+}
+
+object __Codec_MemNet_Delivered : salvo.WireCodec<MemNet.Delivered> {
+    override fun enc(v: MemNet.Delivered, out: salvo.WireOut) {
+        salvo.ReplyCodec.enc(v.out, out)
+    }
+    override fun dec(inp: salvo.WireIn): MemNet.Delivered = MemNet.Delivered(salvo.ReplyCodec.dec(inp))
 }
 
 class __Mon_MemNet(

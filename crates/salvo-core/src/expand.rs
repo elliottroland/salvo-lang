@@ -111,6 +111,8 @@ pub fn expand_file(file: &SourceFile, module: &mut Module) -> (Vec<FileTest>, Ve
         }
         module.items = kept;
     }
+    // [actor-message] An actor effect's message arms, beside it.
+    crate::message::declare_arms(module);
     // [when-lowered] `?:` is the `when` it is, from here on.
     salvo_syntax::desugar::lower_picks(module);
     // [node-id] The file's tree is final until comptime stamps into it.

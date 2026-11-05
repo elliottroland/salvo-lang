@@ -5,6 +5,26 @@ import salvo.*
 interface Counter {
     fun bump(n: Int)
     fun total(out: salvo.SalvoReply)
+    data class Bump(
+        val n: Int,
+    )
+    data class Total(
+        val out: salvo.SalvoReply,
+    )
+}
+
+object __Codec_Counter_Bump : salvo.WireCodec<Counter.Bump> {
+    override fun enc(v: Counter.Bump, out: salvo.WireOut) {
+        salvo.IntCodec.enc(v.n, out)
+    }
+    override fun dec(inp: salvo.WireIn): Counter.Bump = Counter.Bump(salvo.IntCodec.dec(inp))
+}
+
+object __Codec_Counter_Total : salvo.WireCodec<Counter.Total> {
+    override fun enc(v: Counter.Total, out: salvo.WireOut) {
+        salvo.ReplyCodec.enc(v.out, out)
+    }
+    override fun dec(inp: salvo.WireIn): Counter.Total = Counter.Total(salvo.ReplyCodec.dec(inp))
 }
 
 class __Mon_Counter(
@@ -74,6 +94,32 @@ class __Actor_Counting(private val handler: Counting) : salvo.SalvoActor {
 interface Ledger {
     fun report(label: String, out: salvo.SalvoReply)
     fun reported(label: String, out: salvo.SalvoReply, total: Int)
+    data class Report(
+        val label: String,
+        val out: salvo.SalvoReply,
+    )
+    data class Reported(
+        val label: String,
+        val out: salvo.SalvoReply,
+        val total: Int,
+    )
+}
+
+object __Codec_Ledger_Report : salvo.WireCodec<Ledger.Report> {
+    override fun enc(v: Ledger.Report, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.label, out)
+        salvo.ReplyCodec.enc(v.out, out)
+    }
+    override fun dec(inp: salvo.WireIn): Ledger.Report = Ledger.Report(salvo.StrCodec.dec(inp), salvo.ReplyCodec.dec(inp))
+}
+
+object __Codec_Ledger_Reported : salvo.WireCodec<Ledger.Reported> {
+    override fun enc(v: Ledger.Reported, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.label, out)
+        salvo.ReplyCodec.enc(v.out, out)
+        salvo.IntCodec.enc(v.total, out)
+    }
+    override fun dec(inp: salvo.WireIn): Ledger.Reported = Ledger.Reported(salvo.StrCodec.dec(inp), salvo.ReplyCodec.dec(inp), salvo.IntCodec.dec(inp))
 }
 
 class __Mon_Ledger(
@@ -143,6 +189,36 @@ interface Desk {
     fun ticket(out: salvo.SalvoReply)
     fun serve(name: String)
     fun closeUp(reason: String)
+    data class Ticket(
+        val out: salvo.SalvoReply,
+    )
+    data class Serve(
+        val name: String,
+    )
+    data class CloseUp(
+        val reason: String,
+    )
+}
+
+object __Codec_Desk_Ticket : salvo.WireCodec<Desk.Ticket> {
+    override fun enc(v: Desk.Ticket, out: salvo.WireOut) {
+        salvo.ReplyCodec.enc(v.out, out)
+    }
+    override fun dec(inp: salvo.WireIn): Desk.Ticket = Desk.Ticket(salvo.ReplyCodec.dec(inp))
+}
+
+object __Codec_Desk_Serve : salvo.WireCodec<Desk.Serve> {
+    override fun enc(v: Desk.Serve, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.name, out)
+    }
+    override fun dec(inp: salvo.WireIn): Desk.Serve = Desk.Serve(salvo.StrCodec.dec(inp))
+}
+
+object __Codec_Desk_CloseUp : salvo.WireCodec<Desk.CloseUp> {
+    override fun enc(v: Desk.CloseUp, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.reason, out)
+    }
+    override fun dec(inp: salvo.WireIn): Desk.CloseUp = Desk.CloseUp(salvo.StrCodec.dec(inp))
 }
 
 class __Mon_Desk(
@@ -235,6 +311,13 @@ class __Actor_Desking(private val handler: Desking) : salvo.SalvoActor {
 
 interface Fragile {
     fun crash()
+    class Crash
+}
+
+object __Codec_Fragile_Crash : salvo.WireCodec<Fragile.Crash> {
+    override fun enc(v: Fragile.Crash, out: salvo.WireOut) {
+    }
+    override fun dec(inp: salvo.WireIn): Fragile.Crash = Fragile.Crash()
 }
 
 class __Mon_Fragile(

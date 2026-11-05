@@ -148,6 +148,22 @@ pub fn on_idle(mut p: usize, mut notify: crate::scheduler::SalvoReply) {
     };
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct FaultsFaulted {
+    pub fault: crate::std_core_actor::Fault,
+}
+
+impl crate::wire::__Wire for FaultsFaulted {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.fault, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            fault: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 pub enum __Msg_Faults {
     Faulted(crate::std_core_actor::Fault),
 }

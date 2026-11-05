@@ -9260,6 +9260,56 @@ between endpoints and delivers what arrives into the scheduler.
     `NodeGroup`/`Node`/`NodeGroupWatcher`/`NodeEndpoint` for the machines,
     `ActorGroup<E>`/`ActorGroupWatcher<E>` (and `RouteView<E>`/`RouteMember<E>`
     for routes) for the actors; `eff[E]` keeps its name.
+* [actor-message] **A `send fn` is sugar for a message, and `Message<E>` is
+  the message as a value** (user decisions 2026-11-05, ROUTES.md R2 and §8):
+  for each non-generic `actor effect E`, the compiler declares one struct per
+  send member beside `E` — its **arm** — named `E.Member` after the member in
+  CamelCase (`Inventory.Reserve` for `reserve`, the message enum's variant
+  name, `naming::msg_variant_name`; an overload by its emitted name), fields
+  the member's declared parameters, exported when `E` is (`message::
+  declare_arms`, in `expand_file`, flagged `StructDecl::message_arm`).
+  `Message<E>` (std.core.actor, `@compilerknown`, an `intrinsic type` whose
+  argument is an effect, as `eff[…]`'s is) lowers to the union of `E`'s arms
+  in send order — the one arm itself for a protocol of one send — so a
+  message is narrowed, matched and built as any union of structs is: `is
+  .Reserve`, `is Inventory.Reserve`, `Inventory.Restock { qty: 2 }`. Over a
+  type parameter it stays `Message<E>` until an instantiation names `E`
+  (`expand_message_in`, also applied to a substituted parameter type in
+  `arg_fits_param`, and `unify` defers `Message<E>` to the call's other
+  arguments).
+  * **The spelling is CamelCase, not the member's own name** (a judgment call
+    of the 2026-11-05 run, for the user to confirm): the user's sketch wrote
+    `is Inventory.reserve`, but a lowercase segment after a dot is a field
+    read [name-dot] [name-casing], so `Inventory.reserve` cannot name a type.
+  * **An arm owes what its parameters owe** [linear-container]: a message arm
+    is linear exactly when a field is (`linear::message_arm_linear`), needs no
+    discharger, and is settled by moving its linear fields out — by
+    `forward`, or by answering the reply it holds.
+  * **A comptime qualifier may stand before a send fn's parameter**
+    (`ShardKey sku: Str`, parsed as before a field's name) and is carried to
+    the arm's field, where comptime code reads it; before any other parameter
+    it is `comptime-qualifier:on-param`.
+  * **Comptime sees a protocol's messages as a union** (`World::message_arms`):
+    `fn key(m: Message<Inventory>) -> Long? by shard` stamps a `<T is Union>`
+    template over the arms.
+  * A namespace of the effect's name holds the arms: on Kotlin they nest in
+    the effect's interface ([kt-message-arms]).
+* [actor-receive] **`send fn receive(m: Message<F>)` answers every send
+  member of face `F`** (user decisions 2026-11-05: by name, all or nothing,
+  following the existing `use`/`spawn` split): a handler writing it writes
+  none of `F`'s send members (`actor-receive:both` otherwise) and still writes
+  `F`'s plain members. Bound by `use`, a member runs on the sender's thread
+  as any send member of a `use`-bound handler; spawned, the handler is an
+  actor. The IR gives the handler one member per send member of `F`, whose
+  body binds the member's parameters, made into its arm, to `receive`'s
+  parameter and then runs `receive`'s body (`ir::build::actors`, Phase 1c);
+  `receive` itself leaves the impl, so the backends see an ordinary handler.
+  * **`forward(to: eff[E], m: Message<E>) => !m`** (std.core.actor, an
+    intrinsic the IR builder lowers) sends `m` to `to` as its member: a
+    `Switch` over the arms, each narrowed and sent with its fields as the
+    arguments. The effect is `to`'s, concrete where the call is built.
+  * A diagnostic about the message names `receive`'s parameter, where the
+    body took it.
 * [actor-route-stub] **`use any group` binds `any E` to whichever member a
   selector chooses, per send** (names user decision 2026-10-03: the route,
   `RouteSelector`; respelled 2026-10-20, user decision R7 of the pipeline record,

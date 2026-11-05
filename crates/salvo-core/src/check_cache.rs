@@ -1223,7 +1223,10 @@ pub(crate) fn walk_module<V: Visitor>(c: &mut V, module: &Module) {
 
 fn params<V: Visitor>(c: &mut V, ps: &[ast::Param]) {
     for p in ps {
-        let ast::Param { name: _, ty, variadic: _, implicit: _, default, span: _ } = p;
+        let ast::Param { annotations, name: _, ty, variadic: _, implicit: _, default, span: _ } = p;
+        for a in annotations {
+            v::walk_type_ref(c, a);
+        }
         v::walk_type(c, ty);
         if let Some(d) = default {
             v::walk_expr(c, d);
@@ -1394,6 +1397,7 @@ fn walk_item_in<V: Visitor>(c: &mut V, it: &Item) {
             opaque: _,
             noremote: _,
             comptime: _,
+            message_arm: _,
             span: _,
         }) => {
             for r in refns {

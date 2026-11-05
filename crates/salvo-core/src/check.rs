@@ -4932,6 +4932,26 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             self.check_doc_tags(module);
             self.check_scalar_moves(module);
+            // [comptime-qualifier] [actor-message] A comptime qualifier
+            // before a parameter's name describes a field of a message arm:
+            // legal on an actor effect's `send fn`, and nowhere else.
+            for item in &module.items {
+                let fns: Vec<&FnDecl> = match item {
+                    Item::Fn(f) => vec![f],
+                    Item::Handler(h) => h.fns.iter().chain(h.init.as_ref()).collect(),
+                    Item::Effect(e) => e.fns.iter().filter(|f| !(e.is_actor && f.is_send)).collect(),
+                    Item::Fns(g) => g.fns.iter().collect(),
+                    Item::Qualifier(q) => q.fns.iter().collect(),
+                    _ => Vec::new(),
+                };
+                for f in fns {
+                    for p in &f.params {
+                        if let Some(a) = p.annotations.first() {
+                            self.error(a.span, messages::comptime_qualifier_on_param(&a.name.name, &p.name.name));
+                        }
+                    }
+                }
+            }
             // [fn-rename] Module-level renames are in force for the whole
             // module, in every file of it — order-independent, like every
             // other module-level declaration. Each is validated, and its new
@@ -9277,6 +9297,14 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// non-`Mut` position reads its argument, so a top-level projection fits
     /// it; a consumed or `Mut` position needs the owned value.
     fn arg_fits_param(&self, arg: &Ty, param: &Ty, kept: bool) -> bool {
+        // [actor-message] A substituted `Message<E>` is its arms.
+        let expanded;
+        let param = if mentions_message(param) {
+            expanded = self.expand_message(param.clone());
+            &expanded
+        } else {
+            param
+        };
         is_subtype(arg, param)
             || (kept
                 && arg.is_proj()
@@ -15079,9 +15107,22 @@ impl<'p, 'r> Checker<'p, 'r> {
             })
             .collect();
         let decls: Vec<&'p ast::EffectDecl> = faces.iter().map(|(_, e)| *e).collect();
+        // [actor-receive] The faces a `send fn receive(m: Message<F>)` answers:
+        // every send member of `F`, all or nothing.
+        let received: Vec<&'p ast::EffectDecl> = self.received_faces(h, &decls);
         // Every member of every face, implemented.
         for (written, effect) in &faces {
+            let by_receive = received.iter().any(|r| std::ptr::eq(*r, *effect));
             for (idx, member) in effect.fns.iter().enumerate() {
+                if by_receive && member.is_send {
+                    // Written as well: the message has two answers.
+                    if let Some(f) = h.fns.iter().find(|f| {
+                        crate::handler_member_faces(&decls, f).iter().any(|(e, i)| std::ptr::eq(*e, *effect) && *i == idx)
+                    }) {
+                        self.error(f.name.span, messages::actor_receive_both(&h.name.name, &effect.name.name, &member.name.name));
+                    }
+                    continue;
+                }
                 let implemented = h.fns.iter().any(|f| {
                     crate::handler_member_faces(&decls, f)
                         .iter()
@@ -15141,6 +15182,29 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
             }
         }
+    }
+
+    /// [actor-receive] The faces of `h` its `send fn receive(m: Message<F>)`
+    /// answers: `F`, when `F` is one of them (an actor effect). A `receive`
+    /// over anything else is an ordinary private send member.
+    fn received_faces(&mut self, h: &'p ast::HandlerDecl, faces: &[&'p ast::EffectDecl]) -> Vec<&'p ast::EffectDecl> {
+        let mut out = Vec::new();
+        for f in h.fns.iter().filter(|f| f.is_send && f.name.name == known::RECEIVE_MEMBER) {
+            let declared: Vec<&ast::Param> = f.params.iter().filter(|p| !p.implicit).collect();
+            let [p] = declared.as_slice() else { continue };
+            let ast::Type::Named { base, .. } = &p.ty else { continue };
+            if base.name.name != known::MESSAGE_TYPE || base.args.len() != 1 {
+                continue;
+            }
+            let ast::Type::Named { base: arg, .. } = &base.args[0] else { continue };
+            let Some(effect) = self.named(arg).effect else { continue };
+            if let Some(face) = faces.iter().find(|e| std::ptr::eq(**e, effect)) {
+                if face.is_actor {
+                    out.push(*face);
+                }
+            }
+        }
+        out
     }
 
     /// [effect-handler-multi] Whether two effect members are the *same*
@@ -19570,6 +19634,21 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Lowers the base of a named type: substitutions, generic parameters,
     /// alias expansion, plain nominals.
     fn lower_base_ref(&mut self, base: &TypeRef, subst: &HashMap<String, Ty>, depth: usize) -> Ty {
+        let ty = self.lower_base_ref_inner(base, subst, depth);
+        self.expand_message(ty)
+    }
+
+    /// [actor-message] `Message<E>` for a concrete actor effect `E` is the
+    /// union of `E`'s message arms, in send order (the one arm itself for a
+    /// protocol of one send); over a type parameter it stays `Message<E>`,
+    /// as any generic does, until an instantiation says which. Applied
+    /// where a type is lowered and where a substituted parameter type is
+    /// compared [`Self::arg_fits_param`], so a concrete `forward` fits.
+    pub(crate) fn expand_message(&self, ty: Ty) -> Ty {
+        expand_message_in(self.symbols, ty)
+    }
+
+    fn lower_base_ref_inner(&mut self, base: &TypeRef, subst: &HashMap<String, Ty>, depth: usize) -> Ty {
         // [mod-namespace] A leading-dot arm inside a `type` alias's own
         // union-arm list (`.Int` inside `namespace Arg { type Type = .Int |
         // .Str }`) resolves against the alias's own enclosing namespace —
@@ -20202,12 +20281,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         // just the first: `eff[A, B]` names several (it lowers to a tuple of
         // single handles). The former single-arg `Addr<E>` restriction is
         // widened to every arg.
-        if base.name.name != ADDR_TYPE || base.args.is_empty() {
+        // [actor-message] `Message<E>`'s argument is an effect too.
+        let message = base.name.name == known::MESSAGE_TYPE && self.scope.opaque_types.contains_key(known::MESSAGE_TYPE);
+        if (base.name.name != ADDR_TYPE && !message) || base.args.is_empty() {
             return false;
         }
         let _ = index;
         // Std's `Addr`, not a program's own type of that name.
-        if !self.scope.opaque_types.contains_key(ADDR_TYPE) {
+        if !message && !self.scope.opaque_types.contains_key(ADDR_TYPE) {
             return false;
         }
         match arg {
@@ -20574,11 +20655,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         // remedy. (A `canbe linear` generic field is the *conditional*
         // case and is not a concrete store.)
         if let Some(linear) = self.ast_type_own_linear(field_ty) {
+            // [actor-message] A message arm holds its member's parameters,
+            // obligations included: it owes through them.
             let owner_is_linear = self
                 .scope
                 .structs
                 .get(owner)
-                .is_some_and(|s| s.linear);
+                .is_some_and(|s| s.linear || s.message_arm.is_some());
             if owner_is_linear {
                 return;
             }
@@ -28854,6 +28937,18 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
         }
     }
     match (param, arg) {
+        // [actor-message] `Message<E>` against a message of a concrete
+        // effect: `E` is bound by the call's other arguments (`forward`'s
+        // `to: eff[E]`), and the substituted parameter is the effect's arms,
+        // compared where it is fitted (`arg_fits_param`).
+        (Ty::Named { name, args }, _)
+            if name == known::MESSAGE_TYPE
+                && !matches!(arg.strip_quals(), Ty::Named { name: an, .. } if an == known::MESSAGE_TYPE)
+                && matches!(args.as_slice(), [Ty::Var(_)]) =>
+        {
+            let [Ty::Var(g)] = args.as_slice() else { return false };
+            subst.contains_key(g)
+        }
         // [effect-var] `eff[E]` against a handle of several effects (or of
         // none), or once `E` binds a set: `E` takes the handle's effects.
         (Ty::Named { name, args }, _)
@@ -34188,4 +34283,45 @@ fn infer_read_back(pattern: &Ty, have: &Ty, base: &HashMap<String, Ty>) -> Optio
         false
     }) && unify(want_ret, have_ret, &mut extended);
     ok.then_some(extended)
+}
+
+/// [actor-message] Whether `ty` names `Message<…>` anywhere.
+fn mentions_message(ty: &Ty) -> bool {
+    match ty {
+        Ty::Named { name, args } => name == known::MESSAGE_TYPE || args.iter().any(mentions_message),
+        Ty::Qualified { base, .. } => mentions_message(base),
+        Ty::Union(arms) | Ty::Tuple(arms) => arms.iter().any(mentions_message),
+        Ty::Array(e) => mentions_message(e),
+        Ty::Fn { params, ret, .. } => params.iter().any(mentions_message) || mentions_message(ret),
+        _ => false,
+    }
+}
+
+/// [actor-message] [`Checker::expand_message`] over the symbol tables:
+/// every `Message<E>` with a concrete actor effect `E`, at any depth, as the
+/// union of `E`'s arms.
+pub fn expand_message_in(symbols: &Symbols, ty: Ty) -> Ty {
+    if !mentions_message(&ty) {
+        return ty;
+    }
+    match ty {
+        Ty::Named { name, args } if name == known::MESSAGE_TYPE && args.len() == 1 => {
+            let arg = expand_message_in(symbols, args[0].clone());
+            if let Ty::Named { name: effect, args: eargs } = arg.strip_quals() {
+                if eargs.is_empty() {
+                    if let Some(arms) = symbols.message_arms.get(effect.as_str()) {
+                        let arms: Vec<Ty> = arms.iter().map(|k| Ty::Named { name: (*k).to_string(), args: Vec::new() }).collect();
+                        return if arms.len() == 1 { arms.into_iter().next().unwrap() } else { Ty::Union(arms) };
+                    }
+                }
+            }
+            Ty::Named { name, args: vec![arg] }
+        }
+        Ty::Named { name, args } => Ty::Named { name, args: args.into_iter().map(|a| expand_message_in(symbols, a)).collect() },
+        Ty::Qualified { base, quals } => Ty::Qualified { base: Box::new(expand_message_in(symbols, *base)), quals },
+        Ty::Union(arms) => Ty::Union(arms.into_iter().map(|a| expand_message_in(symbols, a)).collect()),
+        Ty::Tuple(elems) => Ty::Tuple(elems.into_iter().map(|a| expand_message_in(symbols, a)).collect()),
+        Ty::Array(e) => Ty::Array(Box::new(expand_message_in(symbols, *e))),
+        other => other,
+    }
 }

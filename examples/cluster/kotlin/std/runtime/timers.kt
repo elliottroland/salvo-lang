@@ -161,6 +161,13 @@ fun answerAll(due: salvo.platform.std.core.list.MutList<salvo.SalvoReply>, now: 
 
 interface Wheel {
     fun run()
+    class Run
+}
+
+object __Codec_Wheel_Run : salvo.WireCodec<Wheel.Run> {
+    override fun enc(v: Wheel.Run, out: salvo.WireOut) {
+    }
+    override fun dec(inp: salvo.WireIn): Wheel.Run = Wheel.Run()
 }
 
 class __Mon_Wheel(

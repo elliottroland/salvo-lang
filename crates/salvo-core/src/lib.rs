@@ -30,6 +30,7 @@ pub mod naming;
 pub mod names;
 pub mod origin;
 pub mod manifest;
+pub mod message;
 pub mod place;
 pub mod platform;
 pub mod program;

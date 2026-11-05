@@ -203,6 +203,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "elems",
                             span: 3352..3357,
@@ -403,6 +404,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "parts",
                             span: 3818..3823,
@@ -686,6 +688,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "str",
                             span: 4305..4308,
@@ -794,6 +797,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "data",
                             span: 4809..4813,
@@ -897,6 +901,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "a",
                             span: 5011..5012,
@@ -924,6 +929,7 @@ Module {
                         span: 5011..5019,
                     },
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "b",
                             span: 5021..5022,
@@ -1033,6 +1039,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "data",
                             span: 5109..5113,
@@ -1137,6 +1144,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "data",
                             span: 5411..5415,
@@ -1164,6 +1172,7 @@ Module {
                         span: 5411..5422,
                     },
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "index",
                             span: 5424..5429,
@@ -1287,6 +1296,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "data",
                             span: 5967..5971,
@@ -1314,6 +1324,7 @@ Module {
                         span: 5967..5978,
                     },
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "start",
                             span: 5980..5985,
@@ -1341,6 +1352,7 @@ Module {
                         span: 5980..5990,
                     },
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "end",
                             span: 5992..5995,
@@ -1470,6 +1482,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "data",
                             span: 6284..6288,
@@ -1497,6 +1510,7 @@ Module {
                         span: 6284..6295,
                     },
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "byte",
                             span: 6297..6301,
@@ -1609,6 +1623,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "data",
                             span: 6400..6404,
@@ -1651,6 +1666,7 @@ Module {
                         span: 6400..6415,
                     },
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "byte",
                             span: 6417..6421,
@@ -1778,6 +1794,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "data",
                             span: 6540..6544,
@@ -1820,6 +1837,7 @@ Module {
                         span: 6540..6555,
                     },
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "more",
                             span: 6557..6561,
@@ -1958,6 +1976,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "data",
                             span: 7116..7120,
@@ -2000,6 +2019,7 @@ Module {
                         span: 7116..7131,
                     },
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "index",
                             span: 7133..7138,
@@ -2027,6 +2047,7 @@ Module {
                         span: 7133..7143,
                     },
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "byte",
                             span: 7145..7149,
@@ -2167,6 +2188,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "data",
                             span: 7385..7389,
@@ -2300,6 +2322,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "data",
                             span: 7641..7645,
@@ -2404,6 +2427,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "data",
                             span: 7980..7984,
@@ -2504,6 +2528,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "data",
                             span: 8199..8203,
@@ -2845,6 +2870,7 @@ Module {
                 opaque: false,
                 noremote: false,
                 comptime: false,
+                message_arm: None,
                 span: 8457..8615,
             },
         ),
@@ -2876,6 +2902,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "p",
                             span: 8754..8755,

@@ -409,6 +409,15 @@ fn run<M: crate::expand::ModuleSlot>(
                     fallback_body(f);
                     continue;
                 };
+                // [actor-message] `fn key(m: Message<Inventory>) … by shard`:
+                // a protocol's messages are a union target.
+                let message_target = world.message_arms(&first.ty).map(|_| Target {
+                    name: first.ty.to_string(),
+                    kind: CompKind::Union,
+                    ty: first.ty.clone(),
+                    generics: Vec::new(),
+                    canbe: Vec::new(),
+                });
                 let Some(target_name) = named_base(&first.ty) else {
                     diags.push(Diagnostic::error(
                         messages::fn_by_first_param_not_target(&f.name.name),
@@ -417,7 +426,7 @@ fn run<M: crate::expand::ModuleSlot>(
                     fallback_body(f);
                     continue;
                 };
-                let Some(target) = world.target(&target_name, first.ty.span()) else {
+                let Some(target) = message_target.or_else(|| world.target(&target_name, first.ty.span())) else {
                     diags.push(Diagnostic::error(
                         if world.opaque_here(&target_name, first.ty.span()) {
                             messages::fn_by_opaque_target(&f.name.name, &target_name)
@@ -1701,6 +1710,44 @@ impl<'a> World<'a> {
         None
     }
 
+    /// [actor-message] The arms of `Message<X>`, for an actor effect `X` the
+    /// file that wrote the type sees: `X.Reserve`, … in send order — the
+    /// structs declared beside `X` [actor-message], named where `X` is
+    /// written. `None` for any other type.
+    fn message_arms(&self, ty: &Type) -> Option<Vec<Type>> {
+        let Type::Named { qualifiers, base } = ty else { return None };
+        if !qualifiers.is_empty() || base.name.name != known::MESSAGE_TYPE || base.args.len() != 1 {
+            return None;
+        }
+        let (module, _) = self.type_decl(known::MESSAGE_TYPE, base.name.span)?;
+        if *module != ModulePath::std(&["core", "actor"]) {
+            return None;
+        }
+        let Type::Named { qualifiers: q, base: arg } = &base.args[0] else { return None };
+        if !q.is_empty() || !arg.args.is_empty() {
+            return None;
+        }
+        let id = *self.names_at(arg.name.span)?.effects.get(arg.name.name.as_str())?;
+        let Item::Effect(e) = self.item(id)? else { return None };
+        if !e.is_actor || !e.generics.is_empty() {
+            return None;
+        }
+        // The arms as the file names them: after the effect as written.
+        let written = &arg.name.name;
+        let arms: Vec<Type> = e
+            .fns
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.is_send)
+            .map(|(idx, _)| {
+                let arm = crate::message::arm_name(e, idx);
+                let tail = arm.split_once('.').map(|(_, t)| t.to_string()).unwrap_or(arm);
+                Self::simple_named(&format!("{written}.{tail}"), arg.name.span)
+            })
+            .collect();
+        (!arms.is_empty()).then_some(arms)
+    }
+
     /// The declared arms of a union type, flattened through nullables and
     /// nested written unions (what a `T?` of a union means) but **not**
     /// through an alias, whose arms are positional over its own declaration
@@ -1903,6 +1950,10 @@ impl<'a> World<'a> {
                 let name = base.name.name.as_str();
                 if generics.iter().any(|g| g == name) {
                     return TypeKindWord::Generic;
+                }
+                // [actor-message] `Message<X>` is the union of its arms.
+                if self.message_arms(ty).is_some() {
+                    return TypeKindWord::Union;
                 }
                 let at = base.name.span;
                 if self.struct_named(name, at).is_some() {
@@ -3074,6 +3125,9 @@ impl<'w> Expander<'w> {
     }
 
     fn arms_of_type(&self, ty: &Type) -> Vec<Type> {
+        if let Some(arms) = self.world.message_arms(ty) {
+            return arms;
+        }
         match ty {
             Type::Named { base, .. } => match self.world.type_named(base.name.name.as_str(), base.name.span).and_then(|t| t.alias.as_ref()) {
                 Some(alias) => self.world.arms_of(alias),

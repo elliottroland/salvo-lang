@@ -363,7 +363,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     // When the root is itself a plain struct, that struct's
                     // own decl drives the emission (the arm below); skip here
                     // so the class is not emitted twice.
-                    if !struct_exists(&root) && roots_done.insert(root.clone()) {
+                    // [kt-message-arms] An effect's message arms nest in its
+                    // interface, which `interface_decl` emits.
+                    let in_interface = self.module.decls.iter().any(|x| matches!(x, Decl::Interface(i) if i.name == root));
+                    if !in_interface && !struct_exists(&root) && roots_done.insert(root.clone()) {
                         self.emit_struct_namespace(&root, &all_structs, 0, &mut body);
                     }
                 }
@@ -883,7 +886,29 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let mtps = self.type_params(&m.type_params);
             self.out.push_str(&format!("    fun{mtps} {}({ps}){ret}\n", kt_ident(&m.emitted_name)));
         }
+        // [kt-message-arms] The effect's message arms (`Inventory.Reserve`),
+        // nested in it: a namespace of the effect's name cannot be an
+        // `object` beside the interface.
+        let prefix = format!("{}.", i.name);
+        let arms: Vec<&StructDecl> = self.module.decls.iter().filter_map(|d| match d {
+            Decl::Struct(s) if s.name.strip_prefix(&prefix).is_some_and(|r| !r.contains('.')) => Some(s),
+            _ => None,
+        }).collect();
+        let saved = std::mem::take(&mut self.out);
+        for a in &arms {
+            self.struct_class(a, 1);
+        }
+        let nested = std::mem::replace(&mut self.out, saved);
+        self.out.push_str(&nested);
         self.out.push_str("}\n");
+        for a in &arms {
+            if a.has_wire_form {
+                let saved = std::mem::take(&mut self.out);
+                self.struct_codec(a);
+                let codec = std::mem::replace(&mut self.out, saved);
+                self.out.push_str(&codec);
+            }
+        }
         self.monitor_stub(i);
         if i.actor {
             self.actor_interface(i);

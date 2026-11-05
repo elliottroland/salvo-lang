@@ -289,7 +289,8 @@ fn struct_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, s: &ast::StructDecl, 
             t
         }).collect(),
         fields: fields(ctx, file_idx, &s.fields, false, &[], bodies, errors),
-        linear: s.linear,
+        // [actor-message] A message arm owes through its fields.
+        linear: s.linear || (s.message_arm.is_some() && crate::linear::message_arm_linear(ctx.symbols, ctx.symbols.key_or(s, &s.name.name))),
         opaque: s.opaque,
         canbe_mut: s.auto_qualifiers.iter().any(|q| q.name.name == "Mut"),
         has_wire_form: crate::struct_has_wire_form(ctx.symbols, s),

@@ -149,6 +149,43 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-05 — Messages are values: `Message<E>`, `receive`, `forward` (user decisions, [actor-message] [actor-receive], ROUTES.md R2/§8/§14)
+
+- **Decided** (user, 2026-11-05): a `send fn` is sugar for the actor
+  machinery already generated, and R2 lets a program write an actor at the
+  lower level too: `Message<E>` (a union with one arm per send member, each
+  a struct of its parameters), `send fn receive(m: Message<E>)` by name, all
+  or nothing, following the `use`/`spawn` split, and `forward(to, m)`; both
+  declared in `std.core.actor`, compiler-known. Non-send members are still
+  written. Comptime qualifiers may stand before a send fn's parameter and
+  carry to the arm's field (the `ShardKey sku: Str` spelling, §9).
+- **Built**: the arm structs, declared beside every non-generic actor effect
+  in `expand_file` (`message::declare_arms`; `StructDecl::message_arm`;
+  `Symbols::message_arms`); `Message<X>` lowered to the union of `X`'s arms
+  (`expand_message_in`, at lowering and in `arg_fits_param`; `unify` defers a
+  `Message<Var>` parameter); `Message`'s argument accepted as an effect;
+  `actor-receive:both`; the IR's Phase 1c, which gives a `receive` handler
+  one member per send member and drops `receive`; `forward` lowered by the
+  IR builder to a `Switch`, `Narrow` and `Send` per arm; arms linear exactly
+  when a field is, settled by decomposition; comptime qualifiers before a
+  parameter (`Param::annotations`, `comptime-qualifier:on-param`); comptime's
+  `Message<X>` union target (`World::message_arms`); Kotlin's arms nested in
+  the effect's interface ([kt-message-arms]). Backends otherwise unchanged:
+  a `receive` handler is an ordinary handler by the time they see it.
+- **A judgment call for the user**: the arms are spelled `Inventory.Reserve`
+  (CamelCase, the message enum's variant names), not `Inventory.reserve` as
+  the user's sketch had it, because a lowercase segment after a dot is a
+  field read [name-dot] [name-casing] and cannot name a type.
+- **Fell out**: a program can build a message (`Inventory.Restock { qty: 2
+  }`), since the arms are ordinary structs; recorded as built, not refused.
+- **Left for (c)**: a handler generic over the effect it serves (`handler
+  Sharded<E>(…) for E`), which std's routers need (ROUTES.md B6).
+- **Left in ROADMAP**: the overload selector `is Inventory.reserve(Str, Int,
+  Reply<Str>)` (decided, §9.1): an overloaded member's arm is named by its
+  emitted name for now.
+- 731 tests under nextest (new cases in `check/actors/messages.sv` and
+  `run/actors/messages.sv`), warm run 1m54.
+
 ### 2026-11-05 — Comptime heads are expressions, evaluated (user decisions, [comptime-eval] [comptime-eval-fns], ROUTES.md §11/§13)
 
 - **Decided** (user, 2026-11-05): comptime must be able to state rules over

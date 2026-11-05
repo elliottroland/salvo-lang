@@ -189,6 +189,40 @@ fn main@main() -> None {
   call println@std.core.console(read __handle~2, "done")
 }
 
+struct Counter.Bump wire {
+  n: Int
+}
+
+linear struct Counter.Total wire {
+  out: Reply<Int>
+}
+
+linear struct Ledger.Report wire {
+  label: Str
+  out: Reply<Str>
+}
+
+linear struct Ledger.Reported wire {
+  label: Str
+  out: Reply<Str>
+  total: Int
+}
+
+linear struct Desk.Ticket wire {
+  out: Reply<Str>
+}
+
+struct Desk.Serve wire {
+  name: Str
+}
+
+struct Desk.CloseUp wire {
+  reason: Str
+}
+
+struct Fragile.Crash wire {
+}
+
 enum __Msg_Counter [proto f39d50f9ee8f9923] {
   Bump(n: Int)
   Total(out: Reply<Int>)

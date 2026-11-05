@@ -105,6 +105,12 @@ pub const FAULT_STRUCT: &str = "Fault";
 pub const FAULTS_EFFECT: &str = "Faults";
 /// The pool constructor.
 pub const POOL_FN: &str = "pool";
+/// [actor-message] One message of an actor effect, as a value.
+pub const MESSAGE_TYPE: &str = "Message";
+/// [actor-receive] Hands a message on to another instance.
+pub const FORWARD_FN: &str = "forward";
+/// [actor-receive] The send member that takes every message of a face.
+pub const RECEIVE_MEMBER: &str = "receive";
 
 // ===== std.net =====
 
@@ -201,6 +207,8 @@ pub const ALL: &[Known] = &[
     ty("std.core.actor", FAULT_STRUCT),
     ty("std.core.actor", FAULTS_EFFECT),
     func("std.core.actor", POOL_FN),
+    ty("std.core.actor", MESSAGE_TYPE),
+    func("std.core.actor", FORWARD_FN),
     ty("std.net", ACTOR_GROUP_EFFECT),
     ty("std.net", PROTOCOL_STRUCT),
     ty("std.net", ROUTE_SELECTOR_EFFECT),

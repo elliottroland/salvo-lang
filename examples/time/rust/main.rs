@@ -467,6 +467,130 @@ pub fn main() {
     crate::std_core_console::println(&__handle_2, &napped);
 }
 
+pub struct SessionOpen {
+    pub started: crate::std_time::Tick,
+    pub budget: crate::std_time::Duration,
+    pub out: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for SessionOpen {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Session.Open")
+            .field("started", &self.started)
+            .field("budget", &self.budget)
+            .field("out", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for SessionOpen {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.started, out);
+        crate::wire::__Wire::__enc(&self.budget, out);
+        crate::wire::__Wire::__enc(&self.out, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            started: crate::wire::__Wire::__dec(r)?,
+            budget: crate::wire::__Wire::__dec(r)?,
+            out: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct SessionExpire {
+    pub started: crate::std_time::Tick,
+    pub budget: crate::std_time::Duration,
+    pub out: crate::scheduler::SalvoReply,
+    pub f: crate::std_time::Fired,
+}
+
+impl std::fmt::Debug for SessionExpire {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Session.Expire")
+            .field("started", &self.started)
+            .field("budget", &self.budget)
+            .field("out", &"<opaque>")
+            .field("f", &self.f)
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for SessionExpire {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.started, out);
+        crate::wire::__Wire::__enc(&self.budget, out);
+        crate::wire::__Wire::__enc(&self.out, out);
+        crate::wire::__Wire::__enc(&self.f, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            started: crate::wire::__Wire::__dec(r)?,
+            budget: crate::wire::__Wire::__dec(r)?,
+            out: crate::wire::__Wire::__dec(r)?,
+            f: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct SleeperNap {
+    pub wait: crate::std_time::Duration,
+    pub out: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for SleeperNap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Sleeper.Nap")
+            .field("wait", &self.wait)
+            .field("out", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for SleeperNap {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.wait, out);
+        crate::wire::__Wire::__enc(&self.out, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            wait: crate::wire::__Wire::__dec(r)?,
+            out: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct SleeperWoke {
+    pub started: crate::std_time::Tick,
+    pub out: crate::scheduler::SalvoReply,
+    pub f: crate::std_time::Fired,
+}
+
+impl std::fmt::Debug for SleeperWoke {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Sleeper.Woke")
+            .field("started", &self.started)
+            .field("out", &"<opaque>")
+            .field("f", &self.f)
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for SleeperWoke {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.started, out);
+        crate::wire::__Wire::__enc(&self.out, out);
+        crate::wire::__Wire::__enc(&self.f, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            started: crate::wire::__Wire::__dec(r)?,
+            out: crate::wire::__Wire::__dec(r)?,
+            f: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 pub enum __Msg_Session {
     Open(crate::std_time::Tick, crate::std_time::Duration, crate::scheduler::SalvoReply),
     Expire(crate::std_time::Tick, crate::std_time::Duration, crate::scheduler::SalvoReply, crate::std_time::Fired),

@@ -458,6 +458,46 @@ fn main@main() -> None {
   call two_ids@main(read __handle~6, read __handle~2, !read seq)
 }
 
+linear struct Sequencer.Next wire {
+  out: Reply<Str>
+}
+
+linear struct Inventory.Reserve wire {
+  sku: Str
+  qty: Int
+  out: Reply<Str>
+}
+
+linear struct Search.Query wire {
+  word: Str
+  out: Reply<Int>
+}
+
+linear struct Lookup.Lookup wire {
+  key: Str
+  out: Reply<Str>
+}
+
+linear struct Gather.Scatter wire {
+  word: Str
+  members: List<eff[Search@main]>
+  out: Reply<Int>
+}
+
+linear struct Race.Race wire {
+  key: Str
+  members: List<eff[Lookup@main]>
+  out: Reply<Str>
+}
+
+linear struct Boot.Boot wire {
+  done: Reply<eff[Sequencer@main]>
+}
+
+linear struct Boot.Stop wire {
+  done: Reply<Bool>
+}
+
 export impl __Route_Inventory(lent group: eff[ActorGroup<Inventory@main>]) for any Inventory@main deps [RouteSelector<Inventory@main>] stateful {
   mailbox construct Mailbox { capacity: 1 }
   state seen: Long = -1L

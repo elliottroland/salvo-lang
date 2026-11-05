@@ -355,6 +355,59 @@ export linear intrinsic type Reply<T canbe linear>
 // @compilerrules [actor-replyto]
 export intrinsic fn send<T canbe linear>(reply: Reply<T>, value: T) [] -> None => !reply, !value
 
+// One message of the actor effect [E], as a value: a union with one arm per
+// `send fn` of `E`, each arm a struct of the member's parameters.
+//
+// A `send fn` is shorthand for a message: `reserve(sku, 1, out)` sends
+// `Inventory.Reserve { sku: sku, qty: 1, out: out }`. The arms are named
+// after the effect and the member in CamelCase, and are tested like any
+// union's: `is Inventory.Reserve`, or `is .Reserve` where the subject's type
+// says which effect. A handler may take every message of an effect at once
+// with `send fn receive(m: Message<E>)` instead of writing each send member,
+// and hand a message on with [forward]; that is how a router is written
+// without knowing the protocol it routes.
+//
+// ```
+// actor effect Inventory {
+//     send fn reserve(sku: Str, qty: Int, out: Reply<Str>) => !sku, !out
+//     send fn restock(qty: Int)
+// }
+//
+// fn describe(m: Message<Inventory>) [] -> Str => m {
+//     return when m {
+//         is .Reserve { "reserve ${m.qty} of ${m.sku}" }
+//         is .Restock { "restock ${m.qty}" }
+//     }
+// }
+// ```
+//
+// **Linear when its parameters are.** An arm holding a `Reply` owes it: the
+// message is ended by handing it on ([forward]) or by moving the reply out
+// and answering it.
+// @compilerrules [actor-message]
+// @compilerknown
+export intrinsic type Message<E>
+
+// Sends message [m] on to [to], as if its member had been called there:
+// `forward(to, m)` for an `Inventory.Reserve` is `to.reserve(m.sku, m.qty,
+// m.out)`. The message is moved: the receiver answers its replies.
+//
+// ```
+// handler Front(back: eff[Inventory]) for Inventory {
+//     mailbox { capacity: 8 }
+//     send fn receive(m: Message<Inventory>) => !m {
+//         forward(back, m)
+//     }
+// }
+//
+// actor effect Inventory {
+//     send fn reserve(sku: Str, out: Reply<Str>) => !sku, !out
+// }
+// ```
+// @compilerrules [actor-message, actor-receive]
+// @compilerknown
+export intrinsic fn forward<E>(to: eff[E], m: Message<E>) [] -> None => to, !m
+
 // An actor's mailbox settings, written in its handler as
 // `mailbox { capacity: N }`.
 //

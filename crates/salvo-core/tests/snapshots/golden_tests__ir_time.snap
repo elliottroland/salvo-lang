@@ -124,6 +124,30 @@ fn main@main() -> None {
   call println@std.core.console(read __handle~2, read napped)
 }
 
+linear struct Session.Open wire {
+  started: Tick
+  budget: Duration
+  out: Reply<Str>
+}
+
+linear struct Session.Expire wire {
+  started: Tick
+  budget: Duration
+  out: Reply<Str>
+  f: Fired
+}
+
+linear struct Sleeper.Nap wire {
+  wait: Duration
+  out: Reply<Str>
+}
+
+linear struct Sleeper.Woke wire {
+  started: Tick
+  out: Reply<Str>
+  f: Fired
+}
+
 enum __Msg_Session [proto 7ed70285b7e6568c] {
   Open(started: Tick, budget: Duration, out: Reply<Str>)
   Expire(started: Tick, budget: Duration, out: Reply<Str>, f: Fired)

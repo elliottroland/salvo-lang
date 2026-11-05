@@ -1485,6 +1485,222 @@ pub fn main() {
     crate::two_ids(&__handle_6, &__handle_2, seq);
 }
 
+pub struct SequencerNext {
+    pub out: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for SequencerNext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Sequencer.Next")
+            .field("out", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for SequencerNext {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.out, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            out: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct InventoryReserve {
+    pub sku: String,
+    pub qty: i32,
+    pub out: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for InventoryReserve {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Inventory.Reserve")
+            .field("sku", &self.sku)
+            .field("qty", &self.qty)
+            .field("out", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for InventoryReserve {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.sku, out);
+        crate::wire::__Wire::__enc(&self.qty, out);
+        crate::wire::__Wire::__enc(&self.out, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            sku: crate::wire::__Wire::__dec(r)?,
+            qty: crate::wire::__Wire::__dec(r)?,
+            out: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct SearchQuery {
+    pub word: String,
+    pub out: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for SearchQuery {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Search.Query")
+            .field("word", &self.word)
+            .field("out", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for SearchQuery {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.word, out);
+        crate::wire::__Wire::__enc(&self.out, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            word: crate::wire::__Wire::__dec(r)?,
+            out: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct LookupLookup {
+    pub key: String,
+    pub out: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for LookupLookup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Lookup.Lookup")
+            .field("key", &self.key)
+            .field("out", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for LookupLookup {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.key, out);
+        crate::wire::__Wire::__enc(&self.out, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            key: crate::wire::__Wire::__dec(r)?,
+            out: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct GatherScatter {
+    pub word: String,
+    pub members: Vec<usize>,
+    pub out: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for GatherScatter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Gather.Scatter")
+            .field("word", &self.word)
+            .field("members", &self.members)
+            .field("out", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for GatherScatter {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.word, out);
+        crate::wire::__Wire::__enc(&self.members, out);
+        crate::wire::__Wire::__enc(&self.out, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            word: crate::wire::__Wire::__dec(r)?,
+            members: crate::wire::__Wire::__dec(r)?,
+            out: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct RaceRace {
+    pub key: String,
+    pub members: Vec<usize>,
+    pub out: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for RaceRace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Race.Race")
+            .field("key", &self.key)
+            .field("members", &self.members)
+            .field("out", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for RaceRace {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.key, out);
+        crate::wire::__Wire::__enc(&self.members, out);
+        crate::wire::__Wire::__enc(&self.out, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            key: crate::wire::__Wire::__dec(r)?,
+            members: crate::wire::__Wire::__dec(r)?,
+            out: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct BootBoot {
+    pub done: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for BootBoot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Boot.Boot")
+            .field("done", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for BootBoot {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.done, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            done: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct BootStop {
+    pub done: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for BootStop {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Boot.Stop")
+            .field("done", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for BootStop {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.done, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            done: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 pub struct __Route_Inventory {
     group: usize,
     __dep0: crate::std_net::RouteSelector,

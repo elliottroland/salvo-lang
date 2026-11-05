@@ -390,6 +390,19 @@ pub fn reset_timers() {
     crate::std_runtime_timers::__module_use0_0().clear();
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct WheelRun {
+}
+
+impl crate::wire::__Wire for WheelRun {
+    fn __enc(&self, out: &mut Vec<u8>) {
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+        })
+    }
+}
+
 pub enum __Msg_Wheel {
     Run,
 }

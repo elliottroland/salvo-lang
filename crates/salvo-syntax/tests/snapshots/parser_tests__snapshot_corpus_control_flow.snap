@@ -30,6 +30,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "person",
                             span: 13..19,
@@ -497,6 +498,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "result",
                             span: 388..394,
@@ -811,6 +813,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "result",
                             span: 647..653,
@@ -1127,6 +1130,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "n",
                             span: 1049..1050,
@@ -1307,6 +1311,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "value",
                             span: 1319..1324,
@@ -1546,6 +1551,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "numbers",
                             span: 1480..1487,
@@ -1751,6 +1757,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "person",
                             span: 1640..1646,
@@ -1953,6 +1960,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "person",
                             span: 1797..1803,
@@ -2172,6 +2180,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "path",
                             span: 2188..2192,

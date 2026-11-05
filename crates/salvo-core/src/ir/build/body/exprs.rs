@@ -1452,6 +1452,69 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.group_packs(reads, key, span)
     }
 
+    /// [actor-receive] `forward(to, m)`: the send of the member `m` is a
+    /// message of, with `m`'s fields as its arguments — a `Switch` over the
+    /// arms, each narrowed and sent; one arm is sent as it is. The effect is
+    /// `to`'s, which the call bound concretely (a router is built at the
+    /// protocol it routes).
+    fn forward(&mut self, to: &AExpr, m: &AExpr, ty: Ty, span: Span) -> Expr {
+        let to = self.expr(to);
+        let m = self.expr(m);
+        let Some(effect) = addr_effect_key(&to.ty) else {
+            return unsupported(ty, span, "`forward` to an address of no concrete effect");
+        };
+        let symbols = self.ctx.symbols;
+        let (Some(decl), Some(arms), Some(module)) = (symbols.effects.get(effect.as_str()), symbols.message_arms.get(effect.as_str()), symbols.key_modules.get(effect.as_str())) else {
+            return unsupported(ty, span, "`forward` of a protocol with no messages");
+        };
+        let interface = crate::decl_id::DeclId::intern(crate::decl_id::DeclPath { module: (*module).clone(), kind: crate::decl_id::DeclKind::Effect, path: vec![decl.name.name.clone()], sig: None, ordinal: 0 });
+        let sends: Vec<usize> = decl.fns.iter().enumerate().filter(|(_, f)| f.is_send).map(|(i, _)| i).collect();
+        let union_ty = m.ty.clone();
+        // The target and the message, each read once.
+        let to_l = self.fresh("__fwd_to");
+        let msg_l = self.fresh("__fwd_msg");
+        let mut stmts = vec![
+            Stmt::Let { id: self.id(), local: to_l.clone(), ty: to.ty.clone(), value: to.clone() },
+            Stmt::Let { id: self.id(), local: msg_l.clone(), ty: union_ty.clone(), value: m },
+        ];
+        let read = |l: &Local, ty: &Ty, steps: Vec<Step>, consume: bool| Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: l.clone(), steps }, consume, moved: false } };
+        let send_of = |this: &mut Self, k: usize, from: &Local, arm_ty: &Ty| -> Option<Expr> {
+            let s = symbols.structs.get(arms.get(k)?)?;
+            let file = this.file_idx;
+            let args: Vec<Expr> = s.fields.iter().map(|f| {
+                let fty = f.ty.as_ref().map(|t| this.ctx.written_ty(file, t)).unwrap_or(Ty::Unknown);
+                read(from, &fty, vec![Step::Field(f.name.name.clone())], true)
+            }).collect();
+            let _ = arm_ty;
+            Some(Expr { ty: Ty::none(), span, kind: ExprKind::Send { addr: Box::new(read(&to_l, &to.ty, Vec::new(), false)), member: MemberRef { interface, index: *sends.get(k)? }, args } })
+        };
+        if arms.len() == 1 {
+            let arm_ty = Ty::Named { name: arms[0].to_string(), args: Vec::new() };
+            match send_of(self, 0, &msg_l, &arm_ty) {
+                Some(send) => stmts.push(Stmt::Expr(send)),
+                None => return unsupported(ty, span, "`forward` of an unknown message"),
+            }
+        } else {
+            let sw = self.id();
+            let mut switch_arms = Vec::new();
+            for k in 0..arms.len() {
+                let arm_ty = Ty::Named { name: arms[k].to_string(), args: Vec::new() };
+                let nar = self.fresh("__fwd_arm");
+                let nid = self.id();
+                let narrow = Stmt::Narrow { id: nid, local: nar.clone(), ty: arm_ty.clone(), from: Place { root: msg_l.clone(), steps: Vec::new() }, from_ty: union_ty.clone(), because: Justification::Arm { switch: sw, arm: k } };
+                let Some(send) = send_of(self, k, &nar, &arm_ty) else {
+                    return unsupported(ty, span, "`forward` of an unknown message");
+                };
+                switch_arms.push(SwitchArm { test: ArmTest::Arm(k), body: Block { stmts: vec![narrow, Stmt::Expr(send)], value: None, span } });
+            }
+            stmts.push(Stmt::Expr(Expr { ty: Ty::none(), span, kind: ExprKind::Switch { id: sw, subject: Box::new(read(&msg_l, &union_ty, Vec::new(), false)), arms: switch_arms } }));
+        }
+        // Statements ahead of the one the call is in, as every lowering
+        // that needs them makes them.
+        self.pending.extend(stmts);
+        Expr { ty, span, kind: ExprKind::Unit }
+    }
+
     fn call(&mut self, callee: &AExpr, args: &[AExpr], named: &[ast::NamedArg], span: Span) -> Expr {
         let ty = self.ty_of(span);
         let key = self.key(span);
@@ -1487,6 +1550,12 @@ impl<'a, 'p> Lower<'a, 'p> {
             };
         }
         // [actor-use-addr] a send to an actor through an addr.
+        if let Some(CalleeKind::Fn { decl, .. }) = &callee_kind {
+            // [actor-receive] `forward(to, m)`: the message's own send.
+            if decl.name() == salvo_syntax::known::FORWARD_FN && *decl.module() == crate::ModulePath::std(&["core", "actor"]) && args.len() == 2 {
+                return self.forward(&args[0], &args[1], ty, span);
+            }
+        }
         if let Some(CalleeKind::Send { interface, index, .. }) = callee_kind.clone() {
             if let AExpr::Field { base, .. } = callee {
                 let addr = self.expr(base);
@@ -3719,4 +3788,15 @@ fn pack_fn_ty(t: &Ty, packs: &[usize]) -> Ty {
     }
     grouped.extend(it);
     Ty::Fn { params: params.clone(), ret: ret.clone(), contract: contract.clone(), effects: grouped }
+}
+
+/// [actor-receive] The effect key of an address type: `E` of `eff[E]`.
+fn addr_effect_key(ty: &Ty) -> Option<String> {
+    match ty.strip_quals() {
+        Ty::Named { name, args } if name == "Addr" && args.len() == 1 => match args[0].strip_quals() {
+            Ty::Named { name, args } if args.is_empty() => Some(name.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
 }

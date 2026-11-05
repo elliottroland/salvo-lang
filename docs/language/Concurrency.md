@@ -545,6 +545,52 @@ it is a proxy); [`node_of(addr)`](../../lib/std/net.sv#fn-node_of) names the
 host; and two `eff[E]` compare with
 [`eq`](../../lib/std/core/actor.sv#fn-eq).
 
+### Messages as values: `Message<E>`, `receive` and `forward`
+
+A `send fn` is shorthand for a message. `reserve(sku, 1, out)` sends the
+message `Inventory.Reserve { sku: sku, qty: 1, out: out }`, and
+[`Message<E>`](../../lib/std/core/actor.sv#type-message) is every message of
+`E` as a value: a union with one arm per send member, each arm a struct of
+the member's parameters, named after the effect and the member in CamelCase.
+
+```salvo
+actor effect Inventory {
+    send fn reserve(sku: Str, qty: Int, out: Reply<Str>) => !sku, !out
+    send fn restock(qty: Int)
+}
+
+fn describe(m: Message<Inventory>) [] -> Str => m {
+    return when m {
+        is .Reserve { "reserve ${m.qty} of ${m.sku}" }
+        is .Restock { "restock ${m.qty}" }
+    }
+}
+```
+
+A handler can be written at either level. Member by member, as usual, or
+with one member that takes every message of the effect:
+
+```salvo
+handler Front(back: eff[Inventory]) for Inventory {
+    mailbox { capacity: 8 }
+    state { seen: Int = 0 }
+    send fn receive(m: Message<Inventory>) => !m {
+        seen = seen + 1
+        forward(back, m)                  // the message, sent on as it came
+    }
+}
+```
+
+- **`receive` is all or nothing**: a handler with it writes none of the
+  effect's send members (the effect's ordinary members it still writes). It
+  behaves as those members would: bound by `use`, it runs on the sender's
+  thread; spawned, the handler is an actor.
+- **[`forward(to, m)`](../../lib/std/core/actor.sv#fn-forward)** sends `m` to
+  `to` as its member would be called there, and moves it.
+- **A message owes what its parameters owe.** An arm holding a `Reply` is
+  linear: `receive` ends it by forwarding it, or by moving the reply out and
+  answering it (`send(m.out, …)` in the `.Reserve` arm).
+
 ### One member of many: `any`
 
 A function written against one actor (`bump(2); bump(3); total(out)`) relies

@@ -274,7 +274,10 @@ fn field<V: MutVisitor>(n: &mut V, f: &mut FieldDecl) {
 }
 
 fn param<V: MutVisitor>(n: &mut V, p: &mut Param) {
-    let Param { name, ty, variadic: _, implicit: _, default, span } = p;
+    let Param { annotations, name, ty, variadic: _, implicit: _, default, span } = p;
+    for a in annotations {
+        vm::walk_type_ref(n, a);
+    }
     n.visit_span(span);
     n.visit_ident(name);
     vm::walk_type(n, ty);
@@ -406,9 +409,13 @@ fn struct_decl<V: MutVisitor>(n: &mut V, s: &mut StructDecl) {
         opaque: _,
         noremote: _,
         comptime: _,
+        message_arm,
         span,
     } = s;
     n.visit_span(span);
+    if let Some(e) = message_arm {
+        n.visit_ident(e);
+    }
     for a in annotations {
         vm::walk_type_ref(n, a);
     }

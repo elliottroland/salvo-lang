@@ -669,6 +669,49 @@ pub fn earliest_due(deadlines: &Vec<i64>, mut target: i64) -> Option<i32> {
     return Some(best);
 }
 
+pub struct TimerAfter {
+    pub wait: crate::std_time::Duration,
+    pub done: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for TimerAfter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Timer.After")
+            .field("wait", &self.wait)
+            .field("done", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for TimerAfter {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.wait, out);
+        crate::wire::__Wire::__enc(&self.done, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            wait: crate::wire::__Wire::__dec(r)?,
+            done: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TimerCtlAdvance {
+    pub by: crate::std_time::Duration,
+}
+
+impl crate::wire::__Wire for TimerCtlAdvance {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.by, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            by: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 pub fn cmp__Duration_Duration(a: &crate::std_time::Duration, b: &crate::std_time::Duration) -> i32 {
     let mut c: i32 = (Ord::cmp(&(a.nanos), &(b.nanos)) as i32);
     if (c != 0i32) {

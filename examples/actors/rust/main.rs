@@ -669,6 +669,171 @@ pub fn main() {
     crate::std_core_console::println(&__handle_2, &String::from("done"));
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct CounterBump {
+    pub n: i32,
+}
+
+impl crate::wire::__Wire for CounterBump {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.n, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            n: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct CounterTotal {
+    pub out: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for CounterTotal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Counter.Total")
+            .field("out", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for CounterTotal {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.out, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            out: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct LedgerReport {
+    pub label: String,
+    pub out: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for LedgerReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Ledger.Report")
+            .field("label", &self.label)
+            .field("out", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for LedgerReport {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.label, out);
+        crate::wire::__Wire::__enc(&self.out, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            label: crate::wire::__Wire::__dec(r)?,
+            out: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct LedgerReported {
+    pub label: String,
+    pub out: crate::scheduler::SalvoReply,
+    pub total: i32,
+}
+
+impl std::fmt::Debug for LedgerReported {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Ledger.Reported")
+            .field("label", &self.label)
+            .field("out", &"<opaque>")
+            .field("total", &self.total)
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for LedgerReported {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.label, out);
+        crate::wire::__Wire::__enc(&self.out, out);
+        crate::wire::__Wire::__enc(&self.total, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            label: crate::wire::__Wire::__dec(r)?,
+            out: crate::wire::__Wire::__dec(r)?,
+            total: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct DeskTicket {
+    pub out: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for DeskTicket {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Desk.Ticket")
+            .field("out", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for DeskTicket {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.out, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            out: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeskServe {
+    pub name: String,
+}
+
+impl crate::wire::__Wire for DeskServe {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.name, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            name: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeskCloseUp {
+    pub reason: String,
+}
+
+impl crate::wire::__Wire for DeskCloseUp {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.reason, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            reason: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FragileCrash {
+}
+
+impl crate::wire::__Wire for FragileCrash {
+    fn __enc(&self, out: &mut Vec<u8>) {
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+        })
+    }
+}
+
 pub enum __Msg_Counter {
     Bump(i32),
     Total(crate::scheduler::SalvoReply),

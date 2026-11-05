@@ -52,6 +52,18 @@ object NetErrors {
 
 interface Inbound {
     fun receiveFrame(from: NodeEndpoint, frame: salvo.platform.std.core.bytes.Bytes)
+    data class ReceiveFrame(
+        val from: NodeEndpoint,
+        val frame: salvo.platform.std.core.bytes.Bytes,
+    )
+}
+
+object __Codec_Inbound_ReceiveFrame : salvo.WireCodec<Inbound.ReceiveFrame> {
+    override fun enc(v: Inbound.ReceiveFrame, out: salvo.WireOut) {
+        __Codec_NodeEndpoint.enc(v.from, out)
+        salvo.BytesCodec.enc(v.frame, out)
+    }
+    override fun dec(inp: salvo.WireIn): Inbound.ReceiveFrame = Inbound.ReceiveFrame(__Codec_NodeEndpoint.dec(inp), salvo.BytesCodec.dec(inp))
 }
 
 class __Mon_Inbound(

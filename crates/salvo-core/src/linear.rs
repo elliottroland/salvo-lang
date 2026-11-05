@@ -15,7 +15,15 @@ use crate::types::Ty;
 /// modifier: a `linear struct`, or (the opaque half) a `linear intrinsic
 /// type`. A linear leaf has no fields for linearity to reach through.
 pub fn has_auto_linear(symbols: &Symbols, name: &str) -> bool {
-    symbols.structs.get(name).is_some_and(|s| s.linear) || opaque_linear(symbols, name)
+    symbols.structs.get(name).is_some_and(|s| s.linear || message_arm_linear(symbols, name)) || opaque_linear(symbols, name)
+}
+
+/// [actor-message] A message arm owes exactly when a field does, as a
+/// tuple does [linear-container]: it is the member's parameters as one
+/// value, settled by moving its linear fields out, and needs no discharger.
+pub fn message_arm_linear(symbols: &Symbols, name: &str) -> bool {
+    symbols.structs.get(name).is_some_and(|s| s.message_arm.is_some())
+        && !linear_fields(symbols, &HashSet::new(), &Ty::Named { name: name.to_string(), args: Vec::new() }).is_empty()
 }
 
 /// [linear-group] The opaque half: `linear intrinsic type Reply<T>`.

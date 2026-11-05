@@ -1680,6 +1680,7 @@ impl<'s> Parser<'s> {
             linear,
             // [struct-opaque] Set by `parse_declaration`, which peels the word.
             opaque: false,
+            message_arm: None,
             span: start.to(end),
         })
     }
@@ -2094,6 +2095,7 @@ impl<'s> Parser<'s> {
             let ty = self.parse_type()?;
             let pspan = pname.span.to(ty.span());
             params.push(Param {
+                annotations: Vec::new(),
                 name: pname,
                 ty,
                 variadic: false,
@@ -2930,6 +2932,20 @@ impl<'s> Parser<'s> {
         let mut implicit_groups = Vec::new();
         let mut seen_implicit: Option<Span> = None;
         while !self.at(&TokenKind::RParen) && !self.at_eof() {
+            // [comptime-qualifier] `ShardKey sku: Str`: comptime qualifiers
+            // before the parameter's name, as before a field's. A parameter
+            // name is lowercase [name-casing], so an uppercase name here can
+            // only be one; the checker says where they are legal.
+            let mut annotations = Vec::new();
+            while matches!(&self.kind(), TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
+                && !matches!(self.peek_at(1).kind, TokenKind::Colon | TokenKind::Eq)
+            {
+                let Some(a) = self.parse_type_ref() else {
+                    self.group_depth -= 1;
+                    return None;
+                };
+                annotations.push(a);
+            }
             let variadic = self.eat(&TokenKind::Ellipsis).is_some();
             let implicit_at = self.eat(&TokenKind::Question).map(|t| t.span);
             if let Some(span) = implicit_at {
@@ -2992,6 +3008,7 @@ impl<'s> Parser<'s> {
             };
             let span = name.span.to(default.as_ref().map(|e| e.span()).unwrap_or_else(|| ty.span()));
             params.push(Param {
+                annotations,
                 name,
                 ty,
                 variadic,

@@ -2276,6 +2276,274 @@ pub fn cut_key(a: &crate::std_net::NodeEndpoint, b: &crate::std_net::NodeEndpoin
     return format!("{}>{}", crate::std_net::to_str__NodeEndpoint(a), crate::std_net::to_str__NodeEndpoint(b));
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct InboundReceiveFrame {
+    pub from: crate::std_net::NodeEndpoint,
+    pub frame: crate::std_core_bytes::Bytes,
+}
+
+impl crate::wire::__Wire for InboundReceiveFrame {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.from, out);
+        crate::wire::__Wire::__enc(&self.frame, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            from: crate::wire::__Wire::__dec(r)?,
+            frame: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OutboundSendFrame {
+    pub to: crate::std_net::NodeEndpoint,
+    pub frame: crate::std_core_bytes::Bytes,
+}
+
+impl crate::wire::__Wire for OutboundSendFrame {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.to, out);
+        crate::wire::__Wire::__enc(&self.frame, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            to: crate::wire::__Wire::__dec(r)?,
+            frame: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct NodeGroupMembers {
+    pub out: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for NodeGroupMembers {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NodeGroup.Members")
+            .field("out", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for NodeGroupMembers {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.out, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            out: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NodeGroupSubscribe {
+    pub w: usize,
+}
+
+impl crate::wire::__Wire for NodeGroupSubscribe {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.w, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            w: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NodeGroupLeave {
+}
+
+impl crate::wire::__Wire for NodeGroupLeave {
+    fn __enc(&self, out: &mut Vec<u8>) {
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NodeGroupWatcherJoined {
+    pub n: crate::std_net::Node,
+}
+
+impl crate::wire::__Wire for NodeGroupWatcherJoined {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.n, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            n: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NodeGroupWatcherLeft {
+    pub n: crate::std_net::Node,
+    pub why: String,
+}
+
+impl crate::wire::__Wire for NodeGroupWatcherLeft {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.n, out);
+        crate::wire::__Wire::__enc(&self.why, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            n: crate::wire::__Wire::__dec(r)?,
+            why: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MemNetAttach {
+    pub at: crate::std_net::NodeEndpoint,
+    pub sink: usize,
+}
+
+impl crate::wire::__Wire for MemNetAttach {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.at, out);
+        crate::wire::__Wire::__enc(&self.sink, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            at: crate::wire::__Wire::__dec(r)?,
+            sink: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MemNetDetach {
+    pub at: crate::std_net::NodeEndpoint,
+}
+
+impl crate::wire::__Wire for MemNetDetach {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.at, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            at: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct MemNetRoute {
+    pub from: crate::std_net::NodeEndpoint,
+    pub to: crate::std_net::NodeEndpoint,
+    pub out: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for MemNetRoute {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemNet.Route")
+            .field("from", &self.from)
+            .field("to", &self.to)
+            .field("out", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for MemNetRoute {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.from, out);
+        crate::wire::__Wire::__enc(&self.to, out);
+        crate::wire::__Wire::__enc(&self.out, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            from: crate::wire::__Wire::__dec(r)?,
+            to: crate::wire::__Wire::__dec(r)?,
+            out: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MemNetPartition {
+    pub a: crate::std_net::NodeEndpoint,
+    pub b: crate::std_net::NodeEndpoint,
+}
+
+impl crate::wire::__Wire for MemNetPartition {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.a, out);
+        crate::wire::__Wire::__enc(&self.b, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            a: crate::wire::__Wire::__dec(r)?,
+            b: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MemNetHeal {
+    pub a: crate::std_net::NodeEndpoint,
+    pub b: crate::std_net::NodeEndpoint,
+}
+
+impl crate::wire::__Wire for MemNetHeal {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.a, out);
+        crate::wire::__Wire::__enc(&self.b, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            a: crate::wire::__Wire::__dec(r)?,
+            b: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MemNetKill {
+    pub node: crate::std_net::NodeEndpoint,
+}
+
+impl crate::wire::__Wire for MemNetKill {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.node, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            node: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
+pub struct MemNetDelivered {
+    pub out: crate::scheduler::SalvoReply,
+}
+
+impl std::fmt::Debug for MemNetDelivered {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemNet.Delivered")
+            .field("out", &"<opaque>")
+            .finish()
+    }
+}
+
+impl crate::wire::__Wire for MemNetDelivered {
+    fn __enc(&self, out: &mut Vec<u8>) {
+        crate::wire::__Wire::__enc(&self.out, out);
+    }
+    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
+        Some(Self {
+            out: crate::wire::__Wire::__dec(r)?,
+        })
+    }
+}
+
 pub fn cmp(a: &crate::std_net::NodeEndpoint, b: &crate::std_net::NodeEndpoint) -> i32 {
     let mut c: i32 = (Ord::cmp(&a.host[..], &b.host[..]) as i32);
     if (c != 0i32) {

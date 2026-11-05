@@ -1646,3 +1646,10 @@ Reported as codegen errors, never silent wrong code:
 * [ref-handle] The Rust backend's storage paths have no Kotlin counterpart: a
   handle is the element reference, and the IR's container type on a `ref`
   qualifier is ignored.
+
+* [kt-message-arms] **An actor effect's message arms nest in its
+  interface** [actor-message]: `interface Inventory { fun reserve(…); class
+  Reserve(…) }`. A namespace is otherwise an `object` of its name, which
+  cannot sit beside an `interface` of the same name; Kotlin interfaces may
+  hold nested classes, and `Inventory.Reserve` names the arm as Salvo spells
+  it. The arms' codecs follow the interface at top level.

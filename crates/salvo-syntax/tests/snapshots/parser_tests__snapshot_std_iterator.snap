@@ -151,6 +151,7 @@ Module {
                 opaque: false,
                 noremote: false,
                 comptime: false,
+                message_arm: None,
                 span: 2991..3009,
             },
         ),
@@ -211,6 +212,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "value",
                             span: 3280..3285,
@@ -504,6 +506,7 @@ Module {
                         derived_return: None,
                         params: [
                             Param {
+                                annotations: [],
                                 name: Ident {
                                     name: "it",
                                     span: 5321..5323,
@@ -755,6 +758,7 @@ Module {
                         derived_return: None,
                         params: [
                             Param {
+                                annotations: [],
                                 name: Ident {
                                     name: "collection",
                                     span: 6588..6598,
@@ -850,6 +854,7 @@ Module {
                         derived_return: None,
                         params: [
                             Param {
+                                annotations: [],
                                 name: Ident {
                                     name: "iterator",
                                     span: 6672..6680,

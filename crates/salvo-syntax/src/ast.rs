@@ -495,6 +495,12 @@ pub struct StructDecl {
     /// declared in `std.core.comptime` so the surface is readable and hoverable.
     /// Never constructed, never a value; the compiler fills its fields.
     pub comptime: bool,
+    /// [actor-message] A message arm: the struct the compiler declares for
+    /// one `send fn` of the actor effect named here, `Inventory.reserve` for
+    /// `Inventory`'s `reserve` — its fields the member's parameters, an arm
+    /// of `Message<Inventory>`. Linear exactly when a field is, settled by
+    /// moving its linear fields out, as a tuple is [linear-container].
+    pub message_arm: Option<Ident>,
     pub span: Span,
 }
 
@@ -1325,6 +1331,11 @@ pub struct ConditionalResponse {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Param {
+    /// [comptime-qualifier] The comptime qualifiers `for Field` written
+    /// before a parameter's name (`ShardKey sku: Str`): legal on a `send
+    /// fn`'s parameter, where they carry to the field of its message arm
+    /// [actor-message]; read by comptime code, erased everywhere else.
+    pub annotations: Vec<TypeRef>,
     pub name: Ident,
     pub ty: Type,
     /// True for `...args: T[]`.

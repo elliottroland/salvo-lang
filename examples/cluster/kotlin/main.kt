@@ -4,6 +4,16 @@ import salvo.*
 
 interface Sequencer {
     fun next(out: salvo.SalvoReply)
+    data class Next(
+        val out: salvo.SalvoReply,
+    )
+}
+
+object __Codec_Sequencer_Next : salvo.WireCodec<Sequencer.Next> {
+    override fun enc(v: Sequencer.Next, out: salvo.WireOut) {
+        salvo.ReplyCodec.enc(v.out, out)
+    }
+    override fun dec(inp: salvo.WireIn): Sequencer.Next = Sequencer.Next(salvo.ReplyCodec.dec(inp))
 }
 
 class __Mon_Sequencer(
@@ -19,6 +29,20 @@ class __Mon_Sequencer(
 
 interface Inventory {
     fun reserve(sku: String, qty: Int, out: salvo.SalvoReply)
+    data class Reserve(
+        val sku: String,
+        val qty: Int,
+        val out: salvo.SalvoReply,
+    )
+}
+
+object __Codec_Inventory_Reserve : salvo.WireCodec<Inventory.Reserve> {
+    override fun enc(v: Inventory.Reserve, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.sku, out)
+        salvo.IntCodec.enc(v.qty, out)
+        salvo.ReplyCodec.enc(v.out, out)
+    }
+    override fun dec(inp: salvo.WireIn): Inventory.Reserve = Inventory.Reserve(salvo.StrCodec.dec(inp), salvo.IntCodec.dec(inp), salvo.ReplyCodec.dec(inp))
 }
 
 class __Mon_Inventory(
@@ -34,6 +58,18 @@ class __Mon_Inventory(
 
 interface Search {
     fun query(word: String, out: salvo.SalvoReply)
+    data class Query(
+        val word: String,
+        val out: salvo.SalvoReply,
+    )
+}
+
+object __Codec_Search_Query : salvo.WireCodec<Search.Query> {
+    override fun enc(v: Search.Query, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.word, out)
+        salvo.ReplyCodec.enc(v.out, out)
+    }
+    override fun dec(inp: salvo.WireIn): Search.Query = Search.Query(salvo.StrCodec.dec(inp), salvo.ReplyCodec.dec(inp))
 }
 
 class __Mon_Search(
@@ -49,6 +85,18 @@ class __Mon_Search(
 
 interface Lookup {
     fun lookup(key: String, out: salvo.SalvoReply)
+    data class Lookup(
+        val key: String,
+        val out: salvo.SalvoReply,
+    )
+}
+
+object __Codec_Lookup_Lookup : salvo.WireCodec<Lookup.Lookup> {
+    override fun enc(v: Lookup.Lookup, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.key, out)
+        salvo.ReplyCodec.enc(v.out, out)
+    }
+    override fun dec(inp: salvo.WireIn): Lookup.Lookup = Lookup.Lookup(salvo.StrCodec.dec(inp), salvo.ReplyCodec.dec(inp))
 }
 
 class __Mon_Lookup(
@@ -342,6 +390,20 @@ class __Actor_Scattering(private val handler: Scattering) : salvo.SalvoActor {
 
 interface Gather {
     fun scatter(word: String, members: List<Int>, out: salvo.SalvoReply)
+    data class Scatter(
+        val word: String,
+        val members: List<Int>,
+        val out: salvo.SalvoReply,
+    )
+}
+
+object __Codec_Gather_Scatter : salvo.WireCodec<Gather.Scatter> {
+    override fun enc(v: Gather.Scatter, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.word, out)
+        salvo.ListCodec(salvo.AddrCodec).enc(v.members, out)
+        salvo.ReplyCodec.enc(v.out, out)
+    }
+    override fun dec(inp: salvo.WireIn): Gather.Scatter = Gather.Scatter(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.AddrCodec).dec(inp), salvo.ReplyCodec.dec(inp))
 }
 
 class __Mon_Gather(
@@ -480,6 +542,20 @@ class __Actor_Hedging(private val handler: Hedging) : salvo.SalvoActor {
 
 interface Race {
     fun race(key: String, members: List<Int>, out: salvo.SalvoReply)
+    data class Race(
+        val key: String,
+        val members: List<Int>,
+        val out: salvo.SalvoReply,
+    )
+}
+
+object __Codec_Race_Race : salvo.WireCodec<Race.Race> {
+    override fun enc(v: Race.Race, out: salvo.WireOut) {
+        salvo.StrCodec.enc(v.key, out)
+        salvo.ListCodec(salvo.AddrCodec).enc(v.members, out)
+        salvo.ReplyCodec.enc(v.out, out)
+    }
+    override fun dec(inp: salvo.WireIn): Race.Race = Race.Race(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.AddrCodec).dec(inp), salvo.ReplyCodec.dec(inp))
 }
 
 class __Mon_Race(
@@ -740,6 +816,26 @@ fun shop(console: salvo.std.core.console.Console, stock: Int) {
 interface Boot {
     fun boot(done: salvo.SalvoReply)
     fun stop(done: salvo.SalvoReply)
+    data class Boot(
+        val done: salvo.SalvoReply,
+    )
+    data class Stop(
+        val done: salvo.SalvoReply,
+    )
+}
+
+object __Codec_Boot_Boot : salvo.WireCodec<Boot.Boot> {
+    override fun enc(v: Boot.Boot, out: salvo.WireOut) {
+        salvo.ReplyCodec.enc(v.done, out)
+    }
+    override fun dec(inp: salvo.WireIn): Boot.Boot = Boot.Boot(salvo.ReplyCodec.dec(inp))
+}
+
+object __Codec_Boot_Stop : salvo.WireCodec<Boot.Stop> {
+    override fun enc(v: Boot.Stop, out: salvo.WireOut) {
+        salvo.ReplyCodec.enc(v.done, out)
+    }
+    override fun dec(inp: salvo.WireIn): Boot.Stop = Boot.Stop(salvo.ReplyCodec.dec(inp))
 }
 
 class __Mon_Boot(

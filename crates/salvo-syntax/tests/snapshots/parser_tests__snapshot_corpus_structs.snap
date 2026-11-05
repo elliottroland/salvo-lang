@@ -143,6 +143,7 @@ Module {
                 opaque: false,
                 noremote: false,
                 comptime: false,
+                message_arm: None,
                 span: 0..81,
             },
         ),
@@ -238,6 +239,7 @@ Module {
                 opaque: false,
                 noremote: false,
                 comptime: false,
+                message_arm: None,
                 span: 83..132,
             },
         ),
@@ -838,6 +840,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "person",
                             span: 608..614,
@@ -946,6 +949,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "person",
                             span: 681..687,

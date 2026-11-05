@@ -112,6 +112,11 @@ pub struct Symbols<'p> {
     /// spells every declaration of one with its module's path, since a
     /// glob or star import of two would be ambiguous in the host.
     pub clashing: std::collections::HashSet<&'p str>,
+    /// [actor-message] Each non-generic actor effect's message arms, by the
+    /// effect's key: the arm structs' keys, in send-member order — the
+    /// arms of `Message<E>`, positional as every union's are
+    /// [type-union-arm-identity].
+    pub message_arms: HashMap<&'p str, Vec<&'p str>>,
     /// [type-identity] The program the tables were collected from, for
     /// [`Symbols::ref_key`].
     program: Option<&'p Program>,
@@ -381,6 +386,31 @@ impl<'p> Symbols<'p> {
                     Item::Test(_) => {}
                     // [effect-alias] Expanded away before symbol collection.
                     Item::EffectAlias(_) => {}
+                }
+            }
+        }
+        // [actor-message] Each actor effect's arms, in send order: the arm
+        // structs are declared beside the effect, in its module.
+        for unit in program.units() {
+            for item in &unit.ast.items {
+                let Item::Effect(e) = item else { continue };
+                if !e.is_actor || !e.generics.is_empty() {
+                    continue;
+                }
+                let ekey = key(e as *const EffectDecl as usize, &e.name.name);
+                let mut arms: Vec<&'p str> = Vec::new();
+                for (idx, _) in e.fns.iter().enumerate().filter(|(_, f)| f.is_send) {
+                    let name = crate::message::arm_name(e, idx);
+                    let found = unit.ast.items.iter().find_map(|it| match it {
+                        Item::Struct(s) if s.message_arm.is_some() && s.name.name == name => Some(key(s as *const StructDecl as usize, &s.name.name)),
+                        _ => None,
+                    });
+                    if let Some(k) = found {
+                        arms.push(k);
+                    }
+                }
+                if !arms.is_empty() {
+                    symbols.message_arms.insert(ekey, arms);
                 }
             }
         }

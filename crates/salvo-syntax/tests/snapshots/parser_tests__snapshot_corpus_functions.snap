@@ -30,6 +30,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "ints",
                             span: 10..14,
@@ -271,6 +272,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "first",
                             span: 175..180,
@@ -298,6 +300,7 @@ Module {
                         span: 175..185,
                     },
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "rest",
                             span: 190..194,
@@ -533,6 +536,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "list",
                             span: 361..365,
@@ -578,6 +582,7 @@ Module {
                         span: 361..374,
                     },
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "mapper",
                             span: 376..382,
@@ -858,6 +863,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "int",
                             span: 539..542,
@@ -1383,6 +1389,7 @@ Module {
                 opaque: false,
                 noremote: false,
                 comptime: false,
+                message_arm: None,
                 span: 974..1192,
             },
         ),
@@ -1422,6 +1429,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "start",
                             span: 983..988,
@@ -1449,6 +1457,7 @@ Module {
                         span: 983..993,
                     },
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "end",
                             span: 995..998,
@@ -1652,6 +1661,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "__p",
                             span: 977..982,
@@ -2089,6 +2099,7 @@ Module {
                 opaque: false,
                 noremote: false,
                 comptime: false,
+                message_arm: None,
                 span: 1265..1325,
             },
         ),
@@ -2117,6 +2128,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "from",
                             span: 1340..1344,
@@ -2279,6 +2291,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "p",
                             span: 1417..1418,
@@ -2839,6 +2852,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "list",
                             span: 1781..1785,
@@ -3098,6 +3112,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "list",
                             span: 1887..1891,
@@ -3206,6 +3221,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "list",
                             span: 1940..1944,
@@ -3706,6 +3722,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "f",
                             span: 2377..2378,
@@ -3798,6 +3815,7 @@ Module {
                         span: 2377..2405,
                     },
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "value",
                             span: 2407..2412,
@@ -4147,6 +4165,7 @@ Module {
                         derived_return: None,
                         params: [
                             Param {
+                                annotations: [],
                                 name: Ident {
                                     name: "a",
                                     span: 2732..2733,
@@ -4174,6 +4193,7 @@ Module {
                                 span: 2732..2736,
                             },
                             Param {
+                                annotations: [],
                                 name: Ident {
                                     name: "b",
                                     span: 2738..2739,
@@ -4318,6 +4338,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "xs",
                             span: 3042..3044,
@@ -4566,6 +4587,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "list",
                             span: 3182..3186,
@@ -4611,6 +4633,7 @@ Module {
                         span: 3182..3195,
                     },
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "cmp",
                             span: 3198..3201,

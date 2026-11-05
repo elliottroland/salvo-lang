@@ -409,6 +409,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
         // follows what it holds, and a linear `state` field is the ordinary
         // [linear-composite] refusal at the struct.
         linear: false,
+        message_arm: None,
         span: struct_span,
     };
 
@@ -578,6 +579,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
         effect_generics: f.effect_generics.clone(),
         derived_return: next_return.as_ref().and_then(crate::parser::first_proj_source),
         params: vec![Param {
+            annotations: Vec::new(),
             name: Ident {
                 name: PASS.to_string(),
                 span: next_span,

@@ -380,6 +380,14 @@ messages! {
          and no kind bound"
     );
 
+    // [actor-receive]
+    /// A handler answering a face's messages with `receive` and one member too.
+    actor_receive_both = "actor-receive:both" (handler: &str, effect: &str, member: &str) => format!(
+        "handler `{handler}` answers every message of `{effect}` with `receive`, so it \
+         writes none of `{effect}`'s send members: drop `{member}`, or answer `{effect}` \
+         member by member without `receive`"
+    );
+
     // [comptime-name]
     /// A binder's name compared to something other than a string literal.
     comptime_name_expected_string = "comptime-name:expected-string" (found: &str) => format!(
@@ -394,6 +402,12 @@ messages! {
     comptime_qualifier_not_before_struct = "comptime-qualifier:not-before-struct" () =>
         "a comptime qualifier before a declaration describes a struct: only a `struct` \
          may follow it";
+    /// A comptime qualifier before a parameter that is not an actor effect's `send fn`'s.
+    comptime_qualifier_on_param = "comptime-qualifier:on-param" (qual: &str, param: &str) => format!(
+        "`{qual}` before `{param}` describes a field of a message: a comptime qualifier \
+         may stand before the parameter of an actor effect's `send fn`, which is a field \
+         of its message arm, and before no other parameter"
+    );
     /// A comptime qualifier on a `state` field.
     comptime_qualifier_on_state_field = "comptime-qualifier:on-state-field" () =>
         "a comptime qualifier describes a struct's field; a `state` field is never walked \

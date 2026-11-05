@@ -25,6 +25,36 @@ class SteppingTicker(private val step: salvo.std.time.Duration) : salvo.std.time
 interface Session {
     fun open(started: salvo.std.time.Tick, budget: salvo.std.time.Duration, out: salvo.SalvoReply)
     fun expire(started: salvo.std.time.Tick, budget: salvo.std.time.Duration, out: salvo.SalvoReply, f: salvo.std.time.Fired)
+    data class Open(
+        val started: salvo.std.time.Tick,
+        val budget: salvo.std.time.Duration,
+        val out: salvo.SalvoReply,
+    )
+    data class Expire(
+        val started: salvo.std.time.Tick,
+        val budget: salvo.std.time.Duration,
+        val out: salvo.SalvoReply,
+        val f: salvo.std.time.Fired,
+    )
+}
+
+object __Codec_Session_Open : salvo.WireCodec<Session.Open> {
+    override fun enc(v: Session.Open, out: salvo.WireOut) {
+        salvo.std.time.__Codec_Tick.enc(v.started, out)
+        salvo.std.time.__Codec_Duration.enc(v.budget, out)
+        salvo.ReplyCodec.enc(v.out, out)
+    }
+    override fun dec(inp: salvo.WireIn): Session.Open = Session.Open(salvo.std.time.__Codec_Tick.dec(inp), salvo.std.time.__Codec_Duration.dec(inp), salvo.ReplyCodec.dec(inp))
+}
+
+object __Codec_Session_Expire : salvo.WireCodec<Session.Expire> {
+    override fun enc(v: Session.Expire, out: salvo.WireOut) {
+        salvo.std.time.__Codec_Tick.enc(v.started, out)
+        salvo.std.time.__Codec_Duration.enc(v.budget, out)
+        salvo.ReplyCodec.enc(v.out, out)
+        salvo.std.time.__Codec_Fired.enc(v.f, out)
+    }
+    override fun dec(inp: salvo.WireIn): Session.Expire = Session.Expire(salvo.std.time.__Codec_Tick.dec(inp), salvo.std.time.__Codec_Duration.dec(inp), salvo.ReplyCodec.dec(inp), salvo.std.time.__Codec_Fired.dec(inp))
 }
 
 class __Mon_Session(
@@ -106,6 +136,32 @@ class TestTicker(private val timer: Int) : salvo.std.time.Ticker {
 interface Sleeper {
     fun nap(wait: salvo.std.time.Duration, out: salvo.SalvoReply)
     fun woke(started: salvo.std.time.Tick, out: salvo.SalvoReply, f: salvo.std.time.Fired)
+    data class Nap(
+        val wait: salvo.std.time.Duration,
+        val out: salvo.SalvoReply,
+    )
+    data class Woke(
+        val started: salvo.std.time.Tick,
+        val out: salvo.SalvoReply,
+        val f: salvo.std.time.Fired,
+    )
+}
+
+object __Codec_Sleeper_Nap : salvo.WireCodec<Sleeper.Nap> {
+    override fun enc(v: Sleeper.Nap, out: salvo.WireOut) {
+        salvo.std.time.__Codec_Duration.enc(v.wait, out)
+        salvo.ReplyCodec.enc(v.out, out)
+    }
+    override fun dec(inp: salvo.WireIn): Sleeper.Nap = Sleeper.Nap(salvo.std.time.__Codec_Duration.dec(inp), salvo.ReplyCodec.dec(inp))
+}
+
+object __Codec_Sleeper_Woke : salvo.WireCodec<Sleeper.Woke> {
+    override fun enc(v: Sleeper.Woke, out: salvo.WireOut) {
+        salvo.std.time.__Codec_Tick.enc(v.started, out)
+        salvo.ReplyCodec.enc(v.out, out)
+        salvo.std.time.__Codec_Fired.enc(v.f, out)
+    }
+    override fun dec(inp: salvo.WireIn): Sleeper.Woke = Sleeper.Woke(salvo.std.time.__Codec_Tick.dec(inp), salvo.ReplyCodec.dec(inp), salvo.std.time.__Codec_Fired.dec(inp))
 }
 
 class __Mon_Sleeper(

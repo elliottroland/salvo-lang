@@ -79,6 +79,7 @@ Module {
                         derived_return: None,
                         params: [
                             Param {
+                                annotations: [],
                                 name: Ident {
                                     name: "message",
                                     span: 1479..1486,
@@ -173,6 +174,7 @@ Module {
                         derived_return: None,
                         params: [
                             Param {
+                                annotations: [],
                                 name: Ident {
                                     name: "message",
                                     span: 1588..1595,
@@ -385,6 +387,7 @@ Module {
                 derived_return: None,
                 params: [
                     Param {
+                        annotations: [],
                         name: Ident {
                             name: "message",
                             span: 2406..2413,

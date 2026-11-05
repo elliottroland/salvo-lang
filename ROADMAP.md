@@ -1018,6 +1018,16 @@ left three follow-ups the user has asked for, in this order.
   in, which is its honest lowering anyway. After it, no user-visible
   intrinsic reads a type argument.
 
+### Message arms: the overload selector (decided, not built)
+
+User decision 2026-11-05 (ROUTES.md §9.1): when an actor effect overloads a
+send member, `is .reserve` / `is Inventory.Reserve` is ambiguous and is
+refused, and the arm is selected by its parameter types,
+`is Inventory.Reserve(Str, Int, Reply<Str>)`. Today an overloaded member's
+arm is named after its emitted name (`Inventory.ReserveStr`, the message
+enum's variant), so the arms exist and are distinct, but the selector syntax
+in a type position is not parsed. [actor-message]
+
 ### 2c — Comptime, the rest of the decided design (first slice built 2026-09-28; round 8 built 2026-09-29)
 
 Seven rounds of user decisions (2026-09-28; COMPLETED.md's log, "Comptime, first
