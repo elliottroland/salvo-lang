@@ -468,10 +468,13 @@ debounce: IR 73 (build 59), check 63 (inserting the 73 cached files' rows
 46), resolve 58, expand 33, load 26 (reading `.sv` files). Left by (a):
 - keying the rows by file identity rather than position: opening a document
   adds its examples' files (`Examples::Open`) and clears the cache once;
-- a body edit in a file holding a comptime template (`auto`, `args`) walks
-  everything, since every copy sits at the template's range, which moves:
-  remap a copy's range through its template file's cut regions;
-- a signature edit walks everything (stage (b)). Today there are two
+- a body edit in a file holding a comptime template walks the files whose
+  copies moved (with (b): `args.sv`'s examples deriving `FromArgs`); a
+  copy's range could be remapped through its template file's cut regions.
+
+Stage (b), dependency invalidation, **built** 2026-10-31 (COMPLETED.md): a
+`heap.sv` signature edit 829ms → 452ms (release, 10 of 74 files walked); an
+edit of a `std.core` signature still walks everything, as it must. Today there are two
 mechanisms: std's front (`StdFront` + `StdCache`, parsed, expanded and
 checked once, sound because std sees only std) and the project's
 `CheckCache`, which is **all-or-nothing** — rows keyed by file position,
@@ -811,7 +814,12 @@ remain, each a design question rather than a lookup to swap (a third, the
 IR's `member_ref_by_name`, went with "Record what each call is in one
 table", which reads the member off the checker's call row):
 
-- **Qualifiers are identified by name in types.** A `Ty` carries its
+- **Qualifiers are identified by name in types** — a soundness bug, not
+  only a design question (probe 2026-10-31): `main.sv` with `import a.pos`
+  (`export fn pos() [] -> Pos Int`, a's `Pos`: `n > 0`) and its own
+  `qualifier Pos for Int` (`n < 0`) accepts `need(pos())` for `fn need(x: Pos
+  Int)` and prints 5. The user chose (2026-10-31) to give qualifiers keys as
+  types have; not needed for the check cache's dependencies (stage (b)). A `Ty` carries its
   qualifiers by name (`Qual { name }`), so whatever needs the declaration
   — the IR's `qual_fn_ref` (a `whynot?` or a default's check), the Rust
   boundary check — finds it among every module's qualifiers of that name,

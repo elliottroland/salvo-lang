@@ -2526,7 +2526,7 @@ fn check_once<'p>(
         }
     }
     let cached: HashSet<usize> = match (&mut check_cache, syntactic) {
-        (Some(c), Some(syntactic)) => c.plan(program, first, syntactic),
+        (Some(c), Some(syntactic)) => c.plan(program, first, syntactic, &resolution.scopes),
         _ => HashSet::new(),
     };
     drop(t);

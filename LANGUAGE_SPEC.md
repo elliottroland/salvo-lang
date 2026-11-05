@@ -14182,10 +14182,19 @@ replaced the working document TESTING.md).
   `iter fn`) and outside its comment runs (no other file's checking reads a
   comment; but a run holding a `@whynot`, which an interpolation of the
   qualified value reads [qual-whynot], and every comment of a file comptime
-  stamps into, which a stamping may read [comptime-docs]); otherwise every
-  file is walked and the cache rebuilt. A body edit in a file holding a
-  comptime template walks everything too: every copy of the template sits
-  at the template's range, which the edit moves. A body
+  stamps into, which a stamping may read [comptime-docs]). A file whose
+  interface did change is walked **with every file that can depend on it**
+  (2026-10-31, ROADMAP §0be stage (b), `check_cache::dependents`): whose
+  scope takes in its module, followed through what each module's files see
+  (a signature read through an import names types of modules the reader
+  never imports), so an edit of `std.core` walks everything and one of a
+  leaf module its own files; also every cached file whose rows point into it
+  (a `written_types` row for its node, a definition site) and every cached
+  file holding an error or an import suggestion (whose text reads the whole
+  program's declarations). A file whose copy of a comptime template moved
+  (an edit above the template) is such a file: a file stamping from `args`
+  is walked when `args.sv` is edited. A different file list or parking set
+  rebuilds the cache. A body
   edit moves the declarations after it, so a cached file's definition sites
   there move by the bodies' growth, and its `written_types` rows for the
   changed file's nodes move to the same nodes of its new module (outside the

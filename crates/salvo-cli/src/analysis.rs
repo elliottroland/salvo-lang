@@ -1452,9 +1452,10 @@ mod tests {
     // std cache stands in) the check cache covers every file: a body edit, a
     // doc-comment edit, and a body edit in a file comptime stamps into (`net`,
     // whose templates are `auto`'s) each walk the edited file only; a
-    // signature edit, and a body edit in a file holding templates (`args`:
-    // every copy of one sits at its template's range, which the edit moves),
-    // walk everything; and each analysis reads what one without the cache does.
+    // signature edit walks the file and what can see it (its annex and
+    // examples), and a body edit in a file holding templates (`args`) the
+    // files whose copies of one moved with it (its examples deriving
+    // `FromArgs`); and each analysis reads what one without the cache does.
     #[test]
     fn the_check_cache_covers_a_std_tree() {
         let lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib").canonicalize().unwrap();
@@ -1498,7 +1499,13 @@ mod tests {
             overlay.insert(root.join(name), text);
             let cached = analyze(&overlay, Some(&mut checks));
             if everything {
-                assert_eq!(checks.walked().len(), cached.program.files.len(), "an interface edit of {name}");
+                // The file, and what can see it: its annex and its examples
+                // (nothing else in std imports `std.heap`), or for `args` the
+                // examples a template copy moved in.
+                let stem = name.trim_end_matches(".sv");
+                let walked: Vec<&str> = checks.walked().iter().map(|&f| cached.program.files[f].name.as_str()).collect();
+                assert!(walked.contains(&name) || name == "std/args.sv", "editing {name}: {walked:?}");
+                assert!(walked.len() > 1 && walked.iter().all(|w| w.starts_with(stem)), "editing {name}: {walked:?}");
             } else {
                 let walked: Vec<&str> = checks.walked().iter().map(|&f| cached.program.files[f].name.as_str()).collect();
                 assert_eq!(walked, [name], "editing {name}");
@@ -1506,6 +1513,54 @@ mod tests {
             }
             let uncached = analyze(&overlay, None);
             for ((what, a), (_, b)) in view(&cached, 0).into_iter().zip(view(&uncached, 0)) {
+                assert!(a == b, "{what} differ after editing {name}:\n{a:#?}\nwithout the cache:\n{b:#?}");
+            }
+        }
+    }
+
+    // [lsp-check-cache] An interface edit walks the edited file and what can
+    // see it, through imports and on through what those see: a leaf's
+    // signature its own file; a type `b` reads through `a`'s signature,
+    // `a`'s readers and theirs, and not the file that sees neither.
+    #[test]
+    fn an_interface_edit_walks_what_can_see_it() {
+        let front = build_std_front("");
+        let n = front.files().len();
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let src = repo.join("tmp/check_cache_test/dependents");
+        let _ = std::fs::remove_dir_all(&src);
+        std::fs::create_dir_all(&src).unwrap();
+        let files = [
+            ("t.sv", "export struct Token {\n    v: Int\n}\n"),
+            ("a.sv", "import t\n\nexport fn make() [] -> Token {\n    return Token { v: 1 }\n}\n"),
+            ("b.sv", "import a\n\nfn use_it() [] -> Int {\n    return make().v\n}\n"),
+            ("c.sv", "fn alone() [] -> Int {\n    return 2\n}\n"),
+        ];
+        for (name, text) in files {
+            std::fs::write(src.join(name), text).unwrap();
+        }
+        let root = src.canonicalize().unwrap();
+        let mut parse = ParseCache::new();
+        let mut checks = salvo_core::CheckCache::new();
+        let mut analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
+            analyze_project_with(&src, None, "", overlay, Some(&mut parse), Some(&front), true, checks, Examples::All).expect("analysis")
+        };
+        let first = analyze(&HashMap::new(), Some(&mut checks));
+        let walked_names = |a: &Analysis, w: &[usize]| -> Vec<String> { w.iter().map(|&f| a.program.files[f].name.clone()).collect() };
+        assert_eq!(checks.walked().len(), first.program.files.len() - n);
+        let edits: [(&str, String, &[&str]); 2] = [
+            ("c.sv", files[3].1.replace("fn alone() [] -> Int", "fn alone(x: Int) [] -> Int"), &["c.sv"]),
+            ("t.sv", files[0].1.replace("    v: Int\n", "    v: Int,\n    w: Int = 0\n"), &["a.sv", "b.sv", "t.sv"]),
+        ];
+        for (name, text, want) in edits {
+            analyze(&HashMap::new(), Some(&mut checks));
+            let overlay: HashMap<PathBuf, String> = [(root.join(name), text)].into_iter().collect();
+            let cached = analyze(&overlay, Some(&mut checks));
+            let mut walked = walked_names(&cached, checks.walked());
+            walked.sort();
+            assert_eq!(walked, want, "editing {name}");
+            let uncached = analyze(&overlay, None);
+            for ((what, a), (_, b)) in view(&cached, n).into_iter().zip(view(&uncached, n)) {
                 assert!(a == b, "{what} differ after editing {name}:\n{a:#?}\nwithout the cache:\n{b:#?}");
             }
         }

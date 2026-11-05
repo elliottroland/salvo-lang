@@ -211,7 +211,13 @@ impl CheckCache {
     /// `written_types` rows for their nodes move to the same nodes of their
     /// new modules (`node_map`), and its definition sites in them move with
     /// the text (`remap`).
-    pub(crate) fn plan(&mut self, program: &Program, first: usize, parking: &HashSet<String>) -> HashSet<usize> {
+    pub(crate) fn plan(
+        &mut self,
+        program: &Program,
+        first: usize,
+        parking: &HashSet<String>,
+        scopes: &[crate::resolve::ModuleScope<'_>],
+    ) -> HashSet<usize> {
         let n = program.files.len();
         let same_program = self.first == first
             && self.files.len() == n
@@ -224,6 +230,9 @@ impl CheckCache {
         }
         let mut changed: HashMap<usize, (Vec<(u32, u32)>, Vec<(u32, u32)>)> = HashMap::new();
         let mut moved: HashMap<usize, HashMap<usize, usize>> = HashMap::new();
+        // The files whose interface changed: walked, with every file that
+        // can depend on them.
+        let mut reshaped: HashSet<usize> = HashSet::new();
         for f in first..n {
             let Some(e) = self.entries.get(&f) else {
                 self.entries.clear();
@@ -236,15 +245,34 @@ impl CheckCache {
             let nodes = (iface == e.iface && bodies.len() == e.bodies.len())
                 .then(|| node_map(&e.module, &e.bodies, &program.modules[f], &bodies))
                 .flatten();
-            let Some(nodes) = nodes else {
-                self.entries.clear();
-                return HashSet::new();
-            };
-            moved.insert(f, nodes);
-            changed.insert(f, (e.bodies.clone(), bodies));
+            match nodes {
+                Some(nodes) => {
+                    moved.insert(f, nodes);
+                    changed.insert(f, (e.bodies.clone(), bodies));
+                }
+                None => {
+                    reshaped.insert(f);
+                }
+            }
         }
-        for f in changed.keys() {
+        for f in changed.keys().chain(&reshaped) {
             self.entries.remove(f);
+        }
+        if !reshaped.is_empty() {
+            let stale = dependents(program, first, scopes, &reshaped);
+            self.entries.retain(|f, e| {
+                // A file that can see a reshaped one; one whose rows point
+                // into one (a `written_types` row for its node, a definition
+                // site there), which no node map can move; and one holding a
+                // diagnostic, whose text may read what the whole program
+                // declares (an unresolved name's import suggestions).
+                !stale.contains(f)
+                    && !e.steps.iter().any(|s| {
+                        s.written.iter().any(|(_, owner, _, _)| reshaped.contains(owner))
+                            || s.errors.iter().any(|d| d.is_error() || !d.suggested_imports.is_empty())
+                    })
+                    && !e.rows.refs.values().filter_map(Ref::site).any(|site| reshaped.contains(&site.file))
+            });
         }
         let mut sound = true;
         for e in self.entries.values_mut() {
@@ -427,6 +455,44 @@ pub(crate) fn interface_of(content: &str, module: &Module) -> (Vec<(u32, u32)>, 
     }
     bytes[at..].iter().for_each(|b| eat(*b));
     (bodies, h)
+}
+
+/// [lsp-check-cache] The files from `first` on whose checking can read an
+/// interface of a file in `reshaped`: those whose scope takes in its module,
+/// followed through the modules each module's files see (a signature read
+/// through an import names types of modules the reader never imports).
+fn dependents(program: &Program, first: usize, scopes: &[crate::resolve::ModuleScope<'_>], reshaped: &HashSet<usize>) -> HashSet<usize> {
+    use crate::source::ModulePath;
+    // What each module's files see, in one step.
+    let mut sees: HashMap<&ModulePath, HashSet<&ModulePath>> = HashMap::new();
+    for (f, file) in program.files.iter().enumerate() {
+        let entry = sees.entry(&file.module).or_default();
+        entry.insert(&file.module);
+        if let Some(scope) = scopes.get(f) {
+            entry.extend(scope.modules.iter().copied());
+        }
+    }
+    let target: HashSet<&ModulePath> = reshaped.iter().map(|&f| &program.files[f].module).collect();
+    // A module reaches a reshaped one when it sees one, or sees a module
+    // that reaches one: grown to a fixed point.
+    let mut reaches: HashSet<&ModulePath> = target.clone();
+    loop {
+        let before = reaches.len();
+        for (m, seen) in &sees {
+            if !reaches.contains(m) && seen.iter().any(|s| reaches.contains(s)) {
+                reaches.insert(m);
+            }
+        }
+        if reaches.len() == before {
+            break;
+        }
+    }
+    (first..program.files.len())
+        .filter(|&f| {
+            let own = reaches.contains(&program.files[f].module);
+            own || scopes.get(f).is_some_and(|s| s.modules.iter().any(|m| reaches.contains(m)))
+        })
+        .collect()
 }
 
 /// [lsp-check-cache] The byte ranges of `content`'s runs of own-line `//`

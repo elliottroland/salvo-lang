@@ -149,6 +149,35 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-31 — The check cache walks only what can see an interface change (user decisions, [lsp-check-cache], ROADMAP §0be stage (b))
+
+- **Decided** (user, 2026-10-31): a file's dependents are the files that
+  can see its module, transitively (imports, the same module, everything for
+  `std.core`, its annex and examples, then what those see).
+- **Built** (`check_cache::dependents`, `CheckCache::plan`): a file whose
+  interface changed is walked with every file whose scope takes in its
+  module, closed over what each module's files see; also every cached file
+  whose rows point into it (no node map can move them) and every cached file
+  holding an error or an import suggestion (that text reads the whole
+  program). The cache is rebuilt only when the file list or the parking set
+  changes.
+- **Measured** (release, `lib/`): a `heap.sv` signature edit 829ms → 452ms,
+  walking `heap.sv`, its annex and its 8 examples (10 of 74); a `std.core`
+  signature edit still walks everything (~800ms). A body edit in `args.sv`
+  (which holds the `FromArgs` templates) now walks it and the 15 examples
+  whose copies of a template moved, not the whole tree.
+- **Found**: the claim that §0ax's qualifier-by-name lookup blocks this was
+  wrong. The checker reads a qualifier through the reading file's own scope,
+  so a cached file depends only on what it can see; the program-wide lookups
+  are the IR's and the Rust boundary's, which are not cached. The by-name
+  identity is still a soundness bug (ROADMAP §0ax): a probe where `main`
+  imports `a.pos() -> Pos Int` (a's `Pos`: positive) and declares its own
+  `Pos` (negative) passes `pos()` as `main`'s `Pos Int`, and runs.
+- **Shown by** `an_interface_edit_walks_what_can_see_it` (a leaf's signature
+  edit walks it alone; a type read through another module's signature walks
+  that module's readers too, not the unrelated file) and the extended
+  `the_check_cache_covers_a_std_tree`.
+
 ### 2026-10-31 — The check cache covers std's own tree (user decisions, [lsp-check-cache], ROADMAP §0be stage (a))
 
 - **Decided** (user, 2026-10-31): one cache for every file, designed per
