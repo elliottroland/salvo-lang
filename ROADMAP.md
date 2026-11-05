@@ -430,18 +430,6 @@ Parked (user, 2026-10-14): the user expects to move away from state structs and 
   `resolve_implicit_value` for each implicit without recording; a new
   diagnostic for the miss (the resolver's are worded for a call), reported
   once per written type.
-- **Open defect: a program's same-name qualifier over a particular subject
-  now overloads std's generic one instead of shadowing it** [qual-overload],
-  and std's type-body refinements, which name the claim, reach it by name.
-  Repro: declare `qualifier NonEmpty<T> for List<T> { fn qualifies(list:
-  List<T>) -> Bool { return list.size() > 1 } }` (a stricter meaning) and
-  `add(xs, 1)` to an empty `Mut List<Int>`: `List`'s `refn add => list:
-  +NonEmpty` establishes the program's claim too, which is false for a
-  one-element list. Before, the program's `for List<T>` replaced std's (same
-  subject). The tests that declared their own `NonEmpty` were renamed
-  `Filled`. Fix candidates: let a program's declaration of a std qualifier's
-  name shadow it whatever the subject, or key claims by declaration rather
-  than by name.
 - **A host boundary cannot check a claim whose `qualifies` takes an
   implicit**, so `platform fn names() -> NonEmpty List<Str>` is refused
   (`platform-check`), where the five per-container `NonEmpty`s were checked.
@@ -460,7 +448,7 @@ that would make the std/project split unnecessary. **User decisions
 (2026-10-31)**: per file, not per declaration; staged and measured after
 each stage — (a) the check cache without the std front, so `lib/` gets one
 (**built** 2026-10-31, COMPLETED.md), (b) dependency-based invalidation
-(after §0ax's qualifier-by-name), (c) resolve and the IR analyses cached per
+(built), (c) resolve and the IR analyses cached per
 file, (d) the std front folded into the cache; the goal today is editing std,
 designed for big user projects (gathers kept per file). Where an edit in
 `lib/std/heap.sv` goes after (a), release build, 414ms wall with the 120ms
@@ -809,25 +797,18 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
 
 ### 0ax — Names still read program-wide (the pipeline record C1.1, 2026-10-29)
 
-C1.1 moved the last program-wide lookups of a *written* name to keys. Two
-remain, each a design question rather than a lookup to swap (a third, the
-IR's `member_ref_by_name`, went with "Record what each call is in one
-table", which reads the member off the checker's call row):
+C1.1 moved the last program-wide lookups of a *written* name to keys. One
+remains, a design question rather than a lookup to swap (the IR's
+`member_ref_by_name` went with "Record what each call is in one table", and
+qualifiers took keys 2026-10-31, [qual-identity]):
 
-- **Qualifiers are identified by name in types** — a soundness bug, not
-  only a design question (probe 2026-10-31): `main.sv` with `import a.pos`
-  (`export fn pos() [] -> Pos Int`, a's `Pos`: `n > 0`) and its own
-  `qualifier Pos for Int` (`n < 0`) accepts `need(pos())` for `fn need(x: Pos
-  Int)` and prints 5. The user chose (2026-10-31) to give qualifiers keys as
-  types have; not needed for the check cache's dependencies (stage (b)). A `Ty` carries its
-  qualifiers by name (`Qual { name }`), so whatever needs the declaration
-  — the IR's `qual_fn_ref` (a `whynot?` or a default's check), the Rust
-  boundary check — finds it among every module's qualifiers of that name,
-  by subject. [mod-collision] refuses two *visible* qualifiers of one name,
-  which is why it holds today; two modules that never see each other, each
-  declaring `Q` over one type, would be confused. The fix is a key in `Qual`
-  (as `Ty::Named` has), which touches the deduction machinery, keyed by
-  qualifier name throughout.
+- **Two claims of one name read alike in a diagnostic** (left by
+  [qual-identity], 2026-10-31): a program's `NonEmpty for List<T>` beside
+  std's generic one gives "no matching overload for `need(Mut NonEmpty
+  List<Int>)`" where the argument holds std's `NonEmpty` and `need` wants the
+  program's. The hover already writes the keyed one `Name@module`; a
+  diagnostic could do the same where two keys of one name meet in it.
+  `tests/check/qualifiers/qualifiers.sv` holds the repro.
 - **Deadlock's inputs name handlers and tasks by written name**
   (`waitfor_sites`, `handler_constructs`, `actor_gates`, `actor_sends`,
   `task_mints`, the graph's node names): two modules' handlers of one name

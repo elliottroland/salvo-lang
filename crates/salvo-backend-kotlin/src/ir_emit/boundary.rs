@@ -35,6 +35,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             C::Qualifies { quals, inner, .. } => {
                 let mut out = String::new();
                 for (q, m) in quals {
+                    // A claim's key is its name in its own module's package.
+                    let q = salvo_core::typekey::plain(q);
                     out.push_str(&format!("{pad}if (!{}.{q}_qualifies({v})) {}\n", kotlin_package(m), fail(format!("was \u{1}, which is not `{q}`"))));
                 }
                 if let Some(inner) = inner {

@@ -263,11 +263,22 @@ pub fn refinement_section(groups: &[RefnGroup], scope: &DocScope) -> Option<Stri
     }
     let mut out = String::from("**Refinements** — in scope here:\n");
     for group in groups {
-        let mut effects: Vec<String> = group.add.iter().map(|q| format!("+{q}")).collect();
-        effects.extend(group.remove.iter().map(|q| format!("-{q}")));
+        // [qual-identity] Claims are keys; a reader sees the names, and
+        // `Name@module` where two modules' claims of one name meet.
+        let all: Vec<&String> = group.add.iter().chain(&group.remove).chain(&group.preserve).collect();
+        let shown = |q: &String| {
+            let plain = salvo_core::typekey::plain(q);
+            let clash = all.iter().any(|o| *o != q && salvo_core::typekey::plain(o) == plain);
+            match salvo_core::typekey::module_of(q) {
+                Some(m) if clash => format!("{plain}@{m}"),
+                _ => plain.to_string(),
+            }
+        };
+        let mut effects: Vec<String> = group.add.iter().map(|q| format!("+{}", shown(q))).collect();
+        effects.extend(group.remove.iter().map(|q| format!("-{}", shown(q))));
         // [qual-preserve] Part of what a reader needs: the call keeps other
         // values' dependent claims about this parameter alive.
-        effects.extend(group.preserve.iter().map(|q| format!("preserve {q}")));
+        effects.extend(group.preserve.iter().map(|q| format!("preserve {}", shown(q))));
         out.push_str(&format!(
             "\n- `[{}: {}]`",
             group.param,

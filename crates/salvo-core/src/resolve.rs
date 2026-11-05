@@ -678,6 +678,20 @@ pub struct Interfaces {
 
 /// [comptime-instantiate] The interfaces of `modules` before stamping, with
 /// the leading files' scopes `given` (a std front's).
+impl<'p> Resolution<'p> {
+    /// [qual-identity] The key a **written** qualifier reference means where
+    /// it is written, picked among same-named ones by the written subject's
+    /// base name (`base`; `names::pick_qual_key`): what everything outside
+    /// the checker that reads a qualifier off the text uses (the contracts,
+    /// the refinements, the IR). The name itself for a compiler qualifier.
+    pub fn qual_key(&self, symbols: &crate::program::Symbols<'p>, q: &salvo_syntax::ast::TypeRef, base: Option<&str>) -> String {
+        match self.names.written(q) {
+            Some(w) => self.names.meaning(w).qual_key(symbols, base).map(str::to_string).unwrap_or_else(|| q.name.name.clone()),
+            None => q.name.name.clone(),
+        }
+    }
+}
+
 pub fn interfaces<M: crate::decl_id::ModuleRef>(files: &[crate::source::SourceFile], modules: &[M], given: &[Option<GivenScope>]) -> Interfaces {
     let r = resolve_impl(files, modules, &|_| true, true, given);
     Interfaces { scope_ids: r.scope_ids, scope_errors: r.scope_errors, decls: r.decls, changed: HashSet::new() }
@@ -2445,6 +2459,143 @@ fn span_keys_add(out: &mut SpanKeys, at: CopyKey, key: Option<String>) {
             out.insert(at, None);
         }
     }
+}
+
+/// [qual-identity] The key of every written qualifier reference of
+/// `program` from file `first` on whose key is not its written name, by its
+/// copy key [node-file]: picked among same-named qualifiers by the written
+/// subject's base, which the text shows — the base of the type it qualifies,
+/// a deduction entry's parameter type (`Resolution::qual_key`). What
+/// `Symbols::qual_ref_key` answers, for everything that reads a qualifier off
+/// the text before or apart from the checker (the contracts, refinements,
+/// the IR).
+pub fn qual_ref_keys<'p>(
+    program: &'p Program,
+    resolution: &Resolution<'p>,
+    symbols: &crate::program::Symbols<'p>,
+    first: usize,
+) -> HashMap<CopyKey, String> {
+    use salvo_syntax::ast::{Deduction, FnDecl, Param, Type, TypeRef};
+    use salvo_syntax::visit::Visitor;
+    fn base_of(t: &Type) -> Option<&str> {
+        match t {
+            Type::Named { base, .. } => Some(base.name.name.as_str()),
+            Type::QualifiedGroup { base, .. } | Type::Nullable { inner: base, .. } => base_of(base),
+            _ => None,
+        }
+    }
+    struct Keys<'a, 'p> {
+        resolution: &'a Resolution<'p>,
+        symbols: &'a crate::program::Symbols<'p>,
+        out: HashMap<CopyKey, String>,
+        seen: std::collections::HashSet<CopyKey>,
+    }
+    impl Keys<'_, '_> {
+        fn record(&mut self, q: &TypeRef, base: Option<&str>) {
+            let Some(at) = copy_key(q) else { return };
+            if !self.seen.insert(at.clone()) {
+                return;
+            }
+            let key = self.resolution.qual_key(self.symbols, q, base);
+            if key != q.name.name {
+                self.out.insert(at, key);
+            }
+        }
+        fn deductions(&mut self, params: &[Param], deductions: &[Deduction]) {
+            for d in deductions {
+                let base = d.param_name().and_then(|n| params.iter().find(|p| p.name.name == n.name)).and_then(|p| base_of(&p.ty));
+                match &d.kind {
+                    salvo_syntax::ast::DeductionKind::Exhaustive { quals, reapplied } => {
+                        for q in quals.iter().chain(reapplied) {
+                            self.record(q, base);
+                        }
+                    }
+                    salvo_syntax::ast::DeductionKind::Remove(qs) | salvo_syntax::ast::DeductionKind::Preserve(qs) => {
+                        for q in qs {
+                            self.record(q, base);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        fn refn(&mut self, r: &salvo_syntax::ast::RefnDecl) {
+            for d in &r.deductions {
+                let base = r.params.iter().find(|p| p.name.name == d.param.name).and_then(|p| base_of(&p.ty));
+                for q in d.add.iter().chain(&d.remove).chain(&d.preserve) {
+                    self.record(q, base);
+                }
+            }
+            if let Some(resp) = &r.response {
+                for c in resp {
+                    let base = r.params.iter().find(|p| p.name.name == c.subject.name).and_then(|p| base_of(&p.ty));
+                    self.record(&c.qual, base);
+                }
+            }
+        }
+        fn fn_decl(&mut self, f: &FnDecl) {
+            if let Some(ds) = &f.deductions {
+                self.deductions(&f.params, ds);
+            }
+            if let Some(r) = &f.response {
+                for c in r {
+                    let base = f.params.iter().find(|p| p.name.name == c.subject.name).and_then(|p| base_of(&p.ty));
+                    self.record(&c.qual, base);
+                }
+            }
+            if let (Some(c), Some(rt)) = (&f.constructs, &f.return_type) {
+                self.record(c, base_of(rt));
+            }
+        }
+    }
+    impl Visitor for Keys<'_, '_> {
+        fn visit_type(&mut self, t: &Type) {
+            match t {
+                Type::Named { qualifiers, base } => {
+                    for q in qualifiers {
+                        self.record(q, Some(base.name.name.as_str()));
+                    }
+                }
+                Type::QualifiedGroup { qualifiers, base, .. } => {
+                    for q in qualifiers {
+                        self.record(q, base_of(base));
+                    }
+                }
+                _ => {}
+            }
+        }
+        fn visit_type_ref(&mut self, q: &TypeRef) {
+            // A qualifier reference no type or entry above placed: by name.
+            if self.resolution.names.written(q).is_some_and(|w| !self.resolution.names.meaning(w).qualifiers.is_empty()) {
+                self.record(q, None);
+            }
+        }
+    }
+    let mut keys = Keys { resolution, symbols, out: HashMap::new(), seen: std::collections::HashSet::new() };
+    for module in program.modules.iter().skip(first) {
+        for item in &module.items {
+            match item {
+                Item::Fn(f) => keys.fn_decl(f),
+                Item::Struct(st) => st.fns.iter().for_each(|f| keys.fn_decl(f)),
+                Item::Effect(e) => e.fns.iter().for_each(|f| keys.fn_decl(f)),
+                Item::Handler(h) => h.fns.iter().for_each(|f| keys.fn_decl(f)),
+                Item::Qualifier(q) => q.fns.iter().for_each(|f| keys.fn_decl(f)),
+                Item::Fns(g) => g.fns.iter().for_each(|f| keys.fn_decl(f)),
+                Item::Refn(r) => keys.refn(r),
+                _ => {}
+            }
+            // A qualifier's or a type's refinements, written in its body.
+            let refns: &[salvo_syntax::ast::RefnDecl] = match item {
+                Item::Qualifier(q) => &q.refns,
+                Item::Struct(st) => &st.refns,
+                Item::Type(t) => &t.refns,
+                _ => &[],
+            };
+            refns.iter().for_each(|r| keys.refn(r));
+        }
+        crate::check_cache::walk_module(&mut keys, module);
+    }
+    keys.out
 }
 
 /// [lsp-std-front] The agreed entries that differ from the written name.

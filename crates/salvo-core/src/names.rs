@@ -57,6 +57,26 @@ pub struct Meaning<'p> {
     pub members: Vec<(&'p EffectDecl, &'p salvo_syntax::ast::FnDecl)>,
 }
 
+/// [qual-identity] [qual-overload] Of the qualifier declarations a written
+/// name means, the key it is: theirs when they share one; else the one whose
+/// subject is the written base type (`base`, a plain name), else a generic
+/// one, else the first.
+pub fn pick_qual_key<'p>(candidates: &[&'p QualifierDecl], symbols: &crate::program::Symbols<'p>, base: Option<&str>) -> Option<&'p str> {
+    let first = candidates.first()?;
+    let key = |d: &QualifierDecl| symbols.qual_key(d);
+    let k0 = key(first);
+    if candidates.iter().all(|d| key(d) == k0) {
+        return Some(k0);
+    }
+    let about = |d: &&&'p QualifierDecl| crate::refine::of_base(&d.of, &d.generics);
+    if let Some(base) = base.map(crate::typekey::plain) {
+        if let Some(d) = candidates.iter().find(|d| about(d).as_deref() == Some(base)) {
+            return Some(key(d));
+        }
+    }
+    candidates.iter().find(|d| about(d).is_none()).map(|d| key(d)).or(Some(k0))
+}
+
 impl<'p> Meaning<'p> {
     /// What `name` means in `scope`.
     pub fn of(scope: &ModuleScope<'p>, name: &str) -> Meaning<'p> {
@@ -90,6 +110,16 @@ impl<'p> Meaning<'p> {
 
     /// [type-identity] The key of the declaration the name means as a type
     /// (or, failing one, as a handler): what `resolve::key_in` answers.
+    /// [qual-identity] [qual-overload] The key of the qualifier the name
+    /// means, where several are visible picked by the written subject's base
+    /// name (`base`): one module's declarations share a key, and of two
+    /// modules' a declaration about that very type beats a generic one (`for
+    /// T`), as the checker's subject pick does. `None` when no qualifier has
+    /// the name (a compiler qualifier, `Mut`, or nothing).
+    pub fn qual_key(&self, symbols: &crate::program::Symbols<'p>, base: Option<&str>) -> Option<&'p str> {
+        pick_qual_key(&self.qualifiers, symbols, base)
+    }
+
     pub fn key(&self, symbols: &crate::program::Symbols<'p>) -> Option<&'p str> {
         let addr = self
             .structure

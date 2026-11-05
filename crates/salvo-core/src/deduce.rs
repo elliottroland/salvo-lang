@@ -125,17 +125,15 @@ pub(crate) fn infer<'p>(
     let decls_arc = checked.decls.clone();
     let decls: &crate::decl_id::DeclIndex = &decls_arc;
     // [qual-subject] Provenance qualifiers survive every call, so an
-    // inferred entry must not claim to remove one. Collected program-wide:
-    // the deduction machinery is qualifier-*name* keyed throughout, and
-    // [mod-collision] already rejects one name declared by two visible
-    // modules.
+    // inferred entry must not claim to remove one. Collected program-wide,
+    // by key [qual-identity].
     let provenance: HashSet<String> = program
         .modules
         .iter()
         .flat_map(|ast| ast.items.iter())
         .filter_map(|item| match item {
             Item::Qualifier(q) if q.subject == QualSubject::Provenance => {
-                Some(q.name.name.clone())
+                Some(symbols.qual_key(q).to_string())
             }
             _ => None,
         })
@@ -307,15 +305,45 @@ pub(crate) fn infer<'p>(
     checked.deductions = states.into_iter().map(|(k, d)| (crate::check::Key::name_of(k), d)).collect();
 }
 
-/// The qualifier names written on the outside of a parameter type, in
+thread_local! {
+    /// [qual-identity] The written qualifier keys of the program being
+    /// checked (`resolve::qual_ref_keys`), while a check runs: what the
+    /// contract machinery, which reads qualifiers off the text, names a
+    /// written qualifier by (`qual_name`).
+    static QUAL_KEYS: std::cell::RefCell<Option<std::sync::Arc<HashMap<crate::resolve::CopyKey, String>>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// [qual-identity] Puts `keys` in force for this thread until the guard drops.
+pub(crate) fn with_qual_keys(keys: std::sync::Arc<HashMap<crate::resolve::CopyKey, String>>) -> QualKeysGuard {
+    QualKeysGuard(QUAL_KEYS.with(|k| k.replace(Some(keys))))
+}
+
+pub(crate) struct QualKeysGuard(Option<std::sync::Arc<HashMap<crate::resolve::CopyKey, String>>>);
+
+impl Drop for QualKeysGuard {
+    fn drop(&mut self) {
+        let previous = self.0.take();
+        QUAL_KEYS.with(|k| *k.borrow_mut() = previous);
+    }
+}
+
+/// [qual-identity] The key a written qualifier reference names: its
+/// declaration's (`Name§module` for one not std's), or its name.
+pub fn qual_name(q: &salvo_syntax::ast::TypeRef) -> String {
+    QUAL_KEYS
+        .with(|k| k.borrow().as_ref().and_then(|keys| crate::resolve::copy_key(q).and_then(|at| keys.get(&at).cloned())))
+        .unwrap_or_else(|| q.name.name.clone())
+}
+
+/// The qualifier keys written on the outside of a parameter type, in
 /// declaration order (`Mut NonEmpty List<T>` -> `["Mut", "NonEmpty"]`).
 pub fn declared_quals(ty: &Type) -> Vec<String> {
     match ty {
         Type::Named { qualifiers, .. } => {
-            qualifiers.iter().map(|q| q.name.name.clone()).collect()
+            qualifiers.iter().map(qual_name).collect()
         }
         Type::QualifiedGroup { qualifiers, .. } => {
-            qualifiers.iter().map(|q| q.name.name.clone()).collect()
+            qualifiers.iter().map(qual_name).collect()
         }
         Type::Nullable { inner, .. } => declared_quals(inner),
         Type::Spread { inner, .. } => declared_quals(inner),
@@ -457,7 +485,7 @@ pub(crate) fn from_written(
                             error(q.span, messages::deduce_syntax_type_narrowing());
                             continue;
                         }
-                        drop.push(q.name.name.clone());
+                        drop.push(qual_name(q));
                     }
                     QualEffect::Remove(drop)
                 }
@@ -487,13 +515,14 @@ pub(crate) fn from_written(
                         // judgement is `validate_written`'s; without one (an
                         // `intrinsic fn`, an effect member) there is nothing to
                         // check against, so it is refused here.
-                        if !declared.contains(&q.name.name)
+                        let key = qual_name(q);
+                        if !declared.contains(&key)
                             && !is_reapplied
                             && decl.body.is_none()
                         {
                             error(q.span, messages::deduce_gained_bodiless(&q.name.name, &name));
                         } else {
-                            keep.push(q.name.name.clone());
+                            keep.push(key);
                         }
                     }
                     QualEffect::Exhaustive(keep)
@@ -668,12 +697,11 @@ fn validate_contract(
         let survives = i.effect.kept_quals(&declared);
         // [deduce-reapply] A claim written `+Q` is **established by this
         // function**, so the body is not asked whether it survived.
-        let reapplied: Vec<&str> = match entry.map(|e| &e.kind) {
-            Some(DeductionKind::Exhaustive { reapplied, .. }) => {
-                reapplied.iter().map(|q| q.name.name.as_str()).collect()
-            }
+        let reapplied_keys: Vec<String> = match entry.map(|e| &e.kind) {
+            Some(DeductionKind::Exhaustive { reapplied, .. }) => reapplied.iter().map(qual_name).collect(),
             _ => Vec::new(),
         };
+        let reapplied: Vec<&str> = reapplied_keys.iter().map(String::as_str).collect();
         for q in &promised {
             if !w.kept || survives.contains(q) || reapplied.contains(&q.as_str()) {
                 continue;

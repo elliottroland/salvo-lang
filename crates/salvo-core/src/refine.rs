@@ -646,7 +646,7 @@ fn resolve_refn<'p>(
             decl.params
                 .iter()
                 .position(|p| p.name.name == r.subject.name)
-                .map(|pos| (pos, r.negated, r.qual.name.name.clone()))
+                .map(|pos| (pos, r.negated, crate::deduce::qual_name(&r.qual)))
         })
         .collect();
     // [qual-refn-narrow] A precondition is about the parameter the refinement
@@ -805,7 +805,7 @@ fn check_refined_qual<'p>(
                 return None;
             }
         }
-        return Some((q.to_string(), qd));
+        return Some((crate::deduce::qual_name(r), qd));
     }
     if let (Some(of), Some(base)) = (of_base(&qd.of, &qd.generics), param_base(&param.ty)) {
         if of != base {
@@ -817,7 +817,8 @@ fn check_refined_qual<'p>(
             return None;
         }
     }
-    Some((q.to_string(), qd))
+    // [qual-identity] The claim by its key, as types carry it.
+    Some((crate::deduce::qual_name(r), qd))
 }
 
 /// Whether a written deduction list gives `param` back to the caller
@@ -1032,14 +1033,11 @@ fn preconditions(refn: &[Param], callee: &[Param]) -> Vec<(String, Vec<String>)>
     out
 }
 
-/// The qualifier names written on a type, outermost first.
+/// The qualifier keys written on a type, outermost first [qual-identity].
 fn qual_names(ty: &Type) -> Vec<String> {
     match ty {
-        Type::Named { qualifiers, .. } => {
-            qualifiers.iter().map(|q| q.name.name.clone()).collect()
-        }
-        Type::QualifiedGroup { qualifiers, .. } => {
-            qualifiers.iter().map(|q| q.name.name.clone()).collect()
+        Type::Named { qualifiers, .. } | Type::QualifiedGroup { qualifiers, .. } => {
+            qualifiers.iter().map(crate::deduce::qual_name).collect()
         }
         _ => Vec::new(),
     }

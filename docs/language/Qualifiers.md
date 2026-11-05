@@ -118,6 +118,14 @@ Whether a value can genuinely carry two particular claims at once is not
 stated by any pairwise relation. It is implicit in which functions mint each
 qualifier and in each qualifier's own `qualifies` test.
 
+A qualifier is its declaration, not its name, as a type is. Two modules may
+each declare a `Pos`, and they are two different claims: a value that one
+module's `Pos` was proved of is no proof of the other's, though both are
+written `Pos`, and each `is Pos` test runs its own module's `qualifies`. In
+the same way, a program that declares its own `NonEmpty` over `List` has a
+claim of its own beside std's: std's functions establish std's `NonEmpty`,
+and a function asking for the program's is not satisfied by them.
+
 The word `with` appears elsewhere in Salvo, where it cannot be confused with
 a qualifier: after a `use` or `spawn`, `with` names the dependency instances
 to supply (see

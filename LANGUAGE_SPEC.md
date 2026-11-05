@@ -1784,6 +1784,29 @@ Conventions:
     ([iter-protocol], [fn-once]) — the alternative, inferring it from the
     presence of a `next`, would attach an obligation to someone's type on
     the strength of a method name.
+* [qual-identity] **A qualifier is its declaration, not its name**, as a
+  type is [type-identity] (user decision 2026-10-31): two modules' `Pos`
+  are two claims, and a value carrying one is no proof of the other.
+  Every qualifier has a key spelled as a type's: std's first declaration of
+  a name is the name, every other `Name§module`; one module's overloads of a
+  name over different subjects [qual-overload] share a key. `Qual.name`
+  holds the key, and `Symbols::qualifiers` is keyed by it.
+  * A written qualifier name means the key of what it resolves to where it
+    is written: of the visible declarations, the one key they share, else
+    the one whose `for` base is the written subject's base, else a generic
+    one (`for T`), else the first (`names::pick_qual_key`). The checker picks
+    it as it lowers (`written_qual_key`); every reference read off the text
+    before or outside the checker — deduction lists, `+Q`, a constructor's
+    `as Q`, a response clause, a refinement's entries, the IR's and the wire
+    codecs' approximate types — reads the table `resolve::qual_ref_keys`
+    builds once per check (`Symbols::qual_ref_key`, `deduce::qual_name`).
+  * Refinements, deductions and `is` tests act on keys, so std's `List`
+    refining `add` to `+NonEmpty` establishes std's `NonEmpty` and not a
+    program's own `NonEmpty for List<T>`.
+  * A key never reaches a user: `Qual`'s display, diagnostics, `whynot?`
+    messages, the boundary checks' messages and the emitted `qualifies`
+    names use the written name (`typekey::plain`); a hover listing two
+    claims of one name shows the keyed one as `Name@module`.
 * [qual-overload] **A qualifier name may be declared over several subject
   types**, and which one a use means is decided by the subject — the way a
   function overload is decided by its arguments (user decision 2026-09-13).
@@ -1798,9 +1821,9 @@ Conventions:
     (a rename is not importable [fn-rename]), the same escape
     `first(NonEmpty List<T>)` makes by delegating to `get` [col-of-nonempty].
   * A user's same-name qualifier over a particular subject (`qualifier
-    NonEmpty<T> for List<T>`) now sits beside std's generic one as an overload
-    rather than shadowing it, and std's type-body refinements, which name the
-    claim, reach it by name. Recorded in ROADMAP.md as an open defect.
+    NonEmpty<T> for List<T>`) sits beside std's generic one as an overload
+    rather than shadowing it. It is a claim of its own [qual-identity], so
+    std's type-body refinements, which establish std's, do not reach it.
   * The subject is keyed **syntactically, by the `for` type's base name**
     (`List`, `Set`, …). A generic `for` (`qualifier Ok<T> for T`) has no base
     name, accepts every subject, and so cannot be told apart from another

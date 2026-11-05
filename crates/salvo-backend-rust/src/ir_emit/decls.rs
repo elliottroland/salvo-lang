@@ -1436,6 +1436,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                         None => decl.name.name.replace('.', ""),
                     };
                     let prefix = self.s.prefix(m);
+                    let q = salvo_core::typekey::plain(q);
                     out.push_str(&format!("{pad}if !{prefix}{base}_qualifies({arg}) {{\n{pad}    panic!(\"salvo: {what_fmt} was {{:?}}, which is not `{q}` [platform-check]\", {v});\n{pad}}}\n"));
                 }
                 if let Some(inner) = inner {

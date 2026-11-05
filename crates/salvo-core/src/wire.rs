@@ -286,7 +286,7 @@ pub fn approx_ty(t: &Type, subst: &HashMap<String, Ty>, symbols: &Symbols<'_>) -
                 .iter()
                 .map(|q| Qual {
                     effect: false,
-                    name: q.name.name.clone(),
+                    name: symbols.qual_ref_key(q).to_string(),
                     args: Vec::new(),
                 })
                 .collect();
@@ -298,7 +298,7 @@ pub fn approx_ty(t: &Type, subst: &HashMap<String, Ty>, symbols: &Symbols<'_>) -
                 .iter()
                 .map(|q| Qual {
                     effect: false,
-                    name: q.name.name.clone(),
+                    name: symbols.qual_ref_key(q).to_string(),
                     args: Vec::new(),
                 })
                 .collect();

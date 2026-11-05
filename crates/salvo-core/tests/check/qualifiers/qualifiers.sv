@@ -73,3 +73,65 @@ export fn f() -> None {
     //~ error[var-let-infer:annotation-mismatch]
     let _x: Fancy Int = 1
 }
+
+//--- two_modules_qualifiers_of_one_name_are_two_claims
+// [qual-identity] Each module's `Pos` is its own claim: `a`'s positive
+// number is no proof of `main`'s negative one, though both are spelled `Pos`
+// and `main` reaches `a`'s through `pos`'s result.
+// FILE: a.sv
+export qualifier Pos for Int {
+    fn qualifies(n: Int) -> Bool {
+        return n > 0
+    }
+}
+
+export fn pos() [] -> Pos Int {
+    let n = 5
+    if n is Pos {
+        return n
+    }
+    return pos()
+}
+// FILE: main.sv
+import a.pos
+
+qualifier Pos for Int {
+    fn qualifies(n: Int) -> Bool {
+        return n < 0
+    }
+}
+
+fn need(x: Pos Int) [] -> Int => !x {
+    return x
+}
+
+fn mine() [] -> Int {
+    let n = -5
+    if n is Pos {
+        return need(n)
+    }
+    //~ error[call-resolve:no-overload]
+    return need(pos())
+}
+
+//--- a_programs_claim_of_a_std_name_is_its_own
+// [qual-identity] A program's `NonEmpty` over `List` (a stricter meaning)
+// sits beside std's generic one, and std's refinements establish std's
+// claim only: `List`'s `refn add => list: +NonEmpty` leaves a one-element
+// list short of the program's.
+qualifier NonEmpty<T> for List<T> {
+    fn qualifies(list: List<T>) -> Bool {
+        return list.size() > 1
+    }
+}
+
+fn need(xs: NonEmpty List<Int>) [] -> Int => xs {
+    return 1
+}
+
+fn f() -> None {
+    let xs: Mut List<Int> = Mut List()
+    add(xs, 1)
+    //~ error[call-resolve:no-overload]
+    let _n = need(xs)
+}

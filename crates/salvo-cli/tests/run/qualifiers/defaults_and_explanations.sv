@@ -200,3 +200,45 @@ fn main() [use] -> None {
 //= "long" is longer than 3 characters
 //= invalid value '3' for '--count': 3 is odd
 //= invalid value 'abcd' for '--name': "abcd" is longer than 3 characters
+
+// [qual-identity] Two modules' qualifiers of one name are two claims, and
+// each `is` test runs its own module's `qualifies`: `a`'s `Pos` holds 5 and
+// `main`'s holds -5, neither the other.
+//--- two_modules_qualifiers_of_one_name_run_their_own_tests
+// FILE: a.sv
+export qualifier Pos for Int {
+    fn qualifies(n: Int) -> Bool {
+        return n > 0
+    }
+}
+
+export fn describe(n: Int) [] -> Str {
+    if n is Pos {
+        return "a's Pos"
+    }
+    return "not a's Pos"
+}
+// FILE: main.sv
+import a.describe
+
+qualifier Pos for Int {
+    fn qualifies(n: Int) -> Bool {
+        return n < 0
+    }
+}
+
+fn mine(n: Int) [] -> Str {
+    if n is Pos {
+        return "main's Pos"
+    }
+    return "not main's Pos"
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    println("${describe(5)}, ${mine(5)}")
+    println("${describe(-5)}, ${mine(-5)}")
+}
+//= stdout
+//= a's Pos, not main's Pos
+//= not a's Pos, main's Pos

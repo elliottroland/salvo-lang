@@ -2299,6 +2299,12 @@ fn check_program_walk<'p>(
     // their table, so the two sides of a refinement — what it means
     // at a call site and what it means for a contract — cannot come from
     // different data.
+    // [qual-identity] What every written qualifier reference means, before
+    // anything reads one off the text (the contracts, the refinements).
+    let t = crate::timing::phase("check: qualifier keys");
+    symbols.seed_qual_keys(std::sync::Arc::new(crate::resolve::qual_ref_keys(program, resolution, symbols, cache.map_or(0, |c| c.std_files))));
+    let _qual_keys = symbols.qual_keys_table().map(crate::deduce::with_qual_keys);
+    drop(t);
     let t = crate::timing::phase("check: refinements");
     let refinements = crate::refine::collect(program, resolution);
     drop(t);
@@ -3589,13 +3595,16 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// (only a top-level fn does; the rest key by their name span).
     fn check_signature_facts(&mut self, module: &'p Module) {
         // [deduce-reapply] The same-file rule for `+Q` reads this.
+        // [qual-identity] By key, and by the name written in this file (which
+        // means this module's own).
         self.own_qualifiers = module
             .items
             .iter()
             .filter_map(|item| match item {
-                Item::Qualifier(q) => Some(q.name.name.clone()),
+                Item::Qualifier(q) => Some([q.name.name.clone(), self.symbols.qual_key(q).to_string()]),
                 _ => None,
             })
+            .flatten()
             .collect();
         // [qual-refn-type] The types this file declares, by their keys
         // [type-identity]: their author may establish a generic claim about
@@ -5057,13 +5066,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.declare_rename(decl, own);
             }
         }
+        // [qual-identity] By key, and by the name written in this file (which
+        // means this module's own).
         self.own_qualifiers = module
             .items
             .iter()
             .filter_map(|item| match item {
-                Item::Qualifier(q) => Some(q.name.name.clone()),
+                Item::Qualifier(q) => Some([q.name.name.clone(), self.symbols.qual_key(q).to_string()]),
                 _ => None,
             })
+            .flatten()
             .collect();
         // [qual-refn-type] The types this file declares, by their keys
         // [type-identity]: their author may establish a generic claim about
@@ -6471,7 +6483,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .map(|rt| self.lower_type(rt))
                 .unwrap_or_else(Ty::none);
             let empty = HashMap::new();
-            let quals = self.lower_quals(std::slice::from_ref(cref), &empty, 0);
+            let quals = self.lower_quals(std::slice::from_ref(cref), &empty, 0, Some(&base));
             let claimed = base.qualify(quals);
             self.collect_binder_slots(&claimed, cref.span, &mut captured);
         }
@@ -6496,7 +6508,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let base = self.lower_type(&param.ty);
             for q in reapplied {
                 let empty = HashMap::new();
-                let quals = self.lower_quals(std::slice::from_ref(q), &empty, 0);
+                let quals = self.lower_quals(std::slice::from_ref(q), &empty, 0, Some(&base));
                 let claimed = base.clone().qualify(quals);
                 self.collect_binder_slots(&claimed, q.span, &mut captured);
             }
@@ -10022,14 +10034,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                         messages::deduce_conditional_moved(&r.subject.name, &f.name.name),
                     );
                 }
-                if self.qualifier_named(r.qual.name.name.as_str()).is_none() {
+                if self.written_qual_decl(&r.qual).is_none() {
                     self.error(
                         r.qual.span,
                         messages::deduce_conditional_unknown_qualifier(&r.qual.name.name),
                     );
                 } else {
                     let subj = self.lower_type(&p.ty);
-                    if let Some(decl) = self.qualifier_for(r.qual.name.name.as_str(), Some(&subj)) {
+                    if let Some(decl) = self.written_qual(&r.qual, Some(&subj)) {
                         if !self.qual_applies(decl, subj.strip_quals()) {
                             self.error(
                                 r.qual.span,
@@ -10063,16 +10075,16 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let mut names: Vec<String> = Vec::new();
             for q in quals {
+                // [qual-identity] By the key the entry's name means.
+                let key = self.symbols.qual_ref_key(q).to_string();
                 let dependent = self
-                    .scope
-                    .qualifiers
-                    .get(q.name.name.as_str())
+                    .qual_decls_of(&key)
                     .is_some_and(|ds| ds.iter().any(|d| !d.value_slots.is_empty()));
                 if !dependent {
                     self.error(q.span, messages::qual_depend_preserve_not_dependent(&q.name.name));
                     continue;
                 }
-                names.push(q.name.name.clone());
+                names.push(key);
             }
             if !names.is_empty() {
                 preserve.insert(name.name.clone(), names);
@@ -12429,7 +12441,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [qual-overload] [name-table] The first qualifier a written name
     /// means where it is written.
     fn written_qual_decl(&self, q: &TypeRef) -> Option<&'p QualifierDecl> {
-        self.named(q).qualifiers.first().copied()
+        self.named(q).qualifiers.first().copied().or_else(|| self.symbols.qualifiers.get(q.name.name.as_str()).and_then(|ds| ds.first().copied()))
     }
 
     /// [lsp-definition] [name-table] A written qualifier name -> its
@@ -18625,14 +18637,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::Literal { value, .. } => Ty::Lit(value.clone()),
             ast::Type::Named { qualifiers, base } => {
                 let lowered = self.lower_base_ref(base, subst, depth);
-                let quals = self.lower_quals(qualifiers, subst, depth);
+                let quals = self.lower_quals(qualifiers, subst, depth, Some(&lowered));
                 lowered.qualify(quals)
             }
             ast::Type::QualifiedGroup {
                 qualifiers, base, ..
             } => {
                 let lowered = self.lower_type_subst(base, subst, depth);
-                let quals = self.lower_quals(qualifiers, subst, depth);
+                let quals = self.lower_quals(qualifiers, subst, depth, Some(&lowered));
                 lowered.qualify(quals)
             }
             ast::Type::Union { arms, .. } => {
@@ -18719,7 +18731,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             match t {
                 ast::Type::Named { qualifiers, .. }
                 | ast::Type::QualifiedGroup { qualifiers, .. } => {
-                    qualifiers.iter().map(|q| q.name.name.clone()).collect()
+                    qualifiers.iter().map(crate::deduce::qual_name).collect()
                 }
                 _ => Vec::new(),
             }
@@ -18730,8 +18742,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             .map(|(t, name)| {
                 let declared = declared_quals(t);
                 let mutable = declared.iter().any(|q| q == "Mut");
+                // [qual-identity] Keys, as the types they act on carry.
                 let names = |items: &[ast::TypeRef]| -> Vec<String> {
-                    items.iter().map(|q| q.name.name.clone()).collect()
+                    items.iter().map(crate::deduce::qual_name).collect()
                 };
                 let (kept, effect) = match (name, deductions) {
                     (Some(id), Some(list)) => {
@@ -18873,6 +18886,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         qualifiers: &[TypeRef],
         subst: &HashMap<String, Ty>,
         depth: usize,
+        subject: Option<&Ty>,
     ) -> Vec<Qual> {
         // [cmp-carry] A qualifier that declares fn slots takes **identities**
         // in its argument list, in slot order — never types: a qualifier's
@@ -18882,7 +18896,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         let slotted: Vec<Option<Vec<FnSlotInfo>>> = qualifiers
             .iter()
             .map(|q| {
-                let slots = self.qual_fn_slots(&q.name.name);
+                let key = self.written_qual_key(q, subject);
+                let slots = self.qual_fn_slots(&key);
                 if slots.is_empty() {
                     None
                 } else {
@@ -18919,12 +18934,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.record_qualifier_def(q);
                 out.push(Qual {
                     effect: false,
-                    name: q.name.name.clone(),
+                    name: self.written_qual_key(q, subject),
                     args,
                 });
                 continue;
             }
-            out.push(self.lower_qual_plain(q, subst, depth));
+            out.push(self.lower_qual_plain(q, subst, depth, subject));
         }
         out
     }
@@ -19042,11 +19057,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [cmp-carry] The visible declaration of a qualifier name.
     fn qual_decl(&self, name: &str) -> Option<&'p QualifierDecl> {
-        self.scope
-            .qualifiers
-            .get(name)
-            .and_then(|decls| decls.first())
-            .copied()
+        self.qualifier_named(name)
     }
 
     /// [default-fits] Checks a `= default` against the slot it fills: a struct
@@ -19589,9 +19600,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         q: &TypeRef,
         subst: &HashMap<String, Ty>,
         depth: usize,
+        subject: Option<&Ty>,
     ) -> Qual {
         let one = std::slice::from_ref(q);
-        self.lower_quals_plain(one, subst, depth).remove(0)
+        self.lower_quals_plain(one, subst, depth, subject).remove(0)
     }
 
     fn lower_quals_plain(
@@ -19599,6 +19611,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         qualifiers: &[TypeRef],
         subst: &HashMap<String, Ty>,
         depth: usize,
+        subject: Option<&Ty>,
     ) -> Vec<Qual> {
         let kept: Vec<&TypeRef> = qualifiers.iter().filter(|q| !self.is_route_key(q)).collect();
         kept.into_iter()
@@ -19625,7 +19638,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let m = self.named(q);
                         !m.is_qualifier() && m.effect.is_some()
                     },
-                    name: q.name.name.clone(),
+                    name: self.written_qual_key(q, subject),
                     args: q
                         .args
                         .iter()
@@ -20943,7 +20956,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             // one. The identity's own check is the lowering's
             // (`written_fn_id`), which is where the static-identity rule and
             // its diagnostic live.
-            if !self.qual_fn_slots(&q.name.name).is_empty() {
+            let key = self.written_qual_key(q, Some(base));
+            if !self.qual_fn_slots(&key).is_empty() {
                 continue;
             }
             for a in &q.args {
@@ -20968,7 +20982,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // and the base type written in front of the qualifier says which.
         let decls: Vec<Option<&'p QualifierDecl>> = qualifiers
             .iter()
-            .map(|q| self.qualifier_for(q.name.name.as_str(), Some(base)))
+            .map(|q| self.written_qual(q, Some(base)))
             .collect();
         // [qual-const] A constant fills a value slot of its own type:
         // `Short('p')` a `Char`, `Prefix("arn:")` a `Str`, `InRange(0, 9)` an
@@ -21069,7 +21083,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // subject: with several candidates the resolution simply
                     // found none, which must be the same error as a single
                     // declaration that does not apply rather than silence.
-                    if self.qualifier_named(q.name.name.as_str()).is_some() {
+                    if self.written_qual_decl(q).is_some() {
                         self.error(q.span, messages::qual_of_does_not_apply(&q.name.name, &base));
                     }
                     continue;
@@ -21095,7 +21109,21 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// over an unknown or generic subject still resolves; that is also the
     /// path every program took before overloading existed.
     fn qualifier_for(&mut self, name: &str, subject: Option<&Ty>) -> Option<&'p QualifierDecl> {
-        let candidates = self.scope.qualifiers.get(name)?.clone();
+        let candidates = self.qual_decls_of(name)?;
+        self.pick_qual(candidates, subject)
+    }
+
+    /// [qual-identity] The declarations of a qualifier **key** (one module's
+    /// overloads of a name). A name no key spells is read as written here.
+    fn qual_decls_of(&self, key: &str) -> Option<Vec<&'p QualifierDecl>> {
+        match self.symbols.qualifiers.get(key) {
+            Some(ds) => Some(ds.clone()),
+            None => self.scope.qualifiers.get(key).cloned(),
+        }
+    }
+
+    /// [qual-overload] Of a name's declarations, the one about `subject`.
+    fn pick_qual(&mut self, candidates: Vec<&'p QualifierDecl>, subject: Option<&Ty>) -> Option<&'p QualifierDecl> {
         match candidates.as_slice() {
             [] => None,
             [one] => Some(*one),
@@ -21118,13 +21146,39 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [qual-identity] [qual-overload] The declaration a **written** qualifier
+    /// name means where it is written: its key (`written_qual_key`), and of
+    /// that module's overloads the one about `subject`.
+    fn written_qual(&mut self, q: &TypeRef, subject: Option<&Ty>) -> Option<&'p QualifierDecl> {
+        let key = self.written_qual_key(q, subject);
+        let candidates = self.qual_decls_of(&key)?;
+        self.pick_qual(candidates, subject)
+    }
+
+    /// [qual-identity] The key a written qualifier name lowers to: of the
+    /// declarations visible under it, the one `names::pick_qual_key` picks by
+    /// the subject's base, as everything after resolution picks it; the name
+    /// itself for a compiler qualifier (`Mut`, `proj`) and one nothing
+    /// declares. A reference the checker made from a type carries a key.
+    fn written_qual_key(&mut self, q: &TypeRef, subject: Option<&Ty>) -> String {
+        let candidates = self.named(q).qualifiers.clone();
+        if candidates.is_empty() {
+            return q.name.name.clone();
+        }
+        let base = match subject.map(Ty::strip_quals) {
+            Some(Ty::Named { name, .. }) => Some(name.clone()),
+            _ => None,
+        };
+        crate::names::pick_qual_key(&candidates, self.symbols, base.as_deref()).map(str::to_string).unwrap_or_else(|| q.name.name.clone())
+    }
+
     /// [qual-overload] A qualifier with this name, for questions that are
     /// about the *name* rather than about a subject — does one exist, does it
     /// have a body, is it provenance. Where several are declared these
     /// answers agree in practice (they are the same claim over different
     /// containers), and the first is as good as any.
     fn qualifier_named(&self, name: &str) -> Option<&'p QualifierDecl> {
-        self.scope.qualifiers.get(name)?.first().copied()
+        self.qual_decls_of(name)?.first().copied()
     }
 
     /// [deduce-reapply] [qual-ctor-same-file] [qual-refn-type] Whether this
@@ -21139,7 +21193,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let Some(base) = subject else { return false };
         self.own_types.contains(base)
-            && self.scope.qualifiers.get(name).is_some_and(|ds| {
+            && self.qual_decls_of(name).is_some_and(|ds| {
                 ds.iter().any(|d| {
                     d.subject == QualSubject::State && crate::refine::of_base(&d.of, &d.generics).is_none()
                 })
@@ -21343,7 +21397,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             .flat_map(|d| match &d.kind {
                 salvo_syntax::ast::DeductionKind::Exhaustive { quals, .. } => quals
                     .iter()
-                    .map(|q| q.name.name.clone())
+                    .map(|q| self.symbols.qual_ref_key(q).to_string())
                     .filter(|q| !declared.contains(q))
                     .collect::<Vec<_>>(),
                 _ => Vec::new(),
@@ -21390,8 +21444,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 {
                     if name.name == param {
                         for q in quals {
-                            if !out.contains(&q.name.name) {
-                                out.push(q.name.name.clone());
+                            let key = self.symbols.qual_ref_key(q).to_string();
+                            if !out.contains(&key) {
+                                out.push(key);
                             }
                         }
                     }
@@ -21732,7 +21787,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             ast::Type::Named { base, .. } => Some(base.name.name.clone()),
             _ => None,
         };
-        self.record_callee(self.key(span), Callee::QualMember { qualifier: q.name.name.clone(), member: f.name.name.clone(), of });
+        self.record_callee(self.key(span), Callee::QualMember { qualifier: self.symbols.qual_key(q).to_string(), member: f.name.name.clone(), of });
         ret
     }
 
@@ -22032,7 +22087,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(q.span, messages::deduce_reapply_compiler_qualifier(&name));
                     continue;
                 }
-                if !self.may_establish(name, param.as_ref().and_then(|t| match t.strip_quals() {
+                // [qual-identity] What the entry's name means, by key.
+                let key = self.written_qual_key(q, param.as_ref());
+                if !self.may_establish(&key, param.as_ref().and_then(|t| match t.strip_quals() {
                     Ty::Named { name, .. } => Some(name.as_str()),
                     _ => None,
                 })) {
@@ -22041,7 +22098,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 let Some(param_ty) = &param else { continue };
                 let empty = HashMap::new();
-                let lowered = self.lower_quals(std::slice::from_ref(q), &empty, 0);
+                let lowered = self.lower_quals(std::slice::from_ref(q), &empty, 0, Some(param_ty));
                 let Some(lowered) = lowered.into_iter().next() else {
                     continue;
                 };
@@ -22050,7 +22107,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // arguments must agree, since the caller's value keeps the type
                 // it had. With no such claim this is a fresh **establishment**
                 // and the written arguments are the claim.
-                let held = param_ty.quals().iter().find(|pq| pq.name == name).cloned();
+                let held = param_ty.quals().iter().find(|pq| pq.name == key).cloned();
                 match &held {
                     Some(pq) if !q.args.is_empty() && lowered.args != pq.args => {
                         let show = |args: &[Ty]| {
@@ -22075,7 +22132,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // Establishing a claim the parameter does not hold: the
                         // rules a constructor's `as Q` answers to apply here for
                         // the same reason [qual-ctor-fn].
-                        if let Some(decl) = self.qualifier_for(name, Some(param_ty)) {
+                        if let Some(decl) = self.qualifier_for(&key, Some(param_ty)) {
                             if !self.qual_applies(decl, param_ty.strip_quals()) {
                                 self.error(
                                     q.span,
@@ -22220,15 +22277,16 @@ impl<'p, 'r> Checker<'p, 'r> {
         let Some(cref) = &f.constructs else { return };
         let name = cref.name.name.as_str();
         let subject = f.return_type.as_ref().map(|t| self.lower_type(t));
-        let Some(decl) = self.qualifier_for(name, subject.as_ref()) else {
+        let Some(decl) = self.written_qual(cref, subject.as_ref()) else {
             self.error(cref.span, messages::qual_ctor_fn_unknown_qualifier(&name));
             return;
         };
+        let key = self.written_qual_key(cref, subject.as_ref());
         let subject_base = match subject.as_ref().map(|t| t.strip_quals()) {
             Some(Ty::Named { name, .. }) => Some(name.clone()),
             _ => None,
         };
-        if !self.may_establish(name, subject_base.as_deref()) {
+        if !self.may_establish(&key, subject_base.as_deref()) {
             self.error(cref.span, messages::qual_ctor_same_file_other_file(&name));
         }
         let Some(rt) = &f.return_type else {
@@ -22261,7 +22319,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // mints carries its identity: `-> Mut List<T> as Heap(?cmp)`
                 // publishes the ordering the call resolved.
                 let empty = HashMap::new();
-                let quals = self.lower_quals(std::slice::from_ref(cref), &empty, 0);
+                let quals = self.lower_quals(std::slice::from_ref(cref), &empty, 0, Some(&ret));
                 ret.qualify(quals)
             }
             None => ret,
@@ -22288,11 +22346,11 @@ fn established_quals(ty: &ast::Type) -> Vec<(String, Span, Option<ast::Type>)> {
             ast::Type::Named { qualifiers, base } => {
                 for q in qualifiers {
                     if q.established {
-                        out.push((q.name.name.clone(), q.span, Some(ast::Type::Named { qualifiers: Vec::new(), base: base.clone() })));
+                        out.push((crate::deduce::qual_name(q), q.span, Some(ast::Type::Named { qualifiers: Vec::new(), base: base.clone() })));
                     }
                 }
                 if base.established {
-                    out.push((base.name.name.clone(), base.span, None));
+                    out.push((crate::deduce::qual_name(base), base.span, None));
                 }
             }
             ast::Type::QualifiedGroup {
@@ -22300,7 +22358,7 @@ fn established_quals(ty: &ast::Type) -> Vec<(String, Span, Option<ast::Type>)> {
             } => {
                 for q in qualifiers {
                     if q.established {
-                        out.push((q.name.name.clone(), q.span, subject(base)));
+                        out.push((crate::deduce::qual_name(q), q.span, subject(base)));
                     }
                 }
                 go(base, out);
@@ -26994,7 +27052,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let t = self.out.expr_ty.get(&self.key(arg.span())).cloned().unwrap_or(Ty::Unknown);
                 (t.clone(), t)
             };
-            let qual = self.lower_quals(std::slice::from_ref(&r.qual), &HashMap::new(), 0);
+            let qual = self.lower_quals(std::slice::from_ref(&r.qual), &HashMap::new(), 0, Some(&narrowed_base));
             let qual_set: HashSet<String> = qual.iter().map(|q| q.name.clone()).collect();
             // `is` adds the qualifier on the true branch; `!is` removes it
             // there. The opposite holds on the false branch.
@@ -27621,6 +27679,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut qual_args = Vec::new();
         let mut base = None;
         let mut unresolved = false;
+        let mut qual_refs: Vec<&TypeRef> = Vec::new();
         for (i, r) in check.iter().enumerate() {
             let last = i + 1 == check.len();
             // [mod-namespace] A leading-dot sugar name (`.S`) resolves against the
@@ -27673,6 +27732,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // through to the enclosing expression's `Bool`.
                 self.record_written_def(r);
                 quals.push(r.name.name.clone());
+                qual_refs.push(r);
                 // [qual-depend] The filled block: `k is KeyOf(m)` — the
                 // places arrive as value arguments on the check's ref.
                 qual_args.push(
@@ -27707,6 +27767,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 );
                 unresolved = true;
             }
+        }
+        // [qual-identity] A checked qualifier is its key, picked by the
+        // checked base (or the subject's) as a written type's is.
+        let subject = base.clone().or_else(|| expected.cloned());
+        for (q, r) in quals.iter_mut().zip(qual_refs) {
+            *q = self.written_qual_key(r, subject.as_ref());
         }
         CheckPat {
             quals,
@@ -31960,11 +32026,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // be invisible here — and `sort(List(unorderable))` is
                 // exactly the inferred case this block exists for.
                 let lowered = match &decl.constructs {
-                    Some(cref) => lowered.qualify(vec![crate::types::Qual {
-                        effect: false,
-                        name: cref.name.name.clone(),
-                        args: Vec::new(),
-                    }]),
+                    Some(cref) => {
+                        let name = self.written_qual_key(cref, Some(&lowered));
+                        lowered.qualify(vec![crate::types::Qual { effect: false, name, args: Vec::new() }])
+                    }
                     None => lowered,
                 };
                 self.check_key_eligibility_ty(&lowered, span, 0);

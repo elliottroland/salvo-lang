@@ -149,6 +149,41 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-31 — Qualifiers have keys, as types have (user decision, [qual-identity])
+
+- **Decided** (user, 2026-10-31: "Let's give them proper keys", before cache
+  stage (c)): a qualifier is its declaration, as a type is [type-identity].
+  Rejected: re-checking every file that mentions a qualifier name, which
+  would have kept the by-name identity and its wrong code.
+- **Built**: a key per declaration, spelled as a type's (std's first of a
+  name plain, every other `Name§module`; one module's overloads share it);
+  `Qual.name` holds it and `Symbols::qualifiers` is keyed by it. The checker
+  lowers a written name to its key by the subject (`written_qual_key`,
+  `names::pick_qual_key`), in types, `is` tests and re-typings, `+Q`,
+  constructors' `as Q`, slots and `preserve` entries. What reads references
+  off the text outside the lowering (deduction lists, refinements, response
+  clauses, the IR's erased types, the wire codecs) reads one table built per
+  check, `resolve::qual_ref_keys` (2.6ms on `lib/`, debug). Display,
+  diagnostics, `whynot?` messages, boundary checks and emitted names show the
+  plain name; the refinement hover writes `Name@module` where two claims of
+  one name meet.
+- **Fixed**: the probe from stage (b) (`main`'s negative `Pos` accepting
+  `a`'s positive one) is refused, and the [qual-overload] open defect (a
+  program's `NonEmpty for List<T>` was established by std's `List` refining
+  `add`) is gone with it: std's refinement establishes std's claim.
+- **Found**: refinements inside a qualifier's or a type's body are not
+  top-level items, so the reference table has to walk `refns` of
+  qualifiers, structs and types as well as `Item::Refn`; missing them made
+  the qualifiers example's `refn add => list: +NonEmpty` establish std's
+  claim instead of its own.
+- **Shown by** check data `qualifiers.sv`
+  (`two_modules_qualifiers_of_one_name_are_two_claims`,
+  `a_programs_claim_of_a_std_name_is_its_own`) and run data
+  `two_modules_qualifiers_of_one_name_run_their_own_tests` (each module's
+  `is Pos` runs its own `qualifies`, both backends).
+- **Left** (ROADMAP §0ax): a diagnostic where two claims of one name meet
+  prints both as the name.
+
 ### 2026-10-31 — The check cache walks only what can see an interface change (user decisions, [lsp-check-cache], ROADMAP §0be stage (b))
 
 - **Decided** (user, 2026-10-31): a file's dependents are the files that
@@ -40164,6 +40199,15 @@ snapshot diffs.
   looked harmless. Check the edited text in the same shell command as the
   build (`grep -c 'new text' file && touch file && cargo build`), and trust
   a run's output only when it shows the change you expect.
+
+- **A qualifier name compared with a `Qual` must be a key** (2026-10-31,
+  [qual-identity]). `Qual.name` is a key (`Pos§main`), so any code that
+  matches a written `TypeRef`'s `name.name` against a type's qualifiers, or
+  builds a `Qual` from one, silently misses a program's own qualifiers: a
+  failed fit shows up as "no matching overload for `f(Pos Int)`" with the
+  same text on both sides. Read written references through
+  `Checker::written_qual_key` (with the subject), `Symbols::qual_ref_key` or
+  `deduce::qual_name`; print keys through `typekey::plain`.
 
 - **A generated module is still a module everywhere** (2026-10-31, doc
   examples). An example of `std.core.list` named `std.core.list.#…` passed

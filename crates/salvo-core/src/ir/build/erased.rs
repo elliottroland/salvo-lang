@@ -75,7 +75,7 @@ impl<'p> Ctx<'p> {
                 // parameter in scope.
                 let builtin = matches!(key.as_str(), "None" | "Str" | "List" | "Array" | "Bytes" | "Addr" | "Reply" | "Pool" | "Map" | "Set" | "Deque" | "SortedSet" | "SortedMap" | "Heap");
                 if args.is_empty() && !builtin && !self.symbols.key_modules.contains_key(key.as_str()) && !self.symbols.intrinsic_types.contains_key(key.as_str()) && !self.symbols.structs.contains_key(key.as_str()) && !self.symbols.type_aliases.contains_key(key.as_str()) && !self.symbols.effects.contains_key(key.as_str()) {
-                    let quals: Vec<Qual> = qualifiers.iter().map(|q| Qual { effect: false, name: q.name.name.clone(), args: Vec::new() }).collect();
+                    let quals: Vec<Qual> = qualifiers.iter().map(|q| Qual { effect: false, name: self.symbols.qual_ref_key(q).to_string(), args: Vec::new() }).collect();
                     return Some(Ty::Var(key).qualify(quals));
                 }
                 let named = match self.symbols.type_aliases.get(key.as_str()).copied().and_then(|a| a.alias.as_ref().map(|t| (a, t))) {
@@ -85,12 +85,12 @@ impl<'p> Ctx<'p> {
                     }
                     None => Ty::Named { name: key, args },
                 };
-                let quals: Vec<Qual> = qualifiers.iter().map(|q| Qual { effect: false, name: q.name.name.clone(), args: Vec::new() }).collect();
+                let quals: Vec<Qual> = qualifiers.iter().map(|q| Qual { effect: false, name: self.symbols.qual_ref_key(q).to_string(), args: Vec::new() }).collect();
                 Some(named.qualify(quals))
             }
             ast::Type::QualifiedGroup { qualifiers, base, .. } => {
                 let inner = self.approx_keyed(base, subst, depth + 1)?;
-                let quals: Vec<Qual> = qualifiers.iter().map(|q| Qual { effect: false, name: q.name.name.clone(), args: Vec::new() }).collect();
+                let quals: Vec<Qual> = qualifiers.iter().map(|q| Qual { effect: false, name: self.symbols.qual_ref_key(q).to_string(), args: Vec::new() }).collect();
                 Some(inner.qualify(quals))
             }
             ast::Type::Union { arms, .. } => Some(Ty::union_of(arms.iter().map(|a| self.approx_keyed(a, subst, depth + 1)).collect::<Option<_>>()?)),

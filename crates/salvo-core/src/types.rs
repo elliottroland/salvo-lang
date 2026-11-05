@@ -1526,7 +1526,12 @@ pub fn most_specific(candidates: &[RankedCandidate]) -> Option<usize> {
 
 impl fmt::Display for Qual {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)?;
+        // [qual-identity] A key is shown as the name it was written as; in a
+        // dump, with its module [dump-spelling].
+        match crate::typekey::module_of(&self.name) {
+            Some(module) if SHOW_KEYS.with(|s| s.get()) => write!(f, "{}@{module}", crate::typekey::plain(&self.name))?,
+            _ => write!(f, "{}", crate::typekey::plain(&self.name))?,
+        }
         fmt_args(f, &self.args)
     }
 }

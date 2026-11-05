@@ -53,7 +53,15 @@ fn facts(program: &Program, checked: &Checked, fn_name: &str, param: &str) -> (b
         .find(|p| p.name.name == param)
         .map(|p| salvo_core::deduce::declared_quals(&p.ty))
         .unwrap_or_default();
-    (ded.kept, ded.effect.kept_quals(&declared))
+    // [qual-identity] The effect names keys (`A§main`); these tests ask
+    // about the names written.
+    let plain = |qs: &[String]| qs.iter().map(|q| salvo_core::typekey::plain(q).to_string()).collect::<Vec<_>>();
+    let effect = match &ded.effect {
+        salvo_core::QualEffect::Exhaustive(q) => salvo_core::QualEffect::Exhaustive(plain(q)),
+        salvo_core::QualEffect::Remove(q) => salvo_core::QualEffect::Remove(plain(q)),
+        other => other.clone(),
+    };
+    (ded.kept, effect.kept_quals(&declared))
 }
 
 /// The *form* of one parameter's effect, for the [deduce-syntax] polarity
@@ -66,8 +74,8 @@ fn effect_form(program: &Program, checked: &Checked, fn_name: &str, param: &str)
         .unwrap_or_else(|| panic!("no deduction entry for `{param}` in `{fn_name}`"));
     match &ded.effect {
         salvo_core::QualEffect::KeepAll => "keep-all".to_string(),
-        salvo_core::QualEffect::Exhaustive(q) => format!("exhaustive: {}", q.join(" ")),
-        salvo_core::QualEffect::Remove(q) => format!("remove: {}", q.join(" ")),
+        salvo_core::QualEffect::Exhaustive(q) => format!("exhaustive: {}", salvo_core::typekey::shown_text(&q.join(" "))),
+        salvo_core::QualEffect::Remove(q) => format!("remove: {}", salvo_core::typekey::shown_text(&q.join(" "))),
     }
 }
 

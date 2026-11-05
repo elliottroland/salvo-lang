@@ -2525,11 +2525,13 @@ impl<'a, 'p> Lower<'a, 'p> {
         use salvo_syntax::doc::{self, TemplatePart};
         let str_ty = Ty::named("Str");
         let text = |s: String| Expr { ty: Ty::named("Str"), span, kind: ExprKind::Str(s) };
+        // [qual-identity] The check names a key; the message, the name.
+        let name = crate::typekey::plain(&check.name).to_string();
         let Some(target) = self.qual_fn_ref(&check.name, &subject.ty, "qualifies") else {
-            return text(format!("the value is not {}", check.name));
+            return text(format!("the value is not {name}"));
         };
         let Some((fi, qf)) = self.decl_fn(&target) else {
-            return text(format!("the value is not {}", check.name));
+            return text(format!("the value is not {name}"));
         };
         let params: Vec<(String, ast::Type)> = qf.params.iter().filter(|p| !p.implicit).map(|p| (p.name.name.clone(), p.ty.clone())).collect();
         let template = doc::split(&qf.docs).tag("whynot").map(|t| doc::template(&t.text));
@@ -2538,9 +2540,9 @@ impl<'a, 'p> Lower<'a, 'p> {
             Some(parts) => parts,
             None => {
                 let shown = if check.args.is_empty() {
-                    check.name.clone()
+                    name.clone()
                 } else {
-                    format!("{}({})", check.name, check.args.iter().map(|a| a.path.clone()).collect::<Vec<_>>().join(", "))
+                    format!("{}({})", name, check.args.iter().map(|a| a.path.clone()).collect::<Vec<_>>().join(", "))
                 };
                 return Expr { ty: str_ty, span, kind: ExprKind::Concat(vec![subject_text, text(format!(" is not {shown}"))]) };
             }

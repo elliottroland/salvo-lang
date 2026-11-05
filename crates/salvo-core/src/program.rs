@@ -84,9 +84,14 @@ pub struct Symbols<'p> {
     /// another module still has to name the right package (Kotlin) or mount
     /// (Rust).
     pub handler_modules: HashMap<&'p str, &'p ModulePath>,
-    /// [qual-overload] Overload sets: one name may be declared over several
-    /// subject types, and a backend picks by the subject in hand.
+    /// [qual-overload] [qual-identity] Overload sets by **key**: one module's
+    /// declarations of a name over several subject types share it, and the
+    /// subject in hand picks among them. A key is a qualifier's identity, as a
+    /// type's is: std's first declaration of a name is the name, every other
+    /// `Name§module` (`typekey`).
     pub qualifiers: HashMap<&'p str, Vec<&'p QualifierDecl>>,
+    /// [qual-identity] The key of every qualifier declaration, by address.
+    pub qual_keys: HashMap<usize, &'p str>,
     /// [platform-check] The module each qualifier is declared in, by
     /// declaration: a boundary check calls its `qualifies` by full path.
     pub qualifier_modules: Vec<(&'p QualifierDecl, &'p ModulePath)>,
@@ -115,9 +120,18 @@ pub struct Symbols<'p> {
     /// (`resolve::written_keys_by_span`): read off the resolved names and
     /// handed over by whoever resolved them (`seed_ref_keys`).
     ref_keys: std::sync::OnceLock<HashMap<crate::resolve::CopyKey, String>>,
+    /// [qual-identity] The key of every written qualifier reference whose key
+    /// is not its name, by its copy key (`resolve::qual_ref_keys`), handed
+    /// over by whoever resolved the names (`seed_qual_keys`).
+    qual_ref_keys: std::sync::OnceLock<std::sync::Arc<HashMap<crate::resolve::CopyKey, String>>>,
 }
 
 impl<'p> Symbols<'p> {
+    /// [qual-identity] The key of a qualifier declaration.
+    pub fn qual_key(&self, decl: &QualifierDecl) -> &'p str {
+        self.qual_keys.get(&(decl as *const QualifierDecl as usize)).copied().unwrap_or_else(|| crate::typekey::keyed(&decl.name.name, "?"))
+    }
+
     /// [platform-check] The module declaring `decl`.
     pub fn qualifier_module(&self, decl: &QualifierDecl) -> Option<&'p ModulePath> {
         self.qualifier_modules.iter().find(|(q, _)| std::ptr::eq(*q, decl)).map(|(_, m)| *m)
@@ -154,7 +168,29 @@ impl<'p> Symbols<'p> {
         let symbols = Symbols::collect(program);
         let resolution = crate::resolve::resolve(program);
         symbols.seed_ref_keys(&crate::resolve::written_keys_by_span(program, &resolution, &symbols));
+        symbols.seed_qual_keys(std::sync::Arc::new(crate::resolve::qual_ref_keys(program, &resolution, &symbols, 0)));
         symbols
+    }
+
+    /// [qual-identity] Hands [`Symbols::qual_ref_key`] the program's written
+    /// qualifier keys. A no-op once they are known.
+    pub fn seed_qual_keys(&self, keys: std::sync::Arc<HashMap<crate::resolve::CopyKey, String>>) {
+        let _ = self.qual_ref_keys.set(keys);
+    }
+
+    /// [qual-identity] The written qualifier keys, as seeded.
+    pub fn qual_keys_table(&self) -> Option<std::sync::Arc<HashMap<crate::resolve::CopyKey, String>>> {
+        self.qual_ref_keys.get().cloned()
+    }
+
+    /// [qual-identity] The key a written qualifier reference means where it is
+    /// written (its name when that is its key: std's, a compiler qualifier).
+    pub fn qual_ref_key<'a>(&'a self, q: &'a TypeRef) -> &'a str {
+        self.qual_ref_keys
+            .get()
+            .and_then(|keys| crate::resolve::copy_key(q).and_then(|at| keys.get(&at)))
+            .map(String::as_str)
+            .unwrap_or(&q.name.name)
     }
 
     /// [type-identity] [name-table] Hands [`Symbols::ref_key`] the program's
@@ -283,6 +319,8 @@ impl<'p> Symbols<'p> {
             }
         }
         let keys = symbols.decl_keys.clone();
+        // [qual-identity] Which std module first declared each qualifier name.
+        let mut first_std_qual: HashMap<&'p str, &'p ModulePath> = HashMap::new();
         let key = |addr: usize, name: &'p str| -> &'p str { keys.get(&addr).copied().unwrap_or(name) };
         for unit in program.units() {
             for item in &unit.ast.items {
@@ -309,7 +347,14 @@ impl<'p> Symbols<'p> {
                     }
                     Item::Fns(_) => {}
                     Item::Qualifier(q) => {
-                        symbols.qualifiers.entry(&q.name.name).or_default().push(q);
+                        // [qual-identity] std's first declaration of a name is
+                        // the name (std's text is fixed, and its claims are
+                        // named by the compiler), every other `Name§module`.
+                        let module: &'p ModulePath = &unit.file.module;
+                        let plain = unit.file.is_std && *first_std_qual.entry(q.name.name.as_str()).or_insert(module) == module;
+                        let k: &'p str = if plain { &q.name.name } else { crate::typekey::keyed(&q.name.name, &module.to_string()) };
+                        symbols.qualifiers.entry(k).or_default().push(q);
+                        symbols.qual_keys.insert(q as *const QualifierDecl as usize, k);
                         symbols.qualifier_modules.push((q, &unit.file.module));
                     }
                     // An `intrinsic type` is the compiler's; anything else
