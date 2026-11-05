@@ -235,15 +235,19 @@ fn main() [use, spawn] {
 //= first 7
 //= total 5
 
-// [name-dot] [kt-nested-dot-name] A `type` namespacing its members — the
-// shape the aws generator uses for Smithy enums: Rust concatenates the
-// names, Kotlin nests the members in an `object` named for the type.
+// [name-dot] [kt-nested-dot-name] A `type` beside a namespace of its name
+// holding its arms — the shape the aws generator uses for Smithy enums: Rust
+// concatenates the names, Kotlin nests the members in an `object` named for
+// the type.
 //--- a_type_namespace
 // FILE: sc.sv
 export type StorageClass = StorageClass.Standard | StorageClass.Glacier | StorageClass.Unknown
-export struct StorageClass.Standard {}
-export struct StorageClass.Glacier {}
-export struct StorageClass.Unknown { value: Str }
+
+export namespace StorageClass {
+    struct Standard {}
+    struct Glacier {}
+    struct Unknown { value: Str }
+}
 
 export fn describe(c: StorageClass) [] -> Str => c {
     when c {

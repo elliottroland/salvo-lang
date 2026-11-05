@@ -673,28 +673,29 @@ Conventions:
   * A predicate qualifier's `Q_qualifies` keeps the plain name and overloads
     on the JVM parameter type (`[is-qualifies]`); a qualifier is declared once
     per subject.
-* [kt-nested-dot-name] A dot-named struct [name-dot] emits as a Kotlin
-  **nested** class inside its namespace class — never `inner`, which
+* [kt-nested-dot-name] A namespaced struct [name-dot] emits as a Kotlin
+  **nested** class inside its namespace's class or object — never `inner`, which
   would capture an outer instance and could not be constructed on its
   own. The namespace class grows a body holding its members; the member
   is declared under its own segment (`data class Id(...)`) while every
   *reference* keeps the dotted spelling (`Environment.Id`), which is
   valid Kotlin nested access and needs no import beyond the module
   wildcard [kt-imports].
-  * Because the member is a plain nested class, the namespace struct must
-    not be generic (enforced in `resolve`): a nested class cannot use the
-    outer class's type parameters.
+  * Because the member is a plain nested class, it never uses the outer
+    class's type parameters, so a struct sharing its name with the
+    namespace may be generic (`data class Pair<S, T>(…) { data class Label
+    … }`, referenced `Pair.Label`).
   * **Any depth** [mod-namespace]: `Outer.Inner.Thing` nests an `object`/class
     tree (`object Outer { object Inner { data class Thing … } }`), and the
     reference keeps the full dotted spelling. A `namespace X { … }` block is
     an `object X`; a struct that is itself a namespace reopens its `data
     class` with the nested members. The recursive emitter (`emit_struct_namespace`)
     reads the authoritative namespace set from `ir::Module.namespaces` — a
-    flattened dotted name alone cannot say whether a prefix was a `namespace`
-    or a dot-named struct (they may share a name [mod-namespace]).
-  * A **`type` namespace** [name-dot] has no class of its own — Kotlin expands
-    a Salvo `type` structurally — so its members nest in an `object` of the
-    type's name (`object StorageClass { class Standard … }`), and references
+    flattened dotted name alone cannot say whether a prefix is a namespace
+    alone or also a struct (they may share a name [mod-namespace]).
+  * A **`type` beside a namespace of its name** [name-dot] has no class of
+    its own — Kotlin expands a Salvo `type` structurally — so the members nest
+    in an `object` of the type's name (`object StorageClass { class Standard … }`), and references
     keep the dotted spelling unchanged. Codecs for the members follow the
     object at top level, as for a struct namespace.
   * A **namespaced free fn** does *not* nest: unlike a type, a function has no
@@ -702,7 +703,7 @@ Conventions:
     (`Outer.Inner.make` → `fun Outer_Inner_make`, and every call the same) —
     mirroring the Rust backend. The namespace still keeps the name unique, and
     no `object` has to hold the fn [mod-namespace].
-  * Dot-named *qualifiers* emit nothing (qualifiers erase
+  * Namespaced *qualifiers* emit nothing (qualifiers erase
     [qual-erasure]); they only reach output through mangling, where the
     dot canonicalizes to the flat spelling
     (`label__EnvironmentTag`) [fn-emit-name].
@@ -995,7 +996,7 @@ nothing but the monitor.
   every generic struct with a `T?` field), `PairCodec`/
   `TripleCodec`, `UnionNCodec(c1, …)` generated in the unions file. Every
   struct with a wire form gets a top-level `object __Codec_S` (a `class`
-  taking one codec per type parameter when generic; a nested dot-named
+  taking one codec per type parameter when generic; a nested namespaced
   struct's is `__Codec_Outer_Inner`, since a named `object` cannot be local),
   every actor protocol with one gets `object __Codec___Msg_E` plus `const val
   __PROTO_E`. `encode(v)` lowers to `salvoEncode(v, codec)` with the codec
@@ -1068,7 +1069,7 @@ nothing but the monitor.
   | a union, to build | its factories: `FsErrors.notFound(…)`, `ReadToStr.ok(…)` [platform-factory] |
   | `T?` | `T?` [kt-union-nullable] |
   | a union of *n* ≥ 2 runtime arms | `salvo.UnionN<A, …>`, arms `UnionN.Uk(value)` in runtime-arm order, tested `is UnionN.Uk<*, …>` [kt-union-wrappers] [type-union-arm-identity]; nullable when it has a `None` arm |
-  | `struct S { f: T }` | `data class S(val f: T)` with the field names in camel case [kt-camel]; a dot-name `A.B` is `A.B`, nested in an `object` [kt-nested-dot-name]; a keyword is back-quoted |
+  | `struct S { f: T }` | `data class S(val f: T)` with the field names in camel case [kt-camel]; a namespaced name `A.B` is `A.B`, nested in an `object` [kt-nested-dot-name]; a keyword is back-quoted |
   | `Checked<T>` | `salvo.std.core.checked.Checked(value)` |
   | `Reply<T>` parameter | `salvo.SalvoReply`; `.hosted()` answers the host reply whose `send(v)` may run on any thread, exactly once [platform-reply] |
   | `InStream` / `OutStream` | `salvo.std.stream.InStream(handle: Long)`; the table is Salvo (`runtime.streams`); host code reaches it through `hoststreams.kt`'s `SalvoStreams.registerIn/registerOut` and `takeIn` (a `SalvoIn` reader whose failures are `SalvoFaultException`) [stream-table] |

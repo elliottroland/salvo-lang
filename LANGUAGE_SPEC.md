@@ -11799,24 +11799,28 @@ between endpoints and delivers what arrives into the scheduler.
     report only the arm mismatch (the name was silently read as a base
     type) plus a bogus consumed-value error, and never the missing
     declaration.
-* [name-dot] A struct or qualifier may be declared with a *dot-name*
-  `Ns.Name` (N1, user decisions 2026-09-03), giving the Kotlin
-  wrapper-type idiom (`Environment.Id`) without nested declarations.
-  Dot-names are legal in every type position: annotations, `for` types,
-  `is` checks, `+Q` constructors, `canbe` clauses, deduction clauses,
-  struct literals.
-  * `Ns` must be a **namespace** — a `namespace X { … }` block [mod-namespace],
-    or (the legacy spelling) a struct or defined `type` declared in the
-    **same file**. A struct/`type` used as a namespace must not be generic —
-    Kotlin emits the member as a *nested* class, which cannot reference the
-    outer class's type parameters [kt-nested-dot-name].
-  * Any nesting depth: `A.B.C.Thing` is a member of nested namespaces
-    [mod-namespace] (the old exactly-two-segment cap is lifted — it survives only
-    as the shape of a *hand-written* legacy dot-name, `Ns.Name`).
+* [name-dot] **A namespaced name is one dotted name.** A member `Id` of
+  `namespace Environment { … }` [mod-namespace] is the declaration
+  `Environment.Id`, giving the Kotlin wrapper-type idiom without nested
+  declarations. A declaration's own name is one segment: `struct
+  Environment.Id { … }` is a parse error, and the dotted name is written
+  with a `namespace` block (user decision 2026-10-31, retiring the inline
+  dot-name `struct Ns.Name` and its rule that a same-file struct or `type`
+  namespaces its dot-named members: one way to spell a namespaced name, and
+  no exception in naming). Dotted names are legal in every type position:
+  annotations, `for` types, `is` checks, `+Q` constructors, `canbe`
+  clauses, deduction clauses, struct literals; the leading-dot shorthand
+  (`.Id`) applies wherever an expected type is in view [mod-namespace].
+  * A struct or `type` may share its name with the namespace beside it
+    (`struct Environment { id: Environment.Id }`, `type StorageClass =
+    StorageClass.Standard | …`), which is how a generated enum keeps its
+    cases apart from another enum's `Standard`. The struct may be generic:
+    the namespace's members cannot see its type parameters, and Kotlin nests
+    them as plain nested classes [kt-nested-dot-name].
   * **Collision ban:** nothing visible in the file may carry the
     *concatenated* spelling (`EnvironmentId` beside `Environment.Id`).
-    The Rust backend flattens dot-names, and overload mangling embeds the
-    same spelling [rs-fn-mangling] [fn-emit-name], so the ban is
+    The Rust backend flattens namespaced names, and overload mangling embeds
+    the same spelling [rs-fn-mangling] [fn-emit-name], so the ban is
     checked against the whole scope — own module (all its files),
     `std.core.*`, and imports — not just the declaring file. No encoding
     escapes this: Rust identifiers are `[A-Za-z0-9_]`, so every encoding
@@ -11826,28 +11830,21 @@ between endpoints and delivers what arrives into the scheduler.
     Backends translate at the point
     a Salvo name becomes target syntax: Kotlin renders a *type* verbatim (a
     valid nested reference) and flattens a *fn* name to underscores
-    (`Outer_Inner_make`); Rust flattens every dotted name.
-  * **A `type` may be the namespace** (user decision 2026-09-29, the aws
-    design's 16): `type StorageClass =
-    StorageClass.Standard | …` with `struct StorageClass.Standard {}` beside
-    it — how a generated enum keeps its cases apart from another enum's
-    `Standard`. Same rules: same file, not generic, the
-    concatenation free; an `intrinsic type` has no body and cannot be one.
-    Importing the type brings its members, by the same name-prefix rule
-    [name-dot-import]. Kotlin nests the members in an `object StorageClass`
+    (`Outer_Inner_make`); Rust flattens every dotted name. Kotlin nests a
+    `type`'s namespace members in an `object` of the type's name
     [kt-nested-dot-name] (the type itself is expanded structurally, so the
-    name is free); Rust concatenates as for a struct.
+    name is free); Rust concatenates.
 * [mod-namespace] A **`namespace X { … }`** groups any top-level declarations —
   functions, types, structs, qualifiers, effects, handlers, and nested
   namespaces — under a capitalized name (user decision 2026-10-16). `namespace`
   is a **contextual** keyword, recognised only at item position when a
   capitalized name follows (`namespace AttributeValue`), so it stays an
   ordinary identifier — a variable, a field, a call — everywhere else (user
-  refinement 2026-10-17). It is the general form of the dot-name mechanism: a
+  refinement 2026-10-17). It is the only way to write a dotted name: a
   member `Thing` of `namespace X`
   is a top-level declaration named `X.Thing`, flattened to that dotted name
   before anything else sees it (in `parse_module_deferred`), so the rest of
-  the compiler handles it exactly as a `[name-dot]` name. Namespaces nest to
+  the compiler handles it as one name [name-dot]. Namespaces nest to
   any depth (`Outer.Inner.Thing`).
   * A namespace is a **separate facet**: it may share its name with a type at
     the same level — `namespace AttributeValue { … }` beside
@@ -11890,20 +11887,18 @@ between endpoints and delivers what arrives into the scheduler.
     (`Outer.Inner.make(x)`): a `Field` chain of uppercase namespace segments
     ending in a lowercase fn name resolves to the flat key `Outer.Inner.make`,
     a direct call with no receiver (not dot-notation).
-* [name-dot-import] `import path.Ns.Name` imports a dot-named item; the
+* [name-dot-import] `import path.Ns.Name` imports a namespace member; the
   path splits by casing — trailing uppercase segments are the item name
-  (two of them for a dot-name), everything before is the module prefix,
+  (two of them for a member), everything before is the module prefix,
   and a lowercase last segment is a value (a fn), as before
   [mod-import].
-  * Importing the namespace struct also brings its dot-named members
-    (`import a.b.Environment` makes `Environment.Id` visible), following
-    the precedent that importing an effect brings its members. Members
-    ride along only on an *unaliased* import: an alias renames exactly
-    one name, and a partial rename would have no sensible spelling.
   * **A whole namespace is importable** [mod-namespace]: `import mod.X` brings
     every exported member under the `X.` prefix (kept written `X.member` — not
-    a flat dump like a whole-module import), and `import mod.X as Y` rewrites
-    the `X.` prefix to `Y.` for references in this file.
+    a flat dump like a whole-module import), together with a struct or
+    `type` named `X` itself (`import a.b.Environment` makes `Environment`
+    and `Environment.Id` visible), following the precedent that importing an
+    effect brings its members. `import mod.X as Y` rewrites the `X.` prefix
+    to `Y.` for references in this file.
 * [mod-collision] Non-fn name collisions are errors, not last-win —
   same-name fns form overload sets and are exempt. Reported: a same-kind
   same-name duplicate within one module; the same name declared in two
@@ -13081,7 +13076,7 @@ replaced the working document TESTING.md).
     on their own — the **declarations** the platform surface reaches
     (`salvo_core::abi::platform_closure`: platform handlers' effects and
     parameters, platform fns' signatures, then struct fields, alias
-    definitions, dot-named members, effect member signatures and
+    definitions, namespaced members, effect member signatures and
     prerequisites, to a fixed point), emitted as the build emits them but
     with no functions, handlers or qualifiers, one `<module path>.sv.<ext>`
     per declaring module (also written, empty of declarations, for a module

@@ -1399,7 +1399,7 @@ impl Server<'_> {
                         .chars()
                         .all(|c| c.is_alphanumeric() || c == '_');
                 if plain_ident && hovered != dname {
-                    // A dot-name declaration (`Ns.Name`) is referenced by its
+                    // A namespaced declaration (`Ns.Name`) is declared by its
                     // last segment; that is a match, not a mismatch.
                     let last_seg = dname.rsplit('.').next().unwrap_or(dname);
                     if hovered != last_seg {

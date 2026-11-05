@@ -1,9 +1,9 @@
-// Dot-names [name-dot].
+// Namespaced names [name-dot].
 
 //--- dot_names_flatten
 // The same namespace-struct program the Kotlin backend nests: Rust
 // flattens the names instead.
-// [name-dot] [rs-fn-mangling] Rust concatenates a dot-name
+// [name-dot] [rs-fn-mangling] Rust concatenates a namespaced name
 // (`Environment.Id` → `EnvironmentId`): modules and structs share one
 // type namespace, so a nested `mod Environment` beside
 // `struct Environment` would be E0428. Mangled overload names use the
@@ -14,19 +14,21 @@ struct Environment {
     name: Environment.Name
 }
 
-// No dots survive in emitted Rust identifiers.
-//~ !emits(main.rs): Environment.Id
-//~ emits(main.rs): pub struct EnvironmentId {
-struct Environment.Id {
-    value: Str
-}
+namespace Environment {
+    // No dots survive in emitted Rust identifiers.
+    //~ !emits(main.rs): Environment.Id
+    //~ emits(main.rs): pub struct EnvironmentId {
+    struct Id {
+        value: Str
+    }
 
-//~ emits(main.rs): pub struct EnvironmentName {
-struct Environment.Name {
-    value: Str
-}
+    //~ emits(main.rs): pub struct EnvironmentName {
+    struct Name {
+        value: Str
+    }
 
-qualifier Environment.Tag for Str
+    qualifier Tag for Str
+}
 
 fn tag(value: Str) -> +Environment.Tag Str
 => !value {

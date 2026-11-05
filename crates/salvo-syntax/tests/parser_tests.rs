@@ -404,13 +404,13 @@ fn ids_of(source: &str) -> Vec<&'static str> {
         .collect()
 }
 
-// [name-dot] A struct or qualifier may be declared `Ns.Name`, and the pair
-// is kept as one dotted name.
+// [name-dot] [mod-namespace] A namespace's members are declared by their own
+// name and kept as one dotted name; a declaration's name takes no dot.
 #[test]
-fn dot_names_parse_in_declarations_and_types() {
+fn namespaced_names_parse_in_declarations_and_types() {
     let source = "struct Environment {\n    id: Environment.Id\n}\n\n\
-                  struct Environment.Id {\n    value: Str\n}\n\n\
-                  qualifier Environment.Tag for Str\n\n\
+                  namespace Environment {\n    struct Id {\n        value: Str\n    }\n\n    \
+                  qualifier Tag for Str\n}\n\n\
                   fn tag(v: Str) -> +Environment.Tag Str {\n    return v\n}\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
@@ -431,6 +431,8 @@ fn dot_names_parse_in_declarations_and_types() {
         names,
         vec!["Environment", "Environment.Id", "Environment.Tag"]
     );
+    let (_, diagnostics) = salvo_syntax::parse_module("struct Environment.Id {\n    value: Str\n}\n");
+    assert!(diagnostics.iter().any(|d| d.is_error()), "a dotted declaration name is refused");
 }
 
 // [name-dot] A dot-name in expression position is a struct literal, while

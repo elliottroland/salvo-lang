@@ -1,13 +1,13 @@
-// Dot-names [name-dot] [kt-nested-dot-name]: nested classes and the flat
-// spelling of a dot-named qualifier in a mangled name.
+// Namespaced names [name-dot] [kt-nested-dot-name]: nested classes and the
+// flat spelling of a namespaced qualifier in a mangled name.
 
 //--- dot_names_emit_nested_classes
-// [name-dot] [kt-nested-dot-name] Dot-named structs emit as *nested*
-// classes (never `inner`) and are referenced with the dotted name;
-// a dot-named qualifier canonicalizes to its flat spelling in a mangled
+// [name-dot] [kt-nested-dot-name] Namespaced structs emit as *nested*
+// classes (never `inner`) and are referenced with the dotted name; a
+// namespaced qualifier canonicalizes to its flat spelling in a mangled
 // overload name [fn-emit-name].
-// A namespace struct with two dot-named members plus a dot-named
-// qualifier driving overload mangling. (`DOT_NAMES` in codegen_tests.rs.)
+// A struct sharing its name with a namespace of two members, plus a
+// namespaced qualifier driving overload mangling. (`DOT_NAMES` in codegen_tests.rs.)
 // The namespace class gains a body holding its members, declared under
 // their member segment only.
 //~ emits: data class Environment(
@@ -22,17 +22,19 @@ struct Environment {
     name: Environment.Name
 }
 
-//~ emits:     data class Id(
-struct Environment.Id {
-    value: Str
-}
+namespace Environment {
+    //~ emits:     data class Id(
+    struct Id {
+        value: Str
+    }
 
-//~ emits:     data class Name(
-struct Environment.Name {
-    value: Str
-}
+    //~ emits:     data class Name(
+    struct Name {
+        value: Str
+    }
 
-qualifier Environment.Tag for Str
+    qualifier Tag for Str
+}
 
 fn tag(value: Str) -> +Environment.Tag Str => !value {
     return value

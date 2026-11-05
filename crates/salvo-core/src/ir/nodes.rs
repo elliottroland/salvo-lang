@@ -42,7 +42,7 @@ pub struct Module {
     /// file (`AttributeValue`, `Outer`, `Outer.Inner`), carried from the AST.
     /// A backend that nests namespaces (Kotlin) reads this to build the
     /// nesting tree, since a flattened dotted name alone cannot say whether a
-    /// prefix was a `namespace` or a dot-named struct (they may share a name).
+    /// prefix is a `namespace` alone or also a struct (they may share a name).
     pub namespaces: Vec<String>,
 }
 

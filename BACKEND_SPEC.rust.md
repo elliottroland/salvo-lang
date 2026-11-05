@@ -463,15 +463,15 @@ Conventions:
 * [type-str] Strings are `String` (owned). Plain string literals emit
   `String::from("...")`; interpolation emits `format!("{}...", args)`, and a
   string of literal parts only folds to one `String::from`.
-* [name-dot] Dot-names *flatten*: `Environment.Id` emits as
+* [name-dot] Namespaced names *flatten*: `Environment.Id` emits as
   `EnvironmentId`, in declarations, references and mangled overload names
   alike (`rs_ident` is the single funnel, and a dot cannot reach it from
   any other kind of Salvo name — dots are invalid in Rust identifiers).
   * A nested `pub mod Environment` was rejected: Rust puts modules and
     structs in one *type namespace*, so it collides with
     `pub struct Environment` (E0428 — "`Environment` must be defined only
-    once in the type namespace of this module"), and the namespace struct
-    is required to exist. Flattening is what makes the language-level
+    once in the type namespace of this module") whenever a struct shares
+    the namespace's name. Flattening is what makes the language-level
     collision ban load-bearing [name-dot].
   * **Any depth, every kind** [mod-namespace]: the same flattening carries a
     `namespace X { … }` to any depth (`Outer.Inner.Thing` → `OuterInnerThing`)
@@ -1950,7 +1950,7 @@ effects" keeps the history).
   | a union, to build | its factories: `FsError::not_found(…)`, `ReadToStr::ok(…)` [platform-factory] |
   | `T?` | `Option<T>` [rs-option] |
   | a union of *n* ≥ 2 runtime arms | `crate::unions::UnionN<A, …>` with variants `U1`…`Un` in runtime-arm order [type-union-arm-identity]; `Some(…)` around it when it has a `None` arm |
-  | `struct S { f: T }` | `pub struct S { pub f: T }`, built with a literal of every field; a dot-name `A.B` is `AB`; a field that is a Rust keyword is `r#f` |
+  | `struct S { f: T }` | `pub struct S { pub f: T }`, built with a literal of every field; a namespaced name `A.B` is `AB`; a field that is a Rust keyword is `r#f` |
   | `Checked<T>` | `crate::std_core_checked::Checked { value: T }` |
   | `Reply<T>` parameter | `crate::scheduler::SalvoReply`; `.hosted()` answers the `SalvoHostReply` whose `send(v)` may run on any thread, exactly once [platform-reply] |
   | `InStream` / `OutStream` | `crate::std_stream::InStream { handle: i64 }`; the table is Salvo (`runtime.streams`); host code reaches it through `crate::hoststreams::salvo_stream_register_in/out` and `salvo_stream_take_in` (an `Arc<Mutex<SalvoIn>>` reader) [stream-table] |

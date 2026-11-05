@@ -149,6 +149,38 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-31 — Dotted names are written only with `namespace` (user decision, [name-dot] [mod-namespace])
+
+- **Decided** (user, 2026-10-31): "drop the dotted-name-types now that we
+  have namespaces": `struct Environment.Id { … }` is no longer the
+  language; the member is written `namespace Environment { struct Id { … }
+  }`. One way to spell a namespaced name, no exception in naming, and the
+  `.Id` shorthand comes with it where an expected type is in view.
+- **Built**: a declaration's name is one segment (the parser's
+  `ident_decl_dotted` is gone, so `struct A.B` is a plain "expected `{`"
+  parse error, no transitional message). With it went the rule that a
+  same-file struct or `type` namespaces its dot-named members, and its three
+  diagnostics (`name-dot:not-a-namespace`, `:generic-namespace`,
+  `:too-many-segments`): every dotted name now comes from a `namespace`
+  block, whose prefix is a namespace by construction. The collision ban on
+  the concatenated spelling stays (Rust still flattens).
+- **What fell out**: a **generic** struct may now share its name with a
+  namespace (`struct Pair<S, T>` beside `namespace Pair { struct Label }`):
+  the old ban existed because a member could be read as the struct's own,
+  and Kotlin's plain nested class never sees the outer type parameters.
+  Run on both backends (`run/modules/n1_dot_names.sv`). Importing
+  `mod.Environment` brings the namespace's members and a struct or `type`
+  of that name together (the whole-namespace import always did; the rule
+  text now says so).
+- **Sweep**: the dot-name tests (`check/names/dot_names.sv`,
+  `check/syntax/names.sv`, the run data, both emitters' `dot_names.sv`, the
+  parser and namespace smoke tests) are rewritten as namespaces; nothing in
+  std, the examples or the aws module used the inline form (the aws
+  generator already writes namespaces). [name-dot] is restated as "a
+  namespaced name is one dotted name", [name-dot-import] and
+  [kt-nested-dot-name] follow, and Modules.md's "Dot-names: the inline form"
+  is now "A namespace beside a struct".
+
 ### 2026-10-30 — `docs/language/` rewritten as a narrative (user request)
 
 - **Asked** (user, 2026-10-30): "a more narrative introduction … can also

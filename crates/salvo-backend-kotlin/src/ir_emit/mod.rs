@@ -335,14 +335,12 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             }
         };
         let mut body = String::new();
-        // [kt-nested-dot-name] [mod-namespace] Dot-named structs nest in their
+        // [kt-nested-dot-name] [mod-namespace] Namespaced structs nest in their
         // namespace, to any depth (`Outer.Inner.Thing`). A namespace segment
         // is either a struct of that exact path (its `data class` reopens with
-        // a body) or a pure `namespace`/`type` namespace (an `object`). The
-        // set of namespaces is authoritative from the AST [mod-namespace]; a
-        // dotted struct whose prefix is not a declared namespace still nests
-        // under that prefix as an `object` (the legacy enum-arm `type`
-        // namespace, whose `type` left no struct).
+        // a body) or a namespace alone, perhaps beside a `type` of its name
+        // (an `object`). The set of namespaces is authoritative from the AST
+        // [mod-namespace].
         let all_structs: Vec<&StructDecl> = self.module.decls.iter().filter_map(|d| match d {
             Decl::Struct(s) => Some(s),
             _ => None,
@@ -667,7 +665,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         self.struct_decl_with(s, &[]);
     }
 
-    /// A struct, with the dot-named structs nested in it [kt-nested-dot-name].
+    /// A struct, with the namespaced structs of its name nested in it
+    /// [kt-nested-dot-name].
     fn struct_decl_with(&mut self, s: &StructDecl, members: &[&StructDecl]) {
         self.struct_class(s, 0);
         if !members.is_empty() {

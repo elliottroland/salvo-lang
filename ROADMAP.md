@@ -684,7 +684,7 @@ repros are over the real std.
     missing-clause shapes;
   - **parse-recovery cascades** (all annotated in `check/syntax/`): `g() is
     "json" | "text"` with `g` undeclared reports `call-resolve:unknown-fn`
-    twice; `struct A.B.C` adds `name-dot:not-a-namespace`; `external`/`define`
+    twice; `external`/`define`
     declarations recover into checked declarations (`effect-handler-multi:missing-member`
     ×3, `fn-must-return`); a terminal `if … ...` then `elif` gives three
     errors; `"${size("a)} z"` gives three; `let a: [x.type] = p` outside a

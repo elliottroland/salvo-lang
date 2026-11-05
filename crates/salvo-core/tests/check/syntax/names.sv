@@ -1,11 +1,11 @@
-// Names: casing and dot-names [name-casing] [name-dot]. One program per
-// error, since a parse error stops a program.
+// Names: casing and namespaced names [name-casing] [name-dot]. One program
+// per error, since a parse error stops a program.
 
-//--- three_segment_dot_names_are_rejected
-// [name-dot] Names cap at two segments.
-//~ error[name-dot:too-many-segments]
-//~ error[name-dot:not-a-namespace]
-struct A.B.C {
+//--- a_declaration_name_has_no_dot
+// [name-dot] A dotted name is spelled with a `namespace` block; a declaration
+// names one segment, so the dot is a plain parse error.
+//~ error[syntax-expected:token]
+struct A.B {
     v: Str
 }
 

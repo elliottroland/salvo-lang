@@ -411,37 +411,6 @@ impl<'s> Parser<'s> {
         Some(id)
     }
 
-    /// The name of a struct or qualifier declaration: a plain `Name` or a
-    /// dot-name `Ns.Name` [name-dot]. Both segments are type names, and
-    /// the pair is kept as one dotted name — the key everything else uses.
-    fn ident_decl_dotted(&mut self, what: &str) -> Option<Ident> {
-        let head = self.ident_type(what)?;
-        if !self.at(&TokenKind::Dot) || !self.same_line() {
-            return Some(head);
-        }
-        if !matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
-        {
-            return Some(head);
-        }
-        self.bump();
-        let tail = self.ident_type(what)?;
-        let mut span = head.span.to(tail.span);
-        // Names cap at two segments; consume any extra so the declaration
-        // still parses [name-dot].
-        while self.at(&TokenKind::Dot)
-            && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
-        {
-            self.bump();
-            let extra = self.ident()?;
-            span = span.to(extra.span);
-            self.error(messages::name_dot_too_many_segments(), span);
-        }
-        Some(Ident {
-            name: format!("{}.{}", head.name, tail.name),
-            span,
-        })
-    }
-
     fn snapshot(&self) -> Snapshot {
         Snapshot {
             pos: self.pos,
@@ -1612,7 +1581,7 @@ impl<'s> Parser<'s> {
     fn parse_struct(&mut self, linear: bool) -> Option<StructDecl> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwStruct)?.span;
-        let name = self.ident_decl_dotted("struct")?;
+        let name = self.ident_type("struct")?;
         // [linear-generics] Structs take per-parameter `canbe` opt-ins too
         // (user decision 2026-09-12): `struct Box<T canbe linear>` is the
         // conditional-container declaration.
@@ -1968,7 +1937,7 @@ impl<'s> Parser<'s> {
     ) -> Option<QualifierDecl> {
         let docs = self.docs_here();
         let start = self.expect(&TokenKind::KwQualifier)?.span;
-        let name = self.ident_decl_dotted("qualifier")?;
+        let name = self.ident_type("qualifier")?;
         // [cmp-carry] [qual-value-arg] `qualifier Sorted<T>(?cmp: (T, T) ->
         // Int)`: type generics in `<…>`, value slots in the `(…)` block —
         // which is how a structure *holds* an ordering, and [qual-depend]

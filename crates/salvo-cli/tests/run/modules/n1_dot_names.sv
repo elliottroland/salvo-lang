@@ -1,38 +1,42 @@
-// N1: dot-names [name-dot]
+// N1: namespaced names [name-dot] [mod-namespace]
 //
 // Compile-and-run data ([test-run-data]), moved from the codegen tests.
 
 //--- dot_names_in_unions_and_narrowing
 
-struct Environment.Id canbe Mut {
-    value: Str
-}
+namespace Environment {
+    struct Id canbe Mut {
+        value: Str
+    }
 
-struct Environment.Name {
-    value: Str
+    struct Name {
+        value: Str
+    }
+
+    qualifier Tag for Str
 }
 
 struct Environment {
     id: Environment.Id
 }
 
-qualifier Environment.Tag for Str
-
 fn tag(v: Str) -> +Environment.Tag Str
 => !v {
     return v
 }
 
+// [mod-namespace] The leading-dot shorthand names an arm by its last
+// segment where the expected type is in view.
 fn pick(flag: Bool) -> Environment.Id | Environment.Name {
     if flag {
-        return Environment.Id {value: "id"}
+        return .Id {value: "id"}
     }
     return Environment.Name {value: "name"}
 }
 
 fn show(x: Environment.Id | Environment.Name) -> Str {
     when x {
-        is Environment.Id {
+        is .Id {
             return "id: ${x.value}"
         }
         is Environment.Name {
@@ -72,15 +76,17 @@ struct Environment {
     name: Environment.Name
 }
 
-struct Environment.Id {
-    value: Str
-}
+namespace Environment {
+    struct Id {
+        value: Str
+    }
 
-struct Environment.Name {
-    value: Str
-}
+    struct Name {
+        value: Str
+    }
 
-qualifier Environment.Tag for Str
+    qualifier Tag for Str
+}
 
 fn tag(value: Str) -> +Environment.Tag Str
 => !value {
@@ -152,3 +158,30 @@ fn main() [use] -> None {
 //= N y
 //= tag:z
 //= deep
+
+//--- a_generic_struct_beside_a_namespace
+// [name-dot] [kt-nested-dot-name] A generic struct may share its name with a
+// namespace: Kotlin nests the members as plain nested classes, which never
+// see the struct's type parameters; Rust concatenates.
+
+struct Pair<S, T> {
+    first: S,
+    second: T
+}
+
+namespace Pair {
+    struct Label {
+        text: Str
+    }
+}
+
+fn describe(p: Pair<Int, Str>, l: Pair.Label) -> Str {
+    return "${l.text}: ${p.first} ${p.second}"
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    println(describe(Pair { first: 1, second: "one" }, Pair.Label { text: "pair" }))
+}
+//= stdout
+//= pair: 1 one

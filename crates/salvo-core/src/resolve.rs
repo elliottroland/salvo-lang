@@ -1607,16 +1607,14 @@ impl<'e, 'p> AddCtx<'e, 'p> {
     }
 }
 
-/// Dot-name validation for one file [name-dot]:
+/// Namespaced-name validation for one file [name-dot]:
 ///
-/// * the namespace must be a struct declared in the *same file*, and it
-///   must not be generic (Kotlin nests the member as a plain nested class,
-///   which cannot reference the outer class's type parameters);
-/// * nothing visible here may carry the *concatenated* name, because the
-///   Rust backend flattens `Ns.Name` to `NsName` — and the same
-///   concatenation is what overload mangling embeds
-///   [fn-emit-name]. Checked against the whole
-///   scope, so an imported `NsName` counts.
+/// * nothing visible here may carry the *concatenated* name of a namespaced
+///   declaration, because the Rust backend flattens `Ns.Name` to `NsName`
+///   and the same concatenation is what overload mangling embeds
+///   [fn-emit-name]. Checked against the whole scope, so an imported
+///   `NsName` counts. A dotted name only ever comes from a `namespace`
+///   block [mod-namespace], so its prefix is always a namespace;
 /// * module path segments must be lowercase, so an import path splits
 ///   into module prefix and item name unambiguously [name-casing].
 fn check_dot_names(
@@ -1636,70 +1634,22 @@ fn check_dot_names(
             || scope.type_aliases.contains_key(name)
             || scope.opaque_types.contains_key(name)
     };
-    // Namespaces: an explicit `namespace X { … }` (recorded on the module
-    // when its body was flattened), plus the legacy rule that a struct or a
-    // defined `type` in this file namespaces its dot-named members — an enum's
-    // arms live under the enum (`StorageClass.Standard`), user decision
-    // 2026-09-29. A struct/type namespace must not be generic (Kotlin nests
-    // the member as a plain nested class, which cannot reference the outer
-    // type parameters); an explicit `namespace` has no generics to worry
-    // about. Keyed by the full dotted prefix so nesting works [name-dot] [mod-namespace].
-    let mut ns_decls: std::collections::HashSet<&str> =
-        ast.namespaces.iter().map(|s| s.as_str()).collect();
-    let mut generic_ns: HashMap<&str, usize> = HashMap::new();
-    for item in &ast.items {
-        match item {
-            Item::Struct(s) if !s.name.name.contains('.') => {
-                if s.generics.is_empty() {
-                    ns_decls.insert(s.name.name.as_str());
-                } else {
-                    generic_ns.insert(s.name.name.as_str(), s.generics.len());
-                }
-            }
-            Item::Type(t) if t.alias.is_some() && !t.name.name.contains('.') => {
-                if t.generics.is_empty() {
-                    ns_decls.insert(t.name.name.as_str());
-                } else {
-                    generic_ns.insert(t.name.name.as_str(), t.generics.len());
-                }
-            }
-            _ => {}
-        }
-    }
     let mut dotted: Vec<(&str, Span)> = Vec::new();
     for item in &ast.items {
-        match item {
-            Item::Struct(s) => dotted.push((s.name.name.as_str(), s.name.span)),
-            Item::Qualifier(q) => dotted.push((q.name.name.as_str(), q.name.span)),
-            Item::Type(t) if t.name.name.contains('.') => dotted.push((t.name.name.as_str(), t.name.span)),
-            Item::Effect(e) if e.name.name.contains('.') => dotted.push((e.name.name.as_str(), e.name.span)),
-            Item::Handler(h) if h.name.name.contains('.') => dotted.push((h.name.name.as_str(), h.name.span)),
-            Item::Fn(f) if f.name.name.contains('.') => dotted.push((f.name.name.as_str(), f.name.span)),
+        let (name, span) = match item {
+            Item::Struct(s) => (s.name.name.as_str(), s.name.span),
+            Item::Qualifier(q) => (q.name.name.as_str(), q.name.span),
+            Item::Type(t) => (t.name.name.as_str(), t.name.span),
+            Item::Effect(e) => (e.name.name.as_str(), e.name.span),
+            Item::Handler(h) => (h.name.name.as_str(), h.name.span),
+            Item::Fn(f) => (f.name.name.as_str(), f.name.span),
             _ => continue,
+        };
+        if name.contains('.') {
+            dotted.push((name, span));
         }
     }
     for (name, span) in dotted {
-        // The namespace prefix is everything before the final segment, so
-        // `A.B.C`'s namespace is `A.B` — which must itself be a known
-        // namespace (explicit, or a same-file struct/type for a two-segment
-        // legacy name).
-        let Some((ns, _member)) = name.rsplit_once('.') else {
-            continue;
-        };
-        if let Some(arity) = generic_ns.get(ns) {
-            let _ = arity;
-            errors.push(FileDiagnostic::error(
-                file_idx,
-                span,
-                messages::name_dot_generic_namespace(ns, name),
-            ));
-        } else if !ns_decls.contains(ns) {
-            errors.push(FileDiagnostic::error(
-                file_idx,
-                span,
-                messages::name_dot_not_a_namespace(ns, name),
-            ));
-        }
         let concatenated = name.replace('.', "");
         if visible(&concatenated) {
             errors.push(FileDiagnostic::error(
@@ -1740,10 +1690,11 @@ fn add_items<'p>(
     if !scope.modules.contains(&module) {
         scope.modules.push(module);
     }
-    // An unaliased import of a namespace struct also brings its dot-named
-    // members: `import a.b.Environment` makes `Environment.Id` visible
-    // [name-dot-import]. Aliased imports rename exactly one name, so
-    // members do not ride along (there is no sensible partial rename).
+    // An unaliased import of a name also brings the members of a namespace
+    // of that name: `import a.b.Environment` makes `Environment.Id` visible
+    // [name-dot-import] (the whole-namespace import, `add_namespace_items`,
+    // normally gets there first). Aliased imports rename exactly one name,
+    // so members do not ride along (there is no sensible partial rename).
     let want = |name: &str| {
         filter.is_none_or(|(n, alias)| {
             name == n || (alias == n && name.len() > n.len() && name.starts_with(n) && name.as_bytes()[n.len()] == b'.')
@@ -2094,7 +2045,7 @@ fn resolve_import<'p>(
     }
     // Split the path into module prefix and item name. Module segments are
     // lowercase [name-casing], so *trailing* uppercase segments are the
-    // item: one for a plain name, two for a dot-name `Ns.Name`
+    // item: one for a plain name, two for a namespace member `Ns.Name`
     // [name-dot]. A lowercase last segment is a value (a fn).
     let trailing_upper = import
         .path

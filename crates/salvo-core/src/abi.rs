@@ -78,7 +78,8 @@ fn closure_where(
             for field in &s.fields {
                 if let Some(t) = &field.ty { walk.ty(t); }
             }
-            // [name-dot] A namespacing struct carries its dot-named members.
+            // [name-dot] A struct carries the members of the namespace of its
+            // name: Kotlin nests them in its class.
             let prefix = format!("{name}.");
             for other in symbols.structs.keys().filter(|k| k.starts_with(&prefix)) {
                 walk.name(other);

@@ -444,30 +444,30 @@ struct Header { len: Int }   // Wire.Header
 struct Body { bytes: Bytes } // Wire.Body
 ```
 
-### Dot-names: the inline form
+### A namespace beside a struct
 
-A struct, qualifier or `type` can also be written with a *dot-name* `Ns.Name`
-directly, without a `namespace` block, where `Ns` is a struct or defined
-`type` in the same file. This is the older spelling of the same idea, handy
-for a one-off wrapper or an enum's cases:
+A namespace may share its name with a struct too, so the wrapper types of a
+value live under the value's own name. The struct may be generic; the
+namespace's members are separate declarations and cannot see its type
+parameters:
 
 ```salvo
-struct Environment { id: Environment.Id }
-struct Environment.Id { value: Str }
+struct Environment { id: Environment.Id, name: Environment.Name }
 
-type StorageClass = StorageClass.Standard | StorageClass.Glacier
-struct StorageClass.Standard {}
-struct StorageClass.Glacier {}
+namespace Environment {
+    struct Id { value: Str }
+    struct Name { value: Str }
+}
 ```
 
-A few rules apply to both forms:
+A `namespace` block is the only way to write a dotted name: `struct
+Environment.Id { … }` is a syntax error. A declaration's own name is always
+one segment, and the namespace around it supplies the rest.
 
-* The namespace must be a `namespace` block, or (for the inline form) a struct
-  or defined `type` **in the same file** that is not generic. (An `intrinsic
-  type` has no body, so it cannot be one.)
-* Nothing else visible in the file may be called `NsName`, the concatenation.
-  The Rust backend renders `Environment.Id` as `EnvironmentId`, so that
-  spelling has to stay free.
+**Nothing else visible may be called `NsName`**, the concatenation. The Rust
+backend renders `Environment.Id` as `EnvironmentId`, so that spelling has to
+stay free; declaring or importing an `EnvironmentId` beside `Environment.Id`
+is an error.
 
 ### Importing a namespace
 
@@ -475,7 +475,8 @@ Import a single member, the whole namespace, or alias it:
 
 ```salvo
 import env.types.Environment.Id   // just the member
-import env.types.Environment      // the whole namespace: Environment.Id, .Name, .tag …
+import env.types.Environment      // the whole namespace: Environment.Id, .Name, .tag …,
+                                  // and a struct or type named Environment with it
 import env.types.Environment as Env   // aliased: Env.Id, Env.Name …
 ```
 

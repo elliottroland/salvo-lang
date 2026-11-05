@@ -46,9 +46,11 @@ namespace AttributeValue {
 fn export_namespace_distributes() {
     let src = "\
 export namespace Foo {
-    type Bar = Bar.A | Bar.B
-    struct Bar.A {}
-    struct Bar.B {}
+    type Bar = Foo.Bar.A | Foo.Bar.B
+    namespace Bar {
+        struct A {}
+        struct B {}
+    }
 }
 ";
     let names = item_names(src);

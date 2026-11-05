@@ -716,11 +716,6 @@ messages! {
         "{what} names must not start with an uppercase letter"
     );
 
-    // [name-dot]
-    /// A dot-name with more than two segments.
-    name_dot_too_many_segments = "name-dot:too-many-segments" () =>
-        "a dot-name has exactly two segments (`Ns.Name`)";
-
     // [net-noremote]
     /// `noremote` before a declaration that is not a type.
     net_noremote_not_before_type = "net-noremote:not-before-type" () =>
@@ -1546,27 +1541,18 @@ messages! {
     );
 
     // [name-dot]
-    /// A dot-name namespaced by a generic declaration.
-    name_dot_generic_namespace = "name-dot:generic-namespace" (ns: &str, name: &str) => format!(
-        "`{ns}` is generic, so it cannot namespace `{name}`: Kotlin emits the member as a \
-         nested class, which cannot use the outer type parameters"
-    );
-    /// A dot-name whose prefix is not a namespace.
-    name_dot_not_a_namespace = "name-dot:not-a-namespace" (ns: &str, name: &str) => format!(
-        "`{ns}` in the dot-name `{name}` is not a namespace here: declare `namespace {ns} \
-         {{ … }}`, or a struct or defined `type {ns}` in this file"
-    );
-    /// A dot-name whose flattened spelling is also visible.
+    /// A namespaced name whose flattened spelling is also visible.
     name_dot_flattened_collision = "name-dot:flattened-collision" (name: &str, concatenated: &str) => format!(
-        "the dot-name `{name}` collides with `{concatenated}`, which is also visible here: \
-         the Rust backend flattens dot-names and overload mangling uses the same spelling \
-         — rename one of them"
+        "the namespaced name `{name}` collides with `{concatenated}`, which is also visible \
+         here: the Rust backend flattens namespaced names and overload mangling uses the same \
+         spelling — rename one of them"
     );
 
     // [name-dot-import]
-    /// An import of a dot-name with more than two segments.
+    /// An import naming a member more than one namespace deep.
     name_dot_import_too_many_segments = "name-dot-import:too-many-segments" () =>
-        "a dot-name has exactly two segments (`module.Ns.Name`)";
+        "an import names a namespace member one level deep (`module.Ns.Name`); import \
+         the outer namespace (`module.Ns`) to reach deeper members";
 
     // [obligation-by]
     /// A fn a `by` clause stamps that the file also declares by hand.
