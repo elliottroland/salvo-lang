@@ -59,6 +59,38 @@ pub(crate) struct StepRows {
 }
 
 impl StepRows {
+    /// [lsp-check-cache] Moves what the step recorded to the files' new
+    /// places (`Checked::remap_files`); false when something is placed in a
+    /// file that is gone.
+    fn remap_files(&mut self, map: &dyn Fn(usize) -> Option<usize>) -> bool {
+        let mut ok = true;
+        let mut at = |f: usize| -> usize {
+            match map(f) {
+                Some(n) => n,
+                None => {
+                    ok = false;
+                    f
+                }
+            }
+        };
+        for d in &mut self.errors {
+            d.file = at(d.file);
+        }
+        for (_, owner, _, _) in &mut self.written {
+            *owner = at(*owner);
+        }
+        for (_, k) in self.waitfor_sites.iter_mut().chain(self.actor_gates.iter_mut()) {
+            *k = k.with_file(at(k.file()));
+        }
+        for (_, _, k) in self.handler_constructs.iter_mut().chain(self.task_mints.iter_mut()) {
+            *k = k.with_file(at(k.file()));
+        }
+        for (_, _, k) in self.actor_sends.iter_mut().chain(self.task_sends.iter_mut()) {
+            *k = k.with_file(at(k.file()));
+        }
+        ok
+    }
+
     /// Appends and writes what the step did, as if it had run.
     pub(crate) fn apply(&self, out: &mut Checked, parking: &mut HashSet<String>) {
         out.errors.extend(self.errors.iter().cloned());
@@ -142,7 +174,7 @@ pub(crate) struct FileRows {
 
 /// [lsp-check-cache] What a file is, apart from its text: the file list part
 /// of the program's interface fingerprint.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 struct FileId {
     name: String,
     module: crate::source::ModulePath,
@@ -332,14 +364,52 @@ impl CheckCache {
         scopes: &[crate::resolve::ModuleScope<'_>],
     ) -> HashSet<usize> {
         let n = program.files.len();
-        let same_program = self.first == first
-            && self.files.len() == n
-            && self.files.iter().zip(&program.files).all(|(a, b)| *a == FileId::of(b))
+        let same_base = self.first == first
+            && first <= n
+            && self.modules.len() >= first
             && self.parking == *parking
             && (0..first).all(|i| Arc::ptr_eq(&self.modules[i], &program.modules[i]));
-        if !same_program {
+        if !same_base {
             self.entries.clear();
             return HashSet::new();
+        }
+        // [lsp-check-cache] Rows are a file's, not a position's: when the file
+        // list changed, each kept file's rows move to where the file is now,
+        // and a file that joined is walked with what can see its module. A
+        // file gone clears the cache — what could see it is not known now —
+        // unless it was a doc example's, which nothing sees.
+        if !(self.files.len() == n && self.files.iter().zip(&program.files).all(|(a, b)| *a == FileId::of(b))) {
+            let ids: Vec<FileId> = program.files.iter().map(FileId::of).collect();
+            let index: HashMap<&FileId, usize> = ids.iter().enumerate().map(|(j, id)| (id, j)).collect();
+            let moves: Vec<Option<usize>> = self.files.iter().map(|id| index.get(id).copied()).collect();
+            let gone = self.files.iter().zip(&moves).any(|(id, to)| to.is_none() && id.doc.is_none());
+            if gone || (0..first).any(|i| moves.get(i).copied().flatten() != Some(i)) {
+                self.entries.clear();
+                return HashSet::new();
+            }
+            let map = |f: usize| moves.get(f).copied().flatten();
+            let mut entries = HashMap::with_capacity(self.entries.len());
+            for (f, mut e) in std::mem::take(&mut self.entries) {
+                let Some(to) = map(f) else { continue };
+                let rows_ok = e.rows.remap_files(&map);
+                let steps_ok = e.steps.iter_mut().all(|s| s.remap_files(&map));
+                if rows_ok && steps_ok {
+                    entries.insert(to, e);
+                }
+            }
+            self.entries = entries;
+            // The node owners are found again from the modules at the next
+            // record.
+            let mut modules: Vec<Arc<Module>> = program.modules.clone();
+            for (f, to) in moves.iter().enumerate() {
+                if let (Some(to), Some(m)) = (to, self.modules.get(f)) {
+                    modules[*to] = m.clone();
+                }
+            }
+            self.modules = modules;
+            self.files = ids;
+            self.owners.clear();
+            self.type_nodes.clear();
         }
         let mut changed: HashMap<usize, (Vec<(u32, u32)>, Vec<(u32, u32)>)> = HashMap::new();
         let mut moved: HashMap<usize, HashMap<usize, usize>> = HashMap::new();
@@ -347,9 +417,11 @@ impl CheckCache {
         // can depend on them.
         let mut reshaped: HashSet<usize> = HashSet::new();
         for f in first..n {
+            // A file with no rows (one that joined, or whose rows could not
+            // move) is walked, and counted as changed.
             let Some(e) = self.entries.get(&f) else {
-                self.entries.clear();
-                return HashSet::new();
+                reshaped.insert(f);
+                continue;
             };
             if Arc::ptr_eq(&e.module, &program.modules[f]) {
                 continue;

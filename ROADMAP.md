@@ -454,11 +454,24 @@ designed for big user projects (gathers kept per file). Where an edit in
 `lib/std/heap.sv` goes after (a), release build, 414ms wall with the 120ms
 debounce: IR 73 (build 59), check 63 (inserting the 73 cached files' rows
 46), resolve 58, expand 33, load 26 (reading `.sv` files). Left by (a):
-- keying the rows by file identity rather than position: opening a document
-  adds its examples' files (`Examples::Open`) and clears the cache once;
 - a body edit in a file holding a comptime template walks the files whose
   copies moved (with (b): `args.sv`'s examples deriving `FromArgs`); a
   copy's range could be remapped through its template file's cut regions.
+
+Stage (d), first part **built** 2026-10-31 (COMPLETED.md): rows keyed by
+file, so opening a document in `lib/` walks its examples only (859 → 451ms).
+**DECISION** (the user's), the rest of (d), folding the std front into the
+one cache. Measured (release, `modules/aws`, a body edit): with the front
+the analysis takes 53ms, with the check cache standing for std as for any
+file 74ms — std's rows inserted every check (+9ms) and std stamped again
+(+9ms), parse +3. What the fold buys is one path instead of two (the front's
+`StdFront`/`StdCache` and `check_project*` beside `check_program_cached`),
+and the std/project split gone. Options: (1) leave the front as it is
+(recommended unless the code simplicity is the point); (2) fold it, and win
+back the 21ms by keeping std's expansion and inserted rows across analyses
+(an expansion cache per file, and checked rows kept and patched rather than
+rebuilt); (3) fold only the check (`StdCache` becomes the `CheckCache`
+pre-filled with std's rows), keeping the front's parse and expansion.
 
 Stage (c), **built** 2026-10-31 (COMPLETED.md): a `heap.sv` body edit 421ms →
 236ms wall (release, analysis 276 → 95), a signature edit 503 → 254ms. Left

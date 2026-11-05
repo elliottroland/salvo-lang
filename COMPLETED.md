@@ -149,6 +149,26 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-31 — The check cache keys rows by file, not position (user decision, ROADMAP §0be stage (d))
+
+- **Decided** (user, 2026-10-31): keying cached results by file identity
+  waits for stage (d). Done first of (d), since it pays on its own.
+- **Built**: `CheckCache::plan` maps the last file list onto the new one by
+  file identity; kept files' rows move (`Checked::remap_files`,
+  `StepRows::remap_files`), a joined file is walked as a changed one (so
+  with what can see its module), and a file that left clears the cache
+  unless it was a doc example's.
+- **Measured** (release, `lib/`): opening `std/args.sv` beside `std/heap.sv`
+  859 → 451ms; it walks the 19 examples it adds, of 93 files, where every
+  file was walked before.
+- **Found**: rows hold keys of other nodes (a fate link's binding, a bind
+  fact's links and loops, a predicate check's implicits), whose origins
+  must move too: the differential test showed the fate links placed in the
+  old files.
+- **Shown by** `opening_and_closing_a_document_walks_its_examples_only`.
+- **Left for the user** (ROADMAP §0be): whether to fold the std front into
+  the one cache, which measured slower for a project's edits.
+
 ### 2026-10-31 — The IR, the scopes and the reads are cached per file (user decisions, ROADMAP §0be stage (c))
 
 - **Decided** (user, 2026-10-31): stage (c) of the one-cache plan, measured

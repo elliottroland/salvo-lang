@@ -1559,6 +1559,41 @@ mod tests {
         }
     }
 
+    // [lsp-check-cache] Rows are a file's, not a position's: opening a
+    // document in `lib/` (which adds its examples to the program, moving the
+    // files after its own) walks those examples only, and closing it walks
+    // nothing; each analysis reads what one without the cache does.
+    #[test]
+    fn opening_and_closing_a_document_walks_its_examples_only() {
+        let lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib").canonicalize().unwrap();
+        let project = salvo_core::Project::find(&lib.join("salvo.toml")).expect("manifest").expect("lib/ has a manifest");
+        let src = project.src();
+        let root = src.canonicalize().unwrap();
+        let mut parse = ParseCache::new();
+        let mut checks = salvo_core::CheckCache::new();
+        let mut analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
+            analyze_project_with(&src, Some(project.clone()), "", overlay, Some(&mut parse), None, true, checks, Examples::Open).expect("analysis")
+        };
+        let read = |name: &str| (root.join(name), std::fs::read_to_string(root.join(name)).unwrap());
+        // `heap` comes after `args`, so opening `args` moves `heap`'s examples.
+        let heap: HashMap<PathBuf, String> = [read("std/heap.sv")].into_iter().collect();
+        let both: HashMap<PathBuf, String> = [read("std/heap.sv"), read("std/args.sv")].into_iter().collect();
+        analyze(&heap, Some(&mut checks));
+        let opened = analyze(&both, Some(&mut checks));
+        let walked: Vec<&str> = checks.walked().iter().map(|&f| opened.program.files[f].name.as_str()).collect();
+        assert!(!walked.is_empty() && walked.iter().all(|w| w.starts_with("std/args.sv#")), "{walked:?}");
+        let uncached = analyze(&both, None);
+        for ((what, a), (_, b)) in view(&opened, 0).into_iter().zip(view(&uncached, 0)) {
+            assert!(a == b, "{what} differ after opening:\n{a:#?}\nwithout the cache:\n{b:#?}");
+        }
+        let closed = analyze(&heap, Some(&mut checks));
+        assert!(checks.walked().is_empty(), "{:?}", checks.walked());
+        let uncached = analyze(&heap, None);
+        for ((what, a), (_, b)) in view(&closed, 0).into_iter().zip(view(&uncached, 0)) {
+            assert!(a == b, "{what} differ after closing:\n{a:#?}\nwithout the cache:\n{b:#?}");
+        }
+    }
+
     // [lsp-check-cache] An interface edit walks the edited file and what can
     // see it, through imports and on through what those see: a leaf's
     // signature its own file; a type `b` reads through `a`'s signature,

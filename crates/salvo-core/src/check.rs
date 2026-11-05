@@ -88,6 +88,12 @@ impl Key {
         Key { decl: id, node: crate::decl_id::NodeId(NAME_NODE), file: 0, span: Span::default() }
     }
 
+    /// [lsp-check-cache] The same key, its node now in file `file`: what a
+    /// cached row's key becomes when the file list moves its file.
+    pub(crate) fn with_file(self, file: usize) -> Key {
+        Key { file: file as u32, ..self }
+    }
+
     pub fn synthetic(self, n: u32) -> Key {
         debug_assert!(n < 64 && self.node.0 < (1 << 25), "[node-id] synthetic key out of range");
         Key { node: crate::decl_id::NodeId(0x8000_0000 | (self.node.0 << 6) | n), ..self }

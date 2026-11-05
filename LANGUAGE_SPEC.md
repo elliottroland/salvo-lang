@@ -14220,8 +14220,16 @@ replaced the working document TESTING.md).
   file holding an error or an import suggestion (whose text reads the whole
   program's declarations). A file whose copy of a comptime template moved
   (an edit above the template) is such a file: a file stamping from `args`
-  is walked when `args.sv` is edited. A different file list or parking set
-  rebuilds the cache. A body
+  is walked when `args.sv` is edited. **Rows are a file's, not a
+  position's** (2026-10-31, ROADMAP §0be stage (d)): when the file list
+  changes, each kept file's rows move to where the file now is
+  (`Checked::remap_files` rewrites every key's origin, the keys rows hold of
+  other nodes, the definition sites, the locals and carried identities by
+  file, and the diagnostics), and a file that joined is walked as a changed
+  one, with what can see its module — so opening a document, which adds its
+  examples, walks those examples. A file that left clears the cache (what
+  could see it is not known any more) unless it was a doc example's, which
+  nothing sees. A different parking set, or std's modules, rebuild it. A body
   edit moves the declarations after it, so a cached file's definition sites
   there move by the bodies' growth, and its `written_types` rows for the
   changed file's nodes move to the same nodes of its new module (outside the

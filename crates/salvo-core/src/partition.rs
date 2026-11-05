@@ -380,6 +380,74 @@ impl Checked {
     }
 }
 
+impl Checked {
+    /// [lsp-check-cache] Moves every row to the files' new places, `map`
+    /// answering a file's new index (`None`: the file is gone): the keys'
+    /// origins, the definition sites, the locals and carried identities by
+    /// file, the diagnostics. False when a row is placed in a file that is
+    /// gone. Exhaustive by construction, like `route`.
+    pub(crate) fn remap_files(&mut self, map: &dyn Fn(usize) -> Option<usize>) -> bool {
+        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, refinements: _, handles, constructions, route_keys: _, parking_handlers: _, protocol_hashes: _, replyto_targets, waitfor_sites, handler_constructs, moves, fate_mutations, bind_facts, derived_uses, actor_gates, actor_sends, task_sends, task_mints, written_types: _, effects_taken, effects_passed, effect_packs, effect_slots, effect_adapted, handler_deps, handler_shapes, effect_prereqs, deductions, param_modes, primitives, fn_refs, refs, local_decls, type_ref_span_keys: _, value_span_keys: _, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors, discharges } = self;
+        let mut ok = true;
+        let mut at = |f: usize| -> usize {
+            match map(f) {
+                Some(n) => n,
+                None => {
+                    ok = false;
+                    f
+                }
+            }
+        };
+        macro_rules! keyed {
+            ($($t:ident),* $(,)?) => {$(
+                *$t = std::mem::take($t).into_iter().map(|(k, v)| (k.with_file(at(k.file())), v)).collect();
+            )*};
+        }
+        keyed!(
+            expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, handles, constructions,
+            replyto_targets, moves, fate_mutations, bind_facts, derived_uses, effects_taken, effects_passed, effect_packs,
+            effect_slots, effect_adapted, handler_deps, handler_shapes, effect_prereqs, deductions, param_modes, primitives,
+            fn_refs, refs, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures,
+            implicit_params, established_quals, implicit_args, fn_values, discharges,
+        );
+        for r in refs.values_mut() {
+            if let Some(site) = r.site_mut() {
+                site.file = at(site.file);
+            }
+        }
+        // The keys rows hold of other nodes.
+        let mut key = |k: &mut crate::check::Key| *k = k.with_file(at(k.file()));
+        for reads in fate_reads.values_mut() {
+            reads.iter_mut().for_each(|r| key(&mut r.bind));
+        }
+        for fact in bind_facts.values_mut() {
+            key(&mut fact.stamp);
+            fact.links.iter_mut().for_each(|l| key(&mut l.stamp));
+            fact.origins.iter_mut().for_each(&mut key);
+        }
+        for test in tests.values_mut() {
+            if let crate::check::Test::Holds(checks) = test {
+                checks.iter_mut().filter_map(|c| c.implicits_at.as_mut()).for_each(&mut key);
+            }
+        }
+        *local_decls = std::mem::take(local_decls).into_iter().map(|(f, v)| (at(f), v)).collect();
+        *carried_identities = std::mem::take(carried_identities).into_iter().map(|((f, id, ty), v)| ((at(f), id, ty), v)).collect();
+        for (_, k) in waitfor_sites.iter_mut().chain(actor_gates.iter_mut()) {
+            *k = k.with_file(at(k.file()));
+        }
+        for (_, _, k) in handler_constructs.iter_mut().chain(task_mints.iter_mut()) {
+            *k = k.with_file(at(k.file()));
+        }
+        for (_, _, k) in actor_sends.iter_mut().chain(task_sends.iter_mut()) {
+            *k = k.with_file(at(k.file()));
+        }
+        for d in errors.iter_mut() {
+            d.file = at(d.file);
+        }
+        ok
+    }
+}
+
 /// The key a row kept in order ends with.
 trait RowKey {
     fn key(&self) -> &crate::check::Key;
