@@ -46,7 +46,7 @@ pub mod unique_shape;
 pub mod wire;
 
 pub use check::{
-    check_program, check_project, check_project_cached, Call, Callee, Binder, Checked, Convert, EffectsPassed, ConvertStep, Instance, ImplicitArg, NarrowBy, NarrowedRead, ImplicitParam, PassDriver,
+    check_program, check_program_cached, check_project, check_project_cached, Call, Callee, Binder, Checked, Convert, EffectsPassed, ConvertStep, Instance, ImplicitArg, NarrowBy, NarrowedRead, ImplicitParam, PassDriver,
     StdCache,
     Test, UnionTest, OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,
 };

@@ -34,6 +34,11 @@ use salvo_syntax::ast::Module;
 #[derive(Default)]
 pub struct ParseCache {
     entries: HashMap<u64, Parsed>,
+    /// [lsp-check-cache] Each file's module as the last analysis left it after
+    /// the comptime expansion, by file name: a file comptime stamps into gets
+    /// a new module every analysis, and one equal to the last is handed back
+    /// as the last, so the check cache sees it unchanged (`keep_stamped`).
+    stamped: HashMap<String, Arc<Module>>,
 }
 
 /// One file parsed and expanded on its own.
@@ -62,6 +67,23 @@ impl ParseCache {
         let parsed = parse_file(file);
         self.entries.insert(key, parsed.clone());
         parsed
+    }
+
+    /// [lsp-check-cache] Hands back the last analysis's module for every file
+    /// from `first` on whose expanded module equals it: comptime stamps a new
+    /// copy each time, and an equal one is the same module. What is not equal
+    /// (or not stamped) is remembered for the next analysis.
+    fn keep_stamped(&mut self, files: &[salvo_core::SourceFile], modules: &mut [Arc<Module>], first: usize) {
+        let mut next = HashMap::with_capacity(files.len());
+        for (i, file) in files.iter().enumerate().skip(first) {
+            if let Some(prev) = self.stamped.get(&file.name) {
+                if !Arc::ptr_eq(prev, &modules[i]) && **prev == *modules[i] {
+                    modules[i] = prev.clone();
+                }
+            }
+            next.insert(file.name.clone(), modules[i].clone());
+        }
+        self.stamped = next;
     }
 
     /// Drops every entry no file in `live` still produces, so the cache does
@@ -357,10 +379,15 @@ fn analyze_project_with(
     }
     let root = src.canonicalize().unwrap_or_else(|_| src.to_path_buf());
 
+    let load = salvo_core::timing::phase("load");
     let mut sources = SourceSet::default();
+    let t = salvo_core::timing::phase("  load: embedded std");
     load_embedded_std(&mut sources, native_ext);
+    drop(t);
     // [manifest-deps] Dependencies come between std and the project's tree.
+    let t = salvo_core::timing::phase("  load: dependencies");
     let mut io_errors = load_dependencies(&mut sources, project.as_ref(), native_ext);
+    drop(t);
     // [test-file] `analyze` checks test annexes: a broken test is a broken
     // program, and the language server wants diagnostics in the file being
     // edited (user decision 2026-09-23).
@@ -368,7 +395,9 @@ fn analyze_project_with(
     if let Some(project) = &project {
         sources.platform = project.platform_roots();
     }
+    let t = salvo_core::timing::phase("  load: source tree");
     io_errors.extend(sources.add_dir(&root, native_ext, false, true));
+    drop(t);
     // [std-shadow] A tree that declares std's own modules replaces them.
     sources.apply_std_shadow();
     // [manifest] `std = true`: the whole tree is std.
@@ -404,6 +433,7 @@ fn analyze_project_with(
         }
     }
 
+    drop(load);
     // Parse every module, attributing diagnostics to files
     // [diag-structured]. The per-file expansions run with the parse
     // (`parse_file`); the program-level one (comptime) after.
@@ -472,7 +502,7 @@ fn analyze_project_with(
         }
     }
     diagnostics.append(&mut project_diagnostics);
-    if let Some(cache) = cache {
+    if let Some(cache) = cache.as_deref_mut() {
         cache.retain_live(&live);
     }
     drop(t);
@@ -488,6 +518,9 @@ fn analyze_project_with(
     };
     drop(t);
     diagnostics.extend(expansion.diagnostics);
+    if let Some(cache) = cache.as_deref_mut() {
+        cache.keep_stamped(&sources.files, &mut modules, first);
+    }
     let comptime_hovers = expansion.comptime_hovers;
     let comptime_when_arms = expansion.comptime_when_arms;
     diagnostics.sort_by_key(|d| (d.file, d.span.expn, d.span.start));
@@ -541,6 +574,9 @@ fn analyze_project_with(
             (Some(cache), _) if std_cache_applies(&program, cache) => {
                 salvo_core::check_project(&program, &resolution, &symbols, cache)
             }
+            // [lsp-check-cache] No std cache stands in (std is what is
+            // edited, a `std = true` tree): the check cache covers every file.
+            (_, Some(check_cache)) => salvo_core::check_program_cached(&program, &resolution, &symbols, check_cache),
             _ => salvo_core::check_program(&program, &resolution, &symbols),
         };
         drop(t);
@@ -568,6 +604,7 @@ fn analyze_project_with(
         diagnostics.extend(salvo_core::platform_root_required(&program, project.as_ref(), &backends));
         (Some(checked), overloads, completions, type_completions)
     };
+    let _finish = salvo_core::timing::phase("finish");
     // [doc-example] What the examples found is reported at their comments.
     salvo_core::doc_examples::report(&mut diagnostics, &program.files);
     ir_reliant.retain(|(f, _)| program.files.get(*f).is_none_or(|f| f.doc_example.is_none()));
@@ -1409,6 +1446,69 @@ mod tests {
         let warned: Vec<(usize, u32, bool)> = cached.diagnostics.iter().map(|d| (d.file, d.span.start, d.doc_example)).collect();
         let at = cached.program.files[host].content.find("\"three\"").unwrap() as u32;
         assert_eq!(warned, [(host, at, true)], "{:#?}", cached.diagnostics);
+    }
+
+    // [lsp-check-cache] In a `std = true` tree (std is what is edited, so no
+    // std cache stands in) the check cache covers every file: a body edit, a
+    // doc-comment edit, and a body edit in a file comptime stamps into (`net`,
+    // whose templates are `auto`'s) each walk the edited file only; a
+    // signature edit, and a body edit in a file holding templates (`args`:
+    // every copy of one sits at its template's range, which the edit moves),
+    // walk everything; and each analysis reads what one without the cache does.
+    #[test]
+    fn the_check_cache_covers_a_std_tree() {
+        let lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../lib").canonicalize().unwrap();
+        let project = salvo_core::Project::find(&lib.join("salvo.toml")).expect("manifest").expect("lib/ has a manifest");
+        let src = project.src();
+        let root = src.canonicalize().unwrap();
+        let mut parse = ParseCache::new();
+        let mut checks = salvo_core::CheckCache::new();
+        let mut analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
+            analyze_project_with(&src, Some(project.clone()), "", overlay, Some(&mut parse), None, true, checks, Examples::Open).expect("analysis")
+        };
+        let read = |name: &str| std::fs::read_to_string(root.join(name)).unwrap();
+        let heap = read("std/heap.sv");
+        let args = read("std/args.sv");
+        let net = read("std/net.sv");
+        // The documents an editor has open, unedited: their examples are in
+        // the program from the first analysis on.
+        let open: HashMap<PathBuf, String> = [("std/heap.sv", &heap), ("std/args.sv", &args), ("std/net.sv", &net)]
+            .into_iter()
+            .map(|(n, t)| (root.join(n), t.clone()))
+            .collect();
+        let mut overlay = open.clone();
+        let first = analyze(&overlay, Some(&mut checks));
+        let all = first.program.files.len();
+        assert_eq!(checks.walked().len(), all, "the first analysis walks every file");
+        analyze(&overlay, Some(&mut checks));
+        assert!(checks.walked().is_empty(), "nothing changed, and a stamped file's equal module is kept: {:?}", checks.walked());
+        let file = |name: &str| (0..all).find(|&i| first.program.files[i].name == name).unwrap();
+        let edits: [(&str, String, bool); 5] = [
+            ("std/heap.sv", heap.replacen("    return Mut List()", "    return  Mut List()", 1), false),
+            ("std/heap.sv", heap.replacen("// A binary heap, a priority queue", "// A binary heap,  a priority queue", 1), false),
+            ("std/net.sv", edit_first_body(&net).expect("a body in net.sv"), false),
+            ("std/args.sv", edit_first_body(&args).expect("a body in args.sv"), true),
+            ("std/heap.sv", heap.replacen("export fn heapify<T>(list: Mut List<T>,", "export fn heapify<T>(list:  Mut List<T>,", 1), true),
+        ];
+        for (name, text, everything) in edits {
+            assert_ne!(text, read(name), "the edit of {name} changed nothing");
+            // Back to the files as written, then the one edit.
+            analyze(&open, Some(&mut checks));
+            overlay = open.clone();
+            overlay.insert(root.join(name), text);
+            let cached = analyze(&overlay, Some(&mut checks));
+            if everything {
+                assert_eq!(checks.walked().len(), cached.program.files.len(), "an interface edit of {name}");
+            } else {
+                let walked: Vec<&str> = checks.walked().iter().map(|&f| cached.program.files[f].name.as_str()).collect();
+                assert_eq!(walked, [name], "editing {name}");
+                assert_eq!(checks.walked(), [file(name)]);
+            }
+            let uncached = analyze(&overlay, None);
+            for ((what, a), (_, b)) in view(&cached, 0).into_iter().zip(view(&uncached, 0)) {
+                assert!(a == b, "{what} differ after editing {name}:\n{a:#?}\nwithout the cache:\n{b:#?}");
+            }
+        }
     }
 
     // [lsp-check-cache] A body edit, file after file (edits accumulating),

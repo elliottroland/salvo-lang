@@ -456,7 +456,22 @@ Parked (user, 2026-10-14): the user expects to move away from state structs and 
 
 Doc examples are built (COMPLETED.md, 2026-10-31, [doc-example]) on the
 caches as they are, with option C the user chose: then design **one cache**
-that would make the std/project split unnecessary. Today there are two
+that would make the std/project split unnecessary. **User decisions
+(2026-10-31)**: per file, not per declaration; staged and measured after
+each stage — (a) the check cache without the std front, so `lib/` gets one
+(**built** 2026-10-31, COMPLETED.md), (b) dependency-based invalidation
+(after §0ax's qualifier-by-name), (c) resolve and the IR analyses cached per
+file, (d) the std front folded into the cache; the goal today is editing std,
+designed for big user projects (gathers kept per file). Where an edit in
+`lib/std/heap.sv` goes after (a), release build, 414ms wall with the 120ms
+debounce: IR 73 (build 59), check 63 (inserting the 73 cached files' rows
+46), resolve 58, expand 33, load 26 (reading `.sv` files). Left by (a):
+- keying the rows by file identity rather than position: opening a document
+  adds its examples' files (`Examples::Open`) and clears the cache once;
+- a body edit in a file holding a comptime template (`auto`, `args`) walks
+  everything, since every copy sits at the template's range, which moves:
+  remap a copy's range through its template file's cut regions;
+- a signature edit walks everything (stage (b)). Today there are two
 mechanisms: std's front (`StdFront` + `StdCache`, parsed, expanded and
 checked once, sound because std sees only std) and the project's
 `CheckCache`, which is **all-or-nothing** — rows keyed by file position,

@@ -36,6 +36,14 @@ pub fn report(name: &str, elapsed: std::time::Duration) {
     }
 }
 
+/// Prints a count beside the timings (`timing: check: walked  3 of 66`),
+/// when timings are on.
+pub fn count(name: &str, what: impl std::fmt::Display) {
+    if enabled() {
+        eprintln!("timing: {:<28} {:>9}", name, what.to_string());
+    }
+}
+
 impl Drop for Phase {
     fn drop(&mut self) {
         let ms = self.start.elapsed().as_secs_f64() * 1000.0;

@@ -236,54 +236,6 @@ pub fn extract(file: &SourceFile, host: usize, module: &Module) -> Vec<SourceFil
     out
 }
 
-/// [doc-example] [lsp-check-cache] The byte ranges of the code lines of
-/// every fence in `content`'s comments (any info string): text no checker
-/// walk reads.
-pub(crate) fn fence_ranges(content: &str) -> Vec<(u32, u32)> {
-    let lines: Vec<&str> = content.split('\n').collect();
-    let mut starts = Vec::with_capacity(lines.len());
-    let mut at = 0u32;
-    for l in &lines {
-        starts.push(at);
-        at += l.len() as u32 + 1;
-    }
-    let comment = |l: &str| l.trim_start().starts_with("//");
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < lines.len() {
-        if !comment(lines[i]) {
-            i += 1;
-            continue;
-        }
-        let start = i;
-        while i < lines.len() && comment(lines[i]) {
-            i += 1;
-        }
-        let mut j = start;
-        while j < i {
-            let (_, body) = strip(lines[j]);
-            let ticks = body.chars().take_while(|c| *c == '`').count();
-            j += 1;
-            if ticks < 3 {
-                continue;
-            }
-            let first = j;
-            while j < i {
-                let (_, line) = strip(lines[j]);
-                if line.trim().len() >= ticks && line.trim().chars().all(|c| c == '`') {
-                    break;
-                }
-                j += 1;
-            }
-            if j < i && first < j {
-                out.push((starts[first], starts[j - 1] + lines[j - 1].len() as u32));
-            }
-            j += 1;
-        }
-    }
-    out
-}
-
 /// One fence of a comment run: its opening line, and each code line with
 /// the host offset its code starts at.
 struct Fence {

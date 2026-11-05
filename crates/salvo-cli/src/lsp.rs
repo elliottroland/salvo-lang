@@ -689,7 +689,10 @@ impl Server<'_> {
             lsp_trace!("analysis reused for {}", path.display());
             return Some(hit.clone());
         }
-        let analysis = Rc::new(self.fresh_analysis(path, overlay)?);
+        let analysis = {
+            let _t = salvo_core::timing::phase("analysis");
+            Rc::new(self.fresh_analysis(path, overlay)?)
+        };
         let mut analyses = self.analyses.borrow_mut();
         if analyses.len() >= 4 {
             analyses.remove(0);
@@ -782,6 +785,7 @@ impl Server<'_> {
     /// diagnostics per file URI, clearing files that no longer have any
     /// [cli-lsp] [manifest-discovery].
     fn publish_diagnostics(&mut self) -> Result<(), Box<dyn Error + Sync + Send>> {
+        let _t = salvo_core::timing::phase("publish");
         lsp_trace!("publish_diagnostics: analysing {} open doc(s)", self.doc_uris.len());
         // Every open document gets a publish — an explicit empty list
         // tells the client the file was re-checked and is clean, and

@@ -14165,9 +14165,12 @@ replaced the working document TESTING.md).
 * [lsp-check-cache] **A file an edit left alone is not checked again**
   (2026-10-20, the pipeline record step 8): the server keeps one `CheckCache`, every
   project file's checker rows as its last walks left them, and checks through
-  the std cache with `check_project_cached`. A file whose module is the `Arc`
-  its rows were checked from (a parse-cache hit comptime did not stamp into)
-  has them inserted where its three walks (signature facts, headers, bodies)
+  the std cache with `check_project_cached` — or, where no std cache stands
+  in (a `std = true` tree, std being what is edited), over every file with
+  `check_program_cached` (2026-10-31, ROADMAP §0be stage (a)). A file whose
+  module is the `Arc` its rows were checked from (a parse-cache hit; for a
+  file comptime stamps into, the last analysis's module handed back when the
+  new stamping equals it, `ParseCache::keep_stamped`) has them inserted where its three walks (signature facts, headers, bodies)
   would run, in program order, instead of being walked: its keyed rows with
   the first walk, and per walk what it appended (diagnostics, the tables kept
   in order), the `written_types` rows it wrote (each with the file whose node
@@ -14176,8 +14179,13 @@ replaced the working document TESTING.md).
   flags), std's same modules, the same syntactic parking set, and each new
   module's file the same text outside its plain fn bodies (top-level, struct,
   handler-member and qualifier fns that are not comptime, stamped, `by` or
-  `iter fn`) and outside its doc comments' fenced code [doc-example];
-  otherwise every file is walked and the cache rebuilt. A body
+  `iter fn`) and outside its comment runs (no other file's checking reads a
+  comment; but a run holding a `@whynot`, which an interpolation of the
+  qualified value reads [qual-whynot], and every comment of a file comptime
+  stamps into, which a stamping may read [comptime-docs]); otherwise every
+  file is walked and the cache rebuilt. A body edit in a file holding a
+  comptime template walks everything too: every copy of the template sits
+  at the template's range, which the edit moves. A body
   edit moves the declarations after it, so a cached file's definition sites
   there move by the bodies' growth, and its `written_types` rows for the
   changed file's nodes move to the same nodes of its new module (outside the
@@ -14192,8 +14200,9 @@ replaced the working document TESTING.md).
   `modules/aws`, ~12ms of ~76ms on a 1,654-line one-file project, against
   re-deriving every span in the reused rows and splitting the file's walk
   per declaration (ROADMAP 0ae). Shown by `check_cache_matches_an_uncached_analysis_across_edits`
-  (`modules/aws` and two written programs); the CLI and the compile paths do
-  not use it.
+  (`modules/aws` and two written programs) and
+  `the_check_cache_covers_a_std_tree` (`lib/`); the CLI and the compile
+  paths do not use it.
 * [lsp-hover-iter-fn] An `iter fn`'s minter and generated `next` both hover as
   the `iter fn` written (`iter fn upto(n: Int) -> Emitted Int | Finished`),
   with its docs and without the `next` overload set.

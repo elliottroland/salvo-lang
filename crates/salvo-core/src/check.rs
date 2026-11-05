@@ -2030,6 +2030,23 @@ pub fn check_program<'p>(
     out
 }
 
+/// [lsp-check-cache] [`check_program`], reusing `check_cache`'s rows for
+/// every file whose module is the one they were checked from, when no
+/// interface has changed: a program no `StdCache` stands in for (a `std =
+/// true` tree, where std is what is edited), all of whose files the cache
+/// covers. The result is what `check_program` gives.
+pub fn check_program_cached<'p>(
+    program: &'p Program,
+    resolution: &Resolution<'p>,
+    symbols: &Symbols<'p>,
+    check_cache: &mut crate::check_cache::CheckCache,
+) -> Checked {
+    let mut out = check_program_walk(program, resolution, symbols, None, Some(check_cache));
+    crate::literal::lower_tables(&mut out);
+    check_std_deductions_total(program, &mut out);
+    out
+}
+
 /// [std-cache] Checks a project reusing a `StdCache`: std's leading files are
 /// not re-checked — their contracts are seeded from the cache and their
 /// bodies are skipped in both the per-file walk and the deduction fixpoint
@@ -2523,6 +2540,11 @@ fn check_once<'p>(
     walk_interfaces(ctx, &files, &mut out, param_mutations, parking_handlers, &mut ifaces, &mut steps);
     walk_bodies(ctx, &files, &mut out, param_mutations, parking_handlers, &mut ifaces, &mut steps);
     crate::timing::report("  check: cache insert", steps.inserting);
+    if crate::timing::enabled() && steps.cache.is_some() {
+        let mut walked: Vec<&str> = steps.walked.keys().map(|f| program.files[*f].name.as_str()).collect();
+        walked.sort();
+        crate::timing::count("  check: walked", format!("{} of {}: {}", walked.len(), files.len(), walked.join(" ")));
+    }
     let mut walked: Vec<(usize, [crate::check_cache::StepRows; 3])> = steps.walked.into_iter().collect();
     walked.sort_by_key(|(f, _)| *f);
     if let (Some(c), Some(syntactic)) = (check_cache, syntactic) {

@@ -374,9 +374,9 @@ fn plain_body(f: &ast::FnDecl) -> Option<Span> {
 }
 
 /// [lsp-check-cache] A file's plain fn bodies (top-level fns, struct fns,
-/// handler members and qualifier fns) and the code of its doc comments'
-/// fences [doc-example], as disjoint byte ranges in order, and the hash of
-/// its text with them cut out: what a body-only edit leaves alone.
+/// handler members and qualifier fns) and its comment runs, as disjoint byte
+/// ranges in order, and the hash of its text with them cut out: what a
+/// body-or-comment edit leaves alone.
 pub(crate) fn interface_of(content: &str, module: &Module) -> (Vec<(u32, u32)>, u64) {
     let mut spans: Vec<(u32, u32)> = Vec::new();
     let mut push = |f: &ast::FnDecl| {
@@ -393,12 +393,15 @@ pub(crate) fn interface_of(content: &str, module: &Module) -> (Vec<(u32, u32)>, 
             _ => {}
         }
     }
-    // [doc-example] The code of a doc comment's fences is no interface's
-    // either: the checker reads none of it (an example is a file of its own),
-    // so an edit inside an example re-checks the host and the example only.
-    // Not in a file comptime stamps into: a stamping may read a doc comment.
+    // Comments are no interface either: no other file's checking reads
+    // them, so an edit in a doc comment (an example's code included
+    // [doc-example]) walks its own file (and an example its own) only. Two
+    // exceptions keep them: a run holding a `@whynot`, the template a
+    // `qualifies` failure answers with, which a call site's interpolation
+    // reads [qual-whynot]; and every comment of a file comptime stamps into,
+    // since a stamping may read a doc comment [comptime-docs].
     if !crate::comptime::stamps_anything(module) {
-        spans.extend(crate::doc_examples::fence_ranges(content));
+        spans.extend(comment_runs(content));
     }
     let len = content.len() as u32;
     spans.retain(|(s, e)| s < e && *e <= len);
@@ -424,6 +427,38 @@ pub(crate) fn interface_of(content: &str, module: &Module) -> (Vec<(u32, u32)>, 
     }
     bytes[at..].iter().for_each(|b| eat(*b));
     (bodies, h)
+}
+
+/// [lsp-check-cache] The byte ranges of `content`'s runs of own-line `//`
+/// comments, each from its first line's start to its last line's end, but a
+/// run holding a `@whynot` tag.
+fn comment_runs(content: &str) -> Vec<(u32, u32)> {
+    let mut out = Vec::new();
+    let mut at = 0u32;
+    let mut run: Option<(u32, u32, bool)> = None;
+    for line in content.split_inclusive('\n') {
+        let text = line.trim_end_matches('\n');
+        let comment = text.trim_start().starts_with("//");
+        let end = at + text.len() as u32;
+        match (&mut run, comment) {
+            (Some((_, e, whynot)), true) => {
+                *e = end;
+                *whynot |= text.contains("@whynot");
+            }
+            (None, true) => run = Some((at, end, text.contains("@whynot"))),
+            (Some(_), false) => {
+                if let Some((s, e, false)) = run.take() {
+                    out.push((s, e));
+                }
+            }
+            (None, false) => {}
+        }
+        at += line.len() as u32;
+    }
+    if let Some((s, e, false)) = run {
+        out.push((s, e));
+    }
+    out
 }
 
 /// [lsp-check-cache] Moves a position of a changed file from its old text

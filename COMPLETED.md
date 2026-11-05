@@ -149,6 +149,51 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-31 — The check cache covers std's own tree (user decisions, [lsp-check-cache], ROADMAP §0be stage (a))
+
+- **Decided** (user, 2026-10-31): one cache for every file, designed per
+  file (not per declaration) and built in measured stages — (a) the check
+  cache without the std front, (b) dependency-based invalidation, (c) resolve
+  and the IR per file, (d) the front folded in; the goal today is editing
+  std, designed for big user projects. Before starting, the user had each
+  program-wide step explained: they are cheap gathers of per-declaration
+  facts (~13ms of a `lib/` edit) plus four truly whole-program ones
+  (deadlock, the platform closure, refinements, comptime stamping); the cost
+  is the per-file walks std's tree never cached.
+- **Built** (stage (a)), each measured on an edit of `lib/std/heap.sv`
+  (debug build, the 120ms debounce included; `tmp/bench-edits.py`):
+  - `check_program_cached`: the check cache over every file of a program no
+    std cache stands in for, which is what a `std = true` tree is. 880ms →
+    650ms.
+  - **Comments are no interface** (`check_cache::comment_runs`): a comment
+    edit walks its own file only, unless the run holds a `@whynot` (read by
+    interpolations of the qualified value) or comptime stamps into the file
+    (a stamping may read docs). A doc edit: 925ms → 554ms.
+  - **An equal stamped module is handed back** (`ParseCache::keep_stamped`):
+    comptime stamps a fresh copy of every `by` file each analysis, so seven
+    of std's files (`args`, `net`, `routing`, …) were walked on every
+    keystroke; a copy equal to the last (deep `PartialEq`, expansion ids are
+    per file and deterministic) is the last `Arc`. Walked: 8 of 74 files → 1.
+    Body edit: 650ms → 536ms.
+  - **An analysis reads no host file it discards** (`SourceSet::add_dir`): a
+    platform file was read whole and then dropped when no backend was asked
+    for, 4MB a keystroke in `lib/` (397 files) and 1.2MB in `modules/aws`.
+    Release build: `lib/` load 82ms → 26ms, `modules/aws` 49ms → 8ms (its
+    edit 220ms → 180ms).
+  - Timings name the files walked (`timing: check: walked N of M`) and time
+    `load`, `finish`, `analysis` and `publish`.
+- **Where it is now** (release): `lib/` body or doc edit ~414ms (IR 73,
+  check 63 of which inserting cached rows 46, resolve 58, expand 33, load
+  26); a signature edit still ~830ms (stage (b)).
+- **Corrected**: the "scopes built three times" of the step survey is two in
+  a release build; the third is the debug build's check that a resolution
+  through the comptime interfaces equals a full one (`resolve`,
+  `debug_assertions`).
+- **Shown by** `the_check_cache_covers_a_std_tree` (`lib/` with three
+  documents open: a body edit, a doc edit and a stamped file's body edit
+  walk the file alone; a template file's body edit and a signature edit walk
+  everything; every analysis equals one without the cache).
+
 ### 2026-10-31 — Doc examples are checked with the program (user decisions, [doc-example])
 
 - **Decided** (user, 2026-10-31, the seven questions of ROADMAP §0be):

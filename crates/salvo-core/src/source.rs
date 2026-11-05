@@ -543,18 +543,21 @@ impl SourceSet {
                     continue;
                 }
                 Ok(Some(pf)) => {
-                    let content = match std::fs::read_to_string(&path) {
-                        Ok(content) => content,
-                        Err(err) => {
-                            errors.push(format!("failed to read `{}`: {err}", path.display()));
-                            continue;
-                        }
-                    };
                     let ext = if pf.backend == "kotlin" { "kt" } else { "rs" };
                     // [platform-abi] A generated file (`<m>.sv.kt`, the ABI
                     // and interface files) is for the host project's tooling
-                    // only: the build generates its own (ABI D4).
+                    // only: the build generates its own (ABI D4). Nor is a
+                    // file of another backend's read: an analysis (no
+                    // backend) reads no host file at all, which in std's tree
+                    // is 4MB a keystroke.
                     if !pf.generated && ext == native_ext {
+                        let content = match std::fs::read_to_string(&path) {
+                            Ok(content) => content,
+                            Err(err) => {
+                                errors.push(format!("failed to read `{}`: {err}", path.display()));
+                                continue;
+                            }
+                        };
                         let out = Self::platform_output_path(&pf.module, ext);
                         self.add_companion(out, pf.module, content, true);
                     }
