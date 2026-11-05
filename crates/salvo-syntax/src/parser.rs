@@ -809,6 +809,7 @@ impl<'s> Parser<'s> {
                 let span = self.peek().span;
                 match self.peek_at(1).kind {
                     TokenKind::KwFn => self.parse_compfn().map(Item::Fn),
+                    TokenKind::KwIntrinsic if matches!(self.peek_at(2).kind, TokenKind::KwFn) => self.parse_compfn().map(Item::Fn),
                     TokenKind::KwStruct => {
                         self.bump();
                         let mut s = self.parse_struct(false)?;
@@ -1767,6 +1768,10 @@ impl<'s> Parser<'s> {
     fn parse_compfn(&mut self) -> Option<FnDecl> {
         let docs = self.docs_here();
         let start = self.expect_word(COMPTIME_WORD)?;
+        // [comptime-eval-fns] `comptime intrinsic fn size<T>(xs: List<T>) ->
+        // Int`: a compile-time function the expansion implements, callable
+        // in a head and nowhere else.
+        let intrinsic = self.eat(&TokenKind::KwIntrinsic).is_some();
         self.expect(&TokenKind::KwFn)?;
         let name = self.ident_value("comptime fn")?;
         let mut bound = None;
@@ -1809,13 +1814,17 @@ impl<'s> Parser<'s> {
         // The rest is a fn signature and body, with the comptime syntax on.
         let saved = std::mem::replace(&mut self.in_compfn, true);
         let fake_fn_span = start;
-        let rest = self.parse_fn_rest(fake_fn_span, name, None, Vec::new(), Vec::new(), docs, false, FnFlavor::Plain);
+        let rest = self.parse_fn_rest(fake_fn_span, name, None, Vec::new(), Vec::new(), docs, intrinsic, FnFlavor::Plain);
         self.in_compfn = saved;
         let mut f = rest?;
         if let Some((_, param)) = &bound {
             f.generics = vec![param.clone()];
         }
-        if f.body.is_none() && f.by.is_none() {
+        f.intrinsic = intrinsic;
+        if intrinsic && (f.body.is_some() || bound.is_some()) {
+            self.error(messages::comptime_eval_fns_intrinsic_shape(&f.name.name), f.span);
+        }
+        if f.body.is_none() && f.by.is_none() && !intrinsic {
             self.error(messages::comptime_bound_missing_body(&f.name.name), f.span);
         }
         if f.by.is_some() {
@@ -4626,7 +4635,7 @@ impl<'s> Parser<'s> {
             TokenKind::LBracket
                 if matches!(
                     self.peek_at(1).kind,
-                    TokenKind::KwFor | TokenKind::KwIf | TokenKind::KwWhen
+                    TokenKind::KwFor | TokenKind::KwIf | TokenKind::KwWhen | TokenKind::KwLet
                 ) =>
             {
                 self.parse_inline().map(Stmt::Comp)
@@ -4748,11 +4757,21 @@ impl<'s> Parser<'s> {
         let start = self.expect(&TokenKind::LBracket)?.span;
         self.require_compfn(start, "a `[for …]`/`[if …]`/`[when …]` head");
         match self.kind() {
+            // [comptime-eval] `[let name = expr]`: a compile-time value for
+            // the rest of the block.
+            TokenKind::KwLet => {
+                self.bump();
+                let name = self.ident_value("name")?;
+                self.expect(&TokenKind::Eq)?;
+                let value = self.parse_comp_expr()?;
+                let end = self.expect(&TokenKind::RBracket)?.span;
+                Some(CompStmt::Let { name, value, span: start.to(end) })
+            }
             TokenKind::KwFor => {
                 self.bump();
                 let binder = self.ident_value("binder")?;
                 self.expect(&TokenKind::KwIn)?;
-                let seq = self.parse_comp_seq()?;
+                let seq = self.parse_comp_expr()?;
                 self.expect(&TokenKind::RBracket)?;
                 // [expr-terminal-scope] `[for f in T.fields] ...`: the rest of the
                 // block, once per field.
@@ -4767,7 +4786,7 @@ impl<'s> Parser<'s> {
             }
             TokenKind::KwIf => {
                 self.bump();
-                let cond = self.parse_comp_cond()?;
+                let cond = self.parse_comp_expr()?;
                 self.expect(&TokenKind::RBracket)?;
                 // [expr-terminal-scope] `[if cond] ...` keeps the rest of the block
                 // when the condition holds; an optional braced `else { … }`
@@ -5015,79 +5034,291 @@ impl<'s> Parser<'s> {
         None
     }
 
-    fn parse_comp_ty(&mut self) -> Option<CompTy> {
+    /// [comptime-eval] A compile-time expression: a head's condition, a
+    /// `[for … in …]`'s sequence, a `[let]`'s value. The operators and their
+    /// precedence are the ordinary ones; after `is`, a comptime pattern
+    /// [comptime-pattern] or a union of string literals. Lambdas take
+    /// parenthesized parameters and an expression body, `(f) -> f is Key`.
+    fn parse_comp_expr(&mut self) -> Option<CompExpr> {
+        let mut lhs = self.parse_comp_and()?;
+        while self.at(&TokenKind::PipePipe) {
+            self.bump();
+            let rhs = self.parse_comp_and()?;
+            let span = lhs.span().to(rhs.span());
+            lhs = CompExpr::Binary { op: BinaryOp::Or, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+        }
+        Some(lhs)
+    }
+
+    fn parse_comp_and(&mut self) -> Option<CompExpr> {
+        let mut lhs = self.parse_comp_cmp()?;
+        while self.at(&TokenKind::AmpAmp) {
+            self.bump();
+            let rhs = self.parse_comp_cmp()?;
+            let span = lhs.span().to(rhs.span());
+            lhs = CompExpr::Binary { op: BinaryOp::And, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+        }
+        Some(lhs)
+    }
+
+    fn parse_comp_cmp(&mut self) -> Option<CompExpr> {
+        let lhs = self.parse_comp_add()?;
+        if self.at(&TokenKind::KwCanbe) {
+            let sp = self.peek().span;
+            self.error(messages::comptime_inline_canbe_test(), sp);
+            return None;
+        }
+        if self.at(&TokenKind::KwIs) || (self.at(&TokenKind::Bang) && matches!(self.peek_at(1).kind, TokenKind::KwIs)) {
+            return self.parse_comp_is(lhs);
+        }
+        let op = match self.kind() {
+            TokenKind::EqEq => BinaryOp::Eq,
+            TokenKind::BangEq => BinaryOp::NotEq,
+            TokenKind::Lt => BinaryOp::Lt,
+            TokenKind::Gt => BinaryOp::Gt,
+            TokenKind::LtEq => BinaryOp::LtEq,
+            TokenKind::GtEq => BinaryOp::GtEq,
+            _ => return Some(lhs),
+        };
+        self.bump();
+        let rhs = self.parse_comp_add()?;
+        let span = lhs.span().to(rhs.span());
+        Some(CompExpr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), span })
+    }
+
+    fn parse_comp_add(&mut self) -> Option<CompExpr> {
+        let mut lhs = self.parse_comp_mul()?;
+        loop {
+            let op = match self.kind() {
+                TokenKind::Plus => BinaryOp::Add,
+                TokenKind::Minus => BinaryOp::Sub,
+                _ => return Some(lhs),
+            };
+            self.bump();
+            let rhs = self.parse_comp_mul()?;
+            let span = lhs.span().to(rhs.span());
+            lhs = CompExpr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+        }
+    }
+
+    fn parse_comp_mul(&mut self) -> Option<CompExpr> {
+        let mut lhs = self.parse_comp_unary()?;
+        loop {
+            let op = match self.kind() {
+                TokenKind::Star => BinaryOp::Mul,
+                TokenKind::Slash => BinaryOp::Div,
+                TokenKind::Percent => BinaryOp::Rem,
+                _ => return Some(lhs),
+            };
+            self.bump();
+            let rhs = self.parse_comp_unary()?;
+            let span = lhs.span().to(rhs.span());
+            lhs = CompExpr::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs), span };
+        }
+    }
+
+    fn parse_comp_unary(&mut self) -> Option<CompExpr> {
+        if self.at(&TokenKind::Bang) {
+            let start = self.bump().span;
+            let inner = self.parse_comp_unary()?;
+            let span = start.to(inner.span());
+            return Some(CompExpr::Not(Box::new(inner), span));
+        }
+        if self.at(&TokenKind::Minus) {
+            let start = self.bump().span;
+            let inner = self.parse_comp_unary()?;
+            let span = start.to(inner.span());
+            return Some(CompExpr::Neg(Box::new(inner), span));
+        }
+        let mut e = self.parse_comp_primary()?;
+        // `x.name`, `field.type`, `T.fields`: projections, left to right.
+        while self.at(&TokenKind::Dot) {
+            self.bump();
+            let field = if self.at(&TokenKind::KwType) {
+                let sp = self.bump().span;
+                Ident { name: "type".to_string(), span: sp }
+            } else {
+                self.ident_value("a compile-time property")?
+            };
+            let span = e.span().to(field.span);
+            e = CompExpr::Proj { base: Box::new(e), field, span };
+        }
+        Some(e)
+    }
+
+    fn parse_comp_primary(&mut self) -> Option<CompExpr> {
         let span = self.peek().span;
-        match self.try_parse_comp_ty() {
-            Some(t) => Some(t),
-            None => {
-                let found = self.kind().describe();
-                self.error(messages::comptime_fields_expected_type(&found), span);
+        match self.kind().clone() {
+            TokenKind::KwTrue => {
+                self.bump();
+                Some(CompExpr::Bool(true, span))
+            }
+            TokenKind::KwFalse => {
+                self.bump();
+                Some(CompExpr::Bool(false, span))
+            }
+            TokenKind::Int { value, long } => {
+                self.bump();
+                Some(CompExpr::Int { value, long, span })
+            }
+            TokenKind::Char(c) => {
+                self.bump();
+                Some(CompExpr::Char(c, span))
+            }
+            TokenKind::Str(_) => {
+                let (text, span) = self.comp_name_lit()?;
+                Some(CompExpr::Str(text, span))
+            }
+            TokenKind::LParen => {
+                // `(a, b) -> e` is a lambda; `(e)` a group.
+                let mut k = 1;
+                let mut lambda = false;
+                loop {
+                    match &self.peek_at(k).kind {
+                        TokenKind::Ident(_) => {
+                            k += 1;
+                            match &self.peek_at(k).kind {
+                                TokenKind::Comma => k += 1,
+                                TokenKind::RParen => {
+                                    lambda = matches!(self.peek_at(k + 1).kind, TokenKind::Arrow);
+                                    break;
+                                }
+                                _ => break,
+                            }
+                        }
+                        TokenKind::RParen => {
+                            lambda = matches!(self.peek_at(k + 1).kind, TokenKind::Arrow);
+                            break;
+                        }
+                        _ => break,
+                    }
+                }
+                self.bump();
+                self.group_depth += 1;
+                if lambda {
+                    let mut params = Vec::new();
+                    while !self.at(&TokenKind::RParen) {
+                        let Some(p) = self.ident() else {
+                            self.group_depth -= 1;
+                            return None;
+                        };
+                        params.push(p);
+                        if self.eat(&TokenKind::Comma).is_none() {
+                            break;
+                        }
+                    }
+                    self.group_depth -= 1;
+                    self.expect(&TokenKind::RParen)?;
+                    self.expect(&TokenKind::Arrow)?;
+                    let body = self.parse_comp_expr()?;
+                    let span = span.to(body.span());
+                    return Some(CompExpr::Lambda { params, body: Box::new(body), span });
+                }
+                let inner = self.parse_comp_expr();
+                self.group_depth -= 1;
+                let inner = inner?;
+                self.expect(&TokenKind::RParen)?;
+                Some(inner)
+            }
+            TokenKind::Ident(name) => {
+                if name == "None" {
+                    self.bump();
+                    return Some(CompExpr::None(span));
+                }
+                // [comptime-generic-fn] `Arg<T>` — an instantiated root.
+                if name.starts_with(|c: char| c.is_uppercase()) && matches!(self.peek_at(1).kind, TokenKind::Lt) {
+                    let r = self.parse_type_ref_opts(false)?;
+                    return Some(CompExpr::Name { id: r.name, args: r.args, span: r.span });
+                }
+                let id = self.ident()?;
+                if self.at(&TokenKind::LParen) {
+                    self.bump();
+                    self.group_depth += 1;
+                    let mut args = Vec::new();
+                    while !self.at(&TokenKind::RParen) && !self.at_eof() {
+                        let Some(a) = self.parse_comp_expr() else {
+                            self.group_depth -= 1;
+                            return None;
+                        };
+                        args.push(a);
+                        if self.eat(&TokenKind::Comma).is_none() {
+                            break;
+                        }
+                    }
+                    self.group_depth -= 1;
+                    let end = self.expect(&TokenKind::RParen)?.span;
+                    return Some(CompExpr::Call { callee: id, args, span: span.to(end) });
+                }
+                Some(CompExpr::Name { span: id.span, id, args: Vec::new() })
+            }
+            other => {
+                let found = other.describe();
+                self.error(messages::comptime_eval_expected_expr(&found), span);
                 None
             }
         }
     }
 
-    /// `T.fields` / `T.arms` / `field.type.arms`.
-    fn parse_comp_seq(&mut self) -> Option<CompSeq> {
-        let ty = self.parse_comp_ty()?;
-        self.expect(&TokenKind::Dot)?;
-        let what = self.ident_value("`fields`, `arms` or `literals`")?;
-        let (arms, literals) = match what.name.as_str() {
-            "fields" => (false, false),
-            "arms" => (true, false),
-            // [comptime-literals] A literal union's members.
-            "literals" => (false, true),
-            other => {
-                self.error(messages::comptime_fields_unknown_sequence(other), what.span);
-                return None;
+    /// `subject is <B> pattern`, `subject is "a" | "b"`, and the `!is`
+    /// forms. A `.kind` subject takes a kind word [comptime-kind], and a
+    /// `.default`/`.docs` subject only `None` [comptime-default]
+    /// [comptime-docs]: what those tests can say, decided here.
+    fn parse_comp_is(&mut self, subject: CompExpr) -> Option<CompExpr> {
+        let negated = self.comp_is_or_not_is()?;
+        let start = subject.span();
+        let proj = match &subject {
+            CompExpr::Proj { field, .. } => Some(field.name.clone()),
+            _ => None,
+        };
+        let (binders, pattern) = match proj.as_deref() {
+            Some("kind") => {
+                let sp = self.peek().span;
+                let kind = self.parse_kind_word()?;
+                let ty = Type::Named {
+                    qualifiers: Vec::new(),
+                    base: TypeRef {
+                        alias: None, at: None, binder: false, established: false,
+                        value_args: Vec::new(), from: Vec::new(),
+                        name: Ident { name: kind.word().to_string(), span: sp },
+                        args: Vec::new(), span: sp,
+                    },
+                };
+                (Vec::new(), CompPattern::Type(ty))
+            }
+            Some(p @ ("default" | "docs")) => {
+                let none = self.peek().span;
+                if !matches!(self.kind(), TokenKind::Ident(n) if n == "None") {
+                    let base = match &subject {
+                        CompExpr::Proj { base, .. } => match &**base {
+                            CompExpr::Name { id, .. } => id.name.clone(),
+                            _ => String::new(),
+                        },
+                        _ => String::new(),
+                    };
+                    let message = if p == "docs" {
+                        messages::comptime_docs_unset_test(&base)
+                    } else {
+                        messages::comptime_default_unset_test(&base)
+                    };
+                    self.error(message, none);
+                    return None;
+                }
+                let (b, t) = self.comp_type_pattern()?;
+                (b, CompPattern::Type(t))
+            }
+            _ if matches!(self.kind(), TokenKind::Str(_)) => (Vec::new(), CompPattern::Strs(self.comp_name_lits()?)),
+            _ => {
+                let (b, t) = self.comp_type_pattern()?;
+                (b, CompPattern::Type(t))
             }
         };
-        let span = ty.span.to(what.span);
-        Some(CompSeq { ty, arms, literals, span })
-    }
-
-    /// The compile-time conditions [comptime-inline] [comptime-logic]: leaves
-    /// joined by `||`, `&&`, `!` and parentheses, with the precedence the same
-    /// operators have in ordinary expressions (user decision 2026-10-20).
-    fn parse_comp_cond(&mut self) -> Option<CompCond> {
-        let mut lhs = self.parse_comp_cond_and()?;
-        while self.at(&TokenKind::PipePipe) {
-            self.bump();
-            let rhs = self.parse_comp_cond_and()?;
-            let span = lhs.span().to(rhs.span());
-            lhs = CompCond::Or(Box::new(lhs), Box::new(rhs), span);
-        }
-        Some(lhs)
-    }
-
-    fn parse_comp_cond_and(&mut self) -> Option<CompCond> {
-        let mut lhs = self.parse_comp_cond_unary()?;
-        while self.at(&TokenKind::AmpAmp) {
-            self.bump();
-            let rhs = self.parse_comp_cond_unary()?;
-            let span = lhs.span().to(rhs.span());
-            lhs = CompCond::And(Box::new(lhs), Box::new(rhs), span);
-        }
-        Some(lhs)
-    }
-
-    fn parse_comp_cond_unary(&mut self) -> Option<CompCond> {
-        if self.at(&TokenKind::Bang) {
-            let start = self.bump().span;
-            let inner = self.parse_comp_cond_unary()?;
-            let span = start.to(inner.span());
-            return Some(CompCond::Not(Box::new(inner), span));
-        }
-        if self.at(&TokenKind::LParen) {
-            self.bump();
-            self.group_depth += 1;
-            let inner = self.parse_comp_cond();
-            self.group_depth -= 1;
-            let inner = inner?;
-            self.expect(&TokenKind::RParen)?;
-            return Some(inner);
-        }
-        self.parse_comp_cond_leaf()
+        let end = match &pattern {
+            CompPattern::Type(t) => t.span(),
+            CompPattern::Strs(lits) => lits.last().map(|(_, s)| *s).unwrap_or(start),
+        };
+        let span = start.to(end);
+        let is = CompExpr::Is { subject: Box::new(subject), binders, pattern, span };
+        Some(if negated { CompExpr::Not(Box::new(is), span) } else { is })
     }
 
     /// `is` or `!is`, answering whether it was negated.
@@ -5133,212 +5364,6 @@ impl<'s> Parser<'s> {
             lits.push(self.comp_name_lit()?);
         }
         Some(lits)
-    }
-
-    /// One compile-time test [comptime-inline]: `X.kind is <Kind>`, `X is
-    /// <Type>`, `X.mutable`, `b.name == "lit"` / `b.name is "a" | "b"`,
-    /// `b.first`, `b.last`, `x.index == y.index`, each `is` also as `!is`.
-    fn parse_comp_cond_leaf(&mut self) -> Option<CompCond> {
-        let start = self.peek().span;
-        // [comptime-qualifier] `field is Short`, `field is <c> Short(c)`,
-        // `field !is Positional`: a binder tested for a comptime qualifier.
-        if let TokenKind::Ident(b) = self.kind().clone() {
-            let is_next = matches!(self.peek_at(1).kind, TokenKind::KwIs)
-                || (matches!(self.peek_at(1).kind, TokenKind::Bang) && matches!(self.peek_at(2).kind, TokenKind::KwIs));
-            if b.starts_with(|c: char| c.is_lowercase()) && is_next {
-                let subject = self.ident()?;
-                let negated = self.comp_is_or_not_is()?;
-                let (binders, target) = self.comp_type_pattern()?;
-                let span = start.to(target.span());
-                let qual = match target {
-                    Type::Named { qualifiers, base } if qualifiers.is_empty() => base,
-                    other => {
-                        self.error(
-                            messages::comptime_qualifier_type_test(&subject.name),
-                            other.span(),
-                        );
-                        return None;
-                    }
-                };
-                let cond = CompCond::Annotated { subject, binders, qual, span };
-                return Some(if negated { CompCond::Not(Box::new(cond), span) } else { cond });
-            }
-        }
-        // `binder.name …`, `binder.kind is …`, `binder.first`, `binder.last`,
-        // `x.index == y.index`
-        if let TokenKind::Ident(b) = self.kind().clone() {
-            if b.starts_with(|c: char| c.is_lowercase())
-                && matches!(self.peek_at(1).kind, TokenKind::Dot)
-                && matches!(&self.peek_at(2).kind, TokenKind::Ident(p) if matches!(p.as_str(), "name" | "first" | "last" | "index" | "kind" | "default" | "docs"))
-            {
-                let binder = self.ident()?;
-                self.bump();
-                let proj = self.ident()?;
-                match proj.name.as_str() {
-                    "index" => {
-                        let op = match self.kind() {
-                            TokenKind::EqEq => BinaryOp::Eq,
-                            TokenKind::BangEq => BinaryOp::NotEq,
-                            TokenKind::Lt => BinaryOp::Lt,
-                            TokenKind::Gt => BinaryOp::Gt,
-                            TokenKind::LtEq => BinaryOp::LtEq,
-                            TokenKind::GtEq => BinaryOp::GtEq,
-                            other => {
-                                let found = other.describe();
-                                let sp = self.peek().span;
-                                self.error(messages::comptime_inline_position_compare(&found), sp);
-                                return None;
-                            }
-                        };
-                        self.bump();
-                        let other = self.ident_value("binder")?;
-                        self.expect(&TokenKind::Dot)?;
-                        let what = self.ident_value("`index`")?;
-                        if what.name != "index" {
-                            self.error(messages::comptime_inline_position_rhs(), what.span);
-                            return None;
-                        }
-                        return Some(CompCond::IndexCmp {
-                            a: binder,
-                            b: other,
-                            op,
-                            span: start.to(what.span),
-                        });
-                    }
-                    "default" | "docs" => {
-                        return self.comp_unset_test(start, binder, proj.name == "docs");
-                    }
-                    "first" | "last" => {
-                        return Some(CompCond::Flag {
-                            binder,
-                            last: proj.name == "last",
-                            span: start.to(proj.span),
-                        });
-                    }
-                    "kind" => {
-                        // [comptime-kind] `field.kind` is the kind of `field.type`.
-                        let ty = CompTy {
-                            root: binder.clone(),
-                            via_type: true,
-                            args: Vec::new(),
-                            span: start.to(proj.span),
-                        };
-                        return self.comp_kind_test(start, ty);
-                    }
-                    _ => {
-                        // `name`: `==`/`!=` one literal, or `is`/`!is` a
-                        // union of them [comptime-name].
-                        // [comptime-name] `a.name == b.name`: another
-                        // binder's name, not a literal.
-                        if matches!(self.kind(), TokenKind::EqEq | TokenKind::BangEq)
-                            && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
-                            && matches!(self.peek_at(2).kind, TokenKind::Dot)
-                            && matches!(&self.peek_at(3).kind, TokenKind::Ident(p) if p == "name")
-                        {
-                            let negated = self.at(&TokenKind::BangEq);
-                            self.bump();
-                            let other = self.ident()?;
-                            self.bump(); // .
-                            let end = self.bump().span; // name
-                            let span = start.to(end);
-                            let cond = CompCond::NameEq { a: binder, b: other, span };
-                            return Some(if negated { CompCond::Not(Box::new(cond), span) } else { cond });
-                        }
-                        let negated;
-                        let lits = if self.eat(&TokenKind::EqEq).is_some() {
-                            negated = false;
-                            vec![self.comp_name_lit()?]
-                        } else if self.eat(&TokenKind::BangEq).is_some() {
-                            negated = true;
-                            vec![self.comp_name_lit()?]
-                        } else if self.at(&TokenKind::KwIs)
-                            || (self.at(&TokenKind::Bang) && matches!(self.peek_at(1).kind, TokenKind::KwIs))
-                        {
-                            negated = self.comp_is_or_not_is()?;
-                            self.comp_name_lits()?
-                        } else {
-                            let sp = self.peek().span;
-                            self.error(messages::comptime_name_name_compare(), sp);
-                            return None;
-                        };
-                        let end = lits.last().map(|(_, s)| *s).unwrap_or(proj.span);
-                        let cond = CompCond::NameIs {
-                            binder,
-                            lits: lits.into_iter().map(|(l, _)| l).collect(),
-                            span: start.to(end),
-                        };
-                        return Some(if negated {
-                            CompCond::Not(Box::new(cond), start.to(end))
-                        } else {
-                            cond
-                        });
-                    }
-                }
-            }
-        }
-        // [comptime-docs] `T.docs is None`, `Reading.docs is None`.
-        if matches!(&self.kind(), TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()))
-            && matches!(self.peek_at(1).kind, TokenKind::Dot)
-            && matches!(&self.peek_at(2).kind, TokenKind::Ident(p) if p == "docs")
-        {
-            let root = self.ident()?;
-            self.bump();
-            self.bump();
-            return self.comp_unset_test(start, root, true);
-        }
-        let ty = self.parse_comp_ty()?;
-        // `T.mutable`: the `Struct.mutable` projection as a condition.
-        if self.at(&TokenKind::Dot)
-            && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n == "mutable")
-        {
-            self.bump();
-            let end = self.bump().span;
-            return Some(CompCond::Mutable {
-                ty,
-                span: start.to(end),
-            });
-        }
-        // `T.kind is Struct`, `field.type.kind is Union` [comptime-kind].
-        if self.at(&TokenKind::Dot)
-            && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n == "kind")
-        {
-            self.bump();
-            self.bump();
-            return self.comp_kind_test(start, ty);
-        }
-        if self.at(&TokenKind::KwCanbe) {
-            let sp = self.peek().span;
-            self.error(messages::comptime_inline_canbe_test(), sp);
-            return None;
-        }
-        // A written type: equality, never a kind test [comptime-kind] — a
-        // pattern, with `*` and declared binders [comptime-pattern].
-        let negated = self.comp_is_or_not_is()?;
-        let (binders, target) = self.comp_type_pattern()?;
-        let span = start.to(target.span());
-        let cond = CompCond::Is { ty, binders, target, span };
-        Some(if negated { CompCond::Not(Box::new(cond), span) } else { cond })
-    }
-
-    /// [comptime-default] [comptime-docs] The rest of `x.default is None` /
-    /// `x.docs is None`: these are tested only for being there, so `None` is
-    /// the one thing they are compared with.
-    fn comp_unset_test(&mut self, start: Span, binder: Ident, docs: bool) -> Option<CompCond> {
-        let negated = self.comp_is_or_not_is()?;
-        let none = self.peek().span;
-        if !matches!(self.kind(), TokenKind::Ident(n) if n == "None") {
-            let message = if docs {
-                messages::comptime_docs_unset_test(&binder.name)
-            } else {
-                messages::comptime_default_unset_test(&binder.name)
-            };
-            self.error(message, none);
-            return None;
-        }
-        self.bump();
-        let span = start.to(none);
-        let cond = CompCond::Unset { binder, docs, span };
-        Some(if negated { CompCond::Not(Box::new(cond), span) } else { cond })
     }
 
     /// [comptime-pattern] `<E, K> Map<K, List<E>>` / `List<*>` / `Str`: the
@@ -5395,15 +5420,6 @@ impl<'s> Parser<'s> {
             arms,
             span: start.to(end),
         })
-    }
-
-    /// `… is <Kind>` / `… !is <Kind>` after `X.kind` [comptime-kind].
-    fn comp_kind_test(&mut self, start: Span, ty: CompTy) -> Option<CompCond> {
-        let negated = self.comp_is_or_not_is()?;
-        let kind = self.parse_kind_word()?;
-        let span = start.to(self.tokens[self.pos - 1].span);
-        let cond = CompCond::Kind { ty, kind, span };
-        Some(if negated { CompCond::Not(Box::new(cond), span) } else { cond })
     }
 
     fn parse_let(&mut self) -> Option<Stmt> {
@@ -7187,7 +7203,7 @@ impl<'s> Parser<'s> {
                 self.bump();
                 let binder = self.ident_value("binder")?;
                 self.expect(&TokenKind::KwIn)?;
-                let seq = self.parse_comp_seq()?;
+                let seq = self.parse_comp_expr()?;
                 self.expect(&TokenKind::RBracket)?;
                 self.expect(&TokenKind::LBrace)?;
                 let entries = self.parse_struct_lit_entries()?;

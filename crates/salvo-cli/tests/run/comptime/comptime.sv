@@ -369,3 +369,47 @@ fn main() [use] -> None {
 //= port: 8080
 //= name: required
 //= tag: (none)
+
+//--- evaluated_heads
+// [comptime-eval] [comptime-eval-fns] Heads evaluate over the model: a
+// `[let]`, a walk over a filtered list, the intrinsics, a computed
+// `refuse!` (not taken here).
+export comptime qualifier Key for Field
+
+struct Order { qty: Int, Key id: Str, note: Str }
+
+comptime fn key_name<T is Struct>(value: T) [] -> Str => value {
+    [let keys = filter(T.fields, (f) -> f is Key)]
+    [if size(keys) != 1] {
+        refuse!("`${T.name}` marks ${size(keys)} fields as `Key`; mark exactly one")
+    }
+    [for f in keys] ...
+    return "${f.name} at ${f.index}"
+}
+
+fn order_key(value: Order) [] -> Str by key_name
+
+comptime fn summary() [] -> Str {
+    let out: Mut Str = Mut Str("")
+    [let strs = count(Order.fields, (f) -> f.type is Str)]
+    [let n = size(Order.fields)]
+    append(out, "${strs} of ${n}")
+    [if any(Order.fields, (f) -> f is Key) && !all(Order.fields, (f) -> f is Key)] {
+        append(out, ", some keyed")
+    }
+    [let last = get(Order.fields, n - 1)]
+    append(out, ", last ${last.name}")
+    [for f in filter(Order.fields, (x) -> x.type is Str)] {
+        append(out, " [${f.name}]")
+    }
+    return out
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    println(order_key(Order { qty: 1, id: "a", note: "" }))
+    println(summary())
+}
+//= stdout
+//= id at 1
+//= 2 of 3, some keyed, last note [id] [note]

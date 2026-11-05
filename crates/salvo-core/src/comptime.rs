@@ -3,9 +3,11 @@
 //! unrolled, selected or refused, leaving an ordinary fn with an ordinary body
 //! (user decisions 2026-09-28, the comptime rounds; COMPLETED.md's log).
 //!
-//! Runs before resolution, over the whole source set, because a `by auto` in
-//! any file reads `std.core.auto`'s compfns and the target type's declaration,
-//! neither of which resolution has looked at yet. What it leaves behind:
+//! Runs between the interfaces and the bodies (the pipeline record C4 B), over
+//! the whole source set, because a `by auto` in any file reads
+//! `std.core.auto`'s compfns and the target type's declaration as written.
+//! Heads are compile-time expressions, evaluated here [comptime-eval]. What it
+//! leaves behind:
 //!
 //! - one stamped fn per (`by` site, group member), declared on the target type
 //!   [fn-attached] and pushed into the target's module — the checker's
@@ -457,7 +459,7 @@ fn run<M: crate::expand::ModuleSlot>(
                         fallback_body(f);
                     }
                 }
-            } else if f.compfn.as_ref().is_some_and(|c| c.bound.is_none()) {
+            } else if f.compfn.as_ref().is_some_and(|c| c.bound.is_none()) && !f.intrinsic {
                 // [comptime-bound] An expanded-in-place compfn is its own
                 // instantiation: expanded once, here, and an ordinary
                 // (callable) fn from then on. The roots it names are looked
@@ -520,11 +522,13 @@ fn run<M: crate::expand::ModuleSlot>(
         }
 
         // Generic compfns leave the program: nothing downstream could type
-        // them, and every use of one has been stamped above.
+        // them, and every use of one has been stamped above. So do the
+        // compile-time intrinsics [comptime-eval-fns]: heads, which call
+        // them, are gone.
         let before = module.items.len();
         module
             .items
-            .retain(|item| !matches!(item, Item::Fn(f) if f.compfn.as_ref().is_some_and(|c| c.bound.is_some())));
+            .retain(|item| !matches!(item, Item::Fn(f) if f.compfn.as_ref().is_some_and(|c| c.bound.is_some()) || (f.compfn.is_some() && f.intrinsic)));
         // [decl-id] A module that gained or lost a declaration: a scope that
         // took it in is built again over the stamped program, the rest are
         // viewed (`resolve::resolve`).
@@ -656,25 +660,6 @@ impl HoverRecorder<'_> {
         self.binders.iter().rev().find(|(n, _)| n == name).map(|(_, arm)| *arm)
     }
 
-    fn seq(&mut self, seq: &CompSeq) {
-        self.comp_ty(&seq.ty);
-        let (what, elem) = if seq.literals {
-            ("literals", known::COMPTIME_LITERAL)
-        } else if seq.arms {
-            ("arms", known::COMPTIME_ARM)
-        } else {
-            ("fields", known::COMPTIME_FIELD)
-        };
-        self.push(
-            seq.span,
-            &format!("{}.{what}: List<{elem}>", comp_ty_text(&seq.ty)),
-            &format!(
-                "The declared {what}, in declaration order; a `[for …]` over it is \
-                 unrolled, one copy of the body per `{elem}`."
-            ),
-        );
-    }
-
     fn binder(&mut self, id: &Ident, is_arm: bool) {
         let ty = if is_arm { known::COMPTIME_ARM } else { known::COMPTIME_FIELD };
         self.push(
@@ -692,95 +677,107 @@ impl HoverRecorder<'_> {
         );
     }
 
-    fn cond(&mut self, c: &CompCond) {
-        match c {
-            CompCond::Kind { ty, span, .. } if ty.via_type => {
-                if self.binder_kind(&ty.root.name).is_some() {
-                    self.push(
-                        ty.span,
-                        &format!("{}.kind: Kind", ty.root.name),
-                        "The kind of the binder's type — an arm of `core.comptime`'s `Kind`: \
-                         `Struct | Union | Tuple | FnType | Opaque` [comptime-kind].",
-                    );
-                }
-                let _ = span;
-            }
-            CompCond::Kind { ty, .. } | CompCond::Is { ty, .. } | CompCond::Mutable { ty, .. } => {
-                self.comp_ty(ty);
-                if let CompCond::Mutable { span, .. } = c {
-                    self.push(
-                        *span,
-                        &format!("{}.mutable: Bool", comp_ty_text(ty)),
-                        "Whether the type declares `canbe Mut` (`Struct.mutable`).",
-                    );
+    /// [comptime-eval] The comptime names in a head, at their written spans.
+    fn cexpr(&mut self, e: &CompExpr) {
+        match e {
+            CompExpr::Name { id, args, span } => {
+                if self.binder_kind(&id.name).is_none() && !id.name.starts_with(|c: char| c.is_lowercase()) || self.bound.as_ref().is_some_and(|(p, _)| *p == id.name) {
+                    self.comp_ty(&CompTy { root: id.clone(), via_type: false, args: args.clone(), span: *span });
                 }
             }
-            CompCond::NameIs { binder, span, .. } => {
-                if self.binder_kind(&binder.name).is_some() {
-                    self.push(
-                        Span::new(span.start, binder.span.end + 5),
-                        &format!("{}.name", binder.name),
-                        "The declared name — a literal of the union of the struct's field \
-                         names (or the union's arm names), tested at compile time.",
-                    );
-                }
-            }
-            CompCond::Flag { binder, last, span } => {
-                if self.binder_kind(&binder.name).is_some() {
-                    self.push(
-                        *span,
-                        &format!("{}.{}: Bool", binder.name, if *last { "last" } else { "first" }),
-                        "Whether this copy is for the first/last element.",
-                    );
-                }
-            }
-            CompCond::Annotated { subject, qual, span, .. } => {
-                if self.binder_kind(&subject.name).is_some() {
-                    self.push(
-                        *span,
-                        &format!("{} is {}", subject.name, qual.name.name),
-                        "Whether the field carries this comptime qualifier, written before its name \
-                         [comptime-qualifier].",
-                    );
-                }
-            }
-            CompCond::Unset { binder, docs, span } => {
-                if self.binder_kind(&binder.name).is_some() {
-                    let (proj, note) = if *docs {
-                        ("docs", "Whether there is a doc comment: `is None` when there is not [comptime-docs].")
-                    } else {
-                        ("default", "Whether the field declares a default: `is None` when it does not [comptime-default].")
-                    };
-                    self.push(*span, &format!("{}.{proj}", binder.name), note);
-                }
-            }
-            CompCond::NameEq { a, b, .. } => {
-                for id in [a, b] {
-                    if self.binder_kind(&id.name).is_some() {
-                        self.push(
-                            Span::new(id.span.start, id.span.end + 5),
-                            &format!("{}.name", id.name),
-                            "The declared name, compared with another binder's [comptime-name].",
-                        );
+            CompExpr::Proj { base, field, span } => {
+                if let CompExpr::Name { id: b, .. } = &**base {
+                    if let Some(is_arm) = self.binder_kind(&b.name) {
+                        let elem = if is_arm { known::COMPTIME_ARM } else { known::COMPTIME_FIELD };
+                        match field.name.as_str() {
+                            "type" => self.comp_ty(&CompTy { root: b.clone(), via_type: true, args: Vec::new(), span: *span }),
+                            "kind" => self.push(
+                                *span,
+                                &format!("{}.kind: Kind", b.name),
+                                "The kind of the binder's type — an arm of `core.comptime`'s `Kind`: \
+                                 `Struct | Union | Tuple | FnType | Opaque` [comptime-kind].",
+                            ),
+                            "name" => self.push(
+                                *span,
+                                &format!("{}.name", b.name),
+                                "The declared name — a literal of the union of the struct's field \
+                                 names (or the union's arm names), tested at compile time.",
+                            ),
+                            p @ ("first" | "last") => self.push(*span, &format!("{}.{p}: Bool", b.name), "Whether this copy is for the first/last element."),
+                            "index" => self.push(*span, &format!("{}.index: Int", b.name), "The declared position, from zero."),
+                            "docs" => self.push(*span, &format!("{}.docs", b.name), "Whether there is a doc comment: `is None` when there is not [comptime-docs]."),
+                            "default" => self.push(*span, &format!("{}.default", b.name), "Whether the field declares a default: `is None` when it does not [comptime-default]."),
+                            _ => {
+                                let _ = elem;
+                            }
+                        }
+                        return;
                     }
                 }
-            }
-            CompCond::IndexCmp { a, b, .. } => {
-                for id in [a, b] {
-                    if self.binder_kind(&id.name).is_some() {
+                match field.name.as_str() {
+                    what @ ("fields" | "arms" | "literals") => {
+                        self.cexpr(base);
+                        let elem = match what {
+                            "literals" => known::COMPTIME_LITERAL,
+                            "arms" => known::COMPTIME_ARM,
+                            _ => known::COMPTIME_FIELD,
+                        };
                         self.push(
-                            Span::new(id.span.start, id.span.end + 6),
-                            &format!("{}.index: Int", id.name),
-                            "The declared position, from zero.",
+                            *span,
+                            &format!("{}.{what}: List<{elem}>", comp_expr_text(base)),
+                            &format!(
+                                "The declared {what}, in declaration order; a `[for …]` over it is \
+                                 unrolled, one copy of the body per `{elem}`."
+                            ),
                         );
                     }
+                    "mutable" => {
+                        self.cexpr(base);
+                        self.push(
+                            *span,
+                            &format!("{}.mutable: Bool", comp_expr_text(base)),
+                            "Whether the type declares `canbe Mut` (`Struct.mutable`).",
+                        );
+                    }
+                    _ => self.cexpr(base),
                 }
             }
-            CompCond::Not(inner, _) => self.cond(inner),
-            CompCond::And(a, b, _) | CompCond::Or(a, b, _) => {
-                self.cond(a);
-                self.cond(b);
+            CompExpr::Is { subject, pattern, span, .. } => {
+                if let (CompExpr::Name { id, .. }, CompPattern::Type(Type::Named { base, .. })) = (&**subject, pattern) {
+                    if self.binder_kind(&id.name).is_some() {
+                        self.push(
+                            *span,
+                            &format!("{} is {}", id.name, base.name.name),
+                            "Whether the field carries this comptime qualifier, written before its name \
+                             [comptime-qualifier].",
+                        );
+                        return;
+                    }
+                }
+                self.cexpr(subject);
             }
+            CompExpr::Call { args, .. } => {
+                for a in args {
+                    self.cexpr(a);
+                }
+            }
+            CompExpr::Lambda { params, body, .. } => {
+                // A lambda's parameter is an element of the list it is
+                // passed with, as a walk's binder is.
+                for p in params {
+                    self.binders.push((p.name.clone(), false));
+                }
+                self.cexpr(body);
+                for _ in params {
+                    self.binders.pop();
+                }
+            }
+            CompExpr::Not(inner, _) | CompExpr::Neg(inner, _) => self.cexpr(inner),
+            CompExpr::Binary { lhs, rhs, .. } => {
+                self.cexpr(lhs);
+                self.cexpr(rhs);
+            }
+            CompExpr::Bool(..) | CompExpr::Int { .. } | CompExpr::Char(..) | CompExpr::Str(..) | CompExpr::None(_) => {}
         }
     }
 
@@ -793,16 +790,21 @@ impl HoverRecorder<'_> {
                     body,
                     ..
                 } => {
-                    self.seq(seq);
-                    self.binder(binder, seq.arms || seq.literals);
-                    self.binders.push((binder.name.clone(), seq.arms || seq.literals));
+                    self.cexpr(seq);
+                    let is_arm = seq_is_arm(seq);
+                    self.binder(binder, is_arm);
+                    self.binders.push((binder.name.clone(), is_arm));
                     self.block(body);
                     self.binders.pop();
+                }
+                CompStmt::Let { name, value, .. } => {
+                    self.cexpr(value);
+                    self.push(name.span, &format!("[let {}]", name.name), "A compile-time value for the rest of the block [comptime-eval].");
                 }
                 CompStmt::If {
                     cond, then, else_, ..
                 } => {
-                    self.cond(cond);
+                    self.cexpr(cond);
                     self.block(then);
                     if let Some(b) = else_ {
                         self.block(b);
@@ -1008,9 +1010,10 @@ impl HoverRecorder<'_> {
                         }
                         StructLitFieldKind::Spread(e) => self.expr(e),
                         StructLitFieldKind::InlineFor { binder, seq, entries } => {
-                            self.seq(seq);
-                            self.binder(binder, seq.arms || seq.literals);
-                            self.binders.push((binder.name.clone(), seq.arms || seq.literals));
+                            self.cexpr(seq);
+                            let is_arm = seq_is_arm(seq);
+                            self.binder(binder, is_arm);
+                            self.binders.push((binder.name.clone(), is_arm));
                             for entry in entries {
                                 if let StructLitFieldKind::Named { name, value } = &entry.kind {
                                     if let Some(b) = name.name.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
@@ -1054,11 +1057,95 @@ impl HoverRecorder<'_> {
     }
 }
 
-fn comp_ty_text(ct: &CompTy) -> String {
-    if ct.via_type {
-        format!("{}.type", ct.root.name)
-    } else {
-        ct.root.name.clone()
+/// [comptime-eval] How a hover names a head's type expression.
+fn comp_expr_text(e: &CompExpr) -> String {
+    match e {
+        CompExpr::Name { id, .. } => id.name.clone(),
+        CompExpr::Proj { base, field, .. } => format!("{}.{}", comp_expr_text(base), field.name),
+        _ => "…".to_string(),
+    }
+}
+
+/// [comptime-eval] Whether a walk's sequence is of arms or literals (as
+/// written: a hover's guess, before any evaluation).
+fn seq_is_arm(e: &CompExpr) -> bool {
+    match e {
+        CompExpr::Proj { field, .. } => matches!(field.name.as_str(), "arms" | "literals"),
+        CompExpr::Call { args, .. } => args.first().is_some_and(seq_is_arm),
+        _ => false,
+    }
+}
+
+/// The callees of a compile-time expression's calls, by span.
+fn comp_callees(e: &CompExpr, out: &mut Vec<Span>) {
+    match e {
+        CompExpr::Call { callee, args, .. } => {
+            out.push(callee.span);
+            args.iter().for_each(|a| comp_callees(a, out));
+        }
+        CompExpr::Proj { base, .. } => comp_callees(base, out),
+        CompExpr::Lambda { body, .. } => comp_callees(body, out),
+        CompExpr::Not(inner, _) | CompExpr::Neg(inner, _) => comp_callees(inner, out),
+        CompExpr::Binary { lhs, rhs, .. } => {
+            comp_callees(lhs, out);
+            comp_callees(rhs, out);
+        }
+        CompExpr::Is { subject, .. } => comp_callees(subject, out),
+        _ => {}
+    }
+}
+
+/// Every name a compile-time expression reads.
+fn comp_names(e: &CompExpr, out: &mut Vec<String>) {
+    match e {
+        CompExpr::Name { id, .. } => out.push(id.name.clone()),
+        CompExpr::Proj { base, .. } => comp_names(base, out),
+        CompExpr::Call { args, .. } => args.iter().for_each(|a| comp_names(a, out)),
+        CompExpr::Lambda { body, .. } => comp_names(body, out),
+        CompExpr::Not(inner, _) | CompExpr::Neg(inner, _) => comp_names(inner, out),
+        CompExpr::Binary { lhs, rhs, .. } => {
+            comp_names(lhs, out);
+            comp_names(rhs, out);
+        }
+        CompExpr::Is { subject, .. } => comp_names(subject, out),
+        _ => {}
+    }
+}
+
+/// Every pattern binder a compile-time expression declares, and every
+/// lambda parameter.
+fn comp_binders(e: &CompExpr, out: &mut Vec<String>) {
+    match e {
+        CompExpr::Is { subject, binders, .. } => {
+            out.extend(binders.iter().map(|b| b.name.clone()));
+            comp_binders(subject, out);
+        }
+        CompExpr::Lambda { params, body, .. } => {
+            out.extend(params.iter().map(|p| p.name.clone()));
+            comp_binders(body, out);
+        }
+        CompExpr::Proj { base, .. } => comp_binders(base, out),
+        CompExpr::Call { args, .. } => args.iter().for_each(|a| comp_binders(a, out)),
+        CompExpr::Not(inner, _) | CompExpr::Neg(inner, _) => comp_binders(inner, out),
+        CompExpr::Binary { lhs, rhs, .. } => {
+            comp_binders(lhs, out);
+            comp_binders(rhs, out);
+        }
+        _ => {}
+    }
+}
+
+/// The `is` tests of a compile-time expression whose subject reads one of
+/// `names`, by the binders they declare.
+fn comp_is_binders_over(e: &CompExpr, depends: &dyn Fn(&CompExpr) -> bool, out: &mut Vec<String>) {
+    match e {
+        CompExpr::Is { subject, binders, .. } if depends(subject) => out.extend(binders.iter().map(|b| b.name.clone())),
+        CompExpr::Not(inner, _) => comp_is_binders_over(inner, depends, out),
+        CompExpr::Binary { lhs, rhs, .. } => {
+            comp_is_binders_over(lhs, depends, out);
+            comp_is_binders_over(rhs, depends, out);
+        }
+        _ => {}
     }
 }
 
@@ -1086,18 +1173,10 @@ fn unchecked_subject_whens(f: &FnDecl) -> Vec<Diagnostic> {
         fn depends(&self, ty: &CompTy) -> bool {
             (!ty.via_type && ty.root.name == self.bound) || self.derived.contains(&ty.root.name)
         }
-        fn cond(&mut self, c: &CompCond) {
-            match c {
-                CompCond::Is { ty, binders, .. } if self.depends(ty) => {
-                    self.derived.extend(binders.iter().map(|b| b.name.clone()));
-                }
-                CompCond::Not(inner, _) => self.cond(inner),
-                CompCond::And(a, b, _) | CompCond::Or(a, b, _) => {
-                    self.cond(a);
-                    self.cond(b);
-                }
-                _ => {}
-            }
+        fn depends_expr(&self, e: &CompExpr) -> bool {
+            let mut names = Vec::new();
+            comp_names(e, &mut names);
+            names.iter().any(|n| *n == self.bound || self.derived.contains(n))
         }
     }
     impl Visitor for RangeCheck {
@@ -1105,11 +1184,20 @@ fn unchecked_subject_whens(f: &FnDecl) -> Vec<Diagnostic> {
             let Stmt::Comp(c) = s else { return };
             match c {
                 CompStmt::For { binder, seq, .. } => {
-                    if self.depends(&seq.ty) {
+                    if self.depends_expr(seq) {
                         self.derived.insert(binder.name.clone());
                     }
                 }
-                CompStmt::If { cond, .. } => self.cond(cond),
+                CompStmt::Let { name, value, .. } => {
+                    if self.depends_expr(value) {
+                        self.derived.insert(name.name.clone());
+                    }
+                }
+                CompStmt::If { cond, .. } => {
+                    let mut out = Vec::new();
+                    comp_is_binders_over(cond, &|e| self.depends_expr(e), &mut out);
+                    self.derived.extend(out);
+                }
                 CompStmt::WhenArms { binder, .. } => {
                     self.derived.insert(binder.name.clone());
                 }
@@ -1484,6 +1572,22 @@ impl<'a> World<'a> {
     /// is written.
     fn comptime_qual(&self, name: &str, at: Span) -> Option<&'a QualifierDecl> {
         self.qual_named(name, at).filter(|q| q.comptime)
+    }
+
+    /// [comptime-eval-fns] Whether the file that wrote `at` sees a
+    /// compile-time function `name`: a `comptime intrinsic fn`, which only
+    /// `std.core.comptime` declares.
+    fn comptime_intrinsic(&self, name: &str, at: Span) -> bool {
+        self.names_at(at).and_then(|h| h.fns.get(name)).is_some_and(|entries| {
+            entries.iter().any(|e| self.decls.fn_decl(self.pre, e.key).is_some_and(|f| f.compfn.is_some() && f.intrinsic))
+        })
+    }
+
+    /// Whether the file that wrote `at` sees an ordinary fn `name`.
+    fn runtime_fn(&self, name: &str, at: Span) -> bool {
+        self.names_at(at).and_then(|h| h.fns.get(name)).is_some_and(|entries| {
+            entries.iter().any(|e| self.decls.fn_decl(self.pre, e.key).is_some_and(|f| f.compfn.is_none()))
+        })
     }
 
     /// The qualifier `name` means where `at` is written, comptime or not:
@@ -2298,18 +2402,10 @@ fn template_names(f: &FnDecl, names: &FileNames, bound: bool) -> (Vec<Diagnostic
                 }
             }
         }
-        fn cond(&mut self, c: &CompCond) {
-            match c {
-                CompCond::Is { binders, .. } | CompCond::Annotated { binders, .. } => {
-                    self.0.extend(binders.iter().map(|b| b.name.clone()));
-                }
-                CompCond::Not(inner, _) => self.cond(inner),
-                CompCond::And(a, b, _) | CompCond::Or(a, b, _) => {
-                    self.cond(a);
-                    self.cond(b);
-                }
-                _ => {}
-            }
+        fn cexpr(&mut self, e: &CompExpr) {
+            let mut out = Vec::new();
+            comp_binders(e, &mut out);
+            self.0.extend(out);
         }
     }
     impl Visitor for Bindings {
@@ -2317,10 +2413,18 @@ fn template_names(f: &FnDecl, names: &FileNames, bound: bool) -> (Vec<Diagnostic
             match stmt {
                 Stmt::Let { pattern, .. } => self.pattern(pattern),
                 Stmt::Comp(c) => match c {
-                    CompStmt::For { binder, .. } | CompStmt::WhenArms { binder, .. } => {
+                    CompStmt::For { binder, seq, .. } => {
+                        self.0.insert(binder.name.clone());
+                        self.cexpr(seq);
+                    }
+                    CompStmt::WhenArms { binder, .. } => {
                         self.0.insert(binder.name.clone());
                     }
-                    CompStmt::If { cond, .. } => self.cond(cond),
+                    CompStmt::Let { name, value, .. } => {
+                        self.0.insert(name.name.clone());
+                        self.cexpr(value);
+                    }
+                    CompStmt::If { cond, .. } => self.cexpr(cond),
                     CompStmt::WhenType { arms, .. } => {
                         for a in arms {
                             self.0.extend(a.binders.iter().map(|b| b.name.clone()));
@@ -2358,9 +2462,13 @@ fn template_names(f: &FnDecl, names: &FileNames, bound: bool) -> (Vec<Diagnostic
         bound: bool,
         out: Vec<Diagnostic>,
         site: Vec<String>,
+        skip: &'a std::collections::HashSet<(u32, u32)>,
     }
     impl Names<'_> {
         fn written(&mut self, id: &Ident) {
+            if self.skip.contains(&(id.span.start, id.span.end)) {
+                return;
+            }
             let plain = id.name.starts_with(|c: char| c.is_lowercase() || c == '_') && !id.name.contains(['.', '[']);
             if !plain || self.locals.contains(&id.name) {
                 return;
@@ -2407,7 +2515,29 @@ fn template_names(f: &FnDecl, names: &FileNames, bound: bool) -> (Vec<Diagnostic
     if let Some(body) = &f.body {
         v::walk_block(&mut locals, body);
     }
-    let mut walk = Names { names, locals: &locals.0, template: &f.name.name, bound, out: Vec::new(), site: Vec::new() };
+    // [comptime-eval] A `refuse!` message's interpolations are compile-time
+    // expressions: their calls are compile-time functions, no place's.
+    struct RefuseNames(std::collections::HashSet<(u32, u32)>);
+    impl Visitor for RefuseNames {
+        fn visit_stmt(&mut self, stmt: &Stmt) {
+            if let Stmt::Comp(CompStmt::Refuse { message: Expr::Str { parts, .. }, .. }) = stmt {
+                for p in parts {
+                    if let StrExprPart::Interp(inner) = p {
+                        if let Some(ce) = comp_of_expr(inner) {
+                            let mut calls = Vec::new();
+                            comp_callees(&ce, &mut calls);
+                            self.0.extend(calls.iter().map(|s| (s.start, s.end)));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut refused = RefuseNames(Default::default());
+    if let Some(body) = &f.body {
+        v::walk_block(&mut refused, body);
+    }
+    let mut walk = Names { names, locals: &locals.0, template: &f.name.name, bound, out: Vec::new(), site: Vec::new(), skip: &refused.0 };
     if let Some(body) = &f.body {
         v::walk_block(&mut walk, body);
     }
@@ -2480,6 +2610,82 @@ fn doc_text(docs: &[String]) -> Option<String> {
     Some(prose.join("\n").trim_start_matches('\n').trim_end().to_string())
 }
 
+/// [comptime-eval] Which sequence of a type a projection names.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SeqKind {
+    Fields,
+    Arms,
+    Literals,
+}
+
+/// What `elements_of` reads of the sequence it walks.
+struct SeqSpec {
+    arms: bool,
+    literals: bool,
+    span: Span,
+}
+
+/// [comptime-eval] A compile-time value: what a head evaluates to. The
+/// model's declarations (`std.core.comptime`) are what these are, so a head
+/// has the types a reader can look up.
+#[derive(Clone)]
+enum CVal {
+    Bool(bool),
+    Int(i64),
+    Long(i64),
+    Char(char),
+    Str(String),
+    None,
+    /// A field, arm or literal of a walk.
+    Elem(Binding),
+    /// An element's `.name`: a literal of its siblings' names
+    /// [comptime-name].
+    Name(Binding),
+    /// A type. `root` is the bound parameter or the declared type a head
+    /// named (`T`, `Reading`); a binder's `.type` has none, and `label` is
+    /// how a diagnostic names it.
+    Type { ty: Type, root: Option<Ident>, label: String },
+    Kind(TypeKindWord),
+    /// A field's declared default, which a head can only test for.
+    Default,
+    List(Vec<CVal>),
+    Lambda(Vec<Ident>, Box<CompExpr>),
+}
+
+impl CVal {
+    fn describe(&self) -> &'static str {
+        match self {
+            CVal::Bool(_) => "a `Bool`",
+            CVal::Int(_) => "an `Int`",
+            CVal::Long(_) => "a `Long`",
+            CVal::Char(_) => "a `Char`",
+            CVal::Str(_) | CVal::Name(_) => "a `Str`",
+            CVal::None => "`None`",
+            CVal::Elem(b) if b.literal.is_some() => "a `Literal`",
+            CVal::Elem(b) if b.is_arm => "an `Arm`",
+            CVal::Elem(_) => "a `Field`",
+            CVal::Type { .. } => "a `Type`",
+            CVal::Kind(_) => "a `Kind`",
+            CVal::Default => "a `Value`",
+            CVal::List(_) => "a `List`",
+            CVal::Lambda(..) => "a lambda",
+        }
+    }
+
+    /// The text of a scalar, as an interpolation shows it.
+    fn text(&self) -> Option<String> {
+        Some(match self {
+            CVal::Bool(b) => b.to_string(),
+            CVal::Int(v) | CVal::Long(v) => v.to_string(),
+            CVal::Char(c) => c.to_string(),
+            CVal::Str(s) => s.clone(),
+            CVal::Name(b) => b.name.clone(),
+            CVal::None => "None".to_string(),
+            _ => return None,
+        })
+    }
+}
+
 /// The body rewriter: unrolls, selects, refuses, and substitutes.
 struct Expander<'w> {
     world: &'w World<'w>,
@@ -2531,6 +2737,10 @@ struct Expander<'w> {
     /// and name): whether *any* copy used it — an unused binder warns once,
     /// and only if no copy used it.
     binder_used: HashMap<((u32, u32), String), (Span, bool)>,
+    /// [comptime-eval] The `[let]`s and lambda parameters in scope whose
+    /// value is not a field, arm or literal (those are binders, in `env`):
+    /// name and value, innermost last.
+    comp_locals: Vec<(String, CVal)>,
     /// [lsp-completion] Per `[when f.name]` / `[when f.type]` copy, at its
     /// written span: what that copy found uncovered (expanded-in-place fns
     /// only, where the span is the author's own).
@@ -2557,6 +2767,7 @@ impl<'w> Expander<'w> {
             value_binders: Vec::new(),
             value_binds: Vec::new(),
             binder_used: HashMap::new(),
+            comp_locals: Vec::new(),
             when_arms: Vec::new(),
         }
     }
@@ -2702,8 +2913,10 @@ impl<'w> Expander<'w> {
     }
 
     /// The elements an `inline for` walks.
-    fn elements(&mut self, seq: &CompSeq) -> Option<Vec<Binding>> {
-        let ty = self.resolve_ty(&seq.ty)?;
+    /// [comptime-fields] [comptime-eval] The fields, arms or literals of
+    /// `ty`, as the walk's elements.
+    fn elements_of(&mut self, ty: Type, which: SeqKind, span: Span) -> Option<Vec<Binding>> {
+        let seq = SeqSpec { arms: which == SeqKind::Arms, literals: which == SeqKind::Literals, span };
         let kind = self.world.classify(&ty, &self.generics(), 0);
         // [comptime-literals] A literal union's members, in declaration order:
         // the literals the runtime collapses into one arm [type-literal].
@@ -3205,24 +3418,76 @@ impl<'w> Expander<'w> {
         }
     }
 
-    /// Evaluates a condition. `binds` collects what its patterns bind, when
-    /// `can_bind`: what a test proves holds only where the test did, so
-    /// under `||` and `!` nothing is bound [flow-or-not] [comptime-pattern].
-    fn eval_cond(&mut self, cond: &CompCond, binds: &mut Vec<(Ident, Type)>, can_bind: bool) -> Option<bool> {
-        match cond {
-            CompCond::Not(inner, _) => self.eval_cond(inner, binds, false).map(|b| !b),
+    /// [comptime-eval] Evaluates a head's condition: a `Bool`. `binds`
+    /// collects what its patterns bind, when `can_bind`: what a test proves
+    /// holds only where the test did, so under `||`, `!` and a call nothing is
+    /// bound [flow-or-not] [comptime-pattern]. `None` when it was refused,
+    /// already reported.
+    fn eval_bool(&mut self, e: &CompExpr, binds: &mut Vec<(Ident, Type)>, can_bind: bool) -> Option<bool> {
+        match self.eval(e, binds, can_bind)? {
+            CVal::Bool(b) => Some(b),
+            other => {
+                self.error(e.span(), messages::comptime_eval_type(&"a `Bool`", &other.describe()));
+                None
+            }
+        }
+    }
+
+    /// [comptime-eval] Evaluates a compile-time expression over the model.
+    /// Evaluation is dynamic: a value of the wrong kind is reported where the
+    /// stamp evaluates it, as a template's body is checked where it is
+    /// stamped. Every evaluation ends: a `[for]` walks a finite list, and a
+    /// head has no loops and calls only std's intrinsics.
+    fn eval(&mut self, e: &CompExpr, binds: &mut Vec<(Ident, Type)>, can_bind: bool) -> Option<CVal> {
+        match e {
+            CompExpr::Bool(b, _) => Some(CVal::Bool(*b)),
+            CompExpr::Int { value, long: false, .. } => Some(CVal::Int(*value)),
+            CompExpr::Int { value, long: true, .. } => Some(CVal::Long(*value)),
+            CompExpr::Char(c, _) => Some(CVal::Char(*c)),
+            CompExpr::Str(t, _) => Some(CVal::Str(t.clone())),
+            CompExpr::None(_) => Some(CVal::None),
+            CompExpr::Name { id, args, span } => self.eval_name(id, args, *span),
+            CompExpr::Proj { base, field, span } => {
+                let v = self.eval(base, binds, false)?;
+                let named = match &**base {
+                    CompExpr::Name { id, .. } => Some(id.name.clone()),
+                    _ => None,
+                };
+                let mut r = self.project(v, field, *span, named.as_deref())?;
+                // A binder's `.type` is named after the binder.
+                if let (CVal::Type { label, .. }, CompExpr::Name { id, .. }) = (&mut r, &**base) {
+                    if field.name == "type" {
+                        *label = format!("{}.type", id.name);
+                    }
+                }
+                Some(r)
+            }
+            CompExpr::Lambda { params, body, .. } => Some(CVal::Lambda(params.clone(), body.clone())),
+            CompExpr::Call { callee, args, span } => self.eval_call(callee, args, *span),
+            CompExpr::Not(inner, _) => {
+                let b = self.eval_bool(inner, binds, false)?;
+                Some(CVal::Bool(!b))
+            }
+            CompExpr::Neg(inner, span) => match self.eval(inner, binds, false)? {
+                CVal::Int(v) => Some(CVal::Int(-v)),
+                CVal::Long(v) => Some(CVal::Long(-v)),
+                other => {
+                    self.error(*span, messages::comptime_eval_type(&"a number", &other.describe()));
+                    None
+                }
+            },
             // [comptime-logic] Both sides are always evaluated: a misspelled
             // name on the side that would short-circuit away is still a
             // mistake, and is still reported.
             // [comptime-pattern] What the left side bound is in scope on the
             // right: `field.type is <S> S? && S.kind is Struct`.
-            CompCond::And(a, b, _) => {
+            CompExpr::Binary { op: BinaryOp::And, lhs, rhs, .. } => {
                 let before = binds.len();
-                let x = self.eval_cond(a, binds, can_bind);
+                let x = self.eval_bool(lhs, binds, can_bind);
                 // A failed test bound nothing, so the right side cannot read
                 // what it would have bound: decided here.
-                if x == Some(false) && cond_binds(a) {
-                    return Some(false);
+                if x == Some(false) && expr_binds(lhs) {
+                    return Some(CVal::Bool(false));
                 }
                 let base = self.type_binders.len();
                 if x == Some(true) {
@@ -3230,7 +3495,7 @@ impl<'w> Expander<'w> {
                         self.type_binders.push((id.name.clone(), ty.clone(), id.span, 0));
                     }
                 }
-                let y = self.eval_cond(b, binds, can_bind);
+                let y = self.eval_bool(rhs, binds, can_bind);
                 let lent: Vec<(String, Type, Span, usize)> = self.type_binders.drain(base..).collect();
                 for (name, _, span, uses) in lent {
                     if uses > 0 {
@@ -3238,172 +3503,470 @@ impl<'w> Expander<'w> {
                         self.binder_used.entry(((written.expn, written.start), name)).or_insert((written, false)).1 = true;
                     }
                 }
-                Some(x? && y?)
+                Some(CVal::Bool(x? && y?))
             }
-            CompCond::Or(a, b, _) => {
-                let x = self.eval_cond(a, binds, false);
-                let y = self.eval_cond(b, binds, false);
-                Some(x? || y?)
+            CompExpr::Binary { op: BinaryOp::Or, lhs, rhs, .. } => {
+                let x = self.eval_bool(lhs, binds, false);
+                let y = self.eval_bool(rhs, binds, false);
+                Some(CVal::Bool(x? || y?))
             }
-            CompCond::Kind { ty, kind, .. } => {
-                let t = self.resolve_ty(ty)?;
-                let actual = self.world.classify(&t, &self.generics(), 0);
-                Some(kind_matches(*kind, actual))
+            CompExpr::Binary { op, lhs, rhs, span } => {
+                let x = self.eval(lhs, binds, false);
+                let y = self.eval(rhs, binds, false);
+                self.binary(*op, x?, y?, *span)
             }
-            CompCond::Is { ty, binders, target, span } => {
+            CompExpr::Is { subject, binders, pattern, span } => {
+                let v = self.eval(subject, binds, false)?;
+                let b = self.eval_is(v, subject, binders, pattern, binds, can_bind, *span)?;
+                Some(CVal::Bool(b))
+            }
+        }
+    }
+
+    /// [comptime-eval] A name in a head: a lambda parameter or `[let]`, a
+    /// walk's binder, a qualifier pattern's constant, or a type — the bound
+    /// parameter, a pattern binder, or a declared type.
+    fn eval_name(&mut self, id: &Ident, args: &[Type], span: Span) -> Option<CVal> {
+        if args.is_empty() {
+            if let Some((_, v)) = self.comp_locals.iter().rev().find(|(n, _)| *n == id.name) {
+                return Some(v.clone());
+            }
+            if let Some(b) = self.binding(&id.name) {
+                return Some(CVal::Elem(b.clone()));
+            }
+            if let Some(i) = self.value_binders.iter().rposition(|(n, ..)| *n == id.name) {
+                self.value_binders[i].3 += 1;
+                return Some(match self.value_binders[i].1.clone() {
+                    crate::types::Const::Int(v) => CVal::Int(v),
+                    crate::types::Const::Char(c) => CVal::Char(c),
+                    crate::types::Const::Str(t) => CVal::Str(t),
+                });
+            }
+        }
+        let is_type = id.name.starts_with(|c: char| c.is_uppercase())
+            || self.bound.as_ref().is_some_and(|(p, _)| *p == id.name)
+            || self.type_binders.iter().any(|(n, ..)| *n == id.name);
+        if !is_type {
+            self.error(span, messages::comptime_inline_not_a_binder(&id.name));
+            return None;
+        }
+        let ct = CompTy { root: id.clone(), via_type: false, args: args.to_vec(), span };
+        let ty = self.resolve_ty(&ct)?;
+        Some(CVal::Type { ty, root: Some(id.clone()), label: id.name.clone() })
+    }
+
+    /// [comptime-eval] `v.field`: a projection of the model.
+    fn project(&mut self, v: CVal, field: &Ident, span: Span, named: Option<&str>) -> Option<CVal> {
+        let name = field.name.as_str();
+        match v {
+            CVal::Elem(b) => Some(match name {
+                "name" => CVal::Name(b),
+                "index" => CVal::Int(b.index as i64),
+                "first" => CVal::Bool(b.first),
+                "last" => CVal::Bool(b.last),
+                "type" => CVal::Type { label: format!("{}.type", b.name), ty: b.ty.clone(), root: None },
+                "kind" => CVal::Kind(self.world.classify(&b.ty, &self.generics(), 0)),
+                "docs" => match &b.docs {
+                    Some(t) => CVal::Str(t.clone()),
+                    None => CVal::None,
+                },
+                "default" if b.is_arm => {
+                    self.error(span, messages::comptime_default_arm_default(&named.unwrap_or(&b.name)));
+                    return None;
+                }
+                "default" => match b.default_of {
+                    Some(_) => CVal::Default,
+                    None => CVal::None,
+                },
+                // [comptime-literals] The member itself.
+                "value" => match &b.literal {
+                    Some(salvo_syntax::ast::TypeLit::Str(t)) => CVal::Str(t.clone()),
+                    Some(salvo_syntax::ast::TypeLit::Int(v)) => CVal::Int(*v),
+                    Some(salvo_syntax::ast::TypeLit::Long(v)) => CVal::Long(*v),
+                    Some(salvo_syntax::ast::TypeLit::Bool(v)) => CVal::Bool(*v),
+                    None => {
+                        self.error(span, messages::comptime_literals_value_outside_literals(&named.unwrap_or(&b.name)));
+                        return None;
+                    }
+                },
+                other => {
+                    self.error(span, messages::comptime_fields_unknown_property(&other));
+                    return None;
+                }
+            }),
+            CVal::Type { ty, root, label } => {
+                let bound_root = root.as_ref().is_some_and(|r| self.bound.as_ref().is_some_and(|(p, _)| *p == r.name));
+                Some(match name {
+                    "fields" | "arms" | "literals" => {
+                        let which = match name {
+                            "fields" => SeqKind::Fields,
+                            "arms" => SeqKind::Arms,
+                            _ => SeqKind::Literals,
+                        };
+                        let elems = self.elements_of(ty, which, span)?;
+                        CVal::List(elems.into_iter().map(CVal::Elem).collect())
+                    }
+                    "kind" => CVal::Kind(self.world.classify(&ty, &self.generics(), 0)),
+                    "mutable" if bound_root => {
+                        let canbe = self.bound.as_ref().is_some_and(|(_, t)| t.canbe.iter().any(|q| q == "Mut"));
+                        CVal::Bool(canbe)
+                    }
+                    "mutable" => CVal::Bool(self.world.canbe(&ty, "Mut")),
+                    "name" if bound_root => CVal::Str(self.bound.as_ref().map(|(_, t)| t.name.clone()).unwrap_or_default()),
+                    "name" if root.is_some() => CVal::Str(label),
+                    "docs" if root.is_some() => {
+                        let docs = if bound_root {
+                            self.bound.as_ref().and_then(|(_, t)| self.world.docs_of(&t.ty))
+                        } else {
+                            root.as_ref().and_then(|r| self.world.docs_of(&World::simple_named(&r.name, r.span)))
+                        };
+                        match docs {
+                            Some(t) => CVal::Str(t),
+                            None => CVal::None,
+                        }
+                    }
+                    "docs" => {
+                        self.error(span, messages::comptime_docs_not_binder_or_type(&label));
+                        return None;
+                    }
+                    other => {
+                        self.error(span, messages::comptime_eval_no_property(&other, &"a `Type`"));
+                        return None;
+                    }
+                })
+            }
+            other => {
+                self.error(span, messages::comptime_eval_no_property(&name, &other.describe()));
+                None
+            }
+        }
+    }
+
+    /// [comptime-eval] An operator other than `&&` and `||`.
+    fn binary(&mut self, op: BinaryOp, x: CVal, y: CVal, span: Span) -> Option<CVal> {
+        use std::cmp::Ordering;
+        if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
+            let same = match (&x, &y) {
+                // [comptime-name] A name compared with a literal: the literal
+                // must be one of the names it could be.
+                (CVal::Name(b), CVal::Str(t)) | (CVal::Str(t), CVal::Name(b)) => {
+                    if !self.check_names(b, std::slice::from_ref(t), span) {
+                        return None;
+                    }
+                    b.name == *t
+                }
+                (CVal::Name(a), CVal::Name(b)) => a.name == b.name,
+                (CVal::Str(a), CVal::Str(b)) => a == b,
+                (CVal::Bool(a), CVal::Bool(b)) => a == b,
+                (CVal::Int(a), CVal::Int(b)) | (CVal::Long(a), CVal::Long(b)) => a == b,
+                (CVal::Char(a), CVal::Char(b)) => a == b,
+                (CVal::Kind(a), CVal::Kind(b)) => a == b,
+                (CVal::None, CVal::None) => true,
+                (CVal::None, _) | (_, CVal::None) => false,
+                _ => {
+                    self.error(span, messages::comptime_eval_compare(&x.describe(), &y.describe()));
+                    return None;
+                }
+            };
+            return Some(CVal::Bool(same == (op == BinaryOp::Eq)));
+        }
+        if matches!(op, BinaryOp::Lt | BinaryOp::Gt | BinaryOp::LtEq | BinaryOp::GtEq) {
+            let ord: Ordering = match (&x, &y) {
+                (CVal::Int(a), CVal::Int(b)) | (CVal::Long(a), CVal::Long(b)) => a.cmp(b),
+                (CVal::Char(a), CVal::Char(b)) => a.cmp(b),
+                (CVal::Str(a), CVal::Str(b)) => a.cmp(b),
+                _ => {
+                    self.error(span, messages::comptime_eval_compare(&x.describe(), &y.describe()));
+                    return None;
+                }
+            };
+            let r = match op {
+                BinaryOp::Lt => ord == Ordering::Less,
+                BinaryOp::Gt => ord == Ordering::Greater,
+                BinaryOp::LtEq => ord != Ordering::Greater,
+                _ => ord != Ordering::Less,
+            };
+            return Some(CVal::Bool(r));
+        }
+        let long = match (&x, &y) {
+            (CVal::Int(_), CVal::Int(_)) => false,
+            (CVal::Long(_), CVal::Long(_)) => true,
+            (CVal::Str(a), CVal::Str(b)) if op == BinaryOp::Add => return Some(CVal::Str(format!("{a}{b}"))),
+            _ => {
+                self.error(span, messages::comptime_eval_arith(&x.describe(), &y.describe()));
+                return None;
+            }
+        };
+        let (CVal::Int(a) | CVal::Long(a), CVal::Int(b) | CVal::Long(b)) = (x, y) else { return None };
+        let v = match op {
+            BinaryOp::Add => a.checked_add(b),
+            BinaryOp::Sub => a.checked_sub(b),
+            BinaryOp::Mul => a.checked_mul(b),
+            BinaryOp::Div => a.checked_div(b),
+            BinaryOp::Rem => a.checked_rem(b),
+            _ => {
+                self.error(span, messages::comptime_eval_arith(&"a number", &"`**`"));
+                return None;
+            }
+        };
+        let Some(v) = v.filter(|v| long || i32::try_from(*v).is_ok()) else {
+            self.error(span, messages::comptime_eval_overflow());
+            return None;
+        };
+        Some(if long { CVal::Long(v) } else { CVal::Int(v) })
+    }
+
+    /// [comptime-eval] `v is pattern`: what the test means is what `v` is.
+    #[allow(clippy::too_many_arguments)]
+    fn eval_is(&mut self, v: CVal, subject: &CompExpr, binders: &[Ident], pattern: &CompPattern, binds: &mut Vec<(Ident, Type)>, can_bind: bool, span: Span) -> Option<bool> {
+        let target = match pattern {
+            CompPattern::Strs(lits) => {
+                let lits: Vec<String> = lits.iter().map(|(l, _)| l.clone()).collect();
+                return match &v {
+                    // [comptime-name] `binder.name` is a literal of the union of
+                    // its sequence's names: a literal outside it is a mistake at
+                    // the template, caught at the first instantiation.
+                    CVal::Name(b) => {
+                        if !self.check_names(b, &lits, span) {
+                            return None;
+                        }
+                        Some(lits.iter().any(|l| *l == b.name))
+                    }
+                    CVal::Str(t) => Some(lits.iter().any(|l| l == t)),
+                    other => {
+                        self.error(span, messages::comptime_eval_type(&"a `Str`", &other.describe()));
+                        None
+                    }
+                };
+            }
+            CompPattern::Type(t) => t,
+        };
+        let none_pattern = matches!(target, Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() && base.name.name == "None");
+        match v {
+            // [comptime-kind] A kind test, against an arm of `Kind`: a program
+            // type named `Union` cannot interfere.
+            CVal::Kind(actual) => {
+                let word = match target {
+                    Type::Named { qualifiers, base } if qualifiers.is_empty() => TypeKindWord::parse(&base.name.name),
+                    _ => None,
+                };
+                let Some(word) = word else {
+                    self.error(span, messages::comptime_inline_expected_kind_arm(&format!("`{target}`")));
+                    return None;
+                };
+                Some(kind_matches(word, actual))
+            }
+            // [comptime-qualifier] `field is Short`, `field is <c> Short(c)`.
+            CVal::Elem(b) => {
+                let name = match subject {
+                    CompExpr::Name { id, .. } => id.name.clone(),
+                    _ => b.name.clone(),
+                };
+                if b.is_arm {
+                    self.error(span, messages::comptime_qualifier_on_arm(&name));
+                    return None;
+                }
+                let qual = match target {
+                    Type::Named { qualifiers, base } if qualifiers.is_empty() => base,
+                    _ => {
+                        self.error(span, messages::comptime_qualifier_type_test(&name));
+                        return None;
+                    }
+                };
+                self.match_annotation(&b.annotations, qual, binders, known::COMPTIME_FIELD, span, can_bind)
+            }
+            CVal::Type { ty: t, root, label } => {
                 // [comptime-qualifier] `T is Named`, `T is <n> Named(n)`: the
                 // struct's own comptime qualifiers, not a type test.
                 if let Type::Named { qualifiers, base } = target {
                     if qualifiers.is_empty() && self.world.comptime_qual(&base.name.name, base.name.span).is_some() {
-                        if ty.via_type {
-                            self.error(*span, messages::comptime_qualifier_on_type(&base.name.name, &ty.root.name));
+                        let Some(root) = root else {
+                            self.error(span, messages::comptime_qualifier_on_type(&base.name.name, &label.trim_end_matches(".type")));
                             return None;
-                        }
+                        };
                         let annotations = match &self.bound {
-                            Some((param, target)) if *param == ty.root.name => self.world.struct_named(&target.name, target.at()).map(|s| s.annotations.clone()),
-                            _ => self.world.struct_named(&ty.root.name, ty.root.span).map(|s| s.annotations.clone()),
+                            Some((param, target)) if *param == root.name => self.world.struct_named(&target.name, target.at()).map(|s| s.annotations.clone()),
+                            _ => self.world.struct_named(&root.name, root.span).map(|s| s.annotations.clone()),
                         };
                         let Some(annotations) = annotations else {
-                            self.error(*span, messages::comptime_qualifier_not_a_struct(&ty.root.name));
+                            self.error(span, messages::comptime_qualifier_not_a_struct(&root.name));
                             return None;
                         };
-                        return self.match_annotation(&annotations, base, binders, known::COMPTIME_STRUCT, *span, can_bind);
+                        return self.match_annotation(&annotations, base, binders, known::COMPTIME_STRUCT, span, can_bind);
                     }
                 }
-                let t = self.resolve_ty(ty)?;
-                // [comptime-qualifier] A pattern's qualifiers are tested, and
-                // their constants bound (`<lo, hi> InRange(lo, hi) *`); a
-                // pattern without qualifiers still ignores the type's.
-                let (target, quals_ok) = match target {
-                    Type::Named { qualifiers, base } if !qualifiers.is_empty() => {
-                        let values = binders.iter().any(|b| b.name.starts_with(|c: char| c.is_lowercase()));
-                        if values && !can_bind {
-                            self.error(*span, messages::comptime_pattern_binder_under_or_not());
-                            return None;
-                        }
-                        let ok = self.match_type_quals(qualifiers, &t, binders, *span)?;
-                        (Type::Named { qualifiers: Vec::new(), base: base.clone() }, ok)
-                    }
-                    other => (other.clone(), true),
-                };
-                let target = &target;
-                let type_binders: Vec<Ident> = binders.iter().filter(|b| !b.name.starts_with(|c: char| c.is_lowercase())).cloned().collect();
-                let binders = &type_binders;
-                if !self.check_pattern(binders, target, *span) {
-                    return None;
-                }
-                if !quals_ok {
-                    return Some(false);
-                }
-                if !binders.is_empty() && !can_bind {
-                    self.error(
-                        *span,
-                        messages::comptime_pattern_binder_under_or_not(),
-                    );
-                    return None;
-                }
-                let names: Vec<String> = binders.iter().map(|b| b.name.clone()).collect();
-                let mut got: Vec<(String, Type)> = Vec::new();
-                let matched = self.match_pattern(target, &t, &names, &mut got);
-                if matched {
-                    for (name, ty) in got {
-                        let Some(id) = binders.iter().find(|b| b.name == name) else { continue };
-                        if binds.iter().any(|(b, _)| b.name == name) {
-                            self.error(*span, messages::comptime_pattern_duplicate_binder(&name));
-                            return None;
-                        }
-                        binds.push((id.clone(), ty));
-                    }
-                }
-                Some(matched)
+                self.type_test(&t, binders, target, binds, can_bind, span)
             }
-            CompCond::Mutable { ty, .. } => {
-                let t = self.resolve_ty(ty)?;
-                if let Some((param, target)) = &self.bound {
-                    if !ty.via_type && ty.root.name == *param {
-                        return Some(target.canbe.iter().any(|q| q == "Mut"));
-                    }
-                }
-                Some(self.world.canbe(&t, "Mut"))
-            }
-            CompCond::NameIs { binder, lits, span } => {
-                let Some(b) = self.binding(&binder.name).cloned() else {
-                    self.error(*span, messages::comptime_inline_not_a_binder(&binder.name));
-                    return None;
-                };
-                // [comptime-name] `binder.name` is a literal of the union of
-                // its sequence's names: a literal outside it is a mistake at
-                // the template, caught at the first instantiation.
-                if !self.check_names(&b, lits, *span) {
-                    return None;
-                }
-                Some(lits.iter().any(|l| *l == b.name))
-            }
-            CompCond::Flag { binder, last, span } => {
-                let Some(b) = self.binding(&binder.name) else {
-                    self.error(*span, messages::comptime_inline_not_a_binder(&binder.name));
-                    return None;
-                };
-                Some(if *last { b.last } else { b.first })
-            }
-            CompCond::Annotated { subject, binders, qual, span } => {
-                let Some(b) = self.binding(&subject.name).cloned() else {
-                    self.error(*span, messages::comptime_inline_not_a_binder(&subject.name));
-                    return None;
-                };
-                if b.is_arm {
-                    self.error(*span, messages::comptime_qualifier_on_arm(&subject.name));
-                    return None;
-                }
-                self.match_annotation(&b.annotations, qual, binders, known::COMPTIME_FIELD, *span, can_bind)
-            }
-            CompCond::Unset { binder, docs: true, span } => {
-                if let Some(b) = self.binding(&binder.name) {
-                    return Some(b.docs.is_none());
-                }
-                if let Some((param, target)) = &self.bound {
-                    if binder.name == *param {
-                        return Some(self.world.docs_of(&target.ty).is_none());
-                    }
-                }
-                if self.world.declares_type(&binder.name, binder.span) {
-                    return Some(self.world.docs_of(&World::simple_named(&binder.name, binder.span)).is_none());
-                }
-                self.error(*span, messages::comptime_docs_not_binder_or_type(&binder.name));
+            // [comptime-default] [comptime-docs] `field.default is None`,
+            // `field.docs is None`.
+            CVal::None if none_pattern => Some(true),
+            CVal::Default | CVal::Str(_) if none_pattern => Some(false),
+            other => {
+                self.error(span, messages::comptime_eval_bad_is(&other.describe()));
                 None
             }
-            CompCond::Unset { binder, docs: false, span } => {
-                let Some(b) = self.binding(&binder.name) else {
-                    self.error(*span, messages::comptime_inline_not_a_binder(&binder.name));
-                    return None;
-                };
-                if b.is_arm {
-                    self.error(*span, messages::comptime_default_arm_default(&binder.name));
+        }
+    }
+
+    /// [comptime-pattern] A type tested against a pattern: its qualifiers
+    /// are tested and their constants bound (`<lo, hi> InRange(lo, hi) *`),
+    /// then the base, binding the parts the binders stand at.
+    fn type_test(&mut self, t: &Type, binders: &[Ident], target: &Type, binds: &mut Vec<(Ident, Type)>, can_bind: bool, span: Span) -> Option<bool> {
+        let (target, quals_ok) = match target {
+            Type::Named { qualifiers, base } if !qualifiers.is_empty() => {
+                let values = binders.iter().any(|b| b.name.starts_with(|c: char| c.is_lowercase()));
+                if values && !can_bind {
+                    self.error(span, messages::comptime_pattern_binder_under_or_not());
                     return None;
                 }
-                Some(b.default_of.is_none())
+                let ok = self.match_type_quals(qualifiers, t, binders, span)?;
+                (Type::Named { qualifiers: Vec::new(), base: base.clone() }, ok)
             }
-            CompCond::NameEq { a, b, span } => {
-                let (Some(x), Some(y)) = (self.binding(&a.name).map(|b| b.name.clone()), self.binding(&b.name).map(|b| b.name.clone())) else {
-                    self.error(*span, messages::comptime_name_non_binder_compare());
+            other => (other.clone(), true),
+        };
+        let target = &target;
+        let type_binders: Vec<Ident> = binders.iter().filter(|b| !b.name.starts_with(|c: char| c.is_lowercase())).cloned().collect();
+        let binders = &type_binders;
+        if !self.check_pattern(binders, target, span) {
+            return None;
+        }
+        if !quals_ok {
+            return Some(false);
+        }
+        if !binders.is_empty() && !can_bind {
+            self.error(span, messages::comptime_pattern_binder_under_or_not());
+            return None;
+        }
+        let names: Vec<String> = binders.iter().map(|b| b.name.clone()).collect();
+        let mut got: Vec<(String, Type)> = Vec::new();
+        let matched = self.match_pattern(target, t, &names, &mut got);
+        if matched {
+            for (name, ty) in got {
+                let Some(id) = binders.iter().find(|b| b.name == name) else { continue };
+                if binds.iter().any(|(b, _)| b.name == name) {
+                    self.error(span, messages::comptime_pattern_duplicate_binder(&name));
                     return None;
-                };
-                Some(x == y)
+                }
+                binds.push((id.clone(), ty));
             }
-            CompCond::IndexCmp { a, b, op, span } => {
-                let (Some(x), Some(y)) = (self.binding(&a.name).map(|b| b.index), self.binding(&b.name).map(|b| b.index)) else {
-                    self.error(*span, messages::comptime_inline_non_binder_index_compare());
+        }
+        Some(matched)
+    }
+
+    /// [comptime-eval-fns] A call in a head: only a compile-time function,
+    /// one `std.core.comptime` declares `comptime intrinsic`, is visible
+    /// there (user decision 2026-11-05: heads start limited).
+    fn eval_call(&mut self, callee: &Ident, args: &[CompExpr], span: Span) -> Option<CVal> {
+        let name = callee.name.as_str();
+        if !self.world.comptime_intrinsic(name, callee.span) {
+            if self.world.runtime_fn(name, callee.span) {
+                self.error(callee.span, messages::comptime_eval_runtime_fn(&name));
+            } else {
+                self.error(callee.span, messages::comptime_eval_unknown_fn(&name));
+            }
+            return None;
+        }
+        let arity = match name {
+            "size" => 1,
+            _ => 2,
+        };
+        if args.len() != arity {
+            self.error(span, messages::comptime_eval_arity(&name, arity, args.len()));
+            return None;
+        }
+        let mut none = Vec::new();
+        let list = match self.eval(&args[0], &mut none, false)? {
+            CVal::List(xs) => xs,
+            other => {
+                self.error(args[0].span(), messages::comptime_eval_type(&"a `List`", &other.describe()));
+                return None;
+            }
+        };
+        if name == "size" {
+            return Some(CVal::Int(list.len() as i64));
+        }
+        if name == "get" {
+            let i = match self.eval(&args[1], &mut none, false)? {
+                CVal::Int(i) => i,
+                other => {
+                    self.error(args[1].span(), messages::comptime_eval_type(&"an `Int`", &other.describe()));
                     return None;
-                };
-                Some(match op {
-                    BinaryOp::Eq => x == y,
-                    BinaryOp::NotEq => x != y,
-                    BinaryOp::Lt => x < y,
-                    BinaryOp::Gt => x > y,
-                    BinaryOp::LtEq => x <= y,
-                    BinaryOp::GtEq => x >= y,
-                    _ => false,
-                })
+                }
+            };
+            return Some(usize::try_from(i).ok().and_then(|i| list.get(i).cloned()).unwrap_or(CVal::None));
+        }
+        let (params, body) = match self.eval(&args[1], &mut none, false)? {
+            CVal::Lambda(params, body) => (params, body),
+            other => {
+                self.error(args[1].span(), messages::comptime_eval_type(&"a lambda", &other.describe()));
+                return None;
+            }
+        };
+        if params.len() != 1 {
+            self.error(args[1].span(), messages::comptime_eval_lambda_arity(&name, params.len()));
+            return None;
+        }
+        let n = list.len();
+        let mut kept = Vec::new();
+        for x in list {
+            let keep = self.apply(&params[0], &body, x.clone())?;
+            if keep {
+                kept.push(x);
+            }
+        }
+        let total = kept.len();
+        Some(match name {
+            "filter" => CVal::List(kept),
+            "count" => CVal::Int(total as i64),
+            "any" => CVal::Bool(total > 0),
+            // `all`: every element kept.
+            _ => CVal::Bool(total == n),
+        })
+    }
+
+    /// [comptime-eval] A lambda's body, with its parameter bound to `x`: as a
+    /// binder when `x` is a field, arm or literal, so the body reads it as
+    /// one (`f is Key`, `f.name`).
+    fn apply(&mut self, param: &Ident, body: &CompExpr, x: CVal) -> Option<bool> {
+        let mut none = Vec::new();
+        let r = match x {
+            CVal::Elem(b) => {
+                self.env.push((param.name.clone(), b));
+                let r = self.eval_bool(body, &mut none, false);
+                self.env.pop();
+                r
+            }
+            other => {
+                self.comp_locals.push((param.name.clone(), other));
+                let r = self.eval_bool(body, &mut none, false);
+                self.comp_locals.pop();
+                r
+            }
+        };
+        r
+    }
+
+    /// [comptime-eval] A `[for … in e]`'s or an `inline for`'s sequence:
+    /// fields, arms or literals.
+    fn eval_seq(&mut self, e: &CompExpr) -> Option<Vec<Binding>> {
+        let mut none = Vec::new();
+        match self.eval(e, &mut none, false)? {
+            CVal::List(xs) => {
+                let mut out = Vec::with_capacity(xs.len());
+                for x in xs {
+                    match x {
+                        CVal::Elem(b) => out.push(b),
+                        other => {
+                            self.error(e.span(), messages::comptime_eval_not_walkable(&other.describe()));
+                            return None;
+                        }
+                    }
+                }
+                Some(out)
+            }
+            other => {
+                self.error(e.span(), messages::comptime_eval_not_walkable(&other.describe()));
+                None
             }
         }
     }
@@ -3456,10 +4019,24 @@ impl<'w> Expander<'w> {
     fn expand_comp_stmts(&mut self, block: &mut Block, walk_plain: bool) {
         let stmts = std::mem::take(&mut block.stmts);
         let mut out: Vec<Stmt> = Vec::with_capacity(stmts.len());
+        // [comptime-eval] A `[let]` holds for the rest of its block.
+        let (env_len, locals_len) = (self.env.len(), self.comp_locals.len());
         for stmt in stmts {
             match stmt {
+                Stmt::Comp(CompStmt::Let { span, .. }) if !walk_plain => {
+                    // The block's plain statements are walked after this, by
+                    // the visitor, where the `[let]` would no longer hold.
+                    self.error(span, messages::comptime_eval_let_nested());
+                }
                 Stmt::Comp(c) => self.expand_comp(c, &mut out),
                 mut other => {
+                    // [comptime-eval] No shadowing: a runtime `let` may not
+                    // take a `[let]`'s name.
+                    if let Stmt::Let { pattern: Pattern::Ident(id), .. } = &other {
+                        if self.comp_locals[locals_len..].iter().any(|(n, _)| *n == id.name) || self.env[env_len..].iter().any(|(n, _)| *n == id.name) {
+                            self.error(id.span, messages::comptime_eval_let_shadow(&id.name));
+                        }
+                    }
                     if walk_plain {
                         visit_mut::walk_stmt(self, &mut other);
                     }
@@ -3467,13 +4044,34 @@ impl<'w> Expander<'w> {
                 }
             }
         }
+        if walk_plain {
+            self.env.truncate(env_len);
+            self.comp_locals.truncate(locals_len);
+        }
         block.stmts = out;
     }
 
     fn expand_comp(&mut self, c: CompStmt, out: &mut Vec<Stmt>) {
         match c {
+            CompStmt::Let { name, value, span } => {
+                let taken = self.comp_locals.iter().any(|(n, _)| *n == name.name)
+                    || self.binding(&name.name).is_some()
+                    || self.params.iter().any(|p| p.name.name == name.name)
+                    || self.bound.as_ref().is_some_and(|(p, _)| *p == name.name);
+                if taken {
+                    self.error(name.span, messages::comptime_eval_let_shadow(&name.name));
+                    return;
+                }
+                let mut none = Vec::new();
+                let Some(v) = self.eval(&value, &mut none, false) else { return };
+                let _ = span;
+                match v {
+                    CVal::Elem(b) => self.env.push((name.name.clone(), b)),
+                    other => self.comp_locals.push((name.name.clone(), other)),
+                }
+            }
             CompStmt::For { binder, seq, body, .. } => {
-                let Some(elements) = self.elements(&seq) else { return };
+                let Some(elements) = self.eval_seq(&seq) else { return };
                 for b in &elements {
                     let copy = self.copy(&body, &binder.name, b);
                     out.extend(copy.stmts);
@@ -3482,7 +4080,7 @@ impl<'w> Expander<'w> {
             CompStmt::If { cond, then, else_, .. } => {
                 let mut binds = Vec::new();
                 let saved_values = std::mem::take(&mut self.value_binds);
-                let taken = self.eval_cond(&cond, &mut binds, true);
+                let taken = self.eval_bool(&cond, &mut binds, true);
                 let values = std::mem::replace(&mut self.value_binds, saved_values);
                 let Some(taken) = taken else { return };
                 if taken {
@@ -3686,6 +4284,32 @@ impl<'w> Expander<'w> {
                 }));
             }
             CompStmt::Refuse { mut message, span } => {
+                // [comptime-eval] An interpolation of a compile-time
+                // expression is its value: `${size(keys)}`, `${T.name}`.
+                if let Expr::Str { parts, .. } = &mut message {
+                    for part in parts.iter_mut() {
+                        if let StrExprPart::Interp(inner) = part {
+                            if let Some(ce) = comp_of_expr(inner) {
+                                let mut none = Vec::new();
+                                let Some(v) = self.eval(&ce, &mut none, false) else { return };
+                                match v.text() {
+                                    Some(t) => *part = StrExprPart::Text(t),
+                                    None => {
+                                        self.error(ce.span(), messages::comptime_eval_type(&"a value with a text", &v.describe()));
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let folded: Vec<StrExprPart> = std::mem::take(parts);
+                    for p in folded {
+                        match p {
+                            StrExprPart::Text(t) => push_text(parts, &t),
+                            other => parts.push(other),
+                        }
+                    }
+                }
                 visit_mut::walk_expr(self, &mut message);
                 let text = match literal_text(&message) {
                     Some(t) => t,
@@ -3823,6 +4447,28 @@ impl MutVisitor for Expander<'_> {
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
+        // [comptime-eval] A `[let]` reads as its value: a scalar as its
+        // literal; anything else exists only in heads.
+        if let Expr::Ident(id) = expr {
+            if let Some((_, v)) = self.comp_locals.iter().rev().find(|(n, _)| *n == id.name).cloned() {
+                let span = id.span;
+                *expr = match v {
+                    CVal::Bool(value) => Expr::Bool { value, span },
+                    CVal::Int(value) => Expr::Int { value, long: false, span },
+                    CVal::Long(value) => Expr::Int { value, long: true, span },
+                    CVal::Char(value) => Expr::Char { value, span },
+                    CVal::Str(t) => self.str_lit(&t, span),
+                    CVal::Name(b) => self.str_lit(&b.name, span),
+                    CVal::None => Expr::Ident(Ident { name: "None".to_string(), span }),
+                    other => {
+                        let name = id.name.clone();
+                        self.error(span, messages::comptime_eval_let_in_body(&name, &other.describe()));
+                        return;
+                    }
+                };
+                return;
+            }
+        }
         // [comptime-qualifier] A constant binder reads as its constant.
         if let Expr::Ident(id) = expr {
             if let Some(i) = self.value_binders.iter().rposition(|(n, ..)| *n == id.name) {
@@ -4074,7 +4720,7 @@ impl Expander<'_> {
         for entry in entries {
             match entry.kind {
                 StructLitFieldKind::InlineFor { binder, seq, entries } => {
-                    let Some(elements) = self.elements(&seq) else { continue };
+                    let Some(elements) = self.eval_seq(&seq) else { continue };
                     for b in &elements {
                         // Each entry is copied per element like a block copy.
                         let mut block = Block {
@@ -4240,12 +4886,32 @@ fn arm_name(arm: &Type) -> String {
 }
 
 /// [comptime-pattern] Whether a condition declares a pattern binder.
-fn cond_binds(c: &CompCond) -> bool {
+fn expr_binds(c: &CompExpr) -> bool {
     match c {
-        CompCond::Is { binders, .. } => binders.iter().any(|b| !b.name.starts_with(|c: char| c.is_lowercase())),
-        CompCond::And(a, b, _) => cond_binds(a) || cond_binds(b),
+        CompExpr::Is { binders, .. } => binders.iter().any(|b| !b.name.starts_with(|c: char| c.is_lowercase())),
+        CompExpr::Binary { op: BinaryOp::And, lhs, rhs, .. } => expr_binds(lhs) || expr_binds(rhs),
         _ => false,
     }
+}
+
+/// [comptime-eval] An ordinary expression as a compile-time one, where it
+/// is one: what an interpolation in `refuse!` evaluates.
+fn comp_of_expr(e: &Expr) -> Option<CompExpr> {
+    Some(match e {
+        Expr::Ident(id) => CompExpr::Name { id: id.clone(), args: Vec::new(), span: id.span },
+        Expr::Int { value, long, span } => CompExpr::Int { value: *value, long: *long, span: *span },
+        Expr::Bool { value, span } => CompExpr::Bool(*value, *span),
+        Expr::Char { value, span } => CompExpr::Char(*value, *span),
+        Expr::Field { base, field, span, .. } if !field.name.starts_with('[') => {
+            CompExpr::Proj { base: Box::new(comp_of_expr(base)?), field: field.clone(), span: *span }
+        }
+        Expr::Call { callee, args, named, type_args, span, .. } if named.is_empty() && type_args.is_empty() => {
+            let Expr::Ident(id) = &**callee else { return None };
+            CompExpr::Call { callee: id.clone(), args: args.iter().map(comp_of_expr).collect::<Option<Vec<_>>>()?, span: *span }
+        }
+        Expr::Binary { op, lhs, rhs, span } => CompExpr::Binary { op: *op, lhs: Box::new(comp_of_expr(lhs)?), rhs: Box::new(comp_of_expr(rhs)?), span: *span },
+        _ => return None,
+    })
 }
 
 /// The `is` check that selects an arm: its qualifiers then its base.

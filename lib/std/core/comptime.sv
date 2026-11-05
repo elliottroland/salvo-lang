@@ -230,3 +230,55 @@ export comptime struct Arm {
     // @compilerrules [comptime-docs]
     docs: Str?
 }
+
+// ---- compile-time functions
+//
+// A comptime head (`[if …]`, `[for … in …]`, `[let … = …]`) is a
+// compile-time expression over the model above, and the functions it calls
+// are these: the compiler evaluates them while it stamps, and they exist
+// nowhere else. A head sees no other function, so an ordinary `size` or
+// `filter` in scope is not what a head means. Evaluation always ends: a head
+// has no loops, and each of these walks a list the compiler built.
+//
+// ```
+// export comptime qualifier Key for Field
+//
+// comptime fn key_name<T is Struct>(value: T) [] -> Str => value {
+//     [let keys = filter(T.fields, (f) -> f is Key)]
+//     [if size(keys) != 1] {
+//         refuse!("`${T.name}` marks ${size(keys)} fields as `Key`; mark exactly one")
+//     }
+//     [for f in keys] ...
+//     return f.name
+// }
+//
+// struct Order { Key id: Str, qty: Int }
+//
+// fn order_key(value: Order) [] -> Str by key_name    // answers "id"
+// ```
+
+// The number of elements of [xs].
+// @compilerrules [comptime-eval-fns]
+export comptime intrinsic fn size<T>(xs: List<T>) [] -> Int => xs
+
+// The element of [xs] at index [i], from zero, or `None` past its end.
+// @compilerrules [comptime-eval-fns]
+export comptime intrinsic fn get<T>(xs: List<T>, i: Int) [] -> T? => xs, i
+
+// The elements of [xs] for which [keep] answers true, in order.
+// @compilerrules [comptime-eval-fns]
+export comptime intrinsic fn filter<T>(xs: List<T>, keep: (x: T) -> Bool) [] -> List<T> => xs, keep
+
+// How many elements of [xs] [keep] answers true for: `size(filter(xs, keep))`.
+// @compilerrules [comptime-eval-fns]
+export comptime intrinsic fn count<T>(xs: List<T>, keep: (x: T) -> Bool) [] -> Int => xs, keep
+
+// Whether [test] answers true for some element of [xs]; false for an empty
+// list.
+// @compilerrules [comptime-eval-fns]
+export comptime intrinsic fn any<T>(xs: List<T>, test: (x: T) -> Bool) [] -> Bool => xs, test
+
+// Whether [test] answers true for every element of [xs]; true for an empty
+// list.
+// @compilerrules [comptime-eval-fns]
+export comptime intrinsic fn all<T>(xs: List<T>, test: (x: T) -> Bool) [] -> Bool => xs, test

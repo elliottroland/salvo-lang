@@ -708,17 +708,6 @@ pub struct CompTy {
     pub span: Span,
 }
 
-/// [comptime-fields] `T.fields` / `T.arms` — the sequence an `inline for`
-/// unrolls over.
-#[derive(Clone, Debug, PartialEq)]
-pub struct CompSeq {
-    pub ty: CompTy,
-    pub arms: bool,
-    /// [comptime-literals] `field.type.literals`: a literal union's members.
-    pub literals: bool,
-    pub span: Span,
-}
-
 /// [comptime-fields] The kinds of a compile-time type — the arms of
 /// `std.core.comptime`'s `Kind` union (`Struct | Union | Tuple | FnType | Opaque`,
 /// with `Opaque = Basic | Generic`), so a `[when field.kind]` is an ordinary
@@ -762,79 +751,71 @@ impl TypeKindWord {
     }
 }
 
-/// [comptime-inline] A compile-time condition, the subject of a `[if …]`
-/// (comptime round 1, CT-2's restriction; `==` on a name added round 2;
-/// `&&`/`||`/parentheses, `.kind`, and `.name is` a literal union added
-/// 2026-10-20).
+/// [comptime-eval] A compile-time expression: the head of a `[if …]`, the
+/// sequence of a `[for … in …]`, the value of a `[let … = …]` (user decision
+/// 2026-11-05, ROUTES.md §11: heads are expressions, evaluated over
+/// `std.core.comptime`'s model; the twelve hand-parsed condition shapes they
+/// replace are each one of these forms). Gone before resolution: the
+/// expansion evaluates every one.
 #[derive(Clone, Debug, PartialEq)]
-pub enum CompCond {
-    /// `field.kind is Struct`, `T.kind is Union` — a kind test, against an
-    /// arm of `std.core.comptime`'s `Kind`. The kind is of the type `ty`
-    /// denotes (`field.kind` is the kind of `field.type`). Resolved only
-    /// against the kinds, so a program type named `Union` cannot interfere
-    /// [comptime-kind].
-    Kind { ty: CompTy, kind: TypeKindWord, span: Span },
-    /// `field.type is Extra<Json>` — a written type, up to alias expansion
-    /// with qualifiers erased; a type test only, never a kind test
-    /// [comptime-kind]. The type is a **pattern** [comptime-pattern]: `*`
-    /// matches any type, and `binders` (`is <E> List<E>`) are declared
-    /// before it and bind the part they stand at, in the then-branch.
-    Is { ty: CompTy, binders: Vec<Ident>, target: Type, span: Span },
-    /// `T.mutable` — whether the type declares `canbe Mut` (`std.core.comptime`'s
-    /// `Struct.mutable`).
-    Mutable { ty: CompTy, span: Span },
-    /// `field.name == "value"`, `field.name is "a" | "b"` — the binder's name
-    /// against a literal or a union of literals: `field.name` is the literal
-    /// union of its struct's field names [comptime-name]. `!=` and `!is` are
-    /// `Not` of it.
-    NameIs { binder: Ident, lits: Vec<String>, span: Span },
-    /// `field.first` / `field.last`.
-    Flag { binder: Ident, last: bool, span: Span },
-    /// [comptime-name] `a.name == b.name`: two binders' names, from two walks
-    /// (the CLI design record X16). `!=` is `Not` of it.
-    NameEq { a: Ident, b: Ident, span: Span },
-    /// [comptime-qualifier] `field is Short`, `field is <c> Short(c)`: whether
-    /// the binder's field carries the comptime qualifier `qual`, binding the
-    /// constants its value arguments name (`binders`, declared before it as
-    /// a type pattern's are) or comparing the ones written. `!is` is `Not`.
-    Annotated { subject: Ident, binders: Vec<Ident>, qual: TypeRef, span: Span },
-    /// [comptime-default] [comptime-docs] `field.default is None`,
-    /// `field.docs is None`, `T.docs is None`: the element declares no
-    /// default, or carries no doc comment. `docs` says which projection;
-    /// `binder` is a binder, the bound parameter or a named root. `!is None`
-    /// is `Not` of it.
-    Unset { binder: Ident, docs: bool, span: Span },
-    /// `x.index == y.index`, `x.index < y.index` — two arm (or field)
-    /// positions compared, which is how a union `cmp` orders arms without an
-    /// intrinsic (comptime round 7's std sketch).
-    IndexCmp {
-        a: Ident,
-        b: Ident,
-        op: BinaryOp,
-        span: Span,
-    },
-    Not(Box<CompCond>, Span),
-    /// `a && b` [comptime-logic].
-    And(Box<CompCond>, Box<CompCond>, Span),
-    /// `a || b` [comptime-logic].
-    Or(Box<CompCond>, Box<CompCond>, Span),
+pub enum CompExpr {
+    Bool(bool, Span),
+    Int { value: i64, long: bool, span: Span },
+    Char(char, Span),
+    /// A plain string literal (no interpolation).
+    Str(String, Span),
+    /// `None`.
+    None(Span),
+    /// A name: a walk's binder, a `[let]`, a lambda parameter, the bound
+    /// parameter, a pattern binder, or a declared type (`Reading`,
+    /// `Arg<T>`, with its type arguments).
+    Name { id: Ident, args: Vec<Type>, span: Span },
+    /// `x.p`: a projection of the model (`field.name`, `field.type`,
+    /// `T.fields`, `arm.type.literals`).
+    Proj { base: Box<CompExpr>, field: Ident, span: Span },
+    /// `f(a, b)`: a compile-time function [comptime-eval-fns].
+    Call { callee: Ident, args: Vec<CompExpr>, span: Span },
+    /// `(f) -> f is ShardKey`: a lambda, evaluated where it is called.
+    Lambda { params: Vec<Ident>, body: Box<CompExpr>, span: Span },
+    /// `!e`.
+    Not(Box<CompExpr>, Span),
+    /// `-e`.
+    Neg(Box<CompExpr>, Span),
+    /// `a op b`: `&&`, `||`, comparisons, arithmetic.
+    Binary { op: BinaryOp, lhs: Box<CompExpr>, rhs: Box<CompExpr>, span: Span },
+    /// `e is <B> pattern`, `e is "a" | "b"` — what the test means depends on
+    /// what `e` is: a kind test on a `Kind`, a type test (a pattern
+    /// [comptime-pattern]) on a `Type`, a comptime-qualifier test on a field
+    /// or a struct [comptime-qualifier], a literal test on a name or a
+    /// string. `!is` is `Not` of it.
+    Is { subject: Box<CompExpr>, binders: Vec<Ident>, pattern: CompPattern, span: Span },
 }
 
-impl CompCond {
+/// [comptime-eval] What follows `is` in a compile-time expression.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CompPattern {
+    /// A type pattern, a kind word, a comptime qualifier, or `None`.
+    Type(Type),
+    /// `"a" | "b"`: string literals, each with its span.
+    Strs(Vec<(String, Span)>),
+}
+
+impl CompExpr {
     pub fn span(&self) -> Span {
         match self {
-            CompCond::Kind { span, .. }
-            | CompCond::Is { span, .. }
-            | CompCond::Mutable { span, .. }
-            | CompCond::NameIs { span, .. }
-            | CompCond::Flag { span, .. }
-            | CompCond::NameEq { span, .. }
-            | CompCond::Unset { span, .. }
-            | CompCond::Annotated { span, .. }
-            | CompCond::IndexCmp { span, .. }
-            | CompCond::Not(_, span)
-            | CompCond::And(_, _, span)
-            | CompCond::Or(_, _, span) => *span,
+            CompExpr::Bool(_, span)
+            | CompExpr::Char(_, span)
+            | CompExpr::Str(_, span)
+            | CompExpr::None(span)
+            | CompExpr::Not(_, span)
+            | CompExpr::Neg(_, span)
+            | CompExpr::Int { span, .. }
+            | CompExpr::Name { span, .. }
+            | CompExpr::Proj { span, .. }
+            | CompExpr::Call { span, .. }
+            | CompExpr::Lambda { span, .. }
+            | CompExpr::Binary { span, .. }
+            | CompExpr::Is { span, .. } => *span,
         }
     }
 }
@@ -874,14 +855,16 @@ pub enum CompStmt {
     /// arm), each checked with the binder's type concrete.
     For {
         binder: Ident,
-        seq: CompSeq,
+        /// [comptime-eval] A list of fields, arms or literals: `T.fields`, or
+        /// any expression answering one (`filter(T.fields, …)`).
+        seq: CompExpr,
         body: Block,
         span: Span,
     },
     /// `[if <cond>] { … } else { … }` — kept or dropped per instantiation;
     /// the dropped branch is never checked.
     If {
-        cond: CompCond,
+        cond: CompExpr,
         then: Block,
         else_: Option<Block>,
         span: Span,
@@ -934,6 +917,11 @@ pub enum CompStmt {
     /// the bang and parens of `assert!`/`unreachable!` [assert-fn]: a place
     /// that fails.
     Refuse { message: Expr, span: Span },
+    /// [comptime-eval] `[let keys = filter(T.fields, (f) -> f is Key)]` — a
+    /// compile-time value for the rest of the block: heads read it, and the
+    /// body reads a scalar one as its literal and a field or arm one as a
+    /// binder.
+    Let { name: Ident, value: CompExpr, span: Span },
 }
 
 impl CompStmt {
@@ -945,7 +933,8 @@ impl CompStmt {
             | CompStmt::WhenArms { span, .. }
             | CompStmt::WhenName { span, .. }
             | CompStmt::WhenType { span, .. }
-            | CompStmt::Refuse { span, .. } => *span,
+            | CompStmt::Refuse { span, .. }
+            | CompStmt::Let { span, .. } => *span,
         }
     }
 }
@@ -2538,7 +2527,7 @@ pub enum StructLitFieldKind {
     /// builds a `T` (comptime round 1, CT-2's construction form).
     InlineFor {
         binder: Ident,
-        seq: CompSeq,
+        seq: CompExpr,
         entries: Vec<StructLitField>,
     },
 }

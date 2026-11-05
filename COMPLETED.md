@@ -149,6 +149,42 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-05 — Comptime heads are expressions, evaluated (user decisions, [comptime-eval] [comptime-eval-fns], ROUTES.md §11/§13)
+
+- **Decided** (user, 2026-11-05): comptime must be able to state rules over
+  a declaration as a whole (the motivating one: at most one `ShardKey` per
+  send member, ROUTES.md §9), and the user chose (b), *evaluation*, over (a) a
+  filtered walk and (c) a declared constraint on the qualifier. Of §11's
+  steps, 1–3 (values and an evaluator; heads as expressions; `[let]`, `[for x
+  in <expr>]`, computed `refuse!`) and tier (i) only (declared intrinsics):
+  helpers written in Salvo (tier ii) and ordinary fns at compile time (tier
+  iii) are ROADMAP items. "Start out limited": a head sees compile-time
+  functions only.
+- **Built**: `CompExpr`/`CompPattern` replace `CompCond`/`CompSeq` (the
+  twelve hand-parsed condition shapes); a comptime expression parser
+  (`parse_comp_expr`, ordinary precedence, `is` with a comptime pattern or a
+  literal union, `(f) -> e` lambdas); `CVal` and `Expander::eval` (dynamic,
+  over the model); `[let]` (`CompStmt::Let`); `comptime intrinsic fn` and
+  std.core.comptime's `size`/`get`/`filter`/`count`/`any`/`all`, removed with
+  the heads by the expansion; computed `refuse!` interpolations, skipped by
+  the hygiene check; `eval.sv` checker cases and an `evaluated_heads` run
+  program on both backends.
+- **Kept**: every existing head parses and means what it did, so nothing in
+  std, the examples or the tests was rewritten. Two diagnostics went with the
+  shapes (`comptime-name:non-binder-compare`,
+  `comptime-inline:non-binder-index-compare`: a non-binder in a head is now
+  `comptime-inline:not-a-binder`), and the parse-time ones the shapes needed
+  (`position-compare`, `position-rhs`, `name-compare`, `unknown-sequence`,
+  `expected-type`).
+- **Found**: an element of a filtered walk keeps its declared `.index`,
+  `.first`, `.last` (recorded in [comptime-eval]: they describe the
+  declaration); a `[let]` in an ordinary block cannot hold for that block's
+  code, which the visitor substitutes after its heads, so it is refused
+  (`comptime-eval:let-nested`); `refuse!`'s interpolations are evaluated
+  before substitution, since a list `[let]` named in code is an error.
+- 732 tests under nextest, warm run 1m57 (a `salvo-core` rebuild and a std
+  edit: every corpus and run stamp missed).
+
 ### 2026-11-01 — std has no front: one cache, warmed with std (user decision, [lsp-warm-std], ROADMAP §0be stage (d))
 
 - **Decided** (user, 2026-11-01): "I would prefer simpler code. So let's go

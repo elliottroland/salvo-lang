@@ -1035,6 +1035,20 @@ compile-time-only structs with `Type` a union the kind `when` dispatches over,
 and added hover inside comptime fn bodies. What the decided design still owes,
 in build order:
 
+- **Comptime helpers written in Salvo, and ordinary fns at compile time**
+  (ROUTES.md §11 tiers (ii) and (iii); user decision 2026-11-05: heads start
+  limited to tier (i), the `comptime intrinsic fn`s of `std.core.comptime`,
+  [comptime-eval-fns]). Tier (ii): a `comptime fn` over model types,
+  evaluated by the evaluator and never emitted. **DECISION**: how a helper
+  is told apart from an expanded-in-place `comptime fn` (which becomes an
+  ordinary fn): "a comptime fn whose signature mentions a model type is a
+  helper" (one rule, since model types are refused in ordinary positions;
+  recommended) or a spelling of its own. Recursion would need a fuel limit or
+  an acyclic call graph. Tier (iii): any ordinary fn in a head needs the
+  checker's answer for the call and an interpreter of checked code, so a
+  reordered pipeline with std's own stamping cycle broken; it is also what
+  §"Constants: literal establishment" needs.
+
 - **Obligation clauses on platform types** (decided for `intrinsic type`
   2026-09-28; the collections became platform types and, per §0j, `Set`/`Map`/
   the sorted pair become Salvo structs, whose clauses are ordinary). For

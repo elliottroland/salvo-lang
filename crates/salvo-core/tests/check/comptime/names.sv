@@ -78,12 +78,14 @@ comptime fn arm_names_missing() [] -> Int {
 }
 
 // [comptime-name] `[if a.name == b.name]` relates binders of two walks
-// (the CLI design record X16); a side that is not a binder is an error.
+// (the CLI design record X16); a side that is not a binder is an error
+// [comptime-eval]: a lowercase name in a head is a compile-time name or
+// nothing.
 struct Ports { port: Int }
 
 comptime fn not_a_binder() [] -> Int {
     [for a in Ports.fields] {
-        //~ error[comptime-name:non-binder-compare]
+        //~ error[comptime-inline:not-a-binder]
         [if a.name == z.name] { }
     }
     return 0

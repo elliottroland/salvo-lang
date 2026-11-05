@@ -734,6 +734,50 @@ lowercase binder declared before it:
 [if T is <n> Named(n)] { … }            // a struct's own
 ```
 
+### Computing in a head: `[let]` and the compile-time functions
+
+A head is a small expression language over the model, so a comptime fn can
+state a rule about a declaration as a whole: that a struct marks exactly one
+field as its key, say. `[let name = …]` holds a compile-time value for the
+rest of the block, and a head may call the functions
+[`std.core.comptime`](../../lib/std/core/comptime.sv) declares for it:
+[`size`](../../lib/std/core/comptime.sv#fn-size),
+[`get`](../../lib/std/core/comptime.sv#fn-get),
+[`filter`](../../lib/std/core/comptime.sv#fn-filter),
+[`count`](../../lib/std/core/comptime.sv#fn-count),
+[`any`](../../lib/std/core/comptime.sv#fn-any) and
+[`all`](../../lib/std/core/comptime.sv#fn-all), with lambdas over the
+elements:
+
+```salvo
+export comptime qualifier Key for Field
+
+comptime fn key_name<T is Struct>(value: T) [] -> Str => value {
+    [let keys = filter(T.fields, (f) -> f is Key)]
+    [if size(keys) != 1] {
+        refuse!("`${T.name}` marks ${size(keys)} fields as `Key`; mark exactly one")
+    }
+    [for f in keys] ...
+    return f.name
+}
+```
+
+`[for x in …]` walks any list of fields, arms or literals, so the walk over
+`keys` is a walk over the marked fields only. An element keeps its declared
+`.index`, `.first` and `.last`: they describe where it is declared, not
+where it is in the list. A head has the ordinary operators (`&&`, `||`, `!`,
+comparisons, and arithmetic on `Int`s and `Long`s), and a `refuse!` message
+may interpolate what a head computes.
+
+The values exist only while the compiler stamps. A `[let]` holding a field
+is a binder from then on (`m.[f]`, `f.name`), and one holding a number, a
+`Bool` or a `Str` reads as that literal in code; a list or a type is for
+heads only. A head sees only these functions: an ordinary `size` in scope is
+an error there, so the two are never confused. Mistakes in a head (comparing
+a list with a number, say) are reported where the comptime fn is stamped, as
+every mistake in a template is. Evaluation always ends: a head has no loops,
+and these functions walk lists the compiler built.
+
 ### A comptime fn expanded in place
 
 A `comptime fn` with no type parameter is **expanded in place**: it is its own

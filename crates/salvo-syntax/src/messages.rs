@@ -253,16 +253,6 @@ messages! {
     );
 
     // [comptime-fields]
-    /// A token that is no compile-time type.
-    comptime_fields_expected_type = "comptime-fields:expected-type" (found: &str) => format!(
-        "expected a compile-time type — the bound parameter (`T`), a type name, or a \
-         binder's type (`field.type`) — found {found}"
-    );
-    /// A `[for …]` over something other than `.fields`, `.arms` or `.literals`.
-    comptime_fields_unknown_sequence = "comptime-fields:unknown-sequence" (other: &str) => format!(
-        "a `[for …]` walks `.fields` (of a struct), `.arms` (of a union) or `.literals` \
-         (of a literal union), not `.{other}`"
-    );
 
     // [comptime-hygiene]
     /// A written name in the compiler's `_` namespace.
@@ -306,14 +296,6 @@ messages! {
         "expected an arm of `Kind` — `Struct`, `Union`, `Tuple`, `FnType`, `Opaque` (or \
          its halves `Basic`, `Generic`) — found {found}"
     );
-    /// A binder's `.index` compared to something other than a position.
-    comptime_inline_position_compare = "comptime-inline:position-compare" (found: &str) => format!(
-        "a position is compared to another binder's position: `x.index == y.index` (found \
-         {found})"
-    );
-    /// A binder's `.index` compared to a binder rather than its `.index`.
-    comptime_inline_position_rhs = "comptime-inline:position-rhs" () =>
-        "a position compares to a position: write `y.index`";
     /// A comptime condition that tests `canbe`.
     comptime_inline_canbe_test = "comptime-inline:canbe-test" () =>
         "a type's mutability is read as `T.mutable` in a comptime condition \
@@ -323,6 +305,81 @@ messages! {
         "a type splice in an expression is the head of a struct literal or a constructor \
          call: `[arm.type] { … }`, `[arm.type](value)`";
 
+    // [comptime-eval]
+    /// A head that does not start an expression.
+    comptime_eval_expected_expr = "comptime-eval:expected-expr" (found: &str) => format!(
+        "expected a compile-time expression, found {found}"
+    );
+    /// A value of the wrong kind where a head needs another.
+    comptime_eval_type = "comptime-eval:type" (want: &str, found: &str) => format!(
+        "expected {want} here, found {found}"
+    );
+    /// A projection on a value that has none.
+    comptime_eval_no_property = "comptime-eval:no-property" (name: &str, of: &str) => format!(
+        "{of} has no `.{name}`"
+    );
+    /// Two values compared that cannot be.
+    comptime_eval_compare = "comptime-eval:compare" (a: &str, b: &str) => format!(
+        "{a} cannot be compared with {b}"
+    );
+    /// Arithmetic over values that are not two numbers of one type.
+    comptime_eval_arith = "comptime-eval:arith" (a: &str, b: &str) => format!(
+        "arithmetic is between two `Int`s or two `Long`s (and `+` between two `Str`s), \
+         not {a} and {b}"
+    );
+    /// Arithmetic that overflows, or divides by zero.
+    comptime_eval_overflow = "comptime-eval:overflow" () =>
+        "this compile-time arithmetic overflows or divides by zero";
+    /// An `is` on a value no pattern tests.
+    comptime_eval_bad_is = "comptime-eval:bad-is" (found: &str) => format!(
+        "`is` tests a type, a kind, a field's comptime qualifier, a name or a string, or \
+         whether a value is `None`; not {found}"
+    );
+    /// A runtime fn called in a head.
+    comptime_eval_runtime_fn = "comptime-eval:runtime-fn" (name: &str) => format!(
+        "`{name}` is not a compile-time function: a head calls only what \
+         `std.core.comptime` declares `comptime intrinsic` (`size`, `get`, `filter`, \
+         `count`, `any`, `all`)"
+    );
+    /// A call to a name no compile-time function has.
+    comptime_eval_unknown_fn = "comptime-eval:unknown-fn" (name: &str) => format!(
+        "no compile-time function `{name}`: a head calls `size`, `get`, `filter`, \
+         `count`, `any` or `all`"
+    );
+    /// A compile-time function called with the wrong number of arguments.
+    comptime_eval_arity = "comptime-eval:arity" (name: &str, want: usize, got: usize) => format!(
+        "`{name}` takes {want} argument{}, given {got}",
+        if want == 1 { "" } else { "s" }
+    );
+    /// A lambda with other than one parameter, passed to a test of elements.
+    comptime_eval_lambda_arity = "comptime-eval:lambda-arity" (name: &str, got: usize) => format!(
+        "`{name}`'s lambda takes one parameter, the element; this one takes {got}"
+    );
+    /// A `[for]` over something other than fields, arms or literals.
+    comptime_eval_not_walkable = "comptime-eval:not-walkable" (found: &str) => format!(
+        "a `[for …]` walks a list of fields, arms or literals, not {found}"
+    );
+    /// A `[let]` name already in use.
+    comptime_eval_let_shadow = "comptime-eval:let-shadow" (name: &str) => format!(
+        "`{name}` is already a name here: a `[let]` takes a name of its own"
+    );
+    /// A `[let]` inside an ordinary block.
+    comptime_eval_let_nested = "comptime-eval:let-nested" () =>
+        "a `[let …]` is written in a comptime fn's body or a comptime construct's (a \
+         `[for]` copy, an `[if]` branch), not inside an ordinary block";
+    /// A `[let]` value that is no value code can read.
+    comptime_eval_let_in_body = "comptime-eval:let-in-body" (name: &str, what: &str) => format!(
+        "`{name}` is {what}, which exists only at compile time: read it in a head \
+         (`[if …]`, `[for … in {name}]`), not in code"
+    );
+
+    // [comptime-eval-fns]
+    /// A `comptime intrinsic fn` with a body or a kind bound.
+    comptime_eval_fns_intrinsic_shape = "comptime-eval-fns:intrinsic-shape" (name: &str) => format!(
+        "`comptime intrinsic fn {name}` is implemented by the compiler: it has no body \
+         and no kind bound"
+    );
+
     // [comptime-name]
     /// A binder's name compared to something other than a string literal.
     comptime_name_expected_string = "comptime-name:expected-string" (found: &str) => format!(
@@ -331,10 +388,6 @@ messages! {
     /// A binder's name compared to an interpolated string.
     comptime_name_interpolated = "comptime-name:interpolated" () =>
         "the name a binder is compared to is a plain literal, with no interpolation";
-    /// A binder's `.name` compared other than to a literal.
-    comptime_name_name_compare = "comptime-name:name-compare" () =>
-        "a binder's name is compared to a literal: `field.name == \"value\"`, or tested \
-         against a union of them: `field.name is \"a\" | \"b\"`";
 
     // [comptime-qualifier]
     /// A comptime qualifier before a declaration that is not a `struct`.
@@ -1180,9 +1233,6 @@ messages! {
     comptime_inline_not_a_binder = "comptime-inline:not-a-binder" (name: &str) => format!(
         "`{name}` is not a binder"
     );
-    /// An `.index` comparison with a side that is not a binder.
-    comptime_inline_non_binder_index_compare = "comptime-inline:non-binder-index-compare" () =>
-        "both sides of an `.index` comparison must be binders";
     /// A `[when …]` over a kind meeting a type of a kind it has no arm for.
     comptime_inline_unhandled_kind = "comptime-inline:unhandled-kind" (ty: &dyn std::fmt::Display, kind: &str) => format!(
         "`{ty}` is a `{kind}`, which this `[when …]` does not handle"
@@ -1237,9 +1287,6 @@ messages! {
         "`{owner}` has no {} `{lit}`",
         if is_arm { "arm" } else { "field" }
     );
-    /// A `.name` comparison with a side that is not a binder.
-    comptime_name_non_binder_compare = "comptime-name:non-binder-compare" () =>
-        "both sides of a `.name` comparison must be binders";
     /// A `[when b.name]` whose range is known only where the template is stamped.
     comptime_name_when_over_derived_name = "comptime-name:when-over-derived-name" (b: &str, bound: &str, f: &str) => format!(
         "a `[when {b}.name]` cannot be checked here: `{b}.name` ranges over the names `{bound}` has, which are known only where `{f}` is stamped, and a `[when]` with a subject must cover its range — test with `[if {b}.name is …]`"

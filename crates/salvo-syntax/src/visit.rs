@@ -367,54 +367,60 @@ pub fn walk_comp_ty<V: Visitor>(v: &mut V, t: &CompTy) {
     }
 }
 
-pub fn walk_comp_cond<V: Visitor>(v: &mut V, c: &CompCond) {
-    match c {
-        CompCond::Kind { ty, span, .. } => {
+/// [comptime-eval] Every span, ident and type of a compile-time expression.
+pub fn walk_comp_expr<V: Visitor>(v: &mut V, e: &CompExpr) {
+    match e {
+        CompExpr::Bool(_, span) | CompExpr::Char(_, span) | CompExpr::Str(_, span) | CompExpr::None(span) => v.visit_span(span),
+        CompExpr::Int { span, .. } => v.visit_span(span),
+        CompExpr::Name { id, args, span } => {
             v.visit_span(span);
-            walk_comp_ty(v, ty);
+            v.visit_ident(id);
+            for a in args {
+                walk_type(v, a);
+            }
         }
-        CompCond::Is { ty, binders, target, span } => {
+        CompExpr::Proj { base, field, span } => {
             v.visit_span(span);
-            walk_comp_ty(v, ty);
+            walk_comp_expr(v, base);
+            v.visit_ident(field);
+        }
+        CompExpr::Call { callee, args, span } => {
+            v.visit_span(span);
+            v.visit_ident(callee);
+            for a in args {
+                walk_comp_expr(v, a);
+            }
+        }
+        CompExpr::Lambda { params, body, span } => {
+            v.visit_span(span);
+            for p in params {
+                v.visit_ident(p);
+            }
+            walk_comp_expr(v, body);
+        }
+        CompExpr::Not(inner, span) | CompExpr::Neg(inner, span) => {
+            v.visit_span(span);
+            walk_comp_expr(v, inner);
+        }
+        CompExpr::Binary { lhs, rhs, span, .. } => {
+            v.visit_span(span);
+            walk_comp_expr(v, lhs);
+            walk_comp_expr(v, rhs);
+        }
+        CompExpr::Is { subject, binders, pattern, span } => {
+            v.visit_span(span);
+            walk_comp_expr(v, subject);
             for b in binders {
                 v.visit_ident(b);
             }
-            walk_type(v, target);
-        }
-        CompCond::Mutable { ty, span } => {
-            v.visit_span(span);
-            walk_comp_ty(v, ty);
-        }
-        CompCond::NameIs { binder, span, .. } | CompCond::Flag { binder, span, .. } | CompCond::Unset { binder, span, .. } => {
-            v.visit_span(span);
-            v.visit_ident(binder);
-        }
-        CompCond::Annotated { subject, binders, qual, span } => {
-            v.visit_span(span);
-            v.visit_ident(subject);
-            for b in binders {
-                v.visit_ident(b);
+            match pattern {
+                CompPattern::Type(t) => walk_type(v, t),
+                CompPattern::Strs(lits) => {
+                    for (_, s) in lits {
+                        v.visit_span(s);
+                    }
+                }
             }
-            walk_type_ref(v, qual);
-        }
-        CompCond::NameEq { a, b, span } => {
-            v.visit_span(span);
-            v.visit_ident(a);
-            v.visit_ident(b);
-        }
-        CompCond::IndexCmp { a, b, span, .. } => {
-            v.visit_span(span);
-            v.visit_ident(a);
-            v.visit_ident(b);
-        }
-        CompCond::Not(inner, span) => {
-            v.visit_span(span);
-            walk_comp_cond(v, inner);
-        }
-        CompCond::And(a, b, span) | CompCond::Or(a, b, span) => {
-            v.visit_span(span);
-            walk_comp_cond(v, a);
-            walk_comp_cond(v, b);
         }
     }
 }
@@ -429,8 +435,7 @@ pub fn walk_comp_stmt<V: Visitor>(v: &mut V, c: &CompStmt) {
         } => {
             v.visit_span(span);
             v.visit_ident(binder);
-            v.visit_span(&seq.span);
-            walk_comp_ty(v, &seq.ty);
+            walk_comp_expr(v, seq);
             walk_block(v, body);
         }
         CompStmt::If {
@@ -440,7 +445,7 @@ pub fn walk_comp_stmt<V: Visitor>(v: &mut V, c: &CompStmt) {
             span,
         } => {
             v.visit_span(span);
-            walk_comp_cond(v, cond);
+            walk_comp_expr(v, cond);
             walk_block(v, then);
             if let Some(b) = else_ {
                 walk_block(v, b);
@@ -504,6 +509,11 @@ pub fn walk_comp_stmt<V: Visitor>(v: &mut V, c: &CompStmt) {
             v.visit_span(span);
             walk_expr(v, message);
         }
+        CompStmt::Let { name, value, span } => {
+            v.visit_span(span);
+            v.visit_ident(name);
+            walk_comp_expr(v, value);
+        }
     }
 }
 
@@ -522,8 +532,7 @@ pub fn walk_struct_lit_field<V: Visitor>(v: &mut V, f: &StructLitField) {
             entries,
         } => {
             v.visit_ident(binder);
-            v.visit_span(&seq.span);
-            walk_comp_ty(v, &seq.ty);
+            walk_comp_expr(v, seq);
             for e in entries {
                 walk_struct_lit_field(v, e);
             }

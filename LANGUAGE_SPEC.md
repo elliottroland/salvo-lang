@@ -6346,6 +6346,67 @@ Conventions:
   **Every leaf is evaluated**, even one a short circuit would skip, so a
   misspelled field name is reported wherever it stands. Before, `!` was the
   only connective and `field.name == "a" || …` was a parse error.
+* [comptime-eval] **A comptime head is a compile-time expression** (user
+  decision 2026-11-05, ROUTES.md §11 and §13): `[if e]`, `[for x in e]` and
+  the new **`[let x = e]`** evaluate `e` over `std.core.comptime`'s model
+  while the expansion stamps. The twelve hand-parsed condition shapes the
+  heads had (`CompCond`) are each a case of it, so every head written before
+  parses and means what it did.
+  * **Values**: `Bool`, `Int`, `Long`, `Char`, `Str`, `None`, a `Field` /
+    `Arm` / `Literal` (an element), a `Type`, a `Kind`, a field's default
+    (tested for `None` only), a `List` of these, and a lambda.
+  * **Forms**: literals, names, projections (`f.name`, `f.type`,
+    `T.fields`, `arm.type.literals`, `T.mutable`, `T.docs`), calls of the
+    compile-time functions [comptime-eval-fns], lambdas `(f) -> e` with an
+    expression body, `!`, unary `-`, `&&`, `||`, `==` `!=` `<` `>` `<=`
+    `>=`, `+` `-` `*` `/` `%` (`Int` with `Int`, `Long` with `Long`, `+`
+    on two `Str`s), and `is`.
+  * **`is`** means what its subject is: a kind test on a `Kind`
+    [comptime-kind], a type pattern on a `Type` [comptime-pattern], a
+    comptime-qualifier test on a field or on a named struct
+    [comptime-qualifier], a literal test on a name or a `Str`
+    [comptime-name], and `is None` on anything. After a `.kind` the parser
+    takes a kind word; after `.default`/`.docs`, only `None`.
+  * **Names** in a head are compile-time names: a lambda parameter, a
+    `[let]`, a walk's binder, a qualifier pattern's constant, or a type (the
+    bound parameter, a pattern binder, a declared type). Anything else is
+    `comptime-inline:not-a-binder`.
+  * **Evaluation is dynamic**: a value of the wrong kind is an error where a
+    stamp evaluates it (`comptime-eval:type`, `:compare`, `:arith`, …), as a
+    template's body is checked where it is stamped. **It always ends**: a head
+    has no loops, a walk is over a finite list, and the functions it calls
+    are the compiler's.
+  * **`[for x in e]`** walks any list of elements, so a filtered walk is
+    `[for f in filter(T.fields, (f) -> f is Key)]`. An element keeps its
+    declared `.index`, `.first` and `.last`: those describe the
+    declaration, not the walk.
+  * **`[let x = e]`** holds for the rest of its block. A field, arm or
+    literal is a binder from there (`m.[x]`, `x.name` in code); a scalar
+    reads as its literal in code; any other value exists in heads only, and
+    naming it in code is `comptime-eval:let-in-body`. Its name is its own
+    (no shadowing: `:let-shadow`, also against a runtime `let` after it). It
+    is written in a comptime fn's body or a comptime construct's, not inside
+    an ordinary block (`:let-nested`): that block's code is substituted
+    after its heads, where the `[let]` would no longer hold.
+  * **`refuse!`'s message** may interpolate a compile-time expression:
+    `refuse!("`${T.name}` marks ${size(keys)} fields")`. Its calls are
+    compile-time functions, so the hygiene rule [comptime-hygiene] does not
+    read them.
+* [comptime-eval-fns] **A head calls compile-time functions only**: the
+  `comptime intrinsic fn`s `std.core.comptime` declares — `size`, `get`,
+  `filter`, `count`, `any`, `all` (user decision 2026-11-05: start limited;
+  helpers written in Salvo, and ordinary functions at compile time, are
+  ROADMAP items). An ordinary fn named in a head is
+  `comptime-eval:runtime-fn`; a name no compile-time function has,
+  `:unknown-fn`. So std.core.list's `size` and the comptime `size` never
+  meet in one overload set.
+  * `comptime intrinsic fn` has no body and no kind bound
+    (`comptime-eval-fns:intrinsic-shape`); the expansion implements it, and
+    removes the declaration with the heads, so nothing after the expansion
+    sees one.
+  * A lambda passed to `filter`/`count`/`any`/`all` takes one parameter, the
+    element, bound as a binder when it is a field, arm or literal; it is
+    evaluated where it is called, and binds no pattern binder.
 * [comptime-name] **`field.name` is a literal of the union of its struct's
   field names** (user decision 2026-10-20) — `"sub_commands" | "groups" |
   "bools"` for a struct with those fields; `arm.name` likewise over a union's
