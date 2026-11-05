@@ -207,19 +207,20 @@ export fn push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) -> None
     let i = size(heap) - 1
     while i > 0 {
         // `val` is `proj T?` — a borrow of the element, so reading it is free
-        // and moving it is refused. (It hovered as `proj proj T?` until
-        // 2026-09-22, which was a hover bug rather than a type.)
-        let val = heap.get(i) ?: break
+        // and moving it is refused.
+        assert!(i is Idx(heap))
+        let val = heap.get(i)
 
         let i_parent = (i - 1) / 2
-        let parent = heap.get(i_parent) ?: break
+        assert!(i_parent is Idx(heap))
+        let parent = heap.get(i_parent)
         if parent <= val {
             break
         }
 
         // Nothing can be dropped by an exchange, and out of range cannot happen
         // here — so the answer is `ignore`d rather than read [col-bounds].
-        ignore(heap.swap(i, i_parent))
+        heap.swap(i, i_parent)
         i = i_parent
     }
 }
@@ -268,18 +269,18 @@ export fn pop<T>(heap: NonEmpty Heap<T>(?cmp) Mut List<T>) -> T
     if i !is Idx(heap) { return elem }
     while i < heap.size() {
         // If there are no children, then we're done.
-        let i_child0 = i * 2 + 1
-        if i_child0 !is Idx(heap) { break }
+        let i_left = i * 2 + 1
+        if i_left !is Idx(heap) { break }
 
         // We want to compare with the smallest of the two child indices,
         // because if we swap this child will become the root. Both candidates
-        // carry the `Idx` claim — `i_child0` from the guard above, `i_right`
+        // carry the `Idx` claim — `i_left` from the guard above, `i_right`
         // from the `is Idx` test — so the `if`-expression keeps it.
-        let i_right = i_child0 + 1
-        let i_child = if i_right is Idx(heap) && heap.get(i_right) < heap.get(i_child0) {
+        let i_right = i_left + 1
+        let i_child = if i_right is Idx(heap) && heap.get(i_right) < heap.get(i_left) {
             i_right
         } else {
-            i_child0
+            i_left
         }
 
         // If the parent is already smaller than the smallest child, then the

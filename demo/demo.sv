@@ -1,4 +1,4 @@
-import heap
+import std.heap
 
 actor effect Counter {
     send fn next_value(reply: Reply<Int>) => !reply
@@ -8,8 +8,9 @@ handler BasicCounter of Counter {
     mailbox {
         capacity: 16
     }
-
-    count: Int = 0
+    state {
+        count: Int = 0
+    }
 
     send fn next_value(reply: Reply<Int>) => !reply {
         count++
@@ -32,9 +33,16 @@ fn main() [use, spawn] {
     }
     println("the value is: ${value}")
 
-
+    let s = something()
+    if s is Str {
+        println("It is a string: ${s}")
+    }
 }
 
-fn print_count(int: Int) [Console] {
+send fn print_count(int: Int) [Console] {
     println("count: ${int}")
+}
+
+fn something() -> Str | Int {
+    todo!()
 }
