@@ -137,9 +137,10 @@ INSTA_UPDATE=always cargo test   # accept insta snapshot changes — only after 
 
 (cd lib && ../target/debug/salvo docs)  # regenerate wiki/ from docs/language/ and std's doc comments
                                  # (`--check` is what the docs test runs)
-python3 tools/check-doc-examples.py   # type-check every example in std's doc
-                                 # comments (~20s); after editing std's docs, also
-                                 # `--code-unchanged` (no code line moved)
+python3 tools/check-doc-examples.py --code-unchanged
+                                 # after a doc-only edit of std: no code line moved
+                                 # (the examples themselves are checked by
+                                 # `salvo analyze` in `lib/`, and by a docs test)
 
 cargo run -- test --src lib      # the standard library's own tests, in Salvo
                                  # (`lib/std/**/*.test.sv`); one `cargo test` runs this
@@ -359,10 +360,11 @@ and is new to Salvo, reading the wiki or hovering a name; Java's
   @compilerrules [a, b]` line, the doc block's last. No history ("user
   decision …"), no ROADMAP references. Maintainer notes go in the fn body,
   or in a comment block above the doc block, separated by a blank line.
-- **Every example type-checks**: `python3 tools/check-doc-examples.py`
-  ([doc-example-nocheck] says how a fence becomes a program); a fence whose
-  first line is `no-check` is skipped, for an example that cannot stand
-  alone. A doc-only edit must pass `--code-unchanged`.
+- **Every example type-checks**: the compiler checks doc examples with the
+  program ([doc-example] says how a fence becomes one), so `cd lib &&
+  ../target/debug/salvo analyze` must report nothing; a ```` ```no-check ````
+  fence is skipped, for an example that cannot stand alone. A doc-only edit
+  must pass `tools/check-doc-examples.py --code-unchanged`.
 
 **`docs/language/`** is the source of truth for behaviour, so a rewrite
 never drops or changes a rule. Each page opens with an `## Overview` that

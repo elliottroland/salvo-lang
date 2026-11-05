@@ -116,7 +116,7 @@ impl StdComptime {
 /// module: a comptime fn, a `fn … by`, or a `by` clause. One that has none is
 /// left exactly as it is, so it is not even made mutable (a shared module
 /// stays shared).
-fn stamps_anything(module: &Module) -> bool {
+pub(crate) fn stamps_anything(module: &Module) -> bool {
     module.items.iter().any(|item| match item {
         Item::Fn(f) => f.compfn.is_some() || f.by.is_some(),
         Item::Struct(s) => s.obligations.iter().any(|o| o.by.is_some()),

@@ -434,6 +434,30 @@ fn analyze_project_with(
         modules.push(module);
         per_file_tests.push(tests);
     }
+    // [doc-example] The examples in the project's own doc comments are files
+    // of their own, made from the parsed hosts and parsed as any file is
+    // (through the cache: an unedited example is a hit).
+    {
+        let std_project = project.as_ref().is_some_and(|p| p.is_std());
+        let hosts: Vec<usize> = (first..sources.files.len()).filter(|&i| own_file(&sources.files[i], std_project)).collect();
+        for host in hosts {
+            let found = salvo_core::doc_examples::extract(&sources.files[host], host, &modules[host]);
+            sources.files.extend(found);
+        }
+        for idx in modules.len()..sources.files.len() {
+            let file = &sources.files[idx];
+            let (module, diags, tests) = match cache.as_deref_mut() {
+                Some(cache) => {
+                    live.insert(parse_key(file));
+                    cache.parse(file)
+                }
+                None => parse_file(file),
+            };
+            project_diagnostics.extend(diags.into_iter().map(|d| FileDiagnostic::from_parse(idx, d)));
+            modules.push(module);
+            per_file_tests.push(tests);
+        }
+    }
     diagnostics.append(&mut project_diagnostics);
     if let Some(cache) = cache {
         cache.retain_live(&live);
@@ -531,6 +555,9 @@ fn analyze_project_with(
         diagnostics.extend(salvo_core::platform_root_required(&program, project.as_ref(), &backends));
         (Some(checked), overloads, completions, type_completions)
     };
+    // [doc-example] What the examples found is reported at their comments.
+    salvo_core::doc_examples::report(&mut diagnostics, &program.files);
+    ir_reliant.retain(|(f, _)| program.files.get(*f).is_none_or(|f| f.doc_example.is_none()));
     // [diag-std-hidden] What is located in the embedded std is not shown.
     let std_errors = salvo_core::diag::hide_std_diagnostics(&mut diagnostics, &program.files);
 
@@ -552,6 +579,15 @@ fn analyze_project_with(
 }
 
 use salvo_core::std_front::cache_applies as std_cache_applies;
+
+/// [doc-example] [cli-docs] Whether `file` is one of the project's own: its
+/// doc comments' examples are checked, and `salvo docs` documents it. For a
+/// std project the std tree; otherwise every file that is neither std nor a
+/// dependency's. Never a test annex, nor a file made from an example.
+pub fn own_file(file: &salvo_core::SourceFile, std_project: bool) -> bool {
+    let own = if std_project { file.is_std || file.is_shadow } else { !file.is_std && file.dependency.is_none() };
+    own && !file.is_test && file.doc_example.is_none()
+}
 
 /// [lsp-completion] The per-file index of type-like names, generated ones
 /// (`__…`) left out.
@@ -1314,6 +1350,52 @@ mod tests {
             at += line.len();
         }
         None
+    }
+
+    // [doc-example] [lsp-check-cache] An edit inside a doc comment's example
+    // walks the host and that example only, and the example's report moves
+    // with the comment: through the cache the analysis says what one without
+    // it says.
+    #[test]
+    fn an_edit_inside_a_doc_example_walks_its_host_and_the_example() {
+        let front = build_std_front("");
+        let n = front.files().len();
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let src = repo.join("tmp/check_cache_test/doc_examples");
+        let _ = std::fs::remove_dir_all(&src);
+        std::fs::create_dir_all(&src).unwrap();
+        let shapes = "// Squares.\n//\n// ```\n// let a = area(Square { side: 2 })\n// ```\n\n\
+                      // A square.\n//\n// ```\n// struct Pair { a: Square, b: Square }\n// ```\n\
+                      export struct Square {\n    side: Int\n}\n\n\
+                      // Its area.\n//\n// ```\n// let a = area(Square { side: 3 })\n// ```\n\
+                      export fn area(s: Square) -> Int {\n    return s.side * s.side\n}\n";
+        std::fs::write(src.join("shapes.sv"), shapes).unwrap();
+        std::fs::write(src.join("main.sv"), "import shapes\n\nfn main() [use] {\n    let _a = area(Square { side: 1 })\n}\n").unwrap();
+        let root = src.canonicalize().unwrap();
+        let mut parse = ParseCache::new();
+        let mut checks = salvo_core::CheckCache::new();
+        let mut analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
+            analyze_project_with(&src, None, "", overlay, Some(&mut parse), Some(&front), true, checks).expect("analysis")
+        };
+        let mut overlay: HashMap<PathBuf, String> = HashMap::new();
+        let first = analyze(&overlay, Some(&mut checks));
+        let examples: Vec<usize> = (n..first.program.files.len()).filter(|&i| first.program.files[i].doc_example.is_some()).collect();
+        assert_eq!(examples.len(), 3, "{:?}", first.program.files[n..].iter().map(|f| &f.name).collect::<Vec<_>>());
+        let host = (n..first.program.files.len()).find(|&i| first.program.files[i].name == "shapes.sv").unwrap();
+        let area = examples.iter().copied().find(|&i| first.program.files[i].module.to_string() == "shapes.#area.0").unwrap();
+        analyze(&overlay, Some(&mut checks));
+        // A mistake inside the last example: the host and it are walked.
+        let edited = shapes.replace("area(Square { side: 3 })", "area(Square { side: \"three\" })");
+        overlay.insert(root.join("shapes.sv"), edited);
+        let cached = analyze(&overlay, Some(&mut checks));
+        assert_eq!(checks.walked(), [host, area].as_slice());
+        let uncached = analyze(&overlay, None);
+        for ((what, a), (_, b)) in view(&cached, n).into_iter().zip(view(&uncached, n)) {
+            assert!(a == b, "{what} differ:\n{a:#?}\nwithout the cache:\n{b:#?}");
+        }
+        let warned: Vec<(usize, u32, bool)> = cached.diagnostics.iter().map(|d| (d.file, d.span.start, d.doc_example)).collect();
+        let at = cached.program.files[host].content.find("\"three\"").unwrap() as u32;
+        assert_eq!(warned, [(host, at, true)], "{:#?}", cached.diagnostics);
     }
 
     // [lsp-check-cache] A body edit, file after file (edits accumulating),

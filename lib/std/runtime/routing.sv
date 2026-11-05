@@ -49,8 +49,7 @@
 // faulted, with the reason "node left". Watchers of those proxies are sent
 // an `Exit`, senders waiting for credit stop, and later sends do nothing.
 //
-// ```
-// no-check
+// ```no-check
 // import std.net
 // import std.codec
 // import std.time

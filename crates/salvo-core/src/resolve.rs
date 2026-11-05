@@ -752,6 +752,9 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     // annexes are never `is_std` [test-file]).
     let std_owned = |file: &crate::source::SourceFile| {
         file.is_std
+            // [doc-example] An example's module is named under the module it
+            // documents, which may be std's; no program can import it.
+            || file.doc_example.is_some()
             || (file.is_test && {
                 let tested = &file.module.0[..file.module.0.len().saturating_sub(1)];
                 program
@@ -852,7 +855,8 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
     // turns "no such name" into "not exported".
     let mut declared_in: HashMap<&str, Vec<(&ModulePath, &str)>> = HashMap::new();
     let mut private_in: HashMap<&str, Vec<&ModulePath>> = HashMap::new();
-    for (module, items) in &by_module {
+    // [doc-example] An example's module is no place to import from.
+    for (module, items) in by_module.iter().filter(|(m, _)| !m.is_doc_example()) {
         let mut record = |name, item, exported: bool| {
             if exported {
                 declared_in.entry(name).or_default().push((*module, item));
@@ -1165,7 +1169,11 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
             continue;
         }
         let errors_before = errors.len();
-        let own_core = core_modules.iter().copied().find(|m| **m == file.module);
+        // [doc-example] An example that sees its module whole stands where a
+        // file of that module would: a core module's own example does not
+        // also see it as core.
+        let own_module = file.doc_example.as_ref().filter(|d| d.own).map_or(&file.module, |d| &d.documents);
+        let own_core = core_modules.iter().copied().find(|m| *m == own_module);
         let base = core_bases.entry(own_core).or_insert_with(|| {
             let mut scope = ModuleScope::default();
             let mut provenance = HashMap::new();
@@ -1276,6 +1284,25 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                         None,
                         &mut ctx,
                     );
+                }
+            }
+        }
+        // [doc-example] An example sees the module it documents: whole, at
+        // `Own`, on a non-exported declaration (it shows what the module's own
+        // code can do); otherwise its exported names, the ones a reader can
+        // use (already visible for a core module). It stays a
+        // module of its own: what it declares never joins the documented one.
+        if let Some(doc) = &file.doc_example {
+            if let Some((module, items)) = by_module.get_key_value(&doc.documents) {
+                if doc.own {
+                    add_items(&mut scope, items, module, None, Level::Own, None, &mut ctx);
+                    scope.refns.extend(items.refns.iter().copied());
+                    scope.renames.extend(items.renames.iter().copied());
+                } else if !core_modules.contains(module) {
+                    // At the named-import rung, not the whole-module one: what
+                    // the example declares collides with the module's names
+                    // rather than silently replacing them.
+                    add_items(&mut scope, items, module, None, Level::Import, None, &mut ctx);
                 }
             }
         }

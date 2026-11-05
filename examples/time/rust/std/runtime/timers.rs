@@ -175,7 +175,7 @@ impl crate::std_runtime_timers::__Stateful_DeadlineTable for Deadlines {
                     let mut __pick1_1 = __pick1.unwrap();
                     __pick1_1
                 } else {
-                    panic!("salvo: unreachable at std.runtime.timers:121:32")
+                    panic!("salvo: unreachable at std.runtime.timers:120:32")
                 }
             } <= now) {
                 let mut _at: Option<i64> = crate::std_core_list::remove_at_platform::<i64>(&mut self.ats, i);
@@ -309,7 +309,7 @@ impl crate::std_runtime_timers::__Stateless_Wheel for Wheeling {
                 crate::std_runtime::park_nanos_platform(&crate::std_runtime::this_parker_platform(), wait);
             };
         }
-        panic!("salvo: unreachable at std.runtime.timers:173:9");
+        panic!("salvo: unreachable at std.runtime.timers:172:9");
     }
 }
 

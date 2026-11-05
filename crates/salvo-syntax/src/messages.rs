@@ -43,6 +43,12 @@ macro_rules! messages {
     };
 }
 
+/// [doc-example] The text of a diagnostic an example in a doc comment
+/// reported, as it is shown at the comment: the diagnostic keeps its own id.
+pub fn in_doc_example(text: &str) -> String {
+    format!("in a doc example: {text}")
+}
+
 /// Whether `name` is the function name `id` gives: `-` and `:` become `_`.
 pub fn name_matches_id(name: &str, id: &str) -> bool {
     id.replace(['-', ':'], "_") == name

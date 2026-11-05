@@ -13690,18 +13690,56 @@ replaced the working document TESTING.md).
     stop it: a page is the declarations as written.
   * std's manifest names the repository's wiki checkout, so `salvo docs` in
     `lib/` regenerates it, and the docs test runs `--check` there.
-* [doc-example-nocheck] **std's doc examples type-check.**
-  `tools/check-doc-examples.py` makes each ```` ``` ````/```` ```salvo ````
-  fence of a std doc comment a program and runs `salvo analyze` on it: a
-  fence of statements is wrapped in `fn example() [use] -> None { use
-  StdConsole() … }`, one holding top-level declarations is checked as
-  written, one holding a `test` block is checked as a test annex, and the
-  documented module is imported unless it is in `std.core`. A fence whose
-  first line is `no-check` is skipped, for an example that cannot stand alone
-  (one about a std-internal module, or one spanning two files); hover and
-  `salvo docs` leave that line out [doc-tags]. `--code-unchanged` checks that
-  a doc-only edit left every non-comment line as it is at `HEAD`. Doc examples
-  are not yet compiled with the program (ROADMAP §0be).
+* [doc-example] **The examples in doc comments are checked with the
+  program** (user decisions 2026-10-31, `salvo_core::doc_examples`). A fenced
+  block in a declaration's doc comment or the module's, whose info string is
+  empty or `salvo`, becomes a file of its own that `salvo analyze`, the
+  language server and `salvo docs` parse, resolve and check with everything
+  else; `build`, `run` and `test` never see it. ```` ```no-check ```` is
+  Salvo that is not checked (for an example that cannot stand alone); any
+  other info string (`text`, `toml`, …) is not Salvo. A fence in a comment
+  that documents nothing is not an example.
+  * **The program a fence is.** Statements are wrapped in `fn example()
+    [use, Console] { … }`, their leading `import` lines kept above the
+    wrapper; a fence with a declaration at its left edge is a file as
+    written, and one with a `test` block a test annex (so it sees `std.test`
+    [test-implicit-import]).
+  * **What it sees**: `std.core.*`, its own imports, and the module it
+    documents. An example in the module doc or on an exported declaration
+    sees that module's exported names, at the named-import rung, so a name
+    the example declares collides with one of the module's
+    [mod-collision] rather than replacing it; an example on a non-exported
+    declaration sees the module whole, private names included, at the
+    module's own rung. Either way it is a module of its own: what it declares
+    never joins the documented module, nothing can import it (its path's
+    last segment, `#<owner>.<n>`, is one no file can spell), it is never a
+    core module (`ModulePath::is_std_core`), and import suggestions never
+    name it.
+  * **Its module path** is the documented module's plus `#<owner>.<n>`: the
+    documented declaration's name path (`module` for the module doc,
+    `Square.side` for a member) and the fence's place among that name's
+    examples (`std.core.seq.#map.0`). It does not move when an example is
+    added elsewhere, so an unedited example is a parse-cache hit
+    [lsp-parse-cache] and its declarations keep their ids [decl-id].
+  * **Reported at the comment**: what an example's checking finds is
+    reported at the comment line and column its code came from, an error as
+    a **warning** keeping its id, its text led by "in a doc example: "; the
+    example's own warnings (a value bound to show it, never used) are
+    dropped, and so are its import suggestions. The language server's hover
+    and go-to-definition inside an example answer for its code, and a
+    declaration an example makes is at its comment. `salvo docs` prints the
+    warnings of the examples it publishes. Dumps leave example modules out
+    unless `--module` names one.
+  * **Scope**: every project's own files (never a test annex); std's
+    examples only when std itself is analysed (`std = true`) [std-root]. The
+    fences of `docs/language/` are not examples. A docs test asserts that
+    `salvo analyze` in `lib/` reports nothing, and
+    `tools/check-doc-examples.py --code-unchanged` checks that a doc-only
+    edit of std left every non-comment line as it is at `HEAD`.
+  * **Caching** [lsp-check-cache]: the code of a fence is no part of its
+    host's interface (unless comptime stamps into the host, since a stamping
+    may read a doc comment), so an edit inside an example re-walks the host
+    and that example only.
 * [cli-analyze] `salvo analyze [--src DIR] [--format text|json]` (`--src` from the manifest when omitted [manifest])
   runs the front half of the pipeline — parse,
   resolve, type-check — and reports every diagnostic without generating
@@ -13918,9 +13956,7 @@ replaced the working document TESTING.md).
   over the lines below it until the next tag, a bare `//` line, or the end
   of the block, its lines joined by spaces (so it wraps freely,
   [lsp-comment-continuation] lining up the continuation). An `@` inside a
-  line is prose, and so is every line of a code fence (whose `no-check`
-  marker, when it is the fence's first line, is dropped
-  [doc-example-nocheck]). `salvo_syntax::doc` reads them.
+  line is prose, and so is every line of a code fence [doc-example]. `salvo_syntax::doc` reads them.
   * Only `@whynot` changes what a program does; the others are for the
     reader. **Hover** shows the prose and then a section per kind —
     **Parameters**, **Returns**, **Throws**, **Why not**, **See also**,
@@ -14137,7 +14173,8 @@ replaced the working document TESTING.md).
   flags), std's same modules, the same syntactic parking set, and each new
   module's file the same text outside its plain fn bodies (top-level, struct,
   handler-member and qualifier fns that are not comptime, stamped, `by` or
-  `iter fn`); otherwise every file is walked and the cache rebuilt. A body
+  `iter fn`) and outside its doc comments' fenced code [doc-example];
+  otherwise every file is walked and the cache rebuilt. A body
   edit moves the declarations after it, so a cached file's definition sites
   there move by the bodies' growth, and its `written_types` rows for the
   changed file's nodes move to the same nodes of its new module (outside the

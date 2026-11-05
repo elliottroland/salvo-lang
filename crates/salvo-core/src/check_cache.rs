@@ -150,6 +150,9 @@ struct FileId {
     is_shadow: bool,
     is_test: bool,
     dependency: Option<String>,
+    /// [doc-example] What an example's file documents, and whether it sees
+    /// that module whole: what its scope is built from.
+    doc: Option<(crate::source::ModulePath, bool)>,
 }
 
 impl FileId {
@@ -161,6 +164,7 @@ impl FileId {
             is_shadow: f.is_shadow,
             is_test: f.is_test,
             dependency: f.dependency.clone(),
+            doc: f.doc_example.as_ref().map(|d| (d.documents.clone(), d.own)),
         }
     }
 }
@@ -370,9 +374,9 @@ fn plain_body(f: &ast::FnDecl) -> Option<Span> {
 }
 
 /// [lsp-check-cache] A file's plain fn bodies (top-level fns, struct fns,
-/// handler members and qualifier fns), as disjoint byte ranges in order,
-/// and the hash of its text with them cut out: what a body-only edit leaves
-/// alone.
+/// handler members and qualifier fns) and the code of its doc comments'
+/// fences [doc-example], as disjoint byte ranges in order, and the hash of
+/// its text with them cut out: what a body-only edit leaves alone.
 pub(crate) fn interface_of(content: &str, module: &Module) -> (Vec<(u32, u32)>, u64) {
     let mut spans: Vec<(u32, u32)> = Vec::new();
     let mut push = |f: &ast::FnDecl| {
@@ -388,6 +392,13 @@ pub(crate) fn interface_of(content: &str, module: &Module) -> (Vec<(u32, u32)>, 
             Item::Qualifier(q) => q.fns.iter().for_each(&mut push),
             _ => {}
         }
+    }
+    // [doc-example] The code of a doc comment's fences is no interface's
+    // either: the checker reads none of it (an example is a file of its own),
+    // so an edit inside an example re-checks the host and the example only.
+    // Not in a file comptime stamps into: a stamping may read a doc comment.
+    if !crate::comptime::stamps_anything(module) {
+        spans.extend(crate::doc_examples::fence_ranges(content));
     }
     let len = content.len() as u32;
     spans.retain(|(s, e)| s < e && *e <= len);

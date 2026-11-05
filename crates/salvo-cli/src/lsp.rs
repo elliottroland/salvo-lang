@@ -942,6 +942,13 @@ impl Server<'_> {
 
         let view = doc_view(&analysis, &path)?;
         let offset = view.offset(doc.position);
+        // [doc-example] Inside an example the hover is the example file's,
+        // placed back at the comment.
+        if let Some((example, at)) = example_view(&analysis, &view, offset) {
+            let mut hover = self.hover_at(&analysis, checked, &example, at)?;
+            hover.range = hover.range.map(|r| host_range(&analysis, example.file, view.content, r));
+            return Some(hover);
+        }
         self.hover_at(&analysis, checked, &view, offset)
     }
 
@@ -1295,7 +1302,16 @@ impl Server<'_> {
         // [node-origin] A copied node is where it lands (`origin::landing`),
         // in the file it lands in.
         let (file, span) = salvo_core::origin::landing(&analysis.program.modules, file, span);
-        let target = analysis.program.files.get(file)?;
+        let mut target = analysis.program.files.get(file)?;
+        // [doc-example] A declaration of an example is at its comment.
+        let span = match &target.doc_example {
+            Some(doc) => {
+                let at = doc.host_span(&target.content, span);
+                target = analysis.program.files.get(doc.host)?;
+                at
+            }
+            None => span,
+        };
         if target.is_std && !target.is_shadow {
             let path = embedded_std_copy(&target.name, &target.content)?;
             let uri = Url::from_file_path(&path).ok()?;
@@ -1689,8 +1705,12 @@ impl Server<'_> {
         let checked = analysis.checked.as_ref()?;
 
         let view = doc_view(&analysis, &path)?;
-        let file_idx = view.file;
         let offset = view.offset(doc.position);
+        // [doc-example] Inside an example, its own file's references.
+        let (file_idx, offset) = match example_view(&analysis, &view, offset) {
+            Some((example, at)) => (example.file, at),
+            None => (view.file, offset),
+        };
 
         // The smallest name span containing the cursor wins, whichever
         // table it comes from.
@@ -4116,6 +4136,26 @@ fn doc_view<'a>(analysis: &'a Analysis, path: &Path) -> Option<DocView<'a>> {
         .iter()
         .position(|f| analysis.root.join(&f.name).canonicalize().ok() == Some(want.clone()))?;
     Some(DocView { file, content: &files[file].content, modules: &analysis.program.modules })
+}
+
+/// [doc-example] The example file `offset` of `view` is inside, as a view
+/// of its own, with the offset into it: `None` outside every example.
+fn example_view<'a>(analysis: &'a Analysis, view: &DocView<'a>, offset: u32) -> Option<(DocView<'a>, u32)> {
+    let files = &analysis.program.files;
+    files.iter().enumerate().find_map(|(i, f)| {
+        let doc = f.doc_example.as_ref().filter(|d| d.host == view.file)?;
+        let at = doc.example_offset(&f.content, offset)?;
+        Some((DocView { file: i, content: &f.content, modules: view.modules }, at))
+    })
+}
+
+/// [doc-example] A range of example file `example` as a range of its host,
+/// whose text is `host`.
+fn host_range(analysis: &Analysis, example: usize, host: &str, range: Range) -> Range {
+    let file = &analysis.program.files[example];
+    let Some(doc) = &file.doc_example else { return range };
+    let at = |p: Position| offset_to_position(host, doc.host_offset(&file.content, position_to_offset(&file.content, p)));
+    Range { start: at(range.start), end: at(range.end) }
 }
 
 /// `diag` as the LSP sees it, at `span` of `content`.

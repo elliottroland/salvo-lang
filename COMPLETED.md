@@ -102,9 +102,9 @@ cargo run -- lsp
 # (a test fails if the checked-in copy is stale):
 cargo run -- lang tm-grammar --out vscode/syntaxes/salvo.tmLanguage.json
 
-# std's documentation [cli-docs] [doc-example-nocheck]:
+# std's documentation [cli-docs] [doc-example]:
 (cd lib && ../target/debug/salvo docs)          # regenerate the wiki checkout
-python3 tools/check-doc-examples.py             # type-check every doc example (~20s)
+(cd lib && ../target/debug/salvo analyze)       # std and its doc examples (~4s)
 python3 tools/check-doc-examples.py --code-unchanged   # a doc-only edit changed no code
 
 # Verify generated Kotlin manually (the CLI prints the entry point):
@@ -148,6 +148,60 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-10-31 — Doc examples are checked with the program (user decisions, [doc-example])
+
+- **Decided** (user, 2026-10-31, the seven questions of ROADMAP §0be):
+  examples in doc comments are checked by `salvo analyze`, the language
+  server and `salvo docs` (which prints their warnings), never by `build`,
+  `run` or `test`; statements are wrapped in `fn example() [use, Console] {
+  … }`; an example on an exported declaration (or in the module doc) sees
+  the module's exported names, one on a private declaration its private
+  ones too; ```` ```no-check ```` is the opt-out, as an info string; an
+  error is a warning keeping its id, at the comment, and an example's own
+  warnings are dropped; hover and go-to-definition work inside; every
+  project's doc comments, std's only when std is analysed; the script's
+  checking retires to a docs test. On caching the user chose option C:
+  build on today's caches with stable example ids, then design one
+  dependency-tracked cache for every file (ROADMAP §0be now).
+- **Built** (`salvo_core::doc_examples`): after the project's files parse,
+  each own file's doc comments are scanned (by line, against the parsed
+  declarations and their members) and every checked fence becomes a
+  `SourceFile` with `doc_example: Some(DocExample { host, documents, own,
+  lines, fence })`, parsed through the parse cache. Its module path is the
+  documented module's plus `#<owner>.<n>` (`std.core.seq.#map.0`), so an
+  unedited example is a cache hit and keeps its decl ids; a `test` fence's
+  is an annex (`….test`). Resolution adds the documented module at `Own`
+  (private) or at the named-import rung (exported, so a clash is a
+  collision, not a silent override); the example is never a core module
+  (`ModulePath::is_doc_example`) and never named by an import suggestion.
+  `doc_examples::report` moves the examples' diagnostics to their comments
+  at the end of the analysis (`FileDiagnostic::doc_example` marks them). The
+  check cache cuts fence code out of the host's interface (not in a file
+  comptime stamps into) and carries the example's view in its `FileId`, so
+  an edit inside an example walks the host and that example
+  (`an_edit_inside_a_doc_example_walks_its_host_and_the_example`). The LSP
+  maps a position in a comment to the example's file for hover and
+  definition, and an example's declarations back to their comment
+  (`site_location`).
+- **Measured**: std's ~356 examples add ~2.8s to `cd lib && salvo analyze`
+  (0.8s → 3.6s; the CLI uses no cache). Checking them as separate programs
+  took ~0.36s each, mostly std; ten took 1.8s, which led to the defect below.
+- **Fell out of building it**:
+  - **An empty file took 1.4s to parse**: `module_docs` searched every
+    `u32` line for a comment when a file has no code. Bounded by the file's
+    lines. (The example checker's empty `main.sv` beside a test annex was
+    the tell.)
+  - The wiki renderer took a fence's first ```` ``` ```` line inside a
+    longer ```` ```` ```` fence for a close; fences now nest (`site::Fences`),
+    and a Salvo fence keeps its own length when it becomes `rust`.
+  - `salvo dump` leaves example modules out unless `--module` names one; the
+    `analyze` summary counts an example with its host.
+- **Retired**: [doc-example-nocheck] (the label is now [doc-example]), the
+  first-line `no-check` marker and its stripping in `doc::split`, and the
+  checking half of `tools/check-doc-examples.py` (it keeps
+  `--code-unchanged`). The docs test `std_doc_examples_check` asserts `salvo
+  analyze` in `lib/` reports nothing. Modules.md has "Examples are checked".
 
 ### 2026-10-31 — Dotted names are written only with `namespace` (user decision, [name-dot] [mod-namespace])
 
@@ -230,7 +284,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   compiled with the program, user: later) is ROADMAP §0be, and the defects
   the two rewrites found are §0bd.
 
-### 2026-10-30 — std's doc comments rewritten for readers new to Salvo (user request, [doc-compilerrules] [doc-example-nocheck])
+### 2026-10-30 — std's doc comments rewritten for readers new to Salvo (user request, [doc-compilerrules] [doc-example])
 
 - **Asked** (user, 2026-10-30): std's comments should explain how things
   work to someone who does not know Salvo's insides, Java's
@@ -40033,6 +40087,15 @@ snapshot diffs.
   looked harmless. Check the edited text in the same shell command as the
   build (`grep -c 'new text' file && touch file && cargo build`), and trust
   a run's output only when it shows the change you expect.
+
+- **A generated module is still a module everywhere** (2026-10-31, doc
+  examples). An example of `std.core.list` named `std.core.list.#…` passed
+  every "is this a core module" test, so it was implicitly visible to every
+  file and two examples' `Point`s collided as core declarations; it also
+  counted in "declared privately in 2 modules" hints. Make the predicate
+  itself refuse it (`ModulePath::is_std_core`, `is_doc_example`) rather than
+  filtering at one use, and grep every whole-program index for what else
+  iterates all modules.
 
 - **Writing a std doc example** (2026-10-30, the std docs rewrite). The
   checker imports the documented module, so an example in a std-internal

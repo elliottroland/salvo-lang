@@ -44,7 +44,14 @@ impl ModulePath {
     /// [mod-visibility] Whether the path is in `std.core.*`, the part of std
     /// every file sees without importing it.
     pub fn is_std_core(&self) -> bool {
-        self.0.len() >= 2 && self.0[0] == STD_ROOT && self.0[1] == CORE
+        self.0.len() >= 2 && self.0[0] == STD_ROOT && self.0[1] == CORE && !self.is_doc_example()
+    }
+
+    /// [doc-example] Whether the path is a doc example's module
+    /// (`std.core.seq.#map.0`): one of its segments is one no file can spell.
+    /// An example of a core module is not a core module.
+    pub fn is_doc_example(&self) -> bool {
+        self.0.iter().any(|s| s.starts_with(crate::doc_examples::SEGMENT_MARK))
     }
 
     /// [std-root] The path below `std` (`["time"]` for `std.time`), when the
@@ -134,6 +141,10 @@ pub struct SourceFile {
     /// root); its `main` is never an entry point, its protocols are not the
     /// project's to lock, and it is std only if its own manifest says so.
     pub dependency: Option<String>,
+    /// [doc-example] Set on a file the analysis made from a code example in
+    /// another file's doc comment: what it documents and where its lines
+    /// came from. `None` for every file read from disk or embedded.
+    pub doc_example: Option<std::sync::Arc<crate::doc_examples::DocExample>>,
 }
 
 /// The directory host files are written under **in the output** [platform-tree]:
@@ -363,6 +374,7 @@ impl SourceSet {
             is_shadow: false,
             is_test: false,
             dependency: None,
+            doc_example: None,
         });
     }
 
@@ -378,6 +390,7 @@ impl SourceSet {
             is_shadow: false,
             is_test: true,
             dependency: None,
+            doc_example: None,
         });
     }
 

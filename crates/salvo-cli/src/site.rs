@@ -198,8 +198,7 @@ fn own_files(program: &Program, std_project: bool) -> Vec<usize> {
         .files
         .iter()
         .enumerate()
-        .filter(|(_, f)| !f.is_test && f.name.ends_with(".sv"))
-        .filter(|(_, f)| if std_project { f.is_std || f.is_shadow } else { !f.is_std && f.dependency.is_none() })
+        .filter(|(_, f)| f.name.ends_with(".sv") && crate::analysis::own_file(f, std_project))
         .map(|(i, _)| i)
         .collect()
 }
@@ -352,27 +351,14 @@ fn topic_page(text: &str, path: &Path, topics: &HashSet<String>, modules: &HashM
     }
     let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
     let mut out = String::new();
-    let mut in_fence = false;
+    let mut fence = Fences::default();
     for line in lines {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("```") {
-            if !in_fence {
-                let lang = trimmed.trim_start_matches('`').trim();
-                let indent = &line[..line.len() - trimmed.len()];
-                if lang == "salvo" {
-                    out.push_str(&format!("{indent}```rust\n"));
-                } else {
-                    out.push_str(line);
-                    out.push('\n');
-                }
-            } else {
-                out.push_str(line);
-                out.push('\n');
-            }
-            in_fence = !in_fence;
+        if let Some(rewritten) = fence.line(line) {
+            out.push_str(&rewritten);
+            out.push('\n');
             continue;
         }
-        if in_fence {
+        if fence.open() {
             out.push_str(line);
         } else {
             out.push_str(&rewrite_links(line, &dir, topics, modules));
@@ -634,21 +620,13 @@ impl Links<'_> {
 fn render_docs(docs: &[String], locals: &[String], page: &str, links: &Links) -> String {
     let parts = salvo_syntax::doc::split(docs);
     let mut out: Vec<String> = Vec::new();
-    let mut in_fence = false;
+    let mut fence = Fences { bare_is_salvo: true, ..Fences::default() };
     for line in &parts.prose {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("```") {
-            let indent = &line[..line.len() - trimmed.len()];
-            if !in_fence {
-                let lang = trimmed.trim_start_matches('`').trim();
-                out.push(if lang.is_empty() || lang == "salvo" { format!("{indent}```rust") } else { line.clone() });
-            } else {
-                out.push(line.clone());
-            }
-            in_fence = !in_fence;
+        if let Some(rewritten) = fence.line(line) {
+            out.push(rewritten);
             continue;
         }
-        out.push(if in_fence { line.clone() } else { link_refs(line, locals, page, links) });
+        out.push(if fence.open() { line.clone() } else { link_refs(line, locals, page, links) });
     }
     while out.first().is_some_and(|l| l.trim().is_empty()) {
         out.remove(0);
@@ -673,6 +651,45 @@ fn render_docs(docs: &[String], locals: &[String], page: &str, links: &Links) ->
         }
     }
     out.join("\n").trim_end().to_string()
+}
+
+/// The code fences of a page, line by line: a fence opens with three or
+/// more backticks and closes on a line of at least as many and nothing else,
+/// so a longer fence can show a shorter one. A Salvo fence is written `rust`
+/// (GitHub cannot highlight Salvo): ```` ```salvo ````, ```` ```no-check ````
+/// [doc-example], and in a doc comment a bare fence.
+#[derive(Default)]
+struct Fences {
+    ticks: usize,
+    bare_is_salvo: bool,
+}
+
+impl Fences {
+    fn open(&self) -> bool {
+        self.ticks > 0
+    }
+
+    /// The line as written to the page when it opens or closes a fence;
+    /// `None` for any other line.
+    fn line(&mut self, line: &str) -> Option<String> {
+        let trimmed = line.trim_start();
+        let ticks = trimmed.chars().take_while(|c| *c == '`').count();
+        if ticks < 3 {
+            return None;
+        }
+        if self.open() {
+            if ticks >= self.ticks && trimmed.trim_end().len() == ticks {
+                self.ticks = 0;
+                return Some(line.to_string());
+            }
+            return None;
+        }
+        self.ticks = ticks;
+        let lang = trimmed[ticks..].trim();
+        let salvo = lang == "salvo" || lang == "no-check" || (self.bare_is_salvo && lang.is_empty());
+        let indent = &line[..line.len() - trimmed.len()];
+        Some(if salvo { format!("{indent}{}rust", "`".repeat(ticks)) } else { line.to_string() })
+    }
 }
 
 /// Rewrites the `[symbol]` references of one prose line. A reference is a
@@ -901,6 +918,19 @@ pub fn write(pages: &Pages, out: &Path, check: bool) -> Result<usize, Vec<String
 mod tests {
     use super::*;
 
+    /// A longer fence shows a shorter one, and the Salvo spellings become
+    /// `rust` with the fence's own length [doc-example].
+    #[test]
+    fn fences_nest_and_salvo_is_written_rust() {
+        let mut f = Fences::default();
+        let lines = ["````salvo", "// ```", "// let x = 1", "// ```", "````", "```no-check", "x", "```", "```", "y", "```"];
+        let out: Vec<Option<String>> = lines.iter().map(|l| f.line(l)).collect();
+        assert_eq!(out[0].as_deref(), Some("````rust"));
+        assert!(out[1].is_none() && out[3].is_none(), "inside a longer fence: {out:?}");
+        assert_eq!(out[4].as_deref(), Some("````"));
+        assert_eq!(out[5].as_deref(), Some("```rust"));
+        assert_eq!(out[8].as_deref(), Some("```"), "a bare topic fence is left as written");
+    }
     #[test]
     fn anchors_are_githubs() {
         assert_eq!(anchor("fn map"), "fn-map");

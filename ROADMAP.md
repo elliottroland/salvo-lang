@@ -452,40 +452,44 @@ Parked (user, 2026-10-14): the user expects to move away from state structs and 
 - (The variadic constructors' copied tail is gone: they consume it now —
   COMPLETED.md, 2026-10-30, "Constructors consume their tail".)
 
-### 0be — Doc examples compiled with the program (user, 2026-10-30: "later")
+### 0be — One cache for every file: dependency-tracked checking (user, 2026-10-31: next, to design together)
 
-The user's ask: examples in doc comments "compiled", so that an error in one
-is a **warning** at compile time, and the language server shows hover,
-diagnostics and go-to-definition inside them like ordinary code. Today
-`tools/check-doc-examples.py` does it out of band for std only
-([doc-example-nocheck]): it writes each fence as a program under
-`tmp/doc-examples/` and runs `salvo analyze`. What the built-in version has
-to settle:
+Doc examples are built (COMPLETED.md, 2026-10-31, [doc-example]) on the
+caches as they are, with option C the user chose: then design **one cache**
+that would make the std/project split unnecessary. Today there are two
+mechanisms: std's front (`StdFront` + `StdCache`, parsed, expanded and
+checked once, sound because std sees only std) and the project's
+`CheckCache`, which is **all-or-nothing** — rows keyed by file position,
+reused only while every changed file's text outside its plain bodies and doc
+examples is unchanged, so an interface edit anywhere re-walks every file, and
+adding a file clears it. What one cache needs, to be designed with the user
+(arch-design-together; measure before deciding):
 
-- **The program a fence becomes.** The script's rules are a starting point:
-  statements wrapped in `fn example() [use] -> None { use StdConsole() … }`,
-  top-level declarations as written, a `test` block as a test annex, the
-  documented module imported. Inside the module itself would let an example
-  use private names and std-internal modules (`std.runtime*`, which no
-  program may import, so their examples are `no-check` today).
-- **Spans back into the comment**: a diagnostic or a hover at an example's
-  line and column must land on the comment line it came from (the `// `
-  prefix and the wrapper's lines shifted out).
-- **Cost**: one extra check per fence; std alone has 356. Checking them
-  only under `salvo analyze`/the LSP (not `build`), and caching per fence
-  text, keeps a build as it is.
-- **Scope**: every project's doc comments, not only std's; whether
-  `docs/language/` fences join in (many are fragments, so they would need an
-  opt-in marker rather than the opt-out `no-check`).
+- rows keyed by the file itself (module path and text), not its position;
+- invalidation by dependency: a file's rows stand while its text and the
+  interfaces of the modules it can see are unchanged (std, which sees only
+  std, and examples, which nothing imports, become ordinary cases; the front
+  becomes a warm cache);
+- the program-wide steps (written keys, program checks, the deduction pass,
+  the literal lowering) made incremental, since std's share of them comes
+  from `StdCache` today;
+- per-file comptime expansion and scope building by id [decl-id] are partly
+  there (C4).
 
-Also recorded from the `salvo docs` work: a standalone HTML site with a
-search box, as a second output format beside the wiki (rejected for the
-wiki, which serves no HTML).
+Smaller leftovers of the doc examples, recorded:
+- `docs/language/` fences are not examples (many are fragments); an opt-in
+  marker would let the whole ones join.
+- A `compile_fail`-style marker (the example must fail), for docs that show
+  a refusal.
+- The CLI's `analyze` does not use the caches: std's 356 examples make
+  `cd lib && salvo analyze` ~3.6s (0.8s without them).
+- A standalone HTML site with a search box, as a second `salvo docs` format
+  beside the wiki (rejected for the wiki, which serves no HTML).
 
 ### 0bd — Defects the std documentation rewrite found (2026-10-30)
 
-Writing and checking an example for every std module (`tools/check-doc-examples.py`,
-[doc-example-nocheck]) turned these up. Repros are as found; the first three
+Writing and checking an example for every std module ([doc-example]) turned
+these up. Repros are as found; the first three
 are wrong behaviour, the rest rough edges.
 
 - **A union's `Ordered<self> by auto` recurses forever when an arm has no

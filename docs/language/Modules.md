@@ -593,6 +593,47 @@ import std.core.list.size
 struct Shape { ... }
 ```
 
+### Examples are checked
+
+A fenced block in a doc comment is an **example**, and the compiler checks
+it with the program, the way Rust's doctests are compiled. `salvo analyze`
+and the language server report what one gets wrong, as a warning at the
+comment line it is written on; hover and go-to-definition work inside it as
+in any code; `salvo docs` prints the warnings of the examples it publishes.
+`salvo build`, `run` and `test` never look at them.
+
+````salvo
+// The area of a square.
+//
+// ```
+// let a = area(Square { side: 3 })    // 9
+// println("${a}")
+// ```
+export fn area(s: Square) -> Int {
+    return s.side * s.side
+}
+````
+
+* **What an example is.** A block of statements is the body of a function
+  that may print, `fn example() [use, Console] { … }`, with any `import`
+  lines at its top kept above that function. A block with a declaration at
+  its left edge (a `fn`, a `struct`, an `effect` …) is a file of its own, as
+  written, and one with a `test` block is checked as a test.
+* **What it sees.** Its own imports, `std.core`, and the module it
+  documents. An example in the module's docs or on an exported declaration
+  sees what a reader of the module can use, the exported names; one on a
+  private declaration sees the module's private names too. Either way it is
+  separate code: what it declares never becomes part of the module, and a
+  name it declares that the module already has is a collision.
+* **Opting out.** ```` ```no-check ```` is Salvo that is not checked, for an
+  example that cannot stand alone (it needs two files, or a module no program
+  may import). Any other language (```` ```text ````, ```` ```toml ````) is
+  not Salvo and is never checked. An example is a block in a *doc comment*:
+  one in a comment that documents nothing is not checked.
+* **What is reported.** An example's errors, as warnings saying "in a doc
+  example: …". Its own warnings are not: an example often binds a value
+  only to show it.
+
 ### In the editor
 
 The language server shows these on hover: for a declaration, for a *use* of

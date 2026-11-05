@@ -8,8 +8,7 @@
 // line per test with its verdict. Every annex can use this module without
 // importing it.
 //
-// ```
-// no-check
+// ```no-check
 // // halve.test.sv, the annex of halve.sv, which declares
 // //     fn halve(n: Int) -> Int
 // // and asserts that n is even.

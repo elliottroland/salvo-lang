@@ -26,8 +26,7 @@
 // start two operations on one stream at once; the wait is for host code,
 // such as the reader thread [receive] starts.
 //
-// ```
-// no-check
+// ```no-check
 // // How stream.host's HostRawStreams reads up to `max` bytes.
 // let e = checkout_in(copy(handle))
 // let r = read_up_to(e, max)

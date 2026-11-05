@@ -907,6 +907,60 @@ fn hover(lsp: &mut Lsp, id: i64, uri: &str, line: u32, character: u32) -> String
         .to_string()
 }
 
+/// [doc-example] An example in a doc comment is checked with the program: what
+/// it gets wrong is a warning at the comment, hover inside it answers about
+/// its code, and a name in it jumps to its declaration.
+#[test]
+fn doc_examples_report_hover_and_jump_at_the_comment() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_doc_examples");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    // Line numbers matter below; keep this source in sync with them.
+    let source = "\
+// The area of a square.
+//
+// ```
+// let a = area(Square { side: 2 })
+// let b: Str = area(Square { side: 3 })
+// ```
+export fn area(s: Square) -> Int {
+    return s.side * s.side
+}
+
+export struct Square {
+    side: Int
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": source}}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    let diags = params["diagnostics"].as_array().unwrap();
+    assert_eq!(diags.len(), 1, "{diags:?}");
+    assert_eq!(diags[0]["severity"], json!(2), "a warning: {diags:?}");
+    assert_eq!(diags[0]["range"]["start"]["line"], json!(4), "{diags:?}");
+    assert!(diags[0]["message"].as_str().unwrap().starts_with("in a doc example:"), "{diags:?}");
+    // `a` on line 3: the example's variable, typed by its checker.
+    let h = hover(&mut lsp, 2, &uri, 3, 7);
+    assert!(h.contains("Int"), "{h}");
+    // `area` on line 3: the fn it calls.
+    let h = hover(&mut lsp, 3, &uri, 3, 11);
+    assert!(h.contains("fn area(s: Square) -> Int"), "{h}");
+    let loc = definition(&mut lsp, 4, &uri, 3, 11);
+    assert_eq!(loc["uri"].as_str().unwrap(), uri);
+    assert_eq!(loc["range"]["start"]["line"], json!(6), "{loc}");
+    // `Square` on line 3 jumps to the struct.
+    let loc = definition(&mut lsp, 5, &uri, 3, 16);
+    assert_eq!(loc["range"]["start"]["line"], json!(10), "{loc}");
+}
+
 /// Doc comments in hover [doc-comment] [doc-markdown] [doc-symbol-ref]
 /// [doc-struct-fields] [doc-hover-narrowed]: fn docs, struct docs with a
 /// per-field section, `[symbol]` references, and a variable's type as

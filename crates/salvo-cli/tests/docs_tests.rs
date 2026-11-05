@@ -197,6 +197,25 @@ fn fn_body_lines(src: &str) -> Vec<(usize, usize)> {
     out
 }
 
+/// [doc-example] Every example in std's doc comments checks: `salvo analyze`
+/// in `lib/`, which checks them with std, reports nothing at all.
+#[test]
+fn std_doc_examples_check() {
+    let out = Command::new(env!("CARGO_BIN_EXE_salvo"))
+        .args(["analyze", "--format", "json"])
+        .current_dir(repo_root().join("lib"))
+        .output()
+        .expect("run salvo analyze");
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).expect("json");
+    let found: Vec<String> = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| format!("{}:{}: {}", d["file"].as_str().unwrap_or(""), d["line"], d["message"].as_str().unwrap_or("")))
+        .collect();
+    assert!(found.is_empty() && out.status.success(), "std's doc examples report:\n{}", found.join("\n"));
+}
+
 /// [diag-id] Every diagnostic id names a rule a spec defines (its label,
 /// before the `:`), and no two messages share an id.
 #[test]
@@ -352,7 +371,7 @@ fn salvo_docs_writes_wiki_pages() {
     .unwrap();
     std::fs::write(
         root.join("src/shapes.sv"),
-        "// Shapes and their areas.\n//\n// Start with [Shape].\n\n// A square, by its side.\n//\n// ```\n// no-check\n// let s = Shape { side: 2 }\n// ```\nexport struct Shape {\n    // The length of a side.\n    side: Int\n}\n\n// The area of [s], a [Shape].\n//\n// @param s  the shape\n// @compilerrules [fn-overload] hidden\nexport fn area(s: Shape) -> Int {\n    return s.side * s.side\n}\n\nfn hidden() -> Int {\n    return 0\n}\n",
+        "// Shapes and their areas.\n//\n// Start with [Shape].\n\n// A square, by its side.\n//\n// ```no-check\n// let s = Shape { side: 2 }\n// ```\nexport struct Shape {\n    // The length of a side.\n    side: Int\n}\n\n// The area of [s], a [Shape].\n//\n// ```\n// let x: Str = area(Shape { side: 2 })\n// ```\n//\n// @param s  the shape\n// @compilerrules [fn-overload] hidden\nexport fn area(s: Shape) -> Int {\n    return s.side * s.side\n}\n\nfn hidden() -> Int {\n    return 0\n}\n",
     )
     .unwrap();
     std::fs::write(root.join("guide/Start.md"), "# Shop\n\nRead [the tour](Tour.md) first.\n").unwrap();
@@ -360,6 +379,9 @@ fn salvo_docs_writes_wiki_pages() {
     let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_salvo")).args(args).current_dir(&root).output().expect("run salvo docs");
     let out = run(&["docs"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    // [doc-example] What the published examples get wrong is printed.
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("in a doc example: expected `Str`, found `Int`") && stderr.contains("docs: 1 warning in doc examples"), "{stderr}");
     let read = |name: &str| std::fs::read_to_string(root.join("wiki").join(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
     let module = read("shapes.md");
     assert!(module.contains("### struct Shape"), "{module}");
@@ -367,7 +389,7 @@ fn salvo_docs_writes_wiki_pages() {
     assert!(!module.contains("hidden"), "a private fn and `@compilerrules` are left out: {module}");
     assert!(module.contains("Start with [`Shape`](#struct-shape)."), "{module}");
     assert!(module.contains("The area of `s`, a [`Shape`](#struct-shape)."), "{module}");
-    assert!(module.contains("```rust\nlet s = Shape { side: 2 }\n```"), "the checker's `no-check` marker is left out [doc-example-nocheck]: {module}");
+    assert!(module.contains("```rust\nlet s = Shape { side: 2 }\n```"), "a `no-check` fence is Salvo, fenced `rust` [doc-example]: {module}");
     assert!(module.contains("- `side: Int` — The length of a side."), "{module}");
     assert!(module.contains("**Parameters**"), "{module}");
     let home = read("Home.md");

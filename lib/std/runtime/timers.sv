@@ -6,8 +6,7 @@
 // cannot import it. Programs set timers through [std.time], whose
 // [DefaultTimer] handler hands each `after` to [after_nanos] here:
 //
-// ```
-// no-check
+// ```no-check
 // // In std.time.
 // export handler DefaultTimer() for Timer {
 //     mailbox { capacity: 64 }
@@ -198,8 +197,7 @@ use Wheeling() on thread()
 // the deadline was found due, which is never before it. Programs reach this
 // through [std.time]'s [DefaultTimer].
 //
-// ```
-// no-check
+// ```no-check
 // // Inside std: wait 10 ms.
 // let fired = waitfor done: Reply<Fired> {
 //     after_nanos(10000000L, done)

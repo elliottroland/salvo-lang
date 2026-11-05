@@ -317,7 +317,9 @@ impl<'s> Parser<'s> {
         // candidate. A file of nothing but comments has no such line.
         let first_code = self.tokens.first().filter(|t| !matches!(t.kind, TokenKind::Eof))
             .map(|t| self.line_of(t.span.start));
-        let limit = first_code.unwrap_or(u32::MAX);
+        // Bounded by the file's own lines: a file with no code (empty, or
+        // only blank lines) would otherwise search every `u32`, about 1.4s.
+        let limit = first_code.unwrap_or(self.line_starts.len() as u32);
         let Some(start) = (0..limit).find(|line| self.comments.contains_key(line)) else {
             return Vec::new();
         };

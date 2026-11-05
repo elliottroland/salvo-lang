@@ -1031,3 +1031,81 @@ fn dump_prints_the_type_check_phase() {
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("type-check phase"));
 }
+
+/// [doc-example] The examples in doc comments are checked with the program,
+/// and what they get wrong is a warning at the comment line, keeping its id:
+/// a module doc's or an exported declaration's example sees the module's
+/// exported names, and a name it declares collides with the module's; a
+/// private declaration's sees the private ones too; a `test` block is checked
+/// as a test; `no-check` and other languages are skipped; an example's own
+/// warnings (the unused `a`) are dropped; and only warnings, so the exit is 0.
+#[test]
+fn doc_examples_are_checked_and_reported_at_their_comments() {
+    let dir = src_dir("doc_examples");
+    let source = "\
+// Squares, and the [area] of one.
+//
+// ```
+// let a = area(Square { side: 2 })
+// let n = secret()
+// ```
+//
+// ```
+// struct Square { edge: Int }
+// ```
+
+// A square, by its side.
+//
+// ```no-check
+// this is not Salvo at all
+// ```
+//
+// ```text
+// nor is this
+// ```
+export struct Square {
+    side: Int
+}
+
+// The area of a square.
+//
+// ```
+// test \"the area of a unit square\" {
+//     expect_eq(area(Square { side: 1 }), \"one\")
+// }
+// ```
+export fn area(s: Square) -> Int {
+    return s.side * s.side
+}
+
+// A private helper; its example sees private names.
+//
+// ```
+// let n = secret() + helper()
+// ```
+fn helper() -> Int {
+    return secret()
+}
+
+fn secret() -> Int {
+    return 1
+}
+";
+    fs::write(dir.join("shapes.sv"), source).unwrap();
+    let out = salvo(&["-v", "analyze", "--format", "json", "--src", dir.to_str().unwrap()]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let got: Vec<(i64, String, String)> = json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| (d["line"].as_i64().unwrap(), d["severity"].as_str().unwrap().to_string(), d["id"].as_str().unwrap().to_string()))
+        .collect();
+    let want = [
+        (9, "mod-collision:import-conflict"),
+        (5, "call-resolve:unknown-fn"),
+        (29, "call-resolve:no-overload"),
+    ];
+    let want: Vec<(i64, String, String)> = want.iter().map(|(l, id)| (*l, "warning".to_string(), id.to_string())).collect();
+    assert_eq!(got, want, "{}", String::from_utf8_lossy(&out.stdout));
+}

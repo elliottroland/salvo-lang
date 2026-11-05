@@ -35,6 +35,8 @@ pub struct FileDiagnostic {
     /// [diag-id] What the diagnostic is, `label:name`; `None` only for one
     /// not yet given an id (TESTS.md T2).
     pub id: Option<&'static str>,
+    /// [doc-example] Reported at a doc comment for the example it holds.
+    pub doc_example: bool,
 }
 
 /// [type-unknown-lenient] One mistake, one diagnostic: a diagnostic that
@@ -60,6 +62,7 @@ impl FileDiagnostic {
             suggested_imports: Vec::new(),
             decl: None,
             id,
+            doc_example: false,
         }
     }
 
@@ -77,6 +80,7 @@ impl FileDiagnostic {
             suggested_imports: Vec::new(),
             decl: None,
             id,
+            doc_example: false,
         }
     }
 
@@ -90,6 +94,7 @@ impl FileDiagnostic {
             suggested_imports: Vec::new(),
             decl: None,
             id: d.id,
+            doc_example: false,
         }
     }
 
@@ -200,6 +205,7 @@ mod tests {
             is_shadow,
             is_test: false,
             dependency: None,
+            doc_example: None,
         }
     }
 

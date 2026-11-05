@@ -56,8 +56,7 @@
 //   and is abandoned when `main` returns. Pool threads are daemons and do
 //   not keep the program alive.
 //
-// ```
-// no-check
+// ```no-check
 // actor effect Echo {
 //     send fn echo(text: Str, out: Reply<Str>) => !text, !out
 // }
@@ -101,8 +100,7 @@
 // still bring work in, so while one is open ([external_begin]) the program
 // is neither idle nor stuck.
 //
-// ```
-// no-check
+// ```no-check
 // actor effect Ask {
 //     send fn ask(out: Reply<Int>) => !out
 // }
@@ -188,8 +186,7 @@
 // It is `threadsafe`: any thread may unpark it, and it may be stored and
 // shared freely. Only its own thread may park on it.
 //
-// ```
-// no-check
+// ```no-check
 // import std.runtime
 //
 // // Sleeps the calling thread until `ready` answers true, looking again

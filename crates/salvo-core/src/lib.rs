@@ -15,6 +15,7 @@ pub mod deadlock;
 pub mod decl_id;
 pub mod deduce;
 pub mod diag;
+pub mod doc_examples;
 pub mod effects;
 pub mod erase;
 pub mod expand;

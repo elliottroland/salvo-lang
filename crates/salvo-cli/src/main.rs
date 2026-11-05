@@ -543,6 +543,14 @@ fn docs_command(src: Option<PathBuf>, out: Option<PathBuf>, check: bool) -> Exit
     let out = out.unwrap_or_else(|| dir.join(section.out.clone().unwrap_or_else(|| format!("{build_out}/docs"))));
     let title = project.and_then(|p| p.manifest.project.name.clone()).unwrap_or_else(|| "this project".to_string());
     let cfg = salvo_cli::site::Config { out: out.clone(), home: section.home.map(|h| dir.join(h)), topics: section.topics.map(|t| dir.join(t)), title };
+    // [doc-example] [cli-docs] What the examples being published found.
+    let examples: Vec<&salvo_core::FileDiagnostic> = analysis.diagnostics.iter().filter(|d| d.doc_example).collect();
+    for d in &examples {
+        eprintln!("{}", d.render(&analysis.program.files));
+    }
+    if !examples.is_empty() {
+        eprintln!("docs: {} warning{} in doc examples", examples.len(), if examples.len() == 1 { "" } else { "s" });
+    }
     let pages = match salvo_cli::site::generate(&analysis, &cfg) {
         Ok(p) => p,
         Err(msg) => {
@@ -611,8 +619,10 @@ fn analyze(src: Option<PathBuf>, format: Format) -> ExitCode {
             if let Some(line) = &std_line {
                 eprintln!("{line}");
             }
-            let user = program.files.iter().filter(|f| !f.is_std).count();
-            let std_count = program.files.len() - user;
+            // [doc-example] An example's file is counted with its host's.
+            let files: Vec<&salvo_core::SourceFile> = program.files.iter().filter(|f| f.doc_example.is_none()).collect();
+            let user = files.iter().filter(|f| !f.is_std).count();
+            let std_count = files.len() - user;
             let status = if errors + warnings == 0 {
                 "no errors".to_string()
             } else {
@@ -624,7 +634,7 @@ fn analyze(src: Option<PathBuf>, format: Format) -> ExitCode {
             };
             eprintln!(
                 "analyzed {} file(s) ({user} user, {std_count} std): {status}",
-                program.files.len()
+                files.len()
             );
         }
         Format::Json => {
@@ -670,7 +680,8 @@ fn dump_command(phase: Phase, src: Option<PathBuf>, all: bool, module: Option<St
         let file = &program.files[f];
         match &module {
             Some(m) => file.module.0.join(".") == *m,
-            None => all || !file.is_std,
+            // [doc-example] An example's module is dumped when it is named.
+            None => (all || !file.is_std) && file.doc_example.is_none(),
         }
     };
     match phase {
@@ -1835,6 +1846,7 @@ fn run_test_pass(
         // clear of an `import <module>.test` for an annex of `test` itself.
         is_test: true,
         dependency: None,
+        doc_example: None,
     });
     program.modules.push(std::sync::Arc::new(ast));
     let emitted = backend.emit(program, target, Some(harness_module));
