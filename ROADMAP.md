@@ -452,6 +452,36 @@ Parked (user, 2026-10-14): the user expects to move away from state structs and 
 - (The variadic constructors' copied tail is gone: they consume it now —
   COMPLETED.md, 2026-10-30, "Constructors consume their tail".)
 
+### 0be — Doc examples compiled with the program (user, 2026-10-30: "later")
+
+The user's ask: examples in doc comments "compiled", so that an error in one
+is a **warning** at compile time, and the language server shows hover,
+diagnostics and go-to-definition inside them like ordinary code. Today
+`tools/check-doc-examples.py` does it out of band for std only
+([doc-example-nocheck]): it writes each fence as a program under
+`tmp/doc-examples/` and runs `salvo analyze`. What the built-in version has
+to settle:
+
+- **The program a fence becomes.** The script's rules are a starting point:
+  statements wrapped in `fn example() [use] -> None { use StdConsole() … }`,
+  top-level declarations as written, a `test` block as a test annex, the
+  documented module imported. Inside the module itself would let an example
+  use private names and std-internal modules (`std.runtime*`, which no
+  program may import, so their examples are `no-check` today).
+- **Spans back into the comment**: a diagnostic or a hover at an example's
+  line and column must land on the comment line it came from (the `// `
+  prefix and the wrapper's lines shifted out).
+- **Cost**: one extra check per fence; std alone has 356. Checking them
+  only under `salvo analyze`/the LSP (not `build`), and caching per fence
+  text, keeps a build as it is.
+- **Scope**: every project's doc comments, not only std's; whether
+  `docs/language/` fences join in (many are fragments, so they would need an
+  opt-in marker rather than the opt-out `no-check`).
+
+Also recorded from the `salvo docs` work: a standalone HTML site with a
+search box, as a second output format beside the wiki (rejected for the
+wiki, which serves no HTML).
+
 ### 0bd — Defects the std documentation rewrite found (2026-10-30)
 
 Writing and checking an example for every std module (`tools/check-doc-examples.py`,
@@ -462,7 +492,8 @@ are wrong behaviour, the rest rough edges.
   `cmp`** [backend-never-wrong]. Accepted without a word, and the stamped
   `cmp` calls itself for two values of the same arm (a stack overflow on
   Rust; Kotlin's output has `cmp(Union2.U1(a), Union2.U1(b))` inside `cmp`).
-  It should be the missing-`cmp` error a struct field gets.
+  `Eq<self> by auto` and `ToStr<self> by auto` do the same over arms with no
+  `eq`/`to_str`. It should be the missing-member error a struct field gets.
   ```
   struct Manual { note: Str }
   struct Imported { feed: Str, n: Int }
@@ -495,6 +526,51 @@ are wrong behaviour, the rest rough edges.
   range computes its elements and nothing borrows the temporary.
 - **Not a defect, possibly a DECISION**: Salvo has no hex integer literals
   (`0xCA` is "invalid numeric literal"); std's byte examples write decimals.
+
+The narrative rewrite of `docs/language/` (same day) checked every example it
+touched and found these:
+
+- **`waitfor` cannot infer a reply sent to the handler's own servant.** In a
+  mixed handler, `fn next() -> Int { return waitfor got { advance(got) } }`,
+  with `send fn advance(out: Reply<Int>)` a member of the same handler, fails
+  "cannot tell what `got` waits for" (and with `advance@self(got)`), though
+  [waitfor-infer] reads every member of the name. `waitfor got:
+  Reply<Int>` works; so does inference over an address send.
+- **A concrete `: Iter<self, ListIter<Int>, Int>` finds no `next`.** `struct
+  Bag : Iter<self, ListIter<Int>, Int>` with `fn iter(bag: Bag) -> Mut
+  ListIter<Int>` is refused ("no visible `next` matches `fn next(Mut
+  ListIter<Int>) -> Emitted Int | Finished`"), while the generic `Bag<T> :
+  Iter<self, ListIter<T>, T>` is accepted: the concrete clause is not matched
+  against std's generic `next<T>` (nor modulo `proj`).
+- **`?:` and a loop's value over overlapping arms.** A loop's inferred value
+  type puts `None` first (`None | Int`), so `found ?: 0` keeps the `None` arm
+  ("expected `Int`, found `Int?`"); `for w in words { if … { break w } } else
+  { "(none)" }` over `proj Str` elements fails "matches multiple arms of
+  `None | proj Str | Str`"; `binary_search(words, "kiwi") ?: -1` fails
+  "matches multiple arms of `Idx(list) Int | Int`"; and
+  `"${parse_level("mid") ?: "none"}"` over a literal union fails "matches
+  multiple arms of `"low" | Str`". Annotating the subject first works.
+- **A struct literal does not infer its effect variable from a lambda
+  field.** `fire(Later { run: () -> println("x") })` fails "no handler for
+  effect `Console`" inside the lambda; `Later<[Console]> { … }` works.
+- **Rust: `unreachable else` warnings in generated code.** A test using
+  `std.time` prints four rustc warnings from `let
+  crate::std_time::__Msg_TimerCtl::Advance(by) = __msg else { unreachable!()
+  }`: a one-variant message enum makes the pattern irrefutable. Emit a plain
+  `let` (or `match`) for a single-variant enum.
+- **Message text**: `fn point_hash(p: Point) -> Long by hash@auto` (the
+  template's parameter is `value`) says "as `hash`'s `hash` names it", where
+  it means `auto`'s, and reports it twice; a dot-call reader under a `ref`
+  signature (`return a.b.c.get(index)`) names "`the callee`" rather than
+  `get`; a call of another module's private fn whose name std.core also
+  overloads (`times`) says "no matching overload" rather than "not
+  exported"; `salvo dump --phase type-check --rows` prints `(2 + 3) * b.v`
+  as `` `2 + 3) * b.v` ``.
+- **A question, possibly a DECISION**: inside `namespace Environment { … }`
+  a sibling is not found by its bare name (`+Tag Str` is "unknown
+  qualifier"; `Environment.Tag` works). That fits the flattening model of
+  [mod-namespace], and Modules.md now says so; whether bare sibling names
+  should resolve is the user's call.
 
 ### 0ae — Recorded, not scheduled: per-declaration reuse in the check cache (measured 2026-10-28, A4)
 

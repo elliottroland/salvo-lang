@@ -1,45 +1,116 @@
 # Effects and handlers
 
-## Effects
+## Overview
 
-Some modern languages have been playing with algebraic _effects_. At this early stage, we are just using them as a way of passing concrete implementations of "interfaces" around. An effect defines a set of functions which will be available to functions which declare a dependency on it:
+Almost everything a program does besides transforming data, such as
+printing, reading a file, asking the time or drawing a random number, goes
+through an **effect**. An effect is a named set of operations, like an
+interface. A **handler** implements it. A function that needs an effect
+declares it in square brackets in its signature, and whoever calls the
+function supplies a handler by registering it with `use`:
 
-```
-// An effect which can generate range T's
+```salvo
+// An effect which can generate values of type T.
 effect Random<T> {
     fn next_random() -> T
 }
-```
 
-Effects have _handlers_, which define their concrete implementations:
-
-```
 // A handler which returns successive values in an array, and loops back when done.
-// Handlers have their own state, declared in a `state { … }` block. Here
-// `values` is a constructor parameter and `i` is a state field, initialised at
-// construction. A field may write its type (`i: Int = 0`) or let it be inferred
-// from the initialiser (`i = 0`) — the same choice a `let` binding has — and
-// an initialiser may read the constructor parameters. The state is named by
-// the handler (`CyclicRandom`); a handler that shares its name with a type
-// names it itself, `state Tally { … }`. The constructor parameters, the state
-// fields and every member's parameters and locals are one set of names: a
-// member reads all of them bare, so none may repeat another.
 handler CyclicRandom<T>(values: T[]) for Random<T> {
     state {
         i = 0
     }
 
-    // Every function must be defined. In this case just `next_random`
+    // Every member of the effect must be defined. In this case just `next_random`.
     fn next_random() -> T {
         i = (i + 1) % values.size()
         return values[i]
     }
 }
+
+// Declares what it needs: a Random<Int> and a Console.
+fn age_prediction(person: Surname Person) [Random<Int>, Console] -> None => person {
+    // next_random() is accessible because of the Random<Int> effect
+    let years: Int = next_random()
+
+    // println() is accessible because of the Console effect
+    println("In ${years} years, ${full_name(person)} will be ${person.age + years}")
+}
+
+fn main() [use] -> None {
+    // Register handlers for the rest of this function.
+    use StdConsole()
+    use CyclicRandom(array_of(1,2,3,4))
+
+    // Here we can call next_random(), and functions that declare Random<Int>.
+    let num = next_random()
+}
 ```
 
-A handler can be "registered" in the current context using the `use` keyword. This operates similarly to `with` in Koka and `use` in Gleam:
+If you know **algebraic effects** from Koka, OCaml 5 or Unison, this is the
+same shape: operations declared apart from their implementation, a handler
+installed around the code that performs them, and the effects a function
+performs written in its type. Salvo's version is simpler for now. A handler's
+member runs and returns to its caller, like a method on an object; no
+handler captures or resumes a continuation. The one operation that does not
+return is `throw`, which is built on the same declarations
+([Throwing](Throwing.md)).
 
+If you know **dependency injection**, an effect is the interface, a handler
+is the implementation, and `use` is the binding. The difference is that the
+wiring is checked: a function's effect list says exactly which capabilities
+it may use, a call compiles only where each of them is bound, and a test
+swaps in a handler of its own without a container or a mock framework.
+
+The rest of this page covers, in order: declaring effects and writing
+handlers; registering them with `use`; calling their members; handlers that
+need other effects, including interception; groups of effects; handing a
+bound handler to other code as a value (`eff[E]`); and sharing a handler
+between threads. Actors, handlers that run on their own with a mailbox, are
+covered in [Concurrency](Concurrency.md).
+
+## Declaring an effect
+
+An effect lists its members, each a function signature without a body. For
+example, printing to the console is managed by an effect (std's
+[`Console`](../../lib/std/core/console.sv#effect-console) has more members):
+
+```salvo
+effect Console {
+    fn println(message: Str) -> None => message
+}
 ```
+
+A member with no return type returns `None`, as a function does, so
+`fn println(message: Str) => message` declares the same member. Its
+deduction clause is still required: with no body there is nothing to infer
+it from (see [Deductions and ownership](Deductions-and-Ownership.md)).
+
+## Writing a handler
+
+A handler names the effect it implements in its `for` clause and defines
+every member. It may take constructor parameters, and it may keep **state**,
+declared in a `state { … }` block:
+
+- In `CyclicRandom` above, `values` is a constructor parameter and `i` is a
+  state field, initialised at construction.
+- A field may write its type (`i: Int = 0`) or let it be inferred from the
+  initialiser (`i = 0`), the same choice a `let` binding has.
+- An initialiser may read the constructor parameters, and nothing else;
+  anything a handler must *do* as it starts goes in an
+  [`init` block](#starting-up-init-and-selfface).
+- The state is named by the handler (`CyclicRandom`). A handler that shares
+  its name with a type names its state itself: `state Tally { … }`.
+- The constructor parameters, the state fields and every member's parameters
+  and locals are one set of names: a member reads all of them bare, so none
+  may repeat another.
+
+## Registering a handler with `use`
+
+`use` registers a handler in the current context, for the rest of the
+enclosing block. It works much like `with` in Koka and `use` in Gleam:
+
+```salvo
 fn main() [use] -> None {
     // Register the CyclicRandom as the implementation of Random<Int> for the rest of this function.
     // A later `use` for the same effect shadows this one from that point on.
@@ -50,25 +121,30 @@ fn main() [use] -> None {
 }
 ```
 
-The effects a function depends on are declared in the square brackets before its arrow. In the above example, the `main` function (which is also the entry point to any Salvo program) starts with the special `use` effect, which is what allows it to use the `use` keyword. If a function does not declare a dependency on this, then `use` is not available to it. If the initial square brackets are not present in a function declaration, then it is assumed to be empty and that function is "pure".
+The effects a function depends on are declared in the square brackets before
+its arrow. `use` is itself a capability: `main` (the entry point of any
+Salvo program) declares the special `use` effect, which is what allows it to
+use the `use` keyword. A function that does not declare it cannot register
+handlers. If the square brackets are not present in a function declaration,
+the list is empty and the function is "pure".
 
-An effect names a *capability*, not a type of values. It can appear in a
-function's effect list and in a handler's `for` clause, and nowhere else: a
-struct field, parameter, return type or `let` annotation of effect type is
-a compile-time error. Handlers are not values either — `use` is the only
-thing that produces one, and you reach it by calling the effect's members
-rather than by holding the handler:
+`main` declares only what the host gives it, `use` and `spawn` (for
+[actors](Concurrency.md)). Nothing calls `main`, so nothing could hand it a
+handler: `fn main() [Console]` is an error that says to declare `[use]` and
+register a handler of `Console` inside.
 
-```
-let c: Console = StdConsole()   // error: `Console` is an effect, not a data type
-let h = StdConsole()            // error: `StdConsole` is a handler, not a value
-use StdConsole()                // this is how you register it
-println("...")                     // and this is how you use it
-```
+**Shadowing.** A `use` for an effect instance already in scope is not an
+error. It takes over for the rest of the block, and the handler it shadowed
+answers again when that block ends. Shadowing needs no relationship between
+the two (registering a second, unrelated `Greeter` simply replaces the
+first), and the innermost registration always wins, exactly as a shadowing
+local variable does. [Interception](#handlers-with-dependencies-and-interception)
+builds on this.
 
-A generic handler can be registered at a type by writing it on the `use`:
+**Generic handlers.** A generic handler can be registered at a type by
+writing it on the `use`:
 
-```
+```salvo
 handler Plain<T> for Show<T> { ... }
 
 use Plain<Int>()        // registers `Show<Int>`
@@ -76,35 +152,39 @@ use Plain<Int>()        // registers `Show<Int>`
 
 For a handler with a constructor argument the type is usually implied by it
 (`use Prefixed("p")`), and writing it as well is fine as long as the two
-agree — a disagreement is an error rather than one quietly winning. A handler
+agree: a disagreement is an error rather than one quietly winning. A handler
 with *no* argument has nothing to imply it, so there the written form is the
 only way.
 
-Almost every action other than simple data transformation needs to be encoded in an effect. For example, printing to the console is managed by an effect:
+## Effects are capabilities, not values
 
-```
-effect Console {
-    fn println(message: Str) -> None => message
-}
-```
+An effect names a *capability*, not a type of values. It can appear in a
+function's effect list and in a handler's `for` clause, and nowhere else: a
+struct field, parameter, return type or `let` annotation of effect type is a
+compile-time error. Handlers are not values either: you reach a handler by
+calling the effect's members, not by holding the handler.
 
-A member with no return type returns `None`, as a function does, so `fn println(message: Str) => message` declares the same member. Its deduction clause is still required: with no body there is nothing to infer it from.
-
-Suppose we want to write a function which uses the Random and Console effects. Then we can write the following:
-
-```
-fn age_prediction(person: Surname Person) [Random<Int>, Console] -> None => person {
-    // next_random() is accessible because of Random<Int> effect
-    let years: Int = next_random()
-
-    // println() is accessible because of Console effect
-    println("In ${years} years, ${full_name(person)} will be ${person.age + years}")
-}
+```salvo
+let c: Console = StdConsole()   // error: `Console` is an effect, not a data type
+let h = StdConsole()            // error: `StdConsole` is a handler, not a value
+use StdConsole()                // this is how you register it
+println("...")                  // and this is how you use it
 ```
 
-When calling a function, all its effects either need to be `use`d or be declared in the calling function's effect dependencies. Two effects of the same type can be in the dependencies, so long as they have different generic values:
+What a program *can* hold is a **handle** to a handler that `use` has bound,
+typed `eff[E]`; see [Handing a handler on](#handing-a-handler-on-effe).
 
-```
+## Calling effect members
+
+A member is called like a function. When calling a function, all its effects
+either need to be `use`d or be declared in the calling function's effect
+dependencies.
+
+Two instances of one generic effect can be in the dependencies, so long as
+they have different type arguments. The expected type, or a type argument on
+the call, picks between them:
+
+```salvo
 fn random_numbers() [Random<Int>, Random<Double>] -> None {
     // Ambiguous: will result in compile-time error
     let number = next_random()
@@ -120,56 +200,87 @@ fn random_numbers() [Random<Int>, Random<Double>] -> None {
 }
 ```
 
-## Reading the command line: the `Args` effect
+## Two effects, one member name
 
-A standard capability for writing command-line tools. Reading the process's arguments is a dependency like reading a clock — the answer depends on how the program was launched — so it is an effect, not a global. It lives in its own module, brought in with `import std.args`:
+Different effects may declare the same member name: `close` on a file system
+and `close` on a network effect is the natural spelling, not a collision. A
+bare call sees the members of every effect that has a handler in scope, and
+the argument types choose among them like any overloads. When two of them
+take the same arguments, the call picks its effect with `@`, the same
+selector that picks a module's overload:
 
-```
-import std.args
+```salvo
+fn shut(h: Int) [Fs] -> Str {
+    return close(h)          // only Fs is available here: unambiguous
+}
 
-fn main() [use] -> None {
-    use StdConsole()
-    use HostArgs()                      // the host's argv
-    for arg in args() {
-        println(arg)
-    }
+fn both(h: Int) [Fs, Net] -> None {
+    close(h)                 // ERROR: Fs's and Net's `close(Int)` both fit
+    close@Fs(h)              // explicit: the Fs member
+    h.close@Net()            // dot form, like any member call
 }
 ```
 
-`args()` answers the arguments *after* the program name, as a `List<Str>`, in order. `import std.args` brings the effect `Args`, the function `args()`, and its host handler `HostArgs`. The program name is not an argument; a tool that wants it does not read it here.
+The name after `@` is capitalized, which is what distinguishes an effect
+selector from a module path (`size@core.list(xs)`). A generic effect's
+instance is pinned by the call's type arguments, exactly as without the
+selector: `next_random@Random<Int>()`.
 
-`args()` gives the same list on every backend, which is the point of routing it through an effect: the Rust and JVM argv conventions differ (Rust's includes the program name, the JVM's array does not), and the `HostArgs` handler reconciles them so your program does not have to. During development, `salvo run -- alpha "beta gamma"` forwards everything after `--` to the program as its arguments.
+**Members as function values.** A member is also a value wherever a function
+type is expected, by its bare name or with the selector: `on_point(show, p)`
+passes the `show` of the effect in scope, as a function bound to that
+handler, when the position's type picks it over any function named `show`;
+`show@Fmt` names it outright. Away from such a position (`let v = show`) a
+member is not a value.
 
-## Exit status and environment: `Process` and `Env`
+**Overloaded members.** Within a *single* effect a member name may recur
+too, as an ordinary **overload**: one name, different parameter types, picked
+by the argument types like any function overload.
 
-Two more capabilities for tools, each in its own module. `Process` ends the program with an exit status, and `Env` reads environment variables:
-
-```
-import std.process
-import std.env
-
-fn main() [use] -> None {
-    use StdConsole()
-    use HostProcess()
-    use HostEnv()
-    let home = env("HOME") ?: "/"       // `None` when the variable is unset
-    if home == "/" {
-        printerr("no home directory\n")
-        exit(2)                          // a status the shell sees
-    }
-    println(home)
+```salvo
+effect Fs {
+    fn close(s: InStream) -> Ok None | Err Checked<FsError> => !s
+    fn close(s: OutStream) -> Ok None | Err Checked<FsError> => !s
 }
 ```
 
-`exit(code)` does not return: its type is `Never`, so it can stand where a value is expected (`let port: Int = if ok { 8080 } else { exit(2) }`), and the code after it is unreachable. Before the process ends, standard output and standard error are flushed, so text printed without a newline is not lost. Like a trap, `exit` ends the process without discharging linear values still live at the call: nothing runs afterwards, so there is nothing for them to leak into.
+Two members with the same name *and* the same parameter types are the error
+they look like: no call could tell them apart. The selector and the overload
+compose: `@Fs` picks the effect, the arguments pick the member.
 
-Both are effects for the reason `Args` is: a function that can end the process, or whose answer depends on the environment, says so in its signature, and a test can bind a handler of its own instead of the host's.
+**Members and functions.** A member and an ordinary **function** may also
+share a name, and they are one overload set too. std's own filesystem needs
+it: `close` is an [`Fs`](../../lib/std/fs.sv#effect-fs) member per stream
+token *and* the function that closes a `Lines` iterator.
+
+```salvo
+fn close(p: Lines) [Fs] -> Ok None | Err Checked<FsError> => !p {         // a function
+    return close(p.s)                                            // ...calling the member
+}
+```
+
+The argument types decide, ranked exactly as two function overloads are: the
+more specific signature wins, so a concrete function beats a generic member.
+A member call is an ordinary call in every other way too: its parameters may
+have defaults, be named at the call, or end in a variadic tail, as a
+function's may. Two rules keep it predictable:
+
+* **Availability first.** A member is a candidate only where its effect has a
+  handler in scope. Without one, the name is the function, no `@` needed.
+  That is what lets you write a `close` of your own in a program that never
+  opens a file.
+* **A tie is an error.** If both sides fit and neither is more specific, the
+  call must say which it means: `close@Fs(…)` for the member,
+  `close@my.module(…)` for the function. Nothing is preferred silently.
 
 ## Handlers with dependencies, and interception
 
-A handler may need an effect of its own to do its job. It declares that the way a function does — an effect list before the `for` clause — and the compiler supplies it where the handler is registered. Callers never mention it:
+A handler may need an effect of its own to do its job. It declares that the
+way a function does, with an effect list before the `for` clause, and the
+compiler supplies it where the handler is registered. Callers never mention
+it:
 
-```
+```salvo
 handler ConsoleLogger [Console] for Logger {
     fn log(message: Str) -> None => message {
         println("LOG: ${message}")      // Console reaches the body
@@ -183,13 +294,25 @@ fn main() [use] -> None {
 }
 ```
 
-The dependencies have no names, because there would be nothing to do with one: code inside a handler reaches an effect the way all Salvo code does, by calling its members. So the list says only *what the handler needs to run*, which is exactly what a function's effect list says.
+The dependencies have no names, because there would be nothing to do with
+one: code inside a handler reaches an effect the way all Salvo code does, by
+calling its members. So the list says only *what the handler needs to run*,
+which is exactly what a function's effect list says.
 
-The dependency is declared on the *handler*, not on the effect: two implementations of one effect need different things, and a `Logger` that writes to a file has no business making every `Logger` mention a console. A `use` whose dependency has no handler in scope is an error that names it, so a dependency is always registered before its dependent — which is also why dependency cycles need no separate check: `A` needing `B` and `B` needing `A` fails at whichever is registered first.
+The dependency is declared on the *handler*, not on the effect: two
+implementations of one effect need different things, and a `Logger` that
+writes to a file has no business making every `Logger` mention a console. A
+`use` whose dependency has no handler in scope is an error that names it, so
+a dependency is always registered before its dependent. That is also why
+dependency cycles need no separate check: `A` needing `B` and `B` needing `A`
+fails at whichever is registered first.
 
-The list may name **the very effect the handler implements**, which is *interception*: a handler that wraps the one already in scope.
+### Interception
 
-```
+The list may name **the very effect the handler implements**. That is
+*interception*: a handler that wraps the one already in scope.
+
+```salvo
 handler Loud [Greeter] for Greeter {
     fn greet(name: Str) -> Str => name {
         return "${greet(name)}!"        // the *wrapped* greeter
@@ -204,19 +327,41 @@ fn main() [use] -> None {
 }
 ```
 
-The rule that makes this well-defined is that such a dependency **binds strictly outward**: it is the instance registered *before* this `use`, never the handler being registered. So a call inside `Loud.greet` goes one layer out rather than back to itself, interceptors stack (`use Loud` twice gives `"hello world!!"`), and the acyclicity argument is untouched — every dependency still points at an earlier registration. Registering an interceptor with nothing to intercept is an error that says so.
+The rule that makes this well-defined is that such a dependency **binds
+strictly outward**: it is the instance registered *before* this `use`, never
+the handler being registered. So a call inside `Loud.greet` goes one layer
+out rather than back to itself, interceptors stack (`use Loud` twice gives
+`"hello world!!"`), and the acyclicity argument is untouched: every
+dependency still points at an earlier registration. Registering an
+interceptor with nothing to intercept is an error that says so.
 
-Interception is what makes a *policy* handler writable in Salvo: a restricting file system that checks paths and then delegates, a logging or retrying handler over whatever was there before, a test double wrapped around a real implementation. It is per instance of a generic effect, so intercepting `Store<Int>` leaves `Store<Str>` alone.
+Interception is what makes a *policy* handler writable in Salvo: a
+restricting file system that checks paths and then delegates (std's
+[`RestrictedFs`](../../lib/std/fs/restricted.sv#handler-restrictedfs)), a
+logging or retrying handler over whatever was there before, a test double
+wrapped around a real implementation. It is per instance of a generic effect,
+so intercepting `Store<Int>` leaves `Store<Str>` alone.
 
-Both of these rest on shadowing, which is worth stating on its own: a `use` for an effect instance already in scope is not an error — it takes over for the rest of the block, and the handler it shadowed answers again when that block ends. Shadowing needs no dependency (registering a second, unrelated `Greeter` simply replaces the first), and the innermost registration always wins, exactly as a shadowing local variable does.
+Interception rests on [shadowing](#registering-a-handler-with-use): the
+interceptor shadows the handler it wraps for the rest of the block.
 
-One thing a handler cannot do yet: call **its own** effect's other members. `Twice.greet` cannot call `greet` on itself — a handler does not dispatch to itself, and declaring the effect as a dependency means the handler *outside*, not this one. Move the shared logic into a function both members call; the diagnostic says as much.
+### A handler cannot call itself
+
+One thing a handler cannot do yet: call **its own** effect's other members.
+`Twice.greet` cannot call `greet` on itself: a handler does not dispatch to
+itself, and declaring the effect as a dependency means the handler
+*outside*, not this one. Move the shared logic into a function both members
+call; the diagnostic says as much.
 
 ## Prerequisites: an effect that needs another in scope
 
-Some capabilities only make sense beside another one. A filesystem that opens files hands back streams, and the streams are read through a separate `Streams` effect — so every function that uses the filesystem needs both. An effect can say so once, in the same bracketed list a handler uses for its dependencies:
+Some capabilities only make sense beside another one. A filesystem that opens
+files hands back streams, and the streams are read through a separate
+[`Streams`](../../lib/std/stream.sv#effect-streams) effect, so every function
+that uses the filesystem needs both. An effect can say so once, in the same
+bracketed list a handler uses for its dependencies:
 
-```
+```salvo
 export effect Fs [Streams] {
     fn open_read(path: Str) -> Ok InStream | Err Checked<FsError> => path
 }
@@ -224,19 +369,78 @@ export effect Fs [Streams] {
 
 `Streams` is a **prerequisite** of `Fs`. Three things follow:
 
-* **Wherever `Fs` is, `Streams` is.** A function declaring `[Fs]` may call `Streams` members, and so may a function value of type `(Str) [Fs] -> Str`. Prerequisites are transitive, and the implied effect is the one `Fs`'s own module named: it is available even in a module that never imports it, and a module declaring an unrelated `Streams` of its own does not change which one it is.
-* **Every handler of `Fs` reaches `Streams`** as though it had declared the dependency — `handler MemFs for Fs` may call `from_bytes` without writing `[Streams]`.
-* **Binding an `Fs` handler needs a `Streams` already bound**, exactly as a dependent handler does, and the error names the prerequisite: `use HostStreams()` first, then `use DefaultFs()`.
+* **Wherever `Fs` is, `Streams` is.** A function declaring `[Fs]` may call
+  `Streams` members, and so may a function value of type
+  `(Str) [Fs] -> Str`. Prerequisites are transitive, and the implied effect
+  is the one `Fs`'s own module named: it is available even in a module that
+  never imports it, and a module declaring an unrelated `Streams` of its own
+  does not change which one it is.
+* **Every handler of `Fs` reaches `Streams`** as though it had declared the
+  dependency: `handler MemFs for Fs` may call `from_bytes` without writing
+  `[Streams]`.
+* **Binding an `Fs` handler needs a `Streams` already bound**, exactly as a
+  dependent handler does, and the error names the prerequisite: `use` a
+  `Streams` handler first (std's
+  [`DefaultStreams`](../../lib/std/stream/host.sv#handler-defaultstreams)),
+  then `use DefaultFs()`.
 
-A prerequisite is not inheritance. A handler of `Fs` does not implement `Streams`; it uses the one bound around it. That is the point: every producer of streams — the filesystem, a network client, a test's buffers — mints into the same `Streams` instance, so one stream type is read the same way whoever opened it. A handler that wants to supply the prerequisite itself wears both faces (`for Fs, Streams`) and then depends on nothing for it.
+A prerequisite is not inheritance. A handler of `Fs` does not implement
+`Streams`; it uses the one bound around it. That is the point: every producer
+of streams (the filesystem, a network client, a test's buffers) mints into
+the same `Streams` instance, so one stream type is read the same way whoever
+opened it. A handler that wants to supply the prerequisite itself wears both
+faces (`for Fs, Streams`, see [One handler, several
+effects](#one-handler-several-effects)) and then depends on nothing for it.
 
-The rules at the declaration: a prerequisite names a plain effect (not `use`, `spawn`, or `any E`); an exported effect's prerequisites are exported too, since every module naming the effect needs them; the prerequisites may not form a cycle; and actor effects neither have nor are prerequisites, for now.
+The rules at the declaration:
+
+- a prerequisite names a plain effect (not `use`, `spawn`, or `any E`);
+- an exported effect's prerequisites are exported too, since every module
+  naming the effect needs them;
+- the prerequisites may not form a cycle;
+- actor effects neither have nor are prerequisites, for now.
+
+## Naming a group: effect aliases
+
+A signature that keeps repeating the same handful of effects can name them
+once:
+
+```salvo
+effects IO = [Console, Fs, Streams]
+
+fn serve(request: Str) [IO, Throw<Str>] -> Str => request {
+    // may use Console, Fs, Streams, and throw, and nothing else
+}
+```
+
+`effects IO = [...]` declares an **alias**: shorthand for its member list
+anywhere an effect list appears, which is a function's effects, a function
+type's, a handler's dependency list, and an effect's prerequisites.
+`[IO, Throw<Str>]` means `[Console, Fs, Streams, Throw<Str>]`. The alias adds
+nothing a signature could not have written out by hand, and a function with
+`[IO]` can perform exactly the effects `IO` lists and no others.
+
+An alias is a *set of effects*, so its members are plain named effects, or
+other aliases, which expand in turn (`effects All = [IO, Clock]`), with
+cycles refused. What an alias cannot contain is `use`, `spawn`, or `any`:
+those are a function's capability to register handlers and a qualifier on
+one instance of one effect, not effects a group stands for. For the same
+reason `any IO` is not a thing you can write at a call site: write `any` on
+the individual effect.
+
+An alias is exported like anything else (`export effects IO = [...]`) and
+imported by name (`import caps.IO`). Using it pulls in whatever its members
+need, so a consumer writes `[IO]` without importing each effect separately.
+The members are the effects the alias's own module named, whatever those
+names mean in the consumer's module.
 
 ## Handing a handler on: `eff[E]`
 
-A bound handler is a value. `use H()` is an expression: it registers the handler for the rest of the scope **and** yields a handle to it, typed `eff[E]` — a first-class value you can bind, return, and pass.
+A bound handler is a value. `use H()` is an expression: it registers the
+handler for the rest of the scope **and** yields a handle to it, typed
+`eff[E]`, a first-class value you can bind, return, and pass.
 
-```
+```salvo
 fn clock() [use] -> eff[Clock] {
     return use TickingClock()   // registered here, and handed back
 }
@@ -247,37 +451,105 @@ fn report(c: eff[Clock]) [use] -> Int => c {
 }
 ```
 
-`eff[E]` is the type of a handle to the effect `E`; `eff[A, B]` is a handle carrying several (the set is flat, so `eff[A, B]` and `eff[B, A]` are one type, and an alias expands into it — `eff[IO]` is `eff[Console, Fs, Streams]`). A handle is freely shareable, which is what makes handing one to another thread safe: a stateful handler's handle carries a lock, exactly as a `use` of it does — binding a handle and constructing one register the *same* monitor, so `use c` over a handed-in handle behaves identically to `use TickingClock()` in place.
+`eff[E]` is the type of a handle to the effect `E`; `eff[A, B]` is a handle
+carrying several. The set is flat, so `eff[A, B]` and `eff[B, A]` are one
+type, and an alias expands into it: `eff[IO]` is `eff[Console, Fs, Streams]`.
+An actor's address is the same type
+([`Addr`](../../lib/std/core/actor.sv#type-addr), see
+[Concurrency](Concurrency.md)).
 
-A wider handle satisfies a narrower requirement: pass an `eff[Clock, Beep]` where `eff[Clock]` is wanted and it fits, carrying more than the callee asked for — the same direction the rest of the effect system runs, where a scope with more effects calls a function needing fewer.
+A handle is freely shareable, which is what makes handing one to another
+thread safe: a stateful handler's handle carries a lock, exactly as a `use`
+of it does. Binding a handle and constructing one register the *same*
+monitor, so `use c` over a handed-in handle behaves identically to
+`use TickingClock()` in place.
 
-The one thing a handle cannot bridge is an effect it does not carry: `use c` makes exactly `E`'s members callable, and nothing else. A multi-effect handle `eff[A, B]` is a tuple of single handles — `use H()` of a multi-face handler yields `(eff[A], eff[B])`, which you destructure or bind whole (`use e` binds every effect in it). To pull one handle back out of a multi-effect one — an actor's address, say — **project** it by name: `e[A]` copies the `A` handle, `e[IO]` the handles an alias names. And to go the other way — assemble a unified handle from several you hold — **merge** them: `eff[clock, logger]` is one `eff[Clock, Log]`, and `eff[*]` bundles every handle currently in scope, which is how a composition root hands its whole capability set to the code it starts.
+**Wider fits narrower.** A wider handle satisfies a narrower requirement:
+pass an `eff[Clock, Beep]` where `eff[Clock]` is wanted and it fits, carrying
+more than the callee asked for. That is the same direction the rest of the
+effect system runs, where a scope with more effects calls a function needing
+fewer.
 
-`eff[]` is the handle over no effects, the empty tuple; merging nothing gives one. And a function generic over a *set* of effects, `fn later<[E]>(fx: eff[E], f: () [E] -> None)`, takes `eff[E]`: the handle over whatever the call binds `E` to, which `use fx` binds in the body ([Effect variables](Lambdas-and-Variadics.md#effect-variables-e)).
+**Projecting and merging.** The one thing a handle cannot bridge is an
+effect it does not carry: `use c` makes exactly `E`'s members callable, and
+nothing else.
 
-## Naming a group: effect aliases
+- A multi-effect handle `eff[A, B]` is a tuple of single handles: `use H()`
+  of a multi-face handler yields `(eff[A], eff[B])`, which you destructure or
+  bind whole (`use e` binds every effect in it).
+- To pull one handle back out of a multi-effect one (an actor's address,
+  say), **project** it by name: `e[A]` copies the `A` handle, `e[IO]` the
+  handles an alias names.
+- To go the other way, and assemble a unified handle from several you hold,
+  **merge** them: `eff[clock, logger]` is one `eff[Clock, Log]`.
+- `eff[*]` bundles every handle currently in scope, which is how a
+  composition root hands its whole capability set to the code it starts.
 
-A signature that keeps repeating the same handful of effects can name them once:
+`eff[]` is the handle over no effects, the empty tuple; merging nothing gives
+one. And a function generic over a *set* of effects,
+`fn later<[E]>(fx: eff[E], f: () [E] -> None)`, takes `eff[E]`: the handle
+over whatever the call binds `E` to, which `use fx` binds in the body
+([Effect variables](Lambdas-and-Variadics.md#effect-variables-e)).
 
-```
-effects IO = [Console, Fs, Streams]
+## Every binding is a handle
 
-fn serve(request: Str) [IO, Throw<Str>] -> Str => request {
-    // may use Console, Fs, Streams, and throw — and nothing else
+```salvo
+use Counting()          // a handle: callees receive it, spawns and handlers capture it
+
+fn tally(n: Int) [Tally] -> None {
+    …                   // receives the handle of whatever `Tally` is bound
 }
 ```
 
-`effects IO = [...]` declares an **alias**: shorthand for its member list anywhere an effect list appears — a function's effects, a function type's, a handler's dependency list, an effect's prerequisites. `[IO, Throw<Str>]` means `[Console, Fs, Streams, Throw<Str>]`; the alias adds nothing a signature could not have written out by hand, and a function with `[IO]` can perform exactly the effects `IO` lists and no others.
+A `use` makes one value, the **handle** of the instance, and everything
+downstream is that value or a copy of it: a function's `[E]` parameter, a
+dependent handler's captured dependency, a spawn's or task's inherited
+effect, a fn value's effect. There is one shape for all of them. A `use` of
+an addr or of a spawn expression is already a handle.
 
-An alias is a *set of effects*, so its members are plain named effects — or other aliases, which expand in turn (`effects All = [IO, Clock]`), with cycles refused. What an alias cannot contain is `use`, `spawn`, or `any`: those are a function's capability to register handlers and a qualifier on one instance of one effect, not effects a group stands for. For the same reason `any IO` is not a thing you can write at a call site — write `any` on the individual effect.
+**Stateless and stateful.** The one thing a handle asks of a handler is
+whether it is **stateful**.
 
-An alias is exported like anything else (`export effects IO = [...]`) and imported by name (`import caps.IO`); using it pulls in whatever its members need, so a consumer writes `[IO]` without importing each effect separately. The members are the effects the alias's own module named, whatever those names mean in the consumer's module.
+- A stateless handler (no `state` fields, no `replyto` mint, no stored
+  function value) runs its members on the shared instance with nothing held:
+  `StdConsole`, a pure forwarder, the send stub behind a bound `eff[E]`, a
+  mixed handler's façade.
+- A stateful one runs them under a lock through its handle: a
+  [**monitor**](#monitors-sharing-a-plain-effect-handler), in effect
+  `let h = spawn H(args); use h`. So two spawns capturing the same stateful
+  binding share its state, exactly as they would through an addr.
+
+The distinction is read off the declaration and is the same on both
+backends; a `platform handler` states it with `threadsafe`
+([Backends](Backends.md)), since the compiler cannot see a host's fields.
+
+**Why.** The motivating goal is *spawn-inheritance*: for
+`spawn H on pool(2)` to pick up the scope's effects without re-declaration, a
+bare `[E]` in a signature has to be something that may cross a seam, and a
+handle is. Since every binding is one, nothing has to be annotated to be
+inherited, captured, or handed to a scheduled body, and a function called
+from inside a lambda declares `[E]` like any other.
+
+A dependent handler captures its dependencies as handles **at
+construction**: from a binding in the same function, or from an effect the
+function received through its own signature (see [Inheriting the
+scope](#inheriting-the-scope-and-overriding-it-with-with)).
+[`DefaultFs [RawFs]`](../../lib/std/fs/host.sv#handler-defaultfs) is an
+ordinary dependent handler over a platform handler.
+
+**In the generated code** the handle carries the effect's name:
+`fn work(console: &Console)` on Rust, `fun work(console: Console)` on
+Kotlin. The mangled names (`__Stateless_E`, `__Stateful_E`, `__Mon_E`) are
+the traits and wrappers behind it.
 
 ## Starting up: `init` and `self@Face`
 
-A handler's state fields have initialisers, but an initialiser is an expression that sees only the constructor parameters. Anything a handler must *do* as it starts — register itself somewhere, compute state from a dependency — goes in its **`init` block**, which runs once, first:
+A handler's state fields have initialisers, but an initialiser is an
+expression that sees only the constructor parameters. Anything a handler must
+*do* as it starts, such as registering itself somewhere or computing state
+from a dependency, goes in its **`init` block**, which runs once, first:
 
-```
+```salvo
 handler Working(registry: eff[Registry], who: Str) for Worker {
     mailbox { capacity: 8 }
     state {
@@ -291,15 +563,32 @@ handler Working(registry: eff[Registry], who: Str) for Worker {
 }
 ```
 
-For a spawned handler, `init` is the actor's **first activation**: the spawn enqueues it before it hands the address back, so nothing anyone sends can overtake it, and it runs on the actor's pool like every member. For a `use`-bound handler it runs inline, right after construction — a constructor body. It sees constructor parameters, state and the handler's dependencies, declares no effects, and is checked as a member; it is in fact a private send member named `init` that only the runtime sends.
+- For a spawned handler, `init` is the actor's **first activation**: the
+  spawn enqueues it before it hands the address back, so nothing anyone
+  sends can overtake it, and it runs on the actor's pool like every member.
+- For a `use`-bound handler it runs inline, right after construction, like a
+  constructor body.
+- It sees constructor parameters, state and the handler's dependencies,
+  declares no effects, and is checked as a member. It is in fact a private
+  send member named `init` that only the runtime sends.
 
-`self@Face` is the handler's own address as one of its actor faces, an `eff[Face]`, legal in `init` and in send members. It is how an actor hands itself to something else — a registry, a group, the runtime's peer events — without the spawner having to pass the address back in a first message. A handler that names its own address is spawn-only, because a `use`-bound instance has none; the `use` says so, as it does for a handler that parks with `replyto`.
+`self@Face` is the handler's own address as one of its actor faces, an
+`eff[Face]`, legal in `init` and in send members. It is how an actor hands
+itself to something else (a registry, a group, the runtime's peer events)
+without the spawner having to pass the address back in a first message. A
+handler that names its own address is spawn-only, because a `use`-bound
+instance has none; the `use` says so, as it does for a handler that parks
+with `replyto`.
 
 ## One handler, several effects
 
-A handler may implement more than one effect, and the effects are simply listed: `handler H() for Public, Admin`. It stays one handler with one piece of state — what it gains is a *face* per effect, which is how a public protocol and an administrative one share an implementation without a second handler forwarding into the first.
+A handler may implement more than one effect, and the effects are simply
+listed: `handler H() for Public, Admin`. It stays one handler with one piece
+of state. What it gains is a *face* per effect, which is how a public
+protocol and an administrative one share an implementation without a second
+handler forwarding into the first.
 
-```
+```salvo
 effect Tally { fn bump(n: Int) -> None }
 effect Stats { fn total() -> Int }
 
@@ -319,20 +608,47 @@ fn main() [use] {
 }
 ```
 
-One `use` binds every face, so a function declaring `[Tally]` and one declaring `[Stats]` both reach this instance. For an actor the same declaration is what makes least authority ordinary: `spawn` answers **one addr per face**, in declaration order, so who holds which face decides what they may do.
+One `use` binds every face, so a function declaring `[Tally]` and one
+declaring `[Stats]` both reach this instance. For an actor the same
+declaration is what makes least authority ordinary: `spawn` answers **one
+addr per face**, in declaration order, so who holds which face decides what
+they may do.
 
-```
+```salvo
 let (timer, ctl) = spawn ManualTime() on pool(1)
-//   ^eff[Timer]  ^eff[TimerCtl] — code holding `timer` cannot name `advance`
+//   ^eff[Timer]  ^eff[TimerCtl]: code holding `timer` cannot name `advance`
 ```
 
-A single face answers a bare `eff[E]` as it always did; several answer a tuple. The rules the list brings with it are the ones you would guess: every member of every effect must be implemented, each effect may be named once, and the effects must be of one kind — all `actor effect`s or none, because a handler is bound one way or the other. Where two of the effects declare the same member *name*, one handler method may implement both when their signatures are identical, or two methods may implement them when the parameters differ (ordinary overloading); what is refused is the case overloading cannot see — same parameters, a different return type — since no single method could answer for both. Callers still pick the face with `@` where two effects in scope declare the name, exactly as below.
+([`ManualTime`](../../lib/std/time.sv#handler-manualtime) is std's test
+clock.) A single face answers a bare `eff[E]`; several answer a tuple.
 
-## Monitors — sharing a plain-effect handler
+The rules the list brings with it are the ones you would guess:
 
-A handler of a *plain* effect can also be spawned. That does not make it an actor — there is no mailbox and no messages — it makes it a **monitor**: one shared instance behind a lock, whose members run on the callers' threads under mutual exclusion. The spawn answers the same `eff[E]` an actor spawn answers, the handle is freely copyable and sendable, and `use` binds it like any handle — so a caller of `next()` never learns whether the `Random` in scope is a scope-local handler or a monitor three threads share.
+- every member of every effect must be implemented;
+- each effect may be named once;
+- the effects must be of one kind, all `actor effect`s or none, because a
+  handler is bound one way or the other.
 
-```
+Where two of the effects declare the same member *name*, one handler method
+may implement both when their signatures are identical, or two methods may
+implement them when the parameters differ (ordinary overloading). What is
+refused is the case overloading cannot see, same parameters and a different
+return type, since no single method could answer for both. Callers still
+pick the face with `@` where two effects in scope declare the name, exactly
+as in [Two effects, one member name](#two-effects-one-member-name).
+
+## Monitors: sharing a plain-effect handler
+
+A handler of a *plain* effect can also be spawned. That does not make it an
+actor (there is no mailbox and no messages); it makes it a **monitor**, in
+the sense of Java's `synchronized` object: one shared instance behind a lock,
+whose members run on the callers' threads under mutual exclusion. The spawn
+answers the same `eff[E]` an actor spawn answers, the handle is freely
+copyable and sendable, and `use` binds it like any handle. So a caller of
+`next()` never learns whether the `Random` in scope is a scope-local handler
+or a monitor three threads share.
+
+```salvo
 effect Random {
     fn next() -> Int
 }
@@ -348,45 +664,180 @@ handler CyclicRandom(seed: Int) for Random {
 }
 
 fn main() [use, spawn] {
-    let rng = spawn CyclicRandom(12345)   // one shared instance, no `on` —
+    let rng = spawn CyclicRandom(12345)   // one shared instance, no `on`:
     use rng                               // a monitor runs on its callers' threads
     let n = next()                        // lock, advance, unlock
     let child = spawn Worker() with rng    // the same instance, from another thread
 }
 ```
 
-The price of sharing used to be "a monitor declares no dependencies"; since 2026-09-20 a monitor **may** declare dependencies. They are captured as **handles at construction**, resolved from the enclosing scope exactly as a `use` resolves them, so the bindings are fixed for the instance's life. The availability rule keeps the capture acyclic — a dependency was bound before this handler, so no lock order can cycle by construction — and where a member *can* wait (a dependency with mixed handlers, a `waitfor` in a member), the wait is **priced, not refused**: the handler gets a node in the same deadlock graph actors use (`H's lock`), and a cycle through held locks is reported before it runs.
+**Dependencies.** A monitor may declare dependencies. They are captured as
+**handles at construction**, resolved from the enclosing scope exactly as a
+`use` resolves them, so the bindings are fixed for the instance's life. The
+availability rule keeps the capture acyclic: a dependency was bound before
+this handler, so no lock order can cycle by construction. Where a member
+*can* wait (a dependency with mixed handlers, a `waitfor` in a member), the
+wait is **priced, not refused**: the handler gets a node in the same deadlock
+graph actors use (`H's lock`), and a cycle through held locks is reported
+before it runs.
 
-A monitor serializes with a lock where an actor serializes with a mailbox, and one piece of state can be under only one of them — so a handler is one or the other, read off its shape: mutable state with `send fn` members is an actor's, mutable state with only plain members shares as a monitor. Fit: passive shared state — counters, caches, configuration, cursors, `Random`. A generic effect instance shares like any other: `handler CyclicRandom for Random<Int>` gets a monitor of `Random<Int>`, so genericity costs nothing here.
+**Monitor or actor.** A monitor serializes with a lock where an actor
+serializes with a mailbox, and one piece of state can be under only one of
+them. So a handler is one or the other, read off its shape: mutable state
+with `send fn` members is an actor's, mutable state with only plain members
+shares as a monitor. Monitors fit passive shared state: counters, caches,
+configuration, cursors, `Random`. A generic effect instance shares like any
+other: `handler CyclicRandom for Random<Int>` gets a monitor of
+`Random<Int>`, so genericity costs nothing here.
 
-## Every binding is a handle
+## Mixed handlers: a servant behind a plain effect
 
-```
-use Counting()          // a handle: callees receive it, spawns and handlers capture it
+The other way to share mutable state keeps a mailbox. A handler of a plain
+effect may declare `send fn` members beside its plain ones, and the two
+halves divide the work:
 
-fn tally(n: Int) [Tally] -> None {
-    …                   // receives the handle of whatever `Tally` is bound
+- the send members and the state form the **servant**: an ordinary actor
+  over a handler-local protocol, with a `mailbox` like any other;
+- the plain members form the **façade**, running on the caller's thread: a
+  façade member sends to its own servant and waits for the answer.
+
+```salvo
+handler CyclicRandom(seed: Int) for Random {
+    mailbox { capacity: 8 }
+    state {
+        cursor: Int = 0                      // the servant's, and only the servant's
+    }
+
+    send fn advance(out: Reply<Int>) => !out {
+        cursor = (cursor * 31 + seed) % 100000
+        send(out, cursor)
+    }
+
+    fn next() -> Int {                       // the façade: the caller's thread
+        return waitfor got: Reply<Int> {
+            advance(got)                     // a send to its own servant
+        }
+    }
+}
+
+fn main() [use, spawn] {
+    let rng = spawn CyclicRandom(12345)      // one servant; the handle is the façade
+    use rng
+    let n = next()                           // send, wait, answer; the wait needs no declaration
 }
 ```
 
-A `use` makes one value — the **handle** of the instance — and everything downstream is that value or a copy of it: a function's `[E]` parameter, a dependent handler's captured dependency, a spawn's or task's inherited effect, a fn value's effect (user decision 2026-09-28: *one shape*, after a round that had distinguished shareable from scope-local bindings). A `use` of an addr or of a spawn expression is already a handle.
+A `waitfor` names its token, and the token's type may be left out where it
+can be read off the send the block makes (`waitfor got { … }`, see
+[Concurrency](Concurrency.md)). Write the type out, as here, where several
+members of that name would make it ambiguous, which is an error naming that
+remedy.
 
-The one thing a handle asks of a handler is whether it is **stateful**. A stateless handler — no `state` fields, no `replyto` mint, no stored function value — runs its members on the shared instance with nothing held: `StdConsole`, a pure forwarder, the send stub behind a bound `eff[E]`, a mixed handler's façade. A stateful one runs them under a lock through its handle — a **monitor**, `let h = spawn H(args); use h` in effect — so two spawns capturing the same stateful binding share its state, exactly as they would through an addr. The distinction is read off the declaration and is the same on both backends; a `platform handler` states it with `threadsafe` ([Backends](Backends.md)), since the compiler cannot see a host's fields.
+**State is confined.** Only send members touch it, so every access is a
+serialized activation, and a sync member that reads a field is refused by
+name: its environment is its own parameters, the constructor parameters, and
+sends to its own servant. Nothing here declares `waitfor`: a call occupying
+its thread until it returns is what a call is, and the façade's wait serves
+its pool while it waits. What a caller of `next()` can never learn is whether
+the `Random` in scope is a scope-local handler, a monitor, or three threads'
+shared servant, which is the point.
 
-The motivating goal is *spawn-inheritance*: for `spawn H on pool(2)` to pick up the scope's effects without re-declaration, a bare `[E]` in a signature has to be something that may cross a seam — and a handle is. Since every binding is one, nothing has to be annotated to be inherited, captured, or handed to a scheduled body, and a function called from inside a lambda declares `[E]` like any other.
+**Sibling sends.** Send members reach their siblings the same way: a bare
+call naming another of the handler's `send fn` members enqueues on the
+servant's own mailbox ("finish this activation, then that one"), so a request
+can travel member to member without leaving the actor. `k@self(…)` is the
+explicit spelling of the same send, available in either member kind, and it
+is how the call says what it means where a bare name would be ambiguous with
+an effect member in scope.
 
-A dependent handler captures its dependencies as handles **at construction** — from a binding in the same function, or from an effect the function received through its own signature (see the next section). `DefaultFs [RawFs]` is an ordinary dependent handler over a platform handler.
+**Dependencies.** A mixed handler may declare dependencies like any handler
+(`handler Counted(seed: Int) [Console, Label] for Random`), and they belong
+to the servant: its send members call them, the spawn supplies them as an
+actor spawn does (a `with` item, or the spawning scope's own instance), and
+the façade carries none. A sync member that calls one is refused with the
+remedy (send to a member that does). A send member whose sibling shares a
+name with a dependency's member says which it means: `k@self(…)` or
+`k@Label(…)`.
 
-In the generated code the handle carries the effect's name: `fn work(console: &Console)` on Rust, `fun work(console: Console)` on Kotlin. The mangled names (`__Stateless_E`, `__Stateful_E`, `__Mon_E`) are the traits and wrappers behind it.
+**Spawn-only, and answering in the activation.** A mixed handler is
+spawn-only (`use` would leave its sends nowhere to arrive). By default its
+servant answers every request within the activation that received it, which
+is what makes a façade's wait end after one straight-line activation rather
+than after an event that may never come. A send member that declares `defer`
+on a reply parameter opts out of that default: the answer may outlive the
+activation, forwarded to another actor whose discharge ends the caller's
+wait, or parked in a continuation on one of the servant's own members with
+`replyto`, exactly as an actor parks. The deadlock graph prices the
+deferral.
+
+## Inheriting the scope, and overriding it with `with`
+
+A spawned handler **inherits its dependencies from the spawning scope**. A
+handler declares what it needs, the spawn says where it runs, and the wiring
+in between is the compiler's:
+
+```salvo
+handler Drawing() [Random] for Drawer { … }
+
+fn main() [use, spawn] {
+    use CyclicRandom(7)                   // one shared instance
+    let d = spawn Drawing() on pool(1)    // …inherited, with nothing written
+}
+```
+
+A bare `[Random]` is a handle, so the scope's registration can be captured
+and travel with the child. This is checked one function at a time, with no
+whole-program analysis and no runtime check. (Before every binding was a
+handle, every dependency had to be written at every spawn.)
+
+Two candidate instances in scope is an ambiguity the compiler will not guess
+at, and nothing in scope is an error; the diagnostic names both ways to fix
+it.
+
+**`with`.** Where the scope's instance is *not* what a handler should get,
+`with` names what it should:
+
+```salvo
+use Plain
+use Loud with Formal()        // Loud wraps this fresh Formal, not the Plain in scope
+let d = spawn Drawing() with FixedRandom() on pool(1)
+```
+
+A `with` item is a **private instance**: constructed at the clause, owned by
+the handler or child it is given to, shared with nothing. The clause is
+*partial*: items satisfy the dependencies they match, and the rest still
+inherit. It may supply the self-dependency, which is the one case where an
+interceptor wraps something other than what it shadows. The clause chooses
+*which* instance; how it is bound is not its business.
+
+**Received effects.** The same lift applies to `use` inside a function that
+*received* the effects it wires:
+
+```salvo
+fn interception() [Logger, Clock, use] -> None {
+    use Stamped                 // captures handles for Logger and Clock:
+    work("stamped")             // both arrived through this signature
+}
+```
+
+The effects a function receives *are* handles (on the Kotlin backend an
+object reference, on the Rust backend a cloneable wrapper), so capturing one
+costs a copy and nothing else.
 
 ## Many instances: `[any E]` and `for any E`
 
-A bare `[E]` claims **identity**: that `E` is *one* instance, so two sends to it arrive in order and see the same state. A function written `bump(2); bump(3); total(out)` relies on that, and nothing in its body says so. A binding spread over many instances — a router in front of a fleet — cannot give it, so the weakening is spelled where the requirement is:
+A bare `[E]` claims **identity**: that `E` is *one* instance, so two sends to
+it arrive in order and see the same state. A function written
+`bump(2); bump(3); total(out)` relies on that, and nothing in its body says
+so. A binding spread over many instances, such as a router in front of a
+fleet, cannot give it, so the weakening is spelled where the requirement is:
 
-```
+```salvo
 handler RoundRobin(members: List<eff[Resizer]>) for any Resizer {   // forwards; promises no order
     mailbox { capacity: 16 }
-    next: Int = 0
+    state {
+        next: Int = 0
+    }
     send fn resize(name: Str, w: Int, out: Reply<Str>) => !name, !out {
         let target = copy(get(members, next % size(members)) ?: unreachable!())
         next = next + 1
@@ -400,137 +851,49 @@ fn thumbnail(name: Str) [any Resizer] -> Str {                       // any Resi
 
 fn tally(names: List<Str>) [Resizer] -> Str { … }                    // needs ONE Resizer
 
-use RoundRobin([a, b])
+use RoundRobin(List(a, b))
 thumbnail("cat.png")     // fine
-tally(["dog.png"])       // error: `tally` declares `[Resizer]` — one instance, sends in order —
+tally(List("dog.png"))   // error: `tally` declares `[Resizer]` (one instance, sends in order)
                          //        but `Resizer` is bound to many instances here
 ```
 
-- **`for any E`** on a handler's face says the handler forwards to many instances. A `use` of it binds `any E`, which satisfies only `[any E]`. It is also the one handler of an actor effect that `use` binds *shareable* — bare when stateless, a monitor when it keeps a cursor — since a group handle is always shareable.
-- **`[any E]`** in an effect list says "each send may go to a different instance; I assume no order and no shared state between them." It accepts every binding, a single instance being a group of one, and it is viral downward: a body holding `[any E]` may call `E` directly and callees declaring `[any E]`, never a callee that assumes one instance. Bare `[E]` keeps the strong meaning, so a program written before groups existed cannot be broken by binding one under it.
-- A fn type carries no strength (no `any`): the function that takes the value writes `[any E]` itself if any instance will do, which weakens the requirement it inherits.
+- **`for any E`** on a handler's face says the handler forwards to many
+  instances. A `use` of it binds `any E`, which satisfies only `[any E]`. It
+  is also the one handler of an actor effect that `use` binds *shareable*:
+  bare when stateless, a monitor when it keeps a cursor, since a group handle
+  is always shareable.
+- **`[any E]`** in an effect list says "each send may go to a different
+  instance; I assume no order and no shared state between them." It accepts
+  every binding, a single instance being a group of one, and it is viral
+  downward: a body holding `[any E]` may call `E` directly and callees
+  declaring `[any E]`, never a callee that assumes one instance. Bare `[E]`
+  keeps the strong meaning, so a program written before groups existed cannot
+  be broken by binding one under it.
+- A fn type carries no strength (no `any`): the function that takes the value
+  writes `[any E]` itself if any instance will do, which weakens the
+  requirement it inherits.
 
-`any` is a claim about the guarantee the effect gives, not about where the instances are: a local group of a hundred on `pool(4)` is `any`; a single actor on another machine, reached through its `eff[E]` handle, is not.
+`any` is a claim about the guarantee the effect gives, not about where the
+instances are: a local group of a hundred on `pool(4)` is `any`; a single
+actor on another machine, reached through its `eff[E]` handle, is not. Groups
+of actors across machines, and std's routing handlers, are in
+[Concurrency](Concurrency.md#one-member-of-many-any).
 
-## Inheriting the scope, and overriding it with `with`
+## Effects in std
 
-A spawned handler **inherits its dependencies from the spawning scope** (user decision 2026-09-20). A handler declares what it needs, the spawn says where it runs, and the wiring in between is the compiler's:
+std declares its capabilities as effects of this kind. A program binds std's
+handlers for them (in `main`, usually), and a test can bind its own instead:
 
-```
-handler Drawing() [Random] for Drawer { … }
-
-fn main() [use, spawn] {
-    use CyclicRandom(7)                   // one shared instance
-    let d = spawn Drawing() on pool(1)    // …inherited, with nothing written
-}
-```
-
-A bare `[Random]` is a handle, so the scope's registration can be captured and travel with the child — checked one function at a time, with no whole-program analysis and no runtime check. Before handles, every dependency had to be written at every spawn.
-
-Two candidate instances in scope is an ambiguity the compiler will not guess at, and nothing in scope is an error — naming both ways to fix it.
-
-Where the scope's instance is *not* what a handler should get, **`with` names what it should**:
-
-```
-use Plain
-use Loud with Formal()        // Loud wraps this fresh Formal, not the Plain in scope
-let d = spawn Drawing() with FixedRandom() on pool(1)
-```
-
-A `with` item is a **private instance**: constructed at the clause, owned by the handler or child it is given to, shared with nothing. The clause is *partial* — items satisfy the dependencies they match, and the rest still inherit — and it may supply the self-dependency, which is the one case where an interceptor wraps something other than what it shadows. The clause chooses *which* instance; how it is bound is not its business.
-
-The same lift applies to `use` inside a function that *received* the effects it wires:
-
-```
-fn interception() [Logger, Clock, use] -> None {
-    use Stamped                 // captures handles for Logger and Clock —
-    work("stamped")             // both arrived through this signature
-}
-```
-
-The effects a function receives *are* handles — on the Kotlin backend an object reference, on the Rust backend a cloneable wrapper — so capturing one costs a copy and nothing else.
-
-
-## Mixed handlers — a servant behind a plain effect
-
-The other way to share mutable state keeps a mailbox: a handler of a plain effect may declare `send fn` members beside its plain ones, and the two halves divide the work. The send members and the state form the **servant** — an ordinary actor over a handler-local protocol, with a `mailbox` like any other — and the plain members form the **façade**, running on the caller's thread: a façade member sends to its own servant and waits for the answer.
-
-```
-handler CyclicRandom(seed: Int) for Random {
-    mailbox { capacity: 8 }
-    cursor: Int = 0                          // the servant's, and only the servant's
-
-    send fn advance(out: Reply<Int>) => !out {
-        cursor = (cursor * 31 + seed) % 100000
-        send(out, cursor)
-    }
-
-    fn next() -> Int {                       // the façade: the caller's thread
-        return waitfor got {                 // type read off `advance`'s parameter
-            advance(got)                     // a send to its own servant
-        }
-    }
-}
-
-fn main() [use, spawn] {
-    let rng = spawn CyclicRandom(12345)      // one servant; the handle is the façade
-    use rng
-    let n = next()                           // send, wait, answer — no [waitfor] anywhere
-}
-```
-
-A `waitfor` names its token and infers the token's type from the send the block
-makes: `advance` declares `out: Reply<Int>`, so `got` is a `Reply<Int>` and the
-wait yields an `Int`. Write the type out — `waitfor got: Reply<Int> { … }` —
-where several members of that name would make it ambiguous, which is an error
-naming that remedy.
-
-State is **confined**: only send members touch it, so every access is a serialized activation, and a sync member that reads a field is refused by name — its environment is its own parameters, the constructor parameters, and sends to its own servant. Nothing here declares `waitfor`: a call occupying its thread until it returns is what a call is, and the façade's wait serves its pool while it waits. What a caller of `next()` can never learn is whether the `Random` in scope is a scope-local handler, a monitor, or three threads' shared servant — which is the point.
-
-Send members reach their siblings the same way: a bare call naming another of the handler's `send fn` members enqueues on the servant's own mailbox — "finish this activation, then that one" — so a request can travel member to member without leaving the actor. `k@self(…)` is the explicit spelling of the same send, available in either member kind, and it is how the call says what it means where a bare name would be ambiguous with an effect member in scope.
-
-A mixed handler may declare dependencies like any handler (`handler Counted(seed: Int) [Console, Label] for Random`), and they belong to the servant: its send members call them, the spawn supplies them as an actor spawn does — a `with` item, or the spawning scope's own instance — and the façade carries none, so a sync member that calls one is refused with the remedy (send to a member that does). A send member whose sibling shares a name with a dependency's member says which it means: `k@self(…)` or `k@Label(…)`.
-
-A mixed handler is spawn-only (`use` would leave its sends nowhere to arrive). By default its servant answers every request within the activation that received it, which is what makes a façade's wait end after one straight-line activation rather than after an event that may never come. A send member that declares `defer` on a reply parameter opts out of that default: the answer may outlive the activation — forwarded to another actor whose discharge ends the caller's wait, or parked in a continuation on one of the servant's own members with `replyto`, exactly as an actor parks — and the deadlock graph prices the deferral.
-
-## Two effects, one member name
-
-Different effects may declare the same member name — `close` on a file system and `close` on a network effect is the natural spelling, not a collision. A bare call sees the members of every effect that has a handler in scope, and the argument types choose among them like any overloads. When two of them take the same arguments, the call picks its effect with `@`, the same selector that picks a module's overload:
-
-```
-fn shut(h: Int) [Fs] -> Str {
-    return close(h)          // only Fs is available here: unambiguous
-}
-
-fn both(h: Int) [Fs, Net] -> None {
-    close(h)                 // ERROR: Fs's and Net's `close(Int)` both fit
-    close@Fs(h)              // explicit: the Fs member
-    h.close@Net()            // dot form, like any member call
-}
-```
-
-The name after `@` is capitalized, which is what distinguishes an effect selector from a module path (`size@core.list(xs)`). A generic effect's instance is pinned by the call's type arguments, exactly as without the selector: `next_random@Random<Int>()`. A member is also a value wherever a function type is expected, by its bare name or with the selector: `on_point(show, p)` passes the `show` of the effect in scope, as a function bound to that handler, when the position's type picks it over any function named `show`; `show@Fmt` names it outright. Away from such a position (`let v = show`) a member is not a value.
-
-Within a *single* effect a member name may recur too, as an ordinary **overload**: one name, different parameter types, picked by the argument types like any function overload.
-
-```
-effect Fs {
-    fn close(s: InStream) -> Ok None | Err Checked<FsError> => !s
-    fn close(s: OutStream) -> Ok None | Err Checked<FsError> => !s
-}
-```
-
-Two members with the same name *and* the same parameter types are the error they look like — no call could tell them apart. The selector and the overload compose: `@Fs` picks the effect, the arguments pick the member.
-
-A member and an ordinary **function** may also share a name, and they are one overload set too. std's own filesystem needs it: `close` is an `Fs` member per stream token *and* the function that closes a `Lines` iterator.
-
-```
-fn close(p: Lines) [Fs] -> Ok None | Err Checked<FsError> => !p {         // a function
-    return close(p.s)                                            // ...calling the member
-}
-```
-
-The argument types decide, ranked exactly as two function overloads are: the more specific signature wins, so a concrete function beats a generic member. A member call is an ordinary call in every other way too: its parameters may have defaults, be named at the call, or end in a variadic tail, as a function's may. Two rules keep it predictable:
-
-* **Availability first.** A member is a candidate only where its effect has a handler in scope. Without one, the name is the function — no `@` needed. That is what lets you write a `close` of your own in a program that never opens a file.
-* **A tie is an error.** If both sides fit and neither is more specific, the call must say which it means: `close@Fs(…)` for the member, `close@my.module(…)` for the function. Nothing is preferred silently.
+- [`Console`](../../lib/std/core/console.sv#effect-console), with
+  [`StdConsole`](../../lib/std/core/console.sv#handler-stdconsole);
+- [`Args`](../../lib/std/args.sv#effect-args),
+  [`Process`](../../lib/std/process.sv#effect-process) and
+  [`Env`](../../lib/std/env.sv#effect-env), for
+  [command-line tools](Command-Line.md#the-raw-arguments-exit-and-environment);
+- [`Fs`](../../lib/std/fs.sv#effect-fs) and
+  [`Streams`](../../lib/std/stream.sv#effect-streams) ([Files](Files.md));
+- [`Clock`](../../lib/std/time.sv#effect-clock) and
+  [`Timer`](../../lib/std/time.sv#effect-timer) ([Time](Time.md));
+- [`Random`](../../lib/std/random.sv#effect-random);
+- [`Throw`](../../lib/std/throw.sv#effect-throw), which has no handler
+  ([Throwing](Throwing.md)).

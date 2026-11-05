@@ -1,66 +1,90 @@
 # Implicit parameters
 
+## Overview
+
 Some things a function needs are not really *arguments*: how to compare two
 `T`s, how to copy one, how to advance an iterator. They are properties of the
 type, and repeating them at every call is noise. Salvo passes them as
-**implicit parameters** — written with `?`, resolved by the compiler from
+**implicit parameters**: written with `?`, and resolved by the compiler from
 what is visible at the call.
 
-The same mechanism reaches further than function signatures. A struct can
-*require* a set of functions, and a **qualifier** can *carry* one, so a value
-remembers which function it was built with. This page is the three, in that
-order, and the standard library's heap as the worked example that uses all
-of them.
-
-## A function's own implicits
-
-A parameter written with `?` is one the caller does not have to pass:
-
-```
+```salvo
 fn sort<T>(list: List<T>, ?cmp: (T, T) -> Int) -> List<T> => list { ... }
-```
 
-At the call site the compiler fills `cmp` by looking for a function *named*
-`cmp` whose type fits `(T, T) -> Int` with `T` as this call binds it. So
-declaring the default for a type is just declaring a function:
-
-```
 fn cmp(a: Str, b: Str) -> Int { ... }
 
 sort(names)                    // cmp resolved
 sort(names, cmp = descending)  // or supply your own, by name
 ```
 
-Nothing ties `cmp` to `Str`. There is no declaration saying "`Str` has an
-ordering" — the overload whose parameters accept `Str` *is* the ordering, and
-a different one is a lambda or a function reference away. Overriding is by
-the parameter's own name, and the value can be either:
+At the call the compiler fills `cmp` by looking for a function *named*
+`cmp` whose type fits `(T, T) -> Int`, with `T` as this call binds it. So
+declaring the default for a type is just declaring a function.
 
+If you know Rust traits, Haskell type classes or Scala's implicits, the
+role is the same: a generic function states what it needs from its type
+parameters, and the call site supplies it. The difference is that nothing
+is registered and nothing is implemented. There is no declaration saying
+"`Str` has an ordering"; the `cmp` overload whose parameters accept `Str`
+*is* the ordering, and any other function of the right type can be passed
+instead.
+
+The same mechanism reaches further than function signatures:
+
+* a set of related implicits is declared once as a **`fns` group** and
+  spread into a signature ([Bundling them: `fns`](#bundling-them-fns));
+* a **struct** can *require* a group, so the obligation travels with the
+  type ([A struct that requires them](#a-struct-that-requires-them));
+* a **qualifier** can *carry* a function, so a value remembers which one it
+  was built with ([A qualifier that carries one](#a-qualifier-that-carries-one)).
+
+The page ends with the standard library's heap, which uses all of them
+([Worked example](#worked-example-stds-heap)).
+
+## A function's own implicits
+
+A parameter written with `?` is one the caller does not have to pass:
+
+```salvo
+fn sort<T>(list: List<T>, ?cmp: (T, T) -> Int) -> List<T> => list { ... }
 ```
+
+Nothing ties `cmp` to `Str`, or to any type: whatever `cmp` fits the
+position's type at the call is the one used, and a different one is a lambda
+or a function reference away. Overriding is by the parameter's own name, and
+the value can be either:
+
+```salvo
 sort(names, cmp = (a: Str, b: Str) -> size(a) - size(b))
 ```
 
+### What fits the position
+
 A function you supply fits the position as a function passed by name does
 ([Lambdas and variadic arguments](Lambdas-and-Variadics.md#which-functions-fit-a-function-type)):
-it may ask less of its argument by a claim, so a `render_row(xs: List<Int>)`
-fills `?to_str: (x: NonEmpty List<Int>) -> Str`, and an owned parameter it
-keeps may read a borrow, so std's `hash` of a `Str` fills `?hash: (x: proj
-Str) -> Long` for a set of views; but it must take `Mut` where the position passes
-`Mut`.
+
+* it may ask less of its argument by a claim, so a `render_row(xs:
+  List<Int>)` fills `?to_str: (x: NonEmpty List<Int>) -> Str`;
+* an owned parameter it keeps may read a borrow, so std's `hash` of a `Str`
+  fills `?hash: (x: proj Str) -> Long` for a set of views;
+* but it must take `Mut` where the position passes `Mut`.
 
 A resolved implicit is exactly the function value you would get by passing
 that function by name: the same type (a constructor's gained claim, `->
 +Valid Range`, included), the same check of its contract, and its own
-implicits filled in turn. It is chosen the same way too — by the rule a call
-follows, at the position's type — only here without your writing the name.
+implicits filled in turn. It is chosen the same way too, by the rule a call
+follows, at the position's type, only here without your writing the name
+([How a call resolves an implicit](#how-a-call-resolves-an-implicit)).
+
+### Calling an implicit in the body
 
 Inside the body an implicit is one more function of its name, chosen by the
-caller, and a call is resolved by its arguments: where they fit the implicit
-the call goes through it, and otherwise to the functions of that name in
-scope. So a generic body can compare its `T`s with `cmp` and an `Int` it
-holds with the ordinary `cmp` in the same breath:
+caller. A call is resolved by its arguments: where they fit the implicit the
+call goes through it, and otherwise to the functions of that name in scope.
+So a generic body can compare its `T`s with `cmp` and an `Int` it holds
+with the ordinary `cmp` in the same breath:
 
-```
+```salvo
 fn rank<T>(a: T, b: T, ties: Int, ?cmp: (T, T) -> Int) -> Int => a, b {
     let c = cmp(a, b)          // the implicit: the arguments are `T`s
     if c != 0 {
@@ -70,11 +94,26 @@ fn rank<T>(a: T, b: T, ties: Int, ?cmp: (T, T) -> Int) -> Int => a, b {
 }
 ```
 
-### Bundling them: `fns`
+**One name may stand for two implicits at different types.** A function
+printing a map needs a `to_str` for the keys and another for the values:
+
+```salvo
+fn show<K, V>(m: Map<K, V>(?hash, ?eq), ?to_str: (k: K) -> Str, ?to_str: (v: V) -> Str) -> Str
+```
+
+Each is filled on its own at the call. Inside the body, `to_str(k)` goes
+through the one its argument fits, and so does `${k}`, so the two never need
+names of their own. Where the arguments fit both, the two are ranked like
+overloads and the more specific one takes the call: in `fn both(n: Int,
+?tag: (x: Int) -> Str, ?tag: (x: Int | Str) -> Str)`, `tag(n)` goes through
+the `Int` one. Two that no rule separates are an error, and so is a bare
+override `to_str = f` at the call, which cannot say which one it means.
+
+## Bundling them: `fns`
 
 A set of related functions is declared once and spread with `?`:
 
-```
+```salvo
 fns Field<T> {
     fn add(a: T, b: T) -> T
     fn zero() -> T
@@ -89,47 +128,57 @@ fn total<T>(xs: List<T>, ?Field<T>) -> T => xs {
 }
 
 total(List(1, 2, 3))                          // 6
-total(List(2, 3, 4), add = times, zero = one) // 24 — override one or both
+total(List(2, 3, 4), add = times, zero = one) // 24: override one or both
 ```
 
 The spread has **no name of its own**, deliberately: its members become
 implicit parameters in their own right, so they are called unqualified inside
 the body and overridden by their own names outside it. A `fns` group is
-never a value — it exists only to keep a signature short.
+never a value; it exists only to keep a signature short.
 
-Overriding "one or both" is the usual freedom: a group is a convenience for the
-declaration, not a contract the caller must fill wholesale. Some members are only
-meaningful together, though, and a clause says which:
+`std.core` declares the groups everything else builds on:
+[`Ordered<T>`](../../lib/std/core/compare.sv#fns-ordered) (`cmp`),
+[`Eq<T>`](../../lib/std/core/compare.sv#fns-eq) (`eq`),
+[`Hashed<T>`](../../lib/std/core/compare.sv#fns-hashed) (`hash` and `eq`
+together), [`Next<It, T, [E]>`](../../lib/std/core/iterator.sv#fns-next)
+(`next`) and [`Ref<C, L, T>`](../../lib/std/core/list.sv#fns-ref) (`at`). A
+type joins any of them by declaring the function; there is nothing to
+register.
 
-```
+### Members that go together: `with`
+
+Overriding "one or both" is the usual freedom: a group is a convenience for
+the declaration, not a contract the caller must fill wholesale. Some members
+are only meaningful together, though, and a clause says which:
+
+```salvo
 fns Hashed<T> => eq with hash {
     fn hash(value: T) -> Long
     fn eq(a: T, b: T) -> Bool
 }
 ```
 
-`eq with hash` means the two are **one decision**: a call writes both, forwards
-both, or leaves both to resolution, and mixing those is an error that names the
-fix. A hash and an equality have to agree — equal values must hash equally — and
-a container that buckets by the hash would never consult an equality somebody
-else chose, so half a pair is either invisible or broken.
+`eq with hash` means the two are **one decision**: a call writes both,
+forwards both, or leaves both to resolution, and mixing those is an error
+that names the fix. A hash and an equality have to agree (equal values must
+hash equally), and a container that buckets by the hash would never consult
+an equality somebody else chose, so half a pair is either invisible or
+broken.
 
-`with` is symmetric (agreement has no direction) and chains: `a with b with c`
-makes the three one class. A function may add relations of its own —
-`fn f<T>(?Hashed<T>, ?at: …) => at with hash` — but never drop one it inherited
-by spreading a group; declaring the members individually (`?hash: …, ?eq: …`) is
-how a signature takes them unrelated.
+`with` is symmetric (agreement has no direction) and chains: `a with b with
+c` makes the three one class. A function may add relations of its own, as
+in `fn f<T>(?Hashed<T>, ?at: …) => at with hash`, but never drop one it
+inherited by spreading a group; declaring the members individually (`?hash:
+…, ?eq: …`) is how a signature takes them unrelated.
 
-`std.core` declares the ones everything else builds on: `Ordered<T>` (`cmp`),
-`Eq<T>` (`eq`), `Hashed<T>` (`hash` and `eq` together), `Next<It, T, [E]>`
-(`next`), `Ref<C, L, T>` (`at`). A type joins any of them by declaring the
-function — there is nothing to register.
+### Effects in a group
 
 A group may declare an **effect variable**
-([Lambdas](Lambdas-and-Variadics.md)) for what its members perform. `Next`
-does, because advancing an iterator may read a stream:
+([Effect variables](Lambdas-and-Variadics.md#effect-variables-e)) for what
+its members perform. `Next` does, because advancing an iterator may read a
+stream:
 
-```
+```salvo
 fns Next<It, T, [E]> {
     fn next(it: Mut It) [E] -> Emitted T | Finished => it: Mut
 }
@@ -145,32 +194,22 @@ and only a pure `next` fills it. Where a pure function fills a position over
 the variable, the compiler wraps it in a small function that takes the
 effects and ignores them.
 
-### Details worth knowing
+## How a call resolves an implicit
 
-- **An implicit parameter's type must be a function type.** What fills it is
-  resolved as a function of that name.
-- **They come last.** A normal parameter written after one could not be
-  passed positionally.
-- **Generic code passes its own implicits on.** Inside `total`, `T` is
-  opaque, so a call to another function needing `?Field<T>` is filled from
-  *this* function's implicits — matched by name and type, whatever grouping
-  either side used. A generic function that declares none cannot call one
-  that needs one: there is nothing to resolve and nothing to forward, and the
-  error says which to add. This is the same colouring effects have, for the
-  same reason.
 - **Resolution is local.** Which default a call gets depends on what is
   visible where the call is written, exactly as with `use` and handlers.
 - **Resolution is a call's.** Every visible function of the name that fits
   the implicit's type competes, wherever it was declared, and the most
-  specific signature wins — `cmp(Int, Int)` over a generic `cmp<T>`, as in a
-  call. Two that no rule separates make the call ambiguous, an error naming
-  both and the remedies: pass the one you mean (`cmp = cmp@main`), or
-  `rename` one. Only then are the chosen function's own implicits filled, by
-  the same rule; if they cannot be, that is the error, and no other
-  candidate is tried instead. The error names the position you wrote and the
-  one that failed, with the types in between:
+  specific signature wins: `cmp(Int, Int)` over a generic `cmp<T>`, as in a
+  call ([Overload resolution](Functions.md#overload-resolution)). Two that no
+  rule separates make the call ambiguous, an error naming both and the
+  remedies: pass the one you mean (`cmp = cmp@main`), or `rename` one.
+- **Then the chosen function's own implicits are filled**, by the same rule.
+  If they cannot be, that is the error, and no other candidate is tried
+  instead. The error names the position you wrote and the one that failed,
+  with the types in between:
 
-  ```
+  ```text
   error: `?to_str: (NonEmpty List<NonEmpty List<NonEmpty List<Foo>>>) -> Str` for `to_str`
   cannot be completed: it needs `?to_str: (Foo) -> Str`, and no `to_str` fits (…);
   chain: `NonEmpty List<NonEmpty List<NonEmpty List<Foo>>>` → `NonEmpty List<NonEmpty List<Foo>>`
@@ -180,9 +219,27 @@ effects and ignores them.
   A chain longer than four is shortened in the middle (`… 6 more …`), and
   one that would nest more than 8 levels deep, or that needs itself, is
   refused the same way.
+- **What the implicit resolves to can determine the call's type arguments.**
+  Resolution runs *between* the arguments, not after them, so a variable that
+  appears only in the implicit's type is still inferred. It is read off the
+  function resolution chooses, by the same rule: with `f(x: Int) -> Str` and
+  `f<T>(x: T) -> Str` both visible, `conv<B>(x: Int, ?f: (x: Int) -> B)`
+  called as `conv(1)` infers `B = Str` from the more specific `f`. Where no
+  single function wins, nothing is inferred, and the ambiguity is the error.
+  A `?Next<It, T>` spread goes one step further: `T` is read off `It`'s own
+  declaration (see [Iterators](Iterators.md)), so the element type of a
+  combinator is never written.
+- **A mismatch that types cannot show is explained.** What a call does to
+  each argument is part of whether a function fits, but not part of how a
+  type prints, so a function that *consumes* an argument where the position
+  keeps it is reported in words: which argument, which direction, and the
+  two ways to fix it.
+
+## Implicits and effects
+
 - **An implicitly resolved function performs only what its position says.**
   A fn type without an effect list means "performs nothing", and an
-  effectful function does not fit there — so resolution can never quietly
+  effectful function does not fit there, so resolution can never quietly
   add an effect to a caller. A position over the callee's effect variable
   (`?Next<It, T, [E]>`) takes one, and its effects are the caller's, named
   in the callee's signature by the variable.
@@ -192,7 +249,7 @@ effects and ignores them.
   them. A member chosen for an implicit is passed as a function that carries
   its handler, so it fits a pure position:
 
-  ```
+  ```salvo
   effect Fmt { fn to_str(p: Point) -> Str => p }
 
   fn render(p: Point, ?to_str: (p: Point) -> Str) -> Str => p { return to_str(p) }
@@ -202,45 +259,33 @@ effects and ignores them.
   }
   ```
 
-  A member and a function of one signature are ambiguous, and the error names
-  both remedies: `to_str = to_str@Fmt` (the member, written as a value) or
-  `to_str = to_str@main`. Without a handler in scope a member is no
-  candidate. A slot a type carries (below) takes only a top-level function,
-  since a member's handler is not something a type can name.
-- **Effect members have them too.** A member is an ordinary signature, so
-  `fn show(v: T, ?fmt: (T) -> Str) -> Str` works: the call site resolves
-  `fmt`, and every handler implementing `show` receives it. Handler
-  *constructors* do not — their instance is built by `use`, which resolves
-  nothing — and neither do lambdas, whose types have no room to declare one.
-- **A mismatch that types cannot show is explained.** What a call does to
-  each argument is part of whether a function fits, but not part of how a
-  type prints, so a function that *consumes* an argument where the position
-  keeps it is reported in words: which argument, which direction, and the two
-  ways to fix it.
-- **One name may stand for two implicits at different types.** A function
-  printing a map needs a `to_str` for the keys and another for the values:
+  A member and a function of one signature are ambiguous, and the error
+  names both remedies: `to_str = to_str@Fmt` (the member, written as a
+  value) or `to_str = to_str@main`. Without a handler in scope a member is
+  no candidate. A slot a type carries
+  ([A qualifier that carries one](#a-qualifier-that-carries-one)) takes only
+  a top-level function, since a member's handler is not something a type can
+  name.
+- **Effect members have implicits too.** A member is an ordinary signature,
+  so `fn show(v: T, ?fmt: (T) -> Str) -> Str` works: the call site resolves
+  `fmt`, and every handler implementing `show` receives it.
 
-  ```
-  fn show<K, V>(m: Map<K, V>(?hash, ?eq), ?to_str: (k: K) -> Str, ?to_str: (v: V) -> Str) -> Str
-  ```
+## Rules and restrictions
 
-  Each is filled on its own at the call. Inside the body, `to_str(k)` goes
-  through the one its argument fits — and so does `${k}` — so the two never
-  need names of their own. Where the arguments fit both, the two are ranked
-  like overloads and the more specific one takes the call: in `fn both(n:
-  Int, ?tag: (x: Int) -> Str, ?tag: (x: Int | Str) -> Str)`, `tag(n)` goes
-  through the `Int` one. Two that no rule separates are an error, and so is
-  a bare override `to_str = f` at the call, which cannot say which one it
-  means.
-- **What the implicit resolves to can determine the call's type arguments.**
-  Resolution runs *between* the arguments, not after them, so a variable that
-  appears only in the implicit's type is still inferred. It is read off the
-  function resolution chooses, by the same rule: with `f(x: Int) -> Str` and
-  `f<T>(x: T) -> Str` both visible, `conv<B>(x: Int, ?f: (x: Int) -> B)`
-  called as `conv(1)` infers `B = Str` from the more specific `f`. Where no
-  single function wins, nothing is inferred, and the ambiguity is the error. A `?Next<It, T>`
-  spread goes one step further: `T` is read off `It`'s own declaration (see
-  [Iterators](Iterators.md)), so the element type of a combinator is never written.
+- **An implicit parameter's type must be a function type.** What fills it is
+  resolved as a function of that name.
+- **They come last.** A normal parameter written after one could not be
+  passed positionally.
+- **Generic code passes its own implicits on.** Inside `total`, `T` is
+  opaque, so a call to another function needing `?Field<T>` is filled from
+  *this* function's implicits, matched by name and type, whatever grouping
+  either side used. A generic function that declares none cannot call one
+  that needs one: there is nothing to resolve and nothing to forward, and the
+  error says which to add. This is the same colouring effects have, for the
+  same reason.
+- **Only functions and effect members declare them.** Handler
+  *constructors* do not: their instance is built by `use`, which resolves
+  nothing. Neither do lambdas, whose types have no room to declare one.
 
 ## A struct that requires them
 
@@ -248,8 +293,8 @@ A struct can state that its type parameter must come with a bundle, using a
 `:` clause between the generics and `canbe`. The obligation is then the
 *type's*, not each function's:
 
-```
-// std.core.array — the iterator an array is walked by. `: Next<self, proj T>` is the
+```salvo
+// std.core.array: the iterator an array is walked by. `: Next<self, proj T>` is the
 // obligation: this struct comes with a `next`, and `self` names the struct.
 export struct ArrayIter<T> : Next<self, proj T> canbe Mut {
     items: proj (T[]),
@@ -257,61 +302,66 @@ export struct ArrayIter<T> : Next<self, proj T> canbe Mut {
 }
 ```
 
-The obligation now travels with the *type*: a combinator taking an
-`ArrayIter` writes no `?Next` of its own, and `for` over one needs nothing
-either. Without the clause the same struct is just a struct — the `for` loop
-says so, and names the clause as the remedy.
+The obligation travels with the *type*: a combinator taking an `ArrayIter`
+writes no `?Next` of its own, and `for` over one needs nothing either.
+Without the clause the same struct is just a struct; the `for` loop says so,
+and names the clause as the remedy. See
+[`ArrayIter`](../../lib/std/core/array.sv#struct-arrayiter) and, for
+iterators in general, [Iterators](Iterators.md).
 
 ## A qualifier that carries one
 
 `sort(list, cmp = …)` picks an ordering per call, which is right for an
 algorithm that does its work and hands the result back. A structure that
-*stays* ordered — a heap, a ranked list — cannot work that way: building it
-under one ordering and reading it under another is a corrupt structure, and
-"which ordering" is a property of the value, not of each call.
+*stays* ordered, such as a heap or a ranked list, cannot work that way:
+building it under one ordering and reading it under another is a corrupt
+structure, and "which ordering" is a property of the value, not of each
+call.
 
-So a qualifier can carry the function as a **slot**, fixed where the value is
-constructed. Type arguments come first, slots after:
+So a qualifier ([Qualifiers](Qualifiers.md)) can carry the function as a
+**slot**, fixed where the value is constructed. Type arguments come first,
+slots after:
 
+```salvo
+qualifier Heap<T>(?Ordered<T>) for List<T>
 ```
-qualifier Heap<T>(?Ordered<T>) for List<T> with NonEmpty
-```
 
-A use site fills the slot with a **function identity** — a bare name
-(`Heap<Person>(min_by_age)`), a canonical (`Heap<Person>(cmp@Person)`) — or
-with the signature's own binder (`Heap<T>(?cmp)`), which is how a generic
+A use site fills the slot with a **function identity**: a bare name
+(`Heap<Person>(min_by_age)`), a canonical (`Heap<Person>(cmp@Person)`), or
+the signature's own binder (`Heap<T>(?cmp)`), which is how a generic
 function says "whatever this value carries". A bare name means what an
 implicit of that name would resolve to at the slot's type; if two functions
 fit and neither is more specific (this module's `by_len` and an imported
 one), the type is ambiguous and the error says to write `by_len@main` or
 `by_len@lib`.
 
-Three consequences, and they are the point:
+Three consequences follow, and they are the point:
 
 - **`Heap(min_by_age)` and `Heap(max_by_age)` are different types.** Passing
   one where the other is expected is an ordinary type error naming both.
-- **All the `?cmp` in one signature are one binding.** A
-  `merge(a: Heap<T>(?cmp) Mut List<T>, b: Heap<T>(?cmp) Mut List<T>)` accepts
-  two heaps only if they carry the same ordering. Two *different* orderings
-  need two names, which is what an alias is for: `b: Heap<T>(?cmp: cmp2)`
-  fills the same slot under the name `cmp2`. A slot a signature never
-  mentions is not constrained at all, so a function that does not care writes
-  the claim bare (`Heap List<T>`) and accepts any of them. In that `merge`,
-  `x < y` is the `cmp`: an operator asks for its function by name, as the
-  call `cmp(x, y)` would, so aliasing an ordering is how a body keeps it out
-  of `<`, and calls `cmp2(x, y)` where it wants that one.
-- **A function bound into a type must be named, top-level and capture-free.**
-  A lambda has no identity a type could carry, and the error says so instead
-  of losing the claim quietly. Everything a type can *print* it can carry.
+- **All the `?cmp` in one signature are one binding.** A `merge(a:
+  Heap<T>(?cmp) Mut List<T>, b: Heap<T>(?cmp) Mut List<T>)` accepts two heaps
+  only if they carry the same ordering. Two *different* orderings need two
+  names, which is what an alias is for: `b: Heap<T>(?cmp: cmp2)` fills the
+  same slot under the name `cmp2`. A slot a signature never mentions is not
+  constrained at all, so a function that does not care writes the claim bare
+  (`Heap List<T>`) and accepts any of them. In that `merge`, `x < y` is the
+  `cmp`: an operator asks for its function by name, as the call `cmp(x, y)`
+  would, so aliasing an ordering is how a body keeps it out of `<`, and the
+  body calls `cmp2(x, y)` where it wants that one.
+- **A function bound into a type must be named, top-level and
+  capture-free.** A lambda has no identity a type could carry, and the error
+  says so instead of losing the claim quietly. Everything a type can *print*
+  it can carry.
 
 Dropping the claim is safe rather than silently wrong: the operations demand
-it, and a plain value never gets it back by subtyping — you lose access,
+it, and a plain value never gets it back by subtyping. You lose access,
 never correctness.
 
 A **struct** can declare slots the same way, when the structure is a type of
 its own rather than a claim on a list:
 
-```
+```salvo
 struct Ranked<T>(?cmp: (T, T) -> Int) canbe Mut {
     items: List<T> canbe Mut
 }
@@ -319,32 +369,34 @@ struct Ranked<T>(?cmp: (T, T) -> Int) canbe Mut {
 fn push<T>(r: Mut Ranked<T>(?cmp), x: T) -> None => r: Mut, !x { … }
 ```
 
-No `Ranked` value stores the function: the type carries it, a function over the
-struct captures it through `?cmp`, and `Ranked<Int>(backwards)` and
+No `Ranked` value stores the function: the type carries it, a function over
+the struct captures it through `?cmp`, and `Ranked<Int>(backwards)` and
 `Ranked<Int>(cmp)` refuse to mix exactly as two heaps do.
 
 ## Worked example: `std`'s heap
 
-`import std.heap` brings a binary heap that is **not a container**: it is a claim
-on an ordinary `List<T>`, arranged and kept by the ordering it was built
-with. Every piece of this page appears in it.
+`import std.heap` brings a binary heap that is **not a container**: it is a
+claim on an ordinary `List<T>`, arranged and kept by the ordering it was
+built with. Every piece of this page appears in it; its module page is
+[std.heap](../../lib/std/heap.sv).
 
 The claim, with its slot:
 
-```
-export qualifier Heap<T>(?Ordered<T>) for List<T> with NonEmpty
+```salvo
+export qualifier Heap<T>(?Ordered<T>) for List<T>
 ```
 
 Construction takes the ordering as an ordinary implicit, and the return type
-**publishes what the call resolved** — `+Heap<T>(?cmp)` establishes the claim:
+**publishes what the call resolved**: `+Heap<T>(?cmp)` establishes the
+claim.
 
-```
+```salvo
 export fn heap_of<T>(?Ordered<T>) -> +Heap<T>(?cmp) Mut List<T> {
     return Mut List()
 }
 
 export fn heap_of<T>(first: T, ...elems: T[], ?Ordered<T>)
--> Heap<T>(?cmp) NonEmpty Mut List<T> {
+-> Heap<T>(?cmp) NonEmpty Mut List<T> => !first, !elems {
     let list = Mut List(first, ...elems)
     heapify(list)
     return list
@@ -354,7 +406,7 @@ export fn heap_of<T>(first: T, ...elems: T[], ?Ordered<T>)
 Turning an arbitrary list into a heap says the same thing in a deduction
 clause, because the claim is established rather than kept:
 
-```
+```salvo
 export fn heapify<T>(list: Mut List<T>, ?Ordered<T>)
 => list: +Heap<T>(?cmp) Mut {
     if list is NonEmpty {
@@ -364,34 +416,35 @@ export fn heapify<T>(list: Mut List<T>, ?Ordered<T>)
 ```
 
 An operation on an existing heap *captures* the ordering from its argument's
-type rather than stating it — inside the body `cmp` is an ordinary implicit,
+type rather than stating it. Inside the body `cmp` is an ordinary implicit,
 and it is the one this heap was built with:
 
-```
+```salvo
 export fn push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) -> None
-=> heap: +Heap<T>(?cmp) Mut, !elem {
+=> heap: +Heap NonEmpty Mut, !elem {
     ...
 }
 ```
 
 Using it:
 
-```
+```salvo
 import std.heap
 
 fn main() [use] {
     use StdConsole()
     let h = heap_of(5, 1, 4)           // Heap<Int>(cmp) NonEmpty Mut List<Int>
     push(h, 0)
-    println("${peek(h)}")              // 0 — under the ordering it was built with
+    println("${peek(h)}")              // 0: under the ordering it was built with
 }
 ```
 
-Two heaps built under different orderings will not mix, a function that needs
-the ordering never asks for it, and none of it costs anything at run time:
-qualifiers are erased, and the carried identity resolves to a direct call.
+Two heaps built under different orderings will not mix, a function that
+needs the ordering never asks for it, and none of it costs anything at run
+time: qualifiers are erased, and the carried identity resolves to a direct
+call.
 
 The carried ordering is not written at the call: the heap already gives
-`push` its `cmp`, so `push(h, 0, cmp = …)` names the same parameter twice and
-is refused, whatever it names — the heap is arranged by the one it was built
-with.
+`push` its `cmp`, so `push(h, 0, cmp = …)` names the same parameter twice
+and is refused, whatever it names. The heap is arranged by the one it was
+built with.

@@ -149,6 +149,55 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-10-30 — `docs/language/` rewritten as a narrative (user request)
+
+- **Asked** (user, 2026-10-30): "a more narrative introduction … can also
+  start pointing to more detailed module/type docs … The overview should be
+  introductory, with the initial section of each topic being an overview of
+  the feature, and then subsequent sections being caveats, exceptions,
+  extensions, etc."
+- **Built**: `README.md` is now an introduction (what Salvo adds to a
+  familiar surface, a first program that runs alike on both backends, the
+  values, then the reading order); every one of the 29 pages opens with an
+  `## Overview` that compares the feature with Rust, Kotlin, Java or
+  TypeScript, then the details in order of need. Every Salvo fence is
+  ```` ```salvo ````, std's API is linked through its source (`salvo docs`
+  makes those module-page links), rule labels and dates are out. Seven
+  sub-agents did it in parallel, one group of pages each, each saving the
+  originals and auditing them section by section so no rule was lost; every
+  example they touched was checked with `salvo analyze` and most were run.
+  Old anchors were kept except a handful (`Data-and-Types.md#tuples-and-unions`,
+  `#nullability-via--none`, `Implicit-Parameters.md#details-worth-knowing`,
+  `Compile-Time-Functions.md#what-is-not-there-yet`, four in
+  Effects-and-Handlers), none linked from outside the pages; the
+  `Args`/`Process`/`Env` sections moved from Effects-and-Handlers to
+  Command-Line.
+- **Examples that were wrong**, fixed on the page: return-moving fns
+  missing `=> !s`; `while i++ < size` reading past the end; retired list,
+  set and brace literals; handler state outside `state { }`; `max(rest)` for
+  `max(...rest)`; `filter(iter("hello"), …)` (a view of a temporary); a
+  block lambda's return type that a type parameter cannot supply; the
+  `Person` example hashing every field but equal by age (now `eq by auto`
+  and a `hash` by name); union `by auto` examples whose arms had no
+  `cmp` (they overflow, ROADMAP §0bd); `HostStreams`, `Range`, `IoError
+  { path: copy(path) }`, `[3, 2, 1]` in an IR sample, and the stale IR
+  samples for `?:`, `?.`, `use` and `spawn`.
+- **Claims that were stale**, corrected: unions are not hashable keys;
+  `with` is retired, so stacked qualifiers need no compatibility; a
+  refinement reaches only a *written* deduction since defaults replaced
+  inference; Rust binds borrow-mode locals by reference; collections are
+  `platform type`s, not intrinsics; a platform fn may be generic; `**` is
+  right-associative in the precedence table; `generate-ir` prints nothing
+  for a program with type errors. The same staleness in LANGUAGE_SPEC.md was
+  fixed with it ([col-sorted]'s union line, [qual-subject]'s `with`
+  line, [qual-refn-infer] restated for written deductions, [mod-namespace]'s
+  example).
+- **Retired DOCS.md**, the working document of the `salvo docs` work
+  (`salvo docs`, std's doc comments, these pages): its two style guides are
+  AGENTS.md's "Documentation style", its one open item (doc examples
+  compiled with the program, user: later) is ROADMAP §0be, and the defects
+  the two rewrites found are §0bd.
+
 ### 2026-10-30 — std's doc comments rewritten for readers new to Salvo (user request, [doc-compilerrules] [doc-example-nocheck])
 
 - **Asked** (user, 2026-10-30): std's comments should explain how things
@@ -162,7 +211,8 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   with an example using its main types and functions, and every exported
   declaration a summary that stands alone, its edge cases and an example
   where use is not obvious. `std.core.seq` was written first as the
-  exemplar, the style guide went into DOCS.md, and seven sub-agents did the
+  exemplar, the style guide (now AGENTS.md's "Documentation style") was
+  written, and seven sub-agents did the
   rest in parallel, comments only. History ("user decision …") and
   maintainer notes left the doc blocks: into fn bodies, or a free-standing
   block above. 356 doc examples, every one type-checked

@@ -1,17 +1,24 @@
 # Testing
 
-A test is a declaration:
+## Overview
 
-```
+Tests are part of the language rather than a library: a test is a
+declaration, it lives in a file beside the module it tests, and `salvo test`
+runs it on either backend with the same report.
+
+```salvo
 test "an empty heap pops nothing" {
     let heap = empty_heap<Int>()
     expect(pop(heap) is None, "popping an empty heap answers None")
 }
 ```
 
-Named by a string, because a test name is prose and there is nothing to call it by. It takes no parameters, declares no effects, returns nothing, and cannot be exported — a test is run, never referenced. `salvo test` finds them, runs them, and prints what happened:
+A test is named by a string, because a test name is prose and there is nothing
+to call it by. It takes no parameters, declares no effects, returns nothing,
+and cannot be exported: a test is run, never referenced. `salvo test` finds
+the tests, runs them, and prints what happened:
 
-```
+```text
 test heap :: an empty heap pops nothing ... ok (2 ms)
 test heap :: pops come out in order ... FAILED
     expected 9, got 5
@@ -19,43 +26,134 @@ test heap :: pops come out in order ... FAILED
 5 tests: 4 passed, 1 failed
 ```
 
+The tests of module `heap` live in `heap.test.sv`, the module's **test
+annex**, which sees the module's private declarations. Assertions such as
+`expect` and `expect_eq` come from [`std.test`](../../lib/std/test.sv),
+which every annex sees without an import; an assertion that does not hold
+*throws*, and the harness reports the test as failed. A test that spawns
+actors is written `test actor` and runs on a single-threaded runtime with a
+virtual clock ([`std.test.actor`](../../lib/std/test/actor.sv)).
+
+If you know JUnit or Rust's `#[test]`, the differences are these: tests can
+only live in the annex, so shipped code cannot depend on them; an assertion is
+an ordinary function that throws, so your own assertions need no framework;
+and a trap (a failed `assert!`) fails one test rather than ending the run.
+
+The sections below cover where tests live, what a test body may do, how a
+test fails, actor tests, running tests and reading their output, tests about
+traps, and how the runner works. The last section,
+[Assertions](#assertions), is about `assert!` and `unreachable!` in ordinary
+code.
+
 ## Where tests live
 
-```
+```text
 src/
   cart.sv            // the module
-  cart.test.sv       // its tests — part of the module, so they see its privates
+  cart.test.sv       // its tests: part of the module, so they see its privates
 ```
 
-**In a companion file, always.** The tests of module `heap` live in `heap.test.sv` beside `heap.sv`, and a `test` block written in a production source file is an error naming the companion. `.test` is the one dot a file name may carry; the file is module `heap.test`, the **test annex** of module `heap`.
+**In a companion file, always.** The tests of module `heap` live in
+`heap.test.sv` beside `heap.sv`, and a `test` block written in a production
+source file is an error naming the companion. `.test` is the one dot a file
+name may carry ([Modules](Modules.md#naming-rules)); the file is module
+`heap.test`, the **test annex** of module `heap`.
 
-The annex is the module's whitebox: it sees every declaration of `heap`, private ones included, exactly as another file of the module would. Nothing sees the annex. That is not a rule to remember but a consequence of two facts — no production file imports it, and `salvo compile` and `salvo run` do not load `.test.sv` files at all. There is nothing to strip from a production build, and no way for shipped code to come to depend on a test.
+**The annex sees the module; nothing sees the annex.** The annex is the
+module's whitebox: it sees every declaration of `heap`, private ones included,
+exactly as another file of the module would. Nothing sees the annex. That is
+not a rule to remember but a consequence of two facts: no production file
+imports it, and `salvo compile` and `salvo run` do not load `.test.sv` files
+at all (`salvo test` and `salvo analyze`, and so the editor, do). There is
+nothing to strip from a production build, and no way for shipped code to come
+to depend on a test.
 
-An annex may declare whatever its tests need: helper functions, structs, qualifiers of its own. They are invisible to the module it tests, so a test vocabulary never leaks into the shipped surface.
+**An annex may declare whatever its tests need**: helper functions, structs,
+qualifiers of its own. They are invisible to the module it tests, so a test
+vocabulary never leaks into the shipped surface.
 
-An annex with no module to be the annex of is an error: `heap.test.sv` needs a `heap.sv` beside it.
+**An annex needs its module.** An annex with no module to be the annex of is an
+error: `heap.test.sv` needs a `heap.sv` beside it. So is `heap.test.sv` beside
+a `heap/test.sv`, since the two spell one module path.
+
+**Names.** A test's name is a plain string literal (interpolation is a parse
+error, since listing and filtering tests must know the names without running
+anything), and two tests in one file may not share a name.
 
 ## What a test may do
 
-A test body is an ordinary block with an entry point's powers. It may `use` handlers, which is how a test supplies fakes:
+A test body is an ordinary block with an entry point's powers. It may `use`
+handlers, which is how a test supplies fakes:
 
-```
+```salvo
 test "a missing file reports its path" {
-    use MemFs()
-    let outcome = try {
-        read_to_str(path("/nothing"))
+    use MemFs()                                 // an in-memory filesystem, empty
+    let outcome = read_to_str(path("/nothing"))
+    if outcome is Ok {
+        throw(Failure { message: "read a file that is not there" })
     }
-    expect(outcome is Thrown, "reading a missing file fails")
+    let message = to_str(detach(outcome))
+    expect_eq(message, "no such file or directory: /nothing")
 }
 ```
 
-Everything else about a body is the language as it is everywhere else — narrowing, linearity, deductions, effects. A linear value a test opens must still be closed on every path, and a test that leaks one does not compile.
+Everything else about a body is the language as it is everywhere else:
+narrowing, linearity, deductions, effects. A linear value a test opens must
+still be closed on every path, and a test that leaks one does not compile.
+Since an assertion may throw, and the code that would close a value does not
+run when it does, nothing linear may be live across an assertion: a test that
+opens a stream reads what it needs, closes it, and then asserts on what it
+read.
+
+## How a test fails
+
+[`std.test`](../../lib/std/test.sv) is **implicitly available in every
+annex**, which is why no test file imports anything to assert. It behaves as a
+whole-module import, so a declaration of the annex's own (an `expect` of its
+own) silently wins over the standard one.
+
+- [`expect(condition, label)`](../../lib/std/test.sv#fn-expect): the general
+  assertion. The label says what was expected.
+- [`expect_eq(actual, expected)`](../../lib/std/test.sv#fn-expect_eq): for a
+  type with an `eq` and a `to_str`, which is what the report prints. Both are
+  implicit parameters found at the call site, so a type joins in by declaring
+  the two functions.
+
+An assertion that does not hold *throws*: assertions declare
+`[Throw<Failure>]`, and the harness reads the outcome off a `try`
+([Throwing](Throwing.md)). Two consequences follow from that, and they are the
+whole model:
+
+**A test stops at its first failing assertion**, because that is what `throw`
+does. Several independent facts are several tests.
+
+**An assertion vocabulary of your own is an ordinary function.** A helper that
+asserts declares `[Throw<Failure>]` and composes with the built-in ones; there
+is nothing to register and no framework to extend:
+
+```salvo
+// In an annex, beside the tests that use it.
+fn expect_sorted(list: List<Int>) [Throw<Failure>] -> None => list {
+    let i = 1
+    while i < list.size() {
+        expect((list.get(i - 1) ?: unreachable!()) <= (list.get(i) ?: unreachable!()), "sorted at ${i}")
+        i += 1
+    }
+}
+```
+
+[`Failure`](../../lib/std/test.sv#struct-failure) is a small struct carrying
+the message, so a failure can be built and inspected like any other value, and
+a test may throw one itself (`throw(Failure { message: "…" })`) to fail for a
+reason of its own.
 
 ## Actor tests
 
-A test about actors says so in its kind, and runs on a runtime built for testing them:
+A test about actors says so in its kind, and runs on a runtime built for
+testing them:
 
-```
+```salvo
+// In an annex that imports std.time.
 test actor "a session expires an hour after it opens" {
     let timer = spawn DefaultTimer() on pool(1)
     use DefaultTicker()
@@ -67,59 +165,56 @@ test actor "a session expires an hour after it opens" {
 }
 ```
 
-An actor test may `spawn`, and it runs on the **virtual runtime**:
+An actor test may `spawn`, and it runs on the **virtual runtime**
+([`std.test.actor`](../../lib/std/test/actor.sv)):
 
-- **One thread.** A pool starts no threads of its own; the test's own frame runs every actor's work while it waits.
-- **Time moves when nothing can run.** When every actor is waiting and a deadline is pending, the clock jumps to that deadline and fires it. So the hour above passes at once, and `tick()` reads exactly one hour later. Each actor test starts its clock at zero.
-- **Randomness from a seed.** What the runtime draws (an addr's identity bits) comes from the test's seed, so a run repeats exactly. The seed is the kind's argument: `test actor(seed: 7) "…"`, and 0 when not given.
-- **A fresh scheduler.** Each actor test starts with no actors and no pending deadline; whatever an earlier test left behind is gone.
-- **A wait nothing can answer is a deadlock**, reported by name, since on one thread nobody else could answer it.
+- **One thread.** A pool starts no threads of its own; the test's own frame
+  runs every actor's work while it waits.
+- **Time moves when nothing can run.** When every actor is waiting and a
+  deadline is pending, the clock jumps to that deadline and fires it. So the
+  hour above passes at once, and `tick()` reads exactly one hour later. Each
+  actor test starts its clock at zero.
+- **Randomness from a seed.** What the runtime draws (an addr's identity bits)
+  comes from the test's seed, so a run repeats exactly. The seed is the kind's
+  argument: `test actor(seed: 7) "…"`, and 0 when not given.
+- **A fresh scheduler.** Each actor test starts with no actors and no pending
+  deadline; whatever an earlier test left behind is gone.
+- **A wait nothing can answer is a deadlock**, reported by name, since on one
+  thread nobody else could answer it.
 
-A host thread would bring work from outside the virtual clock, so an actor test may not open one: a platform handler that listens or reads on a thread of its own (`HostTcpTransport`, a stream's `receive`) stops the test with a report. Its in-memory fakes (`MemTransport`, `MemFs`) are what an actor test uses.
+**No host threads.** A host thread would bring work from outside the virtual
+clock, so an actor test may not open one: a platform handler that listens or
+reads on a thread of its own (`HostTcpTransport`, a stream's `receive`) stops
+the test with a report. Its in-memory fakes (`MemTransport`, `MemFs`) are what
+an actor test uses.
 
-A plain `test` that spawns is on the real, threaded runtime, as a program is. The runner writes one program for the plain tests and one for the actor tests, so the plain tests are reported first.
+**A plain `test` that spawns** is on the real, threaded runtime, as a program
+is. The runner writes one program for the plain tests and one for the actor
+tests, so the plain tests are reported first.
 
-## How a test fails
-
-`std.test` is **implicitly available in every annex**, which is why no test file imports anything to assert:
-
-- `expect(condition, label)` — the general assertion. The label says what was expected.
-- `expect_eq(actual, expected)` — for a type with an `eq` and a `to_str`, which is what the report prints.
-
-An assertion that does not hold *throws*: assertions declare `[Throw<Failure>]`, and the harness reads the outcome off a `try` [throw]. Two consequences follow from that, and they are the whole model:
-
-**A test stops at its first failing assertion**, because that is what `throw` does. Several independent facts are several tests.
-
-**An assertion vocabulary of your own is an ordinary function.** A helper that asserts declares `[Throw<Failure>]` and composes with the built-in ones; there is nothing to register and no framework to extend:
-
-```
-// In an annex, beside the tests that use it.
-fn expect_sorted(list: List<Int>) [Throw<Failure>] -> None => list {
-    let i = 1
-    while i < list.size() {
-        expect((list.get(i - 1) ?: unreachable!()) <= (list.get(i) ?: unreachable!()), "sorted at ${i}")
-        i += 1
-    }
-}
-```
-
-`Failure` is a small struct carrying the message, so a failure can be built and inspected like any other value.
+[Time](Time.md#time-in-a-test) shows the other way to test timers:
+`ManualTime`, a timer a test advances by hand.
 
 ## Running them
 
-```
+```sh
 salvo test --src ./my_project                    # everything, on the rust backend
 salvo test --backend kotlin --src ./my_project    # the same tests, the same report
 salvo test --src . "empty"                        # only tests whose id contains "empty"
 salvo test --src . --list                         # enumerate, run nothing
 ```
 
-A test's **id** is the module a program would import, then the name as written: `heap :: an empty heap pops nothing`. The filter is a plain substring of that id, so one word selects a module, a test, or a family of tests. The command's exit code is what a build reads: nonzero when anything failed.
+A test's **id** is the module a program would import, then the name as
+written: `heap :: an empty heap pops nothing`. The filter is a plain substring
+of that id, so one word selects a module, a test, or a family of tests. The
+command's exit code is what a build reads: nonzero when anything failed.
 
-**What a test prints** is shown under it in the report, indented, and the
-verdict line says again which test it was:
+### What a test prints
 
-```
+What a test prints is shown under it in the report, indented, and the verdict
+line says again which test it was:
+
+```text
 test calc :: a loud failure ...
   fail line
 test calc :: a loud failure ... FAILED
@@ -133,16 +228,17 @@ Two settings decide what is shown, each a flag or a key of the manifest's
   shows it only when the test fails (or dies); `--output all` shows every
   test's, as it is printed, so a `println` debug session works.
 - **Which output**: `--streams both`, the default, shows stdout and stderr;
-  `--streams stderr` shows only stderr, marked `[stderr]` — what `printerr`
+  `--streams stderr` shows only stderr, marked `[stderr]`: what `printerr`
   wrote, and anything the host wrote there.
+
+A test prints only with a console of its own: `use StdConsole()` in the test,
+as in any function that prints.
 
 A test runs with standard input closed: `readln()` in a test answers `None`.
 
-A test prints only with a console of its own — `use StdConsole()` in the
-test, as in any function that prints.
-
 The manifest's `[test]` section sets these for a project, and which backends
-the tests run on, over `[build] backend`:
+the tests run on, over `[build] backend`
+([The manifest](Manifest.md#test)):
 
 ```toml
 [test]
@@ -154,9 +250,14 @@ streams = "both"     # "stderr" or "both"
 A flag overrides each key. `salvo build`'s test step reads `output` and
 `streams` too, and always tests the backend it builds.
 
-**A test that fails an assertion is a failed test, not a dead run.** An assertion traps, and a trap would ordinarily end the program — so the generated harness catches it and reports it like any other failure, with the trap's own message:
+## Traps in tests
 
-```
+**A test that fails an assertion is a failed test, not a dead run.** An
+`assert!` (see [Assertions](#assertions)) traps, and a trap would ordinarily
+end the program, so the generated harness catches it and reports it like any
+other failure, with the trap's own message:
+
+```text
 test calc :: first passes ... ok (0 ms)
 test calc :: this one traps ... FAILED
     salvo: n should exceed 100, was 6 at calc.test:7:5
@@ -165,11 +266,19 @@ test calc :: and the run goes on ... ok (0 ms)
 3 tests: 2 passed, 1 failed
 ```
 
-Only the harness can do this: the catch is `std.test`'s own, so it exists in test files and nowhere else — production code still cannot catch a trap. A death the harness *cannot* catch (a process killed outright) is still handled, by naming the test that was running and re-running the rest.
+Only the harness can do this: the catch is `std.test`'s own, so it exists in
+test files and nowhere else. Production code still cannot catch a trap. A
+death the harness *cannot* catch (a process killed outright) is still handled,
+by naming the test that was running and re-running the rest.
 
-**A test can also be about a trap.** The same catch is available to you:
+**A test can also be about a trap.** The same catch is available to you, as
+[`expect_trap`](../../lib/std/test.sv#fn-expect_trap),
+[`expect_trap_with`](../../lib/std/test.sv#fn-expect_trap_with) (which also
+checks that the message contains a given text) and
+[`trap_of`](../../lib/std/test.sv#fn-trap_of) (which answers the message, or
+`None` when nothing trapped):
 
-```
+```salvo
 test "halving an odd number traps" {
     expect_trap(() -> { halve(3) }, "halving an odd number")
 }
@@ -184,49 +293,69 @@ test "the message is available" {
 }
 ```
 
-The body is a plain fn value, so it does not inherit the test's effects — a body that needs one registers it itself (`() -> { use StdConsole(); … }`).
+The body is a plain fn value, so it does not inherit the test's effects: a
+body that needs one registers it itself (`() -> { use StdConsole(); … }`).
 
-An actor test's own frame is not inside that catch, because its body spawns and a fn value cannot. A trap there ends the program, and the runner reports the test as having died and re-runs the rest in a fresh process. A fault inside an actor is that actor's death, as anywhere.
+**An actor test's own frame is not inside that catch**, because its body
+spawns and a fn value cannot. A trap there ends the program, and the runner
+reports the test as having died and re-runs the rest in a fresh process. A
+fault inside an actor is that actor's death, as anywhere.
 
-The runner works by writing a Salvo program. It synthesizes a module that calls each test inside its own `try`, compiles it with the rest of the sources exactly as `salvo run` would, and renders what it prints. So the two backends run the same tests the same way, and the report is identical on both — a test suite is not a place where a target language should show through.
+## How the runner works
 
-# Assertions
+The runner works by writing a Salvo program. It synthesizes a module that
+calls each test inside its own `try`, compiles it with the rest of the sources
+exactly as `salvo run` would, and renders what it prints. So the two backends
+run the same tests the same way, and the report is identical on both: a test
+suite is not a place where a target language should show through.
 
-Four ways exist to deal with a fact that might not hold, and they are in order of
-preference — the ladder is the point of this section, and assertions are its
+## Assertions
+
+Four ways exist to deal with a fact that might not hold, and they are in order
+of preference. The ladder is the point of this section, and assertions are its
 bottom rung:
 
 1. **Prove it.** A qualifier carries the fact in the type, established by
    construction (`List(1, 2, 3)` is `NonEmpty`) or by a refinement, so nothing
-   checks it twice and nothing can fail.
-2. **Require it.** A linear type makes the caller *act* rather than merely know:
-   forgetting is a compile error, not a run-time one.
-3. **Handle it.** `?:` picks a fallback, `is` narrows, `when` covers the cases,
-   `throw`/`try` carries a failure to a delimiter. Use these when the absence is
-   a *case* rather than a bug.
+   checks it twice and nothing can fail ([Qualifiers](Qualifiers.md)).
+2. **Require it.** A linear type makes the caller *act* rather than merely
+   know: forgetting is a compile error, not a run-time one
+   ([Linear types](Linear-Types.md)).
+3. **Handle it.** `?:` picks a fallback, `is` narrows, `when` covers the
+   cases, `throw`/`try` carries a failure to a delimiter. Use these when the
+   absence is a *case* rather than a bug.
 4. **Assert it.** Last, and only where the fact is true but unprovable here.
 
-An assertion says something the checker cannot prove, and fails if it is wrong.
-Three forms, each carrying a `!` because a bang in Salvo marks a place that can
-fail:
+An assertion says something the checker cannot prove, and fails if it is
+wrong. There are three forms, each carrying a `!` because a bang in Salvo
+marks a place that can fail:
 
-```
+```salvo
 let head = first(xs) ?: unreachable!()                    // asserts presence
 assert!(n > 0, "n must be positive, was ${n}")
 unreachable!("an Int is negative, zero or positive")
 ```
 
+**Assertions are always on.** There is no build mode that removes them; a
+check you cannot rely on is not worth writing. In a test, a failed assertion
+fails that test (see [Traps in tests](#traps-in-tests)); in a program, it ends
+the program.
+
+### Asserting presence
+
 **Asserting presence is spelled out.** There is no postfix `!`: a value you
-know is there is `e ?: unreachable!("why")` — the first arm, or a trap — and a
+know is there is `e ?: unreachable!("why")` (the first arm, or a trap), and a
 variable is narrowed for good by `assert!(x !is None)`. Where a value can
 legitimately be missing, `?:` with a real fallback and `is None` are the
 answers. (On a union with several value arms, `?:` keeps only the first; the
 `assert!` keeps them all.)
 
+### `assert!` narrows
+
 **`assert!(cond)` asserts a condition**, with an optional message, and it also
 **narrows**:
 
-```
+```salvo
 fn describe(value: Int | Str) [Console] -> None {
     assert!(value is Str, "expected a string, got ${value}")
     println("len ${size(value)}")       // `value` is a `Str` here
@@ -234,18 +363,22 @@ fn describe(value: Int | Str) [Console] -> None {
 ```
 
 That is what makes it more than a check: the same `is` test that would narrow
-inside an `if` narrows for the rest of the scope, so an assertion buys a fact the
-type system then carries. `assert!(xs is NonEmpty)` makes `first(xs)` answer an
-element. Testing a predicate qualifier with no message of your own,
+inside an `if` narrows for the rest of the scope, so an assertion buys a fact
+the type system then carries. `assert!(xs is NonEmpty)` makes `first(xs)`
+answer an element.
+
+Testing a predicate qualifier with no message of your own,
 `assert!(port is InRange(1, 65535))`, fails with the qualifier's own reason,
-"70000 is not in 1..65535"; `whynot?(port is InRange(1, 65535))` gives you that
-reason as a `Str?` without stopping ([Qualifiers](Qualifiers.md)).
+"70000 is not in 1..65535"; `whynot?(port is InRange(1, 65535))` gives you
+that reason as a `Str?` without stopping ([Qualifiers](Qualifiers.md)).
 
-**`unreachable!()` asserts that a path is not taken.** Its type is `Never`, so it
-stands wherever a value is expected and ends the path, exactly as `throw` and
-`return` do:
+### `unreachable!`
 
-```
+**`unreachable!()` asserts that a path is not taken.** Its type is `Never`, so
+it stands wherever a value is expected and ends the path, exactly as `throw`
+and `return` do:
+
+```salvo
 return when {
     n < 0 { "negative" }
     n == 0 { "zero" }
@@ -254,20 +387,22 @@ return when {
 }
 ```
 
-The two named forms look like function calls and are not: the message is built
-*only when the assertion fails*, the condition's narrowing reaches the enclosing
-scope, and neither name can be shadowed. `assert` and `unreachable` stay ordinary
-identifiers — only `assert!(` and `unreachable!(` are the forms.
+### Not function calls
+
+The two named forms look like function calls and are not: the message is
+built *only when the assertion fails*, the condition's narrowing reaches the
+enclosing scope, and neither name can be shadowed. `assert` and `unreachable`
+stay ordinary identifiers; only `assert!(` and `unreachable!(` are the forms.
+
+### What a failure reports
 
 **A failed assertion reports in Salvo's words.** The message names the Salvo
 module, line and column, and reads identically on both backends:
 
-```
+```text
 salvo: n must be positive, was 7 at main:5:5
 salvo: value is absent at std.core.list:153:12
 ```
 
-The mechanism underneath is each target's own trap — a panic on Rust, an
-`AssertionError` on the JVM — because neither program is meant to continue.
-**Assertions are always on.** There is no build mode that removes them; a check
-you cannot rely on is not worth writing.
+The mechanism underneath is each target's own trap (a panic on Rust, an
+`AssertionError` on the JVM), because neither program is meant to continue.

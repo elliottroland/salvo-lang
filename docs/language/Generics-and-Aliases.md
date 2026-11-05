@@ -1,25 +1,68 @@
 # Generics and type aliases
 
-## Generic types
+## Overview
 
-Structs, qualifiers, and arrays can all refer to generic types, using the following syntax:
+A **generic** declaration takes types as parameters, written in angle
+brackets, so one declaration serves every element type: `List<T>` is a list of
+anything, and `Pair<S, T>` below is a pair of any two types. A **type alias**
+gives a long type a short name. Both will look familiar from Kotlin, Rust or
+TypeScript:
 
-```
-// Struct with generic types S and  T
+```salvo
 struct Pair<S, T> {
     first: S,
     second: T
 }
 
-// Qualifier can be as generic as type or less. This governs which `Pair`s the qualifier can apply to.
+fn swapped<S, T>(p: Pair<S, T>) -> Pair<T, S> => !p {
+    return Pair { first: p.second, second: p.first }
+}
+
+let p = swapped(Pair { first: "one", second: 1 })   // a Pair<Int, Str>
+
+type Outcome<S, T> = Ok S | Err T                   // a generic alias
+```
+
+The type arguments are usually inferred from the values, as in the call to
+`swapped` above. Generic functions are covered with the rest of function
+declarations in [Generic functions](Functions.md#generic-functions).
+
+A generic parameter is opaque: with no bounds, nothing about a `T` is known.
+Where generic code needs to do something with its values (compare them, add
+them, print them), it asks for that capability as an implicit parameter, such
+as `?cmp` or `?plus`, which the caller's scope supplies
+([Implicit parameters](Implicit-Parameters.md)).
+
+The rest of this page covers generic types, the qualifiers that make a
+`Result`-like type out of generics, generic arms in a union, and aliases.
+
+## Generic types
+
+Structs, qualifiers and arrays can all refer to generic types, with the
+following syntax:
+
+```salvo
+// Struct with generic types S and T
+struct Pair<S, T> {
+    first: S,
+    second: T
+}
+
+// A qualifier can be as generic as the type, or less. This governs which `Pair`s the qualifier can apply to.
 qualifier Something<S, T> for Pair<S, T>
 qualifier FirstStr<T> for Pair<Str, T>
 qualifier Ints for Pair<Int, Int>
 ```
 
-Using qualifiers and generics we can implement the equivalent of a `Result` type from Rust. `std.core` ships exactly this pair, so you do not have to declare it — but nothing about it is built in, and the declarations are just:
+### A result type from generic qualifiers
 
-```
+Using qualifiers and generics we can implement the equivalent of Rust's
+`Result` type. `std.core` ships exactly this pair,
+[`Ok`](../../lib/std/core/result.sv#qualifier-ok) and
+[`Err`](../../lib/std/core/result.sv#qualifier-err), so you do not have to
+declare it. But nothing about it is built in, and the declarations are just:
+
+```salvo
 provenance qualifier Ok<T> for T
 provenance qualifier Err<T> for T
 
@@ -34,21 +77,33 @@ if result is Ok {
 }
 ```
 
-Because neither of these are `with` the other, it follows that nothing can be both at the same time. However, because the type of the qualifier is generic, it's possible for _it_ to be a qualified type:
+A value is tagged `Ok` by `ok(x)` and `Err` by `err(x)`, so a function that
+answers `Ok Int | Err Str` hands back one arm or the other, and `is` tells them
+apart (see [std.core.result](../../lib/std/core/result.sv)). Qualifiers compose
+freely ([Qualifiers](Qualifiers.md)), so nothing in the type system forbids a
+value carrying both tags; the arms stay apart because each function mints one.
 
-```
+Because the qualifier's type is generic, the type it qualifies can itself be a
+qualified type:
+
+```salvo
 let result: Ok (Ok Str | Err Int) | Err Bool = some_function()
 ```
 
-This nesting is generally discouraged. There is nothing wrong with having multiple qualifiers over various types, such as:
+This nesting is generally discouraged (taking it apart needs the re-typing
+described in [Control flow](Control-Flow.md#dropping-a-qualifier-x--q-and-x---q)).
+There is nothing wrong with having several qualifiers over various types,
+though:
 
-```
+```salvo
 let result: Ok Str | Err Str | Err Bool = some_function()
 ```
 
-This allows us to accumulate failure modes and handle them at a higher level of the code. Because of generic qualifiers, Salvo also supports more precise checks for unions:
+This lets code accumulate failure modes and handle them at a higher level.
+Because the qualifiers are generic, Salvo also supports more precise checks on
+such unions:
 
-```
+```salvo
 let result: Ok Str | Err Str | Err Bool = some_function()
 
 if result is Err Str {
@@ -60,13 +115,13 @@ if result is Err {
 }
 ```
 
-### Generic union arms and spreads
+## Generic union arms and spreads
 
 A union type written in a signature may have **generic arms**. Each ordinary
-arm — concrete or a bare generic — captures exactly one arm of the union it
+arm, concrete or a bare generic, captures exactly one arm of the union it
 meets:
 
-```
+```salvo
 // Reorders the two arms of any two-arm union.
 fn swap<T, S>(v: T | S) -> S | T => !v {
     when v {
@@ -79,7 +134,7 @@ fn swap<T, S>(v: T | S) -> S | T => !v {
 To let one generic arm capture **more than one** arm, write it as a spread
 `...T`:
 
-```
+```salvo
 struct Box<C> { value: C }
 
 // `...T` absorbs every arm that is not a `Box<C>`.
@@ -95,17 +150,26 @@ let r = detach(some_str_int_or_box())
 ```
 
 The arms the spread does not capture are matched first; whatever is left over
-is bound to `...T`. A union may have **at most one** spread, its type must be a
-bare generic in scope, and a `...` is only ever a union arm. A bare generic
-arm that would have to absorb several arms (`T | Box<C>` meeting a three-arm
-union) no longer matches — reach for `...T` instead.
+is bound to `...T`. The rules:
+
+* A union may have **at most one** spread.
+* The spread's type must be a bare generic in scope.
+* A `...` is only ever a union arm.
+* A bare generic arm that would have to absorb several arms (`T | Box<C>`
+  meeting a three-arm union) does not match; reach for `...T` instead.
 
 ## Type aliases
 
-Type aliases can be convenient for making union and tuple types more readable. You can use generics when declaring a type alias:
+Type aliases make union and tuple types more readable. An alias may be
+generic:
 
-```
+```salvo
 type Result<S, T> = Ok S | Err T
 ```
 
-Type aliases need to be imported like everything else ([Modules](Modules.md)).
+An alias is a name for the type it stands for, not a new type: it expands
+where it is used, with its type arguments substituted, so `Result<Int, Str>`
+and `Ok Int | Err Str` are the same type.
+
+Type aliases need to be imported like everything else
+([Modules](Modules.md)).

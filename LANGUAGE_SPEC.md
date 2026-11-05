@@ -1311,8 +1311,9 @@ Conventions:
   is wanted and quietly lose the property the callee relies on.
   * Their keys must be **orderable** rather than hashable — a different bar,
     checked by the same declaration-site and instantiation-site machinery
-    [col-key-eligible]. A **union** is hashable but never orderable:
-    comparing values of different types has no obvious meaning.
+    [col-key-eligible]. A **union** is not yet a key of either kind (it is
+    refused as a hashed key too), and an ordering of values of different
+    types has no obvious meaning anyway.
   * `min`/`max` on a set and `first_key`/`last_key` on a map are the
     cheap-at-either-end operations an ordered tree exists for; iteration and
     `to_str` are in key order.
@@ -2041,8 +2042,8 @@ Conventions:
   * **Composes without `with`** [qual-no-with]: an origin is orthogonal to
     every claim about contents and to other origins, so tags stack
     freely, including several over one base
-    (`Authenticated EnvironmentId Str`). Two *state* claims still need an
-    explicit `with`.
+    (`Authenticated EnvironmentId Str`), and so do state claims: no pair of
+    qualifiers needs a declared compatibility.
   * Erased like every qualifier [qual-erasure] — the subject axis is
     invisible to backends (user decision 2026-09-03, D5a: the nominal
     flavor of this pattern is a one-field struct, and two lowering models
@@ -2368,15 +2369,16 @@ Conventions:
   * **Visible wherever every qualifier it names is**, the same declaration —
     which for std's `NonEmpty` is everywhere. Trusted like any refinement.
   * Refinements inside a qualifier's body stay (`Idx`'s `preserve`s).
-* [qual-refn-infer] Refinements reach **inferred** deductions
-  [deduce-infer], so the fact survives one frame outward: a fn whose
-  parameter declares the qualifier and whose body makes a refined call
-  may promise it back, and a *written* list promising it validates against
-  the same body facts. Two limits keep this sound:
-  * An addition contributes only for a qualifier the parameter itself
-    **declares** — it can cancel a removal, never invent a claim. The same
-    limit holds for a fn's own `+Q` [deduce-reapply]: re-establishing is not
-    adding.
+* [qual-refn-infer] Refinements reach a fn's **written** deductions, so the
+  fact survives one frame outward: a written list promising the qualifier
+  back (`=> list: NonEmpty Mut`) validates against the body's refined
+  calls. Since defaults replaced inference [deduce-default], a parameter the
+  clause does not mention takes its default, and a refinement adds nothing
+  to it: the promise must be written (2026-10-30, correcting this rule's
+  older "inferred" reading). A written gain may name a qualifier the
+  parameter does not declare when the body's refined calls establish it
+  (std's `heap_push`, `=> heap: +Heap NonEmpty Mut`) [deduce-gained]. One
+  limit keeps this sound:
   * An addition is honored only when the refined call is **unconditional**
     in the body (not inside an `if`/`when` branch, a loop body, a lambda
     or a `try`). The deduction walk is a meet over all
@@ -11872,7 +11874,7 @@ between endpoints and delivers what arrives into the scheduler.
     bare fn); no expected type, no match, or two matches is an error. Valid
     anywhere an expected type is in view — an `is`/`when` arm, a typed value,
     a call argument, and a **value or struct-literal in return position**
-    (`fn s(v: Str) -> AttributeValue { return .S { value: v } }`, user
+    (`fn s(v: Str) -> AttributeValue => !v { return .S { value: v } }`, user
     refinement 2026-10-17).
   * **A `type` alias's own union-arm list is the one exception**: there is no
     outer expected type there, only the declaration naming itself — so
@@ -13704,7 +13706,7 @@ replaced the working document TESTING.md).
   (one about a std-internal module, or one spanning two files); hover and
   `salvo docs` leave that line out [doc-tags]. `--code-unchanged` checks that
   a doc-only edit left every non-comment line as it is at `HEAD`. Doc examples
-  are not yet compiled with the program (ROADMAP).
+  are not yet compiled with the program (ROADMAP §0be).
 * [cli-analyze] `salvo analyze [--src DIR] [--format text|json]` (`--src` from the manifest when omitted [manifest])
   runs the front half of the pipeline — parse,
   resolve, type-check — and reports every diagnostic without generating

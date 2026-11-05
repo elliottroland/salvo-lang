@@ -333,6 +333,48 @@ Salvo source.
   first statement. [deduce-syntax] states the rule; `lib/std/` is written that way
   throughout.
 
+## Documentation style
+
+The user's standard (2026-10-30) for std's doc comments and for
+`docs/language/`. `lib/std/core/seq.sv` is the worked example of the first.
+
+**std's doc comments** are for a programmer who knows another language well
+and is new to Salvo, reading the wiki or hovering a name; Java's
+`ConcurrentHashMap` docs are the model.
+- A **module doc** (the file's first comment run, then a blank line) says
+  what the module is for, how it behaves (ordering, what is borrowed, copied
+  or moved, when effects happen, what is lazy), its guarantees and its costs,
+  then shows its main types and functions together in an example, then
+  short `**Bold lead.**` sections for the caveats.
+- A **declaration's doc** opens with a summary sentence that stands alone
+  (it is the contents table and the index entry), then edge cases, effects
+  and costs. Examples for every function or type whose use the signature
+  does not make obvious, and always for actors, handlers, effects and a
+  module's entry points, with results commented inline (`// [2, 4]`).
+  `@param` where the summary does not make a parameter's role plain (an
+  implicit is "found at the call site: …"), `@returns` and `@throws` where
+  they add something. Overloads share a heading, so each gets a line saying
+  how it differs.
+- **No rule labels** in any comment outside a fn body: they go on a `//
+  @compilerrules [a, b]` line, the doc block's last. No history ("user
+  decision …"), no ROADMAP references. Maintainer notes go in the fn body,
+  or in a comment block above the doc block, separated by a blank line.
+- **Every example type-checks**: `python3 tools/check-doc-examples.py`
+  ([doc-example-nocheck] says how a fence becomes a program); a fence whose
+  first line is `no-check` is skipped, for an example that cannot stand
+  alone. A doc-only edit must pass `--code-unchanged`.
+
+**`docs/language/`** is the source of truth for behaviour, so a rewrite
+never drops or changes a rule. Each page opens with an `## Overview` that
+introduces the feature to someone meeting it for the first time (the
+problem, the basic shape, a small example, how it compares with Rust,
+Kotlin, Java or TypeScript); later sections are details, caveats,
+exceptions and extensions, in order of need. Salvo fences are
+```` ```salvo ````, and other fences name their language. std's API is linked
+through its source, `[map](../../lib/std/core/seq.sv#fn-map)`, which `salvo
+docs` turns into a link to the module's wiki page (anchors are `#<kind>-<name>`
+lowercased). No rule labels in these pages.
+
 ## Non-negotiable invariants
 
 - **Language-design decisions belong to the user.** Any choice that shapes

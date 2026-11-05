@@ -1,56 +1,140 @@
 # Comparison, equality and hashing
 
-Three capabilities are declared exactly this way, in `std.core.compare`:
+## Overview
 
+Sorting, `<`, `==` and the keyed collections all rest on three functions:
+
+* `cmp(a, b)` orders two values. It answers a negative number when `a` sorts
+  first, zero when the two tie, and a positive number otherwise.
+* `eq(a, b)` decides whether two values are equal.
+* `hash(value)` digests a value into a `Long`, for a `Set` or a `Map` to
+  bucket it by.
+
+Each is an ordinary overloadable function, and that is the whole mechanism:
+there is no trait, no interface value, and nothing either backend knows
+about. The operators are calls to them: `a < b` is `cmp(a, b) < 0` and
+`a == b` is `eq(a, b)`. A type takes part by having the function. Where Rust
+has `Ord`, `Eq` and `Hash` traits to implement, and Java has `compareTo`,
+`equals` and `hashCode` methods to override, Salvo has a function of the
+right name and shape declared for the type.
+
+The basic types, strings, lists and tuples come with theirs. A struct of
+your own either asks for the usual field-by-field ones with `by auto`, or
+declares its own:
+
+```salvo
+struct Point : Ordered<self> by auto, Hashed<self> by auto {
+    x: Int,
+    y: Int
+}
+
+struct Person : Ordered<self> {
+    name: Str,
+    age: Int
+}
+
+// People order by age.
+export fn cmp(a: Person, b: Person) [] -> Int => a, b {
+    return cmp(a.age, b.age)
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    let p = Point { x: 1, y: 2 }
+    let q = Point { x: 1, y: 3 }
+    println("${p < q} ${p == q}")         // true false
+    let seen: Mut Set<Point> = Mut Set()
+    add(seen, p)
+    println("${contains(seen, q)}")       // false
+    let ann = Person { name: "ann", age: 30 }
+    let bob = Person { name: "bob", age: 25 }
+    println("${bob < ann}")               // true
+}
 ```
+
+`: Ordered<self>` and `: Hashed<self>` name **groups** of functions declared
+in [`std.core.compare`](../../lib/std/core/compare.sv): a promise, checked
+where the type is declared, that the functions exist. `by auto` asks the
+standard library to write them.
+
+Because a capability is a function in scope rather than a property of the
+type, "orderable" means *an ordering being in scope*. Generic code, which
+knows nothing about its type parameter, asks for one in its signature, and
+the call site supplies the one for the actual type:
+
+```salvo
+fn min_of<T>(a: T, b: T, ?Ordered<T>) -> T => !a, !b {
+    if cmp(a, b) <= 0 {
+        return a
+    }
+    return b
+}
+
+let smaller = min_of("pear", "apple")   // the call site supplies `cmp`
+```
+
+The rest of this page covers the groups, the built-in types' functions,
+declaring and stamping them on your own types, what the operators call, and
+the containers that hold an ordering or a hash.
+
+## The three groups
+
+The three capabilities are declared exactly this way, in
+[`std.core.compare`](../../lib/std/core/compare.sv):
+
+```salvo
 fns Ordered<T> { fn cmp(a: T, b: T) -> Int }
 fns Eq<T>      { fn eq(a: T, b: T) -> Bool }
 fns Hashed<T>  { fn hash(value: T) -> Long
                     fn eq(a: T, b: T) -> Bool }
 ```
 
-`Hashed` is a **pair**, and says so: a hash container buckets by `hash` and
-confirms the bucket hit by `eq`, so a `hash` without its `eq` is useless and a
-pair that disagrees is a container that loses values. `Ordered` is deliberately
-not a pair — no sorted collection consults equality, since it decides membership
-by `cmp` — which is what lets one program hold a `Set<Person>` keyed by every
+[`Hashed`](../../lib/std/core/compare.sv#fns-hashed) is a **pair**, and says
+so: a hash container buckets by `hash` and confirms the bucket hit by `eq`,
+so a `hash` without its `eq` is useless and a pair that disagrees is a
+container that loses values (see [Hash and equality are one
+decision](#hash-and-equality-are-one-decision)).
+[`Ordered`](../../lib/std/core/compare.sv#fns-ordered) is deliberately not a
+pair. No sorted collection consults equality, since it decides membership by
+`cmp`. That is what lets one program hold a `Set<Person>` keyed by every
 field beside a heap ranked by age, without either being a lie.
 
 A group that spreads two overlapping capabilities asks for the shared member
-once: `?Eq<T>, ?Hashed<T>` brings one `eq`. And a spread asks for *every* member
-it declares, whether the body uses it or not — so a function that only needs an
-ordering writes `?cmp: (T, T) -> Int` rather than a group.
+once: `?Eq<T>, ?Hashed<T>` brings one `eq`. A spread asks for *every* member
+it declares, whether the body uses it or not, so a function that only needs
+an ordering writes `?cmp: (T, T) -> Int` rather than a group. How groups and
+implicit parameters work in general is [Implicit
+parameters](Implicit-Parameters.md).
 
-So "orderable" is not a property of a type — it is *an ordering being in
-scope*. `cmp` answers a negative number when `a` sorts first, zero when the two
-tie and a positive number otherwise; `eq` decides equality; `hash` digests.
-Each is an ordinary overloadable function, which is the whole mechanism: no
-trait, no interface value, nothing either backend knows about.
+## The built-in types
 
-The intrinsic types come with theirs — `cmp` and `eq` for `Int`, `Long`,
-`Byte`, `Char`, `Bool`, `Str`, `Double` and `Float`, `hash` for all but the
-floats:
+The intrinsic types come with theirs: `cmp` and `eq` for `Int`, `Long`,
+`Byte`, `Char`, `Bool`, `Str`, `Double` and `Float`, and
+[`hash`](../../lib/std/core/compare.sv#fn-hash) for all but the floats:
 
-```
+```salvo
 let order = cmp("ab", "b")      // negative: strings compare by code point
 let yes = eq(1.5, 1.5)          // true
 ```
 
-`Double` and `Float` compare by IEEE: `cmp(a, b)` is `-1` when `a < b`, `1`
-when `a > b`, and `0` otherwise, so a `NaN` ties with everything. That is no
-total order, so a sorted collection of floats is refused, and they have no
-`hash`.
+**Floats.** `Double` and `Float` compare by IEEE: `cmp(a, b)` is `-1` when
+`a < b`, `1` when `a > b`, and `0` otherwise, so a `NaN` ties with
+everything. That is no total order, so a sorted collection of floats is
+refused, and floats have no `hash`.
 
-The intrinsic types' `cmp` and `eq` are declared beside the types: the
-scalars' in `std.core.basic`, `Str`'s in `std.core.string`, and `List`'s and
-the tuples' (below) with theirs. The hashes are in `std.core.compare`, with the
-groups.
+**Where they are declared.** The intrinsic types' `cmp` and `eq` are declared
+beside the types: the scalars' in [`std.core.basic`](../../lib/std/core/basic.sv),
+`Str`'s in [`std.core.string`](../../lib/std/core/string.sv), and `List`'s
+and the tuples' with theirs (see [Tuples and lists](#tuples-and-lists)). The
+hashes are in `std.core.compare`, with the groups.
 
-A type of your own joins in by declaring the function. A function **declared on
-a type** travels with it, and there are two ways to declare one on a struct —
-inside its body, or as your file's answer to an obligation it states:
+## Declaring them on your own type
 
-```
+A type of your own joins in by declaring the function. A function **declared
+on a type** travels with it, and there are two ways to declare one on a
+struct: inside its body, or as your file's answer to an obligation it states.
+
+```salvo
 struct Person {
     name: Str,
     age: Int
@@ -61,7 +145,7 @@ struct Person {
 }
 ```
 
-```
+```salvo
 struct Person : Ordered<self> { name: Str, age: Int }
 
 fn cmp(a: Person, b: Person) -> Int {
@@ -70,40 +154,141 @@ fn cmp(a: Person, b: Person) -> Int {
 ```
 
 Both declare `cmp` *on* `Person`, and either way it is an ordinary function:
-`cmp(p, q)` and `p.cmp(q)` reach it, and it takes part in overload ranking like
-anything else. What attachment adds is that it **travels with the type** — a
-module that imports `Person` gets its `cmp` too, so "orderable" arrives with the
-type instead of depending on which of its file's names you happened to import —
-and so an implicit `?cmp` for `Person` finds it wherever `Person` is used, where
-it wins as the most specific candidate.
+`cmp(p, q)` and `p.cmp(q)` reach it, and it takes part in overload ranking
+like anything else. What attachment adds is that it **travels with the
+type**. A module that imports `Person` gets its `cmp` too, so "orderable"
+arrives with the type instead of depending on which of its file's names you
+happened to import. And an implicit `?cmp` for `Person` finds it wherever
+`Person` is used, where it wins as the most specific candidate.
 
-The obligation form is also a check: `: Ordered<self>` says at the declaration
-that a matching `cmp` exists, rather than failing at some distant use.
+The obligation form is also a check: `: Ordered<self>` says at the
+declaration that a matching `cmp` exists, rather than failing at some distant
+use.
 
-**Visibility.** A function inside the body takes the struct's own — writing
-`export` on it is an error, because it is contained in the struct. A *detached*
-fulfilment is its own declaration, so if the type is exported it must say
-`export` too; otherwise the capability would be unreachable in the modules that
-can use the type.
+**Visibility.** A function inside the body takes the struct's own visibility.
+Writing `export` on it is an error, because it is contained in the struct. A
+*detached* fulfilment is its own declaration, so if the type is exported it
+must say `export` too; otherwise the capability would be unreachable in the
+modules that can use the type.
 
-**Naming one.** `cmp@Person` names the `cmp` declared on `Person` — at a call,
+**Naming one.** `cmp@Person` names the `cmp` declared on `Person`, at a call
 and as a value:
 
-```
+```salvo
 let by_age = cmp@Person(ada, bob)      // the one declared on the type
 let younger = min_of(ada, bob, cmp = cmp@Person)
 ```
 
-### One per type: where an operator is declared
+## Stamping them: `by auto`
+
+For the everyday case, comparing the fields in order, you do not write the
+bodies at all. `by auto` **stamps** them from the standard library's
+compile-time functions:
+
+```salvo
+struct Point : Ordered<self> by auto, Hashed<self> by auto { x: Int, y: Int }
+```
+
+`by X` on an obligation says where the members come from: `X` is a module
+holding a `comptime fn` per member (`auto` is
+[`std.core.auto`](../../lib/std/core/auto.sv), nameable without an import
+because it is in `std.core`), and each is instantiated at this type. What
+comes out is an ordinary function declared on `Point`: `cmp@Point` names it,
+and it travels with the type. Its body is the per-field comparison you would
+have written: lexicographic by field declaration order (so field order is
+significant), with `cmp`, `eq` and `hash` walking the same fields, so they
+agree by construction.
+
+**Named unions.** The same clause works on a named union, written after the
+alias:
+
+```salvo
+struct Manual : Ordered<self> by auto, Hashed<self> by auto { note: Str }
+struct Imported : Ordered<self> by auto, Hashed<self> by auto { feed: Str, n: Int }
+export type Source = Manual | Imported : Ordered<self> by auto, Hashed<self> by auto
+```
+
+Arms order by their declared position, and two values in one arm by that
+arm's own `cmp`, so each arm has to have one (and an `eq` and a `hash` for
+`Hashed`).
+
+**One function at a time.** `by` also works on one function, keeping its
+full signature, which is how a type mixes stamped and hand-written members.
+Suppose `Person` should be equal by all its fields, but hash by its name
+alone, which is cheaper and still agrees with that equality, since equal
+people have equal names:
+
+```salvo
+struct Person : Hashed<self> {
+    name: Str,
+    age: Int
+
+    fn eq(a: Person, b: Person) -> Bool by auto
+
+    fn hash(value: Person) -> Long => value {
+        return hash(value.name)
+    }
+}
+```
+
+`: Hashed<self> by auto` is not what you want here, because it would stamp
+the `hash` this type writes by hand. A bare `: Hashed<self>` is still the
+promise, checked at the declaration, that a `hash` and an `eq` exist.
+
+**Where errors land.** What a stamped body needs of the type is checked where
+the type is declared, and the error lands on the field it is about. A
+`Double` field has no `hash`, so `: Hashed<self> by auto` on a struct holding
+one reports ``in `hash` from `auto` for `Reading.value: Double`: no matching
+overload for `hash(Double)` `` at that field, not at a distant
+`Set<Reading>`. A `canbe Mut` struct is **refused** by `std.core.auto`'s
+`hash`, because a value that can change while a collection holds it corrupts
+the collection; the refusal lands at the clause.
+
+Writing a member by hand *and* stamping it is a duplicate: keep one.
+
+**Nothing is stamped unless you ask.** A struct with no `cmp` cannot be
+compared, one with no `to_str` does not interpolate, and being in `std.core`
+only means `auto` can be named. So a type says `: ToStr<self> by auto` to
+print in its literal's shape. How a `comptime fn` is written, for a
+convention of your own, is [Compile-time
+functions](Compile-Time-Functions.md).
+
+## Generic code
+
+A *generic* function has to ask, because nothing about an opaque `T` is
+knowable. `min_of` from the overview:
+
+```salvo
+fn min_of<T>(a: T, b: T, ?Ordered<T>) -> T => !a, !b {
+    if cmp(a, b) <= 0 {
+        return a
+    }
+    return b
+}
+
+let smaller = min_of("pear", "apple")   // the call site supplies `cmp`
+```
+
+The group spread is what makes `cmp(a, b)` legal inside. The call site fills
+it with the canonical overload for the type it instantiates, and a function
+that forwards to another needing the same capability declares it too: the
+colouring implicit parameters already have.
+
+## Operators
 
 `a < b` is `cmp(a, b) < 0`, `a == b` is `eq(a, b)`, `"${x}"` is `to_str(x)`
-and `for x in c` is `next(iter(c))`: an operator is the call it names. What
-makes that call *the* type's operator is where such a function may be
+and `for x in c` is `next(iter(c))`: an operator is the call it names. Two
+rules make that predictable: where such a function may be declared, and how
+the call is chosen.
+
+### One per type: where an operator is declared
+
+What makes the call *the* type's operator is where such a function may be
 declared: **a function with an operator's shape on a type is declared in the
 type's own file**, and nowhere else. A second one in another file is an error
 at its declaration, whether anything uses it or not:
 
-```
+```salvo
 // people.sv
 export struct Person { name: Str, age: Int }
 export fn cmp(a: Person, b: Person) -> Int { return cmp(a.age, b.age) }
@@ -116,11 +301,11 @@ fn cmp(a: Person, b: Person) -> Int { … }   // ERROR: `cmp` on `Person` is
 
 So nothing a module imports, and nothing it declares, can change what `<` or
 `==` means on a type: for a concrete type there is exactly one candidate. A
-second ordering is not a second `cmp`; it is a function named for what it
+second ordering is not a second `cmp`. It is a function named for what it
 does, passed where it is wanted, which is how overriding has always been
 spelled:
 
-```
+```salvo
 fn by_name(a: Person, b: Person) -> Int { return cmp(a.name, b.name) }
 
 let sorted = sort(people, cmp = by_name)
@@ -152,21 +337,22 @@ The type a shape is *on* is its first explicit parameter's, qualifiers
 stripped: `eq(a: NonEmpty List<T>, b: List<T>)` is on `List`, and
 `pow(p: Person, power: Int)` on `Person`. A few cases follow from that:
 
-* **Several overloads in the type's own file** are fine — the file's author
+* **Several overloads in the type's own file** are fine: the file's author
   chooses the set, and the usual ranking applies among them.
-* **Effect members count**, as the functions in scope they are; a `fns`
+* **Effect members count**, as the functions in scope they are. A `fns`
   group's members do not (they state a shape, they implement nothing), and
-  neither does a `comptime fn` template — what it stamps lands on the type,
+  neither does a `comptime fn` template: what it stamps lands on the type,
   and a stamp outside the type's file (`fn eq(a: Person, b: Person) -> Bool
   by auto` in another module) is refused like a written one.
 * **The built-in and structural types** have their home in std: the scalars'
   and tuples' and fn types' operators are in `std.core.basic`, `Str`'s in
-  `std.core.string`, `List`'s in `std.core.list`, arrays' in
-  `std.core.array`, an anonymous union's (and `T?`'s) in `std.core.basic`,
-  and an `eff[E]` handle's in `std.core.actor`. A program gives none of them
-  new operators; it passes a named function instead.
-* **A type parameter has no home**, so `fn to_str<T>(x: T)` — a catch-all
-  that would be every type's text form — is refused.
+  `std.core.string`, `List`'s in [`std.core.list`](../../lib/std/core/list.sv),
+  arrays' in [`std.core.array`](../../lib/std/core/array.sv), an anonymous
+  union's (and `T?`'s) in `std.core.basic`, and an `eff[E]` handle's in
+  [`std.core.actor`](../../lib/std/core/actor.sv). A program gives none of
+  them new operators; it passes a named function instead.
+* **A type parameter has no home**, so `fn to_str<T>(x: T)`, a catch-all that
+  would be every type's text form, is refused.
 * **A declared union is its own home**: `type Shape = Circle | Square` may
   declare `to_str(s: Shape)` in its file. Any other alias names the type it
   stands for, so `type Grid = List<Int>` gives `to_str(g: Grid)` no home of
@@ -179,20 +365,20 @@ like any implicit, and may be declared anywhere.
 
 ### What an operator calls
 
-`a == b` is exactly the call `eq(a, b)` — `a != b` is `!eq(a, b)` — and
+`a == b` is exactly the call `eq(a, b)`, `a != b` is `!eq(a, b)`, and
 `a < b` is the call `cmp(a, b)` compared with `0`. The call is chosen the way
 the written one would be, with nothing special about the operator:
 
 * **An implicit of the function you are in comes first.** Inside
   `check(a: Str, b: Str, ?eq: (a: Str, b: Str) -> Bool)`, `a == b` goes
-  through `?eq`, as `eq(a, b)` does there — on a `Str` or an `Int` too, so a
-  caller passing `eq = same_len` gets `same_len`'s answer from the operator.
-  This is how generic code compares: `?Ordered<T>` makes `a < b` legal at a
-  `T`.
+  through `?eq`, as `eq(a, b)` does there. That holds on a `Str` or an `Int`
+  too, so a caller passing `eq = same_len` gets `same_len`'s answer from the
+  operator. This is how generic code compares: `?Ordered<T>` makes `a < b`
+  legal at a `T`.
 * **Then the declarations in scope, and the members of your effects.** An
   available effect's member `eq` is a candidate like a function; beside a
-  function of the same signature the operator is ambiguous, and `eq@Same(a, b)`
-  says which.
+  function of the same signature the operator is ambiguous, and
+  `eq@Same(a, b)` says which.
 * **The operands are the arguments as written.** Their qualifiers take part
   in the ranking (`xs == ys` on two `Packed Bag<Int>`s picks an
   `eq(a: Packed Bag<Int>, b: Packed Bag<Int>)` over the generic one), and the
@@ -200,139 +386,61 @@ the written one would be, with nothing special about the operator:
   (with `Meters`, in its file), `m == f` is that call. With no `eq` taking the
   pair, the operator says so: "no `eq` for `==` on `Meters` and `Feet`".
 
-Two things happen *before* the call. Numbers of one class but different
-widths are widened first — `i < l` with an `Int` and a `Long` compares at
-`Long`, as `cmp(to_long(i), l)` would — while `cmp(i, l)` written out is
+**Before the call.** Two things happen first. Numbers of one class but
+different widths are widened: `i < l` with an `Int` and a `Long` compares at
+`Long`, as `cmp(to_long(i), l)` would, while `cmp(i, l)` written out is
 refused, since a call does not widen a variable. And `x == -1L` on a `Long?`
 tests that `x` holds a `Long` before comparing it, so a `None` is simply
 unequal.
 
-On floats `<` is std's `cmp`, the host's IEEE comparison (`NaN` is neither
-less nor greater, so `NaN <= x` is `false` too), and an implicit `?cmp` over
-`Double`s, where one is in reach, is called instead.
+**Floats.** On floats `<` is std's `cmp`, the host's IEEE comparison (`NaN`
+is neither less nor greater, so `NaN <= x` is `false` too), and an implicit
+`?cmp` over `Double`s, where one is in reach, is called instead.
 
-The backends write the host's own `<` or `==` when the call is std's
-built-in `cmp` or `eq` for a scalar — which is what it means — and the call
-otherwise.
+**What the backends write.** The backends write the host's own `<` or `==`
+when the call is std's built-in `cmp` or `eq` for a scalar, which is what it
+means, and the call otherwise.
 
-For the everyday case — compare the fields, in order — you do not write the
-bodies at all. `by auto` **stamps** them from the standard library's
-compile-time functions:
-
-```
-struct Point : Ordered<self> by auto, Hashed<self> by auto { x: Int, y: Int }
-```
-
-`by X` on an obligation says where the members come from: `X` is a module
-holding a `comptime fn` per member (`auto` is `std.core.auto`, nameable without an
-import because it is in `std.core`), and each is instantiated at this type. What
-comes out is an ordinary function declared on `Point` — `cmp@Point` names it,
-it travels with the type, and its body is the per-field comparison you would
-have written: lexicographic by field declaration order (so field order is
-significant), with `cmp`, `eq` and `hash` walking the same fields so they agree
-by construction.
-
-The same clause works on a **named union**, written after the alias:
-
-```
-struct Manual { note: Str }
-struct Imported { feed: Str, n: Int }
-export type Source = Manual | Imported : Ordered<self> by auto, Hashed<self> by auto
-```
-
-Arms order by their declared position, and two values in one arm by that
-arm's own `cmp` — so each arm has to have one.
-
-`by` also works on one function, keeping its full signature, which is how a
-type mixes. Suppose `Person` should hash by all its fields, with equality
-meaning "same age":
-
-```
-struct Person : Hashed<self> {
-    name: Str,
-    age: Int
-
-    fn hash(value: Person) -> Long by auto
-
-    fn eq(a: Person, b: Person) -> Bool => a, b {
-        return a.age == b.age
-    }
-}
-```
-
-`: Hashed<self> by auto` is not what you want here, because it would stamp the
-`eq` this type writes by hand — and a bare `: Hashed<self>` is still the
-promise, checked at the declaration, that a `hash` and an `eq` exist.
-
-What a stamped body needs of the type is checked where the type is declared,
-and the error lands on the field it is about: a `Double` field has no `hash`,
-so `: Hashed<self> by auto` on a struct holding one reports
-`in `hash` from `auto` for `Reading.value: Double`: no matching overload for
-`hash(Double)`` at that field, not at a distant `Set<Reading>`.
-A `canbe Mut` struct is **refused** by `std.core.auto`'s `hash` — a value that can
-change while a collection holds it corrupts the collection — and the refusal
-lands at the clause.
-
-Writing a member by hand *and* stamping it is a duplicate: keep one.
-
-Nothing is stamped unless you ask. A struct with no `cmp` cannot be compared,
-one with no `to_str` does not interpolate, and being in `std.core` only means
-`auto` can be named — so a type says `: ToStr<self> by auto` to print in its
-literal's shape. How a `comptime fn` is written, for a convention of your own, is
-[Compile-time functions](Compile-Time-Functions.md).
-
-A *generic* function has to ask, because nothing about an opaque `T` is
-knowable:
-
-```
-fn min_of<T>(a: T, b: T, ?Ordered<T>) -> T {
-    if cmp(a, b) <= 0 {
-        return a
-    }
-    return b
-}
-
-let smaller = min_of("pear", "apple")   // the call site supplies `cmp`
-```
-
-The group spread is what makes `cmp(a, b)` legal inside, the call site fills it
-with the canonical overload for the type it instantiates, and a function that
-forwards to another needing the same capability declares it too — the colouring
-implicit parameters already have.
+## Hash values
 
 **A hash value means something within one execution and nowhere else.** Each
 backend hashes with its host's own algorithm, so the same value digests
-differently on Kotlin and on Rust — deliberately, the way the two backends
+differently on Kotlin and on Rust, deliberately, the way the two backends
 generate different random numbers. What holds everywhere is that equal values
 hash equal. So a hash is a bucket, not data: do not print it, persist it, or
-compare it across runs.
+compare it across runs. A hand-written `hash` combines its parts with
+[`mix_hash`](../../lib/std/core/compare.sv#fn-mix_hash), as the structural
+ones do.
 
-### A structure that holds an ordering
+## A structure that holds an ordering
 
 `sort(list, cmp = …)` picks an ordering per call, which is right for an
 algorithm that does its work and hands the result back. A structure that
-*stays* ordered — a heap, a `SortedSet`, a `Sorted` list — cannot work that
-way: building it under one ordering and reading it under another is a corrupt
-structure. Such a structure names the ordering it holds as a **type
-argument** (`Heap<T>(?cmp) List<T>`), so two built under different orderings
-are different types and refuse to mix. That machinery — slots on a qualifier,
-and the function identities that fill them — is
+*stays* ordered (a [heap](../../lib/std/heap.sv#qualifier-heap), a
+[`SortedSet`](../../lib/std/core/sorted.sv#type-sortedset), a `Sorted` list)
+cannot work that way: building it under one ordering and reading it under
+another is a corrupt structure. Such a structure names the ordering it holds
+as a **type argument** (`Heap<T>(?cmp) List<T>`), so two built under
+different orderings are different types and refuse to mix. That machinery,
+slots on a qualifier and the function identities that fill them, is
 [Implicit parameters](Implicit-Parameters.md).
 
-A keyed container is the same story, and its **constructor asks for the
-identity**: `Set` takes `?Hashed<T>`, `SortedSet` takes `?Ordered<T>`,
-and the pair that resolved lands in the type the call answers. So the ordinary
-case needs nothing —
+### Keyed containers
 
-```
+A keyed container is the same story, and its **constructor asks for the
+identity**: [`Set`](../../lib/std/core/set.sv#fn-set) takes `?Hashed<T>`,
+`SortedSet` takes `?Ordered<T>`, and the pair that resolved lands in the type
+the call answers. So the ordinary case needs nothing:
+
+```salvo
 let names: Mut Set<Str> = Mut Set()          // the host's own identity
 let people: Mut Set<Person> = Mut Set()      // `Person`'s declared pair
 ```
 
-— and a container keyed by *something else* passes it, which is the one way to
+A container keyed by *something else* passes it, which is the one way to
 choose:
 
-```
+```salvo
 fn age_hash(p: Person) -> Long => p { return to_long(p.age) }
 fn same_age(a: Person, b: Person) -> Bool => a, b { return a.age == b.age }
 
@@ -341,26 +449,28 @@ let byage: Mut Set<Person>(age_hash, same_age) =
     Mut Set(hash = age_hash, eq = same_age)
 ```
 
-An annotation that names a pair does not *choose* it — it has to agree with
-what the constructor resolved, because what fills the slot is what the
-container is actually keyed by. A pair written this way also makes a struct
-with no `hash` of its own a key: the identity says where hashing comes from,
-so only a position that would look the pair up by name — a parameter written
-`Set<Person>`, a field — needs `Person`'s own.
+**An annotation agrees; it does not choose.** An annotation that names a pair
+has to agree with what the constructor resolved, because what fills the slot
+is what the container is actually keyed by. A pair written this way also
+makes a struct with no `hash` of its own a key: the identity says where
+hashing comes from, so only a position that would look the pair up by name
+(a parameter written `Set<Person>`, a field) needs `Person`'s own.
 
-An identity names a **declaration**, not a spelling. Two modules that each
+**An identity names a declaration, not a spelling.** Two modules that each
 declare a `by_age` key two different kinds of set, which a function taking
-both under one `?cmp` refuses, and a set always meets the `by_age` it was
-built with, wherever it travels — even a private one, in a file that imports
+both under one `?cmp` refuses. A set always meets the `by_age` it was built
+with, wherever it travels, even a private one, in a file that imports
 neither. Where the name alone would not say which, a type prints it with its
 module: `Set<Person>(age_hash@people, same_age@people)`.
 
-A hash and an equality are only meaningful **together**: equal values must hash
-equally, and a container looks up by the hash first, so a custom equality beside
-somebody else's hash would quietly do nothing rather than fail. `Hashed` says so
-in its own declaration:
+### Hash and equality are one decision
 
-```
+A hash and an equality are only meaningful **together**: equal values must
+hash equally, and a container looks up by the hash first, so a custom
+equality beside somebody else's hash would quietly do nothing rather than
+fail. `Hashed` says so in its own declaration:
+
+```salvo
 fns Hashed<T> => eq with hash {
     fn hash(value: T) -> Long
     fn eq(a: T, b: T) -> Bool
@@ -368,27 +478,30 @@ fns Hashed<T> => eq with hash {
 ```
 
 `=> eq with hash` means the two are one decision, so a call supplies both or
-neither — writing one and leaving the other to be found is an error that names
+neither. Writing one and leaving the other to be found is an error that names
 the fix:
 
-```
+```salvo
 // Refused: `eq` is written here, `hash` would be resolved.
-let s: Mut Set<Point> = Mut Set(eq = same_age)
+let s: Mut Set<Person> = Mut Set(eq = same_age)
 
-// Written out — now the pair is stated rather than assembled.
-let s: Mut Set<Point> = Mut Set(hash = age_hash, eq = same_age)
+// Written out: now the pair is stated rather than assembled.
+let s: Mut Set<Person> = Mut Set(hash = age_hash, eq = same_age)
 ```
 
 A function that *holds* an identity says the same thing by taking the whole
 group: `fn collect<T>(x: T, ?Hashed<T>)` forwards both members to whatever it
-builds, where taking only `?hash` would leave the equality to be found. Taking
-the two as separate implicit parameters instead (`?hash: …, ?eq: …`) is how a
-signature opts out of the pairing, since the relation travels with the group.
+builds, where taking only `?hash` would leave the equality to be found.
+Taking the two as separate implicit parameters instead (`?hash: …, ?eq: …`)
+is how a signature opts out of the pairing, since the relation travels with
+the group.
 
-A **generic** function builds one the same way, by declaring the capability and
-letting the constructor's own slots be filled from it:
+### Generic code over keyed containers
 
-```
+A **generic** function builds one the same way, by declaring the capability
+and letting the constructor's own slots be filled from it:
+
+```salvo
 fn gather<T>(a: T, b: T, ?Hashed<T>) -> Set<T> => !a, !b {
     let s: Mut Set<T> = Mut Set()
     add(s, a)
@@ -397,18 +510,18 @@ fn gather<T>(a: T, b: T, ?Hashed<T>) -> Set<T> => !a, !b {
 }
 ```
 
-The container is keyed by whatever the caller's `T` brought with it — a declared
-pair for a struct that has one, the host's own identity for a primitive — and a
-function that only *forwards* the capability to a builder needs to say nothing
-extra either.
+The container is keyed by whatever the caller's `T` brought with it: a
+declared pair for a struct that has one, the host's own identity for a
+primitive. A function that only *forwards* the capability to a builder needs
+to say nothing extra either.
 
 The identity lives in the container's **type**, never in the value: every
 operation is handed the `hash` and `eq` (or `cmp`) its call resolved, the way
 the functions over a `Heap` take its `?cmp`. So a generic function that looks
-something up in a set it was given names the identity in the parameter's type,
-and the call fills it from the argument:
+something up in a set it was given names the identity in the parameter's
+type, and the call fills it from the argument:
 
-```
+```salvo
 fn has<T>(s: Set<T>(?hash, ?eq), e: T) -> Bool => s, e {
     return contains(s, e)
 }
@@ -417,8 +530,10 @@ fn has<T>(s: Set<T>(?hash, ?eq), e: T) -> Bool => s, e {
 Written as a plain `Set<T>`, the parameter would ask for the `hash` of a bare
 `T`, which nothing can answer.
 
-A keyed container over a **tuple or a list** works the same way: std declares
-`hash`, `eq` and `cmp` for them in Salvo, each taking its parts' own — `eq` and
-`cmp` beside the types (the tuples' in `std.core.basic`, `List`'s in
-`std.core.list`), the hashes in `std.core.compare` — so `Mut Set<(Int, Str)>()`
+### Tuples and lists
+
+A keyed container over a **tuple or a list** works the same way. Std declares
+`hash`, `eq` and `cmp` for them in Salvo, each taking its parts' own: `eq`
+and `cmp` beside the types (the tuples' in `std.core.basic`, `List`'s in
+`std.core.list`), the hashes in `std.core.compare`. So `Mut Set<(Int, Str)>()`
 is keyed by `(hash, eq)` like any other set.

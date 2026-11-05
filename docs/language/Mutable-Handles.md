@@ -1,36 +1,56 @@
 # Mutable handles and aliasing
 
+## Overview
+
 Salvo has no references, but it does have **handles**: a value that names
 storage someone else owns, and through which that storage can be changed.
-An element of a list, a field of a struct, a value a function lends back —
+An element of a list, a field of a struct, a value a function lends back:
 each can be mutated in place without copying it out and putting it back.
 
-What makes this interesting is that two handles might name the *same*
-storage. Rust answers that question with a rule — a mutable borrow excludes
-all others — and pays for it by refusing programs that are fine. Salvo
-answers it three ways instead, in order of how much you have to say:
+```salvo
+struct Counter canbe Mut {
+    n: Int
+}
+
+let counters: List<Mut Counter> = List(Mut Counter {n: 1}, Mut Counter {n: 2})
+let c = at(counters, 0) ?: unreachable!()     // a handle to the first counter
+c.n = c.n + 1                                  // changes the counter inside the list
+```
+
+In Kotlin or Java this is ordinary: `counters[0]` is a reference to the
+object in the list, and assigning its field changes the list's object. In
+Rust it is `&mut counters[0]`. The question all three languages have to
+answer is what happens when two handles might name the *same* storage.
+Kotlin does not ask: aliasing is allowed, and whatever happens, happens. Rust
+answers with a rule (a mutable borrow excludes all others) and pays for it by
+refusing programs that are fine. Salvo answers it three ways instead, in
+order of how much you have to say:
 
 1. say nothing, and the compiler keeps one handle at a time;
 2. **prove** two handles are different, and use both;
 3. **name the container** two handles share, and let the callee cope with
    their being the same element.
 
-This page is those three, plus what each costs on the two backends.
+This page is those three, plus how a handle is obtained and lent, and what
+each costs on the two backends. It builds on projections and shared fate from
+[Deductions and ownership](Deductions-and-Ownership.md).
 
 ## Mutable elements
 
 Element mutability belongs to the **element type**, not to the container
 handle. The two are different permissions:
 
-* `Mut List<T>` — a mutable *container*: it can be reshaped (`add`,
+* `Mut List<T>`: a mutable *container*. It can be reshaped (`add`,
   `remove_at`, `set`, `swap`).
-* `List<Mut T>` — a container of mutable *elements*: its shape is fixed, but
+* `List<Mut T>`: a container of mutable *elements*. Its shape is fixed, but
   each element can be changed in place.
 
 Two accessors reach an element, and the choice between them says what you
-mean to do with it: **`get` reads, `at` handles.**
+mean to do with it: **`get` reads, `at` handles**
+([`get`](../../lib/std/core/list.sv#fn-get),
+[`at`](../../lib/std/core/list.sv#fn-at)).
 
-```
+```salvo
 struct Counter canbe Mut {
     n: Int
 }
@@ -54,43 +74,48 @@ fn main() [use] {
 ```
 
 `at(counters, i)` answers `ref(counters) Mut Counter?`. `ref(counters)` is a
-qualifier naming the container the value is a position in, and the `Mut`
-on top of it is the permission to write through it; together they make the
-value a **handle** [ref-handle]. `get(counters, i)` answers
-`proj(counters) Mut Counter?`, a read-only *projection*: its `Mut` is only
-part of the element type, so it fits no `Mut` position. Passing a `get`
-result to `bump` is an error that names `at` as the remedy, and assigning
-through one is refused as a write to a read-only projection. `copy` is
-still how you get a value of your own.
+qualifier naming the container the value is a position in, and the `Mut` on
+top of it is the permission to write through it; together they make the
+value a **handle**. `get(counters, i)` answers `proj(counters) Mut Counter?`,
+a read-only *projection*: its `Mut` is only part of the element type, so it
+fits no `Mut` position. Passing a `get` result to `bump` is an error that
+names `at` as the remedy, and assigning through one is refused as a write to
+a read-only projection. `copy` is still how you get a value of your own.
+
+### Total handles
 
 Like `get`, `at` has a **total** overload: with an index proven in range
-(`i is Idx(counters)`), `at(counters, i)` answers `ref(counters) Mut Counter`
-itself — no `None` arm, nothing to `!`.
+(`i is Idx(counters)`, see [Dependent qualifiers](Dependent-Qualifiers.md)),
+`at(counters, i)` answers `ref(counters) Mut Counter` itself, with no `None`
+arm and nothing to `!`.
 
-```
+```salvo
 if i is Idx(counters) {
     bump(at(counters, i))
 }
 ```
 
-A `Deque` has the same pair, by index from the front. Maps work the same
-way: `at(m, key)` answers `ref(m) Mut V?`, and at a key proven present
-(`k is KeyOf(m)`) the total `at(m, k)` answers `ref(m) Mut V`. A handle
-chains through a map exactly as through a list:
+A [`Deque`](../../lib/std/core/deque.sv#fn-at) has the same pair, by index
+from the front. Maps work the same way: [`at(m, key)`](../../lib/std/core/map.sv#fn-at)
+answers `ref(m) Mut V?`, and at a key proven present (`k is KeyOf(m)`) the
+total `at(m, k)` answers `ref(m) Mut V`. A handle chains through a map
+exactly as through a list:
 
-```
+```salvo
 let m: Mut Map<Str, Mut List<Mut Item>> = Mut Map()
 put(m, "a", Mut List(Mut Item {tag: "x"}, Mut Item {tag: "y"}))
 let it = at(at(m, "a") ?: unreachable!(), 1) ?: unreachable!()           // the list at "a", then its element 1
 it.tag = "z"
 ```
 
-A handle, or a `get` result, can be **read** wherever a value can, with no
-`copy` — the position only reads it. That holds for optionals too: a
-parameter `s: Str?` that the function only reads takes `get(xs, 0)` or an
-optional handle as it is, and its `None` stays `None` [proj-opt-slot]:
+### Reading through a handle
 
-```
+A handle, or a `get` result, can be **read** wherever a value can, with no
+`copy`: the position only reads it. That holds for optionals too. A
+parameter `s: Str?` that the function only reads takes `get(xs, 0)` or an
+optional handle as it is, and its `None` stays `None`:
+
+```salvo
 fn maybe_print(c: Counter?) [Console] {
     if c is Counter {
         println("${c.n}")
@@ -103,11 +128,13 @@ let mine = copy(get(counters, 1))  // `Counter?`, a value of your own
 ```
 
 The same goes for any union, arm by arm: a value that is a `get` in one
-branch and an owned value in another (`if c { get(xs, 0) ?: unreachable!() } else { b }`,
-typed `proj A | B`) passes to a parameter `x: A | B` that only reads it.
+branch and an owned value in another
+(`if c { get(xs, 0) ?: unreachable!() } else { b }`, typed `proj A | B`)
+passes to a parameter `x: A | B` that only reads it.
+
 A `Mut` parameter takes an optional *handle*, since it writes through it:
 
-```
+```salvo
 fn heal(e: Mut Counter?) -> None => e: Mut {
     if e is Counter {
         e.n = e.n + 1
@@ -118,24 +145,26 @@ heal(at(counters, 0))              // the element, healed in place
 heal(get(counters, 0))             // error: `get` reads, `at` handles
 ```
 
+### Reads coexist; a write invalidates the rest
+
 Handles that are only **read** impose nothing, so any number coexist:
 
-```
+```salvo
 let a = at(counters, 0) ?: unreachable!()
 let b = at(counters, 1) ?: unreachable!()
 println("${a.n} ${b.n}")          // two live handles, both read: fine
 ```
 
 A **write** through one is a mutation of the container, so anything else
-derived from it is invalidated — the acting handle itself survives, since
-its storage did not move.
+derived from it is invalidated. The acting handle itself survives, since its
+storage did not move.
 
 ## Lending a handle from your own function
 
 A function can hand a handle back. It says so on its return type, naming
 the container the result is a handle into:
 
-```
+```salvo
 struct Entity canbe Mut {
     hp: Int
 }
@@ -164,30 +193,35 @@ fn main() [use] {
 
 The body returns `e`, the element the loop produced from `es`: a *position*
 in `es`. A function declared `-> ref(c) Mut T` that returns a position in `c`
-is **minting** a handle. A position comes from a place (a field path, a search
-loop's element, a handle you were given) or from another mint: std's `at` for a
-list, deque and map are the primitives. A `ref` is never made from a reader's
-result. `get` answers a borrow that has forgotten where the element is, so
-`return get(list, index)` under a `-> ref(list) Mut T?` signature is an error;
-declare the reader `-> ref(…)` or return a place.
+is **minting** a handle.
 
-The handle may be used where it is minted, bound across statements, or —
-as here — **found by a loop**, where the position is never written down.
+* A position comes from a place (a field path, a search loop's element, a
+  handle you were given) or from another mint: std's `at` for a list, a deque
+  and a map are the primitives.
+* A `ref` is never made from a reader's result. `get` answers a borrow that
+  has forgotten where the element is, so `return get(list, index)` under a
+  `-> ref(list) Mut T?` signature is an error; declare the reader
+  `-> ref(…)` or return a place.
 
-That shape is worth pausing on. Rust can write the *function* — with
-`iter_mut` and NLL, a search returning `Option<&mut Entity>` compiles — but
+The handle may be used where it is minted, bound across statements, or, as
+here, **found by a loop**, where the position is never written down.
+
+That shape is worth pausing on. Rust can write the *function* (with
+`iter_mut` and NLL, a search returning `Option<&mut Entity>` compiles), but
 it cannot then use the result the way the program above does: a live `&mut`
-into `squad` forbids even a **read** of `squad`, so `size(squad)` or a
-second lookup between two writes through the handle is E0502. Salvo accepts
-that, and the Rust backend renders the handle by handing back the *path* to the
-element rather than a reference — see
-[What the backends do](#what-the-backends-do).
+into `squad` forbids even a **read** of `squad`, so `size(squad)` or a second
+lookup between two writes through the handle is E0502. Salvo accepts that,
+and the Rust backend renders the handle by handing back the *path* to the
+element rather than a reference (see [What the backends do](#what-the-backends-do)).
+
+### Generic lending: `fns Ref`
 
 A generic function can lend too, if the caller supplies the accessor. That
-is what `fns Ref` is for [col-locate] — the bundle pattern, applied to
-positions:
+is what [`fns Ref`](../../lib/std/core/list.sv#fns-ref) is for: the bundle
+pattern of [Implicit parameters](Implicit-Parameters.md), applied to
+positions.
 
-```
+```salvo
 // std.core.list
 fns Ref<C, L, T> {
     fn at(c: C, l: L) -> ref(c) Mut T?
@@ -204,10 +238,10 @@ heal_at(squad, 1)                  // `at` resolves to the list accessor
 The container may be generic too. A handle into a `c: C` is still a
 position in `c`, whatever `C` turns out to be, so a function generic over
 the container takes handles into it and passes them on, and a function
-that mints through `?Ref` may itself be a mint — **delegating** to the
+that mints through `?Ref` may itself be a mint, **delegating** to the
 accessor the caller supplied:
 
-```
+```salvo
 struct Player canbe Mut { goals: Int }
 
 fn bump<C>(c: C, a: ref(c) Mut Player) -> None {
@@ -222,11 +256,13 @@ bump(squad, at(squad, 0) ?: unreachable!())         // C is List<Mut Player>
 bump(squad, borrow_via(squad, 1) ?: unreachable!())  // the caller's `at` fills `?Ref`
 ```
 
-Effect members can lend the same way: a member declared `-> ref(c) Mut T`
-is a mint each handler implements, and a handle bound from it behaves like
-any other. A `platform handler` cannot implement such a member (host code
-has no way to answer a path into the caller's container), and an `actor
-effect`'s members cannot return one.
+### Lending from an effect
+
+Effect members can lend the same way: a member declared `-> ref(c) Mut T` is
+a mint each handler implements, and a handle bound from it behaves like any
+other. A `platform handler` cannot implement such a member (host code has no
+way to answer a path into the caller's container), and an `actor effect`'s
+members cannot return one. See [Effects and handlers](Effects-and-Handlers.md).
 
 ## One handle at a time, by default
 
@@ -234,7 +270,7 @@ Say nothing and the compiler keeps a single *usable* handle per container
 once one of them writes. Two handles from computed indices may name the
 same element, so a write through one invalidates the other:
 
-```
+```salvo
 let a = at(squad, i) ?: unreachable!()
 let b = at(squad, j) ?: unreachable!()
 a.hp = a.hp + 1
@@ -243,19 +279,20 @@ b.hp = b.hp + 1                    // error: `squad` was mutated (through `a`) a
 
 The same rule reaches call arguments: two handles into one container in one
 call is refused at the second argument, and the diagnostic names the two
-ways forward — prove them apart, or mutate through one at a time.
+ways forward, which are to prove them apart, or to mutate through one at a
+time.
 
-```
+```salvo
 duel(at(squad, i) ?: unreachable!(), at(squad, j) ?: unreachable!())     // error at the second argument
 ```
 
 ## Proving two handles apart: `NotSame`
 
-`std.core.ref` declares a qualifier for exactly this. It is a claim about the
-**handles**, not about how they were found: `d is NotSame(a)` says that `d`
-names a different element from `a` [ref-notsame].
+[`std.core.ref`](../../lib/std/core/ref.sv) declares a qualifier for exactly
+this. It is a claim about the **handles**, not about how they were found:
+`d is NotSame(a)` says that `d` names a different element from `a`.
 
-```
+```salvo
 export qualifier NotSame<T>(a: T) for T {
     fn qualifies(b: T, a: T) -> Bool {
         return !same(a, b)
@@ -271,7 +308,12 @@ the same element test false.
 Test it and both handles live at once, a write through one leaves the
 other standing, and one call may take both:
 
-```
+```salvo
+struct Entity canbe Mut {
+    hp: Int,
+    energy: Int
+}
+
 fn duel(a: Mut Entity, d: Mut Entity) -> None => a: Mut, d: Mut {
     a.energy = a.energy - 1
     d.hp = d.hp - 2
@@ -287,30 +329,33 @@ if d is NotSame(a) {
 ```
 
 The test runs at run time, and the claim it leaves is about the two
-handles' identity [fate-elem-distinct]:
+handles' identity:
 
 * a write **through** either handle keeps it, since the element changed but
   is still the same element;
 * **rebinding** either handle strips it, like any dependent claim;
-* a handle minted inside a statement (`duel(at(squad, i) ?: unreachable!(), at(squad, j) ?: unreachable!())`)
+* a handle minted inside a statement
+  (`duel(at(squad, i) ?: unreachable!(), at(squad, j) ?: unreachable!())`)
   has no name to prove anything about, so **bind the handles first**.
 
 Because the claim is about handles, it holds whatever the container's `at`
 does: an index into a list, a key into a map, or a search through your own
 struct.
 
+### One handle at a time, wrapped: `update`
+
 For the one-handle shape std wraps the handle up, so a caller writes
 neither the handle nor the claim:
 
-```
+```salvo
 update(squad, i, (hero) -> { hero.hp = hero.hp - 3 })
 ```
 
-`update` takes an `i: Idx(squad)` and **preserves `Idx`**, so a sequence of
-them stays total. An in-place write moves no boundary, so the indices you
-proved remain valid:
+[`update`](../../lib/std/core/list.sv#fn-update) takes an `i: Idx(squad)`
+and **preserves `Idx`**, so a sequence of them stays total. An in-place write
+moves no boundary, so the indices you proved remain valid:
 
-```
+```salvo
 update(squad, i, (hero) -> { hero.hp = hero.hp - 3 })
 update(squad, j, (hero) -> { hero.hp = hero.hp + 1 })
 println("${get(squad, i).hp}")     // still the *total* read: `Idx` survived
@@ -319,15 +364,16 @@ println("${get(squad, i).hp}")     // still the *total* read: `Idx` survived
 An ordinary mutating call has no such promise: after one, an index claim is
 gone and the total read stops resolving until you test again. That is the
 conservative default, and `preserve Idx` on a signature is how a function
-opts out of it.
+opts out of it (see
+[Dependent qualifiers](Dependent-Qualifiers.md#keeping-a-claim-across-a-mutation-preserve)).
 
 ## Handles that share a container: `ref(c)` parameters
 
 Sometimes the aliasing is the point. A function that means to accept two
 handles which might be one element says so by typing them as handles into
-a container it also takes [ref-anchor]:
+a container it also takes:
 
-```
+```salvo
 fn strike(c: List<Mut Entity>, a: ref(c) Mut Entity, d: ref(c) Mut Entity) -> None {
     a.energy = a.energy - 1
     d.hp = d.hp - 2
@@ -335,9 +381,9 @@ fn strike(c: List<Mut Entity>, a: ref(c) Mut Entity, d: ref(c) Mut Entity) -> No
 ```
 
 `a` and `d` are both positions in `c`, so they may be the same position,
-and the caller needs no proof at all — self-strike included:
+and the caller needs no proof at all, self-strike included:
 
-```
+```salvo
 strike(squad, at(squad, i) ?: unreachable!(), at(squad, j) ?: unreachable!())     // i and j unknown: fine
 strike(squad, at(squad, i) ?: unreachable!(), at(squad, i) ?: unreachable!())     // the same entity, twice: also fine
 ```
@@ -346,16 +392,21 @@ The rules are few:
 
 * `ref(c)` must name **another parameter** of the same function; anything
   else is an error at the declaration.
-* Any number of parameters may name one container. Each one says
-  `ref(c)` once — there is no relation to write per pair.
+* Any number of parameters may name one container. Each one says `ref(c)`
+  once; there is no relation to write per pair.
 * The caller must pass handles **minted from that very container**. A
-  handle into a different list, an owned value, or a read-only `get`
-  result is refused, and the diagnostic names `at`.
+  handle into a different list, an owned value, or a read-only `get` result
+  is refused, and the diagnostic names `at`.
+
+Whether two handles may alias is **written, never inferred**: it changes
+what a caller may pass, so it stays visible in the signature.
+
+### Field paths and nested containers
 
 The container may be a **field path** at the call, which is how handles
 travel *beside the container they came from*:
 
-```
+```salvo
 struct Library canbe Mut {
     name: Str,
     tracks: List<Mut Track>
@@ -369,13 +420,10 @@ fn shuffle(tracks: List<Mut Track>, track: ref(tracks) Mut Track, other: ref(tra
 shuffle(lib.tracks, at(lib.tracks, i) ?: unreachable!(), at(lib.tracks, j) ?: unreachable!())
 ```
 
-Whether two handles may alias is **written, never inferred**: it changes
-what a caller may pass, so it stays visible in the signature.
-
 A `ref(c)` handle may sit **anywhere inside** `c`, however deep, so a
 function can take the whole library and handles into its albums' tracks:
 
-```
+```salvo
 struct Album canbe Mut { name: Str, tracks: List<Mut Track> }
 struct Library canbe Mut { albums: List<Mut Album> }
 
@@ -392,7 +440,7 @@ And the container may itself be a handle parameter: `a: ref(al)` is a
 position in `al`, which is a position in `lib`. All of them are positions in
 the one library, so they may alias each other with nothing to prove:
 
-```
+```salvo
 fn swap_in(lib: Library, al: ref(lib) Mut Album, a: ref(al) Mut Track, b: ref(al) Mut Track) -> None {
     let p = a.plays
     a.plays = b.plays
@@ -408,10 +456,10 @@ swap_in(lib, al, at(al.tracks, 0) ?: unreachable!(), at(al.tracks, 1) ?: unreach
 
 A handle into a struct raises the same question one level up: if a function
 mutates a struct, what happens to a value read out of one of its fields?
-Say nothing and the answer is conservative — everything derived from the
+Say nothing and the answer is conservative: everything derived from the
 struct falls. A clause entry can be finer:
 
-```
+```salvo
 struct Entity canbe Mut {
     hp: Int,
     rings: Mut List<Ring>
@@ -434,19 +482,21 @@ Three readings, and the difference is *storage identity*:
 | `=> e.rings: Mut` | the field's *contents* change | **survives** |
 | `=> !e.rings` | the field is **replaced** | falls |
 
-So a call that only adds to `e.rings` leaves a handle to that list usable —
-it is still the same list — while one that swaps the list for another does
-not. A value read *out* of the contents (an element) falls either way,
+So a call that only adds to `e.rings` leaves a handle to that list usable,
+since it is still the same list, while one that swaps the list for another
+does not. A value read *out* of the contents (an element) falls either way,
 because an element may be gone.
 
 Written entries are checked against the body: a function claiming
 `=> e.hp: Mut` that also assigns `e.rings` is an error naming the widening
 remedy. Where a function writes no field entry, the parameter is mutated
 *anywhere*: the precision is the callee's to state, never read off its body.
+[Deductions and ownership](Deductions-and-Ownership.md#which-field-a-call-mutates)
+has the full rules.
 
 This is also what makes a **qualifier about a field** useful:
 
-```
+```salvo
 if h.tags is NonEmpty {
     bump(h)                        // touches h.n only
     println("${first(h.tags)}")    // the claim still holds here
@@ -457,37 +507,38 @@ if h.tags is NonEmpty {
 
 Kotlin needs none of this: objects are references, aliasing is native, and
 a handle is the element itself. Everything above is about keeping Rust
-honest while still accepting the programs — and the two backends print the
+honest while still accepting the programs, and the two backends print the
 same thing, which is the property all of it exists to protect.
 
-On the Rust side a mutable handle is not a `&mut`. It is a **storage
-path** from its container: the field steps, list indices and map slots
-that lead from the container to the element [rs-path]. The path is
-computed once, at the mint, by running the mint's body, and every use walks
-it again.
+### A handle is a path
 
-```
-// Salvo                              // Rust
-let boss = (at(squad, i) ?: unreachable!())              let __h1: usize = at_platform(&squad, i).expect(…);
-boss.hp = boss.hp + 5                 squad[__h1].hp = squad[__h1].hp + 5;
-let n = size(squad)                   let n = squad.len();          // legal: no live borrow
-boss.hp = boss.hp + n                 squad[__h1].hp = squad[__h1].hp + n;
+On the Rust side a mutable handle is not a `&mut`. It is a **storage path**
+from its container: the field steps, list indices and map slots that lead
+from the container to the element. The path is computed once, at the mint, by
+running the mint's body, and every use walks it again.
+
+```text
+Salvo                                         Rust
+let boss = at(squad, i) ?: unreachable!()     let __h1: usize = at_platform(&squad, i).expect(…);
+boss.hp = boss.hp + 5                         squad[__h1].hp = squad[__h1].hp + 5;
+let n = size(squad)                           let n = squad.len();          // legal: no live borrow
+boss.hp = boss.hp + n                         squad[__h1].hp = squad[__h1].hp + n;
 ```
 
 A mint renders as its path function under its own name, and nothing else:
-std's `at` overloads become `at_platform` (the optional form, a platform primitive) and `at`, which
-answer a position, and there is no `&mut`-returning version beside them.
-Since the path is read off the types and the mint's body, it exists for any
-container's `at`, and what you can do with a handle never depends on how
-`at` is written. A container needs no `at` of its own for the structs a
-path passes through:
+std's `at` overloads become `at_platform` (the optional form, a platform
+primitive) and `at`, which answer a position, and there is no
+`&mut`-returning version beside them. Since the path is read off the types
+and the mint's body, it exists for any container's `at`, and what you can do
+with a handle never depends on how `at` is written. A container needs no `at`
+of its own for the structs a path passes through:
 
-```
+```salvo
 struct A canbe Mut { b: B }
 struct B canbe Mut { c: List<Mut Str> }
 
 fn at(a: A, index: Int) -> ref(a) Mut Str? {
-    return a.b.c.get(index)           // answers `Option<usize>` on Rust
+    return at(a.b.c, index)           // answers `Option<usize>` on Rust
 }
 
 let s = at(a, 1) ?: unreachable!()                     // used as `a.b.c[__h1]`
@@ -499,7 +550,7 @@ answer from different fields, the path is a generated enum with one variant
 per way, and each use walks it with a `match`. A league whose `at` reaches
 a player either through a team in a map or on the bench:
 
-```
+```salvo
 struct Player canbe Mut { name: Str, goals: Int }
 struct Team canbe Mut { coach: Str, roster: List<Mut Player> }
 struct League canbe Mut {
@@ -531,11 +582,13 @@ index), and `star.goals` reads
 `match __h1 { V0(s, i) => &league.teams[s].roster[i].goals, V1(i) => &league.bench[i].goals }`.
 The program prints the same on both backends.
 
+### What paths buy
+
 That is what buys the flexibility. A bound `&mut squad[i]` would forbid the
-`size(squad)` in the middle. Salvo's rules allow it, because a *read* of
-the container cannot invalidate a handle into it, and the path-based
-rendering is what lets Rust agree. The same trick carries every other shape
-a live `&mut` could not survive:
+`size(squad)` in the middle. Salvo's rules allow it, because a *read* of the
+container cannot invalidate a handle into it, and the path-based rendering is
+what lets Rust agree. The same trick carries every other shape a live `&mut`
+could not survive:
 
 * **A search that lends what it found** returns a path, so there is no
   borrow to keep alive past the loop, and the caller may go on reading the
@@ -567,6 +620,8 @@ a live `&mut` could not survive:
 
 A container that is a type parameter (`ref(c)` with `c: C`) has no path
 yet, and the Rust backend refuses it with an error naming it.
+
+### The cost
 
 The cost is honest: a path is walked per use, where a `&mut` is free, and
 the bounds check is paid unless a claim has removed it. Reads keep the

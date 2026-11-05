@@ -1,46 +1,165 @@
 # Backends
 
-One of the aims of Salvo is to make it easy to integrate Salvo code with the backend code. To achieve this, the Salvo compiler builds an intermediate representation ([The IR](The-IR.md)), and passes this on to the configured backend implementation to write out the relevant target source code. In order to support this, we distinguish between two layers: the `intrinsic` layer, which is the compiler's, and the `platform` layer, which is yours. The core library is entirely intrinsic; everything an application needs from its target language goes through a `platform` declaration.
+## Overview
+
+Salvo compiles to Rust and to Kotlin, and one of its aims is to make it easy
+to integrate Salvo code with the code of the target language. The compiler
+builds an intermediate representation ([The IR](The-IR.md)) and passes it to
+the configured backend, which writes out the target source code.
+
+Everything a Salvo program needs from its target language crosses through one
+of two layers:
+
+* the **`intrinsic`** layer, which is the compiler's. The standard library
+  declares the scalar types (`Int`, `Bool`, …), their arithmetic and a few
+  core functions such as `copy` as `intrinsic`, and each backend lowers them
+  natively. Only the standard library writes `intrinsic`.
+* the **`platform`** layer, which is yours. You declare in Salvo what you need
+  from the host (a handler of an ordinary effect, a function, an opaque type),
+  the compiler generates an interface, and you implement it in Kotlin or Rust.
+
+```salvo
+effect RawClock {
+    fn raw_now() [] -> Int
+}
+
+platform handler HostRawClock for RawClock   // implemented in Kotlin or Rust
+```
+
+```kotlin
+// platform/main.kt, as `salvo platform generate` writes it
+class HostRawClock : RawClockPlatform {
+    override fun rawNow(): Int {
+        TODO("implement RawClock.raw_now")
+    }
+}
+```
+
+The core library uses both: its scalar types are intrinsic, while its
+collections and strings are platform types implemented by std's own host
+files. Everything an application needs from its target language goes through
+a `platform` declaration. That is the single
+interop path: there is no way to call a Kotlin method or a Rust function that
+no Salvo declaration stands for ([Modules](Modules.md#every-name-is-declared)).
+This is closer to Kotlin's `expect`/`actual` or a JNI interface than to
+Kotlin calling Java directly.
+
+The sections below describe each layer, then the details of host
+implementations (thread safety, asynchronous replies, platform functions),
+and finally how each backend spells Salvo's constructs.
 
 ## Intrinsic
 
-The `intrinsic` layer sits in a backend specific module inside the compiler. This handles complex language-specific logic, and core functionality: how to encode union types, what the `None` type transpiles to in different cases, how to pass parameters to functions, how function naming works, how imports are handled, and more. These can only be changed by making changes to the compiler itself. Anything involving syntax will appear here, and all `intrinsic` backend definitions are declared as part of the standard library (defined in `std`).
+The `intrinsic` layer sits in a backend-specific module inside the compiler.
+This handles complex language-specific logic, and core functionality: how to
+encode union types, what the `None` type transpiles to in different cases, how
+to pass parameters to functions, how function naming works, how imports are
+handled, and more. These can only be changed by making changes to the compiler
+itself. Anything involving syntax will appear here, and all `intrinsic`
+backend definitions are declared as part of the standard library (defined in
+`std`).
 
-`intrinsic` is the standard library's alone. Customer code cannot declare one, because there would be no lowering in any backend to give it meaning — an `intrinsic` with no compiler support behind it is a promise nothing keeps. Application code reaches the target language the other way, through the `platform` declarations — a `platform handler` implementing an ordinary effect; that is the single interop path. This is also the one exception to a plain structural rule: a top-level `fn` must have a body and a `type` must have a definition (`= ...`). The bodyless declaration forms customer code does have are the `platform` ones — `platform handler` and `platform fn` — whose contract the *build* fulfils; `intrinsic` (and the bodyless `intrinsic handler`) is what lets the standard library state a contract the compiler fulfils in place of one.
+**`intrinsic` is the standard library's alone.** Customer code cannot declare
+one, because there would be no lowering in any backend to give it meaning: an
+`intrinsic` with no compiler support behind it is a promise nothing keeps.
+Application code reaches the target language the other way, through the
+`platform` declarations (a `platform handler` implementing an ordinary
+effect); that is the single interop path.
 
-For example, the built-in types (`Int`, `Str`, `List<T>`, ...) are declared as `intrinsic type`s or `platform type`s of the standard library, and each backend maps them natively:
+**Bodyless declarations.** This is also the one exception to a plain
+structural rule: a top-level `fn` must have a body and a `type` must have a
+definition (`= ...`). The bodyless declaration forms customer code does have
+are the `platform` ones (`platform handler` and `platform fn`), whose contract
+the *build* fulfils; `intrinsic` (and the bodyless `intrinsic handler`) is what
+lets the standard library state a contract the compiler fulfils in place of
+one.
 
-```
+### Intrinsic types
+
+The built-in types (`Int`, `Str`, `List<T>`, ...) are declared as
+`intrinsic type`s or `platform type`s of the standard library, and each
+backend maps them natively:
+
+```salvo
 intrinsic type Int
 ```
 
-When building the compiler, _all_ `intrinsic` declarations must be handled by _every_ backend module.
+When building the compiler, _all_ `intrinsic` declarations must be handled by
+_every_ backend module.
 
-Functions can be intrinsic too. An `intrinsic fn` carries the signature and deductions the checker uses and has no body; each backend lowers calls to it directly, seeing the resolved argument type at every call site. That is what makes type-directed lowering possible where one generic template could not express it — the standard library's `copy` is the canonical example:
+### Intrinsic functions
 
-```
+Functions can be intrinsic too. An `intrinsic fn` carries the signature and
+deductions the checker uses and has no body; each backend lowers calls to it
+directly, seeing the resolved argument type at every call site. That is what
+makes type-directed lowering possible where one generic template could not
+express it. The standard library's `copy` is the canonical example:
+
+```salvo
 intrinsic fn copy<T>(value: proj T) -> T => value
 ```
 
-A backend that does not implement an intrinsic fn, or cannot lower it for a particular argument type, reports a compile-time error — never wrong code.
+A backend that does not implement an intrinsic fn, or cannot lower it for a
+particular argument type, reports a compile-time error, never wrong code.
 
-The standard library's collection and string surface (`list`, `Mut List`, `add`, `get`, `first`, `size`, `iter`, and the string functions from `char_at` to `split`, `trim`, `join` and `parse_int`) is intrinsic for the same reason, which is what keeps `size(xs)` compiling to `xs.size` in Kotlin and `(xs.len() as i32)` in Rust rather than to a wrapper function nobody wants. Because the lowering sees the *resolved* declaration, the three `size` overloads — on `Str`, on `List<T>`, and on an array — are three separate lowerings rather than one template guessing from arity.
+What stays intrinsic is what a host function cannot express: `copy`, the
+operations on arrays (`size`, `get` and `first` on a `T[]`), the arithmetic of
+the scalar types, and the lowering of list literals and spreads. The
+standard library's collections and strings (`List`, `Str`, `Bytes`, `Map`,
+`Set`, …) are `platform type`s instead, and their operations (`add`, `get`,
+`first`, `size`, and the string functions from `char_at` to `split`, `trim`,
+`join` and `parse_int`) are `platform fn`s, implemented in std's host files
+under `lib/platform/std/core/`: the same layer an application uses (see
+[Platform](#platform)). Because each overload is its own declaration, the
+three `size` overloads (on `Str`, on `List<T>`, and on an array) are three
+separate implementations rather than one template guessing from arity.
 
-Handlers reach the host the same way: `threadsafe platform handler StdConsole() for Console` is bodyless in Salvo, and its host files (`lib/platform/std/core/console.rs` and `.kt`) implement `print`, `printerr` and `readln` against the generated interface.
+Handlers reach the host the same way:
+`threadsafe platform handler StdConsole() for Console` is bodyless in Salvo,
+and its host files (`lib/platform/std/core/console.rs` and `.kt`) implement
+`print`, `printerr` and `readln` against the generated interface.
 
-The `Mut` auto-qualifier is also handled at this level: a type declaration can opt into it with `canbe Mut` (`intrinsic type List<T> canbe Mut`), and each backend decides what `Mut` means. Kotlin maps `Mut List<T>` to `MutableList<T>` and `Mut Str` to `StringBuilder` — the one place a qualifier survives erasure — while Rust maps both `List<T>` and `Mut List<T>` to `Vec<T>`, and both `Str` and `Mut Str` to `String`, because there mutability shows up in bindings and references instead. Where the two types really differ, a *drop* of the `Mut` is a conversion (`.toString()` for a Kotlin builder) and the compiler records the drop for the backend to render; where they do not — `MutableList<T>` is a `List<T>` — it renders nothing.
+### `Mut` in the backends
+
+The `Mut` auto-qualifier is also handled at this level: a type declaration can
+opt into it with `canbe Mut` (`intrinsic type List<T> canbe Mut`), and each
+backend decides what `Mut` means. Kotlin maps `Mut List<T>` to
+`MutableList<T>` and `Mut Str` to `StringBuilder` (the one place a qualifier
+survives erasure), while Rust maps both `List<T>` and `Mut List<T>` to
+`Vec<T>`, and both `Str` and `Mut Str` to `String`, because there mutability
+shows up in bindings and references instead. Where the two types really
+differ, a *drop* of the `Mut` is a conversion (`.toString()` for a Kotlin
+builder) and the compiler records the drop for the backend to render; where
+they do not (`MutableList<T>` is a `List<T>`) it renders nothing.
 
 ## Platform
 
-The `platform` layer is where an application reaches its target language. Where `intrinsic` is the compiler's, `platform` is yours: you declare what you need from the host, and the compiler generates an interface for the host to implement.
+The `platform` layer is where an application reaches its target language.
+Where `intrinsic` is the compiler's, `platform` is yours: you declare what you
+need from the host, and the compiler generates an interface for the host to
+implement.
 
-You declare an ordinary effect for what you need, and a **`platform handler`** of it whose implementation is host code. The compiler generates an interface for the host to implement — `interface ClockPlatform` in Kotlin, a trait `ClockPlatform` in Rust (`ClockPlatformSync` for a `threadsafe` handler, whose members take `&self`) — and an adapter between it and the program, which is where values the host returns are checked. Write `salvo platform generate` to get the skeleton:
+You declare an ordinary effect for what you need, and a **`platform handler`**
+of it whose implementation is host code. The compiler generates an interface
+for the host to implement (`interface ClockPlatform` in Kotlin, a trait
+`ClockPlatform` in Rust, `ClockPlatformSync` for a `threadsafe` handler, whose
+members take `&self`) and an adapter between it and the program, which is
+where values the host returns are checked. Run `salvo platform generate` to
+get the skeleton:
 
-```bash
+```sh
 salvo platform generate --backend kotlin --src ./my_project
 ```
 
-The host code lives in a **platform root** the project's `salvo.toml` names — there is no default, so a project with platform code says where it is:
+There are no platform *effects* (an effect implemented wholly by the host and
+handed to `main`): a platform handler of an ordinary effect covers the same
+ground.
+
+### The platform root
+
+The host code lives in a **platform root** the project's `salvo.toml` names
+([The manifest](Manifest.md#build)). There is no default, so a project with
+platform code says where it is:
 
 ```toml
 [build]
@@ -50,23 +169,89 @@ platform = "salvo/platform"    # every backend's platform files
 platform = "kotlin"            # or one root per backend, over the shared one
 ```
 
-Inside a root the files mirror the source layout: `main.kt` implements the platform declarations of `main.sv`, `app/entry.rs` those of `app/entry.sv`. Both languages can sit side by side in one root — a build only ever picks up the extensions of the backend it is compiling for — so one source tree stays buildable for both targets; or each backend can have a root of its own. A program with platform declarations and no root for a backend it builds is refused, naming the key to add. The examples below assume `platform = "platform"`.
+Inside a root the files mirror the source layout: `main.kt` implements the
+platform declarations of `main.sv`, `app/entry.rs` those of `app/entry.sv`.
+Both languages can sit side by side in one root (a build only ever picks up
+the extensions of the backend it is compiling for), so one source tree stays
+buildable for both targets; or each backend can have a root of its own. A
+program with platform declarations and no root for a backend it builds is
+refused, naming the key to add. The examples below assume
+`platform = "platform"`.
 
-The skeleton is generated **once**: run the command again and it reports that the file exists and leaves it alone, because from that point on it is yours. Forgetting to run it at all is an ordinary compile error that names the command.
+The skeleton is generated **once**: run the command again and it reports that
+the file exists and leaves it alone, because from that point on it is yours.
+Forgetting to run it at all is an ordinary compile error that names the
+command.
 
-The adapter, and the wrapper the program calls for a `platform fn`, **check what the host hands back** wherever the Salvo type promises more than the host type can say: a result declared `"gold" | "silver"` must be one of the two, a `NonEmpty List<Str>` must pass `NonEmpty`'s `qualifies`, and so on inside lists, maps, structs and union arms — including a value the host sends later on a `Reply<T>`. A failure panics (Rust) or throws (Kotlin) where the value crosses, naming the declaration, the way Kotlin meets a Java `null` it was promised would not come. `Ok`, `Err` and `Other` say where a value came from rather than what it holds, so they are taken on trust; a qualifier with no `qualifies` is trusted only from its own module. A check that has to walk a collection is a warning on the declaration, since its cost grows with what the host returns. A set or map crossing the boundary is the standard library's own host type, so it keeps Salvo's order by construction; host code builds one with the canonical builders (`canonicalSet`, `canonicalMap`, `canonicalSortedSet` in Kotlin; `canonical_set`, `canonical_map`, `canonical_sorted_set` in Rust), which key it the way Salvo keys a `Str` or an `Int`. A collection keyed any other way — by an identity your program defines (`SortedSet<Str>(by_len)`), or by a struct's `hash` — cannot be built by host code, so a platform declaration may not return one.
+### What the boundary checks
 
-Unions keep their positional representation (`Union2.U1(x)` in Kotlin, `Union2::U1(x)` in Rust), and the compiler adds **factories** so host code need not count arms. A named union gets one per arm — `FsErrors.notFound(NotFound(path))` in Kotlin, `FsError::not_found(…)` in Rust — and the union a platform fn or member returns or replies with gets an object named after it: `ReadToStr.err(FsErrors.notFound(NotFound(path)))`. A struct arm is named after the struct, a qualified arm after its qualifier (`ok`, `err`), a base type after the base (`str`); the literals of one base share a single `str(value)` that checks its argument, and two arms that would share a name get no factory.
+The adapter, and the wrapper the program calls for a `platform fn`, **check
+what the host hands back** wherever the Salvo type promises more than the host
+type can say: a result declared `"gold" | "silver"` must be one of the two, a
+`NonEmpty List<Str>` must pass `NonEmpty`'s `qualifies`, and so on inside
+lists, maps, structs and union arms, including a value the host sends later on
+a `Reply<T>`. A failure panics (Rust) or throws (Kotlin) where the value
+crosses, naming the declaration, the way Kotlin meets a Java `null` it was
+promised would not come.
 
-Every build also writes a **host project** into the root, so the root opens in an IDE as an ordinary Kotlin or Rust project and the implementation files compile there with nothing else present: a `build.gradle.kts` and `settings.gradle.kts` for Kotlin, a `Cargo.toml` and a crate root `lib.sv.rs` for Rust, both naming the host libraries the manifest declares. Beside them are the **declarations** the implementation files use — every struct, type alias and effect the platform declarations reach, emitted as the build emits them, one `<module>.sv.kt` / `.sv.rs` per declaring module, and the runtime they need under `salvo/`. These files start with a `GENERATED` header and are rewritten by `compile`, `run`, `test` and `platform generate` (never by `analyze` or the language server); the build itself never reads them, since it emits its own copies. Check them in, so a fresh checkout opens before its first build. A library others depend on must: each generated file's header carries a stamp (`salvo-abi 1 <hash>`, the compiler's ABI revision and a hash of the library's platform signatures), and a project building the library's platform code compares it first, so a library whose host project is missing, was generated by a compiler with another ABI, or no longer matches its own signatures is reported by name, with the command that fixes it.
+* `Ok`, `Err` and `Other` say where a value came from rather than what it
+  holds, so they are taken on trust; a qualifier with no `qualifies` is
+  trusted only from its own module.
+* A check that has to walk a collection is a warning on the declaration, since
+  its cost grows with what the host returns.
+* A set or map crossing the boundary is the standard library's own host type,
+  so it keeps Salvo's order by construction. Host code builds one with the
+  canonical builders (`canonicalSet`, `canonicalMap`, `canonicalSortedSet` in
+  Kotlin; `canonical_set`, `canonical_map`, `canonical_sorted_set` in Rust),
+  which key it the way Salvo keys a `Str` or an `Int`. A collection keyed any
+  other way (by an identity your program defines, `SortedSet<Str>(by_len)`, or
+  by a struct's `hash`) cannot be built by host code, so a platform
+  declaration may not return one.
 
-(Platform effects — an effect implemented wholly by the host and handed to `main` — were removed on 2026-10-01; a platform handler covers the same ground.)
+### Unions in host code
+
+Unions keep their positional representation (`Union2.U1(x)` in Kotlin,
+`Union2::U1(x)` in Rust), and the compiler adds **factories** so host code
+need not count arms. A named union gets one per arm
+(`FsErrors.notFound(NotFound(path))` in Kotlin, `FsError::not_found(…)` in
+Rust), and the union a platform fn or member returns or replies with gets an
+object named after it: `ReadToStr.err(FsErrors.notFound(NotFound(path)))`. A
+struct arm is named after the struct, a qualified arm after its qualifier
+(`ok`, `err`), a base type after the base (`str`); the literals of one base
+share a single `str(value)` that checks its argument, and two arms that would
+share a name get no factory.
+
+### The host project
+
+Every build also writes a **host project** into the root, so the root opens in
+an IDE as an ordinary Kotlin or Rust project and the implementation files
+compile there with nothing else present: a `build.gradle.kts` and
+`settings.gradle.kts` for Kotlin, a `Cargo.toml` and a crate root `lib.sv.rs`
+for Rust, both naming the host libraries the manifest declares.
+
+Beside them are the **declarations** the implementation files use: every
+struct, type alias and effect the platform declarations reach, emitted as the
+build emits them, one `<module>.sv.kt` / `.sv.rs` per declaring module, and the
+runtime they need under `salvo/`. These files start with a `GENERATED` header
+and are rewritten by `compile`, `run`, `test` and `platform generate` (never by
+`analyze` or the language server); the build itself never reads them, since
+it emits its own copies.
+
+**Check them in**, so a fresh checkout opens before its first build. A library
+others depend on must: each generated file's header carries a stamp
+(`salvo-abi 1 <hash>`, the compiler's ABI revision and a hash of the library's
+platform signatures), and a project building the library's platform code
+compares it first. A library whose host project is missing, was generated by a
+compiler with another ABI, or no longer matches its own signatures is reported
+by name, with the command that fixes it.
 
 ## A host implementation of an ordinary effect
 
-The effect is Salvo's own — declared here, handled here, possibly by several handlers — and only one of those handlers is host code: the one that actually touches the outside world. That handler is a `platform handler`:
+The effect is Salvo's own (declared here, handled here, possibly by several
+handlers), and only one of those handlers is host code: the one that actually
+touches the outside world. That handler is a `platform handler`:
 
-```
+```salvo
 effect RawClock {
     fn raw_now() [] -> Int
 }
@@ -74,9 +259,11 @@ effect RawClock {
 platform handler HostRawClock for RawClock
 ```
 
-It is bodyless, because its members live in the target language, and it is otherwise an ordinary handler: registered with `use`, one instance per registration, constructor parameters passed through to the host class.
+It is bodyless, because its members live in the target language, and it is
+otherwise an ordinary handler: registered with `use`, one instance per
+registration, constructor parameters passed through to the host class.
 
-```
+```salvo
 fn main() [use] {
     use HostRawClock()       // constructs the host's class
     use DefaultClock()       // ordinary Salvo, depends on RawClock
@@ -84,7 +271,9 @@ fn main() [use] {
 }
 ```
 
-The implementation goes in the platform root, as a class named after the *handler* — the `use` site constructs that name, so it is not the host's to choose — and `salvo platform generate` writes the skeleton for it:
+The implementation goes in the platform root, as a class named after the
+*handler* (the `use` site constructs that name, so it is not the host's to
+choose), and `salvo platform generate` writes the skeleton for it:
 
 ```kotlin
 // platform/main.kt, as generated
@@ -95,30 +284,66 @@ class HostRawClock : RawClockPlatform {
 }
 ```
 
-`main` stays the program's entry point, because the instance is constructed *inside* the program. Constructor parameters are how a host implementation is configured — `platform handler HostS3(bucket: Str) for Store`, registered as `use HostS3("my-bucket")`, becomes a class with a `bucket` parameter.
+`main` stays the program's entry point, because the instance is constructed
+*inside* the program. Constructor parameters are how a host implementation is
+configured: `platform handler HostS3(bucket: Str) for Store`, registered as
+`use HostS3("my-bucket")`, becomes a class with a `bucket` parameter.
 
 Three restrictions, each following from the implementation not being Salvo's:
 
-* **No body in Salvo** — no members, no state. The host class holds both.
-* **No effect dependencies.** A handler's dependencies are supplied to its *members*, and these members are host code, which performs no Salvo effect: the host reaches the outside world directly. Write an ordinary Salvo handler that depends on this one's effect when something has to sit in between — `handler DefaultClock [RawClock] for Clock` is exactly that.
+* **No body in Salvo**: no members, no state. The host class holds both.
+* **No effect dependencies.** A handler's dependencies are supplied to its
+  *members*, and these members are host code, which performs no Salvo effect:
+  the host reaches the outside world directly. Write an ordinary Salvo handler
+  that depends on this one's effect when something has to sit in between;
+  `handler DefaultClock [RawClock] for Clock` is exactly that.
 * **Not generic**: the host writes one concrete class.
+
+A platform handler fits wherever several implementations of a capability exist
+and one of them is host code: a real filesystem beside an in-memory one
+([Files](Files.md)), a host clock beside a fake ([Time](Time.md)), an
+S3-backed store beside a local directory. The standard library uses it itself,
+and ships its host classes the same way: under `std`'s own platform root, one
+file per backend.
 
 ### The thread-safety contract: `threadsafe`
 
-A `use` of a platform handler is a handle like any handler's, and a handle locks a *stateful* handler's members and runs a *stateless* handler's on the shared instance. Which a host is, is a fact about the *host class*, which the compiler cannot see — so the declaration states it:
+A `use` of a platform handler is a handle like any handler's, and a handle
+locks a *stateful* handler's members and runs a *stateless* handler's on the
+shared instance. Which a host is, is a fact about the *host class*, which the
+compiler cannot see, so the declaration states it:
 
-```
+```salvo
 threadsafe platform handler HostTcpTransport(port: Int) for Transport
 platform handler HostRawFs for RawFs
 ```
 
-**Without the word, the compiler serializes the instance** — every member runs under one lock, on both backends — so a host that keeps plain fields and never thought about threads works identically everywhere and pays only the lock. `HostRawFs` is written that way. **With `threadsafe`, the host promises it may be entered concurrently** (it synchronizes internally, or holds nothing that needs it) and the compiler shares the raw instance with no lock. On Rust the promise is half-checked: the host's members take `&self`, so a field that is not `Sync` does not compile; on Kotlin the host is trusted.
+**Without the word, the compiler serializes the instance**: every member runs
+under one lock, on both backends, so a host that keeps plain fields and never
+thought about threads works identically everywhere and pays only the lock.
+`HostRawFs` is written that way. **With `threadsafe`, the host promises it may
+be entered concurrently** (it synchronizes internally, or holds nothing that
+needs it) and the compiler shares the raw instance with no lock. On Rust the
+promise is half-checked: the host's members take `&self`, so a field that is
+not `Sync` does not compile; on Kotlin the host is trusted.
 
-`salvo platform generate` prints whichever contract the declaration made into the skeleton it writes, so the person implementing the host signs what the compiler assumes — and regenerating after adding or removing the word changes the skeleton's shape (the Rust receivers switch between `&self` and `&mut self`).
+`salvo platform generate` prints whichever contract the declaration made into
+the skeleton it writes, so the person implementing the host signs what the
+compiler assumes, and regenerating after adding or removing the word changes
+the skeleton's shape (the Rust receivers switch between `&self` and
+`&mut self`).
 
-A member may take a `Reply<T>` — a continuation — and **return at once**, answering later from host code. The host calls `hosted()` on the token, which tells the scheduler the answer is coming from outside (so a `waitfor` on it is not reported as a deadlock), and completes it with `send(value)` from any thread, exactly once. This is how an asynchronous host API — a Kotlin coroutine, a Rust future — becomes a Salvo call that blocks no worker:
+### Answering later: replies from the host
 
-```
+A member may take a `Reply<T>` (a continuation, see
+[Concurrency](Concurrency.md)) and **return at once**, answering later from
+host code. The host calls `hosted()` on the token, which tells the scheduler
+the answer is coming from outside (so a `waitfor` on it is not reported as a
+deadlock), and completes it with `send(value)` from any thread, exactly once.
+This is how an asynchronous host API (a Kotlin coroutine, a Rust future)
+becomes a Salvo call that blocks no worker:
+
+```salvo
 effect Slow {
     fn later(n: Int, done: Reply<Int>) [] -> None => !done
 }
@@ -132,24 +357,30 @@ override fun later(n: Int, done: salvo.SalvoReply) {
 }
 ```
 
-On Rust a host reply dropped without being sent is reported to the pool's fault sink; the JVM cannot observe that, so on Kotlin a lost reply leaves its waiter waiting.
+On Rust a host reply dropped without being sent is reported to the pool's
+fault sink; the JVM cannot observe that, so on Kotlin a lost reply leaves its
+waiter waiting.
 
-A host file may use any library of its language, provided the manifest declares it — `[rust] crates`, `[kotlin] libs` and `artifacts`; see [Modules](Modules.md) "Host libraries". Rust then builds with `cargo` instead of bare `rustc`, and Kotlin puts the declared jars on the classpath.
+### Host libraries
 
-A platform handler fits wherever several implementations of a capability exist and one of them is host code: a real filesystem beside an in-memory one, a host clock beside a fake, an S3-backed store beside a local directory. The standard library uses it itself, and ships its host classes the same way — under `std`'s own platform root, one file per backend.
-
-# Specific backend details
+A host file may use any library of its language, provided the manifest
+declares it (`[rust] crates`, `[kotlin] libs` and `artifacts`; see
+[The manifest](Manifest.md#host-libraries)). Rust then builds with `cargo`
+instead of bare `rustc`, and Kotlin puts the declared jars on the classpath.
 
 ## Platform functions
 
-A single function can be implemented by the host too: a **`platform fn`**, a signature with no body.
+A single function can be implemented by the host too: a **`platform fn`**, a
+signature with no body.
 
-```
+```salvo
 // counter.sv
 platform fn shout(g: Greeting) [] -> Str => g
 ```
 
-The implementation is a function of the same name in the module's implementation file under the platform root, which `salvo platform generate` writes alongside the module's handlers:
+The implementation is a function of the same name in the module's
+implementation file under the platform root, which `salvo platform generate`
+writes alongside the module's handlers:
 
 ```kotlin
 // platform/counter.kt
@@ -162,11 +393,24 @@ pub fn shout(g: &Greeting) -> String {
 }
 ```
 
-The program calls a generated wrapper (`shoutPlatform` / `shout_platform`), which calls the implementation; the wrapper is where the boundary checks the planned ABI adds will go. A platform fn is not generic, takes no implicit parameters and declares no effects, and two platform fns may not overload each other.
+The program calls a generated wrapper (`shoutPlatform` / `shout_platform`),
+which calls the implementation; the wrapper is where the boundary checks run
+([What the boundary checks](#what-the-boundary-checks)).
 
-A platform fn may take a function value: an effect-free `(A) -> R`, which the host may call during the call and must not keep. To let the host **keep** one — a hook it calls later, from any thread — the declaration consumes the parameter, and the caller then passes a **named top-level function**, never a lambda or a local:
+A platform fn takes no implicit parameters and declares no effects, and two
+platform fns may not overload each other (a platform fn may share its name
+with ordinary fns). It may have type parameters, which are opaque to the host:
+the host may store a `T`, move it and hand it back, and nothing more.
 
-```
+### Function values
+
+A platform fn may take a function value: an effect-free `(A) -> R`, which the
+host may call during the call and must not keep. To let the host **keep** one
+(a hook it calls later, from any thread), the declaration consumes the
+parameter, and the caller then passes a **named top-level function**, never a
+lambda or a local:
+
+```salvo
 platform fn on_tick(hook: (n: Int) -> None) [] -> None => !hook
 
 fn report(n: Int) [] -> None => n { … }
@@ -175,23 +419,79 @@ on_tick(report)      // fine: a named fn, nothing captured
 on_tick((n) -> …)      // error: a kept callback must be a named fn
 ```
 
-A named function captures nothing, so it is safe to keep for as long as the host likes; on Rust the host receives a plain `fn(i32)` pointer, on Kotlin a `(Int) -> Unit`.
+A named function captures nothing, so it is safe to keep for as long as the
+host likes; on Rust the host receives a plain `fn(i32)` pointer, on Kotlin a
+`(Int) -> Unit`.
 
-## Kotlin
+### Platform types
 
-* Generated Kotlin uses Kotlin's naming: every function, member, parameter, field and local is written in camel case (`read_to_str` becomes `readToStr`, a field `data_type` becomes `dataType`). Rust keeps Salvo's snake case. So that a program means the same on both, two names that differ only in this way — `foo_bar` and `fooBar` in one scope — are an error on every backend.
-* When `None` is the only return type of a function, it should be translated to `Unit`.
-* The backend should define generic union type wrappers using a sealed interface. If the larger union type is of size N, then the backend should define union types for each number from 1 to N. The qualifier checks then reduce down to checking which of the sealed types a value results in.
-* Effects and handlers map to interfaces and implementations of those interfaces. The effects a function declares are its first parameters, typed by the interfaces, and every use of an effect in the body is a call on the relevant parameter. A `use` of a stateful handler wraps it in the effect's lock wrapper (`__Mon_E`), so it is safe to hand to a spawn; a stateless one binds raw. A dependent handler takes its dependencies as trailing constructor parameters.
-* `Mut Str` maps to `StringBuilder`, which — unlike `MutableList<T>` — is *not* a subtype of the immutable form, so dropping the `Mut` emits `.toString()`. `copy` of a `Mut Str` is `StringBuilder(sb)`, not the identity.
-* `Byte` maps to `UByte`, not to Kotlin's signed `Byte`: an octet has to print and compare the same on both backends, and a signed byte would render 255 as `-1` where Rust's `u8` renders `255`.
-* `Bytes` and `Mut Bytes` both map to one **shipped runtime class** (`salvo.SalvoBytes`, emitted per program that names the type): a growable byte array with structural `equals`/`hashCode` and an `iterator()`. Neither stdlib shape would do — `List<UByte>` boxes every element, and `UByteArray` is fixed-size *and* is not a `List<T>`, so generic code could not take one. Rust needs no such class: `Bytes` is a `Vec<u8>`.
+A **`platform type Name`** is an opaque handle to a host object: Salvo sees a
+name, never contents, and the host implements a class (Kotlin) or struct
+(Rust) of the same name in the declaring module's implementation file, whose
+skeleton `salvo platform generate` writes. Its operations are platform fns and
+platform handler members that take or answer it. The standard library's
+collections are declared this way.
 
-## Rust
+## Specific backend details
 
-* When `None` is the only return type of a function, the return type is omitted (`()`).
-* `T?` maps to a physical `Option<T>`; union types map to generated enums (`Union2<T1, T2>` with one variant per non-`None` arm).
-* Deductions determine ownership: a parameter that appears in a function's deductions is passed by reference (`&T`, or `&mut T` when its declared type carries `Mut`), while a parameter omitted from the deductions is moved (passed by value) — the calling code no longer has access to it in Salvo, so the move is always legal. Copy scalar types are always passed by value.
-* Every effect `E` is a **handle** struct of that name, with `&self` members dispatching either to an `Arc<dyn __Stateless_E>` (a stateless handler, no lock) or an `Arc<Mutex<dyn __Stateful_E>>` (a stateful one); handlers implement one of the two traits by their statefulness. Every binding is a handle: `use` makes `let e = E::shared(H::new(…))` or `E::locked(…)`, a fn declaring `[A, B]` takes `a: &A, b: &B`, a dependent handler holds `__dep_E: E` fields, and a spawn or a task clones the handles it inherits.
-* `Str` and `Mut Str` are both `String`, so dropping a `Mut` emits nothing. String indexes are *characters*, not bytes, on both backends, so the lowerings convert where Rust counts bytes.
+How each backend spells Salvo's constructs. The backend specifications
+(`BACKEND_SPEC.kotlin.md`, `BACKEND_SPEC.rust.md` in the repository) have the
+full rules.
+
+### Kotlin
+
+* Generated Kotlin uses Kotlin's naming: every function, member, parameter,
+  field and local is written in camel case (`read_to_str` becomes `readToStr`,
+  a field `data_type` becomes `dataType`). Rust keeps Salvo's snake case. So
+  that a program means the same on both, two names that differ only in this
+  way (`foo_bar` and `fooBar` in one scope) are an error on every backend.
+* When `None` is the only return type of a function, it should be translated
+  to `Unit`.
+* The backend should define generic union type wrappers using a sealed
+  interface. If the larger union type is of size N, then the backend should
+  define union types for each number from 1 to N. The qualifier checks then
+  reduce down to checking which of the sealed types a value results in.
+* Effects and handlers map to interfaces and implementations of those
+  interfaces. The effects a function declares are its first parameters, typed
+  by the interfaces, and every use of an effect in the body is a call on the
+  relevant parameter. A `use` of a stateful handler wraps it in the effect's
+  lock wrapper (`__Mon_E`), so it is safe to hand to a spawn; a stateless one
+  binds raw. A dependent handler takes its dependencies as trailing
+  constructor parameters.
+* `Mut Str` maps to `StringBuilder`, which (unlike `MutableList<T>`) is *not*
+  a subtype of the immutable form, so dropping the `Mut` emits `.toString()`.
+  `copy` of a `Mut Str` is `StringBuilder(sb)`, not the identity.
+* `Byte` maps to `UByte`, not to Kotlin's signed `Byte`: an octet has to print
+  and compare the same on both backends, and a signed byte would render 255 as
+  `-1` where Rust's `u8` renders `255`.
+* `Bytes` and `Mut Bytes` both map to one **shipped runtime class**
+  (`salvo.SalvoBytes`, emitted per program that names the type): a growable
+  byte array with structural `equals`/`hashCode` and an `iterator()`. Neither
+  stdlib shape would do: `List<UByte>` boxes every element, and `UByteArray`
+  is fixed-size *and* is not a `List<T>`, so generic code could not take one.
+  Rust needs no such class: `Bytes` is a `Vec<u8>`.
+
+### Rust
+
+* When `None` is the only return type of a function, the return type is
+  omitted (`()`).
+* `T?` maps to a physical `Option<T>`; union types map to generated enums
+  (`Union2<T1, T2>` with one variant per non-`None` arm).
+* Deductions determine ownership ([Deductions and
+  ownership](Deductions-and-Ownership.md)): a parameter that appears in a
+  function's deductions is passed by reference (`&T`, or `&mut T` when its
+  declared type carries `Mut`), while a parameter omitted from the deductions
+  is moved (passed by value). The calling code no longer has access to it in
+  Salvo, so the move is always legal. Copy scalar types are always passed by
+  value.
+* Every effect `E` is a **handle** struct of that name, with `&self` members
+  dispatching either to an `Arc<dyn __Stateless_E>` (a stateless handler, no
+  lock) or an `Arc<Mutex<dyn __Stateful_E>>` (a stateful one); handlers
+  implement one of the two traits by their statefulness. Every binding is a
+  handle: `use` makes `let e = E::shared(H::new(…))` or `E::locked(…)`, a fn
+  declaring `[A, B]` takes `a: &A, b: &B`, a dependent handler holds
+  `__dep_E: E` fields, and a spawn or a task clones the handles it inherits.
+* `Str` and `Mut Str` are both `String`, so dropping a `Mut` emits nothing.
+  String indexes are *characters*, not bytes, on both backends, so the
+  lowerings convert where Rust counts bytes.
 * See BACKEND_SPEC.rust.md for the full rules.
