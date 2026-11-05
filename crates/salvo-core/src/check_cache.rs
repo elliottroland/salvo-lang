@@ -204,21 +204,26 @@ impl FileId {
 /// [lsp-check-cache] The checker rows of every walked file of a program,
 /// kept by the language server between analyses, the way its `ParseCache`
 /// keeps parsed modules (`check_project_cached`).
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct CheckCache {
     files: Vec<FileId>,
     /// Every file's module as last checked: holding them keeps the addresses
     /// the rows are keyed by from being reused.
     modules: Vec<Arc<Module>>,
-    /// The first file the walks cover (std's are the `StdCache`'s).
+    /// The first file the walks cover.
     first: usize,
     /// The syntactic parking handlers (the pipeline record 4.5), read off bodies.
     parking: HashSet<String>,
-    entries: HashMap<usize, FileRows>,
+    /// Shared, so that a cache cloned for another program (a warm one, for
+    /// each of a test process's programs) shares its files' rows.
+    entries: HashMap<usize, Arc<FileRows>>,
     /// Which file's module holds each `ast::Type` node, by address, for every
     /// module in `modules`; `type_nodes[f]` is file `f`'s.
-    owners: HashMap<usize, usize>,
-    type_nodes: Vec<Vec<usize>>,
+    owners: Arc<HashMap<usize, usize>>,
+    type_nodes: Arc<Vec<Vec<usize>>>,
+    /// The modules each module's files could see in the last checked
+    /// program: who could see a file that has left.
+    sees: HashMap<crate::source::ModulePath, HashSet<crate::source::ModulePath>>,
     /// The files the last check walked, in order.
     walked: Vec<usize>,
     /// [lsp-ir-cache] The IR analyses' findings per file, which stand for a
@@ -229,13 +234,185 @@ pub struct CheckCache {
     /// built it over the stamped program.
     pub scopes: ScopeCache,
     pub stamped_scopes: ScopeCache,
+    /// [lsp-check-cache] The keyed rows of every file, merged, as a check left
+    /// them, and which file rows they were merged from: a check starts from a
+    /// clone of them (taking out the files whose rows are no longer those)
+    /// instead of inserting every cached file's rows one by one.
+    base: Option<Arc<Checked>>,
+    base_rows: HashMap<usize, Arc<FileRows>>,
+    /// How many of the base's files the last check took out of it.
+    base_misses: usize,
+    /// What validating each file's deductions reported, with the module it
+    /// was validated over: a file the walk took from the cache is not
+    /// validated again.
+    deduced: HashMap<usize, (Arc<Module>, crate::deduce::FileDeductions)>,
+    /// The files whose rows the current check takes from the cache.
+    cached: HashSet<usize>,
+    /// A clone made for one program, used once: what it would record for
+    /// the next is not recorded.
+    pub(crate) transient: bool,
+    /// [lsp-parse-cache] Parsed modules, by content.
+    pub parse: crate::front::ParseCache,
+    /// [lsp-expand-cache] Each stamped file's result.
+    pub expansion: ExpandCache,
+}
+
+/// [lsp-expand-cache] Each stamped file's result, as the last expansion made
+/// it, and what the stamping read: kept so that the next expansion of the
+/// same files stamps again only what an edit can have changed.
+#[derive(Default, Clone)]
+pub struct ExpandCache {
+    files: Vec<FileId>,
+    /// Each file's module before expansion, and its interface hash.
+    pre: Vec<Arc<Module>>,
+    ifaces: Vec<u64>,
+    stamped: Vec<Option<crate::comptime::StampedFile>>,
+    /// The modules each module's files saw in the last expansion.
+    sees: HashMap<crate::source::ModulePath, HashSet<crate::source::ModulePath>>,
+    /// How many files the last expansion did not stamp again.
+    kept: usize,
+}
+
+/// [lsp-expand-cache] Whether a file of module `own` (holding `module`) can
+/// see module `other` by name: its own, an import of it or of one of its
+/// declarations, the tested module of an annex, or `std.core`'s, which every
+/// file sees.
+fn names_module(module: &Module, own: &crate::source::ModulePath, other: &crate::source::ModulePath) -> bool {
+    if own == other || other.0.starts_with(&["std".to_string(), "core".to_string()]) || own.0.starts_with(&other.0) {
+        return true;
+    }
+    module.items.iter().any(|i| match i {
+        Item::Import(imp) => {
+            let path: Vec<&str> = imp.path.iter().map(|p| p.name.as_str()).collect();
+            let m: Vec<&str> = other.0.iter().map(String::as_str).collect();
+            path == m || (path.len() == m.len() + 1 && path.starts_with(&m))
+        }
+        _ => false,
+    })
+}
+
+/// Whether a module holds a comptime fn: a template, which a stamping in
+/// any file may copy.
+fn holds_templates(module: &Module) -> bool {
+    module.items.iter().any(|i| matches!(i, Item::Fn(f) if f.compfn.is_some()))
+}
+
+impl ExpandCache {
+    /// How many stamped files the last expansion kept.
+    pub fn kept(&self) -> usize {
+        self.kept
+    }
+
+    /// Each file's module before the last expansion.
+    pub fn pre_modules(&self) -> &[Arc<Module>] {
+        &self.pre
+    }
+
+    /// The stamped files that stand for the files `modules` (each file's
+    /// before expansion): a file's when its module is the one it was
+    /// stamped from and nothing a stamping reads has changed — no file's
+    /// interface (`interface_of`), no file holding a template (any edit of
+    /// one: a copy carries the template's positions), and no file joined or
+    /// left but a doc example (which nothing sees).
+    pub(crate) fn plan(&mut self, files: &[crate::source::SourceFile], modules: &[Arc<Module>]) -> Vec<Option<crate::comptime::StampedFile>> {
+        self.kept = 0;
+        if self.pre.len() != self.files.len() {
+            return Vec::new();
+        }
+        let ids: Vec<FileId> = files.iter().map(FileId::of).collect();
+        let old: HashMap<&FileId, usize> = self.files.iter().enumerate().map(|(i, id)| (id, i)).collect();
+        let new: HashSet<&FileId> = ids.iter().collect();
+        // What a stamping may read differently now: a module with a changed
+        // interface, any edit of a file holding a template, or a file that
+        // joined or left (a doc example's aside, which nothing sees).
+        let mut touched: HashSet<crate::source::ModulePath> = HashSet::new();
+        let mut joined: Vec<&crate::source::ModulePath> = Vec::new();
+        for (j, id) in ids.iter().enumerate() {
+            match old.get(id) {
+                None if id.doc.is_none() => {
+                    touched.insert(id.module.clone());
+                    joined.push(&id.module);
+                }
+                None => {}
+                Some(&i) if !Arc::ptr_eq(&self.pre[i], &modules[j]) => {
+                    if holds_templates(&self.pre[i]) || holds_templates(&modules[j]) || interface_of(&files[j].content, &modules[j]).1 != self.ifaces[i] {
+                        touched.insert(id.module.clone());
+                    }
+                }
+                Some(_) => {}
+            }
+        }
+        for id in &self.files {
+            if !new.contains(id) && id.doc.is_none() {
+                touched.insert(id.module.clone());
+            }
+        }
+        // Who could read them: what saw them in the last expansion, and what
+        // names a module that joined (its imports did not resolve then).
+        let stale = reach(&self.sees, &touched);
+        let reuse: Vec<Option<crate::comptime::StampedFile>> = ids
+            .iter()
+            .enumerate()
+            .map(|(j, id)| {
+                let i = *old.get(id)?;
+                if !Arc::ptr_eq(&self.pre[i], &modules[j]) || stale.contains(&id.module) {
+                    return None;
+                }
+                if joined.iter().any(|m| names_module(&modules[j], &id.module, m)) {
+                    return None;
+                }
+                self.stamped.get(i)?.clone()
+            })
+            .collect();
+        self.kept = reuse.iter().filter(|r| r.is_some()).count();
+        reuse
+    }
+
+    /// Records an expansion: `pre` the modules before it, `modules` after,
+    /// what it kept (`reuse`, as `plan` answered) and what it stamped.
+    pub(crate) fn record(
+        &mut self,
+        files: &[crate::source::SourceFile],
+        pre: &[Arc<Module>],
+        modules: &[Arc<Module>],
+        reuse: Vec<Option<crate::comptime::StampedFile>>,
+        fresh: Vec<crate::comptime::FreshStamp>,
+        scope_ids: &[Arc<crate::scope_ids::ScopeIds>],
+    ) {
+        let mut sees: HashMap<crate::source::ModulePath, HashSet<crate::source::ModulePath>> = HashMap::new();
+        for (f, file) in files.iter().enumerate() {
+            let entry = sees.entry(file.module.clone()).or_default();
+            entry.insert(file.module.clone());
+            if let Some(ids) = scope_ids.get(f) {
+                entry.extend(ids.modules.iter().map(|m| (*m).clone()));
+            }
+        }
+        self.sees = sees;
+        let ids: Vec<FileId> = files.iter().map(FileId::of).collect();
+        let old: HashMap<&FileId, usize> = self.files.iter().enumerate().map(|(i, id)| (id, i)).collect();
+        let ifaces: Vec<u64> = (0..files.len())
+            .map(|j| match old.get(&ids[j]) {
+                Some(&i) if self.pre.get(i).is_some_and(|m| Arc::ptr_eq(m, &pre[j])) => self.ifaces[i],
+                _ => interface_of(&files[j].content, &pre[j]).1,
+            })
+            .collect();
+        let mut stamped: Vec<Option<crate::comptime::StampedFile>> = reuse;
+        stamped.resize(files.len(), None);
+        for (j, diagnostics, hovers, when_arms, changed) in fresh {
+            stamped[j] = Some(crate::comptime::StampedFile { module: modules[j].clone(), diagnostics, hovers, when_arms, changed });
+        }
+        self.files = ids;
+        self.pre = pre.to_vec();
+        self.ifaces = ifaces;
+        self.stamped = stamped;
+    }
 }
 
 /// [lsp-scope-cache] The scopes (by id [decl-id]) an expansion built over a
 /// program's declarations as written, and what each was built from: kept so
 /// that the next analysis of the same files builds again only the scopes an
 /// edit can change.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ScopeCache {
     files: Vec<FileId>,
     /// Each file's module before expansion, and its interface hash
@@ -267,30 +444,62 @@ impl ScopeCache {
     /// their text does not show (a module comptime stamped into) count as
     /// changed whenever their module is a new one.
     pub fn plan_with(&mut self, files: &[crate::source::SourceFile], modules: &[Arc<Module>], opaque: &dyn Fn(usize) -> bool) -> Vec<Option<crate::resolve::GivenScope>> {
-        let n = files.len();
-        let same = self.files.len() == n && self.files.iter().zip(files).all(|(a, b)| *a == FileId::of(b)) && self.modules.len() == n;
-        if !same {
+        self.given = 0;
+        if self.modules.len() != self.files.len() || self.scopes.len() != self.files.len() {
             *self = ScopeCache::default();
             return Vec::new();
         }
+        let ids: Vec<FileId> = files.iter().map(FileId::of).collect();
+        let old: HashMap<&FileId, usize> = self.files.iter().enumerate().map(|(i, id)| (id, i)).collect();
+        let new: HashSet<&FileId> = ids.iter().collect();
+        // The modules whose declarations may differ from what the scopes
+        // took in: a changed interface, a file that joined or left (a doc
+        // example's aside, which nothing sees).
+        let mut touched: HashSet<crate::source::ModulePath> = HashSet::new();
         let mut edited: HashSet<usize> = HashSet::new();
-        let mut reshaped: HashSet<&crate::source::ModulePath> = HashSet::new();
-        for f in 0..n {
-            if Arc::ptr_eq(&self.modules[f], &modules[f]) {
-                continue;
-            }
-            edited.insert(f);
-            if opaque(f) || interface_of(&files[f].content, &modules[f]).1 != self.ifaces[f] {
-                reshaped.insert(&files[f].module);
+        let mut joined = false;
+        for (j, id) in ids.iter().enumerate() {
+            match old.get(id) {
+                None => {
+                    joined = true;
+                    if id.doc.is_none() {
+                        touched.insert(id.module.clone());
+                    }
+                }
+                Some(&i) if !Arc::ptr_eq(&self.modules[i], &modules[j]) => {
+                    edited.insert(j);
+                    if opaque(j) || interface_of(&files[j].content, &modules[j]).1 != self.ifaces[i] {
+                        touched.insert(id.module.clone());
+                    }
+                }
+                Some(_) => {}
             }
         }
-        let given: Vec<Option<crate::resolve::GivenScope>> = (0..n)
-            .map(|f| {
-                let g = self.scopes.get(f)?.as_ref()?;
-                if reshaped.contains(&files[f].module) || g.ids.modules.iter().any(|m| reshaped.contains(*m)) {
+        for id in &self.files {
+            if !new.contains(id) && id.doc.is_none() {
+                touched.insert(id.module.clone());
+            }
+        }
+        let still: Vec<bool> = (0..self.files.len()).map(|i| ids.get(i).is_some_and(|id| old.get(id) == Some(&i))).collect();
+        let all_still = still.iter().all(|s| *s) && ids.len() == self.files.len();
+        let stays = |i: usize| all_still || still.get(i).copied().unwrap_or(false);
+        let given: Vec<Option<crate::resolve::GivenScope>> = (0..ids.len())
+            .map(|j| {
+                // The file is where it was, and so is every file its scope names.
+                let i = *old.get(&ids[j])?;
+                if i != j {
                     return None;
                 }
-                if edited.contains(&f) && !g.errors.is_empty() {
+                let g = self.scopes.get(i)?.as_ref()?;
+                if touched.contains(&ids[j].module) || g.ids.modules.iter().any(|m| touched.contains(*m)) {
+                    return None;
+                }
+                // A report is placed in the file's text, and one may be about
+                // a name a file that joined now declares.
+                if !g.errors.is_empty() && (edited.contains(&j) || joined) {
+                    return None;
+                }
+                if !all_still && !g.ids.files().all(stays) {
                     return None;
                 }
                 Some(g.clone())
@@ -318,11 +527,12 @@ impl ScopeCache {
             *self = ScopeCache::default();
             return;
         }
-        let same = self.files.len() == n && self.modules.len() == n;
+        let ids: Vec<FileId> = files.iter().map(FileId::of).collect();
+        let old: HashMap<&FileId, usize> = self.files.iter().enumerate().map(|(i, id)| (id, i)).collect();
         let ifaces: Vec<u64> = (0..n)
-            .map(|f| match (same, self.modules.get(f)) {
-                (true, Some(m)) if Arc::ptr_eq(m, &modules[f]) => self.ifaces[f],
-                _ => interface_of(&files[f].content, &modules[f]).1,
+            .map(|j| match old.get(&ids[j]) {
+                Some(&i) if self.modules.get(i).is_some_and(|m| Arc::ptr_eq(m, &modules[j])) && i < self.ifaces.len() => self.ifaces[i],
+                _ => interface_of(&files[j].content, &modules[j]).1,
             })
             .collect();
         self.files = files.iter().map(FileId::of).collect();
@@ -339,6 +549,19 @@ impl ScopeCache {
 impl CheckCache {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// [lsp-warm-std] A clone for one program, used once and dropped (a warm
+    /// std cache's, for each program a test checks): what it reads is the
+    /// cache's, and nothing is recorded for a next program.
+    pub fn transient(&self) -> CheckCache {
+        let mut c = self.clone();
+        c.transient = true;
+        c
+    }
+
+    pub(crate) fn is_transient(&self) -> bool {
+        self.transient
     }
 
     /// [lsp-check-cache] The files the last check walked; every other file
@@ -367,7 +590,6 @@ impl CheckCache {
         let same_base = self.first == first
             && first <= n
             && self.modules.len() >= first
-            && self.parking == *parking
             && (0..first).all(|i| Arc::ptr_eq(&self.modules[i], &program.modules[i]));
         if !same_base {
             self.entries.clear();
@@ -382,22 +604,56 @@ impl CheckCache {
             let ids: Vec<FileId> = program.files.iter().map(FileId::of).collect();
             let index: HashMap<&FileId, usize> = ids.iter().enumerate().map(|(j, id)| (id, j)).collect();
             let moves: Vec<Option<usize>> = self.files.iter().map(|id| index.get(id).copied()).collect();
-            let gone = self.files.iter().zip(&moves).any(|(id, to)| to.is_none() && id.doc.is_none());
-            if gone || (0..first).any(|i| moves.get(i).copied().flatten() != Some(i)) {
+            if (0..first).any(|i| moves.get(i).copied().flatten() != Some(i)) {
                 self.entries.clear();
                 return HashSet::new();
             }
+            // A file that left: what could see its module, in the program
+            // that had it, is walked.
+            let left: HashSet<crate::source::ModulePath> =
+                self.files.iter().zip(&moves).filter(|(id, to)| to.is_none() && id.doc.is_none()).map(|(id, _)| id.module.clone()).collect();
+            let blind = reach(&self.sees, &left);
+            let old_files = std::mem::take(&mut self.files);
+            self.entries.retain(|f, _| old_files.get(*f).is_some_and(|id| !blind.contains(&id.module)));
             let map = |f: usize| moves.get(f).copied().flatten();
             let mut entries = HashMap::with_capacity(self.entries.len());
             for (f, mut e) in std::mem::take(&mut self.entries) {
                 let Some(to) = map(f) else { continue };
-                let rows_ok = e.rows.remap_files(&map);
-                let steps_ok = e.steps.iter_mut().all(|s| s.remap_files(&map));
-                if rows_ok && steps_ok {
-                    entries.insert(to, e);
+                // A file whose rows place nothing in a moved or departed
+                // file keeps them as they are (and shared).
+                let still = |g: usize| map(g) == Some(g);
+                if !(to == f && rows_place_only(&e, &still)) {
+                    let rows = Arc::make_mut(&mut e);
+                    let rows_ok = rows.rows.remap_files(&map);
+                    let steps_ok = rows.steps.iter_mut().all(|s| s.remap_files(&map));
+                    if !(rows_ok && steps_ok) {
+                        continue;
+                    }
                 }
+                entries.insert(to, e);
             }
             self.entries = entries;
+            // The base holds keys placed in their files: it stands while none
+            // of its files moved.
+            if self.base_rows.keys().any(|&f| map(f) != Some(f)) {
+                self.base = None;
+                self.base_rows.clear();
+            }
+            // What validating the deductions reported moves the same way.
+            let deduced = std::mem::take(&mut self.deduced);
+            for (f, (module, mut d)) in deduced {
+                let Some(to) = map(f) else { continue };
+                let mut ok = true;
+                for diag in d.iter_mut().flatten() {
+                    match map(diag.file) {
+                        Some(n) => diag.file = n,
+                        None => ok = false,
+                    }
+                }
+                if ok {
+                    self.deduced.insert(to, (module, d));
+                }
+            }
             // The node owners are found again from the modules at the next
             // record.
             let mut modules: Vec<Arc<Module>> = program.modules.clone();
@@ -408,14 +664,30 @@ impl CheckCache {
             }
             self.modules = modules;
             self.files = ids;
-            self.owners.clear();
-            self.type_nodes.clear();
+            self.owners = Arc::default();
+            self.type_nodes = Arc::default();
         }
         let mut changed: HashMap<usize, (Vec<(u32, u32)>, Vec<(u32, u32)>)> = HashMap::new();
         let mut moved: HashMap<usize, HashMap<usize, usize>> = HashMap::new();
         // The files whose interface changed: walked, with every file that
         // can depend on them.
         let mut reshaped: HashSet<usize> = HashSet::new();
+        // A handler whose parking changed (the syntactic set is read off
+        // bodies) changes its file's interface: what can see it reads it.
+        if self.parking != *parking {
+            let flipped: Vec<&String> = self.parking.symmetric_difference(parking).collect();
+            for (f, (file, module)) in program.files.iter().zip(&program.modules).enumerate() {
+                let declares = module.items.iter().any(|i| {
+                    matches!(i, Item::Handler(h) if flipped.iter().any(|k| {
+                        crate::typekey::plain(k) == h.name.name
+                            && crate::typekey::module_of(k).is_none_or(|m| m == file.module.to_string())
+                    }))
+                });
+                if declares {
+                    reshaped.insert(f);
+                }
+            }
+        }
         for f in first..n {
             // A file with no rows (one that joined, or whose rows could not
             // move) is walked, and counted as changed.
@@ -461,6 +733,12 @@ impl CheckCache {
         }
         let mut sound = true;
         for e in self.entries.values_mut() {
+            let touches = e.steps.iter().any(|s| s.written.iter().any(|(_, owner, _, _)| moved.contains_key(owner)))
+                || (!changed.is_empty() && e.rows.refs.values().filter_map(Ref::site).any(|site| changed.contains_key(&site.file)));
+            if !touches {
+                continue;
+            }
+            let e = Arc::make_mut(e);
             for step in &mut e.steps {
                 for (at, owner, _, _) in &mut step.written {
                     if let Some(nodes) = moved.get(owner) {
@@ -479,7 +757,45 @@ impl CheckCache {
             self.entries.clear();
             return HashSet::new();
         }
-        self.entries.keys().copied().collect()
+        if !self.transient {
+            self.sees = sees_by_module(program, scopes);
+        }
+        self.cached = self.entries.keys().copied().collect();
+        self.cached.clone()
+    }
+
+    /// [lsp-check-cache] The base's rows for a check that takes the rows of
+    /// `cached` from the cache: a clone, without the files whose rows are no
+    /// longer the base's, and the files whose rows it holds.
+    pub(crate) fn seed(&mut self, cached: &HashSet<usize>) -> Option<(Checked, HashSet<usize>)> {
+        let base = self.base.as_ref()?;
+        let mut keyed = (**base).clone();
+        let mut held = HashSet::new();
+        self.base_misses = 0;
+        for (f, rows) in &self.base_rows {
+            if cached.contains(f) && self.entries.get(f).is_some_and(|e| Arc::ptr_eq(e, rows)) {
+                held.insert(*f);
+            } else {
+                keyed.remove_rows(&rows.rows);
+                self.base_misses += 1;
+            }
+        }
+        Some((keyed, held))
+    }
+
+    /// [lsp-check-cache] What validating file `f`'s deductions reported last
+    /// time, when the last check did not walk it and it is the same module.
+    pub(crate) fn deduced(&self, f: usize, program: &Program) -> Option<crate::deduce::FileDeductions> {
+        if !self.cached.contains(&f) {
+            return None;
+        }
+        let (module, d) = self.deduced.get(&f)?;
+        Arc::ptr_eq(module, program.modules.get(f)?).then(|| d.clone())
+    }
+
+    /// Records what validating each file's deductions reported.
+    pub(crate) fn record_deduced(&mut self, program: &Program, deduced: HashMap<usize, crate::deduce::FileDeductions>) {
+        self.deduced = deduced.into_iter().filter_map(|(f, d)| Some((f, (program.modules.get(f)?.clone(), d)))).collect();
     }
 
     /// Not used for this check, which walks all of `files`: what it held
@@ -489,13 +805,15 @@ impl CheckCache {
         let ir = std::mem::take(&mut self.ir);
         let scopes = std::mem::take(&mut self.scopes);
         let stamped_scopes = std::mem::take(&mut self.stamped_scopes);
-        *self = CheckCache { ir, scopes, stamped_scopes, ..CheckCache::default() };
+        let parse = std::mem::take(&mut self.parse);
+        let expansion = std::mem::take(&mut self.expansion);
+        *self = CheckCache { ir, scopes, stamped_scopes, parse, expansion, ..CheckCache::default() };
         self.walked = files.to_vec();
     }
 
     /// The rows standing in for file `f`'s walks.
     pub(crate) fn rows(&self, f: usize) -> Option<&FileRows> {
-        self.entries.get(&f)
+        self.entries.get(&f).map(|e| &**e)
     }
 
     /// Records the walked files' rows from a check of `program` (after every
@@ -545,41 +863,96 @@ impl CheckCache {
             let (bodies, iface) = interface_of(&program.files[f].content, &program.modules[f]);
             self.entries.insert(
                 f,
-                FileRows { module: program.modules[f].clone(), iface, bodies, rows, steps },
+                Arc::new(FileRows { module: program.modules[f].clone(), iface, bodies, rows, steps }),
             );
         }
         self.walked = walked;
+        // A base most of whose files left it is made again, from this check.
+        if self.base.is_none() || self.base_misses * 2 > self.base_rows.len() {
+            self.base = Some(Arc::new(out.keyed_clone()));
+            self.base_rows = self.entries.clone();
+            self.base_misses = 0;
+        }
     }
 
     /// Brings `owners` up to `program`'s modules: a file whose module is no
     /// longer the one recorded has its nodes replaced.
     fn sync_owners(&mut self, program: &Program) {
         let n = program.modules.len();
-        for i in 0..self.type_nodes.len().max(n) {
-            let same = i < n && self.modules.get(i).is_some_and(|m| Arc::ptr_eq(m, &program.modules[i]));
-            if same && i < self.type_nodes.len() {
-                continue;
-            }
-            if let Some(old) = self.type_nodes.get_mut(i) {
+        let stale: Vec<usize> = (0..self.type_nodes.len().max(n))
+            .filter(|&i| !(i < n && i < self.type_nodes.len() && self.modules.get(i).is_some_and(|m| Arc::ptr_eq(m, &program.modules[i]))))
+            .collect();
+        if stale.is_empty() {
+            return;
+        }
+        let owners = Arc::make_mut(&mut self.owners);
+        let type_nodes = Arc::make_mut(&mut self.type_nodes);
+        for i in stale {
+            if let Some(old) = type_nodes.get_mut(i) {
                 for at in old.drain(..) {
-                    if self.owners.get(&at) == Some(&i) {
-                        self.owners.remove(&at);
+                    if owners.get(&at) == Some(&i) {
+                        owners.remove(&at);
                     }
                 }
             }
             if i < n {
                 let mut nodes = Vec::new();
-                type_nodes(&program.modules[i], &mut nodes);
+                type_nodes_of(&program.modules[i], &mut nodes);
                 for &at in &nodes {
-                    self.owners.insert(at, i);
+                    owners.insert(at, i);
                 }
-                if i >= self.type_nodes.len() {
-                    self.type_nodes.resize_with(i + 1, Vec::new);
+                if i >= type_nodes.len() {
+                    type_nodes.resize_with(i + 1, Vec::new);
                 }
-                self.type_nodes[i] = nodes;
+                type_nodes[i] = nodes;
             }
         }
-        self.type_nodes.truncate(n);
+        type_nodes.truncate(n);
+    }
+}
+
+/// [lsp-check-cache] Whether everything a file's rows place (definition
+/// sites, the files whose nodes its `written_types` rows are for, its
+/// diagnostics) is in a file `still` says has not moved.
+fn rows_place_only(e: &FileRows, still: &dyn Fn(usize) -> bool) -> bool {
+    e.rows.refs.values().filter_map(Ref::site).all(|site| still(site.file))
+        && e.steps.iter().all(|s| s.written.iter().all(|(_, owner, _, _)| still(*owner)) && s.errors.iter().all(|d| still(d.file)))
+}
+
+/// [lsp-check-cache] What each module's files see: their module, and every
+/// module their scopes take in.
+fn sees_by_module(program: &Program, scopes: &[crate::resolve::ModuleScope<'_>]) -> HashMap<crate::source::ModulePath, HashSet<crate::source::ModulePath>> {
+    let mut out: HashMap<crate::source::ModulePath, HashSet<crate::source::ModulePath>> = HashMap::new();
+    for (f, file) in program.files.iter().enumerate() {
+        let entry = out.entry(file.module.clone()).or_default();
+        entry.insert(file.module.clone());
+        if let Some(scope) = scopes.get(f) {
+            entry.extend(scope.modules.iter().map(|m| (*m).clone()));
+        }
+    }
+    out
+}
+
+/// [lsp-check-cache] The modules that reach one of `from` through `sees`
+/// (they see it, or see a module that does), `from` included.
+fn reach(
+    sees: &HashMap<crate::source::ModulePath, HashSet<crate::source::ModulePath>>,
+    from: &HashSet<crate::source::ModulePath>,
+) -> HashSet<crate::source::ModulePath> {
+    let mut out = from.clone();
+    if from.is_empty() {
+        return out;
+    }
+    loop {
+        let before = out.len();
+        for (m, seen) in sees {
+            if !out.contains(m) && seen.iter().any(|s| out.contains(s)) {
+                out.insert(m.clone());
+            }
+        }
+        if out.len() == before {
+            return out;
+        }
     }
 }
 
@@ -825,7 +1198,7 @@ fn remap_sites(rows: &mut Checked, changed: &HashMap<usize, (Vec<(u32, u32)>, Ve
 
 /// [lsp-check-cache] The address of every `ast::Type` node `module` holds:
 /// what tells a `written_types` row which file's node it is for.
-pub(crate) fn type_nodes(module: &Module, out: &mut Vec<usize>) {
+pub(crate) fn type_nodes_of(module: &Module, out: &mut Vec<usize>) {
     struct Collect<'o>(&'o mut Vec<usize>);
     impl Visitor for Collect<'_> {
         fn visit_type(&mut self, t: &ast::Type) {

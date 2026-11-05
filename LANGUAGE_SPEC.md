@@ -2420,7 +2420,7 @@ Conventions:
   must carry a *total* deduction clause** — a plain entry for every
   non-implicit parameter whose contract a caller could change (a Copy scalar
   [copy-scalar-free] is exempt: its keep-all is invariant). The reason is the
-  language server's std front-half cache (ROADMAP §5): a *written* entry is a
+  cache warmed with std alone [lsp-warm-std]: a *written* entry is a
   fixed point of inference [deduce-syntax] [deduce-infer], so once every
   exported std fn pins every such parameter, std's checked ownership contracts
   stop depending on the project that uses it, and that project's calls cannot
@@ -14141,60 +14141,49 @@ replaced the working document TESTING.md).
     document or an example made from one, so the indexes cover those
     (2026-10-31, ROADMAP §0be stage (c)): in `lib/`, where every file is
     the project's, building them for all 74 cost 24ms of each keystroke.
-* [lsp-std-front] **std's front half is shared across analyses** (2026-10-20,
-  the pipeline record step 8): the server parses, expands and checks the embedded std
-  once (`salvo_core::StdFront`, `std_front.rs` since 2026-10-28, with the
-  `StdCache` check), and every analysis
-  whose leading files are exactly that std, unshadowed, with nothing after it
-  std but a shadow, takes std's expanded modules from it: the same
-  `Arc<Module>`s (`Program::modules` is shared), so std is neither parsed,
-  cloned nor expanded again, and the cache's address-keyed rows are keyed by
-  the addresses the analysis sees (the cache keeps the modules alive). Only
-  the files after std are parsed and comptime-expanded: the world reads
-  std's templates as they were before std was stamped and std's scopes from
-  the front (C4), scopes are built for the later files only, and std's own
-  expansion output (diagnostics, hovers,
-  `[when]` arms) is the front's. There is **no comptime gate** (since
-  2026-10-14): std sees only std [obligation-by] [comptime-instantiate] — a
-  `by` path names only the modules its file can see, a name std's scope does
-  not see falls back to std's declarations alone, and what std sees
-  implicitly is `std.core.*`, which no project can declare [std-root] — so
-  nothing a project writes changes std's expansion, and the front stands in
-  for every program its files match (`StdFront::applies`).
-  (Until 2026-10-14 the gate recorded every name std's stamping asked about
-  and every `by` path it matched, and refused a project declaring one or
-  having a module path one matched — a project module `auto` was refused,
-  and std expanded with errors inside it; then, briefly,
-  `StdComptime::admits` refused only a project module under `core`.)
-  With std's modules shared, `check_once` takes std's written keys from the
-  cache and computes the project's, merging the by-span keys as gathering
-  them together would. An analysis through the front reports what one
-  without it reports (`std_front_matches_an_analysis_without_it`).
-  * **std's scopes are the front's** (2026-10-30, the pipeline record C4): the front
-    keeps std's scopes by id [decl-id], and an analysis over it views them
-    instead of building them (`StdFront::resolve`, `resolve::resolve_over`);
-    std's duplicate-overload check is not repeated either. std sees only
-    std, so nothing a project writes changes them — except a project file
-    claiming a module under `std` (refused [std-root], but its declarations
-    still join the module it names), for which everything is built.
-  * **The repository's tests check and emit over it too** (2026-10-28,
-    TESTS.md T3/C2): `salvo_testkit::front` builds one front per test process
-    and backend extension from `lib/`, and every program a test builds holds
-    its modules. Emission reads std's rows as well as the project's
-    (`driver::check_for_emission_over`, `emit_program_over`,
-    `ir::dump_program_over`), so the cache stands in only when the program
-    holds the front's very modules (`StdCache::shares_modules`, checked by
-    `std_front::check_over`), not merely files that match: a std parsed again
-    has other nodes, its seeded `written_types` rows name none of them, and
-    std's emitted pass modes came out wrong (found by the differential: a
-    callback `each: (x: T)` emitted `FnMut(&T)`). The CLI's own compile path
-    still checks std whole.
+* [lsp-warm-std] **std is checked once, as any file is** (2026-11-01, ROADMAP
+  §0be stage (d), user decision: one cache, for simpler code): there is no
+  std front. A `CheckCache` warmed with the embedded std alone (the
+  language server's `warm_std_cache`, made on its first analysis or handed
+  in; the repository's tests one per process and backend extension,
+  `salvo_testkit::front::std`) holds std's parse, stamping, scopes and
+  checker rows, and every program over std goes through a clone of it
+  (cheap: its rows are shared, `Arc<FileRows>`). std sees only std
+  [obligation-by] [comptime-instantiate] [std-root], so a project's files
+  joining the program touch nothing std reads, and every std file keeps
+  what the warm cache made of it — the same `Arc<Module>`s, the same
+  scopes, the same rows — while only the project's files are parsed,
+  stamped, scoped and walked. An analysis through the warm cache reports
+  what one with no cache reports (`a_warm_std_cache_matches_an_analysis_without_it`),
+  and std's expansion inside a program is std's alone
+  (`std_expansion_is_project_independent`). Emission and the IR dump check
+  through a clone of it too (`check_over`, `emit_program_over`,
+  `ir::dump_program_over`). What the front did with special code (std's
+  expansion tables kept as a prefix, std's scopes viewed, std's rows seeded,
+  std's bodies skipped in the deduction pass) the one cache does per file
+  for every file.
+* [lsp-parse-cache] **A file whose text is unchanged is not parsed again**
+  (`front::ParseCache`, in the `CheckCache`): parsed modules with their
+  per-file expansions, keyed by the file's text, module and annex-ness; a
+  file of one name with the same text is the same key without hashing it
+  again. A file comptime stamps into whose new stamping equals the last
+  gets the last module back (`keep_stamped`), so what is keyed by its `Arc`
+  sees it unchanged.
+* [lsp-expand-cache] **A stamped file whose stamping can read nothing new is
+  not stamped again** (2026-11-01, `ExpandCache`): its last stamped module
+  and what stamping it reported (diagnostics, hovers, `[when]` arms, whether
+  it changed the module's declarations) stand, while its module is the one
+  stamped and no module it saw then is touched — one whose interface
+  changed, any edit of a file holding a template (a copy carries its
+  template's positions), a file that joined or left (but a doc example's,
+  which nothing sees) — nor does it name a module that joined. What a file
+  can call is built only for files holding a template (it was built for
+  every file, most of an expansion's time).
 * [lsp-check-cache] **A file an edit left alone is not checked again**
   (2026-10-20, the pipeline record step 8): the server keeps one `CheckCache`, every
-  project file's checker rows as its last walks left them, and checks through
-  the std cache with `check_project_cached` — or, where no std cache stands
-  in (a `std = true` tree, std being what is edited), over every file with
-  `check_program_cached` (2026-10-31, ROADMAP §0be stage (a)). A file whose
+  file's checker rows as its last walks left them, and checks every file
+  with `check_program_cached` (std's rows come from the cache it was warmed
+  with [lsp-warm-std]). A file whose
   module is the `Arc` its rows were checked from (a parse-cache hit; for a
   file comptime stamps into, the last analysis's module handed back when the
   new stamping equals it, `ParseCache::keep_stamped`) has them inserted where its three walks (signature facts, headers, bodies)
@@ -14202,9 +14191,8 @@ replaced the working document TESTING.md).
   the first walk, and per walk what it appended (diagnostics, the tables kept
   in order), the `written_types` rows it wrote (each with the file whose node
   it is) and the handlers it marked parking. The rows stand in only while
-  the program's interfaces are as they were: the same files (names, modules,
-  flags), std's same modules, the same syntactic parking set, and each new
-  module's file the same text outside its plain fn bodies (top-level, struct,
+  the program's interfaces are as they were: each new module's file the
+  same text outside its plain fn bodies (top-level, struct,
   handler-member and qualifier fns that are not comptime, stamped, `by` or
   `iter fn`) and outside its comment runs (no other file's checking reads a
   comment; but a run holding a `@whynot`, which an interpolation of the
@@ -14227,15 +14215,25 @@ replaced the working document TESTING.md).
   other nodes, the definition sites, the locals and carried identities by
   file, and the diagnostics), and a file that joined is walked as a changed
   one, with what can see its module — so opening a document, which adds its
-  examples, walks those examples. A file that left clears the cache (what
-  could see it is not known any more) unless it was a doc example's, which
-  nothing sees. A different parking set, or std's modules, rebuild it. A body
+  examples, walks those examples. A file that left walks what could see its
+  module in the program that had it (`CheckCache::sees`, kept from that
+  check), and a handler whose syntactic parking changed walks what can see
+  its file (2026-11-01, so that a warm cache serves programs of other files
+  [lsp-warm-std]). A body
   edit moves the declarations after it, so a cached file's definition sites
   there move by the bodies' growth, and its `written_types` rows for the
   changed file's nodes move to the same nodes of its new module (outside the
   bodies the two hold the same nodes in the same order). The program-wide
-  steps (written keys, program checks, deductions, the literal lowering) run
-  over the merged rows as in a full check, so the result is the full check's.
+  steps (written keys, program checks, the literal lowering) run over the
+  merged rows as in a full check, so the result is the full check's; the
+  deduction pass does not validate a cached file's bodies again, but takes
+  what validating them reported (`CheckCache::deduced`, 2026-11-01).
+  A check starts from the cache's **base** (2026-11-01): every file's keyed
+  rows merged, as an earlier check left them, cloned, with the files whose
+  rows are no longer the base's taken out — cloning a merged table is
+  cheaper than inserting every cached file's rows into an empty one; the
+  base is made again when most of its files have left it. The keyed tables
+  hash a key as its two words (`KeyMap`, `KeyHasher`).
   A program with one project file skips the cache (it would walk that file
   anyway). A file's rows are its declarations' (`Checked::split_files`
   [decl-rows]). **Per file, not per declaration** (measured 2026-10-28,
@@ -14245,8 +14243,8 @@ replaced the working document TESTING.md).
   re-deriving every span in the reused rows and splitting the file's walk
   per declaration (ROADMAP 0ae). Shown by `check_cache_matches_an_uncached_analysis_across_edits`
   (`modules/aws` and two written programs) and
-  `the_check_cache_covers_a_std_tree` (`lib/`); the CLI and the compile
-  paths do not use it.
+  `the_check_cache_covers_a_std_tree` (`lib/`); the CLI's compile path does
+  not use it.
   * The `written_types` rows a step wrote are kept one per node (the last
     plain write, else the first write-where-absent), which has the same
     effect on any table: a body walk lowers a callee's signature at every

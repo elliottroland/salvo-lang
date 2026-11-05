@@ -5,8 +5,8 @@
 //!
 //! One test for all of it (`every_program_runs`), one plan:
 //!
-//! - **Emission** runs on a pool of threads over the process's std fronts
-//!   ([std-cache]); a program that does not emit fails here, toolchain or
+//! - **Emission** runs on a pool of threads over the process's warm std caches
+//!   ([lsp-warm-std]); a program that does not emit fails here, toolchain or
 //!   not.
 //! - **Stamps** ([`salvo_testkit::cached`]) are keyed by what decides the
 //!   outcome: the backend, its toolchain's version, the generated files, the
@@ -227,7 +227,7 @@ fn ident(label: &str) -> String {
 /// `program`'s generated files for `backend`, or what went wrong.
 fn emit(program: &Program, backend: Backend) -> Result<Vec<(PathBuf, String)>, String> {
     let ext = backend.ext();
-    let front = salvo_testkit::front::std_front(ext);
+    let front = salvo_testkit::front::std(ext);
     let built = match &program.source {
         Source::Project(dir) => salvo_testkit::front::project(ext, dir),
         Source::Case(case) => {
@@ -258,9 +258,9 @@ fn emit(program: &Program, backend: Backend) -> Result<Vec<(PathBuf, String)>, S
         return Err(format!("parse or expansion errors:\n{}", parse.join("\n")));
     }
     let emitted = match backend {
-        Backend::Rust => salvo_backend_rust::emit_program_over(&built.program, front)
+        Backend::Rust => salvo_backend_rust::emit_program_over(&built.program, front.cache())
             .map(|fs| fs.into_iter().map(|f| (f.rel_path, f.content)).collect::<Vec<_>>()),
-        Backend::Kotlin => salvo_backend_kotlin::emit_program_over(&built.program, front)
+        Backend::Kotlin => salvo_backend_kotlin::emit_program_over(&built.program, front.cache())
             .map(|fs| fs.into_iter().map(|f| (f.rel_path, f.content)).collect::<Vec<_>>()),
     };
     emitted.map_err(|errors| format!("codegen errors:\n{}", errors.join("\n")))

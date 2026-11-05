@@ -20,6 +20,7 @@ pub mod effects;
 pub mod erase;
 pub mod expand;
 pub mod facts;
+pub mod front;
 pub mod ir;
 pub mod lends;
 pub mod linear;
@@ -38,7 +39,6 @@ pub mod resolve;
 pub mod round_trip;
 pub mod scope_ids;
 pub mod source;
-pub mod std_front;
 pub mod timing;
 pub mod typekey;
 pub mod types;
@@ -46,12 +46,11 @@ pub mod unique_shape;
 pub mod wire;
 
 pub use check::{
-    check_program, check_program_cached, check_project, check_project_cached, Call, Callee, Binder, Checked, Convert, EffectsPassed, ConvertStep, Instance, ImplicitArg, NarrowBy, NarrowedRead, ImplicitParam, PassDriver,
-    StdCache,
+    check_program, check_program_cached, Call, Callee, Binder, Checked, Convert, EffectsPassed, ConvertStep, Instance, ImplicitArg, NarrowBy, NarrowedRead, ImplicitParam, PassDriver,
     Test, UnionTest, OK_QUALIFIER, THROWN_QUALIFIER, THROW_EFFECT,
 };
 pub use check_cache::CheckCache;
-pub use std_front::{FrontProgram, StdFront};
+pub use front::{check_over, Built};
 pub use deduce::ParamDeduction;
 pub use comptime::{CompHover, CompWhenArms};
 pub use expand::{expand, Expansion, TestCase};

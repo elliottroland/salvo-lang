@@ -98,7 +98,7 @@ impl fmt::Debug for ModulePath {
 /// [node-file] The tag of `file`'s tree (`Module::file_tag`, stamped on every
 /// node's span when the tree is numbered): one per file identity — module
 /// path, name, and whether std's — the same in every program of a process,
-/// so a module shared between programs (std's front) keeps its tags.
+/// so a module shared between programs (a warm cache's std) keeps its tags.
 pub fn file_tag(file: &SourceFile) -> u32 {
     file_tag_of(&file.module, &file.name, file.is_std)
 }

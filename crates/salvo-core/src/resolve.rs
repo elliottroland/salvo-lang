@@ -642,7 +642,8 @@ pub fn resolve_given<'p>(program: &'p Program, extra: &[Option<GivenScope>]) -> 
                 (!changed).then(|| GivenScope { ids: ids.clone(), errors: errors.clone() })
             })
             .zip(extra.iter().cloned().chain(std::iter::repeat(None)))
-            .map(|(g, e)| g.or(e))
+            .zip(interfaces.stamped.iter().cloned().chain(std::iter::repeat(None)))
+            .map(|((g, e), st)| g.or(e).or(st))
             .collect();
         if given.len() == program.files.len() {
             let r = resolve_impl(&program.files, &program.modules, &|_| true, false, &given);
@@ -686,10 +687,14 @@ pub struct Interfaces {
     pub scope_errors: Vec<std::sync::Arc<Vec<FileDiagnostic>>>,
     pub decls: std::sync::Arc<crate::decl_id::DeclIndex>,
     pub changed: HashSet<ModulePath>,
+    /// [lsp-scope-cache] Scopes over the stamped program an earlier
+    /// resolution built that still stand (a cache's), by file: what the
+    /// stamped program's resolution takes where the interfaces do not.
+    pub stamped: Vec<Option<GivenScope>>,
 }
 
 /// [comptime-instantiate] The interfaces of `modules` before stamping, with
-/// the leading files' scopes `given` (a std front's).
+/// the scopes `given` (an earlier analysis's).
 impl<'p> Resolution<'p> {
     /// [qual-identity] The key a **written** qualifier reference means where
     /// it is written, picked among same-named ones by the written subject's
@@ -706,36 +711,7 @@ impl<'p> Resolution<'p> {
 
 pub fn interfaces<M: crate::decl_id::ModuleRef>(files: &[crate::source::SourceFile], modules: &[M], given: &[Option<GivenScope>]) -> Interfaces {
     let r = resolve_impl(files, modules, &|_| true, true, given);
-    Interfaces { scope_ids: r.scope_ids, scope_errors: r.scope_errors, decls: r.decls, changed: HashSet::new() }
-}
-
-/// [lsp-std-front] What a std front may hand a program's resolution: its
-/// files' scopes, when the program's leading files are that std and no
-/// later file claims a module under `std` (refused [std-root], but its
-/// declarations still join the module they name). `None`: build them all.
-pub fn std_given(files: &[crate::source::SourceFile], std: &[std::sync::Arc<crate::scope_ids::ScopeIds>]) -> Option<Vec<Option<GivenScope>>> {
-    let n = std.len();
-    if n > files.len() || !files[..n].iter().all(|f| f.is_std && !f.is_shadow) || files[n..].iter().any(|f| f.module.is_std_rooted()) {
-        return None;
-    }
-    let none = std::sync::Arc::new(Vec::new());
-    Some(std.iter().map(|ids| Some(GivenScope { ids: ids.clone(), errors: none.clone() })).chain(std::iter::repeat_n(None, files.len() - n)).collect())
-}
-
-/// [lsp-std-front] [decl-id] [`resolve`] over a program whose leading files
-/// are a std already resolved on its own, with its scopes by id `std`
-/// (`StdFront`): those files' scopes are viewed, not built — std sees only
-/// std [std-root], so what a project adds changes none of them. Unless a
-/// project file claims a module under `std` (refused, but its declarations
-/// still join the module they name): then everything is built.
-pub fn resolve_over<'p>(program: &'p Program, std: &[std::sync::Arc<crate::scope_ids::ScopeIds>]) -> Resolution<'p> {
-    if program.interfaces.is_some() {
-        return resolve(program);
-    }
-    match std_given(&program.files, std) {
-        Some(given) => resolve_impl(&program.files, &program.modules, &|_| true, false, &given),
-        None => resolve(program),
-    }
+    Interfaces { scope_ids: r.scope_ids, scope_errors: r.scope_errors, decls: r.decls, changed: HashSet::new(), stamped: Vec::new() }
 }
 
 /// The files and their ASTs, aligned: what resolution reads of a program.
@@ -972,7 +948,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
         let mut sorted_modules: Vec<&&ModulePath> = by_module.keys().collect();
         sorted_modules.sort_by_key(|m| m.to_string());
         for module in sorted_modules {
-            // [lsp-std-front] A std module given resolved holds std's files
+            // [lsp-warm-std] A std module given resolved holds std's files
             // alone (`resolve_over`), so its duplicates are std's own,
             // reported when std was.
             if !given.is_empty() && module.is_std_rooted() {
@@ -2431,7 +2407,7 @@ pub fn ident_copy_key(id: &salvo_syntax::ast::Ident) -> Option<CopyKey> {
     id.span.is_numbered().then(|| (id.span.file, id.span.node, id.span, id.name.clone()))
 }
 
-/// [lsp-std-front] What [`written_keys_by_span`] gathers before it keeps
+/// [lsp-warm-std] What [`written_keys_by_span`] gathers before it keeps
 /// only the agreed entries that differ from the written name: every copy key
 /// with the one key all its references resolve to, or `None` where two
 /// disagree. Gathering is order-free (a disagreement anywhere is final), so
@@ -2439,7 +2415,7 @@ pub fn ident_copy_key(id: &salvo_syntax::ast::Ident) -> Option<CopyKey> {
 /// — and merged (`check_once`).
 pub type SpanKeys = HashMap<CopyKey, Option<String>>;
 
-/// [lsp-std-front] Gathers the references of the files from `first` on into
+/// [lsp-warm-std] Gathers the references of the files from `first` on into
 /// `out`.
 pub fn span_keys_from<'p>(
     _program: &'p Program,
@@ -2610,7 +2586,7 @@ pub fn qual_ref_keys<'p>(
     keys.out
 }
 
-/// [lsp-std-front] The agreed entries that differ from the written name.
+/// [lsp-warm-std] The agreed entries that differ from the written name.
 pub fn span_keys_final(raw: SpanKeys) -> HashMap<CopyKey, String> {
     raw.into_iter()
         .filter_map(|(at, k)| k.filter(|k| *k != at.3).map(|k| (at, k)))

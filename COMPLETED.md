@@ -149,6 +149,55 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-01 — std has no front: one cache, warmed with std (user decision, [lsp-warm-std], ROADMAP §0be stage (d))
+
+- **Decided** (user, 2026-11-01): "I would prefer simpler code. So let's go
+  with (2)": fold the std front into the one cache, and win back what the
+  fold cost (21ms of a `modules/aws` edit's 53ms analysis, measured before).
+  Rejected: keeping the front (faster, two paths), and folding only the
+  check.
+- **Removed**: `StdFront`, `StdCache`, `std_front.rs`, `check_project`,
+  `check_project_cached`, `check_over`'s std gate, `resolve_over` and
+  `std_given`, `expand_program_after`, comptime's `StdComptime` prefix
+  tables, the deduction pass's std skipping, and the CLI's front paths
+  (`front_half`, `build_std_front`, `std_cache_applies`).
+- **Built**: `salvo_core::front` (the parse cache, moved from the CLI; a
+  cache's `parse_files`, `expand`, `build`, `resolve`, `check`;
+  `check_over`); `warm_std_cache` for the language server (one per server,
+  or handed in by the tests); `salvo_testkit::front::std` a warm cache per
+  test process, every program through a `transient` clone (it records
+  nothing for a next program); emission and the IR dump through one.
+  To win the time back: [lsp-expand-cache] (a stamped file not stamped
+  again); what a file can call built only for files holding a template
+  (8.8ms of every expansion, for every file); the scope cache's file check
+  made O(files); scopes over the stamped program carried with the program
+  (`Interfaces::stamped`), so any resolution of it takes them; the
+  deduction pass not validating a cached file's bodies again; a check
+  starting from the cache's merged rows (the base) instead of inserting
+  each file's; `KeyMap`, a two-word hasher for the keyed tables; the parse
+  cache comparing a file's text instead of hashing it. The check cache
+  learned what a warm cache needs: a file that left walks what saw it
+  (`sees`), a changed parking handler walks what sees its file, rows are
+  shared (`Arc<FileRows>`) so a clone is cheap.
+- **Measured** (release, medians, alternating with a build of the front
+  commit on the same loaded machine): `modules/aws` body edit analysis
+  ~56ms with the front, ~58ms now (wall ~190ms both); `lib/` heap body
+  228 → 214ms wall, signature 254 → 230ms, opening a document 445 → 394ms.
+  Tests: `run_data` warm 18.0s with the front, 18.9s now (23.5s before
+  `Interfaces::stamped`: every program's resolution rebuilt every scope,
+  since stamping `std.core.auto` touches what every file sees).
+- **Found**: `callables` was built for every file in every expansion; a
+  program's plain `resolve` rebuilt every scope because a reused stamped
+  std module still counts as changed by stamping; a warm cache's `walked`
+  is every file, so a "not walked" test is the wrong one for a clone (the
+  cached set is).
+- **Shown by** `a_warm_std_cache_matches_an_analysis_without_it` (every
+  example and the written programs, through the warm cache against no
+  cache), `a_warm_std_cache_matches_a_full_check`,
+  `std_expansion_is_project_independent`, the debug build's check that a
+  resolution through given scopes equals one building them all, and the
+  suite, which now checks every program through the warm cache.
+
 ### 2026-10-31 — The check cache keys rows by file, not position (user decision, ROADMAP §0be stage (d))
 
 - **Decided** (user, 2026-10-31): keying cached results by file identity
@@ -40255,6 +40304,16 @@ snapshot diffs.
   looked harmless. Check the edited text in the same shell command as the
   build (`grep -c 'new text' file && touch file && cargo build`), and trust
   a run's output only when it shows the change you expect.
+
+- **A cache that is right can still be slow through a side door**
+  (2026-11-01, folding the std front). The warm std cache gave every
+  program std's scopes, yet tests stayed 30% slower: emission resolved each
+  program with a plain `resolve`, and stamping `std.core.auto` (whose
+  templates it takes out) marks a module every file sees as changed, so
+  every scope was built again. Anything a cache knows has to travel with
+  the program (`Interfaces::stamped`), or every path that does not go
+  through the cache pays in full. Profile the test path, not only the
+  language server's.
 
 - **A qualifier name compared with a `Qual` must be a key** (2026-10-31,
   [qual-identity]). `Qual.name` is a key (`Pos§main`), so any code that

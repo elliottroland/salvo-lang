@@ -404,7 +404,7 @@ fn a_derived_return_error_spans_the_returned_call() {
 // ===== [deduce-std-explicit] A `std = true` tree needs total clauses =====
 //
 // These keep a prelude of their own: their point is a tree that *is* std
-// (`mark_std_tree`), which the real std's front does not build.
+// (`mark_std_tree`), which the warm std does not build.
 
 /// [platform-intrinsic-std-only] The intrinsic declarations these sources rely on.
 /// `intrinsic` is the compiler's modifier and only std may write it, so this

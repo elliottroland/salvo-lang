@@ -120,7 +120,7 @@ pub fn expand_file(file: &SourceFile, module: &mut Module) -> (Vec<FileTest>, Ve
     (found, diags)
 }
 
-/// [lsp-std-front] A module an expansion may rewrite: an owned one, or one a
+/// [lsp-warm-std] A module an expansion may rewrite: an owned one, or one a
 /// `Program` holds, which is rewritten in place when the program owns it
 /// alone and copied first when it is shared (a language server's parse
 /// cache keeps the parsed module; `Arc::make_mut`).
@@ -128,6 +128,9 @@ pub trait ModuleSlot: crate::decl_id::ModuleRef {
     fn module_mut(&mut self) -> &mut Module;
     /// Puts `module` in the slot's place.
     fn set(&mut self, module: Module);
+    /// Puts a shared module in the slot's place: the very `Arc` where the
+    /// slot holds one [lsp-expand-cache].
+    fn set_shared(&mut self, module: &Arc<Module>);
 }
 
 impl ModuleSlot for Module {
@@ -137,6 +140,9 @@ impl ModuleSlot for Module {
     fn set(&mut self, module: Module) {
         *self = module;
     }
+    fn set_shared(&mut self, module: &Arc<Module>) {
+        *self = (**module).clone();
+    }
 }
 
 impl ModuleSlot for Arc<Module> {
@@ -145,6 +151,9 @@ impl ModuleSlot for Arc<Module> {
     }
     fn set(&mut self, module: Module) {
         *self = Arc::new(module);
+    }
+    fn set_shared(&mut self, module: &Arc<Module>) {
+        *self = module.clone();
     }
 }
 
@@ -182,20 +191,17 @@ pub fn expand_program_given(files: &[SourceFile], modules: &mut [Arc<Module>], p
     program_expansion(per_file, comptime)
 }
 
-/// [lsp-std-front] What [`expand_program`] does, over a program whose leading
-/// files are a std that `prefix` recorded the expansion of
-/// (`comptime::expand_comptime_prefix`), already expanded: only the files
-/// after it are stamped. The std files' own expansion output is the
-/// prefix's, which the caller adds; this one reports the rest.
-pub fn expand_program_after(
+/// [lsp-expand-cache] [`expand_program_given`] keeping each stamped file's
+/// result in `cache` for the next expansion.
+pub fn expand_program_cached(
     files: &[SourceFile],
     modules: &mut [Arc<Module>],
     per_file: Vec<Vec<FileTest>>,
-    prefix: &crate::comptime::StdComptime,
-    std_scopes: &[Arc<crate::scope_ids::ScopeIds>],
     given: &[Option<crate::resolve::GivenScope>],
+    cache: &mut crate::check_cache::ExpandCache,
+    record: bool,
 ) -> Expansion {
-    let comptime = crate::comptime::expand_comptime_after(files, modules, prefix, std_scopes, given);
+    let comptime = crate::comptime::expand_comptime_cached(files, modules, given, cache, record);
     program_expansion(per_file, comptime)
 }
 

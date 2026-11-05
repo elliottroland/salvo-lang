@@ -193,7 +193,7 @@ const EXPECTED: &[(&str, &[(u32, u32, &str)])] = &[
 ];
 
 fn program() -> Program {
-    // [std-cache] Over the process's std front (TESTS.md T3).
+    // [lsp-warm-std] Over the process's warm std cache (TESTS.md T3).
     let files: Vec<(String, String)> = CASES.iter().map(|(name, body)| (format!("{name}.sv"), format!("{HELPERS}{body}"))).collect();
     let files: Vec<(&str, &str)> = files.iter().map(|(n, b)| (n.as_str(), b.as_str())).collect();
     salvo_testkit::front::clean_program("kt", &files)

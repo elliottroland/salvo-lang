@@ -381,6 +381,67 @@ impl Checked {
 }
 
 impl Checked {
+    /// [lsp-check-cache] The keyed rows alone (what `insert_rows` inserts): a
+    /// check cache's base, which a check starts from instead of inserting
+    /// every cached file's rows one by one.
+    pub(crate) fn keyed_clone(&self) -> Checked {
+        let mut out = Checked::default();
+        macro_rules! copy {
+            ($($t:ident),* $(,)?) => {$( out.$t = self.$t.clone(); )*};
+        }
+        copy!(
+            expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing,
+            calls, for_drivers, handles, constructions, route_keys,
+            replyto_targets, fate_mutations, bind_facts, derived_uses,
+            effects_taken, effects_passed, effect_packs, effect_slots, effect_adapted,
+            handler_deps, handler_shapes, effect_prereqs,
+            fn_refs, refs, fate_reads, interp_union, borrows, fn_lends, boundaries, lambda_captures,
+            implicit_params, established_quals, carried_identities, implicit_args, fn_values, moves, discharges,
+            local_decls,
+        );
+        out
+    }
+
+    /// [lsp-check-cache] Takes `keyed`'s keyed rows as this check's (whose own
+    /// keyed tables are still empty).
+    pub(crate) fn adopt_keyed(&mut self, keyed: Checked) {
+        macro_rules! take {
+            ($($t:ident),* $(,)?) => {$( self.$t = keyed.$t; )*};
+        }
+        take!(
+            expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing,
+            calls, for_drivers, handles, constructions, route_keys,
+            replyto_targets, fate_mutations, bind_facts, derived_uses,
+            effects_taken, effects_passed, effect_packs, effect_slots, effect_adapted,
+            handler_deps, handler_shapes, effect_prereqs,
+            fn_refs, refs, fate_reads, interp_union, borrows, fn_lends, boundaries, lambda_captures,
+            implicit_params, established_quals, carried_identities, implicit_args, fn_values, moves, discharges,
+            local_decls,
+        );
+    }
+
+    /// [lsp-check-cache] Takes out one part's keyed rows (`rows`, as
+    /// `insert_rows` put them in).
+    pub(crate) fn remove_rows(&mut self, rows: &Checked) {
+        macro_rules! remove {
+            ($($t:ident),* $(,)?) => {$( for k in rows.$t.keys() { self.$t.remove(k); } )*};
+        }
+        remove!(
+            expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing,
+            calls, for_drivers, handles, constructions, route_keys,
+            replyto_targets, fate_mutations, bind_facts, derived_uses,
+            effects_taken, effects_passed, effect_packs, effect_slots, effect_adapted,
+            handler_deps, handler_shapes, effect_prereqs,
+            fn_refs, refs, fate_reads, interp_union, borrows, fn_lends, boundaries, lambda_captures,
+            implicit_params, established_quals, carried_identities, implicit_args, fn_values, moves, discharges,
+        );
+        for (f, locals) in &rows.local_decls {
+            if let Some(mine) = self.local_decls.get_mut(f) {
+                mine.retain(|l| !locals.contains(l));
+            }
+        }
+    }
+
     /// [lsp-check-cache] Moves every row to the files' new places, `map`
     /// answering a file's new index (`None`: the file is gone): the keys'
     /// origins, the definition sites, the locals and carried identities by

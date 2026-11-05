@@ -322,7 +322,7 @@ fn provenance_arm_is_inferred_from_a_bare_value() {
 /// declarations.
 fn std_errors(src: &str) -> Vec<&'static str> {
     let files = [("main.sv", src)];
-    // [std-cache] Over the process's std front (TESTS.md T3); the
+    // [lsp-warm-std] Over the process's warm std cache (TESTS.md T3); the
     // expansion's own diagnostics are not these tests' subject.
     let program = salvo_testkit::front::program("rs", &files).program;
     let symbols = Symbols::collect(&program);

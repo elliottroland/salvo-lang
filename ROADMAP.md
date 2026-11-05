@@ -440,68 +440,35 @@ Parked (user, 2026-10-14): the user expects to move away from state structs and 
 - (The variadic constructors' copied tail is gone: they consume it now —
   COMPLETED.md, 2026-10-30, "Constructors consume their tail".)
 
-### 0be — One cache for every file: dependency-tracked checking (user, 2026-10-31: next, to design together)
+### 0be — One cache for every file: what is left (built 2026-11-01)
 
-Doc examples are built (COMPLETED.md, 2026-10-31, [doc-example]) on the
-caches as they are, with option C the user chose: then design **one cache**
-that would make the std/project split unnecessary. **User decisions
-(2026-10-31)**: per file, not per declaration; staged and measured after
-each stage — (a) the check cache without the std front, so `lib/` gets one
-(**built** 2026-10-31, COMPLETED.md), (b) dependency-based invalidation
-(built), (c) resolve and the IR analyses cached per
-file (built), (d) the std front folded into the cache; the goal today is editing std,
-designed for big user projects (gathers kept per file). Where an edit in
-`lib/std/heap.sv` goes after (a), release build, 414ms wall with the 120ms
-debounce: IR 73 (build 59), check 63 (inserting the 73 cached files' rows
-46), resolve 58, expand 33, load 26 (reading `.sv` files). Left by (a):
-- a body edit in a file holding a comptime template walks the files whose
-  copies moved (with (b): `args.sv`'s examples deriving `FromArgs`); a
-  copy's range could be remapped through its template file's cut regions.
+The one cache is built (COMPLETED.md, 2026-10-31 to 2026-11-01, stages (a)
+to (d), [lsp-check-cache] [lsp-warm-std]): there is no std front; a cache
+warmed with std stands in for std everywhere. Measured (release, medians
+of 5, a loaded machine): a `lib/std/heap.sv` body edit 421 → ~210ms wall, a
+signature edit 503 → ~230ms, opening a document 859 → ~395ms, a
+`modules/aws` body edit ~190ms as with the front. Left, by what it costs a
+`modules/aws` body edit's ~60ms analysis:
 
-Stage (d), first part **built** 2026-10-31 (COMPLETED.md): rows keyed by
-file, so opening a document in `lib/` walks its examples only (859 → 451ms).
-**DECISION** (the user's), the rest of (d), folding the std front into the
-one cache. Measured (release, `modules/aws`, a body edit): with the front
-the analysis takes 53ms, with the check cache standing for std as for any
-file 74ms — std's rows inserted every check (+9ms) and std stamped again
-(+9ms), parse +3. What the fold buys is one path instead of two (the front's
-`StdFront`/`StdCache` and `check_project*` beside `check_program_cached`),
-and the std/project split gone. Options: (1) leave the front as it is
-(recommended unless the code simplicity is the point); (2) fold it, and win
-back the 21ms by keeping std's expansion and inserted rows across analyses
-(an expansion cache per file, and checked rows kept and patched rather than
-rebuilt); (3) fold only the check (`StdCache` becomes the `CheckCache`
-pre-filled with std's rows), keeping the front's parse and expansion.
-
-Stage (c), **built** 2026-10-31 (COMPLETED.md): a `heap.sv` body edit 421ms →
-236ms wall (release, analysis 276 → 95), a signature edit 503 → 254ms. Left
-in a body edit's 95ms: check 30 (inserting cached rows 11, the facts step's
-inserts 8), resolve 23 (the name table 11, built whole), expand 18, load 12
-(walking the tree's directories), parse 5; ~20ms of serializing and
-publishing outside the analysis. A `std.core` signature edit still walks and
-builds everything (723ms).
-
-Stage (b), dependency invalidation, **built** 2026-10-31 (COMPLETED.md): a
-`heap.sv` signature edit 829ms → 452ms (release, 10 of 74 files walked); an
-edit of a `std.core` signature still walks everything, as it must. Today there are two
-mechanisms: std's front (`StdFront` + `StdCache`, parsed, expanded and
-checked once, sound because std sees only std) and the project's
-`CheckCache`, which is **all-or-nothing** — rows keyed by file position,
-reused only while every changed file's text outside its plain bodies and doc
-examples is unchanged, so an interface edit anywhere re-walks every file, and
-adding a file clears it. What one cache needs, to be designed with the user
-(arch-design-together; measure before deciding):
-
-- rows keyed by the file itself (module path and text), not its position;
-- invalidation by dependency: a file's rows stand while its text and the
-  interfaces of the modules it can see are unchanged (std, which sees only
-  std, and examples, which nothing imports, become ordinary cases; the front
-  becomes a warm cache);
-- the program-wide steps (written keys, program checks, the deduction pass,
-  the literal lowering) made incremental, since std's share of them comes
-  from `StdCache` today;
-- per-file comptime expansion and scope building by id [decl-id] are partly
-  there (C4).
+- **The name table is built whole** every analysis (`Names::build`, ~12ms):
+  per file it depends on the file and its scope, so a file whose scope was
+  given could keep its part.
+- **Program-wide passes over every file** each check: written keys (~2ms),
+  qualifier keys (~2ms), refinements (~1.5ms), the deduction contracts; each
+  could keep a file's share while its rows stand.
+- **Inserting a cached file's rows** that the base does not hold, and the
+  steps' ordered rows (~5ms in `lib/`); a check could keep the last
+  `Checked` and patch it instead of cloning the base.
+- ~20ms of serializing and publishing outside the analysis.
+- A body edit in a file holding a comptime template walks (and stamps
+  again) the files whose copies moved (`args.sv`'s examples deriving
+  `FromArgs`); a copy's range could be remapped through its template file's
+  cut regions.
+- A `std.core` signature edit still walks and builds everything (~720ms),
+  as it must.
+- The test suite's warm run measured ~89s (2026-11-01, loaded; ~68s on
+  2026-10-29): `run_data` alone matches the front (19s against 18s), the
+  rest was not compared.
 
 Smaller leftovers of the doc examples, recorded:
 - `docs/language/` fences are not examples (many are fragments); an opt-in

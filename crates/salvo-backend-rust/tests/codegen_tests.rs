@@ -7,7 +7,7 @@ use std::path::Path;
 
 use salvo_core::{Program, SourceSet};
 
-/// [std-cache] A program of std and `extra`, over the process's std front
+/// [lsp-warm-std] A program of std and `extra`, over the process's warm std cache
 /// (`salvo_testkit::front`, TESTS.md C2): std was read, parsed, expanded and
 /// checked once, and the program holds its very modules, so only `extra` is
 /// parsed, expanded ([actor-route-stub], what `salvo compile` runs before
@@ -19,10 +19,10 @@ fn build_program(extra: &[(&str, &str)]) -> Program {
     built.program
 }
 
-/// [std-cache] `emit_program` over the std front [`build_program`] built on.
+/// [lsp-warm-std] `emit_program` through the warm std cache [`build_program`] built on.
 fn emit(program: &Program) -> Result<Vec<salvo_backend_rust::EmittedFile>, Vec<String>> {
-    let front = salvo_testkit::front::std_front("rs");
-    salvo_backend_rust::emit_program_over(program, front)
+    let front = salvo_testkit::front::std("rs");
+    salvo_backend_rust::emit_program_over(program, front.cache())
 }
 
 fn generate(extra: &[(&str, &str)]) -> Vec<salvo_backend_rust::EmittedFile> {
@@ -1050,7 +1050,7 @@ fn example_names() -> Vec<String> {
 
 /// Emits one example's Rust, exactly as `salvo compile` would.
 fn emit_example(example: &str) -> Vec<salvo_backend_rust::EmittedFile> {
-    // [std-cache] std is the process's front (`salvo_testkit::front`); the
+    // [lsp-warm-std] std is the process's front (`salvo_testkit::front`); the
     // dependencies and the example's tree come after it.
     let mut sources = SourceSet::default();
     // [manifest-deps] The example's manifest names its dependencies, loaded
@@ -1065,7 +1065,7 @@ fn emit_example(example: &str) -> Vec<salvo_backend_rust::EmittedFile> {
     let errors = sources.add_dir(&src, "rs", false, false);
     assert!(errors.is_empty(), "failed to read {example}: {errors:?}");
     // The drivers' pre-resolution expansions [actor-route-stub].
-    let built = salvo_testkit::front::std_front("rs").program(sources.files, sources.companions);
+    let built = salvo_testkit::front::std("rs").program(sources.files, sources.companions);
     let errors: Vec<_> = built.diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "parse or expansion errors: {errors:?}");
     let program = built.program;

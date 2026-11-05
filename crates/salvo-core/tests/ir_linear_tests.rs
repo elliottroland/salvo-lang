@@ -10,7 +10,7 @@ use std::path::Path;
 use salvo_core::Program;
 
 fn example_program(dir: &Path) -> Program {
-    // [std-cache] Over the process's std front (TESTS.md T3).
+    // [lsp-warm-std] Over the process's warm std cache (TESTS.md T3).
     salvo_testkit::front::expect_clean(salvo_testkit::front::project("kt", dir))
 }
 

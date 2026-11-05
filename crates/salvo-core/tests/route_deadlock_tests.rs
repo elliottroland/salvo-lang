@@ -70,7 +70,7 @@ impl Diag {
 /// Checks `src` with std loaded, returning the diagnostics (errors and
 /// warnings) and the deadlock graph's edges.
 fn check(src: &str) -> (Vec<Diag>, Vec<String>) {
-    // [std-cache] Over the process's std front (TESTS.md T3).
+    // [lsp-warm-std] Over the process's warm std cache (TESTS.md T3).
     let program = salvo_testkit::front::program("kt", &[("main.sv", src)]).program;
     let symbols = Symbols::collect(&program);
     let resolution = resolve(&program);

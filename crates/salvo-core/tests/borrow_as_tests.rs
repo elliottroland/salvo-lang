@@ -34,7 +34,7 @@ fn main() [use] -> None {
 "#;
 
 fn dump(src: &str) -> String {
-    // [std-cache] Over the process's std front (TESTS.md T3).
+    // [lsp-warm-std] Over the process's warm std cache (TESTS.md T3).
     let program = salvo_testkit::front::clean_program("kt", &[("main.sv", src)]);
     let (text, errors) = salvo_testkit::front::dump_ir("kt", &program, false, None).expect("checks");
     assert!(errors.is_empty(), "{errors:?}");

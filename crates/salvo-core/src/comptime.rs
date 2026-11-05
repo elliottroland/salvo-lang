@@ -94,25 +94,7 @@ struct Tables {
     site_names: HashMap<(usize, u32), Vec<String>>,
 }
 
-/// [lsp-std-front] The comptime expansion of the embedded std on its own,
-/// kept so a language server can expand a project over std's already
-/// expanded modules ([`expand_comptime_after`]): std's comptime fns as they
-/// were before std was stamped.
-pub struct StdComptime {
-    /// How many leading files of a program the std is.
-    files: usize,
-    tables: std::sync::Arc<Tables>,
-}
-
-impl StdComptime {
-    /// How many leading files of a program the std is.
-    pub fn files(&self) -> usize {
-        self.files
-    }
-
-}
-
-/// [lsp-std-front] Whether the per-file stamping has anything to do in a
+/// [lsp-warm-std] Whether the per-file stamping has anything to do in a
 /// module: a comptime fn, a `fn … by`, or a `by` clause. One that has none is
 /// left exactly as it is, so it is not even made mutable (a shared module
 /// stays shared).
@@ -127,78 +109,61 @@ pub(crate) fn stamps_anything(module: &Module) -> bool {
 
 /// Runs the expansion. `modules` is aligned with `files`.
 pub fn expand_comptime<M: crate::expand::ModuleSlot>(files: &[SourceFile], modules: &mut [M]) -> ComptimeOutput {
-    run(files, modules, None, &[]).0
+    run(files, modules, &[], &[]).0
 }
 
 /// [lsp-scope-cache] [`expand_comptime`] with the scopes of some files
 /// `given` (by id, as an earlier analysis built them): those are not built.
 pub fn expand_comptime_given<M: crate::expand::ModuleSlot>(files: &[SourceFile], modules: &mut [M], given: &[Option<crate::resolve::GivenScope>]) -> ComptimeOutput {
-    run(files, modules, None, given).0
+    run(files, modules, given, &[]).0
 }
 
-/// [lsp-std-front] Runs the expansion over a std on its own (`files` is the
-/// embedded std, nothing else), and keeps what [`expand_comptime_after`]
-/// needs to expand a project over the result.
-pub fn expand_comptime_prefix<M: crate::expand::ModuleSlot>(
-    files: &[SourceFile],
-    modules: &mut [M],
-) -> (ComptimeOutput, StdComptime) {
-    let (out, tables) = run(files, modules, None, &[]);
-    let prefix = StdComptime {
-        files: files.len(),
-        tables: std::sync::Arc::new(tables),
-    };
-    (out, prefix)
-}
-
-/// [lsp-std-front] Runs the expansion over a program whose leading
-/// `prefix.files()` files are the std `prefix` was recorded from, already
-/// expanded: the world reads std's tables from the prefix, scopes are
-/// resolved for the later files only, and only the later files are stamped.
-/// The std files' own output (diagnostics, hovers, `[when]` arms) is the
-/// prefix's, not repeated here. Sound for every program: std sees only std
-/// [obligation-by] — a `by` path names only the modules its file can see, a
-/// name std's scope does not see falls back to std's declarations alone, and
-/// what std sees implicitly is `std.core.*`, which no project can declare
-/// [std-root].
-pub fn expand_comptime_after(
+/// [lsp-expand-cache] [`expand_comptime_given`] keeping each stamped file's
+/// result in `cache`: a file whose stamping can read nothing new since the
+/// last expansion (`ExpandCache::plan`) takes its last stamped module and
+/// what stamping it reported, and is not stamped again.
+pub fn expand_comptime_cached(
     files: &[SourceFile],
     modules: &mut [std::sync::Arc<Module>],
-    prefix: &StdComptime,
-    std_scopes: &[std::sync::Arc<crate::scope_ids::ScopeIds>],
     given: &[Option<crate::resolve::GivenScope>],
+    cache: &mut crate::check_cache::ExpandCache,
+    record: bool,
 ) -> ComptimeOutput {
-    // [decl-id] std's scopes are the front's, as for the program's own
-    // resolution (`resolve::std_given`); [lsp-scope-cache] the rest's those
-    // `given`.
-    let mut all = crate::resolve::std_given(files, std_scopes).unwrap_or_default();
-    if !all.is_empty() {
-        for (slot, g) in all.iter_mut().zip(given) {
-            if slot.is_none() {
-                *slot = g.clone();
-            }
-        }
+    let reuse = cache.plan(files, modules);
+    let pre: Vec<std::sync::Arc<Module>> = modules.to_vec();
+    let (out, fresh) = run(files, modules, given, &reuse);
+    if record {
+        cache.record(files, &pre, modules, reuse, fresh, &out.interfaces.scope_ids);
     }
-    run(files, modules, Some((prefix.tables.clone(), prefix.files)), &all).0
+    out
 }
 
-/// The expansion: the files from `start` on (every file without a `base`)
-/// are collected into the world's tables, scoped and stamped; `base` holds
-/// the tables of the files before `start`. Returns the run's own tables
-/// beside its output.
+/// [lsp-expand-cache] What stamping one file made and reported.
+#[derive(Clone)]
+pub struct StampedFile {
+    pub module: std::sync::Arc<Module>,
+    pub diagnostics: Vec<Diagnostic>,
+    pub hovers: Vec<CompHover>,
+    pub when_arms: Vec<CompWhenArms>,
+    /// Whether stamping changed the module's declarations.
+    pub changed: bool,
+}
+
+/// What `run` stamped of one file, but its module (set in place).
+pub(crate) type FreshStamp = (usize, Vec<Diagnostic>, Vec<CompHover>, Vec<CompWhenArms>, bool);
+
 fn run<M: crate::expand::ModuleSlot>(
     files: &[SourceFile],
     modules: &mut [M],
-    base: Option<(std::sync::Arc<Tables>, usize)>,
     given: &[Option<crate::resolve::GivenScope>],
-) -> (ComptimeOutput, Tables) {
+    reuse: &[Option<StampedFile>],
+) -> (ComptimeOutput, Vec<FreshStamp>) {
     let mut out = Vec::new();
     let mut hovers: Vec<CompHover> = Vec::new();
     let mut when_arms: Vec<CompWhenArms> = Vec::new();
-    let start = base.as_ref().map_or(0, |(_, n)| *n);
 
     let mut tables = Tables::default();
-    for idx in start..files.len() {
+    for idx in 0..files.len() {
         let (file, module) = (&files[idx], modules[idx].borrow());
         for item in &module.items {
             match item {
@@ -237,7 +202,12 @@ fn run<M: crate::expand::ModuleSlot>(
     // written: a template says which place each fn name it can see means, and
     // the bare ones it cannot see are the site's — by template, its file and
     // its name's start.
-    for idx in start..files.len() {
+    for idx in 0..files.len() {
+        // What a file can call, for its templates: only a file holding one
+        // needs it (building it for every file was most of an expansion).
+        if !pre[idx].items.iter().any(|i| matches!(i, Item::Fn(f) if f.compfn.is_some())) {
+            continue;
+        }
         let names = callables(&interfaces.scope_ids[idx], &decls, &pre);
         for item in &pre[idx].items {
             if let Item::Fn(f) = item {
@@ -263,7 +233,6 @@ fn run<M: crate::expand::ModuleSlot>(
         pre: &pre,
         tag_files,
         here: std::cell::Cell::new(0),
-        base: base.map(|(tables, _)| tables),
         tables,
         own: std::cell::RefCell::new(ModulePath(Vec::new())),
         module_paths: files.iter().map(|f| f.module.clone()).collect(),
@@ -273,11 +242,25 @@ fn run<M: crate::expand::ModuleSlot>(
     // the module's place once every file is stamped: until then the world
     // reads the declarations as written.
     let mut stamped: Vec<(usize, Module)> = Vec::new();
-    for file_idx in start..files.len() {
+    let mut kept: Vec<(usize, std::sync::Arc<Module>)> = Vec::new();
+    let mut fresh: Vec<FreshStamp> = Vec::new();
+    for file_idx in 0..files.len() {
         if !stamps_anything(pre[file_idx]) {
             continue;
         }
         let file = &files[file_idx];
+        // [lsp-expand-cache] What stamping this file made last time stands.
+        if let Some(Some(r)) = reuse.get(file_idx) {
+            out.extend(r.diagnostics.iter().cloned().map(|d| (file_idx, d)));
+            hovers.extend(r.hovers.iter().cloned().map(|h| CompHover { file: file_idx, ..h }));
+            when_arms.extend(r.when_arms.iter().cloned().map(|w| CompWhenArms { file: file_idx, ..w }));
+            if r.changed {
+                interfaces.changed.insert(file.module.clone());
+            }
+            kept.push((file_idx, r.module.clone()));
+            continue;
+        }
+        let (hovers_before, arms_before) = (hovers.len(), when_arms.len());
         let mut copy: Module = pre[file_idx].clone();
         let module = &mut copy;
         *world.own.borrow_mut() = file.module.clone();
@@ -545,19 +528,24 @@ fn run<M: crate::expand::ModuleSlot>(
         // [decl-id] A module that gained or lost a declaration: a scope that
         // took it in is built again over the stamped program, the rest are
         // viewed (`resolve::resolve`).
-        if module.items.len() != before || !generated.is_empty() {
+        let changed = module.items.len() != before || !generated.is_empty();
+        if changed {
             interfaces.changed.insert(file.module.clone());
         }
         module.items.extend(generated);
         // [node-id] The file's tree is final.
         salvo_syntax::node_id::number(module);
+        fresh.push((file_idx, diags.clone(), hovers[hovers_before..].to_vec(), when_arms[arms_before..].to_vec(), changed));
         out.extend(diags.into_iter().map(|d| (file_idx, d)));
         stamped.push((file_idx, copy));
     }
-    let World { tables, .. } = world;
+    drop(world);
     drop(pre);
     for (file_idx, module) in stamped {
         modules[file_idx].set(module);
+    }
+    for (file_idx, module) in kept {
+        modules[file_idx].set_shared(&module);
     }
     (
         ComptimeOutput {
@@ -566,7 +554,7 @@ fn run<M: crate::expand::ModuleSlot>(
             when_arms,
             interfaces,
         },
-        tables,
+        fresh,
     )
 }
 
@@ -1354,10 +1342,6 @@ struct World<'a> {
     /// file is numbered again after stamping.
     tag_files: HashMap<u32, usize>,
     here: std::cell::Cell<usize>,
-    /// [lsp-std-front] The comptime fns of the files before the ones stamped
-    /// (an already expanded std), which come first, as their files come
-    /// first in the program.
-    base: Option<std::sync::Arc<Tables>>,
     tables: Tables,
     /// [struct-opaque] The module being expanded: where the stamped code
     /// reads fields from.
@@ -1373,7 +1357,6 @@ impl<'a> World<'a> {
         self.tables
             .site_names
             .get(&key)
-            .or_else(|| self.base.as_ref().and_then(|b| b.site_names.get(&key)))
             .cloned()
             .unwrap_or_default()
     }
@@ -1408,9 +1391,9 @@ impl<'a> World<'a> {
         out
     }
 
-    /// Every comptime fn, the base's first.
+    /// Every comptime fn.
     fn compfns(&self) -> impl Iterator<Item = &CompFnDecl> {
-        self.base.iter().flat_map(|b| b.compfns.iter()).chain(self.tables.compfns.iter())
+        self.tables.compfns.iter()
     }
 
     /// [obligation-by] Whether the file being expanded can see `module`: its

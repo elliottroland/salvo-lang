@@ -38,12 +38,12 @@ pub fn emit_program_ir(
     run(program, entry, abi, false, None)
 }
 
-/// [std-cache] [`emit_program_ir`], with std's checked rows taken from `std`
+/// [lsp-warm-std] [`emit_program_ir`], with std's checked rows taken from `std`
 /// when it applies (`salvo_backend::driver::check_for_emission_over`).
 pub fn emit_program_ir_over(
     program: &Program,
     entry: Option<&ModulePath>,
-    std: Option<&salvo_core::StdCache>,
+    std: Option<&salvo_core::CheckCache>,
 ) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
     run(program, entry, false, false, std)
 }
@@ -59,7 +59,7 @@ fn run(
     entry: Option<&ModulePath>,
     abi: bool,
     skeletons: bool,
-    std: Option<&salvo_core::StdCache>,
+    std: Option<&salvo_core::CheckCache>,
 ) -> Result<(Vec<EmittedFile>, Vec<String>), Vec<String>> {
     let (_erased_program, erased, mut checked, warnings) = salvo_backend::driver::check_for_emission_over(program, std)?;
     let (symbols, resolution) = salvo_backend::driver::resolve_for_emission(program, &mut checked);

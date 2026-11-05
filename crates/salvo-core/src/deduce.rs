@@ -83,23 +83,15 @@ struct FnInfo<'p> {
 /// [deduce-default] Every top-level `fn`'s contract, from its signature
 /// alone: the written entries over the per-parameter defaults. Known before
 /// any body is walked, which is what lets the first checking walk be a real
-/// one (the pipeline record step 2). std's come from the cache when there is one.
+/// one (the pipeline record step 2).
 /// Shape errors in written lists are reported by [`infer`], not here.
 pub(crate) fn contracts(
     program: &Program,
     decls: &crate::decl_id::DeclIndex,
-    cache: Option<&crate::check::StdCache>,
 ) -> HashMap<DeclId, Vec<ParamDeduction>> {
     let no_mutations: HashSet<String> = HashSet::new();
-    let skip_below = cache.map(|c| c.std_files);
-    let mut states: HashMap<DeclId, Vec<ParamDeduction>> = match cache {
-        Some(c) => c.std_deductions().map(|(k, d)| (k.decl, d.clone())).collect(),
-        None => HashMap::new(),
-    };
+    let mut states: HashMap<DeclId, Vec<ParamDeduction>> = HashMap::new();
     for (file_idx, ast) in program.modules.iter().enumerate() {
-        if skip_below.is_some_and(|n| file_idx < n) {
-            continue;
-        }
         for (item_idx, item) in ast.items.iter().enumerate() {
             let Item::Fn(f) = item else { continue };
             let state = match &f.deductions {
@@ -112,14 +104,21 @@ pub(crate) fn contracts(
     states
 }
 
+/// What validating one file's deductions reported, in the pass's three
+/// steps (written lists, fn bodies, handler members) [lsp-check-cache].
+pub(crate) type FileDeductions = [Vec<FileDiagnostic>; 3];
+
 /// Validates the deduction list of every top-level `fn` against its body and
 /// stores the contracts in `checked.deductions` [deduce-default].
+/// [lsp-check-cache] A file `settled` answers for (one the check did not
+/// walk) is not validated again: what it reported is. Answers what each file
+/// reported.
 pub(crate) fn infer<'p>(
     program: &'p Program,
     symbols: &crate::Symbols<'p>,
     checked: &mut Checked,
-    skip_below: Option<usize>,
-) {
+    settled: &dyn Fn(usize) -> Option<FileDeductions>,
+) -> HashMap<usize, FileDeductions> {
     let no_mutations: HashSet<String> = HashSet::new();
     let no_state: HashSet<String> = HashSet::new();
     let decls_arc = checked.decls.clone();
@@ -140,23 +139,13 @@ pub(crate) fn infer<'p>(
         .collect();
     let mut fns: Vec<FnInfo<'_>> = Vec::new();
     for (file_idx, ast) in program.modules.iter().enumerate() {
-        // [std-cache] std fns are not re-inferred: their contracts are
-        // written (all-written → the fixpoint would discard the walked
-        // result anyway [deduce-std-explicit]) and already in
-        // `checked.deductions`, seeded by the cache. Skipping them is what
-        // makes the project check cheap.
-        if skip_below.is_some_and(|n| file_idx < n) {
-            continue;
-        }
         for (item_idx, item) in ast.items.iter().enumerate() {
             if let Item::Fn(f) = item {
                 fns.push(FnInfo { key: checked.decls.fn_at(file_idx, item_idx), file: file_idx, decl: f });
             }
         }
     }
-    // [std-cache] `fn_decls` covers **every** fn (std included): a project fn
-    // may call a std fn, and the callee's declaration must be found by key
-    // even though std is not re-inferred. It is only AST references, cheap.
+    // `fn_decls` covers every fn: a callee's declaration is found by key.
     let fn_decls: HashMap<DeclId, &FnDecl> = program
         .modules
         .iter()
@@ -203,19 +192,18 @@ pub(crate) fn infer<'p>(
     // `Mut`), with any written entry overriding its parameter. No body
     // inference, so no fixpoint over the call graph (`contracts` computes the
     // same before any walk).
-    let mut errors: Vec<FileDiagnostic> = Vec::new();
-    let mut states: HashMap<DeclId, Vec<ParamDeduction>> = HashMap::new();
-    // [std-cache] Seed std fns' deductions from the cache (in `checked`,
-    // seeded by `check_once`): they are not re-derived, but a project fn
-    // calling one reads its contract from `states` by key.
-    if let Some(n) = skip_below {
-        for (key, ded) in &checked.deductions {
-            if checked.decls.loc(key.decl).is_some_and(|l| l.file < n) {
-                states.insert(key.decl, ded.clone());
+    let mut by_file: HashMap<usize, FileDeductions> = HashMap::new();
+    let mut kept: HashMap<usize, FileDeductions> = HashMap::new();
+    for f in fns.iter().map(|f| f.file).chain(0..program.modules.len()) {
+        if !kept.contains_key(&f) {
+            if let Some(d) = settled(f) {
+                kept.insert(f, d);
             }
         }
     }
+    let mut states: HashMap<DeclId, Vec<ParamDeduction>> = HashMap::new();
     for f in &fns {
+        let errors = &mut by_file.entry(f.file).or_default()[0];
         let before = errors.len();
         let state = match &f.decl.deductions {
             Some(list) => from_written(f.decl, list, &no_mutations, |span, msg| {
@@ -236,6 +224,9 @@ pub(crate) fn infer<'p>(
     // keep is checked like a written one.)
     for f in &fns {
         let Some(body) = &f.decl.body else { continue };
+        if kept.contains_key(&f.file) {
+            continue;
+        }
         let inferred = infer_body(
             f,
             body,
@@ -252,8 +243,9 @@ pub(crate) fn infer<'p>(
             decls,
         );
         let contract = &states[&f.key];
+        let errors = &mut by_file.entry(f.file).or_default()[1];
         let before = errors.len();
-        validate_contract(f.file, f.decl, contract, &inferred, &mut errors);
+        validate_contract(f.file, f.decl, contract, &inferred, errors);
         redirect_stamped(f.decl, &f.key, decls, &mut errors[before..]);
     }
 
@@ -263,9 +255,7 @@ pub(crate) fn infer<'p>(
     // than the body delivers is the same bug there. They are not keyed by their `DeclId`
     // (not top-level items), so they are validated here.
     for (file_idx, ast) in program.modules.iter().enumerate() {
-        // [std-cache] As for fns: std's handler members were validated when
-        // the cache was checked.
-        if skip_below.is_some_and(|n| file_idx < n) {
+        if kept.contains_key(&file_idx) {
             continue;
         }
         for (item_idx, item) in ast.items.iter().enumerate() {
@@ -295,14 +285,26 @@ pub(crate) fn infer<'p>(
                     expr_ty,
                     decls,
                 );
-                validate_contract(file_idx, m, &contract, &inferred, &mut errors);
+                validate_contract(file_idx, m, &contract, &inferred, &mut by_file.entry(file_idx).or_default()[2]);
             }
         }
     }
 
-    checked.errors.extend(errors);
+    // A kept file's report is what it was; the order is the pass's own:
+    // every file's written lists, then bodies, then handler members.
+    for (f, d) in kept {
+        by_file.insert(f, d);
+    }
+    let mut files: Vec<usize> = by_file.keys().copied().collect();
+    files.sort_unstable();
+    for step in 0..3 {
+        for f in &files {
+            checked.errors.extend(by_file[f][step].iter().cloned());
+        }
+    }
     // [node-id] At each fn's name (`Key::name_of`).
     checked.deductions = states.into_iter().map(|(k, d)| (crate::check::Key::name_of(k), d)).collect();
+    by_file
 }
 
 thread_local! {
@@ -600,16 +602,16 @@ pub(crate) fn defaults(decl: &FnDecl) -> Vec<ParamDeduction> {
 fn infer_body<'a, 'p>(
     f: &FnInfo<'p>,
     body: &'p Block,
-    calls: &'a HashMap<Key, crate::check::Call>,
+    calls: &'a crate::check::KeyMap<crate::check::Call>,
     fn_decls: &'a HashMap<DeclId, &'p FnDecl>,
     states: &'a HashMap<DeclId, Vec<ParamDeduction>>,
     provenance: &'a HashSet<String>,
     effects: &'a HashMap<String, &'p EffectDecl>,
-    effect_calls: &'a HashMap<Key, crate::check::EffectsPassed>,
+    effect_calls: &'a crate::check::KeyMap<crate::check::EffectsPassed>,
     state_names: &'a HashSet<String>,
     refinements: &'a crate::refine::Refinements,
     proj_fields: &'a HashMap<String, HashSet<String>>,
-    expr_ty: &'a HashMap<Key, Ty>,
+    expr_ty: &'a crate::check::KeyMap<Ty>,
     decls: &'a crate::decl_id::DeclIndex,
 ) -> Vec<ParamDeduction> {
     let mut walk = Walk {
@@ -726,7 +728,7 @@ struct Walk<'a, 'p> {
     /// [node-id] What the walk's keys are made with (`Walk::key`).
     decls: &'a crate::decl_id::DeclIndex,
     key_hint: std::cell::Cell<usize>,
-    calls: &'a HashMap<Key, crate::check::Call>,
+    calls: &'a crate::check::KeyMap<crate::check::Call>,
     fn_decls: &'a HashMap<DeclId, &'p FnDecl>,
     states: &'a HashMap<DeclId, Vec<ParamDeduction>>,
     params: Vec<ParamDeduction>,
@@ -740,7 +742,7 @@ struct Walk<'a, 'p> {
     effects: &'a HashMap<String, &'p EffectDecl>,
     /// Which effect instance each member call dispatches through (checker
     /// receivers in `effects_passed`), keyed by call span.
-    effect_calls: &'a HashMap<Key, crate::check::EffectsPassed>,
+    effect_calls: &'a crate::check::KeyMap<crate::check::EffectsPassed>,
     /// Handler *state* field names when walking a handler member
     /// [effect-state-store]: assigning into one is a store (the handler
     /// takes ownership), not a binding. Empty for ordinary fns.
@@ -761,7 +763,7 @@ struct Walk<'a, 'p> {
     proj_fields: &'a HashMap<String, HashSet<String>>,
     /// Checker expression types by span, for a bare `{…}` literal whose
     /// struct is not written.
-    expr_ty: &'a HashMap<Key, Ty>,
+    expr_ty: &'a crate::check::KeyMap<Ty>,
 }
 
 /// The parameter an argument passes *itself* (spreads forward the value

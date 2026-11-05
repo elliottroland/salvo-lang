@@ -8,14 +8,14 @@
 use std::path::Path;
 
 use salvo_core::source::SourceFile;
-use salvo_core::{FrontProgram, Program, Symbols};
+use salvo_core::{Built, Program, Symbols};
 
 /// Checks `built`, writes its user files out, re-checks them, and answers
 /// what differed (empty when the round trip holds) and how many calls were
 /// written out, and how many types. `None` when the program does not check
 /// clean to begin with.
-fn round_trip(built: FrontProgram) -> Option<(Vec<String>, usize, usize)> {
-    let front = salvo_testkit::front::std_front("kt");
+fn round_trip(built: Built) -> Option<(Vec<String>, usize, usize)> {
+    let front = salvo_testkit::front::std("kt");
     if built.diagnostics.iter().any(|d| d.is_error()) {
         return None;
     }

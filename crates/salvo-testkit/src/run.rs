@@ -50,7 +50,7 @@ impl Backend {
         }
     }
 
-    /// The extension of its companion files, and of its std front.
+    /// The extension of its companion files, and of its warm std.
     pub fn ext(self) -> &'static str {
         match self {
             Backend::Rust => "rs",

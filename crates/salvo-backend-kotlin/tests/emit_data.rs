@@ -1,5 +1,5 @@
 //! [test-emit-data] The Kotlin backend's emit data: every program under
-//! `tests/emit/<area>/*.sv`, emitted over the process's std front, must hold
+//! `tests/emit/<area>/*.sv`, emitted over the process's warm std cache, must hold
 //! the code its `//~ emits` annotations name, or be refused with exactly the
 //! ids its `//~ refused[…]` annotations name (the format:
 //! `salvo_testkit::data`; one test per area).
@@ -37,7 +37,7 @@ fn emit_root() -> PathBuf {
 const EMITTER: salvo_testkit::data::Emitter = salvo_testkit::data::Emitter { ext: "kt", emit: &emit, own: &own };
 
 fn emit(program: &salvo_core::Program) -> Result<Vec<(PathBuf, String)>, Vec<String>> {
-    salvo_backend_kotlin::emit_program_over(program, salvo_testkit::front::std_front("kt"))
+    salvo_backend_kotlin::emit_program_over(program, salvo_testkit::front::std("kt").cache())
         .map(|files| files.into_iter().map(|f| (f.rel_path, f.content)).collect())
 }
 

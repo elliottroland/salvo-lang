@@ -43,17 +43,20 @@ pub fn dump_program(
     dump_program_over(program, all, module, None)
 }
 
-/// [std-cache] [`dump_program`] over an already-checked std, when `program`
-/// was built over its front (`std_front::check_over`).
+/// [lsp-check-cache] [`dump_program`] checked through a clone of `cache` (one
+/// warmed with std, so only the program's own files are checked).
 pub fn dump_program_over(
     program: &crate::Program,
     all: bool,
     module: Option<&str>,
-    std: Option<&crate::StdCache>,
+    cache: Option<&crate::CheckCache>,
 ) -> Result<(String, Vec<String>), Vec<String>> {
     let symbols = crate::Symbols::collect(program);
-    let resolution = crate::resolve(program);
-    let checked = crate::std_front::check_over(program, &resolution, &symbols, std);
+    let resolution = match cache {
+        Some(c) => c.transient().resolve(program),
+        None => crate::resolve(program),
+    };
+    let checked = crate::check_over(program, &resolution, &symbols, cache);
     if checked.errors.iter().any(|d| d.is_error()) {
         // [ir-analyze] With the IR's diagnostics on the declarations the
         // errors leave clean, as a build lists them. [diag-std-hidden]

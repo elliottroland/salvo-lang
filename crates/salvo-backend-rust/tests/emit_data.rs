@@ -1,5 +1,5 @@
 //! [test-emit-data] The Rust backend's emit data: every program under
-//! `tests/emit/<area>/*.sv`, emitted over the process's std front, must hold
+//! `tests/emit/<area>/*.sv`, emitted over the process's warm std cache, must hold
 //! the code its `//~ emits` annotations name, or be refused with exactly the
 //! ids its `//~ refused[…]` annotations name (the format:
 //! `salvo_testkit::data`; one test per area).
@@ -38,7 +38,7 @@ fn emit_root() -> std::path::PathBuf {
 const EMITTER: salvo_testkit::data::Emitter = salvo_testkit::data::Emitter { ext: "rs", emit: &emit, own: &own };
 
 fn emit(program: &salvo_core::Program) -> Result<Vec<(std::path::PathBuf, String)>, Vec<String>> {
-    salvo_backend_rust::emit_program_over(program, salvo_testkit::front::std_front("rs"))
+    salvo_backend_rust::emit_program_over(program, salvo_testkit::front::std("rs").cache())
         .map(|files| files.into_iter().map(|f| (f.rel_path, f.content)).collect())
 }
 

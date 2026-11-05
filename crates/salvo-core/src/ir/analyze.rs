@@ -66,6 +66,7 @@ pub fn analyze_cached(
 }
 
 /// [lsp-ir-cache] What one file's IR analyses found, kept across analyses.
+#[derive(Clone)]
 struct IrFile {
     /// The module analysed: what was found stands for it only while the
     /// program holds this very `Arc`.
@@ -80,7 +81,7 @@ struct IrFile {
 
 /// [lsp-ir-cache] The IR analyses' findings per file, kept by the language
 /// server beside its check cache.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct IrCache {
     files: Vec<String>,
     fingerprint: u64,
@@ -117,7 +118,7 @@ fn fingerprint(gate: &super::gate::Gate, checked: &Checked) -> u64 {
         s.finish()
     }
     // A table's rows in any order: the sum of each row's hash.
-    fn table<V>(rows: &HashMap<crate::check::Key, V>, keep: impl Fn(&crate::check::Key) -> bool, show: impl Fn(&V) -> String) -> u64 {
+    fn table<V>(rows: &crate::check::KeyMap<V>, keep: impl Fn(&crate::check::Key) -> bool, show: impl Fn(&V) -> String) -> u64 {
         let mut sum: u64 = rows.len() as u64;
         for (k, v) in rows {
             if keep(k) {

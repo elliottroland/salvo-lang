@@ -16,10 +16,10 @@ use crate::source::{CompanionFile, ModulePath, SourceFile};
 /// A parsed compilation: one AST per source file, in `SourceSet` order.
 pub struct Program {
     pub files: Vec<SourceFile>,
-    /// [lsp-std-front] Shared, so a language server can hand every analysis
+    /// [lsp-warm-std] Shared, so a language server can hand every analysis
     /// the same parsed and expanded std modules without cloning them (and
     /// at the same addresses, which the address-keyed checker tables of the
-    /// `StdCache` rely on). A driver building its own program owns every
+    /// check cache rely on). A driver building its own program owns every
     /// `Arc` uniquely, and an expansion mutating one (`Arc::make_mut`) does
     /// not clone it.
     pub modules: Vec<std::sync::Arc<Module>>,
@@ -47,7 +47,7 @@ impl Program {
             .map(|(file, ast)| Unit { file, ast: &**ast })
     }
 
-    /// [lsp-std-front] Modules a driver parsed and owns, as a `Program`
+    /// [lsp-warm-std] Modules a driver parsed and owns, as a `Program`
     /// holds them.
     pub fn share(modules: Vec<Module>) -> Vec<std::sync::Arc<Module>> {
         modules.into_iter().map(std::sync::Arc::new).collect()

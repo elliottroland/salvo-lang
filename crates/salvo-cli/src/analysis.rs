@@ -11,101 +11,7 @@ use include_dir::{include_dir, Dir};
 use salvo_core::{Checked, DefSite, FileDiagnostic, Program, SourceSet, Symbols};
 use salvo_syntax::ast::Module;
 
-/// [lsp-parse-cache] A per-server cache of parsed modules, keyed by the
-/// **content** of the file that produced them: parsing is per-file and
-/// local, so a file whose text has not changed since it was last parsed
-/// reuses its module (and its parse diagnostics) rather than being lexed and
-/// parsed again. Only the edited file misses on a keystroke; std and every
-/// untouched project file hit.
-///
-/// The cached module is the parse **with its per-file expansions**
-/// (`salvo_core::expand::expand_file`: the struct-body hoist, `iter fn`s,
-/// `test` blocks), which depend on the file's text, its module path and
-/// whether it is an annex — the cache key. The program-wide expansion
-/// (comptime) runs fresh each analysis; a hit hands out the shared module,
-/// and the expansion copies it only when it has something to stamp in it
-/// [lsp-std-front]. Diagnostics here carry no file index — that is
-/// assigned at use, so a cached entry is valid wherever the file lands.
-///
-/// Keyed by content hash. A collision would reuse the wrong module; with a
-/// 64-bit hash over editor-sized files that is not a practical risk, and the
-/// cache is advisory (a wrong hit degrades to stale diagnostics for one
-/// keystroke, never miscompilation — the backends never see this).
-#[derive(Default)]
-pub struct ParseCache {
-    entries: HashMap<u64, Parsed>,
-    /// [lsp-check-cache] Each file's module as the last analysis left it after
-    /// the comptime expansion, by file name: a file comptime stamps into gets
-    /// a new module every analysis, and one equal to the last is handed back
-    /// as the last, so the check cache sees it unchanged (`keep_stamped`).
-    stamped: HashMap<String, Arc<Module>>,
-}
-
-/// One file parsed and expanded on its own.
-type Parsed = salvo_core::std_front::Parsed;
-
-use salvo_core::std_front::parse_file;
-
-/// What a cached parse is keyed by: the text, and the two facts about the
-/// file its per-file expansions read.
-fn parse_key(file: &salvo_core::source::SourceFile) -> u64 {
-    content_hash(&format!("{}\u{0}{}\u{0}{}", file.is_test, file.module, file.content))
-}
-
-impl ParseCache {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// The parsed module for `file`: the cached one when its key is known,
-    /// otherwise freshly parsed and remembered.
-    fn parse(&mut self, file: &salvo_core::source::SourceFile) -> Parsed {
-        let key = parse_key(file);
-        if let Some(hit) = self.entries.get(&key) {
-            return hit.clone();
-        }
-        let parsed = parse_file(file);
-        self.entries.insert(key, parsed.clone());
-        parsed
-    }
-
-    /// [lsp-check-cache] Hands back the last analysis's module for every file
-    /// from `first` on whose expanded module equals it: comptime stamps a new
-    /// copy each time, and an equal one is the same module. What is not equal
-    /// (or not stamped) is remembered for the next analysis.
-    fn keep_stamped(&mut self, files: &[salvo_core::SourceFile], modules: &mut [Arc<Module>], first: usize) {
-        let mut next = HashMap::with_capacity(files.len());
-        for (i, file) in files.iter().enumerate().skip(first) {
-            if let Some(prev) = self.stamped.get(&file.name) {
-                if !Arc::ptr_eq(prev, &modules[i]) && **prev == *modules[i] {
-                    modules[i] = prev.clone();
-                }
-            }
-            next.insert(file.name.clone(), modules[i].clone());
-        }
-        self.stamped = next;
-    }
-
-    /// Drops every entry no file in `live` still produces, so the cache does
-    /// not grow without bound as a file is edited (each distinct text leaves
-    /// an entry otherwise). Called once per analysis with that analysis's
-    /// file contents.
-    fn retain_live(&mut self, live: &std::collections::HashSet<u64>) {
-        self.entries.retain(|k, _| live.contains(k));
-    }
-}
-
-/// FNV-1a over the file text — the same stable 64-bit hash the Kotlin std
-/// cache uses for its keys ([kt-std-library]); it need only be stable within
-/// one server run.
-fn content_hash(content: &str) -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in content.as_bytes() {
-        h ^= *b as u64;
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    h
-}
+pub use salvo_core::front::ParseCache;
 
 /// The standard library, embedded into the binary at build time: the tree
 /// under `lib/`, whose own manifest (`lib/salvo.toml`) makes `lib/` the
@@ -222,19 +128,22 @@ pub fn analyze_sources(
     native_ext: &str,
     overlay: &HashMap<PathBuf, String>,
 ) -> Result<Analysis, String> {
-    analyze_project(src, project, native_ext, overlay, None, None, None)
+    analyze_project(src, project, native_ext, overlay, None)
 }
 
-/// [lsp-std-front] [std-cache] The embedded std's front half
-/// (`salvo_core::StdFront`), built once by the language server and shared by
-/// every analysis it then makes.
-pub use salvo_core::StdFront;
-
-/// [lsp-std-front] Builds the [`StdFront`] for `native_ext`'s embedded std.
-pub fn build_std_front(native_ext: &str) -> StdFront {
+/// [lsp-check-cache] A cache warmed with `native_ext`'s embedded std alone:
+/// std parsed, expanded, resolved and checked once. The language server
+/// starts every project's cache from a clone of it, so std, which sees only
+/// std, is never parsed, stamped or checked again.
+pub fn warm_std_cache(native_ext: &str) -> salvo_core::CheckCache {
     let mut sources = SourceSet::default();
     load_embedded_std(&mut sources, native_ext);
-    StdFront::build(sources)
+    let mut cache = salvo_core::CheckCache::new();
+    let built = cache.build(sources);
+    let symbols = Symbols::collect(&built.program);
+    let resolution = cache.resolve(&built.program);
+    cache.check(&built.program, &resolution, &symbols);
+    cache
 }
 
 /// [lsp-std-source] A full `Analysis` of the embedded standard library, as its
@@ -242,7 +151,7 @@ pub fn build_std_front(native_ext: &str) -> StdFront {
 /// *inside* a std file a user navigated into (the read-only copies
 /// `embedded_std_copy` writes under the temp dir). Checking std standalone
 /// (`check_program`, no cache) records the references within it
-/// (`fn_refs`/`refs`), which the `StdCache` keeps hidden.
+/// (`fn_refs`/`refs`), which a project's analysis keeps hidden.
 ///
 /// `root` is the temp directory the std copies live under, so a copy's path
 /// (`<root>/std/core/basic.sv`) equals `root.join(file.name)` — the pivot
@@ -318,16 +227,14 @@ pub fn analyze_for_document_cached(
     path: &Path,
     fallback: &Path,
     overlay: &HashMap<PathBuf, String>,
-    cache: &mut ParseCache,
-    std_front: &StdFront,
-    check_cache: &mut salvo_core::CheckCache,
+    cache: &mut salvo_core::CheckCache,
 ) -> Result<Analysis, String> {
     match salvo_core::Project::find(path)? {
         Some(project) => {
             let src = project.src();
-            analyze_project_with(&src, Some(project), "", overlay, Some(cache), Some(std_front), true, Some(check_cache), Examples::Open)
+            analyze_project_with(&src, Some(project), "", overlay, Some(cache), Examples::Open)
         }
-        None => analyze_project_with(fallback, None, "", overlay, Some(cache), Some(std_front), true, Some(check_cache), Examples::Open),
+        None => analyze_project_with(fallback, None, "", overlay, Some(cache), Examples::Open),
     }
 }
 
@@ -336,11 +243,9 @@ fn analyze_project(
     project: Option<salvo_core::Project>,
     native_ext: &str,
     overlay: &HashMap<PathBuf, String>,
-    cache: Option<&mut ParseCache>,
-    std_front: Option<&StdFront>,
-    check_cache: Option<&mut salvo_core::CheckCache>,
+    cache: Option<&mut salvo_core::CheckCache>,
 ) -> Result<Analysis, String> {
-    analyze_project_with(src, project, native_ext, overlay, cache, std_front, true, check_cache, Examples::All)
+    analyze_project_with(src, project, native_ext, overlay, cache, Examples::All)
 }
 
 /// [doc-example] Whose doc examples an analysis checks: every own file's
@@ -353,22 +258,15 @@ pub enum Examples {
     Open,
 }
 
-/// [`analyze_project`], with `front_half` saying whether the std front may
-/// stand in for std's parse and expansion (its `StdCache` is used either
-/// way): off, the analysis is what it was before [lsp-std-front], which is
-/// what its soundness tests compare against. [lsp-check-cache] With a
-/// `check_cache`, a check over the std cache reuses its rows
-/// (`check_project_cached`).
-#[allow(clippy::too_many_arguments)]
+/// [`analyze_project`], checking the examples `examples` says.
+/// [lsp-check-cache] With a `cache`, every file an edit left alone keeps
+/// what parsing, stamping, scoping, checking and the IR analyses made of it.
 fn analyze_project_with(
     src: &Path,
     project: Option<salvo_core::Project>,
     native_ext: &str,
     overlay: &HashMap<PathBuf, String>,
-    mut cache: Option<&mut ParseCache>,
-    std_front: Option<&StdFront>,
-    front_half: bool,
-    check_cache: Option<&mut salvo_core::CheckCache>,
+    mut cache: Option<&mut salvo_core::CheckCache>,
     examples: Examples,
 ) -> Result<Analysis, String> {
     if !src.is_dir() {
@@ -437,41 +335,23 @@ fn analyze_project_with(
     // Parse every module, attributing diagnostics to files
     // [diag-structured]. The per-file expansions run with the parse
     // (`parse_file`); the program-level one (comptime) after.
-    //
     // [lsp-parse-cache] With a cache, an unchanged file reuses its parsed
-    // module; `live` collects this analysis's file hashes so the cache can
-    // drop everything else and not grow with each edit.
-    //
-    // [lsp-std-front] With a std front that stands in for the leading files,
-    // std is not parsed at all: its expanded modules are the front's, and
-    // only the files after it are parsed and stamped.
-    let mut diagnostics: Vec<FileDiagnostic> = Vec::new();
+    // module.
     let mut ir_reliant: std::collections::HashSet<(usize, salvo_syntax::Span)> = std::collections::HashSet::new();
-    let mut live: std::collections::HashSet<u64> = std::collections::HashSet::new();
-    let front = std_front.filter(|front| front_half && front.applies(&sources.files));
     let t = salvo_core::timing::phase("parse");
-    let mut parse = |idx: usize, cache: &mut Option<&mut ParseCache>, diagnostics: &mut Vec<FileDiagnostic>| {
-        let file = &sources.files[idx];
+    let parse = |idx: usize, file: &salvo_core::SourceFile, cache: &mut Option<&mut salvo_core::CheckCache>, diagnostics: &mut Vec<FileDiagnostic>| {
         let (module, diags, tests) = match cache.as_deref_mut() {
-            Some(cache) => {
-                live.insert(parse_key(file));
-                cache.parse(file)
-            }
-            None => parse_file(file),
+            Some(cache) => cache.parse.parse(file),
+            None => salvo_core::front::parse_file(file),
         };
         diagnostics.extend(diags.into_iter().map(|d| FileDiagnostic::from_parse(idx, d)));
         (module, tests)
     };
-    let first = front.map_or(0, |f| f.files().len());
-    let mut project_diagnostics: Vec<FileDiagnostic> = Vec::new();
+    let mut diagnostics: Vec<FileDiagnostic> = Vec::new();
     let mut modules: Vec<Arc<Module>> = Vec::with_capacity(sources.files.len());
     let mut per_file_tests = Vec::with_capacity(sources.files.len());
-    if let Some(front) = front {
-        modules.extend(front.modules().iter().cloned());
-        per_file_tests.extend((0..first).map(|_| Vec::new()));
-    }
-    for idx in first..sources.files.len() {
-        let (module, tests) = parse(idx, &mut cache, &mut project_diagnostics);
+    for idx in 0..sources.files.len() {
+        let (module, tests) = parse(idx, &sources.files[idx], &mut cache, &mut diagnostics);
         modules.push(module);
         per_file_tests.push(tests);
     }
@@ -482,56 +362,25 @@ fn analyze_project_with(
         let std_project = project.as_ref().is_some_and(|p| p.is_std());
         let open = |f: &salvo_core::SourceFile| examples == Examples::All || overlay.contains_key(&root.join(&f.name));
         let hosts: Vec<usize> =
-            (first..sources.files.len()).filter(|&i| own_file(&sources.files[i], std_project) && open(&sources.files[i])).collect();
+            (0..sources.files.len()).filter(|&i| own_file(&sources.files[i], std_project) && open(&sources.files[i])).collect();
         for host in hosts {
             let found = salvo_core::doc_examples::extract(&sources.files[host], host, &modules[host]);
             sources.files.extend(found);
         }
         for idx in modules.len()..sources.files.len() {
-            let file = &sources.files[idx];
-            let (module, diags, tests) = match cache.as_deref_mut() {
-                Some(cache) => {
-                    live.insert(parse_key(file));
-                    cache.parse(file)
-                }
-                None => parse_file(file),
-            };
-            project_diagnostics.extend(diags.into_iter().map(|d| FileDiagnostic::from_parse(idx, d)));
+            let (module, tests) = parse(idx, &sources.files[idx], &mut cache, &mut diagnostics);
             modules.push(module);
             per_file_tests.push(tests);
         }
     }
-    diagnostics.append(&mut project_diagnostics);
-    if let Some(cache) = cache.as_deref_mut() {
-        cache.retain_live(&live);
-    }
     drop(t);
     let t = salvo_core::timing::phase("expand");
-    // [lsp-scope-cache] The scopes no edit can have changed are the last
-    // expansion's.
-    let mut check_cache = check_cache;
-    let pre_expansion: Vec<Arc<Module>> = modules.clone();
-    let given = match check_cache.as_deref_mut() {
-        Some(c) => c.scopes.plan(&sources.files, &modules),
-        None => Vec::new(),
+    let expansion = match cache.as_deref_mut() {
+        Some(c) => c.expand(&sources.files, &mut modules, per_file_tests),
+        None => salvo_core::expand::expand_program(&sources.files, &mut modules, per_file_tests),
     };
-    let expansion = match front {
-        Some(front) => {
-            let mut std_diagnostics = front.parse_diagnostics().to_vec();
-            std_diagnostics.append(&mut diagnostics);
-            diagnostics = std_diagnostics;
-            front.expand_after_given(&sources.files, &mut modules, per_file_tests, &given)
-        }
-        None => salvo_core::expand::expand_program_given(&sources.files, &mut modules, per_file_tests, &given),
-    };
-    if let (Some(c), Some(interfaces)) = (check_cache.as_deref_mut(), &expansion.interfaces) {
-        c.scopes.record(&sources.files, &pre_expansion, interfaces);
-    }
     drop(t);
     diagnostics.extend(expansion.diagnostics);
-    if let Some(cache) = cache.as_deref_mut() {
-        cache.keep_stamped(&sources.files, &mut modules, first);
-    }
     let comptime_hovers = expansion.comptime_hovers;
     let comptime_when_arms = expansion.comptime_when_arms;
     diagnostics.sort_by_key(|d| (d.file, d.span.expn, d.span.start));
@@ -560,22 +409,12 @@ fn analyze_project_with(
         let symbols = Symbols::collect(&program);
         drop(t2);
         let t2 = salvo_core::timing::phase("  resolve: scopes");
-        // [lsp-std-front] std's scopes are the front's, viewed.
-        // [lsp-scope-cache] The scopes over the stamped program no edit can
-        // have changed are the last resolution's. A stamped module holds
-        // declarations its text does not show, so a new one counts as
-        // changed.
-        let given = match check_cache.as_deref_mut() {
-            Some(c) => c.stamped_scopes.plan_with(&program.files, &program.modules, &|f| !Arc::ptr_eq(&program.modules[f], &pre_expansion[f])),
-            None => Vec::new(),
+        // [lsp-scope-cache] Through the cache, the scopes no edit can have
+        // changed are the last resolution's.
+        let resolution = match cache.as_deref_mut() {
+            Some(c) => c.resolve(&program),
+            None => salvo_core::resolve(&program),
         };
-        let resolution = match front {
-            Some(front) => front.resolve_given(&program, &given),
-            None => salvo_core::resolve::resolve_given(&program, &given),
-        };
-        if let Some(c) = check_cache.as_deref_mut() {
-            c.stamped_scopes.record_scopes(&program.files, &program.modules, &resolution.scope_ids, &resolution.scope_errors);
-        }
         drop(t2);
         let t2 = salvo_core::timing::phase("  resolve: lsp indexes");
         // [lsp-index-viewable] Only for the files a view of this analysis can
@@ -594,17 +433,9 @@ fn analyze_project_with(
         drop(t);
         // `check_program` folds resolution errors into its own.
         let t = salvo_core::timing::phase("check");
-        let mut checked = match (std_front.map(|f| f.cache()), check_cache.as_deref_mut()) {
-            (Some(cache), Some(check_cache)) if std_cache_applies(&program, cache) => {
-                salvo_core::check_project_cached(&program, &resolution, &symbols, cache, check_cache)
-            }
-            (Some(cache), _) if std_cache_applies(&program, cache) => {
-                salvo_core::check_project(&program, &resolution, &symbols, cache)
-            }
-            // [lsp-check-cache] No std cache stands in (std is what is
-            // edited, a `std = true` tree): the check cache covers every file.
-            (_, Some(check_cache)) => salvo_core::check_program_cached(&program, &resolution, &symbols, check_cache),
-            _ => salvo_core::check_program(&program, &resolution, &symbols),
+        let mut checked = match cache.as_deref_mut() {
+            Some(c) => c.check(&program, &resolution, &symbols),
+            None => salvo_core::check_program(&program, &resolution, &symbols),
         };
         drop(t);
         checked.errors.retain(|d| !parse_broken.contains(&d.file));
@@ -617,7 +448,7 @@ fn analyze_project_with(
             let _t = salvo_core::timing::phase("ir analyze");
             // [lsp-ir-cache] With the check cache, a file it did not walk
             // keeps its findings.
-            let (ir_diags, decision) = match check_cache {
+            let (ir_diags, decision) = match cache {
                 Some(c) => {
                     let walked = c.walked().to_vec();
                     salvo_core::ir::analyze::analyze_cached(&program, &symbols, &resolution, &checked, &diagnostics, &walked, &mut c.ir)
@@ -663,7 +494,6 @@ fn analyze_project_with(
     })
 }
 
-use salvo_core::std_front::cache_applies as std_cache_applies;
 
 /// [doc-example] [cli-docs] Whether `file` is one of the project's own: its
 /// doc comments' examples are checked, and `salvo docs` documents it. For a
@@ -1027,10 +857,10 @@ mod tests {
             v
         };
 
-        let mut cache = ParseCache::new();
+        let mut cache = salvo_core::CheckCache::new();
         // First analysis: everything a cache miss.
         let cached1 =
-            analyze_project(&root, None, "", &HashMap::new(), Some(&mut cache), None, None).expect("a1");
+            analyze_project(&root, None, "", &HashMap::new(), Some(&mut cache)).expect("a1");
         let fresh1 = analyze_sources(&root, None, "", &HashMap::new()).expect("f1");
         assert_eq!(
             messages(&cached1),
@@ -1045,7 +875,7 @@ mod tests {
         let mut overlay = HashMap::new();
         overlay.insert(root.join("main.sv"), edited.to_string());
         let cached2 =
-            analyze_project(&root, None, "", &overlay, Some(&mut cache), None, None).expect("a2");
+            analyze_project(&root, None, "", &overlay, Some(&mut cache)).expect("a2");
         let fresh2 = analyze_sources(&root, None, "", &overlay).expect("f2");
         assert_eq!(
             messages(&cached2),
@@ -1060,11 +890,25 @@ mod tests {
         );
     }
 
-    // [std-cache] Reusing a std-only check must give the project files the
-    // same diagnostics a full check gives: the seeded std rows stand in for
-    // the ones a full check would compute.
+    /// [lsp-check-cache] The embedded std, warmed once for the tests.
+    fn warm() -> &'static salvo_core::CheckCache {
+        static WARM: std::sync::OnceLock<salvo_core::CheckCache> = std::sync::OnceLock::new();
+        WARM.get_or_init(|| warm_std_cache(""))
+    }
+
+    /// How many files the embedded std has: the first files of every
+    /// program over it.
+    fn std_count() -> usize {
+        let mut sources = SourceSet::default();
+        load_embedded_std(&mut sources, "");
+        sources.files.len()
+    }
+
+    // [lsp-check-cache] A cache warmed with std alone stands in for std: the
+    // project's files are the only ones walked, and they report what a full
+    // check reports.
     #[test]
-    fn std_cache_matches_a_full_check() {
+    fn a_warm_std_cache_matches_a_full_check() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../tmp/std_cache_test");
         let _ = std::fs::remove_dir_all(&root);
@@ -1088,24 +932,22 @@ mod tests {
         };
 
         let full = analyze_sources(&root, None, "", &HashMap::new()).expect("full");
-        let std_front = build_std_front("");
-        let cached = analyze_project(&root, None, "", &HashMap::new(), None, Some(&std_front), None)
-            .expect("cached");
-        assert!(
-            std_cache_applies(&cached.program, std_front.cache()),
-            "the gate fell back to a full check, so this test compared a full \
-             check with itself"
-        );
+        let mut cache = warm().clone();
+        let cached = analyze_project(&root, None, "", &HashMap::new(), Some(&mut cache)).expect("cached");
+        let walked: Vec<&str> = cache.walked().iter().map(|&f| cached.program.files[f].name.as_str()).collect();
+        assert_eq!(walked, ["main.sv"], "std was walked again");
+        // [lsp-expand-cache] and std's stamped files are not stamped again.
+        assert!(cache.expansion.kept() > 0, "std was stamped again");
         assert_eq!(
             project_messages(&cached),
             project_messages(&full),
-            "the std cache diverged from a full check"
+            "the warm cache diverged from a full check"
         );
         let errors: Vec<_> = cached.diagnostics.iter().filter(|d| d.is_error()).map(|d| &d.message).collect();
         assert!(errors.is_empty(), "the cached analysis reported errors: {errors:?}");
     }
 
-    /// [lsp-std-front] The programs the front's soundness tests run over:
+    /// [lsp-warm-std] The programs the warm cache's soundness tests run over:
     /// every example, and a few written here for what the examples lack — a
     /// project of several modules with its own `by auto` and comptime fns and
     /// errors in both; a project module `auto` and a project `comptime fn
@@ -1161,7 +1003,7 @@ mod tests {
         ));
         // [obligation-by] std sees only std: a project module `auto`, and a
         // project `comptime fn auto`, are no second reading of std's `by
-        // auto` (ROADMAP 0s), so std expands alike and the front stands in.
+        // auto` (ROADMAP 0s), so std expands alike and the warm cache stands in.
         out.push((
             scratch(
                 "auto_module",
@@ -1199,36 +1041,39 @@ mod tests {
     }
 
     /// The analysis of a program directory, as the language server makes it
-    /// (`analyze_for_document_cached`, without the check cache), with or
-    /// without the front half.
-    fn front_analysis(dir: &Path, front: Option<&StdFront>, front_half: bool) -> Analysis {
+    /// (`analyze_for_document_cached`), through a clone of the warm std
+    /// cache, or with no cache at all.
+    fn front_analysis(dir: &Path, warm: bool) -> (Analysis, Option<salvo_core::CheckCache>) {
         let overlay = HashMap::new();
-        let mut cache = ParseCache::new();
         let (src, project) = match salvo_core::Project::find(dir).expect("manifest") {
             Some(project) => (project.src(), Some(project)),
             None => (dir.to_path_buf(), None),
         };
-        analyze_project_with(&src, project, "", &overlay, Some(&mut cache), front, front_half, None, Examples::All).expect("analysis")
+        let mut cache = warm.then(|| self::warm().clone());
+        let analysis = analyze_project_with(&src, project, "", &overlay, cache.as_mut(), Examples::All).expect("analysis");
+        (analysis, cache)
     }
 
-    // [lsp-std-front] std's expansion is a function of std alone: expanding
+    // [lsp-check-cache] std's expansion is a function of std alone: expanding
     // std inside each program gives, module for module, what expanding it on
-    // its own gave — which is what lets one expansion serve every analysis.
+    // its own gave — which is what lets one cache warmed with std serve every
+    // program.
     #[test]
-    fn std_front_expansion_is_project_independent() {
-        let front = build_std_front("");
-        let n = front.files().len();
-        let alone: Vec<String> = front.modules().iter().map(|m| format!("{m:?}")).collect();
+    fn std_expansion_is_project_independent() {
+        let mut sources = SourceSet::default();
+        load_embedded_std(&mut sources, "");
+        let std_files: Vec<String> = sources.files.iter().map(|f| f.name.clone()).collect();
+        let n = std_files.len();
+        let alone: Vec<String> = salvo_core::CheckCache::new().build(sources).program.modules.iter().map(|m| format!("{m:?}")).collect();
         for (dir, clean) in front_programs("project_independent") {
-            let full = front_analysis(&dir, None, false);
-            assert!(front.applies(&full.program.files), "{}: std did not load as the front's", dir.display());
-            let same: Vec<bool> = (0..n).map(|i| format!("{:?}", full.program.modules[i]) == alone[i]).collect();
-            for (i, same) in same.iter().enumerate() {
+            let (full, _) = front_analysis(&dir, false);
+            for i in 0..n {
+                assert_eq!(full.program.files[i].name, std_files[i], "{}: std did not load first", dir.display());
                 assert!(
-                    same,
+                    format!("{:?}", full.program.modules[i]) == alone[i],
                     "{}: std's `{}` expanded differently inside the program",
                     dir.display(),
-                    front.files()[i].name
+                    std_files[i]
                 );
             }
             if !clean {
@@ -1250,7 +1095,7 @@ mod tests {
 
     /// The checker rows of the project's files (from file `n` on).
     fn rows<K: Copy, V: std::fmt::Debug>(
-        table: &HashMap<salvo_core::check::Key, V>,
+        table: &salvo_core::check::KeyMap<V>,
         n: usize,
         _k: std::marker::PhantomData<K>,
     ) -> Vec<String> {
@@ -1303,35 +1148,20 @@ mod tests {
             ("completions", completions),
         ]
     }
-    // [lsp-std-front] An analysis through the front reports what one without
-    // it reports, and the checker rows the language server reads for the
-    // project's files are the same, as are the IR's diagnostics.
+    // [lsp-check-cache] An analysis through the warm std cache reports what one
+    // without any cache reports, and the checker rows the language server
+    // reads for the project's files are the same, as are the IR's
+    // diagnostics; std is neither stamped nor walked again.
     #[test]
-    fn std_front_matches_an_analysis_without_it() {
-        let front = build_std_front("");
-        let n = front.files().len();
+    fn a_warm_std_cache_matches_an_analysis_without_it() {
+        let n = std_count();
         for (dir, _) in front_programs("matches_without") {
-            let without = front_analysis(&dir, Some(&front), false);
-            let with = front_analysis(&dir, Some(&front), true);
-            assert!(std_cache_applies(&with.program, front.cache()), "{}: the std cache did not apply", dir.display());
-            // The front stands in for every program, a refused one included
-            // (there is no gate since [std-root]): std's modules are the
-            // front's own `Arc`s.
-            let shared = Arc::ptr_eq(&with.program.modules[0], &front.modules()[0]);
-            assert!(shared, "{}: the front did not stand in", dir.display());
-            assert!(!Arc::ptr_eq(&without.program.modules[0], &front.modules()[0]));
+            let (without, _) = front_analysis(&dir, false);
+            let (with, cache) = front_analysis(&dir, true);
+            let cache = cache.expect("a cache");
+            assert!(cache.walked().iter().all(|&f| f >= n), "{}: std was walked: {:?}", dir.display(), cache.walked());
             for ((what, a), (_, b)) in view(&with, n).into_iter().zip(view(&without, n)) {
-                assert!(a == b, "{}: {what} differ through the front:\n{a:#?}\nwithout it:\n{b:#?}", dir.display());
-            }
-            // [lsp-std-front] std's written keys came from the cache, the
-            // project's were computed: together, what computing them all over
-            // this program gives.
-            if shared {
-                let c = with.checked.as_ref().expect("checked");
-                let symbols = Symbols::collect(&with.program);
-                let resolution = salvo_core::resolve(&with.program);
-                let by_span = salvo_core::resolve::written_keys_by_span(&with.program, &resolution, &symbols);
-                assert!(c.type_ref_span_keys == by_span, "{}: written keys differ", dir.display());
+                assert!(a == b, "{}: {what} differ through the warm cache:\n{a:#?}\nwithout it:\n{b:#?}", dir.display());
             }
             // The written program's mistakes are there to be compared: a
             // checker error, and a comptime one in a project file.
@@ -1445,8 +1275,8 @@ mod tests {
     // it says.
     #[test]
     fn an_edit_inside_a_doc_example_walks_its_host_and_the_example() {
-        let front = build_std_front("");
-        let n = front.files().len();
+        let warm = warm();
+        let n = std_count();
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let src = repo.join("tmp/check_cache_test/doc_examples");
         let _ = std::fs::remove_dir_all(&src);
@@ -1459,10 +1289,9 @@ mod tests {
         std::fs::write(src.join("shapes.sv"), shapes).unwrap();
         std::fs::write(src.join("main.sv"), "import shapes\n\nfn main() [use] {\n    let _a = area(Square { side: 1 })\n}\n").unwrap();
         let root = src.canonicalize().unwrap();
-        let mut parse = ParseCache::new();
-        let mut checks = salvo_core::CheckCache::new();
-        let mut analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
-            analyze_project_with(&src, None, "", overlay, Some(&mut parse), Some(&front), true, checks, Examples::All).expect("analysis")
+        let mut checks = warm.clone();
+        let analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
+            analyze_project_with(&src, None, "", overlay, checks, Examples::All).expect("analysis")
         };
         let mut overlay: HashMap<PathBuf, String> = HashMap::new();
         let first = analyze(&overlay, Some(&mut checks));
@@ -1476,7 +1305,7 @@ mod tests {
         overlay.insert(root.join("shapes.sv"), edited);
         let cached = analyze(&overlay, Some(&mut checks));
         assert_eq!(checks.walked(), [host, area].as_slice());
-        let uncached = analyze(&overlay, None);
+        let uncached = analyze(&overlay, Some(&mut warm.clone()));
         for ((what, a), (_, b)) in view(&cached, n).into_iter().zip(view(&uncached, n)) {
             assert!(a == b, "{what} differ:\n{a:#?}\nwithout the cache:\n{b:#?}");
         }
@@ -1499,10 +1328,9 @@ mod tests {
         let project = salvo_core::Project::find(&lib.join("salvo.toml")).expect("manifest").expect("lib/ has a manifest");
         let src = project.src();
         let root = src.canonicalize().unwrap();
-        let mut parse = ParseCache::new();
         let mut checks = salvo_core::CheckCache::new();
-        let mut analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
-            analyze_project_with(&src, Some(project.clone()), "", overlay, Some(&mut parse), None, true, checks, Examples::Open).expect("analysis")
+        let analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
+            analyze_project_with(&src, Some(project.clone()), "", overlay, checks, Examples::Open).expect("analysis")
         };
         let read = |name: &str| std::fs::read_to_string(root.join(name)).unwrap();
         let heap = read("std/heap.sv");
@@ -1569,10 +1397,9 @@ mod tests {
         let project = salvo_core::Project::find(&lib.join("salvo.toml")).expect("manifest").expect("lib/ has a manifest");
         let src = project.src();
         let root = src.canonicalize().unwrap();
-        let mut parse = ParseCache::new();
         let mut checks = salvo_core::CheckCache::new();
-        let mut analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
-            analyze_project_with(&src, Some(project.clone()), "", overlay, Some(&mut parse), None, true, checks, Examples::Open).expect("analysis")
+        let analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
+            analyze_project_with(&src, Some(project.clone()), "", overlay, checks, Examples::Open).expect("analysis")
         };
         let read = |name: &str| (root.join(name), std::fs::read_to_string(root.join(name)).unwrap());
         // `heap` comes after `args`, so opening `args` moves `heap`'s examples.
@@ -1600,8 +1427,8 @@ mod tests {
     // `a`'s readers and theirs, and not the file that sees neither.
     #[test]
     fn an_interface_edit_walks_what_can_see_it() {
-        let front = build_std_front("");
-        let n = front.files().len();
+        let warm = warm();
+        let n = std_count();
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let src = repo.join("tmp/check_cache_test/dependents");
         let _ = std::fs::remove_dir_all(&src);
@@ -1616,10 +1443,9 @@ mod tests {
             std::fs::write(src.join(name), text).unwrap();
         }
         let root = src.canonicalize().unwrap();
-        let mut parse = ParseCache::new();
-        let mut checks = salvo_core::CheckCache::new();
-        let mut analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
-            analyze_project_with(&src, None, "", overlay, Some(&mut parse), Some(&front), true, checks, Examples::All).expect("analysis")
+        let mut checks = warm.clone();
+        let analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
+            analyze_project_with(&src, None, "", overlay, checks, Examples::All).expect("analysis")
         };
         let first = analyze(&HashMap::new(), Some(&mut checks));
         let walked_names = |a: &Analysis, w: &[usize]| -> Vec<String> { w.iter().map(|&f| a.program.files[f].name.clone()).collect() };
@@ -1635,7 +1461,7 @@ mod tests {
             let mut walked = walked_names(&cached, checks.walked());
             walked.sort();
             assert_eq!(walked, want, "editing {name}");
-            let uncached = analyze(&overlay, None);
+            let uncached = analyze(&overlay, Some(&mut warm.clone()));
             for ((what, a), (_, b)) in view(&cached, n).into_iter().zip(view(&uncached, n)) {
                 assert!(a == b, "{what} differ after editing {name}:\n{a:#?}\nwithout the cache:\n{b:#?}");
             }
@@ -1648,8 +1474,8 @@ mod tests {
     // again; and each analysis reports what one without the caches does.
     #[test]
     fn a_file_not_walked_keeps_its_ir_findings() {
-        let front = build_std_front("");
-        let n = front.files().len();
+        let warm = warm();
+        let n = std_count();
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let src = repo.join("tmp/check_cache_test/ir_cache");
         let _ = std::fs::remove_dir_all(&src);
@@ -1661,10 +1487,9 @@ mod tests {
         std::fs::write(src.join("t.sv"), t).unwrap();
         std::fs::write(src.join("u.sv"), u).unwrap();
         let root = src.canonicalize().unwrap();
-        let mut parse = ParseCache::new();
-        let mut checks = salvo_core::CheckCache::new();
-        let mut analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
-            analyze_project_with(&src, None, "", overlay, Some(&mut parse), Some(&front), true, checks, Examples::All).expect("analysis")
+        let mut checks = warm.clone();
+        let analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
+            analyze_project_with(&src, None, "", overlay, checks, Examples::All).expect("analysis")
         };
         let first = analyze(&HashMap::new(), Some(&mut checks));
         let file = |name: &str| (n..first.program.files.len()).find(|&i| first.program.files[i].name == name).unwrap();
@@ -1681,7 +1506,7 @@ mod tests {
             assert_eq!(checks.walked(), [file("t.sv")]);
             assert_eq!(checks.ir.built(), built.as_slice());
             assert!(moved(&cached), "{:#?}", cached.diagnostics);
-            let uncached = analyze(&overlay, None);
+            let uncached = analyze(&overlay, Some(&mut warm.clone()));
             for ((what, a), (_, b)) in view(&cached, n).into_iter().zip(view(&uncached, n)) {
                 assert!(a == b, "{what} differ:\n{a:#?}\nwithout the cache:\n{b:#?}");
             }
@@ -1694,18 +1519,17 @@ mod tests {
     // walked (with any file comptime stamps, which every analysis makes new).
     #[test]
     fn check_cache_matches_an_uncached_analysis_across_edits() {
-        let front = build_std_front("");
-        let n = front.files().len();
+        let warm = warm();
+        let n = std_count();
         for dir in check_cache_programs() {
             let (src, project) = match salvo_core::Project::find(&dir.join("x.sv")).expect("manifest") {
                 Some(project) => (project.src(), Some(project)),
                 None => (dir.clone(), None),
             };
             let root = src.canonicalize().unwrap();
-            let mut parse = ParseCache::new();
-            let mut checks = salvo_core::CheckCache::new();
-            let mut analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
-                analyze_project_with(&src, project.clone(), "", overlay, Some(&mut parse), Some(&front), true, checks, Examples::All).expect("analysis")
+            let mut checks = warm.clone();
+            let analyze = |overlay: &HashMap<PathBuf, String>, checks: Option<&mut salvo_core::CheckCache>| {
+                analyze_project_with(&src, project.clone(), "", overlay, checks, Examples::All).expect("analysis")
             };
             let mut overlay: HashMap<PathBuf, String> = HashMap::new();
             let first = analyze(&overlay, Some(&mut checks));
@@ -1727,7 +1551,7 @@ mod tests {
                 want.sort();
                 want.dedup();
                 assert_eq!(checks.walked(), want.as_slice(), "{}: editing {}", dir.display(), first.program.files[f].name);
-                let uncached = analyze(&overlay, None);
+                let uncached = analyze(&overlay, Some(&mut warm.clone()));
                 for ((what, a), (_, b)) in view(&cached, n).into_iter().zip(view(&uncached, n)) {
                     assert!(a == b, "{}: {what} differ after editing {}:\n{a:#?}\nwithout the cache:\n{b:#?}", dir.display(), first.program.files[f].name);
                 }
@@ -1740,7 +1564,7 @@ mod tests {
             want.sort();
             want.dedup();
             assert_eq!(checks.walked(), want.as_slice(), "{}: reverting", dir.display());
-            let uncached = analyze(&overlay, None);
+            let uncached = analyze(&overlay, Some(&mut warm.clone()));
             for ((what, a), (_, b)) in view(&cached, n).into_iter().zip(view(&uncached, n)) {
                 assert!(a == b, "{}: {what} differ after reverting:\n{a:#?}\nwithout the cache:\n{b:#?}", dir.display());
             }

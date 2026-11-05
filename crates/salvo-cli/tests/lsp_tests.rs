@@ -3,7 +3,7 @@
 //! hover, complete, go to definitions, and shut down cleanly.
 //!
 //! Most tests drive the server **in-process** (TESTS.md C6): an in-memory
-//! connection to `salvo_cli::lsp::serve_connection`, with one std front for
+//! connection to `salvo_cli::lsp::serve_connection`, with one warm std cache for
 //! every server of the test process, so a test pays for its own analyses and
 //! not for a process and a std. The tests of the stdio transport, and of
 //! settings read from the environment at startup, still spawn the real
@@ -81,10 +81,10 @@ impl Server {
     }
 }
 
-/// [lsp-std-front] One std front for every in-process server.
-fn std_front() -> Arc<salvo_cli::analysis::StdFront> {
-    static FRONT: OnceLock<Arc<salvo_cli::analysis::StdFront>> = OnceLock::new();
-    FRONT.get_or_init(|| Arc::new(salvo_cli::analysis::build_std_front(""))).clone()
+/// [lsp-check-cache] One cache warmed with std for every in-process server.
+fn std_front() -> Arc<salvo_core::CheckCache> {
+    static WARM: OnceLock<Arc<salvo_core::CheckCache>> = OnceLock::new();
+    WARM.get_or_init(|| Arc::new(salvo_cli::analysis::warm_std_cache(""))).clone()
 }
 
 /// Reads one framed JSON-RPC message.

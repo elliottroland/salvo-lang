@@ -22,19 +22,22 @@ pub fn check_for_emission(
     check_for_emission_over(program, None)
 }
 
-/// [std-cache] [`check_for_emission`] over an already-checked std: when
-/// `program` was built over `std`'s front (its leading files are that std's
-/// very modules, unshadowed; `salvo_core::std_front::check_over`), std's rows
-/// come from it and only the rest is checked; otherwise the whole program
-/// is. For the repository's
-/// tests, which emit hundreds of programs over one std (TESTS.md C2).
+/// [lsp-check-cache] [`check_for_emission`] through a clone of `cache`, a
+/// cache warmed with std: std's rows are its own and only the rest is
+/// checked, with the result a full check gives. For the repository's tests,
+/// which emit hundreds of programs over one std (TESTS.md C2).
 pub fn check_for_emission_over(
     program: &Program,
-    std: Option<&salvo_core::StdCache>,
+    cache: Option<&salvo_core::CheckCache>,
 ) -> Result<(Program, salvo_core::Erased, Checked, Vec<String>), Vec<String>> {
     let symbols = Symbols::collect(program);
-    let resolution = salvo_core::resolve(program);
-    let checked = salvo_core::std_front::check_over(program, &resolution, &symbols, std);
+    // [lsp-warm-std] Through the cache, the scopes it holds are not built
+    // again.
+    let resolution = match cache {
+        Some(c) => c.transient().resolve(program),
+        None => salvo_core::resolve(program),
+    };
+    let checked = salvo_core::check_over(program, &resolution, &symbols, cache);
     // [ir-analyze] The IR-level analyses (linear obligations, use after
     // move, …) run on every declaration the checker's errors leave clean,
     // and gate emission like any other error: a program with any error

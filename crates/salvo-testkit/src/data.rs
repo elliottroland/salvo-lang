@@ -317,12 +317,12 @@ fn over_cases(cases: &[(String, Case)], check: impl Fn(&Case) -> Option<String> 
 /// and panics listing every mismatch.
 pub fn check_dir(dir: &Path) {
     let (cases, mut failures) = read_dir_cases(dir);
-    crate::front::std_front("kt");
+    crate::front::std("kt");
     failures.extend(over_cases(&cases, check_case));
     assert!(failures.is_empty(), "{} of {} programs in {} disagree with their annotations:\n\n{}", failures.len(), cases.len(), dir.display(), failures.join("\n\n"));
 }
 
-/// [test-emit-data] A backend, for [`emit_dir`]: its std front's extension,
+/// [test-emit-data] A backend, for [`emit_dir`]: its warm std's extension,
 /// how it emits a program (the files, or the rendered errors), and which
 /// emitted files are the program's own rather than std's or the runtime's.
 pub struct Emitter<'a> {
@@ -404,7 +404,7 @@ pub fn emit_case(case: &Case, backend: &Emitter) -> Option<String> {
 pub fn emit_dir(dir: &Path, backend: &Emitter) {
     salvo_syntax::diag::show_ids(true);
     let (cases, mut failures) = read_dir_cases(dir);
-    crate::front::std_front(backend.ext);
+    crate::front::std(backend.ext);
     failures.extend(over_cases(&cases, |c| emit_case(c, backend)));
     assert!(failures.is_empty(), "{} of {} programs in {} disagree with their annotations:\n\n{}", failures.len(), cases.len(), dir.display(), failures.join("\n\n"));
 }

@@ -16,7 +16,7 @@ fn hash_of(files: &[(&str, &str)], effect: &str) -> String {
 /// type named like its type parameter: std's `ActorGroup<E>`'s `E` is the
 /// parameter whether or not the program declares a `struct E` (found by the
 /// A1 differential, which saw `ActorGroup`'s hash change with one). Over the
-/// std front std is checked once, without the program, so the same shape is
+/// the warm std is checked once, without the program, so the same shape is
 /// also checked across two of the program's own modules: a generic effect in
 /// `grp`, a `struct E` in `main`.
 #[test]

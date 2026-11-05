@@ -369,7 +369,7 @@ impl Contracts for std::collections::HashMap<crate::DeclId, Vec<crate::deduce::P
     }
 }
 
-impl Contracts for std::collections::HashMap<crate::check::Key, Vec<crate::deduce::ParamDeduction>> {
+impl Contracts for crate::check::KeyMap<Vec<crate::deduce::ParamDeduction>> {
     fn contract(&self, id: crate::DeclId) -> Option<&Vec<crate::deduce::ParamDeduction>> {
         self.get(&crate::check::Key::name_of(id))
     }

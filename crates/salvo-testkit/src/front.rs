@@ -1,45 +1,93 @@
-//! [std-cache] The one way a test builds and checks a program over the real
-//! std (TESTS.md T3): std is read from `lib/`, parsed, expanded and checked
-//! **once per test process** into a `salvo_core::StdFront`, and every program
-//! a test builds holds that front's very modules, so only the test's own
-//! files are parsed, expanded and checked.
+//! [lsp-check-cache] The one way a test builds and checks a program over the
+//! real std (TESTS.md T3): std is read from `lib/`, parsed, expanded and
+//! checked **once per test process** into a warm `salvo_core::CheckCache`,
+//! and every program a test builds goes through a clone of it, so only the
+//! test's own files are parsed, stamped and checked.
 //!
-//! - [`std_front`]: the front, one per backend extension (`"kt"`, `"rs"`;
-//!   they differ in std's companions only).
+//! - [`std`]: std and its warm cache, one per backend extension
+//!   (`"kt"`, `"rs"`; they differ in std's companions only).
 //! - [`program`]: a program of std and the given files, for a test that
 //!   emits it (`emit_program_over`) or reads its IR.
 //! - [`check`]: the program checked, with every diagnostic it produced —
 //!   parse and expansion, checker, IR analysis — in that order.
 //!
 //! A test whose point is a different std (a std shadow, a `std = true`
-//! tree, a fake std) builds its own `SourceSet`: the front is std as it is.
+//! tree, a fake std) builds its own `SourceSet`: this is std as it is.
 
 use std::path::Path;
 use std::sync::OnceLock;
 
-use salvo_core::source::{SourceFile, SourceSet};
-use salvo_core::{FileDiagnostic, FrontProgram, Program, StdFront, Symbols};
+use salvo_core::source::{CompanionFile, SourceFile, SourceSet};
+use salvo_core::{Built, CheckCache, FileDiagnostic, Program, Symbols};
 
 /// The repository's std tree.
 pub fn std_dir() -> &'static Path {
     Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../lib"))
 }
 
-/// std's front for backend extension `ext` (`"kt"` or `"rs"`), built on
-/// first use and shared by every thread of the process.
-pub fn std_front(ext: &str) -> &'static StdFront {
-    static KT: OnceLock<StdFront> = OnceLock::new();
-    static RS: OnceLock<StdFront> = OnceLock::new();
+/// std as loaded for one backend extension, and a cache warmed with it.
+pub struct Std {
+    sources: SourceSet,
+    warm: CheckCache,
+}
+
+impl Std {
+    /// std's files, the first files of every program over it.
+    pub fn files(&self) -> &[SourceFile] {
+        &self.sources.files
+    }
+
+    /// std's companions (its host files for the backend).
+    pub fn companions(&self) -> &[CompanionFile] {
+        &self.sources.companions
+    }
+
+    /// The warm cache: what checking a program over std goes through, cloned.
+    pub fn cache(&self) -> &CheckCache {
+        &self.warm
+    }
+
+    /// A program of std and `extra` (none of them std), parsed and expanded
+    /// through a clone of the warm cache: std's modules are its own.
+    pub fn program(&self, extra: Vec<SourceFile>, extra_companions: Vec<CompanionFile>) -> Built {
+        let mut sources = SourceSet { files: self.sources.files.clone(), companions: self.sources.companions.clone(), platform: Default::default() };
+        sources.files.extend(extra);
+        sources.companions.extend(extra_companions);
+        self.warm.transient().build(sources)
+    }
+
+    /// `program` resolved through a clone of the warm cache.
+    pub fn resolve<'p>(&self, program: &'p Program) -> salvo_core::Resolution<'p> {
+        self.warm.transient().resolve(program)
+    }
+
+    /// `program` checked through a clone of the warm cache: what a full check
+    /// gives, std's rows its own.
+    pub fn check<'p>(&self, program: &'p Program, resolution: &salvo_core::Resolution<'p>, symbols: &Symbols<'p>) -> salvo_core::Checked {
+        self.warm.transient().check(program, resolution, symbols)
+    }
+}
+
+/// std for backend extension `ext` (`"kt"` or `"rs"`), warmed on first use
+/// and shared by every thread of the process.
+pub fn std(ext: &str) -> &'static Std {
+    static KT: OnceLock<Std> = OnceLock::new();
+    static RS: OnceLock<Std> = OnceLock::new();
     let cell = match ext {
         "kt" => &KT,
         "rs" => &RS,
-        other => panic!("no std front for extension `{other}` (use \"kt\" or \"rs\")"),
+        other => panic!("no std for extension `{other}` (use \"kt\" or \"rs\")"),
     };
     cell.get_or_init(|| {
         let mut sources = SourceSet::default();
         let errors = sources.add_dir(std_dir(), ext, true, false);
         assert!(errors.is_empty(), "failed to read std: {errors:?}");
-        StdFront::build(sources)
+        let mut warm = CheckCache::new();
+        let built = warm.build(SourceSet { files: sources.files.clone(), companions: sources.companions.clone(), platform: Default::default() });
+        let symbols = Symbols::collect(&built.program);
+        let resolution = warm.resolve(&built.program);
+        warm.check(&built.program, &resolution, &symbols);
+        Std { sources, warm }
     })
 }
 
@@ -59,9 +107,9 @@ pub fn source_files(files: &[(&str, &str)]) -> Vec<SourceFile> {
     set.files
 }
 
-/// A program of std (for `ext`) and `files`, std's modules the front's own.
-pub fn program(ext: &str, files: &[(&str, &str)]) -> FrontProgram {
-    std_front(ext).program(source_files(files), Vec::new())
+/// A program of std (for `ext`) and `files`, std's modules the warm cache's own.
+pub fn program(ext: &str, files: &[(&str, &str)]) -> Built {
+    std(ext).program(source_files(files), Vec::new())
 }
 
 /// [`program`], asserting it parsed and expanded without an error.
@@ -71,19 +119,18 @@ pub fn clean_program(ext: &str, files: &[(&str, &str)]) -> Program {
 
 /// The program of `built`, asserting it parsed and expanded without an
 /// error.
-pub fn expect_clean(built: FrontProgram) -> Program {
+pub fn expect_clean(built: Built) -> Program {
     let errors: Vec<String> = built.diagnostics.iter().filter(|d| d.is_error()).map(|d| d.render(&built.program.files)).collect();
     assert!(errors.is_empty(), "parse or expansion errors: {errors:#?}");
     built.program
 }
 
-/// Checks `program` over std's front for `ext` (in full when the program
-/// is not one of the front's: `StdFront::check`).
+/// Checks `program` through a clone of std's warm cache for `ext`.
 pub fn check_with(ext: &str, program: &Program, resolution: &salvo_core::Resolution<'_>, symbols: &Symbols<'_>) -> salvo_core::Checked {
-    std_front(ext).check(program, resolution, symbols)
+    std(ext).check(program, resolution, symbols)
 }
 
-/// A program checked over the front, and everything it reported.
+/// A program checked through the warm std, and everything it reported.
 pub struct Checked {
     pub program: Program,
     pub checked: salvo_core::Checked,
@@ -129,7 +176,7 @@ impl Checked {
 /// A project directory's program over std (for `ext`): the dependencies its
 /// manifest names, then its source tree, as `salvo compile` loads them
 /// [manifest-deps].
-pub fn project(ext: &str, dir: &Path) -> FrontProgram {
+pub fn project(ext: &str, dir: &Path) -> Built {
     let project = salvo_core::Project::load(&dir.join(salvo_core::MANIFEST_FILE))
         .unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
     let mut sources = SourceSet::default();
@@ -142,7 +189,7 @@ pub fn project(ext: &str, dir: &Path) -> FrontProgram {
     sources.platform = project.platform_roots();
     let errors = sources.add_dir(&src, ext, false, false);
     assert!(errors.is_empty(), "failed to read {}: {errors:?}", src.display());
-    std_front(ext).program(sources.files, sources.companions)
+    std(ext).program(sources.files, sources.companions)
 }
 
 /// `files` checked over the `"kt"` front: parsed, expanded, resolved,
@@ -152,9 +199,9 @@ pub fn check(files: &[(&str, &str)]) -> Checked {
 }
 
 /// A program built over the `"kt"` front, checked as [`check`] does.
-pub fn check_built(built: FrontProgram) -> Checked {
-    let FrontProgram { program, diagnostics, .. } = built;
-    let front = std_front("kt");
+pub fn check_built(built: Built) -> Checked {
+    let Built { program, diagnostics, .. } = built;
+    let front = std("kt");
     let symbols = Symbols::collect(&program);
     let resolution = front.resolve(&program);
     let checked = front.check(&program, &resolution, &symbols);
@@ -171,5 +218,5 @@ pub fn check_main(src: &str) -> Checked {
 /// `salvo ir`'s dump of `program` (`ir::dump_program`), checked over std's
 /// front for `ext`.
 pub fn dump_ir(ext: &str, program: &Program, all: bool, module: Option<&str>) -> Result<(String, Vec<String>), Vec<String>> {
-    salvo_core::ir::dump_program_over(program, all, module, Some(std_front(ext).cache()))
+    salvo_core::ir::dump_program_over(program, all, module, Some(std(ext).cache()))
 }

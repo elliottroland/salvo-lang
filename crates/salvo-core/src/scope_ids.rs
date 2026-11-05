@@ -56,6 +56,21 @@ pub struct ScopeIds {
     pub def_sites: HashMap<&'static str, DeclId>,
 }
 
+impl ScopeIds {
+    /// [lsp-scope-cache] Every file index the scope names: a scope stands for
+    /// another program's only where these files are where they were.
+    pub fn files(&self) -> impl Iterator<Item = usize> + '_ {
+        self.fns
+            .values()
+            .flatten()
+            .map(|e| e.file)
+            .chain(self.struct_files.values().copied())
+            .chain(self.effect_files.values().copied())
+            .chain(self.effect_aliases.values().map(|(_, f)| *f))
+            .chain(self.opaque_type_files.values().copied())
+    }
+}
+
 /// The process's interned names and module paths: what a [`ScopeIds`] holds
 /// in place of the AST's. As many as there are distinct names, like
 /// declaration ids.

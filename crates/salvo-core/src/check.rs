@@ -35,6 +35,35 @@ use crate::resolve::{DefSite, ModuleScope, Resolution};
 use crate::source::ModulePath;
 use crate::types::{is_subtype, FnId, FnParamContract, Qual, QualEffect, Ty};
 
+/// [node-id] A table of facts by node: hashed by the key's two words
+/// (`KeyHasher`), which every check does tens of thousands of times.
+pub type KeyMap<V> = HashMap<Key, V, std::hash::BuildHasherDefault<KeyHasher>>;
+
+/// The hasher of a [`KeyMap`]: a key hashes as its declaration's address and
+/// its node, two words, which a multiply-and-rotate mixes well enough.
+#[derive(Default, Clone, Copy)]
+pub struct KeyHasher(u64);
+
+impl std::hash::Hasher for KeyHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for b in bytes {
+            self.write_u64(*b as u64);
+        }
+    }
+    fn write_u64(&mut self, n: u64) {
+        self.0 = (self.0.rotate_left(5) ^ n).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+    fn write_usize(&mut self, n: usize) {
+        self.write_u64(n as u64);
+    }
+    fn write_u32(&mut self, n: u32) {
+        self.write_u64(n as u64);
+    }
+}
+
 /// [node-id] A fact's key: the declaration the node is in and the node's id
 /// within it. Identity is `(decl, node)` alone; the file and the span ride
 /// along as the node's origin, for a reader that places the fact (the
@@ -157,95 +186,11 @@ impl crate::decl_id::DeclIndex {
     }
 }
 
-/// [std-cache] The reusable result of checking the standard library on its
-/// own, for the language server (ROADMAP §5 step 3). std occupies the leading
-/// `std_files` indices of a merged program (loaded first, in sorted order), so
-/// a project check can **skip** those files' bodies and read std's facts from
-/// here instead — sound because every exported std fn has a total deduction
-/// clause [deduce-std-explicit], which makes std's checked output a pure
-/// function of std's own sources (the invariance audit, COMPLETED.md's
-/// 2026-10-10 std-cache entry).
-///
-/// It wraps a whole `Checked` — the result of checking a **std-only** program,
-/// in which every row *is* a std row — rather than a hand-picked subset. That
-/// is the structural guarantee (user decision 2026-10-10, A2): the cache is a
-/// real `Checked`, produced by the one real checker, so every std fact a
-/// project check or a whole-program pass (`deadlock::check`) might read is
-/// present and identical to a full check, with nothing to keep in sync and no
-/// per-table proof of what some consumer happens to read.
-#[derive(Default)]
-pub struct StdCache {
-    /// How many leading files of a merged program this std occupies (the skip
-    /// boundary): file index `< std_files` is std, `>=` is project/dependency.
-    pub std_files: usize,
-    /// The std-only check. Its keys use indices `0..std_files`, which are the
-    /// same leading indices std takes in the merged program (std loads first,
-    /// sorted), so they transfer without remapping in the common case the
-    /// language server gates on (no std shadow, project not `std = true`).
-    checked: Checked,
-    /// [lsp-std-front] The modules the check ran over, kept alive: the
-    /// address-keyed rows above (`written_types`) are keyed by their nodes'
-    /// addresses, which no other allocation can take while the cache holds
-    /// them.
-    modules: Vec<std::sync::Arc<Module>>,
-}
-
 impl Checked {
     /// [node-id] The key of the node `span` holds in file `file`, for a
     /// reader holding a node.
     pub fn key_at(&self, file: usize, span: Span) -> Key {
         self.decls.key(file, span, &std::cell::Cell::new(0))
-    }
-}
-
-impl StdCache {
-    /// Wraps the `Checked` of a std-only program (every row a std row):
-    /// `checked` is `check_program` over `program`, resolved and collected
-    /// as `resolution` and `symbols`.
-    pub fn new<'p>(program: &'p Program, resolution: &Resolution<'p>, symbols: &Symbols<'p>, checked: Checked) -> Self {
-        let _ = (resolution, symbols);
-        StdCache {
-            std_files: program.files.len(),
-            checked,
-            modules: program.modules.clone(),
-        }
-    }
-
-    /// [lsp-std-front] Whether `program`'s std files hold the very modules
-    /// the cache was checked over (a language server's std front). Without
-    /// it, std's address-keyed rows (`written_types`) are keyed by other
-    /// nodes than the program's, so what reads std's rows — emission — must
-    /// not use the cache (`std_front::check_over`).
-    pub fn shares_modules(&self, program: &Program) -> bool {
-        self.modules.len() <= program.modules.len()
-            && self.modules.iter().zip(&program.modules).all(|(a, b)| std::sync::Arc::ptr_eq(a, b))
-    }
-
-    /// Seeds a fresh round's `Checked` with std's rows: the round starts from
-    /// a clone of the std-only check and project checking adds project-keyed
-    /// rows on top. std rows are therefore exactly what the real checker
-    /// produced, never recomputed. Project checking only writes rows at
-    /// project file indices (`>= std_files`), so it never overwrites a std row.
-    fn seeded(&self) -> Checked {
-        self.checked.clone()
-    }
-
-    /// std's `param_mutations` rows (all of them — the cache's `Checked` is
-    /// std-only), for seeding the round accumulator.
-    fn std_param_mutations(&self) -> impl Iterator<Item = (&Key, &HashSet<String>)> {
-        self.checked.param_mutations.iter()
-    }
-
-    /// std's contracts, for the contracts known before the first walk
-    /// [deduce-default].
-    pub(crate) fn std_deductions(&self) -> impl Iterator<Item = (&Key, &Vec<crate::deduce::ParamDeduction>)> {
-        self.checked.deductions.iter()
-    }
-
-    /// std's parking handlers, for seeding the round accumulator that
-    /// `deadlock::check` reads.
-    fn std_parking_handlers(&self) -> impl Iterator<Item = &String> {
-        self.checked.parking_handlers.iter()
     }
 }
 
@@ -1156,7 +1101,7 @@ pub struct Checked {
     /// [decl-id] Where every declaration of the checked program is: what a
     /// reader of the `DeclId`-keyed tables below asks for a key's file.
     pub decls: std::sync::Arc<crate::decl_id::DeclIndex>,
-    pub expr_ty: HashMap<Key, Ty>,
+    pub expr_ty: KeyMap<Ty>,
     /// [op-arm-eq] An equality whose one side is a union and whose other side
     /// is a value matching exactly one of its arms, keyed by the comparison's
     /// span. The checker proved which arm — the test is the comparison's
@@ -1164,21 +1109,21 @@ pub struct Checked {
     /// value`, so `x == -1L` on a `Long?` means "present and equal to -1",
     /// a `None` (or any other arm) comparing unequal (user decision
     /// 2026-10-12). `==` is the recorded form; `!=` negates it.
-    pub arm_compares: HashMap<Key, ArmCompare>,
+    pub arm_compares: KeyMap<ArmCompare>,
     /// [ir-narrow] The reads whose static type is not their storage's: a
     /// narrowed identifier, field or element place, or a field a
     /// qualifier's claim refines (the pipeline record D2, the narrowing half of
     /// `Convert`). The checker reads the flow entries back for the physical
     /// type a coercion starts from (`repr_of`).
-    pub narrowed_reads: HashMap<Key, NarrowedRead>,
+    pub narrowed_reads: KeyMap<NarrowedRead>,
     /// [ir-coerce] The conversions, by the converted expression: what a
     /// slot, an operator or a `Mut` drop requires of the value's
     /// representation.
-    pub converts: HashMap<Key, Convert>,
+    pub converts: KeyMap<Convert>,
     /// [is-narrowing] The tests, by the node that asks them: an `is`, a
     /// a `when` branch head, an [op-arm-eq] comparison. An `is` the
     /// checker decided statically has none.
-    pub tests: HashMap<Key, Test>,
+    pub tests: KeyMap<Test>,
     /// [when-exhaustive] [lsp-completion] For each `when` with a subject
     /// whose arms could all be matched against it (keyed by the `when`): the
     /// union arms no branch covers, spelled as an `is` check writes them
@@ -1187,7 +1132,7 @@ pub struct Checked {
     /// IR reads to give the `when` an explicit unreachable fallthrough rather
     /// than have each backend re-derive it; the language server offers the
     /// rest as the arms still to write.
-    pub when_missing: HashMap<Key, Vec<String>>,
+    pub when_missing: KeyMap<Vec<String>>,
     /// [call-resolve] What each call resolved to, by the call (the pipeline record D2,
     /// calls): one [`Callee`] — a declared fn at its type arguments, an
     /// effect's member, a qualifier's fn, a fn value (a local, a field, a
@@ -1196,7 +1141,7 @@ pub struct Checked {
     /// (the call it names), the `next`/`iter` a `for` names (`Key::FOR_NEXT`,
     /// `Key::FOR_ITER` of the subject), an interpolated part's `to_str`
     /// (`Key::INTERP_TEXT`).
-    pub calls: HashMap<Key, Call>,
+    pub calls: KeyMap<Call>,
     /// [iter-protocol] How a `for` loop drives a **pass**, keyed by the span
     /// of its *subject*. Present only when the subject has a `next`, rather
     /// than being an array or a value with an `iter`. There is
@@ -1205,7 +1150,7 @@ pub struct Checked {
     /// handed over here — the alternative, each emitter re-deriving the arm
     /// index from the declaration, is exactly the checker/emitter
     /// disagreement the invariants forbid.
-    pub for_drivers: HashMap<Key, PassDriver>,
+    pub for_drivers: KeyMap<PassDriver>,
     /// [qual-refn] Every qualifier refinement that applies, keyed by the
     /// file a call is written in and the overload it resolves to.
     /// Scope-dependent by design: opting into a qualifier opts into what
@@ -1218,13 +1163,13 @@ pub struct Checked {
     /// D2, handles): a `use` (every face it binds, a tuple's every element),
     /// a `spawn` (the faces its child serves: its `Addr`s), a projection
     /// `e[A, B]`, a merge `eff[a, b]` / `eff[*]`.
-    pub handles: HashMap<Key, Vec<Ty>>,
+    pub handles: KeyMap<Vec<Ty>>,
     /// [effect-handler-deps] [effect-with-clause] [effect-handler-generics]
     /// A handler built at a node (the pipeline record D2, handler construction): a
     /// `use H()`, a `spawn H()`, a `with` item, and the route a `use any`
     /// derives [actor-route-stub]. A `use` with handles and no construction
     /// binds an existing handle (`use addr`, a tuple of them).
-    pub constructions: HashMap<Key, Construction>,
+    pub constructions: KeyMap<Construction>,
     /// [actor-route-stub] Per actor effect (by key), each send member's
     /// `Key`-marked parameter, by member name: what the derived route
     /// hashes. Recorded at the effect, since lowering erases `Key`.
@@ -1244,7 +1189,7 @@ pub struct Checked {
     /// handler, by its written name, or a free `send fn` — a task — by the
     /// declaration the scope ladder resolved; a task's effects are its
     /// `effects_passed`.
-    pub replyto_targets: HashMap<Key, ReplyTarget>,
+    pub replyto_targets: KeyMap<ReplyTarget>,
     /// [actor-deadlock-cycle] Handlers whose members contain a `waitfor`
     /// expression, by the handler's declaration, with the site: since SH-5(d)
     /// (user decision 2026-09-19) occupancy is **inferred**, not declared,
@@ -1262,12 +1207,12 @@ pub struct Checked {
     /// a local) moves, at its node: whether it hands the value over, whether
     /// the flow pass takes the root's move from it, and whether the value is
     /// linear (`Move`).
-    pub moves: HashMap<Key, Move>,
+    pub moves: KeyMap<Move>,
     /// [fate-poison] Every mutation event on a root (a `Mut` call
     /// argument, an assignment through a projection, a mutation through a
     /// handle), keyed by the span the checker gave it — the call, the
     /// assignment statement, the iterated subject — for the IR flow pass.
-    pub fate_mutations: HashMap<Key, Vec<FlowMutation>>,
+    pub fate_mutations: KeyMap<Vec<FlowMutation>>,
     /// [fate-move-mode] Every link-carrying binding, for the IR's decision
     /// of its mode: keyed by the bound name's span (a `let`, a pattern
     /// name, a `for`/`is`/`when` binding) or an assignment's target, its
@@ -1277,12 +1222,12 @@ pub struct Checked {
     /// ownership (`may_take_ownership`, judged where the binding is: a
     /// typing and scope fact), and the `for` loops whose binding is one of
     /// its roots (taking ownership of one makes the loop iterate by value).
-    pub bind_facts: HashMap<Key, BindFact>,
+    pub bind_facts: KeyMap<BindFact>,
     /// [fate-move-mode] [fate-derived-readonly] Every move or mutation of a
     /// fate-linked (derived) variable, by the use's span (the identifier;
     /// a mutating call; an assignment statement): the variable, the action,
     /// and the message the IR reports when its binding stays borrow-mode.
-    pub derived_uses: HashMap<Key, Vec<DerivedUse>>,
+    pub derived_uses: KeyMap<Vec<DerivedUse>>,
     /// [actor-deadlock-cycle] Gated mints (`replyto!`) inside a handler's
     /// members: `(the handler's declaration, the mint's site)`. While a gated
     /// continuation is outstanding the actor serves *nothing else*, so
@@ -1331,57 +1276,57 @@ pub struct Checked {
     /// named as a value's, at the name where it is used — the set the use
     /// site expects it to take, which an adapter supplies when it differs
     /// from the fn's own.
-    pub effects_taken: HashMap<Key, Vec<Ty>>,
+    pub effects_taken: KeyMap<Vec<Ty>>,
     /// [fn-effects] [effect-dispatch] [task-effects] What a call site gives
     /// of the effects in scope (the pipeline record D2, effect lists): the instance
     /// an effect-member call dispatches on, or the instances a call — named,
     /// through a fn value, or a task mint — passes ahead of its arguments, in
     /// the callee's declared order.
-    pub effects_passed: HashMap<Key, EffectsPassed>,
+    pub effects_passed: KeyMap<EffectsPassed>,
     /// [effect-var] At a call whose callee takes an effect variable: how the
     /// call's leading instances (`effects_passed`) group into the callee's
     /// effect parameters, one count per parameter in order. A variable's
     /// parameter takes its instances as one **pack** (none, one, or a tuple
     /// of several); every other takes one.
-    pub effect_packs: HashMap<Key, Vec<usize>>,
+    pub effect_packs: KeyMap<Vec<usize>>,
     /// [effect-var] A fn value passed where the callee's fn type takes an
     /// effect variable: the effect parameters it is called with there, one
     /// per entry. At a lambda, they are its own; at any other value, the
     /// adapter the lowering wraps it in takes them and hands the value the
     /// effects its type performs.
-    pub effect_slots: HashMap<Key, Vec<EffectSlot>>,
+    pub effect_slots: KeyMap<Vec<EffectSlot>>,
     /// [effect-var] At a value that is not a lambda and has `effect_slots`:
     /// the fn type of the position, at the call — what its adapter's
     /// parameters are, as a lambda's there would be.
-    pub effect_adapted: HashMap<Key, Ty>,
+    pub effect_adapted: KeyMap<Ty>,
     /// [effect-handler-deps] [effect-prereq] Each handler's dependencies, by
     /// handler key: written ones with aliases flattened, then the
     /// prerequisites of its faces, each with the span it came from.
-    pub handler_deps: HashMap<Key, Vec<(Ty, Span)>>,
+    pub handler_deps: KeyMap<Vec<(Ty, Span)>>,
     /// [actor-deadlock-cycle] Each handler's shape as the deadlock graph
     /// reads it, by the handler's name (the pipeline record E1, its per-declaration
     /// summary): its name and key, its faces, whether it has `send` members,
     /// whether it is stateful before parking says so, and which of its
     /// dependencies are written `any E`.
-    pub handler_shapes: HashMap<Key, HandlerShape>,
+    pub handler_shapes: KeyMap<HandlerShape>,
     /// [effect-prereq] Each effect's direct prerequisites, by effect key,
     /// aliases flattened, its own generics unsubstituted.
-    pub effect_prereqs: HashMap<Key, Vec<Ty>>,
+    pub effect_prereqs: KeyMap<Vec<Ty>>,
     /// Per-fn deduction facts [deduce-infer]: for each parameter, whether
     /// a call gives the value back to the caller and which of its declared
     /// qualifiers are still known afterwards. Written lists are stored as
     /// validated; unwritten lists are inferred from the body. The Rust
     /// backend's ownership/borrow contract (Kotlin ignores them).
-    pub deductions: HashMap<Key, Vec<crate::deduce::ParamDeduction>>,
+    pub deductions: KeyMap<Vec<crate::deduce::ParamDeduction>>,
     /// Fn-name references [fn-ref-table]: the span of a fn *name* — at
     /// its declaration, as a call-site callee, or a fn-by-name use —
     /// mapped to the declaration it resolves to. Drives the LSP's
     /// signature hover.
-    pub fn_refs: HashMap<Key, DeclId>,
+    pub fn_refs: KeyMap<DeclId>,
     /// [lsp-definition] [doc-module] What a written name refers to, for
     /// navigation, other than a fn (`fn_refs`): a declaration, a field, or
     /// a module. Drives hover, go-to-definition and rename.
-    pub refs: HashMap<Key, Ref>,
+    pub refs: KeyMap<Ref>,
     /// [lsp-completion] Every local binding — parameter, `let`, `is`/`when`
     /// binding, `for` binder — declared in each file, keyed by file index,
     /// with its declaration span and the span of the fn body it belongs to.
@@ -1408,41 +1353,41 @@ pub struct Checked {
     /// variable's type with a bare `proj` compiler qualifier and
     /// serves the parameters (roots, binding sites) as on-request detail
     /// (user decision 2026-09-02, progressive disclosure).
-    pub fate_reads: HashMap<Key, Vec<FateRead>>,
+    pub fate_reads: KeyMap<Vec<FateRead>>,
     /// [interp-union] An interpolated **union**: how each of its runtime arms
     /// (in arm order) reaches text. The emitters call the arm's own `to_str`
     /// on the arm the value is.
-    pub interp_union: HashMap<Key, Vec<ArmText>>,
+    pub interp_union: KeyMap<Vec<ArmText>>,
     /// [proj-readonly-return] [proj-infer] [proj-anywhere] What each call's
     /// result borrows of its arguments, by the call (the pipeline record D2, a call's
     /// borrowed result): a view of them or a value holding borrows of them,
     /// which arguments, and whether one is a temporary. The checker links
     /// the result to those arguments [fate-link].
-    pub borrows: HashMap<Key, Borrow>,
+    pub borrows: KeyMap<Borrow>,
     /// [proj-infer] Per fn, the parameters its result holds borrows of
     /// (declared with `[p: proj]` or inferred from the body). Read by the
     /// Rust backend to name the lifetime on lent parameters and the return.
-    pub fn_lends: HashMap<Key, Vec<usize>>,
+    pub fn_lends: KeyMap<Vec<usize>>,
     /// [deduce-syntax] [ref-handle] Per fn, the parameters its body
     /// mutates — directly, or through a handle into them (a generic
     /// container is lent mutably exactly when a handle into it is written).
-    pub param_mutations: HashMap<Key, HashSet<String>>,
+    pub param_mutations: KeyMap<HashSet<String>>,
     /// [fn-param-mode] Per declaration, at its name, how it takes each
     /// written parameter (`param_mode::record`, the pipeline record D3.2): moved,
     /// lent, or lent mutably. Recomputed every check, from `deductions` and
     /// `param_mutations`.
-    pub param_modes: HashMap<Key, Vec<crate::param_mode::PassMode>>,
+    pub param_modes: KeyMap<Vec<crate::param_mode::PassMode>>,
     /// [linear-group] The linear types each **discharger** ends, by the fn's
     /// (or handler member's) name: the types of the consumed parameters
     /// declared in the fn's own file — or, for a member, the types the effect
     /// member it implements consumes. The IR ledger settles such a parameter
     /// when the body ends, once its linear fields are moved out (user
     /// decision 2026-10-30, replacing `discard`). Keys [type-identity].
-    pub discharges: HashMap<Key, Vec<String>>,
+    pub discharges: KeyMap<Vec<String>>,
     /// [backend-core-layers] std's declarations, at their names, that *are*
     /// a primitive the backends spell natively (the pipeline record D3.3(a), (b)):
     /// recomputed every check.
-    pub primitives: HashMap<Key, Primitive>,
+    pub primitives: KeyMap<Primitive>,
     /// [platform-check] [platform-factory] The host boundary at a node
     /// (the pipeline record D2): what crosses from host to Salvo and needs checking
     /// (ABI D7), and the factories of a union a host builds (ABI D5). At a
@@ -1451,19 +1396,19 @@ pub struct Checked {
     /// sends) — the check and the factories of one type — and, factories
     /// alone, at a type alias's name (a named union a platform signature
     /// reaches).
-    pub boundaries: HashMap<Key, crate::abi::Boundary>,
+    pub boundaries: KeyMap<crate::abi::Boundary>,
     /// The captured outer locals of each lambda [fate-lambda], keyed by
     /// the lambda expression's span (for tooling and future emission
     /// refinements; both emitters currently capture lexically, which is
     /// an alias on both backends).
-    pub lambda_captures: HashMap<Key, Vec<LambdaCapture>>,
+    pub lambda_captures: KeyMap<Vec<LambdaCapture>>,
     /// The implicit parameters of each fn, expanded [implicit-param]
     /// [implicit-group]: the written `?name: FnType` ones in order, then each
     /// `?Group<T>` spread's members in declaration order. This is the single
     /// ordered list both sides render — the callee's trailing parameters and
     /// the caller's trailing arguments — so neither emitter needs to know
     /// that groups exist.
-    pub implicit_params: HashMap<Key, Vec<ImplicitParam>>,
+    pub implicit_params: KeyMap<Vec<ImplicitParam>>,
     /// [deduce-reapply] The claims a fn's deduction clause says it
     /// **establishes** (`=> list: +Heap<T>(?cmp) Mut`), by (fn, parameter), each
     /// already lowered in the callee's generic scope — so a call site only has to
@@ -1471,7 +1416,7 @@ pub struct Checked {
     /// then add the qualifier to the caller's variable. Lowered here rather than
     /// at the call site because the callee's generics are in scope here and not
     /// there, exactly as for `implicit_params`.
-    pub established_quals: HashMap<Key, Vec<(String, Vec<Qual>)>>,
+    pub established_quals: KeyMap<Vec<(String, Vec<Qual>)>>,
     /// [cmp-carry] What each **carried identity** resolves to: the declaration
     /// behind the `by_age` in a `SortedSet<Person>(by_age)`, keyed by the
     /// identity and the type it orders.
@@ -1489,11 +1434,11 @@ pub struct Checked {
     pub carried_identities: HashMap<(usize, FnId, Ty), DeclId>,
     /// What fills each implicit parameter at a call [implicit-resolve],
     /// keyed by the call span, in the callee's declared order.
-    pub implicit_args: HashMap<Key, Vec<ImplicitArg>>,
+    pub implicit_args: KeyMap<Vec<ImplicitArg>>,
     /// [fn-value] Every function named as a value, at its name (the pipeline record D2,
     /// calls): a declared fn and the implicits it fills in turn, or an
     /// effect's member `m@E` [effect-member-overload].
-    pub fn_values: HashMap<Key, FnValue>,
+    pub fn_values: KeyMap<FnValue>,
     /// Type errors, structured for CLI/LSP consumption [diag-structured].
     pub errors: Vec<FileDiagnostic>,
 }
@@ -2030,7 +1975,7 @@ pub fn check_program<'p>(
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
 ) -> Checked {
-    let mut out = check_program_walk(program, resolution, symbols, None, None);
+    let mut out = check_program_walk(program, resolution, symbols, None);
     crate::literal::lower_tables(&mut out);
     check_std_deductions_total(program, &mut out);
     out
@@ -2038,59 +1983,18 @@ pub fn check_program<'p>(
 
 /// [lsp-check-cache] [`check_program`], reusing `check_cache`'s rows for
 /// every file whose module is the one they were checked from, when no
-/// interface has changed: a program no `StdCache` stands in for (a `std =
-/// true` tree, where std is what is edited), all of whose files the cache
-/// covers. The result is what `check_program` gives.
+/// interface has changed (`CheckCache::plan`): those files are not walked.
+/// The result is what `check_program` gives, and the cache is left holding
+/// every file's rows for the next check.
 pub fn check_program_cached<'p>(
     program: &'p Program,
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
     check_cache: &mut crate::check_cache::CheckCache,
 ) -> Checked {
-    let mut out = check_program_walk(program, resolution, symbols, None, Some(check_cache));
+    let mut out = check_program_walk(program, resolution, symbols, Some(check_cache));
     crate::literal::lower_tables(&mut out);
     check_std_deductions_total(program, &mut out);
-    out
-}
-
-/// [std-cache] Checks a project reusing a `StdCache`: std's leading files are
-/// not re-checked — their contracts are seeded from the cache and their
-/// bodies are skipped in both the per-file walk and the deduction fixpoint
-/// (ROADMAP §5 step 3). For the language server, where the same std is
-/// checked against edit after edit. The caller is responsible for the
-/// fallback (A4): use this only when the program's leading `cache.std_files`
-/// files really are that std — no std shadow, project not itself `std = true`.
-///
-/// The result's std rows are exactly the cache's (seeded, not recomputed), so
-/// it is identical to `check_program` on the project rows, which is all the
-/// language server consumes. `check_std_deductions_total` is **not** run (std
-/// is not being developed here, and its bodies were not walked).
-pub fn check_project<'p>(
-    program: &'p Program,
-    resolution: &Resolution<'p>,
-    symbols: &Symbols<'p>,
-    cache: &StdCache,
-) -> Checked {
-    let mut out = check_program_walk(program, resolution, symbols, Some(cache), None);
-    crate::literal::lower_tables(&mut out);
-    out
-}
-
-/// [lsp-check-cache] [`check_project`], reusing `check_cache`'s rows for
-/// every file whose module is the one they were checked from, when no
-/// interface has changed (`CheckCache::plan`): those files are not walked.
-/// The result is what `check_project` gives; the cache is left holding every
-/// project file's rows for the next check. For the language server, which
-/// checks one program edit after edit.
-pub fn check_project_cached<'p>(
-    program: &'p Program,
-    resolution: &Resolution<'p>,
-    symbols: &Symbols<'p>,
-    cache: &StdCache,
-    check_cache: &mut crate::check_cache::CheckCache,
-) -> Checked {
-    let mut out = check_program_walk(program, resolution, symbols, Some(cache), Some(check_cache));
-    crate::literal::lower_tables(&mut out);
     out
 }
 
@@ -2098,7 +2002,7 @@ pub fn check_project_cached<'p>(
 /// must carry a **total** deduction clause: a plain entry for every
 /// non-implicit parameter whose contract a caller could change (Copy scalars
 /// excepted — their keep-all is invariant [copy-scalar-free]). The reason is
-/// the std front-half cache (ROADMAP §5 step 3): a written entry is a fixed
+/// a cache warmed with std alone [lsp-warm-std]: a written entry is a fixed
 /// point of inference [deduce-syntax], so once every exported std fn pins
 /// every such parameter, std's checked contracts stop depending on the
 /// project that uses it, and the cache is sound. An *unmentioned* parameter is
@@ -2271,7 +2175,6 @@ fn check_program_walk<'p>(
     program: &'p Program,
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
-    cache: Option<&StdCache>,
     check_cache: Option<&mut crate::check_cache::CheckCache>,
 ) -> Checked {
     // [deduce-syntax] Parameters whose data the body mutates, published for
@@ -2285,20 +2188,6 @@ fn check_program_walk<'p>(
     let syntactic = syntactic_parking_handlers(program, symbols);
     let mut parking: HashSet<String> = syntactic.clone();
 
-    // [std-cache] std is not walked, so the facts that also surface as `out`
-    // tables are seeded with std's cached rows, or the final
-    // `out.param_mutations = mutations` would drop them and
-    // `parking_handlers` would lose std's parking handlers (which
-    // `deadlock::check` reads).
-    if let Some(cache) = cache {
-        mutations.extend(
-            cache
-                .std_param_mutations()
-                .map(|(k, v)| (*k, v.clone())),
-        );
-        parking.extend(cache.std_parking_handlers().cloned());
-    }
-
     // [qual-refn] Refinements are resolved and validated once: they depend
     // on declarations and per-file visibility only, not on anything a
     // checking walk produces. The walk replays their diagnostics and reads
@@ -2308,7 +2197,7 @@ fn check_program_walk<'p>(
     // [qual-identity] What every written qualifier reference means, before
     // anything reads one off the text (the contracts, the refinements).
     let t = crate::timing::phase("check: qualifier keys");
-    symbols.seed_qual_keys(std::sync::Arc::new(crate::resolve::qual_ref_keys(program, resolution, symbols, cache.map_or(0, |c| c.std_files))));
+    symbols.seed_qual_keys(std::sync::Arc::new(crate::resolve::qual_ref_keys(program, resolution, symbols, 0)));
     let _qual_keys = symbols.qual_keys_table().map(crate::deduce::with_qual_keys);
     drop(t);
     let t = crate::timing::phase("check: refinements");
@@ -2318,7 +2207,7 @@ fn check_program_walk<'p>(
     // (user decision 2026-10-11), so it is known before any body is walked
     // (the pipeline record step 2): the first walk is a real one.
     let t = crate::timing::phase("check: contracts");
-    let contracts = crate::deduce::contracts(program, &resolution.decls, cache);
+    let contracts = crate::deduce::contracts(program, &resolution.decls);
     drop(t);
 
     // [platform-factory] Computed by `check_once`, once the names are seeded.
@@ -2330,17 +2219,23 @@ fn check_program_walk<'p>(
         inferred: &contracts,
         refinements: &refinements,
         platform_closure: &no_closure,
-        cache,
     };
     let t = crate::timing::phase("check: walk");
-    let mut out = check_once(&ctx, &mut mutations, &mut parking, check_cache.map(|c| (c, &syntactic)));
+    let mut check_cache = check_cache;
+    let mut out = check_once(&ctx, &mut mutations, &mut parking, check_cache.as_deref_mut().map(|c| (c, &syntactic)));
     drop(t);
     // [deduce-default] Each fn's contract against its body, and the
     // contracts themselves into the table every consumer reads.
     let t = crate::timing::phase("check: deduce");
-    crate::deduce::infer(program, symbols, &mut out, cache.map(|c| c.std_files));
+    // [lsp-check-cache] A file the walk took from the cache is not validated
+    // again: its report is the cache's.
+    let settled = |f: usize| check_cache.as_deref().and_then(|c| c.deduced(f, program));
+    let deduced = crate::deduce::infer(program, symbols, &mut out, &settled);
+    if let Some(c) = check_cache.as_deref_mut().filter(|c| !c.is_transient()) {
+        c.record_deduced(program, deduced);
+    }
     drop(t);
-    out.param_mutations = mutations;
+    out.param_mutations = mutations.into_iter().collect();
     // [fn-param-mode] Every declaration's modes, now that what they rest on
     // is known.
     crate::param_mode::record(program, symbols, &mut out);
@@ -2353,7 +2248,7 @@ fn check_program_walk<'p>(
 fn record_primitives(program: &Program, out: &mut Checked) {
     let basic = |t: &ast::Type| matches!(t, ast::Type::Named { qualifiers, base }
         if qualifiers.is_empty() && base.args.is_empty() && crate::types::BASIC_TYPES.contains(&base.name.name.as_str()));
-    let mut ops: HashMap<Key, Primitive> = HashMap::new();
+    let mut ops: KeyMap<Primitive> = KeyMap::default();
     for (file, module) in program.modules.iter().enumerate() {
         if !program.files.get(file).is_some_and(|f| f.is_std) {
             continue;
@@ -2447,52 +2342,20 @@ struct WalkCtx<'a, 'p> {
     inferred: &'a HashMap<DeclId, Vec<crate::deduce::ParamDeduction>>,
     refinements: &'a crate::refine::Refinements,
     platform_closure: &'a std::collections::BTreeSet<String>,
-    cache: Option<&'a StdCache>,
 }
 
-/// Every non-std file's interfaces, then every non-std body, each walked
-/// once [decl-interface-pass] (std's facts come from the cache when there is
-/// one).
+/// Every file's interfaces, then every body, each walked once
+/// [decl-interface-pass] (or its rows taken from the check cache).
 fn check_once<'p>(
     ctx: &WalkCtx<'_, 'p>,
     param_mutations: &mut HashMap<Key, HashSet<String>>,
     parking_handlers: &mut HashSet<String>,
     check_cache: Option<(&mut crate::check_cache::CheckCache, &HashSet<String>)>,
 ) -> Checked {
-    let WalkCtx { program, resolution, symbols, refinements, cache, .. } = *ctx;
-    // [std-cache] Start from std's rows when caching (so project call sites
-    // and whole-program passes read std facts without std being re-checked);
-    // the std files themselves are skipped below. The whole-program tables
-    // reset just below (`type_ref_span_keys` …) are recomputed over the merged
-    // program — cheap, no body walk — so overwriting std's copies of them is
-    // correct.
-    let t = crate::timing::phase("  check: seed");
-    let mut out = match cache {
-        Some(cache) => cache.seeded(),
-        None => Checked::default(),
-    };
-    // [decl-id] This program's declarations (a seed's are std's alone).
-    out.decls = resolution.decls.clone();
-    drop(t);
+    let WalkCtx { program, resolution, symbols, refinements, .. } = *ctx;
+    let mut out = Checked { decls: resolution.decls.clone(), ..Checked::default() };
     let t = crate::timing::phase("  check: written keys");
-    match cache.filter(|c| c.shares_modules(program)) {
-        // [lsp-std-front] std's modules are the cache's own, so the seed's
-        // keys are std's references' keys at these very addresses (a std
-        // reference resolves in a std scope, and std's declarations keep
-        // their keys in front of any project's): only the project's are
-        // computed, and merged into std's by-span entries as gathering
-        // them together would.
-        // [node-file] A project file's tag is no std file's, so its keys
-        // join std's without meeting them.
-        Some(c) => {
-            let mut part = crate::resolve::SpanKeys::new();
-            crate::resolve::span_keys_from(program, resolution, symbols, c.std_files, &mut part);
-            out.type_ref_span_keys.extend(crate::resolve::span_keys_final(part));
-        }
-        None => {
-            out.type_ref_span_keys = crate::resolve::written_keys_by_span(program, resolution, symbols);
-        }
-    }
+    out.type_ref_span_keys = crate::resolve::written_keys_by_span(program, resolution, symbols);
     symbols.seed_ref_keys(&out.type_ref_span_keys);
     drop(t);
     let t = crate::timing::phase("  check: value keys");
@@ -2520,7 +2383,7 @@ fn check_once<'p>(
     let platform_closure = crate::abi::platform_closure_all(program, symbols);
     drop(t);
     let ctx = &WalkCtx { platform_closure: &platform_closure, ..*ctx };
-    let first = cache.map_or(0, |c| c.std_files);
+    let first = 0;
     let files: Vec<usize> = (first..program.files.len()).collect();
     let mut ifaces: Vec<FileIface<'p>> = (0..program.files.len()).map(|_| FileIface::default()).collect();
     // [lsp-check-cache] Which files' rows stand in for their walks.
@@ -2541,11 +2404,18 @@ fn check_once<'p>(
         (Some(c), Some(syntactic)) => c.plan(program, first, syntactic, &resolution.scopes),
         _ => HashSet::new(),
     };
+    // [lsp-check-cache] Start from the cache's merged rows.
+    let mut in_base: HashSet<usize> = HashSet::new();
+    if let Some((keyed, held)) = check_cache.as_deref_mut().and_then(|c| c.seed(&cached)) {
+        out.adopt_keyed(keyed);
+        in_base = held;
+    }
     drop(t);
     let mut steps = Steps {
         cache: check_cache.as_deref(),
         cached,
-        record: check_cache.is_some(),
+        in_base,
+        record: check_cache.as_deref().is_some_and(|c| !c.is_transient()),
         walked: HashMap::new(),
         inserting: std::time::Duration::ZERO,
     };
@@ -2559,7 +2429,7 @@ fn check_once<'p>(
     }
     let mut walked: Vec<(usize, [crate::check_cache::StepRows; 3])> = steps.walked.into_iter().collect();
     walked.sort_by_key(|(f, _)| *f);
-    if let (Some(c), Some(syntactic)) = (check_cache, syntactic) {
+    if let (Some(c), Some(syntactic)) = (check_cache.filter(|c| !c.is_transient()), syntactic) {
         let _t = crate::timing::phase("  check: cache record");
         let walked_files: Vec<usize> = walked.iter().map(|(f, _)| *f).collect();
         let owners = crate::partition::Owners::new(program, symbols, &out.decls, &walked_files, false);
@@ -2576,6 +2446,8 @@ fn check_once<'p>(
 struct Steps<'c> {
     cache: Option<&'c crate::check_cache::CheckCache>,
     cached: HashSet<usize>,
+    /// The cached files whose keyed rows the check started with.
+    in_base: HashSet<usize>,
     record: bool,
     walked: HashMap<usize, [crate::check_cache::StepRows; 3]>,
     /// The time spent inserting cached rows, for `check: cache insert`.
@@ -2604,7 +2476,9 @@ impl Steps<'_> {
         let Some(rows) = self.cached(f) else { return false };
         let started = std::time::Instant::now();
         if step == crate::check_cache::FACTS {
-            out.insert_rows(&rows.rows);
+            if !self.in_base.contains(&f) {
+                out.insert_rows(&rows.rows);
+            }
             param_mutations.extend(rows.rows.param_mutations.iter().map(|(k, v)| (*k, v.clone())));
         }
         rows.steps[step].apply(out, parking_handlers);

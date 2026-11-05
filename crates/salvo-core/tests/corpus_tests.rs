@@ -16,8 +16,8 @@
 //!   that program. `SALVO_E2E_FRESH=1` ignores the stamps. These are not
 //!   toolchain tests, so `SALVO_SKIP_E2E` does not skip them.
 //! - **A pool of threads** over the programs that missed.
-//! - [std-cache] **std checked once**: every program is built over the
-//!   process's std front (`salvo_testkit::front`, TESTS.md C2), so only the
+//! - [lsp-warm-std] **std checked once**: every program is built over the
+//!   process's warm std cache (`salvo_testkit::front`, TESTS.md C2), so only the
 //!   program itself is parsed, expanded and checked.
 
 use std::path::Path;
@@ -35,16 +35,15 @@ struct Std {
     print: String,
 }
 
-fn front() -> &'static salvo_core::StdFront {
-    salvo_testkit::front::std_front("kt")
+fn front() -> &'static salvo_testkit::front::Std {
+    salvo_testkit::front::std("kt")
 }
 
 fn std_front() -> &'static Std {
     static STD: OnceLock<Std> = OnceLock::new();
     STD.get_or_init(|| {
         let front = front();
-        let parse_error = front.parse_diagnostics().iter().any(|d| d.is_error())
-            || front.program(Vec::new(), Vec::new()).diagnostics.iter().any(|d| d.is_error());
+        let parse_error = front.program(Vec::new(), Vec::new()).diagnostics.iter().any(|d| d.is_error());
         let mut parts: Vec<Vec<u8>> = Vec::new();
         for f in front.files() {
             parts.push(f.name.as_bytes().to_vec());
