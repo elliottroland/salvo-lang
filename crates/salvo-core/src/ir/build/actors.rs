@@ -162,81 +162,114 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
     // [actor-sent] Phase 1c: a handler that takes a face's messages with
     // `send fn sent(m: Message<F>)` answers each of `F`'s send members
     // with a member of its own: the member's parameters made into its arm,
-    // bound to `sent`'s parameter, then `sent`'s body. From here on
-    // the handler is an ordinary one: Phase 2 gives it its dispatch, and a
-    // `use` of it delegates member by member as to any handler.
+    // bound to `sent`'s parameter, then `sent`'s body. A handler may have a
+    // `sent` per face, and one `sent` may take several faces (`m:
+    // Message<A> | Message<B>`): each face is the one `sent` whose
+    // parameter holds all its arms. From here on the handler is an ordinary
+    // one: Phase 2 gives it its dispatch, and a `use` of it delegates member
+    // by member as to any handler.
     for mi in 0..program.modules.len() {
         for di in 0..program.modules[mi].decls.len() {
             let Decl::Impl(h) = &program.modules[mi].decls[di] else { continue };
             if h.platform || h.intrinsic || h.stub {
                 continue;
             }
-            let Some(ri) = h.members.iter().position(|f| f.send && f.name == known::SENT_MEMBER && declared_params(f).len() == 1) else { continue };
-            let receive = &h.members[ri];
-            let rparam = declared_params(receive)[0].clone();
-            // The face it answers: the one whose messages its parameter is.
-            let face = h.faces.iter().find_map(|f| {
-                let Ty::Named { name, args } = f.strip_quals() else { return None };
-                if !args.is_empty() || !ctx.symbols.message_arms.contains_key(name.as_str()) {
-                    return None;
-                }
-                let msg = crate::check::expand_message_in(ctx.symbols, Ty::Named { name: known::MESSAGE_TYPE.into(), args: vec![f.strip_quals().clone()] });
-                (super::erase(&msg).strip_quals() == rparam.ty.strip_quals()).then(|| name.clone())
-            });
-            let Some(face) = face else { continue };
-            let Some(ii) = ifaces.iter().position(|i| i.key == face && i.actor) else { continue };
-            let Some(iface) = program.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
-                Decl::Interface(x) if x.id == ifaces[ii].id => Some(x),
-                _ => None,
-            }) else {
+            let sents: Vec<usize> = h
+                .members
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| f.send && f.name == known::SENT_MEMBER && declared_params(f).len() == 1)
+                .map(|(i, _)| i)
+                .collect();
+            if sents.is_empty() {
                 continue;
-            };
-            let arms = ctx.symbols.message_arms.get(face.as_str()).cloned().unwrap_or_default();
-            let union_ty = rparam.ty.clone();
+            }
             let mut made_members: Vec<FnDecl> = Vec::new();
-            for (k, x) in iface.members.iter().filter(|x| x.send).enumerate() {
-                let Some(arm_key) = arms.get(k) else { continue };
-                let Some(arm) = ctx.symbols.structs.get(arm_key) else { continue };
-                let arm_ty = Ty::Named { name: (*arm_key).to_string(), args: Vec::new() };
-                // Where `sent` takes the message: what a diagnostic about
-                // it names.
-                let span = rparam.span;
-                // Fresh parameter names: `sent`'s body is spliced after them.
-                let params: Vec<Param> = x.params.iter().enumerate().map(|(j, p)| Param { local: Local(format!("__msg_p{j}")), ..p.clone() }).collect();
-                let fields: Vec<(String, Expr)> = arm
-                    .fields
+            let mut taken: Vec<usize> = Vec::new();
+            for &ri in &sents {
+                let receive = &h.members[ri];
+                let rparam = declared_params(receive)[0].clone();
+                let union_ty = rparam.ty.clone();
+                // The arms the parameter holds, by name, in its order.
+                let held: Vec<String> = match union_ty.strip_quals() {
+                    Ty::Union(xs) => xs.iter().filter_map(|x| match x.strip_quals() { Ty::Named { name, .. } => Some(name.clone()), _ => None }).collect(),
+                    Ty::Named { name, .. } => vec![name.clone()],
+                    _ => Vec::new(),
+                };
+                let single = !matches!(union_ty.strip_quals(), Ty::Union(_));
+                // The faces it answers: those whose every arm it holds.
+                let faces: Vec<String> = h
+                    .faces
                     .iter()
-                    .zip(&params)
-                    .map(|(f, p)| (f.name.name.clone(), Expr { ty: p.ty.clone(), span, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: true, moved: false } }))
+                    .filter_map(|f| {
+                        let Ty::Named { name, args } = f.strip_quals() else { return None };
+                        let arms = ctx.symbols.message_arms.get(name.as_str())?;
+                        (args.is_empty() && !arms.is_empty() && arms.iter().all(|a| held.iter().any(|x| x == a))).then(|| name.clone())
+                    })
                     .collect();
-                let built = Expr { ty: arm_ty.clone(), span, kind: ExprKind::Construct { fields } };
-                let value = if arms.len() == 1 { built } else { Expr { ty: union_ty.clone(), span, kind: ExprKind::MakeUnion { arm: k, value: Box::new(built) } } };
-                let mut body = receive.body.clone().unwrap_or(Block { stmts: Vec::new(), value: None, span });
-                body.stmts.insert(0, Stmt::Let { id: NodeId(u32::MAX - 1), local: rparam.local.clone(), ty: union_ty.clone(), value });
-                made_members.push(FnDecl {
-                    id: DeclId::generated(h.id.module(), &[&h.name, &x.emitted_name]),
-                    name: x.name.clone(),
-                    exported: receive.exported,
-                    kind: FnKind::Member { faces: 1 },
-                    send: true,
-                    type_params: Vec::new(),
-                    params,
-                    effect_params: 0,
-                    implicit_params: 0,
-                    ret: Ty::none(),
-                    borrows: Vec::new(),
-                    holds: Vec::new(),
-                    ref_anchors: Vec::new(),
-                    throws: receive.throws.clone(),
-                    result_check: None,
-                    factories: None,
-                    body: Some(body),
-                    span: receive.span,
-                    fate: receive.fate.clone(),
-                });
+                let mut answered = false;
+                for face in faces {
+                    let Some(ii) = ifaces.iter().position(|i| i.key == face && i.actor) else { continue };
+                    let Some(iface) = program.modules.iter().flat_map(|m| &m.decls).find_map(|d| match d {
+                        Decl::Interface(x) if x.id == ifaces[ii].id => Some(x),
+                        _ => None,
+                    }) else {
+                        continue;
+                    };
+                    answered = true;
+                    let arms = ctx.symbols.message_arms.get(face.as_str()).cloned().unwrap_or_default();
+                    for (k, x) in iface.members.iter().filter(|x| x.send).enumerate() {
+                        let Some(arm_key) = arms.get(k) else { continue };
+                        let Some(arm) = ctx.symbols.structs.get(arm_key) else { continue };
+                        let Some(pos) = held.iter().position(|a| a == arm_key) else { continue };
+                        let arm_ty = Ty::Named { name: (*arm_key).to_string(), args: Vec::new() };
+                        // Where `sent` takes the message: what a diagnostic
+                        // about it names.
+                        let span = rparam.span;
+                        // Fresh parameter names: `sent`'s body is spliced
+                        // after them.
+                        let params: Vec<Param> = x.params.iter().enumerate().map(|(j, p)| Param { local: Local(format!("__msg_p{j}")), ..p.clone() }).collect();
+                        let fields: Vec<(String, Expr)> = arm
+                            .fields
+                            .iter()
+                            .zip(&params)
+                            .map(|(f, p)| (f.name.name.clone(), Expr { ty: p.ty.clone(), span, kind: ExprKind::Read { place: Place { root: p.local.clone(), steps: Vec::new() }, consume: true, moved: false } }))
+                            .collect();
+                        let built = Expr { ty: arm_ty.clone(), span, kind: ExprKind::Construct { fields } };
+                        let value = if single { built } else { Expr { ty: union_ty.clone(), span, kind: ExprKind::MakeUnion { arm: pos, value: Box::new(built) } } };
+                        let mut body = receive.body.clone().unwrap_or(Block { stmts: Vec::new(), value: None, span });
+                        body.stmts.insert(0, Stmt::Let { id: NodeId(u32::MAX - 1), local: rparam.local.clone(), ty: union_ty.clone(), value });
+                        made_members.push(FnDecl {
+                            id: DeclId::generated(h.id.module(), &[&h.name, &face, &x.emitted_name]),
+                            name: x.name.clone(),
+                            exported: receive.exported,
+                            kind: FnKind::Member { faces: 1 },
+                            send: true,
+                            type_params: Vec::new(),
+                            params,
+                            effect_params: 0,
+                            implicit_params: 0,
+                            ret: Ty::none(),
+                            borrows: Vec::new(),
+                            holds: Vec::new(),
+                            ref_anchors: Vec::new(),
+                            throws: receive.throws.clone(),
+                            result_check: None,
+                            factories: None,
+                            body: Some(body),
+                            span: receive.span,
+                            fate: receive.fate.clone(),
+                        });
+                    }
+                }
+                if answered {
+                    taken.push(ri);
+                }
             }
             if let Decl::Impl(h) = &mut program.modules[mi].decls[di] {
-                h.members.remove(ri);
+                for ri in taken.into_iter().rev() {
+                    h.members.remove(ri);
+                }
                 h.members.extend(made_members);
             }
         }

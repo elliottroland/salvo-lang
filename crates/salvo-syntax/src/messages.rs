@@ -399,6 +399,17 @@ messages! {
         "`{member}` and `{other}` in `{effect}` will cause a collision in the generated \
          `Message<{effect}>` structs: both are named `{arm}`. Rename one of them"
     );
+    /// A `sent` taking the messages of an effect the handler does not serve.
+    actor_sent_not_a_face = "actor-sent:not-a-face" (handler: &str, effect: &dyn std::fmt::Display) => format!(
+        "`{handler}`'s `sent` takes the messages of `{effect}`, which is not one of its \
+         actor faces: a handler takes the messages it is sent, so add `{effect}` to its \
+         `for` clause or drop it from the parameter"
+    );
+    /// A face taken by two `sent`s.
+    actor_sent_face_twice = "actor-sent:face-twice" (handler: &str, effect: &dyn std::fmt::Display) => format!(
+        "`{handler}` takes the messages of `{effect}` in two `sent`s: each face is taken by \
+         one, which takes all of its messages"
+    );
     /// A send, servant send or mint naming the handler's `sent`.
     actor_sent_called = "actor-sent:called" (handler: &str) => format!(
         "`sent` is how `{handler}` takes its messages, not a member a send can reach: \

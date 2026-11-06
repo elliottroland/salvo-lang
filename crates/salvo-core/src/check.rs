@@ -1015,9 +1015,26 @@ fn face_shown(of: &ast::Type) -> Ty {
 /// operator [op-unique-shape].
 pub(crate) fn is_sent_shape(f: &FnDecl) -> bool {
     let fixed: Vec<&ast::Param> = f.params.iter().filter(|p| !p.implicit).collect();
-    f.is_send
-        && f.name.name == known::SENT_MEMBER
-        && matches!(fixed.as_slice(), [p] if matches!(&p.ty, ast::Type::Named { base, .. } if base.name.name == known::MESSAGE_TYPE))
+    f.is_send && f.name.name == known::SENT_MEMBER && matches!(fixed.as_slice(), [p] if sent_message_args(&p.ty).is_some())
+}
+
+/// [actor-sent] The effects a `sent` parameter's type takes the messages
+/// of: `Message<F>`, or a union of them (`Message<A> | Message<B>`), as
+/// written. `None` for any other type.
+pub(crate) fn sent_message_args(ty: &ast::Type) -> Option<Vec<&TypeRef>> {
+    fn one(t: &ast::Type) -> Option<&TypeRef> {
+        match t {
+            ast::Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name == known::MESSAGE_TYPE => match base.args.as_slice() {
+                [ast::Type::Named { qualifiers, base: arg }] if qualifiers.is_empty() => Some(arg),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+    match ty {
+        ast::Type::Union { arms, .. } => arms.iter().map(one).collect(),
+        other => one(other).map(|r| vec![r]),
+    }
 }
 
 /// [effect-claim] The claims a single handle carries: its qualifiers, which
@@ -4248,7 +4265,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // send fn's obligations, because no effect
                 // declaration mirrors it: a written, all-consumed
                 // clause, no `Mut`, no generics, sendable payloads.
+                // [actor-sent] `sent` is no private member: it takes faces'
+                // messages, and the IR replaces it with their members.
                 let private = f.is_send
+                    && !is_sent_shape(f)
                     && (mixed
                         || crate::handler_member_faces(&self.handler_faces(h), f).is_empty());
                 if private {
@@ -15281,20 +15301,32 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [actor-sent] The faces of `h` its `send fn sent(m: Message<F>)`
     /// answers: `F`, when `F` is one of them (an actor effect). A `sent`
     /// over anything else is an ordinary private send member.
+    /// Several faces are taken by one `sent` whose parameter is a union of
+    /// their messages (`Message<A> | Message<B>`), or by a `sent` each; a
+    /// face is taken by one `sent` at most (`actor-sent:face-twice`), and
+    /// each must be an actor face of the handler (`actor-sent:not-a-face`).
+    /// A face that is one of the handler's own type parameters is the
+    /// generic check's (`actor-sent:generic-face`).
     fn received_faces(&mut self, h: &'p ast::HandlerDecl, faces: &[&'p ast::EffectDecl]) -> Vec<&'p ast::EffectDecl> {
-        let mut out = Vec::new();
+        let mut out: Vec<&'p ast::EffectDecl> = Vec::new();
         for f in h.fns.iter().filter(|f| is_sent_shape(f)) {
             let declared: Vec<&ast::Param> = f.params.iter().filter(|p| !p.implicit).collect();
             let [p] = declared.as_slice() else { continue };
-            let ast::Type::Named { base, .. } = &p.ty else { continue };
-            if base.name.name != known::MESSAGE_TYPE || base.args.len() != 1 {
-                continue;
-            }
-            let ast::Type::Named { base: arg, .. } = &base.args[0] else { continue };
-            let Some(effect) = self.named(arg).effect else { continue };
-            if let Some(face) = faces.iter().find(|e| std::ptr::eq(**e, effect)) {
-                if face.is_actor {
-                    out.push(*face);
+            for arg in sent_message_args(&p.ty).unwrap_or_default() {
+                if h.generics.iter().any(|g| g.name == arg.name.name) {
+                    continue;
+                }
+                let face = self
+                    .named(arg)
+                    .effect
+                    .and_then(|effect| faces.iter().find(|e| std::ptr::eq(**e, effect)).copied())
+                    .filter(|face| face.is_actor);
+                match face {
+                    Some(face) if out.iter().any(|o| std::ptr::eq(*o, face)) => {
+                        self.error(arg.span, messages::actor_sent_face_twice(&h.name.name, &face.name.name));
+                    }
+                    Some(face) => out.push(face),
+                    None => self.error(arg.span, messages::actor_sent_not_a_face(&h.name.name, &arg.name.name)),
                 }
             }
         }

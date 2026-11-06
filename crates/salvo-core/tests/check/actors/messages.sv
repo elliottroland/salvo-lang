@@ -139,3 +139,43 @@ handler Counting() for Inbox {
 fn poke(i: eff[Inbox]) [] -> None => i {
     i.sent(1)
 }
+
+//--- sent over several faces
+// [actor-sent] A face is taken by one `sent`, which takes all of its
+// messages; a `sent` takes only the handler's own faces.
+actor effect Inventory {
+    send fn restock(qty: Int)
+}
+
+actor effect Payments {
+    send fn charge(cents: Long)
+}
+
+actor effect Audit {
+    send fn note(n: Int)
+}
+
+handler Both() for Inventory, Payments {
+    mailbox { capacity: 8 }
+    send fn sent(m: Message<Inventory> | Message<Payments>) => !m {}
+}
+
+handler Twice() for Inventory, Payments {
+    mailbox { capacity: 8 }
+    send fn sent(m: Message<Inventory> | Message<Payments>) => !m {}
+    //~ error[actor-sent:face-twice]
+    send fn sent(m: Message<Payments>) => !m {}
+}
+
+handler Stray() for Inventory {
+    mailbox { capacity: 8 }
+    //~ error[actor-sent:not-a-face]
+    send fn sent(m: Message<Inventory> | Message<Audit>) => !m {}
+}
+
+handler Written() for Inventory, Payments {
+    mailbox { capacity: 8 }
+    send fn sent(m: Message<Inventory> | Message<Payments>) => !m {}
+    //~ error[actor-sent:both]
+    send fn charge(cents: Long) {}
+}

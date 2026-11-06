@@ -2166,7 +2166,31 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         };
         // A sub-union of the storage: rewrapped, owned.
         if nn >= 2 && arm.is_none() {
-            let v = if root_kind == Kind::Owned && from.steps.is_empty() && self.f.consumed.contains(&local.0) { src.clone() } else { format!("{src}.clone()") };
+            let moving = root_kind == Kind::Owned && from.steps.is_empty() && self.f.consumed.contains(&local.0);
+            // [actor-sent] A storage union holding an arm with no `Clone` (a
+            // message with a `Reply`) cannot be cloned whole: when the arms
+            // kept can, each kept payload is cloned out of a borrow of it
+            // instead (`m` narrowed to `.Charge | .Refund` of a protocol
+            // whose `.Report` holds a reply).
+            if !moving && self.uncloneable(from_ty) {
+                let to_arms: Vec<Ty> = ty.strip_quals().value_arms().into_iter().cloned().collect();
+                if to_arms.len() >= 2 && !to_arms.iter().any(|a| self.uncloneable(a)) {
+                    self.s.union_sizes.insert(to_arms.len());
+                    let mut ms: Vec<String> = Vec::new();
+                    for (k, a) in from_arms.iter().enumerate() {
+                        let inner = format!("crate::unions::Union{nn}::U{}(__v)", k + 1);
+                        let lhs = if opt { format!("Some({inner})") } else { inner };
+                        match to_arms.iter().position(|b| alike(b, a)) {
+                            Some(j) => ms.push(format!("{lhs} => crate::unions::Union{}::U{}(__v.clone())", to_arms.len(), j + 1)),
+                            None => ms.push(format!("{lhs} => unreachable!(\"salvo: unreachable union arm\")")),
+                        }
+                    }
+                    ms.push("#[allow(unreachable_patterns)] _ => unreachable!(\"salvo: unreachable union arm\")".to_string());
+                    self.f.kinds.insert(local.0.clone(), Kind::Owned);
+                    return format!("{pad}let mut {n} = (match &{src} {{ {} }});\n", ms.join(", "));
+                }
+            }
+            let v = if moving { src.clone() } else { format!("{src}.clone()") };
             let code = self.rewrap(&v, from_ty, ty);
             self.f.kinds.insert(local.0.clone(), Kind::Owned);
             return format!("{pad}let mut {n} = {code};\n");

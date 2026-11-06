@@ -9357,7 +9357,14 @@ between endpoints and delivers what arrives into the scheduler.
   a member called `sent` of any other shape — an effect's `send fn sent(n:
   Int)` included — is an ordinary member. It is the form the handler takes
   its messages in, never a call target: a self-send, servant send or mint
-  naming it is `actor-sent:called`, naming `send(self@E, m)`. A handler writing it writes
+  naming it is `actor-sent:called`, naming `send(self@E, m)`. **Several
+  faces** (user decision 2026-11-05): a handler may write a `sent` per face,
+  and one `sent` may take several, its parameter the union of their
+  messages (`m: Message<A> | Message<B>`, `check::sent_message_args`); each
+  face is taken by one `sent` at most (`actor-sent:face-twice`), and each
+  must be one of the handler's actor faces (`actor-sent:not-a-face`). The IR
+  gives every face of every `sent` its members (Phase 1c), each binding its
+  arm into the `sent`'s own parameter type. A handler writing it writes
   none of `F`'s send members (`actor-sent:both` otherwise) and still writes
   `F`'s plain members. Bound by `use`, a member runs on the sender's thread
   as any send member of a `use`-bound handler; spawned, the handler is an

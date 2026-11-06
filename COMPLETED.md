@@ -149,6 +149,27 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-05 — A handler takes several faces' messages with `sent` (user decision, [actor-sent])
+
+- **Decided** (user): the plain (non-generic) case of a handler of several
+  faces now; generic routers over several protocols, `Message` over a list
+  of effects, a multi-handle `send` and a `show` template are a ROADMAP item
+  with the plan ("Messages over several protocols"), and the spelling
+  `message[E]` is a DECISION there.
+- **Built**: a `sent` per face, or one taking a union of faces' messages
+  (`m: Message<A> | Message<B>`, `check::sent_message_args`;
+  `is_sent_shape` accepts it); `actor-sent:face-twice` and
+  `actor-sent:not-a-face`; IR Phase 1c loops over every `sent` and every
+  face it holds all the arms of (it took the first `sent` only, and an
+  ordinary `sent(n: Int)` ahead of the form hid it), each synthesized member
+  binding its arm into the `sent`'s own union at its position; a `sent` is
+  no private send member (it was refused overloading as one).
+- **Fixed alongside** (Rust): narrowing a union holding an uncloneable arm
+  (a message with a `Reply`) to a sub-union of clonable arms cloned the
+  whole union, which rustc refused; the kept payloads are now cloned one by
+  one out of a borrow.
+- 724 tests under nextest (check and run data in `messages.sv`).
+
 ### 2026-11-05 — `send` and `sent` (user decisions, [actor-sent] [actor-message])
 
 - **Decided** (user): `forward(to, m)` is `send(to, m)` and `send fn

@@ -181,3 +181,93 @@ fn main() [use, spawn] {
 }
 //= stdout
 //= clear; restock 3; restock 4; 
+
+//--- sent_over_several_faces
+// [actor-sent] One `sent` may take several faces (its parameter the union of
+// their messages), or each face its own `sent`. Narrowed to one face's
+// arms, a message is sent on as that face's; on Rust the narrowing clones
+// the kept arms one by one, since the whole union holds a `Reply`.
+actor effect Inventory {
+    send fn restock(qty: Int)
+    send fn report(out: Reply<Str>) => !out
+}
+
+actor effect Payments {
+    send fn charge(cents: Long)
+    send fn refund(cents: Long)
+}
+
+handler Store() for Ordered Inventory {
+    mailbox { capacity: 8 }
+    state { log: Str = "" }
+    send fn restock(qty: Int) { log = "${log}restock ${qty}; " }
+    send fn report(out: Reply<Str>) => !out { out.send(copy(log)) }
+}
+
+actor effect Ledger {
+    send fn total(out: Reply<Long>) => !out
+}
+
+handler Till() for Ordered Payments, Ordered Ledger {
+    mailbox { capacity: 8 }
+    state { sum: Long = 0L }
+    send fn charge(cents: Long) { sum = sum + cents }
+    send fn refund(cents: Long) { sum = sum - cents }
+    send fn total(out: Reply<Long>) => !out { out.send(sum) }
+}
+
+// One `sent` for two faces.
+handler Audit(inv: eff[Inventory], pay: eff[Payments]) [Console] for Inventory, Payments {
+    mailbox { capacity: 32 }
+    send fn sent(m: Message<Inventory> | Message<Payments>) => !m {
+        when m {
+            is .Restock | .Report {
+                println("audit: inventory")
+                send(inv, m)
+            }
+            is .Charge | .Refund {
+                println("audit: payments")
+                send(pay, m)
+            }
+        }
+    }
+}
+
+// A `sent` per face.
+handler Split(inv: eff[Inventory], pay: eff[Payments]) [Console] for Inventory, Payments {
+    mailbox { capacity: 32 }
+    send fn sent(m: Message<Inventory>) => !m {
+        println("split: inventory")
+        send(inv, m)
+    }
+    send fn sent(m: Message<Payments>) => !m {
+        println("split: payments")
+        send(pay, m)
+    }
+}
+
+fn main() [use, spawn] {
+    use StdConsole()
+    let p = pool(1)
+    let store = spawn Store() on p
+    let (till, ledger) = spawn Till() on p
+    let (inv, pay) = spawn Audit(copy(store), copy(till)) on p
+    pay.charge(100L)
+    inv.restock(5)
+    let (inv2, pay2) = spawn Split(copy(store), copy(till)) on p
+    pay2.refund(50L)
+    inv2.restock(2)
+    let _a = waitfor out: Reply<Str> { inv.report(out) }
+    let _b = waitfor out: Reply<Str> { inv2.report(out) }
+    println(waitfor out: Reply<Str> { store.report(out) })
+    println("${waitfor out: Reply<Long> { ledger.total(out) }}")
+}
+//= stdout
+//= audit: payments
+//= split: payments
+//= audit: inventory
+//= split: inventory
+//= audit: inventory
+//= split: inventory
+//= restock 5; restock 2; 
+//= 50

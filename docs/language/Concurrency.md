@@ -597,6 +597,22 @@ handler Front(back: eff[Inventory]) for Inventory {
   effect's send members (the effect's ordinary members it still writes). It
   behaves as those members would: bound by `use`, it runs on the sender's
   thread; spawned, the handler is an actor.
+- **A handler of several faces** writes a `sent` per face, or one taking
+  the union of their messages:
+
+  ```salvo
+  handler Audit(inv: eff[Inventory], pay: eff[Payments]) [Console] for Inventory, Payments {
+      mailbox { capacity: 32 }
+      send fn sent(m: Message<Inventory> | Message<Payments>) => !m {
+          when m {
+              is .Restock | .Report { println("inventory"); send(inv, m) }
+              is .Charge | .Refund { println("payments"); send(pay, m) }
+          }
+      }
+  }
+  ```
+
+  Each face is taken by one `sent`, which takes all of its messages.
 - **[`send(to, m)`](../../lib/std/core/actor.sv#fn-send)** sends `m` to
   `to` as its member would be called there, and moves it. It is the
   overload of the reply's `send(reply, value)` for messages: both hand a
