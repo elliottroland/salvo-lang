@@ -633,7 +633,7 @@ An actor property (later) drops `trapped_by` and adds `spawn`.
 - [x] C2: constant slots as parameters (9.3), negative constants, [fn-by]
   unification (6.2)
 - [x] C3: `std.test.random` (Rng, Gen, combinators, std's gens, derive)
-- [ ] C4: driver, `check`, `test property`, harness, report, CLI, `seed=`
+- [x] C4: driver, `check`, `test property`, harness, report, CLI, `seed=`
   rewrite
 - [ ] C5: retire this file
 
@@ -662,3 +662,8 @@ An actor property (later) drops `trapped_by` and adds `spawn`.
     `live`, `stream`, `pos`, `log` and `depth`.
   - After an edit to std, `cargo build` re-embeds `lib/`. Without it,
     `salvo` runs the old std.
+- C4 is done. Its agent's calls are listed in COMPLETED (2026-11-05, `test
+  property`): annotation rooting, kept depended-on parameters, linear
+  parameters deferred, no dedicated `spawn` message. The generated names
+  use the `salvo_` / `SalvoProperty` prefixes, because `__` names don't
+  parse.

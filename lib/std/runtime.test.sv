@@ -303,7 +303,7 @@ test "a dedicated pool retires when its actor dies" {
 
 // The virtual runtime's randomness repeats from its seed.
 // @compilerrules [test-actor]
-test actor(seed: 7) "the seed decides the identity bits" {
+test actor(seed=7) "the seed decides the identity bits" {
     enter_virtual(7L)
     let a = identity_bits()
     let b = identity_bits()

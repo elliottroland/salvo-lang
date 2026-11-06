@@ -1060,6 +1060,19 @@ messages! {
         "an actor test takes `seed`, not `{other}`"
     );
 
+    // [test-property]
+    /// A property test's argument that is not an integer literal.
+    test_property_non_integer_argument = "test-property:non-integer-argument" (arg: &str) => format!(
+        "a property test's `{arg}` must be an integer literal"
+    );
+    /// A property test's argument other than `runs` and `seed`.
+    test_property_unknown_argument = "test-property:unknown-argument" (other: &str) => format!(
+        "a property test takes `runs` and `seed`, not `{other}`"
+    );
+    /// An implicit parameter on a property test.
+    test_property_implicit_param = "test-property:implicit-param" () =>
+        "a property's parameters are drawn, not found: an implicit parameter has nothing to fill it";
+
     // [test-decl]
     /// `export` before a `test`.
     test_decl_exported_test = "test-decl:exported-test" () =>

@@ -72,6 +72,7 @@
 
 import std.throw
 import std.runtime.trap_boundary
+import std.runtime.trap_boundary_once
 
 // `Failure` is a struct rather than a bare `Str` so that it can grow fields
 // (a property test's seed, a shrink count) without changing the channel it
@@ -185,6 +186,16 @@ export fn trapped_by(body: () -> Str?) [] -> Str? => body {
     // the harness makes a death local to the test that caused it, which is
     // what running tests in parallel will need.
     return trap_boundary(body)
+}
+
+// [trapped_by] for a body called once, which may consume what it captured:
+// how a property test runs a property over the parameters it drew.
+//
+// @param body  answers `None` on success or a message on failure
+// @returns     that answer, or the trap's message if [body] trapped
+// @compilerrules [test-recover, test-property]
+export fn trapped_by_once(body: once () -> Str?) [] -> Str? => !body {
+    return trap_boundary_once(body)
 }
 
 // The message of the trap a body ended with, or `None` when it completed.

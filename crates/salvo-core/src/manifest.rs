@@ -25,6 +25,8 @@
 //! backend = "rust"       # over `[build] backend`, for tests only
 //! output = "failed"      # whose output the report shows: "all" or "failed"
 //! streams = "both"       # which of it: "stderr", or "both" (stdout too)
+//! runs = 100             # a property test's runs, when it writes none
+//! seed = 42              # the run's seed, instead of a random one
 //! ```
 //!
 //! [manifest-discovery] A file belongs to the **nearest ancestor** directory
@@ -178,6 +180,12 @@ pub struct TestSection {
     pub output: Option<String>,
     /// `stderr` or `both`: which streams of it.
     pub streams: Option<String>,
+    /// [test-property] How many runs a property test makes when neither
+    /// `--runs` nor its own `runs=` says.
+    pub runs: Option<i64>,
+    /// [test-property] The run's seed, when `--seed` does not give one:
+    /// each property's is derived from it and the test's id.
+    pub seed: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

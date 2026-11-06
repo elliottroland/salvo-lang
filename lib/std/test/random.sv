@@ -265,14 +265,16 @@ export fn list_of<T>(g: Gen<T>) [] -> Gen<List<T>> => !g {
 // ===== std's generators
 
 // `Int`s: small ones mostly, `0`, `1`, `-1` and both extremes one draw in
-// eight; `0` for a zero draw.
+// eight; `0` for a zero draw. The extremes are a draw away from the small
+// numbers, so a failure shrinks to the smallest number that fails rather
+// than to an extreme.
 // @compilerrules [prop-gen]
 export fn gen() [] -> Gen<Int> {
     return Gen<Int> { run: draw_int }
 }
 
 fn draw_int(rng: Mut Rng) [] -> Int => rng: Mut {
-    if choose(rng, 8) == 0 {
+    if choose(rng, 8) == 7 {
         let e = choose(rng, 5)
         if e == 0 {
             return 0
@@ -302,7 +304,7 @@ export fn gen() [] -> Gen<Long> {
 }
 
 fn draw_long(rng: Mut Rng) [] -> Long => rng: Mut {
-    if choose(rng, 8) == 0 {
+    if choose(rng, 8) == 7 {
         let e = choose(rng, 5)
         if e == 0 {
             return 0L
@@ -331,7 +333,7 @@ export fn gen() [] -> Gen<Double> {
 }
 
 fn draw_double(rng: Mut Rng) [] -> Double => rng: Mut {
-    if choose(rng, 8) == 0 {
+    if choose(rng, 8) == 7 {
         let e = choose(rng, 7)
         if e == 0 {
             return 0.0
@@ -425,6 +427,24 @@ export fn gen() [] -> Gen<Bytes> {
 // @compilerrules [prop-gen]
 export fn gen<T>(?gen: () -> Gen<T>) [] -> Gen<List<T>> {
     return list_of(gen())
+}
+
+// Mutable lists of the element type's values, as [gen] for `List<T>` makes
+// them: for a property that changes its list.
+//
+// @param gen  found at the call site: the element type's generator
+// @compilerrules [prop-gen]
+export fn gen<T>(?gen: () -> Gen<T>) [] -> Gen<Mut List<T>> {
+    let g = gen()
+    return Gen<Mut List<T>> { run: (rng: Mut Rng) -> {
+        let out: Mut List<T> = Mut List<T>()
+        rng.depth = rng.depth + 1
+        while more(rng, size(out)) {
+            add(out, g.run(rng))
+        }
+        rng.depth = rng.depth - 1
+        return out
+    } }
 }
 
 // Optional values: `None` one draw in four, and for a zero draw.

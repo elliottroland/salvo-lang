@@ -691,6 +691,13 @@ pub fn expand_tests(module: &mut Module, mangled: &str) -> (Vec<ExpandedTest>, V
             span,
             kind: test.kind.clone(),
         });
+        if let TestKind::Property { params, .. } = &test.kind {
+            let params = params.clone();
+            let (items, item_diags) = property_fns(test, &fn_name, &params);
+            diags.extend(item_diags);
+            expanded.extend(items);
+            continue;
+        }
         expanded.push(Item::Fn(test_fn(test, fn_name)));
     }
     module.items = expanded;
@@ -741,7 +748,7 @@ fn test_fn(test: TestDecl, fn_name: String) -> FnDecl {
         // [test-actor] An actor test may also spawn: actors are what it tests.
         effects: Some(match test.kind {
             TestKind::Actor { .. } => vec![EffectRef::Use(span), EffectRef::Spawn(span), EffectRef::Effect(throw)],
-            TestKind::Plain => vec![EffectRef::Use(span), EffectRef::Effect(throw)],
+            TestKind::Plain | TestKind::Property { .. } => vec![EffectRef::Use(span), EffectRef::Effect(throw)],
         }),
         deductions: None,
         return_type: None,
@@ -750,6 +757,141 @@ fn test_fn(test: TestDecl, fn_name: String) -> FnDecl {
         body: Some(test.body),
         span: test.span,
     }
+}
+
+/// [test-property] The two fns a `test property(…) "…" (params) { body }`
+/// becomes: the **property**, `fn <name>(params) [use, Throw<Failure>]`
+/// consuming every parameter, with the test's body; and its **attempt**,
+/// `fn <name>_attempt(__run: Mut PropertyRun, __rng: Mut Rng) [use]`, which
+/// draws each parameter in order from its type's generator — with the
+/// qualifier's slots as the generator's arguments, a constant as written and
+/// a place naming an earlier parameter (`gen(lo, hi)`, `gen(xs)`) — shows
+/// them when the driver asks, runs the property inside the trap catch, and
+/// records how it went. The harness loops over the driver calling the
+/// attempt [test-run].
+///
+/// Written as Salvo text and parsed, then every span set to the test's
+/// name (the code is the test's), the parameter types and the body spliced
+/// back in with their own.
+fn property_fns(test: TestDecl, fn_name: &str, params: &[Param]) -> (Vec<Item>, Vec<Diagnostic>) {
+    use std::fmt::Write as _;
+    let span = test.name_span;
+    let names: Vec<String> = params.iter().map(|p| p.name.name.clone()).collect();
+    let mut text = String::new();
+    let decl_params: Vec<String> = names.iter().enumerate().map(|(i, n)| format!("{n}: SalvoPropertyT{i}")).collect();
+    // [qual-depend] A parameter another one's type names is kept, not moved:
+    // the claim about it has to hold while the property is called.
+    let named_by_others = |n: &str| {
+        params.iter().any(|p| match &p.ty {
+            Type::Named { qualifiers, .. } => qualifiers
+                .iter()
+                .any(|q| q.value_args.iter().any(|a| matches!(a, Type::Named { base, .. } if base.name.name == n || base.name.name.starts_with(&format!("{n}."))))),
+            _ => false,
+        })
+    };
+    // Every parameter named (std's tree requires it): moved, but for a
+    // scalar (a copy, which `!` would only warn about) and one another
+    // parameter's claim is about.
+    let moved: Vec<String> = names
+        .iter()
+        .zip(params)
+        .map(|(n, p)| {
+            let scalar = matches!(&p.ty, Type::Named { base, .. } if matches!(base.name.name.as_str(), "Int" | "Long" | "Double" | "Float" | "Bool" | "Byte" | "Char"));
+            if named_by_others(n) || scalar { n.clone() } else { format!("!{n}") }
+        })
+        .collect();
+    let clause = if moved.is_empty() { String::new() } else { format!(" => {}", moved.join(", ")) };
+    let _ = writeln!(text, "fn {fn_name}({}) [use, Throw<Failure>] -> None{clause} {{\n}}\n", decl_params.join(", "));
+    let _ = writeln!(text, "fn {fn_name}_attempt(salvo_run: Mut PropertyRun, salvo_rng: Mut Rng) [use] -> None => salvo_run: Mut, salvo_rng: Mut {{");
+    for (i, (n, p)) in names.iter().zip(params).enumerate() {
+        // [prop-gen] A qualifier's slots are its generator's arguments.
+        let args: Vec<String> = match &p.ty {
+            Type::Named { qualifiers, .. } => qualifiers
+                .iter()
+                .find(|q| !q.value_args.is_empty())
+                .map(|q| {
+                    q.value_args
+                        .iter()
+                        .map(|a| match a {
+                            Type::Named { base, .. } => base.name.name.clone(),
+                            other => other.to_string(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        let _ = writeln!(text, "    let salvo_g{i}: Gen<SalvoPropertyG{i}> = gen({})", args.join(", "));
+        let _ = writeln!(text, "    let {n}: SalvoPropertyG{i} = salvo_g{i}.run(salvo_rng)");
+    }
+    let _ = writeln!(text, "    let salvo_shown: Mut List<Str> = Mut List<Str>()");
+    let _ = writeln!(text, "    if wants_shown(salvo_run) {{");
+    for n in &names {
+        let _ = writeln!(text, "        add(salvo_shown, \"{n} = ${{{n}}}\")");
+    }
+    let _ = writeln!(text, "    }}");
+    let _ = writeln!(
+        text,
+        "    let salvo_failure = trapped_by_once(() -> {{\n        let salvo_outcome = try {{\n            {fn_name}({})\n        }}\n        return when salvo_outcome {{\n            is Ok {{\n                None\n            }}\n            is Thrown {{\n                let salvo_why: Failure = salvo_outcome\n                to_str(salvo_why)\n            }}\n        }}\n    }})",
+        names.join(", ")
+    );
+    let _ = writeln!(text, "    record(salvo_run, salvo_failure, draws_of(salvo_rng), salvo_shown)\n}}");
+    let (mut module, diags) = crate::parse_module_deferred(&text);
+    // Every node is the test's: its spans are the name's.
+    struct Retag(Span);
+    impl crate::visit_mut::MutVisitor for Retag {
+        fn visit_span(&mut self, span: &mut Span) {
+            *span = self.0;
+        }
+    }
+    // The parameter types back in, as written: `SalvoPropertyT<i>` in the
+    // property's signature, `SalvoPropertyG<i>` in what the attempt draws
+    // (the same type: a `Mut List<Int>` parameter draws from a
+    // `Gen<Mut List<Int>>`).
+    struct Splice<'a>(&'a [Param]);
+    impl crate::visit_mut::MutVisitor for Splice<'_> {
+        fn visit_type(&mut self, ty: &mut Type) {
+            let Type::Named { qualifiers, base } = &*ty else { return };
+            if !qualifiers.is_empty() || !base.args.is_empty() {
+                return;
+            }
+            let pick = |prefix: &str| base.name.name.strip_prefix(prefix).and_then(|k| k.parse::<usize>().ok());
+            if let Some(k) = pick("SalvoPropertyT") {
+                if let Some(p) = self.0.get(k) {
+                    *ty = p.ty.clone();
+                }
+            } else if let Some(k) = pick("SalvoPropertyG") {
+                if let Some(p) = self.0.get(k) {
+                    *ty = p.ty.clone();
+                }
+            }
+        }
+    }
+    let mut items = Vec::new();
+    for item in std::mem::take(&mut module.items) {
+        let Item::Fn(mut f) = item else { continue };
+        crate::visit_mut::walk_fn(&mut Retag(span), &mut f);
+        crate::visit_mut::walk_fn(&mut Splice(params), &mut f);
+        // Exported so the harness can call it [test-run].
+        f.exported = true;
+        if f.name.name == fn_name {
+            f.docs = test.docs.clone();
+            f.body = Some(test.body.clone());
+            f.span = test.span;
+            for (fp, p) in f.params.iter_mut().zip(params) {
+                fp.name = p.name.clone();
+                fp.span = p.span;
+            }
+        }
+        items.push(Item::Fn(f));
+    }
+    // A diagnostic of the generated text is a compiler bug; it is reported
+    // at the test rather than lost.
+    let diags = diags.into_iter().map(|mut d| {
+        d.span = span;
+        d
+    }).collect();
+    (items, diags)
 }
 
 /// The `T` of a declared `Emitted T | Finished`, in either arm order.

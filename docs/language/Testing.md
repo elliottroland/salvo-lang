@@ -32,7 +32,9 @@ annex**, which sees the module's private declarations. Assertions such as
 which every annex sees without an import; an assertion that does not hold
 *throws*, and the harness reports the test as failed. A test that spawns
 actors is written `test actor` and runs on a single-threaded runtime with a
-virtual clock ([`std.test.actor`](../../lib/std/test/actor.sv)).
+virtual clock ([`std.test.actor`](../../lib/std/test/actor.sv)). A test with
+parameters is written `test property`: it runs over values drawn at random
+for them, and reports the simplest that fails.
 
 If you know JUnit or Rust's `#[test]`, the differences are these: tests can
 only live in the annex, so shipped code cannot depend on them; an assertion is
@@ -40,7 +42,7 @@ an ordinary function that throws, so your own assertions need no framework;
 and a trap (a failed `assert!`) fails one test rather than ending the run.
 
 The sections below cover where tests live, what a test body may do, how a
-test fails, actor tests, running tests and reading their output, tests about
+test fails, actor tests, property tests, running tests and reading their output, tests about
 traps, and how the runner works. The last section,
 [Assertions](#assertions), is about `assert!` and `unreachable!` in ordinary
 code.
@@ -176,7 +178,7 @@ An actor test may `spawn`, and it runs on the **virtual runtime**
   actor test starts its clock at zero.
 - **Randomness from a seed.** What the runtime draws (an addr's identity bits)
   comes from the test's seed, so a run repeats exactly. The seed is the kind's
-  argument: `test actor(seed: 7) "…"`, and 0 when not given.
+  argument: `test actor(seed=7) "…"`, and 0 when not given.
 - **A fresh scheduler.** Each actor test starts with no actors and no pending
   deadline; whatever an earlier test left behind is gone.
 - **A wait nothing can answer is a deadlock**, reported by name, since on one
@@ -194,6 +196,103 @@ tests, so the plain tests are reported first.
 
 [Time](Time.md#time-in-a-test) shows the other way to test timers:
 `ManualTime`, a timer a test advances by hand.
+
+## Property tests
+
+A **property test** states something that holds for every value of its
+parameters' types, and `salvo test` checks it over many values drawn at
+random. When one fails, it looks for the simplest values that still fail
+and reports those. It is QuickCheck's and Hypothesis's idea.
+
+```salvo
+test property "reversing twice gives the list back" (xs: List<Int>) {
+    expect_eq(reverse(reverse(xs)), xs)
+}
+
+test property(runs=500) "an index finds an element" (xs: NonEmpty List<Int>, i: Idx(xs) Int) {
+    let v: Int = get(xs, i)
+    expect(xs is NonEmpty, "${v} came from a list")
+}
+```
+
+The parameters follow the name, as a function's do. The kind takes
+`runs=N` (100 by default) and `seed=N`, written as named arguments are.
+
+**Where the values come from.** Each parameter's type names a
+*generator*, a [`Gen<T>`](../../lib/std/test/random.sv#struct-gen) found by
+the type it makes. [`std.test.random`](../../lib/std/test/random.sv), which
+every test annex sees, declares std's own. They cover the numbers (`Double`
+includes `NaN` and the infinities), `Bool`, `Char`, `Str`, `Bytes`, lists,
+optionals, and std's qualifiers:
+- a qualifier's slots are its generator's arguments. `n: InRange(1, 6) Int`
+  draws from `gen(1, 6)`;
+- `i: Idx(xs) Int` draws from `gen(xs)`, which is why `xs` comes first.
+
+A type of your own needs a generator, declared in the test annex rather
+than on the type. The fields' own generators make one:
+
+```salvo
+fn gen() -> Gen<Point> by random
+```
+
+You can also build one from std's combinators: `map`, `filter_map`,
+`one_of`, `weighted` and `list_of`. A parameter type with no generator is an
+error naming the `Gen` it wanted, and one whose generator cannot be called
+(an `Idx(xs)` of a list that may be empty) is an error too. Write `xs:
+NonEmpty List<Int>`.
+
+**What a failure reports.** The property's failure first, then where it was
+found, how far it shrank, the parameters, and the line that runs it again:
+
+```text
+test lists :: the buggy sum adds everything ... FAILED
+    expected 1, got 0
+    falsified after 1 of 100 runs, shrunk 26 times
+      xs = [0, 0, 0, 1]
+    re-run: salvo test "lists :: the buggy sum adds everything" --seed 84585480
+```
+
+So each parameter type needs a `to_str` (`: ToStr<self> by auto` gives a
+struct one).
+
+**How it shrinks.** A run's randomness is a list of draws, and every
+generator maps smaller draws to simpler values: `0`, `false`, the first arm
+of a union, an empty list. A failing run is replayed over smaller draws until
+nothing smaller fails. The replayed values come from the generators, so they
+keep every claim their types make. A trap (a failed `assert!`) shrinks like
+a failed expectation. A failure that does not happen again on its final
+replay is reported as **`FLAKY`**, because the property reached something its
+draws do not decide. A flaky test counts as a failure.
+
+**Seeds.** A run of `salvo test` has one seed, random unless given, and
+printed at the end. Each property's seed is derived from it and the
+property's name, so running one test with a filter draws what the full run
+drew. The order that decides a seed:
+- `--seed N`;
+- then a test's own `seed=N`;
+- then the manifest's `[test] seed`.
+
+`--runs N` overrides every property's run count, then a test's own `runs=`,
+then `[test] runs`.
+
+**Where it runs.** On the virtual runtime, freshly started for each run, so
+time and `DefaultRandom` repeat with the run's draws. The [actor
+tests](#actor-tests) section above lists what that rules out: host threads,
+and real time. A property cannot `spawn` yet, and its parameters cannot be
+linear yet.
+
+**Inside an ordinary test**,
+[`check`](../../lib/std/test/property.sv#fn-check) runs a lambda over one
+parameter's values, from a fixed seed, and fails with the simplest value
+that fails:
+
+```salvo
+test "sorting keeps the length" {
+    check(100, (xs: List<Int>) -> {
+        expect_eq(size(sort(xs)), size(xs))
+    })
+}
+```
 
 ## Running them
 

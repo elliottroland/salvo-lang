@@ -234,7 +234,21 @@ rename fn total2 = total(xs: List<Int>, ?Field<Int>)
 // FILE: main.test.sv
 // [test-actor] An actor test takes `seed`, and nothing else.
 //~ error[test-actor:unknown-argument]
-test actor(speed: 2) "x" {
+test actor(speed=2) "x" {
+}
+
+//--- a_property_test_refuses_an_unknown_argument
+// FILE: main.test.sv
+// [test-property] A property test takes `runs` and `seed`.
+//~ error[test-property:unknown-argument]
+test property(trials=2) "x" (n: Int) {
+}
+
+//--- a_property_test_takes_no_implicit_parameter
+// FILE: main.test.sv
+// [test-property] Its parameters are drawn: an implicit has nothing to fill it.
+//~ error[test-property:implicit-param]
+test property "x" (n: Int, ?Field<Int>) {
 }
 
 //--- a_test_name_may_not_interpolate

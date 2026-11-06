@@ -2012,6 +2012,12 @@ Conventions:
     Sound because the source cannot be mutated while the iterator lives
     [proj-infer]. The element keeps every qualifier of the `Emitted` arm
     beside the protocol tag itself.
+  * **An annotation's place names a local in scope** (2026-11-05, found
+    generating property tests' draws; agent's call, to confirm): `let i:
+    Idx(xs) Int = …` claims about *this* `xs`, its slot rooted to the
+    local's fate roots as an `is` test's would be (`root_annotation`).
+    Before, the annotation lowered a root-free template and replaced the
+    value's own rooted claim, so `get(xs, i)` no longer found it.
   * **`+Q` is legal anywhere in a return type** ([deduce-reapply]'s
     establishment in arm position): `binary_search -> (+Idx(list) Int)?`
     mints inside the optional — trusted, so only in the qualifier's own
@@ -12515,18 +12521,66 @@ replaced the working document TESTING.md).
 * [test-kind] **A test's kind decides what it runs on** (user decision
   2026-10-03, D11): `test "…"` is a plain test, on the threaded runtime;
   `test actor(ARGS) "…"` is an actor test, on the virtual runtime
-  [test-actor]; `test property(ARGS) "…"` is planned. The kind and its
-  arguments come before the name; with no arguments the parentheses may be
-  left off. `salvo test` writes **one program per runtime** — the plain tests,
-  then the actor tests — since a process cannot leave the threaded runtime
-  once its workers have started.
+  [test-actor]; `test property(ARGS) "…" (PARAMS)` is a property test, on the
+  virtual runtime too [test-property]. The kind and its arguments come before
+  the name, the arguments written as named arguments are (`seed=7`,
+  `runs=200`; user decision 2026-11-05, which also rewrote `actor(seed: 7)`);
+  with no arguments the parentheses may be left off. `salvo test` writes **one
+  program per runtime** — the plain tests, then the actor and property tests
+  — since a process cannot leave the threaded runtime once its workers have
+  started.
+* [test-property] **A property test** (user decisions 2026-11-05, the
+  property-test record, rounds 1–4) runs its body over parameters drawn at
+  random, written after the name as a fn's are: `test property(runs=200)
+  "reversing twice gives the list back" (xs: List<Int>) { … }`.
+  * **Each parameter is drawn from its type's generator** [prop-gen], in
+    order: `let g: Gen<P> = gen(…)` at the parameter's type `P`, with the
+    slots of its qualifier as arguments — a constant as written, a place
+    naming an *earlier* parameter (`(xs: NonEmpty List<Int>, i: Idx(xs)
+    Int)` draws `i` from `gen(xs)`). There is no fallback: a type with no
+    generator is the `gen()` call's error, naming the result it wanted, and
+    a type that does not fit its generator's parameters is refused rather
+    than discarded at run time. A parameter type needs a `to_str`, since a
+    failure prints it.
+  * **The expansion** (`desugar::property_fns`): the property, `fn <name>
+    (params) [use, Throw<Failure>]`, moving every parameter but a scalar and
+    one another parameter's claim is about; and its attempt, which draws the
+    parameters from the run's `Rng`, shows them when the driver asks, runs
+    the property inside `trapped_by_once`, and records the outcome and the
+    draws. The harness loops over `std.test.property`'s driver, starting
+    each run on a fresh virtual runtime seeded by the run's first draw
+    (`begin_property_attempt`). A body may not spawn yet (actor properties
+    are the recorded later step; the design keeps a spawning body callable
+    from the harness's loop, with no fn value in between).
+  * **Shrinking** replays the property over smaller draw lists (cut short,
+    chunks removed or zeroed, draws halved or reduced to their low bits),
+    keeping each that still fails and is simpler (fewer draws, then smaller
+    at the first that differs), within 1,000 replays; then a final replay
+    records the parameters. A failure that does not recur there is
+    **`FLAKY`**, which counts as a failure.
+  * **The report**: the failure, then "falsified after K of N runs, shrunk S
+    times", the parameters (`xs = [0, 0, 0, 1]`) and the line that runs it
+    again (`salvo test "<id>" --seed S`), as `##salvo-test detail` lines the
+    runner shows under the verdict. The summary names the run's seed.
+  * **Runs and seed**: `--runs`, then the test's `runs=`, then `[test] runs`,
+    then 100; `--seed`, then the test's `seed=` (used as it is), then
+    `[test] seed`, then a fresh seed. A property's seed is derived from the
+    run's and its id, so a filter changes no property's seed; both are the
+    same on every backend.
+  * **Not yet**: linear parameters (a `Gen` of a linear type, and a lambda
+    consuming a linear capture, are both refused today); `spawn` in the
+    body; shrinking the interleaving.
+  * **`check(runs, property)`** in `std.test.property` runs the same driver
+    over a lambda inside an ordinary test, from a fixed seed, throwing one
+    `Failure` naming the simplest value that fails; a trap there is not
+    caught.
 * [test-actor] **An actor test** declares `[use, spawn, Throw<Failure>]` and
   runs on the **virtual runtime**, which the harness enters before each one
   (`test.actor.begin_actor_test(seed)`): no worker threads (the test's frame
   serves every pool while it waits); a clock the scheduler moves to the
   earliest deadline when nothing can run, starting at 0 (`time.monotonic_nanos`
   reads it, and the timer service arms a clock hook instead of its wheel);
-  randomness from the seed (`seed: N`, default 0; a Lehmer generator); a
+  randomness from the seed (`seed=N`, default 0; a Lehmer generator); a
   fresh scheduler (every earlier actor dead without a report, queued work
   dropped, pools retired, pending deadlines forgotten); a send to a full
   mailbox runs work until there is room; and a wait nothing can answer is the
@@ -12565,7 +12619,8 @@ replaced the working document TESTING.md).
   `expect_eq` and `Failure` are in scope without an import line, at the
   bulk-import rung [mod-import-module] — so a file's own `expect` silently wins
   over the standard one.
-  * **And of `std.test.random`** (2026-11-05, with property tests): `Gen`,
+  * **And of `std.test.property`**, the driver a property test's expansion
+    and `check` use [test-property], **and of `std.test.random`** (2026-11-05, with property tests): `Gen`,
     `Rng`, `draw` and std's generators are in scope too, and `by random`
     names the module's derive. A file that also imports `std.random` writes
     `by test.random`, as [mod-suffix] asks of any suffix two visible
@@ -12592,7 +12647,8 @@ replaced the working document TESTING.md).
   effects.
   * **std's**: `Int`, `Long`, `Double` (with `NaN`, `±Infinity` and `-0.0`
     among the edge cases, user decision), `Bool`, `Byte`, `Char`, `Str`,
-    `Bytes`, `List<T>`, `T?`, `NonEmpty List<T>`, and the qualified
+    `Bytes`, `List<T>`, `Mut List<T>` (for a property that changes its
+    list), `T?`, `NonEmpty List<T>`, and the qualified
     `gen(lo, hi) -> Gen<InRange(lo, hi) Int>` and `gen(list) ->
     Gen<Idx(list) Int>`, which take the qualifier's slots as arguments
     [qual-const] (decisions 11–12). Numbers take an edge value one draw in

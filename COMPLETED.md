@@ -149,6 +149,58 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-05 — `test property` (user decisions, [test-property] [test-kind])
+
+What PROP_TEST.md designed, built: the kind with its parameters, the
+driver, shrinking, the report, `--runs`/`--seed`/`[test] runs`/`seed`, and
+`check`. Decisions 1, 6, 7, 10, 12–16 and the round-4 answers.
+
+- **The shape**:
+  - A property test expands, in the syntax crate, into the property fn and
+    an attempt fn. They are written as Salvo text, parsed, retagged to the
+    test's name and spliced with the parameter types and the body.
+  - The harness loops over `std.test.property`'s `PropertyRun`, starting a
+    fresh virtual runtime per run from the run's first draw.
+  - Values are drawn once, outside the trap catch, and moved into the
+    property through `trapped_by_once`. So no fn value carries the body, and
+    a spawning body could later be called the same way (§5 of the record).
+  - Shrinking replays smaller draw lists within 1,000 replays. The report
+    has detail lines (`##salvo-test detail`), a re-run line and `FLAKY`.
+- **Also changed:** `test actor(seed: 7)` became `test actor(seed=7)`
+  (decision 14). Every use was rewritten; the old spelling is a parse error.
+- **What it took**:
+  - A new platform fn, `runtime.trap_boundary_once`, with `std.test`'s
+    `trapped_by_once` over it. On Rust, a `once` parameter handed to a
+    runtime-kept box gets `+ Send + 'static` (`forwards_to_kept`).
+  - `std.test.property` joined the implicit imports of an annex.
+  - `std.test.random` gained `Gen<Mut List<T>>`, for `Mut` parameters.
+  - Number generators moved their edge cases to the *last* choice, so
+    shrinking reaches the smallest failing number (`50`, not `MAX`).
+  - The shrinker also tries a draw's low bits.
+- **Agent's calls, to confirm:**
+  - **A `let` annotation's place is rooted to the local in scope**
+    ([qual-depend]). Before, `let i: Idx(xs) Int = …` replaced the value's
+    claim with a template nothing satisfies, and the generated draws needed
+    the annotation.
+  - **The property keeps a parameter another one's claim is about**, so
+    `(xs, i: Idx(xs) Int)` stays valid at the call. A scalar is kept too.
+  - **Linear parameters are not supported yet.** A `Gen` of a linear type
+    and a lambda consuming a linear capture are both refused by the
+    language today. This differs from round 4's 9.2, which needs those first.
+  - **`spawn` in a property body** gets the ordinary `spawn`-capability
+    errors rather than a message of its own.
+- **Tests**:
+  - the parser test `a_property_test_carries_its_arguments_and_parameters`;
+  - two syntax checker cases;
+  - harness and report unit tests;
+  - the CLI test `property_tests_shrink_and_report_their_counterexample`
+    (both backends, the same counterexample, a filter keeps the seed,
+    `--runs` wins);
+  - three property tests and a `check` in std's own suite.
+- **Docs**: a Property tests section in Testing.md.
+
+**730 tests.**
+
 ### 2026-11-05 — `std.test.random`: generators for property tests (user decisions, [prop-rng] [prop-gen] [prop-derive])
 
 The engine's first half, per PROP_TEST.md decisions 2–5, 8, 11–12 and 17,

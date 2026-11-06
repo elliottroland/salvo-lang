@@ -21,7 +21,7 @@
 use std::io::{BufRead, Write};
 use std::time::Instant;
 
-use crate::harness::{BEGIN, FAIL, OK};
+use crate::harness::{BEGIN, DETAIL, FAIL, FLAKY, OK};
 
 /// ANSI colour, when the output is a terminal [test-report].
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -165,6 +165,8 @@ struct Running {
     /// Whether any of its output is already on the page (shown live), so the
     /// verdict re-states which test it was.
     shown: bool,
+    /// [test-property] The detail lines its verdict is to show.
+    detail: Vec<String>,
 }
 
 /// [test-report] [test-output] `render` without the closing summary: one
@@ -267,7 +269,7 @@ pub fn render_stream(
             }
             write!(out, "test {id} ... ")?;
             out.flush()?;
-            running = Some(Running { id: id.to_string(), start: Instant::now(), held: Vec::new(), shown: false });
+            running = Some(Running { id: id.to_string(), start: Instant::now(), held: Vec::new(), shown: false, detail: Vec::new() });
         } else if protocol == OK {
             let ms = match running.take() {
                 Some(mut r) => {
@@ -278,12 +280,23 @@ pub fn render_stream(
             };
             writeln!(out, "{} ({ms} ms)", color.green("ok"))?;
             summary.passed += 1;
-        } else if let Some(message) = protocol.strip_prefix(FAIL) {
+        } else if let Some(line) = protocol.strip_prefix(DETAIL) {
+            if let Some(r) = running.as_mut() {
+                r.detail.push(line.to_string());
+            }
+        } else if let Some((message, verdict)) =
+            protocol.strip_prefix(FAIL).map(|m| (m, "FAILED")).or_else(|| protocol.strip_prefix(FLAKY).map(|m| (m, "FLAKY")))
+        {
+            let mut detail = Vec::new();
             if let Some(mut r) = running.take() {
                 close(&mut r, true, out)?;
+                detail = std::mem::take(&mut r.detail);
             }
-            writeln!(out, "{}", color.red("FAILED"))?;
+            writeln!(out, "{}", color.red(verdict))?;
             for line in message.lines() {
+                writeln!(out, "    {line}")?;
+            }
+            for line in detail {
                 writeln!(out, "    {line}")?;
             }
             summary.failed += 1;
@@ -431,6 +444,21 @@ mod tests {
         assert_eq!(summary.passed, 1);
         assert_eq!(summary.failed, 1);
         assert!(!summary.ok());
+    }
+
+    /// [test-property] A property's detail lines go under its verdict, after
+    /// the failure; a flaky one is its own verdict and counts as a failure.
+    #[test]
+    fn a_property_failure_shows_its_detail() {
+        let (text, summary) = run(&format!(
+            "{BEGIN}m :: p\n{DETAIL}falsified after 3 of 100 runs, shrunk once\n{DETAIL}  xs = [1]\n{FAIL}expected 1, got 0\n{BEGIN}m :: q\n{FLAKY}it passed once\n"
+        ));
+        assert!(
+            text.contains("test m :: p ... FAILED\n    expected 1, got 0\n    falsified after 3 of 100 runs, shrunk once\n      xs = [1]\n"),
+            "{text}"
+        );
+        assert!(text.contains("test m :: q ... FLAKY\n    it passed once\n"), "{text}");
+        assert_eq!(summary.failed, 2);
     }
 
     /// A test that begins and never reports is the one failure a report must

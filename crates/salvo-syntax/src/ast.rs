@@ -160,9 +160,19 @@ pub enum TestKind {
     /// [test-actor] An actor test, on the virtual runtime: one thread, time
     /// the scheduler advances, randomness from [seed](TestKind::Actor::seed).
     Actor {
-        /// The seed the runtime's randomness starts from (`seed: N`; 0 when
+        /// The seed the runtime's randomness starts from (`seed=N`; 0 when
         /// not given).
         seed: i64,
+    },
+    /// [test-property] A property test, on the virtual runtime: the body
+    /// run `runs` times over parameters drawn from their types' generators.
+    Property {
+        /// `runs=N`, when written; `--runs` and the manifest otherwise.
+        runs: Option<i64>,
+        /// `seed=N`, when written; `--seed` overrides it.
+        seed: Option<i64>,
+        /// What each run draws, in order.
+        params: Vec<Param>,
     },
 }
 

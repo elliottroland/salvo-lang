@@ -17,7 +17,7 @@
 pub mod harness;
 pub mod report;
 
-pub use harness::{harness_source, HARNESS_MODULE};
+pub use harness::{harness_source, PropertyConfig, HARNESS_MODULE};
 pub use report::{died_detail, print_summary, render, render_stream, Color, OutputPolicy, Rendered, ShowFor, Streams, Summary};
 
 use salvo_core::TestCase;

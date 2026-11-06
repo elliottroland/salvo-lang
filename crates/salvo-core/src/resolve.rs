@@ -624,6 +624,11 @@ pub const THROW_MODULE: &str = salvo_syntax::known::THROW_MODULE;
 /// 2026-11-05).
 pub const TEST_RANDOM_MODULE: &str = "random";
 
+/// [test-implicit-import] [test-property] The property driver,
+/// `std.test.property`: implicitly available in a test annex, since a
+/// property test's generated code and `check` live there.
+pub const TEST_PROPERTY_MODULE: &str = "property";
+
 pub fn resolve(program: &Program) -> Resolution<'_> {
     resolve_given(program, &[])
 }
@@ -1280,7 +1285,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
             // an assertion is a function that throws, so a test file that had
             // to import `throw` would be importing something it never wrote
             // (2026-09-26, with `throw` leaving `std.core`).
-            for implicit in [&[TEST_MODULE][..], &[THROW_MODULE][..], &[TEST_MODULE, TEST_RANDOM_MODULE][..]] {
+            for implicit in [&[TEST_MODULE][..], &[THROW_MODULE][..], &[TEST_MODULE, TEST_RANDOM_MODULE][..], &[TEST_MODULE, TEST_PROPERTY_MODULE][..]] {
                 let path = ModulePath::std(implicit);
                 if let Some((module, items)) = by_module.get_key_value(&path) {
                     add_items(

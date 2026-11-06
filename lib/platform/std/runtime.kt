@@ -146,6 +146,9 @@ class HostRuntime : salvo.std.runtime.RuntimeHostPlatform {
     override fun monoNanos(): Long = salvo.SalvoTime.monoNanos()
 }
 
+// [test-recover] The boundary for a body that runs once: as trapBoundary.
+fun trapBoundaryOnce(body: () -> String?): String? = trapBoundary(body)
+
 // [test-recover] The boundary for a lent body that answers: its answer, or
 // the throw's message.
 fun trapBoundary(body: () -> String?): String? =

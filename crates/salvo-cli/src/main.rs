@@ -176,6 +176,15 @@ enum Command {
         /// List the tests that would run, and run nothing.
         #[arg(long)]
         list: bool,
+        /// [test-property] How many runs every property test makes, over its
+        /// own `runs=` and the manifest's `[test] runs` (default 100).
+        #[arg(long)]
+        runs: Option<i64>,
+        /// [test-property] The run's seed, over every property test's own
+        /// `seed=` and the manifest's `[test] seed` (default: random, and
+        /// printed): what a failure's re-run line passes.
+        #[arg(long, allow_hyphen_values = true)]
+        seed: Option<i64>,
         /// Output directory for the generated sources (default:
         /// `.salvo_tmp_test`).
         #[arg(long)]
@@ -359,9 +368,11 @@ fn main() -> ExitCode {
             output,
             streams,
             list,
+            runs,
+            seed,
             target,
             clean_target,
-        } => test(backend, src, filter.as_deref(), (output, streams), list, target, clean_target),
+        } => test(backend, src, filter.as_deref(), (output, streams), list, (runs, seed), target, clean_target),
         Command::Lsp => lsp::run(),
         Command::Lang { command } => match command {
             LangCommand::TmGrammar { out } => lang::run_tm_grammar(out.as_ref()),
@@ -1433,7 +1444,7 @@ fn build_one(
         };
         let test_target = PathBuf::from(format!("{DEFAULT_BUILD_TARGET}_test_{}", backend.name()));
         let policy = test_output_policy(test_inputs.project.as_ref(), None, None);
-        let code = test_one(backend, &test_inputs, None, false, test_target, CleanTarget::Both, policy);
+        let code = test_one(backend, &test_inputs, None, false, (None, None), test_target, CleanTarget::Both, policy);
         if code != ExitCode::SUCCESS {
             eprintln!("{}", error_line(&messages::cli_build_tests_failed()));
             return code;
@@ -1507,6 +1518,7 @@ fn test(
     filter: Option<&str>,
     (output, streams): (Option<String>, Option<String>),
     list: bool,
+    props: (Option<i64>, Option<i64>),
     target: Option<PathBuf>,
     clean: CleanTarget,
 ) -> ExitCode {
@@ -1547,7 +1559,7 @@ fn test(
             }
             println!("{name}:");
         }
-        let code = test_one(backend, &inputs, filter, list, target, clean, policy);
+        let code = test_one(backend, &inputs, filter, list, props, target, clean, policy);
         if code != ExitCode::SUCCESS {
             worst = code;
         }
@@ -1556,6 +1568,21 @@ fn test(
         }
     }
     worst
+}
+
+/// [test-property] A seed for a run nothing names one for: the clock's
+/// nanoseconds mixed with the process id, which is all the randomness a test
+/// run needs.
+fn fresh_seed() -> i64 {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let mut z = nanos ^ (u64::from(std::process::id()) << 32);
+    z = (z ^ (z >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94d049bb133111eb);
+    // Positive and short enough to type.
+    ((z ^ (z >> 31)) % 1_000_000_000) as i64
 }
 
 /// [test-output] What of a test's output the report shows: the flags, else
@@ -1572,11 +1599,13 @@ fn test_output_policy(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn test_one(
     backend: &dyn salvo_backend::Backend,
     inputs: &Inputs,
     filter: Option<&str>,
     list: bool,
+    (cli_runs, cli_seed): (Option<i64>, Option<i64>),
     target: PathBuf,
     clean: CleanTarget,
     policy: salvo_test::OutputPolicy,
@@ -1665,17 +1694,30 @@ fn test_one(
     // [test-kind] One program per runtime (D11): the plain tests on the
     // threaded runtime, then the actor tests on the virtual one — a process
     // cannot leave the threaded runtime once its workers have started.
+    // [test-property] Property tests run on the virtual runtime too (D11).
     let (actor_tests, plain_tests): (Vec<salvo_core::TestCase>, Vec<salvo_core::TestCase>) =
         selected
             .iter()
             .cloned()
-            .partition(|t| matches!(t.kind, salvo_syntax::ast::TestKind::Actor { .. }));
+            .partition(|t| matches!(t.kind, salvo_syntax::ast::TestKind::Actor { .. } | salvo_syntax::ast::TestKind::Property { .. }));
+    // [test-property] The run's seed: the flag's or the manifest's, else a
+    // fresh one, printed so a run can be repeated.
+    let section = inputs.project.as_ref().map(|p| &p.manifest.test);
+    let props = salvo_test::PropertyConfig {
+        cli_runs,
+        cli_seed,
+        manifest_runs: section.and_then(|t| t.runs),
+        manifest_seed: section.and_then(|t| t.seed),
+        run_seed: cli_seed.or(section.and_then(|t| t.seed)).unwrap_or_else(fresh_seed),
+    };
+    let has_properties = selected.iter().any(|t| matches!(t.kind, salvo_syntax::ast::TestKind::Property { .. }));
     for group in [plain_tests, actor_tests] {
         if let Err(code) = run_test_group(
             backend,
             &mut assembled.program,
             &harness_module,
             group,
+            &props,
             &target,
             color,
             policy,
@@ -1688,6 +1730,9 @@ fn test_one(
     }
     let mut out = std::io::stdout().lock();
     let _ = salvo_test::print_summary(&total, &mut out, color);
+    if has_properties {
+        let _ = writeln!(out, "property tests seeded with {} (`--seed {}` repeats them)", props.run_seed, props.run_seed);
+    }
     drop(out);
     // [cli-run] `--clean-target both` deletes the generated harness after the
     // report, exactly as `run` deletes a program's sources. The default is
@@ -1712,6 +1757,7 @@ fn run_test_group(
     program: &mut Program,
     harness_module: &salvo_core::ModulePath,
     group: Vec<salvo_core::TestCase>,
+    props: &salvo_test::PropertyConfig,
     target: &Path,
     color: salvo_test::Color,
     policy: salvo_test::OutputPolicy,
@@ -1730,6 +1776,7 @@ fn run_test_group(
             program,
             harness_module,
             &remaining,
+            props,
             target,
             color,
             policy,
@@ -1809,13 +1856,14 @@ fn run_test_pass(
     program: &mut Program,
     harness_module: &salvo_core::ModulePath,
     tests: &[salvo_core::TestCase],
+    props: &salvo_test::PropertyConfig,
     target: &Path,
     color: salvo_test::Color,
     policy: salvo_test::OutputPolicy,
     host: &salvo_core::HostDeps,
     project: Option<&salvo_core::Project>,
 ) -> Result<TestPass, ExitCode> {
-    let source = salvo_test::harness_source(tests);
+    let source = salvo_test::harness_source(tests, props);
     let (mut ast, diagnostics) = salvo_syntax::parse_module_deferred(&source);
     // [node-id] The harness joins the program as it parsed: its tree is
     // final, so it is numbered here, under [node-file] its own tag.

@@ -870,7 +870,7 @@ impl<'s> Parser<'s> {
             TokenKind::Ident(name)
                 if name == "test"
                     && (matches!(self.peek_at(1).kind, TokenKind::Str(_))
-                        || (matches!(&self.peek_at(1).kind, TokenKind::Ident(k) if k == "actor")
+                        || (matches!(&self.peek_at(1).kind, TokenKind::Ident(k) if k == "actor" || k == "property")
                             && matches!(self.peek_at(2).kind, TokenKind::Str(_) | TokenKind::LParen))) =>
             {
                 self.parse_test().map(Item::Test)
@@ -1142,31 +1142,47 @@ impl<'s> Parser<'s> {
         let docs = self.docs_here();
         let start = self.peek().span;
         self.bump(); // `test`
-        // [test-kind] `test actor(seed: 7) "…"`: the kind, then its
-        // arguments, before the name. The parentheses may be left off when
-        // there are none.
+        // [test-kind] `test actor(seed=7) "…"`, `test property(runs=200)
+        // "…"`: the kind, then its arguments, written as named arguments are
+        // (user decision 2026-11-05), before the name. The parentheses may be
+        // left off when there are none.
         let mut kind = TestKind::Plain;
-        if matches!(&self.kind(), TokenKind::Ident(k) if k == "actor") {
-            self.bump(); // `actor`
-            let mut seed = 0;
+        if matches!(&self.kind(), TokenKind::Ident(k) if k == "actor" || k == "property") {
+            let property = matches!(&self.kind(), TokenKind::Ident(k) if k == "property");
+            self.bump(); // the kind
+            let mut seed: Option<i64> = None;
+            let mut runs: Option<i64> = None;
             if self.eat(&TokenKind::LParen).is_some() {
                 while !self.at(&TokenKind::RParen) {
                     let arg = self.ident()?;
-                    self.expect(&TokenKind::Colon)?;
+                    self.expect(&TokenKind::Eq)?;
                     let negative = self.eat(&TokenKind::Minus).is_some();
                     let value_token = self.peek().clone();
                     let TokenKind::Int { value, .. } = value_token.kind else {
                         self.error(
-                            messages::test_actor_non_integer_argument(&arg.name),
+                            if property {
+                                messages::test_property_non_integer_argument(&arg.name)
+                            } else {
+                                messages::test_actor_non_integer_argument(&arg.name)
+                            },
                             value_token.span,
                         );
                         return None;
                     };
                     self.bump();
+                    let value = if negative { -value } else { value };
                     match arg.name.as_str() {
-                        "seed" => seed = if negative { -value } else { value },
+                        "seed" => seed = Some(value),
+                        "runs" if property => runs = Some(value),
                         other => {
-                            self.error(messages::test_actor_unknown_argument(other), arg.span);
+                            self.error(
+                                if property {
+                                    messages::test_property_unknown_argument(other)
+                                } else {
+                                    messages::test_actor_unknown_argument(other)
+                                },
+                                arg.span,
+                            );
                             return None;
                         }
                     }
@@ -1176,7 +1192,11 @@ impl<'s> Parser<'s> {
                 }
                 self.expect(&TokenKind::RParen)?;
             }
-            kind = TestKind::Actor { seed };
+            kind = if property {
+                TestKind::Property { runs, seed, params: Vec::new() }
+            } else {
+                TestKind::Actor { seed: seed.unwrap_or(0) }
+            };
         }
         let name_token = self.peek().clone();
         let TokenKind::Str(parts) = &name_token.kind else {
@@ -1196,6 +1216,17 @@ impl<'s> Parser<'s> {
         };
         let name_span = name_token.span;
         self.bump(); // the name
+        // [test-property] A property's parameters follow its name, as a
+        // fn's do: what each run draws.
+        if let TestKind::Property { params, .. } = &mut kind {
+            if self.at(&TokenKind::LParen) {
+                let (ps, groups) = self.parse_params()?;
+                if let Some(g) = groups.first() {
+                    self.error(messages::test_property_implicit_param(), g.span);
+                }
+                *params = ps;
+            }
+        }
         let body = self.parse_block()?;
         Some(TestDecl {
             docs,

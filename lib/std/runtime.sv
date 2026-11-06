@@ -249,6 +249,11 @@ platform fn guarded(body: once () -> None) [] -> Str? => !body
 // @compilerrules [test-recover]
 export platform fn trap_boundary(body: () -> Str?) [] -> Str? => body
 
+// [trap_boundary] for a body that runs once and may consume what it holds:
+// a property test's run, which moves its drawn parameters into the property.
+// @compilerrules [test-recover, test-property, runtime-kept-fn]
+export platform fn trap_boundary_once(body: once () -> Str?) [] -> Str? => !body
+
 // ===== the host =====
 //
 // What only the host can do, behind one interface each backend implements

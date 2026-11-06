@@ -188,6 +188,13 @@ impl crate::std_runtime::RuntimeHostPlatformSync for HostRuntime {
     }
 }
 
+// [test-recover] The boundary for a body that runs once and answers: as
+// `trap_boundary`, over an owned closure.
+pub fn trap_boundary_once(body: Box<dyn FnOnce() -> Option<String> + Send + 'static>) -> Option<String> {
+    let mut body = Some(body);
+    trap_boundary(&mut || (body.take().expect("salvo: a once body run twice"))())
+}
+
 // [test-recover] The boundary for a lent body that answers: its answer, or
 // the panic's message, with the default panic hook silenced meanwhile so the
 // trap is reported by whoever asked rather than printed.

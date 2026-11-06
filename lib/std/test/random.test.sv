@@ -2,7 +2,7 @@
 // from: reproducible from a seed, replayable from their draws, simplest at a
 // zero draw, and within the claims their types make.
 
-struct Point {
+struct Point : ToStr<self> by auto {
     x: Int,
     y: Int
 }
@@ -163,4 +163,20 @@ test "a derived union draws each arm" {
         i = i + 1
     }
     expect(leaves > 0 && pairs > 0 && nones > 0, "every arm: ${leaves} ${pairs} ${nones}")
+}
+
+// std's generators under the property runner itself.
+test property(runs=50) "a range's values lie in it" (n: InRange(-3, 3) Int) {
+    expect(n + 0 >= -3 && n + 0 <= 3, "${n} is in range")
+}
+
+test property(runs=50) "a derived struct's fields are drawn" (p: Point, xs: NonEmpty List<Int>, i: Idx(xs) Int) {
+    expect_eq(p.x + p.y, p.y + p.x)
+    expect(i < size(xs), "an index of the list")
+}
+
+test "check holds for a property that holds" {
+    check(50, (xs: List<Int>) -> {
+        expect_eq(size(xs), size(xs))
+    })
 }

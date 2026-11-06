@@ -1971,7 +1971,7 @@ effects" keeps the history).
   | `InStream` / `OutStream` | `crate::std_stream::InStream { handle: i64 }`; the table is Salvo (`runtime.streams`); host code reaches it through `crate::hoststreams::salvo_stream_register_in/out` and `salvo_stream_take_in` (an `Arc<Mutex<SalvoIn>>` reader) [stream-table] |
   | `platform handler H(p: T) for E` | `pub struct H` with `pub fn new(p: T) -> Self`, implementing `crate::<module of E>::EPlatformSync` (`&self`) when `threadsafe`, `EPlatform` (`&mut self`) otherwise [rs-platform-handler] |
   | a member parameter | kept non-`Copy`: `&T`; kept `Mut`: `&mut T`; consumed, or `Copy`: `T` [rs-borrows] |
-  | a fn-typed parameter | lent: `&mut dyn FnMut(…)` (the wrapper hands it on as `&mut name`, which also fits a host's `&mut impl FnMut`); `once`: `impl FnOnce(…)`; **kept** (`=> !hook`) outside the runtime: the pointer `fn(…) -> R`, the call site's capture-free adapter coercing to it [platform-fn-value]; kept in the runtime: `Box<dyn FnOnce/FnMut + Send + 'static>` [runtime-kept-fn] |
+  | a fn-typed parameter | lent: `&mut dyn FnMut(…)` (the wrapper hands it on as `&mut name`, which also fits a host's `&mut impl FnMut`); `once`: `impl FnOnce(…)`; **kept** (`=> !hook`) outside the runtime: the pointer `fn(…) -> R`, the call site's capture-free adapter coercing to it [platform-fn-value]; kept in the runtime: `Box<dyn FnOnce/FnMut + Send + 'static>` [runtime-kept-fn]; and a Salvo fn's `once` parameter it hands on to such a box is `impl FnOnce(…) + Send + 'static` (`forwards_to_kept`, 2026-11-05, for `trapped_by_once`) |
 
 * [rs-mod-use] [mod-use] A module-level `use` emits accessor fns over
   `std::sync::OnceLock` statics: `pub fn __module_useN() -> &'static T` for

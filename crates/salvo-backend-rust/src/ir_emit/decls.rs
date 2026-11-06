@@ -1256,7 +1256,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             let mut t = self.param_ty(p, pos);
             if self.s.once_param(f, i) && self.s.kept_param(f, i).is_none() {
                 let sig = self.fn_ty(&p.ty, FnPos::DynParam);
-                t = format!("impl FnOnce{}", sig.trim_start_matches("&mut dyn FnMut"));
+                // [runtime-kept-fn] A once body handed on to a parameter the
+                // runtime's host keeps has to meet that box's bounds.
+                let bound = if self.forwards_to_kept(f, &p.local.0) { " + Send + 'static" } else { "" };
+                t = format!("impl FnOnce{}{bound}", sig.trim_start_matches("&mut dyn FnMut"));
             }
             if let Some((boxed, once)) = self.s.kept_param(f, i) {
                 let sig = self.fn_ty(&p.ty, FnPos::DynParam);
@@ -1316,6 +1319,26 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             body.push_str(&format!("{pad}    return std::ops::ControlFlow::Continue(());\n"));
         }
         format!("\n{head} {{\n{body}{pad}}}\n")
+    }
+
+    /// [runtime-kept-fn] Whether `f`'s body passes its parameter `local` on
+    /// to a parameter a platform callee keeps in the runtime (a `Box<dyn …
+    /// + Send + 'static>`).
+    fn forwards_to_kept(&self, f: &FnDecl, local: &str) -> bool {
+        let mut body = f.clone();
+        let mut found = false;
+        salvo_core::ir::walk::fn_exprs_mut(&mut body, &mut |e| {
+            if let ExprKind::Call { target: salvo_core::ir::FnRef::Decl(id), args, .. } = &e.kind {
+                let Some(callee) = self.s.fn_decl(id) else { return };
+                for (j, a) in args.iter().enumerate() {
+                    let reads = matches!(&a.kind, ExprKind::Read { place, .. } if place.steps.is_empty() && place.root.0 == local);
+                    if reads && self.s.kept_param(callee, j).is_some_and(|(runtime, _)| runtime) {
+                        found = true;
+                    }
+                }
+            }
+        });
+        found
     }
 
     pub fn stores_callbacks_only(&self, f: &FnDecl) -> bool {

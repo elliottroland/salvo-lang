@@ -556,7 +556,7 @@ test "a plain test" {
     expect_eq(double(2), 4)
 }
 
-test actor(seed: 3) "nobody answers" {
+test actor(seed=3) "nobody answers" {
     let hoard = spawn Hoarding() on pool(1)
     let n = waitfor answer: Reply<Int> {
         hoard.ask(answer)
@@ -584,5 +584,89 @@ test actor "after the death" {
     );
     assert!(stdout.contains("salvo: deadlock"), "{stdout}\n{stderr}");
     assert!(!out.status.success());
+    stamp.verified();
+}
+
+/// [test-property] A property test's runs, shrinking and report: a failure
+/// shrinks to a small counterexample, printed with its parameters and the
+/// line that runs it again; the same seed gives the same report on both
+/// backends and under a filter; `--runs` overrides the test's own `runs=`;
+/// a dependent parameter and a derived generator take part.
+#[test]
+fn property_tests_shrink_and_report_their_counterexample() {
+    let Some(stamp) = e2e_stamp("property_tests", &["rustc", "kotlinc"]) else {
+        return;
+    };
+    if !have("rustc") || !have("kotlinc") {
+        eprintln!("skipping: rustc or kotlinc not found on PATH");
+        return;
+    }
+    let dir = work_dir("property_tests");
+    fs::write(
+        dir.join("sums.sv"),
+        r#"export struct Pair : ToStr<self> by auto {
+    a: Int,
+    b: Int
+}
+
+// Wrong on purpose: adds the first three elements only.
+export fn short_sum(xs: List<Int>) -> Int {
+    let s = 0
+    let i = 0
+    while i < size(xs) && i < 3 {
+        s = s + (get(xs, i) ?: 0)
+        i = i + 1
+    }
+    return s
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        dir.join("sums.test.sv"),
+        r#"fn gen() -> Gen<Pair> by random
+
+test property(runs=3) "the sum adds everything" (xs: List<Int>) {
+    let s = 0
+    for x in xs {
+        s = s + x
+    }
+    expect_eq(short_sum(xs), s)
+}
+
+test property "an index is in bounds" (xs: NonEmpty List<Int>, i: Idx(xs) Int) {
+    expect(i >= 0 && i < size(xs), "in bounds")
+    let _v: Int = get(xs, i)
+}
+
+test property "pairs add both ways" (p: Pair) {
+    expect_eq(p.a + p.b, p.b + p.a)
+}
+"#,
+    )
+    .unwrap();
+    let report = |backend: &str, extra: &[&str]| {
+        let mut args = vec!["test", "--src", ".", "--backend", backend, "--seed", "7", "--runs", "200"];
+        args.extend_from_slice(extra);
+        let out = salvo_in(&dir, &args);
+        let stdout = normalize_ms(&String::from_utf8_lossy(&out.stdout));
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        assert!(!out.status.success(), "{stdout}\n{stderr}");
+        (stdout, stderr)
+    };
+    let (rust, stderr) = report("rust", &[]);
+    assert!(rust.contains("test sums :: the sum adds everything ... FAILED"), "{rust}\n{stderr}");
+    // `--runs 200` over the test's `runs=3`.
+    assert!(rust.contains("of 200 runs"), "{rust}");
+    assert!(rust.contains("      xs = [0, 0, 0, "), "{rust}");
+    assert!(rust.contains("    re-run: salvo test \"sums :: the sum adds everything\" --seed 7"), "{rust}");
+    assert!(rust.contains("test sums :: an index is in bounds ... ok"), "{rust}");
+    assert!(rust.contains("test sums :: pairs add both ways ... ok"), "{rust}");
+    assert!(rust.contains("property tests seeded with 7"), "{rust}");
+    let failure = |s: &str| s.lines().skip_while(|l| !l.contains("FAILED")).take(5).collect::<Vec<_>>().join("\n");
+    let (kotlin, _) = report("kotlin", &[]);
+    assert_eq!(failure(&kotlin), failure(&rust), "the same counterexample on both backends");
+    let (filtered, _) = report("rust", &["adds everything"]);
+    assert_eq!(failure(&filtered), failure(&rust), "a filter moves no property's seed");
     stamp.verified();
 }

@@ -23790,6 +23790,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.let_pattern = saved;
                 }
                 let annotated = ty.as_ref().map(|t| self.lower_type(t));
+                // [qual-depend] An annotation's claim about a place names a
+                // local in scope: `let i: Idx(xs) Int = …` is a claim about
+                // *this* `xs`, bound to its roots as an `is` test's would be,
+                // rather than a template nothing can satisfy (2026-11-05,
+                // found generating property tests' draws).
+                let annotated = annotated.map(|a| if Self::ty_has_value_ref(&a) { self.root_annotation(&a) } else { a });
                 let ann_refused = self.out.errors.len() > errors_before;
                 let value_ty = self.check_expr(value, annotated.as_ref());
                 if let Some(ann) = annotated.as_ref().filter(|_| !ann_refused) {
@@ -31212,6 +31218,45 @@ impl<'p, 'r> Checker<'p, 'r> {
             out.insert(p.name.name.clone(), roots);
         }
         out
+    }
+
+    /// [qual-depend] Fills an annotation's root-free `ValueRef`s naming a
+    /// local in scope with that local's fate roots.
+    fn root_annotation(&self, ty: &Ty) -> Ty {
+        fn paths(t: &Ty, out: &mut Vec<String>) {
+            match t {
+                Ty::ValueRef { path, roots } if roots.is_empty() => out.push(path.split('.').next().unwrap_or(path).to_string()),
+                Ty::Qualified { quals, base } => {
+                    for q in quals {
+                        for a in &q.args {
+                            paths(a, out);
+                        }
+                    }
+                    paths(base, out);
+                }
+                Ty::Named { args, .. } | Ty::Union(args) | Ty::Tuple(args) => {
+                    for a in args {
+                        paths(a, out);
+                    }
+                }
+                Ty::Array(e) => paths(e, out),
+                _ => {}
+            }
+        }
+        let mut names = Vec::new();
+        paths(ty, &mut names);
+        let mut map: HashMap<String, Vec<u32>> = HashMap::new();
+        for n in names {
+            let Some(var) = self.lookup(&n) else { continue };
+            let mut roots: Vec<u32> = var.links.iter().map(|l| l.root_id).collect();
+            if roots.is_empty() {
+                roots.push(var.id);
+            }
+            roots.sort_unstable();
+            roots.dedup();
+            map.insert(n, roots);
+        }
+        Self::substitute_value_refs(ty, &map)
     }
 
     /// [qual-const] The constants each fixed parameter's argument is, when it

@@ -13,7 +13,7 @@
 //   a deadline is pending, the clock moves to the earliest deadline and fires
 //   it, so an hour-long timer fires at once and the clock then reads exactly
 //   one hour.
-// - **Randomness comes from a seed**, written `test actor(seed: 7) "…"` and
+// - **Randomness comes from a seed**, written `test actor(seed=7) "…"` and
 //   0 when not given, so a run repeats exactly.
 // - **Each test starts fresh**: no actors, no queued work and no pending
 //   deadline left over from an earlier test.
