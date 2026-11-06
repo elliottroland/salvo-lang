@@ -8,7 +8,7 @@ actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
 
-handler Counting() for Ordered ShardKeyOrdered Counter {
+handler Counting() for Ordered Counter {
     mailbox { capacity: 16 }
     state { sum: Int = 0 }
     send fn add(n: Int) { sum = sum + n }

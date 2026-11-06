@@ -13,7 +13,7 @@ actor effect Sink {
     send fn done(out: Reply<Str>) => !out
 }
 
-handler Collecting() for Sink {
+handler Collecting() for Ordered Sink {
     mailbox { capacity: 8 }
     state {
         seen: Str = ""
@@ -52,7 +52,7 @@ actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
 
-handler Counting() for Counter {
+handler Counting() for Ordered Counter {
     mailbox { capacity: 4 }
 
     send fn total(out: Reply<Int>) {

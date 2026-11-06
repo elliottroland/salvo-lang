@@ -852,7 +852,7 @@ actor effect Desk {
     send fn ask(out: Reply<Int>) => !out
 }
 
-handler Desking(room: Int = 4, capacity: Int = 2) for Desk {
+handler Desking(room: Int = 4, capacity: Int = 2) for Ordered Desk {
     mailbox { capacity: capacity }
 
     send fn ask(out: Reply<Int>) {
@@ -860,7 +860,7 @@ handler Desking(room: Int = 4, capacity: Int = 2) for Desk {
     }
 }
 
-handler Telling() [Tell] for Desk {
+handler Telling() [Tell] for Ordered Desk {
     mailbox { capacity: 2 }
 
     send fn ask(out: Reply<Int>) {

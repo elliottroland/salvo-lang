@@ -21,7 +21,7 @@ actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
 
-handler Counting() for Counter {
+handler Counting() for Ordered Counter {
     mailbox { capacity: 8 }
 
     state {
@@ -331,7 +331,7 @@ At the bottom is module `net`'s transport: bytes between two **endpoints**
 ```salvo
 import std.net
 
-handler Receiving() [Console] for Inbound {           // frames arrive as messages
+handler Receiving() [Console] for Ordered Inbound {           // frames arrive as messages
     mailbox { capacity: 16 }
     send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {
         println("${to_str(from)}: ${str_of_bytes(frame) ?: "?"}")

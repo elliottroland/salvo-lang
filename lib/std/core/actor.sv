@@ -25,7 +25,7 @@
 //
 // // `sum` belongs to the actor alone, and its members run one at a time,
 // // so no lock guards it.
-// handler Counting() for Counter {
+// handler Counting() for Ordered Counter {
 //     mailbox { capacity: 16 }
 //
 //     state {
@@ -129,7 +129,7 @@
 // }
 //
 // // The worker. A negative number is a bug it does not survive.
-// handler Doubling() for Doubler {
+// handler Doubling() for Ordered Doubler {
 //     mailbox { capacity: 4 }
 //
 //     send fn double(n: Int, out: Reply<Int>) {
@@ -148,7 +148,7 @@
 // // The supervisor. It keeps each request it forwards until the worker
 // // answers, so a death costs the client an answer of -1, not an answer
 // // that never comes.
-// handler Supervising(workers: Pool) [spawn] for Jobs {
+// handler Supervising(workers: Pool) [spawn] for Ordered Jobs {
 //     mailbox { capacity: 16 }
 //
 //     state {
@@ -248,7 +248,7 @@ import std.runtime
 //     send fn line(text: Str) => !text
 // }
 //
-// handler Logging() [Console] for Log {
+// handler Logging() [Console] for Ordered Log {
 //     mailbox { capacity: 8 }
 //
 //     send fn line(text: Str) {
@@ -307,7 +307,7 @@ export fn eq<E>(a: eff[E], b: eff[E]) [] -> Bool => a, b {
 // }
 //
 // // Requests it cannot answer yet wait in state, as obligations.
-// handler Desking() for Desk {
+// handler Desking() for Ordered Desk {
 //     mailbox { capacity: 8 }
 //
 //     state {
@@ -425,7 +425,7 @@ export intrinsic fn forward<E>(to: eff[E], m: Message<E>) [] -> None => to, !m
 //     send fn total(out: Reply<Int>) => !out
 // }
 //
-// handler Counting() for Ordered ShardKeyOrdered Counter {
+// handler Counting() for Ordered Counter {
 //     mailbox { capacity: 16 }
 //     state { sum: Int = 0 }
 //     send fn add(n: Int) { sum = sum + n }
@@ -438,8 +438,11 @@ export intrinsic fn forward<E>(to: eff[E], m: Message<E>) [] -> None => to, !m
 //     return waitfor out: Reply<Int> { total(out) }
 // }
 // ```
-// @compilerrules [effect-claim]
-export provenance qualifier Ordered for Effect
+// [Ordered] implies [ShardKeyOrdered]: one instance takes every key's sends
+// in order, so a binding claiming `Ordered` satisfies `[ShardKeyOrdered E]`
+// too.
+// @compilerrules [effect-claim, qual-imply]
+export provenance qualifier Ordered for ShardKeyOrdered Effect
 
 // A claim that sends with the same shard key reach the same instance, in
 // the order they were made: what [Ordered] gives, and what a router by key
@@ -465,7 +468,7 @@ export provenance qualifier ShardKeyOrdered for Effect
 //     send fn put(item: Str) => !item
 // }
 //
-// handler Queueing(room: Int) for Queue {
+// handler Queueing(room: Int) for Ordered Queue {
 //     mailbox { capacity: room }
 //
 //     send fn put(item: Str) {
@@ -550,7 +553,7 @@ export struct Fault { reason: Str }
 //     send fn parse(text: Str) => !text
 // }
 //
-// handler Parsing() [Console] for Parser {
+// handler Parsing() [Console] for Ordered Parser {
 //     mailbox { capacity: 8 }
 //
 //     send fn parse(text: Str) {
@@ -559,7 +562,7 @@ export struct Fault { reason: Str }
 //     }
 // }
 //
-// handler Reporting() [Console] for Faults {
+// handler Reporting() [Console] for Ordered Faults {
 //     mailbox { capacity: 8 }
 //
 //     send fn faulted(fault: Fault) {
@@ -605,7 +608,7 @@ export intrinsic fn pool(size: Int, sink: eff[Faults]) [spawn] -> Pool => size, 
 // }
 //
 // // Stands in for a handler whose members call a blocking host API.
-// handler Reading() for Files {
+// handler Reading() for Ordered Files {
 //     mailbox { capacity: 4 }
 //
 //     send fn read(path: Str, out: Reply<Str>) {
@@ -649,7 +652,7 @@ export struct Exit { reason: Str }
 //     send fn crash()
 // }
 //
-// handler Breaking() for Fragile {
+// handler Breaking() for Ordered Fragile {
 //     mailbox { capacity: 1 }
 //
 //     send fn crash() {
@@ -723,7 +726,7 @@ export struct Idle {
 //     send fn line(text: Str) => !text
 // }
 //
-// handler Logging() [Console] for Log {
+// handler Logging() [Console] for Ordered Log {
 //     mailbox { capacity: 8 }
 //
 //     send fn line(text: Str) {

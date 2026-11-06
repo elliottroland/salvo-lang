@@ -35,7 +35,7 @@
 //     send fn greet(name: Str, out: Reply<Str>) => !name, !out
 // }
 //
-// handler Greeting(who: Str) for Greeter {
+// handler Greeting(who: Str) for Ordered Greeter {
 //     mailbox { capacity: 16 }
 //     send fn greet(name: Str, out: Reply<Str>) => !name, !out {
 //         out.send("hello ${name}, from ${who}")
@@ -208,7 +208,7 @@ export fn to_str(e: NetError) [] -> Str => e {
 // }
 //
 // // Counts the frames that arrive, and answers how many on request.
-// handler Tallying() for Inbound, Tally {
+// handler Tallying() for Ordered Inbound, Ordered Tally {
 //     mailbox { capacity: 16 }
 //     state {
 //         n: Int = 0
@@ -260,7 +260,7 @@ export actor effect Inbound {
 //     println("${lost is Ok}")                  // false: unreachable
 // }
 //
-// handler Printing() for Inbound {
+// handler Printing() for Ordered Inbound {
 //     mailbox { capacity: 16 }
 //     send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {}
 // }
@@ -327,7 +327,7 @@ export fn this_node() [] -> NodeId {
 //     send fn bump(n: Int)
 // }
 //
-// handler Counting() for Counter {
+// handler Counting() for Ordered Counter {
 //     mailbox { capacity: 8 }
 //     send fn bump(n: Int) {}
 // }
@@ -421,7 +421,7 @@ fn deliver_frame(data: Bytes) [] -> Bool => data {
 //     send fn bump(n: Int)
 // }
 //
-// handler Counting() for Counter {
+// handler Counting() for Ordered Counter {
 //     mailbox { capacity: 8 }
 //     send fn bump(n: Int) {}
 // }
@@ -456,7 +456,7 @@ export actor effect Outbound {
 // spawned with. A frame the transport refuses is dropped, as the transport's
 // at-most-once delivery allows. [connect] spawns it, with room for 256
 // frames in its mailbox.
-export handler Sending() [Transport] for Outbound {
+export handler Sending() [Transport] for Ordered Outbound {
     mailbox { capacity: 256 }
 
     send fn send_frame(to: NodeEndpoint, frame: Bytes) => !to, !frame {
@@ -472,7 +472,7 @@ export handler Sending() [Transport] for Outbound {
 // registers it with `Transport.listen`, with room for 256 frames in its
 // mailbox.
 // @compilerrules [net-addr-routable]
-export handler Receiving() for Inbound {
+export handler Receiving() for Ordered Inbound {
     mailbox { capacity: 256 }
 
     send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {
@@ -567,7 +567,7 @@ export struct Node : Hashed<self> by auto {
 // goes:
 //
 // ```
-// handler Announcing() [Console] for NodeGroupWatcher {
+// handler Announcing() [Console] for Ordered NodeGroupWatcher {
 //     mailbox { capacity: 32 }
 //     send fn joined(n: Node) => !n {
 //         println("+ ${to_str(n.at)}")
@@ -1087,7 +1087,7 @@ export intrinsic fn protocol<E>() [] -> Protocol<E>
 // group: [LeastLoaded], [Sharded] or [Elected].
 //
 // ```
-// handler Noticing() [Console] for ActorGroupWatcher<Ping> {
+// handler Noticing() [Console] for Ordered ActorGroupWatcher<Ping> {
 //     mailbox { capacity: 16 }
 //     send fn joined(member: eff[Ping]) => !member {
 //         println("+ a Ping on this node: ${eq(node_of(member), this_node())}")
@@ -1117,7 +1117,7 @@ export intrinsic fn protocol<E>() [] -> Protocol<E>
 //     send fn ping(out: Reply<Str>) => !out
 // }
 //
-// handler Pinging(who: Str) for Ping {
+// handler Pinging(who: Str) for Ordered Ping {
 //     mailbox { capacity: 8 }
 //     send fn ping(out: Reply<Str>) => !out { out.send("pong from ${who}") }
 // }
@@ -1219,7 +1219,7 @@ export fn pending<E>(a: eff[E]) [] -> Int => a {
 //     send fn ping(out: Reply<Str>) => !out
 // }
 //
-// handler Pinging() for Ping {
+// handler Pinging() for Ordered Ping {
 //     mailbox { capacity: 8 }
 //     send fn ping(out: Reply<Str>) => !out { out.send("pong") }
 // }
@@ -1270,7 +1270,7 @@ export fn actor_group<E>(name: Str, nodes: eff[NodeGroup], ?protocol: () -> Prot
 //     send fn ping(out: Reply<Str>) => !out
 // }
 //
-// handler Pinging() for Ping {
+// handler Pinging() for Ordered Ping {
 //     mailbox { capacity: 8 }
 //     send fn ping(out: Reply<Str>) => !out { out.send("pong") }
 // }
@@ -1916,7 +1916,7 @@ export threadsafe platform handler HostTcpTransport(bind: NodeEndpoint) for Tran
 //     send fn ping(out: Reply<Str>) => !out
 // }
 //
-// handler Pinging(who: Str) for Ping {
+// handler Pinging(who: Str) for Ordered Ping {
 //     mailbox { capacity: 8 }
 //     send fn ping(out: Reply<Str>) => !out { out.send("pong from ${who}") }
 // }
@@ -1926,7 +1926,7 @@ export threadsafe platform handler HostTcpTransport(bind: NodeEndpoint) for Tran
 // }
 //
 // // Brings up a node from inside it: everything spawned here is on it.
-// handler Booting(all: List<NodeEndpoint>) [Transport, spawn] for Boot {
+// handler Booting(all: List<NodeEndpoint>) [Transport, spawn] for Ordered Boot {
 //     mailbox { capacity: 1 }
 //     send fn boot(done: Reply<Bool>) => !done {
 //         let p = pool(1)
@@ -1992,7 +1992,7 @@ export actor effect MemNet {
 // mailbox (64 messages) to find its listener. A pair partitioned with
 // `partition` stays so until `heal`, in both directions; a killed endpoint
 // stays dead until something listens there again.
-export handler MemNetwork() for MemNet {
+export handler MemNetwork() for Ordered MemNet {
     mailbox { capacity: 64 }
 
     state {

@@ -1047,6 +1047,15 @@ fn claimed_handle_over(effects: &[Ty], claims_of: &[(Ty, Vec<Qual>)]) -> Ty {
     }
 }
 
+/// [qual-imply] An implied qualifier's argument with the implying claim's
+/// slot arguments put in for its slot references (`n` in `InRange(0, n)`).
+fn subst_slot_refs(t: &Ty, map: &HashMap<String, Ty>) -> Ty {
+    match t {
+        Ty::ValueRef { path, .. } => map.get(path).cloned().unwrap_or_else(|| t.clone()),
+        other => other.clone(),
+    }
+}
+
 /// [effect-claim] A single handle of [effect] making [claims]: the `Addr`,
 /// qualified by them.
 fn claimed_addr(effect: Ty, claims: Vec<Qual>) -> Ty {
@@ -3104,6 +3113,12 @@ struct Checker<'p, 'r> {
     /// Names of qualifiers declared in the file currently being checked
     /// (constructive-qualifier constructors must live in this file).
     own_qualifiers: HashSet<String>,
+    /// [qual-imply] Set while a qualifier's implied qualifiers are being
+    /// lowered, so that lowering does not close over them again.
+    implying: bool,
+    /// [qual-imply] Each qualifier's direct implications, by key, lowered
+    /// once in the qualifier's own file.
+    implied_cache: HashMap<String, Vec<Qual>>,
     /// [qual-refn-type] The keys of the (non-alias) types the current file
     /// declares [type-identity].
     own_types: HashSet<String>,
@@ -3709,6 +3724,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             ret_ty: Ty::none(),
             ret_refused: false,
             own_qualifiers: HashSet::new(),
+            implying: false,
+            implied_cache: HashMap::new(),
             own_types: HashSet::new(),
             effect_env: Vec::new(),
             call_fixed_params: HashSet::new(),
@@ -13996,6 +14013,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .map(|v| v.narrowed.quals().iter().map(|q| q.name.clone()).collect())
                 .unwrap_or_default();
             let removed = effect.removal_set(&have, |q| self.survives_calls(q));
+            let removed = self.widen_removal(removed, &have);
             if !removed.is_empty() {
                 if let Some(var) = self.lookup_mut(&id.name) {
                     var.narrowed = var.narrowed.clone().remove_quals(&removed);
@@ -18920,7 +18938,170 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             out.push(self.lower_qual_plain(q, subst, depth, subject));
         }
+        self.close_quals(out)
+    }
+
+    /// [qual-imply] A qualifier's direct implications: the qualifiers on its
+    /// `for` type (`qualifier Positive for NonZero Int` implies `NonZero`),
+    /// lowered in the qualifier's own file, with its value slots left as
+    /// templates (`Below(n) for InRange(0, n) Int`). Quiet: the declaration
+    /// reports what is wrong with them.
+    fn direct_implied(&mut self, key: &str) -> Vec<Qual> {
+        if let Some(found) = self.implied_cache.get(key) {
+            return found.clone();
+        }
+        let Some(decl) = self.qualifier_named(key) else { return Vec::new() };
+        let quals: &'p [TypeRef] = match &decl.of {
+            ast::Type::Named { qualifiers, .. } | ast::Type::QualifiedGroup { qualifiers, .. } => qualifiers,
+            _ => &[],
+        };
+        if quals.is_empty() {
+            self.implied_cache.insert(key.to_string(), Vec::new());
+            return Vec::new();
+        }
+        // Seeded first: a cycle (refused at the declaration) ends here.
+        self.implied_cache.insert(key.to_string(), Vec::new());
+        let saved_scope = self.scope;
+        let saved_errors = self.out.errors.len();
+        let saved_implying = std::mem::replace(&mut self.implying, true);
+        if let Some(own) = self.resolution.decls.file_of(decl.name.span) {
+            self.scope = &self.resolution.scopes[own];
+        }
+        let saved_generics = self.enter_generics(&decl.generics);
+        let base = match &decl.of {
+            ast::Type::Named { base, .. } if base.name.name == known::CLAIM_SUBJECT => Ty::Unknown,
+            ast::Type::Named { base, .. } => self.lower_base_ref(base, &HashMap::new(), 0),
+            _ => Ty::Unknown,
+        };
+        let out = if Self::declared_for_effect(decl) {
+            quals
+                .iter()
+                .filter_map(|c| {
+                    self.named(c).qualifiers.iter().copied().find(|d| Self::is_claim_decl(d)).map(|d| Qual::plain(self.symbols.qual_key(d), Vec::new()))
+                })
+                .collect()
+        } else {
+            self.lower_quals(quals, &HashMap::new(), 0, Some(&base))
+        };
+        self.generics = saved_generics;
+        self.implying = saved_implying;
+        self.scope = saved_scope;
+        self.out.errors.truncate(saved_errors);
+        self.implied_cache.insert(key.to_string(), out.clone());
         out
+    }
+
+    /// [qual-imply] Every qualifier [quals] imply, added to them: a value
+    /// with `Positive` carries the `NonZero` its `for` type names, and
+    /// transitively. An implied qualifier's slot references take the
+    /// implying claim's arguments (`Below(5)` implies `InRange(0, 5)`). An
+    /// implication already present (by name) is not added again.
+    fn close_quals(&mut self, mut quals: Vec<Qual>) -> Vec<Qual> {
+        if self.implying {
+            return quals;
+        }
+        let mut i = 0;
+        while i < quals.len() && i < 64 {
+            let q = quals[i].clone();
+            i += 1;
+            if q.effect {
+                continue;
+            }
+            let implied = self.direct_implied(&q.name);
+            if implied.is_empty() {
+                continue;
+            }
+            let slots: Vec<String> = self
+                .qualifier_named(&q.name)
+                .map(|d| d.value_slots.iter().map(|v| v.name.name.clone()).collect())
+                .unwrap_or_default();
+            // The slots are the claim's last arguments.
+            let given: Vec<Ty> = if slots.len() <= q.args.len() { q.args[q.args.len() - slots.len()..].to_vec() } else { Vec::new() };
+            let map: HashMap<String, Ty> = slots.into_iter().zip(given).collect();
+            for t in implied {
+                if quals.iter().any(|h| h.name == t.name) {
+                    continue;
+                }
+                let args = t.args.iter().map(|a| subst_slot_refs(a, &map)).collect();
+                quals.push(Qual { args, ..t });
+            }
+        }
+        quals.sort_by(|a, b| a.name.cmp(&b.name));
+        quals.dedup();
+        quals
+    }
+
+    /// [qual-imply] A qualifier's implications, checked at its declaration:
+    /// each stays in its family (state implies state, provenance
+    /// provenance), and none leads back to the qualifier.
+    fn check_implications(&mut self, q: &'p QualifierDecl) {
+        let written: &'p [TypeRef] = match &q.of {
+            ast::Type::Named { qualifiers, .. } | ast::Type::QualifiedGroup { qualifiers, .. } => qualifiers,
+            _ => &[],
+        };
+        if written.is_empty() || q.comptime {
+            return;
+        }
+        let key = self.symbols.qual_key(q).to_string();
+        let family = |d: &QualifierDecl| if d.subject == QualSubject::Provenance { "provenance" } else { "state" };
+        for c in written {
+            let candidates: Vec<&'p QualifierDecl> = self.named(c).qualifiers.clone();
+            let Some(d) = candidates.iter().copied().find(|d| Self::declared_for_effect(d) == Self::declared_for_effect(q)).or(candidates.first().copied()) else {
+                continue;
+            };
+            if d.comptime {
+                continue;
+            }
+            if d.subject != q.subject {
+                self.error(c.span, messages::qual_imply_family(&q.name.name, &family(q), &c.name.name, &family(d)));
+                continue;
+            }
+            let implied = self.symbols.qual_key(d).to_string();
+            if implied == key || self.implied_closure_names(&implied).contains(&key) {
+                self.error(c.span, messages::qual_imply_cycle(&q.name.name, &c.name.name));
+            }
+        }
+    }
+
+    /// [qual-imply] Every qualifier name [quals] imply, transitively, the
+    /// names themselves included.
+    fn implied_closure_names(&mut self, name: &str) -> HashSet<String> {
+        let mut out: HashSet<String> = HashSet::new();
+        let mut todo = vec![name.to_string()];
+        while let Some(n) = todo.pop() {
+            if !out.insert(n.clone()) || out.len() > 64 {
+                continue;
+            }
+            for q in self.direct_implied(&n) {
+                todo.push(q.name);
+            }
+        }
+        out
+    }
+
+    /// [qual-imply] A removal set widened by implication: dropping `NonZero`
+    /// drops `Positive`, whose closure needs it. [have] is what the value
+    /// carries.
+    fn widen_removal(&mut self, mut removed: HashSet<String>, have: &[String]) -> HashSet<String> {
+        if removed.is_empty() {
+            return removed;
+        }
+        loop {
+            let mut grew = false;
+            for h in have {
+                if removed.contains(h) {
+                    continue;
+                }
+                let closure = self.implied_closure_names(h);
+                if closure.iter().any(|c| c != h && removed.contains(c)) {
+                    removed.insert(h.clone());
+                    grew = true;
+                }
+            }
+            if !grew {
+                return removed;
+            }
+        }
     }
 
     /// [cmp-binder] Every binder occurrence in a lowered type, paired with the
@@ -20262,8 +20443,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [effect-claim] Whether a qualifier is declared `for Effect`, the claim
     /// subject (whatever its kind, for the diagnostic that a state one is).
     fn declared_for_effect(d: &QualifierDecl) -> bool {
-        matches!(&d.of, ast::Type::Named { qualifiers, base }
-            if qualifiers.is_empty() && base.args.is_empty() && base.name.name == known::CLAIM_SUBJECT)
+        matches!(&d.of, ast::Type::Named { base, .. }
+            if base.args.is_empty() && base.name.name == known::CLAIM_SUBJECT)
     }
 
     /// [effect-claim] The claims written before an effect, as qualifiers:
@@ -20292,8 +20473,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 _ => self.error(c.span, messages::effect_claim_not_a_claim(&c.name.name, effect)),
             }
         }
-        out.sort_by(|a, b| a.name.cmp(&b.name));
-        out
+        self.close_quals(out)
     }
 
     fn handler_dep_list_here(&mut self, h: &'p ast::HandlerDecl) -> Vec<ListedEffect> {
@@ -21338,7 +21518,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         let of_ty = self.lower_type(&decl.of);
         self.generics = saved;
         let mut subst = HashMap::new();
-        unify(&of_ty, base.strip_quals(), &mut subst)
+        // [qual-imply] The `for` type's qualifiers are what the claim
+        // implies, not a condition on the subject's type.
+        unify(of_ty.strip_quals(), base.strip_quals(), &mut subst)
     }
 
     /// Whether the base type's declaration opted into the `Mut`
@@ -22038,6 +22220,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.check_comptime_qualifier_decl(q);
             return;
         }
+        self.check_implications(q);
         // [effect-claim] `for Effect`: a claim about an effect's binding.
         // Its subject is the marker, not a type, and a claim is provenance:
         // nothing about a binding's contents establishes where it came from.
@@ -27449,7 +27632,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let saved = self.enter_generics(&qual_generics);
                 let of_ty = self.lower_type(&d.of);
                 self.generics = saved;
-                unify(&of_ty, subj_ty.strip_quals(), &mut slot_subst);
+                unify(of_ty.strip_quals(), subj_ty.strip_quals(), &mut slot_subst);
             }
             for (slot, (path, pspan)) in slots.iter().zip(args) {
                 // [qual-const] A constant fills its slot whole: nothing
@@ -27618,6 +27801,72 @@ impl<'p, 'r> Checker<'p, 'r> {
         dependent_args
     }
 
+    /// [qual-imply] `x is Positive` on a non-union subject tests what
+    /// `Positive` implies first (`NonZero`, then `Positive`), so `qualifies`
+    /// answers only about a value that already holds its `for` type's
+    /// qualifiers — which is what makes its `true` prove them. An implied
+    /// qualifier the subject already carries is not tested again.
+    fn expand_implied_tests(&mut self, pat: CheckPat, subj_ty: &Ty, span: Span) -> CheckPat {
+        if pat.quals.is_empty() || matches!(subj_ty, Ty::Union(_)) || pat.is_none {
+            return pat;
+        }
+        let have: Vec<String> = subj_ty.quals().iter().map(|q| q.name.clone()).collect();
+        let mut quals: Vec<String> = Vec::new();
+        let mut qual_args: Vec<Vec<(String, Span)>> = Vec::new();
+        for (q, args) in pat.quals.iter().zip(&pat.qual_args) {
+            self.push_implied_tests(q, args, &have, span, &mut quals, &mut qual_args, 0);
+        }
+        CheckPat { quals, qual_args, ..pat }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn push_implied_tests(
+        &mut self,
+        q: &str,
+        args: &[(String, Span)],
+        have: &[String],
+        span: Span,
+        quals: &mut Vec<String>,
+        qual_args: &mut Vec<Vec<(String, Span)>>,
+        depth: usize,
+    ) {
+        if depth < 16 {
+            let key = self.qualifier_named(q).map(|d| self.symbols.qual_key(d).to_string()).unwrap_or_else(|| q.to_string());
+            let slots: Vec<String> = self
+                .qualifier_named(q)
+                .filter(|d| d.subject == QualSubject::State)
+                .map(|d| d.value_slots.iter().map(|v| v.name.name.clone()).collect())
+                .unwrap_or_default();
+            let state = self.qualifier_named(q).is_some_and(|d| d.subject == QualSubject::State);
+            if state {
+                for t in self.direct_implied(&key) {
+                    if have.contains(&t.name) || quals.contains(&t.name) {
+                        continue;
+                    }
+                    // The implied claim's slot arguments: a slot reference
+                    // takes what this test fills that slot with.
+                    let implied_slots = self.qualifier_named(&t.name).map_or(0, |d| d.value_slots.len());
+                    let written: Vec<(String, Span)> = t.args[t.args.len().saturating_sub(implied_slots)..]
+                        .iter()
+                        .map(|a| match a {
+                            Ty::ValueRef { path, .. } => match slots.iter().position(|s| s == path) {
+                                Some(i) => args.get(i).cloned().unwrap_or((path.clone(), span)),
+                                None => (path.clone(), span),
+                            },
+                            Ty::Const(c) => (c.to_string(), span),
+                            other => (other.to_string(), span),
+                        })
+                        .collect();
+                    self.push_implied_tests(&t.name, &written, have, span, quals, qual_args, depth + 1);
+                }
+            }
+        }
+        if !quals.iter().any(|x| x == q) {
+            quals.push(q.to_string());
+            qual_args.push(args.to_vec());
+        }
+    }
+
     /// Analyzes an `is` expression: checks the subject, records the runtime
     /// lowering (`tests`), and computes matched/remaining types.
     fn is_info(&mut self, is_expr: &'p Expr) -> IsInfo {
@@ -27633,6 +27882,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let subj_ty = self.check_expr(subject, None);
         let repr = self.repr_of(subject, &subj_ty);
         let pat = self.parse_check(check, Some(&subj_ty));
+        let pat = self.expand_implied_tests(pat, &subj_ty, *span);
 
         // A qualifier check on a non-union subject is a predicate test
         // [is-qualifies]: it calls each qualifier's `qualifies` function at
@@ -32544,6 +32794,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .map(|v| v.narrowed.quals().iter().map(|q| q.name.clone()).collect())
                     .unwrap_or_default();
                 let removed = d.effect.removal_set(&have, |q| self.survives_calls(q));
+                let removed = self.widen_removal(removed, &have);
                 let name = id.name.clone();
                 if !removed.is_empty() {
                     if let Some(var) = self.lookup_mut(&name) {

@@ -274,7 +274,7 @@ actor effect Holder {
     send fn hold(t: Tally, done: Reply<Int>) => !t, !done
 }
 
-handler Holding() for Holder {
+handler Holding() for Ordered Holder {
     mailbox { capacity: 4 }
     send fn hold(t: Tally, done: Reply<Int>) {
         done.send(bump(t))

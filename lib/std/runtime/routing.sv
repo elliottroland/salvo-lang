@@ -59,7 +59,7 @@
 //     send fn total(out: Reply<Int>) => !out
 // }
 //
-// handler Counting() for Counter {
+// handler Counting() for Ordered Counter {
 //     mailbox { capacity: 2 }
 //
 //     state {
@@ -86,7 +86,7 @@
 // }
 //
 // // Run on node B's pool, so the node it brings up is B.
-// handler Booting() [Transport, spawn] for Boot {
+// handler Booting() [Transport, spawn] for Ordered Boot {
 //     mailbox { capacity: 1 }
 //
 //     send fn boot(at: NodeEndpoint, done: Reply<Bool>) {

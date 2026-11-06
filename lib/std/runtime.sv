@@ -61,7 +61,7 @@
 //     send fn echo(text: Str, out: Reply<Str>) => !text, !out
 // }
 //
-// handler Echoing() for Echo {
+// handler Echoing() for Ordered Echo {
 //     mailbox { capacity: 4 }
 //
 //     send fn echo(text: Str, out: Reply<Str>) {
@@ -106,7 +106,7 @@
 // }
 //
 // // Dies before it answers: the reply is lost with it.
-// handler Failing() for Ask {
+// handler Failing() for Ordered Ask {
 //     mailbox { capacity: 1 }
 //
 //     send fn ask(out: Reply<Int>) {

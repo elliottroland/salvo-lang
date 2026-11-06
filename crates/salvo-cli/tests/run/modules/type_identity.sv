@@ -124,7 +124,7 @@ actor effect Counter {
     send fn total(out: Reply<Str>) => !out
 }
 
-handler Counting() for Counter {
+handler Counting() for Ordered Counter {
     mailbox { capacity: 4 }
     state {
         seen: Str = ""
@@ -172,7 +172,7 @@ export effect Log {
     fn note(s: Str) -> None => !s
 }
 
-export handler Lines() [Console] for Log {
+export handler Lines() [Console] for Ordered Log {
     state {
         all: Str = ""
     }
@@ -190,7 +190,7 @@ export actor effect Log {
     send fn total(out: Reply<Int>) => !out
 }
 
-export handler Summing() for Log {
+export handler Summing() for Ordered Log {
     mailbox { capacity: 4 }
     state {
         sum: Int = 0

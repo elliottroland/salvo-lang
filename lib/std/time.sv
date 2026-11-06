@@ -575,7 +575,7 @@ export actor effect Timer {
 // }
 // ```
 // @compilerrules [time-timer]
-export handler DefaultTimer() for Timer {
+export handler DefaultTimer() for Ordered Timer {
     // The runtime's wheel (`runtime.after_nanos`), written in Salvo over a
     // parker, keeps the deadlines.
     mailbox { capacity: 64 }
@@ -653,7 +653,7 @@ export actor effect TimerCtl {
 // [Clock] or both) is the test's business. Prefer passing time as a value
 // over reading it at all; `examples/time/` works through all of this.
 // @compilerrules [time-manual, time-coupling]
-export handler ManualTime() for Timer, TimerCtl {
+export handler ManualTime() for Ordered Timer, Ordered TimerCtl {
     mailbox { capacity: 64 }
 
     // Virtual monotonic nanoseconds. A real [Tick]'s origin is arbitrary, so

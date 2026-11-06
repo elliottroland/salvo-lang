@@ -858,8 +858,11 @@ tally(List(1, 2))        // error: `tally` requires `[Ordered Counter]`, but the
   sends in order) and
   [`ShardKeyOrdered`](../../lib/std/core/actor.sv#qualifier-shardkeyordered)
   (sends with the same shard key reach the same instance, in order) are std's,
-  and a program declares its own the same way
-  (`provenance qualifier Durable for Effect`).
+  `Ordered` implying `ShardKeyOrdered` (`provenance qualifier Ordered for
+  ShardKeyOrdered Effect`, see [one qualifier implying
+  another](Qualifiers.md#one-qualifier-implying-another)), and a program
+  declares its own the same way (`provenance qualifier Durable for
+  Effect`).
 - **A handler makes claims on its face** (`for Ordered Counter`), and the
   compiler takes its word: nothing is granted, not even to a single actor.
   A `use` of it binds the claims; a `spawn` of it answers a handle carrying

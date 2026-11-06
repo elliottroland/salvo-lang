@@ -70,7 +70,7 @@ actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
 
-handler Counting() for Counter {
+handler Counting() for Ordered Counter {
     mailbox { capacity: 8 }
     state {
         sum: Int = 0

@@ -4559,6 +4559,19 @@ messages! {
          `qualifies` beside them"
     );
 
+    // [qual-imply]
+    /// A qualifier implying itself through its `for` types.
+    qual_imply_cycle = "qual-imply:cycle" (name: &dyn std::fmt::Display, implied: &dyn std::fmt::Display) => format!(
+        "`{name}` implies `{implied}`, which implies `{name}` again: implication runs one \
+         way, so one of the two `for` types must not name the other"
+    );
+    /// An implication across the state and provenance families.
+    qual_imply_family = "qual-imply:family" (name: &dyn std::fmt::Display, kind: &dyn std::fmt::Display, implied: &dyn std::fmt::Display, other: &dyn std::fmt::Display) => format!(
+        "`{name}` is a {kind} qualifier and cannot imply the {other} qualifier `{implied}`: \
+         a claim about contents cannot say where a value came from, and a claim about \
+         where it came from cannot say what it holds"
+    );
+
     // [qual-subject]
     /// A provenance qualifier with a body.
     qual_subject_provenance_body = "qual-subject:provenance-body" (qualifier: &dyn std::fmt::Display) => format!(

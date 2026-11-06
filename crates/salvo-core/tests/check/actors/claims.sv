@@ -21,7 +21,7 @@ handler Printing() for Log {
     send fn note(what: Str) {}
 }
 
-handler Counting() [Log] for Ordered ShardKeyOrdered Counter {
+handler Counting() [Log] for Ordered Counter {
     mailbox { capacity: 16 }
 
     state {

@@ -34,7 +34,7 @@ actor effect Counter {
 // An ordinary handler. Its state is the actor's, reachable from nowhere else,
 // and every member runs to completion before the next one starts — so
 // `sum = sum + n` needs no lock and cannot interleave.
-handler Counting() for Counter {
+handler Counting() for Ordered Counter {
     mailbox { capacity: 8 }
 
     state {
@@ -73,7 +73,7 @@ actor effect Ledger {
 // The handler declares what it depends on exactly as a synchronous one does —
 // `[Counter]` — and the spawn site supplies it. The child never learns whether
 // its `Counter` is another actor or a local handler.
-handler Bookkeeping() [Counter] for Ledger {
+handler Bookkeeping() [Counter] for Ordered Ledger {
     mailbox { capacity: 4 }
 
     send fn report(label: Str, out: Reply<Str>) {
@@ -99,7 +99,7 @@ actor effect Desk {
 // The bound as a **constructor parameter**: the slot's expressions may read
 // them (and nothing else — it is computed before the actor exists), which is
 // how a caller chooses a per-instance queue depth without a spawn-site clause.
-handler Desking(room: Int) for Desk {
+handler Desking(room: Int) for Ordered Desk {
     mailbox { capacity: room }
 
     state {
@@ -140,7 +140,7 @@ actor effect Fragile {
     send fn crash()
 }
 
-handler Breaking() for Fragile {
+handler Breaking() for Ordered Fragile {
     mailbox { capacity: 1 }
 
     send fn crash() {

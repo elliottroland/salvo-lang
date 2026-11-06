@@ -1864,6 +1864,47 @@ Conventions:
     after a qualifier's `for` type is a parse error.
   * Provenance qualifiers always composed freely [qual-subject]; now every
     qualifier does.
+  * The one declared relation is **implication** [qual-imply]: a
+    qualifier's `for` type may carry qualifiers, which it implies. It runs
+    one way and is no compatibility check.
+* [qual-imply] **A qualifier implies the qualifiers on its `for` type**
+  (user decisions 2026-11-05, ROUTES.md §12–14, option P2; no bundles):
+  `qualifier Positive for NonZero Int` reads "a `Positive` is a `NonZero
+  Int` that also …", and a value carrying `Positive` carries `NonZero`,
+  transitively.
+  * **Closure**: every lowered set of qualifiers is closed (`lower_quals`,
+    `close_quals`), so the short form is accepted — `Positive Int` is
+    `NonZero Positive Int` — and a claim established by a constructor `as
+    Q`, a `+Q` clause or a refinement establishes what `Q` implies, trusted
+    as the establishment is. Hover shows the closure.
+  * **Slots**: the `for` type may name the qualifier's value slots
+    (`qualifier Small(n: Int) for AtMost(n) Int`); an implied claim's slot
+    reference takes the implying claim's argument (`Small(10)` implies
+    `AtMost(10)`).
+  * **The test**: `x is Positive` on a non-union subject tests what
+    `Positive` implies first, and in order (`NonZero.qualifies(x) &&
+    Positive.qualifies(x)`), skipping what the subject already carries, so
+    `qualifies` answers only about a value that holds its `for` type's
+    qualifiers and its `true` proves them. An implied qualifier with no
+    `qualifies` (mint-only) cannot be tested, so the test is refused as a
+    constructive one unless the subject already carries it. `qualifies` may
+    take the `for` type or anything wider ([is-qualifies]'s parameter rule:
+    the test order, not the parameter, is the proof).
+  * **Stripping**: a removal set is widened by implication — dropping
+    `NonZero` (`=> x: -NonZero`, or a mutation) drops `Positive` too
+    (`widen_removal`). A `+Positive` re-establishment closes over `NonZero`
+    again rather than contradicting the drop.
+  * **Refused at the declaration**: a cycle (`qual-imply:cycle`, `B for C
+    Int` beside `C for B Int`), and an implication across the families
+    (`qual-imply:family`): a state claim implying a provenance one would let
+    contents say where a value came from, and the reverse an origin say
+    what it holds.
+  * **Provenance**: the implication is the author's, trusted as every
+    provenance mint is. Effect claims [effect-claim] use it:
+    `provenance qualifier Ordered for ShardKeyOrdered Effect`, so a handler
+    `for Ordered Counter` satisfies `[ShardKeyOrdered Counter]`.
+  * Same-subject only; implication through a slot's type (`Idx(c: NonEmpty
+    C) for Int`) is the recorded second stage (ROADMAP).
 * [qual-union-arm] In an un-parenthesized union, a qualifier binds to the
   single arm it is written on, never the whole union; qualifiers cannot
   apply to tuples.
@@ -5497,13 +5538,14 @@ Conventions:
   Ordered for Effect`; `Effect` is the marker, not a type, and a state
   qualifier for it is `effect-claim:state`). std declares `Ordered` (one
   instance, sends in order, one state) and `ShardKeyOrdered` (same key, same
-  instance, in order) in std.core.actor; a program declares its own the
-  same way. A bare `[E]` **assumes nothing** about order or instances, and
+  instance, in order) in std.core.actor, `Ordered` implying
+  `ShardKeyOrdered` [qual-imply]; a program declares its own the same way.
+  Every single-instance handler of an actor effect in std, the examples and
+  the run data writes `for Ordered E` (the sweep of 2026-11-05). A bare `[E]` **assumes nothing** about order or instances, and
   the compiler grants no claim, not even `Ordered` to a single actor.
   * **Positions**: before the effect in an effect list (`[Ordered Counter]`,
-    a requirement), on a handler's face (`for Ordered ShardKeyOrdered
-    Counter`, what a `use` of it binds and the handle a `spawn` of it
-    answers), and inside a handle's brackets (`eff[Ordered Counter]`; `use`
+    a requirement), on a handler's face (`for Ordered Counter`, what a
+    `use` of it binds and the handle a `spawn` of it answers), and inside a handle's brackets (`eff[Ordered Counter]`; `use`
     of it binds the claims). A handler dependency may ask for claims as a
     function does.
   * **Matching**: a binding satisfies a requirement when it makes every

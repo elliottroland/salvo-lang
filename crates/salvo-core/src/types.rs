@@ -1048,7 +1048,16 @@ fn named_args_fit(a: &[Ty], b: &[Ty]) -> bool {
     a[..common]
         .iter()
         .zip(&b[..common])
-        .all(|(x, y)| compatible(x, y))
+        .all(|(x, y)| compatible(x, y) || claims_drop(x, y))
+}
+
+/// [effect-claim] A handle with more claims fits where one with fewer is
+/// wanted inside a type argument too (`List<eff[Ordered R]>` for
+/// `List<eff[R]>`): the claims are the one qualifier of an `Addr`, erased,
+/// and only ever dropped this way, never added.
+fn claims_drop(x: &Ty, y: &Ty) -> bool {
+    let addr = |t: &Ty| matches!(t.strip_quals(), Ty::Named { name, args } if name == "Addr" && args.len() == 1);
+    addr(x) && addr(y) && x.strip_quals() == y.strip_quals() && is_subtype(x, y)
 }
 
 /// Whether a value carrying `have` satisfies an expected qualifier `want`.

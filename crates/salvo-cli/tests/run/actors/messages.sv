@@ -9,7 +9,7 @@ actor effect Inventory {
     send fn restock(qty: Int)
 }
 
-handler Store() for Inventory {
+handler Store() for Ordered Inventory {
     mailbox { capacity: 8 }
     state { stock: Int = 10 }
     send fn reserve(sku: Str, qty: Int, out: Reply<Str>) => !sku, !out {
@@ -64,7 +64,7 @@ actor effect Inventory {
     send fn restock(qty: Int)
 }
 
-handler Store() for Inventory {
+handler Store() for Ordered Inventory {
     mailbox { capacity: 8 }
     state { stock: Int = 10 }
     send fn reserve(sku: Str, qty: Int, out: Reply<Str>) => !sku, !out {

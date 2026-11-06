@@ -9,7 +9,7 @@ actor effect Resizer {
     send fn resize(name: Str, w: Int, out: Reply<Str>) => !name, !out
 }
 
-handler Resizing(who: Str) for Resizer {
+handler Resizing(who: Str) for Ordered Resizer {
     mailbox { capacity: 8 }
     send fn resize(name: Str, w: Int, out: Reply<Str>) => !out {
         out.send("${who} resized ${name} to ${w}")
@@ -23,11 +23,11 @@ handler RoundRobin(members: List<eff[Resizer]>) for Resizer {
     state {
         next: Int = 0
     }
-    send fn resize(name: Str, w: Int, out: Reply<Str>) => !out {
+    send fn receive(m: Message<Resizer>) => !m {
         let i = next % size(members)
         next = next + 1
         let target = copy(get(members, i) ?: unreachable!())
-        target.resize(name, w, out)
+        forward(target, m)
     }
 }
 
@@ -54,7 +54,7 @@ fn main() [use, spawn] {
 //--- an_effect_typed_generic
 actor effect Ping { send fn ping(n: Int) => !n
     send fn count(out: Reply<Int>) => !out }
-handler Pinging() [Console] for Ping {
+handler Pinging() [Console] for Ordered Ping {
     mailbox { capacity: 4 }
     state {
         seen: Int = 0
@@ -71,7 +71,7 @@ actor effect Reg<E> {
     send fn members(out: Reply<List<eff[E]>>) => !out
 }
 
-handler Registering<E>() for Reg<E> {
+handler Registering<E>() for Ordered Reg<E> {
     mailbox { capacity: 8 }
     state {
         all: Mut List<eff[E]> = Mut List()
@@ -127,7 +127,7 @@ actor effect Worker {
     send fn work(out: Reply<Str>) => !out
 }
 
-handler Registering() for Registry {
+handler Registering() for Ordered Registry {
     mailbox { capacity: 8 }
     state {
         n: Int = 0
@@ -138,7 +138,7 @@ handler Registering() for Registry {
 
 // Registers itself as it starts: `init` runs first, and `self@Worker` is
 // this actor's own address as its Worker face.
-handler Working(registry: eff[Registry], who: Str) for Worker {
+handler Working(registry: eff[Registry], who: Str) for Ordered Worker {
     mailbox { capacity: 8 }
     state {
         started: Int = 0
@@ -200,12 +200,12 @@ actor effect Ping {
     send fn ping(out: Reply<Str>) => !out
 }
 
-handler Pinging(who: Str) for Ping {
+handler Pinging(who: Str) for Ordered Ping {
     mailbox { capacity: 8 }
     send fn ping(out: Reply<Str>) => !out { out.send("pong from ${who}") }
 }
 
-handler Noticing(label: Str) [Console] for ActorGroupWatcher<Ping> {
+handler Noticing(label: Str) [Console] for Ordered ActorGroupWatcher<Ping> {
     mailbox { capacity: 16 }
     send fn joined(member: eff[Ping]) => !member { println("${label}: + a Ping (local: ${eq(node_of(member), this_node())})") }
     send fn left(member: eff[Ping]) => !member { println("${label}: - a Ping") }
@@ -215,7 +215,7 @@ actor effect Boot {
     send fn boot(done: Reply<eff[ActorGroup<Ping>]>) => !done
 }
 
-handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet]) [Transport, spawn] for Boot {
+handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet]) [Transport, spawn] for Ordered Boot {
     mailbox { capacity: 1 }
     send fn boot(done: Reply<eff[ActorGroup<Ping>]>) => !done {
         let p = pool(1)
@@ -268,7 +268,7 @@ actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
 
-handler Counting() for Counter {
+handler Counting() for Ordered Counter {
     mailbox { capacity: 8 }
     state {
         sum: Int = 0
@@ -283,7 +283,7 @@ actor effect Report {
 
 // Two private members: `twice` is reached by a self-send, `reported` is a
 // continuation target with two captures.
-handler Reporting(counter: eff[Counter]) for Report {
+handler Reporting(counter: eff[Counter]) for Ordered Report {
     mailbox { capacity: 8 }
     state {
         asked: Int = 0
@@ -302,7 +302,7 @@ handler Reporting(counter: eff[Counter]) for Report {
 
 // The same shape on a dependent handler (`[Console]`), which dispatches
 // through the fused form.
-handler LoudReporting(counter: eff[Counter]) [Console] for Report {
+handler LoudReporting(counter: eff[Counter]) [Console] for Ordered Report {
     mailbox { capacity: 8 }
     send fn report(label: Str, out: Reply<Str>) {
         note@self(copy(label))
@@ -342,7 +342,7 @@ actor effect Sequencer {
     send fn next(out: Reply<Str>) => !out
 }
 
-handler Sequencing(who: Str) for Sequencer {
+handler Sequencing(who: Str) for Ordered Sequencer {
     mailbox { capacity: 8 }
     state {
         n: Int = 0
@@ -357,7 +357,7 @@ actor effect Boot {
     send fn boot(done: Reply<eff[Sequencer]>) => !done
 }
 
-handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet]) [Transport, spawn] for Boot {
+handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet]) [Transport, spawn] for Ordered Boot {
     mailbox { capacity: 1 }
     send fn boot(done: Reply<eff[Sequencer]>) => !done {
         let p = pool(1)
@@ -418,7 +418,7 @@ actor effect Inventory {
 
 fn key(m: Message<Inventory>) [] -> Long? => m by shard
 
-handler Stocking(shard: Str) for Inventory {
+handler Stocking(shard: Str) for Ordered Inventory {
     mailbox { capacity: 32 }
     state {
         served: Int = 0
@@ -465,11 +465,11 @@ import std.time
 actor effect Ping { send fn ping(out: Reply<Str>) => !out }
 actor effect Admin { send fn stop() }
 
-handler Pinging(who: Str) for Ping {
+handler Pinging(who: Str) for Ordered Ping {
     mailbox { capacity: 4 }
     send fn ping(out: Reply<Str>) => !out { out.send("pong from ${who}") }
 }
-handler TwoFaced(who: Str) for Ping, Admin {
+handler TwoFaced(who: Str) for Ordered Ping, Ordered Admin {
     mailbox { capacity: 4 }
     send fn ping(out: Reply<Str>) => !out { out.send("pong from ${who}") }
     send fn stop() {}
@@ -542,7 +542,7 @@ actor effect Sleeper {
     send fn woke(started: Tick, out: Reply<Str>, f: Fired) => !started, !out, !f
 }
 
-handler Napping() [Timer, Ticker] for Sleeper {
+handler Napping() [Timer, Ticker] for Ordered Sleeper {
     mailbox { capacity: 8 }
 
     send fn nap(wait: Duration, out: Reply<Str>) {
@@ -588,7 +588,7 @@ actor effect Sleeper {
     send fn woke(done: Reply<Str>, f: Fired) => !done, !f
 }
 
-handler Napping() [Timer] for Sleeper {
+handler Napping() [Timer] for Ordered Sleeper {
     mailbox { capacity: 8 }
 
     send fn nap(wait: Duration, done: Reply<Str>) => !wait, !done {

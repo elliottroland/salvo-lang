@@ -8,7 +8,7 @@
 //
 // ```no-check
 // // In std.time.
-// export handler DefaultTimer() for Timer {
+// export handler DefaultTimer() for Ordered Timer {
 //     mailbox { capacity: 64 }
 //
 //     send fn after(wait: Duration, done: Reply<Fired>) => !wait, !done {
@@ -164,7 +164,7 @@ actor effect Wheel {
 
 // The wheel's one activation: answers what is due, sleeps until the
 // earliest deadline left, and returns once none is.
-handler Wheeling() for Wheel {
+handler Wheeling() for Ordered Wheel {
     mailbox { capacity: 2 }
 
     send fn run() {

@@ -896,6 +896,16 @@ blocker:
   lambda body cannot call a callee asking for a claim even where the scope
   around it could; a `with` clause item's claims are not checked against the
   dependency it satisfies (a scope-resolved dependency's are).
+- **Qualifier implication, second stage** (decided shape, ROUTES.md §12):
+  implication through a slot's type, `qualifier Idx(c: NonEmpty C) for Int`
+  — a claim on the `Int` implying one on the slot's value — with dependent
+  stripping both ways ([qual-depend]): mutating `c` drops the implied fact,
+  and dropping `NonEmpty` from `c` drops the `Idx`. The same-subject stage
+  is built ([qual-imply], 2026-11-05). Recorded gaps of that stage: a
+  handle's claims are covariant inside a type argument (`claims_drop`), so
+  a `Mut List<eff[Ordered R]>` passed as `Mut List<eff[R]>` may be given a
+  bare handle that is later read back as `Ordered`; and a constructor `as
+  Q` is trusted for what `Q` implies, as for `Q`.
 - **⑦ picks**: consistent hashing for `Sharded` (today `key mod n` over the
   ordered view, so a join reshuffles most keys); the `ShardKeyOrdered` claim
   for a program relying on `Sharded`'s per-key ordering is piece (d) of

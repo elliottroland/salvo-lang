@@ -6,7 +6,7 @@ actor effect Napper {
     send fn woke(out: Reply<Tick>, f: Fired) => !out, !f
 }
 
-handler Napping(timer: eff[Timer]) for Napper {
+handler Napping(timer: eff[Timer]) for Ordered Napper {
     mailbox { capacity: 4 }
 
     send fn nap(wait: Duration, out: Reply<Tick>) {

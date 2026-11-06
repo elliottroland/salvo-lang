@@ -36,7 +36,7 @@ actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
 
-handler Counting() for Counter {
+handler Counting() for Ordered Counter {
     mailbox { capacity: 4 }
     state {
         sum: Int = 0
@@ -54,7 +54,7 @@ actor effect Ledger {
     send fn reported(out: Reply<Int>, total: Int) => !out, !total
 }
 
-handler Bookkeeping() [Counter] for Ledger {
+handler Bookkeeping() [Counter] for Ordered Ledger {
     mailbox { capacity: 4 }
     send fn report(out: Reply<Int>) {
         total()
@@ -119,7 +119,7 @@ actor effect Reporter {
     send fn report(what: Str, done: Reply<Int>) => !what, !done
 }
 
-handler Reporting() [Logger] for Reporter {
+handler Reporting() [Logger] for Ordered Reporter {
     mailbox { capacity: 4 }
 
     send fn report(what: Str, done: Reply<Int>) {

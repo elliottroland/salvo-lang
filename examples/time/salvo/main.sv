@@ -71,7 +71,7 @@ actor effect Session {
     => !started, !budget, !out, !f
 }
 
-handler Sessions() [Timer] for Session {
+handler Sessions() [Timer] for Ordered Session {
     mailbox { capacity: 8 }
 
     send fn open(started: Tick, budget: Duration, out: Reply<Str>) {
@@ -119,7 +119,7 @@ actor effect Sleeper {
     send fn woke(started: Tick, out: Reply<Str>, f: Fired) => !started, !out, !f
 }
 
-handler Napping() [Timer, Ticker] for Sleeper {
+handler Napping() [Timer, Ticker] for Ordered Sleeper {
     mailbox { capacity: 8 }
 
     send fn nap(wait: Duration, out: Reply<Str>) {

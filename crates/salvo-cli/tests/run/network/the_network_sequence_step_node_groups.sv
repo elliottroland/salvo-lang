@@ -6,7 +6,7 @@
 import std.net
 import std.time
 
-handler Announcing(label: Str) [Console] for NodeGroupWatcher {
+handler Announcing(label: Str) [Console] for Ordered NodeGroupWatcher {
     mailbox { capacity: 32 }
     send fn joined(n: Node) => !n { println("${label}: + ${to_str(n.at)}") }
     send fn left(n: Node, why: Str) => !n, !why { println("${label}: - ${to_str(n.at)} (${why})") }
@@ -18,7 +18,7 @@ actor effect Boot {
 
 // Brings up node B from a pool of its own: transport, wire, listener, and its
 // group over the same endpoint list.
-handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet], gossip: Bool) [Transport, spawn] for Boot {
+handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet], gossip: Bool) [Transport, spawn] for Ordered Boot {
     mailbox { capacity: 1 }
     send fn boot(done: Reply<eff[NodeGroup]>) => !done {
         let p = pool(1)

@@ -309,7 +309,7 @@ fn claim_only_names(program: &Program) -> HashSet<(&ModulePath, &str)> {
                 _ => continue,
             };
             let claim = matches!(item, Item::Qualifier(q) if matches!(&q.of, Type::Named { qualifiers, base }
-                if qualifiers.is_empty() && base.args.is_empty() && base.name.name == salvo_syntax::known::CLAIM_SUBJECT));
+                if { let _ = qualifiers; base.args.is_empty() && base.name.name == salvo_syntax::known::CLAIM_SUBJECT }));
             if claim {
                 claims.insert((&u.file.module, name));
             } else {

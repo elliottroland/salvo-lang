@@ -9,7 +9,7 @@ actor effect Counter {
     send fn total(out: Reply<Int>) => !out
 }
 
-handler Counting() for Counter {
+handler Counting() for Ordered Counter {
     mailbox { capacity: 8 }
 
     state {
@@ -48,7 +48,7 @@ actor effect Oracle {
     send fn divine(out: Reply<Int>) => !out
 }
 
-handler Delphi() for Oracle {
+handler Delphi() for Ordered Oracle {
     mailbox { capacity: 4 }
     state {
         n: Int = 0
@@ -106,7 +106,7 @@ actor effect Counter {
     send fn report(out: Reply<Str>) => !out
 }
 
-handler Recording() for Log {
+handler Recording() for Ordered Log {
     mailbox { capacity: 1 }
 
     state {
@@ -122,7 +122,7 @@ handler Recording() for Log {
     }
 }
 
-handler Summing() for Tally {
+handler Summing() for Ordered Tally {
     mailbox { capacity: 8 }
 
     state {
@@ -138,7 +138,7 @@ handler Summing() for Tally {
     }
 }
 
-handler Counting() [Log, Tally] for Counter {
+handler Counting() [Log, Tally] for Ordered Counter {
     mailbox { capacity: 8 }
 
     send fn bump(n: Int) {
@@ -215,7 +215,7 @@ actor effect Drawer {
     send fn draw(out: Reply<Int>) => !out
 }
 
-handler Drawing() [Random] for Drawer {
+handler Drawing() [Random] for Ordered Drawer {
     mailbox { capacity: 4 }
 
     send fn draw(out: Reply<Int>) {
@@ -309,7 +309,7 @@ actor effect Drawer {
     send fn draw(out: Reply<Int>) => !out
 }
 
-handler Drawing() [Random] for Drawer {
+handler Drawing() [Random] for Ordered Drawer {
     mailbox { capacity: 4 }
 
     send fn draw(out: Reply<Int>) {
@@ -344,7 +344,7 @@ actor effect Oracle {
     send fn divine(out: Reply<Int>) => !out
 }
 
-handler Delphi() for Oracle {
+handler Delphi() for Ordered Oracle {
     mailbox { capacity: 4 }
     state {
         n: Int = 0

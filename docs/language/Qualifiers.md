@@ -590,6 +590,42 @@ the ownership analysis treats a value. The rule of thumb is that a
 [Linear types](Linear-Types.md), [Deductions and ownership](Deductions-and-Ownership.md)
 and [Mutable handles](Mutable-Handles.md).
 
+## One qualifier implying another
+
+A qualifier's `for` type may carry qualifiers of its own, and then the
+qualifier **implies** them: a `Positive` is a `NonZero Int` that is also
+greater than zero.
+
+```salvo
+qualifier NonZero for Int {
+    fn qualifies(x: Int) -> Bool { return x != 0 }
+}
+
+qualifier Positive for NonZero Int {
+    fn qualifies(x: NonZero Int) -> Bool { return x > 0 }
+}
+
+fn inverse(x: NonZero Int) -> Int => x { return 100 / x }
+fn half(x: Positive Int) -> Int => x { return inverse(x) }   // a Positive is NonZero
+```
+
+- **Writing the short form is enough.** `Positive Int` means `Positive
+  NonZero Int`, transitively; hover shows the whole set.
+- **The test proves the implied qualifiers.** `x is Positive` tests
+  `NonZero` first, then calls `Positive`'s `qualifies` with a value that is
+  already `NonZero`, so a `true` means both hold. Whatever establishes the
+  claim another way (a constructor `as Positive`, a `+Positive` clause, a
+  refinement) establishes what it implies, trusted as it always is.
+- **Dropping an implied qualifier drops what implies it.** A call that
+  takes `NonZero` away (`=> x: -NonZero`) leaves no `Positive` behind.
+- **A slot may appear in the `for` type**: `qualifier Small(n: Int) for
+  AtMost(n) Int` makes a `Small(10)` an `AtMost(10)`.
+- Implication runs one way: a cycle is an error. It also stays within a
+  family: a state qualifier cannot imply a provenance one, nor the reverse.
+  A provenance qualifier implies another as its author says, with nothing
+  to test: `Ordered` implies `ShardKeyOrdered`
+  ([Effects and handlers](Effects-and-Handlers.md#claims-ordered-e-and-for-ordered-e)).
+
 ## Dependent qualifiers
 
 A claim can be about a value's relationship **to another value**: that this

@@ -38,7 +38,7 @@ actor effect Lookup {
 
 // ------------------------------------------------------------- members ----
 
-handler Sequencing(who: Str) for Sequencer {
+handler Sequencing(who: Str) for Ordered Sequencer {
     mailbox { capacity: 16 }
     state {
         n: Int = 0
@@ -49,7 +49,7 @@ handler Sequencing(who: Str) for Sequencer {
     }
 }
 
-handler Stocking(shard: Str) for Inventory {
+handler Stocking(shard: Str) for Ordered Inventory {
     mailbox { capacity: 32 }
     state {
         served: Int = 0
@@ -61,7 +61,7 @@ handler Stocking(shard: Str) for Inventory {
 }
 
 // One index holds a slice of the corpus and answers how often a word occurs.
-handler Indexing(words: List<Str>) for Search {
+handler Indexing(words: List<Str>) for Ordered Search {
     mailbox { capacity: 16 }
     send fn query(word: Str, out: Reply<Int>) => !word, !out {
         let n = 0
@@ -75,7 +75,7 @@ handler Indexing(words: List<Str>) for Search {
 }
 
 // A replica that answers at once…
-handler Looking(who: Str) for Lookup {
+handler Looking(who: Str) for Ordered Lookup {
     mailbox { capacity: 16 }
     send fn lookup(key: Str, out: Reply<Str>) => !key, !out {
         out.send("${key} from ${who}")
@@ -86,7 +86,7 @@ handler Looking(who: Str) for Lookup {
 // when it fires. `replyto` mints the continuation onto its own `answer`, a
 // **private** send member — no face declares it, so nothing outside this
 // handler can send to it, and its clause is written out like a free send fn's.
-handler SlowLooking(who: Str, timer: eff[Timer]) for Lookup {
+handler SlowLooking(who: Str, timer: eff[Timer]) for Ordered Lookup {
     mailbox { capacity: 16 }
     send fn lookup(key: Str, out: Reply<Str>) => !key, !out {
         timer.after(millis(150), replyto answer(key, out))
@@ -122,7 +122,7 @@ actor effect Gather {
 // partial answer is in. A linear value in state lives in a container — the
 // queue owes, `remove_first` moves one obligation out — which is the shape
 // `examples/actors/` explains.
-handler Gathering() for Gather {
+handler Gathering() for Ordered Gather {
     mailbox { capacity: 16 }
     state {
         pending: Mut Deque<Reply<Int>> = mut_deque_of()
@@ -166,7 +166,7 @@ actor effect Race {
     send fn race(key: Str, members: List<eff[Lookup]>, out: Reply<Str>) => !key, !members, !out
 }
 
-handler Racing() for Race {
+handler Racing() for Ordered Race {
     mailbox { capacity: 16 }
     state {
         pending: Mut Deque<Reply<Str>> = mut_deque_of()
@@ -268,7 +268,7 @@ actor effect Boot {
     send fn stop(done: Reply<Bool>) => !done
 }
 
-handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet]) [Transport, spawn] for Boot {
+handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet]) [Transport, spawn] for Ordered Boot {
     mailbox { capacity: 2 }
     state {
         nodes: eff[NodeGroup]? = None

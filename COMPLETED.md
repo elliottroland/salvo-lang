@@ -149,6 +149,50 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-05 — A qualifier implies the qualifiers on its `for` type (user decisions, [qual-imply] [effect-claim], ROUTES.md §12–14)
+
+- **Decided** (user, 2026-11-05): implication is P2 — the implied
+  qualifiers sit on the `for` type (`qualifier Positive for NonZero Int`,
+  `provenance qualifier Ordered for ShardKeyOrdered Effect`); no bundles;
+  the short form `Positive Int` is accepted; a `for` type may name the
+  qualifier's slots; same-subject first.
+- **Built**: closure in `lower_quals` (`close_quals`, over
+  `direct_implied`, cached per key and lowered in the qualifier's own file,
+  slot references substituted from the implying claim's last arguments) and
+  in `lower_claims`; `is Q` expanded to test the implied qualifiers first,
+  in order, skipping what the subject carries (`expand_implied_tests`);
+  removal sets widened by implication (`widen_removal`); `qual_applies` and
+  the `qualifies` slot binding read the `for` type's base;
+  `qual-imply:cycle` and `qual-imply:family` at the declaration. std's
+  `Ordered` implies `ShardKeyOrdered`.
+- **The sweep** (§14.9, moved here from (d)): every single-instance handler
+  of an actor effect in `lib/std` (doc examples included), `examples/`,
+  `docs/language/` and the run data writes `for Ordered E` (some 110 handler
+  heads, by script: an actor face, no `receive`, no interception, not a
+  platform handler, not a hand-written router). `[Ordered E]` is written only where order is plainly
+  relied on, which no existing function was; the docs' and the claims
+  tests' `tally` are the examples. The run data's `RoundRobin` became a
+  `receive` router.
+- **Sites left for the user** (§14.9, not guessed):
+  - `Front(back) for Inventory` (std.core.actor's `forward` doc, the run
+    data's `messages.sv`, Concurrency.md): a `receive` handler forwarding to
+    one `back`; it gives whatever `back` gives, which a claim cannot say.
+  - the cluster example's `Scattering` and `Hedging`, hand-written routers
+    over many members: bare.
+  - the checker test data (`crates/salvo-core/tests/check/**`) and inline
+    Rust test sources: not swept — their handlers test other rules.
+  - plain (non-actor) effects: claims allowed, none written (§14.10).
+- **Judgment calls**: `qualifies` may still take a type wider than the
+  `for` type — the test order is what proves the implied qualifiers, so the
+  parameter rule did not need tightening; a `+Q` that keeps `Q` while the
+  same clause drops what `Q` implies re-establishes the implied qualifier
+  (closure) rather than being refused; a handle with more claims fits one
+  with fewer inside a type argument too (`List<eff[Ordered R]>` as
+  `List<eff[R]>`, `claims_drop`), which is covariance through a `Mut`
+  container (ROADMAP records it).
+- 724 tests under nextest (`check/qualifiers/implication.sv` new, in the qualifiers area), warm run
+  2m08.
+
 ### 2026-11-05 — Delivery guarantees are claims on an effect's binding (user decisions, [effect-claim], ROUTES.md A2/§6.2/§7–9/§14)
 
 - **Decided** (user, 2026-11-05): `any E` is gone. A delivery guarantee is a

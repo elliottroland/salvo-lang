@@ -93,7 +93,7 @@ handler Boxing() for Box {
 actor effect Bin {
     send fn go(v: A | B | None, done: Reply<Int>) => !v, !done
 }
-handler Binning() for Bin {
+handler Binning() for Ordered Bin {
     mailbox { capacity: 4 }
     send fn go(v: A | B | None, done: Reply<Int>) {
         if v is A {
