@@ -1638,6 +1638,10 @@ deliberately cut, in the order the decisions put it:
 - **Property testing** (TF-5, redesigned 2026-11-05): the working document is
   **PROP_TEST.md**, which holds the user's decisions so far and the
   questions still open.
+  - Generators not offered yet (`std.test.random`): `Set`, `Map`, tuples
+    (two implicits of one name), `KeyOf`, and `constant(v)` (blocked by
+    the Kotlin generic `copy` defect below). A derived struct whose field is
+    `InRange`-qualified has no zero-argument generator to draw it with.
   - TF-5's `?generate` overloaded by return type does not work: R-2
     [fn-overload-return] refuses `-> Int` beside `-> Small Int`. Generators
     are values instead, `Gen<T>`, picked by their type argument.

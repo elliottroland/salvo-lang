@@ -618,6 +618,12 @@ pub const TEST_MODULE: &str = salvo_syntax::known::TEST_MODULE;
 /// (2026-09-26, when `throw` left `std.core`).
 pub const THROW_MODULE: &str = salvo_syntax::known::THROW_MODULE;
 
+/// [test-implicit-import] [prop-gen] Property testing's generators,
+/// `std.test.random` (the segment after `std.test`): implicitly available in
+/// a test annex too, since a property's parameters need them (user decision
+/// 2026-11-05).
+pub const TEST_RANDOM_MODULE: &str = "random";
+
 pub fn resolve(program: &Program) -> Resolution<'_> {
     resolve_given(program, &[])
 }
@@ -1274,8 +1280,8 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
             // an assertion is a function that throws, so a test file that had
             // to import `throw` would be importing something it never wrote
             // (2026-09-26, with `throw` leaving `std.core`).
-            for implicit in [TEST_MODULE, THROW_MODULE] {
-                let path = ModulePath::std(&[implicit]);
+            for implicit in [&[TEST_MODULE][..], &[THROW_MODULE][..], &[TEST_MODULE, TEST_RANDOM_MODULE][..]] {
+                let path = ModulePath::std(implicit);
                 if let Some((module, items)) = by_module.get_key_value(&path) {
                     add_items(
                         &mut scope,

@@ -632,7 +632,7 @@ An actor property (later) drops `trapped_by` and adds `spawn`.
 - [x] C1: Rust `Send + Sync` defect; named-`[spawn]`-fn hole
 - [x] C2: constant slots as parameters (9.3), negative constants, [fn-by]
   unification (6.2)
-- [ ] C3: `std.test.random` (Rng, Gen, combinators, std's gens, derive)
+- [x] C3: `std.test.random` (Rng, Gen, combinators, std's gens, derive)
 - [ ] C4: driver, `check`, `test property`, harness, report, CLI, `seed=`
   rewrite
 - [ ] C5: retire this file
@@ -654,3 +654,11 @@ An actor property (later) drops `trapped_by` and adds `spawn`.
   std/args.sv). `[for arm in X.arms]` walks a union's arms, with
   `arm.kind`, `arm.type` and `[arm.type](v)` / `[arm.type] { … }` to build
   one.
+- C3 is done. Agent's calls are listed in COMPLETED (2026-11-05,
+  `std.test.random`): two [fn-overload-return] resolution changes; cutting
+  `constant`, `Set`, `Map`, tuples and `KeyOf`; first-arm bias with depth.
+  - Rng API: `live_rng(seed)`, `replay_rng(draws)`, `draws_of(rng)`, `long`,
+    `below`, `choose`, `int_in`, `bool`, `double`. The fields are `bits`,
+    `live`, `stream`, `pos`, `log` and `depth`.
+  - After an edit to std, `cargo build` re-embeds `lib/`. Without it,
+    `salvo` runs the old std.

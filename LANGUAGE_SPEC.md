@@ -3665,6 +3665,17 @@ Conventions:
     one does (R-1 (a)). A call its parameters already decide is decided the
     same way whatever its expected type, so an annotation never moves a call
     to another overload.
+  * **Implicit parameters do not separate alternatives** (2026-11-05,
+    property testing's generators, agent's call to confirm): a call writes
+    none, so `gen() -> Gen<Int>` and `gen<T>(?gen: () -> Gen<T>) ->
+    Gen<List<T>>` are one alternative, which the result decides between.
+    Before, the two were unrankable and every call was ambiguous.
+  * **Several fit, one concrete** (same day, same status): when the expected
+    type fits several returns and exactly one of them mentions no type
+    variable, that one wins — the concrete-beats-generic rule of
+    [fn-overload-rank] applied to results, so a declared `gen() ->
+    Gen<Shape>` beats std's `gen<T>() -> Gen<T?>` at a `Gen<Shape>` whose
+    `Shape` is an optional union.
   * **The expected type** is the one a call already receives — a `let`
     annotation, a `return`, a parameter, a struct field, an assignment, an
     implicit's slot — plus, for this choice only (never for coercion), the
@@ -12554,6 +12565,56 @@ replaced the working document TESTING.md).
   `expect_eq` and `Failure` are in scope without an import line, at the
   bulk-import rung [mod-import-module] — so a file's own `expect` silently wins
   over the standard one.
+  * **And of `std.test.random`** (2026-11-05, with property tests): `Gen`,
+    `Rng`, `draw` and std's generators are in scope too, and `by random`
+    names the module's derive. A file that also imports `std.random` writes
+    `by test.random`, as [mod-suffix] asks of any suffix two visible
+    modules share (user decision 2026-11-05: explicit rather than a special
+    case).
+* [prop-rng] **A property's randomness is a pure `Rng` value**
+  (`std.test.random`, user decisions 2026-11-05, the property-test record
+  decisions 4–5): live, splitmix64 over a `Long` seed in Salvo over
+  [op-wrap] and [op-bits], so a seed gives the same draws on every backend;
+  replaying, the given draws in order and zeros past their end. Every draw
+  is recorded (`draws_of`), which is what a failing run is replayed and
+  shrunk from. Each primitive draw maps a **zero draw to the simplest
+  answer** — `below`/`choose`/`int_in` to their low end, `bool` to `false`,
+  `double` to `0.0` — so shrinking draws toward zero shrinks values toward
+  simple ones. Test-only for now (round 3): it moves to `std.random` if
+  programs ever want it.
+* [prop-gen] **A generator is a value, `Gen<T> { run: (rng: Mut Rng) -> T
+  }`, found by its type argument** (user decision 2026-11-05, the
+  property-test record decision 2): std's are all named `gen` and differ
+  only in what they make, chosen by the expected type [fn-overload-return];
+  `Gen` is invariant in `T`, so `Gen<Int>` and `Gen<InRange(1, 6) Int>` are
+  unrelated and a narrower generator never fills a wider position. A
+  generator draws from the `Rng` and nothing else: its fn type declares no
+  effects.
+  * **std's**: `Int`, `Long`, `Double` (with `NaN`, `±Infinity` and `-0.0`
+    among the edge cases, user decision), `Bool`, `Byte`, `Char`, `Str`,
+    `Bytes`, `List<T>`, `T?`, `NonEmpty List<T>`, and the qualified
+    `gen(lo, hi) -> Gen<InRange(lo, hi) Int>` and `gen(list) ->
+    Gen<Idx(list) Int>`, which take the qualifier's slots as arguments
+    [qual-const] (decisions 11–12). Numbers take an edge value one draw in
+    eight; collections continue four times in five, less deep down
+    (`Rng.depth`), at most 64 elements.
+  * **Combinators**: `map`, `filter_map` (a draw `f` refuses is drawn
+    again; 100 refusals in a row trap), `one_of`, `weighted`, `list_of`;
+    `draw(rng)` runs the generator of the type wanted where it is called.
+    A combinator consumes the generators it is given: copying a generic
+    `Gen<T>` has no plan on Kotlin (ROADMAP §9), so `constant(v)` is not
+    offered (agent's call, to confirm).
+  * Not offered yet: `Set`, `Map`, tuples (a tuple's generator would need two
+    implicits of one name), `KeyOf`.
+* [prop-derive] **`fn gen() -> Gen<T> by random` derives a generator**, in a
+  test file, for a struct (each field by `draw` at its type, in order) or a
+  named union (an arm chosen evenly, then drawn at its type; `None` for a
+  `None` arm). Nothing is written on the type itself (user decision
+  2026-11-05, round 1 decision 3). The stamp finds `T` in the return type
+  [fn-by]. A recursive union stays finite by choosing its **first** arm
+  more often the deeper it is nested, and always from depth 8, so its base
+  case goes first (agent's call, to confirm: the halving per level the
+  record proposed needs to know which arms recurse).
 * [test-body] A test body has an entry point's powers: `use` is available with
   nothing declared, exactly as in `main() [use]`, which is how a test registers
   a fake (`use MemFs()`). Everything else about the body is the language

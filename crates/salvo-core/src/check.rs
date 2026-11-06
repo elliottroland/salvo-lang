@@ -9313,7 +9313,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             let d = viable[i].decl;
             let effect_generics = viable[i].effect.map(|e| e.generics.as_slice()).unwrap_or_default();
             let generics: Vec<&str> = d.generics.iter().chain(effect_generics).map(|g| g.name.as_str()).collect();
-            let sig = crate::refine::param_type_signature(&d.params, &generics);
+            // A call writes no implicit, so implicits do not tell two
+            // candidates apart: `gen() -> Gen<Int>` and `gen<T>(?gen: …) ->
+            // Gen<List<T>>` are one alternative, which the result chooses
+            // between (2026-11-05, property testing's generators).
+            let written: Vec<ast::Param> = d.params.iter().filter(|p| !p.implicit).cloned().collect();
+            let sig = crate::refine::param_type_signature(&written, &generics);
             match classes.iter_mut().find(|(s, _)| *s == sig) {
                 Some((_, members)) => members.push(i),
                 None => classes.push((sig, vec![i])),
@@ -9363,6 +9368,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .collect();
             if fits.len() == 1 {
                 return Ok(fits[0]);
+            }
+            // [fn-overload-rank] Several fit: the one concrete result wins, as
+            // a concrete signature beats a generic one — a declared
+            // `gen() -> Gen<Shape>` over std's `gen<T>() -> Gen<T?>` for a
+            // `Gen<Shape>` position, since `T?` is a `Shape` with `T` the
+            // arms (2026-11-05, property testing's generators).
+            if fits.len() > 1 {
+                let specific: Vec<usize> = class
+                    .iter()
+                    .zip(&rets)
+                    .filter(|(i, r)| fits.contains(i) && !crate::types::mentions_var(r) && !ty_mentions_unknown(r))
+                    .map(|(i, _)| *i)
+                    .collect();
+                if specific.len() == 1 {
+                    return Ok(specific[0]);
+                }
             }
         }
         // [type-unknown-lenient] One mistake, one diagnostic.

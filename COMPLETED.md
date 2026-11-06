@@ -149,6 +149,48 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-05 — `std.test.random`: generators for property tests (user decisions, [prop-rng] [prop-gen] [prop-derive])
+
+The engine's first half, per PROP_TEST.md decisions 2–5, 8, 11–12 and 17,
+and §9.4–9.5.
+
+- **What was built:**
+  - `Rng`: splitmix64 in Salvo, with a replay mode and a draw log.
+  - `Gen<T>` and `draw`.
+  - Combinators: `map`, `filter_map`, `one_of`, `weighted`, `list_of`.
+  - std's `gen` for these types: `Int`, `Long`, `Double` (with `NaN` and
+    `±∞`), `Bool`, `Byte`, `Char`, `Str`, `Bytes`, `List<T>`, `T?`,
+    `NonEmpty List<T>`, `InRange(lo, hi) Int` and `Idx(list) Int`.
+  - The `by random` derive for structs and named unions.
+  - The module is implicitly visible in every test annex.
+  - Tested in `lib/std/test/random.test.sv` (eight tests). A probe printed
+    identical draws on Rust and Kotlin.
+- **Two resolution changes the design needed** (agent's calls, to confirm;
+  [fn-overload-return]):
+  - Implicit parameters no longer separate return-type alternatives. Before,
+    `gen()` beside `gen<T>(?gen)` was unrankable, so every call was
+    ambiguous.
+  - When the expected type fits several results and exactly one is
+    concrete, that one wins. A declared `Gen<Shape>` beats std's `Gen<T?>`.
+- **Cut, and why** (agent's calls, to confirm):
+  - `constant(v)`: Kotlin can't `copy` a generic `T`.
+  - `Set`, `Map`, tuples and `KeyOf` generators: a tuple would need two
+    implicits of one name. These are recorded in ROADMAP §9.
+  - A recursive union keeps to its first arm more often with depth, instead
+    of halving the weight of its recursive arms: the derive can't tell which
+    arms recurse.
+  - `Char` keeps to the BMP (Kotlin's `Char`). `Str` reaches beyond it,
+    through an emoji.
+- **What fell out:**
+  - `state` is a keyword, so it can't be a field name.
+  - A comptime template must write `draw@random` / `choose@random`
+    ([comptime-hygiene]).
+  - A combinator consumes its generators.
+  - Qualified generators compose into plain ones through `map(g, (n) -> n +
+    0)`, because `Gen` is invariant.
+
+**724 tests** (std's suite runs as one test).
+
 ### 2026-11-05 — A value slot filled by a parameter; negative constants; `by` stamps where the template's parameter stands (user decisions, [qual-const] [fn-by])
 
 Two language pieces property testing's generators need (PROP_TEST.md,
