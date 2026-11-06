@@ -545,7 +545,7 @@ it is a proxy); [`node_of(addr)`](../../lib/std/net.sv#fn-node_of) names the
 host; and two `eff[E]` compare with
 [`eq`](../../lib/std/core/actor.sv#fn-eq).
 
-### Messages as values: `Message<E>`, `receive` and `forward`
+### Messages as values: `Message<E>`, `sent` and `send`
 
 A `send fn` is shorthand for a message. `reserve(sku, 1, out)` sends the
 message `Inventory.Reserve { sku: sku, qty: 1, out: out }`, and
@@ -579,21 +579,33 @@ with one member that takes every message of the effect:
 handler Front(back: eff[Inventory]) for Inventory {
     mailbox { capacity: 8 }
     state { seen: Int = 0 }
-    send fn receive(m: Message<Inventory>) => !m {
+    send fn sent(m: Message<Inventory>) => !m {
         seen = seen + 1
-        forward(back, m)                  // the message, sent on as it came
+        send(back, m)                  // the message, sent on as it came
     }
 }
 ```
 
-- **`receive` is all or nothing**: a handler with it writes none of the
+- **The words go together**: `send fn` declares a message, `restock(2)` and
+  `send(to, m)` send one, and `sent` is what runs when one was sent here.
+- **`sent` is a name and a shape**, as an operator is: `send fn sent(m:
+  Message<E>)` for one of the handler's faces `E`. A member called `sent` of
+  any other shape is an ordinary member. `sent` is how the handler is
+  written, not a member a send can reach: to send the handler itself a
+  message, write `send(self@Inventory, m)`.
+- **`sent` is all or nothing**: a handler with it writes none of the
   effect's send members (the effect's ordinary members it still writes). It
   behaves as those members would: bound by `use`, it runs on the sender's
   thread; spawned, the handler is an actor.
-- **[`forward(to, m)`](../../lib/std/core/actor.sv#fn-forward)** sends `m` to
-  `to` as its member would be called there, and moves it.
+- **[`send(to, m)`](../../lib/std/core/actor.sv#fn-send)** sends `m` to
+  `to` as its member would be called there, and moves it. It is the
+  overload of the reply's `send(reply, value)` for messages: both hand a
+  value to its recipient. It sends a value known to be one message (a
+  literal, or `m` after `is .Restock`) as that member. Over a protocol only
+  a type parameter names, as in a generic fn, it cannot be lowered, and is
+  refused: send from a handler `for E`, which is built per protocol.
 - **A message owes what its parameters owe.** An arm holding a `Reply` is
-  linear: `receive` ends it by forwarding it, or by moving the reply out and
+  linear: `sent` ends it by sending it on, or by moving the reply out and
   answering it (`send(m.out, …)` in the `.Reserve` arm).
 
 ### One member of many: claims
@@ -665,10 +677,10 @@ waking at once whenever the members change. The waits are the router's
 
 **A router of your own is written the same way.** std's are ordinary
 handlers, with nothing the compiler knows about them: each takes every
-message with `receive`, reads the group's
+message with `sent`, reads the group's
 [`route_view`](../../lib/std/net.sv#fn-route_view) — every member this
 node's replica knows, `local` beside each, in the same order on every node,
-and a version that moves when they change — and `forward`s the message to
+and a version that moves when they change — and `send`s the message to
 the member it picks, waiting with
 [`route_wait`](../../lib/std/net.sv#fn-route_wait) while there is none:
 
@@ -684,13 +696,13 @@ fn local_first<E>(view: RouteView<E>) [] -> eff[E]? => view {
 
 handler LocalFirst<E>(group: eff[ActorGroup<E>], config: RouteConfig = default_route_config()) for E {
     mailbox { capacity: 16 }
-    send fn receive(m: Message<E>) => !m {
+    send fn sent(m: Message<E>) => !m {
         let wait = copy(config.first_wait)
         while true {
             let view = route_view(group)
             let pick = local_first(view)
             if !(pick is None) {
-                forward(pick, m)
+                send(pick, m)
                 return
             }
             wait = route_wait(group, view, wait, config)
@@ -700,7 +712,7 @@ handler LocalFirst<E>(group: eff[ActorGroup<E>], config: RouteConfig = default_r
 ```
 
 A handler that serves its own type parameter (`for E`) answers it with
-`receive`, since it cannot name the protocol's members; the compiler builds
+`sent`, since it cannot name the protocol's members; the compiler builds
 it once for each protocol it is used at. The view is a mirror the replica
 keeps in the runtime, read on the sender's thread: no hop to the replica, and
 the replica is never in the send path. Something a router reads outside the

@@ -1,7 +1,7 @@
 // [actor-message] `Message<E>`: one arm per send member, a struct of its
 // parameters, named after the effect (`Inventory.Reserve`).
-// [actor-receive] `send fn receive(m: Message<E>)` answers every send
-// member of `E`, and `forward(to, m)` hands a message on.
+// [actor-sent] `send fn sent(m: Message<E>)` answers every send
+// member of `E`, and `send(to, m)` hands a message on.
 export comptime qualifier Key for Field
 
 actor effect Inventory {
@@ -28,15 +28,15 @@ fn ping_text(m: Message<Ping>) [] -> Str => m {
 
 handler Front(back: eff[Inventory]) for Inventory {
     mailbox { capacity: 8 }
-    send fn receive(m: Message<Inventory>) => !m {
-        forward(back, m)
+    send fn sent(m: Message<Inventory>) => !m {
+        send(back, m)
     }
 }
 
 // Answering a message by hand: its reply moves out.
 handler Answers() for Inventory {
     mailbox { capacity: 8 }
-    send fn receive(m: Message<Inventory>) => !m {
+    send fn sent(m: Message<Inventory>) => !m {
         when m {
             is .Reserve { send(m.out, "no ${m.sku}") }
             is .Restock { }
@@ -47,10 +47,10 @@ handler Answers() for Inventory {
 // All or nothing.
 handler Both(back: eff[Inventory]) for Inventory {
     mailbox { capacity: 8 }
-    send fn receive(m: Message<Inventory>) => !m {
-        forward(back, m)
+    send fn sent(m: Message<Inventory>) => !m {
+        send(back, m)
     }
-    //~ error[actor-receive:both]
+    //~ error[actor-sent:both]
     send fn restock(qty: Int) {}
 }
 
@@ -58,7 +58,7 @@ handler Both(back: eff[Inventory]) for Inventory {
 handler Leaky() for Inventory {
     mailbox { capacity: 8 }
     //~ error[ir-linear-check:leak-at-exit]
-    send fn receive(m: Message<Inventory>) => !m {
+    send fn sent(m: Message<Inventory>) => !m {
     }
 }
 
@@ -101,4 +101,41 @@ handler Both() for Ping, Pong {
     mailbox { capacity: 4 }
     send fn ping(n: Int) {}
     send fn ping(s: Str) {}
+}
+
+//--- sent is no call target
+// [actor-sent] `sent` is the form a handler takes its messages in, recognised
+// by its name and its shape; it is no member a send, a servant send or a
+// mint can name. A self-send of a message is `send(self@E, m)`. A member
+// named `sent` of another shape is an ordinary member.
+actor effect Inventory {
+    send fn restock(qty: Int)
+    send fn clear()
+}
+
+handler Selfish() for Inventory {
+    mailbox { capacity: 8 }
+    send fn sent(m: Message<Inventory>) => !m {
+        when m {
+            is .Restock {
+                //~ error[actor-sent:called]
+                sent@self(Inventory.Clear {})
+                send(self@Inventory, Inventory.Clear {})
+            }
+            is .Clear { }
+        }
+    }
+}
+
+actor effect Inbox {
+    send fn sent(n: Int)
+}
+
+handler Counting() for Inbox {
+    mailbox { capacity: 8 }
+    send fn sent(n: Int) {}
+}
+
+fn poke(i: eff[Inbox]) [] -> None => i {
+    i.sent(1)
 }

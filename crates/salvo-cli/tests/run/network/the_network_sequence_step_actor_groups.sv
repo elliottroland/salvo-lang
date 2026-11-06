@@ -23,11 +23,11 @@ handler RoundRobin(members: List<eff[Resizer]>) for Resizer {
     state {
         next: Int = 0
     }
-    send fn receive(m: Message<Resizer>) => !m {
+    send fn sent(m: Message<Resizer>) => !m {
         let i = next % size(members)
         next = next + 1
         let target = copy(get(members, i) ?: unreachable!())
-        forward(target, m)
+        send(target, m)
     }
 }
 

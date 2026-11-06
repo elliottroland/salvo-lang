@@ -353,6 +353,7 @@ export linear intrinsic type Reply<T canbe linear>
 // println("${n}")                                     // 4
 // ```
 // @compilerrules [actor-replyto]
+// @compilerknown
 export intrinsic fn send<T canbe linear>(reply: Reply<T>, value: T) [] -> None => !reply, !value
 
 // One message of the actor effect [E], as a value: a union with one arm per
@@ -363,8 +364,8 @@ export intrinsic fn send<T canbe linear>(reply: Reply<T>, value: T) [] -> None =
 // after the effect and the member in CamelCase, and are tested like any
 // union's: `is Inventory.Reserve`, or `is .Reserve` where the subject's type
 // says which effect. A handler may take every message of an effect at once
-// with `send fn receive(m: Message<E>)` instead of writing each send member,
-// and hand a message on with [forward]; that is how a router is written
+// with `send fn sent(m: Message<E>)` instead of writing each send member,
+// and hand a message on with [send]; that is how a router is written
 // without knowing the protocol it routes.
 //
 // ```
@@ -382,21 +383,26 @@ export intrinsic fn send<T canbe linear>(reply: Reply<T>, value: T) [] -> None =
 // ```
 //
 // **Linear when its parameters are.** An arm holding a `Reply` owes it: the
-// message is ended by handing it on ([forward]) or by moving the reply out
+// message is ended by sending it on (`send(to, m)`) or by moving the reply out
 // and answering it.
 // @compilerrules [actor-message]
 // @compilerknown
 export intrinsic type Message<E>
 
-// Sends message [m] on to [to], as if its member had been called there:
-// `forward(to, m)` for an `Inventory.Reserve` is `to.reserve(m.sku, m.qty,
-// m.out)`. The message is moved: the receiver answers its replies.
+// Sends message [m] to the actor [to], as if its member had been called
+// there: `send(to, m)` for an `Inventory.Reserve` is `to.reserve(m.sku,
+// m.qty, m.out)`. The message is moved: the receiver answers its replies.
+//
+// The other `send`: where the one above delivers a value to whoever a
+// `Reply` was minted for, this one delivers a message to an actor. A
+// handler takes every message of a face with `send fn sent(m: Message<E>)`,
+// and this is how it hands one on.
 //
 // ```
 // handler Front(back: eff[Inventory]) for Inventory {
 //     mailbox { capacity: 8 }
-//     send fn receive(m: Message<Inventory>) => !m {
-//         forward(back, m)
+//     send fn sent(m: Message<Inventory>) => !m {
+//         send(back, m)
 //     }
 // }
 //
@@ -404,9 +410,9 @@ export intrinsic type Message<E>
 //     send fn reserve(sku: Str, out: Reply<Str>) => !sku, !out
 // }
 // ```
-// @compilerrules [actor-message, actor-receive]
+// @compilerrules [actor-message, actor-sent]
 // @compilerknown
-export intrinsic fn forward<E>(to: eff[E], m: Message<E>) [] -> None => to, !m
+export intrinsic fn send<E>(to: eff[E], m: Message<E>) [] -> None => to, !m
 
 // A claim that a binding of an effect is one instance taking sends in the
 // order they were made, with one state behind them: what a single actor

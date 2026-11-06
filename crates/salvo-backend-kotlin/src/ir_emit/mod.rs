@@ -462,7 +462,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    /// [actor-receive] The module of a handler the IR generated (an
+    /// [actor-sent] The module of a handler the IR generated (an
     /// instantiation of one generic over its face), by its key, which names its module like a generated enum's.
     fn generated_impl_module(&self, key: &str) -> Option<salvo_core::ModulePath> {
         let module = salvo_core::typekey::module_of(key)?;

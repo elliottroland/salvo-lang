@@ -2,7 +2,7 @@
 // declared `for Effect`, written before the effect. A handler makes them on
 // its face, a function asks for them in its effect list, a handle carries
 // them, and a bare `[E]` asks nothing.
-// [actor-router] A router takes the messages with `receive` and hands each
+// [actor-router] A router takes the messages with `sent` and hands each
 // to one of two members: the deadlock graph gives it a node of its own, so
 // `Counter → Counter` is not reported.
 
@@ -43,9 +43,9 @@ handler Spraying(a: eff[Counter], b: eff[Counter]) for Counter {
     state {
         flip: Bool = false
     }
-    send fn receive(m: Message<Counter>) => !m {
+    send fn sent(m: Message<Counter>) => !m {
         flip = !flip
-        if flip { forward(a, m) } else { forward(b, m) }
+        if flip { send(a, m) } else { send(b, m) }
     }
 }
 

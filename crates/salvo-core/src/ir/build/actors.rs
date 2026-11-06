@@ -34,10 +34,25 @@ struct Iface {
 }
 
 pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
-    // [actor-receive] Phase 0: a handler generic over the effect it serves
+    // [actor-sent] Phase 0: a handler generic over the effect it serves
     // (`handler Relay<E>(…) for E`) is built once per effect it is
     // constructed at, as an ordinary handler of that effect.
     instantiate_generic_faces(ctx, program);
+    // [actor-sent] A message `send` the instantiations did not lower is over
+    // a protocol only a type parameter names (a generic fn's `send(to, m)`):
+    // refused, never emitted — a backend would read it as the reply's
+    // `send`, its overload of the same name.
+    crate::ir::walk::exprs_mut(program, &mut |e: &mut Expr| {
+        if let ExprKind::Call { target: FnRef::Decl(d), args, .. } = &e.kind {
+            if is_forward(d) && args.len() == 2 {
+                *e = crate::ir::build::unsupported(
+                    e.ty.clone(),
+                    e.span,
+                    "a message `send` over a protocol a type parameter stands for: send from a handler `for E`, which is built for each protocol it serves",
+                );
+            }
+        }
+    });
     // The interface a face names, wherever it is declared.
     let key_of = |id: &DeclId, name: &str| -> String {
         // [actor-router] A generated declaration is keyed by its module.
@@ -144,10 +159,10 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
             ));
         }
     }
-    // [actor-receive] Phase 1c: a handler that takes a face's messages with
-    // `send fn receive(m: Message<F>)` answers each of `F`'s send members
+    // [actor-sent] Phase 1c: a handler that takes a face's messages with
+    // `send fn sent(m: Message<F>)` answers each of `F`'s send members
     // with a member of its own: the member's parameters made into its arm,
-    // bound to `receive`'s parameter, then `receive`'s body. From here on
+    // bound to `sent`'s parameter, then `sent`'s body. From here on
     // the handler is an ordinary one: Phase 2 gives it its dispatch, and a
     // `use` of it delegates member by member as to any handler.
     for mi in 0..program.modules.len() {
@@ -156,7 +171,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
             if h.platform || h.intrinsic || h.stub {
                 continue;
             }
-            let Some(ri) = h.members.iter().position(|f| f.send && f.name == known::RECEIVE_MEMBER && declared_params(f).len() == 1) else { continue };
+            let Some(ri) = h.members.iter().position(|f| f.send && f.name == known::SENT_MEMBER && declared_params(f).len() == 1) else { continue };
             let receive = &h.members[ri];
             let rparam = declared_params(receive)[0].clone();
             // The face it answers: the one whose messages its parameter is.
@@ -183,10 +198,10 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                 let Some(arm_key) = arms.get(k) else { continue };
                 let Some(arm) = ctx.symbols.structs.get(arm_key) else { continue };
                 let arm_ty = Ty::Named { name: (*arm_key).to_string(), args: Vec::new() };
-                // Where `receive` takes the message: what a diagnostic about
+                // Where `sent` takes the message: what a diagnostic about
                 // it names.
                 let span = rparam.span;
-                // Fresh parameter names: `receive`'s body is spliced after them.
+                // Fresh parameter names: `sent`'s body is spliced after them.
                 let params: Vec<Param> = x.params.iter().enumerate().map(|(j, p)| Param { local: Local(format!("__msg_p{j}")), ..p.clone() }).collect();
                 let fields: Vec<(String, Expr)> = arm
                     .fields
@@ -376,12 +391,16 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
     names
 }
 
-/// [actor-receive] Whether `decl` is std's `forward`.
+/// [actor-sent] Whether `decl` is std's message `send(to: eff[E], m:
+/// Message<E>)` — not its overload beside it, the reply's `send(reply,
+/// value)`, which the overload's signature tells apart.
 pub(crate) fn is_forward(decl: &DeclId) -> bool {
-    decl.name() == known::FORWARD_FN && *decl.module() == crate::ModulePath::std(&["core", "actor"])
+    decl.name() == known::MESSAGE_SEND_FN
+        && *decl.module() == crate::ModulePath::std(&["core", "actor"])
+        && decl.sig().is_some_and(|s| s.contains(known::MESSAGE_TYPE))
 }
 
-/// [actor-receive] The effect key of an address type: `E` of `eff[E]`, for a
+/// [actor-sent] The effect key of an address type: `E` of `eff[E]`, for a
 /// concrete `E`.
 pub(crate) fn addr_effect_key(ty: &Ty) -> Option<String> {
     match ty.strip_quals() {
@@ -393,7 +412,7 @@ pub(crate) fn addr_effect_key(ty: &Ty) -> Option<String> {
     }
 }
 
-/// [actor-receive] `forward(to, m)` as statements: `to` and `m` bound once,
+/// [actor-sent] `send(to, m)` as statements: `to` and `m` bound once,
 /// then the send of the member `m` is a message of, with `m`'s fields as its
 /// arguments — a `Switch` over the arms, each narrowed and sent; one arm is
 /// sent as it is. The effect is `to`'s, which must be concrete.
@@ -406,10 +425,10 @@ pub(crate) fn forward_stmts(
     fresh: &mut dyn FnMut(&str) -> Local,
     id: &mut dyn FnMut() -> NodeId,
 ) -> Result<Vec<Stmt>, &'static str> {
-    let effect = addr_effect_key(&to.ty).ok_or("`forward` to an address of no concrete effect")?;
+    let effect = addr_effect_key(&to.ty).ok_or("`send` to an address of no concrete effect")?;
     let symbols = ctx.symbols;
     let (Some(decl), Some(arms), Some(module)) = (symbols.effects.get(effect.as_str()), symbols.message_arms.get(effect.as_str()), symbols.key_modules.get(effect.as_str())) else {
-        return Err("`forward` of a protocol with no messages");
+        return Err("`send` of a protocol with no messages");
     };
     let interface = DeclId::intern(crate::decl_id::DeclPath { module: (*module).clone(), kind: crate::decl_id::DeclKind::Effect, path: vec![decl.name.name.clone()], sig: None, ordinal: 0 });
     let sends: Vec<usize> = decl.fns.iter().enumerate().filter(|(_, f)| f.is_send).map(|(i, _)| i).collect();
@@ -434,25 +453,37 @@ pub(crate) fn forward_stmts(
             .collect();
         Some(Expr { ty: Ty::none(), span, kind: ExprKind::Send { addr: Box::new(read(&to_l, &to_ty, Vec::new(), false)), member: MemberRef { interface, index: *sends.get(k)? }, args } })
     };
-    if arms.len() == 1 {
-        stmts.push(Stmt::Expr(send_of(0, &msg_l).ok_or("`forward` of an unknown message")?));
+    // The arms the message can be, by its own type: every arm of the
+    // protocol for a `Message<E>`, one for a value already known to be one
+    // (`Inventory.Clear {}`, or `m` after `is .Clear`), a few after a
+    // narrowing. Each is paired with its member's index in the protocol.
+    let arm_of = |t: &Ty| match t.strip_quals() {
+        Ty::Named { name, .. } => arms.iter().position(|a| a == name),
+        _ => None,
+    };
+    let present: Vec<usize> = match union_ty.strip_quals() {
+        Ty::Union(xs) => xs.iter().map(|x| arm_of(x).ok_or("`send` of a value that is not a message of its protocol")).collect::<Result<_, _>>()?,
+        other => vec![arm_of(other).ok_or("`send` of a value that is not a message of its protocol")?],
+    };
+    if let [k] = present.as_slice() {
+        stmts.push(Stmt::Expr(send_of(*k, &msg_l).ok_or("`send` of an unknown message")?));
         return Ok(stmts);
     }
     let sw = id();
     let mut switch_arms = Vec::new();
-    for (k, arm) in arms.iter().enumerate() {
-        let arm_ty = Ty::Named { name: (*arm).to_string(), args: Vec::new() };
+    for (pos, &k) in present.iter().enumerate() {
+        let arm_ty = Ty::Named { name: arms[k].to_string(), args: Vec::new() };
         let nar = fresh("__fwd_arm");
-        let narrow = Stmt::Narrow { id: id(), local: nar.clone(), ty: arm_ty, from: Place { root: msg_l.clone(), steps: Vec::new() }, from_ty: union_ty.clone(), because: Justification::Arm { switch: sw, arm: k } };
-        let send = send_of(k, &nar).ok_or("`forward` of an unknown message")?;
-        switch_arms.push(SwitchArm { test: ArmTest::Arm(k), body: Block { stmts: vec![narrow, Stmt::Expr(send)], value: None, span } });
+        let narrow = Stmt::Narrow { id: id(), local: nar.clone(), ty: arm_ty, from: Place { root: msg_l.clone(), steps: Vec::new() }, from_ty: union_ty.clone(), because: Justification::Arm { switch: sw, arm: pos } };
+        let send = send_of(k, &nar).ok_or("`send` of an unknown message")?;
+        switch_arms.push(SwitchArm { test: ArmTest::Arm(pos), body: Block { stmts: vec![narrow, Stmt::Expr(send)], value: None, span } });
     }
     stmts.push(Stmt::Expr(Expr { ty: Ty::none(), span, kind: ExprKind::Switch { id: sw, subject: Box::new(read(&msg_l, &union_ty, Vec::new(), false)), arms: switch_arms } }));
     Ok(stmts)
 }
 
-/// [actor-receive] Lowers every `forward` call left in `fd` (a handler
-/// generic over its face, now instantiated): a statement `forward(to, m)`
+/// [actor-sent] Lowers every `send` call left in `fd` (a handler
+/// generic over its face, now instantiated): a statement `send(to, m)`
 /// becomes [`forward_stmts`]. One anywhere else is refused, never emitted.
 fn lower_forwards(ctx: &Ctx<'_>, fd: &mut FnDecl) {
     let mut n = 0u32;
@@ -464,7 +495,7 @@ fn lower_forwards(ctx: &Ctx<'_>, fd: &mut FnDecl) {
                 Stmt::Expr(Expr { kind: ExprKind::Call { target: FnRef::Decl(d), args, .. }, span, ty }) if is_forward(&d) && args.len() == 2 => {
                     let mut it = args.into_iter();
                     let (to, mut m) = (it.next().unwrap(), it.next().unwrap());
-                    // `forward` moves its message: in the generic body its
+                    // `send` moves its message: in the generic body its
                     // type owed nothing yet, so the read was not a move.
                     if let ExprKind::Read { consume, .. } = &mut m.kind {
                         *consume = true;
@@ -488,7 +519,7 @@ fn lower_forwards(ctx: &Ctx<'_>, fd: &mut FnDecl) {
     });
 }
 
-/// [actor-receive] Calls `f` on every named type in `t`, at any depth.
+/// [actor-sent] Calls `f` on every named type in `t`, at any depth.
 fn each_named(t: &Ty, f: &mut impl FnMut(&str, &[Ty])) {
     match t {
         Ty::Named { name, args } => {
@@ -509,7 +540,7 @@ fn each_named(t: &Ty, f: &mut impl FnMut(&str, &[Ty])) {
     }
 }
 
-/// [actor-receive] `t` with each type parameter of `map` replaced, then each
+/// [actor-sent] `t` with each type parameter of `map` replaced, then each
 /// `Message<X>` it now names expanded to `X`'s arms.
 fn subst_ty(t: &Ty, map: &std::collections::HashMap<String, Ty>, rename: &dyn Fn(&str, &[Ty]) -> Option<String>) -> Ty {
     let out = match t {
@@ -536,11 +567,11 @@ fn subst_ty(t: &Ty, map: &std::collections::HashMap<String, Ty>, rename: &dyn Fn
     out
 }
 
-/// [actor-receive] Phase 0: every handler generic over the effect it serves
+/// [actor-sent] Phase 0: every handler generic over the effect it serves
 /// (a face that is one of its own type parameters), instantiated at each
 /// list of type arguments the program constructs it at — `Relay<Inventory>`
 /// becomes `Relay__Inventory`, an ordinary handler of `Inventory` with
-/// `Message<Inventory>` expanded to its arms and its `forward`s lowered —
+/// `Message<Inventory>` expanded to its arms and its `send`s lowered —
 /// and every type naming the instantiation renamed to it. The generic
 /// declaration leaves the program: no backend could implement a type
 /// parameter.

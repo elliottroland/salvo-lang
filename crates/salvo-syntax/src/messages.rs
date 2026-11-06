@@ -380,11 +380,11 @@ messages! {
          and no kind bound"
     );
 
-    // [actor-receive]
-    /// A handler serving one of its type parameters without `receive`.
-    actor_receive_generic_face = "actor-receive:generic-face" (handler: &str, param: &str) => format!(
+    // [actor-sent]
+    /// A handler serving one of its type parameters without `sent`.
+    actor_sent_generic_face = "actor-sent:generic-face" (handler: &str, param: &str) => format!(
         "handler `{handler}` serves its type parameter `{param}`, a protocol it cannot \
-         name the members of: answer it with `send fn receive(m: Message<{param}>)`"
+         name the members of: answer it with `send fn sent(m: Message<{param}>)`"
     );
     // [actor-message]
     /// Two send members of one actor effect under one name.
@@ -399,11 +399,17 @@ messages! {
         "`{member}` and `{other}` in `{effect}` will cause a collision in the generated \
          `Message<{effect}>` structs: both are named `{arm}`. Rename one of them"
     );
-    /// A handler answering a face's messages with `receive` and one member too.
-    actor_receive_both = "actor-receive:both" (handler: &str, effect: &str, member: &str) => format!(
-        "handler `{handler}` answers every message of `{effect}` with `receive`, so it \
+    /// A send, servant send or mint naming the handler's `sent`.
+    actor_sent_called = "actor-sent:called" (handler: &str) => format!(
+        "`sent` is how `{handler}` takes its messages, not a member a send can reach: \
+         to send this handler a message, write `send(self@E, m)` with the face `E` \
+         it is a message of"
+    );
+    /// A handler answering a face's messages with `sent` and one member too.
+    actor_sent_both = "actor-sent:both" (handler: &str, effect: &str, member: &str) => format!(
+        "handler `{handler}` answers every message of `{effect}` with `sent`, so it \
          writes none of `{effect}`'s send members: drop `{member}`, or answer `{effect}` \
-         member by member without `receive`"
+         member by member without `sent`"
     );
 
     // [comptime-name]

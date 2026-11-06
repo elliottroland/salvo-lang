@@ -219,7 +219,7 @@ pub fn unwrap_single_borrows(program: &mut Program) {
     });
 }
 
-/// [actor-receive] Calls `f` on every type a declaration holds: its
+/// [actor-sent] Calls `f` on every type a declaration holds: its
 /// signature's, its statements' and every expression's, at any depth. What
 /// an instantiation of a generic declaration rewrites with.
 pub fn decl_tys_mut(d: &mut Decl, f: &mut impl FnMut(&mut Ty)) {
@@ -260,7 +260,7 @@ pub fn decl_tys_mut(d: &mut Decl, f: &mut impl FnMut(&mut Ty)) {
     }
 }
 
-/// [actor-receive] Every type an impl holds.
+/// [actor-sent] Every type an impl holds.
 pub fn impl_tys(h: &mut ImplDecl, f: &mut impl FnMut(&mut Ty)) {
     for t in &mut h.faces {
         f(t);
@@ -289,7 +289,7 @@ fn field_tys(fl: &mut Field, f: &mut impl FnMut(&mut Ty)) {
     }
 }
 
-/// [actor-receive] Every type a fn holds.
+/// [actor-sent] Every type a fn holds.
 pub fn fn_tys(fd: &mut FnDecl, f: &mut impl FnMut(&mut Ty)) {
     for p in &mut fd.params {
         f(&mut p.ty);
@@ -497,7 +497,7 @@ fn expr_tys(e: &mut Expr, f: &mut impl FnMut(&mut Ty)) {
     }
 }
 
-/// [actor-receive] Calls `f` on every statement list of a fn, innermost
+/// [actor-sent] Calls `f` on every statement list of a fn, innermost
 /// first: what a rewrite that replaces one statement by several walks.
 pub fn fn_stmt_lists_mut(fd: &mut FnDecl, f: &mut impl FnMut(&mut Vec<Stmt>)) {
     if let Some(b) = &mut fd.body {

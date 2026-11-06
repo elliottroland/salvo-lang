@@ -1,5 +1,5 @@
-// [actor-message] [actor-receive] Messages as values: a handler that
-// takes every message with `receive` and hands it on with `forward`,
+// [actor-message] [actor-sent] Messages as values: a handler that
+// takes every message with `sent` and hands it on with `send`,
 // spawned and bound by `use`, and a message narrowed by its arm.
 
 //--- receive_and_forward
@@ -24,9 +24,9 @@ handler Store() for Ordered Inventory {
 handler Front(back: eff[Inventory]) for Inventory {
     mailbox { capacity: 8 }
     state { seen: Int = 0 }
-    send fn receive(m: Message<Inventory>) => !m {
+    send fn sent(m: Message<Inventory>) => !m {
         seen = seen + 1
-        forward(back, m)
+        send(back, m)
     }
 }
 
@@ -78,8 +78,8 @@ handler Store() for Ordered Inventory {
 
 handler Relay<E>(back: eff[E]) for E {
     mailbox { capacity: 8 }
-    send fn receive(m: Message<E>) => !m {
-        forward(back, m)
+    send fn sent(m: Message<E>) => !m {
+        send(back, m)
     }
 }
 
@@ -107,6 +107,7 @@ fn describe(m: Message<Inventory>) [] -> Str => m {
     return when m {
         is .Restock { "restock ${m.qty}" }
         is Inventory.Clear { "clear" }
+        is .Done { "done" }
     }
 }
 
@@ -117,19 +118,21 @@ fn main() [use, spawn] {
     let n = Inventory.Note { text: "noted" }
     println(n.text)
     let s = spawn Store() on pool(1)
-    forward(s, Inventory.Restock { qty: 3 })
-    let _ = waitfor r: Reply<Int> { send(r, 1) }
+    send(s, Inventory.Restock { qty: 3 })
+    let _ = waitfor r: Reply<Int> { s.done(r) }
 }
 // FILE: shop.sv
 export actor effect Inventory {
     send fn restock(qty: Int)
     send fn clear()
+    send fn done(out: Reply<Int>) => !out
 }
 
 export handler Store() [Console] for Ordered Inventory {
     mailbox { capacity: 4 }
     send fn restock(qty: Int) { println("restock ${qty}") }
     send fn clear() {}
+    send fn done(out: Reply<Int>) => !out { out.send(1) }
 }
 
 export namespace Inventory {
@@ -139,3 +142,42 @@ export namespace Inventory {
 //= restock 2
 //= noted
 //= restock 3
+
+//--- a_message_known_to_be_one_arm
+// [actor-sent] `send(to, m)` sends the member `m` is a message of. A value
+// already known to be one arm (a literal, or `m` after `is .Restock`) is
+// sent as that member, with no switch over the arms it cannot be (which
+// narrowed a `Clear` to a `Restock` and read a field it does not have).
+actor effect Inventory {
+    send fn restock(qty: Int)
+    send fn clear()
+    send fn report(out: Reply<Str>) => !out
+}
+
+handler Store() for Ordered Inventory {
+    mailbox { capacity: 8 }
+    state { log: Str = "" }
+    send fn restock(qty: Int) { log = "${log}restock ${qty}; " }
+    send fn clear() { log = "${log}clear; " }
+    send fn report(out: Reply<Str>) => !out { out.send(copy(log)) }
+}
+
+fn pick(m: Message<Inventory>) [] -> Message<Inventory> => !m {
+    return m
+}
+
+fn main() [use, spawn] {
+    use StdConsole()
+    let s = spawn Store() on pool(1)
+    send(s, Inventory.Clear {})
+    send(s, Inventory.Restock { qty: 3 })
+    let m = pick(Inventory.Restock { qty: 4 })
+    when m {
+        is .Restock { send(s, m) }
+        is .Clear { }
+        is .Report { send(s, m) }
+    }
+    println(waitfor out: Reply<Str> { send(s, Inventory.Report { out: out }) })
+}
+//= stdout
+//= clear; restock 3; restock 4; 

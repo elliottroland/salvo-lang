@@ -285,7 +285,7 @@ fn build(
         }
     }
     // [actor-deadlock-cycle] [actor-router] The routers of each actor effect
-    // — every face a handler takes with `receive` — which is where an edge
+    // — every face a handler takes with `sent` — which is where an edge
     // into `E` lands besides `E`'s own handlers (a binding of `E` may be any
     // of them whose claims cover the requirement's [effect-claim]).
     // A router binds shareable, so its member runs on the caller's thread:
@@ -339,7 +339,7 @@ fn build(
             // interception binds outward, so it closes no cycle.
             let mixed = h.shape.sends && !h.shape.faces.is_empty() && h.shape.faces.iter().all(|(of, _)| is_plain(of));
             // [actor-router] A router (a handler taking its faces' messages
-            // with `receive`) is a servant too: it is not a member of `E` but
+            // with `sent`) is a servant too: it is not a member of `E` but
             // a forwarder in front of them, so it is a node of its own, and
             // what leaves it is what it does *besides* forwarding. Its
             // forward to `E` is no edge: every edge into the router (a
@@ -733,7 +733,7 @@ struct Servant<'a> {
     /// The faces it wears, plain: a dependency on one of them binds outward
     /// (interception), so it closes no cycle.
     own_faces: &'a [&'a str],
-    /// [actor-router] The faces it routes (taken with `receive`): a send to
+    /// [actor-router] The faces it routes (taken with `sent`): a send to
     /// one is its forward, which is no edge — every edge into the router
     /// comes with the same edge into `E`.
     forwards: &'a [&'a str],

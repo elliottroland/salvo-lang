@@ -149,6 +149,38 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-05 — `send` and `sent` (user decisions, [actor-sent] [actor-message])
+
+- **Decided** (user): `forward(to, m)` is `send(to, m)` and `send fn
+  receive(m: Message<E>)` is `send fn sent(m: Message<E>)`, so `send fn`,
+  `send` and `sent` are one family; `sent` is recognised as an operator is,
+  by its name and its shape. The design of one `sent` for several faces,
+  and of a router over several protocols, is next (not built).
+- **Built**: the message `send` is an overload of the reply's `send(reply,
+  value)` in std.core.actor, the IR telling them apart by the declaration's
+  signature (`is_forward`); `known::MESSAGE_SEND_FN`/`SENT_MEMBER`;
+  `check::is_sent_shape`, so a member called `sent` of another shape (an
+  effect's `send fn sent(n: Int)`) is ordinary; labels and ids renamed
+  ([actor-receive] → [actor-sent], `actor-receive:*` → `actor-sent:*`)
+  everywhere, docs and examples rewritten.
+- **Fixed** (found 2026-11-05, before the rename):
+  - `receive@self(m)` checked clean and emitted a call to the member the IR
+    had dropped (neither target compiled): `sent` named by a self-send,
+    servant send or mint is now `actor-sent:called`, naming
+    `send(self@E, m)`.
+  - `send(to, m)` of a value known to be one arm (a literal, or `m` after
+    `is .Restock`) switched over every arm of the protocol, narrowing a
+    `Clear` to a `Restock` (rustc: no field `qty`); it now switches over the
+    arms the value's own type allows, one arm sent with no switch. Two sends
+    in one body also bound the same locals (Kotlin: conflicting
+    declarations); they are named after the call's position now.
+  - A message `send` left over a type parameter (a generic fn's) reached the
+    backends as an intrinsic with no lowering; with the rename it would have
+    read as the reply's `send`, so the IR refuses it as an unsupported node
+    after instantiation (emit data on both backends).
+- 724 tests under nextest (new cases in `check/actors/messages.sv`, run data
+  for a one-arm send, emit data for the generic refusal).
+
 ### 2026-11-05 — An actor effect's send members name its messages (user decisions, [actor-message] [cli-docs])
 
 - **Decided** (user): an actor effect's send members are not overloaded,
@@ -190,7 +222,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 The user had asked the routes run not to add messages a program builds
 itself, expecting it to be work; it fell out of the arms being ordinary
-structs (`Inventory.Restock { qty: 2 }`, then `forward(to, m)`), so it stays
+structs (`Inventory.Restock { qty: 2 }`, then `send(to, m)`), so it stays
 as built. [actor-message]
 
 ### 2026-11-05 — ROUTES.md retired
@@ -223,14 +255,14 @@ record.
 - **The sweep** (§14.9, moved here from (d)): every single-instance handler
   of an actor effect in `lib/std` (doc examples included), `examples/`,
   `docs/language/` and the run data writes `for Ordered E` (some 110 handler
-  heads, by script: an actor face, no `receive`, no interception, not a
+  heads, by script: an actor face, no `sent`, no interception, not a
   platform handler, not a hand-written router). `[Ordered E]` is written only where order is plainly
   relied on, which no existing function was; the docs' and the claims
   tests' `tally` are the examples. The run data's `RoundRobin` became a
-  `receive` router.
+  `sent` router.
 - **Sites left for the user** (§14.9, not guessed):
-  - `Front(back) for Inventory` (std.core.actor's `forward` doc, the run
-    data's `messages.sv`, Concurrency.md): a `receive` handler forwarding to
+  - `Front(back) for Inventory` (std.core.actor's `send` doc, the run
+    data's `messages.sv`, Concurrency.md): a `sent` handler forwarding to
     one `back`; it gives whatever `back` gives, which a claim cannot say.
   - the cluster example's `Scattering` and `Hedging`, hand-written routers
     over many members: bare.
@@ -270,7 +302,7 @@ record.
   `effect-claim:not-a-claim`, `:on-value`, `:state`, `:fn-type`,
   `effect-alias:claim`/`claim-alias`, `effect-var:claim`,
   `effect-prereq:claim`. The deadlock graph's router is now structural (a
-  handler taking an actor face with `receive`), and a dependency lands on
+  handler taking an actor face with `sent`), and a dependency lands on
   the routers whose face claims cover its own. `IrHandler.face_any`,
   `effects::has_any_router` (dead) and the TextMate `any` rule are gone.
 - **Judgment calls for the user**:
@@ -283,7 +315,7 @@ record.
   - **The sweep moves to (e)**: nothing in (d) needs a claim to compile, so
     single actors are swept once, to `for Ordered E`, when implication
     lands, instead of to `for Ordered ShardKeyOrdered E` now and again then.
-  - A hand-written router that is not a `receive` handler (the cluster
+  - A hand-written router that is not a `sent` handler (the cluster
     example's `Scattering`, the run data's `RoundRobin`) is an ordinary
     handler to the deadlock graph now.
 - **Fell out**: a lowering records the written type, so lowering a handler
@@ -294,7 +326,7 @@ record.
   `run/actors/claims.sv`, the fn-type `any` Rust test folded into the
   data), warm run 2m57 after the std change.
 
-### 2026-11-05 — std's routers are `receive` handlers over generic protocols (user decisions, [actor-router] [actor-receive], the routes record R2/§6.1/§9/§14)
+### 2026-11-05 — std's routers are `sent` handlers over generic protocols (user decisions, [actor-router] [actor-sent], the routes record R2/§6.1/§9/§14)
 
 - **Decided** (user, 2026-11-05): routing is no longer something the
   compiler derives. `use any group`, the derived `__Route_X`, `RouteSelector`,
@@ -302,15 +334,15 @@ record.
   ordinary handler of the protocol, and std's three are merged with the
   selectors they used to take: `LeastLoaded(group, prefer_local)`,
   `Sharded(group)` and `Elected(group) [Leader]`, each `handler X<E>(group:
-  eff[ActorGroup<E>], …, config = …) for E` with `send fn receive(m:
-  Message<E>)` and `forward`. The shard key is the comptime qualifier
+  eff[ActorGroup<E>], …, config = …) for E` with `send fn sent(m:
+  Message<E>)` and `send`. The shard key is the comptime qualifier
   `ShardKey` in a new `std.net.shard` (no `Keyed` group, §14.8), and the
   module's `key` template stamps `fn key(m: Message<P>) [] -> Long?`.
 - **Built**: a handler whose face is its own type parameter (`for E`),
-  allowed exactly when it has `receive` (`actor-receive:generic-face`
+  allowed exactly when it has `sent` (`actor-sent:generic-face`
   otherwise); the IR's Phase 0 (`instantiate_generic_faces`) builds one
   concrete handler `H__X` per protocol it is used at, substituting `E` in
-  every type and lowering the generic body's `forward` calls afterwards
+  every type and lowering the generic body's `send` calls afterwards
   (`lower_forwards`); std's `net` rewritten over `route_view(group)` (a
   `RouteView { members, version }`) and `route_wait`; `std.net.shard` with
   the `[let]`/`size` refusal of two `ShardKey` marks on one member; the
@@ -338,13 +370,13 @@ record.
   removed, the router cases added); that run took 3m26, since the std and
   emitter change missed most stamps.
 
-### 2026-11-05 — Messages are values: `Message<E>`, `receive`, `forward` (user decisions, [actor-message] [actor-receive], the routes record R2/§8/§14)
+### 2026-11-05 — Messages are values: `Message<E>`, `sent`, `send` (user decisions, [actor-message] [actor-sent], the routes record R2/§8/§14)
 
 - **Decided** (user, 2026-11-05): a `send fn` is sugar for the actor
   machinery already generated, and R2 lets a program write an actor at the
   lower level too: `Message<E>` (a union with one arm per send member, each
-  a struct of its parameters), `send fn receive(m: Message<E>)` by name, all
-  or nothing, following the `use`/`spawn` split, and `forward(to, m)`; both
+  a struct of its parameters), `send fn sent(m: Message<E>)` by name, all
+  or nothing, following the `use`/`spawn` split, and `send(to, m)`; both
   declared in `std.core.actor`, compiler-known. Non-send members are still
   written. Comptime qualifiers may stand before a send fn's parameter and
   carry to the arm's field (the `ShardKey sku: Str` spelling, §9).
@@ -353,14 +385,14 @@ record.
   `Symbols::message_arms`); `Message<X>` lowered to the union of `X`'s arms
   (`expand_message_in`, at lowering and in `arg_fits_param`; `unify` defers a
   `Message<Var>` parameter); `Message`'s argument accepted as an effect;
-  `actor-receive:both`; the IR's Phase 1c, which gives a `receive` handler
-  one member per send member and drops `receive`; `forward` lowered by the
+  `actor-sent:both`; the IR's Phase 1c, which gives a `sent` handler
+  one member per send member and drops `sent`; `send` lowered by the
   IR builder to a `Switch`, `Narrow` and `Send` per arm; arms linear exactly
   when a field is, settled by decomposition; comptime qualifiers before a
   parameter (`Param::annotations`, `comptime-qualifier:on-param`); comptime's
   `Message<X>` union target (`World::message_arms`); Kotlin's arms nested in
   the effect's interface ([kt-message-arms]). Backends otherwise unchanged:
-  a `receive` handler is an ordinary handler by the time they see it.
+  a `sent` handler is an ordinary handler by the time they see it.
 - **A judgment call for the user**: the arms are spelled `Inventory.Reserve`
   (CamelCase, the message enum's variant names), not `Inventory.reserve` as
   the user's sketch had it, because a lowercase segment after a dot is a
@@ -39263,7 +39295,7 @@ The working document of the redesign that took routing out of the compiler
 (user decisions 2026-11-05, six rounds, then an unattended run in five
 commits: comptime evaluation, messages, routers, claims, implication). The
 rules are in LANGUAGE_SPEC.md ([comptime-eval], [comptime-eval-fns],
-[actor-message], [actor-receive], [actor-router], [effect-claim],
+[actor-message], [actor-sent], [actor-router], [effect-claim],
 [qual-imply]); each piece's decision-log entry above says what was built.
 What follows is the reasoning and the options not taken.
 
@@ -39291,12 +39323,12 @@ router's deadlock node, a4 documentation. Only a1 was a check.
   parameter splices, a stamping line per protocol): also writes generic
   proxies, but needs three new comptime capabilities and call-site
   stamping, which comptime refuses.
-- **R2 (chosen)**, messages as values: `Message<E>`, `send fn receive`,
-  `forward`. Routing becomes ordinary generic std code, a selector can read
+- **R2 (chosen)**, messages as values: `Message<E>`, `send fn sent`,
+  `send`. Routing becomes ordinary generic std code, a selector can read
   the message itself, and scatter/race/retry proxies are written once.
   Costs: three compiler-known names, a message value per send (unmeasured),
-  and backend work (it turned out small: the IR inlines `receive` per
-  member and lowers `forward` to a switch of sends).
+  and backend work (it turned out small: the IR inlines `sent` per
+  member and lowers `send` to a switch of sends).
 - Follow-up: RouteSelector and Route merged — a router *is* a handler of
   the protocol over the group's view (`Sharded`, `LeastLoaded`, `Elected`),
   so there is no selector seam.
@@ -39316,7 +39348,7 @@ the brackets (`eff[Ordered Counter]`, one spelling with effect lists and
 segment after a dot is a field read. An overloaded send member's arm is to
 be named with a selector by parameter types (option (a); (b) one arm
 matching every overload and (c) refusing overloads on matched effects were
-rejected). Non-send members are written by hand under `receive`.
+rejected). Non-send members are written by hand under `sent`.
 
 **The shard key.** `ShardKey` is a comptime qualifier before a send
 parameter, carried to the arm's field; `std.net.shard`'s `key` template
@@ -39342,7 +39374,7 @@ stage (a slot's type implying a claim on the slot's value) is in ROADMAP.
 
 **Run decisions** (§14, user): implication in the run, last; one commit per
 piece, rearranged as needed (the claims sweep moved from (d) to (e));
-`Message`/`forward` in std.core.actor; `receive` recognised by name and
+`Message`/`send` in std.core.actor; `sent` recognised by name and
 kept a `send fn` (a plain `fn` whose name alone made it a message turn was
 the magic being removed); all or nothing; `std.net.shard` with no `Keyed`
 group; claims allowed on any effect, swept on actor effects only; conditions
@@ -40667,7 +40699,7 @@ snapshot diffs.
   `lower_type` writes `written_types[span]`, which the IR reads back as the
   type at that span. Lowering a handler's face *outside* the handler's
   generics (for a diagnostic's text) recorded `E` as an unknown name, and
-  `instantiate_generic_faces` no longer saw a generic face: `forward`
+  `instantiate_generic_faces` no longer saw a generic face: `send`
   reached the emitter unlowered. Name a type for a message from its text, or
   lower it where its generics are in scope.
 

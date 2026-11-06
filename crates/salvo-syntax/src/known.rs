@@ -112,10 +112,12 @@ pub const FAULTS_EFFECT: &str = "Faults";
 pub const POOL_FN: &str = "pool";
 /// [actor-message] One message of an actor effect, as a value.
 pub const MESSAGE_TYPE: &str = "Message";
-/// [actor-receive] Hands a message on to another instance.
-pub const FORWARD_FN: &str = "forward";
-/// [actor-receive] The send member that takes every message of a face.
-pub const RECEIVE_MEMBER: &str = "receive";
+/// [actor-sent] Sends a message to an actor: the `send(to: eff[E], m:
+/// Message<E>)` overload, beside the reply's `send(reply, value)`.
+pub const MESSAGE_SEND_FN: &str = "send";
+/// [actor-sent] The send member that takes every message of a face (a name
+/// and a shape: `send fn sent(m: Message<F>)`).
+pub const SENT_MEMBER: &str = "sent";
 
 // ===== std.net =====
 
@@ -205,7 +207,7 @@ pub const ALL: &[Known] = &[
     ty("std.core.actor", FAULTS_EFFECT),
     func("std.core.actor", POOL_FN),
     ty("std.core.actor", MESSAGE_TYPE),
-    func("std.core.actor", FORWARD_FN),
+    func("std.core.actor", MESSAGE_SEND_FN),
     ty("std.net", ACTOR_GROUP_EFFECT),
     ty("std.net", PROTOCOL_STRUCT),
     ty("std.args", ARGS_EFFECT),

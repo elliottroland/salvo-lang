@@ -493,7 +493,7 @@ fn collect_module(analysis: &Analysis, i: usize) -> Page {
                     let mut aliases = Vec::new();
                     if let Some(a) = arm {
                         extra.push(format!(
-                            "**Message** `{}`: a send of `{}` as a value, the arm of `Message<{}>` it is (built, matched and handed on with [forward] like any struct).",
+                            "**Message** `{}`: a send of `{}` as a value, the arm of `Message<{}>` it is (built, matched and handed on with [send] like any struct).",
                             a.name.name, f.name.name, e.name.name
                         ));
                         extra.push(String::new());

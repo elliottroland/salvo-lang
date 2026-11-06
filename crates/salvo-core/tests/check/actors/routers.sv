@@ -1,5 +1,5 @@
 // [actor-router] A router is a handler of the protocol it routes; one
-// generic over its protocol (`for E`) answers it with `receive`.
+// generic over its protocol (`for E`) answers it with `sent`.
 import std.net
 import std.net.shard
 
@@ -29,13 +29,13 @@ fn local_first<E>(view: RouteView<E>) [] -> eff[E]? => view {
 
 handler LocalFirst<E>(group: eff[ActorGroup<E>], config: RouteConfig = default_route_config()) for E {
     mailbox { capacity: 16 }
-    send fn receive(m: Message<E>) => !m {
+    send fn sent(m: Message<E>) => !m {
         let wait = copy(config.first_wait)
         while true {
             let view = route_view(group)
             let pick = local_first(view)
             if !(pick is None) {
-                forward(pick, m)
+                send(pick, m)
                 return
             }
             wait = route_wait(group, view, wait, config)
@@ -43,8 +43,8 @@ handler LocalFirst<E>(group: eff[ActorGroup<E>], config: RouteConfig = default_r
     }
 }
 
-// Serving a type parameter without `receive`: no member of it can be named.
-//~ error[actor-receive:generic-face]
+// Serving a type parameter without `sent`: no member of it can be named.
+//~ error[actor-sent:generic-face]
 handler Blind<E>(back: eff[E]) for E {
 }
 

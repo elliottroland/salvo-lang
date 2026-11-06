@@ -1009,6 +1009,17 @@ fn face_shown(of: &ast::Type) -> Ty {
     }
 }
 
+/// [actor-sent] Whether a handler member is the `sent` form: the name and
+/// the shape together, `send fn sent(m: Message<F>)`. A member named `sent`
+/// of any other shape is an ordinary one, as `fn iter(list, step)` is no
+/// operator [op-unique-shape].
+pub(crate) fn is_sent_shape(f: &FnDecl) -> bool {
+    let fixed: Vec<&ast::Param> = f.params.iter().filter(|p| !p.implicit).collect();
+    f.is_send
+        && f.name.name == known::SENT_MEMBER
+        && matches!(fixed.as_slice(), [p] if matches!(&p.ty, ast::Type::Named { base, .. } if base.name.name == known::MESSAGE_TYPE))
+}
+
 /// [effect-claim] The claims a single handle carries: its qualifiers, which
 /// on an `Addr` are only ever claims (`eff[Ordered E]`).
 fn addr_claims(ty: &Ty) -> Vec<Qual> {
@@ -1873,7 +1884,7 @@ pub struct HandlerShape {
     /// adds), and whether it is `intrinsic` (never stateful).
     pub stateful: bool,
     pub intrinsic: bool,
-    /// [actor-receive] It takes its faces' messages with `send fn receive`:
+    /// [actor-sent] It takes its faces' messages with `send fn sent`:
     /// the graph's router, which may hand each send to any of many
     /// instances [actor-router].
     pub receives: bool,
@@ -4505,7 +4516,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             sends: h.fns.iter().any(|f| f.is_send),
             stateful: crate::handler_is_stateful(h, false),
             intrinsic: h.intrinsic,
-            receives: h.fns.iter().any(|f| f.is_send && f.name.name == known::RECEIVE_MEMBER),
+            receives: h.fns.iter().any(|f| is_sent_shape(f)),
             dep_claims,
         };
         self.out.handler_shapes.insert(self.name_key(h.name.span), shape);
@@ -15174,7 +15185,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let decls: Vec<&'p ast::EffectDecl> = faces.iter().map(|(_, e)| *e).collect();
         // [actor-router] A face that is one of the handler's own type
         // parameters is a protocol only an instantiation names: the handler
-        // can answer it only with `receive`, over its messages.
+        // can answer it only with `sent`, over its messages.
         for of in &h.of {
             let ast::Type::Named { base, .. } = of else { continue };
             if !base.args.is_empty() || !h.generics.iter().any(|g| g.name == base.name.name) {
@@ -15182,15 +15193,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let receives = h.fns.iter().any(|f| {
                 f.is_send
-                    && f.name.name == known::RECEIVE_MEMBER
+                    && f.name.name == known::SENT_MEMBER
                     && f.params.iter().filter(|p| !p.implicit).any(|p| matches!(&p.ty, ast::Type::Named { base: m, .. }
                         if m.name.name == known::MESSAGE_TYPE && matches!(m.args.as_slice(), [ast::Type::Named { base: a, .. }] if a.name.name == base.name.name)))
             });
             if !receives {
-                self.error(of.span(), messages::actor_receive_generic_face(&h.name.name, &base.name.name));
+                self.error(of.span(), messages::actor_sent_generic_face(&h.name.name, &base.name.name));
             }
         }
-        // [actor-receive] The faces a `send fn receive(m: Message<F>)` answers:
+        // [actor-sent] The faces a `send fn sent(m: Message<F>)` answers:
         // every send member of `F`, all or nothing.
         let received: Vec<&'p ast::EffectDecl> = self.received_faces(h, &decls);
         // Every member of every face, implemented.
@@ -15202,7 +15213,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if let Some(f) = h.fns.iter().find(|f| {
                         crate::handler_member_faces(&decls, f).iter().any(|(e, i)| std::ptr::eq(*e, *effect) && *i == idx)
                     }) {
-                        self.error(f.name.span, messages::actor_receive_both(&h.name.name, &effect.name.name, &member.name.name));
+                        self.error(f.name.span, messages::actor_sent_both(&h.name.name, &effect.name.name, &member.name.name));
                     }
                     continue;
                 }
@@ -15267,12 +15278,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [actor-receive] The faces of `h` its `send fn receive(m: Message<F>)`
-    /// answers: `F`, when `F` is one of them (an actor effect). A `receive`
+    /// [actor-sent] The faces of `h` its `send fn sent(m: Message<F>)`
+    /// answers: `F`, when `F` is one of them (an actor effect). A `sent`
     /// over anything else is an ordinary private send member.
     fn received_faces(&mut self, h: &'p ast::HandlerDecl, faces: &[&'p ast::EffectDecl]) -> Vec<&'p ast::EffectDecl> {
         let mut out = Vec::new();
-        for f in h.fns.iter().filter(|f| f.is_send && f.name.name == known::RECEIVE_MEMBER) {
+        for f in h.fns.iter().filter(|f| is_sent_shape(f)) {
             let declared: Vec<&ast::Param> = f.params.iter().filter(|p| !p.implicit).collect();
             let [p] = declared.as_slice() else { continue };
             let ast::Type::Named { base, .. } = &p.ty else { continue };
@@ -16703,6 +16714,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         named: &'p [ast::NamedArg],
         span: Span,
     ) -> Option<&'p FnDecl> {
+        // [actor-sent] `sent` is how the handler is written, not a member a
+        // send can reach: the IR replaces it with one member per message.
+        if targets.iter().any(|f| is_sent_shape(f)) {
+            for a in args {
+                self.check_expr(a, None);
+            }
+            self.error(span, messages::actor_sent_called(&h.name.name));
+            return None;
+        }
         if targets.len() > 1 {
             for a in args {
                 self.check_expr(a, None);
@@ -17229,6 +17249,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             return Ty::Unknown;
         };
         let targets: Vec<&'p FnDecl> = h.fns.iter().filter(|f| f.name.name == member.name).collect();
+        // [actor-sent] Nor can a reply be continued at `sent`.
+        if targets.iter().any(|f| is_sent_shape(f)) {
+            for c in captures {
+                self.check_expr(c, None);
+            }
+            self.error(span, messages::actor_sent_called(&h.name.name));
+            return Ty::Unknown;
+        }
         // [fn-overload] A member mint names its member, which cannot say which
         // overload yet (the pipeline record B3.7; ROADMAP 0au).
         if targets.len() > 1 {
@@ -19870,7 +19898,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// protocol of one send); over a type parameter it stays `Message<E>`,
     /// as any generic does, until an instantiation says which. Applied
     /// where a type is lowered and where a substituted parameter type is
-    /// compared [`Self::arg_fits_param`], so a concrete `forward` fits.
+    /// compared [`Self::arg_fits_param`], so a concrete `send` fits.
     pub(crate) fn expand_message(&self, ty: Ty) -> Ty {
         expand_message_in(self.symbols, ty)
     }
@@ -29410,7 +29438,7 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
     }
     match (param, arg) {
         // [actor-message] `Message<E>` against a message of a concrete
-        // effect: `E` is bound by the call's other arguments (`forward`'s
+        // effect: `E` is bound by the call's other arguments (`send`'s
         // `to: eff[E]`), and the substituted parameter is the effect's arms,
         // compared where it is fitted (`arg_fits_param`).
         (Ty::Named { name, args }, _)

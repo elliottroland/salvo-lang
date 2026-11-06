@@ -31,7 +31,7 @@ impl Sequencing(lent who: Str) for Sequencer@main stateful {
     obligation gain-params [out]
     assign n = (read n + 1)
     obligation release [out]
-    call send@std.core.actor<Str>(!read out, concat(read who, "#", call to_str(Int)@std.core.basic(read n)))
+    call send(Reply<T>, T)@std.core.actor<Str>(!read out, concat(read who, "#", call to_str(Int)@std.core.basic(read n)))
   }
 }
 
@@ -42,7 +42,7 @@ impl Stocking(lent shard: Str) for Inventory@main stateful {
     obligation gain-params [out]
     assign served = (read served + read qty)
     obligation release [out]
-    call send@std.core.actor<Str>(!read out, concat(read shard, ":", call to_str(Int)@std.core.basic(read served)))
+    call send(Reply<T>, T)@std.core.actor<Str>(!read out, concat(read shard, ":", call to_str(Int)@std.core.basic(read served)))
   }
 }
 
@@ -57,7 +57,7 @@ impl Indexing(lent words: List<Str>) for Search@main {
       }
     }
     obligation release [out]
-    call send@std.core.actor<Int>(!read out, !read n)
+    call send(Reply<T>, T)@std.core.actor<Int>(!read out, !read n)
   }
 }
 
@@ -66,7 +66,7 @@ impl Looking(lent who: Str) for Lookup@main {
   fn lookup(moved key: Str, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
     obligation release [out]
-    call send@std.core.actor<Str>(!read out, concat(read key, " from ", read who))
+    call send(Reply<T>, T)@std.core.actor<Str>(!read out, concat(read key, " from ", read who))
   }
 }
 
@@ -80,7 +80,7 @@ impl SlowLooking(lent who: Str, lent timer: eff[Timer]) for Lookup@main stateful
   fn answer(moved key: Str, moved out: Reply<Str>, moved fired: Fired) -> None {
     obligation gain-params [out]
     obligation release [out]
-    call send@std.core.actor<Str>(!read out, concat(read key, " from ", read who))
+    call send(Reply<T>, T)@std.core.actor<Str>(!read out, concat(read key, " from ", read who))
   }
 }
 
@@ -129,7 +129,7 @@ impl Gathering() for Gather@main stateful {
           obligation discharge [out.arms{0}]
           obligation gain [out~1]
           obligation release [out~1]
-          call send@std.core.actor<Int>(!read out~1, call copy@std.core.basic<Int>(read total))
+          call send(Reply<T>, T)@std.core.actor<Int>(!read out~1, call copy@std.core.basic<Int>(read total))
         }
         arm#1 (none) {
         }
@@ -179,7 +179,7 @@ impl Racing() for Race@main stateful {
         obligation discharge [out.arms{0}]
         obligation gain [out~1]
         obligation release [out~1]
-        call send@std.core.actor<Str>(!read out~1, !read answer)
+        call send(Reply<T>, T)@std.core.actor<Str>(!read out~1, !read answer)
       }
       arm#1 (none) {
       }
@@ -373,7 +373,7 @@ impl Booting(lent at: NodeEndpoint, lent all: List<NodeEndpoint>, lent net: eff[
     bind#8 let timer: eff[Timer] = spawn[eff[Timer]](construct DefaultTimer { }, on: read p) serves [Timer]
     spawn[eff[Lookup@main]](construct SlowLooking@main { who: "b (slow)", timer: !read timer }, on: read p, in: read looks) serves [Lookup@main]
     obligation release [done]
-    call send@std.core.actor<eff[Sequencer@main]>(!read done, !read mine)
+    call send(Reply<T>, T)@std.core.actor<eff[Sequencer@main]>(!read done, !read mine)
   }
   fn stop(moved done: Reply<Bool>) -> None {
     obligation gain-params [done]
@@ -383,7 +383,7 @@ impl Booting(lent at: NodeEndpoint, lent all: List<NodeEndpoint>, lent net: eff[
       send leave@NodeGroup(read group~1)
     }
     obligation release [done]
-    call send@std.core.actor<Bool>(!read done, true)
+    call send(Reply<T>, T)@std.core.actor<Bool>(!read done, true)
   }
 }
 

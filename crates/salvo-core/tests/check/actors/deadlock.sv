@@ -402,7 +402,7 @@ handler Credit(orders: eff[OrderApi], audit: eff[AuditApi]) for CreditApi {
 
 // [actor-deadlock-cycle] [actor-router] An `eff[Ping]` may be a member of
 // `Ping` or a spawned router of it (a handler taking `Ping`'s messages with
-// `receive`), which the addr cannot say, so a send through it lands on every
+// `sent`), which the addr cannot say, so a send through it lands on every
 // router of `Ping` too (user decision 2026-10-30): `Ponger` waits on `R`,
 // which waits on `Pong`.
 actor effect Ping {
@@ -416,7 +416,7 @@ actor effect Pong {
 handler R() [Pong] for Ping {
     mailbox { capacity: 1 }
 
-    send fn receive(m: Message<Ping>) => !m {
+    send fn sent(m: Message<Ping>) => !m {
         pong(1, replyto! got(m.out))
     }
     send fn got(out: Reply<Int>, n: Int) => !out {

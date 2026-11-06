@@ -914,9 +914,9 @@ blocker:
   the routes record; a router over a group whose replica is on another node sees an
   empty view and waits. **The deadlock graph does not see through a generic
   router** (2026-11-05, the routes record (c)): the derived route's graph rows went
-  with it, so a `Sharded(group)` is an ordinary handler node whose `forward`
+  with it, so a `Sharded(group)` is an ordinary handler node whose `send`
   to the members is not an edge; a wait cycle closing through a router and
-  back is missed. Remedy: an edge from a handler whose `receive` `forward`s
+  back is missed. Remedy: an edge from a handler whose `sent` `send`s
   to an `eff[ActorGroup<E>]` parameter onto `E`'s spawned handlers, the way
   the route rows did. Two instances of an
   erased effect (`Pick<A>`, `Pick<B>`) cannot share a scope — a function per
@@ -1038,7 +1038,17 @@ left three follow-ups the user has asked for, in this order.
 
 ### Messages: a loose end of the routes work (2026-11-05)
 
-- **Unmeasured: a message value per send.** A `receive` handler builds the
+- **A generic fn's message `send` is refused late.** `fn relay<E>(to:
+  eff[E], m: Message<E>) => send(to, m)` checks clean and is refused by the
+  backends as an unsupported IR node (no protocol to switch on); the checker
+  could say it at the call, naming a handler `for E` as the way.
+- **One `sent` per handler, today.** IR Phase 1c takes the first `sent`-named
+  member with one parameter; a second `sent` (another face) is not built,
+  and an ordinary `sent(n: Int)` ahead of the form would hide it. The design
+  of one `sent` for several faces and of routers over several protocols is
+  the next step (user, 2026-11-05).
+
+- **Unmeasured: a message value per send.** A `sent` handler builds the
   arm before its body runs (IR Phase 1c), where a written send member does
   not; probably small beside the mailbox's own enum, never measured.
 

@@ -269,7 +269,7 @@ fn main() [use] {
   message to one member: `use LeastLoaded(group, true)`, `use Sharded(group)`
   by a `ShardKey`-marked argument, or `use Elected(group)` behind a `Leader`
   any election can serve. A router is an ordinary handler, written with
-  `receive` and `forward` over `Message<E>`. The platform owns the
+  `sent` and `send` over `Message<E>`. The platform owns the
   transport only (`HostTcpTransport`, `threadsafe`), and `MemTransport` runs
   the whole thing in one process with partitions and departures, which is how
   `examples/cluster/` runs under the test suite.

@@ -18,7 +18,7 @@ impl Counting() for Counter@main stateful {
   fn total(moved out: Reply<Int>) -> None {
     obligation gain-params [out]
     obligation release [out]
-    call send@std.core.actor<Int>(!read out, !read sum)
+    call send(Reply<T>, T)@std.core.actor<Int>(!read out, !read sum)
   }
 }
 
@@ -37,7 +37,7 @@ impl Bookkeeping() for Ledger@main deps [Counter@main] stateful {
   fn reported(moved label: Str, moved out: Reply<Str>, lent total: Int) -> None {
     obligation gain-params [out]
     obligation release [out]
-    call send@std.core.actor<Str>(!read out, concat(read label, "=", call to_str(Int)@std.core.basic(read total)))
+    call send(Reply<T>, T)@std.core.actor<Str>(!read out, concat(read label, "=", call to_str(Int)@std.core.basic(read total)))
   }
 }
 
@@ -64,7 +64,7 @@ impl Desking(lent room: Int) for Desk@main stateful {
         obligation discharge [next.arms{0}]
         obligation gain [next~1]
         obligation release [next~1]
-        call send@std.core.actor<Str>(!read next~1, concat("served ", read name))
+        call send(Reply<T>, T)@std.core.actor<Str>(!read next~1, concat("served ", read name))
       }
       arm#1 (none) {
       }
@@ -76,7 +76,7 @@ impl Desking(lent room: Int) for Desk@main stateful {
   fn close_up(moved reason: Str) -> None {
     obligation release [waiting]
     call drain@std.core.deque<Reply<Str>, ()>(tuple(), drop_mut(!read waiting), lambda(lent __leff0: (), lent r: Reply<Str>) -> None captures [reason] {
-      value call send@std.core.actor<Str>(!read r, concat("closed: ", read reason))
+      value call send(Reply<T>, T)@std.core.actor<Str>(!read r, concat("closed: ", read reason))
     })
     assign waiting = call mut_deque_of()@std.core.deque<Reply<Str>>()
   }
@@ -108,7 +108,7 @@ impl Breaking() for Fragile@main {
 fn formatted@main(moved label: Str, moved out: Reply<Str>, moved total: Int) -> None {
   obligation gain-params [out]
   obligation release [out]
-  call send@std.core.actor<Str>(!read out, concat(read label, " totalled ", call to_str(Int)@std.core.basic(read total)))
+  call send(Reply<T>, T)@std.core.actor<Str>(!read out, concat(read label, " totalled ", call to_str(Int)@std.core.basic(read total)))
 }
 
 fn report_line@main(moved counter: eff[Counter@main], moved label: Str, moved out: Reply<Str>) -> None {

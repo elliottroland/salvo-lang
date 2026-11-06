@@ -1673,17 +1673,17 @@ export fn least_loaded<E>(view: RouteView<E>, prefer_local: Bool) [] -> eff[E]? 
 //     send fn next(out: Reply<Str>) => !out
 // }
 // ```
-// @compilerrules [actor-router, actor-receive]
+// @compilerrules [actor-router, actor-sent]
 export handler LeastLoaded<E>(group: eff[ActorGroup<E>], prefer_local: Bool, config: RouteConfig = default_route_config()) for E {
     mailbox { capacity: 16 }
 
-    send fn receive(m: Message<E>) => !m {
+    send fn sent(m: Message<E>) => !m {
         let wait = copy(config.first_wait)
         while true {
             let view = route_view(group)
             let best = least_loaded(view, copy(prefer_local))
             if !(best is None) {
-                forward(best, m)
+                send(best, m)
                 return
             }
             wait = route_wait(group, view, wait, config)
@@ -1720,11 +1720,11 @@ export handler LeastLoaded<E>(group: eff[ActorGroup<E>], prefer_local: Bool, con
 // }
 // ```
 // @param key found at the use: the message's key, or `None`.
-// @compilerrules [actor-router, actor-receive, effect-claim]
+// @compilerrules [actor-router, actor-sent, effect-claim]
 export handler Sharded<E>(group: eff[ActorGroup<E>], config: RouteConfig = default_route_config(), ?key: (m: Message<E>) -> Long?) for ShardKeyOrdered E {
     mailbox { capacity: 16 }
 
-    send fn receive(m: Message<E>) => !m {
+    send fn sent(m: Message<E>) => !m {
         let k = key(m) ?: 0L
         let magnitude = if k < 0L { 0L - k } else { k }
         let wait = copy(config.first_wait)
@@ -1733,7 +1733,7 @@ export handler Sharded<E>(group: eff[ActorGroup<E>], config: RouteConfig = defau
             let n = size(view.members)
             if n > 0 {
                 let picked = get(view.members, to_int(magnitude % to_long(n))) ?: unreachable!()
-                forward(copy(picked.addr), m)
+                send(copy(picked.addr), m)
                 return
             }
             wait = route_wait(group, view, wait, config)
@@ -1821,7 +1821,7 @@ export fn on_leader<E>(view: RouteView<E>) [Leader] -> eff[E]? => view {
 //     println("${first} ${second}")                    // both from the primary's member
 // }
 // ```
-// @compilerrules [actor-router, actor-receive]
+// @compilerrules [actor-router, actor-sent]
 export handler Elected<E>(group: eff[ActorGroup<E>], config: RouteConfig = default_route_config()) [Leader] for E {
     mailbox { capacity: 16 }
 
@@ -1830,7 +1830,7 @@ export handler Elected<E>(group: eff[ActorGroup<E>], config: RouteConfig = defau
         chosen: eff[E]? = None
     }
 
-    send fn receive(m: Message<E>) => !m {
+    send fn sent(m: Message<E>) => !m {
         let wait = copy(config.first_wait)
         while true {
             let view = route_view(group)
@@ -1840,7 +1840,7 @@ export handler Elected<E>(group: eff[ActorGroup<E>], config: RouteConfig = defau
             }
             let to = copy(chosen)
             if !(to is None) {
-                forward(to, m)
+                send(to, m)
                 return
             }
             wait = route_wait(group, view, wait, config)

@@ -8413,7 +8413,7 @@ docs/language/ remains the source of truth for everything that does.
     An edge from a handler's **own-effect dependency** is therefore dropped,
     while an `Addr` of its own protocol (a genuine peer mesh) still counts.
   * **A router is a servant node** [actor-router]: a handler taking an
-    actor face's messages with `receive` is `H's servant`, not `E`, with its
+    actor face's messages with `sent` is `H's servant`, not `E`, with its
     dependencies' edges as a mixed servant's. (A generic router, `for E`,
     is not in the graph at all, a recorded gap.)
   * **Router in-edges** (2026-10-26; claims 2026-11-05): a dependency on an
@@ -9338,7 +9338,7 @@ between endpoints and delivers what arrives into the scheduler.
   * **An arm owes what its parameters owe** [linear-container]: a message arm
     is linear exactly when a field is (`linear::message_arm_linear`), needs no
     discharger, and is settled by moving its linear fields out — by
-    `forward`, or by answering the reply it holds.
+    `send`, or by answering the reply it holds.
   * **A comptime qualifier may stand before a send fn's parameter**
     (`ShardKey sku: Str`, parsed as before a field's name) and is carried to
     the arm's field, where comptime code reads it; before any other parameter
@@ -9348,21 +9348,34 @@ between endpoints and delivers what arrives into the scheduler.
     template over the arms.
   * A namespace of the effect's name holds the arms: on Kotlin they nest in
     the effect's interface ([kt-message-arms]).
-* [actor-receive] **`send fn receive(m: Message<F>)` answers every send
-  member of face `F`** (user decisions 2026-11-05: by name, all or nothing,
-  following the existing `use`/`spawn` split): a handler writing it writes
-  none of `F`'s send members (`actor-receive:both` otherwise) and still writes
+* [actor-sent] **`send fn sent(m: Message<F>)` answers every send
+  member of face `F`** (user decisions 2026-11-05: all or nothing, following
+  the existing `use`/`spawn` split; renamed from `receive`, with `send` for
+  `forward`, the same day, so `send fn`, `send` and `sent` are one family).
+  **A name and a shape**, as an operator is [op-unique-shape]: a handler's
+  `send fn sent` whose one parameter is `Message<…>` (`check::is_sent_shape`);
+  a member called `sent` of any other shape — an effect's `send fn sent(n:
+  Int)` included — is an ordinary member. It is the form the handler takes
+  its messages in, never a call target: a self-send, servant send or mint
+  naming it is `actor-sent:called`, naming `send(self@E, m)`. A handler writing it writes
+  none of `F`'s send members (`actor-sent:both` otherwise) and still writes
   `F`'s plain members. Bound by `use`, a member runs on the sender's thread
   as any send member of a `use`-bound handler; spawned, the handler is an
   actor. The IR gives the handler one member per send member of `F`, whose
-  body binds the member's parameters, made into its arm, to `receive`'s
-  parameter and then runs `receive`'s body (`ir::build::actors`, Phase 1c);
-  `receive` itself leaves the impl, so the backends see an ordinary handler.
-  * **`forward(to: eff[E], m: Message<E>) => !m`** (std.core.actor, an
-    intrinsic the IR builder lowers) sends `m` to `to` as its member: a
-    `Switch` over the arms, each narrowed and sent with its fields as the
-    arguments. The effect is `to`'s, concrete where the call is built.
-  * A diagnostic about the message names `receive`'s parameter, where the
+  body binds the member's parameters, made into its arm, to `sent`'s
+  parameter and then runs `sent`'s body (`ir::build::actors`, Phase 1c);
+  `sent` itself leaves the impl, so the backends see an ordinary handler.
+  * **`send(to: eff[E], m: Message<E>) => !m`** (std.core.actor, an
+    intrinsic the IR builder lowers; the overload of the reply's
+    `send(reply, value)`, told apart by its signature, `is_forward`) sends
+    `m` to `to` as its member: a `Switch` over the arms `m`'s own type
+    allows, each narrowed and sent with its fields as the arguments — one
+    arm, as for a literal or a narrowed `m`, is sent with no switch. The
+    effect is `to`'s, concrete where the call is built or once a handler
+    `for E` is instantiated; one still over a type parameter after that (a
+    generic fn's) is refused as an unsupported node, never emitted as the
+    reply's `send`.
+  * A diagnostic about the message names `sent`'s parameter, where the
     body took it.
 * [actor-router] **A router is a handler of the protocol it routes** (user
   decisions 2026-11-05, the routes record §6.1 and §7: the selector and the route
@@ -9370,17 +9383,17 @@ between endpoints and delivers what arrives into the scheduler.
   `RoutePick`, `route_pick` and `Key`): std's `LeastLoaded<E>(group,
   prefer_local)`, `Sharded<E>(group, ?key)` and `Elected<E>(group) [Leader]`
   are each `handler H<E>(group: eff[ActorGroup<E>], …, config: RouteConfig =
-  default_route_config()) for E` with one `send fn receive(m: Message<E>)`
-  [actor-receive] that picks a member and `forward`s the message to it.
+  default_route_config()) for E` with one `send fn sent(m: Message<E>)`
+  [actor-sent] that picks a member and `send`s the message to it.
   `use Sharded(stock)` binds the protocol, `E` inferred from the group.
   * **A handler may serve a type parameter of its own** (`for E`), when it
-    answers it with `receive`: the IR builds it once per list of type
+    answers it with `sent`: the IR builds it once per list of type
     arguments the program constructs it at, as `H__X`, an ordinary handler
-    of `X` with `Message<X>` expanded and its `forward`s lowered
+    of `X` with `Message<X>` expanded and its `send`s lowered
     (`actors::instantiate_generic_faces`, Phase 0), and every type naming
     `H<X>` names the instantiation; the generic declaration leaves the
     program, since no backend can implement a type parameter. In the
-    generic body a `forward` is a call the instantiation lowers.
+    generic body a `send` is a call the instantiation lowers.
   * **The view** (`route_view(group) -> RouteView<E>`): every member this
     node's replica knows, `RouteMember<E> { addr, local }`, in an order that
     is the same on every node, and the group's `version`. It is the runtime's
@@ -9405,7 +9418,7 @@ between endpoints and delivers what arrives into the scheduler.
     both backends).
   * Routers are handlers the compiler knows nothing of: no std name of
     routing is `@compilerknown`. So the deadlock graph sees a router as an
-    ordinary handler, not through its `forward` to the members (a recorded
+    ordinary handler, not through its `send` to the members (a recorded
     gap, ROADMAP ⑦).
 * Two emitter facts the module surfaced, both fixed with it: **`send(reply,
   None)` on Rust** boxed an `Option<_>` rustc could not infer, so the box is

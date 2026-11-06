@@ -474,7 +474,7 @@ impl<'p> Shared<'p> {
         })
     }
 
-    /// [actor-receive] A handler the IR generated (an instantiation of one
+    /// [actor-sent] A handler the IR generated (an instantiation of one
     /// generic over its face), by its key, which
     /// names its module like a generated enum's.
     pub fn generated_impl(&self, key: &str) -> Option<(&'p ImplDecl, ModulePath)> {

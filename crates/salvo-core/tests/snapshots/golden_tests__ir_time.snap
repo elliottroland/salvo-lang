@@ -39,7 +39,7 @@ impl Sessions() for Session@main deps [Timer] stateful {
   fn expire(moved started: Tick, moved budget: Duration, moved out: Reply<Str>, moved f: Fired) -> None {
     obligation gain-params [out]
     obligation release [out]
-    call send@std.core.actor<Str>(!read out, call verdict@main(read started, read f.at, read budget))
+    call send(Reply<T>, T)@std.core.actor<Str>(!read out, call verdict@main(read started, read f.at, read budget))
   }
 }
 
@@ -69,7 +69,7 @@ impl Napping() for Sleeper@main deps [Timer, Ticker] stateful {
   fn woke(moved started: Tick, moved out: Reply<Str>, moved f: Fired) -> None {
     obligation gain-params [out]
     obligation release [out]
-    call send@std.core.actor<Str>(!read out, concat("napped ", call to_str@std.time(call elapsed@std.time(read __dep1, read started))))
+    call send(Reply<T>, T)@std.core.actor<Str>(!read out, concat("napped ", call to_str@std.time(call elapsed@std.time(read __dep1, read started))))
   }
 }
 

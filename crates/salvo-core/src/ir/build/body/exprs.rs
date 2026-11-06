@@ -1452,21 +1452,24 @@ impl<'a, 'p> Lower<'a, 'p> {
         self.group_packs(reads, key, span)
     }
 
-    /// [actor-receive] `forward(to, m)`: the send of the member `m` is a
+    /// [actor-sent] `send(to, m)`: the send of the member `m` is a
     /// message of, with `m`'s fields as its arguments (`forward_stmts`).
     /// Inside a handler generic over its face the effect is not known yet:
     /// the call stays, and the instantiation lowers it
     /// (`actors::lower_forwards`).
-    fn forward(&mut self, decl: DeclId, type_args: Vec<Ty>, to: &AExpr, m: &AExpr, ty: Ty, span: Span) -> Expr {
+    fn message_send(&mut self, decl: DeclId, type_args: Vec<Ty>, to: &AExpr, m: &AExpr, ty: Ty, span: Span) -> Expr {
         let to = self.expr(to);
         let m = self.expr(m);
         if crate::ir::build::actors::addr_effect_key(&to.ty).is_none() {
             return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(decl), type_args, args: vec![to, m], moved: false } };
         }
+        // Named after the call's own position, so two sends in one body bind
+        // locals of their own (Kotlin refuses a redeclared `val`).
+        let at = span.start;
         let mut n = 0u32;
         let mut fresh = |base: &str| {
             n += 1;
-            Local(format!("{base}~f{n}"))
+            Local(format!("{base}~f{at}_{n}"))
         };
         let mut ids: Vec<NodeId> = (0..64).map(|_| self.id()).collect();
         let mut id = || ids.pop().unwrap_or(NodeId(u32::MAX - 2));
@@ -1517,10 +1520,10 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
         // [actor-use-addr] a send to an actor through an addr.
         if let Some(CalleeKind::Fn { decl, type_args }) = &callee_kind {
-            // [actor-receive] `forward(to, m)`: the message's own send.
+            // [actor-sent] `send(to, m)`: the message's own send.
             if crate::ir::build::actors::is_forward(decl) && args.len() == 2 {
                 let type_args = self.ctx.ir_tys(type_args);
-                return self.forward(*decl, type_args, &args[0], &args[1], ty, span);
+                return self.message_send(*decl, type_args, &args[0], &args[1], ty, span);
             }
         }
         if let Some(CalleeKind::Send { interface, index, .. }) = callee_kind.clone() {
