@@ -72,3 +72,33 @@ fn main() {
     let _a = describe(Inventory.Restock { qty: 1 })
     let _b = ping_text(Ping.Ping {})
 }
+
+//--- send members are not overloaded
+// [actor-message] Each send member is one `Message<E>` arm named after it,
+// so an actor effect's send members have distinct names, and names that
+// make distinct arms (user decision 2026-11-05). The same name on two faces
+// is unaffected: each face has its own `Message<E>`. (A handler's private
+// send members were refused overloading already,
+// `actor-mixed-handler:overloaded-send`.)
+actor effect Sink {
+    send fn put(a: Int)
+    //~ error[actor-message:overloaded-send]
+    send fn put(a: Str) => !a
+    send fn get_all(out: Reply<Int>) => !out
+    //~ error[actor-message:arm-collision]
+    send fn getAll(out: Reply<Int>) => !out
+}
+
+actor effect Ping {
+    send fn ping(n: Int)
+}
+
+actor effect Pong {
+    send fn ping(s: Str) => !s
+}
+
+handler Both() for Ping, Pong {
+    mailbox { capacity: 4 }
+    send fn ping(n: Int) {}
+    send fn ping(s: Str) {}
+}

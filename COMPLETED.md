@@ -149,6 +149,50 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-05 — An actor effect's send members name its messages (user decisions, [actor-message] [cli-docs])
+
+- **Decided** (user): an actor effect's send members are not overloaded,
+  and two whose CamelCase coincides are refused, both "because it will cause
+  a collision in the generated `Message<E>` structs" — replacing D24 (a)
+  (2026-10-28) for send members only; plain members, and one name on two
+  faces of a handler (two `Message<E>` types), still overload. The arms are
+  declared as the members of a namespace named after the effect, so every
+  shortcut (`.Reserve`, `import shop.Inventory`) is the namespace logic.
+  `salvo docs` renders send members as the fns of that namespace (`fn
+  Inventory.reserve`), each with its message struct; the struct has no entry
+  of its own.
+- **Built**: `actor-message:overloaded-send` and `:arm-collision`
+  (`check_send_member_names`; `name-camel` leaves a pair of send members to
+  it, so one diagnostic); arm names are the member's own, never an
+  overload's mangled one (`ReserveStrInt` is gone, and adding a member
+  renames nothing); `declare_arms` registers the effect's path in
+  `module.namespaces` (the arm dotted names were already namespace members
+  to `resolve_dot_ref`; the registration makes it a namespace to imports,
+  dumps and the backends). The decided selector `is Inventory.Reserve(Str,
+  Int)` is dropped, unneeded. In `salvo docs`: `Entry::aliases` lets
+  `[Inventory.Reserve]` link to its member; the effect's member list links
+  its send members; hover's and the docs' effect signature write `send fn`
+  (it wrote `fn`).
+- **Fixed alongside**: Kotlin gave an overload whose parameters are a prefix
+  of another's (`put(a: Int)` beside `put(a: Int, b: Int)`) the longer's
+  emitted name, so a handler implemented one and overrode nothing
+  (`impl_member_name_of` now prefers the same arity); a `when` branch naming
+  no arm (`is .Bogus`) took every remaining arm, so each later branch was
+  reported dead as well — one mistake, one diagnostic now.
+- **Found**: a handler's private send members were refused overloading
+  already (`actor-mixed-handler:overloaded-send`), so of the user's two
+  exceptions only "one name on two faces" reaches overloads in practice.
+- 724 tests under nextest (new cases in `check/actors/messages.sv`, run data
+  for the prefix overload and a namespace import of messages, the
+  `salvo docs` test extended).
+
+### 2026-11-05 — User-built messages stay (user decision)
+
+The user had asked the routes run not to add messages a program builds
+itself, expecting it to be work; it fell out of the arms being ordinary
+structs (`Inventory.Restock { qty: 2 }`, then `forward(to, m)`), so it stays
+as built. [actor-message]
+
 ### 2026-11-05 — ROUTES.md retired
 
 Its five pieces landed (the five entries below), so per its lifecycle it is

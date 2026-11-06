@@ -3585,7 +3585,9 @@ pub(crate) fn effect_signature(decl: &salvo_syntax::ast::EffectDecl) -> String {
                 Some(t) => format!(" -> {t}"),
                 None => String::new(),
             };
-            sig.push_str(&format!("\n    fn {}({}){}", f.name.name, params.join(", "), ret));
+            // [actor-send-fn] A send member reads as it is written.
+            let send = if f.is_send { "send " } else { "" };
+            sig.push_str(&format!("\n    {send}fn {}({}){}", f.name.name, params.join(", "), ret));
         }
         sig.push_str("\n}");
     }

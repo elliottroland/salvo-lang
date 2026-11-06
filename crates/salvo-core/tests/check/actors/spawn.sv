@@ -312,49 +312,6 @@ fn a_waitfor_stops_at_a_lambda() [use, spawn] {
     }
 }
 
-// [effect-member-overload] An overloaded send member reached through an addr
-// is chosen by the call's rule (the pipeline record B3.7, D24 (a)): the arguments
-// typed once, the overloads ranked by them — by arity here, by type below.
-actor effect Sink {
-    send fn put(a: Int)
-    send fn put(a: Int, b: Int)
-}
-
-handler Dropping() for Sink {
-    mailbox { capacity: 1 }
-
-    send fn put(a: Int) {}
-    send fn put(a: Int, b: Int) {}
-}
-
-fn arity_settles_the_overload() [use, spawn] {
-    let s = spawn Dropping() on pool(1)
-    s.put(1)
-    s.put(1, 2)
-}
-
-actor effect TiedSink {
-    send fn put(a: Int)
-    send fn put(a: Str) => !a
-}
-
-handler TiedDropping() for TiedSink {
-    mailbox { capacity: 1 }
-
-    send fn put(a: Int) {}
-    send fn put(a: Str) {}
-}
-
-// Before B3.7 a same-arity pair was refused ("several overloads take 1
-// argument"): arity was all a send could tell them apart by.
-fn a_same_arity_overload_is_chosen_by_type() [use, spawn] {
-    let s = spawn TiedDropping() on pool(1)
-    s.put(1)
-    s.put("one")
-    //~ error[call-resolve:no-overload]
-    s.put(true)
-}
-
 // ===== [waitfor-infer] The binder's type =====
 
 // [waitfor-infer] The type may be omitted: the binder is passed to a send,

@@ -14,23 +14,43 @@
 
 use salvo_syntax::ast::{EffectDecl, FieldDecl, Ident, Item, Module, StructDecl};
 
-/// The arm struct's name for send member `idx` of `effect`: `E.Reserve`.
+/// The arm struct's name for send member `idx` of `effect`: `E.Reserve`,
+/// the member's name in CamelCase. Send members are not overloaded
+/// (`actor-message:overloaded-send`), so the name alone says which.
 pub fn arm_name(effect: &EffectDecl, idx: usize) -> String {
-    format!("{}.{}", effect.name.name, crate::naming::msg_variant_name(&crate::effect_member_name(effect, idx)))
+    let member = effect.fns.get(idx).map(|f| f.name.name.as_str()).unwrap_or("");
+    format!("{}.{}", effect.name.name, crate::naming::msg_variant_name(member))
 }
 
 /// [actor-message] Declares the arm structs of every non-generic actor effect
-/// the module declares, after its declarations. A generic protocol has no
+/// the module declares, after its declarations, as the members of a
+/// namespace named after the effect: what `namespace Inventory { struct
+/// Reserve { … } }` beside the effect would declare, so `Inventory.Reserve`,
+/// `.Reserve` and an import of the namespace go through the namespace rules
+/// [mod-namespace] and nothing of their own. A generic protocol has no
 /// messages of its own to declare: its members' types are not known until it
 /// is instantiated.
 pub fn declare_arms(module: &mut Module) {
     let mut arms = Vec::new();
+    let mut namespaces: Vec<String> = Vec::new();
     for item in &module.items {
         let Item::Effect(e) = item else { continue };
         if !e.is_actor || !e.generics.is_empty() {
             continue;
         }
+        if e.fns.iter().any(|f| f.is_send) {
+            namespaces.push(e.name.name.clone());
+        }
+        let mut named: Vec<String> = Vec::new();
         for (idx, f) in e.fns.iter().enumerate().filter(|(_, f)| f.is_send) {
+            // The second of two members with one arm name is refused by the
+            // checker (`check_send_member_names`); it declares no arm, so the
+            // refusal is the one diagnostic.
+            let name = arm_name(e, idx);
+            if named.contains(&name) {
+                continue;
+            }
+            named.push(name);
             let fields: Vec<FieldDecl> = f
                 .params
                 .iter()
@@ -69,4 +89,12 @@ pub fn declare_arms(module: &mut Module) {
         }
     }
     module.items.extend(arms);
+    // The flattened form of a namespace is its members' dotted names and its
+    // path here [mod-namespace]; a program may also have written one of the
+    // name, which the arms then join.
+    for ns in namespaces {
+        if !module.namespaces.contains(&ns) {
+            module.namespaces.push(ns);
+        }
+    }
 }

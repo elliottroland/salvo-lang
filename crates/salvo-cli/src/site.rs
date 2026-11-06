@@ -114,6 +114,10 @@ struct Entry {
     /// Extra Markdown after the docs: a struct's fields, an effect's
     /// members, what a struct or type promises.
     extra: Vec<String>,
+    /// [actor-message] Other names a `[symbol]` reference may use for this
+    /// entry: a send member's message struct (`Inventory.Reserve`), which has
+    /// no entry of its own.
+    aliases: Vec<String>,
 }
 
 /// One module's page.
@@ -218,6 +222,11 @@ pub fn generate(analysis: &Analysis, cfg: &Config) -> Result<Pages, String> {
     for page in &pages {
         let headings = page_headings(page);
         for (kind, name, anchor) in headings {
+            for e in page.entries.iter().filter(|e| e.kind == kind && e.name == name) {
+                for alias in &e.aliases {
+                    targets.entry(alias.clone()).or_default().push(Target { page: page.page.clone(), anchor: anchor.clone(), kind: Kind::Struct });
+                }
+            }
             targets.entry(name.clone()).or_default().push(Target { page: page.page.clone(), anchor, kind });
         }
     }
@@ -415,8 +424,11 @@ fn collect_module(analysis: &Analysis, i: usize) -> Page {
                     .and_then(|c| c.decls.item(i, idx).and_then(|key| lsp::fn_signature(program, c, key)))
                     .or_else(|| lsp::iter_fn_signature(module, f))
                     .unwrap_or_else(|| lsp::fn_decl_signature(f, None));
-                entries.push(Entry { kind: Kind::Fn, name: display_name(f), signature, docs: f.docs.clone(), locals: fn_locals(f), extra: Vec::new() });
+                entries.push(Entry { kind: Kind::Fn, name: display_name(f), signature, docs: f.docs.clone(), locals: fn_locals(f), extra: Vec::new(), aliases: Vec::new() });
             }
+            // [actor-message] A message struct is documented on the send member
+            // that generates it (below), not as a struct of its own.
+            Item::Struct(s) if s.message_arm.is_some() => {}
             Item::Struct(s) if s.exported && !s.name.name.starts_with("__") => {
                 let mut signature = lsp::struct_signature(s);
                 if !s.obligations.is_empty() {
@@ -426,7 +438,7 @@ fn collect_module(analysis: &Analysis, i: usize) -> Page {
                 let mut locals: Vec<String> = s.generics.iter().map(|g| g.name.clone()).collect();
                 locals.extend(s.fields.iter().map(|f| f.name.name.clone()));
                 let extra = if s.opaque { vec!["*Opaque: its fields are visible only in its own module.*".to_string()] } else { field_list(&s.fields) };
-                entries.push(Entry { kind: Kind::Struct, name: s.name.name.clone(), signature, docs: s.docs.clone(), locals, extra });
+                entries.push(Entry { kind: Kind::Struct, name: s.name.name.clone(), signature, docs: s.docs.clone(), locals, extra, aliases: Vec::new() });
             }
             Item::Type(t) if t.exported => {
                 let mut signature = lsp::type_signature(t);
@@ -438,7 +450,7 @@ fn collect_module(analysis: &Analysis, i: usize) -> Page {
                     signature.push_str(&format!(" : {}", obs.join(", ")));
                 }
                 let locals = t.generics.iter().map(|g| g.name.clone()).collect();
-                entries.push(Entry { kind: Kind::Type, name: t.name.name.clone(), signature, docs: t.docs.clone(), locals, extra: Vec::new() });
+                entries.push(Entry { kind: Kind::Type, name: t.name.name.clone(), signature, docs: t.docs.clone(), locals, extra: Vec::new(), aliases: Vec::new() });
             }
             Item::Effect(e) if e.exported => {
                 let mut signature = lsp::effect_signature(e);
@@ -446,8 +458,58 @@ fn collect_module(analysis: &Analysis, i: usize) -> Page {
                     signature = format!("actor {signature}");
                 }
                 let locals = e.generics.iter().map(|g| g.name.clone()).collect();
-                let extra = member_list("Members", &e.fns);
-                entries.push(Entry { kind: Kind::Effect, name: e.name.name.clone(), signature, docs: e.docs.clone(), locals, extra });
+                // [actor-message] A non-generic actor effect's send members
+                // are rendered as the functions of a namespace named after
+                // it (`fn Inventory.reserve`), each with the message struct
+                // it generates; the effect lists them by link.
+                let messages = e.is_actor && e.generics.is_empty();
+                let (sends, plain): (Vec<&FnDecl>, Vec<&FnDecl>) = e.fns.iter().partition(|f| messages && f.is_send);
+                let plain: Vec<FnDecl> = plain.into_iter().cloned().collect();
+                let mut extra = member_list("Members", &plain);
+                if !sends.is_empty() {
+                    if extra.is_empty() {
+                        extra.push("**Send members**".to_string());
+                    } else {
+                        extra.push(String::new());
+                        extra.push("**Send members**".to_string());
+                    }
+                    extra.push(String::new());
+                    for f in &sends {
+                        let doc = first_paragraph(&prose(&f.docs));
+                        let link = format!("[{}.{}]", e.name.name, f.name.name);
+                        extra.push(if doc.is_empty() { format!("- {link}") } else { format!("- {link} — {doc}") });
+                    }
+                }
+                entries.push(Entry { kind: Kind::Effect, name: e.name.name.clone(), signature, docs: e.docs.clone(), locals, extra, aliases: Vec::new() });
+                for f in sends {
+                    let arm = module.items.iter().find_map(|it| match it {
+                        Item::Struct(a) if a.message_arm.as_ref().is_some_and(|m| m.name == e.name.name)
+                            && a.span == f.span => Some(a),
+                        _ => None,
+                    });
+                    let mut locals: Vec<String> = f.params.iter().map(|p| p.name.name.clone()).collect();
+                    locals.extend(f.generics.iter().map(|g| g.name.clone()));
+                    let mut extra = Vec::new();
+                    let mut aliases = Vec::new();
+                    if let Some(a) = arm {
+                        extra.push(format!(
+                            "**Message** `{}`: a send of `{}` as a value, the arm of `Message<{}>` it is (built, matched and handed on with [forward] like any struct).",
+                            a.name.name, f.name.name, e.name.name
+                        ));
+                        extra.push(String::new());
+                        extra.extend(field_list(&a.fields));
+                        aliases.push(a.name.name.clone());
+                    }
+                    entries.push(Entry {
+                        kind: Kind::Fn,
+                        name: format!("{}.{}", e.name.name, f.name.name),
+                        signature: format!("send {}", lsp::fn_decl_signature(f, None)),
+                        docs: f.docs.clone(),
+                        locals,
+                        extra,
+                        aliases,
+                    });
+                }
             }
             Item::Handler(h) if h.exported => {
                 let mut signature = lsp::handler_signature(h);
@@ -456,15 +518,15 @@ fn collect_module(analysis: &Analysis, i: usize) -> Page {
                 }
                 let mut locals: Vec<String> = h.generics.iter().map(|g| g.name.clone()).collect();
                 locals.extend(h.params.iter().map(|p| p.name.name.clone()));
-                entries.push(Entry { kind: Kind::Handler, name: h.name.name.clone(), signature, docs: h.docs.clone(), locals, extra: Vec::new() });
+                entries.push(Entry { kind: Kind::Handler, name: h.name.name.clone(), signature, docs: h.docs.clone(), locals, extra: Vec::new(), aliases: Vec::new() });
             }
             Item::Qualifier(q) if q.exported => {
                 let locals = q.generics.iter().map(|g| g.name.clone()).collect();
-                entries.push(Entry { kind: Kind::Qualifier, name: q.name.name.clone(), signature: lsp::qualifier_signature(q), docs: q.docs.clone(), locals, extra: Vec::new() });
+                entries.push(Entry { kind: Kind::Qualifier, name: q.name.name.clone(), signature: lsp::qualifier_signature(q), docs: q.docs.clone(), locals, extra: Vec::new(), aliases: Vec::new() });
             }
             Item::Fns(g) if g.exported => {
                 let locals = g.generics.iter().map(|g| g.name.clone()).collect();
-                entries.push(Entry { kind: Kind::Group, name: g.name.name.clone(), signature: lsp::fns_signature(g), docs: g.docs.clone(), locals, extra: Vec::new() });
+                entries.push(Entry { kind: Kind::Group, name: g.name.name.clone(), signature: lsp::fns_signature(g), docs: g.docs.clone(), locals, extra: Vec::new(), aliases: Vec::new() });
             }
             _ => {}
         }
@@ -483,7 +545,7 @@ fn collect_module(analysis: &Analysis, i: usize) -> Page {
                         let bounded = format!("<{p} is {}", kind.word());
                         signature = signature.replacen(&format!("<{p}>"), &format!("{bounded}>"), 1).replacen(&format!("<{p},"), &format!("{bounded},"), 1);
                     }
-                    entries.push(Entry { kind: Kind::Fn, name: display_name(f), signature, docs: f.docs.clone(), locals: fn_locals(f), extra: Vec::new() });
+                    entries.push(Entry { kind: Kind::Fn, name: display_name(f), signature, docs: f.docs.clone(), locals: fn_locals(f), extra: Vec::new(), aliases: Vec::new() });
                 }
             }
         }

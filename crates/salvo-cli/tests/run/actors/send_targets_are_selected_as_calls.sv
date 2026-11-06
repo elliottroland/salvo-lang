@@ -3,47 +3,32 @@
 //
 // Compile-and-run data ([test-run-data]).
 
-//--- an_overloaded_send_member_chosen_by_type
-// [effect-member-overload] D24 (a): `s.put(1)` and `s.put("one")` reach the
-// overloads by their argument types, and each lowers to its own message.
+//--- an_overloaded_member_whose_parameters_extend_another
+// [effect-member-overload] [kt-fn-mangling] `put(a: Int)` is a prefix of
+// `put(a: Int, b: Int)`: each handler member takes its own overload's name
+// (Kotlin gave the shorter the longer's, so the class implemented one and
+// overrode nothing with the other). A plain effect's members may still be
+// overloaded; an actor effect's send members may not [actor-message].
 
-actor effect Sink {
-    send fn put(a: Int)
-    send fn put(a: Str) => !a
-    send fn done(out: Reply<Str>) => !out
+effect Sink {
+    fn put(a: Int) -> Str
+    fn put(a: Int, b: Int) -> Str
 }
 
-handler Collecting() for Ordered Sink {
-    mailbox { capacity: 8 }
-    state {
-        seen: Str = ""
-    }
-
-    send fn put(a: Int) {
-        seen = "${seen}int ${a}; "
-    }
-
-    send fn put(a: Str) {
-        seen = "${seen}str ${a}; "
-    }
-
-    send fn done(out: Reply<Str>) {
-        out.send(copy(seen))
-    }
+handler Joining() for Sink {
+    fn put(a: Int) -> Str { return "one ${a}" }
+    fn put(a: Int, b: Int) -> Str { return "two ${a} ${b}" }
 }
 
-fn main() [use, spawn] {
+fn main() [use] {
     use StdConsole()
-    let s = spawn Collecting() on pool(1)
-    s.put(1)
-    s.put("one")
-    let got = waitfor out: Reply<Str> {
-        s.done(out)
-    }
-    println(got)
+    use Joining()
+    println(put(1))
+    println(put(1, 2))
 }
 //= stdout
-//= int 1; str one; 
+//= one 1
+//= two 1 2
 
 //--- a_mint_ranked_by_its_captures
 // [task-mint] D18 (a): two free `send fn report`s told apart by the captures.

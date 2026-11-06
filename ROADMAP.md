@@ -751,9 +751,11 @@ emitted wrong:
   sends are still refused overloading at the declaration
   (`actor-mixed-handler:overloaded-send`). Lifting it means carrying the
   member's index through the IR's `SelfSend`/`ReplyTarget::Member` and naming
-  the continuation and private variants by `effect_member_name`. An
-  overloaded **face** member now has no continuation variant at all (the IR
-  and both backends skip it), which is right while no mint can target it.
+  the continuation and private variants by `effect_member_name`. Since
+  2026-11-05 one actor effect's send members are never overloaded
+  [actor-message], so the overload comes only from two faces declaring one
+  name; such a member has no continuation variant at all (the IR and both
+  backends skip it), which is right while no mint can target it.
 - **A send's message shape**: defaults, named arguments, implicit and
   variadic parameters on a send member are refused at the send
   (`actor-send-fn:message-shape`): the IR's `Send`/`SelfSend` carry the
@@ -1034,25 +1036,8 @@ left three follow-ups the user has asked for, in this order.
   in, which is its honest lowering anyway. After it, no user-visible
   intrinsic reads a type argument.
 
-### Message arms: the overload selector (decided, not built)
+### Messages: a loose end of the routes work (2026-11-05)
 
-User decision 2026-11-05 (the routes record §9.1): when an actor effect overloads a
-send member, `is .reserve` / `is Inventory.Reserve` is ambiguous and is
-refused, and the arm is selected by its parameter types,
-`is Inventory.Reserve(Str, Int, Reply<Str>)`. Today an overloaded member's
-arm is named after its emitted name (`Inventory.ReserveStr`, the message
-enum's variant), so the arms exist and are distinct, but the selector syntax
-in a type position is not parsed. [actor-message]
-
-### Messages: two loose ends of the routes work (2026-11-05)
-
-- **DECISION — user-constructed messages.** The user asked that this run
-  not add them (the routes record §14.7), but they fell out: an arm is an
-  ordinary struct, so `Inventory.Restock { qty: 2 }` builds one, and
-  `forward(to, m)` sends it. Options: (a) keep it (recommended: it is what
-  a recording or replaying proxy needs, and nothing about it is unsound —
-  a message holds its replies linearly); (b) refuse a literal of an arm
-  outside `receive`, which needs a rule naming arms as special.
 - **Unmeasured: a message value per send.** A `receive` handler builds the
   arm before its body runs (IR Phase 1c), where a written send member does
   not; probably small beside the mailbox's own enum, never measured.

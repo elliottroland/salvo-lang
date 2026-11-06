@@ -386,6 +386,19 @@ messages! {
         "handler `{handler}` serves its type parameter `{param}`, a protocol it cannot \
          name the members of: answer it with `send fn receive(m: Message<{param}>)`"
     );
+    // [actor-message]
+    /// Two send members of one actor effect under one name.
+    actor_message_overloaded_send = "actor-message:overloaded-send" (effect: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
+        "`{effect}` declares the send member `{member}` twice: an actor effect's send members \
+         are not overloaded, because that will cause a collision in the generated \
+         `Message<{effect}>` structs (one per send member, named after it): give this one \
+         a name of its own"
+    );
+    /// Two send members whose message structs would share a name.
+    actor_message_arm_collision = "actor-message:arm-collision" (effect: &dyn std::fmt::Display, member: &dyn std::fmt::Display, other: &dyn std::fmt::Display, arm: &dyn std::fmt::Display) => format!(
+        "`{member}` and `{other}` in `{effect}` will cause a collision in the generated \
+         `Message<{effect}>` structs: both are named `{arm}`. Rename one of them"
+    );
     /// A handler answering a face's messages with `receive` and one member too.
     actor_receive_both = "actor-receive:both" (handler: &str, effect: &str, member: &str) => format!(
         "handler `{handler}` answers every message of `{effect}` with `receive`, so it \

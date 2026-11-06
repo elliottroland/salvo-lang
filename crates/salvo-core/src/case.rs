@@ -115,7 +115,25 @@ pub fn module_clashes(module: &salvo_syntax::ast::Module) -> Vec<(salvo_syntax::
                 }
             }
             Item::Effect(e) => {
-                let members: Vec<&Ident> = e.fns.iter().map(|f| &f.name).collect();
+                // [actor-message] Two send members of an actor effect that
+                // share a spelling also share a `Message<E>` arm, which the
+                // checker refuses with that reason; only the first of them
+                // stands for the rest here.
+                let mut arms: Vec<String> = Vec::new();
+                let members: Vec<&Ident> = e
+                    .fns
+                    .iter()
+                    .filter(|f| {
+                        if !(e.is_actor && f.is_send) {
+                            return true;
+                        }
+                        let arm = crate::naming::msg_variant_name(&f.name.name);
+                        let first = !arms.contains(&arm);
+                        arms.push(arm);
+                        first
+                    })
+                    .map(|f| &f.name)
+                    .collect();
                 report(&format!("effect `{}`", e.name.name), &members);
             }
             Item::Handler(h) => {

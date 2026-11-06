@@ -248,6 +248,14 @@ Two members with the same name *and* the same parameter types are the error
 they look like: no call could tell them apart. The selector and the overload
 compose: `@Fs` picks the effect, the arguments pick the member.
 
+**Not an actor effect's send members.** Each `send fn` of an `actor effect`
+is also a struct of its own, its message (`Inventory.Reserve` for `reserve`,
+see [Concurrency](Concurrency.md)), named after the member. Two send members
+of one actor effect therefore take two names, and names that stay distinct
+in CamelCase (`get_all` and `getAll` would both be `GetAll`). An actor
+effect's plain members overload as above, and two actor effects may each
+have a `send fn` of one name: each has its own messages.
+
 **Members and functions.** A member and an ordinary **function** may also
 share a name, and they are one overload set too. std's own filesystem needs
 it: `close` is an [`Fs`](../../lib/std/fs.sv#effect-fs) member per stream

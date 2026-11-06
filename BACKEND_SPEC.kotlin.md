@@ -1649,7 +1649,9 @@ Reported as codegen errors, never silent wrong code:
 
 * [kt-message-arms] **An actor effect's message arms nest in its
   interface** [actor-message]: `interface Inventory { fun reserve(…); class
-  Reserve(…) }`. A namespace is otherwise an `object` of its name, which
-  cannot sit beside an `interface` of the same name; Kotlin interfaces may
-  hold nested classes, and `Inventory.Reserve` names the arm as Salvo spells
-  it. The arms' codecs follow the interface at top level.
+  Reserve(…) }`. The arms are the members of a namespace named after the
+  effect, and a namespace is otherwise an `object` of its name, which cannot
+  sit beside an `interface` of the same name; Kotlin interfaces may hold
+  nested classes, and `Inventory.Reserve` names the arm as Salvo spells it.
+  A namespace the program writes under an effect's name nests there the
+  same way. The arms' codecs follow the interface at top level.

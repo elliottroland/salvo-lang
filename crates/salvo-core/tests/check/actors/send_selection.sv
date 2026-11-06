@@ -118,13 +118,17 @@ handler Stepping(seed: Int) for Random {
 //--- a send to an overloaded member of this actor
 // [actor-send-fn] A self-send, servant send or member mint names its member,
 // which cannot say which overload yet: refused, naming the addr send as the
-// way (ROADMAP 0au).
+// way (ROADMAP 0au). One effect's send members are never overloaded
+// [actor-message], so the overloads come from two faces.
 actor effect Sink {
     send fn put(a: Int)
+}
+
+actor effect Tagged {
     send fn put(a: Str) => !a
 }
 
-handler Dropping() for Sink {
+handler Dropping() for Sink, Tagged {
     mailbox { capacity: 4 }
 
     send fn put(a: Int) {

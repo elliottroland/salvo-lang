@@ -551,7 +551,12 @@ A `send fn` is shorthand for a message. `reserve(sku, 1, out)` sends the
 message `Inventory.Reserve { sku: sku, qty: 1, out: out }`, and
 [`Message<E>`](../../lib/std/core/actor.sv#type-message) is every message of
 `E` as a value: a union with one arm per send member, each arm a struct of
-the member's parameters, named after the effect and the member in CamelCase.
+the member's parameters. The arms live in a namespace named after the
+effect, one per member, named after it in CamelCase, so they are reached as
+any namespace's types are: `Inventory.Reserve`, `.Reserve` where the type is
+known, and `import shop.Inventory` brings them with the effect. Because each
+send member is one arm, an actor effect's send members are not overloaded,
+and two that would CamelCase alike (`get_all`, `getAll`) are refused.
 
 ```salvo
 actor effect Inventory {

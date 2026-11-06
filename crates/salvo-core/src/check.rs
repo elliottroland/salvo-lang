@@ -5809,6 +5809,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     ///   [actor-sendable]. Each is a borrow or a share that a seam cannot
     ///   carry.
     fn check_effect_kind(&mut self, e: &'p EffectDecl) {
+        self.check_send_member_names(e);
         let saved = self.enter_generics(&e.generics);
         for f in &e.fns {
             if f.is_send && !e.is_actor {
@@ -5822,6 +5823,31 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         self.generics = saved;
+    }
+
+    /// [actor-message] An actor effect's send members have distinct names,
+    /// and distinct message structs (user decision 2026-11-05): each is one
+    /// arm of `Message<E>`, named `E.Member`, so an overload or two names
+    /// that CamelCase alike (`get_all`, `getAll`) would give two arms one
+    /// name. Its plain members may still be overloaded [effect-member-overload].
+    fn check_send_member_names(&mut self, e: &'p EffectDecl) {
+        if !e.is_actor {
+            return;
+        }
+        let mut seen: Vec<(&'p FnDecl, String)> = Vec::new();
+        for f in e.fns.iter().filter(|f| f.is_send) {
+            let arm = crate::naming::msg_variant_name(&f.name.name);
+            match seen.iter().find(|(g, a)| g.name.name == f.name.name || *a == arm) {
+                Some((g, _)) if g.name.name == f.name.name => {
+                    self.error(f.name.span, messages::actor_message_overloaded_send(&e.name.name, &f.name.name));
+                }
+                Some((g, _)) => {
+                    let arm = format!("{}.{arm}", e.name.name);
+                    self.error(f.name.span, messages::actor_message_arm_collision(&e.name.name, &f.name.name, &g.name.name, &arm));
+                }
+                None => seen.push((f, arm)),
+            }
+        }
     }
 
     /// [actor-effect-kind] [actor-sendable] One member of an `actor effect`,
@@ -28656,7 +28682,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.restore_narrows(&entry);
             branch_tys.push(ty);
             tails.push(tail);
-            remaining.retain(|arm| !matched.contains(arm));
+            // [name-resolve] An unresolved check takes no arm: what it would
+            // match is unknown, and taking every arm (as an unresolved
+            // pattern matches) made each later branch a second, "dead"
+            // diagnostic for the one mistake.
+            if !(pat.unresolved || alts.iter().any(|a| a.unresolved)) {
+                remaining.retain(|arm| !matched.contains(arm));
+            }
         }
         self.merge_fallthrough(&fallthrough);
         // [is-narrow-guard] After a `when` on a variable, the subject is one

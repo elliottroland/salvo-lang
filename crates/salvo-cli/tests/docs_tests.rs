@@ -374,6 +374,13 @@ fn salvo_docs_writes_wiki_pages() {
         "// Shapes and their areas.\n//\n// Start with [Shape].\n\n// A square, by its side.\n//\n// ```no-check\n// let s = Shape { side: 2 }\n// ```\nexport struct Shape {\n    // The length of a side.\n    side: Int\n}\n\n// The area of [s], a [Shape].\n//\n// ```\n// let x: Str = area(Shape { side: 2 })\n// ```\n//\n// @param s  the shape\n// @compilerrules [fn-overload] hidden\nexport fn area(s: Shape) -> Int {\n    return s.side * s.side\n}\n\nfn hidden() -> Int {\n    return 0\n}\n",
     )
     .unwrap();
+    // [actor-message] A send member is rendered as a namespace's fn, with the
+    // message struct it generates, which has no entry of its own.
+    std::fs::write(
+        root.join("src/orders.sv"),
+        "// The orders desk. Send one with [Desk.order]; its message is [Desk.Order].\nexport actor effect Desk {\n    // Orders `qty` of `sku`.\n    send fn order(sku: Str, qty: Int) => !sku\n    // Clears the desk.\n    send fn clear()\n}\n",
+    )
+    .unwrap();
     std::fs::write(root.join("guide/Start.md"), "# Shop\n\nRead [the tour](Tour.md) first.\n").unwrap();
     std::fs::write(root.join("guide/Tour.md"), "# Tour\n\nSee [shapes](../src/shapes.sv#struct-shape).\n\n```salvo\nlet x = 1\n```\n").unwrap();
     let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_salvo")).args(args).current_dir(&root).output().expect("run salvo docs");
@@ -392,6 +399,12 @@ fn salvo_docs_writes_wiki_pages() {
     assert!(module.contains("```rust\nlet s = Shape { side: 2 }\n```"), "a `no-check` fence is Salvo, fenced `rust` [doc-example]: {module}");
     assert!(module.contains("- `side: Int` — The length of a side."), "{module}");
     assert!(module.contains("**Parameters**"), "{module}");
+    let orders = read("orders.md");
+    assert!(orders.contains("### fn Desk.order") && orders.contains("send fn order(sku: Str, qty: Int)"), "{orders}");
+    assert!(orders.contains("**Message** `Desk.Order`") && orders.contains("- `qty: Int`"), "{orders}");
+    assert!(!orders.contains("### struct Desk.Order"), "a message struct has no entry of its own: {orders}");
+    assert!(orders.contains("- [`Desk.order`](#fn-deskorder) — Orders `qty` of `sku`."), "the effect links its send members: {orders}");
+    assert!(orders.contains("its message is [`Desk.Order`](#fn-deskorder)"), "a message struct's name links to its member: {orders}");
     let home = read("Home.md");
     assert!(home.contains("# Shop") && home.contains("[the tour](Tour)") && home.contains("[`shapes`](shapes)"), "{home}");
     let tour = read("Tour.md");

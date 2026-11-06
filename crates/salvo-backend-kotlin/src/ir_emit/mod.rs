@@ -1907,10 +1907,19 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     // the one whose parameters match.
                     let pick = match (same.as_slice(), &declared) {
                         ([one], _) => Some(*one),
-                        (many, Some(d)) => many.iter().copied().find(|m| {
-                            let ps: Vec<&Ty> = m.params.iter().map(|p| &p.ty).collect();
-                            ps.len() >= d.len() && d.iter().zip(&ps).all(|(a, b)| erase_eq(a, b))
-                        }),
+                        // An exact-length match first: `put(a: Int)` is a
+                        // prefix of `put(a: Int, b: Int)`, and the shorter
+                        // must not take the longer's name.
+                        (many, Some(d)) => many
+                            .iter()
+                            .copied()
+                            .find(|m| m.params.len() == d.len() && d.iter().zip(&m.params).all(|(a, b)| erase_eq(a, &b.ty)))
+                            .or_else(|| {
+                                many.iter().copied().find(|m| {
+                                    let ps: Vec<&Ty> = m.params.iter().map(|p| &p.ty).collect();
+                                    ps.len() >= d.len() && d.iter().zip(&ps).all(|(a, b)| erase_eq(a, b))
+                                })
+                            }),
                         _ => None,
                     };
                     if let Some(m) = pick {

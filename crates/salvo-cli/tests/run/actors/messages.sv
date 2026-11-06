@@ -95,3 +95,47 @@ fn main() [use, spawn] -> None {
 //= stdout
 //= apple: 7 left
 //= fig: 5 left
+
+//--- messages_through_a_namespace_import
+// [actor-message] [mod-namespace] The arms are a namespace named after the
+// effect: `import shop.Inventory` brings the effect and its messages, and a
+// namespace the program writes under the name holds its own types beside them.
+import shop.Inventory
+import shop.Store
+
+fn describe(m: Message<Inventory>) [] -> Str => m {
+    return when m {
+        is .Restock { "restock ${m.qty}" }
+        is Inventory.Clear { "clear" }
+    }
+}
+
+fn main() [use, spawn] {
+    use StdConsole()
+    let m = Inventory.Restock { qty: 2 }
+    println(describe(m))
+    let n = Inventory.Note { text: "noted" }
+    println(n.text)
+    let s = spawn Store() on pool(1)
+    forward(s, Inventory.Restock { qty: 3 })
+    let _ = waitfor r: Reply<Int> { send(r, 1) }
+}
+// FILE: shop.sv
+export actor effect Inventory {
+    send fn restock(qty: Int)
+    send fn clear()
+}
+
+export handler Store() [Console] for Ordered Inventory {
+    mailbox { capacity: 4 }
+    send fn restock(qty: Int) { println("restock ${qty}") }
+    send fn clear() {}
+}
+
+export namespace Inventory {
+    export struct Note { text: Str }
+}
+//= stdout
+//= restock 2
+//= noted
+//= restock 3

@@ -8055,15 +8055,15 @@ docs/language/ remains the source of truth for everything that does.
     twice. A receiver that is a *call* (`get(addrs, 0).bump(1)`) is a send
     only when nothing of the name takes a uniform call [fn-member-call];
     a `let` first makes it one regardless.
-  * An overloaded send member is chosen by **the call's rule**
-    [effect-member-overload] [fn-overload-rank] (user decision 2026-10-28,
-    census D24 (a), the pipeline record B3.7): the arguments typed once, the lead's
-    parameter types flowing in, the overloads ranked by them; each lowers to
-    its own message variant (`effect_member_name`). Before, the pick was by
-    arity alone and a same-arity pair was refused. A self-send and a servant
-    send are chosen the same way among the handler's own members, and refused
-    when the name is overloaded (they name their member;
-    `actor-send-fn:overloaded-own`).
+  * A send is chosen by **the call's rule** [effect-member-overload]
+    [fn-overload-rank] (user decision 2026-10-28, census D24 (a), the
+    pipeline record B3.7): the arguments typed once, the lead's parameter
+    types flowing in, the candidates ranked by them. One effect's send
+    members are no longer overloaded (2026-11-05, [actor-message]), so the
+    candidates are members of several effects. A self-send and a servant
+    send are chosen the same way among the handler's own members, and
+    refused when the name is overloaded — a handler of two faces that both
+    declare it (they name their member; `actor-send-fn:overloaded-own`).
   * **A message carries its arguments as written**: a send that leaves a
     defaulted parameter out, names one, or reaches implicit or variadic
     parameters is refused (`actor-send-fn:message-shape`) until the
@@ -9301,9 +9301,13 @@ between endpoints and delivers what arrives into the scheduler.
 * [actor-message] **A `send fn` is sugar for a message, and `Message<E>` is
   the message as a value** (user decisions 2026-11-05, the routes record R2 and §8):
   for each non-generic `actor effect E`, the compiler declares one struct per
-  send member beside `E` — its **arm** — named `E.Member` after the member in
-  CamelCase (`Inventory.Reserve` for `reserve`, the message enum's variant
-  name, `naming::msg_variant_name`; an overload by its emitted name), fields
+  send member — its **arm** — in a namespace named after `E` (as `namespace
+  Inventory { struct Reserve { … } }` beside the effect would, so
+  `Inventory.Reserve`, `.Reserve` and an import of `Inventory` follow the
+  namespace rules [mod-namespace] and none of their own; a namespace the
+  program writes under the effect's name holds the arms too), named after
+  the member in CamelCase (`Reserve` for `reserve`, the message enum's
+  variant name, `naming::msg_variant_name`), fields
   the member's declared parameters, exported when `E` is (`message::
   declare_arms`, in `expand_file`, flagged `StructDecl::message_arm`).
   `Message<E>` (std.core.actor, `@compilerknown`, an `intrinsic type` whose
@@ -9319,6 +9323,18 @@ between endpoints and delivers what arrives into the scheduler.
     of the 2026-11-05 run, for the user to confirm): the user's sketch wrote
     `is Inventory.reserve`, but a lowercase segment after a dot is a field
     read [name-dot] [name-casing], so `Inventory.reserve` cannot name a type.
+  * **A send member's name is its arm's** (user decision 2026-11-05): an
+    actor effect's send members are not overloaded
+    (`actor-message:overloaded-send`), and two whose CamelCase spellings
+    coincide (`get_all`, `getAll`) are refused as one arm name
+    (`actor-message:arm-collision`, `check_send_member_names`; [name-camel]
+    leaves that pair to it), each with the reason that the generated
+    `Message<E>` structs would collide. So an arm's name never changes when a
+    member is added, and no selector is needed to name one. Unaffected: an
+    actor effect's plain members, which overload [effect-member-overload];
+    the same name on two faces of one handler, since each face has its own
+    `Message<E>`; a handler's private send members were already refused
+    overloading (`actor-mixed-handler:overloaded-send`).
   * **An arm owes what its parameters owe** [linear-container]: a message arm
     is linear exactly when a field is (`linear::message_arm_linear`), needs no
     discharger, and is settled by moving its linear fields out — by
@@ -13328,7 +13344,9 @@ replaced the working document TESTING.md).
     census D15: before, two available owners were refused whatever the
     arguments). One signature in two effects is the ordinary ambiguity,
     naming the selector forms [effect-at].
-  * **Within one effect**: the overloads are candidates of the same set,
+  * **Within one effect**: (not an actor effect's send members, whose names
+    are their `Message<E>` arms' [actor-message]) the overloads are
+    candidates of the same set,
     picked by the call's rule (census D25: before, by arity first, with a
     fit test of their own and no return-type tiebreak). No overload fitting
     and an ambiguity are the call's errors, never a guess
@@ -13794,7 +13812,13 @@ replaced the working document TESTING.md).
     qualifiers, groups, functions), each under a `### <kind> <name>` heading
     — GitHub's own anchor, `#fn-map` — with the hover's signature and the
     doc block [doc-comment]; a fn's overloads share a heading, a struct
-    lists its fields, an effect its members. Comptime-stamped and generated
+    lists its fields, an effect its members. A non-generic actor effect's
+    send members are the fns of a namespace named after it (`### fn
+    Inventory.reserve`, the member's signature with `send`, its docs), each
+    with the message struct it generates and that struct's fields
+    [actor-message]; the effect lists them by link, and the struct has no
+    entry of its own — a `[Inventory.Reserve]` reference links to its
+    member. Comptime-stamped and generated
     fns are left out; an exported `comptime fn` is listed as written (the
     expansion removes it from the program, so it is read from the file),
     its kind bound shown (`<T is Struct>`). Two headings GitHub would anchor
