@@ -1868,7 +1868,7 @@ Conventions:
     qualifier's `for` type may carry qualifiers, which it implies. It runs
     one way and is no compatibility check.
 * [qual-imply] **A qualifier implies the qualifiers on its `for` type**
-  (user decisions 2026-11-05, ROUTES.md §12–14, option P2; no bundles):
+  (user decisions 2026-11-05, the routes record §12–14, option P2; no bundles):
   `qualifier Positive for NonZero Int` reads "a `Positive` is a `NonZero
   Int` that also …", and a value carrying `Positive` carries `NonZero`,
   transitively.
@@ -5533,7 +5533,7 @@ Conventions:
     faces. (ROADMAP §2b planned a checker error for lending from handler
     state; no program can write one.)
 * [effect-claim] **Delivery guarantees are claims on an effect's binding**
-  (user decisions 2026-11-05, ROUTES.md A2, replacing `any E`). A claim is
+  (user decisions 2026-11-05, the routes record A2, replacing `any E`). A claim is
   a provenance qualifier declared `for Effect` (`export provenance qualifier
   Ordered for Effect`; `Effect` is the marker, not a type, and a state
   qualifier for it is `effect-claim:state`). std declares `Ordered` (one
@@ -6395,7 +6395,7 @@ Conventions:
   misspelled field name is reported wherever it stands. Before, `!` was the
   only connective and `field.name == "a" || …` was a parse error.
 * [comptime-eval] **A comptime head is a compile-time expression** (user
-  decision 2026-11-05, ROUTES.md §11 and §13): `[if e]`, `[for x in e]` and
+  decision 2026-11-05, the routes record §11 and §13): `[if e]`, `[for x in e]` and
   the new **`[let x = e]`** evaluate `e` over `std.core.comptime`'s model
   while the expansion stamps. The twelve hand-parsed condition shapes the
   heads had (`CompCond`) are each a case of it, so every head written before
@@ -9299,7 +9299,7 @@ between endpoints and delivers what arrives into the scheduler.
     `ActorGroup<E>`/`ActorGroupWatcher<E>` (and `RouteView<E>`/`RouteMember<E>`
     for routes) for the actors; `eff[E]` keeps its name.
 * [actor-message] **A `send fn` is sugar for a message, and `Message<E>` is
-  the message as a value** (user decisions 2026-11-05, ROUTES.md R2 and §8):
+  the message as a value** (user decisions 2026-11-05, the routes record R2 and §8):
   for each non-generic `actor effect E`, the compiler declares one struct per
   send member beside `E` — its **arm** — named `E.Member` after the member in
   CamelCase (`Inventory.Reserve` for `reserve`, the message enum's variant
@@ -9349,7 +9349,7 @@ between endpoints and delivers what arrives into the scheduler.
   * A diagnostic about the message names `receive`'s parameter, where the
     body took it.
 * [actor-router] **A router is a handler of the protocol it routes** (user
-  decisions 2026-11-05, ROUTES.md §6.1 and §7: the selector and the route
+  decisions 2026-11-05, the routes record §6.1 and §7: the selector and the route
   merged; replacing the route `use any group` derived, its `RouteSelector<E>`,
   `RoutePick`, `route_pick` and `Key`): std's `LeastLoaded<E>(group,
   prefer_local)`, `Sharded<E>(group, ?key)` and `Elected<E>(group) [Leader]`

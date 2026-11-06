@@ -759,7 +759,7 @@ impl TypeKindWord {
 
 /// [comptime-eval] A compile-time expression: the head of a `[if …]`, the
 /// sequence of a `[for … in …]`, the value of a `[let … = …]` (user decision
-/// 2026-11-05, ROUTES.md §11: heads are expressions, evaluated over
+/// 2026-11-05, the routes record §11: heads are expressions, evaluated over
 /// `std.core.comptime`'s model; the twelve hand-parsed condition shapes they
 /// replace are each one of these forms). Gone before resolution: the
 /// expansion evaluates every one.
@@ -1374,7 +1374,7 @@ pub enum EffectRef {
     Effect(TypeRef),
     /// [effect-claim] `Ordered Counter` — a named effect with **claims**:
     /// provenance qualifiers declared `for Effect`, written before the
-    /// effect's name (user decisions 2026-11-05, ROUTES.md A2). In a fn's
+    /// effect's name (user decisions 2026-11-05, the routes record A2). In a fn's
     /// list it is the requirement that the binding make those claims; a
     /// bare `[E]` assumes nothing about order or instances. `claims` is
     /// never empty: a bare entry is `Effect`.

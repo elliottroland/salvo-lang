@@ -896,7 +896,7 @@ blocker:
   lambda body cannot call a callee asking for a claim even where the scope
   around it could; a `with` clause item's claims are not checked against the
   dependency it satisfies (a scope-resolved dependency's are).
-- **Qualifier implication, second stage** (decided shape, ROUTES.md §12):
+- **Qualifier implication, second stage** (decided shape, the routes record §12):
   implication through a slot's type, `qualifier Idx(c: NonEmpty C) for Int`
   — a claim on the `Int` implying one on the slot's value — with dependent
   stripping both ways ([qual-depend]): mutating `c` drops the implied fact,
@@ -909,9 +909,9 @@ blocker:
 - **⑦ picks**: consistent hashing for `Sharded` (today `key mod n` over the
   ordered view, so a join reshuffles most keys); the `ShardKeyOrdered` claim
   for a program relying on `Sharded`'s per-key ordering is piece (d) of
-  ROUTES.md; a router over a group whose replica is on another node sees an
+  the routes record; a router over a group whose replica is on another node sees an
   empty view and waits. **The deadlock graph does not see through a generic
-  router** (2026-11-05, ROUTES.md (c)): the derived route's graph rows went
+  router** (2026-11-05, the routes record (c)): the derived route's graph rows went
   with it, so a `Sharded(group)` is an ordinary handler node whose `forward`
   to the members is not an edge; a wait cycle closing through a router and
   back is missed. Remedy: an edge from a handler whose `receive` `forward`s
@@ -1036,13 +1036,26 @@ left three follow-ups the user has asked for, in this order.
 
 ### Message arms: the overload selector (decided, not built)
 
-User decision 2026-11-05 (ROUTES.md §9.1): when an actor effect overloads a
+User decision 2026-11-05 (the routes record §9.1): when an actor effect overloads a
 send member, `is .reserve` / `is Inventory.Reserve` is ambiguous and is
 refused, and the arm is selected by its parameter types,
 `is Inventory.Reserve(Str, Int, Reply<Str>)`. Today an overloaded member's
 arm is named after its emitted name (`Inventory.ReserveStr`, the message
 enum's variant), so the arms exist and are distinct, but the selector syntax
 in a type position is not parsed. [actor-message]
+
+### Messages: two loose ends of the routes work (2026-11-05)
+
+- **DECISION — user-constructed messages.** The user asked that this run
+  not add them (the routes record §14.7), but they fell out: an arm is an
+  ordinary struct, so `Inventory.Restock { qty: 2 }` builds one, and
+  `forward(to, m)` sends it. Options: (a) keep it (recommended: it is what
+  a recording or replaying proxy needs, and nothing about it is unsound —
+  a message holds its replies linearly); (b) refuse a literal of an arm
+  outside `receive`, which needs a rule naming arms as special.
+- **Unmeasured: a message value per send.** A `receive` handler builds the
+  arm before its body runs (IR Phase 1c), where a written send member does
+  not; probably small beside the mailbox's own enum, never measured.
 
 ### 2c — Comptime, the rest of the decided design (first slice built 2026-09-28; round 8 built 2026-09-29)
 
@@ -1062,7 +1075,7 @@ and added hover inside comptime fn bodies. What the decided design still owes,
 in build order:
 
 - **Comptime helpers written in Salvo, and ordinary fns at compile time**
-  (ROUTES.md §11 tiers (ii) and (iii); user decision 2026-11-05: heads start
+  (the routes record §11 tiers (ii) and (iii); user decision 2026-11-05: heads start
   limited to tier (i), the `comptime intrinsic fn`s of `std.core.comptime`,
   [comptime-eval-fns]). Tier (ii): a `comptime fn` over model types,
   evaluated by the evaluator and never emitted. **DECISION**: how a helper

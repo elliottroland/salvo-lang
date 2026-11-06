@@ -2,7 +2,7 @@
 //!
 //! A `send fn` is sugar for a message the actor machinery already carries:
 //! the IR's `__Msg_E` enum, one variant per send member (user decision
-//! 2026-11-05, ROUTES.md R2). `Message<E>` makes that message a Salvo value:
+//! 2026-11-05, the routes record R2). `Message<E>` makes that message a Salvo value:
 //! a union with one arm per send member, each arm a struct of the member's
 //! parameters. The arms are ordinary structs this module declares beside the
 //! effect, before resolution, so every later phase (resolution, comptime,

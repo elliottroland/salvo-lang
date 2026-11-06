@@ -149,7 +149,18 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-11-05 — A qualifier implies the qualifiers on its `for` type (user decisions, [qual-imply] [effect-claim], ROUTES.md §12–14)
+### 2026-11-05 — ROUTES.md retired
+
+Its five pieces landed (the five entries below), so per its lifecycle it is
+gone: the reasoning and the options not taken are "Design record: routes,
+messages and claims" below; the open items are in ROADMAP (the arm overload
+selector, user-constructed messages as a DECISION, the per-send message
+cost, the deadlock graph not seeing through a generic router and consistent
+hashing under ⑦, implication's second stage, claims' gaps under ⑥, comptime
+tiers (ii) and (iii) under §2c). References to the file now name the
+record.
+
+### 2026-11-05 — A qualifier implies the qualifiers on its `for` type (user decisions, [qual-imply] [effect-claim], the routes record §12–14)
 
 - **Decided** (user, 2026-11-05): implication is P2 — the implied
   qualifiers sit on the `for` type (`qualifier Positive for NonZero Int`,
@@ -193,7 +204,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 - 724 tests under nextest (`check/qualifiers/implication.sv` new, in the qualifiers area), warm run
   2m08.
 
-### 2026-11-05 — Delivery guarantees are claims on an effect's binding (user decisions, [effect-claim], ROUTES.md A2/§6.2/§7–9/§14)
+### 2026-11-05 — Delivery guarantees are claims on an effect's binding (user decisions, [effect-claim], the routes record A2/§6.2/§7–9/§14)
 
 - **Decided** (user, 2026-11-05): `any E` is gone. A delivery guarantee is a
   **claim**, a provenance qualifier declared `for Effect`, written before
@@ -239,7 +250,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   `run/actors/claims.sv`, the fn-type `any` Rust test folded into the
   data), warm run 2m57 after the std change.
 
-### 2026-11-05 — std's routers are `receive` handlers over generic protocols (user decisions, [actor-router] [actor-receive], ROUTES.md R2/§6.1/§9/§14)
+### 2026-11-05 — std's routers are `receive` handlers over generic protocols (user decisions, [actor-router] [actor-receive], the routes record R2/§6.1/§9/§14)
 
 - **Decided** (user, 2026-11-05): routing is no longer something the
   compiler derives. `use any group`, the derived `__Route_X`, `RouteSelector`,
@@ -283,7 +294,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   removed, the router cases added); that run took 3m26, since the std and
   emitter change missed most stamps.
 
-### 2026-11-05 — Messages are values: `Message<E>`, `receive`, `forward` (user decisions, [actor-message] [actor-receive], ROUTES.md R2/§8/§14)
+### 2026-11-05 — Messages are values: `Message<E>`, `receive`, `forward` (user decisions, [actor-message] [actor-receive], the routes record R2/§8/§14)
 
 - **Decided** (user, 2026-11-05): a `send fn` is sugar for the actor
   machinery already generated, and R2 lets a program write an actor at the
@@ -313,18 +324,18 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 - **Fell out**: a program can build a message (`Inventory.Restock { qty: 2
   }`), since the arms are ordinary structs; recorded as built, not refused.
 - **Left for (c)**: a handler generic over the effect it serves (`handler
-  Sharded<E>(…) for E`), which std's routers need (ROUTES.md B6).
+  Sharded<E>(…) for E`), which std's routers need (the routes record B6).
 - **Left in ROADMAP**: the overload selector `is Inventory.reserve(Str, Int,
   Reply<Str>)` (decided, §9.1): an overloaded member's arm is named by its
   emitted name for now.
 - 731 tests under nextest (new cases in `check/actors/messages.sv` and
   `run/actors/messages.sv`), warm run 1m54.
 
-### 2026-11-05 — Comptime heads are expressions, evaluated (user decisions, [comptime-eval] [comptime-eval-fns], ROUTES.md §11/§13)
+### 2026-11-05 — Comptime heads are expressions, evaluated (user decisions, [comptime-eval] [comptime-eval-fns], the routes record §11/§13)
 
 - **Decided** (user, 2026-11-05): comptime must be able to state rules over
   a declaration as a whole (the motivating one: at most one `ShardKey` per
-  send member, ROUTES.md §9), and the user chose (b), *evaluation*, over (a) a
+  send member, the routes record §9), and the user chose (b), *evaluation*, over (a) a
   filtered walk and (c) a declared constraint on the qualifier. Of §11's
   steps, 1–3 (values and an evaluator; heads as expressions; `[let]`, `[for x
   in <expr>]`, computed `refuse!`) and tier (i) only (declared intrinsics):
@@ -39202,6 +39213,103 @@ How an operator chooses its function (O1, with O5):
   the format fn. Not needed: the `operator` keyword, canonical positions,
   and the generic exclusion.
 
+## Design record: routes, messages and claims (ROUTES.md, retired 2026-11-05)
+
+The working document of the redesign that took routing out of the compiler
+(user decisions 2026-11-05, six rounds, then an unattended run in five
+commits: comptime evaluation, messages, routers, claims, implication). The
+rules are in LANGUAGE_SPEC.md ([comptime-eval], [comptime-eval-fns],
+[actor-message], [actor-receive], [actor-router], [effect-claim],
+[qual-imply]); each piece's decision-log entry above says what was built.
+What follows is the reasoning and the options not taken.
+
+**What there was.** `use any g` searched the scope for a
+`RouteSelector<X>` and recorded a route; the IR derived one `__Route_X for
+any X` per routed protocol (Phase 1b), each member calling `route_pick` and,
+for a `Key`-marked parameter, `key_hash`. Six `@compilerknown` std names
+(`ActorGroup`, `Protocol`, `RouteSelector`, `Key`, `RoutePick`,
+`route_pick`) plus `key_hash` and a `use` form existed for this. The one
+thing Salvo could not express was the per-protocol forward: "for each send
+member of `X`, send the same parameters on to another `eff[X]`".
+
+**What `any` bought** (the user's objection: "convention"). It was a claim
+about the sender's view — one instance, in order, one state — sound for a
+single actor and trusted for a router (a router omitting `any` was "the one
+gap"). Its granularity was wrong (`Sharded`'s per-key order sat between the
+two colours, and ROADMAP ⑦ already wanted a third), it leaked (a spawned
+router's addr bound strong), and it was not about location. It carried four
+things: a1 the call-site refusal, a2 shareable binding of a router, a3 the
+router's deadlock node, a4 documentation. Only a1 was a check.
+
+**Options for the route.**
+- *R0*, keep the derivation and tidy its edges: removes nothing objected to.
+- *R1*, a comptime template over effects (`<E is Effect>`, member and
+  parameter splices, a stamping line per protocol): also writes generic
+  proxies, but needs three new comptime capabilities and call-site
+  stamping, which comptime refuses.
+- **R2 (chosen)**, messages as values: `Message<E>`, `send fn receive`,
+  `forward`. Routing becomes ordinary generic std code, a selector can read
+  the message itself, and scatter/race/retry proxies are written once.
+  Costs: three compiler-known names, a message value per send (unmeasured),
+  and backend work (it turned out small: the IR inlines `receive` per
+  member and lowers `forward` to a switch of sends).
+- Follow-up: RouteSelector and Route merged — a router *is* a handler of
+  the protocol over the group's view (`Sharded`, `LeastLoaded`, `Elected`),
+  so there is no selector seam.
+
+**Options for `any`.** A0 keep the binary; A1 drop it (lose a1: `tally`
+under a router compiles and silently reorders); **A2 (chosen)** guarantees
+as library-declared claims checked as qualifiers, with the default flipped
+(a bare `[E]` assumes nothing) and, at the user's call, nothing granted by
+the compiler, not even `Ordered` to a single actor; A3 an unchecked
+annotation (ruled out: Salvo ships no unchecked claims). A2's claims are
+provenance qualifiers whose subject is `Effect`; on a handle they go inside
+the brackets (`eff[Ordered Counter]`, one spelling with effect lists and
+`for` clauses).
+
+**Message arms.** The user's sketch spelled arms `Inventory.reserve`
+(quasi-namespace); the run built `Inventory.Reserve`, since a lowercase
+segment after a dot is a field read. An overloaded send member's arm is to
+be named with a selector by parameter types (option (a); (b) one arm
+matching every overload and (c) refusing overloads on matched effects were
+rejected). Non-send members are written by hand under `receive`.
+
+**The shard key.** `ShardKey` is a comptime qualifier before a send
+parameter, carried to the arm's field; `std.net.shard`'s `key` template
+stamps `fn key(m: Message<P>) -> Long? by shard` (the one-function form; an
+obligation clause on the effect declaration was rejected as a new clause
+position). Two marks on one member are the template's refusal, which made
+comptime need counting: options (a) a filtered walk with first/last, (b)
+comptime-evaluated expressions over the type model, (c) a declared
+constraint on the qualifier (`unique`). The user chose **(b)** ("comptime
+for complex rules, not only unrolling"), in its first tier: conditions as
+expressions over compile-time values, `[let]`, intrinsics `size get filter
+count any all`; tiers (ii) helpers in Salvo and (iii) ordinary functions at
+compile time are in ROADMAP §2c.
+
+**Implication.** Bundles were rejected. For state qualifiers, "`qualifies`
+must prove the implied ones" had two readings: *P1* proof by the returned
+condition (needs a returned `Bool` to carry its true branch's facts, and in
+practice every body starts `x is P &&`), and **P2 (chosen)** proof by
+precondition — the implied qualifiers on the `for` type, tested before
+`qualifies` runs. Provenance implication is the author's, trusted;
+implication across the families is refused; cycles are refused. Second
+stage (a slot's type implying a claim on the slot's value) is in ROADMAP.
+
+**Run decisions** (§14, user): implication in the run, last; one commit per
+piece, rearranged as needed (the claims sweep moved from (d) to (e));
+`Message`/`forward` in std.core.actor; `receive` recognised by name and
+kept a `send fn` (a plain `fn` whose name alone made it a message turn was
+the magic being removed); all or nothing; `std.net.shard` with no `Keyed`
+group; claims allowed on any effect, swept on actor effects only; conditions
+see compile-time functions only.
+
+**Unverified at the start, settled by the build**: the lock adapter read no
+`any` (it is per effect, from the handler's shape); ownership of `Reply`
+tokens through `Message<E>` checks (arms are linear when a field is,
+settled by decomposition); `key_hash` lowers on Kotlin (FNV-1a over the
+encoding, as Rust). Still unmeasured: the cost of a message value per send.
+
 ## Test inventory (all green: 2156 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
 The kotlinc/rustc tests are **content-cached** (`salvo-testkit`): a plain
@@ -40503,6 +40611,13 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A scratch script's name can already be taken** (2026-11-05). `tmp/` is
+  shared across sessions, and a run started in the same batch as the write
+  of `tmp/retire.py` executed an older `retire.py` left by another
+  retirement, which pasted a stale record into COMPLETED.md. Give scratch
+  files names of this work's own, and run a script only after its write
+  has returned.
 
 - **Lowering a written type records it** (2026-11-05, claims). The checker's
   `lower_type` writes `written_types[span]`, which the IR reads back as the
