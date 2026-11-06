@@ -104,7 +104,7 @@ impl<'p> Ctx<'p> {
                     .iter()
                     .flatten()
                     .filter_map(|e| match e {
-                        ast::EffectRef::Effect(r) | ast::EffectRef::AnyEffect(r) => Some(Ty::Named {
+                        ast::EffectRef::Effect(r) | ast::EffectRef::Claimed { effect: r, .. } => Some(Ty::Named {
                             name: self.checked.written_key(r).to_string(),
                             args: r.args.iter().filter_map(|a| self.approx_keyed(a, subst, depth + 1)).collect(),
                         }),

@@ -2277,7 +2277,7 @@ impl<'s> Parser<'s> {
         let effects = self.parse_effect_list()?;
         let end = effects.last().map(|e| match e {
             EffectRef::Use(s) | EffectRef::Spawn(s) => *s,
-            EffectRef::Effect(r) | EffectRef::AnyEffect(r) => r.span,
+            EffectRef::Effect(r) | EffectRef::Claimed { effect: r, .. } => r.span,
         }).unwrap_or(name.span);
         Some(EffectAliasDecl {
             exported: false,
@@ -2467,12 +2467,17 @@ impl<'s> Parser<'s> {
         self.expect(&TokenKind::KwFor)?;
         // [effect-handler-multi] One effect or several, comma-separated: the
         // handler wears one face per effect over one piece of state.
-        // [effect-any] `for any E`: this face forwards to many instances.
-        let mut of_any = vec![self.eat_any_prefix()];
-        let mut of = vec![self.parse_type()?];
-        while self.eat(&TokenKind::Comma).is_some() {
-            of_any.push(self.eat_any_prefix());
-            of.push(self.parse_type()?);
+        // [effect-claim] `for Ordered Counter`: the claims parse as the
+        // face type's qualifiers and are moved off it.
+        let mut of_claims = Vec::new();
+        let mut of = Vec::new();
+        loop {
+            let (claims, face) = Self::split_face_claims(self.parse_type()?);
+            of_claims.push(claims);
+            of.push(face);
+            if self.eat(&TokenKind::Comma).is_none() {
+                break;
+            }
         }
         let mut state = Vec::new();
         let mut state_name = None;
@@ -2641,7 +2646,7 @@ impl<'s> Parser<'s> {
             params,
             effects,
             of,
-            of_any,
+            of_claims,
             init,
             mailbox,
             state,
@@ -2651,15 +2656,25 @@ impl<'s> Parser<'s> {
         })
     }
 
-    /// [effect-any] `any` before a type name, contextual: an
-    /// effect called `any` (unwise) still parses alone.
-    fn eat_any_prefix(&mut self) -> bool {
-        if self.at_word("any") && matches!(self.peek_at(1).kind, TokenKind::Ident(_)) {
-            self.bump();
-            true
-        } else {
-            false
+    /// [effect-claim] A handler face's claims: the qualifiers its type was
+    /// written with (`Ordered Counter`), and the bare face.
+    fn split_face_claims(face: Type) -> (Vec<TypeRef>, Type) {
+        match face {
+            Type::Named { qualifiers, base } => (qualifiers, Type::Named { qualifiers: Vec::new(), base }),
+            other => (Vec::new(), other),
         }
+    }
+
+    /// [effect-claim] An effect entry with its claims: type names on one
+    /// line, the last the effect (`Ordered ShardKeyOrdered Counter<Int>`).
+    fn parse_claimed_ref(&mut self) -> Option<(Vec<TypeRef>, TypeRef)> {
+        let mut claims = Vec::new();
+        let mut r = self.parse_type_ref()?;
+        while self.at_type_name() && self.same_line() {
+            claims.push(r);
+            r = self.parse_type_ref()?;
+        }
+        Some((claims, r))
     }
 
     // --- Functions ---
@@ -3057,27 +3072,12 @@ impl<'s> Parser<'s> {
                     let tok = self.bump();
                     self.error(messages::waitfor_effect_declared(), tok.span);
                 }
-                // [effect-any] `any E` (contextual): the requirement that
-                // accepts a binding spread over many instances. `any`
-                // followed by anything but a type name stays an ordinary
-                // effect name, so an effect called `any` (unwise) still
-                // parses alone. (`local E`, the form that accepted a
-                // scope-local binding, was removed 2026-09-28 — every
-                // binding is a handle [effect-handle].)
-                TokenKind::Ident(name)
-                    if name == "any" && matches!(self.peek_at(1).kind, TokenKind::Ident(_)) =>
-                {
-                    self.bump();
-                    match self.parse_type_ref() {
-                        Some(r) => effects.push(EffectRef::AnyEffect(r)),
-                        None => {
-                            self.group_depth -= 1;
-                            return None;
-                        }
-                    }
-                }
-                _ => match self.parse_type_ref() {
-                    Some(r) => effects.push(EffectRef::Effect(r)),
+                // [effect-claim] `Ordered Counter`: a run of type names on
+                // one line is claims and then the effect, the way a type's
+                // qualifiers precede its base.
+                _ => match self.parse_claimed_ref() {
+                    Some((claims, r)) if claims.is_empty() => effects.push(EffectRef::Effect(r)),
+                    Some((claims, effect)) => effects.push(EffectRef::Claimed { claims, effect }),
                     None => {
                         self.group_depth -= 1;
                         return None;
@@ -3685,22 +3685,25 @@ impl<'s> Parser<'s> {
     /// [effect-eff-handle] `eff[A, B, …]` → the internal `Addr` type carrying the
     /// effect set as its arguments. One effect reproduces the old `Addr<E>`
     /// exactly (`args: [E]`); several is a multi-effect handle (`args: [A,
-    /// B]`). Members are plain effect refs — `use`/`spawn`/`any` are
-    /// capabilities, not handle contents, so they are not accepted here.
+    /// B]`). Members are effect refs with their claims [effect-claim]
+    /// (`eff[Ordered Counter]`); `use`/`spawn` are capabilities, not handle
+    /// contents, so they are not accepted here.
     fn parse_eff_handle(&mut self) -> Option<Type> {
         let start = self.bump().span; // `eff`
         self.expect(&TokenKind::LBracket)?;
         self.group_depth += 1;
         let mut args: Vec<Type> = Vec::new();
         while !self.at(&TokenKind::RBracket) && !self.at_eof() {
-            let r = match self.parse_type_ref() {
+            // [effect-claim] `eff[Ordered Counter]`: an entry's claims ride
+            // as its qualifiers.
+            let (claims, r) = match self.parse_claimed_ref() {
                 Some(r) => r,
                 None => {
                     self.group_depth -= 1;
                     return None;
                 }
             };
-            args.push(Type::Named { qualifiers: Vec::new(), base: r });
+            args.push(Type::Named { qualifiers: claims, base: r });
             if self.eat(&TokenKind::Comma).is_none() {
                 break;
             }

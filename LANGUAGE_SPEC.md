@@ -4835,8 +4835,8 @@ Conventions:
     return a `() [Console] -> None`. Where a fn type is expected it may name
     less than the type (a smaller set fits; the value's type is still the
     expected one, which is what the call site passes) and nothing more
-    (`fn-lambda-sig:effect-not-expected`). `use`, `spawn` and `any E` are
-    refused as on a fn type.
+    (`fn-lambda-sig:effect-not-expected`). `use`, `spawn` and claims
+    [effect-claim] are refused as on a fn type.
   * **The clause** says which parameters the lambda consumes (`!p`) and
     which it keeps (`p`, the default); a parameter it does not mention is
     kept, so writing a clause makes every unconsumed parameter the caller's
@@ -5337,7 +5337,7 @@ Conventions:
     `effect_prereqs` — and the IR builder and both emitters read them, so
     they agree by construction. LSP hover shows the expanded list (user
     decision R6, 2026-10-20: hover says what the code is interpreted as).
-  * **Refused at the declaration**: `use`/`spawn`/`any E` entries; an unknown
+  * **Refused at the declaration**: `use`/`spawn` entries and claims; an unknown
     name; an `actor effect` with prerequisites, or one as a prerequisite; an
     exported effect with a private prerequisite; a cycle (named as a chain).
     A module with its own `Streams` is no clash: the implied `Streams` is the
@@ -5364,8 +5364,9 @@ Conventions:
     another alias; the expansion closes them transitively and **refuses a
     cycle**, named as a chain.
   * **Usable wherever a named effect is**, including as or within a
-    prerequisite. `any Alias` at a *site* is refused for the same reason `any`
-    is refused in the declaration: `any` is about one instance of one effect.
+    prerequisite. A claim on an alias at a *site* (`Ordered IO`) is refused for
+    the same reason a claim is refused in the declaration: a claim is about the
+    binding of one effect [effect-claim].
   * **A name, resolved like a type alias** (2026-10-20, the pipeline record step 6,
     replacing an AST rewrite that ran before resolution). An alias is a module
     item: exported, imported (`import caps.App`) and found by the resolver's
@@ -5490,38 +5491,45 @@ Conventions:
     outlives the handle's lock legitimately and the handle forwards both
     faces. (ROADMAP §2b planned a checker error for lending from handler
     state; no program can write one.)
-* [effect-any] **`any E` weakens identity** (user decision 2026-09-26, the
-  network round). Bare `[E]` keeps
-  the strong meaning every program so far assumed: *one* instance, sends in
-  order, state shared between them. `[any E]` says "each send may go to a
-  different instance; I assume no order between my sends and no state
-  across them" — and accepts every binding, since a single instance is a
-  group of one. Contextual: `any` followed by an effect name.
-  * **The binding side**: a handler declares the weaker guarantee in its
-    `for` clause, per face — `handler RoundRobin(members) for any Resizer` —
-    and a `use` of it binds `any Resizer`, which satisfies **only**
-    `[any Resizer]`. A router that forwards to many members and omits `any`
-    is telling a lie the checker cannot see: the one gap, accepted.
-  * **The call-site rule**: a bare `[E]` requirement
-    against an `any` binding is an error naming both remedies (declare
-    `[any E]` if any member may take each send, or bind one instance); a
-    strong binding satisfies both forms. **Viral downward**: a body holding
-    `[any E]` may call `E`'s members and callees declaring `[any E]`, never
-    a callee assuming one instance; a body holding `[E]` may call either.
-  * A router is the one handler of an **actor effect** whose `use` binds
-    shareable (bare when stateless, a monitor when stateful): it forwards
-    to members and holds no protocol state of its own, and the emitters
-    give an actor effect the lock adapter exactly when a router of it
-    exists. It is also a servant node of its own in the deadlock graph, so
-    its forwards do not read as `E → E` — and every dependency
-    on `any E` points at it (router in-edges, [actor-deadlock-cycle]).
-  * **A fn type carries no strength** (it cannot say `any`): an inherited
-    requirement [fn-effects] is the strong one unless
-    the function taking the value writes `[any E]` itself, which weakens it
-    — the written entry wins the dedupe. Recorded gaps: an `eff[E]`
-    answered by *spawning* a router binds as an ordinary `E` under `use
-    addr` (the addr type has no room for the claim), and a lambda's body is
-    checked under strong availabilities.
+* [effect-claim] **Delivery guarantees are claims on an effect's binding**
+  (user decisions 2026-11-05, ROUTES.md A2, replacing `any E`). A claim is
+  a provenance qualifier declared `for Effect` (`export provenance qualifier
+  Ordered for Effect`; `Effect` is the marker, not a type, and a state
+  qualifier for it is `effect-claim:state`). std declares `Ordered` (one
+  instance, sends in order, one state) and `ShardKeyOrdered` (same key, same
+  instance, in order) in std.core.actor; a program declares its own the
+  same way. A bare `[E]` **assumes nothing** about order or instances, and
+  the compiler grants no claim, not even `Ordered` to a single actor.
+  * **Positions**: before the effect in an effect list (`[Ordered Counter]`,
+    a requirement), on a handler's face (`for Ordered ShardKeyOrdered
+    Counter`, what a `use` of it binds and the handle a `spawn` of it
+    answers), and inside a handle's brackets (`eff[Ordered Counter]`; `use`
+    of it binds the claims). A handler dependency may ask for claims as a
+    function does.
+  * **Matching**: a binding satisfies a requirement when it makes every
+    claim the requirement asks (`effect-claim:unmet` otherwise, naming the
+    callee, the requirement and what the binding claims) — at a call, at a
+    `use` resolving a handler's dependency, and at a spawn inheriting one.
+    Viral downward: a body holding `[Counter]` may not call a callee asking
+    `[Ordered Counter]`.
+  * **Handles**: a single handle with claims is the `Addr` qualified by
+    them (an ordinary provenance qualifier on the handle value), so a handle
+    with more claims fits where one with fewer is wanted and never the
+    reverse; a multi-effect handle is a tuple of single handles, each with
+    its own. Projection and merge keep each handle's claims. The checker
+    displays it `eff[Ordered Counter]`.
+  * **Refused**: a claim that is not one (`effect-claim:not-a-claim`), a
+    claim qualifying a value type (`effect-claim:on-value`), a claim on an
+    alias (`effect-alias:claim-alias`) or in one (`effect-alias:claim`), on
+    an effect variable (`effect-var:claim`), on a prerequisite
+    (`effect-prereq:claim`), and in a fn type (`effect-claim:fn-type`): a fn
+    type's requirement is inherited by the function taking the value, which
+    writes the claim itself.
+  * A handler claiming what it does not give is telling a lie the checker
+    cannot see: claims are trusted at the handler, as a provenance
+    qualifier is trusted at its mint.
+  * The deadlock graph reads the claims: a dependency on `E` lands on the
+    routers of `E` whose face claims cover the dependency's [actor-router].
 * [effect-no-dup] Two effects of the same type in one list are an error
   unless their generic arguments differ (`[Random<Int>, Random<Double>]`
   is fine, `[Console, Console]` is not).
@@ -8362,15 +8370,17 @@ docs/language/ remains the source of truth for everything that does.
     *outward* [effect-intercept], so the chain ends at the innermost instance.
     An edge from a handler's **own-effect dependency** is therefore dropped,
     while an `Addr` of its own protocol (a genuine peer mesh) still counts.
-  * **A router is a servant node** [effect-any]: a handler `for any E` is
-    `H's servant`,
-    not `E`, with its dependencies' edges as a mixed servant's.
-  * **Router in-edges** [effect-any] (2026-10-26): a dependency declared
-    `[any E]` (not on a face of the declarer's own — interception) is an
-    edge into `E` **and** into the node of every router of `E` in the
-    program — each written `for any E` handler's — since a binding of `any E` may be any of them, over types.
-    A router binds shareable, so its member runs on the caller's thread,
-    and the edge's kind is what the caller does there:
+  * **A router is a servant node** [actor-router]: a handler taking an
+    actor face's messages with `receive` is `H's servant`, not `E`, with its
+    dependencies' edges as a mixed servant's. (A generic router, `for E`,
+    is not in the graph at all, a recorded gap.)
+  * **Router in-edges** (2026-10-26; claims 2026-11-05): a dependency on an
+    actor effect `E` (not on a face of the declarer's own — interception) is
+    an edge into `E` **and** into the node of every router of `E` whose
+    face claims cover the dependency's [effect-claim] — since a binding of
+    `E` may be any of them, over types. A router binds shareable, so its
+    member runs on the caller's thread, and the edge's kind is what the
+    caller does there:
     * an **occupancy** edge into a router that holds a lock (it is
       stateful, [effect-handle]) or waits (a member's `waitfor`) — a caller
       inside it serves nothing of its mailbox until the lock is free and
@@ -8384,16 +8394,13 @@ docs/language/ remains the source of truth for everything that does.
     re-spells one through that edge — reported twice, and as an occupancy
     error where the router locks, which the lock does not make it. What
     leaves a router's node is what it does besides forwarding: its
-    dependencies' edges, and its sends to other protocols. A strong `[E]` lands on `E` alone: a strong requirement refuses
-    a router's binding. **A send through an `eff[E]` lands on every written
-    `for any E` router too** (user decision 2026-10-30), since the addr cannot
-    say whether it answers with a member of `E` or a spawned router (the gap
-    [effect-any] records), of the sender's kind — a spawned router is an
-    actor, so no occupancy; a route cannot be spawned, so it gets none. So
-    `Ponger` gated on its `eff[Ping]`, beside `handler R() [Pong] for any
-    Ping` gated on `Pong`, is a gate cycle through `R`'s servant
-    (`check/actors/deadlock.sv`). This may add a warning to a program that
-    spawns routers; before, such a cycle went unseen.
+    dependencies' edges, and its sends to other protocols. **A send through
+    an `eff[E]` lands on every router of `E` too** (user decision
+    2026-10-30), since the addr cannot say whether it answers with a member
+    of `E` or a spawned router, of the sender's kind — a spawned router is an
+    actor, so no occupancy. So `Ponger` gated on its `eff[Ping]`, beside a
+    router `R` of `Ping` gated on `Pong`, is a gate cycle through `R`'s
+    servant (`check/actors/deadlock.sv`).
   * **Sound, not precise, and stated so.** The graph is over actor *types*,
     not instances, so a chain of same-protocol workers is a self-loop here and
     acyclic in the running program; and a handler's *declared dependencies*
@@ -10353,8 +10360,8 @@ between endpoints and delivers what arrives into the scheduler.
   * **Where it is written**: in an effect list (a fn's, a fn type's), and as a
     handle, `eff[E]`. Anywhere else it is no type
     (`effect-var:as-type`); a plain type parameter in an effect list is
-    `effect-var:not-declared`; `any E` is `effect-var:any` (each effect it is
-    bound to keeps its own strength); two in one fn type's list are
+    `effect-var:not-declared`; a claim on it is `effect-var:claim` (each effect
+    it is bound to keeps its own claims); two in one fn type's list are
     `effect-var:two-in-fn-type`; one no parameter mentions could never be
     bound (`effect-var:undetermined`).
   * **Inheritance** is [fn-effects]' unchanged: a fn writing no list inherits

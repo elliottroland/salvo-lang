@@ -2,7 +2,7 @@
 //
 // Compile-and-run data ([test-run-data]), moved from the codegen tests.
 
-//--- a_router_of_any
+//--- a_hand_written_router
 import std.time
 
 actor effect Resizer {
@@ -16,9 +16,9 @@ handler Resizing(who: Str) for Resizer {
     }
 }
 
-// [effect-any] A hand-written router: forwards each request to the next
-// member, so it promises no order between two sends — and says so.
-handler RoundRobin(members: List<eff[Resizer]>) for any Resizer {
+// [effect-claim] A hand-written router: forwards each request to the next
+// member, so it promises no order between two sends — and claims nothing.
+handler RoundRobin(members: List<eff[Resizer]>) for Resizer {
     mailbox { capacity: 16 }
     state {
         next: Int = 0
@@ -32,7 +32,7 @@ handler RoundRobin(members: List<eff[Resizer]>) for any Resizer {
 }
 
 // Any Resizer will do: one send, one reply.
-fn thumbnail(name: Str) [any Resizer] -> Str => !name {
+fn thumbnail(name: Str) [Resizer] -> Str => !name {
     return waitfor out: Reply<Str> { resize(name, 100, out) }
 }
 
@@ -368,7 +368,7 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet]) [Tr
     }
 }
 
-fn fresh_id() [any Sequencer] -> Str {
+fn fresh_id() [Sequencer] -> Str {
     return waitfor out: Reply<Str> { next(out) }
 }
 
@@ -429,7 +429,7 @@ handler Stocking(shard: Str) for Inventory {
     }
 }
 
-fn checkout(skus: List<Str>) [any Inventory, Console] -> None {
+fn checkout(skus: List<Str>) [Inventory, Console] -> None {
     for sku in skus {
         let line = waitfor out: Reply<Str> { reserve(copy(sku), 1, out) }
         println(line)

@@ -2522,19 +2522,19 @@ fn noremote_parses_on_structs_and_types() {
     assert_eq!(flags, vec![(true, false), (true, true), (true, true), (false, false)]);
 }
 
-/// [effect-any] `any` is contextual, in two places: an effect-list entry
-/// (`[any Resizer]`) and a handler's `for` clause (`for any Resizer, Stats`),
-/// per face. A variable named `any` stays a variable.
+/// [effect-claim] Claims parse in three places: an effect-list entry
+/// (`[Ordered Resizer]`), a handler's `for` clause per face (`for Ordered
+/// Resizer, Stats`), moved off the face's type, and an `eff[…]` entry, as
+/// the entry's qualifiers.
 #[test]
-fn any_parses_in_effect_lists_and_of_clauses() {
-    use salvo_syntax::ast::{EffectRef, Item};
+fn claims_parse_in_effect_lists_of_clauses_and_handles() {
+    use salvo_syntax::ast::{EffectRef, Item, Type};
     let source = "\
-handler Router(members: List<eff[Resizer]>) for any Resizer, Stats {
+handler Router(members: List<eff[Ordered ShardKeyOrdered Resizer]>) for Ordered Resizer, Stats {
     send fn resize(name: Str) {}
 }
 
-fn thumbnail(name: Str) [Console, any Resizer] -> Str {
-    let any = 1
+fn thumbnail(name: Str) [Console, Ordered Resizer] -> Str {
     return name
 }
 ";
@@ -2542,12 +2542,17 @@ fn thumbnail(name: Str) [Console, any Resizer] -> Str {
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
     let Item::Handler(h) = &module.items[0] else { panic!("handler") };
     assert_eq!(h.of.len(), 2);
-    assert_eq!(h.of_any, vec![true, false]);
+    let claims: Vec<Vec<&str>> = h.of_claims.iter().map(|c| c.iter().map(|r| r.name.name.as_str()).collect()).collect();
+    assert_eq!(claims, vec![vec!["Ordered"], vec![]]);
+    assert!(matches!(&h.of[0], Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name == "Resizer"));
+    let Type::Named { base: list, .. } = &h.params[0].ty else { panic!("list") };
+    let Type::Named { base: handle, .. } = &list.args[0] else { panic!("handle") };
+    assert!(matches!(&handle.args[0], Type::Named { qualifiers, base } if qualifiers.len() == 2 && base.name.name == "Resizer"));
     let Item::Fn(f) = &module.items[1] else { panic!("fn") };
     let effects = f.effects.as_ref().expect("effect list");
     assert!(matches!(&effects[0], EffectRef::Effect(r) if r.name.name == "Console"));
-    assert!(matches!(&effects[1], EffectRef::AnyEffect(r) if r.name.name == "Resizer"));
-    assert_eq!(effects[1].to_string(), "any Resizer");
+    assert!(matches!(&effects[1], EffectRef::Claimed { claims, effect } if claims.len() == 1 && effect.name.name == "Resizer"));
+    assert_eq!(effects[1].to_string(), "Ordered Resizer");
 }
 
 /// [actor-group] `spawn H(args) on POOL in GROUP`: the `in` clause after the

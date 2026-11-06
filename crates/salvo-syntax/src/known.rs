@@ -93,6 +93,11 @@ pub const COMPTIME_VALUE: &str = "Value";
 pub const COMPTIME_FIELD: &str = "Field";
 pub const COMPTIME_ARM: &str = "Arm";
 
+/// [effect-claim] The subject a claim is declared for: `provenance qualifier
+/// Ordered for Effect` qualifies an effect's binding, not a type of values.
+/// Not a declared type: the name in that position is the marker.
+pub const CLAIM_SUBJECT: &str = "Effect";
+
 // ===== std.core.actor =====
 
 /// [actor-mailbox] An actor's mailbox settings.

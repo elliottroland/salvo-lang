@@ -260,8 +260,8 @@ What a variable may not be:
 
 - **A variable is a set of effects, not a type of values.** `x: E` is an
   error, and so is a plain type parameter in an effect list: `[T]` must be
-  declared `<[T]>` to mean one. `any E` is refused too: each effect a
-  variable stands for keeps its own identity strength.
+  declared `<[T]>` to mean one. A claim on it (`[Ordered E]`) is refused
+  too: each effect a variable stands for keeps its own claims.
 - **One variable per function type.** `(x: T) [E, F] -> None` is refused,
   since a call could not tell which of the value's effects belong to which
   variable.

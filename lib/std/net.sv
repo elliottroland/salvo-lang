@@ -6,7 +6,7 @@
 // The network enters at the **actor group**, never at the spawn. Every actor
 // is spawned by the node that hosts it, on that node's own pools; what
 // crosses the wire is addresses and messages, never construction. A function
-// that declares `[any E]` cannot tell whether its sends go to a local actor,
+// that declares a bare `[E]` cannot tell whether its sends go to a local actor,
 // to an actor on another machine, or to one of a hundred spread over a
 // fleet. A program touches four layers, bottom up:
 //
@@ -43,7 +43,7 @@
 // }
 //
 // // Any greeter will do: nothing here names a node.
-// fn hello(name: Str) [any Greeter] -> Str => !name {
+// fn hello(name: Str) [Greeter] -> Str => !name {
 //     return waitfor out: Reply<Str> { greet(name, out) }
 // }
 //
@@ -117,7 +117,7 @@
 //
 // The Concurrency topic, section "Across machines", tells the same story at
 // more length.
-// @compilerrules [net-transport, net-host, net-mem, net-wire-format, net-noremote, actor-protocol-hash, net-addr-routable, net-addr-capability, net-remote-backpressure, net-connect, node-group, actor-group, effect-any, actor-router, time-timer, platform-threadsafe]
+// @compilerrules [net-transport, net-host, net-mem, net-wire-format, net-noremote, actor-protocol-hash, net-addr-routable, net-addr-capability, net-remote-backpressure, net-connect, node-group, actor-group, effect-claim, actor-router, time-timer, platform-threadsafe]
 
 import std.time.Duration
 import std.codec.encode
@@ -1692,7 +1692,9 @@ export handler LeastLoaded<E>(group: eff[ActorGroup<E>], prefer_local: Bool, con
 }
 
 // The router that sends each message to the member of [group] that owns
-// its key: two sends with the same key go to the same member, in order.
+// its key: two sends with the same key go to the same member, in order. It
+// claims that ([ShardKeyOrdered]), and not [Ordered]: two keys may reach two
+// members.
 //
 // The key is what the `key` fn in scope answers for the message; `std.net.
 // shard` stamps one from a `ShardKey` mark on a send fn's parameter, and a
@@ -1718,8 +1720,8 @@ export handler LeastLoaded<E>(group: eff[ActorGroup<E>], prefer_local: Bool, con
 // }
 // ```
 // @param key found at the use: the message's key, or `None`.
-// @compilerrules [actor-router, actor-receive]
-export handler Sharded<E>(group: eff[ActorGroup<E>], config: RouteConfig = default_route_config(), ?key: (m: Message<E>) -> Long?) for E {
+// @compilerrules [actor-router, actor-receive, effect-claim]
+export handler Sharded<E>(group: eff[ActorGroup<E>], config: RouteConfig = default_route_config(), ?key: (m: Message<E>) -> Long?) for ShardKeyOrdered E {
     mailbox { capacity: 16 }
 
     send fn receive(m: Message<E>) => !m {

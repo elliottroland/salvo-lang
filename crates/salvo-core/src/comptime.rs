@@ -2156,7 +2156,7 @@ impl<'w> Stamper<'w> {
         // effect variable of the group is left out — `[]`: the declared
         // member performs nothing.
         if let Some(effs) = &mut f.effects {
-            effs.retain(|e| !matches!(e, EffectRef::Effect(r) | EffectRef::AnyEffect(r) if group.effect_generics.iter().any(|g| g.name == r.name.name)));
+            effs.retain(|e| !matches!(e, EffectRef::Effect(r) | EffectRef::Claimed { effect: r, .. } if group.effect_generics.iter().any(|g| g.name == r.name.name)));
         }
         for (i, g) in group.generics.iter().enumerate() {
             let fresh = format!("__Group{i}");

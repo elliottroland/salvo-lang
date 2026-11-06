@@ -1030,7 +1030,7 @@ class Elected__Sequencer(private val group: Int, private val config: salvo.std.n
             }
             wait = salvo.std.net.routeWait(group, view, wait, config)
         }
-        throw AssertionError("salvo: unreachable at std.net:1833:9")
+        throw AssertionError("salvo: unreachable at std.net:1835:9")
     }
 }
 
@@ -1103,7 +1103,7 @@ class Sharded__Inventory(private val group: Int, private val config: salvo.std.n
                             __pick2_2
                         }
                         else -> {
-                            throw AssertionError("salvo: unreachable at std.net:1733:83")
+                            throw AssertionError("salvo: unreachable at std.net:1735:83")
                         }
                     }
                 }
@@ -1114,7 +1114,7 @@ class Sharded__Inventory(private val group: Int, private val config: salvo.std.n
             }
             wait = salvo.std.net.routeWait(group, view, wait, config)
         }
-        throw AssertionError("salvo: unreachable at std.net:1729:9")
+        throw AssertionError("salvo: unreachable at std.net:1731:9")
     }
 }
 

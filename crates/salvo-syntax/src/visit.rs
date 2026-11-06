@@ -133,7 +133,13 @@ pub fn walk_retype<V: Visitor>(v: &mut V, r: &Retype) {
 pub fn walk_effect_ref<V: Visitor>(v: &mut V, e: &EffectRef) {
     match e {
         EffectRef::Use(s) | EffectRef::Spawn(s) => v.visit_span(s),
-        EffectRef::Effect(t) | EffectRef::AnyEffect(t) => walk_type_ref(v, t),
+        EffectRef::Effect(t) => walk_type_ref(v, t),
+        EffectRef::Claimed { claims, effect } => {
+            for c in claims {
+                walk_type_ref(v, c);
+            }
+            walk_type_ref(v, effect);
+        }
     }
 }
 

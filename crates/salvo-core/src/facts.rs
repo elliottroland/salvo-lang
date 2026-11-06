@@ -237,7 +237,7 @@ fn snippet(source: &str, span: Span) -> String {
 }
 
 /// [effect-handler-deps] A construction's mark: what it builds (a declared
-/// handler at its type arguments, or a `use any` route), then each
+/// handler at its type arguments), then each
 /// dependency's instance, with the `with` item that supplied it.
 fn construction_mark(source: &str, c: &crate::check::Construction) -> String {
     let built = match &c.handler {

@@ -154,12 +154,7 @@ impl<'a> Dumper<'a> {
                 self.out.push('(');
                 self.params(&h.ctor_params);
                 self.out.push(')');
-                let faces: Vec<String> = h
-                    .faces
-                    .iter()
-                    .zip(&h.face_any)
-                    .map(|(f, any)| if *any { format!("any {f}") } else { f.to_string() })
-                    .collect();
+                let faces: Vec<String> = h.faces.iter().map(|f| f.to_string()).collect();
                 let _ = write!(self.out, " for {}", faces.join(", "));
                 if !h.deps.is_empty() {
                     let ds: Vec<String> = h.deps.iter().map(|t| t.to_string()).collect();

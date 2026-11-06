@@ -345,8 +345,8 @@ Module {
                         },
                     },
                 ],
-                of_any: [
-                    false,
+                of_claims: [
+                    [],
                 ],
                 init: None,
                 mailbox: None,

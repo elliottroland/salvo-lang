@@ -150,7 +150,7 @@ fn fingerprint(gate: &super::gate::Gate, checked: &Checked) -> u64 {
         table(&checked.established_quals, all, |v| debug(v)),
         table(&checked.effect_prereqs, all, |v| debug(v)),
         table(&checked.handler_deps, all, |v| debug(&v.iter().map(|(t, _)| t).collect::<Vec<_>>())),
-        table(&checked.handler_shapes, all, |v| debug(&crate::check::HandlerShape { any_deps: Vec::new(), ..v.clone() })),
+        table(&checked.handler_shapes, all, |v| debug(&crate::check::HandlerShape { dep_claims: Vec::new(), ..v.clone() })),
         table(&checked.implicit_params, all, |v| {
             debug(&v.iter().map(|p| crate::check::ImplicitParam { span: Span::default(), ..p.clone() }).collect::<Vec<_>>())
         }),

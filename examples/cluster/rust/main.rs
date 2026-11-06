@@ -1749,7 +1749,7 @@ impl crate::__Stateful_Sequencer for Elected__Sequencer {
             };
             wait = crate::std_net::route_wait(self.group, &view, wait, &self.config);
         }
-        panic!("salvo: unreachable at std.net:1833:9");
+        panic!("salvo: unreachable at std.net:1835:9");
     }
 }
 
@@ -1848,7 +1848,7 @@ impl crate::__Stateful_Inventory for Sharded__Inventory {
                         let mut __pick2_2 = __pick2.unwrap();
                         __pick2_2
                     } else {
-                        panic!("salvo: unreachable at std.net:1733:83")
+                        panic!("salvo: unreachable at std.net:1735:83")
                     }
                 };
                 let mut __fwd_to_m1: usize = picked.addr;
@@ -1858,7 +1858,7 @@ impl crate::__Stateful_Inventory for Sharded__Inventory {
             };
             wait = crate::std_net::route_wait(self.group, &view, wait, &self.config);
         }
-        panic!("salvo: unreachable at std.net:1729:9");
+        panic!("salvo: unreachable at std.net:1731:9");
     }
 }
 

@@ -999,6 +999,86 @@ fn addr_effect(ty: &Ty) -> Option<Ty> {
     }
 }
 
+/// [effect-claim] A handler face as a message names it. Not lowered: a
+/// lowering records the written type, and outside the handler's generics a
+/// face `E` would be recorded as no type at all.
+fn face_shown(of: &ast::Type) -> Ty {
+    match of {
+        ast::Type::Named { base, .. } => Ty::Named { name: base.name.name.clone(), args: Vec::new() },
+        _ => Ty::Unknown,
+    }
+}
+
+/// [effect-claim] The claims a single handle carries: its qualifiers, which
+/// on an `Addr` are only ever claims (`eff[Ordered E]`).
+fn addr_claims(ty: &Ty) -> Vec<Qual> {
+    if addr_effect(ty).is_none() {
+        return Vec::new();
+    }
+    ty.quals().to_vec()
+}
+
+/// [effect-claim] The claims of each single handle in a handle or a tuple
+/// of them, in `handle_leaves` order.
+fn handle_leaf_claims(ty: &Ty) -> Vec<Vec<Qual>> {
+    fn walk(ty: &Ty, out: &mut Vec<Vec<Qual>>) {
+        match ty.strip_quals() {
+            Ty::Tuple(elems) => elems.iter().for_each(|e| walk(e, out)),
+            _ => out.push(addr_claims(ty)),
+        }
+    }
+    let mut out = Vec::new();
+    walk(ty, &mut out);
+    out
+}
+
+/// [effect-claim] The handle over [effects] (`handle_over`), each single
+/// handle carrying the claims [claims_of] gives its effect.
+fn claimed_handle_over(effects: &[Ty], claims_of: &[(Ty, Vec<Qual>)]) -> Ty {
+    let claims = |e: &Ty| claims_of.iter().find(|(t, _)| t == e).map(|(_, c)| c.clone()).unwrap_or_default();
+    if effects.iter().all(|e| claims(e).is_empty()) {
+        return crate::types::handle_over(effects);
+    }
+    let mut addrs: Vec<Ty> = effects.iter().map(|e| claimed_addr(e.clone(), claims(e))).collect();
+    if addrs.len() == 1 {
+        addrs.pop().unwrap_or(Ty::Unknown)
+    } else {
+        Ty::Tuple(addrs)
+    }
+}
+
+/// [effect-claim] A single handle of [effect] making [claims]: the `Addr`,
+/// qualified by them.
+fn claimed_addr(effect: Ty, claims: Vec<Qual>) -> Ty {
+    Ty::Named { name: ADDR_TYPE.to_string(), args: vec![effect] }.qualify(claims)
+}
+
+/// [effect-claim] Whether a binding claiming [have] makes every claim in
+/// [want].
+fn claims_cover(have: &[Qual], want: &[Qual]) -> bool {
+    want.iter().all(|w| have.iter().any(|h| h.name == w.name))
+}
+
+/// [effect-claim] `Ordered Counter`, as a requirement is written.
+fn claimed_text(claims: &[Qual], effect: &Ty) -> String {
+    let mut out = String::new();
+    for c in claims {
+        out.push_str(&format!("{c} "));
+    }
+    out.push_str(&effect.to_string());
+    out
+}
+
+/// [effect-claim] What a binding claims, for a message: "nothing" or
+/// "only `A`, `B`".
+fn claims_have_text(claims: &[Qual]) -> String {
+    if claims.is_empty() {
+        return "nothing".to_string();
+    }
+    let names: Vec<String> = claims.iter().map(|c| format!("`{c}`")).collect();
+    format!("only {}", names.join(", "))
+}
+
 /// [fn-member-call] What a receiver has under the name of a dot call.
 enum DotMember {
     /// A send member of the `eff[E]` (`Addr<E>`) receiver; carries E.
@@ -1018,10 +1098,11 @@ struct EffectAvail {
     /// [effect-instance] What bound it.
     binder: Binder,
     declared: bool,
-    /// [effect-any] The binding is spread over many instances (a `use` of
-    /// a handler `for any E`, or a `[any E]` declaration): it satisfies a
-    /// `[any E]` requirement only.
-    any: bool,
+    /// [effect-claim] What the binding claims (`Ordered`, …): a `use` of a
+    /// handler `for Ordered E`, an `[Ordered E]` declaration, a handle
+    /// `eff[Ordered E]`. A requirement's claims must be among these. Sorted
+    /// by name, no duplicates.
+    claims: Vec<Qual>,
 }
 
 impl EffectAvail {
@@ -1048,7 +1129,8 @@ enum EffectOrigin {
 #[derive(Clone, Debug)]
 struct ListedEffect {
     ty: Ty,
-    any: bool,
+    /// [effect-claim] The claims written before it (sorted, deduped).
+    claims: Vec<Qual>,
     /// The written entry it came from.
     span: Span,
     origin: EffectOrigin,
@@ -1295,8 +1377,8 @@ pub struct Checked {
     /// [actor-deadlock-cycle] Each handler's shape as the deadlock graph
     /// reads it, by the handler's name (the pipeline record E1, its per-declaration
     /// summary): its name and key, its faces, whether it has `send` members,
-    /// whether it is stateful before parking says so, and which of its
-    /// dependencies are written `any E`.
+    /// whether it is stateful before parking says so, whether it is a
+    /// router, and the claims its faces make and its dependencies ask.
     pub handler_shapes: KeyMap<HandlerShape>,
     /// [effect-prereq] Each effect's direct prerequisites, by effect key,
     /// aliases flattened, its own generics unsubstituted.
@@ -1773,16 +1855,22 @@ pub struct HandlerShape {
     pub name: String,
     /// [type-identity] Its key, which `parking_handlers` holds.
     pub key: String,
-    /// Each face, by effect key, with whether it is `for any E` [effect-any].
-    pub faces: Vec<(String, bool)>,
+    /// Each face, by effect key, with the claims it makes [effect-claim]
+    /// (qualifier keys).
+    pub faces: Vec<(String, Vec<String>)>,
     /// Whether a member is a `send fn` [actor-mixed-handler].
     pub sends: bool,
     /// `handler_is_stateful` without parking (which `parking_handlers`
     /// adds), and whether it is `intrinsic` (never stateful).
     pub stateful: bool,
     pub intrinsic: bool,
-    /// [effect-any] The spans of the dependencies written `any E`.
-    pub any_deps: Vec<Span>,
+    /// [actor-receive] It takes its faces' messages with `send fn receive`:
+    /// the graph's router, which may hand each send to any of many
+    /// instances [actor-router].
+    pub receives: bool,
+    /// [effect-claim] The dependencies written with claims: the span of
+    /// each entry and the claims' keys.
+    pub dep_claims: Vec<(Span, Vec<String>)>,
 }
 
 /// [fate-move-mode] A move or mutation of a derived variable
@@ -4363,29 +4451,35 @@ impl<'p, 'r> Checker<'p, 'r> {
         // "legal when overloading distinguishes them, or when one
         // method implements both" means when it is checked.
         self.check_handler_conformance(h);
+        // [effect-claim] The claims on its faces, reported here once
+        // (`handler_face_claims` is quiet).
+        for (of, claims) in h.of.iter().zip(&h.of_claims) {
+            if !claims.is_empty() {
+                let _ = self.lower_claims(claims, &face_shown(of));
+            }
+        }
         let dep_list = self.handler_dep_list(h);
         self.out.handler_deps.insert(
             self.name_key(h.name.span),
             dep_list.iter().map(|e| (e.ty.clone(), e.span)).collect(),
         );
         // [actor-deadlock-cycle] The handler's shape, for the graph.
-        let faces: Vec<(String, bool)> = h
+        let face_claims = self.handler_face_claims(h);
+        let faces: Vec<(String, Vec<String>)> = h
             .of
             .iter()
-            .zip(h.of_any.iter())
-            .filter_map(|(of, any)| match of {
-                ast::Type::Named { base, .. } => Some((self.symbols.ref_key(base).to_string(), *any)),
+            .zip(face_claims)
+            .filter_map(|(of, claims)| match of {
+                ast::Type::Named { base, .. } => {
+                    Some((self.symbols.ref_key(base).to_string(), claims.into_iter().map(|q| q.name).collect()))
+                }
                 _ => None,
             })
             .collect();
-        let any_deps: Vec<Span> = h
-            .effects
+        let dep_claims: Vec<(Span, Vec<String>)> = dep_list
             .iter()
-            .flatten()
-            .filter_map(|e| match e {
-                EffectRef::AnyEffect(r) => Some(r.span),
-                _ => None,
-            })
+            .filter(|e| !e.claims.is_empty())
+            .map(|e| (e.span, e.claims.iter().map(|q| q.name.clone()).collect()))
             .collect();
         let shape = HandlerShape {
             name: h.name.name.clone(),
@@ -4394,13 +4488,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             sends: h.fns.iter().any(|f| f.is_send),
             stateful: crate::handler_is_stateful(h, false),
             intrinsic: h.intrinsic,
-            any_deps,
+            receives: h.fns.iter().any(|f| f.is_send && f.name.name == known::RECEIVE_MEMBER),
+            dep_claims,
         };
         self.out.handler_shapes.insert(self.name_key(h.name.span), shape);
         let binder = Binder::Dep(self.name_key(h.name.span));
         let deps: Vec<EffectAvail> = dep_list
             .into_iter()
-            .map(|e| EffectAvail { ty: e.ty, binder, declared: true, any: e.any })
+            .map(|e| EffectAvail { ty: e.ty, binder, declared: true, claims: e.claims })
             .collect();
         // [actor-spawn-effect] [actor-replyto] The handler its
         // members belong to: `spawn` in its dependency list is a
@@ -5970,7 +6065,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         .to_string(),
                 ),
                 // Inherited at the mint.
-                EffectRef::Effect(_) | EffectRef::AnyEffect(_) => continue,
+                EffectRef::Effect(_) | EffectRef::Claimed { .. } => continue,
             };
             self.error(span, messages::actor_free_send_fn_effect(&f.name.name, &eff, &why));
         }
@@ -10139,7 +10234,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .iter()
                 .flatten()
                 .filter_map(|e| match e {
-                    EffectRef::Effect(r) | EffectRef::AnyEffect(r)
+                    EffectRef::Effect(r) | EffectRef::Claimed { effect: r, .. }
                         if r.name.name == THROW_EFFECT =>
                     {
                         Some(r.span)
@@ -10160,7 +10255,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             && self.files.get(self.file_idx).is_some_and(|file| !file.is_std && !file.is_test);
         if entry {
             for e in f.effects.iter().flatten() {
-                if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = e {
+                if let EffectRef::Effect(r) | EffectRef::Claimed { effect: r, .. } = e {
                     if r.name.name != THROW_EFFECT {
                         self.error(r.span, messages::main_effects_declared(&r.name.name));
                     }
@@ -10719,7 +10814,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             for p in &f.params {
                 for ty in self.inherited_fn_effects(&p.ty) {
                     if !env.iter().any(|a| a.ty == ty) {
-                        env.push(EffectAvail { ty, binder, declared: true, any: false });
+                        env.push(EffectAvail { ty, binder, declared: true, claims: Vec::new() });
                     }
                 }
             }
@@ -10727,7 +10822,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // parameters too: `?Next<It, T, [E]>`'s `next` performs `E`.
             for ty in spread_effects(f, implicits) {
                 if !env.iter().any(|a| a.ty == ty) {
-                    env.push(EffectAvail { ty, binder, declared: true, any: false });
+                    env.push(EffectAvail { ty, binder, declared: true, claims: Vec::new() });
                 }
             }
         }
@@ -10755,11 +10850,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 written.push(e.ty.clone());
             }
-            // [effect-any] `any E` declares the weak availability: this body
-            // may call `E` and callees declaring `[any E]`, never a callee
-            // that assumes one instance.
+            // [effect-claim] `[Ordered E]` declares the claims this body may
+            // lean on: it may call callees asking for them, and a bare `[E]`
+            // body none that ask for any.
             if !env.iter().any(|a| a.ty == e.ty) {
-                env.push(EffectAvail { ty: e.ty, binder, declared: true, any: e.any });
+                env.push(EffectAvail { ty: e.ty, binder, declared: true, claims: e.claims });
             }
         }
         (env, can_use, can_spawn)
@@ -10877,11 +10972,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     *span,
                     messages::effect_alias_capability(),
                 ),
-                EffectRef::AnyEffect(r) => self.error(r.span, messages::effect_alias_any()),
+                EffectRef::Claimed { claims, .. } => self.error(claims[0].span, messages::effect_alias_claim()),
                 EffectRef::Effect(r) => {
                     let mut stack = vec![a.name.name.clone()];
                     let mut sink = Vec::new();
-                    self.expand_effect_entry(r, false, r.span, EffectOrigin::Alias(a.name.name.clone()), &mut stack, &mut sink);
+                    self.expand_effect_entry(r, &[], r.span, EffectOrigin::Alias(a.name.name.clone()), &mut stack, &mut sink);
                 }
             }
         }
@@ -10908,8 +11003,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.error(*span, messages::effect_prereq_capability());
                     continue;
                 }
-                EffectRef::AnyEffect(r) => {
-                    self.error(r.span, messages::effect_prereq_any());
+                EffectRef::Claimed { claims, .. } => {
+                    self.error(claims[0].span, messages::effect_prereq_claim());
                     continue;
                 }
                 EffectRef::Effect(r) => r,
@@ -10992,12 +11087,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn expand_effect_refs(&mut self, list: &[EffectRef], prereqs: bool) -> Vec<ListedEffect> {
         let mut out = Vec::new();
         for eff in list {
-            let (r, any) = match eff {
-                EffectRef::Effect(r) => (r, false),
-                EffectRef::AnyEffect(r) => (r, true),
+            let (r, claims): (&TypeRef, &[TypeRef]) = match eff {
+                EffectRef::Effect(r) => (r, &[]),
+                EffectRef::Claimed { claims, effect } => (effect, claims),
                 _ => continue,
             };
-            self.expand_effect_entry(r, any, r.span, EffectOrigin::Written, &mut Vec::new(), &mut out);
+            self.expand_effect_entry(r, claims, r.span, EffectOrigin::Written, &mut Vec::new(), &mut out);
         }
         if prereqs {
             self.add_prerequisites(&mut out);
@@ -11010,7 +11105,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn expand_effect_entry(
         &mut self,
         r: &TypeRef,
-        any: bool,
+        claims: &[TypeRef],
         site: Span,
         origin: EffectOrigin,
         stack: &mut Vec<String>,
@@ -11018,8 +11113,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     ) {
         let name = r.name.name.as_str();
         if let Some((alias, _)) = self.named(r).effect_alias {
-            if any {
-                self.error(r.span, messages::effect_alias_any_alias(&name));
+            if !claims.is_empty() {
+                self.error(claims[0].span, messages::effect_alias_claim_alias(&name));
                 return;
             }
             if stack.iter().any(|s| s == name) {
@@ -11034,9 +11129,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 _ => name.to_string(),
             };
             for m in &alias.effects {
-                // `use`/`spawn`/`any` in an alias are refused at its declaration.
+                // `use`/`spawn`/claims in an alias are refused at its declaration.
                 if let EffectRef::Effect(mr) = m {
-                    self.expand_effect_entry(mr, false, site, EffectOrigin::Alias(outer.clone()), stack, out);
+                    self.expand_effect_entry(mr, &[], site, EffectOrigin::Alias(outer.clone()), stack, out);
                 }
             }
             stack.pop();
@@ -11047,14 +11142,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         // [effect-var] Each effect a variable is bound to keeps its own
-        // identity strength, so `any` has nothing to qualify.
-        let any = if any && matches!(ty, Ty::Var(_)) {
-            self.error(r.span, messages::effect_var_any(&name));
-            false
+        // claims, so there is nothing for a claim on it to say.
+        let claims = if !claims.is_empty() && matches!(ty, Ty::Var(_)) {
+            self.error(claims[0].span, messages::effect_var_claim(&name));
+            Vec::new()
         } else {
-            any
+            self.lower_claims(claims, &ty)
         };
-        out.push(ListedEffect { ty, any, span: site, origin });
+        out.push(ListedEffect { ty, claims, span: site, origin });
     }
 
     /// [effect-prereq] Adds, transitively, what the listed effects imply.
@@ -11067,7 +11162,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             i += 1;
             for (implied, by) in self.prerequisites_of(&ty) {
                 if !out.iter().any(|e| e.ty == implied) {
-                    out.push(ListedEffect { ty: implied, any: false, span, origin: EffectOrigin::Prereq(by) });
+                    out.push(ListedEffect { ty: implied, claims: Vec::new(), span, origin: EffectOrigin::Prereq(by) });
                 }
             }
         }
@@ -11094,7 +11189,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let m = self.named(r);
             if m.effect_alias.is_some() {
                 let mut members = Vec::new();
-                self.expand_effect_entry(r, false, r.span, EffectOrigin::Written, &mut Vec::new(), &mut members);
+                self.expand_effect_entry(r, &[], r.span, EffectOrigin::Written, &mut Vec::new(), &mut members);
                 found.extend(members.into_iter().map(|m| m.ty));
             } else if m.effect.is_some() {
                 found.push(self.lower_base_ref(r, &subst, 0));
@@ -11154,7 +11249,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let span = match eff {
                 EffectRef::Use(s) => *s,
                 EffectRef::Spawn(s) => *s,
-                EffectRef::Effect(r) | EffectRef::AnyEffect(r) => r.span,
+                EffectRef::Effect(r) | EffectRef::Claimed { effect: r, .. } => r.span,
             };
             self.error(span, messages::effect_member_no_effects_declared(&what));
         }
@@ -11194,7 +11289,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ty: effect,
                 binder: Binder::Use(self.key(span)),
                 declared: false,
-                any: false,
+                claims: Vec::new(),
             });
             return;
         }
@@ -11329,6 +11424,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn synthesized_spawn_dep(
         &mut self,
         want: &Ty,
+        want_claims: &[Qual],
         visible: &[EffectAvail],
         id: &'p Ident,
         span: Span,
@@ -11366,6 +11462,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             self.error(span, messages::actor_spawn_inherit_missing_dep(&id.name, &want));
             return None;
         };
+        // [effect-claim] The dependency's claims, asked of what it inherits.
+        if !claims_cover(&avail.claims, want_claims) {
+            self.error(
+                span,
+                messages::effect_claim_unmet(&id.name, &claimed_text(want_claims, want), want, &claims_have_text(&avail.claims)),
+            );
+        }
         Some(avail.instance())
     }
 
@@ -11382,8 +11485,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         if let Ty::Tuple(_) = ty.strip_quals() {
             let mut effects: Vec<Ty> = Vec::new();
             if self.collect_handle_tuple(&ty, &mut effects) && !effects.is_empty() {
-                for effect in &effects {
-                    self.effect_env.push(EffectAvail { ty: effect.clone(), binder: Binder::Use(self.key(span)), declared: false, any: false });
+                // [effect-claim] Each handle binds the claims it carries.
+                let claims = handle_leaf_claims(&ty);
+                for (i, effect) in effects.iter().enumerate() {
+                    self.effect_env.push(EffectAvail {
+                        ty: effect.clone(),
+                        binder: Binder::Use(self.key(span)),
+                        declared: false,
+                        claims: claims.get(i).cloned().unwrap_or_default(),
+                    });
                 }
                 self.out.handles.insert(self.key(span), effects);
                 return;
@@ -11403,11 +11513,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         // effect: both kinds are handles a `use` puts in scope, and no call
         // site learns the difference.
         self.out.handles.insert(self.key(span), vec![effect.clone()]);
+        // [effect-claim] `use addr` of an `eff[Ordered E]` binds `Ordered E`.
         self.effect_env.push(EffectAvail {
             ty: effect,
             binder: Binder::Use(self.key(span)),
             declared: false,
-            any: false,
+            claims: addr_claims(&ty),
         });
     }
 
@@ -11734,7 +11845,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ty: substitute_vars(&d.ty, &subst, &generic_set),
                 binder: d.binder,
                 declared: d.declared,
-                any: d.any,
+                claims: d.claims.clone(),
             })
             .collect();
         Some((concrete, deps))
@@ -11779,6 +11890,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // clause item that satisfied it, or the instance in scope.
         let visible = self.visible_avail();
         for want in &deps {
+            let want_claims = want.claims.clone();
             let want = want.ty.clone();
             // [effect-with-clause] A written item wins for the dep it matches —
             // partial clauses are the rule (user decision 2026-09-20), so
@@ -11815,6 +11927,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                 });
             match found {
                 Some(avail) => {
+                    // [effect-claim] A dependency written with claims asks
+                    // them of the binding it is given.
+                    if !claims_cover(&avail.claims, &want_claims) {
+                        self.error(
+                            span,
+                            messages::effect_claim_unmet(
+                                &id.name,
+                                &claimed_text(&want_claims, &want),
+                                &want,
+                                &claims_have_text(&avail.claims),
+                            ),
+                        );
+                    }
                     // [actor-spawn-inherit] [effect-handle] A capture over a
                     // **signature-supplied** effect is legal: the effect
                     // parameter *is* a handle.
@@ -11867,15 +11992,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         // order: one instance, one binding per effect it implements, so a
         // caller reaches whichever face its own effect list names.
         self.out.handles.insert(self.key(span), concrete.clone());
-        // [effect-any] A face written `for any E` binds the weak
-        // availability: the handler forwards to many instances and promises
-        // no order, so only a `[any E]` requirement may lean on it.
-        let of_any: Vec<bool> = self
-            .scope
-            .handlers
-            .get(id.name.as_str())
-            .map(|d| d.of_any.clone())
-            .unwrap_or_default();
+        // [effect-claim] Each face binds the claims its handler writes on it
+        // (`for Ordered E`), and a bare face claims nothing.
+        let face_claims: Vec<Vec<Qual>> = match self.scope.handlers.get(id.name.as_str()).copied() {
+            Some(d) => self.handler_face_claims(d),
+            None => Vec::new(),
+        };
         for effect in &concrete {
             self.refuse_erased_sibling(effect, span);
         }
@@ -11884,7 +12006,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ty: effect,
                 binder: Binder::Use(self.key(span)),
                 declared: false,
-                any: of_any.get(i).copied().unwrap_or(false),
+                claims: face_claims.get(i).cloned().unwrap_or_default(),
             });
         }
     }
@@ -15461,12 +15583,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     *span,
                     messages::actor_spawn_effect_fn_type(),
                 ),
-                // [effect-any] A fn type's requirement is inherited by the
+                // [effect-claim] A fn type's requirement is inherited by the
                 // function that takes the value, and a type carries no
-                // strength: the function that calls the value states
-                // `[any E]` itself if any instance will do.
-                EffectRef::AnyEffect(r) => {
-                    self.error(r.span, messages::effect_any_fn_type(&r.name.name));
+                // claims: the function that calls the value states them.
+                EffectRef::Claimed { claims, effect: r } => {
+                    self.error(claims[0].span, messages::effect_claim_fn_type(&eff));
                     if let Some(ty) = self.lower_effect_ref(r) {
                         if !out.contains(&ty) {
                             out.push(ty);
@@ -16108,12 +16229,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.resolve_monitor_deps(id, &declared, span);
                 }
                 self.out.handles.insert(self.key(span), effects.clone());
+                let claims = self.construction_face_claims(id);
                 let mut addrs: Vec<Ty> = effects
                     .into_iter()
-                    .map(|effect| Ty::Named {
-                        name: ADDR_TYPE.to_string(),
-                        args: vec![effect],
-                    })
+                    .enumerate()
+                    .map(|(i, effect)| claimed_addr(effect, claims.get(i).cloned().unwrap_or_default()))
                     .collect();
                 return if addrs.len() == 1 {
                     addrs.pop().unwrap_or(Ty::Unknown)
@@ -16163,6 +16283,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let mut resolved: Vec<Instance> = Vec::new();
         let visible = self.visible_avail();
         for want in &declared {
+            let want_claims = want.claims.clone();
             let want = &want.ty;
             let found = supplied
                 .iter()
@@ -16185,7 +16306,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // handle and cross the seam. An ambiguity between two
                 // compatible instances is an error rather than a guess.
                 None => {
-                    if let Some(instance) = self.synthesized_spawn_dep(want, &visible, id, span) {
+                    if let Some(instance) = self.synthesized_spawn_dep(want, &want_claims, &visible, id, span) {
                         resolved.push(instance);
                     }
                 }
@@ -16202,12 +16323,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         // answers the bare `Addr<E>` it always did, and several answer a tuple
         // in declaration order — which is how least authority falls out of the
         // types, since a holder of one face cannot name the other's members.
+        // [effect-claim] Each addr carries the claims its face makes:
+        // spawning a handler `for Ordered E` answers `eff[Ordered E]`.
+        let claims = self.construction_face_claims(id);
         let mut addrs: Vec<Ty> = effects
             .into_iter()
-            .map(|effect| Ty::Named {
-                name: ADDR_TYPE.to_string(),
-                args: vec![effect],
-            })
+            .enumerate()
+            .map(|(i, effect)| claimed_addr(effect, claims.get(i).cloned().unwrap_or_default()))
             .collect();
         if addrs.len() == 1 {
             addrs.pop().unwrap_or(Ty::Unknown)
@@ -16867,7 +16989,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         let declared: Vec<Ty> = self
             .expand_effect_refs_quiet(target.effects.as_deref().unwrap_or(&[]), true)
             .into_iter()
-            .filter(|e| !e.any)
             .map(|e| e.ty)
             .collect();
         if declared.is_empty() {
@@ -19684,6 +19805,50 @@ impl<'p, 'r> Checker<'p, 'r> {
         if name != "None" && !meaning.is_type() && meaning.group.is_some() {
             return Ty::Unknown;
         }
+        // [effect-claim] `eff[Ordered A, B]`: each entry lowers as a handle
+        // of its own (`eff[A]`, an alias's members, …), and the claims ride on
+        // its single handles as qualifiers — a tuple of them when there are
+        // several. Unclaimable entries (an alias, an effect variable) keep no
+        // claims; `validate_type` reports them.
+        if name == ADDR_TYPE && base.args.iter().any(|a| matches!(a, ast::Type::Named { qualifiers, .. } if !qualifiers.is_empty())) {
+            let mut leaves: Vec<Ty> = Vec::new();
+            for a in &base.args {
+                let (claims, bare): (&[TypeRef], ast::Type) = match a {
+                    ast::Type::Named { qualifiers, base: b } => {
+                        (qualifiers.as_slice(), ast::Type::Named { qualifiers: Vec::new(), base: b.clone() })
+                    }
+                    other => (&[], other.clone()),
+                };
+                let one = TypeRef { args: vec![bare], ..base.clone() };
+                let lowered = self.lower_base_ref_inner(&one, subst, depth);
+                let quals = if claims.is_empty() {
+                    Vec::new()
+                } else {
+                    let mark = self.out.errors.len();
+                    let effect = addr_effect(&lowered).unwrap_or(Ty::Unknown);
+                    let q = self.lower_claims(claims, &effect);
+                    self.out.errors.truncate(mark);
+                    q
+                };
+                let single = |t: Ty| -> Ty {
+                    match addr_effect(&t) {
+                        Some(Ty::Named { .. }) => t.qualify(quals.clone()),
+                        _ => t,
+                    }
+                };
+                match lowered {
+                    Ty::Tuple(elems) => leaves.extend(elems),
+                    t => leaves.push(single(t)),
+                }
+            }
+            let mut out: Vec<Ty> = Vec::new();
+            for l in leaves {
+                if !out.iter().any(|o| addr_effect(o) == addr_effect(&l)) {
+                    out.push(l);
+                }
+            }
+            return if out.len() == 1 { out.pop().unwrap_or(Ty::Unknown) } else { Ty::Tuple(out) };
+        }
         // [effect-eff-handle] [effect-alias] An alias among an `eff[…]` handle's
         // effects stands for its members, flattened and deduped in order:
         // `eff[IO]` is `eff[Console, Fs, Streams]`.
@@ -19698,12 +19863,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             for a in &base.args {
                 match a {
                     ast::Type::Named { base: b, .. } if alias_arg(self, a) => {
-                        self.expand_effect_entry(b, false, b.span, EffectOrigin::Alias(b.name.name.clone()), &mut Vec::new(), &mut listed);
+                        self.expand_effect_entry(b, &[], b.span, EffectOrigin::Alias(b.name.name.clone()), &mut Vec::new(), &mut listed);
                     }
                     other => {
                         let ty = self.lower_type_subst(other, subst, depth);
                         if !listed.iter().any(|e| e.ty == ty) {
-                            listed.push(ListedEffect { ty, any: false, span: other.span(), origin: EffectOrigin::Written });
+                            listed.push(ListedEffect { ty, claims: Vec::new(), span: other.span(), origin: EffectOrigin::Written });
                         }
                     }
                 }
@@ -20028,7 +20193,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let binder = Binder::Dep(self.name_key(h.name.span));
         self.handler_dep_list(h)
             .into_iter()
-            .map(|e| EffectAvail { ty: e.ty, binder, declared: true, any: e.any })
+            .map(|e| EffectAvail { ty: e.ty, binder, declared: true, claims: e.claims })
             .collect()
     }
 
@@ -20057,10 +20222,84 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.handler_dep_list_here(h)
     }
 
+    /// [effect-claim] The claims a handler writes on each face (`for Ordered
+    /// Counter`), in face order, lowered in the handler's own file. Quiet:
+    /// `check_handler` reports what is wrong with them, once.
+    fn handler_face_claims(&mut self, h: &'p ast::HandlerDecl) -> Vec<Vec<Qual>> {
+        if h.of_claims.iter().all(|c| c.is_empty()) {
+            return vec![Vec::new(); h.of.len()];
+        }
+        let saved_scope = self.scope;
+        let saved_errors = self.out.errors.len();
+        if let Some(own) = self.resolution.decls.file_of(h.name.span) {
+            self.scope = &self.resolution.scopes[own];
+        }
+        let out: Vec<Vec<Qual>> = h
+            .of
+            .iter()
+            .zip(&h.of_claims)
+            .map(|(of, claims)| self.lower_claims(claims, &face_shown(of)))
+            .collect();
+        self.scope = saved_scope;
+        self.out.errors.truncate(saved_errors);
+        out
+    }
+
+    /// [effect-claim] The face claims of the handler a construction names.
+    fn construction_face_claims(&mut self, id: &Ident) -> Vec<Vec<Qual>> {
+        match self.scope.handlers.get(id.name.as_str()).copied() {
+            Some(h) => self.handler_face_claims(h),
+            None => Vec::new(),
+        }
+    }
+
+    /// [effect-claim] Whether a qualifier declaration is a claim:
+    /// `provenance qualifier Q for Effect`.
+    fn is_claim_decl(d: &QualifierDecl) -> bool {
+        !d.comptime && d.subject == QualSubject::Provenance && Self::declared_for_effect(d)
+    }
+
+    /// [effect-claim] Whether a qualifier is declared `for Effect`, the claim
+    /// subject (whatever its kind, for the diagnostic that a state one is).
+    fn declared_for_effect(d: &QualifierDecl) -> bool {
+        matches!(&d.of, ast::Type::Named { qualifiers, base }
+            if qualifiers.is_empty() && base.args.is_empty() && base.name.name == known::CLAIM_SUBJECT)
+    }
+
+    /// [effect-claim] The claims written before an effect, as qualifiers:
+    /// each must name a claim (`effect-claim:not-a-claim`). Sorted by key,
+    /// no duplicates.
+    fn lower_claims(&mut self, claims: &[TypeRef], effect: &Ty) -> Vec<Qual> {
+        let mut out: Vec<Qual> = Vec::new();
+        for c in claims {
+            // A name may mean a claim and other qualifiers too: the claim is
+            // the one an effect takes.
+            let decl = self.named(c).qualifiers.iter().copied().find(|d| Self::is_claim_decl(d));
+            match decl {
+                Some(d) => {
+                    self.record_qualifier_def(c);
+                    let key = self.symbols.qual_key(d).to_string();
+                    if out.iter().any(|q| q.name == key) {
+                        self.error(c.span, messages::qual_no_dup_applied_twice(&c.name.name));
+                        continue;
+                    }
+                    out.push(Qual::plain(key, Vec::new()));
+                }
+                // An unknown name is the resolver's to report.
+                None if self.named(c).qualifiers.is_empty() && self.named(c).def.is_none() => {
+                    self.require_name(c, true);
+                }
+                _ => self.error(c.span, messages::effect_claim_not_a_claim(&c.name.name, effect)),
+            }
+        }
+        out.sort_by(|a, b| a.name.cmp(&b.name));
+        out
+    }
+
     fn handler_dep_list_here(&mut self, h: &'p ast::HandlerDecl) -> Vec<ListedEffect> {
         let mut out: Vec<ListedEffect> = Vec::new();
         for eff in h.effects.iter().flatten() {
-            let (r, any) = match eff {
+            let r = match eff {
                 EffectRef::Use(span) => {
                     self.error(*span, messages::effect_handler_deps_use(&h.name.name));
                     continue;
@@ -20070,10 +20309,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // effect type, so there is nothing to lower here; the gate
                 // arrives with the `spawn` expression.
                 EffectRef::Spawn(_) => continue,
-                EffectRef::Effect(r) => (r, false),
-                // [effect-any] A dependency on `any E`: the handler assumes
-                // no order between its sends, so a router may be bound for it.
-                EffectRef::AnyEffect(r) => (r, true),
+                // [effect-claim] A dependency's claims are what the handler
+                // asks of the binding around its construction.
+                EffectRef::Effect(r) | EffectRef::Claimed { effect: r, .. } => r,
             };
             if r.name.name == THROW_EFFECT {
                 self.error(
@@ -20095,7 +20333,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                     continue;
                 }
-                out.push(ListedEffect { any: any || e.any, ..e });
+                out.push(e);
             }
         }
         // [effect-prereq] A handler of an effect with prerequisites reaches
@@ -20106,7 +20344,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let faces: Vec<(Ty, Span)> = h.of.iter().map(|t| (self.lower_type(t), t.span())).collect();
             let mut implied: Vec<ListedEffect> = faces
                 .iter()
-                .map(|(ty, span)| ListedEffect { ty: ty.clone(), any: false, span: *span, origin: EffectOrigin::Written })
+                .map(|(ty, span)| ListedEffect { ty: ty.clone(), claims: Vec::new(), span: *span, origin: EffectOrigin::Written })
                 .collect();
             self.add_prerequisites(&mut implied);
             for e in implied.into_iter().filter(|e| e.origin != EffectOrigin::Written) {
@@ -20195,15 +20433,37 @@ impl<'p, 'r> Checker<'p, 'r> {
             // too (`Addr<ActorGroup<Counter>>`): its arguments are checked as
             // the effect's own generics are, which the general walk does.
             // [effect-alias] An alias of effects is effects too: `eff[IO]`.
-            ast::Type::Named { qualifiers, base } => {
-                qualifiers.is_empty()
-                    && (self.names_effect_var(base) || {
-                        let m = self.named(base);
+            // [effect-claim] An `eff[…]` entry may carry claims (`eff[Ordered
+            // E]`), which `validate_handle_claims` checks.
+            ast::Type::Named { qualifiers, base: b } => {
+                (qualifiers.is_empty() || base.name.name == ADDR_TYPE)
+                    && (self.names_effect_var(b) || {
+                        let m = self.named(b);
                         m.effect.is_some() || m.effect_alias.is_some()
                     })
             }
             _ => false,
         }
+    }
+
+    /// [effect-claim] The claims on an `eff[…]` entry: claims, on one
+    /// effect (not an alias, not an effect variable).
+    fn validate_handle_claims(&mut self, arg: &ast::Type) {
+        let ast::Type::Named { qualifiers, base } = arg else { return };
+        if qualifiers.is_empty() {
+            return;
+        }
+        if self.named(base).effect_alias.is_some() {
+            self.error(qualifiers[0].span, messages::effect_alias_claim_alias(&base.name.name));
+            return;
+        }
+        if self.names_effect_var(base) {
+            self.error(qualifiers[0].span, messages::effect_var_claim(&base.name.name));
+            return;
+        }
+        let empty = HashMap::new();
+        let effect = self.lower_base_ref(base, &empty, 0);
+        let _ = self.lower_claims(qualifiers, &effect);
     }
 
     fn reject_effect_as_data(&mut self, r: &TypeRef) {
@@ -20671,6 +20931,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         // effect here, of either kind: an actor effect's addr
                         // is a mailbox handle, a plain effect's a shared
                         // monitor's handle (SH-3, user decision 2026-09-19).
+                        self.validate_handle_claims(a);
                         continue;
                     }
                     // [effect-var] An effect row fills a struct's effect
@@ -20938,6 +21199,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // "use at most once" wherever it is written. The old
                     // fn-only/`canbe once` gate is gone; enforcement is the
                     // IR flow pass's moves [deduce-consume] [flow-use-after-move].
+                    continue;
+                }
+                // [effect-claim] A claim is about an effect's binding, never a
+                // value's type.
+                if decl.map_or_else(|| self.written_qual_decl(q).is_some_and(Self::is_claim_decl), Self::is_claim_decl) {
+                    self.error(q.span, messages::effect_claim_on_value(&q.name.name, &base));
                     continue;
                 }
                 let Some(decl) = decl else {
@@ -21769,6 +22036,17 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_qualifier_decl(&mut self, q: &'p QualifierDecl) {
         if q.comptime {
             self.check_comptime_qualifier_decl(q);
+            return;
+        }
+        // [effect-claim] `for Effect`: a claim about an effect's binding.
+        // Its subject is the marker, not a type, and a claim is provenance:
+        // nothing about a binding's contents establishes where it came from.
+        if Self::declared_for_effect(q) {
+            if q.subject != QualSubject::Provenance {
+                self.error(q.name.span, messages::effect_claim_state(&q.name.name));
+            } else if q.has_body {
+                self.error(q.name.span, messages::qual_subject_provenance_body(&q.name.name));
+            }
             return;
         }
         self.validate_type(&q.of);
@@ -24685,15 +24963,24 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .get(&self.key(*span))
                     .cloned()
                     .unwrap_or_default();
-                match faces.len() {
+                // [effect-claim] Each face's handle carries its claims.
+                let claims: Vec<Vec<Qual>> = match handler.as_ref() {
+                    Expr::Ident(id) => self.construction_face_claims(id),
+                    Expr::Call { callee, .. } => match callee.as_ref() {
+                        Expr::Ident(id) => self.construction_face_claims(id),
+                        _ => Vec::new(),
+                    },
+                    _ => Vec::new(),
+                };
+                let mut addrs: Vec<Ty> = faces
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, f)| claimed_addr(f, claims.get(i).cloned().unwrap_or_default()))
+                    .collect();
+                match addrs.len() {
                     0 => Ty::Unknown,
-                    1 => Ty::Named { name: ADDR_TYPE.to_string(), args: faces },
-                    _ => Ty::Tuple(
-                        faces
-                            .into_iter()
-                            .map(|f| Ty::Named { name: ADDR_TYPE.to_string(), args: vec![f] })
-                            .collect(),
-                    ),
+                    1 => addrs.pop().unwrap_or(Ty::Unknown),
+                    _ => Ty::Tuple(addrs),
                 }
             }
             // [effect-eff-handle] `e[A, B]` / `e[IO]` — projection: a non-consuming
@@ -24713,7 +25000,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // The requested effects (an alias expands to its members).
                 let mut listed: Vec<ListedEffect> = Vec::new();
                 for r in effects {
-                    self.expand_effect_entry(r, false, r.span, EffectOrigin::Written, &mut Vec::new(), &mut listed);
+                    self.expand_effect_entry(r, &[], r.span, EffectOrigin::Written, &mut Vec::new(), &mut listed);
                 }
                 let mut want: Vec<Ty> = Vec::new();
                 for e in listed {
@@ -24731,14 +25018,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                     }
                 }
                 self.out.handles.insert(self.key(*span), want.clone());
-                match want.len() {
-                    0 => Ty::Unknown,
-                    1 => Ty::Named { name: ADDR_TYPE.to_string(), args: want },
-                    _ => Ty::Tuple(
-                        want.into_iter()
-                            .map(|f| Ty::Named { name: ADDR_TYPE.to_string(), args: vec![f] })
-                            .collect(),
-                    ),
+                // [effect-claim] A projection keeps the claims of the handles
+                // it takes.
+                let claims_of: Vec<(Ty, Vec<Qual>)> = have.iter().cloned().zip(handle_leaf_claims(&base_ty)).collect();
+                if want.is_empty() {
+                    Ty::Unknown
+                } else {
+                    claimed_handle_over(&want, &claims_of)
                 }
             }
             // [effect-eff-handle] `eff[a, b]` / `eff[*]` — merge already-bound handles
@@ -24747,10 +25033,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             // `eff[*]` gathers every handle currently in scope.
             Expr::Merge { items, all, span } => {
                 let mut effects: Vec<Ty> = Vec::new();
+                // [effect-claim] Each effect keeps the claims of the handle
+                // it came from.
+                let mut claims_of: Vec<(Ty, Vec<Qual>)> = Vec::new();
                 if *all {
                     // Every effect handle in scope, innermost-first, deduped.
                     for avail in self.visible_avail() {
                         if !effects.contains(&avail.ty) {
+                            claims_of.push((avail.ty.clone(), avail.claims.clone()));
                             effects.push(avail.ty);
                         }
                     }
@@ -24759,8 +25049,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let ty = self.check_expr(item, None);
                         let mut have: Vec<Ty> = Vec::new();
                         if self.collect_handle_tuple(&ty, &mut have) {
-                            for e in have {
+                            let leaf_claims = handle_leaf_claims(&ty);
+                            for (i, e) in have.into_iter().enumerate() {
                                 if !effects.contains(&e) {
+                                    claims_of.push((e.clone(), leaf_claims.get(i).cloned().unwrap_or_default()));
                                     effects.push(e);
                                 }
                             }
@@ -24809,7 +25101,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.out.effects_passed.insert(self.key(*span), EffectsPassed::Leading(read));
                 }
                 // [effect-var] Merging nothing is `eff[]`, the empty handle.
-                crate::types::handle_over(&effects)
+                claimed_handle_over(&effects, &claims_of)
             }
             // [actor-self-send] A selector is a *callee*, never a value: a
             // handler member is not a function value any more than an effect
@@ -26073,7 +26365,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .iter()
                 .map(|e| match e {
                     EffectRef::Use(s) | EffectRef::Spawn(s) => *s,
-                    EffectRef::Effect(r) | EffectRef::AnyEffect(r) => r.span,
+                    EffectRef::Effect(r) | EffectRef::Claimed { effect: r, .. } => r.span,
                 })
                 .reduce(|a, b| a.to(b))
                 .unwrap_or(span);
@@ -26152,7 +26444,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         ty: ty.clone(),
                         binder: lambda_binder,
                         declared: true,
-                        any: false,
+                        claims: Vec::new(),
                     })
                     .collect(),
             )),
@@ -26171,7 +26463,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         });
         if saved_effects.is_none() {
             for ty in open_named.iter().flatten() {
-                self.effect_env.push(EffectAvail { ty: ty.clone(), binder: lambda_binder, declared: true, any: false });
+                self.effect_env.push(EffectAvail { ty: ty.clone(), binder: lambda_binder, declared: true, claims: Vec::new() });
             }
         }
         if open_throw {
@@ -27311,7 +27603,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 c.effects = given;
             }
             for eff in qf.effects.iter().flatten() {
-                let (EffectRef::Effect(r) | EffectRef::AnyEffect(r)) = eff else { continue };
+                let (EffectRef::Effect(r) | EffectRef::Claimed { effect: r, .. }) = eff else { continue };
                 let ename = r.name.name.as_str();
                 let available = self
                     .effect_env
@@ -32881,59 +33173,56 @@ impl<'p, 'r> Checker<'p, 'r> {
         // has to supply those too, since they are how the callee calls the
         // value it was given.
         //
-        // [effect-any] Each requirement carries its declared identity
-        // strength: bare `[E]` assumes one instance, `[any E]` accepts a
-        // binding spread over many. ([effect-handle]: every binding is a
-        // handle, so there is no seam strength to check any more.)
-        let mut wants: Vec<(Ty, bool)> = Vec::new();
+        // [effect-claim] Each requirement carries the claims it asks of the
+        // binding: bare `[E]` asks none, `[Ordered E]` asks `Ordered`.
+        let mut wants: Vec<(Ty, Vec<Qual>)> = Vec::new();
         {
             let saved = self.enter_generics(&decl.generics);
             // Unknown effect names are reported at the callee's own
             // declaration, so the list is expanded quietly. Known *where the
             // callee wrote them* [type-identity]: a caller need not import an
             // effect the callee requires — `read_to_str`'s implied `Streams`
-            // [effect-prereq] is `fs`'s to name, not the caller's. [effect-any]
-            // `any E` is the weak requirement: any binding does.
+            // [effect-prereq] is `fs`'s to name, not the caller's.
             for e in self.expand_effect_refs_quiet(decl.effects.as_deref().unwrap_or(&[]), true) {
                 if !wants.iter().any(|(w, _)| *w == e.ty) {
-                    wants.push((e.ty, e.any));
+                    wants.push((e.ty, e.claims));
                 }
             }
-            // [effect-any] An inherited requirement carries no strength of
-            // its own (a fn type cannot say `any`), so it is the strong one
-            // unless the callee's written list weakened it above — the
-            // written entry wins the dedupe.
+            // [effect-claim] An inherited requirement carries no claims of
+            // its own (a fn type cannot write them), unless the callee's
+            // written list names the effect with some — the written entry
+            // wins the dedupe.
             //
             // **Order**: inherited requirements come *first*, as they do in
             // the callee's own environment (`check_effect_list`) and so in
             // `effects_taken` — the emitters pass one argument per entry, so
             // the two lists must agree position by position.
-            let mut inherited: Vec<(Ty, bool)> = Vec::new();
+            let mut inherited: Vec<(Ty, Vec<Qual>)> = Vec::new();
             // [fn-effects] Only a callee with no written list inherits.
             for p in decl.params.iter().filter(|_| decl.effects.is_none()) {
                 for ty in self.inherited_fn_effects(&p.ty) {
                     if !inherited.iter().any(|(w, _)| *w == ty) {
-                        inherited.push((ty, false));
+                        inherited.push((ty, Vec::new()));
                     }
                 }
             }
             if decl.effects.is_none() {
                 for ty in spread_effects(decl, implicits) {
                     if !inherited.iter().any(|(w, _)| *w == ty) {
-                        inherited.push((ty, false));
+                        inherited.push((ty, Vec::new()));
                     }
                 }
             }
             let written = std::mem::take(&mut wants);
-            for (ty, any) in &written {
+            for (ty, claims) in &written {
                 if let Some(slot) = inherited.iter_mut().find(|(w, _)| w == ty) {
-                    slot.1 = *any;
+                    slot.1 = claims.clone();
                 }
             }
             wants = inherited;
-            for (ty, any) in written {
+            for (ty, claims) in written {
                 if !wants.iter().any(|(w, _)| *w == ty) {
-                    wants.push((ty, any));
+                    wants.push((ty, claims));
                 }
             }
             self.generics = saved;
@@ -32944,7 +33233,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         let effect_vars: HashSet<&str> = decl.effect_generics.iter().map(|g| g.name.as_str()).collect();
         let mut packs: Vec<usize> = Vec::new();
         let mut packed = false;
-        for (lowered, req_any) in wants {
+        for (lowered, req_claims) in wants {
             // [effect-var] The callee's effect variable is one parameter, the
             // pack of the instances of what it is bound to. Each is found as
             // a callee's own requirement is, but accepts a binding spread
@@ -33011,14 +33300,18 @@ impl<'p, 'r> Checker<'p, 'r> {
             packs.push(1);
             match found {
                 Some(avail) => {
-                    // [effect-any] The identity rule (user decision
-                    // 2026-09-26): a bare `[E]` assumes one instance and
-                    // ordered sends, which a binding spread over many
-                    // instances cannot give; `[any E]` accepts either.
-                    if !req_any && avail.any {
+                    // [effect-claim] The binding must make every claim the
+                    // callee asks for (user decisions 2026-11-05): a bare
+                    // `[E]` asks none, so any binding does.
+                    if !claims_cover(&avail.claims, &req_claims) {
                         self.error(
                             span,
-                            messages::effect_any_single_instance_callee(&name, &want),
+                            messages::effect_claim_unmet(
+                                &name,
+                                &claimed_text(&req_claims, &want),
+                                &want,
+                                &claims_have_text(&avail.claims),
+                            ),
                         );
                     }
                     // [fn-effects] Feeds an enclosing lambda's inferred set.
@@ -33817,7 +34110,7 @@ fn ast_mentions_effect_var(ty: &ast::Type, name: &str) -> bool {
     }
     match ty {
         ast::Type::Fn { params, effects, ret, .. } => {
-            effects.iter().flatten().any(|e| matches!(e, EffectRef::Effect(r) | EffectRef::AnyEffect(r) if r.name.name == name))
+            effects.iter().flatten().any(|e| matches!(e, EffectRef::Effect(r) | EffectRef::Claimed { effect: r, .. } if r.name.name == name))
                 || params.iter().any(|p| ast_mentions_effect_var(p, name))
                 || ast_mentions_effect_var(ret, name)
         }

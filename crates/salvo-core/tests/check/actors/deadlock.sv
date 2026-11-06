@@ -400,15 +400,11 @@ handler Credit(orders: eff[OrderApi], audit: eff[AuditApi]) for CreditApi {
 
 //--- a-send-through-an-addr-reaches-a-spawned-router
 
-// [actor-deadlock-cycle] [effect-any] An `eff[Ping]` may be a member of `Ping`
-
-// or a spawned `for any Ping` router, which the addr cannot say, so a send
-
-// through it lands on every written router of `Ping` too (user decision
-
-// 2026-10-30): `Ponger` waits on `R`, which waits on `Pong` (before, the
-
-// router got no in-edge from a send and the cycle went unseen).
+// [actor-deadlock-cycle] [actor-router] An `eff[Ping]` may be a member of
+// `Ping` or a spawned router of it (a handler taking `Ping`'s messages with
+// `receive`), which the addr cannot say, so a send through it lands on every
+// router of `Ping` too (user decision 2026-10-30): `Ponger` waits on `R`,
+// which waits on `Pong`.
 actor effect Ping {
     send fn ping(out: Reply<Int>) => !out
 }
@@ -417,11 +413,11 @@ actor effect Pong {
     send fn pong(n: Int, out: Reply<Int>) => !out
 }
 
-handler R() [Pong] for any Ping {
+handler R() [Pong] for Ping {
     mailbox { capacity: 1 }
 
-    send fn ping(out: Reply<Int>) {
-        pong(1, replyto! got(out))
+    send fn receive(m: Message<Ping>) => !m {
+        pong(1, replyto! got(m.out))
     }
     send fn got(out: Reply<Int>, n: Int) => !out {
         out.send(n)

@@ -3817,7 +3817,8 @@ pub(crate) fn fn_decl_signature_with(decl: &FnDecl, inferred: Option<&[ParamDedu
             for e in decl.effects.iter().flatten() {
                 match e {
                     EffectRef::Effect(_) => {}
-                    EffectRef::AnyEffect(r) => {
+                    // [effect-claim] A claimed entry is shown as written.
+                    EffectRef::Claimed { effect: r, .. } => {
                         weak.push(r.name.name.as_str());
                         shown.push(e.to_string());
                     }

@@ -1469,7 +1469,7 @@ fn walk_item_in<V: Visitor>(c: &mut V, it: &Item) {
             params: ps,
             effects,
             of,
-            of_any: _,
+            of_claims: _,
             init,
             mailbox,
             state,

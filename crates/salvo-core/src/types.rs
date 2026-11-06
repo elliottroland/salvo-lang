@@ -1588,6 +1588,16 @@ impl fmt::Display for Ty {
                 }
                 fmt_args(f, args)
             }
+            // [effect-claim] A handle's claims read inside its brackets, as
+            // they are written: `eff[Ordered Counter]`.
+            Ty::Qualified { quals, base } if matches!(&**base, Ty::Named { name, args } if name == "Addr" && args.len() == 1) => {
+                let Ty::Named { args, .. } = &**base else { unreachable!() };
+                write!(f, "eff[")?;
+                for q in quals {
+                    write!(f, "{q} ")?;
+                }
+                write!(f, "{}]", args[0])
+            }
             Ty::Qualified { quals, base } => {
                 // [proj-type] [ref-handle] a projection (`proj`/`ref`) reads
                 // first: it says what the value *is* (a borrow / a handle);

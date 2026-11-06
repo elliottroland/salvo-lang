@@ -149,6 +149,52 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-05 — Delivery guarantees are claims on an effect's binding (user decisions, [effect-claim], ROUTES.md A2/§6.2/§7–9/§14)
+
+- **Decided** (user, 2026-11-05): `any E` is gone. A delivery guarantee is a
+  **claim**, a provenance qualifier declared `for Effect`, written before
+  the effect: `[Ordered Counter]` (a requirement), `for Ordered Counter` (a
+  handler's face), `eff[Ordered Counter]` (a handle). A bare `[E]` assumes
+  nothing, and the compiler grants no claim. std declares `Ordered` and
+  `ShardKeyOrdered`; `Sharded` claims `ShardKeyOrdered`. Claims are allowed
+  on any effect.
+- **Built**: `EffectRef::Claimed { claims, effect }` (replacing
+  `AnyEffect`) and `HandlerDecl.of_claims` (the face's leading qualifiers,
+  moved off its type by the parser); `eff[…]` entries keep claims as their
+  qualifiers. In the checker, `EffectAvail`/`ListedEffect` carry `claims:
+  Vec<Qual>` instead of the `any` bit, and the one rule is a subset check
+  (`effect-claim:unmet`) at a call, at a `use` resolving a handler's
+  dependency, and at a spawn inheriting one. A single handle with claims is
+  `Addr<E>` qualified by them, so ordinary provenance dropping gives the
+  handle rule (more claims fit fewer, never the reverse); spawn, `use H()`
+  as a value, `use addr`, projection and merge carry them. Refusals:
+  `effect-claim:not-a-claim`, `:on-value`, `:state`, `:fn-type`,
+  `effect-alias:claim`/`claim-alias`, `effect-var:claim`,
+  `effect-prereq:claim`. The deadlock graph's router is now structural (a
+  handler taking an actor face with `receive`), and a dependency lands on
+  the routers whose face claims cover its own. `IrHandler.face_any`,
+  `effects::has_any_router` (dead) and the TextMate `any` rule are gone.
+- **Judgment calls for the user**:
+  - `Ordered` and `ShardKeyOrdered` both live in **std.core.actor** (every
+    file sees them), not `ShardKeyOrdered` in `std.net.shard`: no import for
+    a single actor's claim, and (e)'s implication between them is one
+    module's. `Ordered` already named std.core.compare's `fns Ordered<T>`
+    group; the two coexist (different kinds), and reach skips a module that
+    declares a name only as a claim, which emits nothing.
+  - **The sweep moves to (e)**: nothing in (d) needs a claim to compile, so
+    single actors are swept once, to `for Ordered E`, when implication
+    lands, instead of to `for Ordered ShardKeyOrdered E` now and again then.
+  - A hand-written router that is not a `receive` handler (the cluster
+    example's `Scattering`, the run data's `RoundRobin`) is an ordinary
+    handler to the deadlock graph now.
+- **Fell out**: a lowering records the written type, so lowering a handler
+  face outside its generics (to name it in a claim message) recorded `E` as
+  no type and the generic router lost its instantiation; the message names
+  the face from its text instead (gotcha below).
+- 724 tests under nextest (`check/actors/any.sv` became `claims.sv`, a new
+  `run/actors/claims.sv`, the fn-type `any` Rust test folded into the
+  data), warm run 2m57 after the std change.
+
 ### 2026-11-05 — std's routers are `receive` handlers over generic protocols (user decisions, [actor-router] [actor-receive], ROUTES.md R2/§6.1/§9/§14)
 
 - **Decided** (user, 2026-11-05): routing is no longer something the
@@ -40413,6 +40459,14 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Lowering a written type records it** (2026-11-05, claims). The checker's
+  `lower_type` writes `written_types[span]`, which the IR reads back as the
+  type at that span. Lowering a handler's face *outside* the handler's
+  generics (for a diagnostic's text) recorded `E` as an unknown name, and
+  `instantiate_generic_faces` no longer saw a generic face: `forward`
+  reached the emitter unlowered. Name a type for a message from its text, or
+  lower it where its generics are in scope.
 
 - **A generic handler's instantiation belongs to the protocol's module**
   (2026-11-05, routers). Placed beside the generic in std, `Sharded__Inventory`

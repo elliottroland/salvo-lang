@@ -591,26 +591,26 @@ handler Front(back: eff[Inventory]) for Inventory {
   linear: `receive` ends it by forwarding it, or by moving the reply out and
   answering it (`send(m.out, …)` in the `.Reserve` arm).
 
-### One member of many: `any`
+### One member of many: claims
 
 A function written against one actor (`bump(2); bump(3); total(out)`) relies
 on its sends arriving in order at one instance. A group cannot promise that,
-so a function that is happy with *any* member says so in its effect list, and
-a handler that forwards to many members says so in its `for` clause:
+so a function that relies on it asks for the **claim**, and a handler that
+gives it makes the claim on its `for` clause:
 
 ```salvo
-fn thumbnail(img: Image) [any Resizer] -> Image { … }    // any Resizer will do: one send, one reply
-fn tally(items: List<Int>) [Resizer] -> Int { … }         // needs ONE Resizer, in order
+fn thumbnail(img: Image) [Resizer] -> Image { … }           // any Resizer will do: one send, one reply
+fn tally(items: List<Int>) [Ordered Resizer] -> Int { … }   // needs ONE Resizer, in order
 
-handler RoundRobin(members: List<eff[Resizer]>) for any Resizer { … }   // forwards; promises no order
+handler Resizing() for Ordered Resizer { … }                // one actor: claims Ordered
+handler RoundRobin(members: List<eff[Resizer]>) for Resizer { … }   // forwards; claims nothing
 ```
 
-Bare `[E]` keeps the strong meaning, so binding a group where `[Resizer]` is
-required is an error at the call, and a program written before groups
-existed cannot be broken by binding one under it. `[any E]` accepts every
-binding (a single instance is a group of one) and is viral downward. The full
-rule is in [Effects and
-handlers](Effects-and-Handlers.md#many-instances-any-e-and-for-any-e).
+A bare `[E]` assumes nothing, so it accepts every binding, a group's router
+included; binding a router where `[Ordered Resizer]` is required is an error
+at the call. A router by key claims what it gives: `Sharded` is `for
+ShardKeyOrdered E`. The full rule is in [Effects and
+handlers](Effects-and-Handlers.md#claims-ordered-e-and-for-ordered-e).
 
 ### Routing: a router is a handler of the protocol
 
@@ -628,7 +628,7 @@ actor effect Inventory {
 
 fn key(m: Message<Inventory>) [] -> Long? => m by shard   // the key Sharded reads
 
-fn checkout(skus: List<Str>) [any Inventory, Console] -> None { … }   // `any`: shards are unordered
+fn checkout(skus: List<Str>) [Inventory, Console] -> None { … }   // assumes nothing of the binding
 
 let stock = actor_group<Inventory>(nodes)
 spawn Stocking("s1") on p in stock
@@ -644,7 +644,7 @@ checkout(List("apple", "pear", "apple"))   // "apple" lands on the same shard bo
   [`ShardKey`](../../lib/std/net/shard.sv#qualifier-shardkey) mark before a
   send fn's parameter (a message whose member marks none goes to the first
   member; a member may mark one). Two sends for the same key land on the same
-  member in order, a stronger guarantee than `any` claims.
+  member in order, which it claims: `for ShardKeyOrdered E`.
 - **[`Elected(group)`](../../lib/std/net.sv#handler-elected)** takes the
   member on the leader's node, asking
   [`Leader`](../../lib/std/net.sv#effect-leader)`.leader()` when the group's

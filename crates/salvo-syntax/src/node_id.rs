@@ -501,7 +501,7 @@ fn handler_decl<V: MutVisitor>(n: &mut V, h: &mut HandlerDecl) {
         params,
         effects,
         of,
-        of_any: _,
+        of_claims,
         init: _,
         mailbox,
         state,
@@ -520,7 +520,10 @@ fn handler_decl<V: MutVisitor>(n: &mut V, h: &mut HandlerDecl) {
             vm::walk_effect_ref(n, e);
         }
     }
-    for t in of {
+    for (t, claims) in of.iter_mut().zip(of_claims.iter_mut()) {
+        for c in claims {
+            vm::walk_type_ref(n, c);
+        }
         vm::walk_type(n, t);
     }
     if let Some(m) = mailbox {

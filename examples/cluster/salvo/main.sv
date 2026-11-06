@@ -100,13 +100,13 @@ handler SlowLooking(who: Str, timer: eff[Timer]) for Lookup {
 //
 // std's routers (`Elected`, `Sharded`, `LeastLoaded`) pick ONE member per
 // send. A policy that must do more with a message — fan it out, race two
-// copies — is a handler written for that protocol: `for any E`, because it
-// promises no order between two sends.
+// copies — is a handler written for that protocol. It claims nothing (no
+// `for Ordered E`): it promises no order between two sends.
 
 // Scatter: ask every member, sum the answers, reply once. The router itself
 // is stateless and `use`-bound; the collecting is an actor's, since something
 // has to receive the partial answers.
-handler Scattering(group: eff[ActorGroup<Search>], gather: eff[Gather]) for any Search {
+handler Scattering(group: eff[ActorGroup<Search>], gather: eff[Gather]) for Search {
     mailbox { capacity: 16 }
     send fn query(word: Str, out: Reply<Int>) => !word, !out {
         let members = waitfor ms: Reply<List<eff[Search]>> { group.members(ms) }
@@ -154,7 +154,7 @@ handler Gathering() for Gather {
 // Hedge: two members race, the first answer is the answer, the second is
 // dropped — a `Reply` is discharged exactly once, so the second arrival has
 // nothing to send to.
-handler Hedging(group: eff[ActorGroup<Lookup>], racer: eff[Race]) for any Lookup {
+handler Hedging(group: eff[ActorGroup<Lookup>], racer: eff[Race]) for Lookup {
     mailbox { capacity: 16 }
     send fn lookup(key: Str, out: Reply<Str>) => !key, !out {
         let members = waitfor ms: Reply<List<eff[Lookup]>> { group.members(ms) }
@@ -213,11 +213,11 @@ handler LastHost(nodes: eff[NodeGroup], me: NodeEndpoint) for Leader {
 
 // ---------------------------------------------------- the client side ----
 //
-// Every function below is written against the protocol alone. `any` says the
-// function assumes nothing about which member answers — the honest claim for
-// a fleet — and nothing here mentions a node, a group or a pick.
+// Every function below is written against the protocol alone. A bare `[E]`
+// assumes nothing about which member answers — the honest assumption for a
+// fleet — and nothing here mentions a node, a group or a pick.
 
-fn fresh_id() [any Sequencer] -> Str {
+fn fresh_id() [Sequencer] -> Str {
     return waitfor out: Reply<Str> { next(out) }
 }
 
@@ -225,7 +225,7 @@ fn fresh_id() [any Sequencer] -> Str {
 // lands on the *same* shard, and that a shard's count climbs with its own
 // keys, is what the caller can see. (Which physical member is shard 0 depends
 // on the members' order in the view, which this in-process fleet does not fix.)
-fn checkout(skus: List<Str>) [any Inventory, Console] -> None {
+fn checkout(skus: List<Str>) [Inventory, Console] -> None {
     let shards: Mut List<Str> = Mut List()
     for sku in skus {
         let answer = waitfor out: Reply<Str> { reserve(copy(sku), 1, out) }
@@ -238,11 +238,11 @@ fn checkout(skus: List<Str>) [any Inventory, Console] -> None {
     println("  apple and pear on one shard: ${eq(get(shards, 0) ?: unreachable!(), get(shards, 1) ?: unreachable!())}")
 }
 
-fn count(word: Str) [any Search] -> Int => !word {
+fn count(word: Str) [Search] -> Int => !word {
     return waitfor out: Reply<Int> { query(word, out) }
 }
 
-fn find(key: Str) [any Lookup] -> Str => !key {
+fn find(key: Str) [Lookup] -> Str => !key {
     return waitfor out: Reply<Str> { lookup(key, out) }
 }
 

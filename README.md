@@ -262,8 +262,10 @@ fn main() [use] {
   A node binds its transport and spawns its node group (which connects the
   node to the wire), opens an `actor_group<E>` per protocol, and `spawn H()
   on p in group` joins a member.
-  `[any E]` is the honest claim for a fleet — each send may go to a different
-  member — and a router binds a group as the protocol itself, sending each
+  A bare `[E]` assumes nothing about its binding — each send may go to a
+  different member — while `[Ordered E]` asks for one instance in order, which
+  a single actor claims (`for Ordered E`) and a router does not. A router
+  binds a group as the protocol itself, sending each
   message to one member: `use LeastLoaded(group, true)`, `use Sharded(group)`
   by a `ShardKey`-marked argument, or `use Elected(group)` behind a `Leader`
   any election can serve. A router is an ordinary handler, written with

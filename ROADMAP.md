@@ -649,8 +649,8 @@ repros are over the real std.
   - a member call through
     a two-face spawn's tuple reports three errors
     (`multi_effect_tests::several_faces_answer_a_tuple_…`); a cyclic alias
-    pair is reported at both declarations and again at a use, and `[any App]`
-    adds a no-handler error at the body (two `alias_tests`);
+    pair is reported at both declarations and again at a use, and `[Ordered
+    App]` adds a no-handler error at the body (two `alias_tests`);
   - `by nowhere` on `: Hashed<self>` reports `obligation-by:names-nothing`
     once per member it would stamp (`hash`, then `eq`);
   - also noted, annotated as they are: a prerequisite cycle is reported once
@@ -891,11 +891,11 @@ blocker:
   `deliver` → `left(n, "unreachable")`); the shared secret/TLS half of N-6 at
   the handshake; `HeartbeatNodeGroup` over a `Ddb` platform handler as the
   interop example.
-- **⑥ `any`**: an `Addr<E>` answered by *spawning* a router binds as an
-  ordinary `E` under `use addr` (the addr type has no room for the claim;
-  the deadlock graph prices it since 2026-10-30, every `eff[E]` send landing
-  on `E`'s written routers too); a lambda's body is checked under strong
-  availabilities.
+- **⑥ claims** (2026-11-05, replacing `any`): a lambda whose expected fn
+  type names an effect sees it with no claims (a fn type carries none), so a
+  lambda body cannot call a callee asking for a claim even where the scope
+  around it could; a `with` clause item's claims are not checked against the
+  dependency it satisfies (a scope-resolved dependency's are).
 - **⑦ picks**: consistent hashing for `Sharded` (today `key mod n` over the
   ordered view, so a join reshuffles most keys); the `ShardKeyOrdered` claim
   for a program relying on `Sharded`'s per-key ordering is piece (d) of
@@ -936,7 +936,7 @@ left three follow-ups the user has asked for, in this order.
   fused `__fx` value for uniformity while the shapes were being settled; with
   the handle keyed on statefulness and named after the effect, the question
   is whether a fn declaring `[A, B]` should take one fused parameter again,
-  and what that does to `[any E]`, forwarding into spawns, and the deadlock
+  and what that does to claims [effect-claim], forwarding into spawns, and the deadlock
   graph. The shapes that were deleted, and why, are in COMPLETED.md's
   "One shape for effects" entry — read it before redesigning. Decided apart
   from effect variables (user decision 2026-10-30): their pack exists only at

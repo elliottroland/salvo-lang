@@ -127,7 +127,6 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                     exported: false,
                     type_params: Vec::new(),
                     faces: vec![face],
-                    face_any: vec![false],
                     ctor_params: vec![Param { local: addr, ty: addr_ty, mode: crate::param_mode::PassMode::Moved, variadic: false, check: None, span: i.span }],
                     deps: Vec::new(),
                     state: Vec::new(),

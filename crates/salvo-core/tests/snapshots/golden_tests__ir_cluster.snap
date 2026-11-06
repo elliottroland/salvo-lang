@@ -84,7 +84,7 @@ impl SlowLooking(lent who: Str, lent timer: eff[Timer]) for Lookup@main stateful
   }
 }
 
-impl Scattering(lent group: eff[ActorGroup<Search@main>], lent gather: eff[Gather@main]) for any Search@main {
+impl Scattering(lent group: eff[ActorGroup<Search@main>], lent gather: eff[Gather@main]) for Search@main {
   mailbox construct Mailbox { capacity: 16 }
   fn query(moved word: Str, moved out: Reply<Int>) -> None {
     obligation gain-params [out]
@@ -113,7 +113,7 @@ impl Gathering() for Gather@main stateful {
     call add_last@std.core.deque<Reply<Int>>(read pending, !read out)
     assign left = call size@std.core.list<eff[Search@main]>(read members)
     assign total = 0
-    foreach#1 m: proj eff[Search@main] in read members {
+    foreach#1 m: eff[proj Search@main] in read members {
       send query@Search(read m, call copy@std.core.basic<Str>(read word), replyto partial())
     }
   }
@@ -141,7 +141,7 @@ impl Gathering() for Gather@main stateful {
   }
 }
 
-impl Hedging(lent group: eff[ActorGroup<Lookup@main>], lent racer: eff[Race@main]) for any Lookup@main {
+impl Hedging(lent group: eff[ActorGroup<Lookup@main>], lent racer: eff[Race@main]) for Lookup@main {
   mailbox construct Mailbox { capacity: 16 }
   fn lookup(moved key: Str, moved out: Reply<Str>) -> None {
     obligation gain-params [out]
@@ -166,7 +166,7 @@ impl Racing() for Race@main stateful {
     obligation gain-params [out]
     obligation release [out]
     call add_last@std.core.deque<Reply<Str>>(read pending, !read out)
-    foreach#1 m: proj eff[Lookup@main] in read members {
+    foreach#1 m: eff[proj Lookup@main] in read members {
       send lookup@Lookup(read m, call copy@std.core.basic<Str>(read key), replyto first())
     }
   }

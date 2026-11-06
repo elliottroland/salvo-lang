@@ -487,7 +487,6 @@ fn impl_decl(ctx: &Ctx<'_>, file_idx: usize, id: DeclId, h: &ast::HandlerDecl, s
         exported: h.exported,
         type_params: type_params(&h.generics, &[]),
         faces,
-        face_any: h.of_any.clone(),
         ctor_params,
         deps,
         state,

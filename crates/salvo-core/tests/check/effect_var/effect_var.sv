@@ -32,9 +32,9 @@ fn plain_in_list<T>(f: () [T] -> None) => f {
 fn as_type<[E]>(x: E, f: () [E] -> None) => x, f {
 }
 
-// Each effect it is bound to keeps its own identity strength.
-//~ error[effect-var:any]
-fn weak<[E]>(f: () [E] -> None) [any E] => f {
+// Each effect it is bound to keeps its own claims [effect-claim].
+//~ error[effect-var:claim]
+fn claimed<[E]>(f: () [E] -> None) [Ordered E] => f {
 }
 
 // One variable per fn type: a call could not split the value's effects.

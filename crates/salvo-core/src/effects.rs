@@ -56,30 +56,6 @@ pub fn effect_only_args(r: &salvo_syntax::ast::TypeRef, is_effect: &impl Fn(&str
     })
 }
 
-/// [effect-any] Whether `program` declares a handler `for any E` for the
-/// actor effect `effect` — a router. Only then does an actor effect need
-/// the monitor adapter a plain effect always has: a router is the one
-/// actor-effect handler whose `use` binds shareable (as a lock, or bare),
-/// since it forwards to members and holds no protocol state of its own.
-pub fn has_any_router<'a>(
-    handlers: impl IntoIterator<Item = &'a HandlerDecl>,
-    effect: &str,
-) -> bool {
-    handlers.into_iter().any(|h| {
-        h.of.iter().zip(h.of_any.iter()).any(|(of, any)| {
-            *any && of_base_name(of) == Some(effect)
-        })
-    })
-}
-
-/// The base name of an `for` clause entry.
-fn of_base_name(of: &salvo_syntax::ast::Type) -> Option<&str> {
-    match of {
-        salvo_syntax::ast::Type::Named { base, .. } => Some(base.name.name.as_str()),
-        salvo_syntax::ast::Type::QualifiedGroup { base, .. } => of_base_name(base),
-        _ => None,
-    }
-}
 
 /// [effect-member-overload] The emitted name of the member at `idx` in
 /// `effect`'s declaration order: the plain name for a member whose name is

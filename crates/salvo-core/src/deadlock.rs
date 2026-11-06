@@ -284,9 +284,10 @@ fn build(
             break;
         }
     }
-    // [actor-deadlock-cycle] [effect-any] The routers of each actor effect —
-    // every written `for any E` face — which is where an edge into `any E`
-    // lands besides `E` (a binding of `any E` may be any of them).
+    // [actor-deadlock-cycle] [actor-router] The routers of each actor effect
+    // — every face a handler takes with `receive` — which is where an edge
+    // into `E` lands besides `E`'s own handlers (a binding of `E` may be any
+    // of them whose claims cover the requirement's [effect-claim]).
     // A router binds shareable, so its member runs on the caller's thread:
     // under its lock when it is stateful (the derived route always is: it
     // keeps the view version it last saw) and there for as long as it waits
@@ -297,11 +298,18 @@ fn build(
     let mut routers_of: BTreeMap<String, Vec<Router>> = BTreeMap::new();
     for h in &handlers {
         let occupies = h.stateful(out) || waits_of.contains_key(&h.id);
-        for (of, any) in &h.shape.faces {
-            if !*any || !is_actor(of) {
+        if !h.shape.receives {
+            continue;
+        }
+        for (of, claims) in &h.shape.faces {
+            if !is_actor(of) {
                 continue;
             }
-            routers_of.entry(of.clone()).or_default().push(Router { node: servant_node(&h.shape.name), occupies, written: true });
+            routers_of.entry(of.clone()).or_default().push(Router {
+                node: servant_node(&h.shape.name),
+                occupies,
+                claims: claims.clone(),
+            });
         }
     }
     // Every handler of an actor effect: the protocol it serves, whether any
@@ -330,15 +338,16 @@ fn build(
             // exactly as from an actor handler. Its own face is skipped:
             // interception binds outward, so it closes no cycle.
             let mixed = h.shape.sends && !h.shape.faces.is_empty() && h.shape.faces.iter().all(|(of, _)| is_plain(of));
-            // [effect-any] A router `for any E` is a servant too: it is not a
-            // member of `E` but a forwarder in front of them, so it is a node
-            // of its own, and what leaves it is what it does *besides*
-            // forwarding. Its forward to `E` is no edge: every edge into the
-            // router (a caller's dependency on `any E`, `routers_of`) comes
-            // with the same edge into `E`, so a cycle through the forward
-            // would re-spell the cycle through that edge — reported twice,
-            // and as an occupancy where the router locks.
-            let router = h.shape.faces.iter().any(|(_, any)| *any);
+            // [actor-router] A router (a handler taking its faces' messages
+            // with `receive`) is a servant too: it is not a member of `E` but
+            // a forwarder in front of them, so it is a node of its own, and
+            // what leaves it is what it does *besides* forwarding. Its
+            // forward to `E` is no edge: every edge into the router (a
+            // caller's dependency on `E`, `routers_of`) comes with the same
+            // edge into `E`, so a cycle through the forward would re-spell
+            // the cycle through that edge — reported twice, and as an
+            // occupancy where the router locks.
+            let router = h.shape.receives && h.shape.faces.iter().any(|(of, _)| is_actor(of));
             if mixed || router {
                 let gate = out
                     .actor_gates
@@ -347,10 +356,14 @@ fn build(
                     .map(|(_, key)| (key.file(), key.span));
                 let blocks = waits_of.get(&h.id).copied();
                 let own_faces: Vec<&str> = h.shape.faces.iter().map(|(of, _)| of.as_str()).collect();
-                let forwards: Vec<&str> = h.shape.faces.iter().filter(|(_, any)| *any).map(|(of, _)| of.as_str()).collect();
-                let deps: Vec<(String, usize, Span, bool)> = deps_of(out, h)
+                let forwards: Vec<&str> = if h.shape.receives {
+                    h.shape.faces.iter().map(|(of, _)| of.as_str()).filter(|of| is_actor(of)).collect()
+                } else {
+                    Vec::new()
+                };
+                let deps: Vec<(String, usize, Span, Vec<String>)> = deps_of(out, h)
                     .into_iter()
-                    .map(|(key, span, any)| (key, file_idx, span, any))
+                    .map(|(key, span, claims)| (key, file_idx, span, claims))
                     .collect();
                 let mut sends: Vec<(String, usize, Span)> = Vec::new();
                 for (handler, target, k) in &out.actor_sends {
@@ -404,7 +417,7 @@ fn build(
             // per mixed handler of the effect, since the graph cannot know
             // which one a binding will choose [actor-deadlock-cycle].
             let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
-            for (key, dep_span, any) in deps_of(out, h) {
+            for (key, dep_span, claims) in deps_of(out, h) {
                 let name = key.as_str();
                 if !is_actor(&key) {
                     if let Some(mixed_handlers) = mixed_of.get(name) {
@@ -430,11 +443,10 @@ fn build(
                     continue;
                 }
                 targets.push((name.to_string(), file_idx, dep_span));
-                // [effect-any] And on every router of the protocol, when the
-                // dependency is the weak one a router may be bound for.
-                if any {
-                    router_targets(&routers_of, name, "", file_idx, dep_span, &mut occupancies, &mut targets);
-                }
+                // [actor-router] And on every router of the protocol whose
+                // claims cover the dependency's [effect-claim]: a binding of
+                // `E` may be one.
+                router_targets(&routers_of, name, &claims, "", file_idx, dep_span, &mut occupancies, &mut targets);
             }
             // Sends through an addr the handler holds: the peer half of the
             // graph, and the only place an own-protocol edge survives.
@@ -518,7 +530,7 @@ fn build(
         let blocks = waits_of.get(&h.id).copied();
         let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
         let mut targets: Vec<(String, usize, Span)> = Vec::new();
-        for (key, dep_span, any) in deps_of(out, h) {
+        for (key, dep_span, claims) in deps_of(out, h) {
             let name = key.as_str();
             if own_faces.contains(&name) {
                 continue;
@@ -539,9 +551,7 @@ fn build(
                 continue;
             }
             targets.push((name.to_string(), file_idx, dep_span));
-            if any {
-                router_targets(&routers_of, name, &from, file_idx, dep_span, &mut occupancies, &mut targets);
-            }
+            router_targets(&routers_of, name, &claims, &from, file_idx, dep_span, &mut occupancies, &mut targets);
         }
         for task in tasks_reached(out, h.id) {
             for (owner, target, k) in &out.task_sends {
@@ -714,8 +724,8 @@ fn report(
     }
 }
 
-/// [actor-mixed-handler] [effect-any] A servant node's inputs: a mixed
-/// handler's servant, or an `for any X` router. One shape, so the two
+/// [actor-mixed-handler] [actor-router] A servant node's inputs: a mixed
+/// handler's servant, or a router. One shape, so the two
 /// cannot drift apart.
 struct Servant<'a> {
     /// The handler, which names the node and the edges.
@@ -723,13 +733,13 @@ struct Servant<'a> {
     /// The faces it wears, plain: a dependency on one of them binds outward
     /// (interception), so it closes no cycle.
     own_faces: &'a [&'a str],
-    /// [effect-any] The faces it routes (`for any E`, or the route's `E`):
-    /// a send to one is its forward, which is no edge — every edge into the
-    /// router comes with the same edge into `E`.
+    /// [actor-router] The faces it routes (taken with `receive`): a send to
+    /// one is its forward, which is no edge — every edge into the router
+    /// comes with the same edge into `E`.
     forwards: &'a [&'a str],
-    /// Its dependencies, by effect key, with their sites and whether each
-    /// is `any E`.
-    deps: Vec<(String, usize, Span, bool)>,
+    /// Its dependencies, by effect key, with their sites and claims
+    /// [effect-claim].
+    deps: Vec<(String, usize, Span, Vec<String>)>,
     /// What it sends to (its own sends, then its tasks'), by effect key.
     sends: Vec<(String, usize, Span)>,
     /// A gate in a member: its sends are waits.
@@ -743,8 +753,8 @@ impl Servant<'_> {
     /// addr; a plain one with mixed or wait-capable shareable handlers is an
     /// occupancy edge to each, exactly as from an actor handler; and every
     /// send to an actor effect but a router's forward is a target, of the
-    /// kind the gate or wait makes it; a dependency on `any E` lands on
-    /// `E`'s routers too.
+    /// kind the gate or wait makes it; a dependency on `E` lands on `E`'s
+    /// routers too, those whose claims cover it.
     fn add_to(
         self,
         graph: &mut BTreeMap<String, BTreeMap<String, Edge>>,
@@ -756,16 +766,14 @@ impl Servant<'_> {
         let from = servant_node(self.handler);
         let mut targets: Vec<(String, usize, Span)> = Vec::new();
         let mut occupancies: Vec<(String, usize, Span)> = Vec::new();
-        for (key, file, dep_span, any) in self.deps {
+        for (key, file, dep_span, claims) in self.deps {
             let name = key.as_str();
             if self.own_faces.contains(&name) {
                 continue;
             }
             if is_actor(&key) {
                 targets.push((name.to_string(), file, dep_span));
-                if any {
-                    router_targets(routers_of, name, &from, file, dep_span, &mut occupancies, &mut targets);
-                }
+                router_targets(routers_of, name, &claims, &from, file, dep_span, &mut occupancies, &mut targets);
                 continue;
             }
             for mh in mixed_of.get(name).into_iter().flatten() {
@@ -852,42 +860,44 @@ fn handlers(out: &Checked) -> Vec<Handler<'_>> {
 
 /// [effect-handler-deps] [effect-prereq] A handler's dependencies as the
 /// checker expanded them (aliases flattened, its faces' prerequisites added),
-/// by effect key, with the span each came from and whether it was written
-/// `any E` [effect-any] — an entry's span is its written type's, and an
-/// alias may not hold `any`, so the written `any` entries name them all.
-fn deps_of(out: &Checked, h: &Handler<'_>) -> Vec<(String, Span, bool)> {
+/// by effect key, with the span each came from and the claims it was
+/// written with [effect-claim] — an entry's span is its written type's, and
+/// an alias may not hold claims, so the written entries name them all.
+fn deps_of(out: &Checked, h: &Handler<'_>) -> Vec<(String, Span, Vec<String>)> {
     out.handler_deps
         .get(&h.key)
         .into_iter()
         .flatten()
         .filter_map(|(t, span)| match t.strip_quals() {
-            crate::types::Ty::Named { name, .. } => Some((name.clone(), *span, h.shape.any_deps.contains(span))),
+            crate::types::Ty::Named { name, .. } => {
+                let claims = h.shape.dep_claims.iter().find(|(s, _)| s == span).map(|(_, c)| c.clone()).unwrap_or_default();
+                Some((name.clone(), *span, claims))
+            }
             _ => None,
         })
         .collect()
 }
 
-/// [actor-deadlock-cycle] [effect-any] A router of an actor effect, as an
-/// edge into `any E` reaches it: its node, and whether a caller **occupies**
-/// in it — the router holds a lock (it is stateful; the derived route always
-/// is) or waits — rather than running it as its own bare code.
+/// [actor-deadlock-cycle] [actor-router] A router of an actor effect, as an
+/// edge into `E` reaches it: its node, whether a caller **occupies** in it —
+/// the router holds a lock (it is stateful) or waits — rather than running it
+/// as its own bare code, and the claims its face makes [effect-claim].
 #[derive(Clone)]
 struct Router {
     node: String,
     occupies: bool,
-    /// A written `for any E` handler, which a program may spawn and hand out
-    /// as an `eff[E]`; the derived route of a `use any` is never spawned.
-    written: bool,
+    claims: Vec<String>,
 }
 
-/// [actor-deadlock-cycle] [effect-any] Where a dependency on `any E` lands
-/// besides `E`: every router of `E` but the depending node itself, split
-/// into the occupancy edges and the caller-kind targets. An edge into a
-/// strong `[E]` lands on `E` alone — a strong requirement refuses a
-/// router's binding.
+/// [actor-deadlock-cycle] [actor-router] Where a dependency on `E` lands
+/// besides `E`: every router of `E` whose claims cover the dependency's
+/// [effect-claim], but the depending node itself, split into the occupancy
+/// edges and the caller-kind targets.
+#[allow(clippy::too_many_arguments)]
 fn router_targets(
     routers_of: &BTreeMap<String, Vec<Router>>,
     effect: &str,
+    claims: &[String],
     from: &str,
     file: usize,
     span: Span,
@@ -895,7 +905,7 @@ fn router_targets(
     targets: &mut Vec<(String, usize, Span)>,
 ) {
     for r in routers_of.get(effect).into_iter().flatten() {
-        if r.node == from {
+        if r.node == from || !claims.iter().all(|c| r.claims.contains(c)) {
             continue;
         }
         if r.occupies {
@@ -906,12 +916,11 @@ fn router_targets(
     }
 }
 
-/// [actor-deadlock-cycle] [effect-any] Where a **send through an `eff[E]`**
-/// lands besides `E` (user decision 2026-10-30): an addr cannot say whether
-/// it is a member of `E` or a spawned `for any E` router, so the send lands on
-/// every written router of `E` too (but the sending node itself), of the
-/// sender's kind — a spawned router is an actor, so no occupancy. The
-/// derived route of a `use any` is never behind an addr.
+/// [actor-deadlock-cycle] [actor-router] Where a **send through an
+/// `eff[E]`** lands besides `E` (user decision 2026-10-30): an addr cannot
+/// say whether it is a member of `E` or a spawned router, so the send lands
+/// on every router of `E` too (but the sending node itself), of the sender's
+/// kind — a spawned router is an actor, so no occupancy.
 fn send_router_targets(
     routers_of: &BTreeMap<String, Vec<Router>>,
     effect: &str,
@@ -921,7 +930,7 @@ fn send_router_targets(
     targets: &mut Vec<(String, usize, Span)>,
 ) {
     for r in routers_of.get(effect).into_iter().flatten() {
-        if r.written && r.node != from {
+        if r.node != from {
             targets.push((r.node.clone(), file, span));
         }
     }

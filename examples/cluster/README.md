@@ -16,13 +16,13 @@ cargo run -- run --backend kotlin --src examples/cluster/salvo
 ## What to look for
 
 **The client side is written against the protocol alone.** `fresh_id`,
-`checkout`, `count` and `find` declare `[any Sequencer]`, `[any Inventory]`,
-`[any Search]`, `[any Lookup]` and nothing else: no node, no group, no policy.
-`any` is the honest claim for a fleet — each send may go to a different member,
-so the function assumes no order between its sends — and it is what lets a
-router be bound where one actor used to be. A function that *did* rely on order
-would write the bare `[Sequencer]`, and the compiler would refuse to bind a
-router under it (`examples/actors/` has the single-actor shape).
+`checkout`, `count` and `find` declare `[Sequencer]`, `[Inventory]`,
+`[Search]`, `[Lookup]` and nothing else: no node, no group, no policy. A bare
+`[E]` assumes nothing about which member takes each send — the honest
+assumption for a fleet — and it is what lets a router be bound where one actor
+used to be. A function that *did* rely on order would write `[Ordered
+Sequencer]`, and the compiler would refuse to bind a router under it, since a
+router claims no `Ordered` (`examples/actors/` has the single-actor shape).
 
 **Two nodes, one group each.** Node `a` is `main`'s own; node `b` is booted on
 a second node id by `Booting`. Each binds a transport, spawns the node group
@@ -52,7 +52,7 @@ in-process fleet does not pin down (so the program prints the invariant, not
 the name). `ShardKey` is no part of the type: callers pass a plain `Str`.
 
 **3 — scatter.** A std router picks *one* member. A policy that must read the
-message — fan it out — is a handler `for any Search` you write: `Scattering`
+message — fan it out — is a handler `for Search` you write: `Scattering`
 asks the replica for the members and hands the query to `Gathering`, an actor
 that mints one continuation per member (`replyto partial()`), sums the
 answers, and discharges the caller's reply once. The reply token waits in a

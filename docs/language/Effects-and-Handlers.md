@@ -394,7 +394,7 @@ effects](#one-handler-several-effects)) and then depends on nothing for it.
 
 The rules at the declaration:
 
-- a prerequisite names a plain effect (not `use`, `spawn`, or `any E`);
+- a prerequisite names a plain effect (not `use` or `spawn`, and with no claim);
 - an exported effect's prerequisites are exported too, since every module
   naming the effect needs them;
 - the prerequisites may not form a cycle;
@@ -422,11 +422,11 @@ nothing a signature could not have written out by hand, and a function with
 
 An alias is a *set of effects*, so its members are plain named effects, or
 other aliases, which expand in turn (`effects All = [IO, Clock]`), with
-cycles refused. What an alias cannot contain is `use`, `spawn`, or `any`:
-those are a function's capability to register handlers and a qualifier on
-one instance of one effect, not effects a group stands for. For the same
-reason `any IO` is not a thing you can write at a call site: write `any` on
-the individual effect.
+cycles refused. What an alias cannot contain is `use`, `spawn`, or a claim
+(`Ordered Console`): those are a function's capability to register handlers
+and a claim about the binding of one effect, not effects a group stands for.
+For the same reason `Ordered IO` is not a thing you can write at a call site:
+write the claim on the individual effect.
 
 An alias is exported like anything else (`export effects IO = [...]`) and
 imported by name (`import caps.IO`). Using it pulls in whatever its members
@@ -824,60 +824,60 @@ The effects a function receives *are* handles (on the Kotlin backend an
 object reference, on the Rust backend a cloneable wrapper), so capturing one
 costs a copy and nothing else.
 
-## Many instances: `[any E]` and `for any E`
+## Claims: `[Ordered E]` and `for Ordered E`
 
-A bare `[E]` claims **identity**: that `E` is *one* instance, so two sends to
-it arrive in order and see the same state. A function written
-`bump(2); bump(3); total(out)` relies on that, and nothing in its body says
-so. A binding spread over many instances, such as a router in front of a
-fleet, cannot give it, so the weakening is spelled where the requirement is:
+A bare `[E]` assumes nothing about the binding it is given: it may be one
+instance, or a router spreading the sends over a fleet. A function written
+`bump(2); bump(3); total(out)` relies on more than that — that `E` is *one*
+instance, so its sends arrive in order and see the same state — and says so
+with a **claim** before the effect:
 
 ```salvo
-handler RoundRobin(members: List<eff[Resizer]>) for any Resizer {   // forwards; promises no order
+handler Counting() for Ordered Counter {             // one instance: claims Ordered
     mailbox { capacity: 16 }
-    state {
-        next: Int = 0
-    }
-    send fn resize(name: Str, w: Int, out: Reply<Str>) => !name, !out {
-        let target = copy(get(members, next % size(members)) ?: unreachable!())
-        next = next + 1
-        target.resize(name, w, out)
-    }
+    state { sum: Int = 0 }
+    send fn bump(n: Int) { sum = sum + n }
+    send fn total(out: Reply<Int>) => !out { out.send(sum) }
 }
 
-fn thumbnail(name: Str) [any Resizer] -> Str {                       // any Resizer will do
-    return waitfor out: Reply<Str> { resize(name, 100, out) }         // one send, one reply
+fn tally(ns: List<Int>) [Ordered Counter] -> Int => ns {   // needs ONE Counter, in order
+    for n in ns { bump(n) }
+    return waitfor out: Reply<Int> { total(out) }
 }
 
-fn tally(names: List<Str>) [Resizer] -> Str { … }                    // needs ONE Resizer
+fn poke() [Counter] -> None { bump(3) }              // any Counter will do
 
-use RoundRobin(List(a, b))
-thumbnail("cat.png")     // fine
-tally(List("dog.png"))   // error: `tally` declares `[Resizer]` (one instance, sends in order)
-                         //        but `Resizer` is bound to many instances here
+use Spraying(a, b)       // a router: claims nothing
+poke()                   // fine
+tally(List(1, 2))        // error: `tally` requires `[Ordered Counter]`, but the
+                         //        binding of `Counter` here claims nothing
 ```
 
-- **`for any E`** on a handler's face says the handler forwards to many
-  instances. A `use` of it binds `any E`, which satisfies only `[any E]`. It
-  is also the one handler of an actor effect that `use` binds *shareable*:
-  bare when stateless, a monitor when it keeps a cursor, since a group handle
-  is always shareable.
-- **`[any E]`** in an effect list says "each send may go to a different
-  instance; I assume no order and no shared state between them." It accepts
-  every binding, a single instance being a group of one, and it is viral
-  downward: a body holding `[any E]` may call `E` directly and callees
-  declaring `[any E]`, never a callee that assumes one instance. Bare `[E]`
-  keeps the strong meaning, so a program written before groups existed cannot
-  be broken by binding one under it.
-- A fn type carries no strength (no `any`): the function that takes the value
-  writes `[any E]` itself if any instance will do, which weakens the
-  requirement it inherits.
+- **A claim is a provenance qualifier declared `for Effect`**:
+  [`Ordered`](../../lib/std/core/actor.sv#qualifier-ordered) (one instance,
+  sends in order) and
+  [`ShardKeyOrdered`](../../lib/std/core/actor.sv#qualifier-shardkeyordered)
+  (sends with the same shard key reach the same instance, in order) are std's,
+  and a program declares its own the same way
+  (`provenance qualifier Durable for Effect`).
+- **A handler makes claims on its face** (`for Ordered Counter`), and the
+  compiler takes its word: nothing is granted, not even to a single actor.
+  A `use` of it binds the claims; a `spawn` of it answers a handle carrying
+  them, `eff[Ordered Counter]`, and `use` of that handle binds them too.
+- **A function asks for claims in its effect list** (`[Ordered Counter]`),
+  and a call needs a binding making every claim asked for. It is viral
+  downward: a body holding a bare `[Counter]` may call `poke`, never `tally`.
+  A handler's dependency may ask for claims the same way.
+- **A handle carries its claims** inside the brackets, and a handle with
+  more claims fits where one with fewer is wanted, never the reverse.
+- A claim is written on one effect: not on an alias, an effect variable, a
+  prerequisite, or in a fn type (the function that calls the value writes it).
 
-`any` is a claim about the guarantee the effect gives, not about where the
-instances are: a local group of a hundred on `pool(4)` is `any`; a single
-actor on another machine, reached through its `eff[E]` handle, is not. Groups
-of actors across machines, and std's routing handlers, are in
-[Concurrency](Concurrency.md#one-member-of-many-any).
+A claim is about the guarantee the binding gives, not about where the
+instances are: a local group of a hundred on `pool(4)` claims nothing; a single
+actor on another machine, reached through its `eff[Ordered E]` handle, still
+claims `Ordered`. Groups of actors across machines, and std's routing
+handlers, are in [Concurrency](Concurrency.md#one-member-of-many-claims).
 
 ## Effects in std
 

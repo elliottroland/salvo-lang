@@ -137,13 +137,13 @@ fn main() [use] {
 
 //--- malformed aliases
 // [effect-alias] The declaration's own rules: only plain named effects as
-// members — `use`, `spawn` ("`use` and `spawn`") and `any` ("`any` has no
-// meaning in an effect alias") are refused where the alias is declared.
-// (The names were both `A`.) The cycle half of the old test, and `any` on an
-// alias at a use site, stay in `alias_tests.rs`: each reports more than its
-// one mistake.
+// members — `use`, `spawn` ("`use` and `spawn`") and claims (a claim is
+// about the binding of one effect) are refused where the alias is declared.
+// (The names were both `A`.) The cycle half of the old test, and a claim on
+// an alias at a use site, stay in `alias_tests.rs`: each reports more than
+// its one mistake.
 //~ error[effect-alias:capability]
 effects WithUse = [Console, use]
 
-//~ error[effect-alias:any]
-effects WithAny = [any Console]
+//~ error[effect-alias:claim]
+effects WithClaim = [Ordered Console]

@@ -1147,10 +1147,12 @@ pub struct HandlerDecl {
     /// 2026-09-17), which a `spawn` answers one addr per and a `use` binds all
     /// of.
     pub of: Vec<Type>,
-    /// [effect-any] Parallel to `of`: `true` where the face was written
-    /// `for any E` — the handler forwards to many instances and promises no
-    /// order, so a `use` of it binds `any E`, which satisfies `[any E]` only.
-    pub of_any: Vec<bool>,
+    /// [effect-claim] Parallel to `of`: the claims written before each face
+    /// (`for Ordered Counter`), which a `use` of the handler binds and a
+    /// `spawn` of it answers on its handle (`eff[Ordered Counter]`). The
+    /// parser moves them off the face's type, so `of` holds the bare
+    /// effects.
+    pub of_claims: Vec<Vec<TypeRef>>,
     /// [handler-init] `init { … }` — the body that runs **once, first**: as a
     /// spawned handler's first activation (before any message anyone sends
     /// it), or inline right after a `use` constructs the instance (user
@@ -1370,15 +1372,13 @@ pub enum EffectRef {
     /// Every binding of it is a handle (user decision 2026-09-28; the
     /// `local E` form that disclaimed seam rights was removed with it).
     Effect(TypeRef),
-    /// [effect-any] `any Resizer` — the requirement that accepts a binding
-    /// spread over **many instances** (a router `for any Resizer`): the
-    /// function assumes no order between its sends to the effect and no
-    /// state shared across them. Bare `[E]` keeps the strong meaning — one
-    /// instance, sends in order — so a group bound where `[E]` is required
-    /// is refused at the call (user decision 2026-09-26). Orthogonal to
-    /// `local`, which weakens seam rights; the two never combine, since a
-    /// group handle is always shareable.
-    AnyEffect(TypeRef),
+    /// [effect-claim] `Ordered Counter` — a named effect with **claims**:
+    /// provenance qualifiers declared `for Effect`, written before the
+    /// effect's name (user decisions 2026-11-05, ROUTES.md A2). In a fn's
+    /// list it is the requirement that the binding make those claims; a
+    /// bare `[E]` assumes nothing about order or instances. `claims` is
+    /// never empty: a bare entry is `Effect`.
+    Claimed { claims: Vec<TypeRef>, effect: TypeRef },
 }
 
 /// An entry in a function's deduction clause [deduce-syntax], written after
@@ -1894,7 +1894,12 @@ impl fmt::Display for EffectRef {
             EffectRef::Use(_) => write!(f, "use"),
             EffectRef::Spawn(_) => write!(f, "spawn"),
             EffectRef::Effect(r) => write!(f, "{r}"),
-            EffectRef::AnyEffect(r) => write!(f, "any {r}"),
+            EffectRef::Claimed { claims, effect } => {
+                for c in claims {
+                    write!(f, "{c} ")?;
+                }
+                write!(f, "{effect}")
+            }
         }
     }
 }

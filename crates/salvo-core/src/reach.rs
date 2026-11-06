@@ -140,6 +140,7 @@ fn reachable_from<'p>(
     let mut reachable: HashSet<&ModulePath> = HashSet::new();
     let mut queue: Vec<&ModulePath> = roots;
     let runtime_module = runtime_module(program);
+    let claim_only = claim_only_names(program);
     let mut runtime_added = !with_runtime;
     loop {
     while let Some(module) = queue.pop() {
@@ -159,6 +160,13 @@ fn reachable_from<'p>(
                     continue;
                 }
                 for dep in scope.name_origins.get(name).into_iter().flatten() {
+                    // [effect-claim] A claim is erased and emits nothing, so
+                    // a module that declares the name only as one is no edge:
+                    // `Ordered` names a claim in std.core.actor and a `fns`
+                    // group in std.core.compare.
+                    if claim_only.contains(&(*dep, name)) {
+                        continue;
+                    }
                     if !reachable.contains(*dep) {
                         queue.push(dep);
                     }
@@ -281,6 +289,38 @@ pub fn resolved_fn_keys(checked: &crate::check::Checked, file_idx: usize) -> Has
     out
 }
 
+/// [effect-claim] The names each module declares only as claims
+/// (`provenance qualifier Q for Effect`): erased, so reaching them reaches
+/// nothing.
+fn claim_only_names(program: &Program) -> HashSet<(&ModulePath, &str)> {
+    let mut claims: HashSet<(&ModulePath, &str)> = HashSet::new();
+    let mut others: HashSet<(&ModulePath, &str)> = HashSet::new();
+    for u in program.units() {
+        for item in &u.ast.items {
+            let name = match item {
+                Item::Type(t) => t.name.name.as_str(),
+                Item::Struct(d) => d.name.name.as_str(),
+                Item::Qualifier(d) => d.name.name.as_str(),
+                Item::Effect(d) => d.name.name.as_str(),
+                Item::Handler(d) => d.name.name.as_str(),
+                Item::Fns(d) => d.name.name.as_str(),
+                Item::Fn(d) => d.name.name.as_str(),
+                Item::EffectAlias(d) => d.name.name.as_str(),
+                _ => continue,
+            };
+            let claim = matches!(item, Item::Qualifier(q) if matches!(&q.of, Type::Named { qualifiers, base }
+                if qualifiers.is_empty() && base.args.is_empty() && base.name.name == salvo_syntax::known::CLAIM_SUBJECT));
+            if claim {
+                claims.insert((&u.file.module, name));
+            } else {
+                others.insert((&u.file.module, name));
+            }
+        }
+    }
+    claims.retain(|c| !others.contains(c));
+    claims
+}
+
 /// [mod-used-only] Whether a name is, in this scope, **only** a function —
 /// the case resolution can answer precisely. A name that also denotes a
 /// struct, effect, handler, qualifier, `fns` group or type keeps its
@@ -339,7 +379,7 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
                 // [effect-prereq] What a prerequisite names is the effect's
                 // module's to reach: every use of the effect brings it.
                 for p in &e.prereqs {
-                    if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = p {
+                    if let EffectRef::Effect(r) | EffectRef::Claimed { effect: r, .. } = p {
                         type_ref_names(r, &mut used);
                     }
                 }
@@ -410,7 +450,7 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
             // as a type alias's target is.
             Item::EffectAlias(a) => {
                 for m in &a.effects {
-                    if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = m {
+                    if let EffectRef::Effect(r) | EffectRef::Claimed { effect: r, .. } = m {
                         type_ref_names(r, &mut used);
                     }
                 }
@@ -431,7 +471,7 @@ fn fn_names<'p>(f: &'p FnDecl, used: &mut HashSet<&'p str>) {
         type_ref_names(g, used);
     }
     for eff in f.effects.iter().flatten() {
-        if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = eff {
+        if let EffectRef::Effect(r) | EffectRef::Claimed { effect: r, .. } = eff {
             type_ref_names(r, used);
         }
     }
@@ -797,7 +837,7 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
             }
             // [fn-lambda-sig] A written effect list names effects.
             for eff in effects.iter().flatten() {
-                if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = eff {
+                if let EffectRef::Effect(r) | EffectRef::Claimed { effect: r, .. } = eff {
                     type_ref_names(r, used);
                 }
             }

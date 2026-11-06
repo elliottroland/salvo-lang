@@ -408,6 +408,46 @@ export intrinsic type Message<E>
 // @compilerknown
 export intrinsic fn forward<E>(to: eff[E], m: Message<E>) [] -> None => to, !m
 
+// A claim that a binding of an effect is one instance taking sends in the
+// order they were made, with one state behind them: what a single actor
+// gives, and what a router over a group does not.
+//
+// A claim is written before the effect. A handler that gives the guarantee
+// says so on its face (`for Ordered Counter`); a function that relies on it
+// asks for it in its effect list (`[Ordered Counter]`), and a handle carries
+// it (`eff[Ordered Counter]`, what spawning such a handler answers). A bare
+// `[Counter]` assumes nothing about order or instances, so any binding
+// does. Nothing is granted: the compiler takes the handler's word.
+//
+// ```
+// actor effect Counter {
+//     send fn add(n: Int)
+//     send fn total(out: Reply<Int>) => !out
+// }
+//
+// handler Counting() for Ordered ShardKeyOrdered Counter {
+//     mailbox { capacity: 16 }
+//     state { sum: Int = 0 }
+//     send fn add(n: Int) { sum = sum + n }
+//     send fn total(out: Reply<Int>) => !out { out.send(sum) }
+// }
+//
+// // Adds then reads: right only if the read sees the adds.
+// fn tally(ns: List<Int>) [Ordered Counter] -> Int => ns {
+//     for n in ns { add(n) }
+//     return waitfor out: Reply<Int> { total(out) }
+// }
+// ```
+// @compilerrules [effect-claim]
+export provenance qualifier Ordered for Effect
+
+// A claim that sends with the same shard key reach the same instance, in
+// the order they were made: what [Ordered] gives, and what a router by key
+// (`Sharded`) gives over many instances. The key is the one the binding
+// was built with: the claim cannot name it.
+// @compilerrules [effect-claim]
+export provenance qualifier ShardKeyOrdered for Effect
+
 // An actor's mailbox settings, written in its handler as
 // `mailbox { capacity: N }`.
 //

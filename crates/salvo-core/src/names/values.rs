@@ -498,7 +498,7 @@ impl<'b, 'p> Binder<'b, 'p> {
     /// effect's prerequisites too — as the checker lowers a fn's list.
     fn effect_refs(&self, list: &[EffectRef], prereqs: bool, out: &mut Vec<&'p EffectDecl>) {
         for e in list {
-            if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = e {
+            if let EffectRef::Effect(r) | EffectRef::Claimed { effect: r, .. } = e {
                 self.effect_ref(r, prereqs, out, &mut Vec::new());
             }
         }

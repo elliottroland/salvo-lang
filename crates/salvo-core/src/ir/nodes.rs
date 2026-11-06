@@ -225,8 +225,6 @@ pub struct ImplDecl {
     pub type_params: Vec<TypeParam>,
     /// [effect-handler-multi] the interfaces implemented, declaration order.
     pub faces: Vec<Ty>,
-    /// [effect-any] parallel to `faces`: a router over any instance.
-    pub face_any: Vec<bool>,
     pub ctor_params: Vec<Param>,
     /// [effect-handler-deps] the instances a constructor is given, in
     /// declaration order, as trailing constructor parameters.

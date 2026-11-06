@@ -490,10 +490,10 @@ messages! {
         "`{name}` is an effect variable: it ranges over effects and is not a type of values \
          (its handle is `eff[{name}]`)"
     );
-    /// `any E` over an effect variable.
-    effect_var_any = "effect-var:any" (name: &dyn std::fmt::Display) => format!(
-        "`any {name}`: an effect variable keeps the identity of each effect it is bound to, \
-         so `any` cannot qualify it"
+    /// A claim on an effect variable.
+    effect_var_claim = "effect-var:claim" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is an effect variable: each effect it is bound to keeps its own claims, \
+         so a claim cannot be written on it"
     );
     /// Two effect variables in one fn type's list.
     effect_var_two_in_fn_type = "effect-var:two-in-fn-type" (a: &dyn std::fmt::Display, b: &dyn std::fmt::Display) => format!(
@@ -2763,32 +2763,45 @@ messages! {
     effect_alias_capability = "effect-alias:capability" () =>
         "an effect alias names effects: `use` and `spawn` are per-function capabilities, \
          not effects a group can stand for";
-    /// `any` in an effect alias.
-    effect_alias_any = "effect-alias:any" () =>
-        "`any` has no meaning in an effect alias: an alias is a set of effects, and `any` \
-         is about one instance of one effect — write it where the effect is required";
-    /// `any` on an effect alias.
-    effect_alias_any_alias = "effect-alias:any-alias" (name: &dyn std::fmt::Display) => format!(
-        "`any {name}` is not allowed: `{name}` is an effect alias (several effects), and \
-         `any` is about one instance of one effect — write `any` on the individual effect"
+    /// A claim in an effect alias.
+    effect_alias_claim = "effect-alias:claim" () =>
+        "an effect alias is a set of effects, and a claim is about the binding of one \
+         effect: write the claim where the effect is required";
+    /// A claim on an effect alias.
+    effect_alias_claim_alias = "effect-alias:claim-alias" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is an effect alias (several effects), and a claim is about the binding \
+         of one effect: write the claim on the individual effect"
     );
     /// An effect alias that is cyclic.
     effect_alias_cycle = "effect-alias:cycle" (alias: &dyn std::fmt::Display, chain: &dyn std::fmt::Display) => format!(
         "the effect alias `{alias}` is cyclic: {chain}"
     );
 
-    // [effect-any]
-    /// `any E` in a fn type.
-    effect_any_fn_type = "effect-any:fn-type" (effect: &dyn std::fmt::Display) => format!(
-        "a fn type's effects carry no strength — `any {effect}` is refused here: declare \
-         `[any {effect}]` on the function that calls the value, which inherits the \
-         requirement"
+    // [effect-claim]
+    /// A claim in a fn type.
+    effect_claim_fn_type = "effect-claim:fn-type" (effect: &dyn std::fmt::Display) => format!(
+        "a fn type's effects carry no claims — `{effect}` is refused here: declare the \
+         claim on the function that calls the value"
     );
-    /// A callee of one instance called where many are bound.
-    effect_any_single_instance_callee = "effect-any:single-instance-callee" (name: &dyn std::fmt::Display, want: &dyn std::fmt::Display) => format!(
-        "`{name}` declares `[{want}]` — one instance, sends in order — but `{want}` is \
-         bound to many instances here (`any {want}`): declare `[any {want}]` on `{name}` \
-         if any member may take each send, or bind one instance"
+    /// A callee requiring claims the binding here does not make.
+    effect_claim_unmet = "effect-claim:unmet" (name: &dyn std::fmt::Display, want: &dyn std::fmt::Display, effect: &dyn std::fmt::Display, have: &dyn std::fmt::Display) => format!(
+        "`{name}` requires `[{want}]`, but the binding of `{effect}` here claims {have}: \
+         bind a handler written `for {want}`, or declare the claim where it is bound"
+    );
+    /// A claim naming something other than a qualifier for `Effect`.
+    effect_claim_not_a_claim = "effect-claim:not-a-claim" (name: &dyn std::fmt::Display, effect: &dyn std::fmt::Display) => format!(
+        "`{name}` before `{effect}` is not a claim: a claim is a provenance qualifier \
+         declared `for Effect`"
+    );
+    /// A claim qualifier written on a value type.
+    effect_claim_on_value = "effect-claim:on-value" (name: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
+        "`{name}` is a claim about an effect's binding (declared `for Effect`), so it \
+         cannot qualify the value type `{ty}`"
+    );
+    /// A state qualifier declared for `Effect`.
+    effect_claim_state = "effect-claim:state" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` is declared `for Effect`, so it is a claim about where a binding came \
+         from: declare it `provenance qualifier {name} for Effect`"
     );
 
     // [effect-at]
@@ -3001,10 +3014,10 @@ messages! {
     effect_prereq_capability = "effect-prereq:capability" () =>
         "a prerequisite names an effect: `use` and `spawn` are capabilities of a \
          function, not something an effect can require";
-    /// `any` in a prerequisite.
-    effect_prereq_any = "effect-prereq:any" () =>
-        "`any` has no meaning in a prerequisite: the prerequisite is the one instance \
-         bound around every use of the effect";
+    /// A claim in a prerequisite.
+    effect_prereq_claim = "effect-prereq:claim" () =>
+        "a prerequisite cannot carry a claim: it is whatever binding is around every use \
+         of the effect";
     /// A prerequisite naming no effect.
     effect_prereq_unknown = "effect-prereq:unknown" (pname: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
         "unknown effect `{pname}` in the prerequisites of `{name}`"

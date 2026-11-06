@@ -202,8 +202,8 @@ effect P {
     fn p() -> Int
 }
 //~ error[effect-prereq:capability]
-//~ error[effect-prereq:any]
-effect A [use, any P] {
+//~ error[effect-prereq:claim]
+effect A [use, Ordered P] {
     fn a() -> Int
 }
 

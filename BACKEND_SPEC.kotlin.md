@@ -786,7 +786,7 @@ nothing but the monitor.
   locked), a **stateful** one behind the effect's lock wrapper
   (`val random: Random<Int> = __Mon_Random(CyclicRandom(…))`, [kt-monitor]).
   The `__Mon_E` class is emitted for **every** effect, actor effects included
-  (a router `for any E` with a cursor is a stateful handler of it). A `use
+  (a router with a cursor is a stateful handler of it). A `use
   addr` binds the value: a plain effect's `eff[E]` is already the handle,
   and an actor's send stub is stateless and binds raw — so a send through
   the binding blocks only on the mailbox, never on a lock. `init` runs on the
@@ -1030,10 +1030,10 @@ nothing but the monitor.
   an implicit `?protocol` the lambda `{ Protocol("E", …) }` for the resolved
   position's `E` [implicit-intrinsic] (`actor_group` itself is ordinary Salvo
   since 2026-09-28 [actor-group]).
-* [kt-monitor] [effect-any] An actor effect gets the monitor class
-  (`__Mon_E(inner)`, locking forwards) only when the program declares
-  a handler `for any E`; the forwards then cover its send members too, since a
-  `use`-bound router runs them inline. Without a router, nothing is emitted.
+* [kt-monitor] An actor effect gets the monitor class (`__Mon_E(inner)`,
+  locking forwards) as every effect does; its forwards cover the send members
+  too, since a `use`-bound handler of an actor effect (a router) runs them
+  inline.
 * [kt-wire] [actor-router] Runtime: `viewSet`, `viewMembers` forward to the
   routing service, which keeps the views; `keyHash` (FNV-1a 64, identical
   to Rust's). Intrinsics as in Rust; `key_hash` encodes with the

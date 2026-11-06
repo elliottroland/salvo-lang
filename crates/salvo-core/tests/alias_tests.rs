@@ -109,25 +109,26 @@ fn a_malformed_alias_is_refused() {
         "{errs:?}"
     );
 
-    let any = &format!("{CLOCK}effects A = [any Console]\n");
-    let errs = diags(&[("main.sv", any)]);
+    let claimed = &format!("{CLOCK}effects A = [Ordered Console]\n");
+    let errs = diags(&[("main.sv", claimed)]);
     assert!(
-        errs.iter().any(|d| d.is_error() && d.id == Some("effect-alias:any")),
+        errs.iter().any(|d| d.is_error() && d.id == Some("effect-alias:claim")),
         "{errs:?}"
     );
 }
 
-// [effect-alias] `any Alias` in a use-site list is refused: an alias is several
-// effects, and `any` is about one instance of one effect.
+// [effect-alias] [effect-claim] A claim on an alias in a use-site list is
+// refused: an alias is several effects, and a claim is about the binding of
+// one.
 //
 // Kept over its prelude, not moved to `check/aliases/`: checked exactly, the
-// refused `any App` also reports `print` as having no `Console` handler.
+// refused `Ordered App` also reports `print` as having no `Console` handler.
 #[test]
-fn any_on_an_alias_is_refused() {
-    let src = &format!("{CLOCK}effects App = [Console, Clock]\nfn f() [any App] -> None {{ print(\"x\") }}\n");
+fn a_claim_on_an_alias_is_refused() {
+    let src = &format!("{CLOCK}effects App = [Console, Clock]\nfn f() [Ordered App] -> None {{ print(\"x\") }}\n");
     let errs = diags(&[("main.sv", src)]);
     assert!(
-        errs.iter().any(|d| d.id == Some("effect-alias:any-alias")),
+        errs.iter().any(|d| d.id == Some("effect-alias:claim-alias")),
         "{errs:?}"
     );
 }

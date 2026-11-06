@@ -201,15 +201,6 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.other.salvo",
         "a capability effect in an effect list",
     ),
-    // `[any E]` and `for any E`: the entry that accepts a binding spread over
-    // many instances [effect-any]. A bracket or comma (or `for`) before, an
-    // *effect name* after — which is capitalized [name-casing], and is what
-    // tells it from a variable.
-    (
-        "(?<=[\\\\[,]|\\\\bfor)\\\\s*(any)\\\\b(?=\\\\s+[A-Z])",
-        "keyword.other.salvo",
-        "an any-instance effect entry in an effect list or a `for` clause",
-    ),
     // `on POOL`, the placement clause of a spawn or a mint. A name follows;
     // a *use* of a variable called `on` is followed by an operator, a comma,
     // a brace or a bracket instead.

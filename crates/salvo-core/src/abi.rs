@@ -130,7 +130,7 @@ impl Walk<'_, '_> {
     }
 
     fn effect_ref(&mut self, e: &EffectRef) {
-        if let EffectRef::Effect(r) | EffectRef::AnyEffect(r) = e {
+        if let EffectRef::Effect(r) | EffectRef::Claimed { effect: r, .. } = e {
             let key = self.symbols.ref_key(r).to_string();
             self.name(&key);
             for a in &r.args {
