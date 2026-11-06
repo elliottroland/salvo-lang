@@ -630,7 +630,7 @@ An actor property (later) drops `trapped_by` and adds `spawn`.
 
 **Status:**
 - [x] C1: Rust `Send + Sync` defect; named-`[spawn]`-fn hole
-- [ ] C2: constant slots as parameters (9.3), negative constants, [fn-by]
+- [x] C2: constant slots as parameters (9.3), negative constants, [fn-by]
   unification (6.2)
 - [ ] C3: `std.test.random` (Rng, Gen, combinators, std's gens, derive)
 - [ ] C4: driver, `check`, `test property`, harness, report, CLI, `seed=`
@@ -645,3 +645,12 @@ An actor property (later) drops `trapped_by` and adds `spawn`.
   generator.
 - Kotlin refuses `let v: Str = get(xs, i)` for a `proj Str` element. Avoid
   annotating owned locals from `get` in std's generators.
+- C2 is done. **Agent's call, to confirm:** a place argument for a
+  parameter-filled value slot stays a dependent claim about the place,
+  which it already was, instead of being refused as 9.3 had it. Only a
+  literal makes a constant.
+- Useful for C3: a comptime fn with `T` only in its return type can also be
+  *called* at the expected type (`let r: Ok S | … = from_found(found)` in
+  std/args.sv). `[for arm in X.arms]` walks a union's arms, with
+  `arm.kind`, `arm.type` and `[arm.type](v)` / `[arm.type] { … }` to build
+  one.

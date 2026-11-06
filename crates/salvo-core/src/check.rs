@@ -31193,6 +31193,67 @@ impl<'p, 'r> Checker<'p, 'r> {
         out
     }
 
+    /// [qual-const] The constants each fixed parameter's argument is, when it
+    /// is a literal: parameter name → the constant. A value slot the
+    /// signature fills with a parameter (`InRange(lo, hi) Int` over `lo: Int,
+    /// hi: Int`) takes this call's literal there, as a place argument
+    /// brings its roots [`Self::call_value_roots`].
+    fn call_value_consts(fixed: &[&'p ast::Param], args: &[&'p Expr]) -> HashMap<String, crate::types::Const> {
+        fn literal(e: &Expr) -> Option<crate::types::Const> {
+            use crate::types::Const;
+            match e {
+                Expr::Int { value, long: false, .. } => Some(Const::Int(*value)),
+                Expr::Unary { op: ast::UnaryOp::Neg, operand, .. } => match &**operand {
+                    Expr::Int { value, long: false, .. } => Some(Const::Int(-*value)),
+                    _ => None,
+                },
+                Expr::Char { value, .. } => Some(Const::Char(*value)),
+                Expr::Str { parts, .. } => {
+                    let mut text = String::new();
+                    for p in parts {
+                        match p {
+                            ast::StrExprPart::Text(t) => text.push_str(t),
+                            ast::StrExprPart::Interp(_) => return None,
+                        }
+                    }
+                    Some(Const::Str(text))
+                }
+                _ => None,
+            }
+        }
+        fixed
+            .iter()
+            .zip(args)
+            .filter_map(|(p, a)| literal(a).map(|c| (p.name.name.clone(), c)))
+            .collect()
+    }
+
+    /// [qual-const] Fills the root-free `ValueRef` templates naming a
+    /// parameter whose argument is a literal with that constant.
+    fn substitute_value_consts(ty: &Ty, map: &HashMap<String, crate::types::Const>) -> Ty {
+        if map.is_empty() {
+            return ty.clone();
+        }
+        match ty {
+            Ty::ValueRef { path, roots } if roots.is_empty() && !path.contains('.') => match map.get(path) {
+                Some(c) => Ty::Const(c.clone()),
+                None => ty.clone(),
+            },
+            Ty::Qualified { quals, base } => Ty::Qualified {
+                quals: quals
+                    .iter()
+                    .map(|q| Qual { effect: q.effect, name: q.name.clone(), args: q.args.iter().map(|a| Self::substitute_value_consts(a, map)).collect() })
+                    .collect(),
+                base: Box::new(Self::substitute_value_consts(base, map)),
+            },
+            Ty::Named { name, args } => Ty::Named { name: name.clone(), args: args.iter().map(|a| Self::substitute_value_consts(a, map)).collect() },
+            Ty::Union(arms) => Ty::Union(arms.iter().map(|a| Self::substitute_value_consts(a, map)).collect()),
+            Ty::Tuple(elems) => Ty::Tuple(elems.iter().map(|e| Self::substitute_value_consts(e, map)).collect()),
+            Ty::Array(elem) => Ty::Array(Box::new(Self::substitute_value_consts(elem, map))),
+            other => other.clone(),
+        }
+    }
+
     /// [qual-depend] Fills the root-free `ValueRef` templates of a
     /// signature type with the roots the call's arguments bring: the
     /// parameter type `KeyOf(map) K` becomes `KeyOf` of *this call's* map.
@@ -31936,8 +31997,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             // takes the call.
             if patterns.iter().any(Self::ty_has_value_ref) {
                 let vmap = self.call_value_roots(&fixed, args);
+                let cmap = Self::call_value_consts(&fixed, args);
                 for p in patterns.iter_mut() {
-                    *p = Self::substitute_value_refs(p, &vmap);
+                    *p = Self::substitute_value_consts(&Self::substitute_value_refs(p, &vmap), &cmap);
                 }
                 // A dependent claim is never *assumed*: the argument must
                 // positively carry it — an `Unknown` (mid-inference) or
@@ -33114,7 +33176,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .filter(|p| !p.variadic && !p.implicit)
                 .collect();
             let vmap = self.call_value_roots(&fixed, args);
-            Self::substitute_value_refs(&result, &vmap)
+            let cmap = Self::call_value_consts(&fixed, args);
+            Self::substitute_value_consts(&Self::substitute_value_refs(&result, &vmap), &cmap)
         } else {
             result
         };

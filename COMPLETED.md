@@ -149,6 +149,36 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-05 — A value slot filled by a parameter; negative constants; `by` stamps where the template's parameter stands (user decisions, [qual-const] [fn-by])
+
+Two language pieces property testing's generators need (PROP_TEST.md,
+decisions 11 and 9.3, and §6.2).
+
+- **A signature may fill a value slot with a sibling parameter**, and each
+  call fills it with the argument. A literal gives a constant: `clamp(n, 1,
+  65535)` is an `InRange(1, 65535) Int`. A place gives a claim about that
+  place.
+  - What fell out of building it: places already worked as dependent
+    claims. The signature was always accepted, and the body's `m is
+    InRange(lo, hi)` already read the parameters. The only gap was a
+    literal at the call, which left the template unsubstituted.
+  - So 9.3's "refuse a non-constant argument" became "a place is a claim
+    about the place", as before (agent's call, to confirm). A temporary
+    still yields a claim nothing satisfies.
+  - `call_value_consts` / `substitute_value_consts` apply at the result type
+    and at the parameter patterns. A fn value's call is not covered yet.
+- **Negative constants parse** (`InRange(-5, 5)`), in types and in `is`.
+- **[fn-by] stamps at the type the template's bound parameter stands for**,
+  matched over the parameters, then the return type. `fn describe() ->
+  Shown<Point> by describe` works with no parameter. The first-parameter
+  rule remains as the fallback, and it is what every existing template gives.
+- Tests:
+  - checker data in `dependent/constants.sv`;
+  - run data `qualifiers/constant_slots_filled_by_parameters` and
+    `comptime/a_template_bound_in_its_return_type`.
+- Docs: Dependent-Qualifiers.md and Compile-Time-Functions.md. **724
+  tests.**
+
 ### 2026-11-05 — Two defects property testing's probes found ([rs-fn-field-send] [actor-spawn-effect])
 
 Found while designing property tests (PROP_TEST.md §4), and fixed first,

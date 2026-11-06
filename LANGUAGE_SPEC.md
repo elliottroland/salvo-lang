@@ -2045,7 +2045,20 @@ Conventions:
     language has no literal node, a recorded shortcut) — and read back by
     `Const::parse`; a predicate check's argument path carries the same text
     (`Const::encode`), which the IR lowers back to a literal.
-  * A negative constant (`InRange(-5, 5)`) does not parse yet.
+  * A negative constant is written with its sign, `InRange(-5, 5)`
+    (2026-11-05): the parser joins `-` and the digits into one constant.
+  * **A signature may fill a value slot with a sibling parameter**, and a
+    call fills it with the argument (user decision 2026-11-05, the
+    property-test record decisions 11 and 9.3): a **literal** argument (an
+    `Int`, negative included, a `Char`, an uninterpolated `Str`) makes the
+    result or parameter claim that constant, so `clamp(n, 1, 65535)` with
+    `fn clamp(n: Int, lo: Int, hi: Int) -> InRange(lo, hi) Int` is an
+    `InRange(1, 65535) Int`; a **place** argument makes it a claim about
+    that place, as any dependent slot [qual-depend] (a temporary, as there,
+    yields a claim nothing satisfies). Inside the body the slot reads the
+    parameters (`m is InRange(lo, hi)`). `call_value_consts` /
+    `substitute_value_consts` beside the roots' substitution, at the result
+    type and the parameter patterns. Not yet through a fn value's call.
 * [qual-preserve] A **`preserve` entry** opts a call back out of the
   conservative cross-value stripping [qual-depend]: `=> map: preserve
   KeyOf` says the call does not invalidate the named dependent claims
@@ -6061,8 +6074,16 @@ Conventions:
   }
   ```
 
-  The type stamped at is the **first parameter's** (a struct or a declared
-  union); the written parameter types and return type must equal the
+  The type stamped at is **where the template's bound parameter stands in its
+  signature**, read off the declaration's (user decision 2026-11-05, the
+  property-test record §6.2): each kind's template of the name is tried, its
+  parameters and then its return type matched structurally against the
+  declaration's (`bound_match`), and the type found must be a struct or a
+  declared union of that kind — so `fn gen() -> Gen<Point> by random`
+  against `gen<T is Struct>() -> Gen<T>` stamps at `Point`. When nothing
+  matches, the **first parameter's** type, which was the whole rule until
+  then and what every template with `T` first still gives. The written
+  parameter types and return type must equal the
   instantiation's, positionally, and a mismatch names which. A body beside
   `by` is a parse error. The declaration attaches as any inner fn or
   fulfilment does [fn-attached]. `by` is contextual: it closes a type

@@ -4349,6 +4349,10 @@ impl<'s> Parser<'s> {
             && (matches!(self.peek_at(1).kind, TokenKind::Question)
                 || (matches!(self.peek_at(1).kind, TokenKind::Int { .. } | TokenKind::Char(_) | TokenKind::Str(_))
                     && matches!(self.peek_at(2).kind, TokenKind::Comma | TokenKind::RParen))
+                // [qual-const] A negative constant: `InRange(-5, 5)`.
+                || (matches!(self.peek_at(1).kind, TokenKind::Minus)
+                    && matches!(self.peek_at(2).kind, TokenKind::Int { .. })
+                    && matches!(self.peek_at(3).kind, TokenKind::Comma | TokenKind::RParen))
                 || (matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
                     && matches!(
                         self.peek_at(2).kind,
@@ -4405,6 +4409,31 @@ impl<'s> Parser<'s> {
                 // `"text"` — since the AST's type language has no literal
                 // node; the lowering reads it back (`Const::parse`), a
                 // recorded shortcut.
+                // [qual-const] A negative constant, `-5`: the sign and the
+                // digits as one constant.
+                if matches!(self.peek().kind, TokenKind::Minus) && matches!(self.peek_at(1).kind, TokenKind::Int { .. }) {
+                    let minus = self.bump().span;
+                    let TokenKind::Int { value, .. } = self.peek().kind.clone() else { unreachable!() };
+                    let span = minus.to(self.bump().span);
+                    value_args.push(Type::Named {
+                        qualifiers: Vec::new(),
+                        base: TypeRef {
+                            alias: None,
+                            name: Ident { name: format!("-{value}"), span },
+                            args: Vec::new(),
+                            value_args: Vec::new(),
+                            from: Vec::new(),
+                            at: None,
+                            binder: false,
+                            established: false,
+                            span,
+                        },
+                    });
+                    if self.eat(&TokenKind::Comma).is_none() {
+                        break;
+                    }
+                    continue;
+                }
                 let constant = match self.peek().kind.clone() {
                     TokenKind::Int { value, .. } => Some(value.to_string()),
                     TokenKind::Char(c) => Some(format!("'{c}'")),

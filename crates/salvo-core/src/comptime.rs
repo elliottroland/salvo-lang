@@ -401,39 +401,71 @@ fn run<M: crate::expand::ModuleSlot>(
         for item in &mut module.items {
             let Item::Fn(f) = item else { continue };
             if let Some(by) = f.by.clone() {
-                let Some(first) = f.params.first() else {
-                    diags.push(Diagnostic::error(
-                        messages::fn_by_no_param(&f.name.name),
-                        by.span,
-                    ));
-                    fallback_body(f);
-                    continue;
+                // [fn-by] The type stamped at is where the template's bound
+                // parameter stands in its signature, matched against the
+                // declaration's (user decision 2026-11-05): `fn gen() ->
+                // Gen<Point> by random` against `comptime fn gen<T is
+                // Struct>() -> Gen<T>` stamps at `Point`. A template with
+                // the parameter first gives the first parameter's type, the
+                // rule until then; that rule stays the fallback.
+                let unified: Option<Type> = [CompKind::Struct, CompKind::Union].into_iter().find_map(|kind| {
+                    let mut scratch = Vec::new();
+                    let (tmpl, _, _) = world.pick_with_module(&f.name.name, &by, kind, &mut scratch)?;
+                    let bound = tmpl.compfn.as_ref()?.bound.as_ref()?.1.name.clone();
+                    if tmpl.params.len() != f.params.len() {
+                        return None;
+                    }
+                    let found = tmpl
+                        .params
+                        .iter()
+                        .zip(&f.params)
+                        .find_map(|(a, b)| bound_match(&a.ty, &b.ty, &bound))
+                        .or_else(|| match (&tmpl.return_type, &f.return_type) {
+                            (Some(a), Some(b)) => bound_match(a, b, &bound),
+                            _ => None,
+                        })?;
+                    let name = named_base(&found)?;
+                    let t = world.target(&name, found.span())?;
+                    (t.kind == kind).then_some(found)
+                });
+                let target_ty: Type = match (unified, f.params.first()) {
+                    (Some(t), _) => t,
+                    (None, Some(first)) => first.ty.clone(),
+                    (None, None) => {
+                        diags.push(Diagnostic::error(
+                            messages::fn_by_no_param(&f.name.name),
+                            by.span,
+                        ));
+                        fallback_body(f);
+                        continue;
+                    }
                 };
+                let first = &target_ty;
                 // [actor-message] `fn key(m: Message<Inventory>) … by shard`:
                 // a protocol's messages are a union target.
-                let message_target = world.message_arms(&first.ty).map(|_| Target {
-                    name: first.ty.to_string(),
+                let message_target = world.message_arms(first).map(|_| Target {
+                    name: first.to_string(),
                     kind: CompKind::Union,
-                    ty: first.ty.clone(),
+                    ty: first.clone(),
                     generics: Vec::new(),
                     canbe: Vec::new(),
                 });
-                let Some(target_name) = named_base(&first.ty) else {
+                let Some(target_name) = named_base(first) else {
                     diags.push(Diagnostic::error(
                         messages::fn_by_first_param_not_target(&f.name.name),
-                        first.ty.span(),
+                        first.span(),
                     ));
                     fallback_body(f);
                     continue;
                 };
-                let Some(target) = message_target.or_else(|| world.target(&target_name, first.ty.span())) else {
+                let Some(target) = message_target.or_else(|| world.target(&target_name, first.span())) else {
                     diags.push(Diagnostic::error(
-                        if world.opaque_here(&target_name, first.ty.span()) {
+                        if world.opaque_here(&target_name, first.span()) {
                             messages::fn_by_opaque_target(&f.name.name, &target_name)
                         } else {
                             messages::fn_by_target_not_struct_or_union(&f.name.name, &target_name)
                         },
-                        first.ty.span(),
+                        first.span(),
                     ));
                     fallback_body(f);
                     continue;
@@ -1320,6 +1352,22 @@ fn named_base(ty: &Type) -> Option<String> {
     match ty {
         Type::Named { base, .. } => Some(base.name.name.clone()),
         Type::QualifiedGroup { base, .. } => named_base(base),
+        _ => None,
+    }
+}
+
+/// [fn-by] Where the template's bound parameter `name` stands in its
+/// signature type `t`, the declaration's type at the same place in `d`: the
+/// type the declaration stamps at. Matched structurally (same base, same
+/// arity), qualifiers aside.
+fn bound_match(t: &Type, d: &Type, name: &str) -> Option<Type> {
+    match (t, d) {
+        (Type::Named { base: tb, .. }, _) if tb.name.name == name && tb.args.is_empty() => Some(d.clone()),
+        (Type::Named { base: tb, .. }, Type::Named { base: db, .. }) if tb.name.name == db.name.name && tb.args.len() == db.args.len() => {
+            tb.args.iter().zip(&db.args).find_map(|(a, b)| bound_match(a, b, name))
+        }
+        (Type::Nullable { inner: a, .. }, Type::Nullable { inner: b, .. }) | (Type::Array { elem: a, .. }, Type::Array { elem: b, .. }) => bound_match(a, b, name),
+        (Type::Tuple { elems: a, .. }, Type::Tuple { elems: b, .. }) if a.len() == b.len() => a.iter().zip(b).find_map(|(x, y)| bound_match(x, y, name)),
         _ => None,
     }
 }

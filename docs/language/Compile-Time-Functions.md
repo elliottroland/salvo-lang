@@ -150,7 +150,11 @@ struct Person : Hashed<self> {
 }
 ```
 
-The type stamped at is the first parameter's, and the written signature is
+The type stamped at is the one the comptime fn's type parameter stands for
+in its signature, read off the declaration's: `fn hash(value: Person) -> Long
+by auto` against `hash<T is Struct>(value: T)` stamps at `Person`, and `fn
+describe() -> Shown<Point> by describe` against `describe<T is Struct>() ->
+Shown<T>` at `Point`, though it has no parameter. The written signature is
 the function's: its effect list and deduction clause, as written or
 defaulted. It has to have the parameter types and return type the comptime fn
 has at that type (a mismatch names which), and a body beside `by` is an

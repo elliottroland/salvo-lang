@@ -200,6 +200,28 @@ A slot does not have to hold a place. Three kinds exist:
 Places and constants are both *value* slots, and one qualifier may mix them.
 A qualifier with function-identity slots has no value slots.
 
+**A signature may fill a value slot with a parameter**, and each call fills
+it with what it passes there: a literal makes the claim a constant, and a
+variable makes it a claim about that variable.
+
+```salvo
+fn clamp(n: Int, lo: Int, hi: Int) -> InRange(lo, hi) Int {
+    let m = if n < lo { lo } elif n > hi { hi } else { n }
+    if m is InRange(lo, hi) {
+        return m
+    }
+    return unreachable!()
+}
+
+fn port(p: InRange(1, 65535) Int) -> Int => !p {
+    return p
+}
+
+let p = port(clamp(70000, 1, 65535))     // clamp(…) is an InRange(1, 65535) Int
+```
+
+A negative constant is written with its sign: `InRange(-5, 5) Int`.
+
 ## What std declares
 
 | Claim | Says | Consumed by |

@@ -88,3 +88,37 @@ fn stepping_a_linked_int_strips(n: Int, base: Int) [] -> Bool => n, base {
     let _n = n: -Above
     return true
 }
+
+// [qual-const] A value slot a signature fills with a parameter takes this
+// call's literal there, as a place argument brings its roots [qual-depend]:
+// `clamp(n, 1, 65535)` is an `InRange(1, 65535) Int`.
+fn clamp(n: Int, lo: Int, hi: Int) [] -> InRange(lo, hi) Int {
+    let m = if n < lo { lo } elif n > hi { hi } else { n }
+    if m is InRange(lo, hi) {
+        return m
+    }
+    return unreachable!()
+}
+
+fn port(p: InRange(1, 65535) Int) [] -> Int => !p {
+    return p
+}
+
+fn literal_arguments_fill_constant_slots(n: Int) [] -> Int {
+    return port(clamp(n, 1, 65535))
+}
+
+fn other_literals_are_another_claim(n: Int) [] -> Int {
+    //~ error[call-resolve:no-overload]
+    return port(clamp(n, 0, 10))
+}
+
+// [qual-const] A negative constant, written and tested.
+fn signed(n: InRange(-5, 5) Int) [] -> Int => !n {
+    return n
+}
+
+fn a_negative_constant(n: Int) [] -> Int {
+    assert!(n is InRange(-5, 5))
+    return signed(n) + signed(clamp(n, -5, 5))
+}
