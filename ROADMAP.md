@@ -1555,8 +1555,8 @@ container [interp-to-str], property testing's `?generate`, section 2c's
   `List<Int>` *inside* a type argument, which is qualifier-dropping at depth); and
   that the emitted Rust must not depend on it, since Rust has no variance.
   **Whatever is chosen must include a way to declare a type parameter
-  invariant** (user, 2026-11-05): property testing's `Gen<T>` (PROP_TEST.md
-  §3.2) relies on `Gen<Int>` and `Gen<Positive Int>` being unrelated types.
+  invariant** (user, 2026-11-05): property testing's `Gen<T>` (COMPLETED.md's
+  design record of property tests) relies on `Gen<Int>` and `Gen<Positive Int>` being unrelated types.
   That is what lets R-2 [fn-overload-return] accept both generators and makes
   resolution pick exactly one. A `Gen` inferred covariant would let a
   narrower generator fill a wider position, which silently tests less.
@@ -1635,40 +1635,59 @@ deliberately cut, in the order the decisions put it:
   (recommended, error otherwise), a preamble may do **anything a test body may**,
   and a **childless context warns**. The lowering is per-test inlining, which
   makes isolation true by construction.
-- **Property testing** (TF-5, redesigned 2026-11-05): the working document is
-  **PROP_TEST.md**, which holds the user's decisions so far and the
-  questions still open.
-  - Generators not offered yet (`std.test.random`): `Set`, `Map`, tuples
-    (two implicits of one name), `KeyOf`, and `constant(v)` (blocked by
-    the Kotlin generic `copy` defect below). A derived struct whose field is
-    `InRange`-qualified has no zero-argument generator to draw it with.
-  - TF-5's `?generate` overloaded by return type does not work: R-2
-    [fn-overload-return] refuses `-> Int` beside `-> Small Int`. Generators
-    are values instead, `Gen<T>`, picked by their type argument.
-  - Both prerequisites are built: bit and wrapping operations ([op-bits],
-    [op-wrap]) and recursive implicits ([implicit-recursive]).
-  - Probing for it found three defects. Two were fixed with the first
-    commit (2026-11-05): [rs-fn-field-send], and the
-    `actor-spawn-effect:fn-value` refusal. Still open:
+- **Property testing: what is left** (built 2026-11-05, [test-property]; the
+  record is COMPLETED.md's "Design record: property tests").
+  - **Agent's calls made during the unattended run, for the user to
+    confirm:**
+    - (a) Implicit parameters don't separate return-type alternatives
+      [fn-overload-return].
+    - (b) Among several fitting results, the one concrete result wins.
+    - (c) A place argument for a parameter-filled value slot stays a
+      dependent claim; 9.3 had proposed refusing it.
+    - (d) A `let` annotation's place is rooted to the local in scope
+      [qual-depend].
+    - (e) The property keeps the parameters other parameters' claims name.
+    - (f) A recursive union biases toward its first arm with depth.
+    - (g) `constant(v)` is cut.
+    - (h) `Char` stays within the BMP.
+    - (i) Linear parameters are deferred (below).
+  - **Actor properties** (decision 13; the design is in the record):
+    - `spawn` in a property body;
+    - a trap boundary that admits a spawning body (a block form, or
+      shrinking across processes);
+    - scheduling choices as draws, so interleavings shrink.
+
+    Until then a spawning body gets the ordinary `spawn`-capability errors,
+    not a message saying property tests can't spawn yet.
+  - **Linear parameters** (round 4's 9.2) need two features first: a `Gen`
+    of a linear type (`Gen<T canbe linear>`, with combinators to match), and
+    a lambda that consumes a linear capture ("not supported yet" today).
+  - **Generators not offered yet**: `Set`, `Map`, tuples (two implicits of
+    one name), `KeyOf`, `constant(v)` (the Kotlin `copy` defect below). A
+    derived struct whose field has a qualifier with slots (`InRange`) has no
+    zero-argument generator to draw it with.
+  - **A better "no generator" message**: today it is `gen()`'s ambiguity
+    listing every return type. It could name the declaration to write
+    (`fn gen() -> Gen<Box> by random`).
+  - Not in v1: a regression file of failing seeds.
+  - Defects the probes found, still open:
     - **Rust: a `Throw` through an effect variable is refused.** Repro: a
       `fn check<T, [E]>(runs: Int, property: (x: T) [E] -> None) [E]` called
       with a lambda that calls `expect_eq` inside a `[Throw<Failure>]` fn.
       The checker accepts it and Kotlin runs it. The Rust emitter reports
       `throw:outside-try` (`propagate` in `ir_emit/body.rs`, where `throws`
-      is `None` because the row is a variable). Writing `[Throw<Failure>]`
-      instead of `[E]` works on both backends.
+      is `None` because the row is a variable).
     - **Kotlin: `copy` of a generic `T` has no plan** (`kt-copy:no-plan`).
       Repro: `fn constant<T>(v: T) -> Gen<T> { return Gen<T> { run: (rng:
-      Rng) -> copy(v) } }`. The checker accepts it and Rust clones. Core's
-      copy plan answers nothing for a type variable, and Kotlin has no
-      runtime deep copy. So property testing's `constant` combinator is cut
-      (agent's call, to confirm).
+      Rng) -> copy(v) } }`. The checker accepts it and Rust clones.
     - **Kotlin: `let v: Str = get(xs, i)` with a total `get` over `List<Str>`
       is refused**: "expected `Str`, found `proj Str`". The checker accepts
-      it, Rust runs it, and the Kotlin emitter refuses. A borrowed element
-      is not copied into the annotated owned local.
+      it and Rust runs it.
     - **Not covered by the fn-value fix:** a named `[spawn]` fn filling an
       *implicit* is not checked yet.
+    - **A `try` around a fn-typed parameter's call finds nothing to throw
+      when the enclosing fn writes `[Throw<M>]` itself.** Found writing
+      `check`; worked around with the `[]` helper `checked`. Not reduced.
 - **Actor testing helpers** (TF-6): `settle(p)`/`expect_settled(p)` over
   [actor-on-idle], a recording `Probe<M>` handler, `expect_fault(target, body)`
   over [actor-watch]. Needs `spawn` added to [test-body]'s implicit powers, and

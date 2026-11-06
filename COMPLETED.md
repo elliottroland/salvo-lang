@@ -149,6 +149,15 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-05 — PROP_TEST.md retired
+
+Property tests are built (the four entries below). The design's record and
+reasoning are now "Design record: property tests". The rules were already
+in LANGUAGE_SPEC.md, and Testing.md has the user-facing section. What is
+left is in ROADMAP §9's "Property testing: what is left": actor properties,
+linear parameters, the missing generators, and the agent's calls for the
+user to confirm. The file is deleted.
+
 ### 2026-11-05 — `test property` (user decisions, [test-property] [test-kind])
 
 What PROP_TEST.md designed, built: the kind with its parameters, the
@@ -199,7 +208,7 @@ driver, shrinking, the report, `--runs`/`--seed`/`[test] runs`/`seed`, and
   - three property tests and a `check` in std's own suite.
 - **Docs**: a Property tests section in Testing.md.
 
-**730 tests.**
+**728 tests**, fresh 3m17.
 
 ### 2026-11-05 — `std.test.random`: generators for property tests (user decisions, [prop-rng] [prop-gen] [prop-derive])
 
@@ -39579,6 +39588,113 @@ see compile-time functions only.
 tokens through `message[E]` checks (arms are linear when a field is,
 settled by decomposition); `key_hash` lowers on Kotlin (FNV-1a over the
 encoding, as Rust). Still unmeasured: the cost of a message value per send.
+
+## Design record: property tests (PROP_TEST.md, retired 2026-11-05)
+
+The working document of the third kind of test (user decisions 2026-11-05,
+four rounds, then an unattended run in five commits: two defects; value
+slots from parameters and `by`'s matching; `std.test.random`; `test
+property`; this retirement). The rules are in LANGUAGE_SPEC.md:
+[test-property], [prop-rng], [prop-gen], [prop-derive], [test-kind],
+[test-implicit-import], [qual-const], [fn-by], [fn-overload-return] and
+[qual-depend]. Testing.md has the user-facing section. What follows is the
+reasoning and the options not taken.
+
+**Where it started.**
+- TF-5 had `check(runs, property)` with an implicit `?generate` picked by
+  the qualifier on the parameter type, randomness as a `Mut Rng` value, and
+  shrinking by replay.
+- [test-kind] planned `test property(ARGS)`.
+- D11 put a proptest on the virtual runtime with the seed as an input.
+
+**Round 1 (the surface and the generators).**
+- **The surface**: the kind, desugaring to library code, with `runs=200`
+  written as named arguments are.
+  - Rejected: only a library `check` (no runtime choice, D11 has nowhere to
+    live).
+  - Rejected: parameters inside the kind's parentheses.
+  - Rejected: a `for all` clause.
+- **Generators are values, `Gen<T>`, found by the type argument.** A probe
+  showed R-2 refuses `generate -> Int` beside `generate -> Small Int`. Even
+  allowed, covariant results would let a `Positive Int` generator fill an
+  `Int` position and silently test less. `Gen<T>` is invariant, which is
+  assumed: any future variance must offer a way to declare a parameter
+  invariant (ROADMAP §7).
+  - Rejected: a qualifier declaring its own generator (doesn't compose,
+    can't extend std's).
+  - Rejected: pure comptime derivation (no leaf overrides).
+  - Rejected: an invariant-result resolution rule.
+- **User types**: only the derived declaration form, in the test annex
+  (`fn gen() -> Gen<Point> by random`). Nothing is written on the type.
+- **Randomness**: a pure splitmix64 `Rng` with live and replay modes.
+  - The run seed is random and printed.
+  - A property's seed is a hash of the run seed and the test id.
+  - Rejected: the scheduler's Lehmer generator, and the `Random` effect
+    (neither replays).
+- **Shrinking**: Hypothesis-style replay over smaller draws, so shrunk
+  values keep their claims.
+  - Rejected: per-type shrinkers, which double the work and break
+    qualifiers.
+- **Runtime**: always virtual. A survey found plain bodies run unchanged
+  there except for host threads, real time and worker-thread reliance.
+- **The report**: the failure, where it was found, how far it shrank, the
+  parameters (each type needs a `to_str`), and a re-run line. `FLAKY` counts
+  as a failure.
+- **Qualified types**: no filtering fallback, and `NaN`/`±∞` are included.
+- **Runs**: `--runs` wins, then the test, then the manifest.
+
+**Round 2.**
+- **A qualifier's slots are its generator's arguments, for both kinds of
+  slot** (`gen(lo, hi)`, `gen(xs)`).
+  - Rejected: constant generics on fns (a larger language commitment).
+  - Rejected: a comptime fn per use.
+- **Dependent parameters in v1**: generated in order. A slot names only an
+  earlier parameter. The types must fit, so no run is ever discarded.
+- **Actor properties postponed, the design kept forward compatible**: §5 of
+  the record.
+  - A fn type cannot declare `spawn` and a lambda cannot spawn, so a library
+    runner taking the case as a fn value could never call a spawning body.
+  - So the engine is a driver, and the harness's generated loop calls the
+    attempt directly.
+  - An attempt is plain data, which also allows shrinking across processes
+    later.
+  - Every draw happens before the property runs.
+  - Each run gets a fresh virtual runtime, seeded by its first draw.
+  - With these, actor properties add only a power and a trap boundary, with
+    no new spelling.
+- **One spelling for kind arguments**: `actor(seed=7)`.
+- **The seed's precedence**: flag, then test, then manifest, then random.
+- **std gives the foundation** (its own types and qualifiers, and the
+  combinators). The user declares or derives the rest.
+
+**Round 3**:
+- `by random` lives in a new `std.test.random`, not `std.random`: these are
+  test-only features.
+- `by` stamps where the template's parameter stands, matched over the whole
+  signature.
+
+**Round 4**:
+- `by random` beside an imported `std.random` stays ambiguous, with `by
+  test.random` as the explicit remedy.
+- Linear parameters were to be discharged by the user in the test.
+- Constant slots apply to any fn.
+- The API names and defaults were as proposed.
+- Flaky counts as a failure.
+- Five commits.
+
+**What the build found** (each recorded in its decision-log entry above):
+- Rust bounds for kept closures over generic values.
+- The named-`[spawn]`-fn hole.
+- Literal arguments filling value slots.
+- Implicits no longer separating return-type alternatives, and the
+  concrete-result rule.
+- `let` annotations rooting their places.
+- `trapped_by_once` over a new platform fn, with the Rust `Send + 'static`
+  forward.
+- Edge cases moved to the last choice so shrinking reaches small numbers.
+- **Linear parameters turned out to need two language features first**: a
+  linear `Gen`, and lambdas consuming linear captures. They are deferred
+  (ROADMAP §9).
 
 ## Test inventory (all green: 2156 under `cargo test` on 2026-10-28; the per-crate counts below lag that total; the platform-effect tests were removed 2026-10-01)
 
