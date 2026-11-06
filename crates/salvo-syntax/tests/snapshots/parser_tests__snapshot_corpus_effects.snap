@@ -747,7 +747,6 @@ Module {
                                     span: 533..567,
                                 },
                                 with_items: [],
-                                any: false,
                                 span: 529..567,
                             },
                             Let {
@@ -2039,7 +2038,6 @@ Module {
                                     },
                                 ),
                                 with_items: [],
-                                any: false,
                                 span: 1819..1825,
                             },
                             Expr(

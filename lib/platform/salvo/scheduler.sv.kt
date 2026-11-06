@@ -236,7 +236,7 @@ object SalvoSched {
         salvo.std.runtime.routing.watchControl(channel, sink)
     }
 
-    /** [actor-route-stub] FNV-1a over the key's canonical bytes, identical to Rust's `salvo_key_hash`. */
+    /** [actor-router] FNV-1a over the key's canonical bytes, identical to Rust's `salvo_key_hash`. */
     fun keyHash(bytes: ByteArray): Long {
         var h = -3750763034362895579L // 0xcbf29ce484222325
         for (b in bytes) {

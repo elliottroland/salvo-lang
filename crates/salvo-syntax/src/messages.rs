@@ -381,6 +381,11 @@ messages! {
     );
 
     // [actor-receive]
+    /// A handler serving one of its type parameters without `receive`.
+    actor_receive_generic_face = "actor-receive:generic-face" (handler: &str, param: &str) => format!(
+        "handler `{handler}` serves its type parameter `{param}`, a protocol it cannot \
+         name the members of: answer it with `send fn receive(m: Message<{param}>)`"
+    );
     /// A handler answering a face's messages with `receive` and one member too.
     actor_receive_both = "actor-receive:both" (handler: &str, effect: &str, member: &str) => format!(
         "handler `{handler}` answers every message of `{effect}` with `receive`, so it \
@@ -2195,24 +2200,6 @@ messages! {
         "`{member}` takes {params} parameter(s): the last is the answer the token carries \
          and the {wanted} before it are the captures, so `{form}` here wants {wanted} \
          capture(s), found {found}"
-    );
-
-    // [actor-route-stub]
-    /// A member marking several parameters `Key`.
-    actor_route_stub_several_keys = "actor-route-stub:several-keys" (effect: &dyn std::fmt::Display, member: &dyn std::fmt::Display, count: &dyn std::fmt::Display) => format!(
-        "`{effect}.{member}` marks {count} parameters `Key`; a member routes on at most \
-         one"
-    );
-    /// `use any` of something that is not a group handle.
-    actor_route_stub_not_a_group = "actor-route-stub:not-a-group" (ty: &dyn std::fmt::Display) => format!(
-        "`use any` binds a group handle — an `eff[ActorGroup<E>]` for a non-generic actor \
-         effect `E` — and this is `{ty}`"
-    );
-    /// `use any` with no route selector in scope.
-    actor_route_stub_no_selector = "actor-route-stub:no-selector" (shown: &dyn std::fmt::Display) => format!(
-        "`use any` routes each send through a `RouteSelector<{shown}>` policy, and none \
-         is in scope: bind one first — `use Sharded<{shown}>()`, `use \
-         LeastLoaded<{shown}>(true)`, `use Elected<{shown}>()`, or a handler of your own"
     );
 
     // [actor-self-send]

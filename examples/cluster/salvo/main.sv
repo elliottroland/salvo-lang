@@ -1,4 +1,5 @@
 import std.net
+import std.net.shard
 import std.time
 
 // ============================================================ the fleet ====
@@ -17,10 +18,13 @@ actor effect Sequencer {
     send fn next(out: Reply<Str>) => !out
 }
 
-// 2. Shards: `Key` marks the argument that decides the shard.
+// 2. Shards: `ShardKey` marks the argument that decides the shard, and the
+// protocol's `key` is stamped from it.
 actor effect Inventory {
-    send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !out
+    send fn reserve(ShardKey sku: Str, qty: Int, out: Reply<Str>) => !sku, !out
 }
+
+fn key(m: Message<Inventory>) [] -> Long? => m by shard
 
 // 3. Scatter (map/reduce): every index answers a count, the sum is the answer.
 actor effect Search {
@@ -50,7 +54,7 @@ handler Stocking(shard: Str) for Inventory {
     state {
         served: Int = 0
     }
-    send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !out {
+    send fn reserve(sku: Str, qty: Int, out: Reply<Str>) => !sku, !out {
         served = served + qty
         out.send("${shard}:${served}")
     }
@@ -94,9 +98,10 @@ handler SlowLooking(who: Str, timer: eff[Timer]) for Lookup {
 
 // ------------------------------------------------ hand-written routers ----
 //
-// `use any group` picks ONE member per send. A policy that must read the
-// message — fan it out, race two copies — is a handler `for any E` written for
-// that protocol: `any`, because it promises no order between two sends.
+// std's routers (`Elected`, `Sharded`, `LeastLoaded`) pick ONE member per
+// send. A policy that must do more with a message — fan it out, race two
+// copies — is a handler written for that protocol: `for any E`, because it
+// promises no order between two sends.
 
 // Scatter: ask every member, sum the answers, reply once. The router itself
 // is stateless and `use`-bound; the collecting is an actor's, since something
@@ -186,8 +191,8 @@ handler Racing() for Race {
 // `Leader` is a plain effect: whoever serves it decides who leads. This one
 // is an election a child could run — the node whose host name sorts last
 // wins — and it is still a real one: when that node leaves, the answer
-// changes, and every `Elected` route follows it. `Elected` asks it when the
-// route's view changes, not per send — here a node leaving changes the view
+// changes, and every `Elected` router follows it. `Elected` asks it when the
+// group's view changes, not per send — here a node leaving changes the view
 // anyway; an election whose answer moves on its own calls `refresh()` on the
 // group. A Raft would serve the same effect, and nothing that routes through
 // `Elected` would change.
@@ -241,20 +246,15 @@ fn find(key: Str) [any Lookup] -> Str => !key {
     return waitfor out: Reply<Str> { lookup(key, out) }
 }
 
-// A policy and its stub are bound for a scope, and a scope is a function:
-// two policies for two protocols — `RouteSelector<Sequencer>`,
-// `RouteSelector<Inventory>` — are
-// one type in the generated code, so they take turns rather than share one.
-// `Leader` arrives through the signature; `Elected` captures it from there.
+// A router is bound for a scope, and a scope is a function. `Leader`
+// arrives through the signature; `Elected` captures it from there.
 fn two_ids(seq: eff[ActorGroup<Sequencer>]) [use, Leader, Console] -> None => !seq {
-    use Elected<Sequencer>()
-    use any seq
+    use Elected(seq)
     println("  ${fresh_id()} ${fresh_id()}")
 }
 
 fn shop(stock: eff[ActorGroup<Inventory>]) [use, Console] -> None => !stock {
-    use Sharded<Inventory>()
-    use any stock
+    use Sharded(stock)
     checkout(List("apple", "pear", "apple", "fig", "pear"))
 }
 

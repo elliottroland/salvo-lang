@@ -12,6 +12,10 @@ actor interface Inventory {
   send fn reserve(moved sku: Str, lent qty: Int, moved out: Reply<Str>) -> None
 }
 
+fn key@main(lent m: Inventory.Reserve@main) -> Long? {
+  return present(call key_hash@std.net<Str>(read m.sku))
+}
+
 actor interface Search {
   send fn query(moved word: Str, moved out: Reply<Int>) -> None
 }
@@ -130,7 +134,7 @@ impl Gathering() for Gather@main stateful {
         arm#1 (none) {
         }
         arm#2 (else) {
-          unreachable("unhandled union arm") at main:141:13
+          unreachable("unhandled union arm") at main:146:13
         }
       }
     }
@@ -180,7 +184,7 @@ impl Racing() for Race@main stateful {
       arm#1 (none) {
       }
       arm#2 (else) {
-        unreachable("unhandled union arm") at main:177:9
+        unreachable("unhandled union arm") at main:182:9
       }
     }
   }
@@ -230,7 +234,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
           value !read __pick1~1
         }
         arm#1 (else) {
-          value unreachable() at main:228:43
+          value unreachable() at main:233:43
         }
       }
     }))
@@ -242,7 +246,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
           value !read __pick2~2
         }
         arm#1 (else) {
-          value unreachable() at main:229:47
+          value unreachable() at main:234:47
         }
       }
     }, " reserved on its shard so far"))
@@ -255,7 +259,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
         value !read __pick3~3
       }
       arm#1 (else) {
-        value unreachable() at main:231:69
+        value unreachable() at main:236:69
       }
     }
   }), borrow_as[proj Str -> Str](branch#20 cond#0 true {
@@ -266,7 +270,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
         value !read __pick4~4
       }
       arm#1 (else) {
-        value unreachable() at main:231:103
+        value unreachable() at main:236:103
       }
     }
   })))))
@@ -278,7 +282,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
         value !read __pick5~5
       }
       arm#1 (else) {
-        value unreachable() at main:232:67
+        value unreachable() at main:237:67
       }
     }
   }), borrow_as[proj Str -> Str](branch#28 cond#0 true {
@@ -289,7 +293,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
         value !read __pick6~6
       }
       arm#1 (else) {
-        value unreachable() at main:232:101
+        value unreachable() at main:237:101
       }
     }
   })))))
@@ -301,7 +305,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
         value !read __pick7~7
       }
       arm#1 (else) {
-        value unreachable() at main:233:68
+        value unreachable() at main:238:68
       }
     }
   }), borrow_as[proj Str -> Str](branch#36 cond#0 true {
@@ -312,7 +316,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
         value !read __pick8~8
       }
       arm#1 (else) {
-        value unreachable() at main:233:102
+        value unreachable() at main:238:102
       }
     }
   })))))
@@ -335,19 +339,15 @@ fn find@main(lent lookup: Lookup@main; moved key: Str) -> Str {
 }
 
 fn two_ids@main(lent leader: Leader, lent console: Console; moved seq: eff[ActorGroup<Sequencer@main>]) -> None {
-  bind#1 let __use~1: Elected<Sequencer@main> = construct Elected<Sequencer@main> { config: call default_route_config@std.net(), __dep0: read leader }
-  bind#2 let __handle~2: RouteSelector<Sequencer@main> = handle[RouteSelector<Sequencer@main>](read __use~1)
-  bind#3 let __use~3: __Route_Sequencer@main = construct __Route_Sequencer@main { group: !read seq, __dep0: read __handle~2 }
-  bind#4 let __handle~4: Sequencer@main = handle[Sequencer@main](read __use~3)
-  call println@std.core.console(read console, concat("  ", call fresh_id@main(read __handle~4), " ", call fresh_id@main(read __handle~4)))
+  bind#1 let __use~1: Elected<Sequencer@main> = construct Elected<Sequencer@main> { group: !read seq, config: call default_route_config@std.net(), __dep0: read leader }
+  bind#2 let __handle~2: Sequencer@main = handle[Sequencer@main](read __use~1)
+  call println@std.core.console(read console, concat("  ", call fresh_id@main(read __handle~2), " ", call fresh_id@main(read __handle~2)))
 }
 
 fn shop@main(lent console: Console; moved stock: eff[ActorGroup<Inventory@main>]) -> None {
-  bind#1 let __use~1: Sharded<Inventory@main> = construct Sharded<Inventory@main> { config: call default_route_config@std.net() }
-  bind#2 let __handle~2: RouteSelector<Inventory@main> = handle[RouteSelector<Inventory@main>](read __use~1)
-  bind#3 let __use~3: __Route_Inventory@main = construct __Route_Inventory@main { group: !read stock, __dep0: read __handle~2 }
-  bind#4 let __handle~4: Inventory@main = handle[Inventory@main](read __use~3)
-  call checkout@main(read __handle~4, read console, call List(T, T[])@std.core.list<Str>("apple", array[Str[]]("pear", "apple", "fig", "pear")))
+  bind#1 let __use~1: Sharded<Inventory@main> = construct Sharded<Inventory@main> { group: !read stock, config: call default_route_config@std.net(), key: fn key@main }
+  bind#2 let __handle~2: Inventory@main = handle[Inventory@main](read __use~1)
+  call checkout@main(read __handle~2, read console, call List(T, T[])@std.core.list<Str>("apple", array[Str[]]("pear", "apple", "fig", "pear")))
 }
 
 actor interface Boot {
@@ -498,30 +498,6 @@ linear struct Boot.Stop wire {
   done: Reply<Bool>
 }
 
-export impl __Route_Inventory(lent group: eff[ActorGroup<Inventory@main>]) for any Inventory@main deps [RouteSelector<Inventory@main>] stateful {
-  mailbox construct Mailbox { capacity: 1 }
-  state seen: Long = -1L
-  fn reserve(moved sku: Str, lent qty: Int, moved out: Reply<Str>) -> None {
-    obligation gain-params [out]
-    bind#1 let __pick: RoutePick<Inventory@main> = call route_pick(eff[ActorGroup<E>], Long, Long)@std.net<Inventory@main>(read __dep0, read group, read seen, call key_hash@std.net<Str>(read sku))
-    assign seen = read __pick.version
-    obligation release [out]
-    send reserve@Inventory(read __pick.to, !read sku, !read qty, !read out)
-  }
-}
-
-export impl __Route_Sequencer(lent group: eff[ActorGroup<Sequencer@main>]) for any Sequencer@main deps [RouteSelector<Sequencer@main>] stateful {
-  mailbox construct Mailbox { capacity: 1 }
-  state seen: Long = -1L
-  fn next(moved out: Reply<Str>) -> None {
-    obligation gain-params [out]
-    bind#1 let __pick: RoutePick<Sequencer@main> = call route_pick(eff[ActorGroup<E>], Long)@std.net<Sequencer@main>(read __dep0, read group, read seen)
-    assign seen = read __pick.version
-    obligation release [out]
-    send next@Sequencer(read __pick.to, !read out)
-  }
-}
-
 enum __Msg_Sequencer [proto 7a5334482e5247f7] {
   Next(out: Reply<Str>)
 }
@@ -605,14 +581,6 @@ enum __Priv_Racing {
 enum __Cont_Booting {
   Boot()
   Stop()
-}
-
-enum __Cont___Route_Inventory {
-  Reserve(sku: Str, qty: Int)
-}
-
-enum __Cont___Route_Sequencer {
-  Next()
 }
 
 impl __Stub_Sequencer(moved addr: eff[Sequencer@main]) for Sequencer@main {
@@ -817,28 +785,6 @@ fn __dispatch_Booting_Boot(lent_mut __handler: Booting@main, moved __msg: __Msg_
       obligation gain [done]
       obligation release [done]
       handler_call stop@Boot(read __handler, !read done)
-    }
-  }
-}
-
-fn __dispatch___Route_Inventory_Inventory(lent_mut __handler: __Route_Inventory@main, moved __msg: __Msg_Inventory@main) -> None {
-  switch#1 read __msg {
-    arm#0 (arm 0) {
-      unpack#2 (sku: Str, qty: Int, out: Reply<Str>) = __msg as variant 0
-      obligation gain [out]
-      obligation release [out]
-      handler_call reserve@Inventory(read __handler, !read sku, !read qty, !read out)
-    }
-  }
-}
-
-fn __dispatch___Route_Sequencer_Sequencer(lent_mut __handler: __Route_Sequencer@main, moved __msg: __Msg_Sequencer@main) -> None {
-  switch#1 read __msg {
-    arm#0 (arm 0) {
-      unpack#2 (out: Reply<Str>) = __msg as variant 0
-      obligation gain [out]
-      obligation release [out]
-      handler_call next@Sequencer(read __handler, !read out)
     }
   }
 }

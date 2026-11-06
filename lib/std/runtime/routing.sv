@@ -287,8 +287,8 @@ effect RouteTable {
     fn peer_hash(node: Long, protocol: Str) -> Str? => node, protocol
     fn forget_node(node: Long) -> List<Int> => node
     fn credits_of(addr: Int) -> Int? => addr
-    // The views route stubs read.
-    // @compilerrules [actor-route-stub]
+    // The views routers read.
+    // @compilerrules [actor-router]
     fn set_view(group: Int, members: List<Int>) -> None => !group, !members
     fn view_of(group: Int) -> List<Int> => group
     fn version_of(group: Int) -> Long => group
@@ -302,7 +302,7 @@ effect RouteTable {
 // [group]'s view version. (A member calling a sibling goes
 // through the module's binding, which would take the table's lock again: the
 // members share these instead.)
-// @compilerrules [actor-route-stub]
+// @compilerrules [actor-router]
 fn version_in(versions: Map<Int, Long>, group: Int) [] -> Long => versions, group {
     let v = get(versions, group)
     if v is Long n {
@@ -312,7 +312,7 @@ fn version_in(versions: Map<Int, Long>, group: Int) [] -> Long => versions, grou
 }
 
 // Moves [group]'s version and wakes its waiters.
-// @compilerrules [actor-route-stub]
+// @compilerrules [actor-router]
 fn bump_in(versions: Mut Map<Int, Long>, waiters: Mut List<ViewWaiter>, group: Int) [] -> None
 => versions: Mut, waiters: Mut, !group {
     put(versions, copy(group), version_in(versions, copy(group)) + 1)
@@ -328,7 +328,7 @@ fn bump_in(versions: Mut Map<Int, Long>, waiters: Mut List<ViewWaiter>, group: I
 }
 
 // A sender waiting for a view to change.
-// @compilerrules [actor-route-stub]
+// @compilerrules [actor-router]
 struct ViewWaiter {
     group: Int,
     id: Long,
@@ -362,7 +362,7 @@ handler Routes() for RouteTable {
         credit_waiters: Mut List<Parker> = Mut List()
         // Per group: the member list its replica mirrors, and a
         // version moved by every change and every `refresh`.
-        // @compilerrules [actor-route-stub]
+        // @compilerrules [actor-router]
         views: Mut Map<Int, List<Int>> = Mut Map()
         versions: Mut Map<Int, Long> = Mut Map()
         view_waiters: Mut List<ViewWaiter> = Mut List()
@@ -1125,17 +1125,17 @@ fn deliver_answer(a: AnswerFrame) [] -> Bool => a {
     return false
 }
 
-// ---- the route stubs' views
+// ---- the routers' views
 //
-// What `use any group` reads on every send: each actor group's members,
+// What a router reads on every send: each actor group's members,
 // mirrored here by its replica, and a version that moves whenever they
 // change or the group is refreshed.
-// @compilerrules [actor-route-stub]
+// @compilerrules [actor-router]
 
 // Sets the mirrored [members] of [group], by actor index: the group's
 // replica calls it after every change. The view's version moves, and
 // senders waiting for it wake.
-// @compilerrules [actor-route-stub]
+// @compilerrules [actor-router]
 export fn view_set(group: Int, members: List<Int>) [] -> None => !group, !members {
     set_view(group, members)
 }
@@ -1144,7 +1144,7 @@ export fn view_set(group: Int, members: List<Int>) [] -> None => !group, !member
 // order on every node and both backends, so a selector that picks by
 // position picks alike everywhere. It sorts on every call, in time
 // quadratic in the number of members.
-// @compilerrules [actor-route-stub]
+// @compilerrules [actor-router]
 export fn view_members(group: Int) [] -> List<Int> => group {
     let left: Mut List<Int> = Mut List()
     for m in view_of(group) {
@@ -1174,7 +1174,7 @@ fn before(a: RemoteRef, b: RemoteRef) [] -> Bool => a, b {
 
 // [group]'s view version: moved by every change of its members and by
 // every refresh. A route selector compares it to the last it saw.
-// @compilerrules [actor-route-stub]
+// @compilerrules [actor-router]
 export fn view_version(group: Int) [] -> Long => group {
     return version_of(group)
 }
@@ -1184,7 +1184,7 @@ export fn view_version(group: Int) [] -> Long => group {
 // For something a selector reads outside the view, such as an election's
 // leader: whoever decides it calls this when the answer changes, and every
 // route over the group looks again.
-// @compilerrules [actor-route-stub]
+// @compilerrules [actor-router]
 export fn view_refresh(group: Int) [] -> None => !group {
     bump(group)
 }
@@ -1193,7 +1193,7 @@ export fn view_refresh(group: Int) [] -> None => !group {
 // [nanos] nanoseconds pass, whichever is first. Answers at once if the
 // version has already moved. How a send waits when its selector finds no
 // member.
-// @compilerrules [actor-route-stub]
+// @compilerrules [actor-router]
 export fn view_wait(group: Int, seen: Long, nanos: Long) [] -> None => !group, !seen, !nanos {
     let me = this_parker()
     let id = add_view_waiter(group, seen, copy(me))

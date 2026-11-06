@@ -10,6 +10,7 @@ use crate::std_core_map::contains_key_platform;
 use crate::std_core_set::contains_platform;
 use crate::std_runtime_routing::control_frame;
 use crate::std_core_actor::eq;
+use crate::std_core_map::get_platform;
 use crate::std_runtime_routing::here_node;
 use crate::std_runtime_routing::identity;
 use crate::std_core_map::keys_platform;
@@ -100,7 +101,7 @@ pub fn to_str__NetError(mut e: crate::unions::Union2<&crate::std_net::Unreachabl
         let mut e_2 = match e { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         return format!("wire failed to {}: {}", crate::std_net::to_str__NodeEndpoint(&e_2.to), e_2.reason);
     } else {
-        panic!("salvo: unhandled union arm at std.net:185:5");
+        panic!("salvo: unhandled union arm at std.net:184:5");
     };
 }
 
@@ -848,7 +849,7 @@ pub fn handshake(transport: &crate::std_net::Transport, group: &String, mut from
     } else if msg.is_none() {
         return None;
     } else {
-        panic!("salvo: unhandled union arm at std.net:728:5");
+        panic!("salvo: unhandled union arm at std.net:727:5");
     };
 }
 
@@ -924,7 +925,7 @@ impl StaticNodeGroup {
             let mut event_4 = match &event { Some(crate::unions::Union3::U3(__v)) => __v, _ => unreachable!() };
         } else if event.is_none() {
         } else {
-            panic!("salvo: unhandled union arm at std.net:856:9");
+            panic!("salvo: unhandled union arm at std.net:855:9");
         };
     }
 }
@@ -1088,7 +1089,7 @@ impl GossipNodeGroup {
             }
         } else if event.is_none() {
         } else {
-            panic!("salvo: unhandled union arm at std.net:967:9");
+            panic!("salvo: unhandled union arm at std.net:966:9");
         };
     }
 }
@@ -1636,17 +1637,38 @@ impl crate::wire::__Wire for RouteMember {
 #[derive(Clone, Debug, PartialEq)]
 pub struct RouteView {
     pub members: Vec<crate::std_net::RouteMember>,
+    pub version: i64,
 }
 
 impl crate::wire::__Wire for RouteView {
     fn __enc(&self, out: &mut Vec<u8>) {
         crate::wire::__Wire::__enc(&self.members, out);
+        crate::wire::__Wire::__enc(&self.version, out);
     }
     fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
         Some(Self {
             members: crate::wire::__Wire::__dec(r)?,
+            version: crate::wire::__Wire::__dec(r)?,
         })
     }
+}
+
+pub fn route_view(mut group: usize) -> crate::std_net::RouteView {
+    let mut version: i64 = crate::std_net::view_version(group);
+    let mut members: Vec<crate::std_net::RouteMember> = vec![];
+    for mut m in crate::std_net::view_members(group).iter().copied() {
+        crate::std_core_list::add_platform::<crate::std_net::RouteMember>(&mut members, crate::std_net::RouteMember { addr: m, local: crate::std_net::eq__NodeId_NodeId(&crate::std_net::node_of(m), &crate::std_net::this_node()) });
+    }
+    return crate::std_net::RouteView { members: (members).clone(), version: version };
+}
+
+pub fn route_wait(mut group: usize, view: &crate::std_net::RouteView, mut wait: crate::std_time::Duration, config: &crate::std_net::RouteConfig) -> crate::std_time::Duration {
+    crate::std_net::view_wait(group, view.version, wait.nanos);
+    let mut next: i64 = i64::wrapping_mul(wait.nanos, 2i64);
+    if (next > config.max_wait.nanos) {
+        return (config.max_wait).clone();
+    };
+    return crate::std_time::Duration { nanos: next };
 }
 
 pub fn default_route_config() -> crate::std_net::RouteConfig {
@@ -1672,233 +1694,37 @@ impl crate::wire::__Wire for RouteConfig {
     }
 }
 
-pub trait __Stateless_RouteSelector: Send + Sync {
-    fn changed(&self, view: &crate::std_net::RouteView);
-    fn select(&self, view: &crate::std_net::RouteView, key: &Option<i64>) -> Option<usize>;
-    fn config(&self) -> crate::std_net::RouteConfig;
-}
-
-pub trait __Stateful_RouteSelector: Send {
-    fn changed(&mut self, view: &crate::std_net::RouteView);
-    fn select(&mut self, view: &crate::std_net::RouteView, key: &Option<i64>) -> Option<usize>;
-    fn config(&mut self) -> crate::std_net::RouteConfig;
-}
-
-pub struct RouteSelector {
-    inner: __Inner_RouteSelector,
-}
-
-pub enum __Inner_RouteSelector {
-    Shared(std::sync::Arc<dyn __Stateless_RouteSelector>),
-    Locked(std::sync::Arc<std::sync::Mutex<dyn __Stateful_RouteSelector>>),
-}
-
-impl Clone for RouteSelector {
-    fn clone(&self) -> Self {
-        Self { inner: match &self.inner {
-            __Inner_RouteSelector::Shared(h) => __Inner_RouteSelector::Shared(h.clone()),
-            __Inner_RouteSelector::Locked(h) => __Inner_RouteSelector::Locked(h.clone()),
-        } }
-    }
-}
-
-impl RouteSelector {
-    pub fn shared<__H: __Stateless_RouteSelector + 'static>(inner: __H) -> Self {
-        Self { inner: __Inner_RouteSelector::Shared(std::sync::Arc::new(inner)) }
-    }
-    pub fn share_shared(inner: std::sync::Arc<dyn __Stateless_RouteSelector>) -> Self {
-        Self { inner: __Inner_RouteSelector::Shared(inner) }
-    }
-    pub fn locked<__H: __Stateful_RouteSelector + 'static>(inner: __H) -> Self {
-        Self { inner: __Inner_RouteSelector::Locked(std::sync::Arc::new(std::sync::Mutex::new(inner))) }
-    }
-    pub fn share_locked(inner: std::sync::Arc<std::sync::Mutex<dyn __Stateful_RouteSelector>>) -> Self {
-        Self { inner: __Inner_RouteSelector::Locked(inner) }
-    }
-    pub fn changed(&self, view: &crate::std_net::RouteView) {
-        match &self.inner {
-            __Inner_RouteSelector::Shared(h) => h.changed(view),
-            __Inner_RouteSelector::Locked(h) => h.lock().unwrap().changed(view),
-        }
-    }
-    pub fn select(&self, view: &crate::std_net::RouteView, key: &Option<i64>) -> Option<usize> {
-        match &self.inner {
-            __Inner_RouteSelector::Shared(h) => h.select(view, key),
-            __Inner_RouteSelector::Locked(h) => h.lock().unwrap().select(view, key),
-        }
-    }
-    pub fn config(&self) -> crate::std_net::RouteConfig {
-        match &self.inner {
-            __Inner_RouteSelector::Shared(h) => h.config(),
-            __Inner_RouteSelector::Locked(h) => h.lock().unwrap().config(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct RoutePick {
-    pub to: usize,
-    pub version: i64,
-}
-
-impl crate::wire::__Wire for RoutePick {
-    fn __enc(&self, out: &mut Vec<u8>) {
-        crate::wire::__Wire::__enc(&self.to, out);
-        crate::wire::__Wire::__enc(&self.version, out);
-    }
-    fn __dec(r: &mut crate::wire::__Reader<'_>) -> Option<Self> {
-        Some(Self {
-            to: crate::wire::__Wire::__dec(r)?,
-            version: crate::wire::__Wire::__dec(r)?,
-        })
-    }
-}
-
-pub fn route_pick__Addr_Long(route_selector: &crate::std_net::RouteSelector, mut group: usize, mut seen: i64) -> crate::std_net::RoutePick {
-    return crate::std_net::route_keyed(route_selector, group, seen, None);
-}
-
-pub fn route_pick__Addr_Long_Long(route_selector: &crate::std_net::RouteSelector, mut group: usize, mut seen: i64, mut key: i64) -> crate::std_net::RoutePick {
-    return crate::std_net::route_keyed(route_selector, group, seen, Some(key));
-}
-
-pub fn route_keyed(route_selector: &crate::std_net::RouteSelector, mut group: usize, mut seen: i64, mut key: Option<i64>) -> crate::std_net::RoutePick {
-    let mut waits: crate::std_net::RouteConfig = route_selector.config();
-    let mut wait: i64 = waits.first_wait.nanos;
-    let mut cap: i64 = waits.max_wait.nanos;
-    let mut last: i64 = seen;
-    loop {
-        let mut version: i64 = crate::std_net::view_version(group);
-        let mut view: crate::std_net::RouteView = crate::std_net::route_view(group);
-        if (version != last) {
-            route_selector.changed(&(view).clone());
-            last = version;
-        };
-        let mut picked: Option<usize> = route_selector.select(&view, &(key).clone());
-        if !(picked.is_none()) {
-            let mut picked_1 = picked.unwrap();
-            return crate::std_net::RoutePick { to: picked_1, version: last };
-        };
-        crate::std_net::view_wait(group, version, wait);
-        wait = i64::wrapping_mul(wait, 2i64);
-        if (wait > cap) {
-            wait = cap;
-        };
-    }
-    panic!("salvo: unreachable at std.net:1684:5");
-    return crate::std_net::route_keyed(route_selector, group, seen, key);
-}
-
-pub fn route_view(mut group: usize) -> crate::std_net::RouteView {
-    let mut members: Vec<crate::std_net::RouteMember> = vec![];
-    for mut m in crate::std_net::view_members(group).iter().copied() {
-        crate::std_core_list::add_platform::<crate::std_net::RouteMember>(&mut members, crate::std_net::RouteMember { addr: m, local: crate::std_net::eq__NodeId_NodeId(&crate::std_net::node_of(m), &crate::std_net::this_node()) });
-    }
-    return crate::std_net::RouteView { members: (members).clone() };
-}
-
-#[derive(Clone)]
-pub struct LeastLoaded {
-    prefer_local: bool,
-    config: crate::std_net::RouteConfig,
-}
-
-impl LeastLoaded {
-    pub fn new(prefer_local: bool, config: crate::std_net::RouteConfig) -> Self {
-        Self {
-            prefer_local,
-            config
-        }
-    }
-}
-
-impl crate::std_net::__Stateless_RouteSelector for LeastLoaded {
-    fn changed(&self, view: &crate::std_net::RouteView) {
-    }
-    fn select(&self, view: &crate::std_net::RouteView, key: &Option<i64>) -> Option<usize> {
-        let mut best: Option<crate::std_net::RouteMember> = None;
-        let mut best_pending: i32 = 0i32;
-        for mut a in view.members.iter() {
-            let mut load: i32 = crate::std_net::pending(a.addr);
-            if best.is_none() {
+pub fn least_loaded(view: &crate::std_net::RouteView, mut prefer_local: bool) -> Option<usize> {
+    let mut best: Option<crate::std_net::RouteMember> = None;
+    let mut best_pending: i32 = 0i32;
+    for mut a in view.members.iter() {
+        let mut load: i32 = crate::std_net::pending(a.addr);
+        if best.is_none() {
+            best = Some((a).clone());
+            best_pending = load;
+        } else {
+            let mut best_1 = best.as_ref().unwrap();
+            let mut b = best_1;
+            let mut take: bool = if ((prefer_local && a.local) && !(b.local)) {
+                true
+            } else if ((prefer_local && !(a.local)) && b.local) {
+                false
+            } else {
+                (load < best_pending)
+            };
+            if take {
                 best = Some((a).clone());
                 best_pending = load;
-            } else {
-                let mut best_1 = best.as_ref().unwrap();
-                let mut b = best_1;
-                let mut take: bool = if ((self.prefer_local && a.local) && !(b.local)) {
-                    true
-                } else if ((self.prefer_local && !(a.local)) && b.local) {
-                    false
-                } else {
-                    (load < best_pending)
-                };
-                if take {
-                    best = Some((a).clone());
-                    best_pending = load;
-                };
             };
-        }
-        let mut chosen: crate::std_net::RouteMember = if best.is_some() {
-            let mut best_2 = best.as_ref().unwrap();
-            best_2.clone()
-        } else {
-            return None;
         };
-        return Some(chosen.addr);
     }
-    fn config(&self) -> crate::std_net::RouteConfig {
-        return (self.config).clone();
-    }
-}
-
-#[derive(Clone)]
-pub struct Sharded {
-    config: crate::std_net::RouteConfig,
-}
-
-impl Sharded {
-    pub fn new(config: crate::std_net::RouteConfig) -> Self {
-        Self {
-            config
-        }
-    }
-}
-
-impl crate::std_net::__Stateless_RouteSelector for Sharded {
-    fn changed(&self, view: &crate::std_net::RouteView) {
-    }
-    fn select(&self, view: &crate::std_net::RouteView, key: &Option<i64>) -> Option<usize> {
-        let mut n: i32 = crate::std_core_list::size_platform::<crate::std_net::RouteMember>(&view.members);
-        if (n == 0i32) {
-            return None;
-        };
-        let mut k: i64 = if key.is_some() {
-            let mut key_1 = key.unwrap();
-            key_1
-        } else {
-            0i64
-        };
-        let mut magnitude: i64 = if (k < 0i64) {
-            i64::wrapping_sub(0i64, k)
-        } else {
-            k
-        };
-        let mut slot: i32 = ((i64::wrapping_rem(magnitude, ((n) as i64))) as i32);
-        let mut picked: &crate::std_net::RouteMember = {
-            let mut __pick1: Option<&crate::std_net::RouteMember> = crate::std_core_list::get_platform::<crate::std_net::RouteMember>(&view.members, slot);
-            if __pick1.is_some() {
-                let mut __pick1_2 = __pick1.unwrap();
-                __pick1_2
-            } else {
-                return None;
-            }
-        };
-        return Some(picked.addr);
-    }
-    fn config(&self) -> crate::std_net::RouteConfig {
-        return (self.config).clone();
-    }
+    let mut chosen: crate::std_net::RouteMember = if best.is_some() {
+        let mut best_2 = best.as_ref().unwrap();
+        best_2.clone()
+    } else {
+        return None;
+    };
+    return Some(chosen.addr);
 }
 
 pub trait __Stateless_Leader: Send + Sync {
@@ -1967,47 +1793,22 @@ impl crate::std_net::__Stateless_Leader for StaticLeader {
     }
 }
 
-pub struct Elected {
-    config: crate::std_net::RouteConfig,
-    __dep0: crate::std_net::Leader,
-    chosen: Option<usize>,
-}
-
-impl Elected {
-    pub fn new(config: crate::std_net::RouteConfig, __dep0: crate::std_net::Leader) -> Self {
-        Self {
-            config: config.clone(),
-            __dep0,
-            chosen: None
+pub fn on_leader(leader: &crate::std_net::Leader, view: &crate::std_net::RouteView) -> Option<usize> {
+    let mut l: crate::std_net::NodeId = {
+        let mut __pick3: Option<crate::std_net::NodeId> = leader.leader();
+        if __pick3.is_some() {
+            let mut __pick3_1 = __pick3.unwrap();
+            __pick3_1
+        } else {
+            return None;
         }
-    }
-}
-
-impl crate::std_net::__Stateful_RouteSelector for Elected {
-    fn changed(&mut self, view: &crate::std_net::RouteView) {
-        self.chosen = None;
-        let mut l: crate::std_net::NodeId = {
-            let mut __pick2: Option<crate::std_net::NodeId> = self.__dep0.leader();
-            if __pick2.is_some() {
-                let mut __pick2_1 = __pick2.unwrap();
-                __pick2_1
-            } else {
-                return;
-            }
+    };
+    for mut a in view.members.iter() {
+        if crate::std_net::eq__NodeId_NodeId(&crate::std_net::node_of(a.addr), &l) {
+            return Some(a.addr);
         };
-        for mut a in view.members.iter() {
-            if crate::std_net::eq__NodeId_NodeId(&crate::std_net::node_of(a.addr), &l) {
-                self.chosen = Some(a.addr);
-                return;
-            };
-        }
     }
-    fn select(&mut self, view: &crate::std_net::RouteView, key: &Option<i64>) -> Option<usize> {
-        return (self.chosen).clone();
-    }
-    fn config(&mut self) -> crate::std_net::RouteConfig {
-        return (self.config).clone();
-    }
+    return None;
 }
 
 pub type __Platform_HostTcpTransport = crate::std_net::__Platform_Transport<crate::platform_std_net::HostTcpTransport>;
@@ -3089,14 +2890,14 @@ impl crate::std_net::__Stateless_MemNet for __Stub_MemNet {
 
 pub fn __dispatch_Sending_Outbound(__handler: &mut crate::std_net::Sending, mut __msg: crate::std_net::__Msg_Outbound) {
     if matches!(__msg, crate::std_net::__Msg_Outbound::SendFrame(..)) {
-        let crate::std_net::__Msg_Outbound::SendFrame(to, frame) = __msg else { unreachable!() };
+        let crate::std_net::__Msg_Outbound::SendFrame(to, frame) = __msg;
         crate::std_net::__Stateless_Outbound::send_frame(&mut *__handler, to, frame);
     };
 }
 
 pub fn __dispatch_Receiving_Inbound(__handler: &mut crate::std_net::Receiving, mut __msg: crate::std_net::__Msg_Inbound) {
     if matches!(__msg, crate::std_net::__Msg_Inbound::ReceiveFrame(..)) {
-        let crate::std_net::__Msg_Inbound::ReceiveFrame(from, frame) = __msg else { unreachable!() };
+        let crate::std_net::__Msg_Inbound::ReceiveFrame(from, frame) = __msg;
         crate::std_net::__Stateless_Inbound::receive_frame(&mut *__handler, from, frame);
     };
 }

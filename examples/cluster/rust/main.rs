@@ -83,7 +83,7 @@ pub mod platform_std_runtime;
 pub mod platform_std_time;
 
 use crate::std_core_console::Console;
-use crate::std_net::Elected;
+use crate::std_time::Duration;
 use crate::std_time::Fired;
 use crate::std_net::Leader;
 use crate::std_core_list::List__T_TArray;
@@ -92,9 +92,9 @@ use crate::std_net::Node;
 use crate::std_net::NodeEndpoint;
 use crate::std_net::NodeId;
 use crate::std_net::Protocol;
-use crate::std_net::RoutePick;
-use crate::std_net::RouteSelector;
-use crate::std_net::Sharded;
+use crate::std_net::RouteConfig;
+use crate::std_net::RouteMember;
+use crate::std_net::RouteView;
 use crate::std_net::Transport;
 use crate::std_net::actor_group__Addr;
 use crate::std_core_deque::add_last_platform;
@@ -106,12 +106,13 @@ use crate::std_time::millis;
 use crate::std_core_deque::mut_deque_of;
 use crate::std_net::new_node;
 use crate::std_net::node_of;
+use crate::std_net::on_leader;
 use crate::std_core_actor::pool;
 use crate::std_net::pool_at;
 use crate::std_core_console::println;
 use crate::std_core_deque::remove_first_platform;
-use crate::std_net::route_pick__Addr_Long;
-use crate::std_net::route_pick__Addr_Long_Long;
+use crate::std_net::route_view;
+use crate::std_net::route_wait;
 use crate::std_core_list::size_platform;
 use crate::std_core_string::split_platform;
 use crate::std_net::this_node;
@@ -209,6 +210,10 @@ impl Inventory {
             __Inner_Inventory::Locked(h) => h.lock().unwrap().reserve(sku, qty, out),
         }
     }
+}
+
+pub fn key(m: &crate::InventoryReserve) -> Option<i64> {
+    return Some(crate::scheduler::salvo_key_hash(&crate::wire::salvo_encode(&m.sku)));
 }
 
 pub trait __Stateless_Search: Send + Sync {
@@ -813,7 +818,7 @@ impl Gathering {
                 crate::scheduler::salvo_reply_wire::<i32>(out_1, self.total);
             } else if out.is_none() {
             } else {
-                panic!("salvo: unhandled union arm at main:141:13");
+                panic!("salvo: unhandled union arm at main:146:13");
             };
         };
     }
@@ -1026,7 +1031,7 @@ impl Racing {
             crate::scheduler::salvo_reply_wire::<String>(out_1, answer);
         } else if out.is_none() {
         } else {
-            panic!("salvo: unhandled union arm at main:177:9");
+            panic!("salvo: unhandled union arm at main:182:9");
         };
     }
 }
@@ -1152,7 +1157,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
                 let mut __pick1_1 = __pick1.unwrap();
                 (__pick1_1).clone()
             } else {
-                panic!("salvo: unreachable at main:228:43")
+                panic!("salvo: unreachable at main:233:43")
             }
         });
         crate::std_core_console::println(console, &format!("  {}: {} reserved on its shard so far", sku, {
@@ -1161,7 +1166,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
                 let mut __pick2_2 = __pick2.unwrap();
                 __pick2_2
             } else {
-                panic!("salvo: unreachable at main:229:47")
+                panic!("salvo: unreachable at main:234:47")
             }
         }));
     }
@@ -1171,7 +1176,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
             let mut __pick3_3 = __pick3.unwrap();
             __pick3_3
         } else {
-            panic!("salvo: unreachable at main:231:69")
+            panic!("salvo: unreachable at main:236:69")
         }
     }[..] == &{
         let mut __pick4: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 2i32);
@@ -1179,7 +1184,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
             let mut __pick4_4 = __pick4.unwrap();
             __pick4_4
         } else {
-            panic!("salvo: unreachable at main:231:103")
+            panic!("salvo: unreachable at main:236:103")
         }
     }[..])));
     crate::std_core_console::println(console, &format!("  apple and fig on one shard: {}", (&{
@@ -1188,7 +1193,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
             let mut __pick5_5 = __pick5.unwrap();
             __pick5_5
         } else {
-            panic!("salvo: unreachable at main:232:67")
+            panic!("salvo: unreachable at main:237:67")
         }
     }[..] == &{
         let mut __pick6: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 3i32);
@@ -1196,7 +1201,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
             let mut __pick6_6 = __pick6.unwrap();
             __pick6_6
         } else {
-            panic!("salvo: unreachable at main:232:101")
+            panic!("salvo: unreachable at main:237:101")
         }
     }[..])));
     crate::std_core_console::println(console, &format!("  apple and pear on one shard: {}", (&{
@@ -1205,7 +1210,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
             let mut __pick7_7 = __pick7.unwrap();
             __pick7_7
         } else {
-            panic!("salvo: unreachable at main:233:68")
+            panic!("salvo: unreachable at main:238:68")
         }
     }[..] == &{
         let mut __pick8: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 1i32);
@@ -1213,7 +1218,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
             let mut __pick8_8 = __pick8.unwrap();
             __pick8_8
         } else {
-            panic!("salvo: unreachable at main:233:102")
+            panic!("salvo: unreachable at main:238:102")
         }
     }[..])));
 }
@@ -1237,19 +1242,15 @@ pub fn find(lookup: &crate::Lookup, mut key: String) -> String {
 }
 
 pub fn two_ids(leader: &crate::std_net::Leader, console: &crate::std_core_console::Console, mut seq: usize) {
-    let mut __use_1: crate::std_net::Elected = crate::std_net::Elected::new(crate::std_net::default_route_config(), leader.clone());
-    let __handle_2 = crate::std_net::RouteSelector::locked(__use_1);
-    let mut __use_3: crate::__Route_Sequencer = crate::__Route_Sequencer::new(seq, __handle_2.clone());
-    let __handle_4 = crate::Sequencer::locked(__use_3);
-    crate::std_core_console::println(console, &format!("  {} {}", crate::fresh_id(&__handle_4), crate::fresh_id(&__handle_4)));
+    let mut __use_1: crate::Elected__Sequencer = crate::Elected__Sequencer::new(seq, crate::std_net::default_route_config(), leader.clone());
+    let __handle_2 = crate::Sequencer::locked(__use_1);
+    crate::std_core_console::println(console, &format!("  {} {}", crate::fresh_id(&__handle_2), crate::fresh_id(&__handle_2)));
 }
 
 pub fn shop(console: &crate::std_core_console::Console, mut stock: usize) {
-    let mut __use_1: crate::std_net::Sharded = crate::std_net::Sharded::new(crate::std_net::default_route_config());
-    let __handle_2 = crate::std_net::RouteSelector::shared(__use_1);
-    let mut __use_3: crate::__Route_Inventory = crate::__Route_Inventory::new(stock, __handle_2.clone());
-    let __handle_4 = crate::Inventory::locked(__use_3);
-    crate::checkout(&__handle_4, console, &crate::std_core_list::List__T_TArray::<String>(String::from("apple"), vec![String::from("pear"), String::from("apple"), String::from("fig"), String::from("pear")]));
+    let mut __use_1: crate::Sharded__Inventory = crate::Sharded__Inventory::new(stock, crate::std_net::default_route_config(), move |__a0: &crate::InventoryReserve| crate::key(__a0));
+    let __handle_2 = crate::Inventory::locked(__use_1);
+    crate::checkout(&__handle_2, console, &crate::std_core_list::List__T_TArray::<String>(String::from("apple"), vec![String::from("pear"), String::from("apple"), String::from("fig"), String::from("pear")]));
 }
 
 pub trait __Stateless_Boot: Send + Sync {
@@ -1701,51 +1702,72 @@ impl crate::wire::__Wire for BootStop {
     }
 }
 
-pub struct __Route_Inventory {
+pub struct Elected__Sequencer {
     group: usize,
-    __dep0: crate::std_net::RouteSelector,
+    config: crate::std_net::RouteConfig,
+    __dep0: crate::std_net::Leader,
     seen: i64,
+    chosen: Option<usize>,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
-    __parked: std::collections::HashMap<u64, __Cont___Route_Inventory>,
+    __parked: std::collections::HashMap<u64, __Cont_Elected__Sequencer>,
 }
 
-impl __Route_Inventory {
-    pub fn new(group: usize, __dep0: crate::std_net::RouteSelector) -> Self {
+impl Elected__Sequencer {
+    pub fn new(group: usize, config: crate::std_net::RouteConfig, __dep0: crate::std_net::Leader) -> Self {
         Self {
             group: group.clone(),
+            config: config.clone(),
             __dep0,
-            seen: -1i64,
-            __mailbox_capacity: 1i32,
+            seen: i64::wrapping_neg(1i64),
+            chosen: None,
+            __mailbox_capacity: 16i32,
             __addr: None,
             __parked: std::collections::HashMap::new()
         }
     }
 }
 
-impl crate::__Stateful_Inventory for __Route_Inventory {
-    fn reserve(&mut self, sku: String, qty: i32, out: crate::scheduler::SalvoReply) {
-        let mut __pick: crate::std_net::RoutePick = crate::std_net::route_pick__Addr_Long_Long(&self.__dep0, self.group, self.seen, crate::scheduler::salvo_key_hash(&crate::wire::salvo_encode(&sku)));
-        self.seen = __pick.version;
-        crate::scheduler::salvo_send_wire(__pick.to, crate::__Msg_Inventory::Reserve(sku, qty, out), crate::__PROTO_Inventory);
+impl crate::__Stateful_Sequencer for Elected__Sequencer {
+    fn next(&mut self, out: crate::scheduler::SalvoReply) {
+        let __msg_p0 = out;
+        let mut m: crate::SequencerNext = crate::SequencerNext { out: __msg_p0 };
+        let mut wait: crate::std_time::Duration = (self.config.first_wait).clone();
+        loop {
+            let mut view: crate::std_net::RouteView = crate::std_net::route_view(self.group);
+            if (view.version != self.seen) {
+                self.chosen = crate::std_net::on_leader(&self.__dep0, &view);
+                self.seen = view.version;
+            };
+            let mut to: Option<usize> = (self.chosen).clone();
+            if !(to.is_none()) {
+                let mut to_1 = to.unwrap();
+                let mut __fwd_to_m1: usize = to_1;
+                let mut __fwd_msg_m2: crate::SequencerNext = m;
+                crate::scheduler::salvo_send_wire(__fwd_to_m1, crate::__Msg_Sequencer::Next(__fwd_msg_m2.out), crate::__PROTO_Sequencer);
+                return;
+            };
+            wait = crate::std_net::route_wait(self.group, &view, wait, &self.config);
+        }
+        panic!("salvo: unreachable at std.net:1833:9");
     }
 }
 
-pub struct __Actor___Route_Inventory {
-    handler: __Route_Inventory,
+pub struct __Actor_Elected__Sequencer {
+    handler: Elected__Sequencer,
 }
 
-impl __Actor___Route_Inventory {
-    pub fn new(handler: __Route_Inventory) -> Self {
+impl __Actor_Elected__Sequencer {
+    pub fn new(handler: Elected__Sequencer) -> Self {
         Self { handler }
     }
 }
 
-impl crate::scheduler::SalvoActor for __Actor___Route_Inventory {
+impl crate::scheduler::SalvoActor for __Actor_Elected__Sequencer {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
-        let msg = *msg.downcast::<crate::__Msg_Inventory>().expect("message of this protocol");
-        crate::__dispatch___Route_Inventory_Inventory(&mut self.handler, msg);
+        let msg = *msg.downcast::<crate::__Msg_Sequencer>().expect("message of this protocol");
+        crate::__dispatch_Elected__Sequencer_Sequencer(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -1754,70 +1776,107 @@ impl crate::scheduler::SalvoActor for __Actor___Route_Inventory {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont___Route_Inventory::Reserve(sku, qty) => crate::__dispatch___Route_Inventory_Inventory(&mut self.handler, crate::__Msg_Inventory::Reserve(sku, qty, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Elected__Sequencer::Next => crate::__dispatch_Elected__Sequencer_Sequencer(&mut self.handler, crate::__Msg_Sequencer::Next(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
-            __Cont___Route_Inventory::Reserve{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Elected__Sequencer::Next{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
 
-pub const __DECODE___Route_Inventory: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg___Route_Inventory);
-fn __decode_msg___Route_Inventory(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-    if proto == crate::__PROTO_Inventory {
-        return crate::wire::salvo_decode::<crate::__Msg_Inventory>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
+pub const __DECODE_Elected__Sequencer: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg_Elected__Sequencer);
+fn __decode_msg_Elected__Sequencer(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
+    if proto == crate::__PROTO_Sequencer {
+        return crate::wire::salvo_decode::<crate::__Msg_Sequencer>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
     }
     None
 }
 
-pub struct __Route_Sequencer {
+pub struct Sharded__Inventory {
     group: usize,
-    __dep0: crate::std_net::RouteSelector,
-    seen: i64,
+    config: crate::std_net::RouteConfig,
+    key: std::boxed::Box<dyn Fn(&crate::InventoryReserve) -> Option<i64> + Send + Sync>,
     pub __mailbox_capacity: i32,
     __addr: Option<usize>,
-    __parked: std::collections::HashMap<u64, __Cont___Route_Sequencer>,
+    __parked: std::collections::HashMap<u64, __Cont_Sharded__Inventory>,
 }
 
-impl __Route_Sequencer {
-    pub fn new(group: usize, __dep0: crate::std_net::RouteSelector) -> Self {
+impl Sharded__Inventory {
+    pub fn new(group: usize, config: crate::std_net::RouteConfig, key: impl Fn(&crate::InventoryReserve) -> Option<i64> + Send + Sync + 'static) -> Self {
         Self {
-            group: group.clone(),
-            __dep0,
-            seen: -1i64,
-            __mailbox_capacity: 1i32,
+            group,
+            config,
+            key: std::boxed::Box::new(key),
+            __mailbox_capacity: 16i32,
             __addr: None,
             __parked: std::collections::HashMap::new()
         }
     }
 }
 
-impl crate::__Stateful_Sequencer for __Route_Sequencer {
-    fn next(&mut self, out: crate::scheduler::SalvoReply) {
-        let mut __pick: crate::std_net::RoutePick = crate::std_net::route_pick__Addr_Long(&self.__dep0, self.group, self.seen);
-        self.seen = __pick.version;
-        crate::scheduler::salvo_send_wire(__pick.to, crate::__Msg_Sequencer::Next(out), crate::__PROTO_Sequencer);
+impl crate::__Stateful_Inventory for Sharded__Inventory {
+    fn reserve(&mut self, sku: String, qty: i32, out: crate::scheduler::SalvoReply) {
+        let __msg_p0 = sku;
+        let __msg_p1 = qty;
+        let __msg_p2 = out;
+        let mut m: crate::InventoryReserve = crate::InventoryReserve { sku: __msg_p0, qty: __msg_p1, out: __msg_p2 };
+        let mut k: i64 = {
+            let mut __pick1: Option<i64> = (self.key)(&m);
+            if __pick1.is_some() {
+                let mut __pick1_1 = __pick1.unwrap();
+                __pick1_1
+            } else {
+                0i64
+            }
+        };
+        let mut magnitude: i64 = if (k < 0i64) {
+            i64::wrapping_sub(0i64, k)
+        } else {
+            k
+        };
+        let mut wait: crate::std_time::Duration = (self.config.first_wait).clone();
+        loop {
+            let mut view: crate::std_net::RouteView = crate::std_net::route_view(self.group);
+            let mut n: i32 = crate::std_core_list::size_platform::<crate::std_net::RouteMember>(&view.members);
+            if (n > 0i32) {
+                let mut picked: &crate::std_net::RouteMember = {
+                    let mut __pick2: Option<&crate::std_net::RouteMember> = crate::std_core_list::get_platform::<crate::std_net::RouteMember>(&view.members, ((i64::wrapping_rem(magnitude, ((n) as i64))) as i32));
+                    if __pick2.is_some() {
+                        let mut __pick2_2 = __pick2.unwrap();
+                        __pick2_2
+                    } else {
+                        panic!("salvo: unreachable at std.net:1733:83")
+                    }
+                };
+                let mut __fwd_to_m1: usize = picked.addr;
+                let mut __fwd_msg_m2: crate::InventoryReserve = m;
+                crate::scheduler::salvo_send_wire(__fwd_to_m1, crate::__Msg_Inventory::Reserve(__fwd_msg_m2.sku, __fwd_msg_m2.qty, __fwd_msg_m2.out), crate::__PROTO_Inventory);
+                return;
+            };
+            wait = crate::std_net::route_wait(self.group, &view, wait, &self.config);
+        }
+        panic!("salvo: unreachable at std.net:1729:9");
     }
 }
 
-pub struct __Actor___Route_Sequencer {
-    handler: __Route_Sequencer,
+pub struct __Actor_Sharded__Inventory {
+    handler: Sharded__Inventory,
 }
 
-impl __Actor___Route_Sequencer {
-    pub fn new(handler: __Route_Sequencer) -> Self {
+impl __Actor_Sharded__Inventory {
+    pub fn new(handler: Sharded__Inventory) -> Self {
         Self { handler }
     }
 }
 
-impl crate::scheduler::SalvoActor for __Actor___Route_Sequencer {
+impl crate::scheduler::SalvoActor for __Actor_Sharded__Inventory {
     fn handle(&mut self, _ctx: &crate::scheduler::SalvoCtx, msg: crate::scheduler::SalvoMsg) {
         self.handler.__addr = Some(_ctx.addr);
-        let msg = *msg.downcast::<crate::__Msg_Sequencer>().expect("message of this protocol");
-        crate::__dispatch___Route_Sequencer_Sequencer(&mut self.handler, msg);
+        let msg = *msg.downcast::<crate::__Msg_Inventory>().expect("message of this protocol");
+        crate::__dispatch_Sharded__Inventory_Inventory(&mut self.handler, msg);
     }
 
     fn resume(&mut self, _ctx: &crate::scheduler::SalvoCtx, slot: u64, value: crate::scheduler::SalvoMsg) {
@@ -1826,21 +1885,21 @@ impl crate::scheduler::SalvoActor for __Actor___Route_Sequencer {
             return; // a reply whose continuation is gone: nothing to run
         };
         match __cont {
-            __Cont___Route_Sequencer::Next => crate::__dispatch___Route_Sequencer_Sequencer(&mut self.handler, crate::__Msg_Sequencer::Next(*value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
+            __Cont_Sharded__Inventory::Reserve(__msg_p0, __msg_p1) => crate::__dispatch_Sharded__Inventory_Inventory(&mut self.handler, crate::__Msg_Inventory::Reserve(__msg_p0, __msg_p1, *value.downcast::<crate::scheduler::SalvoReply>().expect("the awaited answer"))),
         }
     }
 
     fn decode_reply(&self, slot: u64, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
         match self.handler.__parked.get(&slot)? {
-            __Cont___Route_Sequencer::Next{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
+            __Cont_Sharded__Inventory::Reserve{ .. } => (|__b: &[u8]| crate::wire::salvo_decode::<crate::scheduler::SalvoReply>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg))(payload),
         }
     }
 }
 
-pub const __DECODE___Route_Sequencer: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg___Route_Sequencer);
-fn __decode_msg___Route_Sequencer(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
-    if proto == crate::__PROTO_Sequencer {
-        return crate::wire::salvo_decode::<crate::__Msg_Sequencer>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
+pub const __DECODE_Sharded__Inventory: Option<crate::scheduler::MsgDecoder> = Some(__decode_msg_Sharded__Inventory);
+fn __decode_msg_Sharded__Inventory(proto: &str, payload: &[u8]) -> Option<crate::scheduler::SalvoMsg> {
+    if proto == crate::__PROTO_Inventory {
+        return crate::wire::salvo_decode::<crate::__Msg_Inventory>(payload).map(|__m| std::boxed::Box::new(__m) as crate::scheduler::SalvoMsg);
     }
     None
 }
@@ -2083,12 +2142,12 @@ pub enum __Cont_Booting {
     Stop,
 }
 
-pub enum __Cont___Route_Inventory {
-    Reserve(String, i32),
+pub enum __Cont_Elected__Sequencer {
+    Next,
 }
 
-pub enum __Cont___Route_Sequencer {
-    Next,
+pub enum __Cont_Sharded__Inventory {
+    Reserve(String, i32),
 }
 
 #[derive(Clone)]
@@ -2229,84 +2288,84 @@ impl crate::__Stateless_Boot for __Stub_Boot {
 
 pub fn __dispatch_Sequencing_Sequencer(__handler: &mut crate::Sequencing, mut __msg: crate::__Msg_Sequencer) {
     if matches!(__msg, crate::__Msg_Sequencer::Next(..)) {
-        let crate::__Msg_Sequencer::Next(out) = __msg else { unreachable!() };
+        let crate::__Msg_Sequencer::Next(out) = __msg;
         crate::__Stateful_Sequencer::next(&mut *__handler, out);
     };
 }
 
 pub fn __dispatch_Stocking_Inventory(__handler: &mut crate::Stocking, mut __msg: crate::__Msg_Inventory) {
     if matches!(__msg, crate::__Msg_Inventory::Reserve(..)) {
-        let crate::__Msg_Inventory::Reserve(sku, qty, out) = __msg else { unreachable!() };
+        let crate::__Msg_Inventory::Reserve(sku, qty, out) = __msg;
         crate::__Stateful_Inventory::reserve(&mut *__handler, sku, qty, out);
     };
 }
 
 pub fn __dispatch_Indexing_Search(__handler: &mut crate::Indexing, mut __msg: crate::__Msg_Search) {
     if matches!(__msg, crate::__Msg_Search::Query(..)) {
-        let crate::__Msg_Search::Query(word, out) = __msg else { unreachable!() };
+        let crate::__Msg_Search::Query(word, out) = __msg;
         crate::__Stateless_Search::query(&mut *__handler, word, out);
     };
 }
 
 pub fn __dispatch_Looking_Lookup(__handler: &mut crate::Looking, mut __msg: crate::__Msg_Lookup) {
     if matches!(__msg, crate::__Msg_Lookup::Lookup(..)) {
-        let crate::__Msg_Lookup::Lookup(key, out) = __msg else { unreachable!() };
+        let crate::__Msg_Lookup::Lookup(key, out) = __msg;
         crate::__Stateless_Lookup::lookup(&mut *__handler, key, out);
     };
 }
 
 pub fn __dispatch_SlowLooking_Lookup(__handler: &mut crate::SlowLooking, mut __msg: crate::__Msg_Lookup) {
     if matches!(__msg, crate::__Msg_Lookup::Lookup(..)) {
-        let crate::__Msg_Lookup::Lookup(key, out) = __msg else { unreachable!() };
+        let crate::__Msg_Lookup::Lookup(key, out) = __msg;
         crate::__Stateful_Lookup::lookup(&mut *__handler, key, out);
     };
 }
 
 pub fn __dispatch_priv_SlowLooking(__handler: &mut crate::SlowLooking, mut __msg: crate::__Priv_SlowLooking) {
     if matches!(__msg, crate::__Priv_SlowLooking::Answer(..)) {
-        let crate::__Priv_SlowLooking::Answer(key, out, fired) = __msg else { unreachable!() };
+        let crate::__Priv_SlowLooking::Answer(key, out, fired) = __msg;
         __handler.answer(key, out, fired);
     };
 }
 
 pub fn __dispatch_Scattering_Search(__handler: &mut crate::Scattering, mut __msg: crate::__Msg_Search) {
     if matches!(__msg, crate::__Msg_Search::Query(..)) {
-        let crate::__Msg_Search::Query(word, out) = __msg else { unreachable!() };
+        let crate::__Msg_Search::Query(word, out) = __msg;
         crate::__Stateless_Search::query(&mut *__handler, word, out);
     };
 }
 
 pub fn __dispatch_Gathering_Gather(__handler: &mut crate::Gathering, mut __msg: crate::__Msg_Gather) {
     if matches!(__msg, crate::__Msg_Gather::Scatter(..)) {
-        let crate::__Msg_Gather::Scatter(word, members, out) = __msg else { unreachable!() };
+        let crate::__Msg_Gather::Scatter(word, members, out) = __msg;
         crate::__Stateful_Gather::scatter(&mut *__handler, word, members, out);
     };
 }
 
 pub fn __dispatch_priv_Gathering(__handler: &mut crate::Gathering, mut __msg: crate::__Priv_Gathering) {
     if matches!(__msg, crate::__Priv_Gathering::Partial(..)) {
-        let crate::__Priv_Gathering::Partial(n) = __msg else { unreachable!() };
+        let crate::__Priv_Gathering::Partial(n) = __msg;
         __handler.partial(n);
     };
 }
 
 pub fn __dispatch_Hedging_Lookup(__handler: &mut crate::Hedging, mut __msg: crate::__Msg_Lookup) {
     if matches!(__msg, crate::__Msg_Lookup::Lookup(..)) {
-        let crate::__Msg_Lookup::Lookup(key, out) = __msg else { unreachable!() };
+        let crate::__Msg_Lookup::Lookup(key, out) = __msg;
         crate::__Stateless_Lookup::lookup(&mut *__handler, key, out);
     };
 }
 
 pub fn __dispatch_Racing_Race(__handler: &mut crate::Racing, mut __msg: crate::__Msg_Race) {
     if matches!(__msg, crate::__Msg_Race::Race(..)) {
-        let crate::__Msg_Race::Race(key, members, out) = __msg else { unreachable!() };
+        let crate::__Msg_Race::Race(key, members, out) = __msg;
         crate::__Stateful_Race::race(&mut *__handler, key, members, out);
     };
 }
 
 pub fn __dispatch_priv_Racing(__handler: &mut crate::Racing, mut __msg: crate::__Priv_Racing) {
     if matches!(__msg, crate::__Priv_Racing::First(..)) {
-        let crate::__Priv_Racing::First(answer) = __msg else { unreachable!() };
+        let crate::__Priv_Racing::First(answer) = __msg;
         __handler.first(answer);
     };
 }
@@ -2321,16 +2380,16 @@ pub fn __dispatch_Booting_Boot(__handler: &mut crate::Booting, mut __msg: crate:
     };
 }
 
-pub fn __dispatch___Route_Inventory_Inventory(__handler: &mut crate::__Route_Inventory, mut __msg: crate::__Msg_Inventory) {
-    if matches!(__msg, crate::__Msg_Inventory::Reserve(..)) {
-        let crate::__Msg_Inventory::Reserve(sku, qty, out) = __msg else { unreachable!() };
-        crate::__Stateful_Inventory::reserve(&mut *__handler, sku, qty, out);
+pub fn __dispatch_Elected__Sequencer_Sequencer(__handler: &mut crate::Elected__Sequencer, mut __msg: crate::__Msg_Sequencer) {
+    if matches!(__msg, crate::__Msg_Sequencer::Next(..)) {
+        let crate::__Msg_Sequencer::Next(out) = __msg;
+        crate::__Stateful_Sequencer::next(&mut *__handler, out);
     };
 }
 
-pub fn __dispatch___Route_Sequencer_Sequencer(__handler: &mut crate::__Route_Sequencer, mut __msg: crate::__Msg_Sequencer) {
-    if matches!(__msg, crate::__Msg_Sequencer::Next(..)) {
-        let crate::__Msg_Sequencer::Next(out) = __msg else { unreachable!() };
-        crate::__Stateful_Sequencer::next(&mut *__handler, out);
+pub fn __dispatch_Sharded__Inventory_Inventory(__handler: &mut crate::Sharded__Inventory, mut __msg: crate::__Msg_Inventory) {
+    if matches!(__msg, crate::__Msg_Inventory::Reserve(..)) {
+        let crate::__Msg_Inventory::Reserve(sku, qty, out) = __msg;
+        crate::__Stateful_Inventory::reserve(&mut *__handler, sku, qty, out);
     };
 }

@@ -1453,66 +1453,32 @@ impl<'a, 'p> Lower<'a, 'p> {
     }
 
     /// [actor-receive] `forward(to, m)`: the send of the member `m` is a
-    /// message of, with `m`'s fields as its arguments — a `Switch` over the
-    /// arms, each narrowed and sent; one arm is sent as it is. The effect is
-    /// `to`'s, which the call bound concretely (a router is built at the
-    /// protocol it routes).
-    fn forward(&mut self, to: &AExpr, m: &AExpr, ty: Ty, span: Span) -> Expr {
+    /// message of, with `m`'s fields as its arguments (`forward_stmts`).
+    /// Inside a handler generic over its face the effect is not known yet:
+    /// the call stays, and the instantiation lowers it
+    /// (`actors::lower_forwards`).
+    fn forward(&mut self, decl: DeclId, type_args: Vec<Ty>, to: &AExpr, m: &AExpr, ty: Ty, span: Span) -> Expr {
         let to = self.expr(to);
         let m = self.expr(m);
-        let Some(effect) = addr_effect_key(&to.ty) else {
-            return unsupported(ty, span, "`forward` to an address of no concrete effect");
-        };
-        let symbols = self.ctx.symbols;
-        let (Some(decl), Some(arms), Some(module)) = (symbols.effects.get(effect.as_str()), symbols.message_arms.get(effect.as_str()), symbols.key_modules.get(effect.as_str())) else {
-            return unsupported(ty, span, "`forward` of a protocol with no messages");
-        };
-        let interface = crate::decl_id::DeclId::intern(crate::decl_id::DeclPath { module: (*module).clone(), kind: crate::decl_id::DeclKind::Effect, path: vec![decl.name.name.clone()], sig: None, ordinal: 0 });
-        let sends: Vec<usize> = decl.fns.iter().enumerate().filter(|(_, f)| f.is_send).map(|(i, _)| i).collect();
-        let union_ty = m.ty.clone();
-        // The target and the message, each read once.
-        let to_l = self.fresh("__fwd_to");
-        let msg_l = self.fresh("__fwd_msg");
-        let mut stmts = vec![
-            Stmt::Let { id: self.id(), local: to_l.clone(), ty: to.ty.clone(), value: to.clone() },
-            Stmt::Let { id: self.id(), local: msg_l.clone(), ty: union_ty.clone(), value: m },
-        ];
-        let read = |l: &Local, ty: &Ty, steps: Vec<Step>, consume: bool| Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: l.clone(), steps }, consume, moved: false } };
-        let send_of = |this: &mut Self, k: usize, from: &Local, arm_ty: &Ty| -> Option<Expr> {
-            let s = symbols.structs.get(arms.get(k)?)?;
-            let file = this.file_idx;
-            let args: Vec<Expr> = s.fields.iter().map(|f| {
-                let fty = f.ty.as_ref().map(|t| this.ctx.written_ty(file, t)).unwrap_or(Ty::Unknown);
-                read(from, &fty, vec![Step::Field(f.name.name.clone())], true)
-            }).collect();
-            let _ = arm_ty;
-            Some(Expr { ty: Ty::none(), span, kind: ExprKind::Send { addr: Box::new(read(&to_l, &to.ty, Vec::new(), false)), member: MemberRef { interface, index: *sends.get(k)? }, args } })
-        };
-        if arms.len() == 1 {
-            let arm_ty = Ty::Named { name: arms[0].to_string(), args: Vec::new() };
-            match send_of(self, 0, &msg_l, &arm_ty) {
-                Some(send) => stmts.push(Stmt::Expr(send)),
-                None => return unsupported(ty, span, "`forward` of an unknown message"),
-            }
-        } else {
-            let sw = self.id();
-            let mut switch_arms = Vec::new();
-            for k in 0..arms.len() {
-                let arm_ty = Ty::Named { name: arms[k].to_string(), args: Vec::new() };
-                let nar = self.fresh("__fwd_arm");
-                let nid = self.id();
-                let narrow = Stmt::Narrow { id: nid, local: nar.clone(), ty: arm_ty.clone(), from: Place { root: msg_l.clone(), steps: Vec::new() }, from_ty: union_ty.clone(), because: Justification::Arm { switch: sw, arm: k } };
-                let Some(send) = send_of(self, k, &nar, &arm_ty) else {
-                    return unsupported(ty, span, "`forward` of an unknown message");
-                };
-                switch_arms.push(SwitchArm { test: ArmTest::Arm(k), body: Block { stmts: vec![narrow, Stmt::Expr(send)], value: None, span } });
-            }
-            stmts.push(Stmt::Expr(Expr { ty: Ty::none(), span, kind: ExprKind::Switch { id: sw, subject: Box::new(read(&msg_l, &union_ty, Vec::new(), false)), arms: switch_arms } }));
+        if crate::ir::build::actors::addr_effect_key(&to.ty).is_none() {
+            return Expr { ty, span, kind: ExprKind::Call { target: FnRef::Decl(decl), type_args, args: vec![to, m], moved: false } };
         }
-        // Statements ahead of the one the call is in, as every lowering
-        // that needs them makes them.
-        self.pending.extend(stmts);
-        Expr { ty, span, kind: ExprKind::Unit }
+        let mut n = 0u32;
+        let mut fresh = |base: &str| {
+            n += 1;
+            Local(format!("{base}~f{n}"))
+        };
+        let mut ids: Vec<NodeId> = (0..64).map(|_| self.id()).collect();
+        let mut id = || ids.pop().unwrap_or(NodeId(u32::MAX - 2));
+        match crate::ir::build::actors::forward_stmts(self.ctx, self.file_idx, to, m, span, &mut fresh, &mut id) {
+            Ok(stmts) => {
+                // Statements ahead of the one the call is in, as every
+                // lowering that needs them makes them.
+                self.pending.extend(stmts);
+                Expr { ty, span, kind: ExprKind::Unit }
+            }
+            Err(what) => unsupported(ty, span, what),
+        }
     }
 
     fn call(&mut self, callee: &AExpr, args: &[AExpr], named: &[ast::NamedArg], span: Span) -> Expr {
@@ -1550,10 +1516,11 @@ impl<'a, 'p> Lower<'a, 'p> {
             };
         }
         // [actor-use-addr] a send to an actor through an addr.
-        if let Some(CalleeKind::Fn { decl, .. }) = &callee_kind {
+        if let Some(CalleeKind::Fn { decl, type_args }) = &callee_kind {
             // [actor-receive] `forward(to, m)`: the message's own send.
-            if decl.name() == salvo_syntax::known::FORWARD_FN && *decl.module() == crate::ModulePath::std(&["core", "actor"]) && args.len() == 2 {
-                return self.forward(&args[0], &args[1], ty, span);
+            if crate::ir::build::actors::is_forward(decl) && args.len() == 2 {
+                let type_args = self.ctx.ir_tys(type_args);
+                return self.forward(*decl, type_args, &args[0], &args[1], ty, span);
             }
         }
         if let Some(CalleeKind::Send { interface, index, .. }) = callee_kind.clone() {
@@ -3299,21 +3266,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
         // `use H(args)`: a construct, then one instance per face.
         let deps: Vec<Instance> = construction.map(|c| c.deps.clone()).unwrap_or_default();
-        // [actor-route-stub] `use any group`: the route derived for the protocol
-        // (`actors::generate`), over the group and the selector in scope.
-        let routed = construction.and_then(|c| match &c.handler {
-            Constructed::Route(effect) => Some(effect.clone()),
-            Constructed::Handler(_) => None,
-        });
-        let route = routed.map(|effect| {
-            let module = self.ctx.symbols.key_modules.get(effect.as_str()).map(|m| (*m).clone()).unwrap_or(crate::ModulePath(Vec::new()));
-            let group = self.expr(handler);
-            let selector = deps.first().map(|d| self.effect_instance(d, span));
-            let mut fields = vec![("group".to_string(), group)];
-            fields.extend(selector.map(|s| ("__dep0".to_string(), s)));
-            Expr { ty: Ty::Named { name: crate::ir::build::actors::route_key(&effect, &module), args: Vec::new() }, span, kind: ExprKind::Construct { fields } }
-        });
-        let Some(construct) = route.or_else(|| self.construct_handler(handler, &deps, with_items, span)) else {
+        let Some(construct) = self.construct_handler(handler, &deps, with_items, span) else {
             self.error(span, messages::effect_use_lower_not_construction());
             return (vec![Stmt::Expr(unsupported(Ty::Unknown, span, "use"))], Vec::new());
         };
@@ -3378,7 +3331,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         // [effect-handler-deps] The handler the checker resolved the
         // construction to, by key.
         let construction = self.ctx.checked.constructions.get(&key)?;
-        let Constructed::Handler(hkey) = &construction.handler else { return None };
+        let Constructed::Handler(hkey) = &construction.handler;
         let hkey = hkey.clone();
         let decl = self.ctx.symbols.handlers.get(hkey.as_str()).copied()?;
         let call_span = handler.span();
@@ -3790,13 +3743,3 @@ fn pack_fn_ty(t: &Ty, packs: &[usize]) -> Ty {
     Ty::Fn { params: params.clone(), ret: ret.clone(), contract: contract.clone(), effects: grouped }
 }
 
-/// [actor-receive] The effect key of an address type: `E` of `eff[E]`.
-fn addr_effect_key(ty: &Ty) -> Option<String> {
-    match ty.strip_quals() {
-        Ty::Named { name, args } if name == "Addr" && args.len() == 1 => match args[0].strip_quals() {
-            Ty::Named { name, args } if args.is_empty() => Some(name.clone()),
-            _ => None,
-        },
-        _ => None,
-    }
-}

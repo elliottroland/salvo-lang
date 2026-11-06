@@ -226,8 +226,6 @@ pub fn program_expansion(per_file: Vec<Vec<FileTest>>, comptime: crate::comptime
     out.comptime_hovers = comptime.hovers;
     out.comptime_when_arms = comptime.when_arms;
     out.interfaces = Some(Arc::new(comptime.interfaces));
-    // [actor-route-stub] Routes are not an expansion: the IR derives one per
-    // routed protocol (the pipeline record R7).
     // [effect-alias] [effect-prereq] Aliases and prerequisites are not
     // expansions: aliases resolve in scope and both are expanded where an
     // effect list is lowered (the pipeline record R6).

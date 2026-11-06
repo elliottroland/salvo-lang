@@ -1093,7 +1093,7 @@ pub fn __dispatch_Desking_Desk(__handler: &mut crate::Desking, mut __msg: crate:
 
 pub fn __dispatch_Breaking_Fragile(__handler: &mut crate::Breaking, mut __msg: crate::__Msg_Fragile) {
     if matches!(__msg, crate::__Msg_Fragile::Crash) {
-        let crate::__Msg_Fragile::Crash = __msg else { unreachable!() };
+        let crate::__Msg_Fragile::Crash = __msg;
         crate::__Stateless_Fragile::crash(&mut *__handler);
     };
 }

@@ -160,15 +160,6 @@ fn fingerprint(gate: &super::gate::Gate, checked: &Checked) -> u64 {
             p.sort();
             h(&p)
         },
-        {
-            let mut r: Vec<String> = checked.route_keys.iter().map(|(k, v)| {
-                let mut v: Vec<_> = v.iter().collect();
-                v.sort();
-                format!("{k}: {v:?}")
-            }).collect();
-            r.sort();
-            h(&r)
-        },
     ];
     h(&parts)
 }

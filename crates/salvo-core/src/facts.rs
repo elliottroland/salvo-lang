@@ -242,7 +242,6 @@ fn snippet(source: &str, span: Span) -> String {
 fn construction_mark(source: &str, c: &crate::check::Construction) -> String {
     let built = match &c.handler {
         crate::check::Constructed::Handler(h) => crate::typekey::shown_text(h).into_owned(),
-        crate::check::Constructed::Route(e) => format!("route {}", crate::typekey::shown_text(e)),
     };
     let args = if c.type_args.is_empty() {
         String::new()

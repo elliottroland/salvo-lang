@@ -6,6 +6,7 @@
 
 use crate::naming::msg_variant_name;
 use crate::types::Ty;
+use salvo_syntax::Span;
 use salvo_syntax::known;
 
 use super::Ctx;
@@ -24,35 +25,6 @@ pub fn enum_key(name: &str, module: &crate::ModulePath) -> String {
     format!("{name}{}{}", crate::typekey::SEP, module.0.join("."))
 }
 
-/// [actor-route-stub] The derived route over protocol `effect` (a type key): its
-/// name, after the written name like every derived name (it is placed in the
-/// protocol's module, where no other protocol has that name), and its key —
-/// keyed by the protocol's module.
-pub fn route_name(effect: &str) -> String {
-    format!("__Route_{}", crate::typekey::plain(effect).replace('.', "_"))
-}
-
-pub fn route_key(effect: &str, module: &crate::ModulePath) -> String {
-    enum_key(&route_name(effect), module)
-}
-
-/// [actor-route-stub] A `std.net` fn by name and arity, for the derived routes.
-fn net_fn(ctx: &Ctx<'_>, name: &str, arity: usize) -> Option<DeclId> {
-    for (file_idx, (file, module)) in ctx.program.files.iter().zip(&ctx.program.modules).enumerate() {
-        if file.module != crate::ModulePath::std(&["net"]) {
-            continue;
-        }
-        for (item, it) in module.items.iter().enumerate() {
-            if let salvo_syntax::ast::Item::Fn(f) = it {
-                if f.name.name == name && f.params.iter().filter(|p| !p.implicit).count() == arity {
-                    return ctx.resolution.decls.item(file_idx, item);
-                }
-            }
-        }
-    }
-    None
-}
-
 struct Iface {
     key: String,
     name: String,
@@ -62,9 +34,13 @@ struct Iface {
 }
 
 pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
+    // [actor-receive] Phase 0: a handler generic over the effect it serves
+    // (`handler Relay<E>(…) for E`) is built once per effect it is
+    // constructed at, as an ordinary handler of that effect.
+    instantiate_generic_faces(ctx, program);
     // The interface a face names, wherever it is declared.
     let key_of = |id: &DeclId, name: &str| -> String {
-        // [actor-route-stub] A generated declaration is keyed by its module.
+        // [actor-router] A generated declaration is keyed by its module.
         if id.kind() == crate::decl_id::DeclKind::Generated {
             return enum_key(name, id.module());
         }
@@ -168,113 +144,6 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
                 },
             ));
         }
-    }
-    // [actor-route-stub] Phase 1b: the route over every protocol a `use any`
-    // routes (user decision R7), one per protocol, in the protocol's module
-    // — an ordinary actor-faced impl from here on, so Phase 2 gives it its
-    // dispatch. Each member asks the selector for a member and forwards:
-    //   let __pick = route_pick(group, seen[, key_hash(k)])
-    //   seen = __pick.version
-    //   send X#m(__pick.to, params…)
-    let mut routed: Vec<&String> = ctx
-        .checked
-        .constructions
-        .values()
-        .filter_map(|c| match &c.handler {
-            crate::check::Constructed::Route(effect) => Some(effect),
-            crate::check::Constructed::Handler(_) => None,
-        })
-        .collect();
-    routed.sort();
-    routed.dedup();
-    let pick_plain = net_fn(ctx, known::ROUTE_PICK_FN, 2);
-    let pick_keyed = net_fn(ctx, known::ROUTE_PICK_FN, 3);
-    let key_hash = net_fn(ctx, "key_hash", 1);
-    let mut routes: Vec<(usize, ImplDecl)> = Vec::new();
-    for effect in routed {
-        let Some(ii) = ifaces.iter().position(|i| i.key == *effect && i.actor) else { continue };
-        let Some(mi) = program.modules.iter().position(|m| m.path == *ifaces[ii].id.module()) else { continue };
-        let Some(Decl::Interface(iface)) = program.modules[mi].decls.iter().find(|d| matches!(d, Decl::Interface(x) if x.id == ifaces[ii].id)) else { continue };
-        let span = iface.span;
-        let face = Ty::Named { name: effect.clone(), args: Vec::new() };
-        let addr_of = |t: Ty| Ty::Named { name: "Addr".into(), args: vec![t] };
-        let group_ty = addr_of(Ty::Named { name: known::ACTOR_GROUP_EFFECT.into(), args: vec![face.clone()] });
-        let selector = Ty::Named { name: known::ROUTE_SELECTOR_EFFECT.into(), args: vec![face.clone()] };
-        let pick_ty = Ty::Named { name: known::ROUTE_PICK_STRUCT.into(), args: vec![face.clone()] };
-        let long = Ty::named("Long");
-        let read = |l: &str, ty: &Ty, steps: Vec<Step>, consume: bool| Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: Local(l.into()), steps }, consume, moved: false } };
-        let keys = ctx.checked.route_keys.get(effect.as_str());
-        let mut members: Vec<FnDecl> = Vec::new();
-        for (index, x) in iface.members.iter().enumerate().filter(|(_, x)| x.send) {
-            let key_param = keys.and_then(|k| k.get(&x.name)).and_then(|n| x.params.iter().find(|p| p.local.0 == *n));
-            let mut args = vec![read("__dep0", &selector, Vec::new(), false), read("group", &group_ty, Vec::new(), false), read("seen", &long, Vec::new(), false)];
-            let target = match key_param {
-                Some(p) => {
-                    args.push(Expr { ty: long.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(key_hash.clone().unwrap_or_else(|| ifaces[ii].id.clone())), type_args: vec![p.ty.clone()], args: vec![read(&p.local.0, &p.ty, Vec::new(), false)], moved: false } });
-                    pick_keyed.clone()
-                }
-                None => pick_plain.clone(),
-            };
-            let Some(target) = target else { continue };
-            let pick = Expr { ty: pick_ty.clone(), span, kind: ExprKind::Call { target: FnRef::Decl(target), type_args: vec![face.clone()], args, moved: false } };
-            let to = read("__pick", &addr_of(face.clone()), vec![Step::Field("to".into())], false);
-            let forward: Vec<Expr> = x.params.iter().map(|p| read(&p.local.0, &p.ty, Vec::new(), true)).collect();
-            let stmts = vec![
-                Stmt::Let { id: NodeId(1), local: Local("__pick".into()), ty: pick_ty.clone(), value: pick },
-                Stmt::Assign { place: Place { root: Local("seen".into()), steps: Vec::new() }, value: read("__pick", &long, vec![Step::Field("version".into())], false) },
-                Stmt::Expr(Expr { ty: Ty::none(), span, kind: ExprKind::Send { addr: Box::new(to), member: MemberRef { interface: iface.id.clone(), index }, args: forward } }),
-            ];
-            members.push(FnDecl {
-                id: DeclId::generated(iface.id.module(), &[&route_name(effect), &x.name]),
-                name: x.name.clone(),
-                exported: false,
-                kind: FnKind::Member { faces: 0 },
-                send: true,
-                type_params: Vec::new(),
-                params: x.params.clone(),
-                effect_params: 0,
-                implicit_params: 0,
-                ret: Ty::none(),
-                borrows: Vec::new(),
-                holds: Vec::new(),
-                ref_anchors: Vec::new(),
-                throws: None,
-                result_check: None,
-                factories: None,
-                body: Some(Block { stmts, value: None, span }),
-                span,
-                fate: FateFacts::default(),
-            });
-        }
-        let param = |name: &str, ty: Ty| Param { local: Local(name.into()), ty, mode: crate::param_mode::PassMode::Lent, variadic: false, check: None, span };
-        let mailbox = Expr { ty: Ty::named(known::MAILBOX_TYPE), span, kind: ExprKind::Construct { fields: vec![("capacity".into(), Expr { ty: Ty::named("Int"), span, kind: ExprKind::Int(1) })] } };
-        routes.push((
-            mi,
-            ImplDecl {
-                id: next_id(iface.id.module(), &route_name(effect)),
-                name: route_name(effect),
-                exported: true,
-                type_params: Vec::new(),
-                faces: vec![face],
-                face_any: vec![true],
-                ctor_params: vec![param("group", group_ty)],
-                deps: vec![selector],
-                state: vec![Field { name: "seen".into(), ty: long.clone(), canbe_mut: false, default: Some(Expr { ty: long, span, kind: ExprKind::Long(-1) }) }],
-                mailbox: Some(mailbox),
-                init: None,
-                members,
-                stateful: true,
-                platform: false,
-                threadsafe: false,
-                intrinsic: false,
-                dispatch: Vec::new(),
-                stub: false,
-                span,
-            },
-        ));
-    }
-    for (mi, r) in routes {
-        program.modules[mi].decls.push(Decl::Impl(r));
     }
     // [actor-receive] Phase 1c: a handler that takes a face's messages with
     // `send fn receive(m: Message<F>)` answers each of `F`'s send members
@@ -506,4 +375,278 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
         }
     }
     names
+}
+
+/// [actor-receive] Whether `decl` is std's `forward`.
+pub(crate) fn is_forward(decl: &DeclId) -> bool {
+    decl.name() == known::FORWARD_FN && *decl.module() == crate::ModulePath::std(&["core", "actor"])
+}
+
+/// [actor-receive] The effect key of an address type: `E` of `eff[E]`, for a
+/// concrete `E`.
+pub(crate) fn addr_effect_key(ty: &Ty) -> Option<String> {
+    match ty.strip_quals() {
+        Ty::Named { name, args } if name == "Addr" && args.len() == 1 => match args[0].strip_quals() {
+            Ty::Named { name, args } if args.is_empty() => Some(name.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// [actor-receive] `forward(to, m)` as statements: `to` and `m` bound once,
+/// then the send of the member `m` is a message of, with `m`'s fields as its
+/// arguments — a `Switch` over the arms, each narrowed and sent; one arm is
+/// sent as it is. The effect is `to`'s, which must be concrete.
+pub(crate) fn forward_stmts(
+    ctx: &Ctx<'_>,
+    file_idx: usize,
+    to: Expr,
+    m: Expr,
+    span: Span,
+    fresh: &mut dyn FnMut(&str) -> Local,
+    id: &mut dyn FnMut() -> NodeId,
+) -> Result<Vec<Stmt>, &'static str> {
+    let effect = addr_effect_key(&to.ty).ok_or("`forward` to an address of no concrete effect")?;
+    let symbols = ctx.symbols;
+    let (Some(decl), Some(arms), Some(module)) = (symbols.effects.get(effect.as_str()), symbols.message_arms.get(effect.as_str()), symbols.key_modules.get(effect.as_str())) else {
+        return Err("`forward` of a protocol with no messages");
+    };
+    let interface = DeclId::intern(crate::decl_id::DeclPath { module: (*module).clone(), kind: crate::decl_id::DeclKind::Effect, path: vec![decl.name.name.clone()], sig: None, ordinal: 0 });
+    let sends: Vec<usize> = decl.fns.iter().enumerate().filter(|(_, f)| f.is_send).map(|(i, _)| i).collect();
+    let union_ty = crate::check::expand_message_in(symbols, m.ty.clone());
+    let to_ty = to.ty.clone();
+    let to_l = fresh("__fwd_to");
+    let msg_l = fresh("__fwd_msg");
+    let mut stmts = vec![
+        Stmt::Let { id: id(), local: to_l.clone(), ty: to_ty.clone(), value: to },
+        Stmt::Let { id: id(), local: msg_l.clone(), ty: union_ty.clone(), value: Expr { ty: union_ty.clone(), ..m } },
+    ];
+    let read = |l: &Local, ty: &Ty, steps: Vec<Step>, consume: bool| Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: l.clone(), steps }, consume, moved: false } };
+    let send_of = |k: usize, from: &Local| -> Option<Expr> {
+        let s = symbols.structs.get(arms.get(k)?)?;
+        let args: Vec<Expr> = s
+            .fields
+            .iter()
+            .map(|f| {
+                let fty = f.ty.as_ref().map(|t| ctx.written_ty(file_idx, t)).unwrap_or(Ty::Unknown);
+                read(from, &fty, vec![Step::Field(f.name.name.clone())], true)
+            })
+            .collect();
+        Some(Expr { ty: Ty::none(), span, kind: ExprKind::Send { addr: Box::new(read(&to_l, &to_ty, Vec::new(), false)), member: MemberRef { interface, index: *sends.get(k)? }, args } })
+    };
+    if arms.len() == 1 {
+        stmts.push(Stmt::Expr(send_of(0, &msg_l).ok_or("`forward` of an unknown message")?));
+        return Ok(stmts);
+    }
+    let sw = id();
+    let mut switch_arms = Vec::new();
+    for (k, arm) in arms.iter().enumerate() {
+        let arm_ty = Ty::Named { name: (*arm).to_string(), args: Vec::new() };
+        let nar = fresh("__fwd_arm");
+        let narrow = Stmt::Narrow { id: id(), local: nar.clone(), ty: arm_ty, from: Place { root: msg_l.clone(), steps: Vec::new() }, from_ty: union_ty.clone(), because: Justification::Arm { switch: sw, arm: k } };
+        let send = send_of(k, &nar).ok_or("`forward` of an unknown message")?;
+        switch_arms.push(SwitchArm { test: ArmTest::Arm(k), body: Block { stmts: vec![narrow, Stmt::Expr(send)], value: None, span } });
+    }
+    stmts.push(Stmt::Expr(Expr { ty: Ty::none(), span, kind: ExprKind::Switch { id: sw, subject: Box::new(read(&msg_l, &union_ty, Vec::new(), false)), arms: switch_arms } }));
+    Ok(stmts)
+}
+
+/// [actor-receive] Lowers every `forward` call left in `fd` (a handler
+/// generic over its face, now instantiated): a statement `forward(to, m)`
+/// becomes [`forward_stmts`]. One anywhere else is refused, never emitted.
+fn lower_forwards(ctx: &Ctx<'_>, fd: &mut FnDecl) {
+    let mut n = 0u32;
+    let mut next_id = u32::MAX - 1000;
+    crate::ir::walk::fn_stmt_lists_mut(fd, &mut |stmts: &mut Vec<Stmt>| {
+        let taken = std::mem::take(stmts);
+        for s in taken {
+            match s {
+                Stmt::Expr(Expr { kind: ExprKind::Call { target: FnRef::Decl(d), args, .. }, span, ty }) if is_forward(&d) && args.len() == 2 => {
+                    let mut it = args.into_iter();
+                    let (to, mut m) = (it.next().unwrap(), it.next().unwrap());
+                    // `forward` moves its message: in the generic body its
+                    // type owed nothing yet, so the read was not a move.
+                    if let ExprKind::Read { consume, .. } = &mut m.kind {
+                        *consume = true;
+                    }
+                    let mut fresh = |base: &str| {
+                        n += 1;
+                        Local(format!("{base}~m{n}"))
+                    };
+                    let mut id = || {
+                        next_id -= 1;
+                        NodeId(next_id)
+                    };
+                    match forward_stmts(ctx, 0, to, m, span, &mut fresh, &mut id) {
+                        Ok(more) => stmts.extend(more),
+                        Err(what) => stmts.push(Stmt::Expr(crate::ir::build::unsupported(ty, span, what))),
+                    }
+                }
+                other => stmts.push(other),
+            }
+        }
+    });
+}
+
+/// [actor-receive] Calls `f` on every named type in `t`, at any depth.
+fn each_named(t: &Ty, f: &mut impl FnMut(&str, &[Ty])) {
+    match t {
+        Ty::Named { name, args } => {
+            f(name, args);
+            for a in args {
+                each_named(a, f);
+            }
+        }
+        Ty::Qualified { base, .. } => each_named(base, f),
+        Ty::Union(xs) | Ty::Tuple(xs) => xs.iter().for_each(|x| each_named(x, f)),
+        Ty::Array(e) => each_named(e, f),
+        Ty::Fn { params, ret, effects, .. } => {
+            params.iter().for_each(|x| each_named(x, f));
+            each_named(ret, f);
+            effects.iter().for_each(|x| each_named(x, f));
+        }
+        _ => {}
+    }
+}
+
+/// [actor-receive] `t` with each type parameter of `map` replaced, then each
+/// `Message<X>` it now names expanded to `X`'s arms.
+fn subst_ty(t: &Ty, map: &std::collections::HashMap<String, Ty>, rename: &dyn Fn(&str, &[Ty]) -> Option<String>) -> Ty {
+    let out = match t {
+        Ty::Var(v) => map.get(v).cloned().unwrap_or_else(|| t.clone()),
+        Ty::Named { name, args } => {
+            let args: Vec<Ty> = args.iter().map(|a| subst_ty(a, map, rename)).collect();
+            match rename(name, &args) {
+                Some(new) => Ty::Named { name: new, args: Vec::new() },
+                None => Ty::Named { name: name.clone(), args },
+            }
+        }
+        Ty::Qualified { base, quals } => Ty::Qualified { base: Box::new(subst_ty(base, map, rename)), quals: quals.clone() },
+        Ty::Union(xs) => Ty::Union(xs.iter().map(|x| subst_ty(x, map, rename)).collect()),
+        Ty::Tuple(xs) => Ty::Tuple(xs.iter().map(|x| subst_ty(x, map, rename)).collect()),
+        Ty::Array(e) => Ty::Array(Box::new(subst_ty(e, map, rename))),
+        Ty::Fn { params, ret, contract, effects } => Ty::Fn {
+            params: params.iter().map(|x| subst_ty(x, map, rename)).collect(),
+            ret: Box::new(subst_ty(ret, map, rename)),
+            contract: contract.clone(),
+            effects: effects.iter().map(|x| subst_ty(x, map, rename)).collect(),
+        },
+        other => other.clone(),
+    };
+    out
+}
+
+/// [actor-receive] Phase 0: every handler generic over the effect it serves
+/// (a face that is one of its own type parameters), instantiated at each
+/// list of type arguments the program constructs it at — `Relay<Inventory>`
+/// becomes `Relay__Inventory`, an ordinary handler of `Inventory` with
+/// `Message<Inventory>` expanded to its arms and its `forward`s lowered —
+/// and every type naming the instantiation renamed to it. The generic
+/// declaration leaves the program: no backend could implement a type
+/// parameter.
+fn instantiate_generic_faces(ctx: &Ctx<'_>, program: &mut Program) {
+    let mut generic: Vec<(String, usize, usize)> = Vec::new();
+    for (mi, m) in program.modules.iter().enumerate() {
+        for (di, d) in m.decls.iter().enumerate() {
+            let Decl::Impl(h) = d else { continue };
+            let faced = h.faces.iter().any(|f| matches!(f.strip_quals(), Ty::Var(v) if h.type_params.iter().any(|t| t.name == *v)));
+            if faced {
+                let key = ctx.symbols.key_of_id(h.id).unwrap_or(&h.name).to_string();
+                generic.push((key, mi, di));
+            }
+        }
+    }
+    if generic.is_empty() {
+        return;
+    }
+    // Every concrete list of type arguments each is named at.
+    let mut insts: Vec<(usize, Vec<Ty>)> = Vec::new();
+    for m in &mut program.modules {
+        for d in &mut m.decls {
+            crate::ir::walk::decl_tys_mut(d, &mut |t: &mut Ty| {
+                each_named(t, &mut |name, args| {
+                    if args.is_empty() || args.iter().any(crate::types::mentions_var) {
+                        return;
+                    }
+                    if let Some(g) = generic.iter().position(|(k, _, _)| k == name) {
+                        if !insts.iter().any(|(gi, a)| *gi == g && a.as_slice() == args) {
+                            insts.push((g, args.to_vec()));
+                        }
+                    }
+                });
+            });
+        }
+    }
+    let mangle = |args: &[Ty]| -> String {
+        args.iter()
+            .map(|a| match a.strip_quals() {
+                Ty::Named { name, .. } => crate::typekey::plain(name).replace('.', "_"),
+                other => format!("{other:?}").chars().filter(|c| c.is_alphanumeric()).collect(),
+            })
+            .collect::<Vec<_>>()
+            .join("_")
+    };
+    // The module each instantiation lives in: the protocol's, as the
+    // message enum's (a std router's instantiation for a program's protocol
+    // is the program's code, not std's).
+    let home = |args: &[Ty], fallback: usize| -> usize {
+        let Some(Ty::Named { name, .. }) = args.first().map(|a| a.strip_quals()) else { return fallback };
+        let Some(m) = ctx.symbols.key_modules.get(name.as_str()) else { return fallback };
+        program.modules.iter().position(|x| x.path == **m).unwrap_or(fallback)
+    };
+    // The name and key each instantiation takes.
+    let mut names: Vec<(String, Vec<Ty>, String, String, usize)> = Vec::new(); // generic key, args, name, key, module
+    for (g, args) in &insts {
+        let (key, mi, di) = &generic[*g];
+        let Decl::Impl(h) = &program.modules[*mi].decls[*di] else { continue };
+        let name = format!("{}__{}", h.name, mangle(args));
+        let at = home(args, *mi);
+        names.push((key.clone(), args.clone(), name.clone(), enum_key(&name, &program.modules[at].path), at));
+    }
+    let rename = |name: &str, args: &[Ty]| -> Option<String> {
+        names.iter().find(|(k, a, _, _, _)| k == name && a.as_slice() == args).map(|(_, _, _, key, _)| key.clone())
+    };
+    // The instantiations, made from the generic declarations.
+    let mut made: Vec<(usize, ImplDecl)> = Vec::new();
+    for (g, args) in &insts {
+        let (_, mi, di) = &generic[*g];
+        let Decl::Impl(h) = &program.modules[*mi].decls[*di] else { continue };
+        let Some((_, _, name, _, at)) = names.iter().find(|(k, a, _, _, _)| *k == generic[*g].0 && a == args) else { continue };
+        let at = *at;
+        let map: std::collections::HashMap<String, Ty> = h.type_params.iter().map(|t| t.name.clone()).zip(args.iter().cloned()).collect();
+        let mut inst = h.clone();
+        inst.name = name.clone();
+        inst.id = DeclId::generated(&program.modules[at].path, &[name.as_str()]);
+        inst.type_params = Vec::new();
+        crate::ir::walk::impl_tys(&mut inst, &mut |t: &mut Ty| {
+            *t = crate::check::expand_message_in(ctx.symbols, subst_ty(t, &map, &rename));
+        });
+        for fd in inst.members.iter_mut().chain(inst.init.iter_mut()) {
+            lower_forwards(ctx, fd);
+        }
+        made.push((at, inst));
+    }
+    // Every other declaration names the instantiations by their own keys.
+    let none: std::collections::HashMap<String, Ty> = std::collections::HashMap::new();
+    for m in &mut program.modules {
+        for d in &mut m.decls {
+            crate::ir::walk::decl_tys_mut(d, &mut |t: &mut Ty| {
+                let mut hit = false;
+                each_named(t, &mut |n, a| hit |= rename(n, a).is_some());
+                if hit {
+                    *t = subst_ty(t, &none, &rename);
+                }
+            });
+        }
+    }
+    // The generic declarations go; the instantiations take their place.
+    let mut gone: Vec<(usize, usize)> = generic.iter().map(|(_, mi, di)| (*mi, *di)).collect();
+    gone.sort();
+    for (mi, di) in gone.into_iter().rev() {
+        program.modules[mi].decls.remove(di);
+    }
+    for (mi, inst) in made {
+        program.modules[mi].decls.push(Decl::Impl(inst));
+    }
 }

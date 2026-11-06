@@ -1034,7 +1034,7 @@ nothing but the monitor.
   (`__Mon_E(inner)`, locking forwards) only when the program declares
   a handler `for any E`; the forwards then cover its send members too, since a
   `use`-bound router runs them inline. Without a router, nothing is emitted.
-* [kt-wire] [actor-route-stub] Runtime: `viewSet`, `viewMembers` forward to the
+* [kt-wire] [actor-router] Runtime: `viewSet`, `viewMembers` forward to the
   routing service, which keeps the views; `keyHash` (FNV-1a 64, identical
   to Rust's). Intrinsics as in Rust; `key_hash` encodes with the
   argument's codec and hashes `toByteArray()`. An erased struct's codec is

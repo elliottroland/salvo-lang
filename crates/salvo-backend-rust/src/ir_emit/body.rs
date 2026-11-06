@@ -619,7 +619,10 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     self.f.kinds.insert(l.0.clone(), if is_proj(t) { Kind::Ref } else { Kind::Owned });
                 }
                 let pat = if names.is_empty() { String::new() } else { format!("({})", names.join(", ")) };
-                format!("{pad}let {}{}::{}{pat} = {text} else {{ unreachable!() }};\n", self.s.prefix(&m), rs_ident(&e.name), v.name)
+                // A one-variant enum's pattern is irrefutable, and rustc warns
+                // at an `else` it can never take.
+                let otherwise = if e.variants.len() == 1 { "" } else { " else { unreachable!() }" };
+                format!("{pad}let {}{}::{}{pat} = {text}{otherwise};\n", self.s.prefix(&m), rs_ident(&e.name), v.name)
             }
             Stmt::Alias { local, ty, place, .. } => {
                 // [deduce-field] No binding: the place, at every use.

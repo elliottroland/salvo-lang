@@ -658,7 +658,7 @@ TD1–TD12 are decided (§6, rounds 1–3); the entries below are kept as asked.
   | `remote-backpressure` | `net-remote-backpressure` |
   | `result-errs` | `type-result-errs` |
   | `rewrap` | `type-rewrap` |
-  | `route-stub` | `actor-route-stub` |
+  | `route-stub` | `actor-router` |
   | `safe-nav` | `op-safe-nav` |
   | `spawn-inherit` | `actor-spawn-inherit` |
   | `threadsafe-platform` | `platform-threadsafe` |

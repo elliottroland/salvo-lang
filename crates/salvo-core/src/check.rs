@@ -809,9 +809,6 @@ pub struct Construction {
 pub enum Constructed {
     /// A declared handler, by key.
     Handler(String),
-    /// [actor-route-stub] The route a `use any` derives for a protocol (its
-    /// effect key).
-    Route(String),
 }
 
 /// [effect-instance] An effect instance a fact reads: its type, and the
@@ -1092,9 +1089,6 @@ pub struct PredicateArg {
     pub copy: bool,
 }
 
-/// [actor-route-stub] The std qualifier marking a protocol member's key parameter.
-const ROUTE_KEY_QUALIFIER: &str = salvo_syntax::known::ROUTE_KEY_QUALIFIER;
-
 /// The checker's output.
 #[derive(Clone, Default)]
 pub struct Checked {
@@ -1166,14 +1160,9 @@ pub struct Checked {
     pub handles: KeyMap<Vec<Ty>>,
     /// [effect-handler-deps] [effect-with-clause] [effect-handler-generics]
     /// A handler built at a node (the pipeline record D2, handler construction): a
-    /// `use H()`, a `spawn H()`, a `with` item, and the route a `use any`
-    /// derives [actor-route-stub]. A `use` with handles and no construction
+    /// `use H()`, a `spawn H()` and a `with` item. A `use` with handles and no construction
     /// binds an existing handle (`use addr`, a tuple of them).
     pub constructions: KeyMap<Construction>,
-    /// [actor-route-stub] Per actor effect (by key), each send member's
-    /// `Key`-marked parameter, by member name: what the derived route
-    /// hashes. Recorded at the effect, since lowering erases `Key`.
-    pub route_keys: HashMap<String, HashMap<String, String>>,
     /// [actor-replyto] [effect-handle] The handlers whose members **mint** a
     /// continuation (`replyto`), by handler key: they write their parked-continuation
     /// table, which makes them stateful for the handle's purposes
@@ -4917,7 +4906,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let saved_can_spawn = std::mem::replace(&mut self.can_spawn, true);
             self.locals.push(HashMap::new());
             for u in &module.uses {
-                self.check_use(&u.handler, &[], false, u.span);
+                self.check_use(&u.handler, &[], u.span);
             }
             self.locals.pop();
             self.can_use = saved_can_use;
@@ -5059,7 +5048,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // An effect is all header: its members have no bodies.
                 Item::Effect(e) if iface => {
                     self.check_effect_prereqs(e);
-                    self.check_route_keys(e);
                     self.check_effect_member_signatures(e);
                     // [actor-effect-kind] The kind's own rules: what an
                     // `actor effect` may declare, and that `send fn` needs one.
@@ -6832,6 +6820,9 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// The fit itself, of a declaration whose value type is `full`.
     fn value_fit(&mut self, decl: &'p FnDecl, full: Ty, generics: HashSet<String>, want: &Ty) -> Result<FnFit, (u8, String)> {
+        // [actor-message] A substituted `Message<E>` is its arms.
+        let expanded_want = self.expand_message(want.clone());
+        let want = &expanded_want;
         let name = decl.name.name.clone();
         let Ty::Fn { params: want_params, ret: want_ret, .. } = want.strip_quals().clone() else {
             return Err((2, format!("the position for `{name}` is not a function type")));
@@ -6890,7 +6881,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 },
                 None => None,
             };
-            let want = open_want.as_ref().unwrap_or(want);
+            // [actor-message] A `Message<E>` the reading made concrete is its arms.
+            let expanded = self.expand_message(open_want.clone().unwrap_or_else(|| want.clone()));
+            let want = &expanded;
             if !fn_value_fits(&candidate, want) {
                 let reason = self
                     .fn_fit_reason(want, &candidate, &name)
@@ -7525,7 +7518,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         subst: &HashMap<String, Ty>,
         span: Span,
     ) -> Option<(ImplicitArg, Option<FnId>)> {
-        let want = want.clone();
+        // [actor-message] A substituted `Message<E>` is its arms.
+        let want = self.expand_message(want.clone());
         {
             // 0. [cmp-binder] The identity the argument *types* carry. A binder
             // bound by unification is the answer before any resolution by
@@ -11166,96 +11160,6 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
-    /// [actor-route-stub] A send member's `Key`-marked parameter is what a route
-    /// over the protocol hashes, so a member marks at most one — refused at
-    /// the effect's declaration whether or not anything routes it (user
-    /// decision R7). The marks are recorded by member, since lowering erases
-    /// the qualifier [qual-erasure].
-    fn check_route_keys(&mut self, e: &'p ast::EffectDecl) {
-        let mut keys: HashMap<String, String> = HashMap::new();
-        for f in e.fns.iter().filter(|f| f.is_send) {
-            let marked: Vec<&Param> = f
-                .params
-                .iter()
-                .filter(|p| matches!(&p.ty, ast::Type::Named { qualifiers, .. } if qualifiers.iter().any(|q| self.is_route_key(q))))
-                .collect();
-            if marked.len() > 1 {
-                self.error(
-                    f.name.span,
-                    messages::actor_route_stub_several_keys(
-                        &e.name.name,
-                        &f.name.name,
-                        &marked.len(),
-                    ),
-                );
-            }
-            if let Some(p) = marked.first() {
-                keys.insert(f.name.name.clone(), p.name.name.clone());
-            }
-        }
-        if !keys.is_empty() {
-            self.out.route_keys.insert(self.symbols.key_or(e, &e.name.name).to_string(), keys);
-        }
-    }
-
-    /// [actor-route-stub] `use any group` (user decision R7, replacing `use
-    /// route_any(group)`): `group` is a group handle, `eff[ActorGroup<X>]`
-    /// for a non-generic actor effect `X`, and the statement binds `any X` —
-    /// each send to whichever member the `RouteSelector<X>` in scope picks.
-    /// The route itself is derived per routed protocol in the IR
-    /// (`ir::build::actors`), so all the checker records is the protocol
-    /// (a `Constructed::Route` construction), the selector it depends on
-    /// (its one dependency) and the face (`handles`).
-    fn check_use_any(&mut self, group: &'p Expr, span: Span) {
-        let ty = self.check_expr(group, None);
-        let effect = match addr_effect(&ty) {
-            Some(Ty::Named { name, args }) if crate::typekey::plain(&name) == known::ACTOR_GROUP_EFFECT && args.len() == 1 => {
-                match &args[0] {
-                    Ty::Named { name, args }
-                        if args.is_empty()
-                            && self.symbols.effects.get(name.as_str()).is_some_and(|e| e.is_actor && e.fns.iter().any(|f| f.is_send)) =>
-                    {
-                        Some(args_free(name))
-                    }
-                    _ => None,
-                }
-            }
-            _ => None,
-        };
-        fn args_free(name: &str) -> Ty {
-            Ty::Named { name: name.to_string(), args: Vec::new() }
-        }
-        let Some(effect) = effect else {
-            if !ty.is_unknown() {
-                self.error(group.span(), messages::actor_route_stub_not_a_group(&ty));
-            }
-            return;
-        };
-        // The route keeps the handle: it reads the group's view on every send.
-        self.fate_move(group, "store", group.span());
-        let Ty::Named { name: effect_key, .. } = &effect else { unreachable!() };
-        let shown = crate::typekey::plain(effect_key).to_string();
-        // Its one dependency: the policy that picks the member.
-        let selector = self.visible_avail().into_iter().find(|a| {
-            matches!(a.ty.strip_quals(), Ty::Named { name, args }
-                if crate::typekey::plain(name) == known::ROUTE_SELECTOR_EFFECT && args.len() == 1 && args[0] == effect)
-        });
-        let Some(selector) = selector else {
-            self.error(span, messages::actor_route_stub_no_selector(&shown));
-            // The route is refused, but it still says what it binds: the calls
-            // after it are not a second mistake [type-unknown-lenient].
-            self.effect_env.push(EffectAvail { ty: effect, binder: Binder::Use(self.key(span)), declared: false, any: true });
-            return;
-        };
-        self.out.constructions.insert(
-            self.key(span),
-            Construction { handler: Constructed::Route(effect_key.clone()), type_args: Vec::new(), deps: vec![selector.instance()] },
-        );
-        self.out.handles.insert(self.key(span), vec![effect.clone()]);
-        // [effect-any] A route promises no order: it binds the weak face.
-        self.effect_env.push(EffectAvail { ty: effect, binder: Binder::Use(self.key(span)), declared: false, any: true });
-    }
-
     /// Checks a `use Handler(...)` statement [effect-use]: resolves the
     /// handler, types its constructor arguments (inferring the handler's
     /// generics from them), and registers the concrete effect instance in
@@ -11266,13 +11170,8 @@ impl<'p, 'r> Checker<'p, 'r> {
         &mut self,
         handler: &'p Expr,
         with_items: &'p [Expr],
-        any: bool,
         span: Span,
     ) {
-        if any {
-            self.check_use_any(handler, span);
-            return;
-        }
         // [actor-use-addr] `use H(args) on POOL` — the sugar (SH-7, user
         // decision 2026-09-19): the parser wrapped the construction in a
         // spawn expression, so checking the expression *is* the spawn, and
@@ -11993,7 +11892,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     // ================= scopes, locals, narrowing =================
 
     /// [effect-generic-decl] Two instances of an effect whose arguments are
-    /// all effects — `RouteSelector<Sequencer>` beside `RouteSelector<Inventory>` — erase to
+    /// all effects — `ActorGroup<Sequencer>` beside `ActorGroup<Inventory>` — erase to
     /// **one** type in the output, so one scope cannot hold both: the emitters
     /// would implement one accessor twice (and the second would win silently
     /// in a fusion frame). Refused at the second `use`, naming the fix: a
@@ -15107,6 +15006,24 @@ impl<'p, 'r> Checker<'p, 'r> {
             })
             .collect();
         let decls: Vec<&'p ast::EffectDecl> = faces.iter().map(|(_, e)| *e).collect();
+        // [actor-router] A face that is one of the handler's own type
+        // parameters is a protocol only an instantiation names: the handler
+        // can answer it only with `receive`, over its messages.
+        for of in &h.of {
+            let ast::Type::Named { base, .. } = of else { continue };
+            if !base.args.is_empty() || !h.generics.iter().any(|g| g.name == base.name.name) {
+                continue;
+            }
+            let receives = h.fns.iter().any(|f| {
+                f.is_send
+                    && f.name.name == known::RECEIVE_MEMBER
+                    && f.params.iter().filter(|p| !p.implicit).any(|p| matches!(&p.ty, ast::Type::Named { base: m, .. }
+                        if m.name.name == known::MESSAGE_TYPE && matches!(m.args.as_slice(), [ast::Type::Named { base: a, .. }] if a.name.name == base.name.name)))
+            });
+            if !receives {
+                self.error(of.span(), messages::actor_receive_generic_face(&h.name.name, &base.name.name));
+            }
+        }
         // [actor-receive] The faces a `send fn receive(m: Message<F>)` answers:
         // every send member of `F`, all or nothing.
         let received: Vec<&'p ast::EffectDecl> = self.received_faces(h, &decls);
@@ -18851,9 +18768,6 @@ impl<'p, 'r> Checker<'p, 'r> {
             .collect();
         let mut out: Vec<Qual> = Vec::new();
         for (q, slots) in qualifiers.iter().zip(&slotted) {
-            if self.is_route_key(q) {
-                continue;
-            }
             if let Some(slots) = slots {
                 // [cmp-carry] A qualifier's type arguments are written first
                 // (`Heap<T>(?cmp) List<T>`), its slots after — the same
@@ -19557,8 +19471,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         depth: usize,
         subject: Option<&Ty>,
     ) -> Vec<Qual> {
-        let kept: Vec<&TypeRef> = qualifiers.iter().filter(|q| !self.is_route_key(q)).collect();
-        kept.into_iter()
+        qualifiers.iter()
             // [proj-type] `proj` is part of the lowered type (user decision
             // 2026-09-12): `proj Str` and `Str` are different types, ordered
             // `Str <: proj Str`, so a borrow inside a union arm or a container
@@ -19615,20 +19528,6 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             })
             .collect()
-    }
-
-    /// [actor-route-stub] Whether `q` is std `net`'s `Key` — the routing marker on a
-    /// protocol parameter. It is recorded at the effect (`route_keys`, for the
-    /// route the IR derives) and **erased here**, so the parameter's type is the plain one and a
-    /// caller passes a plain value: `Key` claims nothing about the value, it
-    /// says which argument decides the member.
-    fn is_route_key(&self, q: &TypeRef) -> bool {
-        q.name.name == ROUTE_KEY_QUALIFIER
-            && self
-                .scope
-                .name_origins
-                .get(q.name.name.as_str())
-                .is_some_and(|ms| ms.iter().any(|m| m.std_rest().and_then(|r| r.first()).is_some_and(|s| s == "net")))
     }
 
     /// Lowers the base of a named type: substitutions, generic parameters,
@@ -23551,14 +23450,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             Stmt::Use {
                 handler,
                 with_items,
-                any,
                 span,
             } => {
                 // [effect-use-requires-use] only `[use]` fns may register handlers.
                 if !self.can_use {
                     self.error(*span, messages::effect_use_requires_use_missing());
                 }
-                self.check_use(handler, with_items, *any, *span);
+                self.check_use(handler, with_items, *span);
                 Ty::none()
             }
             Stmt::Expr(e) => {
@@ -24779,8 +24677,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             // face is `eff[E]`; several is a *tuple* of single handles
             // `(eff[A], eff[B])` — the IR already binds one handle per face,
             // so the value is a tuple of them, mirroring a multi-face `spawn`.
-            Expr::Use { handler, with_items, any, span } => {
-                self.check_use(handler, with_items, *any, *span);
+            Expr::Use { handler, with_items, span } => {
+                self.check_use(handler, with_items, *span);
                 let faces = self
                     .out
                     .handles
@@ -34322,6 +34220,12 @@ pub fn expand_message_in(symbols: &Symbols, ty: Ty) -> Ty {
         Ty::Union(arms) => Ty::Union(arms.into_iter().map(|a| expand_message_in(symbols, a)).collect()),
         Ty::Tuple(elems) => Ty::Tuple(elems.into_iter().map(|a| expand_message_in(symbols, a)).collect()),
         Ty::Array(e) => Ty::Array(Box::new(expand_message_in(symbols, *e))),
+        Ty::Fn { params, ret, contract, effects } => Ty::Fn {
+            params: params.into_iter().map(|a| expand_message_in(symbols, a)).collect(),
+            ret: Box::new(expand_message_in(symbols, *ret)),
+            contract,
+            effects,
+        },
         other => other,
     }
 }

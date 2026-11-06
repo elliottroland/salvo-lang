@@ -56,6 +56,10 @@ class __Mon_Inventory(
     }
 }
 
+fun key(m: Inventory.Reserve): Long? {
+    return salvo.SalvoSched.keyHash(salvo.salvoEncode(m.sku, salvo.StrCodec).toByteArray())
+}
+
 interface Search {
     fun query(word: String, out: salvo.SalvoReply)
     data class Query(
@@ -445,7 +449,7 @@ class Gathering : Gather {
                 (out == null) -> {
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:141:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:146:13"))
                 }
             }
         }
@@ -590,7 +594,7 @@ class Racing : Race {
             (out == null) -> {
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:177:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:182:9"))
             }
         }
     }
@@ -685,7 +689,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                     __pick1_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at main:228:43")
+                    throw AssertionError("salvo: unreachable at main:233:43")
                 }
             }
         })
@@ -697,7 +701,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                     __pick2_2
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at main:229:47")
+                    throw AssertionError("salvo: unreachable at main:234:47")
                 }
             }
         }} reserved on its shard so far")
@@ -710,7 +714,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                 __pick3_3
             }
             else -> {
-                throw AssertionError("salvo: unreachable at main:231:69")
+                throw AssertionError("salvo: unreachable at main:236:69")
             }
         }
     }) == (kotlin.run {
@@ -721,7 +725,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                 __pick4_4
             }
             else -> {
-                throw AssertionError("salvo: unreachable at main:231:103")
+                throw AssertionError("salvo: unreachable at main:236:103")
             }
         }
     }))}")
@@ -733,7 +737,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                 __pick5_5
             }
             else -> {
-                throw AssertionError("salvo: unreachable at main:232:67")
+                throw AssertionError("salvo: unreachable at main:237:67")
             }
         }
     }) == (kotlin.run {
@@ -744,7 +748,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                 __pick6_6
             }
             else -> {
-                throw AssertionError("salvo: unreachable at main:232:101")
+                throw AssertionError("salvo: unreachable at main:237:101")
             }
         }
     }))}")
@@ -756,7 +760,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                 __pick7_7
             }
             else -> {
-                throw AssertionError("salvo: unreachable at main:233:68")
+                throw AssertionError("salvo: unreachable at main:238:68")
             }
         }
     }) == (kotlin.run {
@@ -767,7 +771,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                 __pick8_8
             }
             else -> {
-                throw AssertionError("salvo: unreachable at main:233:102")
+                throw AssertionError("salvo: unreachable at main:238:102")
             }
         }
     }))}")
@@ -794,23 +798,17 @@ fun find(lookup: Lookup, key: String): String {
 }
 
 fun twoIds(leader: salvo.std.net.Leader, console: salvo.std.core.console.Console, seq: Int) {
-    val __use_1: salvo.std.net.Elected = salvo.std.net.Elected(config = salvo.std.net.defaultRouteConfig(), leader)
+    val __use_1: Elected__Sequencer = Elected__Sequencer(group = seq, config = salvo.std.net.defaultRouteConfig(), leader)
     val __lock___use_1 = java.util.concurrent.locks.ReentrantLock()
-    val __handle_2: salvo.std.net.RouteSelector = salvo.std.net.__Mon_RouteSelector(__use_1, __lock___use_1)
-    val __use_3: __Route_Sequencer = __Route_Sequencer(group = seq, __handle_2)
-    val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
-    val __handle_4: Sequencer = __Mon_Sequencer(__use_3, __lock___use_3)
-    salvo.std.core.console.println(console, "  ${salvo.main.freshId(__handle_4)} ${salvo.main.freshId(__handle_4)}")
+    val __handle_2: Sequencer = __Mon_Sequencer(__use_1, __lock___use_1)
+    salvo.std.core.console.println(console, "  ${salvo.main.freshId(__handle_2)} ${salvo.main.freshId(__handle_2)}")
 }
 
 fun shop(console: salvo.std.core.console.Console, stock: Int) {
-    val __use_1: salvo.std.net.Sharded = salvo.std.net.Sharded(config = salvo.std.net.defaultRouteConfig())
+    val __use_1: Sharded__Inventory = Sharded__Inventory(group = stock, config = salvo.std.net.defaultRouteConfig(), key = ::key)
     val __lock___use_1 = java.util.concurrent.locks.ReentrantLock()
-    val __handle_2: salvo.std.net.RouteSelector = salvo.std.net.__Mon_RouteSelector(__use_1, __lock___use_1)
-    val __use_3: __Route_Inventory = __Route_Inventory(group = stock, __handle_2)
-    val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
-    val __handle_4: Inventory = __Mon_Inventory(__use_3, __lock___use_3)
-    salvo.main.checkout(__handle_4, console, salvo.std.core.list.List__T_TArray("apple", arrayOf<String>("pear", "apple", "fig", "pear")))
+    val __handle_2: Inventory = __Mon_Inventory(__use_1, __lock___use_1)
+    salvo.main.checkout(__handle_2, console, salvo.std.core.list.List__T_TArray("apple", arrayOf<String>("pear", "apple", "fig", "pear")))
 }
 
 interface Boot {
@@ -1007,74 +1005,46 @@ fun main() {
     salvo.main.twoIds(__handle_6, __handle_2, seq)
 }
 
-class __Route_Inventory(private val group: Int, private val __dep0: salvo.std.net.RouteSelector) : Inventory {
-    val __mailboxCapacity: Int = 1
+class Elected__Sequencer(private val group: Int, private val config: salvo.std.net.RouteConfig, private val __dep0: salvo.std.net.Leader) : Sequencer {
+    val __mailboxCapacity: Int = 16
     var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont___Route_Inventory> = kotlin.collections.mutableMapOf()
-    var seen: Long = -1L
-    override fun reserve(sku: String, qty: Int, out: salvo.SalvoReply) {
-        val __pick: salvo.std.net.RoutePick = salvo.std.net.routePick__Addr_Long_Long(__dep0, group, seen, salvo.SalvoSched.keyHash(salvo.salvoEncode(sku, salvo.StrCodec).toByteArray()))
-        seen = __pick.version
-        salvo.SalvoSched.sendWire(__pick.to, __Msg_Inventory.Reserve(sku, qty, out), __PROTO_Inventory, __Codec___Msg_Inventory)
-    }
-}
-
-class __Actor___Route_Inventory(private val handler: __Route_Inventory) : salvo.SalvoActor {
-    override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
-        handler.__addr = ctx.addr
-        salvo.main.__dispatch___Route_Inventory_Inventory(handler, msg as __Msg_Inventory)
-    }
-
-    override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
-        handler.__addr = ctx.addr
-        val c = handler.__parked.remove(slot) ?: return
-        when (c) {
-            is __Cont___Route_Inventory.Reserve -> handler.reserve(c.sku, c.qty, value as salvo.SalvoReply)
-        }
-    }
-
-    @Suppress("REDUNDANT_ELSE_IN_WHEN")
-    override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
-        val c = handler.__parked[slot] ?: return Pair(false, null)
-        return when (c) {
-            is __Cont___Route_Inventory.Reserve -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ReplyCodec) })(payload)
-            else -> Pair(false, null)
-        }
-    }
-
-    companion object {
-        val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
-            when (proto) {
-                __PROTO_Inventory -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Inventory)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
-                else -> Pair(false, null)
+    val __parked: MutableMap<Long, __Cont_Elected__Sequencer> = kotlin.collections.mutableMapOf()
+    var seen: Long = (-1L)
+    var chosen: Int? = null
+    override fun next(__msg_p0: salvo.SalvoReply) {
+        val m: Sequencer.Next = Sequencer.Next(out = __msg_p0)
+        var wait: salvo.std.time.Duration = config.firstWait
+        while (true) {
+            val view: salvo.std.net.RouteView = salvo.std.net.routeView(group)
+            if ((view.version != seen)) {
+                chosen = salvo.std.net.onLeader(__dep0, view)
+                seen = view.version
             }
+            val to: Int? = chosen
+            if (!((to == null))) {
+                val to_1: Int = to!!
+                val __fwd_to_m1: Int = to_1
+                val __fwd_msg_m2: Sequencer.Next = m
+                salvo.SalvoSched.sendWire(__fwd_to_m1, __Msg_Sequencer.Next(__fwd_msg_m2.out), __PROTO_Sequencer, __Codec___Msg_Sequencer)
+                return
+            }
+            wait = salvo.std.net.routeWait(group, view, wait, config)
         }
+        throw AssertionError("salvo: unreachable at std.net:1833:9")
     }
 }
 
-class __Route_Sequencer(private val group: Int, private val __dep0: salvo.std.net.RouteSelector) : Sequencer {
-    val __mailboxCapacity: Int = 1
-    var __addr: Int? = null
-    val __parked: MutableMap<Long, __Cont___Route_Sequencer> = kotlin.collections.mutableMapOf()
-    var seen: Long = -1L
-    override fun next(out: salvo.SalvoReply) {
-        val __pick: salvo.std.net.RoutePick = salvo.std.net.routePick__Addr_Long(__dep0, group, seen)
-        seen = __pick.version
-        salvo.SalvoSched.sendWire(__pick.to, __Msg_Sequencer.Next(out), __PROTO_Sequencer, __Codec___Msg_Sequencer)
-    }
-}
-
-class __Actor___Route_Sequencer(private val handler: __Route_Sequencer) : salvo.SalvoActor {
+class __Actor_Elected__Sequencer(private val handler: Elected__Sequencer) : salvo.SalvoActor {
     override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
         handler.__addr = ctx.addr
-        salvo.main.__dispatch___Route_Sequencer_Sequencer(handler, msg as __Msg_Sequencer)
+        salvo.main.__dispatch_Elected__Sequencer_Sequencer(handler, msg as __Msg_Sequencer)
     }
 
     override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
         handler.__addr = ctx.addr
         val c = handler.__parked.remove(slot) ?: return
         when (c) {
-            is __Cont___Route_Sequencer.Next -> handler.next(value as salvo.SalvoReply)
+            is __Cont_Elected__Sequencer.Next -> handler.next(value as salvo.SalvoReply)
         }
     }
 
@@ -1082,7 +1052,7 @@ class __Actor___Route_Sequencer(private val handler: __Route_Sequencer) : salvo.
     override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
         val c = handler.__parked[slot] ?: return Pair(false, null)
         return when (c) {
-            is __Cont___Route_Sequencer.Next -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ReplyCodec) })(payload)
+            is __Cont_Elected__Sequencer.Next -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ReplyCodec) })(payload)
             else -> Pair(false, null)
         }
     }
@@ -1091,6 +1061,90 @@ class __Actor___Route_Sequencer(private val handler: __Route_Sequencer) : salvo.
         val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
             when (proto) {
                 __PROTO_Sequencer -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Sequencer)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
+                else -> Pair(false, null)
+            }
+        }
+    }
+}
+
+class Sharded__Inventory(private val group: Int, private val config: salvo.std.net.RouteConfig, private val key: (Inventory.Reserve) -> Long?) : Inventory {
+    val __mailboxCapacity: Int = 16
+    var __addr: Int? = null
+    val __parked: MutableMap<Long, __Cont_Sharded__Inventory> = kotlin.collections.mutableMapOf()
+    override fun reserve(__msg_p0: String, __msg_p1: Int, __msg_p2: salvo.SalvoReply) {
+        val m: Inventory.Reserve = Inventory.Reserve(sku = __msg_p0, qty = __msg_p1, out = __msg_p2)
+        val k: Long = kotlin.run {
+            val __pick1: Long? = key(m)
+            when {
+                (__pick1 != null) -> {
+                    val __pick1_1: Long = __pick1!!
+                    __pick1_1
+                }
+                else -> {
+                    0L
+                }
+            }
+        }
+        val magnitude: Long = (if ((k < 0L)) {
+            (0L - k)
+        } else {
+            k
+        })
+        var wait: salvo.std.time.Duration = config.firstWait
+        while (true) {
+            val view: salvo.std.net.RouteView = salvo.std.net.routeView(group)
+            val n: Int = salvo.std.core.list.sizePlatform(view.members)
+            if ((n > 0)) {
+                val picked: salvo.std.net.RouteMember = kotlin.run {
+                    val __pick2: salvo.std.net.RouteMember? = salvo.std.core.list.getPlatform(view.members, ((magnitude % (n).toLong())).toInt())
+                    when {
+                        (__pick2 != null) -> {
+                            val __pick2_2: salvo.std.net.RouteMember = __pick2!!
+                            __pick2_2
+                        }
+                        else -> {
+                            throw AssertionError("salvo: unreachable at std.net:1733:83")
+                        }
+                    }
+                }
+                val __fwd_to_m1: Int = picked.addr
+                val __fwd_msg_m2: Inventory.Reserve = m
+                salvo.SalvoSched.sendWire(__fwd_to_m1, __Msg_Inventory.Reserve(__fwd_msg_m2.sku, __fwd_msg_m2.qty, __fwd_msg_m2.out), __PROTO_Inventory, __Codec___Msg_Inventory)
+                return
+            }
+            wait = salvo.std.net.routeWait(group, view, wait, config)
+        }
+        throw AssertionError("salvo: unreachable at std.net:1729:9")
+    }
+}
+
+class __Actor_Sharded__Inventory(private val handler: Sharded__Inventory) : salvo.SalvoActor {
+    override fun handle(ctx: salvo.SalvoCtx, msg: Any?) {
+        handler.__addr = ctx.addr
+        salvo.main.__dispatch_Sharded__Inventory_Inventory(handler, msg as __Msg_Inventory)
+    }
+
+    override fun resume(ctx: salvo.SalvoCtx, slot: Long, value: Any?) {
+        handler.__addr = ctx.addr
+        val c = handler.__parked.remove(slot) ?: return
+        when (c) {
+            is __Cont_Sharded__Inventory.Reserve -> handler.reserve(c.__msg_p0, c.__msg_p1, value as salvo.SalvoReply)
+        }
+    }
+
+    @Suppress("REDUNDANT_ELSE_IN_WHEN")
+    override fun decodeReply(slot: Long, payload: ByteArray): Pair<Boolean, Any?> {
+        val c = handler.__parked[slot] ?: return Pair(false, null)
+        return when (c) {
+            is __Cont_Sharded__Inventory.Reserve -> ({ __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ReplyCodec) })(payload)
+            else -> Pair(false, null)
+        }
+    }
+
+    companion object {
+        val __DECODE: ((String, ByteArray) -> Pair<Boolean, Any?>)? = { proto, payload ->
+            when (proto) {
+                __PROTO_Inventory -> salvo.salvoDecode(salvo.SalvoBytes(payload), __Codec___Msg_Inventory)?.let { kotlin.Pair(true, it) } ?: kotlin.Pair(false, null)
                 else -> Pair(false, null)
             }
         }
@@ -1303,13 +1357,13 @@ sealed class __Cont_Booting {
 }
 
 
-sealed class __Cont___Route_Inventory {
-    class Reserve(val sku: String, val qty: Int) : __Cont___Route_Inventory()
+sealed class __Cont_Elected__Sequencer {
+    class Next() : __Cont_Elected__Sequencer()
 }
 
 
-sealed class __Cont___Route_Sequencer {
-    class Next() : __Cont___Route_Sequencer()
+sealed class __Cont_Sharded__Inventory {
+    class Reserve(val __msg_p0: String, val __msg_p1: Int) : __Cont_Sharded__Inventory()
 }
 
 class __Stub_Sequencer(private val addr: Int) : Sequencer {
@@ -1518,24 +1572,24 @@ fun __dispatch_Booting_Boot(__handler: Booting, __msg: __Msg_Boot) {
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun __dispatch___Route_Inventory_Inventory(__handler: __Route_Inventory, __msg: __Msg_Inventory) {
+fun __dispatch_Elected__Sequencer_Sequencer(__handler: Elected__Sequencer, __msg: __Msg_Sequencer) {
     when {
-        (__msg is __Msg_Inventory.Reserve) -> {
-            val sku = (__msg as __Msg_Inventory.Reserve).sku
-            val qty = (__msg as __Msg_Inventory.Reserve).qty
-            val out = (__msg as __Msg_Inventory.Reserve).out
-            __handler.reserve(sku, qty, out)
+        (__msg is __Msg_Sequencer.Next) -> {
+            val out = (__msg as __Msg_Sequencer.Next).out
+            __handler.next(out)
         }
         else -> throw IllegalStateException("salvo: unreachable arm")
     }
 }
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
-fun __dispatch___Route_Sequencer_Sequencer(__handler: __Route_Sequencer, __msg: __Msg_Sequencer) {
+fun __dispatch_Sharded__Inventory_Inventory(__handler: Sharded__Inventory, __msg: __Msg_Inventory) {
     when {
-        (__msg is __Msg_Sequencer.Next) -> {
-            val out = (__msg as __Msg_Sequencer.Next).out
-            __handler.next(out)
+        (__msg is __Msg_Inventory.Reserve) -> {
+            val sku = (__msg as __Msg_Inventory.Reserve).sku
+            val qty = (__msg as __Msg_Inventory.Reserve).qty
+            val out = (__msg as __Msg_Inventory.Reserve).out
+            __handler.reserve(sku, qty, out)
         }
         else -> throw IllegalStateException("salvo: unreachable arm")
     }

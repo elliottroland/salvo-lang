@@ -1883,17 +1883,16 @@ effects" keeps the history).
   `peer_protocol`, `pending`, `node_of`, and `eq(Addr, Addr)` as `==` on the handle.
   `actor_group<E>` is ordinary Salvo since 2026-09-28 [actor-group] (two
   overloads, `actor_group__Addr` and `actor_group__Str_Addr` in the output).
-* [rs-wire] [actor-route-stub] Runtime: the views live in the routing service
+* [rs-wire] [actor-router] Runtime: the views live in the routing service
   (`runtime.routing`'s `view_set`, `view_members` sorted by `(node, actor)`,
   `view_version`, `view_refresh`, `view_wait`); `salvo_key_hash` (FNV-1a 64
   over the wire bytes) stays host-side. Intrinsics: `view_set`,
   `view_members`, `view_version`, `view_refresh`, `view_wait`, `key_hash`
-  (over `salvo_encode`). `use any g` emits the construction of the route
-  the IR derived for the protocol, `crate::<module>::__Route_E::new(g,
-  selector)`, found by its module-keyed name (`generated_impl`, beside
+  (over `salvo_encode`). A router is the instantiation the IR built of a
+  handler generic over its face [actor-router] (`Sharded__Inventory`),
+  found by its module-keyed name (`generated_impl`, beside
   `generated_enum`). An erased effect's types render without arguments
-  everywhere, dependencies and `use` bindings included — `RouteSelector`,
-  `dyn __Stateful_RouteSelector`, `Sharded::new()`. A `while` is a `loop`
+  everywhere, dependencies and `use` bindings included. A `while` is a `loop`
   that tests first (`loop { if !(cond) { break; }; … }`), `while true`
   included.
 * [rs-actor] [handler-init] `init` is an inherent `fn init(&mut self)`. On an

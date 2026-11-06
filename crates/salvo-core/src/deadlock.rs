@@ -187,8 +187,8 @@ fn check_graph(symbols: &Symbols<'_>, out: &mut Checked) {
 }
 
 /// [actor-deadlock-cycle] For tests: the graph's edges as `from → to (Kind,
-/// handler)` lines, sorted, so a test can pin a node's edges (a route's,
-/// [actor-route-stub]) where no diagnostic would show them.
+/// handler)` lines, sorted, so a test can pin a node's edges where no
+/// diagnostic would show them.
 pub fn edges(symbols: &Symbols<'_>, out: &Checked) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for (from, tos) in build(symbols, out) {
@@ -284,10 +284,9 @@ fn build(
             break;
         }
     }
-    // [actor-deadlock-cycle] [effect-any] [actor-route-stub] The routers of each
-    // actor effect — every written `for any E` face, and the route a `use
-    // any` derives for a routed protocol — which is where an edge into
-    // `any E` lands besides `E` (a binding of `any E` may be any of them).
+    // [actor-deadlock-cycle] [effect-any] The routers of each actor effect —
+    // every written `for any E` face — which is where an edge into `any E`
+    // lands besides `E` (a binding of `any E` may be any of them).
     // A router binds shareable, so its member runs on the caller's thread:
     // under its lock when it is stateful (the derived route always is: it
     // keeps the view version it last saw) and there for as long as it waits
@@ -295,17 +294,6 @@ fn build(
     // caller doing either occupies, as in a priced shareable handler
     // [actor-monitor-handler]. A bare router's member is the caller's own code, so
     // the edge into it is the caller's edge, of the kind its edge to `E` has.
-    let mut routed: BTreeMap<&str, crate::check::Key> = BTreeMap::new();
-    let routes = out.constructions.iter().filter_map(|(k, c)| match &c.handler {
-        crate::check::Constructed::Route(effect) => Some((k, effect)),
-        crate::check::Constructed::Handler(_) => None,
-    });
-    for (k, effect) in routes {
-        let slot = routed.entry(effect.as_str()).or_insert(*k);
-        if (k.file(), k.span.order_key()) < (slot.file(), slot.span.order_key()) {
-            *slot = *k;
-        }
-    }
     let mut routers_of: BTreeMap<String, Vec<Router>> = BTreeMap::new();
     for h in &handlers {
         let occupies = h.stateful(out) || waits_of.contains_key(&h.id);
@@ -315,13 +303,6 @@ fn build(
             }
             routers_of.entry(of.clone()).or_default().push(Router { node: servant_node(&h.shape.name), occupies, written: true });
         }
-    }
-    for effect in routed.keys() {
-        let handler = crate::ir::build::actors::route_name(effect);
-        routers_of
-            .entry(effect.to_string())
-            .or_default()
-            .push(Router { node: servant_node(&handler), occupies: true, written: false });
     }
     // Every handler of an actor effect: the protocol it serves, whether any
     // of its members gates, and what it can send to.
@@ -521,41 +502,6 @@ fn build(
                 }
             }
         }
-    }
-    // [actor-route-stub] [effect-any] Every protocol a `use any` routes has a
-    // route the IR derives (`ir::build::actors`, `__Route_X`), which is no
-    // AST handler — so its node is built here, as the one an `for any X`
-    // router gets above: a servant of its own, depending on the
-    // `RouteSelector<X>` the `use any` found, whose mixed servants and
-    // priced shareable handlers are occupancy edges. Its sites are the
-    // protocol's first `use any`, in source order (`routed`, above). Its
-    // forward to `X` is no edge, as a written router's is not; what points
-    // at it is every dependency on `any X` (`routers_of`), as occupancy:
-    // the route locks.
-    for (effect, at) in routed {
-        let (file, span) = (at.file(), at.span);
-        let handler = crate::ir::build::actors::route_name(effect);
-        let own_faces = [effect];
-        let deps: Vec<(String, usize, Span, bool)> = out
-            .constructions
-            .get(&at)
-            .into_iter()
-            .flat_map(|c| &c.deps)
-            .filter_map(|d| match d.ty.strip_quals() {
-                crate::types::Ty::Named { name, .. } => Some((name.clone(), file, span, false)),
-                _ => None,
-            })
-            .collect();
-        let servant = Servant {
-            handler: &handler,
-            own_faces: &own_faces,
-            forwards: &own_faces,
-            deps,
-            sends: Vec::new(),
-            gate: None,
-            blocks: None,
-        };
-        servant.add_to(&mut graph, &is_actor, &mixed_of, &monitor_of, &routers_of);
     }
     // [effect-handle] [actor-monitor-handler] The shareable plain handlers worth a
     // node (option (b), user decision 2026-09-20): occupancy edges out to
@@ -768,9 +714,9 @@ fn report(
     }
 }
 
-/// [actor-mixed-handler] [effect-any] [actor-route-stub] A servant node's inputs: a mixed
-/// handler's servant, an `for any X` router, or a derived route. One shape,
-/// so the three cannot drift apart.
+/// [actor-mixed-handler] [effect-any] A servant node's inputs: a mixed
+/// handler's servant, or an `for any X` router. One shape, so the two
+/// cannot drift apart.
 struct Servant<'a> {
     /// The handler, which names the node and the edges.
     handler: &'a str,

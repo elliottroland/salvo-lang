@@ -873,21 +873,21 @@ impl crate::std_time::__Stateless_TimerCtl for __Stub_TimerCtl {
 
 pub fn __dispatch_DefaultTimer_Timer(__handler: &mut crate::std_time::DefaultTimer, mut __msg: crate::std_time::__Msg_Timer) {
     if matches!(__msg, crate::std_time::__Msg_Timer::After(..)) {
-        let crate::std_time::__Msg_Timer::After(wait, done) = __msg else { unreachable!() };
+        let crate::std_time::__Msg_Timer::After(wait, done) = __msg;
         crate::std_time::__Stateless_Timer::after(&mut *__handler, wait, done);
     };
 }
 
 pub fn __dispatch_ManualTime_Timer(__handler: &mut crate::std_time::ManualTime, mut __msg: crate::std_time::__Msg_Timer) {
     if matches!(__msg, crate::std_time::__Msg_Timer::After(..)) {
-        let crate::std_time::__Msg_Timer::After(wait, done) = __msg else { unreachable!() };
+        let crate::std_time::__Msg_Timer::After(wait, done) = __msg;
         crate::std_time::__Stateful_Timer::after(&mut *__handler, wait, done);
     };
 }
 
 pub fn __dispatch_ManualTime_TimerCtl(__handler: &mut crate::std_time::ManualTime, mut __msg: crate::std_time::__Msg_TimerCtl) {
     if matches!(__msg, crate::std_time::__Msg_TimerCtl::Advance(..)) {
-        let crate::std_time::__Msg_TimerCtl::Advance(by) = __msg else { unreachable!() };
+        let crate::std_time::__Msg_TimerCtl::Advance(by) = __msg;
         crate::std_time::__Stateful_TimerCtl::advance(&mut *__handler, by);
     };
 }

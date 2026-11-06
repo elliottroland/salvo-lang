@@ -37,19 +37,21 @@ boundary would be refused.
 
 **1 — singleton.** Every node hosts a `Sequencing`; ids must come from one.
 `use LastHost(nodes, a)` binds `Leader` — an election a child could run, the
-node whose host name sorts last — and `use Elected<Sequencer>()` plus
-`use route(seq)` binds `Sequencer` to the member on the leader's node. A Raft
-would serve the same `Leader` effect, and `two_ids` would not change.
+node whose host name sorts last — and `use Elected(seq)` binds `Sequencer` to
+the member on the leader's node. A Raft would serve the same `Leader` effect,
+and `two_ids` would not change.
 
-**2 — sharded.** `Key` on `reserve`'s first parameter says the SKU decides the
-shard. `Sharded<Inventory>` hashes it into a slot over the members, so the
+**2 — sharded.** `ShardKey` on `reserve`'s first parameter says the SKU
+decides the shard, and `fn key(m: Message<Inventory>) … by shard` stamps the
+protocol's `key` from it. `use Sharded(stock)` hashes it into a slot over the
+members, so the
 same SKU lands on the same shard every time — the output shows apple and apple
 together, and a shard's count climbing with its own keys — while *which*
 physical member is shard 0 depends on the members' order, which this
 in-process fleet does not pin down (so the program prints the invariant, not
-the name). `Key` is erased from the type: callers pass a plain `Str`.
+the name). `ShardKey` is no part of the type: callers pass a plain `Str`.
 
-**3 — scatter.** `route` picks *one* member. A policy that must read the
+**3 — scatter.** A std router picks *one* member. A policy that must read the
 message — fan it out — is a handler `for any Search` you write: `Scattering`
 asks the replica for the members and hands the query to `Gathering`, an actor
 that mints one continuation per member (`replyto partial()`), sums the

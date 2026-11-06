@@ -118,14 +118,6 @@ pub const RECEIVE_MEMBER: &str = "receive";
 pub const ACTOR_GROUP_EFFECT: &str = "ActorGroup";
 /// A protocol's description.
 pub const PROTOCOL_STRUCT: &str = "Protocol";
-/// [actor-route-stub] The effect a route selector implements.
-pub const ROUTE_SELECTOR_EFFECT: &str = "RouteSelector";
-/// [actor-route-stub] The qualifier marking a protocol member's key parameter.
-pub const ROUTE_KEY_QUALIFIER: &str = "Key";
-/// [actor-route-stub] A selector's answer.
-pub const ROUTE_PICK_STRUCT: &str = "RoutePick";
-/// [actor-route-stub] The fn a generated route stub calls.
-pub const ROUTE_PICK_FN: &str = "route_pick";
 
 // ===== std.args =====
 
@@ -211,10 +203,6 @@ pub const ALL: &[Known] = &[
     func("std.core.actor", FORWARD_FN),
     ty("std.net", ACTOR_GROUP_EFFECT),
     ty("std.net", PROTOCOL_STRUCT),
-    ty("std.net", ROUTE_SELECTOR_EFFECT),
-    ty("std.net", ROUTE_KEY_QUALIFIER),
-    ty("std.net", ROUTE_PICK_STRUCT),
-    func("std.net", ROUTE_PICK_FN),
     ty("std.args", ARGS_EFFECT),
     ty("std.args", HOST_ARGS_HANDLER),
     ty("std.heap", HEAP_QUALIFIER),

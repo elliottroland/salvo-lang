@@ -380,7 +380,7 @@ pub fn salvo_send_wire<M: crate::wire::__Wire + Any + Send>(addr: usize, msg: M,
 
 
 
-/// [actor-route-stub] FNV-1a over the key's canonical bytes.
+/// [actor-router] FNV-1a over the key's canonical bytes.
 pub fn salvo_key_hash(bytes: &[u8]) -> i64 {
     let mut h: u64 = 0xcbf29ce484222325;
     for b in bytes {

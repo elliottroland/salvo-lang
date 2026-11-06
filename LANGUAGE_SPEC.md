@@ -5513,9 +5513,7 @@ Conventions:
     to members and holds no protocol state of its own, and the emitters
     give an actor effect the lock adapter exactly when a router of it
     exists. It is also a servant node of its own in the deadlock graph, so
-    its forwards do not read as `E → E` — a written router from its AST
-    handler, a route `use any` binds [actor-route-stub] from the checker's
-    `Constructed::Route` construction (2026-10-20), with the same edges — and every dependency
+    its forwards do not read as `E → E` — and every dependency
     on `any E` points at it (router in-edges, [actor-deadlock-cycle]).
   * **A fn type carries no strength** (it cannot say `any`): an inherited
     requirement [fn-effects] is the strong one unless
@@ -8364,24 +8362,20 @@ docs/language/ remains the source of truth for everything that does.
     *outward* [effect-intercept], so the chain ends at the innermost instance.
     An edge from a handler's **own-effect dependency** is therefore dropped,
     while an `Addr` of its own protocol (a genuine peer mesh) still counts.
-  * **A router is a servant node** [effect-any]: a handler `for any E`, and
-    the route a `use any` binds [actor-route-stub] (derived in the IR, so its node
-    is built from the checker's `Constructed::Route` construction,
-    2026-10-20), is `H's servant`,
+  * **A router is a servant node** [effect-any]: a handler `for any E` is
+    `H's servant`,
     not `E`, with its dependencies' edges as a mixed servant's.
   * **Router in-edges** [effect-any] (2026-10-26): a dependency declared
     `[any E]` (not on a face of the declarer's own — interception) is an
     edge into `E` **and** into the node of every router of `E` in the
-    program — each written `for any E` handler's, and `__Route_E`'s when `E`
-    is routed — since a binding of `any E` may be any of them, over types.
+    program — each written `for any E` handler's — since a binding of `any E` may be any of them, over types.
     A router binds shareable, so its member runs on the caller's thread,
     and the edge's kind is what the caller does there:
     * an **occupancy** edge into a router that holds a lock (it is
       stateful, [effect-handle]) or waits (a member's `waitfor`) — a caller
       inside it serves nothing of its mailbox until the lock is free and
       the member returns, as in a priced shareable handler
-      [actor-monitor-handler]. The derived route always is one: it keeps the view
-      version it last saw, and it waits while its selector picks no member;
+      [actor-monitor-handler];
     * the **caller's own edge** — the kind its edge into `E` has — into a
       bare router (stateless, no wait): its member is the caller's code.
 
@@ -8390,11 +8384,7 @@ docs/language/ remains the source of truth for everything that does.
     re-spells one through that edge — reported twice, and as an occupancy
     error where the router locks, which the lock does not make it. What
     leaves a router's node is what it does besides forwarding: its
-    selector's and other dependencies' edges, and its sends to other
-    protocols. So `Pong → __Route_Ping → Watching's lock → Pong` — a
-    `Pong` actor calling into the route, whose stateful selector pokes
-    `Pong` — is an occupancy error, anchored at the dependency on `any
-    Ping`. A strong `[E]` lands on `E` alone: a strong requirement refuses
+    dependencies' edges, and its sends to other protocols. A strong `[E]` lands on `E` alone: a strong requirement refuses
     a router's binding. **A send through an `eff[E]` lands on every written
     `for any E` router too** (user decision 2026-10-30), since the addr cannot
     say whether it answers with a member of `E` or a spawned router (the gap
@@ -9054,9 +9044,8 @@ between endpoints and delivers what arrives into the scheduler.
     the transport effects and handlers, `encode`/`decode`/`protocol`,
     `NodeId`/`this_node`/`new_node`/`pool_at`/`node_of`, `connect`/
     `connected`, the readers `credits`/`pending`/`peer_protocol`, the groups
-    and their fns, the route kit — plus `route_pick`, `RouteConfig` and
-    `key_hash`, exported because the derived routes call them
-    from the program's module.
+    and their fns, and the router kit (`route_view`, `route_wait`,
+    `RouteConfig`, `key_hash`, the routers).
     The runtime's own bindings (`add_route`, `route_frames`, `deliver_frame`),
     the control channel the group protocols travel on (`watch_control`,
     `send_control`, `control_frame`, `node_left`, `local_protocols`,
@@ -9177,8 +9166,8 @@ between endpoints and delivers what arrives into the scheduler.
     scopes and the symbol table, both are rebuilt over the erased copy; the
     checker's side tables from the original still apply, since erasure
     changes no node's span or id [node-id].
-  * **One scope, one instance of an erased effect** (2026-09-27). `RouteSelector<A>`
-    and `RouteSelector<B>` are one type in the output, so a `use` binding the second
+  * **One scope, one instance of an erased effect** (2026-09-27). `ActorGroup<A>`
+    and `ActorGroup<B>` are one type in the output, so a `use` binding the second
     while the first is visible is refused, naming the remedy — a nested
     scope, which in Salvo is a function (`examples/cluster/`'s `two_ids` and
     `shop`). Shadowing the *same* instance stays legal [effect-intercept].
@@ -9310,88 +9299,49 @@ between endpoints and delivers what arrives into the scheduler.
     arguments. The effect is `to`'s, concrete where the call is built.
   * A diagnostic about the message names `receive`'s parameter, where the
     body took it.
-* [actor-route-stub] **`use any group` binds `any E` to whichever member a
-  selector chooses, per send** (names user decision 2026-10-03: the route,
-  `RouteSelector`; respelled 2026-10-20, user decision R7 of the pipeline record,
-  from `use route_any(group)`, so the statement reads like the availability
-  it binds). `group` is an `eff[ActorGroup<E>]` for a non-generic actor
-  effect `E`; `use any` on anything else is an error. `any` is contextual
-  (std has an `any(list, pick)` fn): the route form is `use any` followed by
-  an operand that does not open a call or a member.
-  * **The route is derived, not written** (R7): one per routed protocol, in
-    the protocol's own module, by the IR (`ir::build::actors`, beside the
-    `__Stub_E` it derives) — `__Route_E(group) [RouteSelector<E>] for any E`,
-    with the view version its selector last saw as state, each member
-    `route_pick(group, seen[, key_hash(k)])`, then `seen` updated, then a
-    forward to the answer. The checker types the operand, requires a
-    `RouteSelector<E>` in scope ("bind one first", naming std's three),
-    records the protocol (a `Constructed::Route` construction, its one
-    dependency the selector) and binds `any E`. Any module may
-    route any protocol it can name the group of: the old refusal of a module
-    that never spelled the protocol is gone, with the syntactic generator
-    (`route.rs`) and its synthetic imports.
-  * **`spawn` of a route is not a thing** (R7): the addr would bind a strong
-    `E` under `use addr` (ROADMAP ⑥).
-  * **Its deadlock node** [actor-deadlock-cycle] [effect-any] (2026-10-20,
-    PIPELINE R8 piece 6): the derived route is no AST handler, so the graph
-    builds its node from the route construction — `__Route_E's servant`, as a written
-    `for any E` router gets one: its `RouteSelector<E>` dependency's
-    occupancy edges, to the mixed servants and priced shareable handlers of
-    `RouteSelector` in the program, each anchored at `E`'s first `use any`.
-    Every dependency on `any E` points at it, as occupancy (the route locks
-    and waits), and its forward to `E` is no edge — the router in-edges of
-    [actor-deadlock-cycle] (2026-10-26), which closed the gap of a cycle
-    through the route going unseen.
-  * **`RouteSelector<E>`** is the policy, in two phases (user decision
-    2026-10-03, option B): `changed(view: RouteView<E>)` runs when the view
-    has moved since the selector last saw it, and the selector keeps what it
-    derives in its own state; `select(view, key: Long?) -> eff[E]?` runs
-    per send, `key` being the hash of the `Key` argument. The view carries
-    nothing about selection: `RouteView<E> { members: List<RouteMember<E>>
-    }`, `RouteMember<E> { addr, local }`, members in a stable order (by
-    node, then actor id — the same on every node and both backends). Load
-    is read per send with `pending(addr)`.
-  * **Waiting** (user decision 2026-10-03): `None` makes the send wait,
-    `RouteConfig.first_wait` (1 ms) doubling up to `max_wait` (5 s), waking
-    at once whenever the view's version moves; it waits as long as it
-    takes, with no give-up. An empty group and a group without a leader
-    wait rather than fail. **The waits are the policy's** (R7, option A):
-    `RouteSelector<E>` has `fn config() -> RouteConfig`, and std's policies
-    take `config: RouteConfig = default_route_config()` as a constructor
-    parameter [fn-param-default] — `use Sharded<Inventory>(config =
-    RouteConfig { max_wait: … })`. A policy of your own answers `config()`
-    too.
-  * **The view is the runtime's mirror of the local replica**, kept by the
-    routing service with a **version**: the `ActorGrouping<E>` replica
-    writes its member set after every change (`view_set`), and
-    `ActorGroup.refresh()` moves the version alone — what an election calls
-    when its answer changes, so a leader change is a view change too. The
-    stub reads it on the sender's thread (`view_members`, `view_version`,
-    `view_wait`) — behind the replica by one message, never in the send
-    path, and no hop. A group with no replica on this node has an empty
-    view, so its stub waits: route a group from the node that opened it.
-  * **`Key`** (`export provenance qualifier Key<T> for T`, std `net`) marks
-    the parameter whose value decides the member: `send fn reserve(sku: Key
-    Str, …)`. Recorded at the effect (`route_keys`) and **erased at
-    lowering**, so the parameter's type is the plain one and a caller passes
-    a plain value; at most one per member, refused at the effect's
-    declaration otherwise — whether or not anything routes it (R7). The
-    route hashes the argument's wire encoding (FNV-1a, both
-    backends) into the `key` `select` receives.
-  * **std ships three selectors**: `LeastLoaded<E>(prefer_local)` — the
-    lightest queue, local members first when asked; `Sharded<E>()` — `key
-    mod n` over the ordered view (a keyless send goes to the first member;
-    consistent hashing is a recorded follow-up); `Elected<E>() [Leader]` —
-    the member on the node `Leader.leader()` names, asked in `changed` and
-    kept, waiting while there is none. `Leader { fn leader() -> NodeId? }`
-    is a plain effect a Salvo election or a platform handler serves; std
-    ships `StaticLeader(node)`.
-  * A selector's instance `RouteSelector<E>` is a generic effect instance whose only
-    argument is an effect: [effect-generic-decl] erases it to the
-    monomorphic `RouteSelector`, which is why it may be captured as an owned handle
-    where a `Random<Int>` dependency still could not (`effect_only_args`).
-  * The replica now wears `NodeGroupWatcher` as a second face: a node's
-    departure withdraws every member it hosted, telling the subscribers.
+* [actor-router] **A router is a handler of the protocol it routes** (user
+  decisions 2026-11-05, ROUTES.md §6.1 and §7: the selector and the route
+  merged; replacing the route `use any group` derived, its `RouteSelector<E>`,
+  `RoutePick`, `route_pick` and `Key`): std's `LeastLoaded<E>(group,
+  prefer_local)`, `Sharded<E>(group, ?key)` and `Elected<E>(group) [Leader]`
+  are each `handler H<E>(group: eff[ActorGroup<E>], …, config: RouteConfig =
+  default_route_config()) for E` with one `send fn receive(m: Message<E>)`
+  [actor-receive] that picks a member and `forward`s the message to it.
+  `use Sharded(stock)` binds the protocol, `E` inferred from the group.
+  * **A handler may serve a type parameter of its own** (`for E`), when it
+    answers it with `receive`: the IR builds it once per list of type
+    arguments the program constructs it at, as `H__X`, an ordinary handler
+    of `X` with `Message<X>` expanded and its `forward`s lowered
+    (`actors::instantiate_generic_faces`, Phase 0), and every type naming
+    `H<X>` names the instantiation; the generic declaration leaves the
+    program, since no backend can implement a type parameter. In the
+    generic body a `forward` is a call the instantiation lowers.
+  * **The view** (`route_view(group) -> RouteView<E>`): every member this
+    node's replica knows, `RouteMember<E> { addr, local }`, in an order that
+    is the same on every node, and the group's `version`. It is the runtime's
+    mirror of the local replica: the `ActorGrouping<E>` replica writes its
+    member set after every change (`view_set`), and `ActorGroup.refresh()`
+    moves the version alone — what an election calls when its answer
+    changes. Read on the sender's thread, no hop. A group with no replica on
+    this node has an empty view, so a router over it waits.
+  * **Waiting** (user decision 2026-10-03, kept): with no member to send
+    to, a router waits with `route_wait(group, view, wait, config)`: until
+    the version moves or `wait` passes, `RouteConfig.first_wait` (1 ms)
+    doubling to `max_wait` (5 s), with no give-up.
+  * **`Elected`** keeps the leader's member and the version it chose at in
+    its state, and asks `Leader.leader()` again when the version differs.
+  * **`Sharded`'s key** is the implicit `?key: (m: Message<E>) -> Long?`
+    found at the `use`: `std.net.shard`'s `key` template, stamped with `fn
+    key(m: Message<P>) [] -> Long? => m by shard`, answers `key_hash` of the
+    member's `ShardKey`-marked argument (a comptime qualifier before a send
+    parameter's name), or `None`; two marks on one member are the template's
+    `refuse!` [comptime-eval]. `key mod n` over the view (consistent hashing
+    is a recorded follow-up). `key_hash` hashes the wire encoding (FNV-1a,
+    both backends).
+  * Routers are handlers the compiler knows nothing of: no std name of
+    routing is `@compilerknown`. So the deadlock graph sees a router as an
+    ordinary handler, not through its `forward` to the members (a recorded
+    gap, ROADMAP ⑦).
 * Two emitter facts the module surfaced, both fixed with it: **`send(reply,
   None)` on Rust** boxed an `Option<_>` rustc could not infer, so the box is
   now typed from the token's payload (`Box::<Option<usize>>::new(None)`)
@@ -12274,7 +12224,7 @@ between endpoints and delivers what arrives into the scheduler.
   (the pipeline record §II.9 A4; `partition.rs`): a node-keyed row to its key's
   declaration (a declaration's own facts — `fn_lends`, `implicit_params`,
   `deductions`, `handler_deps`, … — are at its name's node), a row keyed by
-  a handler's or an effect's symbol key (`route_keys`, `protocol_hashes`,
+  a handler's or an effect's symbol key (`protocol_hashes`,
   `parking_handlers`) to that handler or effect, a row
   placed by its node's span (a local, a body's effects, a diagnostic, a
   `written_types` lowering) to the declaration that node is in, and a file's

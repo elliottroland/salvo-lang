@@ -10,7 +10,7 @@ use salvo_core::{Program, SourceSet};
 /// [lsp-warm-std] A program of std and `extra`, over the process's warm std cache
 /// (`salvo_testkit::front`, TESTS.md C2): std was read, parsed, expanded and
 /// checked once, and the program holds its very modules, so only `extra` is
-/// parsed, expanded ([actor-route-stub], what `salvo compile` runs before
+/// parsed, expanded ([actor-router], what `salvo compile` runs before
 /// checking) and — through [`emit`] — checked.
 fn build_program(extra: &[(&str, &str)]) -> Program {
     let built = salvo_testkit::front::program("rs", extra);
@@ -1064,7 +1064,7 @@ fn emit_example(example: &str) -> Vec<salvo_backend_rust::EmittedFile> {
     let src = examples_dir().join(example).join("salvo");
     let errors = sources.add_dir(&src, "rs", false, false);
     assert!(errors.is_empty(), "failed to read {example}: {errors:?}");
-    // The drivers' pre-resolution expansions [actor-route-stub].
+    // The drivers' pre-resolution expansions [actor-router].
     let built = salvo_testkit::front::std("rs").program(sources.files, sources.companions);
     let errors: Vec<_> = built.diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "parse or expansion errors: {errors:?}");

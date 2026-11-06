@@ -612,88 +612,100 @@ binding (a single instance is a group of one) and is viral downward. The full
 rule is in [Effects and
 handlers](Effects-and-Handlers.md#many-instances-any-e-and-for-any-e).
 
-### Routing: `use any group` and `RouteSelector<E>`
+### Routing: a router is a handler of the protocol
 
-A program that wants *a* member rather than the set binds the group as the
-effect itself. `use any stock` binds `any Inventory`: each send goes to
-whichever member a **selector** chooses, and the selector is an ordinary
-handler bound just before it:
+A program that wants *a* member rather than the set binds a **router** over
+the group: a handler of the protocol that sends each message to one member.
+std has three, each generic over the protocol it routes, so the group is all
+it is told:
 
 ```salvo
+import std.net.shard
+
 actor effect Inventory {
-    send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !out
+    send fn reserve(ShardKey sku: Str, qty: Int, out: Reply<Str>) => !sku, !out
 }
+
+fn key(m: Message<Inventory>) [] -> Long? => m by shard   // the key Sharded reads
 
 fn checkout(skus: List<Str>) [any Inventory, Console] -> None { … }   // `any`: shards are unordered
 
 let stock = actor_group<Inventory>(nodes)
 spawn Stocking("s1") on p in stock
-use Sharded<Inventory>()          // the selector: the member that owns the key…
-use any stock                     // …and the route, binding `any Inventory`
+use Sharded(stock)                         // binds Inventory: each send to the member owning its key
 checkout(List("apple", "pear", "apple"))   // "apple" lands on the same shard both times
 ```
 
-The route is a handler the compiler derives for you, once per protocol: one
-`for any Inventory` whose every member asks
-[`RouteSelector<Inventory>`](../../lib/std/net.sv#effect-routeselector)
-which member takes this send and forwards to it. A selector works in two
-phases over a **view** of the group
-([`RouteView`](../../lib/std/net.sv#struct-routeview)): every member the
-local replica knows, with `local` beside each, in the same order on every
-node.
-
-```salvo
-effect RouteSelector<E> {
-    fn changed(view: RouteView<E>) -> None          // the view moved: derive what you choose by
-    fn select(view: RouteView<E>, key: Long?) -> eff[E]?   // per send
-}
-```
-
-- **`changed`** runs when the view has moved since the selector last saw it
-  (a member joined or left, or the group was **refreshed**), and the
-  selector keeps what it derives in its own state: a probability per member,
-  a leader, a ring.
-- **`select`** runs per send, with the same view and the hash of the send's
-  `Key` argument when the protocol marks one. A selector that wants load
-  reads it then, with `pending(addr)`, since load changes with every send.
-- **`None` makes the send wait**, so an empty group and a group without a
-  leader wait rather than fail: it waits 1 ms, doubling up to 5 s, and wakes
-  at once whenever the view moves. The waits are the selector's: std's
-  selectors take an optional `config`
-  (`use Sharded<Inventory>(config = RouteConfig { first_wait: …, max_wait: … })`,
-  see [`RouteConfig`](../../lib/std/net.sv#struct-routeconfig)), and a
-  selector of your own answers `config()`.
-
-The view is a mirror the replica keeps in the runtime, read on the sender's
-thread: no hop to the replica, and the replica is never in the send path.
-
-Something a selector reads outside the view, such as an election's answer,
-reaches it the same way: whoever decides calls `refresh()` on the group when
-the answer changes, the view's version moves, and every route over it runs
-`changed` again. So a membership change and a leader change are one signal.
-
-std ships three selectors:
-
-- **[`LeastLoaded<E>(prefer_local)`](../../lib/std/net.sv#handler-leastloaded)**
+- **[`LeastLoaded(group, prefer_local)`](../../lib/std/net.sv#handler-leastloaded)**
   takes the lightest queue, local members first when asked.
-- **[`Sharded<E>()`](../../lib/std/net.sv#handler-sharded)** takes the member
-  that owns the key. [`Key`](../../lib/std/net.sv#qualifier-key) on a
-  parameter says which argument decides, and is erased from the type, so
-  callers pass a plain value. Two sends for the same key land on the same
+- **[`Sharded(group)`](../../lib/std/net.sv#handler-sharded)** takes the
+  member that owns the message's key: the `key` fn in scope, which
+  [`std.net.shard`](../../lib/std/net/shard.sv) stamps from a
+  [`ShardKey`](../../lib/std/net/shard.sv#qualifier-shardkey) mark before a
+  send fn's parameter (a message whose member marks none goes to the first
+  member; a member may mark one). Two sends for the same key land on the same
   member in order, a stronger guarantee than `any` claims.
-- **[`Elected<E>()`](../../lib/std/net.sv#handler-elected)** takes the member
-  on the leader's node, asking
-  [`Leader`](../../lib/std/net.sv#effect-leader)`.leader()` when the view
-  changes: a Salvo election, a platform handler over a lease store, or
+- **[`Elected(group)`](../../lib/std/net.sv#handler-elected)** takes the
+  member on the leader's node, asking
+  [`Leader`](../../lib/std/net.sv#effect-leader)`.leader()` when the group's
+  members change: a Salvo election, a platform handler over a lease store, or
   [`StaticLeader(node)`](../../lib/std/net.sv#handler-staticleader) for a
   test.
 
-A selector of your own is a handler of `RouteSelector<E>`.
+**A router waits rather than fails.** With no member to send to (an empty
+group, a group without a leader) a send waits: 1 ms, doubling up to 5 s,
+waking at once whenever the members change. The waits are the router's
+`config` (`use Sharded(stock, config = RouteConfig { first_wait: …, max_wait:
+… })`, see [`RouteConfig`](../../lib/std/net.sv#struct-routeconfig)).
 
-A policy that must read the message (scatter a query to every member and
-merge the answers, race two members and take the first, retry on a member's
-death) is not a selector: it is a handler `for any E` you write for that
-protocol, forwarding as `RoundRobin` does and receiving through an actor of
-its own. `examples/cluster/` has one of each, beside a singleton behind
-`Elected`, shards under `Sharded`, and a node leaving the group with its
-members withdrawn and the election following.
+**A router of your own is written the same way.** std's are ordinary
+handlers, with nothing the compiler knows about them: each takes every
+message with `receive`, reads the group's
+[`route_view`](../../lib/std/net.sv#fn-route_view) — every member this
+node's replica knows, `local` beside each, in the same order on every node,
+and a version that moves when they change — and `forward`s the message to
+the member it picks, waiting with
+[`route_wait`](../../lib/std/net.sv#fn-route_wait) while there is none:
+
+```salvo
+// The first member on this node, or the first of all when none is local.
+fn local_first<E>(view: RouteView<E>) [] -> eff[E]? => view {
+    for x in view.members {
+        if x.local { return copy(x.addr) }
+    }
+    for x in view.members { return copy(x.addr) }
+    return None
+}
+
+handler LocalFirst<E>(group: eff[ActorGroup<E>], config: RouteConfig = default_route_config()) for E {
+    mailbox { capacity: 16 }
+    send fn receive(m: Message<E>) => !m {
+        let wait = copy(config.first_wait)
+        while true {
+            let view = route_view(group)
+            let pick = local_first(view)
+            if !(pick is None) {
+                forward(pick, m)
+                return
+            }
+            wait = route_wait(group, view, wait, config)
+        }
+    }
+}
+```
+
+A handler that serves its own type parameter (`for E`) answers it with
+`receive`, since it cannot name the protocol's members; the compiler builds
+it once for each protocol it is used at. The view is a mirror the replica
+keeps in the runtime, read on the sender's thread: no hop to the replica, and
+the replica is never in the send path. Something a router reads outside the
+view, such as an election's answer, reaches it the same way: whoever decides
+calls `refresh()` on the group when the answer changes, and the view's
+version moves.
+
+A policy that must do more with a message than pick one member (scatter a
+query to every member and merge the answers, race two members and take the
+first, retry on a member's death) is a handler you write for that protocol,
+receiving through an actor of its own. `examples/cluster/` has one of each,
+beside a singleton behind `Elected`, shards under `Sharded`, and a node
+leaving the group with its members withdrawn and the election following.

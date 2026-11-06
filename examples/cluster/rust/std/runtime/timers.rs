@@ -445,7 +445,7 @@ impl crate::std_runtime_timers::__Stateless_Wheel for __Stub_Wheel {
 
 pub fn __dispatch_Wheeling_Wheel(__handler: &mut crate::std_runtime_timers::Wheeling, mut __msg: crate::std_runtime_timers::__Msg_Wheel) {
     if matches!(__msg, crate::std_runtime_timers::__Msg_Wheel::Run) {
-        let crate::std_runtime_timers::__Msg_Wheel::Run = __msg else { unreachable!() };
+        let crate::std_runtime_timers::__Msg_Wheel::Run = __msg;
         crate::std_runtime_timers::__Stateless_Wheel::run(&mut *__handler);
     };
 }

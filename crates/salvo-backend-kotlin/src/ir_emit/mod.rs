@@ -462,8 +462,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
     }
 
-    /// [actor-route-stub] The module of a handler the IR generated (a route), by
-    /// its key, which names its module like a generated enum's.
+    /// [actor-receive] The module of a handler the IR generated (an
+    /// instantiation of one generic over its face), by its key, which names its module like a generated enum's.
     fn generated_impl_module(&self, key: &str) -> Option<salvo_core::ModulePath> {
         let module = salvo_core::typekey::module_of(key)?;
         self.s.ir.modules.iter().filter(|m| m.path.0.join(".") == module).flat_map(|m| &m.decls).find_map(|d| match d {

@@ -130,6 +130,7 @@ impl Decl {
     }
 }
 
+#[derive(Clone)]
 pub struct TypeParam {
     pub name: String,
     /// [canbe-linear] the parameter may be instantiated at a linear type.
@@ -154,6 +155,7 @@ pub struct StructDecl {
     pub span: Span,
 }
 
+#[derive(Clone)]
 pub struct Field {
     pub name: String,
     pub ty: Ty,
@@ -215,6 +217,7 @@ pub struct Member {
 }
 
 /// A handler: an implementation of one or more interfaces.
+#[derive(Clone)]
 pub struct ImplDecl {
     pub id: DeclId,
     pub name: String,
@@ -249,6 +252,7 @@ pub struct ImplDecl {
 }
 
 /// [actor-dispatch] `func(handler, msg)` delivers a `message` to the handler.
+#[derive(Clone)]
 pub struct Dispatch {
     /// The [`EnumDecl`] it dispatches.
     pub message: DeclId,
@@ -305,6 +309,7 @@ pub fn platform_callback_effects(f: &FnDecl, p: &Param) -> Option<Vec<Local>> {
     threaded.iter().map(|e| own.iter().find(|q| q.ty == *e).map(|q| q.local.clone())).collect()
 }
 
+#[derive(Clone)]
 pub struct FnDecl {
     pub id: DeclId,
     pub name: String,

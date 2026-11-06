@@ -474,7 +474,8 @@ impl<'p> Shared<'p> {
         })
     }
 
-    /// [actor-route-stub] A handler the IR generated (a route), by its key, which
+    /// [actor-receive] A handler the IR generated (an instantiation of one
+    /// generic over its face), by its key, which
     /// names its module like a generated enum's.
     pub fn generated_impl(&self, key: &str) -> Option<(&'p ImplDecl, ModulePath)> {
         let module = salvo_core::typekey::module_of(key)?;

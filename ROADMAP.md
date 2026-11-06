@@ -897,11 +897,17 @@ blocker:
   on `E`'s written routers too); a lambda's body is checked under strong
   availabilities.
 - **⑦ picks**: consistent hashing for `Sharded` (today `key mod n` over the
-  ordered view, so a join reshuffles most keys); a `[keyed E]` claim for a
-  program relying on `Sharded`'s per-key ordering; a stub for a group whose
-  replica is on another node (empty view, the stub parks); the stub is
-  generated only where the module spells the protocol; two instances of an
-  erased effect (`RouteSelector<A>`, `RouteSelector<B>`) cannot share a scope — a function per
+  ordered view, so a join reshuffles most keys); the `ShardKeyOrdered` claim
+  for a program relying on `Sharded`'s per-key ordering is piece (d) of
+  ROUTES.md; a router over a group whose replica is on another node sees an
+  empty view and waits. **The deadlock graph does not see through a generic
+  router** (2026-11-05, ROUTES.md (c)): the derived route's graph rows went
+  with it, so a `Sharded(group)` is an ordinary handler node whose `forward`
+  to the members is not an edge; a wait cycle closing through a router and
+  back is missed. Remedy: an edge from a handler whose `receive` `forward`s
+  to an `eff[ActorGroup<E>]` parameter onto `E`'s spawned handlers, the way
+  the route rows did. Two instances of an
+  erased effect (`Pick<A>`, `Pick<B>`) cannot share a scope — a function per
   policy is the pattern, and lifting it means keeping a phantom on the erased
   trait plus a marker type per effect on the Rust side.
 - **the tidy-up (2026-09-27)**: a mixed handler has no `init` block yet. The mixed servant / private-member unification
@@ -2085,7 +2091,7 @@ several are "revisit only if a customer appears".
     that mutex mattering.
 - **Eager handle cloning**: `Stamped::new(logger.clone(), clock.clone())`
   bumps two `Arc`s per `use`; fine, noted.
-- **The erased-sibling refusal** (`RouteSelector<A>` beside `RouteSelector<B>` in one scope,
+- **The erased-sibling refusal** (`Pick<A>` beside `Pick<B>` in one scope,
   [effect-generic-decl]) was kept through the one-shape change. Its original
   reason — two `__Has_Pick` impls colliding on one fusion struct — is gone,
   and the emitters resolve a call by instance, so lifting it is probably a

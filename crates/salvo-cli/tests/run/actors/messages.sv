@@ -54,3 +54,44 @@ fn main() [use, spawn] -> None {
 //= pear: 11 left
 //= restock 2
 //= fig: 9 left
+
+//--- a_generic_relay
+// [actor-router] A handler serving its own type parameter, built once per
+// protocol it is used at: spawned and bound by `use`.
+
+actor effect Inventory {
+    send fn reserve(sku: Str, qty: Int, out: Reply<Str>) => !sku, !out
+    send fn restock(qty: Int)
+}
+
+handler Store() for Inventory {
+    mailbox { capacity: 8 }
+    state { stock: Int = 10 }
+    send fn reserve(sku: Str, qty: Int, out: Reply<Str>) => !sku, !out {
+        stock = stock - qty
+        send(out, "${sku}: ${stock} left")
+    }
+    send fn restock(qty: Int) {
+        stock = stock + qty
+    }
+}
+
+handler Relay<E>(back: eff[E]) for E {
+    mailbox { capacity: 8 }
+    send fn receive(m: Message<E>) => !m {
+        forward(back, m)
+    }
+}
+
+fn main() [use, spawn] -> None {
+    use StdConsole()
+    let p = pool(2)
+    let store = spawn Store() on p
+    let front = spawn Relay(copy(store)) on p
+    println(waitfor out: Reply<Str> { front.reserve("apple", 3, out) })
+    use Relay(copy(store))
+    println(waitfor out: Reply<Str> { reserve("fig", 2, out) })
+}
+//= stdout
+//= apple: 7 left
+//= fig: 5 left

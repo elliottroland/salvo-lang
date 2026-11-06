@@ -4328,6 +4328,14 @@ impl<'w> Expander<'w> {
                         span: bspan,
                     });
                 }
+                // [actor-message] A protocol of one send: its message *is*
+                // the one arm, not a union of one, so the copy is the code.
+                if n == 1 && self.world.message_arms(&subject_ty).is_some() {
+                    if let Some(only) = branches.pop() {
+                        out.extend(only.body.stmts);
+                    }
+                    return;
+                }
                 let when_span = span.in_expansion(self.made().expn);
                 out.push(Stmt::Expr(Expr::When {
                     binding: None,

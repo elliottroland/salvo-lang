@@ -123,7 +123,7 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
         assert!(errors.is_empty(), "parse errors in {}: {errors:?}", file.name);
         modules.push(module);
     }
-    // The drivers' pre-resolution expansions [actor-route-stub].
+    // The drivers' pre-resolution expansions [actor-router].
     let expansion = salvo_core::expand(&sources.files, &mut modules);
     let errors: Vec<_> = expansion.diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "expansion errors: {errors:?}");
@@ -169,7 +169,7 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
 /// [lsp-warm-std] A program of std and `extra`, over the process's warm std cache
 /// (`salvo_testkit::front`, TESTS.md C2): std was read, parsed, expanded and
 /// checked once, and the program holds its very modules, so only `extra` is
-/// parsed, expanded ([actor-route-stub], what `salvo compile` runs before
+/// parsed, expanded ([actor-router], what `salvo compile` runs before
 /// checking) and — through [`emit`] — checked.
 fn build_program(extra: &[(&str, &str)]) -> Program {
     let built = salvo_testkit::front::program("kt", extra);
@@ -1590,7 +1590,7 @@ fn emit_example(example: &str) -> Vec<salvo_backend_kotlin::EmittedFile> {
     let src = examples_dir().join(example).join("salvo");
     let errors = sources.add_dir(&src, "kt", false, false);
     assert!(errors.is_empty(), "failed to read {example}: {errors:?}");
-    // The drivers' pre-resolution expansions [actor-route-stub].
+    // The drivers' pre-resolution expansions [actor-router].
     let built = salvo_testkit::front::std("kt").program(sources.files, sources.companions);
     let errors: Vec<_> = built.diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "parse or expansion errors: {errors:?}");

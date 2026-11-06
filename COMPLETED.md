@@ -149,6 +149,50 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-05 — std's routers are `receive` handlers over generic protocols (user decisions, [actor-router] [actor-receive], ROUTES.md R2/§6.1/§9/§14)
+
+- **Decided** (user, 2026-11-05): routing is no longer something the
+  compiler derives. `use any group`, the derived `__Route_X`, `RouteSelector`,
+  `RoutePick`, `route_pick` and the `Key` marker are gone; a router is an
+  ordinary handler of the protocol, and std's three are merged with the
+  selectors they used to take: `LeastLoaded(group, prefer_local)`,
+  `Sharded(group)` and `Elected(group) [Leader]`, each `handler X<E>(group:
+  eff[ActorGroup<E>], …, config = …) for E` with `send fn receive(m:
+  Message<E>)` and `forward`. The shard key is the comptime qualifier
+  `ShardKey` in a new `std.net.shard` (no `Keyed` group, §14.8), and the
+  module's `key` template stamps `fn key(m: Message<P>) [] -> Long?`.
+- **Built**: a handler whose face is its own type parameter (`for E`),
+  allowed exactly when it has `receive` (`actor-receive:generic-face`
+  otherwise); the IR's Phase 0 (`instantiate_generic_faces`) builds one
+  concrete handler `H__X` per protocol it is used at, substituting `E` in
+  every type and lowering the generic body's `forward` calls afterwards
+  (`lower_forwards`); std's `net` rewritten over `route_view(group)` (a
+  `RouteView { members, version }`) and `route_wait`; `std.net.shard` with
+  the `[let]`/`size` refusal of two `ShardKey` marks on one member; the
+  route machinery removed from the parser (`use any`), the checker
+  (`check_use_any`, `check_route_keys`, `Constructed::Route`), the IR (Phase
+  1b), partition/analyze/facts, the deadlock graph's route rows and
+  `known`'s route names. `examples/cluster`, the run and check data and
+  Concurrency.md's routing section were rewritten; `check/actors/route.sv`
+  and `route_deadlock_tests.rs` are deleted, `check/actors/routers.sv` is new.
+- **Judgment calls for the user**:
+  - An instantiation lives in the **protocol's module**, not the generic
+    handler's: in the generic's own module (std's), run_data's shared std
+    crate broke, since std is compiled once for many programs. So the
+    helpers an instantiated body calls (`least_loaded`, `on_leader`) are
+    exported from `std.net`.
+  - `Sharded` reads its key through an implicit `?key: (m: Message<E>) ->
+    Long?`, so a protocol used with `Sharded` must stamp `key` (`fn key(m:
+    Message<P>) [] -> Long? => m by shard`); without one the `use` is an
+    `implicit-resolve:none` error rather than a silent first-member route.
+  - A generic router is an ordinary handler to the deadlock graph, which no
+    longer sees through it to the members (ROADMAP records the gap).
+- **Fell out**: the Rust backend's unpack of a one-variant message enum no
+  longer writes an `else` rustc warns is unreachable.
+- 725 tests under nextest (the route deadlock tests and route check cases
+  removed, the router cases added); that run took 3m26, since the std and
+  emitter change missed most stamps.
+
 ### 2026-11-05 — Messages are values: `Message<E>`, `receive`, `forward` (user decisions, [actor-message] [actor-receive], ROUTES.md R2/§8/§14)
 
 - **Decided** (user, 2026-11-05): a `send fn` is sugar for the actor
@@ -6706,7 +6750,7 @@ all-arms-left settling), `linear_settled`, `pending_drops`,
 
 ### 2026-10-20 — A derived route has its node in the deadlock graph
 
-the pipeline record R8 piece 6 [actor-deadlock-cycle] [actor-route-stub] [effect-any].
+the pipeline record R8 piece 6 [actor-deadlock-cycle] [actor-router] [effect-any].
 When routes moved into the IR (`__Route_X`, step 6 piece 5), the deadlock
 graph lost the router servant node the AST stub (`__Route_X for any X`) had
 got, since the graph reads AST handlers. The node is back, built from the
@@ -15781,7 +15825,7 @@ trail, is deleted with this step as planned; it is in git history up to
 network round").
 
 **The network sequence, step ⑦ — `Pick<E>` and the generated `route(group)`
-stub (2026-09-27 — built).** One rule, [actor-route-stub]. The kit in std `net`:
+stub (2026-09-27 — built).** One rule, [actor-router]. The kit in std `net`:
 `ActorView<E>`, `ActorGroupView<E>`, `effect Pick<E> { choose }`, the
 policies `LeastLoaded<E>(prefer_local)`, `Sharded<E>()`, `Elected<E>()
 [Leader]`, `effect Leader`, `StaticLeader(node)`, the `Key` marker, and
@@ -40369,6 +40413,13 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A generic handler's instantiation belongs to the protocol's module**
+  (2026-11-05, routers). Placed beside the generic in std, `Sharded__Inventory`
+  made std's emitted code depend on one program's protocol, and run_data's
+  std crate — compiled once and shared by many programs — failed to build.
+  Anything the compiler stamps per use site goes with the use site's types,
+  and whatever the stamped body calls must be exported from where it lives.
 
 - **An agent's file edits can land after the next command runs** (seen
   2026-10-30, effectful implicits). A `cargo build` started right after an

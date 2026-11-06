@@ -62,7 +62,7 @@ fun toStr__NetError(e: Union2<Unreachable, WireFailed>): String {
             return "wire failed to ${salvo.std.net.toStr__NodeEndpoint(e_2.to)}: ${e_2.reason}"
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:185:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:184:5"))
         }
     }
 }
@@ -596,7 +596,7 @@ fun handshake(transport: Transport, group: String, from: NodeId, data: salvo.pla
             return null
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:728:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:727:5"))
         }
     }
 }
@@ -677,7 +677,7 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
             (event == null) -> {
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:856:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:855:9"))
             }
         }
     }
@@ -813,7 +813,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
             (event == null) -> {
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:967:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:966:9"))
             }
         }
     }
@@ -1203,13 +1203,33 @@ object __Codec_RouteMember : salvo.WireCodec<RouteMember> {
 
 data class RouteView(
     val members: List<RouteMember>,
+    val version: Long,
 )
 
 object __Codec_RouteView : salvo.WireCodec<RouteView> {
     override fun enc(v: RouteView, out: salvo.WireOut) {
         salvo.ListCodec(__Codec_RouteMember).enc(v.members, out)
+        salvo.LongCodec.enc(v.version, out)
     }
-    override fun dec(inp: salvo.WireIn): RouteView = RouteView(salvo.ListCodec(__Codec_RouteMember).dec(inp))
+    override fun dec(inp: salvo.WireIn): RouteView = RouteView(salvo.ListCodec(__Codec_RouteMember).dec(inp), salvo.LongCodec.dec(inp))
+}
+
+fun routeView(group: Int): RouteView {
+    val version: Long = salvo.std.net.viewVersion(group)
+    val members: salvo.platform.std.core.list.MutList<RouteMember> = mutableListOf<RouteMember>()
+    for (m in salvo.platform.std.core.list.each(salvo.std.net.viewMembers(group))) {
+        salvo.std.core.list.addPlatform(members, RouteMember(addr = m, local = salvo.std.net.eq__NodeId_NodeId(salvo.std.net.nodeOf(m), salvo.std.net.thisNode())))
+    }
+    return RouteView(members = members.toMutableList(), version = version)
+}
+
+fun routeWait(group: Int, view: RouteView, wait: salvo.std.time.Duration, config: RouteConfig): salvo.std.time.Duration {
+    salvo.std.net.viewWait(group, view.version, wait.nanos)
+    val next: Long = (wait.nanos * 2L)
+    if ((next > config.maxWait.nanos)) {
+        return config.maxWait
+    }
+    return salvo.std.time.Duration(nanos = next)
 }
 
 fun defaultRouteConfig(): RouteConfig {
@@ -1229,172 +1249,40 @@ object __Codec_RouteConfig : salvo.WireCodec<RouteConfig> {
     override fun dec(inp: salvo.WireIn): RouteConfig = RouteConfig(salvo.std.time.__Codec_Duration.dec(inp), salvo.std.time.__Codec_Duration.dec(inp))
 }
 
-interface RouteSelector {
-    fun changed(view: RouteView)
-    fun select(view: RouteView, key: Long?): Int?
-    fun config(): RouteConfig
-}
-
-class __Mon_RouteSelector(
-    private val inner: RouteSelector,
-    private val lock: java.util.concurrent.locks.ReentrantLock = java.util.concurrent.locks.ReentrantLock(),
-) : RouteSelector {
-    override fun changed(view: RouteView) {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
-        lock.lock()
-        try { inner.changed(view) } finally { lock.unlock() }
-    }
-    override fun select(view: RouteView, key: Long?): Int? {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
-        lock.lock()
-        try { return inner.select(view, key) } finally { lock.unlock() }
-    }
-    override fun config(): RouteConfig {
-        kotlin.check(!lock.isHeldByCurrentThread) { "salvo: a handler's lock was entered again through its own handle, which on Rust would deadlock [actor-monitor-handler]" }
-        lock.lock()
-        try { return inner.config() } finally { lock.unlock() }
-    }
-}
-
-data class RoutePick(
-    val to: Int,
-    val version: Long,
-)
-
-object __Codec_RoutePick : salvo.WireCodec<RoutePick> {
-    override fun enc(v: RoutePick, out: salvo.WireOut) {
-        salvo.AddrCodec.enc(v.to, out)
-        salvo.LongCodec.enc(v.version, out)
-    }
-    override fun dec(inp: salvo.WireIn): RoutePick = RoutePick(salvo.AddrCodec.dec(inp), salvo.LongCodec.dec(inp))
-}
-
-fun routePick__Addr_Long(routeSelector: RouteSelector, group: Int, seen: Long): RoutePick {
-    return salvo.std.net.routeKeyed(routeSelector, group, seen, null)
-}
-
-fun routePick__Addr_Long_Long(routeSelector: RouteSelector, group: Int, seen: Long, key: Long): RoutePick {
-    return salvo.std.net.routeKeyed(routeSelector, group, seen, key)
-}
-
-fun routeKeyed(routeSelector: RouteSelector, group: Int, seen: Long, key: Long?): RoutePick {
-    val waits: RouteConfig = routeSelector.config()
-    var wait: Long = waits.firstWait.nanos
-    val cap: Long = waits.maxWait.nanos
-    var last: Long = seen
-    while (true) {
-        val version: Long = salvo.std.net.viewVersion(group)
-        val view: RouteView = salvo.std.net.routeView(group)
-        if ((version != last)) {
-            routeSelector.changed(view)
-            last = version
-        }
-        val picked: Int? = routeSelector.select(view, key)
-        if (!((picked == null))) {
-            val picked_1: Int = picked!!
-            return RoutePick(to = picked_1, version = last)
-        }
-        salvo.std.net.viewWait(group, version, wait)
-        wait = (wait * 2L)
-        if ((wait > cap)) {
-            wait = cap
-        }
-    }
-    throw AssertionError("salvo: unreachable at std.net:1684:5")
-    return salvo.std.net.routeKeyed(routeSelector, group, seen, key)
-}
-
-fun routeView(group: Int): RouteView {
-    val members: salvo.platform.std.core.list.MutList<RouteMember> = mutableListOf<RouteMember>()
-    for (m in salvo.platform.std.core.list.each(salvo.std.net.viewMembers(group))) {
-        salvo.std.core.list.addPlatform(members, RouteMember(addr = m, local = salvo.std.net.eq__NodeId_NodeId(salvo.std.net.nodeOf(m), salvo.std.net.thisNode())))
-    }
-    return RouteView(members = members.toMutableList())
-}
-
-class LeastLoaded(private val preferLocal: Boolean, private val config: RouteConfig) : RouteSelector {
-    override fun config(): RouteConfig {
-        return config
-    }
-    override fun changed(view: RouteView) {
-    }
-    override fun select(view: RouteView, key: Long?): Int? {
-        var best: RouteMember? = null
-        var bestPending: Int = 0
-        for (a in salvo.platform.std.core.list.each(view.members)) {
-            val load: Int = salvo.std.net.pending(a.addr)
-            if ((best == null)) {
+fun leastLoaded(view: RouteView, preferLocal: Boolean): Int? {
+    var best: RouteMember? = null
+    var bestPending: Int = 0
+    for (a in salvo.platform.std.core.list.each(view.members)) {
+        val load: Int = salvo.std.net.pending(a.addr)
+        if ((best == null)) {
+            best = a
+            bestPending = load
+        } else {
+            val best_1: RouteMember = best!!
+            val b: RouteMember = best_1
+            val take: Boolean = (if (((preferLocal && a.local) && !(b.local))) {
+                true
+            } else if (((preferLocal && !(a.local)) && b.local)) {
+                false
+            } else {
+                (load < bestPending)
+            })
+            if (take) {
                 best = a
                 bestPending = load
-            } else {
-                val best_1: RouteMember = best!!
-                val b: RouteMember = best_1
-                val take: Boolean = (if (((preferLocal && a.local) && !(b.local))) {
-                    true
-                } else if (((preferLocal && !(a.local)) && b.local)) {
-                    false
-                } else {
-                    (load < bestPending)
-                })
-                if (take) {
-                    best = a
-                    bestPending = load
-                }
             }
         }
-        val chosen: RouteMember = when {
-            (best != null) -> {
-                val best_2: RouteMember = best!!
-                best_2
-            }
-            else -> {
-                return null
-            }
+    }
+    val chosen: RouteMember = when {
+        (best != null) -> {
+            val best_2: RouteMember = best!!
+            best_2
         }
-        return chosen.addr
-    }
-}
-
-class Sharded(private val config: RouteConfig) : RouteSelector {
-    override fun config(): RouteConfig {
-        return config
-    }
-    override fun changed(view: RouteView) {
-    }
-    override fun select(view: RouteView, key: Long?): Int? {
-        val n: Int = salvo.std.core.list.sizePlatform(view.members)
-        if ((n == 0)) {
+        else -> {
             return null
         }
-        val k: Long = when {
-            (key != null) -> {
-                val key_1: Long = key!!
-                key_1
-            }
-            else -> {
-                0L
-            }
-        }
-        val magnitude: Long = (if ((k < 0L)) {
-            (0L - k)
-        } else {
-            k
-        })
-        val slot: Int = ((magnitude % (n).toLong())).toInt()
-        val picked: RouteMember = kotlin.run {
-            val __pick1: RouteMember? = salvo.std.core.list.getPlatform(view.members, slot)
-            when {
-                (__pick1 != null) -> {
-                    val __pick1_2: RouteMember = __pick1!!
-                    __pick1_2
-                }
-                else -> {
-                    return null
-                }
-            }
-        }
-        return picked.addr
     }
+    return chosen.addr
 }
 
 interface Leader {
@@ -1418,35 +1306,25 @@ class StaticLeader(private val node: NodeId) : Leader {
     }
 }
 
-class Elected(private val config: RouteConfig, private val __dep0: Leader) : RouteSelector {
-    var chosen: Int? = null
-    override fun config(): RouteConfig {
-        return config
-    }
-    override fun changed(view: RouteView) {
-        chosen = null
-        val l: NodeId = kotlin.run {
-            val __pick2: NodeId? = __dep0.leader()
-            when {
-                (__pick2 != null) -> {
-                    val __pick2_1: NodeId = __pick2!!
-                    __pick2_1
-                }
-                else -> {
-                    return
-                }
+fun onLeader(leader: Leader, view: RouteView): Int? {
+    val l: NodeId = kotlin.run {
+        val __pick3: NodeId? = leader.leader()
+        when {
+            (__pick3 != null) -> {
+                val __pick3_1: NodeId = __pick3!!
+                __pick3_1
             }
-        }
-        for (a in salvo.platform.std.core.list.each(view.members)) {
-            if (salvo.std.net.eq__NodeId_NodeId(salvo.std.net.nodeOf(a.addr), l)) {
-                chosen = a.addr
-                return
+            else -> {
+                return null
             }
         }
     }
-    override fun select(view: RouteView, key: Long?): Int? {
-        return chosen
+    for (a in salvo.platform.std.core.list.each(view.members)) {
+        if (salvo.std.net.eq__NodeId_NodeId(salvo.std.net.nodeOf(a.addr), l)) {
+            return a.addr
+        }
     }
+    return null
 }
 
 

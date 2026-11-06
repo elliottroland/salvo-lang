@@ -334,7 +334,7 @@ fn main() [use, spawn] {
 //= asking for third
 //= third: 7
 
-//--- least_loaded_and_elected_routes
+//--- least_loaded_and_elected_routers
 import std.net
 import std.time
 
@@ -394,14 +394,12 @@ fn main() [use, spawn] {
     println("members: ${size(seen)}")
 
     // Least loaded, local first: every id comes from a's member.
-    use LeastLoaded<Sequencer>(true)
-    use any copy(seq)
+    use LeastLoaded(copy(seq), true)
     println("${fresh_id()} ${fresh_id()}")
 
     // Elected: the leader is b's node, so ids come from b's member.
     use StaticLeader(node_of(remote))
-    use Elected<Sequencer>()
-    use any seq
+    use Elected(seq)
     println("${fresh_id()} ${fresh_id()}")
 }
 //= stdout
@@ -409,20 +407,23 @@ fn main() [use, spawn] {
 //= a#1 a#2
 //= b#1 b#2
 
-//--- a_sharded_route
+//--- a_sharded_router
 import std.net
+import std.net.shard
 import std.time
 
 actor effect Inventory {
-    send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out
+    send fn reserve(ShardKey sku: Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out
 }
+
+fn key(m: Message<Inventory>) [] -> Long? => m by shard
 
 handler Stocking(shard: Str) for Inventory {
     mailbox { capacity: 32 }
     state {
         served: Int = 0
     }
-    send fn reserve(sku: Key Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out {
+    send fn reserve(sku: Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out {
         served = served + qty
         out.send("${shard} took ${sku} (${served} so far)")
     }
@@ -447,8 +448,7 @@ fn main() [use, spawn] {
     spawn Stocking("s1") on p in stock
     spawn Stocking("s2") on p in stock
 
-    use Sharded<Inventory>()
-    use any stock
+    use Sharded(stock)
     checkout(List("apple", "pear", "apple", "fig", "pear"))
 }
 //= stdout
