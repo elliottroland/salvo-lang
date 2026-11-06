@@ -149,6 +149,31 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-05 — Two defects property testing's probes found ([rs-fn-field-send] [actor-spawn-effect])
+
+Found while designing property tests (PROP_TEST.md §4), and fixed first,
+because generators need the first.
+
+- **A generic fn that keeps a closure over its type parameter's values**
+  compiles on Rust. `fn gen<T>(list: NonEmpty List<T>) -> Gen<Idx(list)
+  Int>` used to fail with E0277: the field's `Arc<dyn Fn + Send + Sync>`
+  needs its captures to be `Send + Sync + 'static`. A program-wide fixpoint
+  (`ir_emit/send.rs`) bounds exactly the parameters a kept closure captures,
+  and propagates them to generic callers. Run-data case
+  `functions/a_generic_fn_keeps_a_closure`.
+- **A named `[spawn]` fn is no longer a value**
+  (`actor-spawn-effect:fn-value`). Passing one to a fn-typed slot moved the
+  capability to wherever the slot is called. That is the hole the lambda
+  refusal closes for written closures. A checker case was added in
+  `actors/spawn.sv`.
+- Recorded in ROADMAP §9, not fixed:
+  - Rust refuses a `Throw` through an effect variable.
+  - Kotlin cannot `copy` a generic `T`.
+  - Kotlin refuses `let v: Str = get(xs, i)`.
+  - A `[spawn]` fn filling an implicit is not checked yet.
+
+**724 tests** (unchanged: both are new cases in data files).
+
 ### 2026-11-05 — `message[E]` (user decision, [actor-message])
 
 - **Decided** (user): a protocol's messages are written `message[E]`,

@@ -42,6 +42,11 @@ pub fn exprs_mut(program: &mut Program, f: &mut impl FnMut(&mut Expr)) {
     }
 }
 
+/// Every expression of a fn's body, nested ones included.
+pub fn fn_exprs_mut(fd: &mut FnDecl, f: &mut impl FnMut(&mut Expr)) {
+    fn_decl(fd, f);
+}
+
 fn fn_decl(fd: &mut FnDecl, f: &mut impl FnMut(&mut Expr)) {
     if let Some(b) = &mut fd.body {
         block(b, f);

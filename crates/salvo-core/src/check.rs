@@ -8713,6 +8713,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         // [fn-ref-table]
         self.out.fn_refs.insert(self.key(name_span), entry.key);
         let decl = entry.decl;
+        // [actor-spawn-effect] A fn declaring `spawn` is not a value: the
+        // capability belongs to the body that spawns, and no fn type can
+        // carry it to where the value is called.
+        if decl.effects.iter().flatten().any(|e| matches!(e, EffectRef::Spawn(_))) {
+            self.error(name_span, messages::actor_spawn_effect_fn_value(&name));
+            return Ty::Unknown;
+        }
         // [fn-effects] A named fn passed by value performs exactly the
         // effects it declares (inherited entries included) — its callers
         // supply them.

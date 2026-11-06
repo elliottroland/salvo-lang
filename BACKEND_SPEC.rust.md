@@ -449,6 +449,22 @@ Conventions:
   * what this buys: a **hand-written composed pass** (a struct storing its
     source *and* its callback) builds on both targets, so composing iterators
     is available to anyone rather than only to generated std code.
+* [rs-fn-field-send] **A generic fn whose kept closure captures a value of
+  its type parameter's type bounds that parameter `Send + Sync + 'static`**
+  (2026-11-05, found designing property tests: `fn gen<T>(list: NonEmpty
+  List<T>) -> Gen<Idx(list) Int>` was E0277). A closure is *kept* when it is
+  a struct literal's field, a fn's returned fn value, or a lambda passed to a
+  callee parameter it moves; its captures must meet the `Arc<dyn Fn + Send +
+  Sync>` / `impl Fn + Send + Sync + 'static` bounds [rs-fn-field].
+  * **It propagates**: a generic caller passing a type that mentions its own
+    parameters to such a fn bounds those parameters too, so `fn first<T>(l:
+    NonEmpty List<T>) -> … { return gen(l) }` compiles with no closure of its
+    own. Computed once per program, to a fixpoint over the IR, before
+    emission (`ir_emit/send.rs`); a call's argument and result types say
+    which caller parameters are involved, conservatively.
+  * Only those parameters: a generic fn whose closures are all passed to
+    `&mut dyn FnMut` slots is unchanged, so a borrow (`proj T`) still
+    instantiates it.
 * [backend-never-wrong] A **`fns` group in a struct field** is still a
   codegen error: a bundle of functions has no single type to store. The
   checker refuses it first [group-not-a-value]; the backend keeps its own

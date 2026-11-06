@@ -2329,7 +2329,12 @@ messages! {
         "`spawn` cannot be written inside a lambda: a function value's body runs wherever \
          it is called, and a fn type cannot declare `spawn` — spawn in the function that \
          holds the capability and pass the `eff[…]` handle";
-    /// `spawn` without the `spawn` capability.
+    /// A fn declaring `spawn` used as a value.
+    actor_spawn_effect_fn_value = "actor-spawn-effect:fn-value" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` declares `spawn`, so it cannot be used as a value: a function value runs \
+         wherever it is called, and a fn type cannot declare `spawn` — call `{name}` from \
+         the function that holds the capability"
+    );
     actor_spawn_effect_missing = "actor-spawn-effect:missing" () =>
         "`spawn` requires the `spawn` capability in the function's effect list (`[use, \
          spawn]`)";

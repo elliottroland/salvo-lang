@@ -1469,7 +1469,7 @@ log for the round itself).
   and which candidate *leads* the arguments' expected types at a call (the top
   rung, [fn-overload-rank]'s "lead", a hint only).
 
-### 6 — Recursive implicit resolution (decided 2026-09-28, not built)
+### 6 — Recursive implicit resolution (decided 2026-09-28, partly built 2026-10-06: what is left is item 8 of 0j)
 
 [implicit-resolve] **skips a candidate that itself needs implicits**, so
 `fn eq<T>(a: List<T>, b: List<T>, ?Eq<T>)` can never be what a `Set<List<Person>>`
@@ -1554,6 +1554,12 @@ container [interp-to-str], property testing's `?generate`, section 2c's
   pricing first (the case that raised this needs only `NonEmpty List<Int>` →
   `List<Int>` *inside* a type argument, which is qualifier-dropping at depth); and
   that the emitted Rust must not depend on it, since Rust has no variance.
+  **Whatever is chosen must include a way to declare a type parameter
+  invariant** (user, 2026-11-05): property testing's `Gen<T>` (PROP_TEST.md
+  §3.2) relies on `Gen<Int>` and `Gen<Positive Int>` being unrelated types.
+  That is what lets R-2 [fn-overload-return] accept both generators and makes
+  resolution pick exactly one. A `Gen` inferred covariant would let a
+  narrower generator fill a wider position, which silently tests less.
 - **DECISION — the mirror of [fn-kept-borrow]** (found 2026-10-14): should a fn
   whose parameter is a borrow (`fn longer(s: proj Str) -> Bool`) fit a slot
   that passes an owned value (`(Str) -> Bool`, e.g. `any(ws, longer)` over a
@@ -1629,14 +1635,36 @@ deliberately cut, in the order the decisions put it:
   (recommended, error otherwise), a preamble may do **anything a test body may**,
   and a **childless context warns**. The lowering is per-test inlining, which
   makes isolation true by construction.
-- **Property testing** (TF-5): `check(runs, property)` with the generator arriving
-  as the implicit **`?generate`**, so the *qualifier on the parameter type picks
-  the generator* (`(text: ValidDate Str) -> …`); randomness threaded as a
-  `Mut Rng` **value**, which the effect-free-resolution rule turns into a
-  determinism guarantee; shrinking by replaying the generator over a shrunken draw
-  stream. Two prerequisites: wrapping and bit operations on `Long` for a
-  pure-Salvo splitmix64 (parity by construction; now §0j step 2, as
-  operators), and step 5's implicit lift.
+- **Property testing** (TF-5, redesigned 2026-11-05): the working document is
+  **PROP_TEST.md**, which holds the user's decisions so far and the
+  questions still open.
+  - TF-5's `?generate` overloaded by return type does not work: R-2
+    [fn-overload-return] refuses `-> Int` beside `-> Small Int`. Generators
+    are values instead, `Gen<T>`, picked by their type argument.
+  - Both prerequisites are built: bit and wrapping operations ([op-bits],
+    [op-wrap]) and recursive implicits ([implicit-recursive]).
+  - Probing for it found three defects. Two were fixed with the first
+    commit (2026-11-05): [rs-fn-field-send], and the
+    `actor-spawn-effect:fn-value` refusal. Still open:
+    - **Rust: a `Throw` through an effect variable is refused.** Repro: a
+      `fn check<T, [E]>(runs: Int, property: (x: T) [E] -> None) [E]` called
+      with a lambda that calls `expect_eq` inside a `[Throw<Failure>]` fn.
+      The checker accepts it and Kotlin runs it. The Rust emitter reports
+      `throw:outside-try` (`propagate` in `ir_emit/body.rs`, where `throws`
+      is `None` because the row is a variable). Writing `[Throw<Failure>]`
+      instead of `[E]` works on both backends.
+    - **Kotlin: `copy` of a generic `T` has no plan** (`kt-copy:no-plan`).
+      Repro: `fn constant<T>(v: T) -> Gen<T> { return Gen<T> { run: (rng:
+      Rng) -> copy(v) } }`. The checker accepts it and Rust clones. Core's
+      copy plan answers nothing for a type variable, and Kotlin has no
+      runtime deep copy. So property testing's `constant` combinator is cut
+      (agent's call, to confirm).
+    - **Kotlin: `let v: Str = get(xs, i)` with a total `get` over `List<Str>`
+      is refused**: "expected `Str`, found `proj Str`". The checker accepts
+      it, Rust runs it, and the Kotlin emitter refuses. A borrowed element
+      is not copied into the annotated owned local.
+    - **Not covered by the fn-value fix:** a named `[spawn]` fn filling an
+      *implicit* is not checked yet.
 - **Actor testing helpers** (TF-6): `settle(p)`/`expect_settled(p)` over
   [actor-on-idle], a recording `Probe<M>` handler, `expect_fault(target, body)`
   over [actor-watch]. Needs `spawn` added to [test-body]'s implicit powers, and

@@ -1144,6 +1144,16 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             self.s.erased.fns.contains(&(fi, af.name.span))
         });
         let mut tps = if erased_fn { Vec::new() } else { self.generics(&f.type_params, bound) };
+        // [rs-fn-field-send] A closure kept past the call captures values of
+        // these parameters' types.
+        if let Some(send) = self.s.send_bounds.get(&f.id) {
+            for (t, tp) in tps.iter_mut().zip(&f.type_params) {
+                if send.contains(&tp.name) {
+                    let sep = if t.contains(':') { " +" } else { ":" };
+                    t.push_str(&format!("{sep} Send + Sync + 'static"));
+                }
+            }
+        }
         self.f.generics = f.type_params.iter().map(|t| t.name.clone()).collect();
         self.f.effect_vars = f.type_params.iter().filter(|t| t.effect).map(|t| t.name.clone()).collect();
         // [rs-path] A handle into a container that is a type parameter is a

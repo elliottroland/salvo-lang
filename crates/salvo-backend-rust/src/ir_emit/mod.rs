@@ -26,6 +26,7 @@ mod body;
 mod decls;
 mod paths;
 mod repoint;
+mod send;
 mod skeleton;
 
 
@@ -111,6 +112,7 @@ fn run(
         path_enums: Vec::new(),
         path_pairs: Vec::new(),
         needs_walk: false,
+        send_bounds: HashMap::new(),
     };
     for m in &ir.modules {
         for d in &m.decls {
@@ -142,6 +144,7 @@ fn run(
             break;
         }
     }
+    shared.send_bounds = send::compute(&shared.decls);
     shared.compute_paths();
     if skeletons {
         let mut files = Vec::new();
@@ -444,6 +447,9 @@ pub(crate) struct Shared<'p> {
     pub path_pairs: Vec<(Ty, Ty, paths::PathTy)>,
     /// [rs-path] Whether some fn is generic over a handle's container.
     pub needs_walk: bool,
+    /// [rs-fn-field-send] Per generic fn, the type parameters a closure it
+    /// keeps (or one a callee keeps) needs `Send + Sync + 'static`.
+    pub send_bounds: HashMap<DeclId, HashSet<String>>,
 }
 
 impl<'p> Shared<'p> {

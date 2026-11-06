@@ -7596,6 +7596,12 @@ docs/language/ remains the source of truth for everything that does.
     *expression* only, which made the declaration on `pool` decorative: a
     caller reached it through an undeclared helper. Fixed with the `watch`
     slice, since `watch` is the second `[spawn]` function there has ever been.
+  * **A fn declaring `spawn` is not a value** (2026-11-05,
+    `actor-spawn-effect:fn-value`): no fn type can declare the capability, so
+    passing such a fn to a fn-typed slot would let it run where nothing held
+    it — the hole the refusal of `spawn` in a lambda already
+    closed for written closures. Call it from the function that holds the
+    capability instead.
 * [actor-mailbox] **A handler of an actor effect declares its mailbox** (user
   decision 2026-09-16, replacing the frozen `capacity N` spawn clause):
 

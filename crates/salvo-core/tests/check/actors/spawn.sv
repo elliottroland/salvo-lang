@@ -304,6 +304,22 @@ fn a_spawn_stops_at_a_lambda() [use, spawn] {
     let _f = () -> spawn Printing() on pool(1)
 }
 
+// [actor-spawn-effect] Nor does a named fn that spawns travel as a value:
+// the slot it would fill cannot declare `spawn`, so the capability would
+// reach a caller that never held it.
+fn spawns_a_logger() [spawn] -> None {
+    let _l = spawn Printing() on pool(1)
+}
+
+fn run_it(f: () -> None) [] -> None {
+    f()
+}
+
+fn a_spawning_fn_is_not_a_value() [use, spawn] {
+    //~ error[actor-spawn-effect:fn-value]
+    run_it(spawns_a_logger)
+}
+
 fn a_waitfor_stops_at_a_lambda() [use, spawn] {
     let counter = spawn Counting() with Printing() on pool(1)
     //~ error[actor-waitfor:in-lambda]
