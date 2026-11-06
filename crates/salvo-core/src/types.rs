@@ -1583,6 +1583,9 @@ impl fmt::Display for Ty {
                 }
                 write!(f, "]")
             }
+            // [actor-message] The internal `Message<E>` (a protocol only a type
+            // parameter names) reads as written, `message[E]`.
+            Ty::Named { name, args } if name == "Message" && args.len() == 1 => write!(f, "message[{}]", args[0]),
             // [effect-var] A row reads as the effect list it was written as.
             Ty::Named { name, args } if name == EFFECT_ROW => {
                 let parts: Vec<String> = args.iter().map(|a| a.to_string()).collect();

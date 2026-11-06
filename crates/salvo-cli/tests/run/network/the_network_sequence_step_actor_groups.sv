@@ -23,7 +23,7 @@ handler RoundRobin(members: List<eff[Resizer]>) for Resizer {
     state {
         next: Int = 0
     }
-    send fn sent(m: Message<Resizer>) => !m {
+    send fn sent(m: message[Resizer]) => !m {
         let i = next % size(members)
         next = next + 1
         let target = copy(get(members, i) ?: unreachable!())
@@ -416,7 +416,7 @@ actor effect Inventory {
     send fn reserve(ShardKey sku: Str, qty: Int, out: Reply<Str>) => !sku, !qty, !out
 }
 
-fn key(m: Message<Inventory>) [] -> Long? => m by shard
+fn key(m: message[Inventory]) [] -> Long? => m by shard
 
 handler Stocking(shard: Str) for Ordered Inventory {
     mailbox { capacity: 32 }

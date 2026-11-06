@@ -1677,7 +1677,7 @@ export fn least_loaded<E>(view: RouteView<E>, prefer_local: Bool) [] -> eff[E]? 
 export handler LeastLoaded<E>(group: eff[ActorGroup<E>], prefer_local: Bool, config: RouteConfig = default_route_config()) for E {
     mailbox { capacity: 16 }
 
-    send fn sent(m: Message<E>) => !m {
+    send fn sent(m: message[E]) => !m {
         let wait = copy(config.first_wait)
         while true {
             let view = route_view(group)
@@ -1711,7 +1711,7 @@ export handler LeastLoaded<E>(group: eff[ActorGroup<E>], prefer_local: Bool, con
 //     send fn reserve(ShardKey sku: Str, qty: Int, out: Reply<Str>) => !sku, !out
 // }
 //
-// fn key(m: Message<Inventory>) [] -> Long? => m by shard
+// fn key(m: message[Inventory]) [] -> Long? => m by shard
 //
 // fn shop(stock: eff[ActorGroup<Inventory>]) [use, Console] -> None => !stock {
 //     use Sharded(stock)
@@ -1721,10 +1721,10 @@ export handler LeastLoaded<E>(group: eff[ActorGroup<E>], prefer_local: Bool, con
 // ```
 // @param key found at the use: the message's key, or `None`.
 // @compilerrules [actor-router, actor-sent, effect-claim]
-export handler Sharded<E>(group: eff[ActorGroup<E>], config: RouteConfig = default_route_config(), ?key: (m: Message<E>) -> Long?) for ShardKeyOrdered E {
+export handler Sharded<E>(group: eff[ActorGroup<E>], config: RouteConfig = default_route_config(), ?key: (m: message[E]) -> Long?) for ShardKeyOrdered E {
     mailbox { capacity: 16 }
 
-    send fn sent(m: Message<E>) => !m {
+    send fn sent(m: message[E]) => !m {
         let k = key(m) ?: 0L
         let magnitude = if k < 0L { 0L - k } else { k }
         let wait = copy(config.first_wait)
@@ -1830,7 +1830,7 @@ export handler Elected<E>(group: eff[ActorGroup<E>], config: RouteConfig = defau
         chosen: eff[E]? = None
     }
 
-    send fn sent(m: Message<E>) => !m {
+    send fn sent(m: message[E]) => !m {
         let wait = copy(config.first_wait)
         while true {
             let view = route_view(group)

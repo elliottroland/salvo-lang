@@ -142,6 +142,11 @@
           "match": "\\beff(?=\\[)"
         },
         {
+          "comment": "the messages type former — a keyword by position, not a reserved word",
+          "name": "keyword.other.salvo",
+          "match": "\\bmessage(?=\\[)"
+        },
+        {
           "comment": "the compile-time modifier — a keyword by position, not a reserved word",
           "name": "keyword.declaration.salvo",
           "match": "\\bcomptime(?=\\s+(fn|struct|type)\\b)"

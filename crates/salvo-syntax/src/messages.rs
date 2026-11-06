@@ -384,20 +384,20 @@ messages! {
     /// A handler serving one of its type parameters without `sent`.
     actor_sent_generic_face = "actor-sent:generic-face" (handler: &str, param: &str) => format!(
         "handler `{handler}` serves its type parameter `{param}`, a protocol it cannot \
-         name the members of: answer it with `send fn sent(m: Message<{param}>)`"
+         name the members of: answer it with `send fn sent(m: message[{param}])`"
     );
     // [actor-message]
     /// Two send members of one actor effect under one name.
     actor_message_overloaded_send = "actor-message:overloaded-send" (effect: &dyn std::fmt::Display, member: &dyn std::fmt::Display) => format!(
         "`{effect}` declares the send member `{member}` twice: an actor effect's send members \
          are not overloaded, because that will cause a collision in the generated \
-         `Message<{effect}>` structs (one per send member, named after it): give this one \
+         `message[{effect}]` structs (one per send member, named after it): give this one \
          a name of its own"
     );
     /// Two send members whose message structs would share a name.
     actor_message_arm_collision = "actor-message:arm-collision" (effect: &dyn std::fmt::Display, member: &dyn std::fmt::Display, other: &dyn std::fmt::Display, arm: &dyn std::fmt::Display) => format!(
         "`{member}` and `{other}` in `{effect}` will cause a collision in the generated \
-         `Message<{effect}>` structs: both are named `{arm}`. Rename one of them"
+         `message[{effect}]` structs: both are named `{arm}`. Rename one of them"
     );
     /// A `sent` taking the messages of an effect the handler does not serve.
     actor_sent_not_a_face = "actor-sent:not-a-face" (handler: &str, effect: &dyn std::fmt::Display) => format!(
@@ -502,6 +502,20 @@ messages! {
 
     // [effect-eff-handle]
     /// `Addr<…>` written as a type.
+    // [actor-message]
+    /// `Message<E>`, the internal spelling.
+    actor_message_old_spelling = "actor-message:old-spelling" () =>
+        "`Message<…>` is not a type you write: a protocol's messages are spelled \
+         `message[E]` (several protocols': `message[A, B]`)";
+    /// A claim inside `message[…]`.
+    actor_message_claim = "actor-message:claim" (claim: &dyn std::fmt::Display) => format!(
+        "`{claim}` has no meaning in `message[…]`: a claim is about a binding, and a \
+         message is a value; write the effect alone"
+    );
+    /// `message[]`.
+    actor_message_empty = "actor-message:empty" () =>
+        "`message[]` names no protocol: write the effects whose messages it is, \
+         `message[E]`";
     effect_eff_handle_addr_type = "effect-eff-handle:addr-type" () =>
         "`Addr<…>` is not a type you write: a first-class effect handle is spelled \
          `eff[E]` (several effects: `eff[A, B]`)";

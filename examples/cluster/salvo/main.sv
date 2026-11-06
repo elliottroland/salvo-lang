@@ -24,7 +24,7 @@ actor effect Inventory {
     send fn reserve(ShardKey sku: Str, qty: Int, out: Reply<Str>) => !sku, !out
 }
 
-fn key(m: Message<Inventory>) [] -> Long? => m by shard
+fn key(m: message[Inventory]) [] -> Long? => m by shard
 
 // 3. Scatter (map/reduce): every index answers a count, the sum is the answer.
 actor effect Search {

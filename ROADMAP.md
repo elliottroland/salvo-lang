@@ -1039,20 +1039,20 @@ left three follow-ups the user has asked for, in this order.
 ### Messages over several protocols: generic routers and `show` (designed 2026-11-05, not built)
 
 The plain case is built: a handler of several faces takes them with a
-`sent` each, or with one `sent(m: Message<A> | Message<B>)` [actor-sent].
+`sent` each, or with one `sent(m: message[A, B])` [actor-sent].
 What is designed and left, with logging as the motivating example:
 
 ```salvo
-handler Logging<[E]>(inner: eff[E], ?show: (m: Message<E>) -> Str) [Console] for E {
+handler Logging<[E]>(inner: eff[E], ?show: (m: message[E]) -> Str) [Console] for E {
     mailbox { capacity: 32 }
-    send fn sent(m: Message<E>) => !m {
+    send fn sent(m: message[E]) => !m {
         println("-> ${show(m)}")
         send(inner, m)
     }
 }
 
 import std.log
-fn show(m: Message<[Inventory, Payments]>) [] -> Str => m by log    // "Payments.Charge { cents: 300 }"
+fn show(m: message[Inventory, Payments]) [] -> Str => m by log    // "Payments.Charge { cents: 300 }"
 
 use Logging(eff[inv, pay])     // E = [Inventory, Payments]: serves both, logs both
 ```
@@ -1063,11 +1063,9 @@ The plan, each step usable once it lands:
    pay], m)` switches over `m`'s arms and sends each through the handle of
    its arm's effect (`handle_leaves`); today the program narrows and sends
    per face itself.
-2. **`Message` over a list of effects**, the union of each one's messages
-   (`Message<[A, B]>` in today's spelling); an effect variable's `Message<E>`
-   is the same. **DECISION, open (user, 2026-11-05)**: whether `Message<E>`
-   is respelled `message[E]` beside `eff[E]` — see "Messages: the spelling"
-   below; this step takes whichever spelling is chosen.
+2. **`message[E]` over an effect variable** standing for a set of effects:
+   the union of each one's messages, as `message[A, B]` is for effects
+   written out (built 2026-11-05).
 3. **Generic handlers over a set of protocols**: `handler H<[E]>(…) for E`,
    a face that is an effect variable, serving every effect of the set; IR
    Phase 0 builds one per set it is used at (`Logging__Inventory_Payments`),
@@ -1078,7 +1076,7 @@ The plan, each step usable once it lands:
    `Sharded`'s `?key` is by `std.net.shard`), a `Reply` field shown as
    `reply`; no compiler knowledge. Rejected: arms deriving `to_str`, which
    makes the compiler declare an obligation on its generated structs and
-   still needs an implicit over `Message<E>` in the generic body.
+   still needs an implicit over `message[E]` in the generic body.
    **DECISION**: whether std ships the template (`std.log`?) and a
    `Logging` handler.
 
@@ -1087,31 +1085,10 @@ refused at first; logging the *answers* (minting a reply of the router's
 own, sending it on, relaying the answer) is writable by hand with `replyto`
 and not generically — later.
 
-### Messages: the spelling (DECISION, user, 2026-11-05)
-
-`Message<E>` is a compiler-known type whose argument is an effect, as
-`eff[E]`'s is; the user asks whether it should be written as one, `message[E]`.
-
-- **(a) `message[E]`** (recommended): the family of compiler forms over
-  effects — `eff[A, B]`, effect lists `[A, B]` — is lowercase with brackets,
-  so `message[E]` says what it is, and its list form answers step 2 above
-  for free: `message[A, B]` is the union of both protocols' messages, and
-  `message[E]` over an effect variable the generic one. `Message` leaves
-  std.core.actor (one `@compilerknown` std name fewer); `message` is a word
-  only before `[` in a type, as `eff` is. A claim inside (`message[Ordered
-  A]`) is refused. `Message<A> | Message<B>` written today becomes
-  `message[A, B]`; the union of the two stays an ordinary type.
-- **(b) keep `Message<E>`**, and spell the list form `Message<[A, B]>`.
-  Nothing moves, but it reads as a nominal std type a program could shadow,
-  which it is not.
-
-`proj` and `ref` are qualifiers (`proj(x) T`), not this form; `eff[…]` is
-the precedent.
-
 ### Messages: a loose end of the routes work (2026-11-05)
 
 - **A generic fn's message `send` is refused late.** `fn relay<E>(to:
-  eff[E], m: Message<E>) => send(to, m)` checks clean and is refused by the
+  eff[E], m: message[E]) => send(to, m)` checks clean and is refused by the
   backends as an unsupported IR node (no protocol to switch on); the checker
   could say it at the call, naming a handler `for E` as the way.
 

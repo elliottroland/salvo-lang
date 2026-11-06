@@ -43,7 +43,7 @@ handler Spraying(a: eff[Counter], b: eff[Counter]) for Counter {
     state {
         flip: Bool = false
     }
-    send fn sent(m: Message<Counter>) => !m {
+    send fn sent(m: message[Counter]) => !m {
         flip = !flip
         if flip { send(a, m) } else { send(b, m) }
     }

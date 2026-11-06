@@ -149,6 +149,30 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-05 — `message[E]` (user decision, [actor-message])
+
+- **Decided** (user): a protocol's messages are written `message[E]`,
+  beside `eff[E]` — a compiler form over effects, lowercase with brackets —
+  and `message[A, B]` is the messages of several protocols. `Message<E>` is
+  no longer the language.
+- **Built**: the parser reads `message[A, B]` as the union of one
+  `Message<E>` per effect (std.core.actor's `intrinsic type Message<E>`
+  stays as the internal name, as `Addr` does for `eff[…]`; so lowering,
+  expansion, comptime and the backends are unchanged) and both displays
+  write it back as the list; a written `Message<…>` is
+  `actor-message:old-spelling`, a claim inside `actor-message:claim`,
+  `message[]` `actor-message:empty`; the TextMate grammar highlights
+  `message` before `[`. Every source, test, doc and spec rewritten,
+  `Message<A> | Message<B>` as `message[A, B]`.
+- **A correction to what was proposed**: `Message` does not leave std — the
+  declaration is the internal name, as `Addr`'s is — so the std name the
+  compiler knows stays; what changes is that no program writes it.
+- **Fell out**: the several-faces run data printed from two routers as
+  they ran, so its output depended on how the actors interleaved (it failed
+  one fresh run in three); it now asks each one for what it saw after the
+  sends it reports on.
+- 724 tests under nextest.
+
 ### 2026-11-05 — A handler takes several faces' messages with `sent` (user decision, [actor-sent])
 
 - **Decided** (user): the plain (non-generic) case of a handler of several
@@ -157,7 +181,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
   with the plan ("Messages over several protocols"), and the spelling
   `message[E]` is a DECISION there.
 - **Built**: a `sent` per face, or one taking a union of faces' messages
-  (`m: Message<A> | Message<B>`, `check::sent_message_args`;
+  (`m: message[A, B]`, `check::sent_message_args`;
   `is_sent_shape` accepts it); `actor-sent:face-twice` and
   `actor-sent:not-a-face`; IR Phase 1c loops over every `sent` and every
   face it holds all the arms of (it took the first `sent` only, and an
@@ -173,7 +197,7 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 ### 2026-11-05 — `send` and `sent` (user decisions, [actor-sent] [actor-message])
 
 - **Decided** (user): `forward(to, m)` is `send(to, m)` and `send fn
-  receive(m: Message<E>)` is `send fn sent(m: Message<E>)`, so `send fn`,
+  receive(m: message[E])` is `send fn sent(m: message[E])`, so `send fn`,
   `send` and `sent` are one family; `sent` is recognised as an operator is,
   by its name and its shape. The design of one `sent` for several faces,
   and of a router over several protocols, is next (not built).
@@ -206,9 +230,9 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 - **Decided** (user): an actor effect's send members are not overloaded,
   and two whose CamelCase coincides are refused, both "because it will cause
-  a collision in the generated `Message<E>` structs" — replacing D24 (a)
+  a collision in the generated `message[E]` structs" — replacing D24 (a)
   (2026-10-28) for send members only; plain members, and one name on two
-  faces of a handler (two `Message<E>` types), still overload. The arms are
+  faces of a handler (two `message[E]` types), still overload. The arms are
   declared as the members of a namespace named after the effect, so every
   shortcut (`.Reserve`, `import shop.Inventory`) is the namespace logic.
   `salvo docs` renders send members as the fns of that namespace (`fn
@@ -356,9 +380,9 @@ record.
   selectors they used to take: `LeastLoaded(group, prefer_local)`,
   `Sharded(group)` and `Elected(group) [Leader]`, each `handler X<E>(group:
   eff[ActorGroup<E>], …, config = …) for E` with `send fn sent(m:
-  Message<E>)` and `send`. The shard key is the comptime qualifier
+  message[E])` and `send`. The shard key is the comptime qualifier
   `ShardKey` in a new `std.net.shard` (no `Keyed` group, §14.8), and the
-  module's `key` template stamps `fn key(m: Message<P>) [] -> Long?`.
+  module's `key` template stamps `fn key(m: message[P]) [] -> Long?`.
 - **Built**: a handler whose face is its own type parameter (`for E`),
   allowed exactly when it has `sent` (`actor-sent:generic-face`
   otherwise); the IR's Phase 0 (`instantiate_generic_faces`) builds one
@@ -379,9 +403,9 @@ record.
     crate broke, since std is compiled once for many programs. So the
     helpers an instantiated body calls (`least_loaded`, `on_leader`) are
     exported from `std.net`.
-  - `Sharded` reads its key through an implicit `?key: (m: Message<E>) ->
+  - `Sharded` reads its key through an implicit `?key: (m: message[E]) ->
     Long?`, so a protocol used with `Sharded` must stamp `key` (`fn key(m:
-    Message<P>) [] -> Long? => m by shard`); without one the `use` is an
+    message[P]) [] -> Long? => m by shard`); without one the `use` is an
     `implicit-resolve:none` error rather than a silent first-member route.
   - A generic router is an ordinary handler to the deadlock graph, which no
     longer sees through it to the members (ROADMAP records the gap).
@@ -391,27 +415,27 @@ record.
   removed, the router cases added); that run took 3m26, since the std and
   emitter change missed most stamps.
 
-### 2026-11-05 — Messages are values: `Message<E>`, `sent`, `send` (user decisions, [actor-message] [actor-sent], the routes record R2/§8/§14)
+### 2026-11-05 — Messages are values: `message[E]`, `sent`, `send` (user decisions, [actor-message] [actor-sent], the routes record R2/§8/§14)
 
 - **Decided** (user, 2026-11-05): a `send fn` is sugar for the actor
   machinery already generated, and R2 lets a program write an actor at the
-  lower level too: `Message<E>` (a union with one arm per send member, each
-  a struct of its parameters), `send fn sent(m: Message<E>)` by name, all
+  lower level too: `message[E]` (a union with one arm per send member, each
+  a struct of its parameters), `send fn sent(m: message[E])` by name, all
   or nothing, following the `use`/`spawn` split, and `send(to, m)`; both
   declared in `std.core.actor`, compiler-known. Non-send members are still
   written. Comptime qualifiers may stand before a send fn's parameter and
   carry to the arm's field (the `ShardKey sku: Str` spelling, §9).
 - **Built**: the arm structs, declared beside every non-generic actor effect
   in `expand_file` (`message::declare_arms`; `StructDecl::message_arm`;
-  `Symbols::message_arms`); `Message<X>` lowered to the union of `X`'s arms
+  `Symbols::message_arms`); `message[X]` lowered to the union of `X`'s arms
   (`expand_message_in`, at lowering and in `arg_fits_param`; `unify` defers a
-  `Message<Var>` parameter); `Message`'s argument accepted as an effect;
+  `message[Var]` parameter); `Message`'s argument accepted as an effect;
   `actor-sent:both`; the IR's Phase 1c, which gives a `sent` handler
   one member per send member and drops `sent`; `send` lowered by the
   IR builder to a `Switch`, `Narrow` and `Send` per arm; arms linear exactly
   when a field is, settled by decomposition; comptime qualifiers before a
   parameter (`Param::annotations`, `comptime-qualifier:on-param`); comptime's
-  `Message<X>` union target (`World::message_arms`); Kotlin's arms nested in
+  `message[X]` union target (`World::message_arms`); Kotlin's arms nested in
   the effect's interface ([kt-message-arms]). Backends otherwise unchanged:
   a `sent` handler is an ordinary handler by the time they see it.
 - **A judgment call for the user**: the arms are spelled `Inventory.Reserve`
@@ -39344,7 +39368,7 @@ router's deadlock node, a4 documentation. Only a1 was a check.
   parameter splices, a stamping line per protocol): also writes generic
   proxies, but needs three new comptime capabilities and call-site
   stamping, which comptime refuses.
-- **R2 (chosen)**, messages as values: `Message<E>`, `send fn sent`,
+- **R2 (chosen)**, messages as values: `message[E]`, `send fn sent`,
   `send`. Routing becomes ordinary generic std code, a selector can read
   the message itself, and scatter/race/retry proxies are written once.
   Costs: three compiler-known names, a message value per send (unmeasured),
@@ -39373,7 +39397,7 @@ rejected). Non-send members are written by hand under `sent`.
 
 **The shard key.** `ShardKey` is a comptime qualifier before a send
 parameter, carried to the arm's field; `std.net.shard`'s `key` template
-stamps `fn key(m: Message<P>) -> Long? by shard` (the one-function form; an
+stamps `fn key(m: message[P]) -> Long? by shard` (the one-function form; an
 obligation clause on the effect declaration was rejected as a new clause
 position). Two marks on one member are the template's refusal, which made
 comptime need counting: options (a) a filtered walk with first/last, (b)
@@ -39403,7 +39427,7 @@ see compile-time functions only.
 
 **Unverified at the start, settled by the build**: the lock adapter read no
 `any` (it is per effect, from the handler's shape); ownership of `Reply`
-tokens through `Message<E>` checks (arms are linear when a field is,
+tokens through `message[E]` checks (arms are linear when a field is,
 settled by decomposition); `key_hash` lowers on Kotlin (FNV-1a over the
 encoding, as Rust). Still unmeasured: the cost of a message value per send.
 

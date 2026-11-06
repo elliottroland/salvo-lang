@@ -8,7 +8,7 @@ actor effect Inventory {
     send fn restock(qty: Int)
 }
 
-fn key(m: Message<Inventory>) [] -> Long? => m by shard
+fn key(m: message[Inventory]) [] -> Long? => m by shard
 
 handler Stocking() for Inventory {
     mailbox { capacity: 8 }
@@ -29,7 +29,7 @@ fn local_first<E>(view: RouteView<E>) [] -> eff[E]? => view {
 
 handler LocalFirst<E>(group: eff[ActorGroup<E>], config: RouteConfig = default_route_config()) for E {
     mailbox { capacity: 16 }
-    send fn sent(m: Message<E>) => !m {
+    send fn sent(m: message[E]) => !m {
         let wait = copy(config.first_wait)
         while true {
             let view = route_view(group)
@@ -68,7 +68,7 @@ actor effect Pairs {
 }
 
 //~ error[comptime-refuse:refused]
-fn key(m: Message<Pairs>) [] -> Long? => m by shard
+fn key(m: message[Pairs]) [] -> Long? => m by shard
 
 //--- sharded_needs_a_key
 // [actor-router] `Sharded` reads the protocol's `key` fn; with none in

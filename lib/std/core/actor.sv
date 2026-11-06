@@ -356,15 +356,18 @@ export linear intrinsic type Reply<T canbe linear>
 // @compilerknown
 export intrinsic fn send<T canbe linear>(reply: Reply<T>, value: T) [] -> None => !reply, !value
 
-// One message of the actor effect [E], as a value: a union with one arm per
-// `send fn` of `E`, each arm a struct of the member's parameters.
+// One message of the actor effect [E], as a value, written `message[E]`: a
+// union with one arm per `send fn` of `E`, each arm a struct of the member's
+// parameters. `message[A, B]` is the messages of both, the union of the two.
+// This declaration is the compiler's internal name for it; a program writes
+// `message[…]`, as it writes `eff[…]` for an `Addr`.
 //
 // A `send fn` is shorthand for a message: `reserve(sku, 1, out)` sends
 // `Inventory.Reserve { sku: sku, qty: 1, out: out }`. The arms are named
 // after the effect and the member in CamelCase, and are tested like any
 // union's: `is Inventory.Reserve`, or `is .Reserve` where the subject's type
 // says which effect. A handler may take every message of an effect at once
-// with `send fn sent(m: Message<E>)` instead of writing each send member,
+// with `send fn sent(m: message[E])` instead of writing each send member,
 // and hand a message on with [send]; that is how a router is written
 // without knowing the protocol it routes.
 //
@@ -374,7 +377,7 @@ export intrinsic fn send<T canbe linear>(reply: Reply<T>, value: T) [] -> None =
 //     send fn restock(qty: Int)
 // }
 //
-// fn describe(m: Message<Inventory>) [] -> Str => m {
+// fn describe(m: message[Inventory]) [] -> Str => m {
 //     return when m {
 //         is .Reserve { "reserve ${m.qty} of ${m.sku}" }
 //         is .Restock { "restock ${m.qty}" }
@@ -395,13 +398,13 @@ export intrinsic type Message<E>
 //
 // The other `send`: where the one above delivers a value to whoever a
 // `Reply` was minted for, this one delivers a message to an actor. A
-// handler takes every message of a face with `send fn sent(m: Message<E>)`,
+// handler takes every message of a face with `send fn sent(m: message[E])`,
 // and this is how it hands one on.
 //
 // ```
 // handler Front(back: eff[Inventory]) for Inventory {
 //     mailbox { capacity: 8 }
-//     send fn sent(m: Message<Inventory>) => !m {
+//     send fn sent(m: message[Inventory]) => !m {
 //         send(back, m)
 //     }
 // }
@@ -412,7 +415,7 @@ export intrinsic type Message<E>
 // ```
 // @compilerrules [actor-message, actor-sent]
 // @compilerknown
-export intrinsic fn send<E>(to: eff[E], m: Message<E>) [] -> None => to, !m
+export intrinsic fn send<E>(to: eff[E], m: message[E]) [] -> None => to, !m
 
 // A claim that a binding of an effect is one instance taking sends in the
 // order they were made, with one state behind them: what a single actor

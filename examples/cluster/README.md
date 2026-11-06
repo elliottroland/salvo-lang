@@ -42,7 +42,7 @@ the member on the leader's node. A Raft would serve the same `Leader` effect,
 and `two_ids` would not change.
 
 **2 — sharded.** `ShardKey` on `reserve`'s first parameter says the SKU
-decides the shard, and `fn key(m: Message<Inventory>) … by shard` stamps the
+decides the shard, and `fn key(m: message[Inventory]) … by shard` stamps the
 protocol's `key` from it. `use Sharded(stock)` hashes it into a slot over the
 members, so the
 same SKU lands on the same shard every time — the output shows apple and apple

@@ -1802,6 +1802,10 @@ impl fmt::Display for TypeRef {
             let args: Vec<String> = self.args.iter().map(|a| a.to_string()).collect();
             return write!(f, "eff[{}]", args.join(", "));
         }
+        // [actor-message] The internal `Message<E>` reads as `message[E]`.
+        if self.name.name == "Message" && !self.binder && self.at.is_none() && self.args.len() == 1 {
+            return write!(f, "message[{}]", self.args[0]);
+        }
         write!(f, "{}", self.name.name)?;
         if let Some(alias) = &self.alias {
             write!(f, ": {}", alias.name)?;
@@ -1843,6 +1847,17 @@ impl fmt::Display for Type {
                 write!(f, "({base})")
             }
             Type::Union { arms, .. } => {
+                // [actor-message] A union of protocols' messages reads as the
+                // list it was written as: `message[A, B]`.
+                let message_of = |a: &Type| match a {
+                    Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name == "Message" && base.args.len() == 1 => {
+                        Some(base.args[0].to_string())
+                    }
+                    _ => None,
+                };
+                if let Some(effects) = arms.iter().map(message_of).collect::<Option<Vec<String>>>() {
+                    return write!(f, "message[{}]", effects.join(", "));
+                }
                 let arms: Vec<String> = arms.iter().map(|a| a.to_string()).collect();
                 write!(f, "{}", arms.join(" | "))
             }

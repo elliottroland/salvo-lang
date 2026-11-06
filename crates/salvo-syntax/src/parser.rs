@@ -205,6 +205,12 @@ pub const ADDR_TYPE_NAME: &str = "Addr";
 /// actor or not). Lowercase and compiler-owned like `proj`/`iter`/`ref`, read
 /// as the former only before `[`, so `eff` stays an ordinary identifier.
 pub const EFF_WORD: &str = "eff";
+/// [actor-message] The word of the `message[E]` type former.
+pub const MESSAGE_WORD: &str = "message";
+/// [actor-message] The compiler's internal name for one protocol's messages,
+/// `message[E]` (as `Addr` is `eff[E]`'s): std.core.actor's
+/// `intrinsic type Message<E>`, never written.
+pub const MESSAGE_TYPE_NAME: &str = "Message";
 
 /// [obligation-by] [fn-by] The contextual word naming where a body is stamped
 /// from: `: Ordered<self> by auto`, `fn cmp(a: P, b: P) -> Int by auto`.
@@ -3726,6 +3732,54 @@ impl<'s> Parser<'s> {
         Some(Type::Named { qualifiers: Vec::new(), base })
     }
 
+    /// [actor-message] `message[A, B, …]`: one `Message<E>` per effect named,
+    /// a union of them when there are several. A claim has no place here.
+    fn parse_message_type(&mut self) -> Option<Type> {
+        let start = self.bump().span; // `message`
+        self.expect(&TokenKind::LBracket)?;
+        self.group_depth += 1;
+        let mut arms: Vec<Type> = Vec::new();
+        while !self.at(&TokenKind::RBracket) && !self.at_eof() {
+            let (claims, r) = match self.parse_claimed_ref() {
+                Some(r) => r,
+                None => {
+                    self.group_depth -= 1;
+                    return None;
+                }
+            };
+            if let Some(c) = claims.first() {
+                self.error(messages::actor_message_claim(&c.name.name), c.span);
+            }
+            let span = r.span;
+            let effect = Type::Named { qualifiers: Vec::new(), base: r };
+            let base = TypeRef {
+                name: Ident { name: MESSAGE_TYPE_NAME.to_string(), span: start },
+                args: vec![effect],
+                value_args: Vec::new(),
+                from: Vec::new(),
+                at: None,
+                binder: false,
+                established: false,
+                alias: None,
+                span: start.to(span),
+            };
+            arms.push(Type::Named { qualifiers: Vec::new(), base });
+            if self.eat(&TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        self.group_depth -= 1;
+        let end = self.expect(&TokenKind::RBracket)?.span;
+        match arms.len() {
+            0 => {
+                self.error(messages::actor_message_empty(), start.to(end));
+                None
+            }
+            1 => arms.pop(),
+            _ => Some(Type::Union { arms, span: start.to(end) }),
+        }
+    }
+
     /// [effect-var] `[A, B]` / `[]` in a type position: carried as a ref named
     /// [`EFFECT_ROW_TYPE_NAME`] whose arguments are the effects.
     fn parse_effect_row_type(&mut self) -> Option<Type> {
@@ -3834,6 +3888,23 @@ impl<'s> Parser<'s> {
         // effect is `Addr<E>` as before, several is a multi-effect handle.
         if self.at_word(EFF_WORD) && matches!(self.peek_at(1).kind, TokenKind::LBracket) {
             return self.parse_eff_handle();
+        }
+        // [actor-message] `message[A, B, …]`: the messages of the effects
+        // named, a union of their arms. Contextual, as `eff` is. One effect is
+        // the internal `Message<E>`; several are the union of each one's, so
+        // everything after the parser reads `message[A, B]` as `message[A] |
+        // message[B]` (which `Type`'s display writes back as the list).
+        if self.at_word(MESSAGE_WORD) && matches!(self.peek_at(1).kind, TokenKind::LBracket) {
+            return self.parse_message_type();
+        }
+        // [actor-message] `Message<…>` is the internal spelling, not the
+        // language's: a plain parse error naming `message[E]`.
+        if matches!(&self.kind(), TokenKind::Ident(n) if n == MESSAGE_TYPE_NAME)
+            && matches!(self.peek_at(1).kind, TokenKind::Lt)
+        {
+            let span = self.peek().span;
+            self.error(messages::actor_message_old_spelling(), span);
+            return None;
         }
         // [effect-eff-handle] The old handle spelling `Addr<…>` is no longer the
         // language: a plain parse error naming the replacement. (`Addr` is the

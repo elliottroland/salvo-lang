@@ -15,7 +15,7 @@
 //     send fn restock(qty: Int)
 // }
 //
-// fn key(m: Message<Inventory>) [] -> Long? => m by shard
+// fn key(m: message[Inventory]) [] -> Long? => m by shard
 //
 // fn same_shard() [] -> Bool {
 //     let a = key(Inventory.Restock { qty: 1 })     // None: no key
@@ -34,7 +34,7 @@ export comptime qualifier ShardKey for Field
 
 // The key of message [m]: the hash of its member's [ShardKey] argument, or
 // `None` when the member marks none. Stamped per protocol, as `fn key(m:
-// Message<P>) [] -> Long? => m by shard`.
+// message[P]) [] -> Long? => m by shard`.
 // @compilerrules [actor-router, comptime-eval]
 export comptime fn key<T is Union>(m: T) [] -> Long? => m {
     [when m] {

@@ -9298,7 +9298,7 @@ between endpoints and delivers what arrives into the scheduler.
     `NodeGroup`/`Node`/`NodeGroupWatcher`/`NodeEndpoint` for the machines,
     `ActorGroup<E>`/`ActorGroupWatcher<E>` (and `RouteView<E>`/`RouteMember<E>`
     for routes) for the actors; `eff[E]` keeps its name.
-* [actor-message] **A `send fn` is sugar for a message, and `Message<E>` is
+* [actor-message] **A `send fn` is sugar for a message, and `message[E]` is
   the message as a value** (user decisions 2026-11-05, the routes record R2 and §8):
   for each non-generic `actor effect E`, the compiler declares one struct per
   send member — its **arm** — in a namespace named after `E` (as `namespace
@@ -9310,14 +9310,20 @@ between endpoints and delivers what arrives into the scheduler.
   variant name, `naming::msg_variant_name`), fields
   the member's declared parameters, exported when `E` is (`message::
   declare_arms`, in `expand_file`, flagged `StructDecl::message_arm`).
-  `Message<E>` (std.core.actor, `@compilerknown`, an `intrinsic type` whose
-  argument is an effect, as `eff[…]`'s is) lowers to the union of `E`'s arms
+  `message[E]` (user decision 2026-11-05: written as the compiler form it is,
+  beside `eff[…]`; internally std.core.actor's `@compilerknown` `intrinsic
+  type Message<E>`, whose written `Message<…>` is `actor-message:old-spelling`,
+  as `Addr<…>` is refused for `eff[…]`) lowers to the union of `E`'s arms
   in send order — the one arm itself for a protocol of one send — so a
   message is narrowed, matched and built as any union of structs is: `is
   .Reserve`, `is Inventory.Reserve`, `Inventory.Restock { qty: 2 }`. Over a
-  type parameter it stays `Message<E>` until an instantiation names `E`
+  type parameter it stays `message[E]` until an instantiation names `E`.
+  **The list form** `message[A, B]` is the parser's union `message[A] |
+  message[B]` — the messages of both protocols — and is displayed back as the
+  list; a claim inside (`actor-message:claim`) and `message[]`
+  (`actor-message:empty`) are refused
   (`expand_message_in`, also applied to a substituted parameter type in
-  `arg_fits_param`, and `unify` defers `Message<E>` to the call's other
+  `arg_fits_param`, and `unify` defers `message[E]` to the call's other
   arguments).
   * **The spelling is CamelCase, not the member's own name** (a judgment call
     of the 2026-11-05 run, for the user to confirm): the user's sketch wrote
@@ -9329,11 +9335,11 @@ between endpoints and delivers what arrives into the scheduler.
     coincide (`get_all`, `getAll`) are refused as one arm name
     (`actor-message:arm-collision`, `check_send_member_names`; [name-camel]
     leaves that pair to it), each with the reason that the generated
-    `Message<E>` structs would collide. So an arm's name never changes when a
+    `message[E]` structs would collide. So an arm's name never changes when a
     member is added, and no selector is needed to name one. Unaffected: an
     actor effect's plain members, which overload [effect-member-overload];
     the same name on two faces of one handler, since each face has its own
-    `Message<E>`; a handler's private send members were already refused
+    `message[E]`; a handler's private send members were already refused
     overloading (`actor-mixed-handler:overloaded-send`).
   * **An arm owes what its parameters owe** [linear-container]: a message arm
     is linear exactly when a field is (`linear::message_arm_linear`), needs no
@@ -9344,23 +9350,23 @@ between endpoints and delivers what arrives into the scheduler.
     the arm's field, where comptime code reads it; before any other parameter
     it is `comptime-qualifier:on-param`.
   * **Comptime sees a protocol's messages as a union** (`World::message_arms`):
-    `fn key(m: Message<Inventory>) -> Long? by shard` stamps a `<T is Union>`
+    `fn key(m: message[Inventory]) -> Long? by shard` stamps a `<T is Union>`
     template over the arms.
   * A namespace of the effect's name holds the arms: on Kotlin they nest in
     the effect's interface ([kt-message-arms]).
-* [actor-sent] **`send fn sent(m: Message<F>)` answers every send
+* [actor-sent] **`send fn sent(m: message[F])` answers every send
   member of face `F`** (user decisions 2026-11-05: all or nothing, following
   the existing `use`/`spawn` split; renamed from `receive`, with `send` for
   `forward`, the same day, so `send fn`, `send` and `sent` are one family).
   **A name and a shape**, as an operator is [op-unique-shape]: a handler's
-  `send fn sent` whose one parameter is `Message<…>` (`check::is_sent_shape`);
+  `send fn sent` whose one parameter is `message[…]` (`check::is_sent_shape`);
   a member called `sent` of any other shape — an effect's `send fn sent(n:
   Int)` included — is an ordinary member. It is the form the handler takes
   its messages in, never a call target: a self-send, servant send or mint
   naming it is `actor-sent:called`, naming `send(self@E, m)`. **Several
   faces** (user decision 2026-11-05): a handler may write a `sent` per face,
   and one `sent` may take several, its parameter the union of their
-  messages (`m: Message<A> | Message<B>`, `check::sent_message_args`); each
+  messages (`m: message[A, B]`, `check::sent_message_args`); each
   face is taken by one `sent` at most (`actor-sent:face-twice`), and each
   must be one of the handler's actor faces (`actor-sent:not-a-face`). The IR
   gives every face of every `sent` its members (Phase 1c), each binding its
@@ -9372,7 +9378,7 @@ between endpoints and delivers what arrives into the scheduler.
   body binds the member's parameters, made into its arm, to `sent`'s
   parameter and then runs `sent`'s body (`ir::build::actors`, Phase 1c);
   `sent` itself leaves the impl, so the backends see an ordinary handler.
-  * **`send(to: eff[E], m: Message<E>) => !m`** (std.core.actor, an
+  * **`send(to: eff[E], m: message[E]) => !m`** (std.core.actor, an
     intrinsic the IR builder lowers; the overload of the reply's
     `send(reply, value)`, told apart by its signature, `is_forward`) sends
     `m` to `to` as its member: a `Switch` over the arms `m`'s own type
@@ -9390,13 +9396,13 @@ between endpoints and delivers what arrives into the scheduler.
   `RoutePick`, `route_pick` and `Key`): std's `LeastLoaded<E>(group,
   prefer_local)`, `Sharded<E>(group, ?key)` and `Elected<E>(group) [Leader]`
   are each `handler H<E>(group: eff[ActorGroup<E>], …, config: RouteConfig =
-  default_route_config()) for E` with one `send fn sent(m: Message<E>)`
+  default_route_config()) for E` with one `send fn sent(m: message[E])`
   [actor-sent] that picks a member and `send`s the message to it.
   `use Sharded(stock)` binds the protocol, `E` inferred from the group.
   * **A handler may serve a type parameter of its own** (`for E`), when it
     answers it with `sent`: the IR builds it once per list of type
     arguments the program constructs it at, as `H__X`, an ordinary handler
-    of `X` with `Message<X>` expanded and its `send`s lowered
+    of `X` with `message[X]` expanded and its `send`s lowered
     (`actors::instantiate_generic_faces`, Phase 0), and every type naming
     `H<X>` names the instantiation; the generic declaration leaves the
     program, since no backend can implement a type parameter. In the
@@ -9415,9 +9421,9 @@ between endpoints and delivers what arrives into the scheduler.
     doubling to `max_wait` (5 s), with no give-up.
   * **`Elected`** keeps the leader's member and the version it chose at in
     its state, and asks `Leader.leader()` again when the version differs.
-  * **`Sharded`'s key** is the implicit `?key: (m: Message<E>) -> Long?`
+  * **`Sharded`'s key** is the implicit `?key: (m: message[E]) -> Long?`
     found at the `use`: `std.net.shard`'s `key` template, stamped with `fn
-    key(m: Message<P>) [] -> Long? => m by shard`, answers `key_hash` of the
+    key(m: message[P]) [] -> Long? => m by shard`, answers `key_hash` of the
     member's `ShardKey`-marked argument (a comptime qualifier before a send
     parameter's name), or `None`; two marks on one member are the template's
     `refuse!` [comptime-eval]. `key mod n` over the view (consistent hashing
@@ -13365,7 +13371,7 @@ replaced the working document TESTING.md).
     arguments). One signature in two effects is the ordinary ambiguity,
     naming the selector forms [effect-at].
   * **Within one effect**: (not an actor effect's send members, whose names
-    are their `Message<E>` arms' [actor-message]) the overloads are
+    are their `message[E]` arms' [actor-message]) the overloads are
     candidates of the same set,
     picked by the call's rule (census D25: before, by arity first, with a
     fit test of their own and no return-type tiebreak). No overload fitting

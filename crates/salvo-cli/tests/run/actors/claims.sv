@@ -17,7 +17,7 @@ handler Counting() for Ordered Counter {
 
 handler Loose(back: eff[Counter]) for Counter {
     mailbox { capacity: 16 }
-    send fn sent(m: Message<Counter>) => !m { send(back, m) }
+    send fn sent(m: message[Counter]) => !m { send(back, m) }
 }
 
 fn tally(ns: List<Int>) [Ordered Counter] -> Int => ns {

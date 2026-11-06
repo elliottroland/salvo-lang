@@ -8,7 +8,7 @@ actor effect Inventory {
 }
 
 //~ refused[kt-ir:unsupported-node]
-fn relay<E>(to: eff[E], m: Message<E>) [] -> None => to, !m {
+fn relay<E>(to: eff[E], m: message[E]) [] -> None => to, !m {
     send(to, m)
 }
 

@@ -86,6 +86,13 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.other.salvo",
         "the effect-handle type former",
     ),
+    // [actor-message] `message[A, B, …]`: the messages type former, likewise
+    // only before `[`.
+    (
+        "\\\\bmessage(?=\\\\[)",
+        "keyword.other.salvo",
+        "the messages type former",
+    ),
     // [comptime-bound] [comptime-fields] `comptime fn`, `comptime struct`,
     // `comptime type`: the compile-time facility's modifier.
     (

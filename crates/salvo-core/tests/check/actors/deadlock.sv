@@ -416,7 +416,7 @@ actor effect Pong {
 handler R() [Pong] for Ping {
     mailbox { capacity: 1 }
 
-    send fn sent(m: Message<Ping>) => !m {
+    send fn sent(m: message[Ping]) => !m {
         pong(1, replyto! got(m.out))
     }
     send fn got(out: Reply<Int>, n: Int) => !out {

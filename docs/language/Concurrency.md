@@ -545,11 +545,11 @@ it is a proxy); [`node_of(addr)`](../../lib/std/net.sv#fn-node_of) names the
 host; and two `eff[E]` compare with
 [`eq`](../../lib/std/core/actor.sv#fn-eq).
 
-### Messages as values: `Message<E>`, `sent` and `send`
+### Messages as values: `message[E]`, `sent` and `send`
 
 A `send fn` is shorthand for a message. `reserve(sku, 1, out)` sends the
 message `Inventory.Reserve { sku: sku, qty: 1, out: out }`, and
-[`Message<E>`](../../lib/std/core/actor.sv#type-message) is every message of
+[`message[E]`](../../lib/std/core/actor.sv#type-message) is every message of
 `E` as a value: a union with one arm per send member, each arm a struct of
 the member's parameters. The arms live in a namespace named after the
 effect, one per member, named after it in CamelCase, so they are reached as
@@ -564,7 +564,7 @@ actor effect Inventory {
     send fn restock(qty: Int)
 }
 
-fn describe(m: Message<Inventory>) [] -> Str => m {
+fn describe(m: message[Inventory]) [] -> Str => m {
     return when m {
         is .Reserve { "reserve ${m.qty} of ${m.sku}" }
         is .Restock { "restock ${m.qty}" }
@@ -579,7 +579,7 @@ with one member that takes every message of the effect:
 handler Front(back: eff[Inventory]) for Inventory {
     mailbox { capacity: 8 }
     state { seen: Int = 0 }
-    send fn sent(m: Message<Inventory>) => !m {
+    send fn sent(m: message[Inventory]) => !m {
         seen = seen + 1
         send(back, m)                  // the message, sent on as it came
     }
@@ -589,7 +589,7 @@ handler Front(back: eff[Inventory]) for Inventory {
 - **The words go together**: `send fn` declares a message, `restock(2)` and
   `send(to, m)` send one, and `sent` is what runs when one was sent here.
 - **`sent` is a name and a shape**, as an operator is: `send fn sent(m:
-  Message<E>)` for one of the handler's faces `E`. A member called `sent` of
+  message[E])` for one of the handler's faces `E`. A member called `sent` of
   any other shape is an ordinary member. `sent` is how the handler is
   written, not a member a send can reach: to send the handler itself a
   message, write `send(self@Inventory, m)`.
@@ -603,7 +603,7 @@ handler Front(back: eff[Inventory]) for Inventory {
   ```salvo
   handler Audit(inv: eff[Inventory], pay: eff[Payments]) [Console] for Inventory, Payments {
       mailbox { capacity: 32 }
-      send fn sent(m: Message<Inventory> | Message<Payments>) => !m {
+      send fn sent(m: message[Inventory, Payments]) => !m {
           when m {
               is .Restock | .Report { println("inventory"); send(inv, m) }
               is .Charge | .Refund { println("payments"); send(pay, m) }
@@ -612,7 +612,9 @@ handler Front(back: eff[Inventory]) for Inventory {
   }
   ```
 
-  Each face is taken by one `sent`, which takes all of its messages.
+  `message[Inventory, Payments]` is the messages of both protocols, the
+  union of `message[Inventory]` and `message[Payments]`. Each face is taken
+  by one `sent`, which takes all of its messages.
 - **[`send(to, m)`](../../lib/std/core/actor.sv#fn-send)** sends `m` to
   `to` as its member would be called there, and moves it. It is the
   overload of the reply's `send(reply, value)` for messages: both hand a
@@ -659,7 +661,7 @@ actor effect Inventory {
     send fn reserve(ShardKey sku: Str, qty: Int, out: Reply<Str>) => !sku, !out
 }
 
-fn key(m: Message<Inventory>) [] -> Long? => m by shard   // the key Sharded reads
+fn key(m: message[Inventory]) [] -> Long? => m by shard   // the key Sharded reads
 
 fn checkout(skus: List<Str>) [Inventory, Console] -> None { … }   // assumes nothing of the binding
 
@@ -712,7 +714,7 @@ fn local_first<E>(view: RouteView<E>) [] -> eff[E]? => view {
 
 handler LocalFirst<E>(group: eff[ActorGroup<E>], config: RouteConfig = default_route_config()) for E {
     mailbox { capacity: 16 }
-    send fn sent(m: Message<E>) => !m {
+    send fn sent(m: message[E]) => !m {
         let wait = copy(config.first_wait)
         while true {
             let view = route_view(group)

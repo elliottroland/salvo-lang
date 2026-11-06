@@ -24,13 +24,13 @@ handler Store() for Ordered Inventory {
 handler Front(back: eff[Inventory]) for Inventory {
     mailbox { capacity: 8 }
     state { seen: Int = 0 }
-    send fn sent(m: Message<Inventory>) => !m {
+    send fn sent(m: message[Inventory]) => !m {
         seen = seen + 1
         send(back, m)
     }
 }
 
-fn describe(m: Message<Inventory>) [] -> Str => m {
+fn describe(m: message[Inventory]) [] -> Str => m {
     return when m {
         is .Reserve { "reserve ${m.qty} of ${m.sku}" }
         is .Restock { "restock ${m.qty}" }
@@ -78,7 +78,7 @@ handler Store() for Ordered Inventory {
 
 handler Relay<E>(back: eff[E]) for E {
     mailbox { capacity: 8 }
-    send fn sent(m: Message<E>) => !m {
+    send fn sent(m: message[E]) => !m {
         send(back, m)
     }
 }
@@ -103,7 +103,7 @@ fn main() [use, spawn] -> None {
 import shop.Inventory
 import shop.Store
 
-fn describe(m: Message<Inventory>) [] -> Str => m {
+fn describe(m: message[Inventory]) [] -> Str => m {
     return when m {
         is .Restock { "restock ${m.qty}" }
         is Inventory.Clear { "clear" }
@@ -162,7 +162,7 @@ handler Store() for Ordered Inventory {
     send fn report(out: Reply<Str>) => !out { out.send(copy(log)) }
 }
 
-fn pick(m: Message<Inventory>) [] -> Message<Inventory> => !m {
+fn pick(m: message[Inventory]) [] -> message[Inventory] => !m {
     return m
 }
 
@@ -183,10 +183,12 @@ fn main() [use, spawn] {
 //= clear; restock 3; restock 4; 
 
 //--- sent_over_several_faces
-// [actor-sent] One `sent` may take several faces (its parameter the union of
-// their messages), or each face its own `sent`. Narrowed to one face's
-// arms, a message is sent on as that face's; on Rust the narrowing clones
-// the kept arms one by one, since the whole union holds a `Reply`.
+// [actor-sent] One `sent` may take several faces (its parameter the messages
+// of each, `message[A, B]`), or each face its own `sent`. Narrowed to one
+// face's arms, a message is sent on as that face's; on Rust the narrowing
+// clones the kept arms one by one, since the whole union holds a `Reply`.
+// Every answer is asked for after what it reports on, so the output does
+// not depend on how the actors interleave.
 actor effect Inventory {
     send fn restock(qty: Int)
     send fn report(out: Reply<Str>) => !out
@@ -195,6 +197,10 @@ actor effect Inventory {
 actor effect Payments {
     send fn charge(cents: Long)
     send fn refund(cents: Long)
+}
+
+actor effect Seen {
+    send fn seen(out: Reply<Str>) => !out
 }
 
 handler Store() for Ordered Inventory {
@@ -217,33 +223,37 @@ handler Till() for Ordered Payments, Ordered Ledger {
 }
 
 // One `sent` for two faces.
-handler Audit(inv: eff[Inventory], pay: eff[Payments]) [Console] for Inventory, Payments {
+handler Audit(inv: eff[Inventory], pay: eff[Payments]) for Inventory, Payments, Seen {
     mailbox { capacity: 32 }
-    send fn sent(m: Message<Inventory> | Message<Payments>) => !m {
+    state { log: Str = "" }
+    send fn sent(m: message[Inventory, Payments]) => !m {
         when m {
             is .Restock | .Report {
-                println("audit: inventory")
+                log = "${log}inventory; "
                 send(inv, m)
             }
             is .Charge | .Refund {
-                println("audit: payments")
+                log = "${log}payments; "
                 send(pay, m)
             }
         }
     }
+    send fn seen(out: Reply<Str>) => !out { out.send(copy(log)) }
 }
 
 // A `sent` per face.
-handler Split(inv: eff[Inventory], pay: eff[Payments]) [Console] for Inventory, Payments {
+handler Split(inv: eff[Inventory], pay: eff[Payments]) for Inventory, Payments, Seen {
     mailbox { capacity: 32 }
-    send fn sent(m: Message<Inventory>) => !m {
-        println("split: inventory")
+    state { log: Str = "" }
+    send fn sent(m: message[Inventory]) => !m {
+        log = "${log}inventory; "
         send(inv, m)
     }
-    send fn sent(m: Message<Payments>) => !m {
-        println("split: payments")
+    send fn sent(m: message[Payments]) => !m {
+        log = "${log}payments; "
         send(pay, m)
     }
+    send fn seen(out: Reply<Str>) => !out { out.send(copy(log)) }
 }
 
 fn main() [use, spawn] {
@@ -251,23 +261,20 @@ fn main() [use, spawn] {
     let p = pool(1)
     let store = spawn Store() on p
     let (till, ledger) = spawn Till() on p
-    let (inv, pay) = spawn Audit(copy(store), copy(till)) on p
+    let (inv, pay, audit) = spawn Audit(copy(store), copy(till)) on p
     pay.charge(100L)
     inv.restock(5)
-    let (inv2, pay2) = spawn Split(copy(store), copy(till)) on p
+    println("audit: ${waitfor out: Reply<Str> { audit.seen(out) }}")
+    let (inv2, pay2, split) = spawn Split(copy(store), copy(till)) on p
     pay2.refund(50L)
     inv2.restock(2)
-    let _a = waitfor out: Reply<Str> { inv.report(out) }
-    let _b = waitfor out: Reply<Str> { inv2.report(out) }
+    println("split: ${waitfor out: Reply<Str> { split.seen(out) }}")
     println(waitfor out: Reply<Str> { store.report(out) })
     println("${waitfor out: Reply<Long> { ledger.total(out) }}")
 }
 //= stdout
-//= audit: payments
-//= split: payments
-//= audit: inventory
-//= split: inventory
-//= audit: inventory
-//= split: inventory
+//= audit: payments; inventory; 
+//= split: payments; inventory; 
 //= restock 5; restock 2; 
 //= 50
+

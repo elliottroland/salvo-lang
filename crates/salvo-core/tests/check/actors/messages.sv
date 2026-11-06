@@ -1,6 +1,6 @@
-// [actor-message] `Message<E>`: one arm per send member, a struct of its
+// [actor-message] `message[E]`: one arm per send member, a struct of its
 // parameters, named after the effect (`Inventory.Reserve`).
-// [actor-sent] `send fn sent(m: Message<E>)` answers every send
+// [actor-sent] `send fn sent(m: message[E])` answers every send
 // member of `E`, and `send(to, m)` hands a message on.
 export comptime qualifier Key for Field
 
@@ -14,7 +14,7 @@ actor effect Ping {
 }
 
 // A message is a union of its arms, narrowed like any union.
-fn describe(m: Message<Inventory>) [] -> Str => m {
+fn describe(m: message[Inventory]) [] -> Str => m {
     return when m {
         is .Reserve { "reserve ${m.qty} of ${m.sku}" }
         is Inventory.Restock { "restock ${m.qty}" }
@@ -22,13 +22,13 @@ fn describe(m: Message<Inventory>) [] -> Str => m {
 }
 
 // A protocol of one send is that one arm.
-fn ping_text(m: Message<Ping>) [] -> Str => m {
+fn ping_text(m: message[Ping]) [] -> Str => m {
     return "${m is Ping.Ping}"
 }
 
 handler Front(back: eff[Inventory]) for Inventory {
     mailbox { capacity: 8 }
-    send fn sent(m: Message<Inventory>) => !m {
+    send fn sent(m: message[Inventory]) => !m {
         send(back, m)
     }
 }
@@ -36,7 +36,7 @@ handler Front(back: eff[Inventory]) for Inventory {
 // Answering a message by hand: its reply moves out.
 handler Answers() for Inventory {
     mailbox { capacity: 8 }
-    send fn sent(m: Message<Inventory>) => !m {
+    send fn sent(m: message[Inventory]) => !m {
         when m {
             is .Reserve { send(m.out, "no ${m.sku}") }
             is .Restock { }
@@ -47,7 +47,7 @@ handler Answers() for Inventory {
 // All or nothing.
 handler Both(back: eff[Inventory]) for Inventory {
     mailbox { capacity: 8 }
-    send fn sent(m: Message<Inventory>) => !m {
+    send fn sent(m: message[Inventory]) => !m {
         send(back, m)
     }
     //~ error[actor-sent:both]
@@ -58,7 +58,7 @@ handler Both(back: eff[Inventory]) for Inventory {
 handler Leaky() for Inventory {
     mailbox { capacity: 8 }
     //~ error[ir-linear-check:leak-at-exit]
-    send fn sent(m: Message<Inventory>) => !m {
+    send fn sent(m: message[Inventory]) => !m {
     }
 }
 
@@ -74,10 +74,10 @@ fn main() {
 }
 
 //--- send members are not overloaded
-// [actor-message] Each send member is one `Message<E>` arm named after it,
+// [actor-message] Each send member is one `message[E]` arm named after it,
 // so an actor effect's send members have distinct names, and names that
 // make distinct arms (user decision 2026-11-05). The same name on two faces
-// is unaffected: each face has its own `Message<E>`. (A handler's private
+// is unaffected: each face has its own `message[E]`. (A handler's private
 // send members were refused overloading already,
 // `actor-mixed-handler:overloaded-send`.)
 actor effect Sink {
@@ -115,7 +115,7 @@ actor effect Inventory {
 
 handler Selfish() for Inventory {
     mailbox { capacity: 8 }
-    send fn sent(m: Message<Inventory>) => !m {
+    send fn sent(m: message[Inventory]) => !m {
         when m {
             is .Restock {
                 //~ error[actor-sent:called]
@@ -157,25 +157,44 @@ actor effect Audit {
 
 handler Both() for Inventory, Payments {
     mailbox { capacity: 8 }
-    send fn sent(m: Message<Inventory> | Message<Payments>) => !m {}
+    send fn sent(m: message[Inventory, Payments]) => !m {}
 }
 
 handler Twice() for Inventory, Payments {
     mailbox { capacity: 8 }
-    send fn sent(m: Message<Inventory> | Message<Payments>) => !m {}
+    send fn sent(m: message[Inventory, Payments]) => !m {}
     //~ error[actor-sent:face-twice]
-    send fn sent(m: Message<Payments>) => !m {}
+    send fn sent(m: message[Payments]) => !m {}
 }
 
 handler Stray() for Inventory {
     mailbox { capacity: 8 }
     //~ error[actor-sent:not-a-face]
-    send fn sent(m: Message<Inventory> | Message<Audit>) => !m {}
+    send fn sent(m: message[Inventory, Audit]) => !m {}
 }
 
 handler Written() for Inventory, Payments {
     mailbox { capacity: 8 }
-    send fn sent(m: Message<Inventory> | Message<Payments>) => !m {}
+    send fn sent(m: message[Inventory, Payments]) => !m {}
     //~ error[actor-sent:both]
     send fn charge(cents: Long) {}
 }
+
+//--- the old spelling
+// [actor-message] `message[E]` is the spelling; `Message<E>` is the
+// compiler's internal name, refused as written (no compatibility form).
+actor effect Ping {
+    send fn ping()
+}
+
+//~ error[actor-message:old-spelling]
+fn old(m: Message<Ping>) [] -> None => m {}
+
+//--- claims and emptiness
+// [actor-message] A claim has no place in `message[…]`, nor an empty list.
+actor effect Ping {
+    send fn ping()
+}
+
+//~ error[actor-message:claim]
+fn claimed(m: message[Ordered Ping]) [] -> None => m {}
