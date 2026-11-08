@@ -146,34 +146,19 @@ pub struct TestDecl {
     /// The span of the name literal — the test's identity for diagnostics,
     /// and (uniquely per test) the span the synthesized fn is keyed by.
     pub name_span: Span,
-    /// [test-kind] Which kind of test, which decides what it runs on.
-    pub kind: TestKind,
+    /// [test-kind] The kind written before the name (`test property(…) "…"`):
+    /// a `comptime fn` whose first parameter is a `Test`, found by name where
+    /// the test is expanded (comptime); `None` is `plain`. A kind's arguments
+    /// and the test's own parameters are below.
+    pub kind: Option<Ident>,
+    /// [test-kind] The kind's arguments, `name=value`: comptime constants,
+    /// checked where the test is expanded.
+    pub args: Vec<(Ident, Expr)>,
+    /// [test-kind] The test's parameters, written after the name as a fn's
+    /// are; what the kind does with them (draw them, refuse them) is its own.
+    pub params: Vec<Param>,
     pub body: Block,
     pub span: Span,
-}
-
-/// [test-kind] The kind of a test: `test "…"` or `test actor(…) "…"`.
-#[derive(Clone, Debug, PartialEq)]
-pub enum TestKind {
-    /// A plain test, on the threaded runtime.
-    Plain,
-    /// [test-actor] An actor test, on the virtual runtime: one thread, time
-    /// the scheduler advances, randomness from [seed](TestKind::Actor::seed).
-    Actor {
-        /// The seed the runtime's randomness starts from (`seed=N`; 0 when
-        /// not given).
-        seed: i64,
-    },
-    /// [test-property] A property test, on the virtual runtime: the body
-    /// run `runs` times over parameters drawn from their types' generators.
-    Property {
-        /// `runs=N`, when written; `--runs` and the manifest otherwise.
-        runs: Option<i64>,
-        /// `seed=N`, when written; `--seed` overrides it.
-        seed: Option<i64>,
-        /// What each run draws, in order.
-        params: Vec<Param>,
-    },
 }
 
 /// `refn add(list: Mut List<T>, elem: T) -> [list: +NonEmpty]`

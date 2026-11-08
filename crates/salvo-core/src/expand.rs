@@ -29,8 +29,10 @@ pub struct TestCase {
     pub name: String,
     /// The synthesized fn the harness calls [test-run].
     pub fn_name: String,
-    /// [test-kind] What the test runs on.
-    pub kind: salvo_syntax::ast::TestKind,
+    /// [test-kind] The runtime the test's kind runs it on (`"threaded"` or
+    /// `"virtual"`), which groups the programs the runner writes; known once
+    /// comptime has expanded the test.
+    pub runtime: String,
 }
 
 impl TestCase {
@@ -65,7 +67,6 @@ pub struct FileTest {
     pub tested: ModulePath,
     pub name: String,
     pub fn_name: String,
-    pub kind: salvo_syntax::ast::TestKind,
 }
 
 /// The expansions one file needs and nothing else (the pipeline record step 6): the
@@ -78,7 +79,7 @@ pub fn expand_file(file: &SourceFile, module: &mut Module) -> (Vec<FileTest>, Ve
     let mut found = Vec::new();
     if file.is_test {
         let mangled = file.module.0.join("_");
-        let (tests, test_diags) = salvo_syntax::desugar::expand_tests(module, &mangled);
+        let (tests, test_diags) = salvo_syntax::desugar::list_tests(module, &mangled);
         diags.extend(test_diags);
         let mut tested = file.module.0.clone();
         tested.pop();
@@ -87,7 +88,6 @@ pub fn expand_file(file: &SourceFile, module: &mut Module) -> (Vec<FileTest>, Ve
             tested: tested.clone(),
             name: t.name,
             fn_name: t.fn_name,
-            kind: t.kind,
         }));
     } else {
         // [test-file] A `test` block in a production file: refused here,
@@ -212,12 +212,17 @@ pub fn expand_program_cached(
 pub fn program_expansion(per_file: Vec<Vec<FileTest>>, comptime: crate::comptime::ComptimeOutput) -> Expansion {
     let mut out = Expansion::default();
     for (file_idx, tests) in per_file.into_iter().enumerate() {
-        out.tests.extend(tests.into_iter().map(|t| TestCase {
-            file: file_idx,
-            tested: t.tested,
-            name: t.name,
-            fn_name: t.fn_name,
-            kind: t.kind,
+        out.tests.extend(tests.into_iter().map(|t| {
+            // [test-kind] The runtime comptime found for the test's kind;
+            // a test whose expansion failed has none, and reports its
+            // diagnostics instead of running.
+            let runtime = comptime
+                .tests
+                .iter()
+                .find(|(f, name, _)| *f == file_idx && *name == t.fn_name)
+                .map(|(_, _, r)| r.clone())
+                .unwrap_or_else(|| "threaded".to_string());
+            TestCase { file: file_idx, tested: t.tested, name: t.name, fn_name: t.fn_name, runtime }
         }));
     }
     for (file_idx, d) in comptime.diagnostics {

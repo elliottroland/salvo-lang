@@ -249,7 +249,7 @@ test lists :: the buggy sum adds everything ... FAILED
     expected 1, got 0
     falsified after 1 of 100 runs, shrunk 26 times
       xs = [0, 0, 0, 1]
-    re-run: salvo test "lists :: the buggy sum adds everything" --seed 84585480
+    re-run: salvo test "lists :: the buggy sum adds everything" --arg seed=84585480
 ```
 
 So each parameter type needs a `to_str` (`: ToStr<self> by auto` gives a
@@ -264,16 +264,20 @@ a failed expectation. A failure that does not happen again on its final
 replay is reported as **`FLAKY`**, because the property reached something its
 draws do not decide. A flaky test counts as a failure.
 
-**Seeds.** A run of `salvo test` has one seed, random unless given, and
-printed at the end. Each property's seed is derived from it and the
-property's name, so running one test with a filter draws what the full run
-drew. The order that decides a seed:
-- `--seed N`;
-- then a test's own `seed=N`;
-- then the manifest's `[test] seed`.
+**Seeds and runs.** `runs` and `seed` are arguments of the `property` test
+kind. Each is set, in order, by `--arg runs=N` on the command line, by the
+test's own `runs=N`, by the manifest's `[test.args]`, then by the default. A
+property without a seed derives one from the run's seed (`--arg run_seed=N`,
+else fresh) and its name, so running one test with a filter draws what the
+full run drew.
 
-`--runs N` overrides every property's run count, then a test's own `runs=`,
-then `[test] runs`.
+**Your own kinds.** `plain`, `actor` and `property` are comptime fns in
+[`std.test.kinds`](../../lib/std/test/kinds.sv), taking a `Test` first
+parameter and returning a `Verdict`; `test mykind(x=1) "name" { … }` calls
+`mykind`. The template calls the body with `[test.body](…)`, reads the run's
+configuration with `[test.config]`, and ranges over the parameters with
+`[for p in test.params]`. Arguments are comptime constants, set from the
+command line with `--arg NAME=VALUE`.
 
 **Where it runs.** On the virtual runtime, freshly started for each run, so
 time and `DefaultRandom` repeat with the run's draws. The [actor

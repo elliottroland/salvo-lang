@@ -179,6 +179,14 @@ export fn draw<T>(rng: Mut Rng, ?gen: () -> Gen<T>) [] -> T => rng: Mut {
     return g.run(rng)
 }
 
+// A value of [g], the generator of the type wanted: `draw_with<Int>(rng,
+// gen())`. What a property test's generated draws call, with the type
+// written out so the generator is found by it.
+// @compilerrules [prop-gen]
+export fn draw_with<T>(rng: Mut Rng, g: Gen<T>) [] -> T => rng: Mut, g {
+    return g.run(rng)
+}
+
 // The values of [g], each passed through [f].
 //
 // ```

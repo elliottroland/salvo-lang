@@ -1635,22 +1635,29 @@ deliberately cut, in the order the decisions put it:
   (recommended, error otherwise), a preamble may do **anything a test body may**,
   and a **childless context warns**. The lowering is per-test inlining, which
   makes isolation true by construction.
+- **Test kinds: what is left** (built 2026-11-05, [test-kind]): a shared
+  test-support tree / annex-to-annex import so a user kind can be shared
+  between annexes (next); hygiene for template locals against user
+  parameter names (decision 7, not built: agent's call, to confirm).
+
 - **Property testing: what is left** (built 2026-11-05, [test-property]; the
   record is COMPLETED.md's "Design record: property tests").
   - **Agent's calls made during the unattended run, for the user to
     confirm:**
     - (a) Implicit parameters don't separate return-type alternatives
       [fn-overload-return].
-    - (b) Among several fitting results, the one concrete result wins.
+    - (b) Among several fitting results, the one concrete result wins (its own
+      item below).
     - (c) A place argument for a parameter-filled value slot stays a
       dependent claim; 9.3 had proposed refusing it.
     - (d) A `let` annotation's place is rooted to the local in scope
       [qual-depend].
     - (e) The property keeps the parameters other parameters' claims name.
-    - (f) A recursive union biases toward its first arm with depth.
+    - (f) A recursive union biases toward its first arm with depth (its own
+      item below).
     - (g) `constant(v)` is cut.
     - (h) `Char` stays within the BMP.
-    - (i) Linear parameters are deferred (below).
+    - (i) Linear parameters are deferred (its own item below).
   - **Actor properties** (decision 13; the design is in the record):
     - `spawn` in a property body;
     - a trap boundary that admits a spawning body (a block form, or
@@ -1688,6 +1695,34 @@ deliberately cut, in the order the decisions put it:
     - **A `try` around a fn-typed parameter's call finds nothing to throw
       when the enclosing fn writes `[Throw<M>]` itself.** Found writing
       `check`; worked around with the `[]` helper `checked`. Not reduced.
+- **Return-type overloads: rank by specificity, not "mentions no type
+  variable"** (agent's call (b) of the property-test run, 2026-11-05, to think
+  about on its own). When an expected type fits several overloads that differ
+  only in result, `pick_by_return` takes the one whose result mentions no type
+  variable (`check.rs`), the concrete-beats-generic rule of [fn-overload-rank]
+  applied crudely. Two concrete results stay ambiguous, and a generic one that
+  is strictly more specific than another generic one is not recognised. The
+  right form reuses the per-slot ranking (`types::spec_cmp`) on the result.
+  Found because a declared `gen() -> Gen<Shape>` must beat std's `gen<T>() ->
+  Gen<T?>` at a `Gen<Shape>` position when `Shape` is an optional union.
+- **Derived generators for recursive types** (agent's call (f), 2026-11-05).
+  The `by random` derive for a named union draws an arm evenly, but chooses
+  the **first** arm more often the deeper the value is nested, and always from
+  depth 8. A probe (`Tree = Branch | Leaf`, `Branch { kids: List<Tree> }`, the
+  recursive arm first) terminates on both backends, because every recursion
+  cycle passes through a `List` today (direct recursion is ROADMAP §17) and
+  lists draw empty from depth 5. So the bias is not what makes it finite, and
+  [prop-derive]'s old wording ("its base case goes first") overstated it.
+  Decide: keep the bias, or drop it and rely on the list cutoff; and what the
+  derive should do when direct recursion is allowed (choose the arms that do
+  not mention the union once past the cap, found by a comptime walk).
+- **Linear parameters in property tests** (agent's call (i), 2026-11-05).
+  Round 4 asked that the user discharge a linear parameter in the test. That
+  needs a `Gen` of a linear type (`Gen<T canbe linear>`, with the combinators
+  to match: `map` consumes its generators already) and a lambda that consumes a
+  linear capture ("not supported yet" today), which `trapped_by_once`'s
+  closure needs. A user-written test kind (COMPLETED.md, test kinds) could draw and
+  discharge linear values without the closure, which may be the better route.
 - **Actor testing helpers** (TF-6): `settle(p)`/`expect_settled(p)` over
   [actor-on-idle], a recording `Probe<M>` handler, `expect_fault(target, body)`
   over [actor-watch]. Needs `spawn` added to [test-body]'s implicit powers, and

@@ -282,3 +282,197 @@ export fn expect_trap_with(
         }
     }
 }
+
+// ===== what a test kind answers, and what it is given
+
+// A test that held.
+// @compilerrules [test-kind]
+export struct Passed {}
+
+// A test that failed: the failure first, then detail lines the report shows
+// under it (where it was found, its parameters, how to run it again).
+// @compilerrules [test-kind]
+export struct Failed {
+    message: Str,
+    detail: List<Str>
+}
+
+// A test that failed, and failed to fail again when replayed: something
+// besides what the test controls decided it. Counted as a failure.
+// @compilerrules [test-kind]
+export struct Flaky {
+    message: Str,
+    detail: List<Str>
+}
+
+// What a test kind's run answers: how the test went.
+//
+// A kind is a `comptime fn(test: Test, …) -> Verdict`; the harness runs what
+// it makes and prints the verdict for the runner to render.
+// @compilerrules [test-kind, test-report]
+export type Verdict = Passed | Failed | Flaky
+
+// What a test kind is given to read its configuration from: the `--arg
+// name=value` flags, the manifest's `[test.args]`, and the run's seed. A
+// kind's arguments are bound from it for you (a flag overrides what the
+// test wrote, which overrides the manifest, which overrides the default);
+// [run_seed] is for a kind that wants randomness fixed per run.
+// @compilerrules [test-kind]
+export struct TestConfig {
+    flag_keys: List<Str>,
+    flag_values: List<Str>,
+    manifest_keys: List<Str>,
+    manifest_values: List<Str>,
+    seed: Long
+}
+
+// The seed of this run of `salvo test`: random, unless `--arg run_seed=N`
+// fixes it.
+// @compilerrules [test-kind]
+export fn run_seed(config: TestConfig) [] -> Long => config {
+    return config.seed
+}
+
+// The value written for [key] in the paired lists, if any.
+fn lookup(keys: List<Str>, values: List<Str>, key: Str) [] -> Str? => keys, values, key {
+    let i = 0
+    while i < size(keys) {
+        let k = get(keys, i)
+        if k is Str {
+            if k == key {
+                let found = get(values, i)
+                if found is Str {
+                    return copy(found)
+                }
+            }
+        }
+        i = i + 1
+    }
+    return None
+}
+
+// The flag for [key], else the manifest's value.
+fn lookup_any(config: TestConfig, key: Str) [] -> Str? => config, key {
+    let flagged = lookup(config.flag_keys, config.flag_values, key)
+    if flagged is Str {
+        return flagged
+    }
+    return lookup(config.manifest_keys, config.manifest_values, key)
+}
+
+// A kind argument [key] the test wrote as [fallback]: the `--arg` flag
+// overrides it, and the manifest does not.
+// @compilerrules [test-kind]
+export fn arg_or(config: TestConfig, key: Str, fallback: Int) [] -> Int => config, key, fallback {
+    let v = lookup(config.flag_keys, config.flag_values, key)
+    if v is Str {
+        return parse_int(v) ?: fallback
+    }
+    return fallback
+}
+
+// @compilerrules [test-kind]
+export fn arg_or(config: TestConfig, key: Str, fallback: Long) [] -> Long => config, key, fallback {
+    let v = lookup(config.flag_keys, config.flag_values, key)
+    if v is Str {
+        return parse_long(v) ?: fallback
+    }
+    return fallback
+}
+
+// @compilerrules [test-kind]
+export fn arg_or(config: TestConfig, key: Str, fallback: Long?) [] -> Long? => config, key, !fallback {
+    let v = lookup(config.flag_keys, config.flag_values, key)
+    if v is Str {
+        return parse_long(v) ?: fallback
+    }
+    return fallback
+}
+
+// @compilerrules [test-kind]
+export fn arg_or(config: TestConfig, key: Str, fallback: Bool) [] -> Bool => config, key, fallback {
+    let v = lookup(config.flag_keys, config.flag_values, key)
+    if v is Str {
+        return parse_bool(v) ?: fallback
+    }
+    return fallback
+}
+
+// @compilerrules [test-kind]
+export fn arg_or(config: TestConfig, key: Str, fallback: Str) [] -> Str => config, key, !fallback {
+    let v = lookup(config.flag_keys, config.flag_values, key)
+    if v is Str {
+        return v
+    }
+    return fallback
+}
+
+// A kind argument [key] the test did not write: the `--arg` flag, else the
+// manifest's `[test.args]`, else [fallback].
+// @compilerrules [test-kind]
+export fn arg_or_manifest(config: TestConfig, key: Str, fallback: Int) [] -> Int => config, key, fallback {
+    let v = lookup_any(config, key)
+    if v is Str {
+        return parse_int(v) ?: fallback
+    }
+    return fallback
+}
+
+// @compilerrules [test-kind]
+export fn arg_or_manifest(config: TestConfig, key: Str, fallback: Long) [] -> Long => config, key, fallback {
+    let v = lookup_any(config, key)
+    if v is Str {
+        return parse_long(v) ?: fallback
+    }
+    return fallback
+}
+
+// @compilerrules [test-kind]
+export fn arg_or_manifest(config: TestConfig, key: Str, fallback: Long?) [] -> Long? => config, key, !fallback {
+    let v = lookup_any(config, key)
+    if v is Str {
+        return parse_long(v) ?: fallback
+    }
+    return fallback
+}
+
+// @compilerrules [test-kind]
+export fn arg_or_manifest(config: TestConfig, key: Str, fallback: Bool) [] -> Bool => config, key, fallback {
+    let v = lookup_any(config, key)
+    if v is Str {
+        return parse_bool(v) ?: fallback
+    }
+    return fallback
+}
+
+// @compilerrules [test-kind]
+export fn arg_or_manifest(config: TestConfig, key: Str, fallback: Str) [] -> Str => config, key, !fallback {
+    let v = lookup_any(config, key)
+    if v is Str {
+        return v
+    }
+    return fallback
+}
+
+// Prints [verdict] as the protocol lines the runner renders: the detail
+// lines, then the verdict. What the generated harness calls after each test.
+// @compilerrules [test-kind, test-report]
+export fn print_verdict(verdict: Verdict) [Console] -> None => verdict {
+    when verdict {
+        is Passed {
+            println("##salvo-test ok")
+        }
+        is Failed {
+            for line in verdict.detail {
+                println("##salvo-test detail ${line}")
+            }
+            println("##salvo-test fail ${verdict.message}")
+        }
+        is Flaky {
+            for line in verdict.detail {
+                println("##salvo-test detail ${line}")
+            }
+            println("##salvo-test flaky ${verdict.message}")
+        }
+    }
+}

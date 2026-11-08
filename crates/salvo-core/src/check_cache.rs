@@ -1518,6 +1518,12 @@ fn walk_item_in<V: Visitor>(c: &mut V, it: &Item) {
         }
         Item::Refn(r) => refn(c, r),
         Item::Rename(ast::RenameDecl { docs: _, name: _, target: _, generics: _, params: ps, span: _ }) => params(c, ps),
-        Item::Test(ast::TestDecl { docs: _, name: _, name_span: _, kind: _, body, span: _ }) => v::walk_block(c, body),
+        Item::Test(ast::TestDecl { docs: _, name: _, name_span: _, kind: _, args, params: ps, body, span: _ }) => {
+            for (_, value) in args {
+                v::walk_expr(c, value);
+            }
+            params(c, ps);
+            v::walk_block(c, body)
+        }
     }
 }

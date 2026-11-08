@@ -678,8 +678,18 @@ fn namespace<V: MutVisitor>(n: &mut V, ns: &mut NamespaceDecl) {
 /// Expanded into a fn in a test annex, dropped elsewhere (`expand_file`); a
 /// module numbered before that holds it among the file's own nodes.
 fn test<V: MutVisitor>(n: &mut V, t: &mut TestDecl) {
-    let TestDecl { docs: _, name: _, name_span, kind: _, body, span } = t;
+    let TestDecl { docs: _, name: _, name_span, kind, args, params, body, span } = t;
     n.visit_span(span);
     n.visit_span(name_span);
+    if let Some(k) = kind {
+        n.visit_span(&mut k.span);
+    }
+    for (name, value) in args {
+        n.visit_span(&mut name.span);
+        vm::walk_expr(n, value);
+    }
+    for p in params {
+        param(n, p);
+    }
     vm::walk_block(n, body);
 }

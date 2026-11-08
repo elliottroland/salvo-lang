@@ -1050,28 +1050,37 @@ messages! {
         "unexpected {found} in string interpolation"
     );
 
-    // [test-actor]
-    /// An actor test's argument that is not an integer literal.
-    test_actor_non_integer_argument = "test-actor:non-integer-argument" (arg: &str) => format!(
-        "an actor test's `{arg}` must be an integer literal"
+    // [test-kind]
+    /// An implicit parameter on a test.
+    test_kind_implicit_param = "test-kind:implicit-param" () =>
+        "a test's parameters are given by its kind, not found: an implicit parameter has nothing to fill it";
+    /// A test kind no visible `comptime fn` names.
+    test_kind_unknown = "test-kind:unknown" (name: &str, hint: &str) => format!(
+        "no test kind `{name}`: `test {name} \"…\"` stamps a `comptime fn {name}(test: Test, …)` the file can see{hint}"
     );
-    /// An actor test's argument other than `seed`.
-    test_actor_unknown_argument = "test-actor:unknown-argument" (other: &str) => format!(
-        "an actor test takes `seed`, not `{other}`"
+    /// A test kind two visible modules declare.
+    test_kind_ambiguous = "test-kind:ambiguous" (name: &str, places: &str) => format!(
+        "`{name}` is a test kind in several modules ({places}): import only one"
     );
-
-    // [test-property]
-    /// A property test's argument that is not an integer literal.
-    test_property_non_integer_argument = "test-property:non-integer-argument" (arg: &str) => format!(
-        "a property test's `{arg}` must be an integer literal"
+    /// An argument the kind has no parameter for.
+    test_kind_unknown_argument = "test-kind:unknown-argument" (kind: &str, arg: &str, known: &str) => format!(
+        "test kind `{kind}` takes {known}, not `{arg}`"
     );
-    /// A property test's argument other than `runs` and `seed`.
-    test_property_unknown_argument = "test-property:unknown-argument" (other: &str) => format!(
-        "a property test takes `runs` and `seed`, not `{other}`"
+    /// A kind argument without a default, not given.
+    test_kind_missing_argument = "test-kind:missing-argument" (kind: &str, arg: &str) => format!(
+        "test kind `{kind}` needs `{arg}=…`: it has no default"
     );
-    /// An implicit parameter on a property test.
-    test_property_implicit_param = "test-property:implicit-param" () =>
-        "a property's parameters are drawn, not found: an implicit parameter has nothing to fill it";
+    /// A kind argument that is not a constant.
+    test_kind_argument_not_constant = "test-kind:argument-not-constant" (arg: &str) => format!(
+        "`{arg}` must be a constant — a number, string, character, boolean or `None` — since the runner reads it before anything runs"
+    );
+    /// A `runtime` that is not one of the two runtimes.
+    test_kind_runtime = "test-kind:runtime" () =>
+        "a test kind's `runtime` must be the string literal \"threaded\" or \"virtual\"";
+    /// A parameter type with several slotted qualifiers.
+    test_kind_slots_several = "test-kind:slots-several" (ty: &dyn std::fmt::Display) => format!(
+        "`{ty}` has several qualifiers with value slots: a parameter's generator takes the slots of one"
+    );
 
     // [test-decl]
     /// `export` before a `test`.

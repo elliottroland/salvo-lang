@@ -2364,57 +2364,55 @@ fn a_test_declaration_carries_its_name_as_a_string() {
     }
 }
 
-/// [test-kind] [test-actor] `test actor(seed=N) "…"` declares an actor
-/// test; the parentheses may be left off, and the seed defaults to 0.
+/// [test-kind] `test KIND(ARGS) "name" (PARAMS) { … }`: any name is a kind
+/// (looked up where the test is expanded), its arguments are written as named
+/// arguments are, the parameters follow the name, and a test with no kind
+/// written has none. The parentheses may be left off without arguments.
 #[test]
-fn an_actor_test_carries_its_kind_and_seed() {
-    use salvo_syntax::ast::{Item, TestKind};
+fn a_test_carries_its_kind_arguments_and_parameters() {
+    use salvo_syntax::ast::Item;
     let (module, diagnostics) = salvo_syntax::parse_module(
-        "test actor \"a\" {\n}\n\ntest actor(seed=-7) \"b\" {\n}\n\ntest \"c\" {\n}\n",
+        "test actor \"a\" {\n}\n\ntest actor(seed=-7) \"b\" {\n}\n\ntest \"c\" {\n}\n\ntest property(runs=20, seed=3) \"d\" (xs: List<Int>, i: Idx(xs) Int) {\n}\n",
     );
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "{errors:?}");
-    let kinds: Vec<TestKind> = module
+    let tests: Vec<(Option<String>, Vec<String>, Vec<String>)> = module
         .items
         .iter()
         .map(|i| match i {
-            Item::Test(t) => t.kind.clone(),
+            Item::Test(t) => (
+                t.kind.as_ref().map(|k| k.name.clone()),
+                t.args.iter().map(|(n, _)| n.name.clone()).collect(),
+                t.params.iter().map(|p| p.name.name.clone()).collect(),
+            ),
             other => panic!("expected a test, got {other:?}"),
         })
         .collect();
     assert_eq!(
-        kinds,
-        vec![TestKind::Actor { seed: 0 }, TestKind::Actor { seed: -7 }, TestKind::Plain]
+        tests,
+        vec![
+            (Some("actor".to_string()), vec![], vec![]),
+            (Some("actor".to_string()), vec!["seed".to_string()], vec![]),
+            (None, vec![], vec![]),
+            (Some("property".to_string()), vec!["runs".to_string(), "seed".to_string()], vec!["xs".to_string(), "i".to_string()]),
+        ]
     );
+    // The old `name: value` spelling is gone.
+    let (_, diagnostics) = salvo_syntax::parse_module("test actor(seed: 7) \"e\" {\n}\n");
+    assert!(diagnostics.iter().any(|d| d.is_error()), "the old spelling is refused");
 }
 
-/// [test-property] `test property(runs=N, seed=S) "…" (params) { … }`: the
-/// arguments written as named arguments are, the parameters after the name;
-/// `actor(seed: 7)`, the old spelling, no longer parses.
+/// [comptime-inline] [test-kind] A head in a call's argument list parses in a
+/// comptime fn (as a struct literal of one `InlineFor`), and not outside one.
 #[test]
-fn a_property_test_carries_its_arguments_and_parameters() {
-    use salvo_syntax::ast::{Item, TestKind};
-    let (module, diagnostics) = salvo_syntax::parse_module(
-        "test property(runs=20, seed=-3) \"a\" (xs: List<Int>, i: Idx(xs) Int) {\n}\n\ntest property \"b\" (n: Int) {\n}\n",
+fn a_for_head_in_a_call_s_arguments_needs_a_comptime_fn() {
+    let (_, diagnostics) = salvo_syntax::parse_module(
+        "comptime fn f(test: Test) -> Verdict {\n    return g([for p in test.params] { [p] })\n}\n",
     );
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "{errors:?}");
-    let kinds: Vec<(Option<i64>, Option<i64>, Vec<String>)> = module
-        .items
-        .iter()
-        .map(|i| match i {
-            Item::Test(t) => match &t.kind {
-                TestKind::Property { runs, seed, params } => (*runs, *seed, params.iter().map(|p| p.name.name.clone()).collect()),
-                other => panic!("expected a property test, got {other:?}"),
-            },
-            other => panic!("expected a test, got {other:?}"),
-        })
-        .collect();
-    assert_eq!(kinds, vec![(Some(20), Some(-3), vec!["xs".to_string(), "i".to_string()]), (None, None, vec!["n".to_string()])]);
-    let (_, diagnostics) = salvo_syntax::parse_module("test actor(seed: 7) \"c\" {\n}\n");
-    assert!(diagnostics.iter().any(|d| d.is_error()), "the old spelling is refused");
-    let (_, diagnostics) = salvo_syntax::parse_module("test property(trials=7) \"d\" (n: Int) {\n}\n");
-    assert!(diagnostics.iter().any(|d| d.message.contains("takes `runs` and `seed`")), "{diagnostics:?}");
+    let (_, diagnostics) = salvo_syntax::parse_module("fn f() -> Int {\n    return g([for p in ps] { p })\n}\n");
+    assert!(diagnostics.iter().any(|d| d.is_error()), "outside a comptime fn it is refused");
 }
 
 /// [test-decl] `test` is contextual: a variable, a parameter and a module may

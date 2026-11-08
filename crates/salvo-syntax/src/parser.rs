@@ -870,7 +870,7 @@ impl<'s> Parser<'s> {
             TokenKind::Ident(name)
                 if name == "test"
                     && (matches!(self.peek_at(1).kind, TokenKind::Str(_))
-                        || (matches!(&self.peek_at(1).kind, TokenKind::Ident(k) if k == "actor" || k == "property")
+                        || (matches!(&self.peek_at(1).kind, TokenKind::Ident(_))
                             && matches!(self.peek_at(2).kind, TokenKind::Str(_) | TokenKind::LParen))) =>
             {
                 self.parse_test().map(Item::Test)
@@ -1142,61 +1142,39 @@ impl<'s> Parser<'s> {
         let docs = self.docs_here();
         let start = self.peek().span;
         self.bump(); // `test`
-        // [test-kind] `test actor(seed=7) "…"`, `test property(runs=200)
-        // "…"`: the kind, then its arguments, written as named arguments are
-        // (user decision 2026-11-05), before the name. The parentheses may be
-        // left off when there are none.
-        let mut kind = TestKind::Plain;
-        if matches!(&self.kind(), TokenKind::Ident(k) if k == "actor" || k == "property") {
-            let property = matches!(&self.kind(), TokenKind::Ident(k) if k == "property");
-            self.bump(); // the kind
-            let mut seed: Option<i64> = None;
-            let mut runs: Option<i64> = None;
+        // [test-kind] `test property(runs=200) "…" (params) { … }`: a kind
+        // (any name; a `comptime fn` whose first parameter is a `Test` is
+        // looked up where the test is expanded), its arguments written as
+        // named arguments are (user decision 2026-11-05), then the name, then
+        // the parameters. The parentheses may be left off when there are no
+        // arguments.
+        let mut kind: Option<Ident> = None;
+        let mut args: Vec<(Ident, Expr)> = Vec::new();
+        if matches!(self.kind(), TokenKind::Ident(_)) {
+            kind = Some(self.ident()?);
             if self.eat(&TokenKind::LParen).is_some() {
-                while !self.at(&TokenKind::RParen) {
-                    let arg = self.ident()?;
-                    self.expect(&TokenKind::Eq)?;
-                    let negative = self.eat(&TokenKind::Minus).is_some();
-                    let value_token = self.peek().clone();
-                    let TokenKind::Int { value, .. } = value_token.kind else {
-                        self.error(
-                            if property {
-                                messages::test_property_non_integer_argument(&arg.name)
-                            } else {
-                                messages::test_actor_non_integer_argument(&arg.name)
-                            },
-                            value_token.span,
-                        );
+                self.group_depth += 1;
+                while !self.at(&TokenKind::RParen) && !self.at_eof() {
+                    let Some(arg) = self.ident() else {
+                        self.group_depth -= 1;
                         return None;
                     };
-                    self.bump();
-                    let value = if negative { -value } else { value };
-                    match arg.name.as_str() {
-                        "seed" => seed = Some(value),
-                        "runs" if property => runs = Some(value),
-                        other => {
-                            self.error(
-                                if property {
-                                    messages::test_property_unknown_argument(other)
-                                } else {
-                                    messages::test_actor_unknown_argument(other)
-                                },
-                                arg.span,
-                            );
-                            return None;
-                        }
+                    if self.expect(&TokenKind::Eq).is_none() {
+                        self.group_depth -= 1;
+                        return None;
                     }
+                    let Some(value) = self.parse_expr() else {
+                        self.group_depth -= 1;
+                        return None;
+                    };
+                    args.push((arg, value));
                     if self.eat(&TokenKind::Comma).is_none() {
                         break;
                     }
                 }
+                self.group_depth -= 1;
                 self.expect(&TokenKind::RParen)?;
             }
-            kind = if property {
-                TestKind::Property { runs, seed, params: Vec::new() }
-            } else {
-                TestKind::Actor { seed: seed.unwrap_or(0) }
-            };
         }
         let name_token = self.peek().clone();
         let TokenKind::Str(parts) = &name_token.kind else {
@@ -1216,16 +1194,14 @@ impl<'s> Parser<'s> {
         };
         let name_span = name_token.span;
         self.bump(); // the name
-        // [test-property] A property's parameters follow its name, as a
-        // fn's do: what each run draws.
-        if let TestKind::Property { params, .. } = &mut kind {
-            if self.at(&TokenKind::LParen) {
-                let (ps, groups) = self.parse_params()?;
-                if let Some(g) = groups.first() {
-                    self.error(messages::test_property_implicit_param(), g.span);
-                }
-                *params = ps;
+        // [test-kind] The parameters follow the name, as a fn's do.
+        let mut params = Vec::new();
+        if self.at(&TokenKind::LParen) {
+            let (ps, groups) = self.parse_params()?;
+            if let Some(g) = groups.first() {
+                self.error(messages::test_kind_implicit_param(), g.span);
             }
+            params = ps;
         }
         let body = self.parse_block()?;
         Some(TestDecl {
@@ -1233,6 +1209,8 @@ impl<'s> Parser<'s> {
             name,
             name_span,
             kind,
+            args,
+            params,
             span: start.to(body.span),
             body,
         })
@@ -5593,6 +5571,16 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_pattern(&mut self) -> Option<Pattern> {
+        // [comptime-access] `let [p]: [p.type] = …` inside a compfn: the
+        // pattern names the local a binder's name stands for, written in
+        // brackets as `[field]:` is in a struct literal.
+        if self.in_compfn && self.at(&TokenKind::LBracket) {
+            let snap = self.snapshot();
+            if let Some(id) = self.parse_splice_name() {
+                return Some(Pattern::Ident(id));
+            }
+            self.rollback(snap);
+        }
         match self.kind() {
             TokenKind::LParen => {
                 let start = self.bump().span;
@@ -6778,6 +6766,43 @@ impl<'s> Parser<'s> {
         Some((args, named, end))
     }
 
+    /// [comptime-inline] A `[for binder in seq] { arg, … }` head in a call's
+    /// argument list.
+    fn parse_arg_head(&mut self) -> Option<Expr> {
+        let start = self.bump().span; // `[`
+        self.require_compfn(start, "a `[for …]` head");
+        self.bump(); // `for`
+        let binder = self.ident_value("binder")?;
+        self.expect(&TokenKind::KwIn)?;
+        let seq = self.parse_comp_expr()?;
+        self.expect(&TokenKind::RBracket)?;
+        self.expect(&TokenKind::LBrace)?;
+        self.group_depth += 1;
+        let mut entries = Vec::new();
+        while !self.at(&TokenKind::RBrace) && !self.at_eof() {
+            let Some(value) = self.parse_expr() else {
+                self.group_depth -= 1;
+                return None;
+            };
+            let span = value.span();
+            entries.push(StructLitField {
+                kind: StructLitFieldKind::Named { name: Ident { name: "_arg".to_string(), span }, value },
+                span,
+            });
+            if self.eat(&TokenKind::Comma).is_none() {
+                break;
+            }
+        }
+        self.group_depth -= 1;
+        let end = self.expect(&TokenKind::RBrace)?.span;
+        let span = start.to(end);
+        Some(Expr::StructLit {
+            ty: None,
+            fields: vec![StructLitField { kind: StructLitFieldKind::InlineFor { binder, seq, entries }, span }],
+            span,
+        })
+    }
+
     /// The arguments of a call up to its `)`, with `pair_depth` set by the
     /// caller [col-pairs] [qual-retype]. On `None` the group depth is already
     /// back where the call found it.
@@ -6785,6 +6810,22 @@ impl<'s> Parser<'s> {
         let mut saw_pair = false;
         let mut saw_plain = false;
         while !self.at(&TokenKind::RParen) && !self.at_eof() {
+            // [comptime-inline] `f([for p in test.params] { [p] })`: a head in
+            // argument position, one argument per copy. Carried as a struct
+            // literal of one `InlineFor` whose entries are named `_arg` (a
+            // recorded shortcut: no new `Expr` variant); the expansion unrolls
+            // it and splices the values into the call's arguments.
+            if self.at(&TokenKind::LBracket) && matches!(self.peek_at(1).kind, TokenKind::KwFor) {
+                let Some(head) = self.parse_arg_head() else {
+                    self.group_depth -= 1;
+                    return None;
+                };
+                args.push(head);
+                if self.eat(&TokenKind::Comma).is_none() {
+                    break;
+                }
+                continue;
+            }
             let Some(arg) = self.parse_expr() else {
                 self.group_depth -= 1;
                 return None;
@@ -6890,7 +6931,39 @@ impl<'s> Parser<'s> {
         })
     }
 
+    /// [comptime-access] `[p]`, `[test.body]`, `[s]`: a bracketed path inside
+    /// a compfn, as one identifier named with its brackets (`"[p]"`,
+    /// `"[test.body]"`). A binder's name, or a generated name, becomes
+    /// structure where the expansion substitutes it; never a value.
+    fn parse_splice_name(&mut self) -> Option<Ident> {
+        let open = self.expect(&TokenKind::LBracket)?.span;
+        let first = self.ident_value("name")?;
+        let mut path = first.name.clone();
+        while self.eat(&TokenKind::Dot).is_some() {
+            let part = if self.at(&TokenKind::KwType) {
+                let sp = self.bump().span;
+                Ident { name: "type".to_string(), span: sp }
+            } else {
+                self.ident_value("name")?
+            };
+            path.push('.');
+            path.push_str(&part.name);
+        }
+        let close = self.expect(&TokenKind::RBracket)?.span;
+        Some(Ident { name: format!("[{path}]"), span: open.to(close) })
+    }
+
     fn parse_primary(&mut self) -> Option<Expr> {
+        // [comptime-access] `[p]` / `[test.body]` as an expression: a name the
+        // expansion substitutes (a binder's local, a generated fn). A path
+        // ending in `.type` is the type splice below.
+        if self.in_compfn && self.at(&TokenKind::LBracket) && !self.at_type_splice() {
+            let snap = self.snapshot();
+            if let Some(id) = self.parse_splice_name() {
+                return Some(Expr::Ident(id));
+            }
+            self.rollback(snap);
+        }
         // [comptime-inline] `[arm.type] { … }`: a struct literal whose head is
         // a binder's type, spliced per copy (the CLI design record §13 (B)).
         if self.at_type_splice() && !self.no_struct {

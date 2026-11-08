@@ -17,7 +17,7 @@
 pub mod harness;
 pub mod report;
 
-pub use harness::{harness_source, PropertyConfig, HARNESS_MODULE};
+pub use harness::{harness_source, HarnessConfig, HARNESS_MODULE};
 pub use report::{died_detail, print_summary, render, render_stream, Color, OutputPolicy, Rendered, ShowFor, Streams, Summary};
 
 use salvo_core::TestCase;
@@ -47,7 +47,7 @@ mod tests {
             tested: ModulePath(vec![module.to_string()]),
             name: name.to_string(),
             fn_name: "__salvo_test_0".to_string(),
-            kind: salvo_syntax::ast::TestKind::Plain,
+            runtime: "threaded".to_string(),
         }
     }
 

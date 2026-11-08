@@ -158,6 +158,212 @@ left is in ROADMAP §9's "Property testing: what is left": actor properties,
 linear parameters, the missing generators, and the agent's calls for the
 user to confirm. The file is deleted.
 
+### 2026-11-05 — user-definable test kinds ([test-kind])
+
+`plain`, `actor` and `property` became comptime fns (`Test` first
+parameter, `Verdict` result) in `lib/std/test/kinds.sv`, stamped at the test
+block; the compiler knows no kind by name. `--runs`/`--seed` and
+`[test] runs|seed` were dropped for `--arg NAME=VALUE` and `[test.args]`
+(user decision); `--arg run_seed=N` fixes the run seed. Runtime is a kind
+argument; the harness has one arm (`BEGIN id`, `print_verdict(run(config))`).
+Built: the parser (`TestDecl{kind,args,params}`), `desugar` body fns,
+comptime `stamp_test` with `[test.body]`, `[test.config]`, `[p]`, `[s]`,
+`p.type.slots`, argument-position heads and flat `test.params` copies,
+hygiene qualifiers (`fn@std.test`) in templates, `Verdict`/`TestConfig` in
+`std.test`. Suite 731 green, std suite 163/163 on both backends. The design
+record follows; TESTKINDS.md is deleted.
+
+Gotchas: std templates must qualify every name (`@std.test.random`); a
+`draw_with` call needs its type argument; avoid `for b in <Bytes>` and
+`(get(..) ?: "")` in std.
+
+#### Design record: test kinds
+
+
+Working document (begun 2026-11-05). It carries the design and the build
+state across context resets. When the work is done it is retired the usual
+way (record to COMPLETED.md, rules to LANGUAGE_SPEC.md, leftovers to
+ROADMAP.md). Commits follow the status list at the end; the user has said
+"proceed with the writeup and build", and unforeseen design calls are taken
+as recommended, marked "agent's call, to confirm" in ROADMAP, and listed in
+the final report.
+
+## 1. The idea
+
+`actor` and `property` (and plain `test "x"`) are not special: each is a
+**comptime fn whose first parameter has the comptime-struct type `Test`**,
+written in Salvo in std. `test property(runs=200) "name" (xs: List<Int>) { … }`
+looks the kind up like a `by` template, passes `runs=200` as the fn's own
+argument, and stamps the fn at the test block. A user writes more of them
+(simulation tests, setup and teardown) the same way.
+
+No `testtype` keyword, no `on`, no `with params`.
+
+## 2. Decisions (user, 2026-11-05)
+
+1. **A test kind is a `comptime fn(test: Test, args…) [powers] -> Verdict`.**
+   The kind's arguments are the fn's other parameters, typed and defaulted
+   (`runs: Int = 100`). `test property(runs=200)` passes them by name.
+2. **The body's powers are the template's effect list** plus
+   `Throw<Failure>`. A kind lists `[use, spawn]` to let its body spawn.
+3. **The runtime is a defaulted argument**, `runtime: Runtime = "virtual"`,
+   where `type Runtime = "threaded" | "virtual"`. The runner reads the
+   argument (site, else default) as a string literal and groups programs by
+   it. `begin_*` traps if the group says threaded.
+4. **`plain` is a kind too**: `test "x"` with no kind written means `plain`.
+   The harness has one uniform arm.
+5. **Kind arguments are comptime constants** (literals, negative ints,
+   strings, bools). They arrive in the template as let-bound locals.
+6. **Config**: `--arg k=v` and `[test.args]` in the manifest, generic. The
+   built-in `--runs`, `--seed`, `[test] runs`, `[test] seed` are dropped.
+   A template reads them through a **plain fn** `config("runs")` over
+   process state the harness sets (no effect, so the body is not granted a
+   power).
+7. **Hygiene**: every template-declared local gets a hygienic name, except a
+   local named by a splice (`let [p] …`), which keeps the parameter's name
+   (a type elsewhere says `Idx(xs)`).
+8. **`Verdict`** is in `std.test`: `Ok`, `Failed(message, detail lines)`,
+   `Flaky(message, detail lines)`. The template returns it; the harness
+   prints the protocol lines (`begin`, `ok`, `fail`, `detail`, `flaky`).
+9. **Spelling of the comptime parts**:
+   - `[test.body]` splices the generated body fn's name as a callee:
+     `[test.body](args)` is an ordinary call to a named fn.
+   - `[for p in test.params] { … }` is a head, and **in argument position**
+     each copy yields one argument (an AST element form beside `...xs`, like
+     `StructLitFieldKind::InlineFor`). Commas are surface syntax only.
+   - `[p]` splices a binder as an identifier, in `let [p]: [p.type] = …`
+     and in expressions. `p.name` is the value (a literal), `p.type` the
+     type.
+   - `p.type.slots` is a list; `[s]` splices a slot: a constant as a
+     literal, a place as a read of the local. A generator for `Q(a, b) T` is
+     `gen(a, b)`, so `Idx(xs)` draws from `gen(xs)`. At most one slotted
+     qualifier per parameter at first; more is refused.
+10. **Order of work**: no shared test-support tree first; a kind is defined
+    and used in one annex, or is std's. The tree (or annex-to-annex import)
+    comes next, after this.
+11. The nine agent's calls of the property-test run stand; (b), (f), (i)
+    are their own ROADMAP items.
+
+## 3. Design
+
+**Parser.** `TestDecl { docs, name, name_span, kind: Option<Ident>, args:
+Vec<(Ident, Expr)>, params: Vec<Param>, body, span }`. `TestKind` is gone.
+`test <ident> …` at item level is a test (`test` stays contextual).
+
+**Expansion** moves from `desugar::expand_tests` (syntax, pre-resolution) to
+the comptime phase in `salvo-core` (`comptime.rs`), where the kind templates
+are visible. The block becomes two fns in its module:
+- the **body fn** `__salvo_test_<mod>_<n>_body(params) [template effects,
+  Throw<Failure>] -> None`, with the test's body; every parameter is moved
+  except scalars and ones another parameter's claim names (agent's call (e));
+- the **run fn** `__salvo_test_<mod>_<n>() [template effects] -> Verdict`,
+  stamped from the template: kind arguments as let-bound constants, then the
+  expanded template body.
+The harness calls the run fn and prints its `Verdict`.
+
+**Runner.** `TestCase { tested, name, fn_name, runtime }` is built after
+expansion. `--list` needs only names. Groups are by runtime.
+
+**std.** `lib/std/test/actor.sv`, `lib/std/test/property.sv` and
+`lib/std/test/plain.sv` (or `std/test.sv`) hold the three kinds, visible in
+every annex. The property template replaces `property_fns` and the harness
+arm; `PropertyConfig` and `TestKind` are deleted.
+
+## 4. The spike (first, to find where the design bends)
+
+Prove: (1) comptime can stamp a fn at a test site and the harness can call
+it; (2) a template's effect list can become the body fn's; (3) a comptime fn
+with a `Test` first parameter is found by name. Do it with `plain` only.
+
+## 5. Status
+
+- [ ] T0: ROADMAP items for (b), (f), (i); [prop-derive] wording (done, with
+  this file)
+- [ ] T1: spike + `Test`, the test site, `plain` as a kind (harness uniform)
+- [ ] T2: argument-position head, `[p]`, `[test.body]`, `p.type.slots`
+- [ ] T3: `actor` and `property` as std kinds; delete `TestKind`,
+  `property_fns`, `PropertyConfig`
+- [ ] T4: `--arg`, `[test.args]`, `config(…)`; drop the old flags/keys
+- [ ] T5: docs, spec rules, retirement
+- Next (separate): the shared test-support tree.
+
+## 6. Notes as they arise
+
+### 6.1 Code map and implementation plan (from reading the code, 2026-11-05)
+
+**Where things are now.**
+- `salvo-syntax`: `ast.rs` `TestDecl`/`TestKind`; `parser.rs` `parse_test`
+  (dispatch lookahead near line 870), `parse_call_arg_list`,
+  `parse_struct_lit_entries` (the `[for]` head model), the comptime-fn bound
+  parser (`<T is Struct>`); `desugar.rs` `expand_tests`/`test_fn`/
+  `property_fns` (to delete).
+- `salvo-core`: `expand.rs` (`expand_file` expands tests pre-resolution;
+  `FileTest`, `TestCase`, `program_expansion`); `comptime.rs` `run` (tables of
+  bound compfns, `resolve::interfaces`, per-file stamping with a `generated`
+  items vec, retain of templates, `node_id::number`), `World`, `Stamper`,
+  `Expander` (+ `CVal`, `Binding`, `copy`, `expand_comp_stmts`,
+  `visit_expr`/`visit_type`), `stamps_anything` (~line 103);
+  `resolve.rs` ~800 (`Item::Test` is an error arm); `check_cache.rs` ~1521
+  destructures `TestDecl`.
+- CLI `main.rs`: `test_one`, `run_test_group`, `run_test_pass`;
+  `salvo-test/harness.rs`, `report.rs`.
+
+**Plan.**
+1. `TestDecl { docs, name, name_span, kind: Option<Ident>, args: Vec<(Ident,
+   Expr)>, params: Vec<Param>, body, span }`. `expand_file` keeps `Item::Test`
+   (drops duplicates, refuses it in production files) and returns `FileTest {
+   tested, name, fn_name }` with `fn_name = __salvo_test_<mangled>_<n>` (n =
+   declaration order after de-duplication); `TestCase` gains `runtime`, filled
+   from a new `ComptimeOutput.tests` side table.
+2. A kind template is a `comptime fn` whose FIRST parameter's type is `Test`
+   (parsed today as an unbound compfn). Mark it: collect into a new
+   `tables.kinds`, skip it in the in-place branch, drop it in the retain.
+   `stamps_anything` is true for a module holding an `Item::Test` or a kind.
+3. Stamping (a pass over `Item::Test`, pushing into `generated`, removing the
+   tests): body fn `<fn_name>_body(params) [template effects, Throw<Failure>]`
+   with the moved/kept deduction clause (agent's call (e)); run fn
+   `<fn_name>(salvo_config: TestConfig) [template effects] -> Verdict` = the
+   template cloned, `test` parameter dropped, other parameters turned into
+   let-bound constants at the top, body expanded by an `Expander` with a new
+   `test: Option<TestInfo>`. Lookup is a separate by-name pick over
+   `tables.kinds` using `sees_module` (NOT `pick_inner`, whose module reading
+   would find the `std.test.actor`/`property` modules and report an ambiguity).
+4. New in `Expander`: `CVal::Test` (`test.params`, `test.name`, `test.id`),
+   `[test.body]` / `[test.config]` callee/expression splices, `[p]` (a binder's
+   name) in `let` patterns and expressions, `p.type.slots` (a `Binding` with a
+   `slot: Const | Place`), `[s]` as an expression, and the argument-position
+   head. Idents spelled `[x]` carry the splice (as `[field]:` does).
+5. **Argument-position head representation** (no new `Expr` variant, to avoid
+   touching every exhaustive match): the parser builds `Expr::StructLit { ty:
+   Some(`__args`), fields: [InlineFor { …, entries: [Named{name:"_", value}] }]
+   }` for `f([for p in ps] { [p] })`; the expander unrolls it with
+   `expand_struct_lit_entries` and splices the entries' values into the call's
+   `args`. A recorded shortcut, like the constant encoding.
+6. **Copies over `test.params` are flat** (no scope recorded): the binder names
+   are the program's (`Idx(xs)` needs `xs` in scope in the next copy), so a
+   `let [p]` must outlive its copy. The consequence: any other local a
+   template declares inside such a head would redeclare on the second copy, so
+   the templates use only spliced-name locals there (`draw_with(rng,
+   gen(slots…))`).
+7. **Config (adjusts decision 6, same user-visible behaviour)**: no process
+   state and no effect. The run fn takes a generated first parameter
+   `salvo_config: TestConfig` (a std struct of `"flag:k=v"` / `"manifest:k=v"`
+   strings the harness builds from `--arg` and `[test.args]`), and each kind
+   argument is let-bound with precedence flag > site > manifest > default:
+   `let runs: Int = arg_or(salvo_config, "runs", 200)` (site given: flag
+   overrides it) or `arg_or_manifest(salvo_config, "runs", 100)` (no site
+   value). The template reaches the config itself with `[test.config]` (for
+   the run seed and the re-run line). `--runs`/`--seed`, `[test] runs`/`seed`,
+   `PropertyConfig` are deleted; a property's reported seed is its own, so its
+   re-run line is `salvo test "<id>" --arg seed=S`.
+8. `Verdict = Passed | Failed | Flaky` and `TestConfig` in `std.test`; a
+   `[Console]` fn `print_verdict` prints the protocol lines; the harness's one
+   arm is `begin; print_verdict(__run_N(config))`. Kinds live in
+   `std/test/kinds.sv` (implicit in annexes, like `std.test.random`).
+9. Known limits to document: a template's local named like a user parameter
+   collides (decision 7's hygiene is not built yet; agent's call, to confirm).
+10. Commit when green: one commit for the core (items 1–8), then docs/retire.
+
 ### 2026-11-05 — `test property` (user decisions, [test-property] [test-kind])
 
 What PROP_TEST.md designed, built: the kind with its parameters, the

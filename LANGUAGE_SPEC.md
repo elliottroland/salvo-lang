@@ -12518,17 +12518,33 @@ replaced the working document TESTING.md).
   * `salvo test` runs a test with **standard input closed**, so a `readln` in
     a test answers `None` at once rather than waiting for a person who is not
     there [test-output].
-* [test-kind] **A test's kind decides what it runs on** (user decision
-  2026-10-03, D11): `test "…"` is a plain test, on the threaded runtime;
-  `test actor(ARGS) "…"` is an actor test, on the virtual runtime
-  [test-actor]; `test property(ARGS) "…" (PARAMS)` is a property test, on the
-  virtual runtime too [test-property]. The kind and its arguments come before
-  the name, the arguments written as named arguments are (`seed=7`,
-  `runs=200`; user decision 2026-11-05, which also rewrote `actor(seed: 7)`);
-  with no arguments the parentheses may be left off. `salvo test` writes **one
-  program per runtime** — the plain tests, then the actor and property tests
-  — since a process cannot leave the threaded runtime once its workers have
-  started.
+* [test-kind] **A test's kind is a comptime fn** (user decisions 2026-11-05,
+  see COMPLETED.md, test kinds): `test KIND(NAME=CONST, …) "name" (PARAMS) { body }` calls
+  `comptime fn KIND(test: Test, ARGS…) [powers] -> Verdict`, found by name
+  (a by-name pick over the kinds visible to the annex, `std.test.kinds` being
+  implicit [test-implicit-import]); plain `test "…"` is the kind `plain`.
+  `plain`, `actor` and `property` are written in std (`std/test/kinds.sv`),
+  not known to the compiler. The kind's arguments are comptime constants
+  [test-kind:unknown-argument] and its parameters are given by the kind
+  [test-kind:implicit-param].
+  * **Stamping.** The template is stamped at the test block into a body fn
+    `<fn>_body(params)` (effects = the template's plus `Throw<Failure>`) and a
+    run fn `<fn>(salvo_config: TestConfig) -> Verdict`. Inside a template,
+    `[test.body](…)` calls the body, `[test.config]` is the run's
+    `TestConfig`, `test.name`/`test.id` are strings, `[for p in test.params]`
+    ranges over the parameters (`[p]`, and `p.type.slots` read as `[s]`),
+    also as a head in argument position, and copies over `test.params` are
+    flat. Names the template uses are hygienic (`fn@std.test`).
+  * **Arguments.** Each kind parameter after `test` is a kind argument; the
+    value is, in order, `--arg NAME=VALUE`, the site's constant, the
+    manifest's `[test.args]`, the parameter's default [test-kind].
+    `runtime: Str = "threaded" | "virtual"` picks the runtime; `salvo test`
+    writes **one program per runtime**, since a process cannot leave the
+    threaded runtime once its workers have started.
+  * **The protocol.** The harness prints `BEGIN <id>` then
+    `print_verdict(<run fn>(config))`; `Verdict` is `Passed | Failed{message,
+    detail} | Flaky`.
+  * **Not built**: renaming template locals against user parameter names.
 * [test-property] **A property test** (user decisions 2026-11-05, the
   property-test record, rounds 1–4) runs its body over parameters drawn at
   random, written after the name as a fn's are: `test property(runs=200)
@@ -12560,13 +12576,13 @@ replaced the working document TESTING.md).
     **`FLAKY`**, which counts as a failure.
   * **The report**: the failure, then "falsified after K of N runs, shrunk S
     times", the parameters (`xs = [0, 0, 0, 1]`) and the line that runs it
-    again (`salvo test "<id>" --seed S`), as `##salvo-test detail` lines the
-    runner shows under the verdict. The summary names the run's seed.
-  * **Runs and seed**: `--runs`, then the test's `runs=`, then `[test] runs`,
-    then 100; `--seed`, then the test's `seed=` (used as it is), then
-    `[test] seed`, then a fresh seed. A property's seed is derived from the
-    run's and its id, so a filter changes no property's seed; both are the
-    same on every backend.
+    again (`salvo test "<id>" --arg seed=S`), as `##salvo-test detail` lines the
+    runner shows under the verdict. 
+  * **Runs and seed**: kind arguments `runs` (default 100) and `seed`, set by
+    `--arg runs=N`, the test's `runs=`, or `[test.args]` [test-kind]; a
+    property without a seed derives one from the run seed (`--arg
+    run_seed=N`, else fresh) and its id, so a filter changes no property's
+    seed; the same on every backend.
   * **Not yet**: linear parameters (a `Gen` of a linear type, and a lambda
     consuming a linear capture, are both refused today); `spawn` in the
     body; shrinking the interleaving.
@@ -12667,10 +12683,12 @@ replaced the working document TESTING.md).
   named union (an arm chosen evenly, then drawn at its type; `None` for a
   `None` arm). Nothing is written on the type itself (user decision
   2026-11-05, round 1 decision 3). The stamp finds `T` in the return type
-  [fn-by]. A recursive union stays finite by choosing its **first** arm
-  more often the deeper it is nested, and always from depth 8, so its base
-  case goes first (agent's call, to confirm: the halving per level the
-  record proposed needs to know which arms recurse).
+  [fn-by]. A recursive union is kept finite by choosing its **first** arm more often
+  the deeper it is nested, and always from depth 8, and above all by the
+  list cutoff: every recursion cycle passes through a `List` today (direct
+  recursion is ROADMAP §17), and a list draws empty from nesting depth 5
+  (agent's call, its own ROADMAP item: the first-arm bias is not what
+  makes it terminate).
 * [test-body] A test body has an entry point's powers: `use` is available with
   nothing declared, exactly as in `main() [use]`, which is how a test registers
   a fake (`use MemFs()`). Everything else about the body is the language

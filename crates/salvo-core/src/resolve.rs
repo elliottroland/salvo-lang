@@ -629,6 +629,10 @@ pub const TEST_RANDOM_MODULE: &str = "random";
 /// property test's generated code and `check` live there.
 pub const TEST_PROPERTY_MODULE: &str = "property";
 
+/// [test-kind] The test kinds std ships, `std.test.kinds`: implicitly available
+/// in a test annex, which is how `test property …` finds `property`.
+pub const TEST_KINDS_MODULE: &str = "kinds";
+
 pub fn resolve(program: &Program) -> Resolution<'_> {
     resolve_given(program, &[])
 }
@@ -795,18 +799,10 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
         }
         for (item_idx, item) in ast.items.iter().enumerate() {
             match item {
-                // [test-file] A `test` block reaching resolution was neither
-                // expanded (in an annex) nor refused (in a production file),
-                // which `expand` does to every one of them — so this is a
-                // driver that skipped the expansion, the same integration
-                // error an unexpanded `iter fn` is.
-                Item::Test(t) => {
-                    unexpanded_iter_fns.push(FileDiagnostic::error(
-                        file_idx,
-                        t.name_span,
-                        messages::test_file_unexpanded(),
-                    ));
-                }
+                // [test-kind] A `test` block is expanded by comptime, which
+                // removes it; the interfaces comptime reads are built before
+                // that, so it is ignored here.
+                Item::Test(_) => {}
                 // [iter-fn] An `iter fn` must be expanded before resolution
                 // (`parse_module` does it; `parse_module_deferred` hands the
                 // duty to the program-level `salvo_core::expand`). Checking
@@ -1285,7 +1281,7 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
             // an assertion is a function that throws, so a test file that had
             // to import `throw` would be importing something it never wrote
             // (2026-09-26, with `throw` leaving `std.core`).
-            for implicit in [&[TEST_MODULE][..], &[THROW_MODULE][..], &[TEST_MODULE, TEST_RANDOM_MODULE][..], &[TEST_MODULE, TEST_PROPERTY_MODULE][..]] {
+            for implicit in [&[TEST_MODULE][..], &[THROW_MODULE][..], &[TEST_MODULE, TEST_RANDOM_MODULE][..], &[TEST_MODULE, TEST_PROPERTY_MODULE][..], &[TEST_MODULE, TEST_KINDS_MODULE][..]] {
                 let path = ModulePath::std(implicit);
                 if let Some((module, items)) = by_module.get_key_value(&path) {
                     add_items(

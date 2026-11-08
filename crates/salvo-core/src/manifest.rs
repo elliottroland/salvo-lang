@@ -25,8 +25,9 @@
 //! backend = "rust"       # over `[build] backend`, for tests only
 //! output = "failed"      # whose output the report shows: "all" or "failed"
 //! streams = "both"       # which of it: "stderr", or "both" (stdout too)
-//! runs = 100             # a property test's runs, when it writes none
-//! seed = 42              # the run's seed, instead of a random one
+//!
+//! [test.args]            # a test kind's arguments the test does not write
+//! runs = 500
 //! ```
 //!
 //! [manifest-discovery] A file belongs to the **nearest ancestor** directory
@@ -180,12 +181,29 @@ pub struct TestSection {
     pub output: Option<String>,
     /// `stderr` or `both`: which streams of it.
     pub streams: Option<String>,
-    /// [test-property] How many runs a property test makes when neither
-    /// `--runs` nor its own `runs=` says.
-    pub runs: Option<i64>,
-    /// [test-property] The run's seed, when `--seed` does not give one:
-    /// each property's is derived from it and the test's id.
-    pub seed: Option<i64>,
+    /// [test-kind] `[test.args]`: values for the arguments of test kinds
+    /// (`runs = 500`), used where a test does not write them; `--arg name=value`
+    /// overrides them.
+    pub args: Option<std::collections::BTreeMap<String, ArgValue>>,
+}
+
+/// [test-kind] A value in `[test.args]`: a number, a boolean or a string.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum ArgValue {
+    Int(i64),
+    Bool(bool),
+    Str(String),
+}
+
+impl std::fmt::Display for ArgValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ArgValue::Int(n) => write!(f, "{n}"),
+            ArgValue::Bool(b) => write!(f, "{b}"),
+            ArgValue::Str(s) => write!(f, "{s}"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

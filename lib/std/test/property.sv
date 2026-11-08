@@ -181,6 +181,55 @@ export fn flaky(run: PropertyRun) [] -> Bool => run {
     return run.found_at > 0 && run.last is None
 }
 
+// A property's own seed: the run's, mixed with the test's id, so that
+// running one test with a filter draws what the full run drew. FNV-1a over the
+// id's bytes, then mixed with the run's seed as splitmix64 does, in wrapping
+// `Long`s, so it is the same on every backend.
+// @compilerrules [test-property, prop-rng]
+export fn derive_seed(config: TestConfig, id: Str) [] -> Long => config, id {
+    let h = -3750763034362895579L
+    let bytes = to_bytes(id)
+    let i = 0
+    while i < size(bytes) {
+        h = bit_xor(h, to_long(to_int(get(bytes, i) ?: to_byte(0)))) * 1099511628211L
+        i = i + 1
+    }
+    return long(live_rng(h + run_seed(config)))
+}
+
+// One parameter's line in the report: `xs = [1, 2]`.
+// @compilerrules [test-property]
+export fn shown_line(name: Str, text: Str) [] -> Str => name, text {
+    return "${name} = ${text}"
+}
+
+// What the property test answers once its runs and shrinking are done: the
+// failure (or `Flaky`, when its simplest case passed on replay) with where it
+// was found, its parameters and the line that runs it again, or `Passed`.
+// @compilerrules [test-property, test-kind]
+export fn report_of(run: PropertyRun, seed: Long, id: Str) [] -> Verdict => run, seed, id {
+    let lines = verdict(run)
+    if size(lines) == 0 {
+        return Passed {}
+    }
+    let detail: Mut List<Str> = Mut List<Str>()
+    let message = ""
+    let first = true
+    for line in lines {
+        if first {
+            first = false
+            message = copy(line)
+        } else {
+            add(detail, copy(line))
+        }
+    }
+    add(detail, "re-run: salvo test \"${id}\" --arg seed=${seed}")
+    if flaky(run) {
+        return Flaky { message: message, detail: detail }
+    }
+    return Failed { message: message, detail: detail }
+}
+
 // Starts a run on a fresh virtual runtime, seeded with [seed] (the run's
 // first draw, so a replay replays the scheduling too).
 // @compilerrules [test-property, test-actor]

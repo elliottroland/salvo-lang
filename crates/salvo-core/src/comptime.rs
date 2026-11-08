@@ -82,6 +82,9 @@ pub struct ComptimeOutput {
     /// (the pipeline record C4 B), with the modules it changed the declarations of:
     /// what the stamped program's resolution views again.
     pub interfaces: crate::resolve::Interfaces,
+    /// [test-kind] The tests comptime expanded: file, run fn name, and the
+    /// runtime its kind runs on.
+    pub tests: Vec<(usize, String, String)>,
 }
 
 /// [comptime-instantiate] What the world keeps of its own: every comptime fn
@@ -91,9 +94,19 @@ pub struct ComptimeOutput {
 #[derive(Default)]
 struct Tables {
     compfns: Vec<CompFnDecl>,
+    /// [test-kind] The test kinds: comptime fns whose first parameter is a
+    /// `Test`.
+    kinds: Vec<CompFnDecl>,
     /// [comptime-hygiene] Each template's site names (`Stamp::site_names`),
     /// by its file and its name's start.
     site_names: HashMap<(usize, u32), Vec<String>>,
+}
+
+/// [test-kind] Whether `f` is a **test kind**: a `comptime fn` whose first
+/// parameter is a `Test`, stamped at a `test` block rather than at a type.
+pub(crate) fn is_test_kind(f: &FnDecl) -> bool {
+    f.compfn.as_ref().is_some_and(|c| c.bound.is_none())
+        && f.params.first().is_some_and(|p| matches!(&p.ty, Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name == "Test"))
 }
 
 /// [lsp-warm-std] Whether the per-file stamping has anything to do in a
@@ -103,6 +116,8 @@ struct Tables {
 pub(crate) fn stamps_anything(module: &Module) -> bool {
     module.items.iter().any(|item| match item {
         Item::Fn(f) => f.compfn.is_some() || f.by.is_some(),
+        // [test-kind] A test block is stamped from its kind.
+        Item::Test(_) => true,
         Item::Struct(s) => s.obligations.iter().any(|o| o.by.is_some()),
         Item::Type(t) => t.obligations.iter().any(|o| o.by.is_some()),
         _ => false,
@@ -163,6 +178,7 @@ fn run<M: crate::expand::ModuleSlot>(
     let mut out = Vec::new();
     let mut hovers: Vec<CompHover> = Vec::new();
     let mut when_arms: Vec<CompWhenArms> = Vec::new();
+    let mut tests_out: Vec<(usize, String, String)> = Vec::new();
 
     let mut tables = Tables::default();
     for idx in 0..files.len() {
@@ -187,6 +203,10 @@ fn run<M: crate::expand::ModuleSlot>(
                         file: idx,
                         decl,
                     });
+                }
+                // [test-kind] A test kind.
+                Item::Fn(f) if is_test_kind(f) => {
+                    tables.kinds.push(CompFnDecl { module: file.module.clone(), file: idx, decl: f.clone() });
                 }
                 _ => {}
             }
@@ -214,7 +234,7 @@ fn run<M: crate::expand::ModuleSlot>(
         for item in &pre[idx].items {
             if let Item::Fn(f) = item {
                 if let Some(cf) = &f.compfn {
-                    let (diags, site) = template_names(f, &names, cf.bound.is_some());
+                    let (diags, site) = template_names(f, &names, cf.bound.is_some() || is_test_kind(f));
                     out.extend(diags.into_iter().map(|d| (idx, d)));
                     tables.site_names.insert((idx, f.name.span.start), site);
                 }
@@ -500,7 +520,7 @@ fn run<M: crate::expand::ModuleSlot>(
                         fallback_body(f);
                     }
                 }
-            } else if f.compfn.as_ref().is_some_and(|c| c.bound.is_none()) && !f.intrinsic {
+            } else if f.compfn.as_ref().is_some_and(|c| c.bound.is_none()) && !f.intrinsic && !is_test_kind(f) {
                 // [comptime-bound] An expanded-in-place compfn is its own
                 // instantiation: expanded once, here, and an ordinary
                 // (callable) fn from then on. The roots it names are looked
@@ -562,6 +582,23 @@ fn run<M: crate::expand::ModuleSlot>(
             }
         }
 
+        // [test-kind] Test blocks: each becomes its body fn and its run fn,
+        // stamped from its kind; the blocks leave the program below.
+        let mangled = file.module.0.join("_");
+        let mut test_n = 0usize;
+        let blocks: Vec<TestDecl> = module.items.iter().filter_map(|i| if let Item::Test(t) = i { Some(t.clone()) } else { None }).collect();
+        for t in blocks {
+            let fn_name = salvo_syntax::desugar::test_fn_name(&mangled, test_n);
+            test_n += 1;
+            match stamp_test(&world, &t, &fn_name, &mut next_expn, file_idx, &file.module) {
+                Ok((items, runtime)) => {
+                    generated.extend(items);
+                    tests_out.push((file_idx, fn_name, runtime));
+                }
+                Err(errs) => diags.extend(errs),
+            }
+        }
+
         // Generic compfns leave the program: nothing downstream could type
         // them, and every use of one has been stamped above. So do the
         // compile-time intrinsics [comptime-eval-fns]: heads, which call
@@ -569,7 +606,7 @@ fn run<M: crate::expand::ModuleSlot>(
         let before = module.items.len();
         module
             .items
-            .retain(|item| !matches!(item, Item::Fn(f) if f.compfn.as_ref().is_some_and(|c| c.bound.is_some()) || (f.compfn.is_some() && f.intrinsic)));
+            .retain(|item| !matches!(item, Item::Test(_)) && !matches!(item, Item::Fn(f) if f.compfn.as_ref().is_some_and(|c| c.bound.is_some()) || (f.compfn.is_some() && f.intrinsic) || is_test_kind(f)));
         // [decl-id] A module that gained or lost a declaration: a scope that
         // took it in is built again over the stamped program, the rest are
         // viewed (`resolve::resolve`).
@@ -598,6 +635,7 @@ fn run<M: crate::expand::ModuleSlot>(
             hovers,
             when_arms,
             interfaces,
+            tests: tests_out,
         },
         fresh,
     )
@@ -1346,6 +1384,249 @@ fn first_param_type_text(f: &FnDecl) -> String {
         .first()
         .map(|p| p.ty.to_string())
         .unwrap_or_default()
+}
+
+/// [test-kind] A kind argument's value, when it is a constant: a number, a
+/// string without interpolation, a character, a boolean or `None`.
+fn kind_const_arg(e: &Expr) -> Option<Expr> {
+    match e {
+        Expr::Int { .. } | Expr::Float { .. } | Expr::Bool { .. } | Expr::Char { .. } => Some(e.clone()),
+        Expr::Str { parts, .. } if parts.iter().all(|p| matches!(p, StrExprPart::Text(_))) => Some(e.clone()),
+        Expr::Unary { op: UnaryOp::Neg, operand, .. } if matches!(**operand, Expr::Int { .. } | Expr::Float { .. }) => Some(e.clone()),
+        Expr::Ident(id) if id.name == "None" => Some(e.clone()),
+        _ => None,
+    }
+}
+
+/// [test-kind] A written `Int` constant as the `Long` a `Long` or `Long?`
+/// parameter wants.
+fn widen_to(ty: &Type, value: Expr) -> Expr {
+    let wants_long = match ty {
+        Type::Named { base, .. } => base.name.name == "Long",
+        Type::Nullable { inner, .. } => matches!(&**inner, Type::Named { base, .. } if base.name.name == "Long"),
+        _ => false,
+    };
+    if !wants_long {
+        return value;
+    }
+    match value {
+        Expr::Int { value, span, .. } => Expr::Int { value, long: true, span },
+        Expr::Unary { op, operand, span } => match *operand {
+            Expr::Int { value, span: s2, .. } => Expr::Unary { op, operand: Box::new(Expr::Int { value, long: true, span: s2 }), span },
+            other => Expr::Unary { op, operand: Box::new(other), span },
+        },
+        other => other,
+    }
+}
+
+/// [test-kind] Whether `block` reads the name `name`.
+fn mentions_name(block: &Block, name: &str) -> bool {
+    use salvo_syntax::visit::{self as v, Visitor};
+    struct Finds<'a>(&'a str, bool);
+    impl Visitor for Finds<'_> {
+        fn visit_expr(&mut self, expr: &Expr) {
+            if matches!(expr, Expr::Ident(id) if id.name == self.0) {
+                self.1 = true;
+            }
+        }
+    }
+    let mut f = Finds(name, false);
+    v::walk_block(&mut f, block);
+    f.1
+}
+
+/// [test-kind] The fns a `test KIND(ARGS) "name" (PARAMS) { body }` block
+/// becomes, stamped from the kind a `comptime fn KIND(test: Test, …)` declares:
+/// - the **body fn** `<fn_name>_body(PARAMS)`, performing the kind's powers and
+///   `Throw<Failure>`, with the block's body;
+/// - the **run fn** `<fn_name>(salvo_config: TestConfig) -> Verdict`, the
+///   kind's body with the kind's arguments let-bound at the top (a flag, then
+///   the site's value, then the manifest's, then the default), which the
+///   harness calls.
+///
+/// Also answers the runtime the kind names, which groups the programs the
+/// runner writes.
+fn stamp_test<'w>(
+    world: &'w World<'w>,
+    t: &TestDecl,
+    fn_name: &str,
+    next_expn: &'w mut u32,
+    file_idx: usize,
+    module: &ModulePath,
+) -> Result<(Vec<Item>, String), Vec<Diagnostic>> {
+    let site = t.name_span;
+    let kind_name = t.kind.as_ref().map(|k| k.name.clone()).unwrap_or_else(|| "plain".to_string());
+    let kind_span = t.kind.as_ref().map(|k| k.span).unwrap_or(site);
+    let visible: Vec<&CompFnDecl> = world.tables.kinds.iter().filter(|c| c.decl.name.name == kind_name && world.sees_module(&c.module)).collect();
+    let c = match visible.as_slice() {
+        [c] => *c,
+        [] => {
+            let mut homes: Vec<String> = world.tables.kinds.iter().filter(|c| c.decl.name.name == kind_name).map(|c| c.module.to_string()).collect();
+            homes.sort();
+            homes.dedup();
+            let hint = if homes.is_empty() {
+                String::new()
+            } else {
+                format!("; `{}` is not imported here: add `import {}`", homes.join("`, `"), homes.join("` or `import "))
+            };
+            return Err(vec![Diagnostic::error(messages::test_kind_unknown(&kind_name, &hint), kind_span)]);
+        }
+        many => {
+            let places: Vec<String> = many.iter().map(|c| format!("`{}`", c.module)).collect();
+            return Err(vec![Diagnostic::error(messages::test_kind_ambiguous(&kind_name, &places.join(", ")), kind_span)]);
+        }
+    };
+    let template = &c.decl;
+    let kind_params: Vec<&Param> = template.params.iter().skip(1).collect();
+    let mut errs: Vec<Diagnostic> = Vec::new();
+    let known = if kind_params.is_empty() {
+        "no arguments".to_string()
+    } else {
+        kind_params.iter().map(|p| format!("`{}`", p.name.name)).collect::<Vec<_>>().join(", ")
+    };
+    for (name, _) in &t.args {
+        if !kind_params.iter().any(|p| p.name.name == name.name) {
+            errs.push(Diagnostic::error(messages::test_kind_unknown_argument(&kind_name, &name.name, &known), name.span));
+        }
+    }
+    // The kind's arguments, let-bound: a flag overrides a site's value; with
+    // none written, a flag, then the manifest's, then the default.
+    let config = "salvo_config".to_string();
+    let mut lets: Vec<Stmt> = Vec::new();
+    let mut runtime = "threaded".to_string();
+    for p in &kind_params {
+        let site_val = t.args.iter().find(|(n, _)| n.name == p.name.name).map(|(n, e)| (n.span, e));
+        let (value, from_site) = match (site_val, &p.default) {
+            (Some((at, e)), _) => match kind_const_arg(e) {
+                Some(v) => (v, true),
+                None => {
+                    errs.push(Diagnostic::error(messages::test_kind_argument_not_constant(&p.name.name), at));
+                    continue;
+                }
+            },
+            (None, Some(d)) => match kind_const_arg(d) {
+                Some(v) => (v, false),
+                None => {
+                    errs.push(Diagnostic::error(messages::test_kind_argument_not_constant(&p.name.name), kind_span));
+                    continue;
+                }
+            },
+            (None, None) => {
+                errs.push(Diagnostic::error(messages::test_kind_missing_argument(&kind_name, &p.name.name), kind_span));
+                continue;
+            }
+        };
+        // A number written for a `Long` (or `Long?`) is a `Long`.
+        let value = widen_to(&p.ty, value);
+        if p.name.name == "runtime" {
+            match &value {
+                Expr::Str { parts, .. } if matches!(parts.as_slice(), [StrExprPart::Text(r)] if r == "threaded" || r == "virtual") => {
+                    if let [StrExprPart::Text(r)] = parts.as_slice() {
+                        runtime = r.clone();
+                    }
+                }
+                _ => errs.push(Diagnostic::error(messages::test_kind_runtime(), kind_span)),
+            }
+        }
+        // A parameter the template never reads (`runtime`, which only the
+        // runner reads) is not bound: it would only warn as unused.
+        if !template.body.as_ref().is_some_and(|b| mentions_name(b, &p.name.name)) {
+            continue;
+        }
+        let callee = Expr::Ident(Ident { name: if from_site { "arg_or" } else { "arg_or_manifest" }.to_string(), span: site });
+        let call = Expr::Call {
+            callee: Box::new(callee),
+            type_args: Vec::new(),
+            args: vec![
+                Expr::Ident(Ident { name: config.clone(), span: site }),
+                Expr::Str { parts: vec![StrExprPart::Text(p.name.name.clone())], span: site },
+                value,
+            ],
+            named: Vec::new(),
+            span: site,
+        };
+        lets.push(Stmt::Let { pattern: Pattern::Ident(p.name.clone()), ty: Some(p.ty.clone()), value: call, span: site });
+    }
+    if !errs.is_empty() {
+        return Err(errs);
+    }
+    // The nodes the stamp makes up, as their own expansion.
+    let made = {
+        let mut made = Retag::fresh(next_expn);
+        for l in &mut lets {
+            visit_mut::walk_stmt(&mut made, l);
+        }
+        made.expn
+    };
+    let mut inst = template.clone();
+    let mut whole = Retag::fresh(next_expn);
+    let template_expn = whole.expn;
+    visit_mut::walk_fn(&mut whole, &mut inst);
+    let mut tested = module.0.clone();
+    tested.pop();
+    let id = format!("{} :: {}", ModulePath(tested), t.name);
+    let body_name = format!("{fn_name}_body");
+    let info = TestInfo {
+        binder: template.params[0].name.name.clone(),
+        body_fn: body_name.clone(),
+        config: config.clone(),
+        params: t.params.clone(),
+        name: t.name.clone(),
+        id,
+    };
+    let mut ex = Expander::new(world, None, site, next_expn);
+    ex.current = template_expn;
+    ex.test = Some(info);
+    let mut body = inst.body.take().unwrap_or(Block { stmts: Vec::new(), span: site });
+    ex.expand_block(&mut body);
+    let (expansions, scopes, mut errs) = ex.finish();
+    errs.retain(|d| d.is_error());
+    if !errs.is_empty() {
+        return Err(errs);
+    }
+    // The body fn: the kind's powers, plus the failure channel.
+    let mut effects = template.effects.clone().unwrap_or_default();
+    effects.push(salvo_syntax::desugar::throw_failure_effect(site));
+    let body_fn = salvo_syntax::desugar::test_body_fn(t, body_name, effects);
+    // The run fn.
+    let mut stmts = lets;
+    stmts.extend(body.stmts);
+    let mut run = inst;
+    run.docs = t.docs.clone();
+    run.exported = true;
+    run.compfn = None;
+    run.name = Ident { name: fn_name.to_string(), span: site };
+    run.span = t.span;
+    run.params = vec![Param {
+        annotations: Vec::new(),
+        name: Ident { name: config, span: site },
+        ty: World::simple_named("TestConfig", site),
+        variadic: false,
+        implicit: false,
+        default: None,
+        span: site,
+    }];
+    run.deductions = None;
+    run.body = Some(Block { stmts, span: body.span });
+    let mut all = vec![
+        ExpansionRecord { id: made, parent: 0, kind: ExpansionKind::Made },
+        ExpansionRecord { id: template_expn, parent: 0, kind: ExpansionKind::Template },
+    ];
+    all.extend(expansions);
+    all.sort_by_key(|e| e.id);
+    run.stamped = Some(Stamp {
+        compfn: kind_name.clone(),
+        from: format!("test kind `{kind_name}`"),
+        at_type: t.name.clone(),
+        site,
+        expansions: all,
+        roots: Vec::new(),
+        template_file: Some(c.file),
+        site_names: world.site_names_of(Some(c.file), template),
+        scopes,
+    });
+    let _ = file_idx;
+    Ok((vec![Item::Fn(body_fn), Item::Fn(run)], runtime))
 }
 
 fn named_base(ty: &Type) -> Option<String> {
@@ -2694,6 +2975,36 @@ struct Binding {
     /// [comptime-literals] The member a `[for lit in X.literals]` copy is
     /// for; `None` for a field or an arm.
     literal: Option<salvo_syntax::ast::TypeLit>,
+    /// [test-kind] The slot a `[for s in p.type.slots]` copy is for: a
+    /// constant, or a place naming an earlier parameter.
+    slot: Option<SlotVal>,
+}
+
+/// [test-kind] A qualifier's value slot as a comptime value.
+#[derive(Clone)]
+enum SlotVal {
+    Const(crate::types::Const),
+    Place(String),
+}
+
+/// [test-kind] The `sibling_owner` of the elements of `test.params`: their
+/// copies are flat (open no scope), since the binders' names are the
+/// program's and a later copy's types name an earlier one's local
+/// (`Idx(xs)`).
+const TEST_PARAMS: &str = "test.params";
+
+/// [test-kind] What the `Test` a kind template is stamped at says.
+#[derive(Clone)]
+struct TestInfo {
+    /// The template's first parameter: how it names the test.
+    binder: String,
+    /// The generated body fn, which `[test.body]` calls.
+    body_fn: String,
+    /// The generated config parameter `[test.config]` reads.
+    config: String,
+    params: Vec<Param>,
+    name: String,
+    id: String,
 }
 
 /// [comptime-docs] A doc block as a value: its prose lines joined, as hover
@@ -2749,6 +3060,8 @@ enum CVal {
     Default,
     List(Vec<CVal>),
     Lambda(Vec<Ident>, Box<CompExpr>),
+    /// [test-kind] The test a kind template is stamped at.
+    Test,
 }
 
 impl CVal {
@@ -2768,6 +3081,7 @@ impl CVal {
             CVal::Default => "a `Value`",
             CVal::List(_) => "a `List`",
             CVal::Lambda(..) => "a lambda",
+            CVal::Test => "a `Test`",
         }
     }
 
@@ -2844,6 +3158,8 @@ struct Expander<'w> {
     /// written span: what that copy found uncovered (expanded-in-place fns
     /// only, where the span is the author's own).
     when_arms: Vec<(Span, Vec<String>, bool, Vec<Span>)>,
+    /// [test-kind] The test a kind template is stamped at.
+    test: Option<TestInfo>,
 }
 
 impl<'w> Expander<'w> {
@@ -2868,6 +3184,7 @@ impl<'w> Expander<'w> {
             binder_used: HashMap::new(),
             comp_locals: Vec::new(),
             when_arms: Vec::new(),
+            test: None,
         }
     }
 
@@ -3064,7 +3381,8 @@ impl<'w> Expander<'w> {
                         docs: None,
                         annotations: Vec::new(),
                         literal: Some(l),
-                    })
+                    slot: None,
+                })
                     .collect(),
             );
         }
@@ -3095,7 +3413,8 @@ impl<'w> Expander<'w> {
                         default_of: None,
                         annotations: Vec::new(),
                         literal: None,
-                    })
+                    slot: None,
+                })
                     .collect(),
             );
         }
@@ -3167,6 +3486,7 @@ impl<'w> Expander<'w> {
                     docs: doc_text(&f.docs),
                     annotations: f.annotations.clone(),
                     literal: None,
+                    slot: None,
                 })
                 .collect(),
         )
@@ -3630,6 +3950,9 @@ impl<'w> Expander<'w> {
     /// parameter, a pattern binder, or a declared type.
     fn eval_name(&mut self, id: &Ident, args: &[Type], span: Span) -> Option<CVal> {
         if args.is_empty() {
+            if self.test.as_ref().is_some_and(|t| t.binder == id.name) {
+                return Some(CVal::Test);
+            }
             if let Some((_, v)) = self.comp_locals.iter().rev().find(|(n, _)| *n == id.name) {
                 return Some(v.clone());
             }
@@ -3708,6 +4031,11 @@ impl<'w> Expander<'w> {
                         let elems = self.elements_of(ty, which, span)?;
                         CVal::List(elems.into_iter().map(CVal::Elem).collect())
                     }
+                    // [test-kind] The value slots of a parameter's qualifier.
+                    "slots" => {
+                        let slots = self.slots_of(&ty, span)?;
+                        CVal::List(slots.into_iter().map(CVal::Elem).collect())
+                    }
                     "kind" => CVal::Kind(self.world.classify(&ty, &self.generics(), 0)),
                     "mutable" if bound_root => {
                         let canbe = self.bound.as_ref().is_some_and(|(_, t)| t.canbe.iter().any(|q| q == "Mut"));
@@ -3737,11 +4065,100 @@ impl<'w> Expander<'w> {
                     }
                 })
             }
+            // [test-kind] The test: its parameters, name and id.
+            CVal::Test => {
+                let t = self.test.clone()?;
+                Some(match name {
+                    "params" => {
+                        let names: Vec<String> = t.params.iter().map(|p| p.name.name.clone()).collect();
+                        let n = t.params.len();
+                        CVal::List(
+                            t.params
+                                .iter()
+                                .enumerate()
+                                .map(|(i, p)| {
+                                    CVal::Elem(Binding {
+                                        ty: p.ty.clone(),
+                                        name: p.name.name.clone(),
+                                        index: i,
+                                        first: i == 0,
+                                        last: i + 1 == n,
+                                        decl_span: p.span,
+                                        label: format!("parameter `{}`", p.name.name),
+                                        is_arm: false,
+                                        siblings: names.clone(),
+                                        sibling_owner: TEST_PARAMS.to_string(),
+                                        default_of: None,
+                                        docs: None,
+                                        annotations: p.annotations.clone(),
+                                        literal: None,
+                                        slot: None,
+                                    })
+                                })
+                                .collect(),
+                        )
+                    }
+                    "name" => CVal::Str(t.name),
+                    "id" => CVal::Str(t.id),
+                    other => {
+                        self.error(span, messages::comptime_eval_no_property(&other, &"a `Test`"));
+                        return None;
+                    }
+                })
+            }
             other => {
                 self.error(span, messages::comptime_eval_no_property(&name, &other.describe()));
                 None
             }
         }
+    }
+
+    /// [test-kind] The value slots of the one qualifier of `ty` that has any:
+    /// each a constant or a place naming an earlier parameter.
+    fn slots_of(&mut self, ty: &Type, span: Span) -> Option<Vec<Binding>> {
+        let quals: &[TypeRef] = match ty {
+            Type::Named { qualifiers, .. } | Type::QualifiedGroup { qualifiers, .. } => qualifiers,
+            _ => &[],
+        };
+        let slotted: Vec<&TypeRef> = quals.iter().filter(|q| q.value_args.iter().any(|a| matches!(a, Type::Named { base, .. } if !base.binder))).collect();
+        if slotted.len() > 1 {
+            self.error(span, messages::test_kind_slots_several(&ty));
+            return None;
+        }
+        let Some(q) = slotted.first() else { return Some(Vec::new()) };
+        let values: Vec<&Type> = q.value_args.iter().filter(|a| matches!(a, Type::Named { base, .. } if !base.binder)).collect();
+        let n = values.len();
+        Some(
+            values
+                .into_iter()
+                .enumerate()
+                .filter_map(|(i, a)| {
+                    let Type::Named { base, .. } = a else { return None };
+                    let text = base.name.name.clone();
+                    let slot = match crate::types::Const::parse(&text) {
+                        Some(c) => SlotVal::Const(c),
+                        None => SlotVal::Place(text.clone()),
+                    };
+                    Some(Binding {
+                        ty: a.clone(),
+                        name: text,
+                        index: i,
+                        first: i == 0,
+                        last: i + 1 == n,
+                        decl_span: base.span,
+                        label: format!("slot {i}"),
+                        is_arm: false,
+                        siblings: Vec::new(),
+                        sibling_owner: "slots".to_string(),
+                        default_of: None,
+                        docs: None,
+                        annotations: Vec::new(),
+                        literal: None,
+                        slot: Some(slot),
+                    })
+                })
+                .collect(),
+        )
     }
 
     /// [comptime-eval] An operator other than `&&` and `||`.
@@ -4098,14 +4515,18 @@ impl<'w> Expander<'w> {
             },
         });
         // [comptime-scope] The copy is a scope: two copies' `let c` are two
-        // bindings, and neither is visible after its copy.
-        let slot = self.open_scope();
+        // bindings, and neither is visible after its copy. [test-kind] Except
+        // a copy for a test's parameter, whose local keeps the parameter's
+        // name for the copies after it.
+        let slot = (b.sibling_owner != TEST_PARAMS).then(|| self.open_scope());
         self.env.push((binder.to_string(), b.clone()));
         let enclosing = std::mem::replace(&mut self.current, id);
         self.expand_block(&mut block);
         self.current = enclosing;
         self.env.pop();
-        self.close_scope(slot, &block);
+        if let Some(slot) = slot {
+            self.close_scope(slot, &block);
+        }
         block
     }
 
@@ -4132,6 +4553,19 @@ impl<'w> Expander<'w> {
                 }
                 Stmt::Comp(c) => self.expand_comp(c, &mut out),
                 mut other => {
+                    // [test-kind] `let [p]: [p.type] = …` declares the local a
+                    // binder's name stands for.
+                    if let Stmt::Let { pattern: Pattern::Ident(id), .. } = &mut other {
+                        if let Some(inner) = id.name.strip_prefix('[').and_then(|s| s.strip_suffix(']')).map(str::to_string) {
+                            match self.binding(&inner).filter(|b| !b.is_arm && b.slot.is_none()).map(|b| b.name.clone()) {
+                                Some(name) => id.name = name,
+                                None => {
+                                    let span = id.span;
+                                    self.error(span, messages::comptime_access_not_a_field_binder(&inner));
+                                }
+                            }
+                        }
+                    }
                     // [comptime-eval] No shadowing: a runtime `let` may not
                     // take a `[let]`'s name.
                     if let Stmt::Let { pattern: Pattern::Ident(id), .. } = &other {
@@ -4357,7 +4791,8 @@ impl<'w> Expander<'w> {
                         docs: self.world.docs_of(arm),
                         annotations: Vec::new(),
                         literal: None,
-                    };
+                    slot: None,
+                };
                     let body = self.copy(&body, &binder.name, &b);
                     // The check's spans come from the union's declaration; two
                     // stamps at one union would key the checker's `is` tables on
@@ -4557,6 +4992,51 @@ impl MutVisitor for Expander<'_> {
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
+        // [test-kind] `[test.body]`, `[test.config]`, `[p]`, `[s]`: a name the
+        // expansion makes structure — a generated fn, a parameter's local,
+        // or a slot (a constant as its literal, a place as a read).
+        if let Expr::Ident(id) = expr {
+            if let Some(inner) = id.name.strip_prefix('[').and_then(|s| s.strip_suffix(']')).map(str::to_string) {
+                let span = id.span;
+                if let Some(t) = self.test.clone() {
+                    if inner == format!("{}.body", t.binder) {
+                        id.name = t.body_fn;
+                        return;
+                    }
+                    if inner == format!("{}.config", t.binder) {
+                        id.name = t.config;
+                        return;
+                    }
+                }
+                match self.binding(&inner).cloned() {
+                    Some(bd) => match bd.slot {
+                        Some(SlotVal::Const(c)) => {
+                            *expr = match c {
+                                crate::types::Const::Int(value) => Expr::Int { value, long: false, span },
+                                crate::types::Const::Char(value) => Expr::Char { value, span },
+                                crate::types::Const::Str(text) => self.str_lit(&text, span),
+                            }
+                        }
+                        Some(SlotVal::Place(path)) => {
+                            if path.contains('.') {
+                                self.error(span, messages::comptime_access_not_a_binder(&path));
+                            } else {
+                                *expr = Expr::Ident(Ident { name: path, span });
+                            }
+                        }
+                        None => id.name = bd.name,
+                    },
+                    None => self.error(span, messages::comptime_access_not_a_binder(&inner)),
+                }
+                return;
+            }
+        }
+        // [test-kind] Heads in a call's argument list: one argument per copy.
+        if let Expr::Call { args, .. } = expr {
+            if args.iter().any(is_arg_head) {
+                self.expand_arg_heads(args);
+            }
+        }
         // [comptime-eval] A `[let]` reads as its value: a scalar as its
         // literal; anything else exists only in heads.
         if let Expr::Ident(id) = expr {
@@ -4672,6 +5152,17 @@ impl MutVisitor for Expander<'_> {
                 }
                 let Expr::Ident(root) = &**base else { return };
                 let span = *span;
+                // [test-kind] `test.name` and `test.id`, as literals.
+                if let Some(t) = self.test.clone() {
+                    if root.name == t.binder {
+                        match field.name.as_str() {
+                            "name" => *expr = self.str_lit(&t.name, span),
+                            "id" => *expr = self.str_lit(&t.id, span),
+                            other => self.error(span, messages::comptime_fields_unknown_property(&other)),
+                        }
+                        return;
+                    }
+                }
                 if let Some(bd) = self.binding(&root.name).cloned() {
                     match field.name.as_str() {
                         "name" => *expr = self.str_lit(&bd.name, span),
@@ -4821,7 +5312,37 @@ impl MutVisitor for Expander<'_> {
 
 }
 
+/// [test-kind] A `[for …] { arg, … }` head in a call's argument list, as the
+/// parser carries it: a struct literal of one `InlineFor` whose entries are
+/// named `_arg`.
+fn is_arg_head(e: &Expr) -> bool {
+    matches!(e, Expr::StructLit { ty: None, fields, .. }
+        if fields.len() == 1
+            && matches!(&fields[0].kind, StructLitFieldKind::InlineFor { entries, .. }
+                if !entries.is_empty() && entries.iter().all(|f| matches!(&f.kind, StructLitFieldKind::Named { name, .. } if name.name == "_arg"))))
+}
+
 impl Expander<'_> {
+    /// [test-kind] Unrolls the heads of a call's arguments: each copy's values
+    /// become arguments, in order. Commas are surface syntax only; the list is
+    /// what is spliced.
+    fn expand_arg_heads(&mut self, args: &mut Vec<Expr>) {
+        let old = std::mem::take(args);
+        for a in old {
+            if is_arg_head(&a) {
+                let Expr::StructLit { mut fields, .. } = a else { unreachable!() };
+                self.expand_struct_lit_entries(&mut fields);
+                for f in fields {
+                    if let StructLitFieldKind::Named { value, .. } = f.kind {
+                        args.push(value);
+                    }
+                }
+            } else {
+                args.push(a);
+            }
+        }
+    }
+
     /// Struct literals need their `inline for` entries unrolled before the
     /// generic walk sees them; done in `walk_expr`'s hook order by rewriting
     /// the literal here when visited.

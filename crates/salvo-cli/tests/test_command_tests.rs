@@ -646,7 +646,7 @@ test property "pairs add both ways" (p: Pair) {
     )
     .unwrap();
     let report = |backend: &str, extra: &[&str]| {
-        let mut args = vec!["test", "--src", ".", "--backend", backend, "--seed", "7", "--runs", "200"];
+        let mut args = vec!["test", "--src", ".", "--backend", backend, "--arg", "run_seed=7", "--arg", "runs=200"];
         args.extend_from_slice(extra);
         let out = salvo_in(&dir, &args);
         let stdout = normalize_ms(&String::from_utf8_lossy(&out.stdout));
@@ -659,10 +659,9 @@ test property "pairs add both ways" (p: Pair) {
     // `--runs 200` over the test's `runs=3`.
     assert!(rust.contains("of 200 runs"), "{rust}");
     assert!(rust.contains("      xs = [0, 0, 0, "), "{rust}");
-    assert!(rust.contains("    re-run: salvo test \"sums :: the sum adds everything\" --seed 7"), "{rust}");
+    assert!(rust.contains("    re-run: salvo test \"sums :: the sum adds everything\" --arg seed="), "{rust}");
     assert!(rust.contains("test sums :: an index is in bounds ... ok"), "{rust}");
     assert!(rust.contains("test sums :: pairs add both ways ... ok"), "{rust}");
-    assert!(rust.contains("property tests seeded with 7"), "{rust}");
     let failure = |s: &str| s.lines().skip_while(|l| !l.contains("FAILED")).take(5).collect::<Vec<_>>().join("\n");
     let (kotlin, _) = report("kotlin", &[]);
     assert_eq!(failure(&kotlin), failure(&rust), "the same counterexample on both backends");
