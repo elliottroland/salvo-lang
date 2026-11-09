@@ -14682,6 +14682,47 @@ replaced the working document TESTING.md).
     `TextEdit` list per `Url`), reusing [lsp-definition]'s `site_location`
     for the URI and range of each occurrence, including into a std-shadow
     copy on disk.
+* [lsp-references] **`textDocument/references` and `documentHighlight`**
+  (user request 2026-11-05) answer with the occurrences [lsp-rename] finds,
+  std's included: references across the program with the declaration when
+  the client asks for it, highlights in the open file with the declaration's
+  own name marked as a write. An `import`'s item name is the declaration it
+  imports, so references, rename and hover work from the import line, and a
+  rename rewrites the import with the rest.
+* [lsp-rename-more] **Rename also renames what has no declaration of its
+  own.**
+  * A **test's name**, in place: the string after `test`, refused if the new
+    name could not be a plain string literal.
+  * A **module**, from its last path segment in an `import` or an `@module`
+    selector: every import path and selector, and the module's files
+    (`shapes.sv`, `shapes.test.sv`, its backend companions), as one
+    `documentChanges` edit with `rename` operations. Offered only to a
+    client that declares it applies them; refused for the standard library
+    and for a module with a directory of submodules.
+  * A **send member's message arm** moves with the member, spelled in upper
+    camel case where it is written as an arm (`.Reserve`, `Inventory.
+    Reserve`).
+* [lsp-quickfix] **Quickfixes are keyed on the diagnostic's id**, which the
+  server publishes as the LSP `code` [diag-id], not on its wording:
+  `struct-defaults:missing-field` adds the fields a literal leaves out as
+  `todo!()`; `when-exhaustive:missing-arms` adds an arm for each union arm
+  left out; `deduce-default:kept-by-default-moved` declares the move, `=>
+  !xs`. Each leaves the program checking, with `todo!()` warnings where a
+  value is for the user to write.
+* [lsp-stub] **Stubs for what a declaration lacks.**
+  `effect-handler-multi:missing-member` adds each member the handler does not
+  implement, with the signature its effect declares and a `todo!()` body; a
+  call of `to_str`, `cmp` or `hash` that has no overload on a struct of the
+  program offers the obligation that stamps it (`: ToStr<self> by auto`);
+  and a program that declares `platform` handlers or fns is offered `salvo
+  platform generate`, run by the server in the document's project
+  (`workspace/executeCommand`, `salvo.platformGenerate`).
+* [lsp-organize-imports] **`source.organizeImports`** removes duplicate
+  imports and the unused ones, and sorts the rest. An import is unused when
+  the program analysed without it has no more errors than with it, so none
+  is removed while the program has errors; `export import`s stay. Offered
+  only when asked for by kind, since it analyses the program once for each
+  import.
 * [cli-lang] `salvo lang tm-grammar [--out PATH]` emits the TextMate
   grammar consumed by the VS Code extension (`vscode/syntaxes/`); without
   `--out` it prints to stdout.

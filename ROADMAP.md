@@ -1642,6 +1642,19 @@ deliberately cut, in the order the decisions put it:
   `let mut __loop_1: () = None;` (E0308). Moving the `try` inside the loop
   works.
 
+- **LSP refactorings: what is left** (2026-11-05; items 1–4 and 11 are built,
+  [lsp-quickfix]): extract function (ownership decides the parameter
+  qualifiers and the effects decide the list, so the result has to be
+  checked, not guessed), inline variable/function, change signature (call
+  sites through `fn_refs`), conversions between equivalent forms (`if` chain
+  to `when`), move declaration to another module, extract a test kind (needs
+  the shared test-support tree). Known limits of what is built: organize
+  imports removes nothing while the program has errors; a module rename
+  refuses a module with a directory of submodules; a message arm written as
+  a bare `Reserve` is renamed only where the checker records it; a missing
+  `Ordered`/`Hashed` obligation fix is offered only for a struct with no
+  obligation that has no `by`.
+
 - **Test kinds: what is left** (built 2026-11-05, [test-kind]): a shared
   test-support tree / annex-to-annex import so a user kind can be shared
   between annexes (next); hygiene for template locals against user

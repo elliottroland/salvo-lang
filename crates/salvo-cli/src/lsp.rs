@@ -25,8 +25,9 @@ use lsp_types::notification::{
     Notification as _, PublishDiagnostics,
 };
 use lsp_types::request::{
-    CodeActionRequest, Completion, GotoDefinition, HoverRequest, OnTypeFormatting,
-    PrepareRenameRequest, Rename, Request as _, SignatureHelpRequest,
+    CodeActionRequest, Completion, DocumentHighlightRequest, ExecuteCommand, GotoDefinition,
+    HoverRequest, OnTypeFormatting, PrepareRenameRequest, References, Rename, Request as _,
+    SignatureHelpRequest,
 };
 use lsp_types::{
     CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionParams,
@@ -41,7 +42,9 @@ use lsp_types::{
     ServerCapabilities, SignatureHelp, SignatureHelpOptions, SignatureHelpParams,
     SignatureInformation, TextDocumentPositionParams, TextDocumentSyncCapability,
     TextDocumentSyncKind, TextEdit, Url, WorkDoneProgressOptions, WorkspaceEdit,
-    CompletionTextEdit, InsertTextFormat, InsertTextMode,
+    CompletionTextEdit, DocumentHighlight, DocumentHighlightKind, DocumentHighlightParams,
+    ExecuteCommandOptions, ExecuteCommandParams, InsertTextFormat, InsertTextMode, NumberOrString,
+    ReferenceParams,
 };
 
 use salvo_core::{
@@ -50,6 +53,12 @@ use salvo_core::{
 use salvo_syntax::ast::{FnDecl, Item, QualSubject};
 use salvo_syntax::diag::Severity;
 use salvo_syntax::Span;
+
+mod actions;
+mod rename;
+
+/// [lsp-stub] The command behind "Generate platform host skeletons".
+const PLATFORM_GENERATE_COMMAND: &str = "salvo.platformGenerate";
 
 use crate::analysis::{analyze_for_document_cached, Analysis};
 use std::rc::Rc;
@@ -218,8 +227,27 @@ pub fn serve_connection(
         hover_provider: Some(HoverProviderCapability::Simple(true)),
         // Go-to-definition [lsp-definition].
         definition_provider: Some(OneOf::Left(true)),
-        // Quickfixes adding suggested imports [diag-import-suggest].
-        code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
+        // [lsp-references] Every use of the name under the cursor, and its
+        // occurrences in the open file highlighted as the cursor moves.
+        references_provider: Some(OneOf::Left(true)),
+        document_highlight_provider: Some(OneOf::Left(true)),
+        // Quickfixes adding suggested imports [diag-import-suggest], the
+        // fixes the checker's own diagnostics call for [lsp-quickfix], the
+        // stubs a declaration is missing [lsp-stub], and organize-imports
+        // [lsp-organize-imports].
+        code_action_provider: Some(CodeActionProviderCapability::Options(lsp_types::CodeActionOptions {
+            code_action_kinds: Some(vec![
+                CodeActionKind::QUICKFIX,
+                CodeActionKind::SOURCE_ORGANIZE_IMPORTS,
+                CodeActionKind::REFACTOR,
+            ]),
+            ..Default::default()
+        })),
+        // [lsp-stub] Commands the server runs itself (`salvo platform generate`).
+        execute_command_provider: Some(ExecuteCommandOptions {
+            commands: vec![PLATFORM_GENERATE_COMMAND.to_string()],
+            ..Default::default()
+        }),
         // [lsp-completion] Functions in scope, and after a `.` the ones the
         // receiver can be the first argument of.
         completion_provider: Some(CompletionOptions {
@@ -284,6 +312,19 @@ pub fn serve_connection(
         .and_then(|c| c.completion_item.as_ref())
         .and_then(|i| i.snippet_support)
         .unwrap_or(false);
+    // [lsp-rename-more] A module rename moves files: the client must apply
+    // `documentChanges` with a `rename` resource operation.
+    let file_renames = init_params
+        .capabilities
+        .workspace
+        .as_ref()
+        .and_then(|w| w.workspace_edit.as_ref())
+        .is_some_and(|e| {
+            e.document_changes == Some(true)
+                && e.resource_operations
+                    .as_ref()
+                    .is_some_and(|ops| ops.contains(&lsp_types::ResourceOperationKind::Rename))
+        });
 
     let mut server = Server {
         root,
@@ -297,6 +338,7 @@ pub fn serve_connection(
         analyses: std::cell::RefCell::new(Vec::new()),
         std_analysis: std::cell::RefCell::new(None),
         snippets,
+        file_renames,
     };
     server.main_loop()
 }
@@ -451,6 +493,8 @@ struct Server<'c> {
     /// [lsp-completion] The client renders snippets (`$0` placeholders) in
     /// completion items; otherwise an inserted arm is plain text.
     snippets: bool,
+    /// [lsp-rename-more] The client applies file renames in a workspace edit.
+    file_renames: bool,
 }
 
 impl Server<'_> {
@@ -561,6 +605,21 @@ impl Server<'_> {
             CodeActionRequest::METHOD => {
                 let params: CodeActionParams = serde_json::from_value(req.params)?;
                 let result = self.code_actions(&params);
+                self.respond(Response::new_ok(req.id, result))?;
+            }
+            References::METHOD => {
+                let params: ReferenceParams = serde_json::from_value(req.params)?;
+                let result = self.references(&params);
+                self.respond(Response::new_ok(req.id, result))?;
+            }
+            DocumentHighlightRequest::METHOD => {
+                let params: DocumentHighlightParams = serde_json::from_value(req.params)?;
+                let result = self.document_highlight(&params);
+                self.respond(Response::new_ok(req.id, result))?;
+            }
+            ExecuteCommand::METHOD => {
+                let params: ExecuteCommandParams = serde_json::from_value(req.params)?;
+                let result = self.execute_command(&params);
                 self.respond(Response::new_ok(req.id, result))?;
             }
             PrepareRenameRequest::METHOD => {
@@ -1941,6 +2000,65 @@ impl Server<'_> {
         }])
     }
 
+    /// [lsp-references] `textDocument/references`: every occurrence of the
+    /// name under the cursor across the program — the ones a rename would
+    /// rewrite, std's included — with the declaration itself when the client
+    /// asks for it.
+    fn references(&self, params: &ReferenceParams) -> Option<Vec<Location>> {
+        let doc = &params.text_document_position;
+        let path = file_path(&doc.text_document.uri)?;
+        let analysis = self.analyze_for(&path)?;
+        let checked = analysis.checked.as_ref()?;
+        let view = doc_view(&analysis, &path)?;
+        let offset = view.offset(doc.position);
+        let (_, target) = resolve_rename_target(&analysis, checked, view.file, offset)?;
+        let declaration = match target {
+            RenameTarget::Fn(key) => fn_def_site(&analysis.program, checked, key),
+            RenameTarget::Def(site) => Some(site),
+        };
+        let mut out = Vec::new();
+        for (file, span) in all_occurrences(&analysis, checked, target)? {
+            if !params.context.include_declaration
+                && declaration.is_some_and(|d| d.file == file && d.span == span)
+            {
+                continue;
+            }
+            if let Some((uri, range)) = self.site_location(&analysis, file, span) {
+                out.push(Location { uri, range });
+            }
+        }
+        Some(out)
+    }
+
+    /// [lsp-references] `textDocument/documentHighlight`: the occurrences of
+    /// the name under the cursor within the open file; the declaration's own
+    /// name is marked as a write.
+    fn document_highlight(&self, params: &DocumentHighlightParams) -> Option<Vec<DocumentHighlight>> {
+        let doc = &params.text_document_position_params;
+        let path = file_path(&doc.text_document.uri)?;
+        let analysis = self.analyze_for(&path)?;
+        let checked = analysis.checked.as_ref()?;
+        let view = doc_view(&analysis, &path)?;
+        let offset = view.offset(doc.position);
+        let (_, target) = resolve_rename_target(&analysis, checked, view.file, offset)?;
+        let declaration = match target {
+            RenameTarget::Fn(key) => fn_def_site(&analysis.program, checked, key),
+            RenameTarget::Def(site) => Some(site),
+        };
+        let mut out = Vec::new();
+        for (file, span) in all_occurrences(&analysis, checked, target)? {
+            if file != view.file {
+                continue;
+            }
+            let write = declaration.is_some_and(|d| d.file == file && d.span == span);
+            out.push(DocumentHighlight {
+                range: view.range(span),
+                kind: Some(if write { DocumentHighlightKind::WRITE } else { DocumentHighlightKind::READ }),
+            });
+        }
+        Some(out)
+    }
+
     /// [lsp-rename] `textDocument/prepareRename`: whether the cursor sits on
     /// a renameable name, and if so, the exact range the client should
     /// highlight as being renamed. Nothing is offered on a std declaration
@@ -1951,6 +2069,14 @@ impl Server<'_> {
         let checked = analysis.checked.as_ref()?;
         let view = doc_view(&analysis, &path)?;
         let offset = view.offset(params.position);
+        // [lsp-rename-more] A test's name, or a module.
+        match self.other_rename_target(&analysis, checked, &view, offset) {
+            Some(rename::Other::TestName(range)) => return Some(PrepareRenameResponse::Range(range)),
+            Some(rename::Other::Module { segment }) if self.file_renames => {
+                return Some(PrepareRenameResponse::Range(segment))
+            }
+            _ => {}
+        }
         let (span, target) = resolve_rename_target(&analysis, checked, view.file, offset)?;
         rename_occurrences(&analysis, checked, target)?;
         Some(PrepareRenameResponse::Range(view.range(span)))
@@ -1975,20 +2101,69 @@ impl Server<'_> {
         let view = doc_view(&analysis, &path)
             .ok_or_else(|| "this document is not part of the analyzed program".to_string())?;
         let offset = view.offset(doc.position);
+        if let Some(other) = self.other_rename_target(&analysis, checked, &view, offset) {
+            return self.rename_other(&analysis, checked, &view, offset, other, &params.new_name);
+        }
         let (_, target) = resolve_rename_target(&analysis, checked, view.file, offset)
             .ok_or_else(|| "nothing renameable at this position".to_string())?;
+        // [lsp-rename-more] A send fn's message arm is spelled after it in
+        // upper camel case (`.Reserve`, `Inventory.Reserve`): it moves too.
+        let arm = message_arm_of(&analysis, target);
         let sites = rename_occurrences(&analysis, checked, target)
             .ok_or_else(|| "this name is declared in the standard library and cannot be renamed".to_string())?;
 
         let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+        let mut covered: Vec<(usize, u32, u32)> = Vec::new();
         for (file, span) in sites {
             let (uri, range) = self
                 .site_location(&analysis, file, span)
                 .ok_or_else(|| "one occurrence has no editable location".to_string())?;
-            changes.entry(uri).or_default().push(TextEdit {
-                range,
-                new_text: params.new_name.clone(),
-            });
+            let written = analysis.program.files.get(file).map(|f| span_text(&f.content, span)).unwrap_or("");
+            // The arm as written: `Reserve`, `.Reserve` or `Inventory.Reserve`.
+            let new_text = match &arm {
+                Some((old, _)) => {
+                    let (old_arm, new_arm) = (
+                        salvo_core::naming::msg_variant_name(old),
+                        salvo_core::naming::msg_variant_name(&params.new_name),
+                    );
+                    if written == old_arm || written.ends_with(&format!(".{old_arm}")) {
+                        covered.push((file, span.start, span.end));
+                        format!("{}{new_arm}", &written[..written.len() - old_arm.len()])
+                    } else {
+                        params.new_name.clone()
+                    }
+                }
+                None => params.new_name.clone(),
+            };
+            changes.entry(uri).or_default().push(TextEdit { range, new_text });
+        }
+        if let Some((old, Some(effect))) = &arm {
+            // `Inventory.Reserve`, written out: the path is not a reference
+            // the checker records, so it is found in the text.
+            let want = format!("{effect}.{}", salvo_core::naming::msg_variant_name(old));
+            let camel = salvo_core::naming::msg_variant_name(&params.new_name);
+            for (idx, f) in analysis.program.files.iter().enumerate() {
+                if f.is_std && !f.is_shadow {
+                    continue;
+                }
+                let mut from = 0;
+                while let Some(i) = f.content[from..].find(&want) {
+                    let at = from + i;
+                    from = at + want.len();
+                    let before_ok = f.content[..at].chars().next_back().is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '.'));
+                    let after_ok = f.content[from..].chars().next().is_none_or(|c| !(c.is_alphanumeric() || c == '_'));
+                    if !(before_ok && after_ok) {
+                        continue;
+                    }
+                    if covered.iter().any(|&(f, s, e)| f == idx && s as usize <= at && from <= e as usize) {
+                        continue;
+                    }
+                    let span = Span::new((at + effect.len() + 1) as u32, from as u32);
+                    if let Some((uri, range)) = self.site_location(&analysis, idx, span) {
+                        changes.entry(uri).or_default().push(TextEdit { range, new_text: camel.clone() });
+                    }
+                }
+            }
         }
         Ok(Some(WorkspaceEdit {
             changes: Some(changes),
@@ -2447,6 +2622,7 @@ impl Server<'_> {
                 }
             }
         }
+        self.extra_actions(params, &path, &content, &mut actions);
         actions
     }
 
@@ -3126,6 +3302,14 @@ fn resolve_rename_target(
             RenameTarget::Fn(checked.decls.fn_at(file_idx, item_idx)),
         ));
     }
+    // [lsp-rename-more] The item name of an `import` is the declaration it
+    // imports.
+    if let Some((span, key)) = import_fn_ref(analysis, checked, file_idx, offset) {
+        return Some((span, RenameTarget::Fn(key)));
+    }
+    if let Some((span, site)) = import_target(items, &hit, analysis) {
+        return Some((span, RenameTarget::Def(site)));
+    }
     let name_span = decl_name_span_at(items, &hit)?;
     Some((
         name_span,
@@ -3133,13 +3317,24 @@ fn resolve_rename_target(
     ))
 }
 
+/// [lsp-rename-more] For a rename of a send member of an effect: the member's
+/// name, and the effect's when it is one. The message arm is spelled after the
+/// member.
+fn message_arm_of(analysis: &Analysis, target: RenameTarget) -> Option<(String, Option<String>)> {
+    let RenameTarget::Def(site) = target else { return None };
+    let items = &analysis.program.modules.get(site.file)?.items;
+    match decl_at(items, &|s: Span| s == site.span)? {
+        DeclAt::Member { owner, decl, .. } if decl.is_send => {
+            let effect = owner.strip_prefix("effect `").and_then(|o| o.strip_suffix('`')).map(str::to_string);
+            Some((decl.name.name.clone(), effect))
+        }
+        _ => None,
+    }
+}
+
 /// Every occurrence of `target` across the whole program — every reference
-/// plus the declaration's own name — as `(file, span)` pairs. `None` once
-/// any occurrence lands in the embedded, read-only std (unshadowed):
-/// renaming call sites in user code while leaving the std declaration
-/// untouched would break the program, so the rename is refused outright
-/// rather than silently dropping that occurrence.
-fn rename_occurrences(
+/// plus the declaration's own name — as `(file, span)` pairs [lsp-references].
+fn all_occurrences(
     analysis: &Analysis,
     checked: &Checked,
     target: RenameTarget,
@@ -3167,8 +3362,40 @@ fn rename_occurrences(
             }
         }
     }
+    // [lsp-rename-more] The item name in an `import` that names the
+    // declaration.
+    if let Some(&(decl_file, decl_span)) = sites.first() {
+        if let (Some(f), true) = (analysis.program.files.get(decl_file), decl_span.is_written()) {
+            let declared = span_text(&f.content, decl_span).to_string();
+            for (idx, m) in analysis.program.modules.iter().enumerate() {
+                for item in &m.items {
+                    let Item::Import(decl) = item else { continue };
+                    let Some((name, module)) = decl.path.split_last() else { continue };
+                    if name.name == declared
+                        && module.iter().map(|s| s.name.as_str()).eq(f.module.0.iter().map(String::as_str))
+                    {
+                        sites.push((idx, name.span));
+                    }
+                }
+            }
+        }
+    }
     sites.sort_unstable_by_key(|(file, span)| (*file, span.expn, span.start));
     sites.dedup();
+    Some(sites)
+}
+
+/// [lsp-rename] The occurrences a rename rewrites. `None` once any lands in
+/// the embedded, read-only std (unshadowed): renaming call sites in user code
+/// while leaving the std declaration untouched would break the program, so
+/// the rename is refused outright rather than silently dropping that
+/// occurrence.
+fn rename_occurrences(
+    analysis: &Analysis,
+    checked: &Checked,
+    target: RenameTarget,
+) -> Option<Vec<(usize, Span)>> {
+    let sites = all_occurrences(analysis, checked, target)?;
     for (file, _) in &sites {
         let f = analysis.program.files.get(*file)?;
         if f.is_std && !f.is_shadow {
@@ -4310,6 +4537,9 @@ fn to_lsp_diagnostic(diag: &FileDiagnostic, content: &str, span: Span) -> Diagno
             Severity::Warning => DiagnosticSeverity::WARNING,
         }),
         source: Some("salvo".to_string()),
+        // [diag-id] The id, so a quickfix keys on what the diagnostic is
+        // rather than on its wording.
+        code: diag.id.map(|id| NumberOrString::String(id.to_string())),
         message: diag.message.clone(),
         // Import suggestions ride along for codeAction [diag-import-suggest].
         data: (!diag.suggested_imports.is_empty())

@@ -158,6 +158,28 @@ left is in ROADMAP §9's "Property testing: what is left": actor properties,
 linear parameters, the missing generators, and the agent's calls for the
 user to confirm. The file is deleted.
 
+### 2026-11-05 — language-server refactorings ([lsp-references] [lsp-rename-more] [lsp-quickfix] [lsp-stub] [lsp-organize-imports])
+
+User asked for find-references and highlight, rename extensions, organize
+imports, diagnostic quickfixes and stubs (items 1–4 and 11 of the list). Built:
+`references` and `documentHighlight` over rename's occurrences; an import's
+item name resolves to the declaration (so rename and references work from the
+import line, and the import is rewritten); rename of a test's name, of a module
+(imports, `@module` selectors and the module's files, as a `documentChanges`
+edit, only for clients that apply file renames) and of a send member together
+with its message arm (`.Reserve` keeps its dot; `Inventory.Reserve` is found in
+the text); the diagnostic's id published as the LSP `code`, which the new
+`lsp/actions.rs` quickfixes key on: missing struct fields, missing `when` arms,
+`=> !xs`, missing handler members, `: ToStr<self> by auto`; organize-imports
+(each removal verified by re-analysis); and a `salvo platform generate` command.
+`lsp/rename.rs` holds the non-declaration renames.
+
+Gotchas: `Item::Test` and generic comptime fns are gone from the analysed
+program, so the open file is parsed again for what the cursor is on; an arm
+written `Inventory.Reserve` is one reference span covering the whole path;
+`expect_response` in the LSP tests panics on an error response, so tests that
+want one read the channel themselves.
+
 ### 2026-11-05 — `Addr<E>` renamed `Eff<E>`; the Writing Test Kinds page
 
 The compiler's internal handle type is now `Eff<E>`, so `eff[E]` and its

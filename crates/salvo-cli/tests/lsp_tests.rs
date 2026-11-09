@@ -4047,3 +4047,345 @@ fn hover_on_an_imported_fn_name() {
     assert!(value.contains("fn area(side: Int) -> Int"), "import hover: {value}");
     assert!(value.contains("The area of a square."), "import hover docs: {value}");
 }
+
+/// Applies a `changes` edit list for one document to `text`.
+fn apply_edits(text: &str, edits: &[Value]) -> String {
+    let offset = |p: &Value| {
+        let (line, ch) = (p["line"].as_u64().unwrap() as usize, p["character"].as_u64().unwrap() as usize);
+        let mut at = 0;
+        for _ in 0..line {
+            at += text[at..].find('\n').unwrap() + 1;
+        }
+        at + ch
+    };
+    let mut spans: Vec<(usize, usize, String)> = edits
+        .iter()
+        .map(|e| (offset(&e["range"]["start"]), offset(&e["range"]["end"]), e["newText"].as_str().unwrap().to_string()))
+        .collect();
+    spans.sort_by_key(|s| std::cmp::Reverse(s.0));
+    let mut out = text.to_string();
+    for (s, e, t) in spans {
+        out.replace_range(s..e, &t);
+    }
+    out
+}
+
+/// Opens (or replaces) `text` as `uri` and returns the published diagnostics.
+fn set_text(lsp: &mut Lsp, uri: &str, version: i64, text: &str) -> Vec<Value> {
+    let method = if version == 1 { "textDocument/didOpen" } else { "textDocument/didChange" };
+    let params = if version == 1 {
+        json!({"textDocument": {"uri": uri, "languageId": "salvo", "version": version, "text": text}})
+    } else {
+        json!({"textDocument": {"uri": uri, "version": version}, "contentChanges": [{"text": text}]})
+    };
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": method, "params": params}));
+    expect_diagnostics(&lsp.rx)["diagnostics"].as_array().unwrap().clone()
+}
+
+fn code_actions(lsp: &mut Lsp, id: i64, uri: &str, diags: &[Value], only: Option<Value>) -> Vec<Value> {
+    let range = diags.first().map(|d| d["range"].clone()).unwrap_or(json!({"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}}));
+    let mut context = json!({"diagnostics": diags});
+    if let Some(only) = only {
+        context["only"] = only;
+    }
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": id, "method": "textDocument/codeAction",
+               "params": {"textDocument": {"uri": uri}, "range": range, "context": context}}),
+    );
+    expect_response(&lsp.rx, id)["result"].as_array().cloned().unwrap_or_default()
+}
+
+// [lsp-quickfix] [lsp-stub] The fixes the checker's diagnostics call for:
+// each is applied and the diagnostic it answers is gone.
+#[test]
+fn quickfixes_answer_the_diagnostics_they_are_keyed_on() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_quickfixes");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    let text = "struct Point {\n    x: Int,\n    y: Int\n}\n\neffect Beeper {\n    fn beep(n: Int) -> Int\n    fn boop() -> Str\n}\n\nhandler Loud for Beeper {\n    fn beep(n: Int) -> Int {\n        return n\n    }\n}\n\ntype Shape = \"a\" | \"b\" | \"c\"\n\nfn name(s: Shape) -> Int {\n    return when s {\n        is \"a\" { 1 }\n    }\n}\n\nfn mk() -> Point {\n    return Point { x: 1 }\n}\n\nfn first(xs: List<Int>) -> List<Int> {\n    return xs\n}\n\nfn show(p: Point) -> Str {\n    return to_str(p)\n}\n\nfn main() [use] {\n    use Loud\n    let p = mk()\n    let _s = show(p)\n    let _n = name(\"a\")\n    let _b = beep(1)\n    let _f = first(List<Int>())\n}\n";
+    let mut version = 1;
+    let mut current = text.to_string();
+    let mut diags = set_text(&mut lsp, &uri, version, &current);
+    let mut id = 10;
+    // (a fragment of the diagnostic's message, the title's start, a fragment the result holds)
+    for (message, title, result) in [
+        ("missing field `y`", "Add the missing field `y`", "Point { x: 1, y: todo!() }"),
+        ("non-exhaustive `when`", "Add the 2 missing arms", "is \"b\" {\n            todo!()"),
+        ("does not implement `Beeper.boop()`", "Implement the 1 missing member of `Loud`", "fn boop() -> Str {\n        todo!()"),
+        ("`xs` is kept by default", "Declare the move", "-> List<Int> => !xs {"),
+        ("no matching overload for `to_str(Point)`", "Add `: ToStr<self> by auto`", "struct Point : ToStr<self> by auto {"),
+    ] {
+        let diag = diags
+            .iter()
+            .find(|d| d["message"].as_str().unwrap().contains(message))
+            .unwrap_or_else(|| panic!("no diagnostic `{message}` in {diags:?}"));
+        id += 1;
+        let actions = code_actions(&mut lsp, id, &uri, std::slice::from_ref(diag), None);
+        let action = actions
+            .iter()
+            .find(|a| a["title"].as_str().unwrap().starts_with(title))
+            .unwrap_or_else(|| panic!("no action `{title}` for `{message}`: {actions:?}"));
+        assert_eq!(action["kind"].as_str(), Some("quickfix"), "{action}");
+        current = apply_edits(&current, action["edit"]["changes"][&uri].as_array().unwrap());
+        assert!(current.contains(result), "after `{title}`: {current}");
+        version += 1;
+        diags = set_text(&mut lsp, &uri, version, &current);
+        assert!(
+            !diags.iter().any(|d| d["message"].as_str().unwrap().contains(message)),
+            "`{message}` still reported after `{title}`: {diags:?}\n{current}"
+        );
+    }
+    // What is left are the placeholders the fixes wrote, as warnings.
+    assert!(
+        diags.iter().all(|d| d["code"] == json!("assert-fn:todo") && d["severity"] == json!(2)),
+        "everything fixed: {diags:?}\n{current}"
+    );
+    assert_eq!(diags.len(), 4, "one placeholder per fix: {diags:?}");
+}
+
+// [lsp-references] Find references and document highlight share rename's
+// occurrences: every use across files, the declaration when asked for.
+#[test]
+fn references_and_highlights_find_every_use() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_references");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("shapes.sv"), "export fn area(side: Int) -> Int {\n    return side * side\n}\n").unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    let shapes = format!("file://{}", root.join("shapes.sv").display());
+    let text = "import shapes.area\n\nfn twice() -> Int {\n    return area(2) + area(3)\n}\n";
+    set_text(&mut lsp, &uri, 1, text);
+    let refs = |lsp: &mut Lsp, id: i64, declaration: bool| -> Vec<Value> {
+        send(
+            &mut lsp.stdin,
+            json!({"jsonrpc": "2.0", "id": id, "method": "textDocument/references",
+                   "params": {"textDocument": {"uri": uri}, "position": {"line": 3, "character": 12},
+                              "context": {"includeDeclaration": declaration}}}),
+        );
+        expect_response(&lsp.rx, id)["result"].as_array().cloned().unwrap_or_default()
+    };
+    let with = refs(&mut lsp, 2, true);
+    let uris: Vec<&str> = with.iter().map(|l| l["uri"].as_str().unwrap()).collect();
+    assert_eq!(with.len(), 4, "the declaration, the import and two calls: {with:?}");
+    assert!(uris.contains(&shapes.as_str()), "the declaration is in shapes.sv: {with:?}");
+    let without = refs(&mut lsp, 3, false);
+    assert_eq!(without.len(), 3, "the import and the calls: {without:?}");
+    assert!(without.iter().all(|l| l["uri"].as_str() == Some(uri.as_str())), "{without:?}");
+
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 4, "method": "textDocument/documentHighlight",
+               "params": {"textDocument": {"uri": uri}, "position": {"line": 3, "character": 12}}}),
+    );
+    let highlights = expect_response(&lsp.rx, 4)["result"].as_array().cloned().unwrap();
+    assert_eq!(highlights.len(), 3, "the import and the two calls in this file: {highlights:?}");
+}
+
+// [lsp-organize-imports] Duplicates and unused imports go, the rest sort; an
+// import the program needs stays.
+#[test]
+fn organize_imports_removes_the_unused_and_sorts() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_organize");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("shapes.sv"), "export fn area(side: Int) -> Int {\n    return side * side\n}\n").unwrap();
+    std::fs::write(root.join("extras.sv"), "export fn unit() -> Int {\n    return 1\n}\n").unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    let text = "import shapes.area\nimport extras.unit\nimport shapes.area\nimport std.random.DefaultRandom\n\nfn main() -> Int {\n    return area(2)\n}\n";
+    let diags = set_text(&mut lsp, &uri, 1, text);
+    assert!(diags.iter().all(|d| d["severity"] != json!(1)), "{diags:?}");
+    // Not offered unless asked for by kind.
+    assert!(code_actions(&mut lsp, 2, &uri, &[], None).iter().all(|a| a["kind"] != json!("source.organizeImports")));
+    let actions = code_actions(&mut lsp, 3, &uri, &[], Some(json!(["source.organizeImports"])));
+    let action = actions.iter().find(|a| a["title"] == json!("Organize imports")).unwrap_or_else(|| panic!("{actions:?}"));
+    let fixed = apply_edits(text, action["edit"]["changes"][&uri].as_array().unwrap());
+    assert_eq!(fixed, "import shapes.area\n\nfn main() -> Int {\n    return area(2)\n}\n".replace("import shapes.area\n\n", "import shapes.area\n\n"));
+}
+
+// [lsp-organize-imports] Imports the program needs are kept, sorted.
+#[test]
+fn organize_imports_sorts_the_imports_it_keeps() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_organize_sort");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("shapes.sv"), "export fn area(side: Int) -> Int {\n    return side * side\n}\n").unwrap();
+    std::fs::write(root.join("extras.sv"), "export fn unit() -> Int {\n    return 1\n}\n").unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    let text = "import shapes.area\nimport extras.unit\n\nfn main() -> Int {\n    return area(unit())\n}\n";
+    set_text(&mut lsp, &uri, 1, text);
+    let actions = code_actions(&mut lsp, 2, &uri, &[], Some(json!(["source.organizeImports"])));
+    let action = actions.iter().find(|a| a["title"] == json!("Organize imports")).unwrap_or_else(|| panic!("{actions:?}"));
+    let fixed = apply_edits(text, action["edit"]["changes"][&uri].as_array().unwrap());
+    assert!(fixed.starts_with("import extras.unit\nimport shapes.area\n\nfn main"), "{fixed}");
+}
+
+// [lsp-stub] A program that declares platform fns is offered the host
+// skeletons, as a command the server runs.
+#[test]
+fn platform_declarations_offer_the_host_skeletons() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_platform_action");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    set_text(&mut lsp, &uri, 1, "platform fn host_answer() -> Int\n\nfn main() -> Int {\n    return host_answer()\n}\n");
+    let actions = code_actions(&mut lsp, 2, &uri, &[], None);
+    let action = actions
+        .iter()
+        .find(|a| a["command"]["command"] == json!("salvo.platformGenerate"))
+        .unwrap_or_else(|| panic!("{actions:?}"));
+    assert_eq!(action["kind"], json!("source.generate"));
+    // Without a platform declaration, nothing is offered.
+    set_text(&mut lsp, &uri, 2, "fn main() -> Int {\n    return 1\n}\n");
+    assert!(code_actions(&mut lsp, 3, &uri, &[], None).is_empty());
+}
+
+// [lsp-stub] The command behind the skeleton action runs `salvo platform
+// generate` in the document's project: the host file appears.
+#[test]
+fn the_platform_command_writes_the_host_skeleton() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_platform_command");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("salvo")).unwrap();
+    std::fs::write(
+        root.join("salvo.toml"),
+        "[project]\nname = \"hd\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"salvo\"\nbackend = \"rust\"\nplatform = \"salvo/platform\"\n",
+    )
+    .unwrap();
+    let main = root.join("salvo/main.sv");
+    std::fs::write(
+        &main,
+        "effect Greeter {\n    fn greet(n: Int) [] -> Str => n\n}\n\nplatform handler HostGreeter for Greeter\n\nfn main() [use] {\n    use StdConsole()\n    use HostGreeter()\n    println(greet(7))\n}\n",
+    )
+    .unwrap();
+    let mut lsp = start_spawned(&root, &[]);
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": 2, "method": "workspace/executeCommand",
+               "params": {"command": "salvo.platformGenerate", "arguments": [main.display().to_string()]}}),
+    );
+    expect_response(&lsp.rx, 2);
+    assert!(root.join("salvo/platform/main.rs").exists(), "no host skeleton written");
+}
+
+/// Requests a rename and returns the result (the edit, or the error).
+fn rename_at(lsp: &mut Lsp, id: i64, uri: &str, line: u32, character: u32, new_name: &str) -> Value {
+    send(
+        &mut lsp.stdin,
+        json!({"jsonrpc": "2.0", "id": id, "method": "textDocument/rename",
+               "params": {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}, "newName": new_name}}),
+    );
+    loop {
+        let msg = lsp.rx.recv_timeout(TIMEOUT).expect("timed out waiting for response");
+        if msg.get("id").and_then(Value::as_i64) == Some(id) {
+            return msg;
+        }
+    }
+}
+
+// [lsp-rename-more] A send member's message arm moves with it: `.Reserve`
+// keeps its dot and is spelled in upper camel case, `Inventory.Reserve` is
+// found in the text.
+#[test]
+fn renaming_a_send_member_renames_its_message_arm() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_rename_arm");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    let text = "actor effect Inventory {\n    send fn reserve(sku: Str, qty: Int) => !sku\n    send fn restock(qty: Int)\n}\n\nfn describe(m: message[Inventory]) [] -> Str => m {\n    return when m {\n        is .Reserve { \"reserve ${m.qty}\" }\n        is Inventory.Restock { \"restock ${m.qty}\" }\n    }\n}\n\nfn build() -> message[Inventory] {\n    return Inventory.Reserve { sku: \"a\", qty: 1 }\n}\n";
+    set_text(&mut lsp, &uri, 1, text);
+    let result = rename_at(&mut lsp, 2, &uri, 1, 13, "hold_item");
+    let edits = result["result"]["changes"][&uri].as_array().unwrap_or_else(|| panic!("{result}"));
+    let renamed = apply_edits(text, edits);
+    assert!(renamed.contains("send fn hold_item(sku"), "{renamed}");
+    assert!(renamed.contains("is .HoldItem {"), "the arm keeps its dot: {renamed}");
+    assert!(renamed.contains("return Inventory.HoldItem {"), "{renamed}");
+    assert!(renamed.contains("is Inventory.Restock {"), "{renamed}");
+    let diags = set_text(&mut lsp, &uri, 2, &renamed);
+    assert!(diags.iter().all(|d| d["severity"] != json!(1)), "the renamed program checks: {diags:?}\n{renamed}");
+}
+
+// [lsp-rename-more] The item name in an `import` is the declaration: rename
+// and references work from it, and the import is rewritten with the rest.
+#[test]
+fn renaming_from_an_import_line_renames_the_declaration() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_rename_import");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("shapes.sv"), "export fn area(side: Int) -> Int {\n    return side * side\n}\n").unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    let shapes = format!("file://{}", root.join("shapes.sv").display());
+    let text = "import shapes.area\n\nfn go() -> Int {\n    return area(2)\n}\n";
+    set_text(&mut lsp, &uri, 1, text);
+    let result = rename_at(&mut lsp, 2, &uri, 0, 16, "square");
+    let changes = &result["result"]["changes"];
+    let main = apply_edits(text, changes[&uri].as_array().unwrap_or_else(|| panic!("{result}")));
+    assert_eq!(main, "import shapes.square\n\nfn go() -> Int {\n    return square(2)\n}\n");
+    assert!(changes[&shapes].is_array(), "the declaration moves too: {result}");
+}
+
+// [lsp-rename-more] A test's name is renamed in place.
+#[test]
+fn renaming_a_test_changes_its_name() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_rename_test");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("main.sv"), "export fn one() -> Int {\n    return 1\n}\n").unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.test.sv").display());
+    let text = "test \"one is one\" {\n    expect_eq(one(), 1)\n}\n";
+    set_text(&mut lsp, &uri, 1, text);
+    send(&mut lsp.stdin, json!({"jsonrpc":"2.0","id":2,"method":"textDocument/prepareRename","params":{"textDocument":{"uri":uri},"position":{"line":0,"character":8}}}));
+    let prepared = expect_response(&lsp.rx, 2);
+    assert_eq!(prepared["result"]["start"], json!({"line": 0, "character": 6}), "{prepared}");
+    assert_eq!(prepared["result"]["end"], json!({"line": 0, "character": 16}), "{prepared}");
+    let result = rename_at(&mut lsp, 3, &uri, 0, 8, "one equals one");
+    let renamed = apply_edits(text, result["result"]["changes"][&uri].as_array().unwrap_or_else(|| panic!("{result}")));
+    assert!(renamed.starts_with("test \"one equals one\" {"), "{renamed}");
+    let refused = rename_at(&mut lsp, 4, &uri, 0, 8, "has \"quotes\"");
+    assert!(refused["error"].is_object(), "{refused}");
+}
+
+// [lsp-rename-more] A module is renamed with its files: the imports, the
+// `@module` selectors and `shapes.sv` with its annex move together.
+#[test]
+fn renaming_a_module_renames_its_files() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_rename_module");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("shapes.sv"), "export fn area(side: Int) -> Int {\n    return side * side\n}\n").unwrap();
+    std::fs::write(root.join("shapes.test.sv"), "test \"area\" {\n    expect_eq(area(2), 4)\n}\n").unwrap();
+    let caps = json!({"workspace": {"workspaceEdit": {"documentChanges": true, "resourceOperations": ["rename"]}}});
+    let mut lsp = start_with(&root, caps);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    let text = "import shapes.area\n\nfn go() -> Int {\n    return area(2)\n}\n";
+    set_text(&mut lsp, &uri, 1, text);
+    send(&mut lsp.stdin, json!({"jsonrpc":"2.0","id":2,"method":"textDocument/prepareRename","params":{"textDocument":{"uri":uri},"position":{"line":0,"character":9}}}));
+    let prepared = expect_response(&lsp.rx, 2);
+    assert_eq!(prepared["result"]["start"], json!({"line": 0, "character": 7}), "{prepared}");
+    let result = rename_at(&mut lsp, 3, &uri, 0, 9, "figures");
+    let ops = result["result"]["documentChanges"].as_array().unwrap_or_else(|| panic!("{result}"));
+    let edit = ops.iter().find(|o| o["textDocument"]["uri"] == json!(uri)).unwrap();
+    let main = apply_edits(text, &edit["edits"].as_array().unwrap().clone());
+    assert!(main.starts_with("import figures.area\n"), "{main}");
+    let renames: Vec<(String, String)> = ops
+        .iter()
+        .filter(|o| o["kind"] == json!("rename"))
+        .map(|o| (o["oldUri"].as_str().unwrap().rsplit('/').next().unwrap().to_string(), o["newUri"].as_str().unwrap().rsplit('/').next().unwrap().to_string()))
+        .collect();
+    assert!(renames.contains(&("shapes.sv".to_string(), "figures.sv".to_string())), "{renames:?}");
+    assert!(renames.contains(&("shapes.test.sv".to_string(), "figures.test.sv".to_string())), "{renames:?}");
+    // The module name stays a name: nothing else is offered without the client's support.
+    let mut plain = start(&root);
+    set_text(&mut plain, &uri, 1, text);
+    let refused = rename_at(&mut plain, 2, &uri, 0, 9, "figures");
+    assert!(refused["error"].is_object(), "{refused}");
+}
