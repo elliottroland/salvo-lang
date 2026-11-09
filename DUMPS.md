@@ -51,7 +51,7 @@ built here.
 (updated as work proceeds)
 
 - [x] (a) printer + stability test (`print.rs`, `salvo_core::printed`, `print_tests.rs`; commit "Print a module's tree back as Salvo")
-- [ ] (b) resolve dump
+- [x] (b) resolve dump (`names/dump.rs` on `printed::print_file`; commit "Dump the resolved names of the expanded tree")
 - [ ] (c) type-check dump + round trip
 - [ ] (d) IR dump sharing, docs, wiki, records
 
@@ -72,5 +72,8 @@ built here.
   struct field's default expression (scope may differ; fine on the suite).
 - The `iter fn` minter's `deductions: Some([])` (all-scalar params) has no
   spelling; prints as no clause.
+- A variable's binding position `x#{l:c}` is now the line and column in
+  the printed module text (the header line not counted), since an expanded
+  node's span is its template's (agent's call).
 - Notes over generated fns print as `//` lines, so a re-parse reads them as
   docs.

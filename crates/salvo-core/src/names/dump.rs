@@ -1,6 +1,8 @@
 //! [dump-resolve] The resolve phase's dump (`salvo dump --phase resolve`,
-//! the pipeline record C2, P7, P22): each file's own text with what resolution bound
-//! every written name to spelled in place.
+//! the pipeline record C2, P7, P22; user decision 2026-11-09): each file's
+//! tree as resolution reads it — expanded and desugared, printed back as
+//! Salvo [ast-print] — with what resolution bound every name to spelled in
+//! place, placed by the printer's node map.
 //!
 //! Salvo where Salvo can spell it, `#{…}` where it cannot [dump-spelling]:
 //! - a name meaning one declaration takes its module, `Point@app.shapes` —
@@ -15,8 +17,12 @@
 //! - a leading-dot name is the type phase's, `#{deferred}`; a name nothing
 //!   answers, `#{???}`.
 //!
-//! Generics, built-ins and names an expansion wrote are left as they are.
+//! Generics and built-ins are left as they are; a name an expansion wrote
+//! (a stamped body's, a hidden fn's) is spelled like any other.
 
+use std::collections::HashSet;
+
+use salvo_syntax::print::{node_key, NodeKey, Placed};
 use salvo_syntax::Span;
 
 use super::{Meaning, ValueRole};
@@ -41,50 +47,55 @@ struct Decl {
     bare: bool,
 }
 
-/// [dump-resolve] File `file` of `program` with its names' resolutions
-/// spelled in (every candidate listed when `all`).
+/// [dump-resolve] File `file` of `program` — its expanded tree, printed
+/// [ast-print] — with its names' resolutions spelled in (every candidate
+/// listed when `all`). A variable's binding is placed by its line and
+/// column in the printed text.
 pub fn dump_file(program: &Program, resolution: &Resolution<'_>, symbols: &Symbols<'_>, file: usize, all: bool) -> String {
-    let source = program.files[file].content.as_str();
+    let printed = crate::printed::print_file(program, file);
     let names = &resolution.names;
-    let written = |span: Span, name: &str| span.is_written() && source.get(span.start as usize..span.end as usize) == Some(name);
+    // A name the printing wrote as it is spelled (not a hole's `_`, not a
+    // type-named call's key).
+    let placed = |span: Span, name: &str| -> Option<Placed> { printed.at(span).filter(|p| printed.text.get(p.start as usize..p.end as usize) == Some(name)) };
     // A name that declares (an `iter fn`'s `state Name`, which names the
     // struct the expansion writes) is no reference.
-    let declared: std::collections::HashSet<(u32, u32)> = declared_names(&program.modules[file]);
+    let declared: HashSet<NodeKey> = declared_names(&program.modules[file]);
     // [qual-depend] A value block's names are values (places, fn
     // identities), spelled by the value pass.
-    let as_values: std::collections::HashSet<(u32, u32)> =
-        names.values().iter().filter(|w| w.file as usize == file).map(|w| (w.span.start, w.span.end)).collect();
+    let as_values: HashSet<NodeKey> = names.values().iter().filter(|w| w.file as usize == file).filter_map(|w| node_key(w.span)).collect();
     let mut edits: Vec<Edit> = Vec::new();
     for w in names.refs().iter().filter(|w| w.file as usize == file) {
         let name = names.name(w);
-        if !written(w.span, name)
-            || w.generic
+        let Some(at) = placed(w.span, name) else { continue };
+        let key = node_key(w.span);
+        if w.generic
             || builtin(name)
-            || declared.contains(&(w.span.start, w.span.end))
-            || as_values.contains(&(w.span.start, w.span.end))
+            || key.is_some_and(|k| declared.contains(&k) || as_values.contains(&k))
             || crate::types::Const::parse(name).is_some()
         {
             continue;
         }
-        let edit = |text: String| Edit { start: w.span.end, end: w.span.end, text };
         if name.starts_with('.') {
-            edits.push(edit("#{deferred}".into()));
+            edits.push(Edit { start: at.end, end: at.end, text: "#{deferred}".into() });
             continue;
         }
         let decls = type_decls(program, resolution, symbols, names.meaning(w));
-        if let Some(e) = spell(&decls, name, w.span, all) {
+        if let Some(e) = spell(&decls, name, at, all) {
             edits.push(e);
         }
     }
     for w in names.values().iter().filter(|w| w.file as usize == file) {
         let name = names.value_name(w);
-        if !written(w.span, name) {
-            continue;
-        }
-        let at_end = |text: String| Edit { start: w.span.end, end: w.span.end, text };
+        let Some(at) = placed(w.span, name) else { continue };
+        let at_end = |text: String| Edit { start: at.end, end: at.end, text };
         if let Some(b) = w.local {
-            let (line, col) = salvo_syntax::span::line_col(source, b.start);
-            edits.push(at_end(format!("#{{{line}:{col}}}")));
+            // Where the binding was printed; a binding the printing has no
+            // place for (one only an expansion names) by `?`.
+            let pos = printed.at(b).map(|p| salvo_syntax::span::line_col(&printed.text, p.start));
+            edits.push(at_end(match pos {
+                Some((line, col)) => format!("#{{{line}:{col}}}"),
+                None => "#{?}".to_string(),
+            }));
             continue;
         }
         let m = names.value_meaning(w);
@@ -119,13 +130,14 @@ pub fn dump_file(program: &Program, resolution: &Resolution<'_>, symbols: &Symbo
                     edits.push(at_end("#{deferred}".into()));
                     continue;
                 }
-                if let Some(e) = spell(&decls, name, w.span, all) {
+                if let Some(e) = spell(&decls, name, at, all) {
                     edits.push(e);
                 }
             }
         }
     }
     edits.sort_by_key(|e| (e.start, e.end));
+    let source = printed.text.as_str();
     let mut out = String::with_capacity(source.len() + edits.len() * 16);
     let mut at = 0usize;
     for e in edits {
@@ -142,7 +154,7 @@ pub fn dump_file(program: &Program, resolution: &Resolution<'_>, symbols: &Symbo
 }
 
 /// The spelling of a name meaning `decls`: `None` when it stays as written.
-fn spell(decls: &[Decl], name: &str, span: Span, all: bool) -> Option<Edit> {
+fn spell(decls: &[Decl], name: &str, span: Placed, all: bool) -> Option<Edit> {
     match decls {
         [] => Some(Edit { start: span.end, end: span.end, text: "#{???}".into() }),
         [d] if d.bare && d.name == name => None,
@@ -171,10 +183,10 @@ fn spell(decls: &[Decl], name: &str, span: Span, all: bool) -> Option<Edit> {
     }
 }
 
-/// Where every declaration's name is written.
-fn declared_names(module: &salvo_syntax::ast::Module) -> std::collections::HashSet<(u32, u32)> {
+/// The node of every declaration's name.
+fn declared_names(module: &salvo_syntax::ast::Module) -> HashSet<NodeKey> {
     use salvo_syntax::ast::Item;
-    fn items(list: &[Item], out: &mut std::collections::HashSet<(u32, u32)>) {
+    fn items(list: &[Item], out: &mut HashSet<NodeKey>) {
         for item in list {
             let name = match item {
                 Item::Fn(f) => &f.name,
@@ -191,10 +203,10 @@ fn declared_names(module: &salvo_syntax::ast::Module) -> std::collections::HashS
                 }
                 _ => continue,
             };
-            out.insert((name.span.start, name.span.end));
+            out.extend(node_key(name.span));
         }
     }
-    let mut out = std::collections::HashSet::new();
+    let mut out = HashSet::new();
     items(&module.items, &mut out);
     out
 }

@@ -204,3 +204,88 @@ fn the_resolve_dump_spells_each_kind_of_name() {
     let text = salvo_core::names::dump::dump_file(&broken, &resolution, &symbols, file, false);
     assert!(text.contains("let q: Pont#{???} = 1") && text.contains("return missing#{???}(q#{2:9})"), "{text}");
 }
+
+/// A program with a comptime template stamped by a `by` (at a struct with a
+/// tuple field, so the stamp makes a comptime call `[to_json(t.[field])]`,
+/// which stamps a hidden fn), for the dumps of what the expansion produced.
+const STAMPED: &str = "struct Person {
+    name: Str
+    pair: (Str, Int)
+
+    fn to_json(t: Person) -> Str by to_json
+}
+
+comptime fn to_json<T is Struct>(t: T) -> Str {
+    let json = Mut Str(\"{\")
+    [for field in T.fields] {
+        json.append@string(\"\\\"${field.name}\\\": \")
+        [when field.type.kind] {
+            is Struct { json.append@string([to_json(t.[field])]) }
+            is Union { json.append@string(to_json@[site](t.[field])) }
+            is Tuple { json.append@string([to_json(t.[field])]) }
+            is FnType { refuse!(\"no functions\") }
+            is Opaque { json.append@string(to_json@[site](t.[field])) }
+        }
+        [if !field.last] {
+            json.append@string(\", \")
+        }
+    }
+    json.append@string(\"}\")
+    return json
+}
+
+comptime fn to_json<T is Tuple>(t: T) -> Str {
+    let json = Mut Str(\"[\")
+    [for index in T.indices] {
+        [when index.type.kind] {
+            is Struct { json.append@string([to_json(t.[index])]) }
+            is Union { json.append@string(to_json@[site](t.[index])) }
+            is Tuple { json.append@string([to_json(t.[index])]) }
+            is FnType { refuse!(\"no functions\") }
+            is Opaque { json.append@string(to_json@[site](t.[index])) }
+        }
+        [if !index.last] {
+            json.append@string(\", \")
+        }
+    }
+    json.append@string(\"]\")
+    return json
+}
+
+fn to_json(str: Str) -> Str {
+    return \"\\\"${str}\\\"\"
+}
+
+fn to_json(num: Int) -> Str {
+    return num.to_str()
+}
+
+fn main() [use] {
+    use StdConsole()
+    println(to_json(Person { name: \"Roland\", pair: (\"age\", 36) }))
+}
+";
+
+/// [dump-resolve] [ast-print] The resolve dump prints the expanded tree: a
+/// stamped fn's body, with what each name in it resolved to (the stamp's
+/// `to_json@[site]` as the site's `to_json@main`), and the hidden fn a
+/// comptime call stamped, each under a comment saying what produced it; the
+/// templates are gone.
+#[test]
+fn the_resolve_dump_shows_what_the_expansion_produced() {
+    let program = salvo_testkit::front::clean_program("kt", &[("main.sv", STAMPED)]);
+    let symbols = salvo_core::Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let file = program.files.iter().position(|f| f.name == "main.sv").unwrap();
+    let text = salvo_core::names::dump::dump_file(&program, &resolution, &symbols, file, false);
+    for want in [
+        "    // stamped from comptime fn `to_json` (main.sv:8) at `Person`, for the `by` at main.sv:5\n    fn to_json(t: Person@main) -> Str {",
+        "json#{7:13}.append@string(to_json@main(t#{6:16}.name))",
+        "json#{7:13}.append@string(__salvo_comptime_main_to_json_0@main(t#{6:16}.pair))",
+        "// hidden fn for a comptime call `[to_json(…)]` at `(Str, Int)`, made stamping the `by` at main.sv:5: stamped from comptime fn `to_json` (main.sv:27)\nfn __salvo_comptime_main_to_json_0(t: (Str, Int)) -> Str {",
+        "json#{33:9}.append@string(to_json@main(t#{32:36}.1))",
+    ] {
+        assert!(text.contains(want), "missing `{want}` in:\n{text}");
+    }
+    assert!(!text.contains("comptime fn to_json<"), "the templates are gone: {text}");
+}

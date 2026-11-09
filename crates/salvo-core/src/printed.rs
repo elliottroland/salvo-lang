@@ -65,13 +65,15 @@ impl Notes for ProgramNotes<'_> {
             .map(|b| format!(" ({})", self.place(tfile, b.span.start)))
             .unwrap_or_default();
         let site = self.place(self.file, stamp.site.start);
+        // `by auto` names a scope, `by to_json` the comptime fn itself.
+        let from = if stamp.from == stamp.compfn { String::new() } else { format!(" from `{}`", stamp.from) };
         if f.name.name.starts_with(HIDDEN_COMPTIME_PREFIX) {
             return vec![format!(
-                "hidden fn for a comptime call `[{}(…)]` at `{}`: stamped from comptime fn `{}` of `{}`{template}, for the stamp at {site}",
-                stamp.compfn, stamp.at_type, stamp.compfn, stamp.from
+                "hidden fn for a comptime call `[{}(…)]` at `{}`, made stamping the `by` at {site}: stamped from comptime fn `{}`{from}{template}",
+                stamp.compfn, stamp.at_type, stamp.compfn
             )];
         }
-        vec![format!("stamped from comptime fn `{}` of `{}`{template} at `{}`, for the `by` at {site}", stamp.compfn, stamp.from, stamp.at_type)]
+        vec![format!("stamped from comptime fn `{}`{from}{template} at `{}`, for the `by` at {site}", stamp.compfn, stamp.at_type)]
     }
 
     fn struct_note(&self, s: &StructDecl) -> Vec<String> {
