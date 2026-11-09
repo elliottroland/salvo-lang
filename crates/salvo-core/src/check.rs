@@ -34178,23 +34178,8 @@ impl<'p, 'r> Checker<'p, 'r> {
 /// [fn-must-return]'s walker, with loop exits counted too.
 /// The source symbol of a binary operator, for diagnostics [op-no-none].
 pub(crate) fn op_symbol(op: BinaryOp) -> &'static str {
-    use BinaryOp::*;
-    match op {
-        Add => "+",
-        Sub => "-",
-        Mul => "*",
-        Div => "/",
-        Rem => "%",
-        Pow => "**",
-        Eq => "==",
-        NotEq => "!=",
-        Lt => "<",
-        Gt => ">",
-        LtEq => "<=",
-        GtEq => ">=",
-        And => "&&",
-        Or => "||",
-    }
+    // [ast-print] The one spelling of an operator, the printer's.
+    salvo_syntax::print::binary_symbol(op)
 }
 
 /// [op-arith] [op-pow] The function an arithmetic operator names (O1's

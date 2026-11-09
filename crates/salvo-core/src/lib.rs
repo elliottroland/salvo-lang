@@ -32,6 +32,7 @@ pub mod origin;
 pub mod manifest;
 pub mod message;
 pub mod place;
+pub mod printed;
 pub mod platform;
 pub mod program;
 pub mod reach;

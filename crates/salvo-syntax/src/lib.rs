@@ -9,6 +9,7 @@ pub mod known;
 pub mod messages;
 pub mod node_id;
 pub mod parser;
+pub mod print;
 pub mod span;
 pub mod token;
 pub mod visit;

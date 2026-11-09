@@ -12643,6 +12643,31 @@ replaced the working document TESTING.md).
   `//~ refused[id]` annotations must be exactly the ids emission fails with.
   An annotation sits by the construct it is about; only its program, not its
   line, is checked. The format is `salvo_testkit::data`.
+* [ast-print] **A tree prints back as Salvo** (user decision 2026-11-09):
+  `salvo_syntax::print` writes a module's tree — as parsed, or expanded and
+  desugared as a program holds it — as source that parses back to the same
+  tree, and records where it printed every numbered node [node-id]
+  (`Printed::nodes`, by file tag and ordinal, with an expression's range
+  inside and outside the parentheses precedence made it add), so a dump
+  places what it says about a node by the node. The layout is the
+  printer's (four-space indentation, one paragraph per declaration,
+  imports first, a struct's attached fns back in its body
+  [fn-attached], a flattened declaration back in its `namespace`
+  [mod-namespace]); comments in bodies are not kept, doc comments are.
+  What the tree holds with no spelling is written as the surface it came
+  from where the tree says so — a lowered `?:`, `?.` or `?>` as its
+  operator [when-lowered], a type-named call `Mut_List(…)` as `Mut
+  List(…)` [fn-type-named], `name@[site]` in a stamped body as the bare
+  name it means where it is printed [comptime-hygiene] — and otherwise
+  marked `#{…}` (an arm hole, a comptime statement, a field default a
+  stamp placed, which `salvo_core::printed::print_file_as_source` writes
+  as the default's expression). The parser's `as!`/`as?` [expr-as-qual]
+  prints as the `if` it is, its block opening with a comment saying so.
+  `salvo_core::printed` adds what only the program knows: a comment over
+  each declaration an expansion wrote (a stamped fn, a comptime call's
+  hidden fn, an `iter fn`'s, a test's). `print_tests.rs` checks every std
+  module (expanded), every example's and every source file print back to
+  their own trees and print stably.
 * [round-trip] **Every choice survives being written out** (the pipeline record B4
   and D4, §II.7; user decisions P5 (b): the examples and the corpus, and
   P24). `salvo_core::round_trip` prints a checked file back with each
