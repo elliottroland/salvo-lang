@@ -149,6 +149,37 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-09 — A comptime fn over a tuple type ([comptime-tuple])
+
+The user's experiment (a `to_json<T is Tuple>` beside the struct one) asked
+for `<T is Tuple>`, a way to walk a tuple's elements, and a way to stamp at
+one; the names (`Tuple`, `T.indices`, `Index`, `t.[index]`) are the user's.
+Built: `CompKind::Tuple` (the parser takes `<T is Tuple>`); `std.core.comptime`
+declares `comptime struct Index { index, first, last, type, kind }` and
+`Tuple.indices: List<Index>`; `[for index in T.indices]` unrolls one copy per
+element with a `Binding` marked `tuple`, so every head a `Field` takes
+(`[if !index.last]`, `[when index.kind]`, `index.type is Int`, `[index.type]`
+in a type position) works unchanged, and the ones that need a name are
+`comptime-tuple:unknown-property`. `t.[index]` is rewritten to
+`Expr::TupleIndex` (`t.1`), so the checker and both emitters see what a
+written tuple index is. A `fn … by` whose bound position holds a written
+tuple type, or a `type` naming one, is a tuple `Target` (named by the
+type's text), and picks the `<T is Tuple>` template through the same
+`pick_with_module` by kind. The language server reads `Index` for a binder
+of `T.indices` (hover from its member docs, completion of its members, the
+`[for index in T.indices]` snippet in a tuple template). Tests: checker data
+`comptime/tuples.sv`, run data `comptime/tuples.sv` (a struct with a tuple
+field, a written tuple, an alias and a nested tuple, on both backends), and
+`comptime_tuple_indices_hover_and_complete_from_index`; the suite is 745
+tests under `cargo nextest run`, all green.
+
+Not built, as asked: a call with a tuple argument finds no template, since
+nothing finds a stamped one for a struct either (stamping at a call is
+§2c's open `by` at a call). `T.elems`, declared since round 8, is still
+unbuilt; ROADMAP §2c lists it with the agent's calls for the user to
+confirm (an alias of a tuple is a target; a tuple `T` has no `.name`;
+`[when index.type]` refused in a stamped fn as for fields).
+
 ### 2026-11-05 — PROP_TEST.md retired
 
 Property tests are built (the four entries below). The design's record and

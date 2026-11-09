@@ -1794,7 +1794,7 @@ impl<'s> Parser<'s> {
         self.expect(&TokenKind::KwFn)?;
         let name = self.ident_value("comptime fn")?;
         let mut bound = None;
-        // `<T is Struct>` / `<T is Union>` is a kind bound — a stamped fn.
+        // `<T is Struct>` / `<T is Union>` / `<T is Tuple>` is a kind bound — a stamped fn.
         // Any other `<…>` is an ordinary generics list, read with the rest
         // of the signature: an expanded-in-place fn may be generic, and
         // stays so (user decision 2026-10-20) [comptime-generic-fn].
@@ -1814,6 +1814,8 @@ impl<'s> Parser<'s> {
             let kind = match self.kind() {
                 TokenKind::Ident(n) if n == crate::known::COMPTIME_STRUCT => CompKind::Struct,
                 TokenKind::Ident(n) if n == crate::known::COMPTIME_UNION => CompKind::Union,
+                // [comptime-tuple]
+                TokenKind::Ident(n) if n == crate::known::COMPTIME_TUPLE => CompKind::Tuple,
                 other => {
                     let found = other.describe();
                     self.error(messages::comptime_bound_unbounded_param(&found), kind_span);

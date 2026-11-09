@@ -223,8 +223,8 @@ messages! {
         "`compfn` is spelled `comptime fn`";
     /// A `comptime fn` type parameter without a kind bound.
     comptime_bound_unbounded_param = "comptime-bound:unbounded-param" (found: &str) => format!(
-        "a `comptime fn`'s type parameter is bound to a kind: write `<T is Struct>` or \
-         `<T is Union>` (found {found})"
+        "a `comptime fn`'s type parameter is bound to a kind: write `<T is Struct>`, \
+         `<T is Union>` or `<T is Tuple>` (found {found})"
     );
     /// A `comptime fn` without exactly one bounded type parameter.
     comptime_bound_param_count = "comptime-bound:param-count" () =>
@@ -1289,6 +1289,20 @@ messages! {
          `.docs` and (a field) `.default`, not `.{other}`"
     );
 
+    // [comptime-tuple]
+    /// `.indices` of a type that is not a tuple.
+    comptime_tuple_indices_of_non_tuple = "comptime-tuple:indices-of-non-tuple" (ty: &dyn std::fmt::Display, kind: &str) => format!(
+        "`{ty}` is a `{kind}`, and only a `Tuple` has `.indices`"
+    );
+    /// A comptime-qualifier test on an `Index` binder.
+    comptime_tuple_qualifier_on_index = "comptime-tuple:qualifier-on-index" (name: &str) => format!(
+        "`{name}` is a tuple element, and an element carries no comptime qualifiers"
+    );
+    /// A property an `Index` binder does not have.
+    comptime_tuple_unknown_property = "comptime-tuple:unknown-property" (other: &str) => format!(
+        "an `Index` has `.index`, `.kind`, `.type`, `.first` and `.last`, not `.{other}`"
+    );
+
     // [comptime-generic]
     /// A stamp at a generic type, not supported yet.
     comptime_generic_generic_target = "comptime-generic:generic-target" (target: &str, template: &str, param: &str, group: &str) => format!(
@@ -1470,8 +1484,8 @@ messages! {
     );
     /// A `fn … by` whose first parameter names no struct or union.
     fn_by_first_param_not_target = "fn-by:first-param-not-target" (name: &str) => format!(
-        "`fn {name}` is stamped at the type of its first parameter, which has to name a \
-         struct or a declared union type"
+        "`fn {name}` is stamped at the type of its first parameter, which has to be a \
+         struct, a declared union type or a tuple"
     );
     /// A `fn … by` stamped at a type that is opaque here.
     fn_by_opaque_target = "fn-by:opaque-target" (name: &str, target: &str) => format!(
@@ -1480,8 +1494,8 @@ messages! {
     );
     /// A `fn … by` stamped at a type that is not a struct or declared union.
     fn_by_target_not_struct_or_union = "fn-by:target-not-struct-or-union" (name: &str, target: &str) => format!(
-        "`fn {name}` is stamped at `{target}`, which is not a struct or a declared union \
-         type"
+        "`fn {name}` is stamped at `{target}`, which is not a struct, a declared union \
+         type or a tuple"
     );
     /// A `by` naming several comptime fns of one name for a kind.
     fn_by_ambiguous_compfn = "fn-by:ambiguous-compfn" (by: &str, count: usize, kind: &str, places: &str) => format!(

@@ -1128,6 +1128,20 @@ in build order:
   reordered pipeline with std's own stamping cycle broken; it is also what
   §"Constants: literal establishment" needs.
 
+- **Tuples in comptime: what [comptime-tuple] (2026-11-09) left.**
+  `Tuple.elems: List<Type>` is declared in `std.core.comptime` and was never
+  built: `T.elems` is `comptime-eval:no-property` ("a `Type` has no
+  `.elems`"), so `T.indices` (whose `index.type` is each element's type) is
+  the one way to walk a tuple. `std.core.auto` has no `<T is Tuple>`
+  templates (tuples have std identities already). The agent's calls under
+  the user's design, to confirm: a `type` naming a tuple (`type Pair = (Int,
+  Int)`) is a tuple target, and so is a clause on it; the bound `T` of a
+  tuple has no `.name`/`.docs`/`.mutable` (refused, rather than the type's
+  text); `[when index.type]` in a stamped fn is refused like `[when
+  field.type]`; an `Index` has no `.name` (so `[when index.name]` is
+  refused); and nothing stamps a tuple template at a call, as nothing does a
+  struct one.
+
 - **Obligation clauses on platform types** (decided for `intrinsic type`
   2026-09-28; the collections became platform types and, per §0j, `Set`/`Map`/
   the sorted pair become Salvo structs, whose clauses are ordinary). For
@@ -1179,7 +1193,9 @@ in build order:
      no call-site types. A checker-driven second round (std cache and LSP
      seams), a required written type (`Mut Set<P>(hash by auto)`), or that
      desugared to a hidden `fn … by hash@auto` (the cheapest).
-  4. **Generic and non-struct targets**: no tuple template exists; a generic
+  4. **Generic and non-struct targets**: a `<T is Tuple>` template exists
+     since 2026-11-09 [comptime-tuple], stamped only through a `fn … by`
+     declaration at the tuple type; a generic
      struct's stamp fits a keyed slot since 2026-10-20, so a generic stamp
      at a call is a real option.
   5. **[implicit-with] pairing**: whether "stamped" is a source of its own,

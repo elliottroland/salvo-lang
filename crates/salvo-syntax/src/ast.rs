@@ -555,13 +555,15 @@ impl ByRef {
 
 /// [comptime-bound] The kind a `comptime fn`'s type parameter is bound to:
 /// `comptime fn cmp<T is Struct>(a: T, b: T)` is instantiated at struct types
-/// only, `<T is Union>` at named union types — the bound names an arm of
-/// `std.core.comptime`'s `Kind`. Which of a module's same-named comptime fns a
-/// `by` picks is decided by the target's kind.
+/// only, `<T is Union>` at named union types, `<T is Tuple>` at tuple types
+/// [comptime-tuple] — the bound names an arm of `std.core.comptime`'s `Kind`.
+/// Which of a module's same-named comptime fns a `by` picks is decided by the
+/// target's kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CompKind {
     Struct,
     Union,
+    Tuple,
 }
 
 impl CompKind {
@@ -569,6 +571,7 @@ impl CompKind {
         match self {
             CompKind::Struct => crate::known::COMPTIME_STRUCT,
             CompKind::Union => crate::known::COMPTIME_UNION,
+            CompKind::Tuple => crate::known::COMPTIME_TUPLE,
         }
     }
 }

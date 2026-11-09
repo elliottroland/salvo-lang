@@ -4463,6 +4463,55 @@ fn comptime_bodies_hover_from_the_models_declarations() {
     assert!(value.contains("Str"), "a type-named constructor: {value}");
 }
 
+const COMPTIME_TUPLE_DEMO: &str = "comptime fn to_json<T is Tuple>(t: T) -> Str {\n    let json = Mut Str(\"[\")\n    [for index in T.indices] {\n        json.append@string(\"x\")\n        json.append@string(to_json@[site](t.[index]))\n        [if !index.last] {\n            json.append@string(\", \")\n        }\n    }\n    return json\n}\n";
+
+// [lsp-comptime-help] [comptime-tuple] A binder of a tuple's `T.indices` is
+// an `Index`: hover and completion take its words from that declaration.
+#[test]
+fn comptime_tuple_indices_hover_and_complete_from_index() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_comptime_tuple");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    let t = COMPTIME_TUPLE_DEMO;
+    let diags = set_text(&mut lsp, &uri, 1, t);
+    assert!(diags.iter().all(|d| d["severity"] != json!(1)), "a tuple template checks: {diags:?}");
+    let mut id = 1;
+    let mut hover_at = |lsp: &mut Lsp, needle: &str, nth: usize, shift: usize| {
+        let (line, col) = pos_of(t, needle, nth, shift);
+        id += 1;
+        hover(lsp, id, &uri, line, col)
+    };
+    let value = hover_at(&mut lsp, "index in", 0, 1);
+    assert!(value.contains("index: Index") && value.contains("One element position of a"), "{value}");
+    let value = hover_at(&mut lsp, "index.last", 0, 7);
+    assert!(value.contains("index.last: Bool") && value.contains("Whether it is the last element."), "{value}");
+    let value = hover_at(&mut lsp, "T.indices", 0, 3);
+    assert!(value.contains("T.indices: List<Index>") && value.contains("The element positions, in order"), "{value}");
+    let value = hover_at(&mut lsp, "T is Tuple", 0, 7);
+    assert!(value.contains("struct Tuple") && value.contains("A tuple type"), "{value}");
+
+    let mut version = 1;
+    let mut complete_after = |lsp: &mut Lsp, typed: &str| -> Vec<String> {
+        let replaced = t.replacen("        json.append@string(\"x\")\n", &format!("        {typed}\n"), 1);
+        version += 1;
+        set_text(lsp, &uri, version, &replaced);
+        let (line, col) = pos_of(&replaced, &format!("        {typed}\n"), 0, 8 + typed.len());
+        id += 1;
+        send(&mut lsp.stdin, json!({"jsonrpc":"2.0","id":id,"method":"textDocument/completion","params":{"textDocument":{"uri":uri},"position":{"line":line,"character":col}}}));
+        let response = expect_response(&lsp.rx, id);
+        response["result"].as_array().unwrap_or_else(|| panic!("no list: {response}")).iter().map(|i| i["label"].as_str().unwrap().to_string()).collect()
+    };
+    let items = complete_after(&mut lsp, "index.");
+    assert!(["index", "first", "last", "type", "kind"].iter().all(|m| items.contains(&m.to_string())), "an index's members: {items:?}");
+    assert!(!items.contains(&"name".to_string()), "an index has no name: {items:?}");
+    let items = complete_after(&mut lsp, "T.");
+    assert!(items.contains(&"indices".to_string()) && items.contains(&"elems".to_string()), "the bound tuple's members: {items:?}");
+    let items = complete_after(&mut lsp, "[");
+    assert!(items.contains(&"index".to_string()) && items.contains(&"for".to_string()), "{items:?}");
+}
+
 // [lsp-comptime-help] Go-to-definition, completion and the missing-arms fix
 // inside a comptime body.
 #[test]

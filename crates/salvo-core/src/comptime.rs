@@ -435,7 +435,7 @@ fn run<M: crate::expand::ModuleSlot>(
                 // Struct>() -> Gen<T>` stamps at `Point`. A template with
                 // the parameter first gives the first parameter's type, the
                 // rule until then; that rule stays the fallback.
-                let unified: Option<Type> = [CompKind::Struct, CompKind::Union].into_iter().find_map(|kind| {
+                let unified: Option<Type> = [CompKind::Struct, CompKind::Union, CompKind::Tuple].into_iter().find_map(|kind| {
                     let mut scratch = Vec::new();
                     let (tmpl, _, _) = world.pick_with_module(&f.name.name, &by, kind, &mut scratch)?;
                     let bound = tmpl.compfn.as_ref()?.bound.as_ref()?.1.name.clone();
@@ -451,8 +451,7 @@ fn run<M: crate::expand::ModuleSlot>(
                             (Some(a), Some(b)) => bound_match(a, b, &bound),
                             _ => None,
                         })?;
-                    let name = named_base(&found)?;
-                    let t = world.target(&name, found.span())?;
+                    let t = world.target_of_type(&found)?;
                     (t.kind == kind).then_some(found)
                 });
                 let target_ty: Type = match (unified, f.params.first()) {
@@ -477,7 +476,8 @@ fn run<M: crate::expand::ModuleSlot>(
                     generics: Vec::new(),
                     canbe: Vec::new(),
                 });
-                let Some(target_name) = named_base(first) else {
+                // [comptime-tuple] A written tuple type is a target by itself.
+                let Some(target_name) = named_base(first).or_else(|| matches!(first, Type::Tuple { .. }).then(|| first.to_string())) else {
                     diags.push(Diagnostic::error(
                         messages::fn_by_first_param_not_target(&f.name.name),
                         first.span(),
@@ -485,7 +485,7 @@ fn run<M: crate::expand::ModuleSlot>(
                     fallback_body(f);
                     continue;
                 };
-                let Some(target) = message_target.or_else(|| world.target(&target_name, first.span())) else {
+                let Some(target) = message_target.or_else(|| world.target_of_type(first)) else {
                     diags.push(Diagnostic::error(
                         if world.opaque_here(&target_name, first.span()) {
                             messages::fn_by_opaque_target(&f.name.name, &target_name)
@@ -658,8 +658,9 @@ fn run<M: crate::expand::ModuleSlot>(
 struct HoverRecorder<'w> {
     file: usize,
     bound: Option<(String, CompKind)>,
-    /// Binders in scope: name → (`Field`/`Arm`, what it walks).
-    binders: Vec<(String, bool)>,
+    /// Binders in scope: name → the `std.core.comptime` struct it is
+    /// (`Field`, `Arm`, or [comptime-tuple] `Index`).
+    binders: Vec<(String, &'static str)>,
     /// [comptime-root-visible] Type names written as comptime roots.
     roots: Vec<Ident>,
     out: &'w mut Vec<CompHover>,
@@ -701,7 +702,11 @@ impl HoverRecorder<'_> {
                         kind.word(),
                         id.name,
                         id.name,
-                        if *kind == CompKind::Struct { "fields" } else { "arms" }
+                        match kind {
+                            CompKind::Struct => "fields",
+                            CompKind::Union => "arms",
+                            CompKind::Tuple => "indices",
+                        }
                     ),
                 );
             }
@@ -719,8 +724,7 @@ impl HoverRecorder<'_> {
 
     fn comp_ty(&mut self, ct: &CompTy) {
         if ct.via_type {
-            if let Some(is_arm) = self.binder_kind(&ct.root.name) {
-                let owner = if is_arm { known::COMPTIME_ARM } else { known::COMPTIME_FIELD };
+            if let Some(owner) = self.binder_kind(&ct.root.name) {
                 self.push_doc(
                     ct.span,
                     &format!("{}.type", ct.root.name),
@@ -757,27 +761,31 @@ impl HoverRecorder<'_> {
         }
     }
 
-    fn binder_kind(&self, name: &str) -> Option<bool> {
-        self.binders.iter().rev().find(|(n, _)| n == name).map(|(_, arm)| *arm)
+    /// The `std.core.comptime` struct a binder in scope is.
+    fn binder_kind(&self, name: &str) -> Option<&'static str> {
+        self.binders.iter().rev().find(|(n, _)| n == name).map(|(_, owner)| *owner)
     }
 
-    fn binder(&mut self, id: &Ident, is_arm: bool) {
-        let ty = if is_arm { known::COMPTIME_ARM } else { known::COMPTIME_FIELD };
-        self.push_doc(
-            id.span,
-            &format!("{}: {ty}", id.name),
-            &format!(
+    fn binder(&mut self, id: &Ident, ty: &'static str) {
+        let note = if ty == known::COMPTIME_INDEX {
+            // [comptime-tuple]
+            format!(
+                "A `core.comptime` `{ty}`: `.index: Int`, `.kind: Kind`, `.type`, `.first: Bool`, \
+                 `.last: Bool`. `v.[{}]` reads the element at this position.",
+                id.name
+            )
+        } else {
+            format!(
                 "A `core.comptime` `{ty}`: `.name` (a literal of the names), `.kind: Kind`, \
                  `.type`, `.index: Int`, `.first: Bool`, `.last: Bool`. {}",
-                if is_arm {
+                if ty == known::COMPTIME_ARM {
                     "The value dispatched on reads as this arm inside the block."
                 } else {
                     "`v.[field]` reads the field; `[field]: …` names it in a literal."
                 }
-            ),
-            ty,
-            "",
-        );
+            )
+        };
+        self.push_doc(id.span, &format!("{}: {ty}", id.name), &note, ty, "");
     }
 
     /// [comptime-eval] The comptime names in a head, at their written spans.
@@ -790,8 +798,9 @@ impl HoverRecorder<'_> {
             }
             CompExpr::Proj { base, field, span } => {
                 if let CompExpr::Name { id: b, .. } = &**base {
-                    if let Some(is_arm) = self.binder_kind(&b.name) {
-                        let elem = if is_arm { known::COMPTIME_ARM } else { known::COMPTIME_FIELD };
+                    if let Some(elem) = self.binder_kind(&b.name) {
+                        // [comptime-tuple] An `Index` has no name, docs or default.
+                        let named = elem != known::COMPTIME_INDEX;
                         match field.name.as_str() {
                             "type" => self.comp_ty(&CompTy { root: b.clone(), via_type: true, args: Vec::new(), span: *span }),
                             "kind" => self.push_doc(
@@ -802,7 +811,7 @@ impl HoverRecorder<'_> {
                                 elem,
                                 "kind",
                             ),
-                            "name" => self.push_doc(
+                            "name" if named => self.push_doc(
                                 *span,
                                 &format!("{}.name", b.name),
                                 "The declared name — a literal of the union of the struct's field \
@@ -811,36 +820,40 @@ impl HoverRecorder<'_> {
                                 "name",
                             ),
                             p @ ("first" | "last") => self.push_doc(*span, &format!("{}.{p}: Bool", b.name), "Whether this copy is for the first/last element.", elem, p),
-                            "index" => self.push_doc(*span, &format!("{}.index: Int", b.name), "The declared position, from zero.", elem, "index"),
-                            "docs" => self.push_doc(*span, &format!("{}.docs", b.name), "Whether there is a doc comment: `is None` when there is not [comptime-docs].", elem, "docs"),
-                            "default" => self.push_doc(*span, &format!("{}.default", b.name), "Whether the field declares a default: `is None` when it does not [comptime-default].", elem, "default"),
-                            _ => {
-                                let _ = elem;
-                            }
+                            "index" => self.push_doc(*span, &format!("{}.index: Int", b.name), "The position, from zero.", elem, "index"),
+                            "docs" if named => self.push_doc(*span, &format!("{}.docs", b.name), "Whether there is a doc comment: `is None` when there is not [comptime-docs].", elem, "docs"),
+                            "default" if named => self.push_doc(*span, &format!("{}.default", b.name), "Whether the field declares a default: `is None` when it does not [comptime-default].", elem, "default"),
+                            _ => {}
                         }
                         return;
                     }
                 }
                 match field.name.as_str() {
-                    what @ ("fields" | "arms" | "literals") => {
+                    what @ ("fields" | "arms" | "literals" | "indices") => {
                         self.cexpr(base);
                         let elem = match what {
                             "literals" => known::COMPTIME_LITERAL,
                             "arms" => known::COMPTIME_ARM,
+                            "indices" => known::COMPTIME_INDEX,
                             _ => known::COMPTIME_FIELD,
                         };
                         let owner = match what {
                             "literals" => "Type",
                             "arms" => "Union",
+                            "indices" => known::COMPTIME_TUPLE,
                             _ => "Struct",
                         };
                         self.push_doc(
                             *span,
                             &format!("{}.{what}: List<{elem}>", comp_expr_text(base)),
-                            &format!(
-                                "The declared {what}, in declaration order; a `[for …]` over it is \
-                                 unrolled, one copy of the body per `{elem}`."
-                            ),
+                            &if what == "indices" {
+                                format!("The element positions, in order; a `[for …]` over it is unrolled, one copy of the body per `{elem}`.")
+                            } else {
+                                format!(
+                                    "The declared {what}, in declaration order; a `[for …]` over it is \
+                                     unrolled, one copy of the body per `{elem}`."
+                                )
+                            },
                             owner,
                             what,
                         );
@@ -881,7 +894,7 @@ impl HoverRecorder<'_> {
                 // A lambda's parameter is an element of the list it is
                 // passed with, as a walk's binder is.
                 for p in params {
-                    self.binders.push((p.name.clone(), false));
+                    self.binders.push((p.name.clone(), known::COMPTIME_FIELD));
                 }
                 self.cexpr(body);
                 for _ in params {
@@ -907,9 +920,9 @@ impl HoverRecorder<'_> {
                     ..
                 } => {
                     self.cexpr(seq);
-                    let is_arm = seq_is_arm(seq);
-                    self.binder(binder, is_arm);
-                    self.binders.push((binder.name.clone(), is_arm));
+                    let owner = seq_owner(seq);
+                    self.binder(binder, owner);
+                    self.binders.push((binder.name.clone(), owner));
                     self.block(body);
                     self.binders.pop();
                 }
@@ -930,11 +943,11 @@ impl HoverRecorder<'_> {
                     // `[when field.kind]`: the subject is the binder's kind,
                     // not its type.
                     match self.binder_kind(&ty.root.name).filter(|_| ty.via_type) {
-                        Some(is_arm) => self.push_doc(
+                        Some(owner) => self.push_doc(
                             ty.span,
                             &format!("{}.kind: Kind", ty.root.name),
                             "The kind of the binder's type: a `[when]` over it must handle every arm of `Kind`.",
-                            if is_arm { known::COMPTIME_ARM } else { known::COMPTIME_FIELD },
+                            owner,
                             "kind",
                         ),
                         None => self.comp_ty(ty),
@@ -976,8 +989,8 @@ impl HoverRecorder<'_> {
                     ..
                 } => {
                     self.expr(value);
-                    self.binder(binder, true);
-                    self.binders.push((binder.name.clone(), true));
+                    self.binder(binder, known::COMPTIME_ARM);
+                    self.binders.push((binder.name.clone(), known::COMPTIME_ARM));
                     self.block(body);
                     self.binders.pop();
                 }
@@ -1004,8 +1017,7 @@ impl HoverRecorder<'_> {
         // `binder.type` in a type position is carried as a dotted name.
         if let Type::Named { base, .. } = t {
             if let Some(b) = base.name.name.strip_suffix(".type") {
-                if let Some(is_arm) = self.binder_kind(b) {
-                    let owner = if is_arm { known::COMPTIME_ARM } else { known::COMPTIME_FIELD };
+                if let Some(owner) = self.binder_kind(b) {
                     self.push(
                         base.span,
                         &format!("{b}.type: Type"),
@@ -1023,31 +1035,41 @@ impl HoverRecorder<'_> {
         match e {
             Expr::Field { base, field, span, .. } => {
                 if let Some(b) = field.name.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
-                    if self.binder_kind(b).is_some() {
-                        self.push(
+                    match self.binder_kind(b) {
+                        // [comptime-tuple]
+                        Some(known::COMPTIME_INDEX) => self.push_doc(
+                            field.span,
+                            &format!("[{b}]"),
+                            &format!("The element `{b}` is at, in this copy: rewritten to `.0`, `.1`, … per element."),
+                            known::COMPTIME_INDEX,
+                            "",
+                        ),
+                        Some(_) => self.push(
                             field.span,
                             &format!("[{b}]"),
                             &format!("The field `{b}` is at, in this copy: rewritten to `.name` per field."),
-                        );
+                        ),
+                        None => {}
                     }
                     self.expr(base);
                     return;
                 }
                 if let Expr::Ident(root) = &**base {
-                    if let Some(is_arm) = self.binder_kind(&root.name) {
+                    if let Some(owner) = self.binder_kind(&root.name) {
+                        // [comptime-tuple] An `Index` has no name, docs, default or value.
+                        let named = owner != known::COMPTIME_INDEX;
                         let (ty, note) = match field.name.as_str() {
-                            "name" => ("Str", "The declared name, as a literal in each copy."),
-                            "index" => ("Int", "The declared position, from zero."),
+                            "name" if named => ("Str", "The declared name, as a literal in each copy."),
+                            "index" => ("Int", "The position, from zero."),
                             "first" => ("Bool", "Whether this copy is for the first element."),
-                            "value" => (known::COMPTIME_VALUE, "The literal member itself, as a literal in each copy [comptime-literals]."),
+                            "value" if named => (known::COMPTIME_VALUE, "The literal member itself, as a literal in each copy [comptime-literals]."),
                             "last" => ("Bool", "Whether this copy is for the last element."),
                             "type" => (known::COMPTIME_TYPE, "The declared type itself (`core.comptime`)."),
                             "kind" => (known::COMPTIME_KIND, "The declared type's kind (`core.comptime`), tested in a comptime head."),
-                            "docs" => ("Str?", "The doc comment above the declaration, as text, or `None` [comptime-docs]."),
-                            "default" => ("Value?", "The declared default, evaluated where the struct is declared; `None` where the field has none [comptime-default]."),
-                            _ => ("?", "Not a projection a `Field`/`Arm` has."),
+                            "docs" if named => ("Str?", "The doc comment above the declaration, as text, or `None` [comptime-docs]."),
+                            "default" if named => ("Value?", "The declared default, evaluated where the struct is declared; `None` where the field has none [comptime-default]."),
+                            _ => ("?", "Not a projection this binder has."),
                         };
-                        let owner = if is_arm { known::COMPTIME_ARM } else { known::COMPTIME_FIELD };
                         self.push_doc(*span, &format!("{}.{}: {ty}", root.name, field.name), note, owner, &field.name);
                         return;
                     }
@@ -1138,9 +1160,9 @@ impl HoverRecorder<'_> {
                         StructLitFieldKind::Spread(e) => self.expr(e),
                         StructLitFieldKind::InlineFor { binder, seq, entries } => {
                             self.cexpr(seq);
-                            let is_arm = seq_is_arm(seq);
-                            self.binder(binder, is_arm);
-                            self.binders.push((binder.name.clone(), is_arm));
+                            let owner = seq_owner(seq);
+                            self.binder(binder, owner);
+                            self.binders.push((binder.name.clone(), owner));
                             for entry in entries {
                                 if let StructLitFieldKind::Named { name, value } = &entry.kind {
                                     if let Some(b) = name.name.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
@@ -1193,13 +1215,19 @@ fn comp_expr_text(e: &CompExpr) -> String {
     }
 }
 
-/// [comptime-eval] Whether a walk's sequence is of arms or literals (as
-/// written: a hover's guess, before any evaluation).
-fn seq_is_arm(e: &CompExpr) -> bool {
+/// [comptime-eval] The `std.core.comptime` struct a walk's elements are: an
+/// `Arm` over arms or literals, an `Index` over a tuple's indices
+/// [comptime-tuple], a `Field` otherwise (as written: a hover's guess, before
+/// any evaluation).
+fn seq_owner(e: &CompExpr) -> &'static str {
     match e {
-        CompExpr::Proj { field, .. } => matches!(field.name.as_str(), "arms" | "literals"),
-        CompExpr::Call { args, .. } => args.first().is_some_and(seq_is_arm),
-        _ => false,
+        CompExpr::Proj { field, .. } => match field.name.as_str() {
+            "arms" | "literals" => known::COMPTIME_ARM,
+            "indices" => known::COMPTIME_INDEX,
+            _ => known::COMPTIME_FIELD,
+        },
+        CompExpr::Call { args, .. } => args.first().map(seq_owner).unwrap_or(known::COMPTIME_FIELD),
+        _ => known::COMPTIME_FIELD,
     }
 }
 
@@ -2039,9 +2067,11 @@ impl<'a> World<'a> {
             }),
             Item::Type(t) => {
                 let is_union = t.alias.as_ref().is_some_and(|a| matches!(a, Type::Union { .. } | Type::Nullable { .. }));
-                is_union.then(|| Target {
+                // [comptime-tuple] A `type` naming a written tuple.
+                let is_tuple = !t.intrinsic && matches!(t.alias, Some(Type::Tuple { .. }));
+                (is_union || is_tuple).then(|| Target {
                     name: t.name.name.clone(),
-                    kind: CompKind::Union,
+                    kind: if is_union { CompKind::Union } else { CompKind::Tuple },
                     ty: Self::simple_named(&t.name.name, t.name.span),
                     generics: t.generics.iter().map(|g| g.name.clone()).collect(),
                     canbe: t.auto_qualifiers.iter().map(|q| q.name.name.clone()).collect(),
@@ -2073,18 +2103,55 @@ impl<'a> World<'a> {
             // arms, and an alias of something else is not a kind a compfn is
             // bound to.
             let is_union = t.alias.as_ref().is_some_and(|a| matches!(a, Type::Union { .. } | Type::Nullable { .. }));
-            if !is_union {
+            // [comptime-tuple] A `type` naming a tuple is a tuple target.
+            let is_tuple = !t.intrinsic && t.alias.as_ref().is_some_and(|a| self.tuple_elems(a, 0).is_some());
+            if !is_union && !is_tuple {
                 return None;
             }
             return Some(Target {
                 name: name.to_string(),
-                kind: CompKind::Union,
+                kind: if is_union { CompKind::Union } else { CompKind::Tuple },
                 ty: Self::simple_named(name, t.name.span),
                 generics: t.generics.iter().map(|g| g.name.clone()).collect(),
                 canbe: t.auto_qualifiers.iter().map(|q| q.name.name.clone()).collect(),
             });
         }
         None
+    }
+
+    /// [comptime-tuple] The element types of a tuple type: written, under
+    /// qualifiers, or behind an argument-less `type` alias of one. `None` for
+    /// anything else.
+    fn tuple_elems(&self, ty: &Type, depth: u32) -> Option<Vec<Type>> {
+        match ty {
+            Type::Tuple { elems, .. } => Some(elems.clone()),
+            Type::QualifiedGroup { base, .. } => self.tuple_elems(base, depth),
+            Type::Named { base, .. } if base.args.is_empty() && depth < 8 => {
+                let t = self.type_named(base.name.name.as_str(), base.name.span)?;
+                if t.intrinsic {
+                    return None;
+                }
+                self.tuple_elems(t.alias.as_ref()?, depth + 1)
+            }
+            _ => None,
+        }
+    }
+
+    /// [fn-by] [comptime-tuple] The target a declaration's type stamps at: a
+    /// written tuple type is one by itself (it has no declaration to name);
+    /// a named type is the struct or `type` it names [`World::target`].
+    fn target_of_type(&self, ty: &Type) -> Option<Target> {
+        if let Type::Tuple { .. } = ty {
+            return Some(Target {
+                name: ty.to_string(),
+                kind: CompKind::Tuple,
+                ty: ty.clone(),
+                generics: Vec::new(),
+                canbe: Vec::new(),
+            });
+        }
+        let name = named_base(ty)?;
+        self.target(&name, ty.span())
     }
 
     /// [actor-message] The arms of `Message<X>`, for an actor effect `X` the
@@ -3026,6 +3093,10 @@ struct Binding {
     /// [test-kind] The slot a `[for s in p.type.slots]` copy is for: a
     /// constant, or a place naming an earlier parameter.
     slot: Option<SlotVal>,
+    /// [comptime-tuple] An element position of a tuple (`[for index in
+    /// T.indices]`, a `std.core.comptime` `Index`): `v.[index]` reads
+    /// `v.<index>`, and it has no name.
+    tuple: bool,
 }
 
 /// [test-kind] A qualifier's value slot as a comptime value.
@@ -3074,6 +3145,8 @@ enum SeqKind {
     Fields,
     Arms,
     Literals,
+    /// [comptime-tuple] A tuple's element positions.
+    Indices,
 }
 
 /// What `elements_of` reads of the sequence it walks.
@@ -3382,6 +3455,42 @@ impl<'w> Expander<'w> {
     fn elements_of(&mut self, ty: Type, which: SeqKind, span: Span) -> Option<Vec<Binding>> {
         let seq = SeqSpec { arms: which == SeqKind::Arms, literals: which == SeqKind::Literals, span };
         let kind = self.world.classify(&ty, &self.generics(), 0);
+        // [comptime-tuple] A tuple's elements, by position: an `Index` each.
+        if which == SeqKind::Indices {
+            let elems = match (kind, self.world.tuple_elems(&ty, 0)) {
+                (TypeKindWord::Tuple, Some(elems)) => elems,
+                _ => {
+                    self.error(seq.span, messages::comptime_tuple_indices_of_non_tuple(&self.world.normalized(&ty), kind.word()));
+                    return None;
+                }
+            };
+            let n = elems.len();
+            let owner = self.world.normalized(&ty);
+            return Some(
+                elems
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, e)| Binding {
+                        name: i.to_string(),
+                        decl_span: e.span(),
+                        label: format!("{owner} element {i}: {e}"),
+                        ty: e,
+                        index: i,
+                        first: i == 0,
+                        last: i + 1 == n,
+                        is_arm: false,
+                        siblings: Vec::new(),
+                        sibling_owner: owner.clone(),
+                        default_of: None,
+                        docs: None,
+                        annotations: Vec::new(),
+                        literal: None,
+                        slot: None,
+                        tuple: true,
+                    })
+                    .collect(),
+            );
+        }
         // [comptime-literals] A literal union's members, in declaration order:
         // the literals the runtime collapses into one arm [type-literal].
         if seq.literals {
@@ -3430,6 +3539,7 @@ impl<'w> Expander<'w> {
                         annotations: Vec::new(),
                         literal: Some(l),
                     slot: None,
+                    tuple: false,
                 })
                     .collect(),
             );
@@ -3462,6 +3572,7 @@ impl<'w> Expander<'w> {
                         annotations: Vec::new(),
                         literal: None,
                     slot: None,
+                    tuple: false,
                 })
                     .collect(),
             );
@@ -3535,6 +3646,7 @@ impl<'w> Expander<'w> {
                     annotations: f.annotations.clone(),
                     literal: None,
                     slot: None,
+                    tuple: false,
                 })
                 .collect(),
         )
@@ -4040,6 +4152,12 @@ impl<'w> Expander<'w> {
     fn project(&mut self, v: CVal, field: &Ident, span: Span, named: Option<&str>) -> Option<CVal> {
         let name = field.name.as_str();
         match v {
+            // [comptime-tuple] An `Index` has its position, its type and its
+            // kind, and no name.
+            CVal::Elem(b) if b.tuple && !matches!(name, "index" | "first" | "last" | "type" | "kind") => {
+                self.error(span, messages::comptime_tuple_unknown_property(&name));
+                None
+            }
             CVal::Elem(b) => Some(match name {
                 "name" => CVal::Name(b),
                 "index" => CVal::Int(b.index as i64),
@@ -4078,10 +4196,16 @@ impl<'w> Expander<'w> {
             CVal::Type { ty, root, label } => {
                 let bound_root = root.as_ref().is_some_and(|r| self.bound.as_ref().is_some_and(|(p, _)| *p == r.name));
                 Some(match name {
-                    "fields" | "arms" | "literals" => {
+                    // [comptime-tuple] A tuple has no name, docs or opt-ins.
+                    "name" | "docs" | "mutable" if bound_root && self.bound.as_ref().is_some_and(|(_, t)| t.kind == CompKind::Tuple) => {
+                        self.error(span, messages::comptime_eval_no_property(&name, &"a `Tuple`"));
+                        return None;
+                    }
+                    "fields" | "arms" | "literals" | "indices" => {
                         let which = match name {
                             "fields" => SeqKind::Fields,
                             "arms" => SeqKind::Arms,
+                            "indices" => SeqKind::Indices,
                             _ => SeqKind::Literals,
                         };
                         let elems = self.elements_of(ty, which, span)?;
@@ -4149,6 +4273,7 @@ impl<'w> Expander<'w> {
                                         annotations: p.annotations.clone(),
                                         literal: None,
                                         slot: None,
+                                        tuple: false,
                                     })
                                 })
                                 .collect(),
@@ -4211,6 +4336,7 @@ impl<'w> Expander<'w> {
                         annotations: Vec::new(),
                         literal: None,
                         slot: Some(slot),
+                        tuple: false,
                     })
                 })
                 .collect(),
@@ -4339,6 +4465,10 @@ impl<'w> Expander<'w> {
                 };
                 if b.is_arm {
                     self.error(span, messages::comptime_qualifier_on_arm(&name));
+                    return None;
+                }
+                if b.tuple {
+                    self.error(span, messages::comptime_tuple_qualifier_on_index(&name));
                     return None;
                 }
                 let qual = match target {
@@ -4613,7 +4743,7 @@ impl<'w> Expander<'w> {
                     // binder's name stands for.
                     if let Stmt::Let { pattern: Pattern::Ident(id), .. } = &mut other {
                         if let Some(inner) = id.name.strip_prefix('[').and_then(|s| s.strip_suffix(']')).map(str::to_string) {
-                            match self.binding(&inner).filter(|b| !b.is_arm && b.slot.is_none()).map(|b| b.name.clone()) {
+                            match self.binding(&inner).filter(|b| !b.is_arm && !b.tuple && b.slot.is_none()).map(|b| b.name.clone()) {
                                 Some(name) => id.name = name,
                                 None => {
                                     let span = id.span;
@@ -4753,6 +4883,10 @@ impl<'w> Expander<'w> {
                     self.error(span, messages::comptime_name_not_a_binder(&binder.name));
                     return;
                 };
+                if b.tuple {
+                    self.error(span, messages::comptime_tuple_unknown_property(&"name"));
+                    return;
+                }
                 // [comptime-name] Every literal names a member of the union,
                 // and no name is covered twice: the second arm could never be
                 // taken [when-exhaustive].
@@ -4848,6 +4982,7 @@ impl<'w> Expander<'w> {
                         annotations: Vec::new(),
                         literal: None,
                     slot: None,
+                    tuple: false,
                 };
                     let body = self.copy(&body, &binder.name, &b);
                     // The check's spans come from the union's declaration; two
@@ -5186,6 +5321,23 @@ impl MutVisitor for Expander<'_> {
                 }
             }
         }
+        // [comptime-tuple] `t.[index]` is the element at that position, the
+        // tuple-index expression `t.1` as if written; its base is walked next.
+        if let Expr::Field { base, field, span, .. } = expr {
+            let at = field
+                .name
+                .strip_prefix('[')
+                .and_then(|s| s.strip_suffix(']'))
+                .and_then(|b| self.binding(b))
+                .filter(|bd| bd.tuple)
+                .map(|bd| bd.index);
+            if let Some(index) = at {
+                let span = *span;
+                let base = std::mem::replace(&mut **base, Expr::Placeholder { span });
+                *expr = Expr::TupleIndex { base: Box::new(base), index, span };
+                return;
+            }
+        }
         match expr {
             // `v.[field]` → `v.field`; `field.name` / `field.index` /
             // `field.first` / `field.last`; `T.name`.
@@ -5220,6 +5372,11 @@ impl MutVisitor for Expander<'_> {
                     }
                 }
                 if let Some(bd) = self.binding(&root.name).cloned() {
+                    // [comptime-tuple] An `Index` has no name, docs, default or value.
+                    if bd.tuple && matches!(field.name.as_str(), "name" | "docs" | "default" | "value") {
+                        self.error(span, messages::comptime_tuple_unknown_property(&field.name));
+                        return;
+                    }
                     match field.name.as_str() {
                         "name" => *expr = self.str_lit(&bd.name, span),
                         "index" => {
@@ -5275,7 +5432,11 @@ impl MutVisitor for Expander<'_> {
                     return;
                 }
                 if let Some((param, target)) = &self.bound {
-                    if root.name == *param && field.name == "name" {
+                    if root.name == *param && target.kind == CompKind::Tuple && matches!(field.name.as_str(), "name" | "docs") {
+                        // [comptime-tuple] A tuple has neither.
+                        let name = field.name.clone();
+                        self.error(span, messages::comptime_eval_no_property(&name, &"a `Tuple`"));
+                    } else if root.name == *param && field.name == "name" {
                         let name = target.name.clone();
                         *expr = self.str_lit(&name, span);
                     } else if root.name == *param && field.name == "docs" {
@@ -5356,7 +5517,7 @@ impl MutVisitor for Expander<'_> {
         if let StructLitFieldKind::Named { name, .. } = &mut field.kind {
             if let Some(b) = name.name.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
                 match self.binding(b) {
-                    Some(bd) if !bd.is_arm => name.name = bd.name.clone(),
+                    Some(bd) if !bd.is_arm && !bd.tuple => name.name = bd.name.clone(),
                     _ => {
                         let span = name.span;
                         self.error(span, messages::comptime_access_not_a_field_binder(&b));

@@ -282,7 +282,7 @@ corrupts the collection, and that refusal lands at the clause.
 
 A `comptime fn` with a bound type parameter is a function over a **kind** of
 type rather than a type. Its one type parameter is bound with `is` to an arm
-of `Kind`, `<T is Struct>` or `<T is Union>` (the same test a `when` arm
+of `Kind`, `<T is Struct>`, `<T is Union>` or `<T is Tuple>` (the same test a `when` arm
 makes), and inside its body the compile-time syntax is legal. A bounded
 comptime fn is **stamped**, and is not callable: it exists to be instantiated
 by `by`, and by the time the program is checked every use of one has been
@@ -561,6 +561,44 @@ member, in declaration order, with `lit.value` the member itself:
 `lit.name` is its text, and `lit.index`, `lit.first` and `lit.last` are as
 for fields. A named alias walks the same way: `[for lit in Level.literals]`.
 
+### Tuples
+
+A comptime fn over a tuple is bound `<T is Tuple>`, and walks the elements by
+position: `[for index in T.indices]` makes one copy per element, and
+`t.[index]` reads the element, `t.0` in the first copy and `t.1` in the
+second, as if you had written it:
+
+```salvo
+comptime fn to_json<T is Tuple>(t: T) -> Str {
+    let json = Mut Str("[")
+    [for index in T.indices] {
+        json.append@string(to_json@[site](t.[index]))
+        [if !index.last] {
+            json.append@string(", ")
+        }
+    }
+    json.append@string("]")
+    return json
+}
+
+fn to_json(t: (Str, Int)) -> Str by to_json      // ("a", 1) is ["a", 1]
+```
+
+A tuple has no declaration to carry a clause, so it is stamped at by a
+declaration whose parameter is the tuple type, as above, or at a `type`
+naming one (`type Pair = (Int, Int)`). Of the comptime fns named `to_json`,
+the tuple picks the `<T is Tuple>` one, as a struct picks the `<T is Struct>`
+one, so one module can hold both: a struct's `to_json` reaches a tuple field
+through `to_json@[site](t.[field])`, which finds the declaration above.
+
+The binder is an [`Index`](../../lib/std/core/comptime.sv#struct-index):
+`index.index` is the position from zero, `index.first` and `index.last` are
+as for fields, `index.type` is the element's type (`[index.type]` as a
+type, `[if index.type is Int]` as a test) and `index.kind` its kind. An
+element has no name, so there is no `index.name`, and `T` has no `.name`
+either. A call with a tuple argument does not stamp anything by itself: as
+for structs, only a `by` declaration does.
+
 ### The model: `std.core.comptime`
 
 Everything a comptime fn may know about a type is declared, as compile-time
@@ -570,7 +608,7 @@ here; the module page documents each member):
 ```salvo
 comptime struct Struct  { name: Str, fields: List<Field>, mutable: Bool, docs: Str? }
 comptime struct Union   { name: Str, arms: List<Arm>, docs: Str? }
-comptime struct Tuple   { elems: List<Type> }
+comptime struct Tuple   { elems: List<Type>, indices: List<Index> }
 comptime struct FnType  {}
 comptime struct Basic   { name: Str }      // declared `intrinsic type`
 comptime struct Generic { name: Str }      // a type parameter of the struct being stamped
@@ -584,13 +622,16 @@ comptime struct Field   { name: Str, kind: Kind, type: Type, index: Int, first: 
 comptime struct Arm     { name: Str, kind: Kind, type: Type, index: Int, first: Bool, last: Bool,
                           docs: Str? }
 comptime struct Literal { value: Value, name: Str, index: Int, first: Bool, last: Bool }
+comptime struct Index   { index: Int, first: Bool, last: Bool, type: Type, kind: Kind }
 ```
 
-The bound `T` is a [`Struct`](../../lib/std/core/comptime.sv#struct-struct)
-or a [`Union`](../../lib/std/core/comptime.sv#struct-union); a `[for …]`
+The bound `T` is a [`Struct`](../../lib/std/core/comptime.sv#struct-struct),
+a [`Union`](../../lib/std/core/comptime.sv#struct-union) or a
+[`Tuple`](../../lib/std/core/comptime.sv#struct-tuple); a `[for …]`
 binder is a [`Field`](../../lib/std/core/comptime.sv#struct-field), an
-[`Arm`](../../lib/std/core/comptime.sv#struct-arm) or a
-[`Literal`](../../lib/std/core/comptime.sv#struct-literal); `field.kind` is a
+[`Arm`](../../lib/std/core/comptime.sv#struct-arm), a
+[`Literal`](../../lib/std/core/comptime.sv#struct-literal) or an
+[`Index`](../../lib/std/core/comptime.sv#struct-index); `field.kind` is a
 [`Kind`](../../lib/std/core/comptime.sv#type-kind), and `field.type` the type
 itself. These exist at compile time only: the compiler fills them, nothing
 constructs one, and naming one in an ordinary type position is an error. But

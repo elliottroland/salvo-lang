@@ -6119,8 +6119,8 @@ Conventions:
   signature**, read off the declaration's (user decision 2026-11-05, the
   property-test record §6.2): each kind's template of the name is tried, its
   parameters and then its return type matched structurally against the
-  declaration's (`bound_match`), and the type found must be a struct or a
-  declared union of that kind — so `fn gen() -> Gen<Point> by random`
+  declaration's (`bound_match`), and the type found must be a struct, a
+  declared union or a tuple of that kind [comptime-tuple] — so `fn gen() -> Gen<Point> by random`
   against `gen<T is Struct>() -> Gen<T>` stamps at `Point`. When nothing
   matches, the **first parameter's** type, which was the whole rule until
   then and what every template with `T` first still gives. The written
@@ -6173,8 +6173,9 @@ Conventions:
   day before): the one scope the comptime syntax is legal in. It comes in two
   forms (terminology fixed 2026-10-20, replacing "concrete"):
   * **Stamped** — its type parameter carries a **kind bound spelled as the
-    narrowing it is**, `comptime fn cmp<T is Struct>(a: T, b: T) -> Int` or `<T
-    is Union>`, against an arm of `std.core.comptime`'s `Kind` — at most one, and a
+    narrowing it is**, `comptime fn cmp<T is Struct>(a: T, b: T) -> Int`, `<T
+    is Union>` or `<T is Tuple>` [comptime-tuple], against an arm of
+    `std.core.comptime`'s `Kind` — at most one, and a
     module's same-named comptime fns of different kinds are the overloads a
     `by` picks between by the target's kind. A stamped fn is **not callable**:
     it exists only to be instantiated by `by`, and the expansion removes it
@@ -6234,7 +6235,7 @@ Conventions:
   ```
   comptime struct Struct  { name: Str, fields: List<Field>, mutable: Bool, docs: Str? }
   comptime struct Union   { name: Str, arms: List<Arm>, docs: Str? }
-  comptime struct Tuple   { elems: List<Type> }
+  comptime struct Tuple   { elems: List<Type>, indices: List<Index> }
   comptime struct FnType  {}
   comptime struct Basic   { name: Str }      // declared `intrinsic type`
   comptime struct Generic { name: Str }      // a type parameter of the struct being stamped
@@ -6246,10 +6247,11 @@ Conventions:
                           default: Value?, docs: Str? }
   comptime struct Arm   { name: Str, kind: Kind, type: Type, index: Int, first: Bool, last: Bool,
                           docs: Str? }
+  comptime struct Index { index: Int, first: Bool, last: Bool, type: Type, kind: Kind }
   ```
 
-  Inside a body the bound `T` is a `Struct` or `Union` by its bound, `T.fields`
-  / `T.arms` the sequence a `[for …]` walks (arms in declaration order, `None`
+  Inside a body the bound `T` is a `Struct`, `Union` or `Tuple` by its bound,
+  `T.fields` / `T.arms` / `T.indices` [comptime-tuple] the sequence a `[for …]` walks (arms in declaration order, `None`
   included [type-union-arm-identity]), `T.name` and `T.mutable` its projections; a
   binder is a `Field` or `Arm` with its six projections; `field.type` is
   spliced **as a type** wherever one is written inside the body, in brackets
@@ -6331,6 +6333,43 @@ Conventions:
   `.value` on any other binder is an error. `std.core.comptime` models it as
   `comptime struct Literal { value: Value, name: Str, index: Int, first:
   Bool, last: Bool }`.
+* [comptime-tuple] **A comptime fn can be written over a tuple type** (user
+  request 2026-11-09, names the user's): `comptime fn to_json<T is Tuple>(t:
+  T) -> Str`, its bound the `Tuple` arm of `Kind` (`CompKind::Tuple`).
+  * **`[for index in T.indices]`** unrolls once per element, in order, binding
+    an `Index` (`std.core.comptime`'s `comptime struct Index { index: Int,
+    first: Bool, last: Bool, type: Type, kind: Kind }`) exactly as `[for
+    field in T.fields]` binds a `Field`: `index.index` (the position, from
+    zero), `index.first`, `index.last`, `index.type` (spliced as
+    `[index.type]`, tested in `[if index.type is Int]`), `index.kind` (a
+    `[when index.kind]`). A position has no name, docs, default or value:
+    reading one is `comptime-tuple:unknown-property`, as a head
+    (`[when index.name]` included) or in code, and an `Index` carries no
+    comptime qualifier (`comptime-tuple:qualifier-on-index`). `.indices` of
+    anything but a tuple is `comptime-tuple:indices-of-non-tuple`.
+  * **`t.[index]`** reads the element: the expansion writes the tuple-index
+    expression `t.1` (`Expr::TupleIndex`), as if written. `[index]: …` in a
+    struct literal names no field, and is `comptime-access:not-a-field-binder`.
+  * **The target**: a declaration whose bound-parameter position holds a
+    **written tuple type** stamps there (`fn to_json(t: (Str, Int)) -> Str by
+    to_json`), and so does a `type` alias of one (`type Pair = (Int, Int)`;
+    a clause on it, `type Pair = (Int, Int) : ToStr<self> by X`, too). The
+    target's name, in messages and stamps, is the type's text. Of a
+    module's same-named templates the tuple picks the `<T is Tuple>` one, as
+    a struct picks `<T is Struct>` [obligation-by] [fn-by]; with none of that
+    kind it is the ordinary "names nothing" error.
+  * The bound `T` has no `.name`, `.docs` or `.mutable` (a tuple has no
+    declaration): `comptime-eval:no-property`, in a head and in code.
+    `T.elems` is declared in the model and not built yet (as before; ROADMAP).
+  * A stamped fn's element types are known only where it is stamped, so
+    `[when index.type]` over them is refused at the template exactly as
+    `[when field.type]` is [comptime-pattern].
+  * **No stamping at a call**: a call with a tuple argument does not find a
+    `<T is Tuple>` template, as a call with a struct argument does not find
+    a `<T is Struct>` one; a stamped fn is reached only through a `by`
+    declaration [comptime-bound]. A struct template meets a tuple field
+    through the site's function, `to_json@[site](t.[field])`, which a `fn …
+    by` at that tuple type declares.
 * [comptime-default] **`field.default` is the field's declared default**
   (the CLI design record X1, built 2026-10-20 as engineering under round 2): in a copy
   it is the `= expr` the field declares, evaluated where the struct is

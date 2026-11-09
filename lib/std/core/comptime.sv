@@ -5,7 +5,7 @@
 // program is compiled, and is stamped out once per type that asks for it,
 // as `by auto` does for `cmp` and `hash` ([std.core.auto]). Inside one, the
 // bound type parameter `T` is described by the structs declared here: `T` is
-// a [Struct] or a [Union], `T.fields` is a list of [Field]s, and
+// a [Struct], a [Union] or a [Tuple], `T.fields` is a list of [Field]s, and
 // `[for field in T.fields]` unrolls its body once per field:
 //
 // ```
@@ -42,7 +42,7 @@
 //
 // The Compile-time functions topic explains how a comptime fn is written and
 // stamped.
-// @compilerrules [comptime-fields, comptime-inline, comptime-kind]
+// @compilerrules [comptime-fields, comptime-inline, comptime-kind, comptime-tuple]
 
 // A struct type: its name, its fields in declaration order, and what it
 // declares about itself.
@@ -78,11 +78,35 @@ export comptime struct Union {
     docs: Str?
 }
 
-// A tuple type: its element types, in order.
+// A tuple type, such as `(Str, Int)`: its elements, in order.
+//
+// A tuple has no name and no declaration, so a comptime fn over one is
+// stamped at a written tuple type (`fn show(t: (Str, Int)) -> Str by show`),
+// and walks its elements by position with `[for index in T.indices]`:
+//
+// ```
+// comptime fn show<T is Tuple>(t: T) [] -> Str => t {
+//     let out: Mut Str = Mut Str("(")
+//     [for index in T.indices] {
+//         [if !index.first] {
+//             append@string(out, ", ")
+//         }
+//         append@string(out, to_str@[site](t.[index]))
+//     }
+//     append@string(out, ")")
+//     return out
+// }
+//
+// fn show(t: (Str, Int)) [] -> Str by show           // ("a", 1) answers "(a, 1)"
+// ```
+// @compilerrules [comptime-tuple]
 // @compilerknown
 export comptime struct Tuple {
     // The element types, in order.
-    elems: List<Type>
+    elems: List<Type>,
+    // The element positions, in order: what `[for index in T.indices]`
+    // unrolls.
+    indices: List<Index>
 }
 
 // A function type. A comptime fn can call a value of one, but not look
@@ -112,7 +136,7 @@ export comptime struct Generic {
 // @compilerknown
 export comptime type Opaque = Basic | Generic
 
-// Every kind of type: what a field's or an arm's `.kind` is.
+// Every kind of type: what a field's, an arm's or an index's `.kind` is.
 //
 // A `[when field.kind]` must handle every arm, with no `else`, so a kind
 // added to the language is an error in every comptime fn that did not
@@ -205,6 +229,27 @@ export comptime struct Field {
     // literal in a copy that has one, tested with `[if field.docs is None]`.
     // @compilerrules [comptime-docs]
     docs: Str?
+}
+
+// One element position of a [Tuple], as `[for index in T.indices]` binds it.
+//
+// `t.[index]` reads the element at this position of a tuple value `t`: in the
+// copy for the second element it is `t.1`. An element has no name, so an
+// `Index` has none either.
+// @compilerrules [comptime-tuple]
+// @compilerknown
+export comptime struct Index {
+    // The position, from zero: `1` in the copy that reads `t.1`.
+    index: Int,
+    // Whether it is the first element.
+    first: Bool,
+    // Whether it is the last element.
+    last: Bool,
+    // The element's type; usable as a type inside the body as `[index.type]`.
+    type: Type,
+    // What kind of type the element has.
+    // @compilerrules [comptime-kind]
+    kind: Kind
 }
 
 // One arm of a [Union], as `[for arm in T.arms]` or a `[when value]` arm

@@ -92,6 +92,8 @@ pub const COMPTIME_LITERAL: &str = "Literal";
 pub const COMPTIME_VALUE: &str = "Value";
 pub const COMPTIME_FIELD: &str = "Field";
 pub const COMPTIME_ARM: &str = "Arm";
+/// [comptime-tuple] One element position of a tuple, as `[for index in T.indices]` binds it.
+pub const COMPTIME_INDEX: &str = "Index";
 
 /// [effect-claim] The subject a claim is declared for: `provenance qualifier
 /// Ordered for Effect` qualifies an effect's binding, not a type of values.
@@ -201,6 +203,7 @@ pub const ALL: &[Known] = &[
     ty("std.core.comptime", COMPTIME_VALUE),
     ty("std.core.comptime", COMPTIME_FIELD),
     ty("std.core.comptime", COMPTIME_ARM),
+    ty("std.core.comptime", COMPTIME_INDEX),
     ty("std.core.actor", MAILBOX_TYPE),
     ty("std.core.actor", DEDICATED_QUALIFIER),
     ty("std.core.actor", FAULT_STRUCT),

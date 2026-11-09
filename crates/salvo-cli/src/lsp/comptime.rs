@@ -10,8 +10,8 @@
 use lsp_types::{
     CompletionItem, CompletionItemKind, Documentation, InsertTextFormat, MarkupContent, MarkupKind,
 };
-use salvo_syntax::ast::{FnDecl, Item};
-use salvo_syntax::Span;
+use salvo_syntax::ast::{CompKind, FnDecl, Item};
+use salvo_syntax::{known, Span};
 
 use super::{docs, span_text, DocView, Server};
 use crate::analysis::Analysis;
@@ -65,8 +65,9 @@ fn matching_brace(text: &str, open: usize) -> Option<usize> {
 /// A `[for name in seq]` whose block holds the cursor.
 pub(super) struct Binder {
     pub name: String,
-    /// Walks arms (`T.arms`) rather than fields.
-    pub is_arm: bool,
+    /// The `std.core.comptime` struct it is: `Arm` over `T.arms`, `Index`
+    /// over a tuple's `T.indices` [comptime-tuple], `Field` otherwise.
+    pub owner: &'static str,
 }
 
 /// The binders of `[for …]` blocks enclosing `cursor` in `f`'s body.
@@ -89,7 +90,15 @@ pub(super) fn binders_at(content: &str, f: &FnDecl, cursor: usize) -> Vec<Binder
         let Some(open) = region[after_head..].find('{').map(|i| after_head + i) else { continue };
         // Still open at the cursor: no matching brace within the region.
         if matching_brace(region, open).is_none() {
-            out.push(Binder { name: name.trim().to_string(), is_arm: seq.trim_end().ends_with(".arms") });
+            let seq = seq.trim_end();
+            let owner = if seq.ends_with(".arms") {
+                known::COMPTIME_ARM
+            } else if seq.ends_with(".indices") {
+                known::COMPTIME_INDEX
+            } else {
+                known::COMPTIME_FIELD
+            };
+            out.push(Binder { name: name.trim().to_string(), owner });
         }
     }
     out
@@ -298,6 +307,12 @@ impl Server<'_> {
                 return None;
             }
             let bound = f.compfn.as_ref().and_then(|c| c.bound.as_ref()).map(|(_, id)| id.name.clone()).unwrap_or_else(|| "T".to_string());
+            // [comptime-tuple] What the bound kind is walked by.
+            let (binder, seq) = match f.compfn.as_ref().and_then(|c| c.bound.as_ref()).map(|(k, _)| *k) {
+                Some(CompKind::Tuple) => ("index", "indices"),
+                Some(CompKind::Union) => ("arm", "arms"),
+                _ => ("field", "fields"),
+            };
             let mut items = Vec::new();
             let mut construct = |label: &str, snippet: &str, detail: &str| {
                 items.push(CompletionItem {
@@ -310,7 +325,7 @@ impl Server<'_> {
                     ..Default::default()
                 });
             };
-            construct("for", &format!("for ${{1:field}} in ${{2:{bound}.fields}}"), "unroll the block once for each field or arm");
+            construct("for", &format!("for ${{1:{binder}}} in ${{2:{bound}.{seq}}}"), "unroll the block once for each field, arm or element");
             construct("when", "when ${1:field.kind}", "dispatch at compile time on a kind, a type, a name, or a union value");
             construct("if", "if ${1:condition}", "keep or drop the block at compile time");
             construct("let", "let ${1:name} = ${2:expression}", "a compile-time value for the rest of the block");
@@ -318,7 +333,15 @@ impl Server<'_> {
                 items.push(CompletionItem {
                     label: b.name.clone(),
                     kind: Some(CompletionItemKind::VARIABLE),
-                    detail: Some(format!("splice the {} `{}` is at", if b.is_arm { "arm" } else { "field" }, b.name)),
+                    detail: Some(format!(
+                        "splice the {} `{}` is at",
+                        match b.owner {
+                            known::COMPTIME_ARM => "arm",
+                            known::COMPTIME_INDEX => "element",
+                            _ => "field",
+                        },
+                        b.name
+                    )),
                     sort_text: Some(format!("1{}", b.name)),
                     ..Default::default()
                 });
@@ -338,7 +361,7 @@ impl Server<'_> {
         let owner = match chain.as_slice() {
             [root] => {
                 if let Some(b) = binders_at(text, &f, word).iter().rev().find(|b| b.name == *root) {
-                    Some(if b.is_arm { "Arm" } else { "Field" }.to_string())
+                    Some(b.owner.to_string())
                 } else {
                     f.compfn.as_ref().and_then(|c| c.bound.as_ref()).filter(|(_, id)| id.name == *root).map(|(k, _)| k.word().to_string())
                 }
