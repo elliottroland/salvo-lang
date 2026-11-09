@@ -174,3 +174,15 @@ comptime fn show<T is Tuple>(t: T) [] -> Str => t {
 
 //~ error[comptime-generic:generic-target]
 fn show<T, S>(t: (T, S)) [] -> Str by show
+
+//--- a_target_that_names_the_templates_parameter
+// [comptime-tuple] A program's own struct called `T`, in a tuple the template
+// is stamped at: the template's `T` is renamed out of the way, or the
+// substitution would put `(T, Int)` into the `T` of `(T, Int)` for ever.
+struct T { a: Int }
+
+comptime fn show<T is Tuple>(t: T) [] -> Str => t {
+    return "x"
+}
+
+fn show(t: (T, Int)) [] -> Str by show

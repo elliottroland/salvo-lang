@@ -2825,15 +2825,22 @@ impl<'w> Stamper<'w> {
         // at `Wrapper<T>`): the substitution `T` → `Wrapper<T>` would
         // otherwise meet its own `T`.
         let mut target = self.target.clone();
-        if !self.target.generics.is_empty() {
-            if let Some(p) = &param {
-                if self.target.generics.contains(p) {
-                    let fresh = "__Self".to_string();
-                    let mut rename = RenameIdent { from: p.clone(), to: fresh.clone() };
-                    visit_mut::walk_fn(&mut rename, &mut inst);
-                    param = Some(fresh);
-                }
+        // The substitution visits what it substitutes in, so a target whose
+        // text names the template's own parameter (`(T, Int)` with a struct
+        // `T` of the program's, `Wrapper<T>`) would be substituted into
+        // itself without end: the parameter is renamed out of the way
+        // whenever the target mentions it, not only when it is generic.
+        if let Some(p) = &param {
+            let mut named = Vec::new();
+            collect_type_names(&target.ty, &mut named);
+            if self.target.generics.contains(p) || named.iter().any(|n| n.name == *p) {
+                let fresh = "__Self".to_string();
+                let mut rename = RenameIdent { from: p.clone(), to: fresh.clone() };
+                visit_mut::walk_fn(&mut rename, &mut inst);
+                param = Some(fresh);
             }
+        }
+        if !self.target.generics.is_empty() {
             if let Type::Named { base, .. } = &mut target.ty {
                 base.args = self.target.generics.iter().map(|g| World::simple_named(g, site)).collect();
             }
