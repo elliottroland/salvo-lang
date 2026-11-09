@@ -53,7 +53,7 @@ fn main() [use, spawn] {
 The pieces:
 
 - **`spawn H() on p`** starts the actor on pool `p` and answers its address,
-  an `eff[E]` ([`Addr`](../../lib/std/core/actor.sv#type-addr)).
+  an `eff[E]` ([`Eff`](../../lib/std/core/actor.sv#type-addr)).
   `addr.member(args)` sends to it. A function may declare `[spawn]`, as
   `main` does, to be allowed to spawn.
 - **The `mailbox`** bounds how many messages may queue

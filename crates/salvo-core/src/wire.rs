@@ -123,7 +123,7 @@ fn wire_blocker_at(symbols: &Symbols<'_>, ty: &Ty, depth: usize) -> Option<WireB
                 // when the protocol behind it has a wire form, since a proxy
                 // is only good for sends that can be framed; a reply token
                 // crosses when its answer can.
-                "Addr" if args.len() == 1 => {
+                "Eff" if args.len() == 1 => {
                     let Ty::Named { name: effect, .. } = args[0].strip_quals() else {
                         return None;
                     };

@@ -351,7 +351,7 @@ class Scattering(private val group: Int, private val gather: Int) : Search {
     override fun query(word: String, out: salvo.SalvoReply) {
         val members: List<Int> = kotlin.run {
             val (ms, __wid) = salvo.SalvoSched.waiter()
-            salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.AddrCodec)) })
+            salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.EffCodec)) })
             salvo.SalvoSched.sendWire(group, salvo.std.net.__Msg_ActorGroup.Members(ms), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup)
             salvo.SalvoSched.awaitReply(__wid) as List<Int>
         }
@@ -404,10 +404,10 @@ interface Gather {
 object __Codec_Gather_Scatter : salvo.WireCodec<Gather.Scatter> {
     override fun enc(v: Gather.Scatter, out: salvo.WireOut) {
         salvo.StrCodec.enc(v.word, out)
-        salvo.ListCodec(salvo.AddrCodec).enc(v.members, out)
+        salvo.ListCodec(salvo.EffCodec).enc(v.members, out)
         salvo.ReplyCodec.enc(v.out, out)
     }
-    override fun dec(inp: salvo.WireIn): Gather.Scatter = Gather.Scatter(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.AddrCodec).dec(inp), salvo.ReplyCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): Gather.Scatter = Gather.Scatter(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.EffCodec).dec(inp), salvo.ReplyCodec.dec(inp))
 }
 
 class __Mon_Gather(
@@ -503,7 +503,7 @@ class Hedging(private val group: Int, private val racer: Int) : Lookup {
     override fun lookup(key: String, out: salvo.SalvoReply) {
         val members: List<Int> = kotlin.run {
             val (ms, __wid) = salvo.SalvoSched.waiter()
-            salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.AddrCodec)) })
+            salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.EffCodec)) })
             salvo.SalvoSched.sendWire(group, salvo.std.net.__Msg_ActorGroup.Members(ms), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup)
             salvo.SalvoSched.awaitReply(__wid) as List<Int>
         }
@@ -556,10 +556,10 @@ interface Race {
 object __Codec_Race_Race : salvo.WireCodec<Race.Race> {
     override fun enc(v: Race.Race, out: salvo.WireOut) {
         salvo.StrCodec.enc(v.key, out)
-        salvo.ListCodec(salvo.AddrCodec).enc(v.members, out)
+        salvo.ListCodec(salvo.EffCodec).enc(v.members, out)
         salvo.ReplyCodec.enc(v.out, out)
     }
-    override fun dec(inp: salvo.WireIn): Race.Race = Race.Race(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.AddrCodec).dec(inp), salvo.ReplyCodec.dec(inp))
+    override fun dec(inp: salvo.WireIn): Race.Race = Race.Race(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.EffCodec).dec(inp), salvo.ReplyCodec.dec(inp))
 }
 
 class __Mon_Race(
@@ -861,16 +861,16 @@ class Booting(private val at: salvo.std.net.NodeEndpoint, private val all: List<
         val p: Int = salvo.std.core.actor.pool(1)
         val group: Int = kotlin.run { val __h = salvo.std.net.StaticNodeGroup(name = "cluster", all = all, __dep0); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, salvo.std.net.__Actor_StaticNodeGroup(__h), salvo.std.net.__Actor_StaticNodeGroup.__DECODE); salvo.SalvoSched.send(__a, salvo.std.net.__Priv_StaticNodeGroup.Init); __a }
         nodes = group
-        val seq: Int = salvo.std.net.actorGroup__Addr(group, {  -> salvo.std.net.Protocol("Sequencer", __PROTO_Sequencer) })
+        val seq: Int = salvo.std.net.actorGroup__Eff(group, {  -> salvo.std.net.Protocol("Sequencer", __PROTO_Sequencer) })
         val mine: Int = kotlin.run { val __h = Sequencing(who = "b"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE); salvo.SalvoSched.sendWire(seq, salvo.std.net.__Msg_ActorGroup.Join(__a), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup); __a }
-        val stock: Int = salvo.std.net.actorGroup__Addr(group, {  -> salvo.std.net.Protocol("Inventory", __PROTO_Inventory) })
+        val stock: Int = salvo.std.net.actorGroup__Eff(group, {  -> salvo.std.net.Protocol("Inventory", __PROTO_Inventory) })
         kotlin.run { val __h = Stocking(shard = "shard-b"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Stocking(__h), __Actor_Stocking.__DECODE); salvo.SalvoSched.sendWire(stock, salvo.std.net.__Msg_ActorGroup.Join(__a), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup); __a }
-        val index: Int = salvo.std.net.actorGroup__Addr(group, {  -> salvo.std.net.Protocol("Search", __PROTO_Search) })
+        val index: Int = salvo.std.net.actorGroup__Eff(group, {  -> salvo.std.net.Protocol("Search", __PROTO_Search) })
         kotlin.run { val __h = Indexing(words = salvo.std.core.list.List__T_TArray("salvo", arrayOf<String>("actors", "salvo", "nodes"))); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE); salvo.SalvoSched.sendWire(index, salvo.std.net.__Msg_ActorGroup.Join(__a), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup); __a }
-        val looks: Int = salvo.std.net.actorGroup__Addr(group, {  -> salvo.std.net.Protocol("Lookup", __PROTO_Lookup) })
+        val looks: Int = salvo.std.net.actorGroup__Eff(group, {  -> salvo.std.net.Protocol("Lookup", __PROTO_Lookup) })
         val timer: Int = kotlin.run { val __h = salvo.std.time.DefaultTimer(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, salvo.std.time.__Actor_DefaultTimer(__h), salvo.std.time.__Actor_DefaultTimer.__DECODE); __a }
         kotlin.run { val __h = SlowLooking(who = "b (slow)", timer = timer); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_SlowLooking(__h), __Actor_SlowLooking.__DECODE); salvo.SalvoSched.sendWire(looks, salvo.std.net.__Msg_ActorGroup.Join(__a), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup); __a }
-        salvo.SalvoSched.replyWire(done, mine, salvo.AddrCodec)
+        salvo.SalvoSched.replyWire(done, mine, salvo.EffCodec)
     }
     override fun stop(done: salvo.SalvoReply) {
         val group: Int? = nodes
@@ -941,19 +941,19 @@ fun main() {
     val __handle_4: salvo.std.net.Transport = salvo.std.net.__Mon_Transport(__use_3, __lock___use_3)
     val p: Int = salvo.std.core.actor.pool(2)
     val nodes: Int = kotlin.run { val __h = salvo.std.net.StaticNodeGroup(name = "cluster", all = all, __handle_4); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, salvo.std.net.__Actor_StaticNodeGroup(__h), salvo.std.net.__Actor_StaticNodeGroup.__DECODE); salvo.SalvoSched.send(__a, salvo.std.net.__Priv_StaticNodeGroup.Init); __a }
-    val seq: Int = salvo.std.net.actorGroup__Addr(nodes, {  -> salvo.std.net.Protocol("Sequencer", __PROTO_Sequencer) })
+    val seq: Int = salvo.std.net.actorGroup__Eff(nodes, {  -> salvo.std.net.Protocol("Sequencer", __PROTO_Sequencer) })
     kotlin.run { val __h = Sequencing(who = "a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Sequencing(__h), __Actor_Sequencing.__DECODE); salvo.SalvoSched.sendWire(seq, salvo.std.net.__Msg_ActorGroup.Join(__a), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup); __a }
-    val stock: Int = salvo.std.net.actorGroup__Addr(nodes, {  -> salvo.std.net.Protocol("Inventory", __PROTO_Inventory) })
+    val stock: Int = salvo.std.net.actorGroup__Eff(nodes, {  -> salvo.std.net.Protocol("Inventory", __PROTO_Inventory) })
     kotlin.run { val __h = Stocking(shard = "shard-a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Stocking(__h), __Actor_Stocking.__DECODE); salvo.SalvoSched.sendWire(stock, salvo.std.net.__Msg_ActorGroup.Join(__a), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup); __a }
-    val index: Int = salvo.std.net.actorGroup__Addr(nodes, {  -> salvo.std.net.Protocol("Search", __PROTO_Search) })
+    val index: Int = salvo.std.net.actorGroup__Eff(nodes, {  -> salvo.std.net.Protocol("Search", __PROTO_Search) })
     kotlin.run { val __h = Indexing(words = salvo.std.core.list.List__T_TArray("salvo", arrayOf<String>("is", "salvo"))); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Indexing(__h), __Actor_Indexing.__DECODE); salvo.SalvoSched.sendWire(index, salvo.std.net.__Msg_ActorGroup.Join(__a), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup); __a }
-    val looks: Int = salvo.std.net.actorGroup__Addr(nodes, {  -> salvo.std.net.Protocol("Lookup", __PROTO_Lookup) })
+    val looks: Int = salvo.std.net.actorGroup__Eff(nodes, {  -> salvo.std.net.Protocol("Lookup", __PROTO_Lookup) })
     kotlin.run { val __h = Looking(who = "a"); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Looking(__h), __Actor_Looking.__DECODE); salvo.SalvoSched.sendWire(looks, salvo.std.net.__Msg_ActorGroup.Join(__a), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup); __a }
     val pb: Int = salvo.std.net.poolAt(salvo.std.net.newNode(), 1)
     val booter: Int = kotlin.run { val __h = Booting(at = b, all = all, net = network, salvo.std.net.__Mon_Transport(salvo.std.net.MemTransport(me = b, net = network))); val __a = salvo.SalvoSched.spawn(pb, __h.__mailboxCapacity, __Actor_Booting(__h), __Actor_Booting.__DECODE); __a }
     val remoteSeq: Int = kotlin.run {
         val (done, __wid) = salvo.SalvoSched.waiter()
-        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.AddrCodec) })
+        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.EffCodec) })
         salvo.SalvoSched.sendWire(booter, __Msg_Boot.Boot(done), __PROTO_Boot, __Codec___Msg_Boot)
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
@@ -967,7 +967,7 @@ fun main() {
     }
     salvo.std.core.console.println(__handle_2, "nodes: ${(salvo.std.core.list.sizePlatform(members) + 1)}, sequencers: ${salvo.std.core.list.sizePlatform(kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
-        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.AddrCodec)) })
+        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.EffCodec)) })
         salvo.SalvoSched.sendWire(seq, salvo.std.net.__Msg_ActorGroup.Members(out), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup)
         salvo.SalvoSched.awaitReply(__wid) as List<Int>
     })}")
@@ -998,7 +998,7 @@ fun main() {
     salvo.std.core.console.println(__handle_2, "after b left:")
     salvo.std.core.console.println(__handle_2, "  sequencers: ${salvo.std.core.list.sizePlatform(kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
-        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.AddrCodec)) })
+        salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.EffCodec)) })
         salvo.SalvoSched.sendWire(seq, salvo.std.net.__Msg_ActorGroup.Members(out), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup)
         salvo.SalvoSched.awaitReply(__wid) as List<Int>
     })}")
@@ -1235,16 +1235,16 @@ sealed class __Msg_Gather {
 object __Codec___Msg_Gather : salvo.WireCodec<__Msg_Gather> {
     override fun enc(v: __Msg_Gather, out: salvo.WireOut) {
         when (v) {
-            is __Msg_Gather.Scatter -> { out.u8(0); salvo.StrCodec.enc(v.word, out); salvo.ListCodec(salvo.AddrCodec).enc(v.members, out); salvo.ReplyCodec.enc(v.out, out) }
+            is __Msg_Gather.Scatter -> { out.u8(0); salvo.StrCodec.enc(v.word, out); salvo.ListCodec(salvo.EffCodec).enc(v.members, out); salvo.ReplyCodec.enc(v.out, out) }
         }
     }
     override fun dec(inp: salvo.WireIn): __Msg_Gather = when (inp.u8()) {
-            0 -> __Msg_Gather.Scatter(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.AddrCodec).dec(inp), salvo.ReplyCodec.dec(inp))
+            0 -> __Msg_Gather.Scatter(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.EffCodec).dec(inp), salvo.ReplyCodec.dec(inp))
         else -> throw salvo.WireError()
     }
 }
 
-const val __PROTO_Gather: String = "98712ca205da344c"
+const val __PROTO_Gather: String = "0291bc402e333bd0"
 
 
 sealed class __Msg_Race {
@@ -1254,16 +1254,16 @@ sealed class __Msg_Race {
 object __Codec___Msg_Race : salvo.WireCodec<__Msg_Race> {
     override fun enc(v: __Msg_Race, out: salvo.WireOut) {
         when (v) {
-            is __Msg_Race.Race -> { out.u8(0); salvo.StrCodec.enc(v.key, out); salvo.ListCodec(salvo.AddrCodec).enc(v.members, out); salvo.ReplyCodec.enc(v.out, out) }
+            is __Msg_Race.Race -> { out.u8(0); salvo.StrCodec.enc(v.key, out); salvo.ListCodec(salvo.EffCodec).enc(v.members, out); salvo.ReplyCodec.enc(v.out, out) }
         }
     }
     override fun dec(inp: salvo.WireIn): __Msg_Race = when (inp.u8()) {
-            0 -> __Msg_Race.Race(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.AddrCodec).dec(inp), salvo.ReplyCodec.dec(inp))
+            0 -> __Msg_Race.Race(salvo.StrCodec.dec(inp), salvo.ListCodec(salvo.EffCodec).dec(inp), salvo.ReplyCodec.dec(inp))
         else -> throw salvo.WireError()
     }
 }
 
-const val __PROTO_Race: String = "5e0ec4d63d5f53dd"
+const val __PROTO_Race: String = "fb655970ed453877"
 
 
 sealed class __Msg_Boot {
@@ -1285,7 +1285,7 @@ object __Codec___Msg_Boot : salvo.WireCodec<__Msg_Boot> {
     }
 }
 
-const val __PROTO_Boot: String = "4b15e647d0ca92a7"
+const val __PROTO_Boot: String = "a5a2c563761bc205"
 
 
 sealed class __Cont_Sequencing {

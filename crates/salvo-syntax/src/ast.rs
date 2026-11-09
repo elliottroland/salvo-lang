@@ -1785,15 +1785,15 @@ impl fmt::Display for TypeRef {
         if self.binder {
             write!(f, "?")?;
         }
-        // [effect-eff-handle] The internal handle name `Addr` reads as its surface
-        // spelling `eff[A, B, …]` — never the old `Addr<…>`. (No binder, `@`,
+        // [effect-eff-handle] The internal handle name `Eff` reads as its surface
+        // spelling `eff[A, B, …]` — never the old `Eff<…>`. (No binder, `@`,
         // or value-args ever attach to a handle type.)
         // [effect-var] An effect row type argument reads as its list: `[A, B]`.
         if self.name.name == EFFECT_ROW_TYPE_NAME {
             let args: Vec<String> = self.args.iter().map(|a| a.to_string()).collect();
             return write!(f, "[{}]", args.join(", "));
         }
-        if self.name.name == "Addr" && !self.binder && self.at.is_none() {
+        if self.name.name == "Eff" && !self.binder && self.at.is_none() {
             let args: Vec<String> = self.args.iter().map(|a| a.to_string()).collect();
             return write!(f, "eff[{}]", args.join(", "));
         }
@@ -2354,7 +2354,7 @@ pub enum Expr {
     /// only inside a handler member — both the checker's rules.
     SelfScoped { name: Ident, span: Span },
     /// [handler-init] [actor-self-send] `self@Face` — the enclosing handler's
-    /// own address, as the face named: an `Addr<Face>`, read off what the
+    /// own address, as the face named: an `Eff<Face>`, read off what the
     /// runtime wrote before this activation. Legal in `init` and in send
     /// members; a handler that uses it is spawn-only, since a `use`-bound
     /// instance has no address.
@@ -2362,7 +2362,7 @@ pub enum Expr {
     /// [actor-spawn-expr] `spawn Counting(0) with ScriptedDb(f), ddb
     /// on pool(2)` — bind a handler *asynchronously*: the actor. Read left to
     /// right: what to run, what it depends on, where it runs. Its value is the
-    /// child's `Addr`.
+    /// child's `Eff`.
     ///
     /// The mailbox is **not** here: it is the handler's own
     /// `mailbox { capacity: … }` slot [actor-mailbox], stated once by the
@@ -2378,7 +2378,7 @@ pub enum Expr {
         /// value and only `use`/`spawn` may construct one.
         handler: Box<Expr>,
         /// [effect-with-clause] The `with` clause, empty when it is absent: handler
-        /// constructions *or* `Addr` values, supplying the child's declared
+        /// constructions *or* `Eff` values, supplying the child's declared
         /// dependencies [effect-handler-deps] instead of the spawning
         /// scope's resolution [actor-spawn-inherit]. Arguments evaluate in the
         /// parent and cross the seam; construction happens on the child.
@@ -2395,7 +2395,7 @@ pub enum Expr {
         /// to `spawn`, which is also how a spawn site *names* the main pool
         /// without new vocabulary.
         pool: Option<Box<Expr>>,
-        /// [actor-group] `in GROUP` — an `Addr<ActorGroup<E>>` the spawned
+        /// [actor-group] `in GROUP` — an `Eff<ActorGroup<E>>` the spawned
         /// actor joins (user decision 2026-09-27): the spawn stays local, on
         /// its pool; the clause adds the one message `join(group, addr)`
         /// sends. A place, not a placement — which is why it is not `on`.

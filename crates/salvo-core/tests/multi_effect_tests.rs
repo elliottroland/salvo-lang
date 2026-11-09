@@ -23,7 +23,7 @@ export intrinsic type Str
 export intrinsic type Bool
 export intrinsic type List<T> canbe Mut
 export intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value
-export intrinsic type Addr<E>
+export intrinsic type Eff<E>
 export struct Mailbox { capacity: Int }
 export linear intrinsic type Reply<T>
 export intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value

@@ -69,7 +69,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                 "Str" => "salvo.StrCodec".into(),
                 "Bytes" => "salvo.BytesCodec".into(),
                 "None" => "salvo.UnitCodec".into(),
-                "Addr" => "salvo.AddrCodec".into(),
+                "Eff" => "salvo.EffCodec".into(),
                 "Reply" => "salvo.ReplyCodec".into(),
                 "List" if args.len() == 1 => format!("salvo.ListCodec({})", self.codec(&args[0])),
                 _ => {

@@ -235,7 +235,7 @@ fn main() [use, spawn] -> None {
 // [actor-spawn-expr] [effect-handler-deps] **A dependent spawn**: the child
 // declares `[Log, Tally]` and the spawn's `with` clause supplies one of each
 // kind — `Recording()` as a **construction**, built on the child, and `tally`
-// as an **`Addr`**, bound to a forwarding stub. That is the binding swap
+// as an **`Eff`**, bound to a forwarding stub. That is the binding swap
 // executed: `Counting` is compiled once and neither of its member bodies can
 // tell which of its two dependencies is a process.
 //

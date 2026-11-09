@@ -312,8 +312,8 @@ class SalvoHostReply internal constructor(private val reply: SalvoReply) {
 
 // [net-addr-routable] The codecs of the two scheduler handles live here, beside
 // what they ask, so the wire stands alone in a program with no actors.
-/** [net-addr-routable] An `Addr<E>` is a scheduler index; on the wire its routable identity, 24 bytes. */
-object AddrCodec : WireCodec<Int> {
+/** [net-addr-routable] An `Eff<E>` is a scheduler index; on the wire its routable identity, 24 bytes. */
+object EffCodec : WireCodec<Int> {
     override fun enc(v: Int, out: WireOut) {
         val r = SalvoSched.addrIdentity(v)
         out.i64(r.node); out.i64(r.actor); out.i64(r.bits)

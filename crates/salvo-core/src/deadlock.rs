@@ -8,7 +8,7 @@
 //! on the rare crossing — so what is caught here is the **possibility**,
 //! whole-program, rather than the occurrence at run time.
 //!
-//! Nodes are `actor effect`s, because that is what an `Addr` is typed by, and
+//! Nodes are `actor effect`s, because that is what an `Eff` is typed by, and
 //! there are two kinds of edge:
 //!
 //! * a **wait-for** edge, from a gate. While a `replyto!` continuation is
@@ -324,7 +324,7 @@ fn build(
             let served: Vec<&str> = h.shape.faces.iter().map(|(of, _)| of.as_str()).filter(|name| is_actor(name)).collect();
             // [actor-mixed-handler] A mixed handler's servant is a node of its
             // own: it serves no actor effect, but its send members can send
-            // through the `Addr` values it holds, and those are the edges
+            // through the `Eff` values it holds, and those are the edges
             // that close an occupancy cycle. [linear-defer] Since parking
             // landed, a servant can gate too (`replyto!` in a send member)
             // and can wait (`waitfor` in one), so its edge kinds mirror an

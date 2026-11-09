@@ -1865,7 +1865,7 @@ Module {
                             qualifiers: [],
                             base: TypeRef {
                                 name: Ident {
-                                    name: "Addr",
+                                    name: "Eff",
                                     span: 1753..1756,
                                 },
                                 args: [
@@ -2011,7 +2011,7 @@ Module {
                         qualifiers: [],
                         base: TypeRef {
                             name: Ident {
-                                name: "Addr",
+                                name: "Eff",
                                 span: 1798..1801,
                             },
                             args: [],

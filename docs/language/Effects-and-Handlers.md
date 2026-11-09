@@ -463,7 +463,7 @@ fn report(c: eff[Clock]) [use] -> Int => c {
 carrying several. The set is flat, so `eff[A, B]` and `eff[B, A]` are one
 type, and an alias expands into it: `eff[IO]` is `eff[Console, Fs, Streams]`.
 An actor's address is the same type
-([`Addr`](../../lib/std/core/actor.sv#type-addr), see
+([`Eff`](../../lib/std/core/actor.sv#type-addr), see
 [Concurrency](Concurrency.md)).
 
 A handle is freely shareable, which is what makes handing one to another

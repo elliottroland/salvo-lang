@@ -83,7 +83,7 @@ pub fn module_features(
         return f;
     }
     // The scheduler's own handle types and constructors: an
-    // `Addr`, `Pool` or `Reply` named anywhere in the module, or a `pool` /
+    // `Eff`, `Pool` or `Reply` named anywhere in the module, or a `pool` /
     // `thread` intrinsic. A `Reply` also carries the wire.
     let refs = crate::reach::used_names(ast);
     let mut tys: HashSet<String> = HashSet::new();
@@ -93,7 +93,7 @@ pub fn module_features(
         }
     }
     let named = |n: &str| refs.contains(n) || tys.contains(n);
-    // [effect-eff-handle] An `Addr` (the internal handle type) needs the scheduler
+    // [effect-eff-handle] An `Eff` (the internal handle type) needs the scheduler
     // only when it wraps an **actor** effect — an actor address is a scheduler
     // index. A plain-effect handle (`eff[Clock]`, a monitor) is just an
     // `Arc<Mutex>` and needs no scheduler, so a program that only hands plain
@@ -184,14 +184,14 @@ fn spawns_or_binds_addr(checked: &Checked, file_idx: usize, ast: &Module) -> boo
     v.found
 }
 
-/// [effect-eff-handle] Whether a type contains an `Addr<E>` handle whose effect `E`
+/// [effect-eff-handle] Whether a type contains an `Eff<E>` handle whose effect `E`
 /// is an **actor** effect — the handle that is a scheduler index and needs the
 /// runtime. A plain-effect handle (a monitor) does not.
 fn ty_has_actor_addr(t: &crate::types::Ty, symbols: &crate::Symbols) -> bool {
     use crate::types::Ty;
     match t {
         Ty::Named { name, args } => {
-            if crate::typekey::plain(name) == "Addr" {
+            if crate::typekey::plain(name) == "Eff" {
                 if let Some(arg) = args.first() {
                     if let Ty::Named { name: e, .. } = arg.strip_quals() {
                         if symbols.effects.get(e.as_str()).is_some_and(|d| d.is_actor) {

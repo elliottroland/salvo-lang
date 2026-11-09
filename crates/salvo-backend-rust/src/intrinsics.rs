@@ -241,7 +241,7 @@ pub fn fn_call(
         // runtime ------------------------------------------------------
         // [runtime-handles] An addr and a pool are `usize` indices here and
         // `i32` in the Salvo runtime.
-        ("addr_index", Some("Addr")) | ("pool_index", Some("Pool")) => format!("((({}).clone()) as i32)", a(0)),
+        ("addr_index", Some("Eff")) | ("pool_index", Some("Pool")) => format!("((({}).clone()) as i32)", a(0)),
         ("addr_of", Some("Int")) | ("pool_of", Some("Int")) => format!("(({}) as usize)", a(0)),
         // std.core.actor ---------------------------------------------------
         // [actor-replyto] [rs-actor] Answering a request: the token is
@@ -368,9 +368,9 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         // [actor-types] [rs-actor] The scheduler's handles: an addr and a pool
         // are indices into it, a reply token is its own type. Their type
         // *arguments* are dropped by `emit_named_parts` — the effect a
-        // `Addr<E>` serves is the checker's business, and the message enum is
+        // `Eff<E>` serves is the checker's business, and the message enum is
         // what carries payload types into the runtime.
-        "Addr" => "usize",
+        "Eff" => "usize",
         "Pool" => "usize",
         "Reply" => "crate::scheduler::SalvoReply",
         "None" => "()",

@@ -158,6 +158,17 @@ left is in ROADMAP §9's "Property testing: what is left": actor properties,
 linear parameters, the missing generators, and the agent's calls for the
 user to confirm. The file is deleted.
 
+### 2026-11-05 — `Addr<E>` renamed `Eff<E>`; the Writing Test Kinds page
+
+The compiler's internal handle type is now `Eff<E>`, so `eff[E]` and its
+declaration share a name beside `message[E]`/`Message<E>` (user decision).
+Everything that named it moved: std's `intrinsic type`, the parser and
+checker constants (`EFF_TYPE`, `EFF_TYPE_NAME`), both backends' intrinsics
+and the Kotlin `EffCodec`, specs and docs. Checked-in examples were
+regenerated; `examples/cluster` needed a version bump (0.1.1) since its
+protocol hashes carry the type's name. `docs/language/Test-Kinds.md` documents
+writing a kind, and a CLI test runs one written in an annex.
+
 ### 2026-11-05 — user-definable test kinds ([test-kind])
 
 `plain`, `actor` and `property` became comptime fns (`Test` first

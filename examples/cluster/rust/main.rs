@@ -96,7 +96,7 @@ use crate::std_net::RouteConfig;
 use crate::std_net::RouteMember;
 use crate::std_net::RouteView;
 use crate::std_net::Transport;
-use crate::std_net::actor_group__Addr;
+use crate::std_net::actor_group__Eff;
 use crate::std_core_deque::add_last_platform;
 use crate::std_core_list::add_platform;
 use crate::std_net::default_route_config;
@@ -1339,13 +1339,13 @@ impl crate::__Stateful_Boot for Booting {
         let mut p: usize = crate::std_core_actor::pool(1i32);
         let mut group: usize = ({ let __h = crate::std_net::StaticNodeGroup::new(String::from("cluster"), (self.all).clone(), self.__dep0.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(crate::std_net::__Actor_StaticNodeGroup::new(__h)), crate::std_net::__DECODE_StaticNodeGroup); crate::scheduler::salvo_send(__a, std::boxed::Box::new(crate::std_net::__Priv_StaticNodeGroup::Init)); __a });
         self.nodes = Some(group);
-        let mut seq: usize = crate::std_net::actor_group__Addr(group, &mut || crate::std_net::Protocol { name: "Sequencer".to_string(), hash: crate::__PROTO_Sequencer.to_string() });
+        let mut seq: usize = crate::std_net::actor_group__Eff(group, &mut || crate::std_net::Protocol { name: "Sequencer".to_string(), hash: crate::__PROTO_Sequencer.to_string() });
         let mut mine: usize = ({ let __h = crate::Sequencing::new(String::from("b")); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(crate::__Actor_Sequencing::new(__h)), crate::__DECODE_Sequencing); crate::scheduler::salvo_send_wire(seq, crate::std_net::__Msg_ActorGroup::Join(__a), crate::std_net::__PROTO_ActorGroup); __a });
-        let mut stock: usize = crate::std_net::actor_group__Addr(group, &mut || crate::std_net::Protocol { name: "Inventory".to_string(), hash: crate::__PROTO_Inventory.to_string() });
+        let mut stock: usize = crate::std_net::actor_group__Eff(group, &mut || crate::std_net::Protocol { name: "Inventory".to_string(), hash: crate::__PROTO_Inventory.to_string() });
         ({ let __h = crate::Stocking::new(String::from("shard-b")); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(crate::__Actor_Stocking::new(__h)), crate::__DECODE_Stocking); crate::scheduler::salvo_send_wire(stock, crate::std_net::__Msg_ActorGroup::Join(__a), crate::std_net::__PROTO_ActorGroup); __a });
-        let mut index: usize = crate::std_net::actor_group__Addr(group, &mut || crate::std_net::Protocol { name: "Search".to_string(), hash: crate::__PROTO_Search.to_string() });
+        let mut index: usize = crate::std_net::actor_group__Eff(group, &mut || crate::std_net::Protocol { name: "Search".to_string(), hash: crate::__PROTO_Search.to_string() });
         ({ let __h = crate::Indexing::new(crate::std_core_list::List__T_TArray::<String>(String::from("salvo"), vec![String::from("actors"), String::from("salvo"), String::from("nodes")])); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(crate::__Actor_Indexing::new(__h)), crate::__DECODE_Indexing); crate::scheduler::salvo_send_wire(index, crate::std_net::__Msg_ActorGroup::Join(__a), crate::std_net::__PROTO_ActorGroup); __a });
-        let mut looks: usize = crate::std_net::actor_group__Addr(group, &mut || crate::std_net::Protocol { name: "Lookup".to_string(), hash: crate::__PROTO_Lookup.to_string() });
+        let mut looks: usize = crate::std_net::actor_group__Eff(group, &mut || crate::std_net::Protocol { name: "Lookup".to_string(), hash: crate::__PROTO_Lookup.to_string() });
         let mut timer: usize = ({ let __h = crate::std_time::DefaultTimer::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(crate::std_time::__Actor_DefaultTimer::new(__h)), crate::std_time::__DECODE_DefaultTimer); __a });
         ({ let __h = crate::SlowLooking::new(String::from("b (slow)"), timer); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(crate::__Actor_SlowLooking::new(__h)), crate::__DECODE_SlowLooking); crate::scheduler::salvo_send_wire(looks, crate::std_net::__Msg_ActorGroup::Join(__a), crate::std_net::__PROTO_ActorGroup); __a });
         crate::scheduler::salvo_reply_wire::<usize>(done, mine);
@@ -1425,13 +1425,13 @@ pub fn main() {
     let __handle_4 = crate::std_net::Transport::shared(__use_3);
     let mut p: usize = crate::std_core_actor::pool(2i32);
     let mut nodes: usize = ({ let __h = crate::std_net::StaticNodeGroup::new(String::from("cluster"), (all).clone(), __handle_4.clone()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(crate::std_net::__Actor_StaticNodeGroup::new(__h)), crate::std_net::__DECODE_StaticNodeGroup); crate::scheduler::salvo_send(__a, std::boxed::Box::new(crate::std_net::__Priv_StaticNodeGroup::Init)); __a });
-    let mut seq: usize = crate::std_net::actor_group__Addr(nodes, &mut || crate::std_net::Protocol { name: "Sequencer".to_string(), hash: crate::__PROTO_Sequencer.to_string() });
+    let mut seq: usize = crate::std_net::actor_group__Eff(nodes, &mut || crate::std_net::Protocol { name: "Sequencer".to_string(), hash: crate::__PROTO_Sequencer.to_string() });
     ({ let __h = crate::Sequencing::new(String::from("a")); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(crate::__Actor_Sequencing::new(__h)), crate::__DECODE_Sequencing); crate::scheduler::salvo_send_wire(seq, crate::std_net::__Msg_ActorGroup::Join(__a), crate::std_net::__PROTO_ActorGroup); __a });
-    let mut stock: usize = crate::std_net::actor_group__Addr(nodes, &mut || crate::std_net::Protocol { name: "Inventory".to_string(), hash: crate::__PROTO_Inventory.to_string() });
+    let mut stock: usize = crate::std_net::actor_group__Eff(nodes, &mut || crate::std_net::Protocol { name: "Inventory".to_string(), hash: crate::__PROTO_Inventory.to_string() });
     ({ let __h = crate::Stocking::new(String::from("shard-a")); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(crate::__Actor_Stocking::new(__h)), crate::__DECODE_Stocking); crate::scheduler::salvo_send_wire(stock, crate::std_net::__Msg_ActorGroup::Join(__a), crate::std_net::__PROTO_ActorGroup); __a });
-    let mut index: usize = crate::std_net::actor_group__Addr(nodes, &mut || crate::std_net::Protocol { name: "Search".to_string(), hash: crate::__PROTO_Search.to_string() });
+    let mut index: usize = crate::std_net::actor_group__Eff(nodes, &mut || crate::std_net::Protocol { name: "Search".to_string(), hash: crate::__PROTO_Search.to_string() });
     ({ let __h = crate::Indexing::new(crate::std_core_list::List__T_TArray::<String>(String::from("salvo"), vec![String::from("is"), String::from("salvo")])); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(crate::__Actor_Indexing::new(__h)), crate::__DECODE_Indexing); crate::scheduler::salvo_send_wire(index, crate::std_net::__Msg_ActorGroup::Join(__a), crate::std_net::__PROTO_ActorGroup); __a });
-    let mut looks: usize = crate::std_net::actor_group__Addr(nodes, &mut || crate::std_net::Protocol { name: "Lookup".to_string(), hash: crate::__PROTO_Lookup.to_string() });
+    let mut looks: usize = crate::std_net::actor_group__Eff(nodes, &mut || crate::std_net::Protocol { name: "Lookup".to_string(), hash: crate::__PROTO_Lookup.to_string() });
     ({ let __h = crate::Looking::new(String::from("a")); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(crate::__Actor_Looking::new(__h)), crate::__DECODE_Looking); crate::scheduler::salvo_send_wire(looks, crate::std_net::__Msg_ActorGroup::Join(__a), crate::std_net::__PROTO_ActorGroup); __a });
     let mut pb: usize = crate::std_net::pool_at(&crate::std_net::new_node(), 1i32);
     let mut booter: usize = ({ let __h = crate::Booting::new((b).clone(), (all).clone(), network, crate::std_net::Transport::shared(crate::std_net::MemTransport::new((b).clone(), network))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(pb, __cap as usize, std::boxed::Box::new(crate::__Actor_Booting::new(__h)), crate::__DECODE_Booting); __a });
@@ -2028,7 +2028,7 @@ impl crate::wire::__Wire for __Msg_Gather {
 }
 
 /// [actor-protocol-hash] The canonical hash of `Gather`.
-pub const __PROTO_Gather: &str = "98712ca205da344c";
+pub const __PROTO_Gather: &str = "0291bc402e333bd0";
 
 pub enum __Msg_Race {
     Race(String, Vec<usize>, crate::scheduler::SalvoReply),
@@ -2054,7 +2054,7 @@ impl crate::wire::__Wire for __Msg_Race {
 }
 
 /// [actor-protocol-hash] The canonical hash of `Race`.
-pub const __PROTO_Race: &str = "5e0ec4d63d5f53dd";
+pub const __PROTO_Race: &str = "fb655970ed453877";
 
 pub enum __Msg_Boot {
     Boot(crate::scheduler::SalvoReply),
@@ -2084,7 +2084,7 @@ impl crate::wire::__Wire for __Msg_Boot {
 }
 
 /// [actor-protocol-hash] The canonical hash of `Boot`.
-pub const __PROTO_Boot: &str = "4b15e647d0ca92a7";
+pub const __PROTO_Boot: &str = "a5a2c563761bc205";
 
 pub enum __Cont_Sequencing {
     Next,

@@ -659,7 +659,7 @@ can establish it, naming the field. A `Mut` field is refused likewise; a
 persisted shape is immutable data.
 
 **Linear and `noremote`.** A struct with a linear field, a `proj` view, a fn
-type, a `Pool`, a stream or an `Addr` has no persisted form, by the same
+type, a `Pool`, a stream or an `Eff` has no persisted form, by the same
 predicate `wire_blocker` already applies, extended with "and no keyed
 container over a user-defined key until its identity can travel".
 

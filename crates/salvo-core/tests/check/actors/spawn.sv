@@ -1,6 +1,6 @@
 // [actor-spawn-expr] [actor-waitfor] [actor-use-addr] The asynchronous
 // surface's checker rules: what a `spawn` needs to be legal, where a
-// `waitfor` may stand, and how an `Addr` is called. The types the forms
+// `waitfor` may stand, and how an `Eff` is called. The types the forms
 // produce and consume are `std.core.actor`'s ([actor-types]). A process is a
 // handler bound asynchronously, so almost every rule is one `use` already
 // had, moved to the spawn site.

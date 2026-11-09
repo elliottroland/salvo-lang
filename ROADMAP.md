@@ -1635,6 +1635,13 @@ deliberately cut, in the order the decisions put it:
   (recommended, error otherwise), a preamble may do **anything a test body may**,
   and a **childless context warns**. The lowering is per-test inlining, which
   makes isolation true by construction.
+- **Defect: a `while` in a `try` block, in a unit body, emits invalid Rust**
+  (found 2026-11-05 writing docs/language/Test-Kinds.md). Repro: a
+  `comptime fn` test kind whose template is `let outcome = try { let i = 0;
+  while i < times { [test.body]() ; i = i + 1 } }` — rustc rejects
+  `let mut __loop_1: () = None;` (E0308). Moving the `try` inside the loop
+  works.
+
 - **Test kinds: what is left** (built 2026-11-05, [test-kind]): a shared
   test-support tree / annex-to-annex import so a user kind can be shared
   between annexes (next); hygiene for template locals against user
@@ -2178,7 +2185,7 @@ several are "revisit only if a customer appears".
 
 - **Whether the monitor spawn of a plain-effect handler stays** (user
   decision 2026-09-28: keep the split as is for now). `spawn H()` where every
-  face of `H` is a plain effect answers an `Addr<E>` and shares one locked
+  face of `H` is a plain effect answers an `Eff<E>` and shares one locked
   instance [actor-monitor-handler]; it was the only way to share a stateful plain
   handler between spawns until [effect-handle] made every `use` a handle and
   [actor-spawn-inherit] hands the scope's bindings to a child. What it still buys
@@ -2279,7 +2286,7 @@ several are "revisit only if a customer appears".
   `println("${size("a😀b")}")` prints 3 on Rust and 4 on Kotlin. Needs a decision
   about what a `Str` index *means*, then one lowering per backend. `byte_size` is
   parity-safe by construction and is what the filesystem uses.
-- **Intersection types (DECISION)** — whether `Addr<A & B>`-style types join the
+- **Intersection types (DECISION)** — whether `Eff<A & B>`-style types join the
   language; recorded 2026-09-17 when the tuple form shipped instead.
 - **`const` bindings** — announced (user intent 2026-09-19), not designed. Its
   first customer is recorded: the shareable-handler taxonomy's rung 1 keys on "no
@@ -2328,11 +2335,11 @@ several are "revisit only if a customer appears".
   shapes when it is picked up: record the normalized argument list per call span
   in a side table (cheap), or a real normalization pass after types are known
   (removes the duplication). It cannot move into `salvo-syntax`: the name must
-  resolve, and an `Addr<E>` receiver is not argument 0.
+  resolve, and an `Eff<E>` receiver is not argument 0.
 - **Actor-surface prose is owed in `docs/language/`.** Every actor rule is in
   LANGUAGE_SPEC.md, and docs/language/ has the "Where work runs" and "Time"
   chapters — both of which assume vocabulary the document never introduces
-  (`actor effect`, `send fn`, `spawn`, `Addr`, `replyto`/`waitfor`, `watch`).
+  (`actor effect`, `send fn`, `spawn`, `Eff`, `replyto`/`waitfor`, `watch`).
 - **Actor leftovers, each with a named trigger**: a self-send into a full own
   mailbox wedges and `k@self` deliberately contributes no deadlock edge
   (**DECISION** when it matters); the deadlock graph is over actor *types*, not

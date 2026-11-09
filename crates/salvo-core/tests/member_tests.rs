@@ -40,7 +40,7 @@ const STD_PRELUDE: &str = concat!(
     // [actor-spawn-expr] Std's process handle, whose type argument is an
     // *effect* — the one sanctioned exception to [effect-not-data], and the
     // checker keys on this declaration to grant it.
-    "export intrinsic type Addr<E>\n",
+    "export intrinsic type Eff<E>\n",
     "export struct Mailbox { capacity: Int }\n",
     "export intrinsic type List<T> canbe Mut\n",
 ),
@@ -130,7 +130,7 @@ handler MemCounter for Counter {
     }
 }
 
-// [actor-effect-kind] An `Addr` needs a *process* protocol behind it, so the
+// [actor-effect-kind] An `Eff` needs a *process* protocol behind it, so the
 // addr cases below have one to name; `Counter` stays plain, which is what the
 // narrowness case needs.
 actor effect Chatter {

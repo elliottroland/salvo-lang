@@ -224,7 +224,7 @@ fn main() [use] {
   which enqueue and answer nothing), a handler of it is ordinary Salvo, and
   `spawn Counting() on pool(2)` gives it a mailbox — whose depth the handler
   declares, `mailbox { capacity: 8 }` — and answers an
-  `Addr<Counter>`; the `on` clause is optional, and omitted means the pool the
+  `Eff<Counter>`; the `on` clause is optional, and omitted means the pool the
   spawn itself runs on, which in `main` is a pool `main` is the single worker
   of. Its state is its own and its members run one at a time, so
   the serialization *is* the mutual exclusion. An answer travels back through a
@@ -253,7 +253,7 @@ fn main() [use] {
   spawn. Every actor is spawned by the node that hosts it; what crosses the
   wire is addresses and messages, in a canonical encoding Salvo owns — a
   Kotlin node and a Rust node are members of one group — and a type that
-  cannot cross says so (`noremote`) and is refused where it would. `Addr<E>`
+  cannot cross says so (`noremote`) and is refused where it would. `Eff<E>`
   is routable, `Reply<T>` answers across nodes, back-pressure is credit-based
   so a mailbox's `capacity` stays true, and compatibility is a hash per
   protocol compared at the handshake. Membership is two actor effects:

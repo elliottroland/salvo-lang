@@ -272,12 +272,9 @@ else fresh) and its name, so running one test with a filter draws what the
 full run drew.
 
 **Your own kinds.** `plain`, `actor` and `property` are comptime fns in
-[`std.test.kinds`](../../lib/std/test/kinds.sv), taking a `Test` first
-parameter and returning a `Verdict`; `test mykind(x=1) "name" { … }` calls
-`mykind`. The template calls the body with `[test.body](…)`, reads the run's
-configuration with `[test.config]`, and ranges over the parameters with
-`[for p in test.params]`. Arguments are comptime constants, set from the
-command line with `--arg NAME=VALUE`.
+[`std.test.kinds`](../../lib/std/test/kinds.sv), and `test mykind(x=1) "name"
+{ … }` calls one you write. [Writing Test Kinds](Test-Kinds.md) is the page
+for that.
 
 **Where it runs.** On the virtual runtime, freshly started for each run, so
 time and `DefaultRandom` repeat with the run's draws. The [actor

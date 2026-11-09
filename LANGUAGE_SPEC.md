@@ -5259,11 +5259,11 @@ Conventions:
   alias-expanding** — `eff[IO]` ⟺ `eff[Console, Fs, Streams]`, order-normalised
   like an effect list — and `eff[E]` (one effect) is the degenerate case. It is
   the surface spelling of what the compiler holds internally as the type named
-  `Addr` (the mailbox-address name from before handles covered any effect,
-  actor or not); the **old spelling `Addr<E>` is no longer the language** — a
+  `Eff` (the mailbox-address name from before handles covered any effect,
+  actor or not); the **old spelling `Eff<E>` is no longer the language** — a
   plain parse error names `eff[E]`. Diagnostics and the IR dump render the
-  internal `Addr` as `eff[…]`. An `eff[X]` whose `X` is an actor effect is what
-  `send`/`replyto`/`self@Face`/group routing require — the old "`Addr` of an
+  internal `Eff` as `eff[…]`. An `eff[X]` whose `X` is an actor effect is what
+  `send`/`replyto`/`self@Face`/group routing require — the old "`Eff` of an
   actor effect" distinction, now read off the set.
   * **`use` is an expression** (user decision 2026-10-18): `let x = use H()`
     registers `H` in the current scope *and* yields its handle. A single-face
@@ -5291,7 +5291,7 @@ Conventions:
     lowering flatten it with one definition (`check::handle_leaves`). Fixed
     2026-10-30 (the pipeline record D3.3): the lowering read a nested tuple's
     handles by their flattened index (`e.1` for `((a, b), c)`'s `b`), which
-    both target compilers refused. A single-effect handle stays the `Addr`-named marker
+    both target compilers refused. A single-effect handle stays the `Eff`-named marker
     (it carries the plain-vs-actor distinction the emitters read).
   * **Projection `e[A, B]` / `e[alias]`** is a non-consuming copy of the
     sub-handle carrying the named effects — a subset of what `e` carries,
@@ -5458,7 +5458,7 @@ Conventions:
   shared a word with the statement and let a bare spawn swallow a following
   `use` line): `use H(args) with D(), addr` and
   `spawn H(args) with D(), addr on POOL`.
-  * Each item is a handler **construction** or an `Addr`. A construction is a
+  * Each item is a handler **construction** or an `Eff`. A construction is a
     **private instance**: built at the clause, owned by the handler (or the
     child) being registered, unshared with the scope — which is what makes
     "give *this* one its own" writable without a second scope.
@@ -5584,7 +5584,7 @@ Conventions:
     `use` resolving a handler's dependency, and at a spawn inheriting one.
     Viral downward: a body holding `[Counter]` may not call a callee asking
     `[Ordered Counter]`.
-  * **Handles**: a single handle with claims is the `Addr` qualified by
+  * **Handles**: a single handle with claims is the `Eff` qualified by
     them (an ordinary provenance qualifier on the handle value), so a handle
     with more claims fits where one with fewer is wanted and never the
     reverse; a multi-effect handle is a tuple of single handles, each with
@@ -5910,7 +5910,7 @@ Conventions:
     to confirm (P10, ROADMAP 0ah).
   * **Structural types have a std home (D-5)**: tuples, fn types and
     anonymous unions (`T?` included) `std.core.basic`; arrays `T[]`
-    `std.core.array`; an `eff[E]` handle is the type `Addr`, whose home is
+    `std.core.array`; an `eff[E]` handle is the type `Eff`, whose home is
     `std.core.actor`, where it is declared. These were the doc's obvious
     candidates; the anonymous unions' home was not named and is
     `std.core.basic` (2026-10-27, recorded in the pipeline record §II.12). A
@@ -7705,12 +7705,12 @@ docs/language/ remains the source of truth for everything that does.
     answered. A mechanism now starts itself; `PeerEvents` stopped being a
     face; a spawn of a node group answers one `eff[NodeGroup]`.
 * [actor-spawn-expr] `spawn H(args) with D1(...), addr on POOL` is the
-  asynchronous binding, and its value is the child's `Addr`. Read left to
+  asynchronous binding, and its value is the child's `Eff`. Read left to
   right: what to run, what it depends on, where it runs — the queue depth is
   the handler's [actor-mailbox].
   * The **`with` clause is optional** and supplies the child's declared
     dependencies [effect-with-clause]; each item is a handler *construction* (a
-    private instance, built on the child) or an `Addr` (the same effect
+    private instance, built on the child) or an `Eff` (the same effect
     backed by an actor or a shared handler), which is what lets an actor and
     a local handler swap without touching the consuming code. Arguments
     evaluate in the parent and cross the seam; construction happens on the
@@ -7747,7 +7747,7 @@ docs/language/ remains the source of truth for everything that does.
     Consequences, each an error: supplying a dependency the handler does not
     declare, and constructing a clause item that has dependencies *of its
     own*, since there is no scope on the child to resolve those from — an
-    `Addr` of an actor already serving the effect is the remedy.
+    `Eff` of an actor already serving the effect is the remedy.
   * **Two orders, and they differ routinely**: the *handler's declaration*
     order is what the child's dependency slots are in, and the *written*
     clause order is what the program says. The checker matches the two while
@@ -7972,7 +7972,7 @@ docs/language/ remains the source of truth for everything that does.
     for the rest of a scope and a scheduled body has no scope anything else can
     see, and `[spawn]` places work on a pool from the frame that has one — a
     task already *is* that work. `[waitfor]` is unchanged.
-  * An `Addr` capture remains the way to reach an **actor** from a task, and
+  * An `Eff` capture remains the way to reach an **actor** from a task, and
     needs no effect declaration [actor-use-addr].
 * [task-mint] **`replyto` targets any send-kind function** (user decision
   2026-09-17, FC-2), which is what makes the mint legal in **any** function:
@@ -8077,9 +8077,9 @@ docs/language/ remains the source of truth for everything that does.
     implicit-override syntax [implicit-override], not a named argument — so an
     ordinary overload of `pool` is what the surface actually needs.
 * [actor-use-addr] `use addr` binds an effect in the current scope to a
-  generated forwarding stub over an `Addr` — first-pass surface, not sugar, and
+  generated forwarding stub over an `Eff` — first-pass surface, not sugar, and
   no new syntax: the `use` statement already takes an expression, and whether
-  a bare name is a handler construction or an `Addr` is a checker question. Its
+  a bare name is a handler construction or an `Eff` is a checker question. Its
   value is unqualified calls and, above all, passing the capability *down*
   through ordinary effect lists (`fn drive() [Roll]`).
   * Binding **does not consume** the addr: an addr is freely copyable, so the
@@ -8215,7 +8215,7 @@ docs/language/ remains the source of truth for everything that does.
       called — was judged theoretical: parking is the one thing only a
       actor can do, so a handler that parks is an actor.
     * It does not touch Example 6's binding swap, which swaps a *dependency*
-      between a construction and an `Addr` in a spawn clause, never a `use`.
+      between a construction and an `Eff` in a spawn clause, never a `use`.
   * **The target is resolved lexically**, against the enclosing handler's
     members — and then, since 2026-09-17, against free `send fn`s
     [task-mint], which is the one case where the mint needs no enclosing
@@ -8266,7 +8266,7 @@ docs/language/ remains the source of truth for everything that does.
     one-shot address typed by a single value. (It was `Pid<E>` for a few hours;
     renamed by user decision 2026-09-15, because `Pid` is the operating
     system's word and a platform handler wrapping process management will want
-    it. `Addr` also keeps signature-heavy code short — `List<eff[ShardApi]>` —
+    it. `Eff` also keeps signature-heavy code short — `List<eff[ShardApi]>` —
     and rarely collides with a domain noun the way `Address` would.) Its argument is the **effect** the actor
     serves, the one sanctioned effect-in-a-type-position [effect-not-data]
     (user decision 2026-09-15): what a holder may *do* with an addr is exactly
@@ -8400,7 +8400,7 @@ docs/language/ remains the source of truth for everything that does.
     has always had, stated where a program can now read the answer.
 * [actor-deadlock-cycle] **The static deadlock baseline: a cycle check over
   the effect graph** (design decision 2026-09-14, built 2026-09-16). Nodes are
-  `actor effect`s — that is what an `Addr` is typed by — and a cycle means
+  `actor effect`s — that is what an `Eff` is typed by — and a cycle means
   actors that can wait for each other. Two severities, because there are
   two kinds of edge:
   * A **gated mint** (`replyto!`) is a *wait-for* edge: while the
@@ -8455,7 +8455,7 @@ docs/language/ remains the source of truth for everything that does.
     construction, and it can never deadlock: the dependency binds strictly
     *outward* [effect-intercept], so the chain ends at the innermost instance.
     An edge from a handler's **own-effect dependency** is therefore dropped,
-    while an `Addr` of its own protocol (a genuine peer mesh) still counts.
+    while an `Eff` of its own protocol (a genuine peer mesh) still counts.
   * **A router is a servant node** [actor-router]: a handler taking an
     actor face's messages with `sent` is `H's servant`, not `E`, with its
     dependencies' edges as a mixed servant's. (A generic router, `for E`,
@@ -8513,7 +8513,7 @@ docs/language/ remains the source of truth for everything that does.
   of 2026-09-15 it runs **without `main` in the loop**: a program can spawn a
   handler — a **dependent** one included, its dependencies supplied by its own
   `use` clause as constructions, as addrs, or a mix — send to it through its
-  `Addr`, park a continuation with `replyto` / `replyto!` for an answer that
+  `Eff`, park a continuation with `replyto` / `replyto!` for an answer that
   arrives *at another actor*, continue an activation with `k@self(…)`, and
   bridge with `waitfor`. Since 2026-09-16 it can also **watch an actor die**
   [actor-watch], and a topology that could deadlock is reported before it runs
@@ -8943,7 +8943,7 @@ between endpoints and delivers what arrives into the scheduler.
     its addr to `listen`; the host forwards every arriving frame through the
     generated stub (`__Stub_Inbound` / the Kotlin twin) — the same
     host→runtime upcall the timer makes [time-timer], and nothing new: an
-    `Addr` is a scheduler index the host can hold, and the stub already
+    `Eff` is a scheduler index the host can hold, and the stub already
     exists per actor effect [actor-use-addr].
   * `NodeEndpoint { host: Str, port: Int }` is where a transport can dial,
     known **before** any contact — hashable and ordered, so it keys maps and
@@ -9154,7 +9154,7 @@ between endpoints and delivers what arrives into the scheduler.
     cannot name a Salvo type. Every `spawn` hands the runtime the actor's
     message decoder (`__DECODE_H`, by protocol hash) for the same reason.
   * **Encoding and decoding happen with the scheduler lock released** — an
-    `Addr` or `Reply` inside a payload asks the scheduler for its identity.
+    `Eff` or `Reply` inside a payload asks the scheduler for its identity.
     Found the first time a `total(out)` crossed: a deadlock inside
     `salvo_send_wire`, then another inside frame delivery; both runtimes now
     do every codec call in a lock-free phase.
@@ -9253,7 +9253,7 @@ between endpoints and delivers what arrives into the scheduler.
   type arguments at every use — no turbofish, no `<T>` on the Kotlin fn.
   Erasure is per declaration, not per name: `eq<E>(a: eff[E], b: eff[E])`
   erases beside `eq(a: Box<T>, b: Box<T>)`, which keeps its `T`. A generic
-  that *also* occurs outside `Addr` stays a generic. An effect variable
+  that *also* occurs outside `Eff` stays a generic. An effect variable
   [effect-var] is never erased.
   * Because the emitters match declarations by address between the resolver's
     scopes and the symbol table, both are rebuilt over the erased copy; the
@@ -9357,7 +9357,7 @@ between endpoints and delivers what arrives into the scheduler.
   `message[E]` (user decision 2026-11-05: written as the compiler form it is,
   beside `eff[…]`; internally std.core.actor's `@compilerknown` `intrinsic
   type Message<E>`, whose written `Message<…>` is `actor-message:old-spelling`,
-  as `Addr<…>` is refused for `eff[…]`) lowers to the union of `E`'s arms
+  as `Eff<…>` is refused for `eff[…]`) lowers to the union of `E`'s arms
   in send order — the one arm itself for a protocol of one send — so a
   message is narrowed, matched and built as any union of structs is: `is
   .Reserve`, `is Inventory.Reserve`, `Inventory.Restock { qty: 2 }`. Over a
@@ -9480,7 +9480,7 @@ between endpoints and delivers what arrives into the scheduler.
 * Two emitter facts the module surfaced, both fixed with it: **`send(reply,
   None)` on Rust** boxed an `Option<_>` rustc could not infer, so the box is
   now typed from the token's payload (`Box::<Option<usize>>::new(None)`)
-  [rs-actor]; and **`copy` of an `Addr`/`Pool` on Kotlin** was refused — both
+  [rs-actor]; and **`copy` of an `Eff`/`Pool` on Kotlin** was refused — both
   are scheduler indices, so a copy is the reference itself [kt-copy].
 
 ## Deductions
@@ -11126,7 +11126,7 @@ between endpoints and delivers what arrives into the scheduler.
   * Which passes ask: the syntax passes by written name
     (`salvo_syntax::is_copy_scalar_type`), the checker and IR by type
     (`types::is_copy_scalar`, `moves_for_free`), the Rust backend's `Copy`
-    test on top of them (adding `Pool` and a plain actor `Addr`). How a
+    test on top of them (adding `Pool` and a plain actor `Eff`). How a
     backend passes one (by value, `*x`) is the backend's spelling.
   * And a call **handing one back** records no fate link at all: `proj Int` is
     `Int` — `Ty::qualify` erases the qualifier — so there is nothing borrowed to
@@ -11175,7 +11175,7 @@ between endpoints and delivers what arrives into the scheduler.
 * [copy-plan] **What `copy` duplicates is core's call** (built 2026-10-06,
   `salvo_core::copyplan`): a tree per type — share the value when no Salvo
   operation can mutate any part of it (scalars, `Str`, non-`Mut` structs of
-  such, an `Addr`, a `Pool`, fn values); otherwise a `Mut Str` gets a new
+  such, an `Eff`, a `Pool`, fn values); otherwise a `Mut Str` gets a new
   buffer, a value platform type with a `Mut` kind its host's `copy`, a `List`
   or `Deque` a new container whose elements copy by their own plan, a keyed
   collection (`Map`, `Set`, `SortedMap`, `SortedSet`) a new one of the same
@@ -11286,7 +11286,7 @@ between endpoints and delivers what arrives into the scheduler.
   * The discharger for one is an `intrinsic fn` beside it, since a bodiless
     declaration's written clause is its whole contract [decl-explicit]:
     `intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply,
-    !value` is std's, and it is why "a `Reply` is a one-shot `Addr` with a
+    !value` is std's, and it is why "a `Reply` is a one-shot `Eff` with a
     single send member" is true in the type system rather than only in prose.
   * **The answer may be linear** (2026-09-29, §4b step 3d): `Reply<T canbe
     linear>` and `send<T canbe linear>`, so a stream can travel back inside an
@@ -11757,7 +11757,7 @@ between endpoints and delivers what arrives into the scheduler.
   minted on another node), which is how `std.core.actor`'s `watch` and `on_idle`
   are Salvo. A program cannot import `runtime`
   [mod-export], so it cannot forge a handle; std's `std.core.actor` and `net` are
-  Salvo over `runtime.routing` through them. `Addr`, `Reply` and `Pool` stay
+  Salvo over `runtime.routing` through them. `Eff`, `Reply` and `Pool` stay
   `intrinsic type`s: the backends generate the actor machinery and name them
   throughout, so a platform type would buy nothing (user decision 2026-10-05,
   reversing the day before's option (b)).
@@ -11775,7 +11775,7 @@ between endpoints and delivers what arrives into the scheduler.
   decision 2026-10-05, built 2026-10-06): `salvo_core::features` derives, from
   the emitted modules' declarations and the checker's tables, whether the
   program needs the scheduler (an actor effect or a handler of one; a spawn,
-  send, reply, wait or `use` of an addr; an `Addr`, `Pool` or `Reply` named
+  send, reply, wait or `use` of an addr; an `Eff`, `Pool` or `Reply` named
   anywhere; `pool`/`thread`) and the wire codecs (an actor effect with a wire
   form, a struct with one, a `Reply`). Time travels with either. The set is
   an over-approximation: a service too many ships a file nothing calls, one

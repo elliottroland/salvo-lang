@@ -31,7 +31,7 @@ Conventions:
     `crate::Name` for the crate-root module, at declarations' mentions, calls
     and constructions alike [rs-imports].
   * **Copy scalars** (`Int`, `Long`, `Float`, `Double`, `Bool`, `Char`,
-    `Byte`, and an actor `Addr`) are passed by value; an owned parameter is
+    `Byte`, and an actor `Eff`) are passed by value; an owned parameter is
     bound `mut x: T`.
   * **Locals are annotated**: `let mut x: T = …;` (a borrow-mode local may
     leave the type to inference, [rs-borrow-locals]). Generated temporaries
@@ -531,7 +531,7 @@ references; the Rust backend spells the modes mechanically:
     (`pub fn fill(list: &mut Vec<i32>, mut n: i32)`).
   * *lent* (kept without `Mut`) → **`&T`** (`pub fn read(list: &Vec<i32>) -> i32`).
   * **Copy exception:** parameters of Copy scalar types (`Int`, `Long`,
-    `Float`, `Double`, `Bool`, `Char`, `Byte`, an actor `Addr`) are always
+    `Float`, `Double`, `Bool`, `Char`, `Byte`, an actor `Eff`) are always
     passed by value, qualified or not (`Idx(list) Int` is `mut i: i32`) — a
     borrow would be noise, and copying preserves the semantics of both kept
     and moved deductions.
@@ -1753,7 +1753,7 @@ effects" keeps the history).
   value" unsendability arm does not apply to handler state; it still applies
   to message payloads and task captures.
 * **The handle is `Clone`, not `Copy`** — unlike the `usize` addr — and the
-  checker treats every `Addr` as freely reusable, so a value read of a
+  checker treats every `Eff` as freely reusable, so a value read of a
   plain-effect addr **clones**. Both arms are `Send + Sync`, which is the
   sendability the checker promises at a spawn [actor-sendable].
 * **Rust's `Mutex` is not reentrant, and that is unobservable**: a handler's
@@ -1896,7 +1896,7 @@ effects" keeps the history).
   a generic caller forwards `&mut *protocol`) [implicit-intrinsic] —
   `watch_control`, `send_control`,
   `control_frame`, `node_left`, `local_protocols`, `set_peer_protocols`,
-  `peer_protocol`, `pending`, `node_of`, and `eq(Addr, Addr)` as `==` on the handle.
+  `peer_protocol`, `pending`, `node_of`, and `eq(Eff, Eff)` as `==` on the handle.
   `actor_group<E>` is ordinary Salvo since 2026-09-28 [actor-group] (two
   overloads, `actor_group__Addr` and `actor_group__Str_Addr` in the output).
 * [rs-wire] [actor-router] Runtime: the views live in the routing service
@@ -2302,7 +2302,7 @@ effects" keeps the history).
   * **It travels with the host stream table**: it is emitted wherever
     `hoststreams.rs` is, which ships wherever the scheduler or the wire does.
     `scheduler.rs` is a shim onto the runtime module's core (2026-10-03) and
-    holds the `Addr`/`Reply` codecs, so `wire.rs` stands alone; the runtime
+    holds the `Eff`/`Reply` codecs, so `wire.rs` stands alone; the runtime
     tests compile it inside the files example's generated tree.
 * [rs-time] [time-timer] **Deadlines are the runtime module's**, in Salvo
   (2026-10-02): the scheduler has no timer thread, and `HostRuntime.mono_nanos`
@@ -2370,7 +2370,7 @@ effects" keeps the history).
   * **The protocol's message enum**, `__Msg_E`, in the effect's module: one
     variant per `send fn`, owning its payload (an IR `Decl::Enum`, rendered as
     a `pub enum` [rs-actor-ir]). It is the *effect's*,
-    not a handler's, because a sender holds an `Addr` and knows only the effect
+    not a handler's, because a sender holds an `Eff` and knows only the effect
     it serves — the same reason an actor and a locally `use`d handler are
     interchangeable [actor-types].
   * **The actor body**, `__Actor_H`, beside the handler: a struct owning the

@@ -251,15 +251,15 @@ fn dependency_missing() [use] -> None {
     log("x")
 }
 
-//--- the Addr type name is not user-spellable
-// [effect-eff-handle] The old spelling `Addr<E>` is no longer a type a user
-// writes: `Addr` is the compiler's internal name for the handle, and the
+//--- the Eff type name is not user-spellable
+// [effect-eff-handle] The old spelling `Eff<E>` is no longer a type a user
+// writes: `Eff` is the compiler's internal name for the handle, and the
 // surface is `eff[E]`. It is a plain parse error naming the replacement.
 actor effect Chatter {
     send fn say(what: Str) => !what
 }
 
 //~ error[effect-eff-handle:addr-type]
-fn f(c: Addr<Chatter>) -> Int => c {
+fn f(c: Eff<Chatter>) -> Int => c {
     return 1
 }

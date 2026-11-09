@@ -669,3 +669,63 @@ test property "pairs add both ways" (p: Pair) {
     assert_eq!(failure(&filtered), failure(&rust), "a filter moves no property's seed");
     stamp.verified();
 }
+
+/// [test-kind] A kind written in an annex and used there: its argument takes
+/// the site's value, `--arg` overrides it, and a failure reports through the
+/// kind's own message.
+#[test]
+fn a_user_written_test_kind_runs_and_takes_arguments() {
+    let Some(stamp) = e2e_stamp("user_test_kind", &["rustc"]) else {
+        return;
+    };
+    if !have("rustc") {
+        eprintln!("skipping: rustc not found on PATH");
+        return;
+    }
+    let dir = work_dir("user_test_kind");
+    fs::write(dir.join("counter.sv"), r#"export fn bump(n: Int) -> Int {
+    return n + 1
+}
+"#).unwrap();
+    fs::write(dir.join("counter.test.sv"), r#"// Runs the body `times` times; the first failure ends the test.
+comptime fn repeated(test: Test, times: Int = 2, runtime: Str = "threaded") [use] -> Verdict {
+    let i = 0
+    while i < times {
+        let failure = trapped_by@std.test(() -> {
+            let outcome = try {
+                [test.body]()
+            }
+            return when outcome {
+                is Ok {
+                    None
+                }
+                is Thrown {
+                    let why: Failure = outcome
+                    copy@basic(why.message)
+                }
+            }
+        })
+        if failure is Str {
+            return Failed { message: "${test.name}, run ${i + 1}: ${failure}", detail: List<Str>() }
+        }
+        i = i + 1
+    }
+    return Passed {}
+}
+
+test repeated(times=3) "bump adds one" {
+    expect_eq(bump(1), 3)
+}
+
+test repeated "bump is not identity" {
+    expect(bump(1) != 1, "bump changes its argument")
+}
+"#).unwrap();
+    let out = salvo_in(&dir, &["test", "--src", ".", "--backend", "rust"]);
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    assert!(!out.status.success(), "{stdout}");
+    assert!(stdout.contains("bump adds one ... FAILED"), "{stdout}");
+    assert!(stdout.contains("bump adds one, run 1: expected 3, got 2"), "{stdout}");
+    assert!(stdout.contains("bump is not identity ... ok"), "{stdout}");
+    stamp.verified();
+}

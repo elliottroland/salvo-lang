@@ -21,8 +21,8 @@
 //!   (each implements its effect's member, which is the declaration checked).
 //! * Structural types have a std home (D-5): tuples and fn types
 //!   `std.core.basic`, arrays `std.core.array`, anonymous unions (and `T?`)
-//!   `std.core.basic`; an `eff[E]` handle is the type `Addr` and lives where
-//!   `Addr` is declared. A literal type is on its base. A non-union alias
+//!   `std.core.basic`; an `eff[E]` handle is the type `Eff` and lives where
+//!   `Eff` is declared. A literal type is on its base. A non-union alias
 //!   names the type it expands to ([type-alias]: aliases are structural); a
 //!   union alias is a declared union, its own home (O4).
 //! * A bare type parameter has no home, so a shape on one is refused: the
@@ -170,9 +170,9 @@ impl Ctx<'_, '_> {
                     return Home::File(*f, format!("`{name}`"), true);
                 }
                 if let Some(f) = scope.opaque_type_files.get(name) {
-                    // [effect-eff-handle] `eff[E]` is the type `Addr`, which nobody
+                    // [effect-eff-handle] `eff[E]` is the type `Eff`, which nobody
                     // writes: named as the handle it is.
-                    if name == crate::check::ADDR_TYPE {
+                    if name == crate::check::EFF_TYPE {
                         return Home::File(*f, "`eff[…]` handles".to_string(), false);
                     }
                     return Home::File(*f, format!("`{name}`"), true);

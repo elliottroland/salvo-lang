@@ -3160,7 +3160,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                     .iter()
                     .find(|(ce, _)| ce == e)
                     .map(|(_, ex)| ex.clone())
-                    .unwrap_or_else(|| unsupported(Ty::Named { name: "Addr".into(), args: vec![e.clone()] }, span, "merge: effect not among items"))
+                    .unwrap_or_else(|| unsupported(Ty::Named { name: "Eff".into(), args: vec![e.clone()] }, span, "merge: effect not among items"))
             })
             .collect();
         let value = match reads.len() {
@@ -3199,7 +3199,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 return Expr { ty: base_ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false, moved: false } };
             }
             let idx = have.iter().position(|h| handle_carries(h, w)).unwrap_or(0);
-            let et = have.get(idx).cloned().unwrap_or_else(|| Ty::Named { name: "Addr".into(), args: vec![w.clone()] });
+            let et = have.get(idx).cloned().unwrap_or_else(|| Ty::Named { name: "Eff".into(), args: vec![w.clone()] });
             Expr { ty: et, span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: vec![Step::Tuple(idx)] }, consume: false, moved: false } }
         };
         let reads: Vec<Expr> = want.iter().map(&pick).collect();
@@ -3241,7 +3241,7 @@ impl<'a, 'p> Lower<'a, 'p> {
             let mut bound: Vec<(Ty, Local)> = Vec::new();
             for ((path, _), effect) in leaves.into_iter().zip(faces) {
                 let elem = Expr {
-                    ty: Ty::Named { name: "Addr".into(), args: vec![effect.clone()] },
+                    ty: Ty::Named { name: "Eff".into(), args: vec![effect.clone()] },
                     span,
                     kind: ExprKind::Read { place: Place { root: base.clone(), steps: path.into_iter().map(Step::Tuple).collect() }, consume: false, moved: false },
                 };
@@ -3528,15 +3528,15 @@ pub(crate) fn subst_vars(t: &Ty, generics: &[String], args: &[Ty]) -> Ty {
 /// [effect-eff-handle] The effect a single-effect handle type carries, if it is one.
 fn handle_effect(handle: &Ty) -> Option<Ty> {
     match handle.strip_quals() {
-        Ty::Named { name, args } if name == "Addr" && args.len() == 1 => Some(args[0].clone()),
+        Ty::Named { name, args } if name == "Eff" && args.len() == 1 => Some(args[0].clone()),
         _ => None,
     }
 }
 
-/// [effect-eff-handle] Whether a single-effect handle type `eff[E]` (`Named{Addr,[E]}`)
+/// [effect-eff-handle] Whether a single-effect handle type `eff[E]` (`Named{Eff,[E]}`)
 /// carries effect `w` — its one arg equals `w`.
 fn handle_carries(handle: &Ty, w: &Ty) -> bool {
-    matches!(handle.strip_quals(), Ty::Named { name, args } if name == "Addr" && args.len() == 1 && &args[0] == w)
+    matches!(handle.strip_quals(), Ty::Named { name, args } if name == "Eff" && args.len() == 1 && &args[0] == w)
 }
 
 fn reads_any(e: &Expr, binds: &[Stmt]) -> bool {
@@ -3722,7 +3722,7 @@ fn is_ast_place(e: &AExpr) -> bool {
 /// [effect-var] Whether a written type is `eff[E]`, `E` one of `vars`.
 fn is_effect_var_handle(ty: &ast::Type, vars: &[ast::Ident]) -> bool {
     matches!(ty, ast::Type::Named { qualifiers, base }
-        if qualifiers.is_empty() && base.name.name == crate::check::ADDR_TYPE
+        if qualifiers.is_empty() && base.name.name == crate::check::EFF_TYPE
             && matches!(base.args.as_slice(), [ast::Type::Named { base: v, .. }] if vars.iter().any(|g| g.name == v.name.name)))
 }
 

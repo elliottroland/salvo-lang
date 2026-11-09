@@ -1,20 +1,20 @@
 //! [effect-generic-decl] Effect-typed generic parameters on declarations, and
 //! their **erasure** for the backends.
 //!
-//! `actor effect ActorGroup<E> { send fn join(member: Addr<E>) }` is generic
+//! `actor effect ActorGroup<E> { send fn join(member: Eff<E>) }` is generic
 //! over an *effect*: `E` stands for a protocol, not a type of values, and the
-//! only position it may take is inside `Addr<…>` — the one sanctioned
+//! only position it may take is inside `Eff<…>` — the one sanctioned
 //! effect-in-a-type-position [effect-not-data], which `watch<E>` already had
 //! for a function (user decision 2026-09-26, P-2). The checker keeps such
 //! instances distinct (`ActorGroup<Counter>` is not `ActorGroup<Ledger>`,
 //! which is what types `attach<E>`); the **backends erase them**, because an
-//! `Addr<E>` lowers to a scheduler index whatever `E` is — so the message
+//! `Eff<E>` lowers to a scheduler index whatever `E` is — so the message
 //! enum, the stub, the trait and the handler of an effect-only-generic
 //! declaration are all monomorphic, and nothing about `E` reaches the output.
 //!
 //! This module is the erasure: given a checked program, a copy in which every
 //! effect, handler and struct whose generic parameters are *all* effect-only
-//! (each occurrence is exactly `Addr<P>`, or an argument of another erased
+//! (each occurrence is exactly `Eff<P>`, or an argument of another erased
 //! declaration) has its parameter list emptied. Type *mentions* keep their
 //! arguments in the AST; the emitters drop them where they render an erased
 //! name (`erased_generics` says which). Spans are untouched, so every checker
@@ -37,7 +37,7 @@ pub struct Erased {
     /// Functions whose generics are all effect-only (`attach<E>`): emitted
     /// without them, and called without a turbofish. Keyed by (module index,
     /// name span start), since overloads share a name and only one of them
-    /// may erase (`eq<E>(a: Addr<E>, b: Addr<E>)` beside the ordinary `eq`s).
+    /// may erase (`eq<E>(a: Eff<E>, b: Eff<E>)` beside the ordinary `eq`s).
     pub fns: HashSet<(usize, salvo_syntax::Span)>,
 }
 
@@ -48,7 +48,7 @@ impl Erased {
 }
 
 /// Whether every occurrence of `param` in `ty` is effect-only: the sole
-/// argument of `Addr`, or an argument of an erased declaration at a position
+/// argument of `Eff`, or an argument of an erased declaration at a position
 /// whose parameter is itself effect-only. `None` when the parameter does not
 /// occur; `Some(false)` on a value-position occurrence.
 fn occurrences_effect_only(
@@ -119,7 +119,7 @@ fn occurrences_effect_only(
             }
             return;
         }
-        if name == "Addr" && r.args.len() == 1 {
+        if name == "Eff" && r.args.len() == 1 {
             walk(&r.args[0], param, erased, decls, found, ok, true);
             return;
         }
@@ -132,7 +132,7 @@ fn occurrences_effect_only(
         }
     }
     // The declaration being judged counts as erased while judging it — a
-    // self-reference (`start(me: Addr<ActorGroup<E>>)` inside `ActorGroup`)
+    // self-reference (`start(me: Eff<ActorGroup<E>>)` inside `ActorGroup`)
     // would otherwise refuse itself; the fixpoint confirms or retracts.
     let mut assumed = erased.clone();
     assumed.effects.insert(current.to_string());

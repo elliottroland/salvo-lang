@@ -155,7 +155,7 @@ pub fn immutable(symbols: &Symbols<'_>, ty: &Ty, visiting: &mut Vec<String>) -> 
             "Byte" | "Int" | "Long" | "Float" | "Double" | "Char" | "Bool" | "Str" | "None" => true,
             // [actor-types] An addr or a pool is a scheduler index: copying
             // one is the reference itself.
-            "Addr" | "Pool" => true,
+            "Eff" | "Pool" => true,
             // [platform-type] A copy of a platform handle shares the host
             // object by definition, when nothing reachable through it is
             // mutable. A platform *collection* is immutable only if its type

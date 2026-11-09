@@ -203,7 +203,7 @@ Conventions:
   * `copy` is the copy constructor **for both shapes**: a plain `Bytes` may be
     the very object something else holds as a `Mut Bytes`, so identity would
     alias it [kt-copy].
-  * An `Addr`/`Pool` is a scheduler index (an `Int`), so its copy is the
+  * An `Eff`/`Pool` is a scheduler index (an `Int`), so its copy is the
     reference itself — identity, like a scalar (found by `net`, 2026-09-26).
   * The constructors take an `Array<UByte>`, not a `vararg UByte`: a vararg of
     an unsigned type *is* a `UByteArray`, which still needs an
@@ -1025,7 +1025,7 @@ nothing but the monitor.
   protocols travel as — `controls`, `watchControl(channel, sink, build)`,
   `sendControl`, `controlFrame`, `nodeLeft`, `localProtocols`,
   `setPeerProtocols`/`peerProtocol` — byte-identical to Rust's. Intrinsics
-  lowered as in Rust; `eq(Addr, Addr)` is `==` on the `Int` handle;
+  lowered as in Rust; `eq(Eff, Eff)` is `==` on the `Int` handle;
   `protocol<E>()` is `Protocol("E", <prefix>__PROTO_E)`, and as the fill of
   an implicit `?protocol` the lambda `{ Protocol("E", …) }` for the resolved
   position's `E` [implicit-intrinsic] (`actor_group` itself is ordinary Salvo
@@ -1154,7 +1154,7 @@ nothing but the monitor.
     struct types (any `canbe Mut` declaration included) whose value is
     not `Mut`-qualified and whose fields are transitively immutable
     [struct-mut]. Duplicating a reference to immutable data *is* a
-    copy on the JVM. An `Addr`/`Pool` is identity too: a scheduler index
+    copy on the JVM. An `Eff`/`Pool` is identity too: a scheduler index
     (an `Int`), so its copy is the reference itself (found by `net`,
     2026-09-26).
   * `Mut List<E>` with immutable `E` → `.toMutableList()`;
@@ -1474,7 +1474,7 @@ nothing but the monitor.
   * **The protocol's message type**, `sealed class __Msg_E` with one nested
     class per `send fn` (an IR `Decl::Enum`, rendered as a `sealed class`
     [kt-actor-ir]), in the effect's module. It is the *effect's*
-    because a sender holds an `Addr` and knows only the effect it serves
+    because a sender holds an `Eff` and knows only the effect it serves
     [actor-types].
   * **The actor body**, `class __Actor_H(private val handler: H) :
     SalvoActor`, beside the handler: `handle` casts the message and calls the

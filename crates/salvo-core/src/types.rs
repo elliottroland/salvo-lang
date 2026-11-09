@@ -408,7 +408,7 @@ impl Ty {
 /// handles, the one handle for one effect, and `eff[]` — the empty tuple —
 /// for none.
 pub fn handle_over(effects: &[Ty]) -> Ty {
-    let single = |e: &Ty| Ty::Named { name: "Addr".to_string(), args: vec![e.clone()] };
+    let single = |e: &Ty| Ty::Named { name: "Eff".to_string(), args: vec![e.clone()] };
     match effects {
         [one] => single(one),
         _ => Ty::Tuple(effects.iter().map(single).collect()),
@@ -1053,10 +1053,10 @@ fn named_args_fit(a: &[Ty], b: &[Ty]) -> bool {
 
 /// [effect-claim] A handle with more claims fits where one with fewer is
 /// wanted inside a type argument too (`List<eff[Ordered R]>` for
-/// `List<eff[R]>`): the claims are the one qualifier of an `Addr`, erased,
+/// `List<eff[R]>`): the claims are the one qualifier of an `Eff`, erased,
 /// and only ever dropped this way, never added.
 fn claims_drop(x: &Ty, y: &Ty) -> bool {
-    let addr = |t: &Ty| matches!(t.strip_quals(), Ty::Named { name, args } if name == "Addr" && args.len() == 1);
+    let addr = |t: &Ty| matches!(t.strip_quals(), Ty::Named { name, args } if name == "Eff" && args.len() == 1);
     addr(x) && addr(y) && x.strip_quals() == y.strip_quals() && is_subtype(x, y)
 }
 
@@ -1570,10 +1570,10 @@ impl fmt::Display for Ty {
             Ty::ValueRef { path, .. } => write!(f, "{path}"),
             // [qual-const] A constant reads as it is written: `InRange(0, 65535)`.
             Ty::Const(c) => write!(f, "{c}"),
-            // [effect-eff-handle] The internal handle type `Addr` reads as its
+            // [effect-eff-handle] The internal handle type `Eff` reads as its
             // surface spelling `eff[A, B, …]` — a flat effect set in square
-            // brackets, never the old `Addr<…>`.
-            Ty::Named { name, args } if name == "Addr" && !args.is_empty() => {
+            // brackets, never the old `Eff<…>`.
+            Ty::Named { name, args } if name == "Eff" && !args.is_empty() => {
                 write!(f, "eff[")?;
                 for (i, a) in args.iter().enumerate() {
                     if i > 0 {
@@ -1602,7 +1602,7 @@ impl fmt::Display for Ty {
             }
             // [effect-claim] A handle's claims read inside its brackets, as
             // they are written: `eff[Ordered Counter]`.
-            Ty::Qualified { quals, base } if matches!(&**base, Ty::Named { name, args } if name == "Addr" && args.len() == 1) => {
+            Ty::Qualified { quals, base } if matches!(&**base, Ty::Named { name, args } if name == "Eff" && args.len() == 1) => {
                 let Ty::Named { args, .. } = &**base else { unreachable!() };
                 write!(f, "eff[")?;
                 for q in quals {

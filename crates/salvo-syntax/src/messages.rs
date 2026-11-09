@@ -501,7 +501,7 @@ messages! {
          (`close@Fs(s)`) or a dot-notation call (`s.close@Fs()`)";
 
     // [effect-eff-handle]
-    /// `Addr<…>` written as a type.
+    /// `Eff<…>` written as a type.
     // [actor-message]
     /// `Message<E>`, the internal spelling.
     actor_message_old_spelling = "actor-message:old-spelling" () =>
@@ -517,7 +517,7 @@ messages! {
         "`message[]` names no protocol: write the effects whose messages it is, \
          `message[E]`";
     effect_eff_handle_addr_type = "effect-eff-handle:addr-type" () =>
-        "`Addr<…>` is not a type you write: a first-class effect handle is spelled \
+        "`Eff<…>` is not a type you write: a first-class effect handle is spelled \
          `eff[E]` (several effects: `eff[A, B]`)";
 
     // [effect-var]

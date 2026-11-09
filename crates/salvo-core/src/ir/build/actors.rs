@@ -100,7 +100,7 @@ pub fn generate(ctx: &Ctx<'_>, program: &mut Program) -> Vec<(DeclId, String)> {
             made.push((mi, EnumDecl { id, name: format!("__Msg_{}", i.name), kind: EnumKind::Message { interface: i.id.clone() }, variants, protocol_hash: i.protocol_hash.clone(), span: i.span }));
             // [actor-use-addr] The stub: the interface implemented by sending.
             let face = Ty::Named { name: key_of(&i.id, &i.name), args: Vec::new() };
-            let addr_ty = Ty::Named { name: "Addr".into(), args: vec![face.clone()] };
+            let addr_ty = Ty::Named { name: "Eff".into(), args: vec![face.clone()] };
             let addr = Local("addr".into());
             let members: Vec<FnDecl> = i
                 .members
@@ -437,7 +437,7 @@ pub(crate) fn is_forward(decl: &DeclId) -> bool {
 /// concrete `E`.
 pub(crate) fn addr_effect_key(ty: &Ty) -> Option<String> {
     match ty.strip_quals() {
-        Ty::Named { name, args } if name == "Addr" && args.len() == 1 => match args[0].strip_quals() {
+        Ty::Named { name, args } if name == "Eff" && args.len() == 1 => match args[0].strip_quals() {
             Ty::Named { name, args } if args.is_empty() => Some(name.clone()),
             _ => None,
         },

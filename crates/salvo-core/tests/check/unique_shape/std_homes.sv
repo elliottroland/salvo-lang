@@ -34,7 +34,7 @@ fn eq<T>(a: T, b: T) [] -> Bool => a, b { return true }
 
 // D-5: the structural types' homes in std — tuples, fn types and anonymous
 // unions in `std.core.basic`, arrays in `std.core.array`, an `eff[E]` handle
-// where `Addr` is declared (`std.core.actor`); a literal type is on its base
+// where `Eff` is declared (`std.core.actor`); a literal type is on its base
 // (`Str`, `std.core.string`).
 //~ error[op-unique-shape:outside-home]
 fn eq<A, B>(a: (A, B), b: (A, B)) [] -> Bool => a, b { return true }

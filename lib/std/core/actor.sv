@@ -1,6 +1,6 @@
 // Actors: state that runs by itself, one message at a time, on a pool of
 // threads. This module holds the types that go with them: an actor's
-// address ([Addr], written `eff[E]`), one-shot answers ([Reply]), pools
+// address ([Eff], written `eff[E]`), one-shot answers ([Reply]), pools
 // ([Pool], [pool], [thread]), and what the runtime reports back: deaths
 // ([Exit], [watch], [Faults]) and quiescence ([Idle], [on_idle]). Every
 // file sees it; nothing needs importing.
@@ -228,7 +228,7 @@ import std.runtime
 // their representation is each backend's business.
 
 // The address of a running actor: what `spawn` answers, and the only way
-// to reach the actor. A program writes the type as `eff[E]`; `Addr` is the
+// to reach the actor. A program writes the type as `eff[E]`; `Eff` is the
 // compiler's name for it.
 //
 // [E] is the effect the actor serves, and an address can be used wherever
@@ -275,7 +275,7 @@ import std.runtime
 // }
 // ```
 // @compilerrules [actor-spawn-expr, effect-not-data, actor-use-addr]
-export intrinsic type Addr<E>
+export intrinsic type Eff<E>
 
 // Whether two addresses name the same actor. `a == b` calls it.
 //
@@ -360,7 +360,7 @@ export intrinsic fn send<T canbe linear>(reply: Reply<T>, value: T) [] -> None =
 // union with one arm per `send fn` of `E`, each arm a struct of the member's
 // parameters. `message[A, B]` is the messages of both, the union of the two.
 // This declaration is the compiler's internal name for it; a program writes
-// `message[…]`, as it writes `eff[…]` for an `Addr`.
+// `message[…]`, as it writes `eff[…]` for an `Eff`.
 //
 // A `send fn` is shorthand for a message: `reserve(sku, 1, out)` sends
 // `Inventory.Reserve { sku: sku, qty: 1, out: out }`. The arms are named

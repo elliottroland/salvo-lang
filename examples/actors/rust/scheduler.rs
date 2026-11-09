@@ -465,7 +465,7 @@ pub fn salvo_watch_control(channel: String, sink: usize, build: ControlOf) {
 // [net-addr-routable] The codecs of the two scheduler handles live here, beside
 // what they ask, so the wire stands alone in a program with no actors.
 
-/// [net-addr-routable] An `Addr<E>` is a scheduler index in generated code; on
+/// [net-addr-routable] An `Eff<E>` is a scheduler index in generated code; on
 /// the wire it is its routable identity `(node, actor, bits)`, 24 bytes.
 impl crate::wire::__Wire for usize {
     fn __enc(&self, out: &mut Vec<u8>) {

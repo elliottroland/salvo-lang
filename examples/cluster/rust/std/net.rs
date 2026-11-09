@@ -1340,13 +1340,13 @@ pub fn pending(mut a: usize) -> i32 {
     return crate::std_runtime_routing::pending((((a).clone()) as i32));
 }
 
-pub fn actor_group__Addr(mut nodes: usize, protocol: &mut dyn FnMut() -> crate::std_net::Protocol) -> usize {
+pub fn actor_group__Eff(mut nodes: usize, protocol: &mut dyn FnMut() -> crate::std_net::Protocol) -> usize {
     let mut proto: crate::std_net::Protocol = protocol();
     let mut name: String = (proto.name).clone();
-    return crate::std_net::actor_group__Str_Addr(name, nodes, &mut *protocol);
+    return crate::std_net::actor_group__Str_Eff(name, nodes, &mut *protocol);
 }
 
-pub fn actor_group__Str_Addr(mut name: String, mut nodes: usize, protocol: &mut dyn FnMut() -> crate::std_net::Protocol) -> usize {
+pub fn actor_group__Str_Eff(mut name: String, mut nodes: usize, protocol: &mut dyn FnMut() -> crate::std_net::Protocol) -> usize {
     let mut __destructured_1: (usize, usize) = ({ let __h = crate::std_net::ActorGrouping::new(name, protocol()); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::std_core_actor::pool(1i32), __cap as usize, std::boxed::Box::new(crate::std_net::__Actor_ActorGrouping::new(__h)), crate::std_net::__DECODE_ActorGrouping); crate::scheduler::salvo_send(__a, std::boxed::Box::new(crate::std_net::__Priv_ActorGrouping::Init)); (__a, __a) });
     let mut group: usize = __destructured_1.0;
     let mut watcher: usize = __destructured_1.1;
@@ -2485,7 +2485,7 @@ impl crate::wire::__Wire for __Msg_NodeGroup {
 }
 
 /// [actor-protocol-hash] The canonical hash of `NodeGroup`.
-pub const __PROTO_NodeGroup: &str = "471318a2c85d1f6d";
+pub const __PROTO_NodeGroup: &str = "533f9852ce4555d9";
 
 pub enum __Msg_NodeGroupWatcher {
     Joined(crate::std_net::Node),
@@ -2561,7 +2561,7 @@ impl crate::wire::__Wire for __Msg_ActorGroup {
 }
 
 /// [actor-protocol-hash] The canonical hash of `ActorGroup`.
-pub const __PROTO_ActorGroup: &str = "695f43128bdada4a";
+pub const __PROTO_ActorGroup: &str = "4313531968047ff4";
 
 pub enum __Msg_ActorGroupWatcher {
     Joined(usize),
@@ -2591,7 +2591,7 @@ impl crate::wire::__Wire for __Msg_ActorGroupWatcher {
 }
 
 /// [actor-protocol-hash] The canonical hash of `ActorGroupWatcher`.
-pub const __PROTO_ActorGroupWatcher: &str = "9fa424e5858bb3bd";
+pub const __PROTO_ActorGroupWatcher: &str = "286f4bc93c017b27";
 
 pub enum __Msg_MemNet {
     Attach(crate::std_net::NodeEndpoint, usize),
@@ -2656,7 +2656,7 @@ impl crate::wire::__Wire for __Msg_MemNet {
 }
 
 /// [actor-protocol-hash] The canonical hash of `MemNet`.
-pub const __PROTO_MemNet: &str = "2815c14392023d5e";
+pub const __PROTO_MemNet: &str = "34265f85ca58adc6";
 
 pub enum __Cont_Sending {
     SendFrame(crate::std_net::NodeEndpoint),

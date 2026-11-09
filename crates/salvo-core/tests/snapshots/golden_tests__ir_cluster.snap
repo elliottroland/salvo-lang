@@ -514,15 +514,15 @@ enum __Msg_Lookup [proto 7c0f441570dc9a6f] {
   Lookup(key: Str, out: Reply<Str>)
 }
 
-enum __Msg_Gather [proto 98712ca205da344c] {
+enum __Msg_Gather [proto 0291bc402e333bd0] {
   Scatter(word: Str, members: List<eff[Search@main]>, out: Reply<Int>)
 }
 
-enum __Msg_Race [proto 5e0ec4d63d5f53dd] {
+enum __Msg_Race [proto fb655970ed453877] {
   Race(key: Str, members: List<eff[Lookup@main]>, out: Reply<Str>)
 }
 
-enum __Msg_Boot [proto 4b15e647d0ca92a7] {
+enum __Msg_Boot [proto a5a2c563761bc205] {
   Boot(done: Reply<eff[Sequencer@main]>)
   Stop(done: Reply<Bool>)
 }

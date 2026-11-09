@@ -73,7 +73,7 @@ impl<'p> Ctx<'p> {
                 let key = self.checked.written_key(base).to_string();
                 // A name that is no declaration and no builtin is a generic
                 // parameter in scope.
-                let builtin = matches!(key.as_str(), "None" | "Str" | "List" | "Array" | "Bytes" | "Addr" | "Reply" | "Pool" | "Map" | "Set" | "Deque" | "SortedSet" | "SortedMap" | "Heap");
+                let builtin = matches!(key.as_str(), "None" | "Str" | "List" | "Array" | "Bytes" | "Eff" | "Reply" | "Pool" | "Map" | "Set" | "Deque" | "SortedSet" | "SortedMap" | "Heap");
                 if args.is_empty() && !builtin && !self.symbols.key_modules.contains_key(key.as_str()) && !self.symbols.intrinsic_types.contains_key(key.as_str()) && !self.symbols.structs.contains_key(key.as_str()) && !self.symbols.type_aliases.contains_key(key.as_str()) && !self.symbols.effects.contains_key(key.as_str()) {
                     let quals: Vec<Qual> = qualifiers.iter().map(|q| Qual { effect: false, name: self.symbols.qual_ref_key(q).to_string(), args: Vec::new() }).collect();
                     return Some(Ty::Var(key).qualify(quals));

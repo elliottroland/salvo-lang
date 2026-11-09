@@ -946,7 +946,7 @@ pub const THROWN_QUALIFIER: &str = salvo_syntax::known::THROWN_QUALIFIER;
 /// known by name to the compiler because its type argument is an **effect**,
 /// which is the one sanctioned exception to [effect-not-data] (user decision
 /// 2026-09-15).
-pub const ADDR_TYPE: &str = "Addr";
+pub const EFF_TYPE: &str = "Eff";
 /// [actor-replyto] The linear one-shot answer token, from `std.core.actor`.
 pub const REPLY_TYPE: &str = "Reply";
 /// [actor-mailbox] The std struct a handler's `mailbox { … }` slot builds,
@@ -962,7 +962,7 @@ pub const POOL_TYPE: &str = "Pool";
 /// the only placement a `[waitfor]`-carrying handler may be spawned onto.
 pub const DEDICATED_QUALIFIER: &str = salvo_syntax::known::DEDICATED_QUALIFIER;
 
-/// [actor-spawn-expr] The effect an `Addr<E>` serves, or `None` for anything
+/// [actor-spawn-expr] The effect an `Eff<E>` serves, or `None` for anything
 /// that is not an addr. What `use addr`, a dot-call through an addr, and a spawn's
 /// `use` clause all ask.
 /// [effect-eff-handle] The single handles a tuple of them holds, flattened
@@ -994,7 +994,7 @@ pub fn handle_leaves(ty: &Ty) -> Option<Vec<(Vec<usize>, Ty)>> {
 
 fn addr_effect(ty: &Ty) -> Option<Ty> {
     match ty.strip_quals() {
-        Ty::Named { name, args } if name == ADDR_TYPE && args.len() == 1 => Some(args[0].clone()),
+        Ty::Named { name, args } if name == EFF_TYPE && args.len() == 1 => Some(args[0].clone()),
         _ => None,
     }
 }
@@ -1038,7 +1038,7 @@ pub(crate) fn sent_message_args(ty: &ast::Type) -> Option<Vec<&TypeRef>> {
 }
 
 /// [effect-claim] The claims a single handle carries: its qualifiers, which
-/// on an `Addr` are only ever claims (`eff[Ordered E]`).
+/// on an `Eff` are only ever claims (`eff[Ordered E]`).
 fn addr_claims(ty: &Ty) -> Vec<Qual> {
     if addr_effect(ty).is_none() {
         return Vec::new();
@@ -1084,10 +1084,10 @@ fn subst_slot_refs(t: &Ty, map: &HashMap<String, Ty>) -> Ty {
     }
 }
 
-/// [effect-claim] A single handle of [effect] making [claims]: the `Addr`,
+/// [effect-claim] A single handle of [effect] making [claims]: the `Eff`,
 /// qualified by them.
 fn claimed_addr(effect: Ty, claims: Vec<Qual>) -> Ty {
-    Ty::Named { name: ADDR_TYPE.to_string(), args: vec![effect] }.qualify(claims)
+    Ty::Named { name: EFF_TYPE.to_string(), args: vec![effect] }.qualify(claims)
 }
 
 /// [effect-claim] Whether a binding claiming [have] makes every claim in
@@ -1118,7 +1118,7 @@ fn claims_have_text(claims: &[Qual]) -> String {
 
 /// [fn-member-call] What a receiver has under the name of a dot call.
 enum DotMember {
-    /// A send member of the `eff[E]` (`Addr<E>`) receiver; carries E.
+    /// A send member of the `eff[E]` (`Eff<E>`) receiver; carries E.
     Send(Ty),
     /// A visible field of a struct receiver; carries the field's type.
     Field(Ty),
@@ -1274,7 +1274,7 @@ pub struct Checked {
     /// [effect-handle] [effect-handler-multi] [effect-eff-handle] The effects
     /// of the handle or handles a node binds or yields, in order (the pipeline record
     /// D2, handles): a `use` (every face it binds, a tuple's every element),
-    /// a `spawn` (the faces its child serves: its `Addr`s), a projection
+    /// a `spawn` (the faces its child serves: its `Eff`s), a projection
     /// `e[A, B]`, a merge `eff[a, b]` / `eff[*]`.
     pub handles: KeyMap<Vec<Ty>>,
     /// [effect-handler-deps] [effect-with-clause] [effect-handler-generics]
@@ -1347,7 +1347,7 @@ pub struct Checked {
     /// actor of another protocol: `(the handler's declaration, target effect
     /// key, the call's site)` — a lambda's in a member too, which runs in the
     /// member's activation when it is called before the member returns
-    /// (ROADMAP 0az). Recorded for dot-calls through an `Addr`; sends
+    /// (ROADMAP 0az). Recorded for dot-calls through an `Eff`; sends
     /// reached through the handler's *declared dependencies* are read off
     /// the declaration instead, and a `k@self(…)` is not here at all — a
     /// self-send waits for no other actor.
@@ -6062,7 +6062,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// detached from the scope that minted it, so there is nothing there to
     /// supply a handler — capturing the minting scope's handlers would send
     /// values the sender still owns, which [actor-sendable] exists to refuse.
-    /// An `Addr` capture is the way to reach an actor, and it needs no effect
+    /// An `Eff` capture is the way to reach an actor, and it needs no effect
     /// declaration [actor-use-addr]. Lifting this for *actor-backed* effects
     /// (whose provider is an addr stub, and so sendable) is the recorded
     /// growth point.
@@ -11396,7 +11396,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return;
         }
         // [actor-use-addr] `use addr` binds an effect to a forwarding stub over
-        // an `Addr` instead of constructing a handler: first-pass surface, and
+        // an `Eff` instead of constructing a handler: first-pass surface, and
         // no new syntax — which means telling the two apart is this
         // statement's job.
         if let Expr::Ident(id) = handler {
@@ -11464,7 +11464,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [effect-with-clause] One item of a `use`'s `with` clause: the effect
     /// instance it supplies. A handler *name or construction* is a **private
     /// instance** — built here, owned by the handler being registered,
-    /// unshared with the scope (user decision 2026-09-20) — and an `Addr`
+    /// unshared with the scope (user decision 2026-09-20) — and an `Eff`
     /// is an existing handle. The same two shapes a spawn's clause takes,
     /// and the same two `use` itself binds, which is what makes a dependency
     /// swappable between a private handler and a shared one without
@@ -16208,7 +16208,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// argument-is-stored consumption. What differs is *where* the
     /// dependencies come from — the spawn's own `use` clause, because a
     /// handler never crosses into an actor (only construction does) — and
-    /// that the result is a value: the child's `Addr<E>`.
+    /// that the result is a value: the child's `Eff<E>`.
     ///
     /// [actor-mailbox] The mailbox bound is **not** a clause here: it is the
     /// handler's own slot (user decision 2026-09-16), so a spawn says what to
@@ -16305,13 +16305,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         };
         // [effect-handler-deps] The child's dependencies, supplied here
         // rather than inherited: each clause item is a handler construction
-        // (built on the child) or an `Addr` (an effect another actor serves).
+        // (built on the child) or an `Eff` (an effect another actor serves).
         // [actor-effect-kind] [actor-monitor-handler] The spawn form serves two
         // kinds, split by the faces' kind. Every face an actor effect: the
         // actor spawn — a mailbox, a scheduler index, an addr per face. Every
         // face a *plain* effect: the **monitor spawn** (SH-3, user decision
         // 2026-09-19) — one shared instance behind a lock, reached through the
-        // same `Addr<E>` type, its members running on the callers' threads.
+        // same `Eff<E>` type, its members running on the callers' threads.
         // A mixture is refused face-by-face by the actor path's kind check.
         let plain_faces = !effects.is_empty()
             && effects.iter().all(|effect| {
@@ -16435,7 +16435,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.set_construction_deps(span, resolved);
         self.out.handles.insert(self.key(span), effects.clone());
         // [effect-handler-multi] One addr per implemented effect: a single face
-        // answers the bare `Addr<E>` it always did, and several answer a tuple
+        // answers the bare `Eff<E>` it always did, and several answer a tuple
         // in declaration order — which is how least authority falls out of the
         // types, since a holder of one face cannot name the other's members.
         // [effect-claim] Each addr carries the claims its face makes:
@@ -16500,7 +16500,7 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [actor-monitor-handler] The monitor spawn (SH-3, user decision 2026-09-19):
     /// `spawn H(args)` where every face of `H` is a **plain** effect answers a
-    /// shared instance behind a lock — reached through the same `Addr<E>`
+    /// shared instance behind a lock — reached through the same `Eff<E>`
     /// type, bound with `use addr` like any handle, its members running on
     /// the callers' threads under mutual exclusion.
     ///
@@ -16867,7 +16867,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [actor-mixed-handler] The mixed spawn: `spawn H(args)`, every face plain,
-    /// send members present. It answers the same `Addr<E>` a monitor spawn
+    /// send members present. It answers the same `Eff<E>` a monitor spawn
     /// answers — the façade value: the servant's addr plus the constructor
     /// parameters plus dispatch to the sync bodies. The servant is an
     /// ordinary actor, so the `on` clause stays (optional, inheriting the
@@ -16915,10 +16915,10 @@ impl<'p, 'r> Checker<'p, 'r> {
 
     /// [actor-spawn-expr] One item of a spawn's `with` clause: a handler
     /// construction, whose effect is what it implements, or a value of type
-    /// `Addr<E>`, whose effect is `E`. Answers the effect it supplies.
+    /// `Eff<E>`, whose effect is `E`. Answers the effect it supplies.
     fn check_spawn_dep(&mut self, item: &'p Expr) -> Option<Ty> {
         // A name that a handler declares is a construction; anything else is
-        // an expression, and an `Addr` is the only useful kind.
+        // an expression, and an `Eff` is the only useful kind.
         let is_handler = match item {
             Expr::Ident(id) => self.scope.handlers.contains_key(id.name.as_str()),
             Expr::Call { callee, .. } => match callee.as_ref() {
@@ -17748,7 +17748,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Try { .. }
             // [actor-spawn-expr] [actor-replyto] [actor-waitfor] Each has a
             // value and none transfers control out of the enclosing block: a
-            // `spawn` yields an `Addr`, a `replyto` a token, and a `waitfor`
+            // `spawn` yields an `Eff`, a `replyto` a token, and a `waitfor`
             // yields what was sent to its token — whatever its block does.
             // [actor-self-send] `k@self` is a callee, so it is a leaf here.
             | Expr::SelfScoped { .. }
@@ -17848,7 +17848,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Try { .. }
             // [actor-spawn-expr] [actor-replyto] [actor-waitfor] Each has a
             // value and none transfers control out of the enclosing block: a
-            // `spawn` yields an `Addr`, a `replyto` a token, and a `waitfor`
+            // `spawn` yields an `Eff`, a `replyto` a token, and a `waitfor`
             // yields what was sent to its token — whatever its block does.
             // [actor-self-send] `k@self` is a callee, so it is a leaf here.
             | Expr::SelfScoped { .. }
@@ -20052,13 +20052,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             && !(self.in_struct_lit_ty && base.args.is_empty());
         if let Some(expected) = declared_generics {
             // [effect-eff-handle] `eff[A, B, …]` parses straight to this same
-            // `Addr` name with one argument per effect — a legitimate
+            // `Eff` name with one argument per effect — a legitimate
             // multi-effect handle, not an under/over-supplied generic
-            // argument list on the single-generic `intrinsic type Addr<E>`
+            // argument list on the single-generic `intrinsic type Eff<E>`
             // declaration. Exempt here the same way a struct literal's
-            // written type is exempt: `Addr`'s own arity is governed by
+            // written type is exempt: `Eff`'s own arity is governed by
             // [effect-eff-handle], not this check.
-            if expected > 0 && base.args.len() != expected && !omits_effect && !self.in_struct_lit_ty && name != ADDR_TYPE {
+            if expected > 0 && base.args.len() != expected && !omits_effect && !self.in_struct_lit_ty && name != EFF_TYPE {
                 self.error(
                     base.span,
                     messages::qual_value_arg_type_arg_count(&name, &expected, &base.args.len()),
@@ -20105,7 +20105,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // its single handles as qualifiers — a tuple of them when there are
         // several. Unclaimable entries (an alias, an effect variable) keep no
         // claims; `validate_type` reports them.
-        if name == ADDR_TYPE && base.args.iter().any(|a| matches!(a, ast::Type::Named { qualifiers, .. } if !qualifiers.is_empty())) {
+        if name == EFF_TYPE && base.args.iter().any(|a| matches!(a, ast::Type::Named { qualifiers, .. } if !qualifiers.is_empty())) {
             let mut leaves: Vec<Ty> = Vec::new();
             for a in &base.args {
                 let (claims, bare): (&[TypeRef], ast::Type) = match a {
@@ -20153,7 +20153,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             _ => false,
         };
-        if name == ADDR_TYPE && base.args.iter().any(|a| alias_arg(self, a)) {
+        if name == EFF_TYPE && base.args.iter().any(|a| alias_arg(self, a)) {
             let mut listed: Vec<ListedEffect> = Vec::new();
             for a in &base.args {
                 match a {
@@ -20170,9 +20170,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             let args: Vec<Ty> = listed.into_iter().map(|e| e.ty).collect();
             if args.len() > 1 {
-                return Ty::Tuple(args.into_iter().map(|a| Ty::Named { name: ADDR_TYPE.to_string(), args: vec![a] }).collect());
+                return Ty::Tuple(args.into_iter().map(|a| Ty::Named { name: EFF_TYPE.to_string(), args: vec![a] }).collect());
             }
-            return Ty::Named { name: ADDR_TYPE.to_string(), args };
+            return Ty::Named { name: EFF_TYPE.to_string(), args };
         }
         let args: Vec<Ty> = {
             // [cmp-carry] A keyed container names the ordering (or hash) its
@@ -20232,12 +20232,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         // single-effect handles — `(eff[A], eff[B], …)` — in the type system
         // and the IR alike: each element is an ordinary single handle with a
         // real backend representation, so there is no flat multi-face handle
-        // to represent. A single-effect handle stays the `Addr`-named marker
+        // to represent. A single-effect handle stays the `Eff`-named marker
         // (it carries the plain-vs-actor distinction the emitters read).
-        if name == ADDR_TYPE && args.len() > 1 {
+        if name == EFF_TYPE && args.len() > 1 {
             return Ty::Tuple(
                 args.into_iter()
-                    .map(|a| Ty::Named { name: ADDR_TYPE.to_string(), args: vec![a] })
+                    .map(|a| Ty::Named { name: EFF_TYPE.to_string(), args: vec![a] })
                     .collect(),
             );
         }
@@ -20661,7 +20661,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// neither backend can render it (Rust emits a bare trait, `E0782`).
     ///
     /// **One exception, sanctioned by decision** (user, 2026-09-15):
-    /// `Addr<E>`'s type argument [actor-spawn-expr]. An addr is a handle to a
+    /// `Eff<E>`'s type argument [actor-spawn-expr]. An addr is a handle to a
     /// actor, and what a holder may *do* with it is exactly the effect the
     /// actor serves — so the effect is what parameterizes the handle, and
     /// that is what makes an actor and a locally `use`d handler
@@ -20670,11 +20670,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// data position stays refused (checked in `validate_type`, which knows
     /// the enclosing type).
     /// [actor-spawn-expr] Whether this type argument is the effect argument
-    /// of an `Addr` — the one place an effect names something in a type
+    /// of an `Eff` — the one place an effect names something in a type
     /// position. Deliberately narrow: the enclosing base must be std's
-    /// `Addr`, the position must be its only type parameter, and the argument
+    /// `Eff`, the position must be its only type parameter, and the argument
     /// must be a bare name that a visible effect declares. Anything else
-    /// (`Addr<Int>`, a second argument, an effect elsewhere) goes down the
+    /// (`Eff<Int>`, a second argument, an effect elsewhere) goes down the
     /// ordinary path and is validated — or refused — as before.
     /// [actor-effect-kind] The binding gate: `spawn` and `use addr` are the two
     /// ways an actor is reached, and both need an `actor effect`. This is what
@@ -20695,14 +20695,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         self.error(span, messages::actor_effect_kind_plain_effect_actor(&form, &name));
     }
 
-    /// [actor-effect-kind] [actor-monitor-handler] The kind gate on an `Addr`'s
-    /// argument, since SH-3 an *acceptance* of both kinds: an `Addr` of an
-    /// actor effect is a mailbox handle (a spawn produced it), and an `Addr`
+    /// [actor-effect-kind] [actor-monitor-handler] The kind gate on an `Eff`'s
+    /// argument, since SH-3 an *acceptance* of both kinds: an `Eff` of an
+    /// actor effect is a mailbox handle (a spawn produced it), and an `Eff`
     /// of a **plain** effect is a shared monitor's handle (a monitor spawn
     /// produced it) — one type, two backing shapes, chosen by the effect's
     /// declared kind. What remains refused here is only an argument that is
     /// not an effect at all, which the general argument checks report.
-    /// [actor-effect-kind] [actor-monitor-handler] Naming `Addr<E>` accepts both
+    /// [actor-effect-kind] [actor-monitor-handler] Naming `Eff<E>` accepts both
     /// effect kinds since SH-3 (user decision 2026-09-19): an actor effect's
     /// addr is a mailbox handle, and a plain effect's is a shared monitor's
     /// handle. The former per-kind refusal lived here; the walk above now
@@ -20710,27 +20710,27 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn is_addr_effect_arg(&self, base: &TypeRef, index: usize, arg: &ast::Type) -> bool {
         // [effect-eff-handle] Any argument of an `eff[…]` handle is an effect, not
         // just the first: `eff[A, B]` names several (it lowers to a tuple of
-        // single handles). The former single-arg `Addr<E>` restriction is
+        // single handles). The former single-arg `Eff<E>` restriction is
         // widened to every arg.
         // [actor-message] `Message<E>`'s argument is an effect too.
         let message = base.name.name == known::MESSAGE_TYPE && self.scope.opaque_types.contains_key(known::MESSAGE_TYPE);
-        if (base.name.name != ADDR_TYPE && !message) || base.args.is_empty() {
+        if (base.name.name != EFF_TYPE && !message) || base.args.is_empty() {
             return false;
         }
         let _ = index;
-        // Std's `Addr`, not a program's own type of that name.
-        if !message && !self.scope.opaque_types.contains_key(ADDR_TYPE) {
+        // Std's `Eff`, not a program's own type of that name.
+        if !message && !self.scope.opaque_types.contains_key(EFF_TYPE) {
             return false;
         }
         match arg {
             // [effect-generic-decl] A generic effect's instance is an effect
-            // too (`Addr<ActorGroup<Counter>>`): its arguments are checked as
+            // too (`Eff<ActorGroup<Counter>>`): its arguments are checked as
             // the effect's own generics are, which the general walk does.
             // [effect-alias] An alias of effects is effects too: `eff[IO]`.
             // [effect-claim] An `eff[…]` entry may carry claims (`eff[Ordered
             // E]`), which `validate_handle_claims` checks.
             ast::Type::Named { qualifiers, base: b } => {
-                (qualifiers.is_empty() || base.name.name == ADDR_TYPE)
+                (qualifiers.is_empty() || base.name.name == EFF_TYPE)
                     && (self.names_effect_var(b) || {
                         let m = self.named(b);
                         m.effect.is_some() || m.effect_alias.is_some()
@@ -21215,7 +21215,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     if i >= type_args {
                         continue;
                     }
-                    // [actor-spawn-expr] `Addr<E>`'s argument is the *effect*
+                    // [actor-spawn-expr] `Eff<E>`'s argument is the *effect*
                     // the actor serves — the one sanctioned effect-in-a-
                     // type-argument (user decision 2026-09-15). Validated
                     // here rather than in `reject_effect_as_data`, because
@@ -25239,7 +25239,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Ty::Never
             }
             // [actor-spawn-expr] The asynchronous binding of a handler: its
-            // value is the child's `Addr<E>`.
+            // value is the child's `Eff<E>`.
             Expr::Spawn {
                 handler,
                 with_items,
@@ -25447,7 +25447,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 if self.record {
                     self.parking_log.push(key);
                 }
-                Ty::Named { name: ADDR_TYPE.to_string(), args: vec![ty] }
+                Ty::Named { name: EFF_TYPE.to_string(), args: vec![ty] }
             }
             // [actor-replyto] A parked one-shot continuation targeting a
             // member of the enclosing handler; its value is the linear token.
@@ -29518,7 +29518,7 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
         // [effect-var] `eff[E]` against a handle of several effects (or of
         // none), or once `E` binds a set: `E` takes the handle's effects.
         (Ty::Named { name, args }, _)
-            if name == ADDR_TYPE
+            if name == EFF_TYPE
                 && matches!(args.as_slice(), [Ty::Var(g)] if matches!(arg, Ty::Tuple(_)) || subst.get(g).is_some_and(|b| b.as_effect_row().is_some())) =>
         {
             let [Ty::Var(g)] = args.as_slice() else { return false };
@@ -29850,7 +29850,7 @@ pub(crate) fn handle_fits_effect_var(pattern: &Ty, arg: &Ty, sub: &Ty, effect_va
     // A plain type parameter there is refused with its own diagnostic once
     // the call settles (`effect-var:row-for-type`), so it fits here too.
     let _ = effect_vars;
-    if name != ADDR_TYPE || !matches!(args.as_slice(), [Ty::Var(_)]) {
+    if name != EFF_TYPE || !matches!(args.as_slice(), [Ty::Var(_)]) {
         return false;
     }
     match (handle_leaves(arg), handle_leaves(sub)) {
@@ -29925,7 +29925,7 @@ pub(crate) fn effect_row_of(bound: &Ty) -> Vec<Ty> {
 fn collect_handle_vars(t: &Ty, vars: &HashSet<&str>, out: &mut Vec<String>) {
     match t {
         Ty::Named { name, args } => {
-            if name == ADDR_TYPE {
+            if name == EFF_TYPE {
                 if let [Ty::Var(g)] = args.as_slice() {
                     if vars.contains(g.as_str()) && !out.contains(g) {
                         out.push(g.clone());
@@ -30357,7 +30357,7 @@ fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashS
         Ty::Named { name, args } => {
             let args: Vec<Ty> = args.iter().map(|a| substitute_vars(a, subst, callee_generics)).collect();
             // [effect-var] `eff[E]` at `E`'s binding is the handle over its effects.
-            if name == ADDR_TYPE {
+            if name == EFF_TYPE {
                 if let [one] = args.as_slice() {
                     if let Some(row) = one.as_effect_row() {
                         return crate::types::handle_over(row);
@@ -33488,7 +33488,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let Some(df) = decl.fields.iter().find(|f| f.name.name == field.name) else { return };
         let Some(ast::Type::Named { base, .. }) = df.ty.as_ref() else { return };
-        if base.name.name != ADDR_TYPE {
+        if base.name.name != EFF_TYPE {
             return;
         }
         let [ast::Type::Named { base: v, .. }] = base.args.as_slice() else { return };
@@ -34583,7 +34583,7 @@ fn proj_arm_indices(ty: &ast::Type) -> Vec<usize> {
 /// effect, or in a struct's effect argument (`Later<[E]>`).
 fn ast_mentions_effect_var(ty: &ast::Type, name: &str) -> bool {
     fn in_ref(r: &TypeRef, name: &str) -> bool {
-        ((r.name.name == ADDR_TYPE || r.name.name == salvo_syntax::ast::EFFECT_ROW_TYPE_NAME)
+        ((r.name.name == EFF_TYPE || r.name.name == salvo_syntax::ast::EFFECT_ROW_TYPE_NAME)
             && r.args.iter().any(|a| matches!(a, ast::Type::Named { base, .. } if base.name.name == name)))
             || r.args.iter().any(|a| ast_mentions_effect_var(a, name))
     }

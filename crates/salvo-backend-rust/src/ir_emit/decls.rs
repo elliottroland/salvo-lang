@@ -90,7 +90,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
             Ty::ValueRef { .. } | Ty::Const(_) => String::new(),
             Ty::Named { name, args } => {
                 let args: Vec<Ty> = args.iter().filter(|a| !matches!(a, Ty::FnName(_))).map(|a| super::strip_nested_var_proj_in(a, true, &self.f.generics, &self.f.held_vars)).collect();
-                if name == "Addr" && args.len() == 1 {
+                if name == "Eff" && args.len() == 1 {
                     // [effect-var] `eff[E]` is the pack `E` is bound to.
                     if matches!(args[0].strip_quals(), Ty::Var(v) if self.f.effect_vars.contains(v)) {
                         return self.ty(&args[0]);
@@ -111,7 +111,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     }
                 }
                 if let Some(rs) = crate::intrinsics::type_name(name) {
-                    if matches!(name.as_str(), "Addr" | "Pool" | "Reply" | "None" | "Never") || args.is_empty() {
+                    if matches!(name.as_str(), "Eff" | "Pool" | "Reply" | "None" | "Never") || args.is_empty() {
                         return rs.to_string();
                     }
                     let a: Vec<String> = args.iter().map(|x| self.ty(x)).collect();

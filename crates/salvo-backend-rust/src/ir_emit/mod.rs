@@ -804,7 +804,7 @@ pub(crate) fn strip_plain_proj(t: &Ty, vars: &HashSet<String>) -> Ty {
 
 thread_local! {
     /// [actor-monitor-handler] The plain effects of the program being emitted: an
-    /// `Addr` of one is its handle, not a scheduler index.
+    /// `Eff` of one is its handle, not a scheduler index.
     static PLAIN_EFFECTS: std::cell::RefCell<HashSet<String>> = std::cell::RefCell::new(HashSet::new());
 }
 
@@ -813,7 +813,7 @@ pub(crate) fn is_copy_ty(t: &Ty) -> bool {
         // [copy-scalar-free] The Copy scalars, and a pool's index.
         Ty::Named { name, args } if args.is_empty() => salvo_syntax::is_copy_scalar_name(name) || name == "Pool",
         // [runtime-handles] an actor's addr is a scheduler index.
-        Ty::Named { name, args } if name == "Addr" => !matches!(args.first().map(|a| a.strip_quals()), Some(Ty::Named { name: e, .. }) if PLAIN_EFFECTS.with(|p| p.borrow().contains(e))),
+        Ty::Named { name, args } if name == "Eff" => !matches!(args.first().map(|a| a.strip_quals()), Some(Ty::Named { name: e, .. }) if PLAIN_EFFECTS.with(|p| p.borrow().contains(e))),
         _ => false,
     }
 }

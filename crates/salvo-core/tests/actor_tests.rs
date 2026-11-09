@@ -1,6 +1,6 @@
 //! [actor-spawn-expr] [actor-replyto] [actor-waitfor] [actor-use-addr] The
 //! asynchronous surface's *checker* rules: what a `spawn` needs to be legal,
-//! what a `replyto` may target, where a `waitfor` may stand, and how an `Addr`
+//! what a `replyto` may target, where a `waitfor` may stand, and how an `Eff`
 //! is called. The forms' syntax is tested in `salvo-syntax`; the types they
 //! produce and consume are `std.core.actor`'s ([actor-types]).
 //!
@@ -26,7 +26,7 @@ export intrinsic type Str
 export intrinsic type Bool
 export intrinsic type List<T> canbe Mut
 export intrinsic fn discard<T canbe linear>(value: T) [] -> None => !value
-export intrinsic type Addr<E>
+export intrinsic type Eff<E>
 export struct Mailbox { capacity: Int }
 export linear intrinsic type Reply<T>
 export intrinsic fn send<T>(reply: Reply<T>, value: T) [] -> None => !reply, !value

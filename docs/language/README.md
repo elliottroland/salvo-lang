@@ -185,6 +185,7 @@ Start at the top; each page stands on its own, so jumping in is fine too.
 | [Modules](Modules.md) | files as modules, `export`, `import`, namespaces, and documentation comments |
 | [The Manifest](Manifest.md) | `salvo.toml`: projects, build settings, dependencies, host libraries, and every valid option |
 | [Testing](Testing.md) | `test` declarations, where they live, assertions, and actor tests |
+| [Writing Test Kinds](Test-Kinds.md) | `comptime fn` test kinds: the `Test` parameter, arguments, verdicts, and writing your own |
 | [Files](Files.md) | the file system and its streams |
 | [Time](Time.md) | durations, instants, ticks, and time in a test |
 | [Backends](Backends.md) | `intrinsic`, `platform`, host implementations, and per-backend detail |

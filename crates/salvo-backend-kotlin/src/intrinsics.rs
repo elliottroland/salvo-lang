@@ -156,7 +156,7 @@ pub fn fn_call(
         ("bit_ushr", Some("Int" | "Long")) => format!("(({}) ushr ({}))", a(0), a(1)),
         // runtime ------------------------------------------------------
         // [runtime-handles] An addr and a pool are `Int` indices already.
-        ("addr_index", Some("Addr")) | ("pool_index", Some("Pool")) | ("addr_of", Some("Int"))
+        ("addr_index", Some("Eff")) | ("pool_index", Some("Pool")) | ("addr_of", Some("Int"))
         | ("pool_of", Some("Int")) => format!("({})", a(0)),
         // std.core.actor ---------------------------------------------------
         // [actor-replyto] [kt-actor] Answering a request: the token is
@@ -271,9 +271,9 @@ pub fn type_name(name: &str) -> Option<&'static str> {
         // [actor-types] [kt-actor] The scheduler's handles: an addr and a pool
         // are ids into it, a reply token is its own class. Their Salvo type
         // *arguments* are dropped by `emit_named_parts` — the effect a
-        // `Addr<E>` serves is the checker's business, and the generated message
+        // `Eff<E>` serves is the checker's business, and the generated message
         // classes carry payload types.
-        "Addr" => "Int",
+        "Eff" => "Int",
         "Pool" => "Int",
         "Reply" => "salvo.SalvoReply",
         "None" => "Unit",

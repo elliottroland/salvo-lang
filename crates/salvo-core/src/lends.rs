@@ -411,7 +411,7 @@ impl<'p> Walk<'_, '_, 'p> {
             // [qual-retype] The subject's value, re-typed.
             Expr::Retype { subject, .. } => self.lends_of_expr(subject),
             // [actor-spawn-expr] [actor-replyto] [actor-waitfor] None of the
-            // three yields a view: an `Addr` and a `Reply` are owned tokens,
+            // three yields a view: an `Eff` and a `Reply` are owned tokens,
             // and a `waitfor` yields a value another actor sent — nothing
             // crossing an actor boundary can be a borrow of a local.
             Expr::Spawn { .. }

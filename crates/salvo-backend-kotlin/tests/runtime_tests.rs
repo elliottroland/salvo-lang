@@ -92,7 +92,7 @@ fn compile_runtime_modules(files: &[&str], in_example: bool, version: &str) -> R
     // two together; and it is checked on its own as well, as every other
     // module is.
     // [kt-wire] The scheduler and the wire name each other (the typed send
-    // encodes; the `Addr` codec asks the scheduler), and the wire names
+    // encodes; the `Eff` codec asks the scheduler), and the wire names
     // `SalvoBytes`: the three travel with the scheduler.
     // [runtime-sched] The scheduler, the wire and the stream table name each
     // other and the Salvo core, so those three are checked inside the files

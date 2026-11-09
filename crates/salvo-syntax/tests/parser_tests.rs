@@ -1720,7 +1720,7 @@ fn main() [use, spawn] {
 
     // `use addr` is first-pass surface, not sugar: it needs no new syntax —
     // the `use` statement already takes an expression, and a bare name here
-    // is an `Addr` rather than a handler construction. Distinguishing them is
+    // is an `Eff` rather than a handler construction. Distinguishing them is
     // the checker's job.
     let bound: Vec<&str> = body
         .stmts
@@ -1733,7 +1733,7 @@ fn main() [use, spawn] {
             _ => None,
         })
         .collect();
-    assert_eq!(bound, vec!["counter"], "`use counter` binds the Addr");
+    assert_eq!(bound, vec!["counter"], "`use counter` binds the Eff");
 
     // A spawn with no `use` clause still carries both required clauses.
     match values[0] {
@@ -1756,7 +1756,7 @@ fn main() [use, spawn] {
         other => panic!("expected a spawn, got {other:?}"),
     }
 
-    // The `with` clause takes both an `Addr` value and a handler construction.
+    // The `with` clause takes both an `Eff` value and a handler construction.
     match values[1] {
         Expr::Spawn { with_items, .. } => {
             assert_eq!(
@@ -1766,7 +1766,7 @@ fn main() [use, spawn] {
             );
             assert!(
                 matches!(&with_items[0], Expr::Ident(id) if id.name == "counter"),
-                "the first is an Addr value: {:?}",
+                "the first is an Eff value: {:?}",
                 with_items[0]
             );
             assert!(

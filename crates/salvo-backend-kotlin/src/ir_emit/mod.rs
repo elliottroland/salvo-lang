@@ -495,7 +495,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     if name == "Bytes" {
                         self.s.needs_bytes = true;
                     }
-                    if name == "Addr" && args.len() == 1 {
+                    if name == "Eff" && args.len() == 1 {
                         // [effect-var] `eff[E]` is the pack `E` is bound to.
                         if matches!(args[0].strip_quals(), Ty::Var(v) if self.effect_vars.contains(v)) {
                             return self.ty(&args[0]);
@@ -508,7 +508,7 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                             }
                         }
                     }
-                    if matches!(name.as_str(), "Addr" | "Pool" | "Reply") {
+                    if matches!(name.as_str(), "Eff" | "Pool" | "Reply") {
                         return kt.to_string();
                     }
                     let a: Vec<String> = args.iter().map(|x| self.ty(x)).collect();

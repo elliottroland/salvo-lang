@@ -194,13 +194,13 @@ pub const NAMESPACE_WORD: &str = "namespace";
 pub const EFFECTS_WORD: &str = "effects";
 
 /// [effect-eff-handle] The internal nominal type an `eff[…]` handle lowers to — the
-/// name `Addr<E>` used before the surface rename. Kept as the internal
+/// name `Eff<E>` used before the surface rename. Kept as the internal
 /// spelling so the compiler's actor/handle machinery (keyed on this name) is
 /// untouched by the surface change; only the written syntax moved to `eff[…]`.
-pub const ADDR_TYPE_NAME: &str = "Addr";
+pub const EFF_TYPE_NAME: &str = "Eff";
 
 /// [effect-eff-handle] The contextual type former `eff[A, B, …]`: the type of a
-/// first-class handle over a flat set of effects (what `Addr<E>` was spelled
+/// first-class handle over a flat set of effects (what `Eff<E>` was spelled
 /// before — the mailbox analogy no longer fit once a handle covers any effect,
 /// actor or not). Lowercase and compiler-owned like `proj`/`iter`/`ref`, read
 /// as the former only before `[`, so `eff` stays an ordinary identifier.
@@ -208,7 +208,7 @@ pub const EFF_WORD: &str = "eff";
 /// [actor-message] The word of the `message[E]` type former.
 pub const MESSAGE_WORD: &str = "message";
 /// [actor-message] The compiler's internal name for one protocol's messages,
-/// `message[E]` (as `Addr` is `eff[E]`'s): std.core.actor's
+/// `message[E]` (as `Eff` is `eff[E]`'s): std.core.actor's
 /// `intrinsic type Message<E>`, never written.
 pub const MESSAGE_TYPE_NAME: &str = "Message";
 
@@ -3697,8 +3697,8 @@ impl<'s> Parser<'s> {
         Some((ty, generics, canbe))
     }
 
-    /// [effect-eff-handle] `eff[A, B, …]` → the internal `Addr` type carrying the
-    /// effect set as its arguments. One effect reproduces the old `Addr<E>`
+    /// [effect-eff-handle] `eff[A, B, …]` → the internal `Eff` type carrying the
+    /// effect set as its arguments. One effect reproduces the old `Eff<E>`
     /// exactly (`args: [E]`); several is a multi-effect handle (`args: [A,
     /// B]`). Members are effect refs with their claims [effect-claim]
     /// (`eff[Ordered Counter]`); `use`/`spawn` are capabilities, not handle
@@ -3728,7 +3728,7 @@ impl<'s> Parser<'s> {
         // [effect-var] `eff[]` is the handle over no effects, as `()` is the
         // tuple of no values: what `eff[E]` is when `E` binds the empty set.
         let base = TypeRef {
-            name: Ident { name: ADDR_TYPE_NAME.to_string(), span: start },
+            name: Ident { name: EFF_TYPE_NAME.to_string(), span: start },
             args,
             value_args: Vec::new(),
             from: Vec::new(),
@@ -3893,8 +3893,8 @@ impl<'s> Parser<'s> {
         }
         // [effect-eff-handle] `eff[A, B, …]`: a first-class handle over a flat set of
         // effects. Contextual — only before `[` — so `eff` stays a name. It
-        // lowers to the internal `Addr` type (unchanged machinery): a single
-        // effect is `Addr<E>` as before, several is a multi-effect handle.
+        // lowers to the internal `Eff` type (unchanged machinery): a single
+        // effect is `Eff<E>` as before, several is a multi-effect handle.
         if self.at_word(EFF_WORD) && matches!(self.peek_at(1).kind, TokenKind::LBracket) {
             return self.parse_eff_handle();
         }
@@ -3915,10 +3915,10 @@ impl<'s> Parser<'s> {
             self.error(messages::actor_message_old_spelling(), span);
             return None;
         }
-        // [effect-eff-handle] The old handle spelling `Addr<…>` is no longer the
-        // language: a plain parse error naming the replacement. (`Addr` is the
+        // [effect-eff-handle] The old handle spelling `Eff<…>` is no longer the
+        // language: a plain parse error naming the replacement. (`Eff` is the
         // compiler's internal name for the handle; the surface is `eff[…]`.)
-        if matches!(&self.kind(), TokenKind::Ident(n) if n == ADDR_TYPE_NAME)
+        if matches!(&self.kind(), TokenKind::Ident(n) if n == EFF_TYPE_NAME)
             && matches!(self.peek_at(1).kind, TokenKind::Lt)
         {
             let span = self.peek().span;
@@ -7739,7 +7739,7 @@ impl<'s> Parser<'s> {
     /// [effect-with-clause] The `with` clause of a `use` or `spawn`: the dependency
     /// instances to supply instead of the scope's resolution
     /// ([actor-spawn-inherit]), as a comma-separated list of handler constructions
-    /// and `Addr` values — the parser keeps both as expressions, as the
+    /// and `Eff` values — the parser keeps both as expressions, as the
     /// `use` *statement* does, and the checker tells them apart.
     ///
     /// Same line as its binding form, like the `on` clause: without the
