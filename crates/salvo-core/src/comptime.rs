@@ -505,6 +505,17 @@ fn run<M: crate::expand::ModuleSlot>(
                     fallback_body(f);
                     continue;
                 };
+                // [comptime-generic] A written tuple type that mentions the
+                // fn's own type parameters (`fn f<T, S>(t: (T, S)) … by f`) is
+                // a generic target, as `Wrapper<T>` is: refused below rather
+                // than stamped with the parameter it would substitute into
+                // itself.
+                let mut target = target;
+                if target.kind == CompKind::Tuple && target.generics.is_empty() && !f.generics.is_empty() {
+                    let mut named = Vec::new();
+                    collect_type_names(first, &mut named);
+                    target.generics = f.generics.iter().filter(|g| named.iter().any(|n| n.name == g.name)).map(|g| g.name.clone()).collect();
+                }
                 let Some((template, module, template_file)) = world.pick_with_module(&f.name.name, &by, target.kind, &mut diags) else {
                     fallback_body(f);
                     continue;

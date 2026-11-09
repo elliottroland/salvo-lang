@@ -162,3 +162,15 @@ comptime fn index_types<T is Tuple>(t: T) [] -> Int => t {
 comptime fn f<T is Tupel>(t: T) [] -> Int => t {
     return 0
 }
+
+//--- a_tuple_of_the_fns_own_type_parameters
+// [comptime-tuple] [comptime-generic] A written tuple that mentions the fn's
+// own type parameters is a generic target, refused like `Wrapper<T>` — it
+// used to substitute the template's `T` into `(T, S)` without end, and
+// overflow the stack.
+comptime fn show<T is Tuple>(t: T) [] -> Str => t {
+    return "x"
+}
+
+//~ error[comptime-generic:generic-target]
+fn show<T, S>(t: (T, S)) [] -> Str by show
