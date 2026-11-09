@@ -1671,6 +1671,44 @@ deliberately cut, in the order the decisions put it:
   `Ordered`/`Hashed` obligation fix is offered only for a struct with no
   obligation that has no `by`.
 
+- **Spreads: tuple `(T, ...S)` and union `T | ...S`, and implicits for them**
+  (punted 2026-11-09, user). What exists: the union spread in a *signature*
+  (`...T | Box<C>`, [type-union-spread]); a generic fn over `T | ...S` that
+  fills `?to_json: (T) -> Str, ?to_json: (S) -> Str` type-checks, and the
+  recursion over the span works (two same-named implicits). What is open:
+  - *Union*: the Rust emission of such a fn (the defect right below);
+    `when value { is T … is S … }` over a span uses `is S` (not a `...S`
+    pattern); which arm `T` takes when the union has several (any valid split
+    is acceptable, but the order is unspecified).
+  - *Tuple*: `(T, ...S)` splits positionally, so inference is the easy part
+    (`T` is the first element, `S` the rest, a one-element rest being the bare
+    type as a union span of one is). The costs are elsewhere: a tuple-tail
+    value expression (`rest` of `t`, a copy per level, so O(n²), and an
+    ownership question for linear elements), a rule for the one-element tail
+    (a 1-tuple does not exist), and a backend representation for a generic
+    tuple of unknown arity (Rust has no generic over arity, so each
+    instantiation would be emitted on its own). Today's route to an
+    arity-generic tuple fn is one generic overload per arity with a same-named
+    implicit per element (std's `to_str`, `eq`, `cmp`, `hash`), and the
+    comptime route below (a stamp at a generic tuple).
+
+- **A comptime call: expand another template here** (asked 2026-11-09, not
+  built). `[to_json@demo(t.[field])]` in a template's `[when field.kind]` arm
+  would stamp the `<T is Tuple>` template at the field's type where it is
+  written, so no `fn … by` is needed per tuple type. Doable where the expander
+  *knows* the argument's type (`t.[field]`, `t.[index]`, `t`, a binder's
+  value, or an explicit `<[field.type]>`): the template is picked by name and
+  the type's kind as `by` does, so it needs none of the checker's types, which
+  is what blocks stamping at an ordinary call (the entry below). Expand it as
+  a **hidden fn, stamped once per (template, type) in the module being
+  expanded, and call it**, not as inline text: an inline expansion has no
+  expression form for a template's statements and would not end for a type
+  that reaches itself through union arms. Open: the spelling (`[f@m(x)]`, or
+  a splice-call like `[test.body](…)`), where the hidden fn's name lives and
+  whether it is exported, which `@[site]` the nested template sees (the outer
+  stamp's), a generic field type (needs the generic stamp's implicits), and
+  the error note naming the chain of templates.
+
 - **Defect: a generic `T | ...S` fn called with a nullable or nested union
   emits Rust that does not compile** (found 2026-11-05 trying the demo's
   `to_json`). It type-checks. Repro: `fn to_json<T, S>(value: T | ...S,
