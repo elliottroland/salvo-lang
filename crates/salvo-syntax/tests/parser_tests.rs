@@ -3397,6 +3397,31 @@ fn a_spliced_arm_type_is_a_constructor_call() {
     assert_eq!(args.len(), 1);
 }
 
+/// [comptime-call] `[to_json@demo](t.[field])` / `[to_json](x)`: a comptime
+/// call, carried as a call of one identifier named with its brackets and its
+/// selector — the splice-call shape of `[test.body](…)` — whose arguments are
+/// ordinary. Outside a comptime fn it is reported, and a bracketed name
+/// without an argument list is no comptime call.
+#[test]
+fn a_comptime_call_is_a_bracketed_callee() {
+    use salvo_syntax::ast::{Expr, Item, Stmt};
+    let source = "comptime fn f<T is Struct>(t: T) [] -> Str {\n    [for field in T.fields] {\n        let a = [to_json@std.demo](t.[field])\n    }\n    let x: Str = [to_json](t)\n    return x\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
+    let Item::Fn(f) = &module.items[0] else { panic!() };
+    let stmts = &f.body.as_ref().unwrap().stmts;
+    let Stmt::Comp(salvo_syntax::ast::CompStmt::For { body, .. }) = &stmts[0] else { panic!() };
+    let Stmt::Let { value: Expr::Call { callee, args, .. }, .. } = &body.stmts[0] else { panic!("{:?}", body.stmts[0]) };
+    assert!(matches!(&**callee, Expr::Ident(id) if id.name == "[to_json@std.demo]"), "{callee:?}");
+    assert!(matches!(&args[..], [Expr::Field { field, .. }] if field.name == "[field]"), "{args:?}");
+    let Stmt::Let { value: Expr::Call { callee, .. }, .. } = &stmts[1] else { panic!("{:?}", stmts[1]) };
+    assert!(matches!(&**callee, Expr::Ident(id) if id.name == "[to_json]"), "{callee:?}");
+    assert_eq!(
+        ids_of("fn g(p: Int) [] -> Str {\n    return [to_json@demo](p)\n}\n"),
+        vec!["comptime-inline:outside-compfn"]
+    );
+}
+
 /// [is-union] `s is "json" | "text"` is the disjunction of the tests over the
 /// same place (`!is` negates the whole). A binding, or a subject that is not
 /// a place, is refused, since the subject is read once per test: checker

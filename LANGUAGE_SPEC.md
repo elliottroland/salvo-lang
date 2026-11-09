@@ -6204,8 +6204,10 @@ Conventions:
     `std.core.comptime`'s `Kind` — at most one, and a
     module's same-named comptime fns of different kinds are the overloads a
     `by` picks between by the target's kind. A stamped fn is **not callable**:
-    it exists only to be instantiated by `by`, and the expansion removes it
-    before resolution (COMPLETED.md's comptime entry, decision 2).
+    it exists only to be instantiated by `by` — or, inside another comptime
+    fn, by a comptime call [comptime-call], which stamps it as a hidden fn —
+    and the expansion removes it before resolution (COMPLETED.md's comptime
+    entry, decision 2).
   * **Expanded in place** — no kind bound. It is expanded **once, where it is
     declared** (in a struct body or at top level), and is then an **ordinary
     fn**: callable from ordinary code, resolved, checked and emitted like a
@@ -6409,18 +6411,76 @@ Conventions:
   * A stamped fn's element types are known only where it is stamped, so
     `[when index.type]` over them is refused at the template exactly as
     `[when field.type]` is [comptime-pattern].
-  * **No stamping at a call**: a call with a tuple argument does not find a
-    `<T is Tuple>` template, as a call with a struct argument does not find
-    a `<T is Struct>` one; a stamped fn is reached only through a `by`
-    declaration [comptime-bound]. A struct template meets a tuple field
-    through the site's function, `to_json@[site](t.[field])`, which a `fn …
-    by` at that tuple type declares.
+  * **No stamping at an ordinary call**: a call with a tuple argument does
+    not find a `<T is Tuple>` template, as a call with a struct argument does
+    not find a `<T is Struct>` one; a stamped fn is reached through a `by`
+    declaration [comptime-bound], or from a template through a comptime call.
+    A struct template meets a tuple field either through the site's
+    function, `to_json@[site](t.[field])`, which a `fn … by` at that tuple
+    type declares, or by stamping the tuple template there,
+    `[to_json](t.[field])`, with no declaration per tuple type
+    [comptime-call].
   * **A tuple of the declaration's own type parameters** is a generic target
     (`fn to_json<A, B>(t: (A, B), ?to_json: (A) -> Str, ?to_json: (B) ->
     Str) -> Str by to_json`), stamped with the implicits the declaration
     writes [comptime-generic]; one declaration per arity. (It overflowed the
     stack until 2026-11-09, substituting the template's `T` into `(T, S)`,
     then was refused.)
+* [comptime-call] **A comptime call expands another template** (user idea
+  and decisions 2026-11-09): inside a comptime fn, `[name](args)` or
+  `[name@module](args)` — the template reference in brackets, then an
+  ordinary argument list on the same line — stamps the `name` template at the
+  type of the **first argument** and becomes an ordinary call of what it
+  stamped, the arguments as written.
+  * **Spelling**: parsed as a call of one identifier named with its brackets
+    and selector (`"[to_json@demo]"`), the splice-call shape of
+    `[test.body](…)` (`parse_comptime_call_name`); the expansion replaces the
+    callee, so no later phase sees it. Outside a comptime fn it is
+    `comptime-inline:outside-compfn`. A bare `[x](…)` whose `x` is a binder
+    stays the binder's splice [comptime-access]. A plain `name(args)` or
+    `name@[site](args)` is unchanged: an ordinary call.
+  * **The pick** is `by name@module`'s function reading [fn-by]
+    [obligation-by] — no module reading, since a call names a function: the
+    comptime fns of that name whose bound kind is the argument type's kind
+    (`World::classify`; struct, named union or `Message<X>`, tuple) in a
+    module **the file that writes the call** sees, narrowed by the `@`
+    selector [mod-suffix]. None of that name: `comptime-call:names-nothing`;
+    none of that kind: `comptime-call:no-template`; several:
+    `comptime-call:ambiguous`.
+  * **The argument's type** is what the expansion knows, with no checker
+    types: a binder's read `base.[b]` (the binder's type, so a chain
+    `a.[b].[c]` is `c`'s), a parameter of the comptime fn (its type as
+    instantiated), a runtime `let` declaring its type (`let x: [index.type] =
+    t.[index]`, the type as the copy expands it), and in the copy for an arm
+    of `[when value]` the subject (`value`, `t.[field]`) at that arm's type,
+    as the `when` it unrolls into narrows it. Anything else:
+    `comptime-call:unknown-type`; no argument: `comptime-call:no-argument`.
+    A basic, opaque [struct-opaque], fn type or unnamed union:
+    `comptime-call:not-stampable`; a type mentioning a type parameter (in a
+    generic stamp [comptime-generic], or a generic `type`, or a generic
+    struct named without its arguments): `comptime-call:generic-type` — both
+    say to write the ordinary `name@[site](…)` call. A generic struct at
+    written arguments (`Wrapper<Int>`) is stamped at that instance.
+  * **A hidden fn** (user decision 1): the template stamped as the
+    declaration `fn <hidden>(…) by name@module` would be — its signature the
+    template's, instantiated, effects and deductions included
+    (`Declared::Hidden`) — generated into the module of the **outer stamp
+    site** (the file being expanded), non-exported, named
+    `__salvo_comptime_<module>_<name>_<n>`: a generated name, in no
+    user-visible overload set (agent's call: the `__salvo_` prefix is the
+    compiler's, as for test fns; a program could spell it, nothing does).
+    Memoized per file on (template, the type's text and file): the name is
+    allocated and recorded **before** the body is expanded, so a type that
+    reaches itself calls the fn in progress and the expansion ends. A failed
+    stamp is memoized as its errors, which every call meeting it reports
+    again, and drops what was stamped inside it.
+  * **`@[site]` in a nested template is the outer stamp site** (user
+    decision 2), however deep: the hidden fn is in that module, with its
+    template's file for the template's own names [comptime-hygiene].
+  * **Errors** (user decision 3) are reported where the expansion that made
+    the call reports — the outer `by` site — with the one note
+    [comptime-template-note] naming the template and line that raised it:
+    the nested template's own, for an error inside it. No chain of notes.
 * [comptime-default] **`field.default` is the field's declared default**
   (the CLI design record X1, built 2026-10-20 as engineering under round 2): in a copy
   it is the `= expr` the field declares, evaluated where the struct is

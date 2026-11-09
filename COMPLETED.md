@@ -149,6 +149,66 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-09 — A comptime call expands another template ([comptime-call])
+
+The user's idea (ROADMAP's "A comptime call: expand another template here")
+and the user's decisions of 2026-11-09 on its open points: inside a comptime
+fn, `[to_json@demo](t.[field])` stamps the named template at the argument's
+type and calls it, so a struct template prints a tuple field with the tuple
+template and no `fn … by` is needed per tuple type.
+
+- **User decision 1 — a hidden fn, not inline text.** The template is
+  stamped as the declaration `fn <hidden>(…) by name@module` would be (a new
+  `Declared::Hidden`: the signature is the template's, instantiated whole,
+  effects and deductions included, through the same `Stamper::stamp_into`),
+  into the module of the outer stamp site, non-exported, under a generated
+  name (`__salvo_comptime_<module>_<name>_<n>`), so it enters no overload
+  set: a plain `to_json(("a", 1))` does not find it. Memoized per file on
+  (template, the type's text and file tag) in `World::hidden`; the name is
+  recorded before the body is expanded, so a type that reaches itself ends.
+  A failed stamp is memoized as its errors and drops what it stamped inside.
+- **User decision 2 — `@[site]` in a nested template is the outer stamp
+  site**, however deep. It fell out: the hidden fn lives in the outer module
+  with its template's file as `Stamp::template_file`, so name resolution's
+  existing template/site split [comptime-hygiene] applies unchanged. Tested
+  with the struct template, the tuple template and the overloads in three
+  modules.
+- **User decision 3 — errors at the outer `by`**, with the one existing
+  note naming the nested template's line: the nested `Expander` is built with
+  the outer site and its own template's `template_info`, and its errors join
+  the calling expansion's as they are.
+- **User decision 4 — spelling `[name@module](args)` / `[name](args)`**,
+  legal only in a comptime fn (`require_compfn`; outside one the call is
+  parsed and left as `Expr::Error`). No new AST variant: the callee is an
+  `Expr::Ident` named with its brackets, the splice-call shape of
+  `[test.body](…)`, and the expansion replaces it. The pick is `by`'s
+  function reading (`World::compfns_named`, shared with `pick_inner` now)
+  with the bound kind `World::classify` gives.
+- **The argument's type** with no checker: a binder's read, a parameter of
+  the comptime fn (`Expander::value_params`, set from the instantiated
+  signature), a runtime `let` declaring its type (`typed_locals`, filled by a
+  new `visit_stmt` hook), and — needed for a union template to reach its
+  arms without stamping itself again — the subject of a `[when value]` at
+  the arm's type in that arm's copy (`narrowed`). Six new diagnostics,
+  `comptime-call:*`; a basic/opaque/fn type and a generic one say to write
+  the ordinary `name@[site](…)` call.
+
+The agent's calls, to confirm (in ROADMAP's "Comptime call: what is left"):
+the first argument is the one stamped at; a binder named like a template
+wins in `[x](…)`; a `[when value]` arm narrows, a runtime `is` does not; the
+`__salvo_` prefix; a nested call's templates are the ones its own file sees.
+Not built: an LSP hover on the bracketed name.
+
+Tests: parser `a_comptime_call_is_a_bracketed_callee`; checker data
+`comptime/calls.sv` (the accepted forms and the hidden fn's invisibility, a
+recursive type whose expansion ends at the checker's own cycle error, each
+refusal at its `by` with the nested-template case, a generic element, two
+modules' templates and `@two`); run data `comptime/calls.sv` on both
+backends (the user's struct-and-tuple `to_json`, a union reaching itself
+through a struct arm's list, the three-module `@[site]` case). The suite is
+748 tests under `cargo nextest run`, all green; std's own 163 pass and
+`salvo analyze` in `lib/` is clean.
+
 ### 2026-11-09 — A `fn … by` at a generic tuple or struct, with the declaration's implicits ([comptime-generic] [fn-by] [comptime-tuple])
 
 User decision 2026-11-09 ("option 1"): a written `fn … by tmpl` at a generic
@@ -41363,6 +41423,15 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **`Expr::Placeholder` is `_`, not error recovery** (2026-11-09, comptime
+  call). A construct reported and left behind as a `Placeholder` gets a
+  second error (`expr-placeholder:outside-pick`); `Expr::Error` is the node
+  the checker passes over silently.
+- **The expander's `visit_expr` is pre-order** (2026-11-09, comptime call):
+  a hook on a `Call` sees its arguments as written (`t.[field]`, not yet
+  `t.name`), which is what lets a comptime call read its argument's type off
+  the binder; a hook that needs the substituted form has to walk a clone
+  (as `visit_stmt` does for a `let`'s declared type).
 - **An expansion error hides the stamped bodies' checker errors**
   (2026-11-09, generic stamps). A program with one refused `by` site (a
   generic `type` target) reports that refusal alone: the checker does not

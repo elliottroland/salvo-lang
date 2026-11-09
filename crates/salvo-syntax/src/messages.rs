@@ -287,6 +287,44 @@ messages! {
         "`{name}@[site]` names the site a template is stamped at, and an expanded-in-place \
          `comptime fn` is not stamped anywhere: write `{name}` or `{name}@module`"
     );
+
+    // [comptime-call]
+    /// `[name](…)` naming no comptime fn the file can see.
+    comptime_call_names_nothing = "comptime-call:names-nothing" (call: &str, name: &str, unseen: &str) => format!(
+        "`[{call}](…)` names no binder and no comptime fn the file can see{unseen}: a comptime \
+         call expands a template, a `comptime fn {name}<T is …>`"
+    );
+    /// `[name](…)` at a type no template stamps: a basic, opaque or fn type.
+    comptime_call_not_stampable = "comptime-call:not-stampable" (call: &str, name: &str, ty: &dyn std::fmt::Display, kind: &str) => format!(
+        "`[{call}](…)` is at `{ty}`, of kind `{kind}`, and only a struct, a union or a tuple is \
+         stamped: write an ordinary call `{name}@[site](…)` for it"
+    );
+    /// `[name](…)` whose name has no template of the argument's kind.
+    comptime_call_no_template = "comptime-call:no-template" (call: &str, name: &str, ty: &dyn std::fmt::Display, kind: &str) => format!(
+        "`[{call}](…)` is at `{ty}`, and no `comptime fn {name}<T is {kind}>` the file can see \
+         stamps it: declare one, or write an ordinary call `{name}@[site](…)`"
+    );
+    /// `[name](…)` whose name has several templates of the argument's kind.
+    comptime_call_ambiguous = "comptime-call:ambiguous" (call: &str, name: &str, kind: &str, places: &str) => format!(
+        "`[{call}](…)` could be the `comptime fn {name}<T is {kind}>` of {places}: write \
+         `[{name}@module](…)` to say which"
+    );
+    /// `[name]()` with no argument to stamp at.
+    comptime_call_no_argument = "comptime-call:no-argument" (call: &str) => format!(
+        "`[{call}](…)` stamps its template at the type of its first argument, and it has none"
+    );
+    /// `[name](e)` where the expansion cannot tell `e`'s type.
+    comptime_call_unknown_type = "comptime-call:unknown-type" (call: &str) => format!(
+        "the type of the first argument of `[{call}](…)` is not known when the template is \
+         expanded: pass a binder's read (`t.[field]`), a parameter of the comptime fn, or a local \
+         declared with its type (`let x: [field.type] = …`)"
+    );
+    /// `[name](e)` at a type that mentions a type parameter.
+    comptime_call_generic_type = "comptime-call:generic-type" (call: &str, name: &str, ty: &dyn std::fmt::Display, param: &str) => format!(
+        "`[{call}](…)` is at `{ty}`, which mentions the type parameter `{param}`, and a template \
+         is stamped only at a type it knows: write an ordinary call `{name}@[site](…)`, filled by \
+         an implicit of the declaration"
+    );
     /// A `[when value]` over a union without exactly one written arm.
     comptime_inline_union_when_arms = "comptime-inline:union-when-arms" () =>
         "a `[when value]` over a union has exactly one written arm, `[arm] { … }`, \

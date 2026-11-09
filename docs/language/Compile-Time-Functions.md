@@ -593,15 +593,19 @@ declaration whose parameter is the tuple type, as above, or at a `type`
 naming one (`type Pair = (Int, Int)`). Of the comptime fns named `to_json`,
 the tuple picks the `<T is Tuple>` one, as a struct picks the `<T is Struct>`
 one, so one module can hold both: a struct's `to_json` reaches a tuple field
-through `to_json@[site](t.[field])`, which finds the declaration above.
+through `to_json@[site](t.[field])`, which finds the declaration above, or,
+with no declaration per tuple type, through a
+[comptime call](#expanding-another-template-a-comptime-call)
+`[to_json](t.[field])`.
 
 The binder is an [`Index`](../../lib/std/core/comptime.sv#struct-index):
 `index.index` is the position from zero, `index.first` and `index.last` are
 as for fields, `index.type` is the element's type (`[index.type]` as a
 type, `[if index.type is Int]` as a test) and `index.kind` its kind. An
 element has no name, so there is no `index.name`, and `T` has no `.name`
-either. A call with a tuple argument does not stamp anything by itself: as
-for structs, only a `by` declaration does.
+either. An ordinary call with a tuple argument does not stamp anything by
+itself: as for structs, only a `by` declaration does, or a comptime call in a
+template (next section).
 
 A declaration can also stamp at a tuple of its own type parameters, for every
 pair at once. The copy for an element of type `A` has nothing to call but
@@ -630,6 +634,97 @@ against the template's parameters. Nothing checks them separately: leave one
 out and the copy that needed it reports the ordinary error at its element,
 `no matching overload for to_json(A)`, as any stamped body's errors are
 reported.
+
+### Expanding another template: a comptime call
+
+Inside a comptime fn, a template's name in brackets followed by an argument
+list, `[to_json](t.[field])`, is a **comptime call**: the template named
+`to_json` is stamped at the type of the first argument, and the expression is
+an ordinary call of what it stamped. A struct template can then print a tuple
+field with the tuple template, and a nested tuple with that template again,
+without a `fn … by` for each tuple type:
+
+```salvo
+comptime fn to_json<T is Struct>(t: T) -> Str {
+    let json = Mut Str("{")
+    [for field in T.fields] {
+        json.append@string("\"${field.name}\": ")
+        [when field.kind] {
+            is Struct { json.append@string([to_json](t.[field])) }
+            is Tuple { json.append@string([to_json](t.[field])) }
+            is Opaque { json.append@string(to_json@[site](t.[field])) }
+            is Union { json.append@string("null") }
+            is FnType { json.append@string("null") }
+        }
+        [if !field.last] {
+            json.append@string(", ")
+        }
+    }
+    json.append@string("}")
+    return json
+}
+
+comptime fn to_json<T is Tuple>(t: T) -> Str {
+    let json = Mut Str("[")
+    [for index in T.indices] {
+        let x: [index.type] = t.[index]
+        [when index.kind] {
+            is Tuple { json.append@string([to_json](x)) }
+            is Struct { json.append@string([to_json](x)) }
+            is Opaque { json.append@string(to_json@[site](x)) }
+            is Union { json.append@string("null") }
+            is FnType { json.append@string("null") }
+        }
+        [if !index.last] {
+            json.append@string(", ")
+        }
+    }
+    json.append@string("]")
+    return json
+}
+
+struct Person {
+    name: Str,
+    pair: (Str, (Int, Int))
+}
+
+fn to_json(t: Person) -> Str by to_json      // {"name": "Ann", "pair": ["a", [1, 2]]}
+```
+
+Of the comptime fns of that name, the call picks the one whose bound kind is
+the argument's, as `by` does: a struct type stamps the `<T is Struct>` one, a
+named union the `<T is Union>` one, a tuple the `<T is Tuple>` one. An `@`
+narrows the choice to a module's, as `by name@module` does
+(`[to_json@json](t.[field])`); without one, two visible templates of the kind
+are an error that asks for it. The templates are the ones the file that
+writes the call can see.
+
+What the expansion stamps is a **hidden function**: the template's signature
+with its type parameter replaced by the argument's type, and the template's
+body for it, declared in the module of the `by` that started the stamping,
+once per template and type however many calls reach it. It has no name you
+can write, so it is in no overload set: `to_json(("a", 1))` in ordinary code
+does not find it, and it never collides with a `to_json` you wrote. Because
+it is a function, a type that reaches itself (a union whose struct arm holds a
+list of the union, say) expands once and the copies call it.
+
+The expansion has no type checker to ask, so the argument has to be one whose
+type it knows: a binder's read (`t.[field]`, `t.[index]`), a parameter of the
+comptime fn, or a local that declares its type (`let x: [index.type] =
+t.[index]`). In the arm of a `[when value]`, `value` is the arm's type, as
+the `when` it unrolls into narrows it; a parameter read anywhere else is its
+declared type. A type no template stamps (a basic, opaque or function type,
+an unnamed union such as `Str?`) is an error that says to write an ordinary
+call `to_json@[site](…)` for it, and so is a type that mentions a type
+parameter: in a stamp at a generic tuple, an element of type `A` is the
+implicit's to print.
+
+The stamped template sees what a template stamped by that `by` would see:
+`to_json@[site]` in it is the site of the `by`, however deep the nesting, and
+not the module the nested template is written in. Its errors are reported at
+that `by`, with the note naming the nested template's line. A plain
+`to_json(…)` or `to_json@[site](…)` is unchanged, an ordinary call resolved
+where it is stamped.
 
 ### The model: `std.core.comptime`
 
@@ -1024,6 +1119,7 @@ hand.
 
 ## Not there yet: stamping at a call
 
-Recorded rather than shipped: `eq by auto` at a **call**, supplying an
-implicit by stamping, which is how a tuple would get an identity. It is in
-ROADMAP.md.
+An ordinary call is never stamped: the comptime call above exists only inside
+a template, where the expansion knows the argument's type. Recorded rather
+than shipped: `eq by auto` at an ordinary **call**, supplying an implicit by
+stamping, which is how a tuple would get an identity. It is in ROADMAP.md.

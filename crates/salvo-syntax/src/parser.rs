@@ -7055,7 +7055,57 @@ impl<'s> Parser<'s> {
         Some(Ident { name: format!("[{path}]"), span: open.to(close) })
     }
 
+    /// [comptime-call] `[to_json@demo](…)` / `[to_json](…)`: a comptime call
+    /// — the bracketed template reference, then an argument list on the same
+    /// line. Carried as one identifier named with its brackets and its
+    /// selector (`"[to_json@demo]"`), the splice-call shape of
+    /// `[test.body](…)`; the expansion replaces it by the hidden fn it
+    /// stamps. `None` (nothing consumed) when what follows is not that shape.
+    fn parse_comptime_call_name(&mut self) -> Option<Ident> {
+        if !(self.at(&TokenKind::LBracket) && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))) {
+            return None;
+        }
+        let snap = self.snapshot();
+        let parsed = (|| {
+            let open = self.bump().span;
+            let name = self.ident()?;
+            let mut text = name.name.clone();
+            if self.at(&TokenKind::At) {
+                self.bump();
+                text.push('@');
+                text.push_str(&self.ident()?.name);
+                while self.eat(&TokenKind::Dot).is_some() {
+                    text.push('.');
+                    text.push_str(&self.ident()?.name);
+                }
+            }
+            let close = self.expect(&TokenKind::RBracket)?.span;
+            (self.at(&TokenKind::LParen) && self.same_line()).then(|| Ident { name: format!("[{text}]"), span: open.to(close) })
+        })();
+        match parsed {
+            Some(id) => {
+                self.require_compfn(id.span, "a comptime call `[name](…)`");
+                Some(id)
+            }
+            None => {
+                self.rollback(snap);
+                None
+            }
+        }
+    }
+
     fn parse_primary(&mut self) -> Option<Expr> {
+        // [comptime-call] `[to_json@demo](t.[field])`: expand a template here.
+        // Outside a comptime fn the form is reported (a list literal is never
+        // called), inside one it is the template reference.
+        if let Some(id) = self.parse_comptime_call_name() {
+            if !self.in_compfn {
+                // Reported; the call is parsed and left to nothing more.
+                let end = self.parse_call_args().map(|(_, _, end)| end).unwrap_or(id.span);
+                return Some(Expr::Error { span: id.span.to(end) });
+            }
+            return Some(Expr::Ident(id));
+        }
         // [comptime-access] `[p]` / `[test.body]` as an expression: a name the
         // expansion substitutes (a binder's local, a generated fn). A path
         // ending in `.type` is the type splice below.

@@ -13,6 +13,8 @@
 //!   [fn-attached] and pushed into the target's module — the checker's
 //!   [group-obligation] check finds it like a hand-written fulfilment;
 //! - the body of every `fn … by X` declaration, in place;
+//! - [comptime-call] one hidden fn per (template, type) a comptime call
+//!   `[name](…)` in a stamped body reached, in the stamping file;
 //! - the body of every **concrete** compfn (no bound), expanded in place;
 //! - no generic compfn at all: they are removed, since nothing downstream
 //!   could type `T.fields`.
@@ -271,6 +273,7 @@ fn run<M: crate::expand::ModuleSlot>(
                 (f.name.clone(), starts)
             })
             .collect(),
+        hidden: Default::default(),
     };
 
     // [decl-id] Each file is stamped into a copy of its module, which takes
@@ -300,6 +303,7 @@ fn run<M: crate::expand::ModuleSlot>(
         let module = &mut copy;
         *world.own.borrow_mut() = file.module.clone();
         world.here.set(file_idx);
+        *world.hidden.borrow_mut() = HiddenFns::default();
         let mut diags: Vec<Diagnostic> = Vec::new();
         // [node-origin] The file's expansion ids: 0 is written code.
         let mut next_expn: u32 = 1;
@@ -648,6 +652,9 @@ fn run<M: crate::expand::ModuleSlot>(
                 Err(errs) => diags.extend(errs),
             }
         }
+
+        // [comptime-call] The hidden fns the file's comptime calls stamped.
+        generated.extend(std::mem::take(&mut world.hidden.borrow_mut().fns).into_iter().map(Item::Fn));
 
         // Generic compfns leave the program: nothing downstream could type
         // them, and every use of one has been stamped above. So do the
@@ -2002,6 +2009,21 @@ struct World<'a> {
     /// [comptime-template-note] Each file's name and line starts, to say where
     /// in a template a diagnostic that lands at a stamp's site came from.
     lines: Vec<(String, Vec<u32>)>,
+    /// [comptime-call] The hidden fns the file being expanded stamped for its
+    /// comptime calls.
+    hidden: std::cell::RefCell<HiddenFns>,
+}
+
+/// [comptime-call] What a file's comptime calls stamped: one hidden fn per
+/// (template, type), by its name, or the errors stamping it reported (each
+/// call meeting it reports them again, at its own site); and the fns, which
+/// join the file's declarations once it is stamped.
+#[derive(Default)]
+struct HiddenFns {
+    /// (template's file, template's name start, the type's text, the
+    /// type's file tag) → the fn's name.
+    memo: HashMap<(usize, u32, String, u32), Result<String, Vec<Diagnostic>>>,
+    fns: Vec<FnDecl>,
 }
 
 impl<'a> World<'a> {
@@ -2054,7 +2076,17 @@ impl<'a> World<'a> {
     /// [obligation-by] Whether the file being expanded can see `module`: its
     /// own, an imported one, or one implicitly visible.
     fn sees_module(&self, module: &ModulePath) -> bool {
-        self.names_here().is_some_and(|h| h.modules.iter().any(|m| *m == module))
+        self.sees_module_from(module, None)
+    }
+
+    /// [comptime-call] Whether the file that wrote `from` sees `module`; the
+    /// file being expanded, without one.
+    fn sees_module_from(&self, module: &ModulePath, from: Option<Span>) -> bool {
+        let names = match from {
+            Some(at) => self.names_at(at),
+            None => self.names_here(),
+        };
+        names.is_some_and(|h| h.modules.iter().any(|m| *m == module))
     }
 
     /// [struct-opaque] Whether `name` is an opaque struct whose fields the
@@ -2411,17 +2443,11 @@ impl<'a> World<'a> {
         // kind, in a module the file can see — or in the module the `@`
         // selector names.
         let fn_candidates: Vec<&CompFnDecl> = if path.len() == 1 {
-            self.compfns()
-                .filter(|c| c.decl.name.name == path[0] && self.sees_module(&c.module))
-                .filter(|c| c.decl.compfn.as_ref().and_then(|c| c.bound.as_ref()).is_some_and(|(k, _)| *k == kind))
-                .filter(|c| match &by.at {
-                    Some(ByAt::Fn(sel)) => {
-                        let sel: Vec<&str> = sel.iter().map(|p| p.name.as_str()).collect();
-                        c.module.matches_suffix(&sel)
-                    }
-                    _ => true,
-                })
-                .collect()
+            let sel: Option<Vec<&str>> = match &by.at {
+                Some(ByAt::Fn(sel)) => Some(sel.iter().map(|p| p.name.as_str()).collect()),
+                _ => None,
+            };
+            self.compfns_named(path[0], sel.as_deref(), kind, None)
         } else {
             Vec::new()
         };
@@ -2508,20 +2534,62 @@ impl<'a> World<'a> {
         None
     }
 
+    /// [obligation-by] [comptime-call] The function reading of a template
+    /// name: the comptime fns of that name and bound kind in a module the
+    /// file can see, narrowed by an `@` selector when one is written.
+    /// A comptime call's are the ones the file that wrote it sees (`from`:
+    /// the template's text), a `by`'s the file being expanded.
+    fn compfns_named(&self, name: &str, sel: Option<&[&str]>, kind: CompKind, from: Option<Span>) -> Vec<&CompFnDecl> {
+        self.compfns()
+            .filter(|c| c.decl.name.name == name && self.sees_module_from(&c.module, from))
+            .filter(|c| c.decl.compfn.as_ref().and_then(|c| c.bound.as_ref()).is_some_and(|(k, _)| *k == kind))
+            .filter(|c| sel.is_none_or(|sel| c.module.matches_suffix(sel)))
+            .collect()
+    }
+
+    /// [comptime-call] The template a comptime call `[name@sel](…)` names at
+    /// a type of `kind`: the function reading of `by name@sel` (a call names
+    /// a function, so there is no module reading), with its module and file.
+    /// `Err(None)` when the name has no template of that kind.
+    fn pick_call(&self, call: &str, name: &str, sel: Option<&[&str]>, kind: CompKind, from: Span) -> Result<(FnDecl, ModulePath, Option<usize>), Option<messages::Message>> {
+        let found = self.compfns_named(name, sel, kind, Some(from));
+        match found.as_slice() {
+            [one] => Ok((one.decl.clone(), one.module.clone(), Some(one.file))),
+            [] => Err(None),
+            many => {
+                let places: Vec<String> = many.iter().map(|c| format!("`{}`", c.module)).collect();
+                Err(Some(messages::comptime_call_ambiguous(call, name, kind.word(), &places.join(", "))))
+            }
+        }
+    }
+
+    /// [comptime-call] Whether any template of `name` (narrowed by `sel`)
+    /// is visible, of any kind: what tells "no template of this kind" from
+    /// "no such template".
+    fn has_template(&self, name: &str, sel: Option<&[&str]>, from: Span) -> bool {
+        [CompKind::Struct, CompKind::Union, CompKind::Tuple].into_iter().any(|k| !self.compfns_named(name, sel, k, Some(from)).is_empty())
+    }
+
     /// [obligation-by] For a `by` path that names nothing the file can see:
     /// the imports that would make it name something, as the end of the
     /// message (empty when there are none).
     fn unseen(&self, path: &[&str]) -> String {
+        self.unseen_from(path, None)
+    }
+
+    /// [`World::unseen`] for the file that wrote `from`.
+    fn unseen_from(&self, path: &[&str], from: Option<Span>) -> String {
         let mut found: Vec<String> = self
             .module_paths
             .iter()
-            .filter(|m| m.matches_suffix(path) && !self.sees_module(m))
+            // A comptime call (`from`) names a function only.
+            .filter(|m| from.is_none() && m.matches_suffix(path) && !self.sees_module(m))
             .map(|m| m.to_string())
             .collect();
         if let [only] = path {
             found.extend(
                 self.compfns()
-                    .filter(|c| c.decl.name.name == *only && !self.sees_module(&c.module))
+                    .filter(|c| c.decl.name.name == *only && !self.sees_module_from(&c.module, from))
                     .map(|c| c.module.to_string()),
             );
         }
@@ -2874,18 +2942,36 @@ impl<'w> Stamper<'w> {
         ex.current = template_expn;
         ex.template_info = self.template_file.map(|f| (f, self.template.name.name.clone(), template_expn));
         let mut sig = SigSubst { ex: &mut ex };
-        for p in &mut inst.params {
-            visit_mut::walk_type(&mut sig, &mut p.ty);
+        if matches!(declared, Declared::Hidden) {
+            // [comptime-call] A hidden fn's signature is the template's
+            // instantiated whole — its effects and deductions too, as a
+            // written `fn … by` copying the template's signature would say.
+            let body = inst.body.take();
+            visit_mut::walk_fn(&mut sig, &mut inst);
+            inst.body = body;
+            f.params = inst.params.clone();
+            f.return_type = inst.return_type.clone();
+            f.effects = inst.effects.clone();
+            f.deductions = inst.deductions.clone();
+            f.implicit_groups = inst.implicit_groups.clone();
+        } else {
+            for p in &mut inst.params {
+                visit_mut::walk_type(&mut sig, &mut p.ty);
+            }
+            if let Some(r) = &mut inst.return_type {
+                visit_mut::walk_type(&mut sig, r);
+            }
         }
-        if let Some(r) = &mut inst.return_type {
-            visit_mut::walk_type(&mut sig, r);
-        }
+        // [comptime-call] What a bare parameter name passed to a comptime call
+        // is: its instantiated type.
+        ex.value_params = explicit_params(&inst.params).into_iter().map(|p| (p.name.name.clone(), p.ty.clone())).collect();
         // The declared signature has to be the instantiation's, positionally.
         // A written one is reported where it is written; a clause's member at
         // the clause.
         let (what, written) = match declared {
             Declared::Written => (format!("`fn {}`", f.name.name), true),
             Declared::Member { group } => (format!("`{group}<self>`'s `fn {}`", f.name.name), false),
+            Declared::Hidden => (format!("`fn {}`", f.name.name), false),
         };
         let at = |s: Span| if written { s } else { site };
         let mut errs = Vec::new();
@@ -3009,6 +3095,9 @@ impl MutVisitor for RenameIdent {
 enum Declared<'a> {
     Written,
     Member { group: &'a str },
+    /// [comptime-call] The hidden fn a comptime call stamps: its signature
+    /// is the template's, instantiated.
+    Hidden,
 }
 
 /// [obligation-by] `self` in a group member's signature: each of the group's
@@ -3460,6 +3549,16 @@ struct Expander<'w> {
     /// [comptime-template-note] A stamp's template: its file, its name, and
     /// the expansion its whole copy is.
     template_info: Option<(usize, String, u32)>,
+    /// [comptime-call] The comptime fn's explicit parameters and their types
+    /// in this expansion (instantiated in a stamp): what a bare parameter
+    /// name passed to a comptime call is.
+    value_params: Vec<(String, Type)>,
+    /// [comptime-call] The values a `[when value]` arm being copied narrows
+    /// (`value`, `t.[field]`, as written) to the arm's type, innermost last.
+    narrowed: Vec<(String, Type)>,
+    /// [comptime-call] The runtime `let`s seen so far that declare their
+    /// type, with the type as expanded (`let x: [index.type] = …`).
+    typed_locals: Vec<(String, Type)>,
 }
 
 impl<'w> Expander<'w> {
@@ -3486,6 +3585,9 @@ impl<'w> Expander<'w> {
             when_arms: Vec::new(),
             test: None,
             template_info: None,
+            value_params: Vec::new(),
+            narrowed: Vec::new(),
+            typed_locals: Vec::new(),
         }
     }
 
@@ -5151,6 +5253,7 @@ impl<'w> Expander<'w> {
                     self.error(span, messages::comptime_inline_when_value_not_union(&self.world.normalized(&subject_ty)));
                     return;
                 }
+                let narrow_key = subject_key(&value);
                 visit_mut::walk_expr(self, &mut value);
                 let arms = self.arms_of_type(&subject_ty);
                 let n = arms.len();
@@ -5180,7 +5283,15 @@ impl<'w> Expander<'w> {
                     slot: None,
                     tuple: false,
                 };
+                    // [comptime-call] In the arm's copy the subject is the
+                    // arm's type, as the `when` it unrolls into narrows it.
+                    if let Some(k) = &narrow_key {
+                        self.narrowed.push((k.clone(), arm.clone()));
+                    }
                     let body = self.copy(&body, &binder.name, &b);
+                    if narrow_key.is_some() {
+                        self.narrowed.pop();
+                    }
                     // The check's spans come from the union's declaration; two
                     // stamps at one union would key the checker's `is` tables on
                     // the same node, so each copy gets its own.
@@ -5375,6 +5486,24 @@ impl MutVisitor for Expander<'_> {
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
+        // [comptime-call] `[to_json@demo](t.[field])`: the template stamped
+        // at the argument's type as a hidden fn, and an ordinary call of it.
+        // The arguments are walked next, as written.
+        if let Expr::Call { callee, args, span, .. } = expr {
+            if let Expr::Ident(id) = &mut **callee {
+                if let Some(call) = self.comptime_call_name(&id.name) {
+                    let span = *span;
+                    let from = id.span;
+                    if let Some(hidden) = self.comptime_call(&call, from, args, span) {
+                        id.name = hidden;
+                    } else {
+                        // Reported: the call is left to nothing more.
+                        *expr = Expr::Error { span };
+                        return;
+                    }
+                }
+            }
+        }
         // [test-kind] `[test.body]`, `[test.config]`, `[p]`, `[s]`: a name the
         // expansion makes structure — a generated fn, a parameter's local,
         // or a slot (a constant as its literal, a place as a read).
@@ -5705,6 +5834,17 @@ impl MutVisitor for Expander<'_> {
         }
     }
 
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        // [comptime-call] `let x: [index.type] = t.[index]`: the local's type,
+        // as this copy expands it, for a comptime call passed `x`.
+        if let Stmt::Let { pattern: Pattern::Ident(id), ty: Some(ty), .. } = stmt {
+            let name = id.name.clone();
+            let mut expanded = ty.clone();
+            visit_mut::walk_type(self, &mut expanded);
+            self.typed_locals.push((name, expanded));
+        }
+    }
+
     fn visit_struct_lit_field(&mut self, field: &mut StructLitField) {
         if let StructLitFieldKind::Named { name, .. } = &mut field.kind {
             if let Some(b) = name.name.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
@@ -5729,6 +5869,205 @@ fn is_arg_head(e: &Expr) -> bool {
         if fields.len() == 1
             && matches!(&fields[0].kind, StructLitFieldKind::InlineFor { entries, .. }
                 if !entries.is_empty() && entries.iter().all(|f| matches!(&f.kind, StructLitFieldKind::Named { name, .. } if name.name == "_arg"))))
+}
+
+impl Expander<'_> {
+    /// [comptime-call] The template reference a call's callee spells, when it
+    /// is a comptime call: `[to_json@demo]` → `to_json@demo`, or a bare
+    /// `[to_json]` that is neither a binder nor a test's generated name.
+    fn comptime_call_name(&self, callee: &str) -> Option<String> {
+        let inner = callee.strip_prefix('[')?.strip_suffix(']')?;
+        if inner.contains('@') {
+            return Some(inner.to_string());
+        }
+        if inner.contains('.') || self.binding(inner).is_some() {
+            return None;
+        }
+        Some(inner.to_string())
+    }
+
+    /// [comptime-call] What the expansion knows of a comptime call's
+    /// argument's type: a binder's read (`t.[field]`, `t.[index]`, and
+    /// through a chain `a.[b].[c]`, the last binder's), a parameter of the
+    /// comptime fn, or a local declared with its type — and inside a `[when
+    /// value]` arm, the value the arm narrows, at the arm's type.
+    fn call_arg_type(&self, arg: &Expr) -> Option<Type> {
+        if let Some(key) = subject_key(arg) {
+            if let Some((_, ty)) = self.narrowed.iter().rev().find(|(k, _)| *k == key) {
+                return Some(ty.clone());
+            }
+        }
+        match arg {
+            Expr::Field { field, .. } => {
+                let b = field.name.strip_prefix('[')?.strip_suffix(']')?;
+                self.binding(b).filter(|bd| !bd.is_arm && bd.slot.is_none()).map(|bd| bd.ty.clone())
+            }
+            Expr::Ident(id) => self
+                .typed_locals
+                .iter()
+                .rev()
+                .find(|(n, _)| *n == id.name)
+                .map(|(_, t)| t.clone())
+                .or_else(|| self.value_params.iter().find(|(n, _)| *n == id.name).map(|(_, t)| t.clone()))
+                .or_else(|| self.params.iter().find(|p| !p.implicit && p.name.name == id.name).map(|p| p.ty.clone())),
+            _ => None,
+        }
+    }
+
+    /// [comptime-call] `[call](args)`: stamps the named template at the first
+    /// argument's type as a hidden fn of the file being expanded — once per
+    /// (template, type), named before its body is expanded so a type that
+    /// reaches itself calls the fn being stamped — and returns its name.
+    /// Errors land where this expansion's land (the outer stamp's site); a
+    /// nested stamp's carry the note naming its own template's line.
+    fn comptime_call(&mut self, call: &str, from: Span, args: &[Expr], span: Span) -> Option<String> {
+        let (name, sel): (&str, Option<Vec<&str>>) = match call.split_once('@') {
+            Some((n, m)) => (n, Some(m.split('.').collect())),
+            None => (call, None),
+        };
+        if !self.world.has_template(name, sel.as_deref(), from) {
+            let unseen = self.world.unseen_from(&[name], Some(from));
+            self.error(span, messages::comptime_call_names_nothing(call, name, &unseen));
+            return None;
+        }
+        let Some(arg) = args.first() else {
+            self.error(span, messages::comptime_call_no_argument(call));
+            return None;
+        };
+        let Some(ty) = self.call_arg_type(arg) else {
+            self.error(span, messages::comptime_call_unknown_type(call));
+            return None;
+        };
+        let generics = self.generics();
+        let mut named = Vec::new();
+        collect_type_names(&ty, &mut named);
+        if let Some(g) = named.iter().find(|n| generics.contains(&n.name)) {
+            let g = g.name.clone();
+            self.error(span, messages::comptime_call_generic_type(call, name, &ty, &g));
+            return None;
+        }
+        let kind = self.world.classify(&ty, &generics, 0);
+        let target = match kind {
+            TypeKindWord::Struct | TypeKindWord::Union | TypeKindWord::Tuple => self
+                .world
+                .message_arms(&ty)
+                .map(|_| Target { name: ty.to_string(), kind: CompKind::Union, ty: ty.clone(), generics: Vec::new(), canbe: Vec::new() })
+                .or_else(|| self.world.target_of_type(&ty)),
+            _ => None,
+        };
+        let Some(mut target) = target else {
+            self.error(span, messages::comptime_call_not_stampable(call, name, &ty, kind.word()));
+            return None;
+        };
+        // [comptime-generic] A generic struct is stamped at an instance (its
+        // arguments written), as a written declaration at `Wrapper<Int>` is;
+        // a generic `type` has no instance its arms are read at.
+        if !target.generics.is_empty() {
+            let instance = matches!(&ty, Type::Named { base, .. } if target.kind == CompKind::Struct && base.args.len() == target.generics.len());
+            if !instance {
+                let g = target.generics[0].clone();
+                self.error(span, messages::comptime_call_generic_type(call, name, &ty, &g));
+                return None;
+            }
+            target.ty = ty.clone();
+            target.generics.clear();
+        }
+        let (template, _, tfile) = match self.world.pick_call(call, name, sel.as_deref(), target.kind, from) {
+            Ok(t) => t,
+            Err(m) => {
+                let m = m.unwrap_or_else(|| messages::comptime_call_no_template(call, name, &ty, target.kind.word()));
+                self.error(span, m);
+                return None;
+            }
+        };
+        let key = (tfile.unwrap_or(usize::MAX), template.name.span.start, ty.to_string(), ty.span().file);
+        let memo = self.world.hidden.borrow().memo.get(&key).cloned();
+        match memo {
+            Some(Ok(hidden)) => return Some(hidden),
+            Some(Err(errs)) => {
+                self.errors.extend(errs);
+                return None;
+            }
+            None => {}
+        }
+        // A name no declaration writes (the compiler's `__salvo_` names), so
+        // it joins no overload set, and unique in the file.
+        let hidden = {
+            let mut h = self.world.hidden.borrow_mut();
+            let own = self.world.own.borrow().0.join("_");
+            let hidden = format!("__salvo_comptime_{own}_{name}_{}", h.memo.len());
+            h.memo.insert(key.clone(), Ok(hidden.clone()));
+            hidden
+        };
+        // The declaration a `fn <hidden>(…) by name@sel` would be, at the
+        // outer stamp's site: its signature is the template's, instantiated
+        // [`Declared::Hidden`].
+        let site = self.site;
+        let at = |n: &str| Ident { name: n.to_string(), span: site };
+        let by = ByRef {
+            path: vec![at(name)],
+            at: sel.as_ref().map(|s| ByAt::Fn(s.iter().map(|p| at(p)).collect())),
+            span: site,
+        };
+        let mut f = template.clone();
+        f.compfn = None;
+        f.intrinsic = false;
+        f.body = None;
+        f.exported = false;
+        f.scoped_to = None;
+        f.generics.clear();
+        f.generic_canbe.clear();
+        f.by = Some(by.clone());
+        f.docs = Vec::new();
+        let made = Retag::fresh(self.next_expn);
+        f.name = Ident { name: hidden.clone(), span: site.in_expansion(made.expn) };
+        f.span = f.name.span;
+        f.stamped = Some(Stamp {
+            compfn: template.name.name.clone(),
+            from: by.text(),
+            at_type: target.name.clone(),
+            site,
+            expansions: vec![ExpansionRecord { id: made.expn, parent: 0, kind: ExpansionKind::Made }],
+            roots: Vec::new(),
+            template_file: None,
+            site_names: Vec::new(),
+            scopes: Vec::new(),
+        });
+        let before = self.world.hidden.borrow().fns.len();
+        let stamped = Stamper::new(self.world, &target, &template, &by, &mut *self.next_expn).at(tfile).stamp_into(&mut f, Declared::Hidden);
+        match stamped {
+            Ok(()) => {
+                if let Some(s) = &mut f.stamped {
+                    s.template_file = tfile;
+                    s.site_names = self.world.site_names_of(tfile, &template);
+                }
+                self.world.hidden.borrow_mut().fns.push(f);
+                Some(hidden)
+            }
+            Err(errs) => {
+                // What the failed stamp stamped inside it may call it: it goes
+                // too, and is stamped again if another call needs it.
+                let mut h = self.world.hidden.borrow_mut();
+                let dropped: Vec<String> = h.fns.drain(before..).map(|f| f.name.name).collect();
+                h.memo.retain(|_, v| !matches!(v, Ok(n) if dropped.contains(n)));
+                h.memo.insert(key, Err(errs.clone()));
+                drop(h);
+                self.errors.extend(errs);
+                None
+            }
+        }
+    }
+}
+
+/// [comptime-call] A `[when value]` subject or a comptime call's argument as
+/// written, for matching one against the other: a name, or a binder's read
+/// `base.[binder]` of one.
+fn subject_key(e: &Expr) -> Option<String> {
+    match e {
+        Expr::Ident(id) => Some(id.name.clone()),
+        Expr::Field { base, field, .. } if field.name.starts_with('[') => Some(format!("{}.{}", subject_key(base)?, field.name)),
+        _ => None,
+    }
 }
 
 impl Expander<'_> {

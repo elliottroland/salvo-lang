@@ -1139,8 +1139,8 @@ in build order:
   tuple has no `.name`/`.docs`/`.mutable` (refused, rather than the type's
   text); `[when index.type]` in a stamped fn is refused like `[when
   field.type]`; an `Index` has no `.name` (so `[when index.name]` is
-  refused); and nothing stamps a tuple template at a call, as nothing does a
-  struct one.
+  refused); and nothing stamps a tuple template at an ordinary call, as
+  nothing does a struct one (a template's comptime call does, [comptime-call]).
 
 - **Obligation clauses on platform types** (decided for `intrinsic type`
   2026-09-28; the collections became platform types and, per §0j, `Set`/`Map`/
@@ -1194,8 +1194,11 @@ in build order:
      seams), a required written type (`Mut Set<P>(hash by auto)`), or that
      desugared to a hidden `fn … by hash@auto` (the cheapest).
   4. **Generic and non-struct targets**: a `<T is Tuple>` template exists
-     since 2026-11-09 [comptime-tuple], stamped only through a `fn … by`
-     declaration at the tuple type; a generic
+     since 2026-11-09 [comptime-tuple], stamped through a `fn … by`
+     declaration at the tuple type, or from inside another template by a
+     comptime call [comptime-call], whose hidden fn (generated name, outside
+     every overload set, memoized per (template, type) in the stamping
+     module) is a precedent for decision 2; a generic
      struct's stamp fits a keyed slot since 2026-10-20, so a generic stamp
      at a call is a real option.
   5. **[implicit-with] pairing**: whether "stamped" is a source of its own,
@@ -1697,22 +1700,19 @@ deliberately cut, in the order the decisions put it:
     implicit per element (std's `to_str`, `eq`, `cmp`, `hash`), and the
     comptime route below (a stamp at a generic tuple).
 
-- **A comptime call: expand another template here** (asked 2026-11-09, not
-  built). `[to_json@demo(t.[field])]` in a template's `[when field.kind]` arm
-  would stamp the `<T is Tuple>` template at the field's type where it is
-  written, so no `fn … by` is needed per tuple type. Doable where the expander
-  *knows* the argument's type (`t.[field]`, `t.[index]`, `t`, a binder's
-  value, or an explicit `<[field.type]>`): the template is picked by name and
-  the type's kind as `by` does, so it needs none of the checker's types, which
-  is what blocks stamping at an ordinary call (the entry below). Expand it as
-  a **hidden fn, stamped once per (template, type) in the module being
-  expanded, and call it**, not as inline text: an inline expansion has no
-  expression form for a template's statements and would not end for a type
-  that reaches itself through union arms. Open: the spelling (`[f@m(x)]`, or
-  a splice-call like `[test.body](…)`), where the hidden fn's name lives and
-  whether it is exported, which `@[site]` the nested template sees (the outer
-  stamp's), a generic field type (needs the generic stamp's implicits), and
-  the error note naming the chain of templates.
+- **Comptime call: what is left** (built 2026-11-09, [comptime-call]; the
+  record is COMPLETED.md's entry of that day). Not built: a hover on the
+  bracketed name showing the picked template (the LSP shows nothing there).
+  **Agent's calls, to confirm:** (a) the template is stamped at the type of
+  the call's *first* argument; (b) in `[x](…)` a binder named `x` wins over a
+  template named `x` (the splice it was before); (c) the subject of a `[when
+  value]` is the arm's type in that arm's copy, but a runtime `if v is X`
+  narrows nothing the expansion sees, so `[f](v)` there stamps at `v`'s
+  declared type (in a union template, itself: a run-time loop); (d) the
+  hidden fn's name is `__salvo_comptime_<module>_<name>_<n>`, the compiler's
+  `__salvo_` prefix, which a program could spell; (e) the templates are the
+  ones the file writing the call sees (a nested template's own imports),
+  where a `by`'s are the stamping file's.
 
 - **Defect: a generic `T | ...S` fn called with a nullable or nested union
   emits Rust that does not compile** (found 2026-11-05 trying the demo's
