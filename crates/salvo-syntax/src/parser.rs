@@ -4883,7 +4883,7 @@ impl<'s> Parser<'s> {
     }
 
     /// `[for field in T.fields] { … }`, `[if <cond>] { … } else { … }`,
-    /// `[when field.kind] { is Struct { … } … }`, `[when value] { [arm] { … }
+    /// `[when field.type.kind] { is Struct { … } … }`, `[when value] { [arm] { … }
     /// }`. [expr-terminal-scope] `[for …]` and `[if …]` also take a terminal `...`
     /// body, as `for` and `if` do: the rest of the enclosing block.
     fn parse_inline(&mut self) -> Option<CompStmt> {
@@ -4982,33 +4982,44 @@ impl<'s> Parser<'s> {
                         self.expect(&TokenKind::RBracket)?;
                         return self.parse_inline_when_name(start, binder);
                     }
-                    // [comptime-kind] `[when field.kind] { is Struct { … } … }`:
-                    // the kind of the binder's type.
+                    // [comptime-kind] `[when field.kind] { is … }`: a kind is
+                    // the type's (`field.type.kind`), and a binder has none;
+                    // carried as a kind dispatch over the binder itself
+                    // (`via_type: false`), which the expansion reports with
+                    // the spelling to write.
                     if b.starts_with(|c: char| c.is_lowercase())
                         && matches!(self.peek_at(1).kind, TokenKind::Dot)
                         && matches!(&self.peek_at(2).kind, TokenKind::Ident(p) if p == "kind")
                         && matches!(self.peek_at(3).kind, TokenKind::RBracket)
+                        && matches!(self.peek_at(4).kind, TokenKind::LBrace)
+                        && matches!(self.peek_at(5).kind, TokenKind::KwIs | TokenKind::KwElse | TokenKind::RBrace)
                     {
                         let root = self.ident()?;
                         self.bump();
                         let end = self.bump().span;
                         self.expect(&TokenKind::RBracket)?;
-                        let ty = CompTy { span: root.span.to(end), root, via_type: true, args: Vec::new() };
+                        let ty = CompTy { span: root.span.to(end), root, via_type: false, args: Vec::new() };
                         return self.parse_inline_when_kind(start, ty);
                     }
                 }
-                // A type subject (`T`, `field.type`) with `.kind` opens the
-                // kind dispatch; a value subject the arm dispatch. The brace
-                // decides which was meant: `{ is Kind` against `{ [arm]`.
+                // [comptime-kind] A type subject (`T`, `field.type`) with
+                // `.kind` opens the kind dispatch; a value subject the arm
+                // dispatch. The brace decides which was meant: `{ is Kind`
+                // against `{ [arm]`. A binder's type's kind,
+                // `field.type.kind`, is spanned to its `kind`, the member
+                // hovered.
                 let snap = self.snapshot();
-                if let Some(ty) = self.try_parse_comp_ty() {
+                if let Some(mut ty) = self.try_parse_comp_ty() {
                     if self.at(&TokenKind::Dot)
                         && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n == "kind")
                         && matches!(self.peek_at(2).kind, TokenKind::RBracket)
                     {
                         self.bump();
+                        let kind = self.bump().span;
                         self.bump();
-                        self.bump();
+                        if ty.via_type {
+                            ty.span = ty.span.to(kind);
+                        }
                         return self.parse_inline_when_kind(start, ty);
                     }
                     if self.at(&TokenKind::RBracket)

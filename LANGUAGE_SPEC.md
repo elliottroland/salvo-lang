@@ -6268,7 +6268,7 @@ Conventions:
   `[if]` when both halves do, and `refuse!` ends a path. The `by` sites of a
   template so refused get a body that says nothing more, as for a `[when]`
   over the bound parameter's range [when-exhaustive]. What needs the type —
-  a `[when field.kind]` that meets a kind it has no arm for, a call with no
+  a `[when field.type.kind]` that meets a kind it has no arm for, a call with no
   overload at the field's type — is still a stamp's, at the stamp.
 * [comptime-template-note] **A diagnostic that lands at a stamp's site says
   which line of the template raised it**: `(from comptime fn `describe`,
@@ -6288,21 +6288,21 @@ Conventions:
   comptime struct Generic { name: Str }      // a type parameter of the struct being stamped
   comptime type Opaque = Basic | Generic
   comptime type Kind   = Struct | Union | Tuple | FnType | Opaque
-  comptime struct Type  {}                   // a type itself; its description is `.kind`
+  comptime struct Type  { kind: Kind }       // a type itself, and its kind
   comptime struct Value {}                   // a value a declaration writes
-  comptime struct Field { name: Str, kind: Kind, type: Type, index: Int, first: Bool, last: Bool,
+  comptime struct Field { name: Str, type: Type, index: Int, first: Bool, last: Bool,
                           default: Value?, docs: Str? }
-  comptime struct Arm   { name: Str, kind: Kind, type: Type, index: Int, first: Bool, last: Bool,
+  comptime struct Arm   { name: Str, type: Type, index: Int, first: Bool, last: Bool,
                           docs: Str? }
-  comptime struct Index { index: Int, first: Bool, last: Bool, type: Type, kind: Kind }
+  comptime struct Index { index: Int, first: Bool, last: Bool, type: Type }
   ```
 
   Inside a body the bound `T` is a `Struct`, `Union` or `Tuple` by its bound,
   `T.fields` / `T.arms` / `T.indices` [comptime-tuple] the sequence a `[for …]` walks (arms in declaration order, `None`
   included [type-union-arm-identity]), `T.name` and `T.mutable` its projections; a
-  binder is a `Field` or `Arm` with its six projections; `field.type` is
+  binder is a `Field` or `Arm` with its five projections; `field.type` is
   spliced **as a type** wherever one is written inside the body, in brackets
-  (`[field.type]`, [comptime-inline]), `field.kind`
+  (`[field.type]`, [comptime-inline]), `field.type.kind`
   is its kind [comptime-kind], `field.name` a literal of the union of the
   struct's field names [comptime-name], and `field.type.arms` reaches a union
   field's arms. An expanded-in-place comptime fn names
@@ -6385,11 +6385,11 @@ Conventions:
   T) -> Str`, its bound the `Tuple` arm of `Kind` (`CompKind::Tuple`).
   * **`[for index in T.indices]`** unrolls once per element, in order, binding
     an `Index` (`std.core.comptime`'s `comptime struct Index { index: Int,
-    first: Bool, last: Bool, type: Type, kind: Kind }`) exactly as `[for
+    first: Bool, last: Bool, type: Type }`) exactly as `[for
     field in T.fields]` binds a `Field`: `index.index` (the position, from
     zero), `index.first`, `index.last`, `index.type` (spliced as
-    `[index.type]`, tested in `[if index.type is Int]`), `index.kind` (a
-    `[when index.kind]`). A position has no name, docs, default or value:
+    `[index.type]`, tested in `[if index.type is Int]`, its kind
+    `index.type.kind`, as in `[when index.type.kind]`). A position has no name, docs, default, value or kind:
     reading one is `comptime-tuple:unknown-property`, as a head
     (`[when index.name]` included) or in code, and an `Index` carries no
     comptime qualifier (`comptime-tuple:qualifier-on-index`). `.indices` of
@@ -6545,14 +6545,14 @@ Conventions:
     checked with `field.type` concrete; locals a copy declares are renamed so
     two copies in one block do not redeclare [var-no-shadow].
   * `[if <cond>] { … } else { … }` — kept or dropped per instantiation; the
-    dropped branch is never checked. Tests: `X.kind is Struct` (an arm of
+    dropped branch is never checked. Tests: `field.type.kind is Struct` / `T.kind is Struct` (an arm of
     `Kind` [comptime-kind]), `X is <Type>` (equality up to alias expansion,
     qualifiers erased; every name in it must name a type), `T.mutable`,
     `field.name == "literal"` / `field.name is "a" | "b"` [comptime-name],
     `field.first`/`field.last`, `x.index == y.index` and its orderings — each
     `is` also as `!is` — combined with `&&`, `||`, `!` and parentheses
     [comptime-logic].
-  * `[when field.kind] { is Struct { … } is Union { … } is Tuple { … } is FnType
+  * `[when field.type.kind] { is Struct { … } is Union { … } is Tuple { … } is FnType
     { … } is Opaque { … } }` — an ordinary `when` over `std.core.comptime`'s `Kind`,
     **exhaustive** over its arms and, like every `when` with a subject, taking
     no `else` [when-exhaustive], so that a kind added to the language is an
@@ -6698,12 +6698,21 @@ Conventions:
     `[if a.name == b.name]` and `!=`, for binders of two walks — a derive
     merging two structs finds the field names they share. Both sides must be
     binders; a literal is compared as above.
-* [comptime-kind] **A type and its kind are separate projections** (user
-  decision 2026-10-20): `field.kind` / `T.kind` is the kind — an arm of
-  `std.core.comptime`'s `Kind`, `Struct | Union | Tuple | FnType | Opaque` — and
-  `field.type` is the type itself. A kind is tested only on `.kind` (`[if
-  field.kind is Struct]`, `[when field.kind]`), where the word after `is` is
-  read only against the kinds; after a type, `is` compares types. So a program
+* [comptime-kind] **A kind is a type's, and a projection apart from the type**
+  (user decisions 2026-10-20 and 2026-11-09): `std.core.comptime`'s `Type`
+  has `.kind`, an arm of `Kind`, `Struct | Union | Tuple | FnType | Opaque` —
+  so a binder's type's kind is `field.type.kind` (`arm.type.kind`,
+  `index.type.kind`), the bound type's `T.kind` and a pattern binder's
+  `E.kind` — while `field.type` is the type itself. A binder (`Field`,
+  `Arm`, `Index`) has no `.kind`: `field.kind` in a head or in code, and
+  `[when field.kind]`, are `comptime-fields:unknown-property` (an `Index`'s
+  `comptime-tuple:unknown-property`), whose text says to write
+  `.type.kind` (user decision 2026-11-09: a kind is a type's type, so it
+  belongs to the type; until then a binder had `.kind` and `Type` had no
+  members). A kind is tested only on `.kind` (`[if
+  field.type.kind is Struct]`, `[when field.type.kind]`), where the word after `is` is
+  read only against the kinds; after a type, `is` compares types; read as a
+  value it is `comptime-kind:kind-as-value`. So a program
   type named `Union` or `Struct` is a type like any other: until the split,
   `[if field.type is Union]` with a user `struct Union` read as the kind test
   and silently matched nothing.
@@ -6763,8 +6772,8 @@ Conventions:
     stamped, so the declaration cannot check a `[when f.type]`
     (or a `[when E]` on a pattern binder from one, or a `[when f.name]`
     [comptime-name]) — "a `[when f.type]` cannot be checked here: … dispatch
-    on `[when f.kind]`, or test with `[if f.type is …]`". Reported once, at
-    the template; its `by` sites stay quiet. `[when f.kind]` ranges over
+    on `[when f.type.kind]`, or test with `[if f.type is …]`". Reported once, at
+    the template; its `by` sites stay quiet. `[when f.type.kind]` ranges over
     `Kind`, the same everywhere, so it stays [comptime-kind].
 * [comptime-is-splice] **`v is [field.type]` tests what a binder's type
   says** (the CLI design record 2.2, under §13 (B): a splice wherever a type is
@@ -11832,7 +11841,7 @@ between endpoints and delivers what arrives into the scheduler.
     the host class keeps its fields under the host contract, so the backends
     change nothing.
   * **A comptime fn instantiated outside the module sees kind `opaque`**
-    (`Basic`): `[when field.kind]` takes the `Opaque` arm, so `by auto` and
+    (`Basic`): `[when field.type.kind]` takes the `Opaque` arm, so `by auto` and
     the codecs call the type's own `eq`/`encode` instead of walking fields,
     and `fn same(a: Bag, b: Bag) by auto` there is refused naming the
     module to stamp it in [fn-by].
@@ -14040,15 +14049,15 @@ replaced the working document TESTING.md).
 * [lsp-comptime-help] **Help inside a comptime fn's body takes its words
   from the compile-time model's own declarations** (`std.core.comptime`), not
   from copies in the server: the hover on a binder, a projection
-  (`field.kind`, `T.fields`) or a kind word (`Struct`, `Opaque`) is that
+  (`field.type.kind`, `T.fields`) or a kind word (`Struct`, `Opaque`) is that
   declaration's signature and doc, so renaming or rewording it there moves the
-  hover too. `[when field.kind]` hovers as the kind, not the type. A call is
+  hover too. `[when field.type.kind]` hovers as the kind, not the type. A call is
   found by name, a `@module` selector narrowing it and a type-named
   constructor (`Mut Str(…)`) included, for hover and go-to-definition.
   Completion after `[` at the start of a statement offers `for`, `when`, `if`,
   `let` and the binders in scope; after a dot, the members of the model struct
   the receiver is (a binder's `Field` or `Arm`, the bound type's `Struct` or
-  `Union`, a `.type`'s `Type`), and for a local built by a constructor call or
+  `Union`, a `.type`'s `Type`, whose `kind` hovers and goes to `Type.kind`), and for a local built by a constructor call or
   literal, the functions of its type. `when-exhaustive:kind-arms-missing` is
   fixed by adding an arm for each missing kind, each a `refuse!` until written.
 * [cli-lang-doc-highlight] The TextMate grammar colours doc comments: a doc
@@ -14623,7 +14632,7 @@ replaced the working document TESTING.md).
     head, completion offers exactly the arms no branch covers yet — one
     `is Str { }` item each, plus one writing them all — and nothing else,
     since nothing else is legal there. The same inside a comptime `[when
-    f.name]` (the uncovered names), `[when x.kind]` (the kinds, `Opaque` for
+    f.name]` (the uncovered names), `[when x.type.kind]` (the kinds, `Opaque` for
     both halves) and `[when f.type]` (the types no arm matched, and the
     catch-all `is *`), wherever the range is known as the fn is written. The
     facts are the exhaustiveness check's own: `Checked::when_missing` per

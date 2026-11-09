@@ -326,7 +326,7 @@ impl Server<'_> {
                 });
             };
             construct("for", &format!("for ${{1:{binder}}} in ${{2:{bound}.{seq}}}"), "unroll the block once for each field, arm or element");
-            construct("when", "when ${1:field.kind}", "dispatch at compile time on a kind, a type, a name, or a union value");
+            construct("when", "when ${1:field.type.kind}", "dispatch at compile time on a kind, a type, a name, or a union value");
             construct("if", "if ${1:condition}", "keep or drop the block at compile time");
             construct("let", "let ${1:name} = ${2:expression}", "a compile-time value for the rest of the block");
             for b in binders_at(text, &f, word) {

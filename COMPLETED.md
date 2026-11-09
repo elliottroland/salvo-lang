@@ -149,6 +149,61 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-09 — A kind is its type's: `field.type.kind` ([comptime-kind])
+
+User decision 2026-11-09: a kind is a type's type, so it belongs to the
+type. `std.core.comptime`'s `Type` gains `kind: Kind` (the docs and the
+[comptime-kind] tag moved from the binders' members), and `Field.kind`,
+`Arm.kind` and `Index.kind` are gone: the kind of a binder's type is
+`field.type.kind` (`arm.type.kind`, `index.type.kind`), in a head
+(`[if field.type.kind is Struct]`) and as the dispatch
+(`[when field.type.kind] { is Struct { … } … }`). No shim.
+
+- **Most of it was there.** A `CVal::Type` already projected `.kind`, and the
+  parser's general `[when <comptime type>.kind]` path already read
+  `field.type.kind` as a `WhenKind` over `field.type` (`via_type`), so the
+  new spelling needed no new machinery: the change is the removal of the
+  binder's own `.kind` (`project`'s `CVal::Elem` arm, the value read) and
+  of the parser's `[when field.kind]` shortcut, which produced the same
+  `via_type` dispatch.
+- **The old spelling is an error that names the new one**:
+  `[if field.kind is …]`, `let k = field.kind` and `[when field.kind]` are
+  `comptime-fields:unknown-property` (an `Index`'s
+  `comptime-tuple:unknown-property`), whose text adds "a kind is its type's,
+  `.type.kind`". `[when field.kind]` is still parsed, as a kind dispatch over
+  the binder itself (`via_type: false`), so the expansion can say that
+  rather than the parser failing on `is`.
+- **`T.kind` and a pattern binder's `E.kind` are unchanged** (they are
+  types already). `T.kind` read as a value is now
+  `comptime-kind:kind-as-value`, the error the binder's `.kind` gave (the
+  only form left that can reach it: `field.type` is no value expression).
+- **The language server follows the model**, as it was built to: `field.`
+  no longer offers `kind` and `field.type.` offers `Type`'s members; the
+  hover recorder gives `field.type.kind` (in a head, and the whole
+  `field.type.kind` of a `[when]`, which the parser now spans to the `kind`)
+  `doc_of = ("Type", "kind")`, so hover shows `Type.kind`'s doc and
+  go-to-definition lands on it. The `[when` completion snippet reads
+  `field.type.kind`.
+- **The generic stamp's classification** ([comptime-generic], an element of
+  type `A` is `Generic`) goes through the same `classify`; a new run case,
+  `the_kind_of_an_element_is_its_types`, prints `gbt`/`bb` for
+  `(A, Int, (A, A))` and `(Str, Int)` on both backends.
+- Rewritten: std (`args.sv`'s derive, 19 heads; `core/comptime.sv`'s
+  model, module doc and `Kind` example), the check and run data, the
+  comptime, analyze and LSP tests, Compile-Time-Functions.md,
+  LANGUAGE_SPEC.md ([comptime-kind], [comptime-fields], [comptime-tuple],
+  [lsp-comptime-help] and the model listing), the wiki. New tests: check
+  cases for each refused form (kinds.sv, tuples.sv), a parser test for both
+  `[when …kind]` shapes, the LSP completions of `field.type.` and
+  `index.type.`. `demo/demo.sv` is the user's to update.
+- **Agent's calls, to confirm:** (a) the errors for an old `.kind` in a
+  stamped template land at the `by` site, as every expansion error does,
+  not at the template line; (b) in `[when field.type.kind]` the hover covers
+  the whole subject and shows `Type.kind` (there is no separate hover on
+  `field.type` there); (c) `T.kind` as a value now has the kind-as-value
+  error rather than passing through to the checker.
+- 751 tests under nextest, all green (2m40); std analyze clean.
+
 ### 2026-11-09 — The comptime call puts the whole call in brackets ([comptime-call])
 
 User decision 2026-11-09: the comptime call is spelled `[to_json@demo(t.[field])]`,

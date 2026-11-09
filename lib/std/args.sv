@@ -1972,9 +1972,9 @@ export comptime fn arg_spec<T is Struct>() [] -> Spec<T> {
             [if field.type is *?] {} else {
                 command_required = true
             }
-            [if field.kind is Union] {
+            [if field.type.kind is Union] {
                 [for arm in field.type.arms] {
-                    [if arm.kind is Struct] {
+                    [if arm.type.kind is Struct] {
                         let child: Spec<[arm.type]> = arg_spec()
                         add@list(commands, CmdSpec { name: copy@basic(child.name), about: copy@basic(child.about) })
                     } else {
@@ -1995,7 +1995,7 @@ export comptime fn arg_spec<T is Struct>() [] -> Spec<T> {
             let child: Spec<S> = arg_spec()
             merge_group@args(opts, groups, child, field.name, "together", field.docs)
         } else {
-        [if field.kind is Struct] {
+        [if field.type.kind is Struct] {
             [if field is Positional] {
                 refuse!("a positional takes words, and a group of options does not")
             }
@@ -2032,7 +2032,7 @@ export comptime fn arg_spec<T is Struct>() [] -> Spec<T> {
                     [if field.type is <E> E?] {
                         [if E.kind is Union] {
                             [for arm in field.type.arms] {
-                                [if arm.kind is Struct] {
+                                [if arm.type.kind is Struct] {
                                     let child: Spec<[arm.type]> = arg_spec()
                                     merge_group@args(opts, groups, child, "${field.name}/${arm.name}", "arm", None)
                                     exclusive = true
@@ -2044,9 +2044,9 @@ export comptime fn arg_spec<T is Struct>() [] -> Spec<T> {
                             }
                         }
                     } else {
-                        [if field.kind is Union] {
+                        [if field.type.kind is Union] {
                             [for arm in field.type.arms] {
-                                [if arm.kind is Struct] {
+                                [if arm.type.kind is Struct] {
                                     let child: Spec<[arm.type]> = arg_spec()
                                     merge_group@args(opts, groups, child, "${field.name}/${arm.name}", "arm", None)
                                     exclusive = true
@@ -2130,9 +2130,9 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
     }
     [for field in T.fields] {
         [if field is Subcommand] {
-            [if field.kind is Union] {
+            [if field.type.kind is Union] {
                 [for arm in field.type.arms] {
-                    [if arm.kind is Struct] {
+                    [if arm.type.kind is Struct] {
                         let s: Spec<[arm.type]> = arg_spec()
                         if is_command@args(found, s.name) {
                             let r: Ok [arm.type] | Errs NonEmpty List<ArgError> = parse_named@args(found.rest, copy@basic(found.path))
@@ -2149,14 +2149,14 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
                 group_errors@args(errors, r, size@list(found.errors))
             }
         } else {
-        [if field.kind is Struct] {
+        [if field.type.kind is Struct] {
             let r: Ok [field.type] | Errs NonEmpty List<ArgError> = from_found(found)
             group_errors@args(errors, r, size@list(found.errors))
         } else {
         [if field.type is <E> E? && E.kind is Union] {
             // A literal's value was checked by the scan, against its choices.
             [for arm in field.type.arms] {
-                [if arm.kind is Struct] {
+                [if arm.type.kind is Struct] {
                     let s: Spec<[arm.type]> = arg_spec()
                     if any_given@args(found, s) {
                         let r: Ok [arm.type] | Errs NonEmpty List<ArgError> = from_found(found)
@@ -2165,10 +2165,10 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
                 }
             }
         } else {
-        [if field.kind is Union && field.type !is *?] {
+        [if field.type.kind is Union && field.type !is *?] {
             // A literal's value was checked by the scan, against its choices.
             [for arm in field.type.arms] {
-                [if arm.kind is Struct] {
+                [if arm.type.kind is Struct] {
                     let s: Spec<[arm.type]> = arg_spec()
                     if any_given@args(found, s) {
                         let r: Ok [arm.type] | Errs NonEmpty List<ArgError> = from_found(found)
@@ -2232,9 +2232,9 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
         [...for field in T.fields] {
             [field]: eval@args<[field.type]>(() -> {
                 [if field is Subcommand] {
-                    [if field.kind is Union] {
+                    [if field.type.kind is Union] {
                         [for arm in field.type.arms] {
-                            [if arm.kind is Struct] {
+                            [if arm.type.kind is Struct] {
                                 let s: Spec<[arm.type]> = arg_spec()
                                 if is_command@args(found, s.name) {
                                     return built@args<[arm.type]>(parse_named@args(found.rest, copy@basic(found.path)))
@@ -2255,13 +2255,13 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
                     }
                     return None
                 } else {
-                [if field.kind is Struct] {
+                [if field.type.kind is Struct] {
                     return built@args<[field.type]>(from_found(found))
                 } else {
                 [if field.type is <E> E? && E.kind is Union] {
                     // The arm whose options were given, or the literal the value names.
                     [for arm in field.type.arms] {
-                        [if arm.kind is Struct] {
+                        [if arm.type.kind is Struct] {
                             let s: Spec<[arm.type]> = arg_spec()
                             if any_given@args(found, s) {
                                 return built@args<[arm.type]>(from_found(found))
@@ -2271,7 +2271,7 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
                     let v = value_of@args(found, field.name)
                     if v !is None {
                         [for arm in field.type.arms] {
-                            [if arm.kind is Struct || arm.type is None] {} else {
+                            [if arm.type.kind is Struct || arm.type is None] {} else {
                                 if v is [arm.type] {
                                     return v
                                 }
@@ -2288,10 +2288,10 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
                         return field.default
                     }
                 } else {
-                [if field.kind is Union && field.type !is *?] {
+                [if field.type.kind is Union && field.type !is *?] {
                     // The arm whose options were given, or the literal the value names.
                     [for arm in field.type.arms] {
-                        [if arm.kind is Struct] {
+                        [if arm.type.kind is Struct] {
                             let s: Spec<[arm.type]> = arg_spec()
                             if any_given@args(found, s) {
                                 return built@args<[arm.type]>(from_found(found))
@@ -2301,7 +2301,7 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
                     let v = value_of@args(found, field.name)
                     if v !is None {
                         [for arm in field.type.arms] {
-                            [if arm.kind is Struct || arm.type is None] {} else {
+                            [if arm.type.kind is Struct || arm.type is None] {} else {
                                 if v is [arm.type] {
                                     return v
                                 }

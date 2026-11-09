@@ -88,7 +88,7 @@ comptime fn short_circuit(p: P4) [] -> Int => p {
     return 0
 }
 
-// [when-exhaustive] [comptime-kind] An incomplete `[when f.kind]` in an
+// [when-exhaustive] [comptime-kind] An incomplete `[when f.type.kind]` in an
 // expanded-in-place fn is reported once, at the line it is written on — it
 // was pushed with the copy's virtual span, past the end of the file, once per
 // field (found 2026-10-20 with the arm completions).
@@ -97,7 +97,7 @@ struct P5 { a: Int, b: Str }
 comptime fn kinds(p: P5) [] -> Int => p {
     [for f in P5.fields] {
         //~ error[when-exhaustive:kind-arms-missing]
-        [when f.kind] {
+        [when f.type.kind] {
             is Struct {}
         }
     }

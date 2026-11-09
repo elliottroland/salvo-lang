@@ -1,9 +1,9 @@
-// ===== [comptime-kind] the kind is `.kind`, the type is `.type` =====
+// ===== [comptime-kind] the kind is the type's `.kind`, the type is `.type` =====
 // Which copies a kind or type test keeps is comptime_tests.rs's.
 
 struct P { a: Int, b: Int, c: Int, d: Str }
 
-// [comptime-kind] `[when field.kind]` is the kind dispatch, exhaustive over
+// [comptime-kind] `[when field.type.kind]` is the kind dispatch, exhaustive over
 // `Kind`'s arms: the missing kinds are named.
 struct Inner { n: Int }
 struct Holder { i: Inner, m: Int }
@@ -11,7 +11,7 @@ struct Holder { i: Inner, m: Int }
 comptime fn kinds_missing(h: Holder) [] -> Int => h {
     [for f in Holder.fields] {
         //~ error[when-exhaustive:kind-arms-missing]
-        [when f.kind] {
+        [when f.type.kind] {
             is Struct {}
         }
     }
@@ -50,6 +50,61 @@ comptime fn a_kind_word_in_a_dispatch(p: Q) [] -> Int => p {
             //~ error[comptime-kind:kind-as-type]
             is Struct {}
             is * {}
+        }
+    }
+    return 0
+}
+
+// [comptime-kind] A kind is a type's: a binder has no `.kind` — in a test,
+// a dispatch or code, each error says to write `.type.kind`.
+struct One { a: Inner }
+
+comptime fn a_binders_kind_in_a_head(p: One) [] -> Int => p {
+    [for f in One.fields] {
+        //~ error[comptime-fields:unknown-property]
+        [if f.kind is Struct] {
+            refuse!("${f.name}")
+        }
+    }
+    return 0
+}
+
+comptime fn a_binders_kind_in_a_dispatch(p: One) [] -> Int => p {
+    [for f in One.fields] {
+        //~ error[comptime-fields:unknown-property]
+        [when f.kind] {
+            is Struct {}
+            is Union {}
+            is Tuple {}
+            is FnType {}
+            is Opaque {}
+        }
+    }
+    return 0
+}
+
+comptime fn a_binders_kind_in_code(p: One) [] -> Str => p {
+    [for f in One.fields] {
+        //~ error[comptime-fields:unknown-property]
+        let k = f.kind
+    }
+    return ""
+}
+
+// The bound type's kind is tested in a head too, never read as a value.
+comptime fn the_bounds_kind_in_code<T is Struct>(t: T) [] -> Str => t {
+    let k = T.kind
+    return ""
+}
+
+//~ error[comptime-kind:kind-as-value]
+fn the_bounds_kind_in_code(t: One) [] -> Str by the_bounds_kind_in_code
+
+// …and the type's kind is what a head tests.
+comptime fn the_types_kind(p: One) [] -> Int => p {
+    [for f in One.fields] {
+        [if f.type.kind !is Struct] {
+            refuse!("${f.name}")
         }
     }
     return 0

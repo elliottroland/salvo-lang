@@ -1119,7 +1119,7 @@ fn a_stamp_error_names_the_template_line_and_a_template_mistake_is_reported_ther
     let dir = src_dir("template_note");
     fs::write(
         dir.join("main.sv"),
-        "struct Person {\n    name: Str\n    callback: (Int) -> Int\n\n    fn describe(t: Person) -> Str by describe\n}\n\ncomptime fn describe<T is Struct>(t: T) -> Str {\n    let out = Mut Str(\"\")\n    [for field in T.fields] {\n        [when field.kind] {\n            is Struct { out.append@string(\"s\") }\n            is Union { out.append@string(\"u\") }\n            is Tuple { out.append@string(\"t\") }\n            is FnType { refuse!(\"Cannot encode a function\") }\n            is Opaque { out.append@string(\"o\") }\n        }\n    }\n    return out\n}\n",
+        "struct Person {\n    name: Str\n    callback: (Int) -> Int\n\n    fn describe(t: Person) -> Str by describe\n}\n\ncomptime fn describe<T is Struct>(t: T) -> Str {\n    let out = Mut Str(\"\")\n    [for field in T.fields] {\n        [when field.type.kind] {\n            is Struct { out.append@string(\"s\") }\n            is Union { out.append@string(\"u\") }\n            is Tuple { out.append@string(\"t\") }\n            is FnType { refuse!(\"Cannot encode a function\") }\n            is Opaque { out.append@string(\"o\") }\n        }\n    }\n    return out\n}\n",
     )
     .unwrap();
     let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);

@@ -62,11 +62,11 @@ pub struct CompHover {
 }
 
 /// [lsp-completion] [when-exhaustive] The arms a comptime `[when …]` has yet
-/// to cover, at its written span: kind words for `[when x.kind]`, quoted names
+/// to cover, at its written span: kind words for `[when x.type.kind]`, quoted names
 /// for `[when f.name]`, the uncovered types for `[when f.type]` — what the
 /// language server offers as the arms still to write. Empty when it covers
 /// its range. Only where the range is known where the fn is written: an
-/// expanded-in-place fn, and any `[when x.kind]`.
+/// expanded-in-place fn, and any `[when x.type.kind]`.
 #[derive(Clone, Debug)]
 pub struct CompWhenArms {
     pub file: usize,
@@ -713,7 +713,7 @@ struct HoverRecorder<'w> {
     /// [comptime-root-visible] Type names written as comptime roots.
     roots: Vec<Ident>,
     out: &'w mut Vec<CompHover>,
-    /// [lsp-completion] Each `[when x.kind]`'s missing kinds: known from its
+    /// [lsp-completion] Each `[when x.type.kind]`'s missing kinds: known from its
     /// arms alone, so recorded from the written body.
     when_arms: &'w mut Vec<CompWhenArms>,
 }
@@ -781,7 +781,7 @@ impl HoverRecorder<'_> {
                         "The `{owner}`'s type — usable wherever a type is written inside \
                          the body, and tested with `is <Type>`. Its kind (`core.comptime`'s \
                          `Kind`: `Struct | Union | Tuple | FnType | Opaque`) is \
-                         `{}.kind`, tested with `is Struct` or dispatched with `[when {}.kind]`.",
+                         `{}.type.kind`, tested with `is Struct` or dispatched with `[when {}.type.kind]`.",
                         ct.root.name, ct.root.name
                     ),
                     owner,
@@ -819,14 +819,14 @@ impl HoverRecorder<'_> {
         let note = if ty == known::COMPTIME_INDEX {
             // [comptime-tuple]
             format!(
-                "A `core.comptime` `{ty}`: `.index: Int`, `.kind: Kind`, `.type`, `.first: Bool`, \
-                 `.last: Bool`. `v.[{}]` reads the element at this position.",
+                "A `core.comptime` `{ty}`: `.index: Int`, `.type` (its kind is `.type.kind`), \
+                 `.first: Bool`, `.last: Bool`. `v.[{}]` reads the element at this position.",
                 id.name
             )
         } else {
             format!(
-                "A `core.comptime` `{ty}`: `.name` (a literal of the names), `.kind: Kind`, \
-                 `.type`, `.index: Int`, `.first: Bool`, `.last: Bool`. {}",
+                "A `core.comptime` `{ty}`: `.name` (a literal of the names), `.type` (its kind \
+                 is `.type.kind`), `.index: Int`, `.first: Bool`, `.last: Bool`. {}",
                 if ty == known::COMPTIME_ARM {
                     "The value dispatched on reads as this arm inside the block."
                 } else {
@@ -846,20 +846,32 @@ impl HoverRecorder<'_> {
                 }
             }
             CompExpr::Proj { base, field, span } => {
+                // [comptime-kind] `field.type.kind`: the kind of the
+                // binder's type, `Type.kind`.
+                if field.name == "kind" {
+                    if let CompExpr::Proj { base: inner, field: ty_field, .. } = &**base {
+                        if let CompExpr::Name { id: b, .. } = &**inner {
+                            if ty_field.name == "type" && self.binder_kind(&b.name).is_some() {
+                                self.cexpr(base);
+                                self.push_doc(
+                                    *span,
+                                    &format!("{}.type.kind: Kind", b.name),
+                                    "The kind of the binder's type — an arm of `core.comptime`'s `Kind`: \
+                                     `Struct | Union | Tuple | FnType | Opaque` [comptime-kind].",
+                                    known::COMPTIME_TYPE,
+                                    "kind",
+                                );
+                                return;
+                            }
+                        }
+                    }
+                }
                 if let CompExpr::Name { id: b, .. } = &**base {
                     if let Some(elem) = self.binder_kind(&b.name) {
                         // [comptime-tuple] An `Index` has no name, docs or default.
                         let named = elem != known::COMPTIME_INDEX;
                         match field.name.as_str() {
                             "type" => self.comp_ty(&CompTy { root: b.clone(), via_type: true, args: Vec::new(), span: *span }),
-                            "kind" => self.push_doc(
-                                *span,
-                                &format!("{}.kind: Kind", b.name),
-                                "The kind of the binder's type — an arm of `core.comptime`'s `Kind`: \
-                                 `Struct | Union | Tuple | FnType | Opaque` [comptime-kind].",
-                                elem,
-                                "kind",
-                            ),
                             "name" if named => self.push_doc(
                                 *span,
                                 &format!("{}.name", b.name),
@@ -989,16 +1001,19 @@ impl HoverRecorder<'_> {
                     }
                 }
                 CompStmt::WhenKind { ty, arms, span } => {
-                    // `[when field.kind]`: the subject is the binder's kind,
-                    // not its type.
-                    match self.binder_kind(&ty.root.name).filter(|_| ty.via_type) {
-                        Some(owner) => self.push_doc(
+                    // [comptime-kind] `[when field.type.kind]`: the subject is
+                    // the kind of the binder's type, `Type.kind`. (A binder
+                    // itself, `[when field.kind]`, has none: the expansion
+                    // reports it.)
+                    match self.binder_kind(&ty.root.name) {
+                        Some(_) if ty.via_type => self.push_doc(
                             ty.span,
-                            &format!("{}.kind: Kind", ty.root.name),
+                            &format!("{}.type.kind: Kind", ty.root.name),
                             "The kind of the binder's type: a `[when]` over it must handle every arm of `Kind`.",
-                            owner,
+                            known::COMPTIME_TYPE,
                             "kind",
                         ),
+                        Some(_) => {}
                         None => self.comp_ty(ty),
                     }
                     self.when_arms.push(CompWhenArms {
@@ -1114,7 +1129,6 @@ impl HoverRecorder<'_> {
                             "value" if named => (known::COMPTIME_VALUE, "The literal member itself, as a literal in each copy [comptime-literals]."),
                             "last" => ("Bool", "Whether this copy is for the last element."),
                             "type" => (known::COMPTIME_TYPE, "The declared type itself (`core.comptime`)."),
-                            "kind" => (known::COMPTIME_KIND, "The declared type's kind (`core.comptime`), tested in a comptime head."),
                             "docs" if named => ("Str?", "The doc comment above the declaration, as text, or `None` [comptime-docs]."),
                             "default" if named => ("Value?", "The declared default, evaluated where the struct is declared; `None` where the field has none [comptime-default]."),
                             _ => ("?", "Not a projection this binder has."),
@@ -1359,7 +1373,7 @@ fn comp_is_binders_over(e: &CompExpr, depends: &dyn Fn(&CompExpr) -> bool, out: 
 /// declaration can see. In a **stamped** comptime fn (`<T is Struct>`) a
 /// field's (or arm's) type and name range over the fields of whatever `T` is
 /// stamped at, which nothing knows where the fn is declared: such a dispatch
-/// is refused there (user decision 2026-10-20). `[when f.kind]` stays — its
+/// is refused there (user decision 2026-10-20). `[when f.type.kind]` stays — its
 /// range is `std.core.comptime`'s `Kind`, the same everywhere — and since its
 /// coverage is known from the arms alone, it is checked here too.
 fn unchecked_subject_whens(f: &FnDecl) -> Vec<Diagnostic> {
@@ -4450,9 +4464,9 @@ impl<'w> Expander<'w> {
     fn project(&mut self, v: CVal, field: &Ident, span: Span, named: Option<&str>) -> Option<CVal> {
         let name = field.name.as_str();
         match v {
-            // [comptime-tuple] An `Index` has its position, its type and its
-            // kind, and no name.
-            CVal::Elem(b) if b.tuple && !matches!(name, "index" | "first" | "last" | "type" | "kind") => {
+            // [comptime-tuple] An `Index` has its position and its type, and
+            // no name. [comptime-kind] No binder has a kind: its type does.
+            CVal::Elem(b) if b.tuple && !matches!(name, "index" | "first" | "last" | "type") => {
                 self.error(span, messages::comptime_tuple_unknown_property(&name));
                 None
             }
@@ -4462,7 +4476,6 @@ impl<'w> Expander<'w> {
                 "first" => CVal::Bool(b.first),
                 "last" => CVal::Bool(b.last),
                 "type" => CVal::Type { label: format!("{}.type", b.name), ty: b.ty.clone(), root: None },
-                "kind" => CVal::Kind(self.world.classify(&b.ty, &self.generics(), 0)),
                 "docs" => match &b.docs {
                     Some(t) => CVal::Str(t.clone()),
                     None => CVal::None,
@@ -5155,6 +5168,19 @@ impl<'w> Expander<'w> {
                 );
             }
             CompStmt::WhenKind { ty, arms, span } => {
+                // [comptime-kind] `[when field.kind]`: a binder has no kind,
+                // its type has (`field.type.kind`).
+                if !ty.via_type {
+                    if let Some(b) = self.binding(&ty.root.name) {
+                        let m = if b.tuple {
+                            messages::comptime_tuple_unknown_property("kind")
+                        } else {
+                            messages::comptime_fields_unknown_property("kind")
+                        };
+                        self.error(ty.span, m);
+                        return;
+                    }
+                }
                 let Some(t) = self.resolve_ty(&ty) else { return };
                 let actual = self.world.classify(&t, &self.generics(), 0);
                 // Exhaustive over the kinds (comptime round 3), with no `else`
@@ -5702,7 +5728,7 @@ impl MutVisitor for Expander<'_> {
                 }
                 if let Some(bd) = self.binding(&root.name).cloned() {
                     // [comptime-tuple] An `Index` has no name, docs, default or value.
-                    if bd.tuple && matches!(field.name.as_str(), "name" | "docs" | "default" | "value") {
+                    if bd.tuple && matches!(field.name.as_str(), "name" | "docs" | "default" | "value" | "kind") {
                         self.error(span, messages::comptime_tuple_unknown_property(&field.name));
                         return;
                     }
@@ -5751,9 +5777,6 @@ impl MutVisitor for Expander<'_> {
                                 None => Expr::Ident(Ident { name: "None".to_string(), span }),
                             };
                         }
-                        "kind" => {
-                            self.error(span, messages::comptime_kind_kind_as_value(&root.name));
-                        }
                         other => {
                             self.error(span, messages::comptime_fields_unknown_property(&other));
                         }
@@ -5765,6 +5788,10 @@ impl MutVisitor for Expander<'_> {
                         // [comptime-tuple] A tuple has neither.
                         let name = field.name.clone();
                         self.error(span, messages::comptime_eval_no_property(&name, &"a `Tuple`"));
+                    } else if root.name == *param && field.name == "kind" {
+                        // [comptime-kind] A kind is tested in a head, never read.
+                        let name = param.clone();
+                        self.error(span, messages::comptime_kind_kind_as_value(&name));
                     } else if root.name == *param && field.name == "name" {
                         let name = target.name.clone();
                         *expr = self.str_lit(&name, span);

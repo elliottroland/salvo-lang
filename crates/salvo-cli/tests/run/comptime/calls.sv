@@ -24,7 +24,7 @@ comptime fn to_json<T is Struct>(t: T) -> Str {
     let json = Mut Str("{")
     [for field in T.fields] {
         json.append@string("\"${field.name}\": ")
-        [when field.kind] {
+        [when field.type.kind] {
             is Struct { json.append@string([to_json(t.[field])]) }
             is Tuple { json.append@string([to_json(t.[field])]) }
             is Opaque { json.append@string(to_json@[site](t.[field])) }
@@ -42,7 +42,7 @@ comptime fn to_json<T is Struct>(t: T) -> Str {
 comptime fn to_json<T is Tuple>(t: T) -> Str {
     let json = Mut Str("[")
     [for index in T.indices] {
-        [when index.kind] {
+        [when index.type.kind] {
             is Tuple {
                 let x: [index.type] = t.[index]
                 json.append@string([to_json(x)])
@@ -105,7 +105,7 @@ comptime fn to_json<T is Struct>(t: T) -> Str {
     let json = Mut Str("{")
     [for field in T.fields] {
         json.append@string("\"${field.name}\": ")
-        [when field.kind] {
+        [when field.type.kind] {
             is Union { json.append@string([to_json(t.[field])]) }
             is Opaque { json.append@string(to_json@[site](t.[field])) }
             is Struct { json.append@string([to_json(t.[field])]) }
@@ -193,7 +193,7 @@ export comptime fn to_json<T is Struct>(p: T) -> Str {
     let json = Mut Str("{")
     [for field in T.fields] {
         json.append@string("\"${field.name}\": ")
-        [when field.kind] {
+        [when field.type.kind] {
             is Tuple { json.append@string([to_json@tuples(p.[field])]) }
             is Opaque { json.append@string(to_json@[site](p.[field])) }
             is Struct { json.append@string("?") }

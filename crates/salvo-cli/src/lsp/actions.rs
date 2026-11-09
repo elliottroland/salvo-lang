@@ -280,7 +280,7 @@ impl Server<'_> {
     }
 
     /// [lsp-quickfix] `when-exhaustive:kind-arms-missing`: an arm for each kind
-    /// a comptime `[when x.kind]` leaves out, each a `refuse!` — a compile
+    /// a comptime `[when x.type.kind]` leaves out, each a `refuse!` — a compile
     /// error at the instantiation naming the case — until it is written.
     fn comptime_when_fixes(
         &self,

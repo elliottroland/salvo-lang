@@ -91,7 +91,7 @@ comptime fn to_json<T is Tuple>(t: T) -> Str {
     [for index in T.indices] {
         // `Opaque` covers an element of a type parameter (kind `Generic`);
         // only a concrete stamp sees a `Str` element.
-        [when index.kind] {
+        [when index.type.kind] {
             is Opaque {
                 [if index.type is Str] {
                     json.append@string("'${t.[index]}'")
@@ -174,3 +174,37 @@ fn main() [use] -> None {
 //= ['x', 'y']
 //= {"value": ["w", 5], "n": 2}
 //= {"value": "s", "n": 3}
+
+//--- the_kind_of_an_element_is_its_types
+// [comptime-kind] [comptime-generic] The kind is the element type's,
+// `index.type.kind`: at a stamp over the declaration's own type parameters
+// an element of type `A` is `Generic`, an `Int` element `Basic`, and the
+// halves of `Opaque` are told apart.
+comptime fn kinds<T is Tuple>(t: T) -> Str {
+    let out = Mut Str("")
+    [for index in T.indices] {
+        [if index.type.kind is Generic] {
+            out.append@string("g")
+        }
+        [if index.type.kind is Basic] {
+            out.append@string("b")
+        }
+        [if index.type.kind is Tuple] {
+            out.append@string("t")
+        }
+    }
+    return out
+}
+
+fn kinds<A>(t: (A, Int, (A, A))) -> Str by kinds
+
+fn kinds(t: (Str, Int)) -> Str by kinds
+
+fn main() [use] -> None {
+    use StdConsole()
+    println(kinds((true, 1, (false, true))))
+    println(kinds(("a", 2)))
+}
+//= stdout
+//= gbt
+//= bb

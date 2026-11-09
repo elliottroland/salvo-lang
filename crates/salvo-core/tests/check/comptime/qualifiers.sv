@@ -66,7 +66,7 @@ type Pick = Two | Tag Int | None
 comptime fn build(i: Int) [] -> Pick => i {
     [for arm in Pick.arms] {
         if i == arm.index {
-            [if arm.kind is Struct] {
+            [if arm.type.kind is Struct] {
                 return [arm.type] { [...for f in arm.type.fields] { [f]: arm.index } }
             }
             [if arm.type is Tag *] {
@@ -83,7 +83,7 @@ comptime fn build(i: Int) [] -> Pick => i {
 comptime fn build_none_by_call(i: Int) [] -> Pick => i {
     [for arm in Pick.arms] {
         if i == arm.index {
-            [if arm.kind is Struct] {
+            [if arm.type.kind is Struct] {
                 return [arm.type] { [...for f in arm.type.fields] { [f]: arm.index } }
             }
             [if arm.type is Tag *] {

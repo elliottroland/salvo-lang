@@ -30,7 +30,7 @@ type Shape = Circle | Square
 comptime fn to_json<T is Struct>(t: T) [] -> Str {
     let out = Mut Str("{")
     [for field in T.fields] {
-        [when field.kind] {
+        [when field.type.kind] {
             is Struct { append@string(out, [to_json(t.[field])]) }
             is Tuple { append@string(out, [to_json(t.[field])]) }
             is Union { append@string(out, [to_json(t.[field])]) }
@@ -45,7 +45,7 @@ comptime fn to_json<T is Struct>(t: T) [] -> Str {
 comptime fn to_json<T is Tuple>(t: T) [] -> Str {
     let out = Mut Str("[")
     [for index in T.indices] {
-        [when index.kind] {
+        [when index.type.kind] {
             is Tuple {
                 let x: [index.type] = t.[index]
                 append@string(out, [to_json(x)])
@@ -107,7 +107,7 @@ struct Branch {
 comptime fn show<T is Struct>(t: T) [] -> Str {
     let out = Mut Str("")
     [for field in T.fields] {
-        [when field.kind] {
+        [when field.type.kind] {
             is Union { append@string(out, [show(t.[field])]) }
             is Opaque { append@string(out, show@[site](t.[field])) }
             is Struct { append@string(out, [show(t.[field])]) }

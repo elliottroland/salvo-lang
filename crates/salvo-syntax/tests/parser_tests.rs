@@ -3444,6 +3444,24 @@ fn a_bracketed_name_then_arguments_stamps_no_template() {
     assert!(errors[0].message.contains("[to_json@demo(…)]"), "{}", errors[0].message);
 }
 
+/// [comptime-kind] `[when field.type.kind]` is the kind dispatch over the
+/// binder's type (`via_type`); `[when field.kind]` is carried over the binder
+/// itself, which has no kind, for the expansion to report.
+#[test]
+fn a_kind_dispatch_is_over_a_type() {
+    use salvo_syntax::ast::{CompStmt, Item, Stmt};
+    let arms = "{ is Struct {} is Union {} is Tuple {} is FnType {} is Opaque {} }";
+    for (head, via_type) in [("field.type.kind", true), ("field.kind", false)] {
+        let source = format!("comptime fn f<T is Struct>(t: T) [] -> Int {{\n    [for field in T.fields] {{\n        [when {head}] {arms}\n    }}\n    return 0\n}}\n");
+        let (module, diagnostics) = salvo_syntax::parse_module(&source);
+        assert!(diagnostics.iter().all(|d| !d.is_error()), "{head}: {diagnostics:?}");
+        let Item::Fn(f) = &module.items[0] else { panic!() };
+        let Stmt::Comp(CompStmt::For { body, .. }) = &f.body.as_ref().unwrap().stmts[0] else { panic!() };
+        let Stmt::Comp(CompStmt::WhenKind { ty, arms, .. }) = &body.stmts[0] else { panic!("{head}: {:?}", body.stmts[0]) };
+        assert_eq!((ty.root.name.as_str(), ty.via_type, arms.len()), ("field", via_type, 5), "{head}");
+    }
+}
+
 /// [is-union] `s is "json" | "text"` is the disjunction of the tests over the
 /// same place (`!is` negates the whole). A binding, or a subject that is not
 /// a place, is refused, since the subject is read once per test: checker

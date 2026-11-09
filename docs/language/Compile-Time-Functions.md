@@ -328,7 +328,7 @@ Three things in that body are compile-time:
   element, the way `...xs` contributes a list's elements, and its body is an
   entry, not statements. A plain `[for …] { … }` repeats statements.
 - The binder exposes **`field.name`** (a string literal), **`field.type`**
-  (the type itself), **`field.kind`** (what kind of type it is),
+  (the type itself, whose **`field.type.kind`** is what kind of type it is),
   **`field.index`**, **`field.first`**, **`field.last`**,
   **`field.default`** and **`field.docs`** (below); the bound parameter
   exposes **`T.name`**, **`T.docs`** and **`T.mutable`**. `to_str` uses
@@ -356,12 +356,12 @@ export comptime fn to_str<T is Struct>(value: T) [] -> Str => value {
 never checked. Its conditions are compile-time facts: `field.first`,
 `field.last`, `field.name == "value"` or `field.name is "a" | "b"`,
 `x.index == y.index` (and the other orderings), `T.mutable`, `field.type is
-Str` (a type, up to aliases), and `field.kind is Struct` (a kind: an arm of
+Str` (a type, up to aliases), and `field.type.kind is Struct` (a kind: an arm of
 `Kind`, below). Each `is` has a `!is`, and conditions combine with `&&`, `||`,
 `!` and parentheses, as ordinary conditions do:
 
 ```salvo
-[if field.kind is Struct && !field.last] { … }
+[if field.type.kind is Struct && !field.last] { … }
 [if field.name !is "id" | "created_at"] { … }
 [if a.name == b.name] { … }               // binders of two walks
 ```
@@ -461,10 +461,12 @@ with `?:`:
 
 ### A type and its kind
 
-A type and its kind are kept apart on purpose. `field.type is Union` compares
-the field's type with a type called `Union`; `field.kind is Union` asks
-whether the field's type is a union. A program is free to declare a type
-called `Union`.
+A kind is a type's: what kind of type a field has is a member of its type,
+`field.type.kind`, as it is `arm.type.kind` for an arm and `index.type.kind`
+for a tuple element. A binder has no `.kind` of its own. The type and its
+kind are still apart on purpose: `field.type is Union` compares the field's
+type with a type called `Union`; `field.type.kind is Union` asks whether the
+field's type is a union. A program is free to declare a type called `Union`.
 
 ### Field names
 
@@ -538,7 +540,7 @@ constructor, and `None` is `None`:
 ```salvo
 comptime fn first() [] -> Pick {                 // type Pick = A | Ok Str | None
     [for arm in Pick.arms] {
-        [if arm.kind is Struct] {
+        [if arm.type.kind is Struct] {
             return [arm.type] { [...for f in arm.type.fields] { [f]: make() } }
         }
         [if arm.type is Ok *] {
@@ -601,7 +603,7 @@ with no declaration per tuple type, through a
 The binder is an [`Index`](../../lib/std/core/comptime.sv#struct-index):
 `index.index` is the position from zero, `index.first` and `index.last` are
 as for fields, `index.type` is the element's type (`[index.type]` as a
-type, `[if index.type is Int]` as a test) and `index.kind` its kind. An
+type, `[if index.type is Int]` as a test) and `index.type.kind` its kind. An
 element has no name, so there is no `index.name`, and `T` has no `.name`
 either. An ordinary call with a tuple argument does not stamp anything by
 itself: as for structs, only a `by` declaration does, or a comptime call in a
@@ -650,7 +652,7 @@ comptime fn to_json<T is Struct>(t: T) -> Str {
     let json = Mut Str("{")
     [for field in T.fields] {
         json.append@string("\"${field.name}\": ")
-        [when field.kind] {
+        [when field.type.kind] {
             is Struct { json.append@string([to_json(t.[field])]) }
             is Tuple { json.append@string([to_json(t.[field])]) }
             is Opaque { json.append@string(to_json@[site](t.[field])) }
@@ -669,7 +671,7 @@ comptime fn to_json<T is Tuple>(t: T) -> Str {
     let json = Mut Str("[")
     [for index in T.indices] {
         let x: [index.type] = t.[index]
-        [when index.kind] {
+        [when index.type.kind] {
             is Tuple { json.append@string([to_json(x)]) }
             is Struct { json.append@string([to_json(x)]) }
             is Opaque { json.append@string(to_json@[site](x)) }
@@ -742,15 +744,15 @@ comptime struct Basic   { name: Str }      // declared `intrinsic type`
 comptime struct Generic { name: Str }      // a type parameter of the struct being stamped
 comptime type Opaque = Basic | Generic
 comptime type Kind   = Struct | Union | Tuple | FnType | Opaque
-comptime struct Type  {}      // a type itself; what kind it is is `.kind`
+comptime struct Type  { kind: Kind }  // a type itself, and what kind of type it is
 comptime struct Value {}      // a declared value, such as a field's default
 
-comptime struct Field   { name: Str, kind: Kind, type: Type, index: Int, first: Bool, last: Bool,
+comptime struct Field   { name: Str, type: Type, index: Int, first: Bool, last: Bool,
                           default: Value?, docs: Str? }
-comptime struct Arm     { name: Str, kind: Kind, type: Type, index: Int, first: Bool, last: Bool,
+comptime struct Arm     { name: Str, type: Type, index: Int, first: Bool, last: Bool,
                           docs: Str? }
 comptime struct Literal { value: Value, name: Str, index: Int, first: Bool, last: Bool }
-comptime struct Index   { index: Int, first: Bool, last: Bool, type: Type, kind: Kind }
+comptime struct Index   { index: Int, first: Bool, last: Bool, type: Type }
 ```
 
 The bound `T` is a [`Struct`](../../lib/std/core/comptime.sv#struct-struct),
@@ -759,9 +761,9 @@ a [`Union`](../../lib/std/core/comptime.sv#struct-union) or a
 binder is a [`Field`](../../lib/std/core/comptime.sv#struct-field), an
 [`Arm`](../../lib/std/core/comptime.sv#struct-arm), a
 [`Literal`](../../lib/std/core/comptime.sv#struct-literal) or an
-[`Index`](../../lib/std/core/comptime.sv#struct-index); `field.kind` is a
-[`Kind`](../../lib/std/core/comptime.sv#type-kind), and `field.type` the type
-itself. These exist at compile time only: the compiler fills them, nothing
+[`Index`](../../lib/std/core/comptime.sv#struct-index); `field.type` is the
+type itself, a [`Type`](../../lib/std/core/comptime.sv#struct-type), and
+`field.type.kind` is a [`Kind`](../../lib/std/core/comptime.sv#type-kind). These exist at compile time only: the compiler fills them, nothing
 constructs one, and naming one in an ordinary type position is an error. But
 they are ordinary declarations to read, and the language server shows them:
 hovering `T`, `field` or `field.index` inside a comptime fn body answers
@@ -772,7 +774,7 @@ differently dispatches on it with an ordinary `when`, exhaustive over the
 arms and, like any `when` with a subject, with no `else`:
 
 ```salvo
-[when field.kind] {
+[when field.type.kind] {
     is Struct { … }
     is Union  { … }
     is Tuple  { … }
@@ -813,8 +815,8 @@ parameters, and use it as a type in the branch:
 }
 ```
 
-A binder is the part as written, qualifiers and all; it has a `.kind` like a
-field (`[if E.kind is Union]`), and it is in scope only in the branch the
+A binder is the part as written, qualifiers and all; it is a type, so it has
+a `.kind` as a field's type does (`[if E.kind is Union]`), and it is in scope only in the branch the
 test guards. Under `||` or `!` the test proves nothing about the branch, so a
 binder there is an error. Writing the same binder twice constrains:
 `<K> Pair<K, K>` matches only a pair of one type. On the right of `&&` a
@@ -857,13 +859,13 @@ either finds its arm or is reported by name:
 }
 ```
 
-`[when field.kind]` is the dispatch that is exhaustive over every type at
+`[when field.type.kind]` is the dispatch that is exhaustive over every type at
 once.
 
 That check needs the fields in view, so a **stamped** comptime fn (`<T is
 Struct>`, whose `T` is only known where it is stamped) cannot dispatch on
 `[when f.type]` or `[when f.name]` over `T`'s fields at all: it dispatches on
-`[when f.kind]`, or tests one type at a time with `[if f.type is …]`.
+`[when f.type.kind]`, or tests one type at a time with `[if f.type is …]`.
 
 ### Describing a declaration: comptime qualifiers
 
@@ -1074,7 +1076,7 @@ A head that reads a name nothing declared, such as `[for field in t.fields]`
 template with a result type that can fall off its end, are errors at the
 template, reported once rather than at every `by` site.
 
-What needs the type to know is the stamp's: a `[when field.kind]` met a kind it
+What needs the type to know is the stamp's: a `[when field.type.kind]` met a kind it
 has no arm for, a `refuse!`, a call with no overload at a field's type. Those
 land at the `by` site, where the author can act, and say which line of the
 template raised them:

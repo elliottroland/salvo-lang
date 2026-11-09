@@ -141,14 +141,14 @@ fn a_type_named_like_a_kind_is_a_type() {
         )
     };
     assert_eq!(refused(&src("f.type is Union")), ["u"]);
-    assert_eq!(refused(&src("f.kind is Struct")), ["u"]);
+    assert_eq!(refused(&src("f.type.kind is Struct")), ["u"]);
     // `Int?` is a nullable — a union kind — and no field's type is the
     // struct `Union`'s kind.
-    assert_eq!(refused(&src("f.kind is Union")), ["s"]);
-    assert_eq!(refused(&src("f.kind !is Opaque")), ["s", "u"]);
+    assert_eq!(refused(&src("f.type.kind is Union")), ["s"]);
+    assert_eq!(refused(&src("f.type.kind !is Opaque")), ["s", "u"]);
 }
 
-/// [comptime-kind] `[when field.kind]` is the kind dispatch, exhaustive over
+/// [comptime-kind] `[when field.type.kind]` is the kind dispatch, exhaustive over
 /// `Kind`'s arms.
 ///
 /// The refusals are test data: `check/comptime/kinds.sv`.
@@ -160,7 +160,7 @@ fn a_when_over_a_kind_is_spelled_over_kind() {
              struct Holder {{ i: Inner, m: Int }}\n\n\
              comptime fn pick(h: Holder) [] -> Int => h {{\n    \
              [for f in Holder.fields] {{\n        \
-             [when f.kind] {{\n{arms}\n        }}\n    \
+             [when f.type.kind] {{\n{arms}\n        }}\n    \
              }}\n    \
              return 0\n}}\n"
         )
@@ -189,7 +189,7 @@ fn field_types_are_substituted_at_the_instance() {
                    comptime fn pick<T>(a: Arg<T>) [] -> Int => a {\n    \
                    [for f in Arg<T>.fields] {\n        \
                    [if f.type is T?] {\n            refuse!(\"opt:${f.name}\")\n        }\n        \
-                   [when f.kind] {\n            \
+                   [when f.type.kind] {\n            \
                    is Opaque { refuse!(\"opaque:${f.name}\") }\n            \
                    is Struct {} is Union {} is Tuple {} is FnType {}\n        \
                    }\n    \

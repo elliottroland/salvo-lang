@@ -34,11 +34,12 @@
 // **A type and its kind.** A binder's `.type` is the type itself: written
 // in brackets, it can be used as a type inside the body
 // (`let x: [field.type] = …`), and `field.type is Str` compares it. What
-// *kind* of type it is (a struct, a union, a tuple…) is a separate member,
-// `.kind`, a [Kind], so a program type that happens to be called `Union` is
-// never mistaken for the kind. A `[when field.kind]` must handle every kind,
-// so a kind added to the language is an error in each comptime fn that has
-// not considered it.
+// *kind* of type it is (a struct, a union, a tuple…) belongs to the type, as
+// its member `.kind`, a [Kind]: `field.type.kind is Struct`. The kind is a
+// member apart from the type, so a program type that happens to be called
+// `Union` is never mistaken for the kind. A `[when field.type.kind]` must
+// handle every kind, so a kind added to the language is an error in each
+// comptime fn that has not considered it.
 //
 // The Compile-time functions topic explains how a comptime fn is written and
 // stamped.
@@ -136,9 +137,10 @@ export comptime struct Generic {
 // @compilerknown
 export comptime type Opaque = Basic | Generic
 
-// Every kind of type: what a field's, an arm's or an index's `.kind` is.
+// Every kind of type: what a [Type]'s `.kind` is, as `field.type.kind`
+// reads it for a field's type.
 //
-// A `[when field.kind]` must handle every arm, with no `else`, so a kind
+// A `[when field.type.kind]` must handle every arm, with no `else`, so a kind
 // added to the language is an error in every comptime fn that did not
 // consider it, rather than a case silently skipped.
 //
@@ -146,7 +148,7 @@ export comptime type Opaque = Basic | Generic
 // comptime fn kinds<T is Struct>(value: T) [] -> Str => value {
 //     let out: Mut Str = Mut Str("")
 //     [for field in T.fields] {
-//         [when field.kind] {
+//         [when field.type.kind] {
 //             is Struct { append@string(out, "s") }
 //             is Union { append@string(out, "u") }
 //             is Tuple { append@string(out, "t") }
@@ -169,12 +171,18 @@ export comptime type Kind = Struct | Union | Tuple | FnType | Opaque
 //
 // Written in brackets it is usable as a type inside the body
 // (`[field.type]`), and `field.type is Str` compares it; what kind of type it
-// is, is the binder's `.kind`. The members of a literal union
-// (`"json" | "text"`) are `.literals`, a list of [Literal]s that
-// `[for lit in field.type.literals]` walks.
+// is, is its `.kind`. The members of a literal union (`"json" | "text"`) are
+// `.literals`, a list of [Literal]s that `[for lit in field.type.literals]`
+// walks.
 // @compilerrules [comptime-literals]
 // @compilerknown
-export comptime struct Type {}
+export comptime struct Type {
+    // What kind of type it is, a [Kind]: tested in a comptime head
+    // (`[if field.type.kind is Struct]`) or dispatched on with an exhaustive
+    // `[when field.type.kind]`, and never read as a value.
+    // @compilerrules [comptime-kind]
+    kind: Kind
+}
 
 // One member of a literal union, such as `"json"` of `"json" | "text"`, as
 // `[for lit in field.type.literals]` walks them in declaration order.
@@ -208,10 +216,8 @@ export comptime struct Field {
     // exhaustive `[when field.name]`, and a `Str` literal in each copy.
     // @compilerrules [comptime-name]
     name: Str,
-    // What kind of type the field has.
-    // @compilerrules [comptime-kind]
-    kind: Kind,
-    // The declared type; usable as a type inside the body as `[field.type]`.
+    // The declared type; usable as a type inside the body as `[field.type]`,
+    // and what kind of type it is as `field.type.kind`.
     type: Type,
     // The declared position, from zero.
     index: Int,
@@ -245,11 +251,9 @@ export comptime struct Index {
     first: Bool,
     // Whether it is the last element.
     last: Bool,
-    // The element's type; usable as a type inside the body as `[index.type]`.
-    type: Type,
-    // What kind of type the element has.
-    // @compilerrules [comptime-kind]
-    kind: Kind
+    // The element's type; usable as a type inside the body as `[index.type]`,
+    // and what kind of type it is as `index.type.kind`.
+    type: Type
 }
 
 // One arm of a [Union], as `[for arm in T.arms]` or a `[when value]` arm
@@ -259,9 +263,8 @@ export comptime struct Arm {
     // The struct's name for a struct arm, otherwise the type's text (`None`):
     // a literal of the union of the arm names.
     name: Str,
-    // What kind of type the arm is.
-    kind: Kind,
-    // The arm's type; usable as a type inside the body as `[arm.type]`.
+    // The arm's type; usable as a type inside the body as `[arm.type]`, and
+    // what kind of type it is as `arm.type.kind`.
     type: Type,
     // The declared position, from zero. Arms order by it in the structural
     // `cmp`.

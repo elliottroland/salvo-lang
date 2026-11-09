@@ -72,7 +72,7 @@ fn make() [] -> Str {
 comptime fn build(i: Int) [] -> Pick => i {
     [for arm in Pick.arms] {
         if i == arm.index {
-            [if arm.kind is Struct] {
+            [if arm.type.kind is Struct] {
                 return [arm.type] { [...for f in arm.type.fields] { [f]: make() } }
             }
             [if arm.type is Ok *] {

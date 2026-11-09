@@ -78,6 +78,16 @@ pub fn label_of(id: &str) -> &str {
     id.split_once(':').map_or(id, |(label, _)| label)
 }
 
+/// [comptime-kind] What an unknown-property message adds for `.kind`, which
+/// a binder had until 2026-11-09: a kind is its type's.
+fn kind_is_the_types(other: &str) -> &'static str {
+    if other == "kind" {
+        ": a kind is its type's, `.type.kind`"
+    } else {
+        ""
+    }
+}
+
 messages! {
     // ===== lexer =====
 
@@ -1324,9 +1334,11 @@ messages! {
         "`{ty}` is a `{kind}`, and only a `Struct` has `.fields`"
     );
     /// A property a `Field`/`Arm` binder does not have.
+    /// `.kind` gets the spelling to write: a kind is its type's.
     comptime_fields_unknown_property = "comptime-fields:unknown-property" (other: &str) => format!(
-        "a `Field`/`Arm` has `.name`, `.kind`, `.type`, `.index`, `.first`, `.last`, \
-         `.docs` and (a field) `.default`, not `.{other}`"
+        "a `Field`/`Arm` has `.name`, `.type`, `.index`, `.first`, `.last`, `.docs` and (a \
+         field) `.default`, not `.{other}`{}",
+        kind_is_the_types(other)
     );
 
     // [comptime-tuple]
@@ -1339,8 +1351,10 @@ messages! {
         "`{name}` is a tuple element, and an element carries no comptime qualifiers"
     );
     /// A property an `Index` binder does not have.
+    /// `.kind` gets the spelling to write, as for a field.
     comptime_tuple_unknown_property = "comptime-tuple:unknown-property" (other: &str) => format!(
-        "an `Index` has `.index`, `.kind`, `.type`, `.first` and `.last`, not `.{other}`"
+        "an `Index` has `.index`, `.type`, `.first` and `.last`, not `.{other}`{}",
+        kind_is_the_types(other)
     );
 
     // [comptime-generic]
@@ -1410,8 +1424,8 @@ messages! {
     // [comptime-kind]
     /// A kind word used after `is` as if it were a type.
     comptime_kind_kind_as_type = "comptime-kind:kind-as-type" (name: &str) => format!(
-        "`{name}` is a kind, not a type: a kind is tested on `.kind` (`field.kind is \
-         {name}`), and `is` after a type compares types"
+        "`{name}` is a kind, not a type: a kind is tested on a type's `.kind` \
+         (`field.type.kind is {name}`), and `is` after a type compares types"
     );
     /// `.kind` read as a value.
     comptime_kind_kind_as_value = "comptime-kind:kind-as-value" (root: &str) => format!(

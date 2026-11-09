@@ -714,7 +714,7 @@ pub struct CompTy {
 
 /// [comptime-fields] The kinds of a compile-time type — the arms of
 /// `std.core.comptime`'s `Kind` union (`Struct | Union | Tuple | FnType | Opaque`,
-/// with `Opaque = Basic | Generic`), so a `[when field.kind]` is an ordinary
+/// with `Opaque = Basic | Generic`), so a `[when field.type.kind]` is an ordinary
 /// exhaustive `when` over a union and `is Opaque` matches either of its two
 /// arms (comptime rounds 5 and 8; `Kind` split from `Type` 2026-10-20).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -873,7 +873,7 @@ pub enum CompStmt {
         else_: Option<Block>,
         span: Span,
     },
-    /// `[when field.kind] { is Struct { … } is Union { … } … }` — a `when`
+    /// `[when field.type.kind] { is Struct { … } is Union { … } … }` — a `when`
     /// over `std.core.comptime`'s `Kind` union, of the kind of the type `ty`
     /// denotes. Exhaustive over its arms, and like every `when` with a
     /// subject it takes no `else` [when-exhaustive], so that a kind added to

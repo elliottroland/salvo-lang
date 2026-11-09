@@ -3896,7 +3896,7 @@ fn hover_resolves_a_namespace_members_type_reference() {
 /// [lsp-completion] [when-exhaustive] Between the arms of a `when` — on a blank
 /// line, or over a half-written `is …` head — completion offers exactly the
 /// arms not yet written, one item each plus one writing them all; the same
-/// for a comptime `[when f.name]`, `[when f.kind]` and `[when f.type]` (whose
+/// for a comptime `[when f.name]`, `[when f.type.kind]` and `[when f.type]` (whose
 /// catch-all `is *` is offered beside the uncovered types). A client with
 /// snippet support gets the arm with the cursor placed in its body (user
 /// request 2026-10-20).
@@ -3931,7 +3931,7 @@ comptime fn names(p: P) [] -> Int => p {
             is \"a\" {}
             
         }
-        [when f.kind] {
+        [when f.type.kind] {
             is Struct {}
             
         }
@@ -4424,7 +4424,7 @@ fn pos_of(text: &str, needle: &str, nth: usize, shift: usize) -> (u32, u32) {
     (line, col as u32)
 }
 
-const COMPTIME_DEMO: &str = "struct Person {\n    name: Str,\n    age: Int\n}\n\ncomptime fn to_json<T is Struct>(t: T) -> Str {\n    let json = Mut Str(\"{\")\n    [for field in T.fields] {\n        json.append@string(\"x\")\n        [when field.kind] {\n            is Struct { json.append@string(t.[field]) }\n            is Union { refuse!(\"u\") }\n            is Tuple { refuse!(\"t\") }\n            is FnType { refuse!(\"f\") }\n            is Opaque { refuse!(\"o\") }\n        }\n    }\n    return json\n}\n";
+const COMPTIME_DEMO: &str = "struct Person {\n    name: Str,\n    age: Int\n}\n\ncomptime fn to_json<T is Struct>(t: T) -> Str {\n    let json = Mut Str(\"{\")\n    [for field in T.fields] {\n        json.append@string(\"x\")\n        [when field.type.kind] {\n            is Struct { json.append@string(t.[field]) }\n            is Union { refuse!(\"u\") }\n            is Tuple { refuse!(\"t\") }\n            is FnType { refuse!(\"f\") }\n            is Opaque { refuse!(\"o\") }\n        }\n    }\n    return json\n}\n";
 
 // [lsp-comptime-help] Hover in a comptime body takes its words from the
 // compile-time model's declarations: the member docs, the kind words.
@@ -4443,10 +4443,11 @@ fn comptime_bodies_hover_from_the_models_declarations() {
         id += 1;
         hover(lsp, id, &uri, line, col)
     };
-    // `field.kind` is the kind, not the type, and says what the declaration says.
-    let value = hover_at(&mut lsp, "field.kind", 0, 7);
-    assert!(value.starts_with("```salvo\nfield.kind: Kind\n```"), "{value}");
-    assert!(value.contains("What kind of type the field has."), "from Field.kind's doc: {value}");
+    // [comptime-kind] `field.type.kind` is the kind of the field's type, and
+    // says what `Type.kind`'s declaration says.
+    let value = hover_at(&mut lsp, "field.type.kind", 0, 12);
+    assert!(value.starts_with("```salvo\nfield.type.kind: Kind\n```"), "{value}");
+    assert!(value.contains("What kind of type it is"), "from Type.kind's doc: {value}");
     // The kind word in the bound, and an arm's.
     let value = hover_at(&mut lsp, "T is Struct", 0, 7);
     assert!(value.contains("struct Struct") && value.contains("A struct type"), "{value}");
@@ -4504,8 +4505,12 @@ fn comptime_tuple_indices_hover_and_complete_from_index() {
         response["result"].as_array().unwrap_or_else(|| panic!("no list: {response}")).iter().map(|i| i["label"].as_str().unwrap().to_string()).collect()
     };
     let items = complete_after(&mut lsp, "index.");
-    assert!(["index", "first", "last", "type", "kind"].iter().all(|m| items.contains(&m.to_string())), "an index's members: {items:?}");
+    assert!(["index", "first", "last", "type"].iter().all(|m| items.contains(&m.to_string())), "an index's members: {items:?}");
     assert!(!items.contains(&"name".to_string()), "an index has no name: {items:?}");
+    // [comptime-kind] The kind is the element type's.
+    assert!(!items.contains(&"kind".to_string()), "an index has no kind: {items:?}");
+    let items = complete_after(&mut lsp, "index.type.");
+    assert!(items.contains(&"kind".to_string()), "a type's members: {items:?}");
     let items = complete_after(&mut lsp, "T.");
     assert!(items.contains(&"indices".to_string()) && items.contains(&"elems".to_string()), "the bound tuple's members: {items:?}");
     let items = complete_after(&mut lsp, "[");
@@ -4534,7 +4539,7 @@ fn comptime_bodies_navigate_complete_and_fix() {
     }
     // The compile-time model: a kind word, an arm's, and a projection go to
     // their declarations in `std.core.comptime`.
-    for (needle, shift) in [("T is Struct", 5usize), ("is Opaque", 4), ("field.kind", 8), ("T.fields", 3)] {
+    for (needle, shift) in [("T is Struct", 5usize), ("is Opaque", 4), ("field.type.kind", 12), ("T.fields", 3)] {
         let (line, col) = pos_of(t, needle, 0, shift);
         id += 1;
         send(&mut lsp.stdin, json!({"jsonrpc":"2.0","id":id,"method":"textDocument/definition","params":{"textDocument":{"uri":uri},"position":{"line":line,"character":col}}}));
@@ -4555,7 +4560,11 @@ fn comptime_bodies_navigate_complete_and_fix() {
         response["result"].as_array().unwrap_or_else(|| panic!("no list: {response}")).iter().map(|i| i["label"].as_str().unwrap().to_string()).collect()
     };
     let items = complete_after(&mut lsp, "field.");
-    assert!(["name", "kind", "type", "last"].iter().all(|m| items.contains(&m.to_string())), "a binder's members: {items:?}");
+    assert!(["name", "type", "last"].iter().all(|m| items.contains(&m.to_string())), "a binder's members: {items:?}");
+    // [comptime-kind] A binder has no kind; its type has.
+    assert!(!items.contains(&"kind".to_string()), "a binder has no kind: {items:?}");
+    let items = complete_after(&mut lsp, "field.type.");
+    assert!(items.contains(&"kind".to_string()), "a type's members: {items:?}");
     let items = complete_after(&mut lsp, "T.");
     assert!(items.contains(&"fields".to_string()), "the bound type's members: {items:?}");
     let items = complete_after(&mut lsp, "json.");
@@ -4563,7 +4572,7 @@ fn comptime_bodies_navigate_complete_and_fix() {
     let items = complete_after(&mut lsp, "[");
     assert!(["for", "when", "if", "let"].iter().all(|m| items.contains(&m.to_string())) && items.contains(&"field".to_string()), "{items:?}");
 
-    // Quick fix: a `[when field.kind]` missing arms.
+    // Quick fix: a `[when field.type.kind]` missing arms.
     let missing = t.replacen("            is Opaque { refuse!(\"o\") }\n", "", 1).replacen("            is Tuple { refuse!(\"t\") }\n", "", 1);
     version += 1;
     let diags = set_text(&mut lsp, &uri, version, &missing);

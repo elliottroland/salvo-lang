@@ -3,7 +3,7 @@
 // `refuse` at the `by` site and how a `by` path names its `comptime fn` are
 // `compare_tests.rs`'s: each reports a second diagnostic for its one mistake.)
 
-// [comptime-inline] A `[when field.kind]` is exhaustive over `Kind`'s arms,
+// [comptime-inline] A `[when field.type.kind]` is exhaustive over `Kind`'s arms,
 // with no `else` [when-exhaustive], so a kind a comptime fn did not consider is
 // an error — the evolution guard (comptime round 3). With every kind, it
 // stamps.
@@ -11,7 +11,7 @@ comptime fn partial<T is Struct>(v: T) [] -> Int => v {
     let n = 0
     [for field in T.fields] {
         //~ error[when-exhaustive:kind-arms-missing]
-        [when field.kind] {
+        [when field.type.kind] {
             is Struct { n = n + 1 }
         }
     }
@@ -29,7 +29,7 @@ struct P : Partial<self> by partial {
 comptime fn full<T is Struct>(v: T) [] -> Int => v {
     let n = 0
     [for field in T.fields] {
-        [when field.kind] {
+        [when field.type.kind] {
             is Struct { n = n + 1 }
             is Union { n = n + 2 }
             is Tuple { n = n + 3 }

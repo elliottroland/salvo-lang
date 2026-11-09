@@ -23,7 +23,7 @@ comptime fn f(p: P) [] -> Int => p {
     [for f in P.fields] {
         //~ error[when-exhaustive:kind-arms-missing]
         //~ error[when-exhaustive:comptime-when-else]
-        [when f.kind] { is Struct {} else {} }
+        [when f.type.kind] { is Struct {} else {} }
     }
     return 0
 }

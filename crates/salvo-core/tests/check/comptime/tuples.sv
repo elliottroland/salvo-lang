@@ -20,7 +20,7 @@ comptime fn show<T is Tuple>(t: T) [] -> Str => t {
             append@string(out, ", ")
         }
         let x: [index.type] = t.[index]
-        [when index.kind] {
+        [when index.type.kind] {
             is Struct { append@string(out, "?") }
             is Union { append@string(out, "?") }
             is Tuple { append@string(out, show@[site](x)) }
@@ -155,6 +155,37 @@ comptime fn index_types<T is Tuple>(t: T) [] -> Int => t {
     return 0
 }
 
+//--- an_index_has_no_kind
+// [comptime-kind] An `Index` has no `.kind`: the element type's is
+// `index.type.kind`, as a head and as a dispatch.
+comptime fn index_kind<T is Tuple>(t: T) [] -> Str => t {
+    [for index in T.indices] {
+        [if index.kind is Struct] {
+            return "s"
+        }
+    }
+    return ""
+}
+
+//~ error[comptime-tuple:unknown-property]
+fn index_kind(t: (Str, Int)) [] -> Str by index_kind
+
+comptime fn index_when_kind<T is Tuple>(t: T) [] -> Str => t {
+    [for index in T.indices] {
+        [when index.kind] {
+            is Struct {}
+            is Union {}
+            is Tuple {}
+            is FnType {}
+            is Opaque {}
+        }
+    }
+    return ""
+}
+
+//~ error[comptime-tuple:unknown-property]
+fn index_when_kind(t: (Str, Int)) [] -> Str by index_when_kind
+
 //--- a_misspelled_kind
 // [comptime-bound] The bound names an arm of `Kind`: `Struct`, `Union` or
 // `Tuple`.
@@ -174,7 +205,7 @@ comptime fn f<T is Tupel>(t: T) [] -> Int => t {
 comptime fn show<T is Tuple>(t: T) [] -> Str => t {
     let out: Mut Str = Mut Str("")
     [for index in T.indices] {
-        [when index.kind] {
+        [when index.type.kind] {
             is Opaque { append@string(out, show@[site](t.[index])) }
             is Struct {}
             is Union {}
