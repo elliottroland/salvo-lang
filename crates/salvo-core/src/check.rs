@@ -30356,6 +30356,17 @@ fn substitute_vars(ty: &Ty, subst: &HashMap<String, Ty>, callee_generics: &HashS
         }
         Ty::Named { name, args } => {
             let args: Vec<Ty> = args.iter().map(|a| substitute_vars(a, subst, callee_generics)).collect();
+            // [type-union-spread] A spread whose variable is bound is the
+            // span it was bound to: `T | ...S` at `S = Int | None` is
+            // `T | Int | None`, which a union flattens, so a fn so
+            // instantiated fits a position that wants those arms.
+            if name == crate::types::SPREAD_MARKER {
+                if let [inner] = args.as_slice() {
+                    if !matches!(inner, Ty::Var(_)) {
+                        return inner.clone();
+                    }
+                }
+            }
             // [effect-var] `eff[E]` at `E`'s binding is the handle over its effects.
             if name == EFF_TYPE {
                 if let [one] = args.as_slice() {

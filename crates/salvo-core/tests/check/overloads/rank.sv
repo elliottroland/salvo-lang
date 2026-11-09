@@ -190,3 +190,21 @@ fn a_variable_in_a_union_ranks_below_its_arm() -> None {
     let _arm: Bool = encode(present)
     let _union: Str = encode(maybe)
 }
+
+// A generic fn over `T | ...S`, filling its own implicit for the span it
+// captured: the candidate at `S = Int | None` is `T | Int | None`, which
+// fits the position `(Int?) -> Str` asks for. [type-union-spread]
+fn label(s: Str) [] -> Str { return "s" }
+fn label(i: Int) [] -> Str { return "i" }
+fn label(n: None) [] -> Str { return "n" }
+fn label<T, S>(value: T | ...S, ?label: (T) -> Str, ?label: (S) -> Str) [] -> Str {
+    return when value {
+        is T { "t" }
+        is S { label(value) }
+    }
+}
+
+fn a_span_is_filled_by_the_same_fn_at_its_arms() -> None {
+    let v: Str | Int | None = 4
+    let _text: Str = label(v)
+}

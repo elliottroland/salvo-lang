@@ -1655,6 +1655,17 @@ deliberately cut, in the order the decisions put it:
   `Ordered`/`Hashed` obligation fix is offered only for a struct with no
   obligation that has no `by`.
 
+- **Defect: a generic `T | ...S` fn called with a nullable or nested union
+  emits Rust that does not compile** (found 2026-11-05 trying the demo's
+  `to_json`). It type-checks. Repro: `fn to_json<T, S>(value: T | ...S,
+  ?to_json: (T) -> Str, ?to_json: (S) -> Str) -> Str { when value { is T {
+  value.to_json() } is S { to_json(value) } } }` with `to_json(Str)`,
+  `to_json(Int)` and `to_json(None)` overloads, called with a `Str?` and a
+  `Str | Int | None`: the generic is emitted over `Union2<T, S>` while the
+  caller holds an `Option<String>` / `Option<Union2<String, i32>>` (rustc
+  E0308). The generic's union parameter needs the representation of the
+  instantiated union, not a fixed `UnionN`. Kotlin not tried.
+
 - **Test kinds: what is left** (built 2026-11-05, [test-kind]): a shared
   test-support tree / annex-to-annex import so a user kind can be shared
   between annexes (next); hygiene for template locals against user
