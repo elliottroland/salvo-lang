@@ -93,6 +93,21 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.other.salvo",
         "the messages type former",
     ),
+    // [test-kind] `test "name" { … }`, `test actor(seed=3) "name" { … }`,
+    // `test property "name" (xs: List<Int>) { … }`: a contextual keyword,
+    // recognised only before a name string, or a kind name and then a
+    // string or `(`, mirroring the parser's own lookahead; the kind is a
+    // call to a comptime fn.
+    (
+        "(?<!\\\\.)\\\\btest(?=\\\\s+(?:\\\"|[a-z_][A-Za-z0-9_]*\\\\s*[(\\\"]))",
+        "keyword.declaration.salvo",
+        "the test declaration",
+    ),
+    (
+        "(?<=\\\\btest\\\\s)[a-z_][A-Za-z0-9_]*(?=\\\\s*[(\\\"])",
+        "entity.name.function.call.salvo",
+        "the test kind",
+    ),
     // [comptime-bound] [comptime-fields] `comptime fn`, `comptime struct`,
     // `comptime type`: the compile-time facility's modifier.
     (
@@ -283,6 +298,12 @@ pub fn tm_grammar() -> String {
         .collect::<Vec<_>>()
         .join("\n");
     let canbe_words = alternation(CANBE_WORDS);
+    let doc_tags = salvo_syntax::doc::KNOWN_TAGS
+        .iter()
+        .filter(|t| **t != "param")
+        .copied()
+        .collect::<Vec<_>>()
+        .join("|");
     format!(
         r##"{{
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
@@ -305,14 +326,49 @@ pub fn tm_grammar() -> String {
     "comments": {{
       "patterns": [
         {{
+          "comment": "[doc-example] a code fence in doc comments (bare, `salvo` or `no-check`) holds Salvo source; other fences (`text`) stay comment",
+          "begin": "^(\\s*)(//)\\s?(```)(?:salvo|no-check)?\\s*$",
+          "beginCaptures": {{
+            "2": {{ "name": "comment.line.double-slash.salvo" }},
+            "3": {{ "name": "punctuation.definition.markdown.salvo" }}
+          }},
+          "end": "^(\\s*)(//)\\s?(```)\\s*$",
+          "endCaptures": {{
+            "2": {{ "name": "comment.line.double-slash.salvo" }},
+            "3": {{ "name": "punctuation.definition.markdown.salvo" }}
+          }},
+          "contentName": "meta.embedded.block.salvo",
+          "patterns": [
+            {{
+              "name": "comment.line.double-slash.salvo",
+              "match": "^\\s*//\\s?"
+            }},
+            {{ "include": "$self" }}
+          ]
+        }},
+        {{
+          "comment": "[doc-example] a fence for another language (`text`): left as comment, but consumed whole so its closing fence is not read as an opener",
+          "name": "comment.line.double-slash.salvo",
+          "begin": "^\\s*//\\s?```(?!(?:salvo|no-check)?\\s*$)\\S",
+          "end": "^\\s*//\\s?```\\s*$"
+        }},
+        {{
           "name": "comment.line.double-slash.salvo",
           "begin": "//",
           "end": "$",
           "patterns": [
             {{
-              "comment": "[doc-tags] a doc tag opening its line: `// @param name  text`",
+              "comment": "[doc-tags] `@param name  text`: the tag, then the parameter it describes in its own scope",
+              "match": "\\G\\s*(@param)\\b(?:\\s+([A-Za-z_][A-Za-z0-9_]*))?",
+              "captures": {{
+                "1": {{ "name": "storage.type.class.doc.salvo" }},
+                "2": {{ "name": "variable.parameter.doc.salvo" }}
+              }}
+            }},
+            {{
+              "comment": "[doc-tags] a doc tag opening its line: `// @returns text`",
               "name": "storage.type.class.doc.salvo",
-              "match": "\\G\\s*@(?:param|returns|throws|see|todo|whynot|compilerrules)\\b"
+              "match": "\\G\\s*@(?:{doc_tags})\\b"
             }},
             {{
               "comment": "[symbol] doc references to parameters, fields and types, and the [rule-label] references the compiler's own comments carry",

@@ -534,7 +534,7 @@ fn diagnostics_hover_and_shutdown() {
                         [for field in T.fields] {\n        \
                         n = n + field.index\n    \
                         }\n    \
-                        return n\n}\n\
+                        return n + size(\"ab\")\n}\n\
                         struct Point : Ordered<self> by auto {\n    x: Int\n}\n";
     send(
         &mut lsp.stdin,
@@ -554,6 +554,10 @@ fn diagnostics_hover_and_shutdown() {
         (3, 16, 12, "field.index: Int"),
         // The declaration's own name: its signature.
         (0, 13, 13, "comptime fn tag<T is Struct>(v: T) -> Int"),
+        // [lsp-comptime-body-hover] Ordinary names in the body: a parameter
+        // (in the signature), and a local at its use.
+        (0, 29, 20, "v: T"),
+        (5, 11, 21, "let n = 0"),
         // The `by auto` site: what it stamps, from where.
         (7, 33, 14, "comptime fn cmp<T is Struct>(a: T, b: T) -> Int"),
     ] {
@@ -576,6 +580,10 @@ fn diagnostics_hover_and_shutdown() {
             "expected `{expect}` at {line}:{character}, got: {value}"
         );
     }
+
+    // [lsp-comptime-body-hover] A call in the body: the fns of that name.
+    let value = hover(&mut lsp, 22, &uri, 5, 16);
+    assert!(value.starts_with("```salvo\nfn size"), "call in a comptime body: {value}");
 
     // Clean shutdown.
     send(
@@ -4010,4 +4018,32 @@ comptime fn names(p: P) [] -> Int => p {
     let square = items.iter().find(|i| i.0 == "is Square").unwrap();
     assert_eq!(square.1, "is Square {\n            $0\n        }", "{items:?}");
     stop(lsp);
+}
+
+// [lsp-import-fn-hover] The item name of an `import` hovers as what it
+// imports, a fn included: its signature and docs, not nothing.
+#[test]
+fn hover_on_an_imported_fn_name() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_import_fn_hover");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("shapes.sv"),
+        "// The area of a square.\nexport fn area(side: Int) -> Int {\n    return side * side\n}\n",
+    )
+    .unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    let text = "import shapes.area\n\nfn main() -> Int {\n    return area(3)\n}\n";
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": text}}
+        }),
+    );
+    expect_diagnostics(&lsp.rx);
+    let value = hover(&mut lsp, 2, &uri, 0, 16);
+    assert!(value.contains("fn area(side: Int) -> Int"), "import hover: {value}");
+    assert!(value.contains("The area of a square."), "import hover docs: {value}");
 }

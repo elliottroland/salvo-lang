@@ -13835,6 +13835,24 @@ replaced the working document TESTING.md).
   actionable. Other declarations carry the same section, but only when they
   come from a *different* file — being told a local declaration is local is
   noise.
+* [lsp-import-fn-hover] The item name of an `import` hovers as what it
+  imports. A top-level fn gets its signature, docs and origin like a call
+  does (the first overload of that name in the imported module, the rest
+  listed under it); structs and the other declarations already did
+  (user request 2026-11-05).
+* [lsp-comptime-body-hover] The ordinary names in a `comptime fn` body hover
+  too, although the checker never checks a body as itself: a parameter reads
+  as its written `name: Type`, a local as the `let` that binds it, and a
+  call as the fns of that name in scope with their docs. Comptime names
+  (`T`, binders, projections) keep the expansion's own record
+  [comptime-fields]. The declaration is read again from the open file's text,
+  since a generic comptime fn is gone from the analysed program once its uses
+  are stamped.
+* [cli-lang-doc-highlight] The TextMate grammar colours doc comments: a doc
+  tag (`@compilerknown` among them, from `salvo_syntax::doc::KNOWN_TAGS`), the
+  name after `@param` in a scope of its own, the `test` declaration word and
+  its kind, and the Salvo source in a doc code fence (bare, `salvo`,
+  `no-check`; a `text` fence stays comment).
 * [lsp-name-positions] Every *name position* resolves to its declaration for
   hover and go-to-definition, including the two that did not until
   2026-09-11: the group name in a struct's **obligation clause**

@@ -1020,6 +1020,13 @@ impl Server<'_> {
                 best_ref = Some((*span, *key));
             }
         }
+        // [lsp-import-fn-hover] The item name of an `import` is no reference
+        // the checker recorded; when it names a top-level fn, the first
+        // overload of that name in the imported module answers, and the
+        // overload section lists the rest.
+        if best_ref.is_none() {
+            best_ref = import_fn_ref(analysis, checked, file_idx, offset);
+        }
         if let Some((span, key)) = best_ref {
             if let Some(signature) = fn_signature(&analysis.program, &checked, key) {
                 // [decl-id] The file the resolved fn is declared in.
@@ -1111,7 +1118,9 @@ impl Server<'_> {
                 best = Some((*k, ty));
             }
         }
-        let (at, ty) = best?;
+        let Some((at, ty)) = best else {
+            return self.comptime_body_hover(analysis, view, offset, &link);
+        };
         let span = at.span;
         // A fate-linked (derived) variable presents its compiler
         // qualifier: the type line carries a bare `proj`, and the
@@ -1682,6 +1691,109 @@ impl Server<'_> {
         ))
     }
 
+
+    /// [lsp-comptime-body-hover] The ordinary names in a `comptime fn` body,
+    /// which the checker never sees as themselves (the body is stamped, not
+    /// checked): a parameter reads as its written `name: Type`, a local as
+    /// the `let` that binds it, and a call as the fns of that name visible
+    /// here, with their docs. Comptime names (`T`, binders, projections) are
+    /// answered before this, from the expansion's own record.
+    fn comptime_body_hover(
+        &self,
+        analysis: &Analysis,
+        view: &DocView<'_>,
+        offset: u32,
+        link: &dyn Fn(usize, Span) -> Option<String>,
+    ) -> Option<Hover> {
+        let file_idx = view.file;
+        // A generic comptime fn is removed from the analysed program once
+        // its uses are stamped, so the open file's text is read again: one
+        // file, for the one declaration under the cursor.
+        let (written, _) = salvo_syntax::parse_module_deferred(view.content);
+        let f = written.items.iter().find_map(|item| match item {
+            Item::Fn(f) if f.compfn.is_some() && f.span.holds(offset) => Some(f),
+            _ => None,
+        })?;
+        let text = view.content;
+        let bytes = text.as_bytes();
+        let word_char = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+        let at = offset as usize;
+        if at >= bytes.len() || !word_char(bytes[at]) {
+            return None;
+        }
+        let (mut start, mut end) = (at, at);
+        while start > 0 && word_char(bytes[start - 1]) {
+            start -= 1;
+        }
+        while end < bytes.len() && word_char(bytes[end]) {
+            end += 1;
+        }
+        let word = &text[start..end];
+        if word.is_empty() || word.as_bytes()[0].is_ascii_digit() {
+            return None;
+        }
+        let range = span_to_range(text, Span::new(start as u32, end as u32));
+        let here = |s: String| Some(markdown_hover(s, range));
+        // A call: the fns of this name in scope.
+        let after = text[end..].trim_start_matches([' ', '\t']);
+        let preceded_by_dot = start > 0 && bytes[start - 1] == b'.';
+        if after.starts_with('(') && !preceded_by_dot {
+            let sites = analysis.overloads.get(file_idx)?.get(word)?;
+            let mut parts: Vec<String> = Vec::new();
+            for site in sites {
+                let Some(module) = analysis.program.modules.get(site.file) else { continue };
+                let Some(decl) = module.items.iter().find_map(|item| match item {
+                    Item::Fn(d) if d.name.span == site.span => Some(d),
+                    _ => None,
+                }) else {
+                    continue;
+                };
+                if is_generated_next(decl) {
+                    continue;
+                }
+                let source = &analysis.program.files.get(site.file)?.content;
+                let scope = docs::fn_scope(decl, site.file, source, &analysis.program.modules, link);
+                let docs = docs::render(&decl.docs, &scope);
+                let from = analysis.program.files.get(site.file).map(|f| f.module.to_string()).unwrap_or_default();
+                let mut part = format!("```salvo\n{}\n```\n\n*({from})*", fn_decl_signature(decl, None));
+                if let Some(docs) = docs {
+                    part.push_str("\n\n");
+                    part.push_str(&docs);
+                }
+                parts.push(part);
+            }
+            if parts.is_empty() {
+                return None;
+            }
+            return here(parts.join("\n\n---\n\n"));
+        }
+        if preceded_by_dot {
+            return None;
+        }
+        // A parameter.
+        if let Some(param) = f.params.iter().find(|p| p.name.name == word) {
+            let written = span_text(text, param.span).trim();
+            return here(format!(
+                "```salvo\n{written}\n```\n\nA parameter of the `comptime fn` `{}`.",
+                f.name.name
+            ));
+        }
+        // A local: the nearest `let` of the name before the cursor.
+        let body = f.body.as_ref().filter(|b| b.span.holds(offset))?;
+        let before = &text[body.span.start as usize..start];
+        let mut found: Option<&str> = None;
+        for line in before.lines() {
+            let t = line.trim();
+            let Some(rest) = t.strip_prefix("let ") else { continue };
+            let rest = rest.strip_prefix("mut ").unwrap_or(rest);
+            let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+            if name == word {
+                found = Some(t);
+            }
+        }
+        let decl = found?;
+        here(format!("```salvo\n{decl}\n```\n\nA local of the `comptime fn` `{}`.", f.name.name))
+    }
 
     /// Go-to-definition [lsp-definition]: a fn name resolves through
     /// `Checked::fn_refs` (overload-precise) to its declaration's name
@@ -3301,6 +3413,44 @@ fn import_target(
                         span,
                     },
                 ));
+            }
+        }
+    }
+    None
+}
+
+/// [lsp-import-fn-hover] The fn an `import a.b.name` names, when the cursor
+/// is on `name`: its span in the import and the declaration's id.
+fn import_fn_ref(
+    analysis: &Analysis,
+    checked: &Checked,
+    file_idx: usize,
+    offset: u32,
+) -> Option<(Span, DeclId)> {
+    let items = &analysis.program.modules.get(file_idx)?.items;
+    for item in items {
+        let Item::Import(decl) = item else { continue };
+        let (name, module) = decl.path.split_last()?;
+        if !name.span.holds(offset) {
+            continue;
+        }
+        let module_path: Vec<&str> = module.iter().map(|m| m.name.as_str()).collect();
+        for (target, (file, ast)) in analysis
+            .program
+            .files
+            .iter()
+            .zip(&analysis.program.modules)
+            .enumerate()
+        {
+            if file.module.0 != module_path {
+                continue;
+            }
+            let found = ast
+                .items
+                .iter()
+                .position(|i| matches!(i, Item::Fn(f) if f.name.name == name.name));
+            if let Some(index) = found {
+                return Some((name.span, checked.decls.fn_at(target, index)));
             }
         }
     }
