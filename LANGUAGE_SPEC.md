@@ -6228,6 +6228,25 @@ Conventions:
   name to (since 2026-10-20 [comptime-instantiate]), and only for a name the
   file does not see the old ladder: the file's own, then an imported one,
   then `std.core`'s. Before the rule an unimported struct was walked silently.
+* [comptime-template-check] **A template is held to its rules where it is
+  declared** (user decision 2026-11-05), whether or not anything stamps it, and
+  reported once at the template instead of at every `by` site. Checked from the
+  template's text alone: a name a head reads that nothing declared
+  (`[for field in t.fields]` reads the *type*, `T.fields`, not a value of it;
+  the error says so when the name is a parameter) is `comptime-inline:not-a-
+  binder`, and a template with a result type that does not return on every
+  path is `fn-must-return:missing-return`, where a `[for]` whose copies return
+  is taken to unroll to some, a `[when]` returns when every arm does, an
+  `[if]` when both halves do, and `refuse!` ends a path. The `by` sites of a
+  template so refused get a body that says nothing more, as for a `[when]`
+  over the bound parameter's range [when-exhaustive]. What needs the type —
+  a `[when field.kind]` that meets a kind it has no arm for, a call with no
+  overload at the field's type — is still a stamp's, at the stamp.
+* [comptime-template-note] **A diagnostic that lands at a stamp's site says
+  which line of the template raised it**: `(from comptime fn `describe`,
+  main.sv:15:25)`, the position in the template's own file, so the author can
+  tell a mistake in the template from one at the site. Only for a node that
+  is the template's text; one the expansion made up has no line to name.
 * [comptime-fields] **What a comptime fn may know about a type is a declared
   model, `std.core.comptime`** (user decision 2026-09-29, round 8): compile-time
   structs, readable and hoverable, never values —

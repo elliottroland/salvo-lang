@@ -938,6 +938,23 @@ effect list, deductions and return type), and one that a `fns` member is
 fulfilled by must be effect-free, since an implicit parameter may resolve to
 it.
 
+## Errors in a template, and errors at a stamp
+
+A template is checked where it is written, whether or not anything stamps it.
+A head that reads a name nothing declared, such as `[for field in t.fields]`
+(fields are read from the type, `T.fields`, not from a value of it), and a
+template with a result type that can fall off its end, are errors at the
+template, reported once rather than at every `by` site.
+
+What needs the type to know is the stamp's: a `[when field.kind]` met a kind it
+has no arm for, a `refuse!`, a call with no overload at a field's type. Those
+land at the `by` site, where the author can act, and say which line of the
+template raised them:
+
+```text
+error: `Person` refused: Cannot encode a function (from comptime fn `describe`, main.sv:15:25)
+```
+
 ## Generic structs
 
 A `by auto` on a **generic struct** works: `struct Wrapper<T> : Ordered<self>

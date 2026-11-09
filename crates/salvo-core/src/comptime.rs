@@ -263,6 +263,14 @@ fn run<M: crate::expand::ModuleSlot>(
         tables,
         own: std::cell::RefCell::new(ModulePath(Vec::new())),
         module_paths: files.iter().map(|f| f.module.clone()).collect(),
+        lines: files
+            .iter()
+            .map(|f| {
+                let mut starts = vec![0u32];
+                starts.extend(f.content.char_indices().filter(|&(_, c)| c == '\n').map(|(i, _)| i as u32 + 1));
+                (f.name.clone(), starts)
+            })
+            .collect(),
     };
 
     // [decl-id] Each file is stamped into a copy of its module, which takes
@@ -381,7 +389,7 @@ fn run<M: crate::expand::ModuleSlot>(
                     // signature with `self` substituted is the declaration,
                     // and the stamp fills its body exactly as it fills a
                     // written one.
-                    let stamp = Stamper::new(&world, &target, &template, by, &mut next_expn);
+                    let stamp = Stamper::new(&world, &target, &template, by, &mut next_expn).at(template_file);
                     let mut f = match stamp.member_decl(group, member) {
                         Ok(f) => f,
                         Err(errs) => {
@@ -391,7 +399,7 @@ fn run<M: crate::expand::ModuleSlot>(
                     };
                     f.exported = exported;
                     f.scoped_to = Some(name.clone());
-                    let stamp = Stamper::new(&world, &target, &template, by, &mut next_expn);
+                    let stamp = Stamper::new(&world, &target, &template, by, &mut next_expn).at(template_file);
                     match stamp.stamp_into(&mut f, Declared::Member { group: &group.name.name }) {
                         Ok(()) => {
                             if let Some(s) = &mut f.stamped {
@@ -508,7 +516,7 @@ fn run<M: crate::expand::ModuleSlot>(
                     module: Some(module.clone()),
                     doc_of: None,
                 });
-                let stamper = Stamper::new(&world, &target, &template, &by, &mut next_expn);
+                let stamper = Stamper::new(&world, &target, &template, &by, &mut next_expn).at(template_file);
                 // [comptime-generic] A written declaration at a generic type
                 // would have to spell the generic additions itself; not yet.
                 if let Some(d) = stamper.generic_refused(by.span) {
@@ -1322,9 +1330,39 @@ fn unchecked_subject_whens(f: &FnDecl) -> Vec<Diagnostic> {
         /// binders of a walk over it (or over one of these), pattern binders
         /// of a test on one of these, and a union value's arm binder.
         derived: std::collections::HashSet<String>,
+        /// [comptime-template-check] The compile-time names declared so far
+        /// in the template (binders, `[let]`s, pattern binders, lambda
+        /// parameters), flat: a name read in a head must be one of these, the
+        /// bound parameter, or a type.
+        known: std::collections::HashSet<String>,
+        /// The template's value parameters, for the hint on `t.fields`.
+        params: Vec<String>,
         errors: Vec<Diagnostic>,
     }
     impl RangeCheck {
+        /// [comptime-template-check] The lowercase names a head reads that
+        /// nothing declared: a value of the bound type is not the type, so
+        /// its `fields` are not read from it.
+        fn undeclared(&mut self, e: &CompExpr) {
+            let mut binders = Vec::new();
+            comp_binders(e, &mut binders);
+            self.known.extend(binders);
+            let mut names = Vec::new();
+            comp_name_idents(e, &mut names);
+            for id in names {
+                if id.name.starts_with(|c: char| c.is_lowercase()) && !self.known.contains(&id.name) && id.name != self.bound {
+                    let hint = if self.params.contains(&id.name) {
+                        format!(
+                            " of a `[for …]` or `[when …]`; the fields of the bound type are read from the type itself, as `{}.fields`, not from a value of it",
+                            self.bound
+                        )
+                    } else {
+                        String::new()
+                    };
+                    self.errors.push(Diagnostic::error(messages::comptime_inline_not_a_binder(&id.name, &hint), id.span));
+                }
+            }
+        }
         fn depends(&self, ty: &CompTy) -> bool {
             (!ty.via_type && ty.root.name == self.bound) || self.derived.contains(&ty.root.name)
         }
@@ -1339,21 +1377,27 @@ fn unchecked_subject_whens(f: &FnDecl) -> Vec<Diagnostic> {
             let Stmt::Comp(c) = s else { return };
             match c {
                 CompStmt::For { binder, seq, .. } => {
+                    self.undeclared(seq);
+                    self.known.insert(binder.name.clone());
                     if self.depends_expr(seq) {
                         self.derived.insert(binder.name.clone());
                     }
                 }
                 CompStmt::Let { name, value, .. } => {
+                    self.undeclared(value);
+                    self.known.insert(name.name.clone());
                     if self.depends_expr(value) {
                         self.derived.insert(name.name.clone());
                     }
                 }
                 CompStmt::If { cond, .. } => {
+                    self.undeclared(cond);
                     let mut out = Vec::new();
                     comp_is_binders_over(cond, &|e| self.depends_expr(e), &mut out);
                     self.derived.extend(out);
                 }
                 CompStmt::WhenArms { binder, .. } => {
+                    self.known.insert(binder.name.clone());
                     self.derived.insert(binder.name.clone());
                 }
                 CompStmt::WhenKind { arms, span, .. } => {
@@ -1386,10 +1430,82 @@ fn unchecked_subject_whens(f: &FnDecl) -> Vec<Diagnostic> {
         bound: bound.name.clone(),
         fn_name: f.name.name.clone(),
         derived: std::collections::HashSet::new(),
+        known: std::collections::HashSet::new(),
+        params: f.params.iter().map(|p| p.name.name.clone()).collect(),
         errors: Vec::new(),
     };
     v::walk_fn(&mut check, f);
-    check.errors
+    let mut errors = check.errors;
+    // [comptime-template-check] [fn-must-return] A template answers a value
+    // on every path, or says so where it is declared rather than at each
+    // stamp: the copies a head makes (a `[for]`) may be none, so only what
+    // always runs counts.
+    if let (Some(ret), Some(body)) = (&f.return_type, &f.body) {
+        let text = ret.to_string();
+        if text != "None" && text != "Never" && !template_block_returns(body) {
+            errors.push(Diagnostic::error(messages::fn_must_return_missing_return(&f.name.name, &text), f.name.span));
+        }
+    }
+    errors
+}
+
+/// [comptime-template-check] The names (with their spans) a compile-time
+/// expression reads as roots.
+fn comp_name_idents(e: &CompExpr, out: &mut Vec<Ident>) {
+    match e {
+        CompExpr::Name { id, .. } => out.push(id.clone()),
+        CompExpr::Proj { base, .. } => comp_name_idents(base, out),
+        CompExpr::Call { args, .. } => args.iter().for_each(|a| comp_name_idents(a, out)),
+        CompExpr::Lambda { body, .. } => comp_name_idents(body, out),
+        CompExpr::Not(inner, _) | CompExpr::Neg(inner, _) => comp_name_idents(inner, out),
+        CompExpr::Binary { lhs, rhs, .. } => {
+            comp_name_idents(lhs, out);
+            comp_name_idents(rhs, out);
+        }
+        CompExpr::Is { subject, .. } => comp_name_idents(subject, out),
+        _ => {}
+    }
+}
+
+/// [comptime-template-check] Whether a template block returns on every path
+/// whatever it is stamped at: an ordinary `return` (or a path that diverges),
+/// a `refuse!`, and the heads whose every branch does — a `[when]` over every
+/// kind or arm, an `[if]` with an `[else]`, a `[for]` whose copies do.
+fn template_block_returns(b: &Block) -> bool {
+    b.stmts.iter().any(template_stmt_returns)
+}
+
+fn template_stmt_returns(s: &Stmt) -> bool {
+    match s {
+        Stmt::Expr(e) => template_expr_returns(e),
+        Stmt::Comp(c) => match c {
+            CompStmt::Refuse { .. } => true,
+            CompStmt::If { then, else_, .. } => template_block_returns(then) && else_.as_ref().is_some_and(template_block_returns),
+            CompStmt::WhenKind { arms, .. } => !arms.is_empty() && arms.iter().all(|a| template_block_returns(&a.body)),
+            CompStmt::WhenType { arms, .. } => !arms.is_empty() && arms.iter().all(|a| template_block_returns(&a.body)),
+            CompStmt::WhenName { arms, .. } => !arms.is_empty() && arms.iter().all(|a| template_block_returns(&a.body)),
+            CompStmt::WhenArms { body, .. } => template_block_returns(body),
+            // A `[for]` whose copies return is taken to unroll to some: that
+            // it may not is a stamp's to say, at the stamp.
+            CompStmt::For { body, .. } => template_block_returns(body),
+            CompStmt::Let { .. } => false,
+        },
+        _ => false,
+    }
+}
+
+fn template_expr_returns(e: &Expr) -> bool {
+    match e {
+        Expr::Return { .. } | Expr::Unreachable { .. } | Expr::Todo { .. } => true,
+        Expr::If { branches, else_block, .. } => {
+            else_block.as_ref().is_some_and(template_block_returns) && branches.iter().all(|(_, b)| template_block_returns(b))
+        }
+        Expr::When { branches, .. } => !branches.is_empty() && branches.iter().all(|b| template_block_returns(&b.body)),
+        Expr::WhenCond { branches, else_block, .. } => {
+            template_block_returns(else_block) && branches.iter().all(|(_, b)| template_block_returns(b))
+        }
+        _ => false,
+    }
 }
 
 /// [lsp-completion] The kind words a `[when X.kind]`'s arms leave out, as
@@ -1849,6 +1965,9 @@ struct World<'a> {
     /// reads fields from.
     own: std::cell::RefCell<ModulePath>,
     module_paths: Vec<ModulePath>,
+    /// [comptime-template-note] Each file's name and line starts, to say where
+    /// in a template a diagnostic that lands at a stamp's site came from.
+    lines: Vec<(String, Vec<u32>)>,
 }
 
 impl<'a> World<'a> {
@@ -2489,9 +2608,17 @@ struct Stamper<'w> {
     by: &'w ByRef,
     /// [node-origin] The file's next expansion id.
     next_expn: &'w mut u32,
+    /// The file the template is written in, for the note on a diagnostic
+    /// that lands at the stamp's site [comptime-template-note].
+    template_file: Option<usize>,
 }
 
 impl<'w> Stamper<'w> {
+    fn at(mut self, template_file: Option<usize>) -> Self {
+        self.template_file = template_file;
+        self
+    }
+
     fn new(
         world: &'w World<'w>,
         target: &'w Target,
@@ -2505,6 +2632,7 @@ impl<'w> Stamper<'w> {
             template,
             by,
             next_expn,
+            template_file: None,
         }
     }
 
@@ -2701,6 +2829,7 @@ impl<'w> Stamper<'w> {
         }
         let mut ex = Expander::new(self.world, param.map(|p| (p, target)), site, self.next_expn);
         ex.current = template_expn;
+        ex.template_info = self.template_file.map(|f| (f, self.template.name.name.clone(), template_expn));
         let mut sig = SigSubst { ex: &mut ex };
         for p in &mut inst.params {
             visit_mut::walk_type(&mut sig, &mut p.ty);
@@ -3281,6 +3410,9 @@ struct Expander<'w> {
     when_arms: Vec<(Span, Vec<String>, bool, Vec<Span>)>,
     /// [test-kind] The test a kind template is stamped at.
     test: Option<TestInfo>,
+    /// [comptime-template-note] A stamp's template: its file, its name, and
+    /// the expansion its whole copy is.
+    template_info: Option<(usize, String, u32)>,
 }
 
 impl<'w> Expander<'w> {
@@ -3306,6 +3438,7 @@ impl<'w> Expander<'w> {
             comp_locals: Vec::new(),
             when_arms: Vec::new(),
             test: None,
+            template_info: None,
         }
     }
 
@@ -3391,7 +3524,23 @@ impl<'w> Expander<'w> {
         // expanded-in-place fn the construct is the author's own text, so it
         // lands there; in a stamp, the site is where the author can act.
         let at = self.report_span(span);
-        self.errors.push(Diagnostic::error(msg, at));
+        // [comptime-template-note] A diagnostic that lands at a stamp's site
+        // says which line of the template raised it, so the author can tell
+        // a mistake in the template from one at the site.
+        let (id, mut text) = msg.into_message();
+        if !self.in_place {
+            if let Some((file, name, root)) = &self.template_info {
+                let from = self.unmap(span);
+                if from.expn == *root && from.end > from.start {
+                    if let Some((file_name, starts)) = self.world.lines.get(*file) {
+                        let line = starts.partition_point(|&s| s <= from.start);
+                        let col = from.start - starts[line - 1] + 1;
+                        text.push_str(&format!(" (from comptime fn `{name}`, {file_name}:{line}:{col})"));
+                    }
+                }
+            }
+        }
+        self.errors.push(Diagnostic::error((id, text), at));
     }
 
     fn binding(&self, name: &str) -> Option<&Binding> {
@@ -5060,11 +5209,7 @@ impl<'w> Expander<'w> {
                     .map(|(_, t)| t.name.clone())
                     .or_else(|| self.fn_name.clone())
                     .unwrap_or_default();
-                let where_ = self.report_span(span);
-                self.errors.push(Diagnostic::error(
-                    messages::comptime_refuse_refused(&at, &text),
-                    where_,
-                ));
+                self.error(span, messages::comptime_refuse_refused(&at, &text));
             }
         }
     }

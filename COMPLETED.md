@@ -211,6 +211,25 @@ written `Inventory.Reserve` is one reference span covering the whole path;
 `expect_response` in the LSP tests panics on an error response, so tests that
 want one read the channel themselves.
 
+### 2026-11-05 — `as!`/`as?`, templates checked where declared, the template line at a stamp ([expr-as-qual] [comptime-template-check] [comptime-template-note])
+
+User decisions after trying the JSON demo. (1) Instead of checking literals
+against qualifiers at compile time (hard to keep track of what is decidable),
+`36 as! NonNegative` traps or yields the qualified value and `x as? Q` yields
+it or `None`: the parser writes each as the `if`/`let`/`assert!` or
+`if x is Q v` it stands for. This exposed a defect: a binding on a non-place
+subject (`f() is Q v`) was silently dropped for a predicate qualifier in the IR
+builder; it now evaluates the subject into a temporary ([is-bind-once]).
+(2) A template is held to its rules at its own declaration: an undeclared name
+in a head (`t.fields`) and a missing return are reported once, at the template
+(`unchecked_subject_whens` in comptime.rs, which already refused a `[when]`
+over the bound range there). (3) An error at a stamp's `by` site now carries
+`(from comptime fn f, file:line:col)` for the template node that raised it
+(`Expander::error`; `refuse!` goes through it too). (4) `<T is Tuple>` and
+`T.indices` were built (see the tuple entry). Not done: a template's type
+errors (a call with no overload at a field's type) stay at the stamp, since
+they need the type.
+
 ### 2026-11-05 — `Addr<E>` renamed `Eff<E>`; the Writing Test Kinds page
 
 The compiler's internal handle type is now `Eff<E>`, so `eff[E]` and its

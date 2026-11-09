@@ -1109,3 +1109,37 @@ fn secret() -> Int {
     let want: Vec<(i64, String, String)> = want.iter().map(|(l, id)| (*l, "warning".to_string(), id.to_string())).collect();
     assert_eq!(got, want, "{}", String::from_utf8_lossy(&out.stdout));
 }
+
+/// [comptime-template-note] An error a stamp reports at its `by` site says
+/// which line of the comptime fn raised it, and a mistake in the template
+/// itself is reported at the template, once, whether or not anything stamps
+/// it [comptime-template-check].
+#[test]
+fn a_stamp_error_names_the_template_line_and_a_template_mistake_is_reported_there() {
+    let dir = src_dir("template_note");
+    fs::write(
+        dir.join("main.sv"),
+        "struct Person {\n    name: Str\n    callback: (Int) -> Int\n\n    fn describe(t: Person) -> Str by describe\n}\n\ncomptime fn describe<T is Struct>(t: T) -> Str {\n    let out = Mut Str(\"\")\n    [for field in T.fields] {\n        [when field.kind] {\n            is Struct { out.append@string(\"s\") }\n            is Union { out.append@string(\"u\") }\n            is Tuple { out.append@string(\"t\") }\n            is FnType { refuse!(\"Cannot encode a function\") }\n            is Opaque { out.append@string(\"o\") }\n        }\n    }\n    return out\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "{stderr}");
+    assert!(
+        stderr.contains("Cannot encode a function (from comptime fn `describe`, main.sv:15:25)"),
+        "the template line: {stderr}"
+    );
+    assert!(stderr.contains("main.sv:5:"), "still reported at the site: {stderr}");
+
+    // A mistake in the template: at the template, once, with no stamp needed.
+    fs::write(
+        dir.join("main.sv"),
+        "struct Person {\n    name: Str\n\n    fn describe(t: Person) -> Str by describe\n}\n\ncomptime fn describe<T is Struct>(t: T) -> Str {\n    let out = Mut Str(\"\")\n    [for field in t.fields] {\n        out.append@string(field.name)\n    }\n}\n",
+    )
+    .unwrap();
+    let out = salvo(&["analyze", "--src", dir.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("`t` is not a binder") && stderr.contains("`T.fields`"), "{stderr}");
+    assert!(stderr.contains("main.sv:9:") && stderr.contains("missing return"), "at the template: {stderr}");
+    assert_eq!(stderr.matches("is not a binder").count(), 1, "once, not at each stamp: {stderr}");
+}
