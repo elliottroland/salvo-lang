@@ -21,7 +21,7 @@ use salvo_syntax::visit::{walk_fn, Visitor};
 use salvo_syntax::Span;
 
 use super::{
-    offset_to_position, position_to_offset, span_text, Server, PLATFORM_GENERATE_COMMAND,
+    offset_to_position, position_to_offset, Server, PLATFORM_GENERATE_COMMAND,
 };
 use crate::analysis::Analysis;
 
@@ -80,6 +80,7 @@ impl Server<'_> {
                 matches!(
                     code_of(d),
                     Some("when-exhaustive:missing-arms")
+                        | Some("when-exhaustive:kind-arms-missing")
                         | Some("effect-handler-multi:missing-member")
                         | Some("call-resolve:no-overload")
                         | Some("call-resolve:no-overload-why")
@@ -88,6 +89,7 @@ impl Server<'_> {
             if needs_analysis {
                 if let Some(analysis) = self.analyze_for(path) {
                     self.when_arm_fixes(&analysis, path, uri, content, diags, out);
+                    self.comptime_when_fixes(&analysis, path, uri, content, diags, out);
                     self.handler_member_fixes(&analysis, path, uri, content, diags, out);
                     self.obligation_fixes(&analysis, path, uri, content, diags, out);
                 }
@@ -273,6 +275,55 @@ impl Server<'_> {
                 uri,
                 vec![d.clone()],
                 vec![TextEdit { range: Range::new(at, at), new_text }],
+            ));
+        }
+    }
+
+    /// [lsp-quickfix] `when-exhaustive:kind-arms-missing`: an arm for each kind
+    /// a comptime `[when x.kind]` leaves out, each a `refuse!` — a compile
+    /// error at the instantiation naming the case — until it is written.
+    fn comptime_when_fixes(
+        &self,
+        analysis: &Analysis,
+        path: &Path,
+        uri: &Url,
+        text: &str,
+        diags: &[Diagnostic],
+        out: &mut Vec<CodeActionOrCommand>,
+    ) {
+        let Some(view) = super::doc_view(analysis, path) else { return };
+        for d in diags.iter().filter(|d| code_of(d) == Some("when-exhaustive:kind-arms-missing")) {
+            let at = position_to_offset(text, d.range.start);
+            let Some(w) = analysis
+                .comptime_when_arms
+                .iter()
+                .filter(|w| w.file == view.file && w.span.start <= at && at <= w.span.end)
+                .min_by_key(|w| w.span.len())
+            else {
+                continue;
+            };
+            let named: Vec<&String> = w.missing.iter().filter(|m| m.as_str() != "*").collect();
+            let close = w.span.end as usize - 1;
+            if named.is_empty() || text.as_bytes().get(close) != Some(&b'}') {
+                continue;
+            }
+            let line_start = text[..close].rfind('\n').map(|i| i + 1).unwrap_or(0);
+            let base = indent_of(text, w.span.start as usize);
+            let (at_pos, new_text) = if text[line_start..close].trim().is_empty() {
+                let arms: String = named
+                    .iter()
+                    .map(|m| format!("{base}    is {m} {{ refuse!(\"not handled yet: {m}\") }}\n"))
+                    .collect();
+                (offset_to_position(text, line_start as u32), arms)
+            } else {
+                let arms = named.iter().map(|m| format!("is {m} {{ refuse!(\"not handled yet: {m}\") }}")).collect::<Vec<_>>().join(" ");
+                (offset_to_position(text, close as u32), format!(" {arms} "))
+            };
+            out.push(quickfix(
+                format!("Add the {} missing arm{}", named.len(), if named.len() == 1 { "" } else { "s" }),
+                uri,
+                vec![d.clone()],
+                vec![TextEdit { range: Range::new(at_pos, at_pos), new_text }],
             ));
         }
     }

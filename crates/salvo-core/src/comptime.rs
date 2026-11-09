@@ -52,6 +52,11 @@ pub struct CompHover {
     /// own documentation, since `by @auto` names the module as much as
     /// `size@list` does.
     pub module: Option<ModulePath>,
+    /// The `std.core.comptime` struct and member whose declaration documents
+    /// the name hovered (`("Field", "kind")`; an empty member is the struct
+    /// itself): the language server shows that doc rather than `text`'s note,
+    /// so the hover cannot drift from the declaration [lsp-comptime-help].
+    pub doc_of: Option<(String, String)>,
 }
 
 /// [lsp-completion] [when-exhaustive] The arms a comptime `[when …]` has yet
@@ -307,6 +312,7 @@ fn run<M: crate::expand::ModuleSlot>(
                 span: f.name.span,
                 text: compfn_hover_text(f, &file.module, None),
                 module: None,
+                doc_of: None,
             });
             let mut rec = HoverRecorder {
                 file: file_idx,
@@ -412,6 +418,7 @@ fn run<M: crate::expand::ModuleSlot>(
                         span: by.span,
                         text: site_hover.join("\n\n---\n\n"),
                         module: site_module,
+                        doc_of: None,
                     });
                 }
             }
@@ -499,6 +506,7 @@ fn run<M: crate::expand::ModuleSlot>(
                     span: by.span,
                     text: compfn_hover_text(&template, &module, Some(&target.name)),
                     module: Some(module.clone()),
+                    doc_of: None,
                 });
                 let stamper = Stamper::new(&world, &target, &template, &by, &mut next_expn);
                 // [comptime-generic] A written declaration at a generic type
@@ -667,7 +675,17 @@ impl HoverRecorder<'_> {
             span,
             text: format!("```salvo\n{code}\n```\n\n{note}"),
             module: None,
+            doc_of: None,
         });
+    }
+
+    /// `push`, with the declaration in `std.core.comptime` that documents the
+    /// name [lsp-comptime-help].
+    fn push_doc(&mut self, span: Span, code: &str, note: &str, owner: &str, member: &str) {
+        self.push(span, code, note);
+        if let Some(h) = self.out.last_mut() {
+            h.doc_of = Some((owner.to_string(), member.to_string()));
+        }
     }
 
     fn fn_decl(&mut self, f: &FnDecl) {
@@ -703,7 +721,7 @@ impl HoverRecorder<'_> {
         if ct.via_type {
             if let Some(is_arm) = self.binder_kind(&ct.root.name) {
                 let owner = if is_arm { known::COMPTIME_ARM } else { known::COMPTIME_FIELD };
-                self.push(
+                self.push_doc(
                     ct.span,
                     &format!("{}.type", ct.root.name),
                     &format!(
@@ -713,14 +731,18 @@ impl HoverRecorder<'_> {
                          `{}.kind`, tested with `is Struct` or dispatched with `[when {}.kind]`.",
                         ct.root.name, ct.root.name
                     ),
+                    owner,
+                    "type",
                 );
             }
         } else if let Some((param, kind)) = &self.bound {
             if *param == ct.root.name {
-                self.push(
+                self.push_doc(
                     ct.span,
                     &format!("{} is {}", param, kind.word()),
                     "The bound type parameter, as its compile-time description.",
+                    kind.word(),
+                    "",
                 );
             } else {
                 self.roots.push(ct.root.clone());
@@ -741,7 +763,7 @@ impl HoverRecorder<'_> {
 
     fn binder(&mut self, id: &Ident, is_arm: bool) {
         let ty = if is_arm { known::COMPTIME_ARM } else { known::COMPTIME_FIELD };
-        self.push(
+        self.push_doc(
             id.span,
             &format!("{}: {ty}", id.name),
             &format!(
@@ -753,6 +775,8 @@ impl HoverRecorder<'_> {
                     "`v.[field]` reads the field; `[field]: …` names it in a literal."
                 }
             ),
+            ty,
+            "",
         );
     }
 
@@ -770,22 +794,26 @@ impl HoverRecorder<'_> {
                         let elem = if is_arm { known::COMPTIME_ARM } else { known::COMPTIME_FIELD };
                         match field.name.as_str() {
                             "type" => self.comp_ty(&CompTy { root: b.clone(), via_type: true, args: Vec::new(), span: *span }),
-                            "kind" => self.push(
+                            "kind" => self.push_doc(
                                 *span,
                                 &format!("{}.kind: Kind", b.name),
                                 "The kind of the binder's type — an arm of `core.comptime`'s `Kind`: \
                                  `Struct | Union | Tuple | FnType | Opaque` [comptime-kind].",
+                                elem,
+                                "kind",
                             ),
-                            "name" => self.push(
+                            "name" => self.push_doc(
                                 *span,
                                 &format!("{}.name", b.name),
                                 "The declared name — a literal of the union of the struct's field \
                                  names (or the union's arm names), tested at compile time.",
+                                elem,
+                                "name",
                             ),
-                            p @ ("first" | "last") => self.push(*span, &format!("{}.{p}: Bool", b.name), "Whether this copy is for the first/last element."),
-                            "index" => self.push(*span, &format!("{}.index: Int", b.name), "The declared position, from zero."),
-                            "docs" => self.push(*span, &format!("{}.docs", b.name), "Whether there is a doc comment: `is None` when there is not [comptime-docs]."),
-                            "default" => self.push(*span, &format!("{}.default", b.name), "Whether the field declares a default: `is None` when it does not [comptime-default]."),
+                            p @ ("first" | "last") => self.push_doc(*span, &format!("{}.{p}: Bool", b.name), "Whether this copy is for the first/last element.", elem, p),
+                            "index" => self.push_doc(*span, &format!("{}.index: Int", b.name), "The declared position, from zero.", elem, "index"),
+                            "docs" => self.push_doc(*span, &format!("{}.docs", b.name), "Whether there is a doc comment: `is None` when there is not [comptime-docs].", elem, "docs"),
+                            "default" => self.push_doc(*span, &format!("{}.default", b.name), "Whether the field declares a default: `is None` when it does not [comptime-default].", elem, "default"),
                             _ => {
                                 let _ = elem;
                             }
@@ -801,21 +829,30 @@ impl HoverRecorder<'_> {
                             "arms" => known::COMPTIME_ARM,
                             _ => known::COMPTIME_FIELD,
                         };
-                        self.push(
+                        let owner = match what {
+                            "literals" => "Type",
+                            "arms" => "Union",
+                            _ => "Struct",
+                        };
+                        self.push_doc(
                             *span,
                             &format!("{}.{what}: List<{elem}>", comp_expr_text(base)),
                             &format!(
                                 "The declared {what}, in declaration order; a `[for …]` over it is \
                                  unrolled, one copy of the body per `{elem}`."
                             ),
+                            owner,
+                            what,
                         );
                     }
                     "mutable" => {
                         self.cexpr(base);
-                        self.push(
+                        self.push_doc(
                             *span,
                             &format!("{}.mutable: Bool", comp_expr_text(base)),
                             "Whether the type declares `canbe Mut` (`Struct.mutable`).",
+                            "Struct",
+                            "mutable",
                         );
                     }
                     _ => self.cexpr(base),
@@ -890,7 +927,18 @@ impl HoverRecorder<'_> {
                     }
                 }
                 CompStmt::WhenKind { ty, arms, span } => {
-                    self.comp_ty(ty);
+                    // `[when field.kind]`: the subject is the binder's kind,
+                    // not its type.
+                    match self.binder_kind(&ty.root.name).filter(|_| ty.via_type) {
+                        Some(is_arm) => self.push_doc(
+                            ty.span,
+                            &format!("{}.kind: Kind", ty.root.name),
+                            "The kind of the binder's type: a `[when]` over it must handle every arm of `Kind`.",
+                            if is_arm { known::COMPTIME_ARM } else { known::COMPTIME_FIELD },
+                            "kind",
+                        ),
+                        None => self.comp_ty(ty),
+                    }
                     self.when_arms.push(CompWhenArms {
                         file: self.file,
                         span: *span,
@@ -999,8 +1047,8 @@ impl HoverRecorder<'_> {
                             "default" => ("Value?", "The declared default, evaluated where the struct is declared; `None` where the field has none [comptime-default]."),
                             _ => ("?", "Not a projection a `Field`/`Arm` has."),
                         };
-                        let _ = is_arm;
-                        self.push(*span, &format!("{}.{}: {ty}", root.name, field.name), note);
+                        let owner = if is_arm { known::COMPTIME_ARM } else { known::COMPTIME_FIELD };
+                        self.push_doc(*span, &format!("{}.{}: {ty}", root.name, field.name), note, owner, &field.name);
                         return;
                     }
                     if let Some((param, _)) = &self.bound {
@@ -3972,7 +4020,15 @@ impl<'w> Expander<'w> {
             || self.bound.as_ref().is_some_and(|(p, _)| *p == id.name)
             || self.type_binders.iter().any(|(n, ..)| *n == id.name);
         if !is_type {
-            self.error(span, messages::comptime_inline_not_a_binder(&id.name));
+            // A lowercase name is read as a value of the bound type: the
+            // fields are the type's, so say what to write.
+            let hint = match &self.bound {
+                Some((p, _)) if id.name.starts_with(|c: char| c.is_lowercase()) => format!(
+                    " of a `[for …]` or `[when …]`; the fields of the bound type are read from the type itself, as `{p}.fields`, not from a value of it"
+                ),
+                _ => String::new(),
+            };
+            self.error(span, messages::comptime_inline_not_a_binder(&id.name, &hint));
             return None;
         }
         let ct = CompTy { root: id.clone(), via_type: false, args: args.to_vec(), span };

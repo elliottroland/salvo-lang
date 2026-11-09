@@ -4414,3 +4414,107 @@ fn a_missing_send_member_is_stubbed_with_its_parameters() {
     let after = set_text(&mut lsp, &uri, 2, &fixed);
     assert!(after.iter().all(|d| d["severity"] != json!(1)), "the stubbed handler checks: {after:?}\n{fixed}");
 }
+
+/// The position (line, character) of the `nth` (0-based) occurrence of
+/// `needle` in `text`, `shift` characters in.
+fn pos_of(text: &str, needle: &str, nth: usize, shift: usize) -> (u32, u32) {
+    let at = text.match_indices(needle).nth(nth).unwrap_or_else(|| panic!("no `{needle}` in {text}")).0 + shift;
+    let line = text[..at].matches('\n').count() as u32;
+    let col = at - text[..at].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    (line, col as u32)
+}
+
+const COMPTIME_DEMO: &str = "struct Person {\n    name: Str,\n    age: Int\n}\n\ncomptime fn to_json<T is Struct>(t: T) -> Str {\n    let json = Mut Str(\"{\")\n    [for field in T.fields] {\n        json.append@string(\"x\")\n        [when field.kind] {\n            is Struct { json.append@string(t.[field]) }\n            is Union { refuse!(\"u\") }\n            is Tuple { refuse!(\"t\") }\n            is FnType { refuse!(\"f\") }\n            is Opaque { refuse!(\"o\") }\n        }\n    }\n    return json\n}\n";
+
+// [lsp-comptime-help] Hover in a comptime body takes its words from the
+// compile-time model's declarations: the member docs, the kind words.
+#[test]
+fn comptime_bodies_hover_from_the_models_declarations() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_comptime_hover");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    set_text(&mut lsp, &uri, 1, COMPTIME_DEMO);
+    let t = COMPTIME_DEMO;
+    let mut id = 1;
+    let mut hover_at = |lsp: &mut Lsp, needle: &str, nth: usize, shift: usize| {
+        let (line, col) = pos_of(t, needle, nth, shift);
+        id += 1;
+        hover(lsp, id, &uri, line, col)
+    };
+    // `field.kind` is the kind, not the type, and says what the declaration says.
+    let value = hover_at(&mut lsp, "field.kind", 0, 7);
+    assert!(value.starts_with("```salvo\nfield.kind: Kind\n```"), "{value}");
+    assert!(value.contains("What kind of type the field has."), "from Field.kind's doc: {value}");
+    // The kind word in the bound, and an arm's.
+    let value = hover_at(&mut lsp, "T is Struct", 0, 7);
+    assert!(value.contains("struct Struct") && value.contains("A struct type"), "{value}");
+    let value = hover_at(&mut lsp, "is Union", 0, 4);
+    assert!(value.contains("Union") && value.contains("named union type"), "{value}");
+    let value = hover_at(&mut lsp, "is Opaque", 0, 4);
+    assert!(value.contains("Opaque"), "{value}");
+    // The binder and a call with a selector.
+    let value = hover_at(&mut lsp, "field in", 0, 1);
+    assert!(value.contains("field: Field") && value.contains("One field of a"), "{value}");
+    let value = hover_at(&mut lsp, "append@string", 0, 2);
+    assert!(value.contains("fn append"), "a call with an `@module`: {value}");
+    let value = hover_at(&mut lsp, "Str(\"{\")", 0, 1);
+    assert!(value.contains("Str"), "a type-named constructor: {value}");
+}
+
+// [lsp-comptime-help] Go-to-definition, completion and the missing-arms fix
+// inside a comptime body.
+#[test]
+fn comptime_bodies_navigate_complete_and_fix() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_comptime_nav");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    set_text(&mut lsp, &uri, 1, COMPTIME_DEMO);
+    let t = COMPTIME_DEMO;
+    let mut id = 1;
+    // Go to definition: a call by name, with its `@module`, and a constructor.
+    for (needle, shift) in [("append@string", 2usize), ("Str(\"{\")", 1)] {
+        let (line, col) = pos_of(t, needle, 0, shift);
+        id += 1;
+        send(&mut lsp.stdin, json!({"jsonrpc":"2.0","id":id,"method":"textDocument/definition","params":{"textDocument":{"uri":uri},"position":{"line":line,"character":col}}}));
+        let result = expect_response(&lsp.rx, id)["result"].clone();
+        assert!(!result.is_null(), "no definition for `{needle}`");
+    }
+    // Completion: scenarios replace the line `        json.append@string("x")`.
+    let mut version = 1;
+    let mut complete_after = |lsp: &mut Lsp, typed: &str| -> Vec<String> {
+        let replaced = t.replacen("        json.append@string(\"x\")\n", &format!("        {typed}\n"), 1);
+        version += 1;
+        set_text(lsp, &uri, version, &replaced);
+        let (line, col) = pos_of(&replaced, &format!("        {typed}\n"), 0, 8 + typed.len());
+        id += 1;
+        send(&mut lsp.stdin, json!({"jsonrpc":"2.0","id":id,"method":"textDocument/completion","params":{"textDocument":{"uri":uri},"position":{"line":line,"character":col}}}));
+        let response = expect_response(&lsp.rx, id);
+        response["result"].as_array().unwrap_or_else(|| panic!("no list: {response}")).iter().map(|i| i["label"].as_str().unwrap().to_string()).collect()
+    };
+    let items = complete_after(&mut lsp, "field.");
+    assert!(["name", "kind", "type", "last"].iter().all(|m| items.contains(&m.to_string())), "a binder's members: {items:?}");
+    let items = complete_after(&mut lsp, "T.");
+    assert!(items.contains(&"fields".to_string()), "the bound type's members: {items:?}");
+    let items = complete_after(&mut lsp, "json.");
+    assert!(items.contains(&"append".to_string()), "a local built by a constructor has its type's fns: {items:?}");
+    let items = complete_after(&mut lsp, "[");
+    assert!(["for", "when", "if", "let"].iter().all(|m| items.contains(&m.to_string())) && items.contains(&"field".to_string()), "{items:?}");
+
+    // Quick fix: a `[when field.kind]` missing arms.
+    let missing = t.replacen("            is Opaque { refuse!(\"o\") }\n", "", 1).replacen("            is Tuple { refuse!(\"t\") }\n", "", 1);
+    version += 1;
+    let diags = set_text(&mut lsp, &uri, version, &missing);
+    let diag = diags.iter().find(|d| d["code"] == json!("when-exhaustive:kind-arms-missing")).unwrap_or_else(|| panic!("{diags:?}"));
+    id += 1;
+    let actions = code_actions(&mut lsp, id, &uri, std::slice::from_ref(diag), None);
+    let action = actions.iter().find(|a| a["title"].as_str().unwrap().starts_with("Add the 2 missing arms")).unwrap_or_else(|| panic!("{actions:?}"));
+    let fixed = apply_edits(&missing, action["edit"]["changes"][&uri].as_array().unwrap());
+    assert!(fixed.contains("            is Tuple { refuse!(\"not handled yet: Tuple\") }\n            is Opaque {"), "{fixed}");
+    version += 1;
+    let after = set_text(&mut lsp, &uri, version, &fixed);
+    assert!(after.iter().all(|d| d["code"] != json!("when-exhaustive:kind-arms-missing")), "{after:?}");
+}

@@ -1315,8 +1315,8 @@ messages! {
         "unknown type `{name}` in a compile-time type test"
     );
     /// A comptime condition's subject that is not a binder.
-    comptime_inline_not_a_binder = "comptime-inline:not-a-binder" (name: &str) => format!(
-        "`{name}` is not a binder"
+    comptime_inline_not_a_binder = "comptime-inline:not-a-binder" (name: &str, hint: &str) => format!(
+        "`{name}` is not a binder{hint}"
     );
     /// A `[when …]` over a kind meeting a type of a kind it has no arm for.
     comptime_inline_unhandled_kind = "comptime-inline:unhandled-kind" (ty: &dyn std::fmt::Display, kind: &str) => format!(

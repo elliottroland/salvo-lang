@@ -55,6 +55,7 @@ use salvo_syntax::diag::Severity;
 use salvo_syntax::Span;
 
 mod actions;
+mod comptime;
 mod rename;
 
 /// [lsp-stub] The command behind "Generate platform host skeletons".
@@ -1034,6 +1035,14 @@ impl Server<'_> {
                 .as_ref()
                 .and_then(|m| self.module_section(&analysis, m, file_idx, &link));
             let mut text = h.text.clone();
+            // [lsp-comptime-help] The words about a compile-time name are the
+            // model's own declaration's, not a copy of them here.
+            if let Some((owner, member)) = &h.doc_of {
+                if let Some(docs) = self.model_docs(&analysis, owner, member, &link) {
+                    let code_end = text.find("\n```\n").map(|i| i + 5).unwrap_or(0);
+                    text = format!("{}\n\n{docs}", &text[..code_end]);
+                }
+            }
             if let Some(section) = module {
                 text.push_str("\n\n---\n\n");
                 text.push_str(&section);
@@ -1793,14 +1802,27 @@ impl Server<'_> {
         }
         let range = span_to_range(text, Span::new(start as u32, end as u32));
         let here = |s: String| Some(markdown_hover(s, range));
-        // A call: the fns of this name in scope.
-        let after = text[end..].trim_start_matches([' ', '\t']);
-        let preceded_by_dot = start > 0 && bytes[start - 1] == b'.';
-        if after.starts_with('(') && !preceded_by_dot {
-            let sites = analysis.overloads.get(file_idx)?.get(word)?;
+        // A name of the compile-time model (`Struct`, `Kind`, `Field`…).
+        if word.starts_with(|c: char| c.is_uppercase())
+            && !written.items.iter().any(|i| matches!(i, Item::Struct(s) if s.name.name == word))
+        {
+            if let Some(hover) = self.model_word_hover(analysis, word, link) {
+                return here(hover);
+            }
+        }
+        // A call: the fns of this name in scope, a `@module` narrowing them.
+        if let Some(selector) = comptime::call_selector(text, end) {
+            let keys = comptime::call_keys(text, start, end);
+            let sites = comptime::sites_by_keys(analysis, file_idx, &keys);
             let mut parts: Vec<String> = Vec::new();
-            for site in sites {
+            for site in &sites {
                 let Some(module) = analysis.program.modules.get(site.file) else { continue };
+                if let Some(sel) = selector.as_deref().filter(|s| !s.starts_with('[')) {
+                    let from = analysis.program.files.get(site.file).map(|f| f.module.0.join(".")).unwrap_or_default();
+                    if !from.ends_with(sel) {
+                        continue;
+                    }
+                }
                 let Some(decl) = module.items.iter().find_map(|item| match item {
                     Item::Fn(d) if d.name.span == site.span => Some(d),
                     _ => None,
@@ -1826,6 +1848,7 @@ impl Server<'_> {
             }
             return here(parts.join("\n\n---\n\n"));
         }
+        let preceded_by_dot = start > 0 && bytes[start - 1] == b'.';
         if preceded_by_dot {
             return None;
         }
@@ -1902,6 +1925,16 @@ impl Server<'_> {
             consider(*span, site, &mut best);
         }
 
+        // [lsp-comptime-help] A call in a comptime fn's body: the checker has
+        // no table for it, so it is found by name.
+        if best.is_none() {
+            let mut locations = self.comptime_definition(&analysis, &view, offset);
+            match locations.len() {
+                0 => {}
+                1 => return Some(GotoDefinitionResponse::Scalar(locations.remove(0))),
+                _ => return Some(GotoDefinitionResponse::Array(locations)),
+            }
+        }
         let (_, site) = match best {
             Some(found) => found,
             // [doc-module] A module name jumps to the top of its file.
@@ -2256,6 +2289,11 @@ impl Server<'_> {
         let analysis = self.analysis_with(&path, &overlay)?;
         let checked = analysis.checked.as_ref()?;
         let view = doc_view(&analysis, &path)?;
+        // [lsp-comptime-help] Inside a comptime fn's body: its constructs and
+        // the compile-time model's members.
+        if let Some(items) = self.comptime_completion(&analysis, &text, word, dot) {
+            return Some(CompletionResponse::Array(items));
+        }
         // [lsp-completion] [when-exhaustive] Inside a `when`'s braces, between
         // arms: the arms still to write, and nothing else — no other text is
         // legal there.
@@ -2321,6 +2359,9 @@ impl Server<'_> {
         } else {
             None
         };
+        // [lsp-comptime-help] A comptime body has no types: a local's comes
+        // from the text of its `let`.
+        let receiver = receiver.or_else(|| if dot { self.comptime_receiver(&text, word) } else { None });
         let mut items: Vec<CompletionItem> = Vec::new();
         // [lsp-completion] After a dot on a struct: its fields, first.
         if let (true, Some(r)) = (dot, &receiver) {

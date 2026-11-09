@@ -13848,6 +13848,20 @@ replaced the working document TESTING.md).
   [comptime-fields]. The declaration is read again from the open file's text,
   since a generic comptime fn is gone from the analysed program once its uses
   are stamped.
+* [lsp-comptime-help] **Help inside a comptime fn's body takes its words
+  from the compile-time model's own declarations** (`std.core.comptime`), not
+  from copies in the server: the hover on a binder, a projection
+  (`field.kind`, `T.fields`) or a kind word (`Struct`, `Opaque`) is that
+  declaration's signature and doc, so renaming or rewording it there moves the
+  hover too. `[when field.kind]` hovers as the kind, not the type. A call is
+  found by name, a `@module` selector narrowing it and a type-named
+  constructor (`Mut Str(…)`) included, for hover and go-to-definition.
+  Completion after `[` at the start of a statement offers `for`, `when`, `if`,
+  `let` and the binders in scope; after a dot, the members of the model struct
+  the receiver is (a binder's `Field` or `Arm`, the bound type's `Struct` or
+  `Union`, a `.type`'s `Type`), and for a local built by a constructor call or
+  literal, the functions of its type. `when-exhaustive:kind-arms-missing` is
+  fixed by adding an arm for each missing kind, each a `refuse!` until written.
 * [cli-lang-doc-highlight] The TextMate grammar colours doc comments: a doc
   tag (`@compilerknown` among them, from `salvo_syntax::doc::KNOWN_TAGS`), the
   name after `@param` in a scope of its own, the `test` declaration word and
