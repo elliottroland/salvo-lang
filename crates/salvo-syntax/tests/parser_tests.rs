@@ -3413,3 +3413,28 @@ fn a_union_is_is_a_disjunction_of_tests() {
     let Stmt::Let { value: Expr::Unary { op: UnaryOp::Not, operand, .. }, .. } = &stmts[1] else { panic!("{:?}", stmts[1]) };
     assert!(matches!(&**operand, Expr::Binary { op: BinaryOp::Or, .. }));
 }
+
+// [expr-as-qual] `as!` and `as?` are written out as the constructs they stand
+// for: an `if` around a `let` and an `assert!`, or around an `is` test.
+#[test]
+fn as_bang_and_as_question_are_sugar_for_a_test() {
+    use salvo_syntax::ast::{Expr, Item, Stmt};
+    let source = "fn f() {\n    let a = 36 as! Positive\n    let b = 36 as? Positive\n}\n";
+    let (module, diags) = salvo_syntax::parse_module_deferred(source);
+    assert!(diags.is_empty(), "{diags:?}");
+    let Item::Fn(f) = &module.items[0] else { panic!() };
+    let body = f.body.as_ref().unwrap();
+    let value = |i: usize| match &body.stmts[i] {
+        Stmt::Let { value, .. } => value.clone(),
+        other => panic!("{other:?}"),
+    };
+    let Expr::If { branches, else_block, .. } = value(0) else { panic!("as! is an if") };
+    assert!(matches!(branches[0].0, Expr::Bool { value: true, .. }));
+    assert!(matches!(branches[0].1.stmts[1], Stmt::Expr(Expr::Assert { .. })));
+    assert!(matches!(else_block.unwrap().stmts[0], Stmt::Expr(Expr::Unreachable { .. })));
+    let Expr::If { branches, .. } = value(1) else { panic!("as? is an if") };
+    assert!(matches!(&branches[0].0, Expr::Is { binding: Some(_), .. }));
+    // A name after the qualifier is refused: nothing is named.
+    let (_, diags) = salvo_syntax::parse_module_deferred("fn f() {\n    let a = 36 as! Positive p\n}\n");
+    assert!(diags.iter().any(|d| d.id == Some("expr-as-qual:binding")), "{diags:?}");
+}

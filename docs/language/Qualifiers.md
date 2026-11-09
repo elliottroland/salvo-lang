@@ -287,6 +287,24 @@ if number is Positive {
 }
 ```
 
+### Giving a value a qualifier as you write it
+
+`is` tests a value you already have. To attach a qualifier to a value where
+it is written, `as!` and `as?` test it for you:
+
+```salvo
+let age = 36 as! NonNegative        // a `NonNegative Int`, or a trap
+let maybe = input as? NonNegative   // a `NonNegative Int`, or `None`
+```
+
+`x as! Q` is `{ let v = x; assert!(v is Q); v }`: it traps, with the same
+message `assert!` gives, when `x` does not qualify. `x as? Q` is
+`{ let v = x; if v is Q { v } else { None } }`, so it answers a
+`NonNegative Int | None` that a `when` or `?:` takes apart. The subject is
+evaluated once. Salvo does not check that a literal qualifies while compiling:
+what a qualifier's `qualifies` can decide at compile time is not something a
+reader could keep track of, so the test runs when the program does.
+
 ### Field overrides
 
 A predicate qualifier on a struct can give some of the struct's fields more

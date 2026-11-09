@@ -3282,6 +3282,24 @@ Conventions:
     runtime.
 * [loop-while-is] `while x is T (name)?` re-tests in the loop condition
   and re-binds per iteration at the top of the body.
+* [expr-as-qual] **`x as! Q` and `x as? Q` give a value a qualifier as it is
+  written** (user decision 2026-11-05, instead of checking literals at compile
+  time, whose reach would be hard to keep track of). `as!` traps when `x` does
+  not qualify, with `assert!`'s message, and is the value of type `Q T`; `as?`
+  is that value or `None`, `Q T | None`. The `!` or `?` is written against the
+  `as`, and the qualifier is a check as after `is`, without a binding. The
+  parser writes each as the code it stands for, so every later phase reads
+  ordinary constructs:
+  ```text
+  x as! Q   ==>  if true { let v = x; assert!(v is Q); v } else { unreachable!() }
+  x as? Q   ==>  if x is Q v { v } else { None }
+  ```
+  `x` is evaluated once ([is-bind-once]), `v` is a name no program writes, and
+  the test is `x is Q`: a predicate qualifier calls its `qualifies`, a
+  constructive one is refused as `is` refuses it. A qualified binding on a
+  subject that is not a place (`f() is Q v`, `36 as? Q`) evaluates the subject
+  into a temporary the tests and the binding read; it was silently dropped for
+  a predicate qualifier until 2026-11-05.
 * [is-bind-once] **An `is` binding evaluates its subject exactly once.** The
   test and the payload are two reads of the same subject, so a subject that is
   not a **place** (a call, above all) is evaluated into one temporary that both

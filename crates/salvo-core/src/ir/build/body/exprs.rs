@@ -2087,17 +2087,40 @@ impl<'a, 'p> Lower<'a, 'p> {
             None => (None, None),
         };
         if let Some(checks) = predicate {
+            // [is-bind-once] A binding on a subject that is no place (`f() is
+            // Q v`, `36 as? Q`): the subject is evaluated once, into a
+            // temporary the tests and the binding read.
+            let mut once: Option<(Local, Ty)> = None;
+            if binding.is_some() && self.stored_place_of(subject).is_none() {
+                let value = self.expr(subject);
+                let tmp = self.fresh("__subject");
+                let lid = self.id();
+                let sty = value.ty.clone();
+                self.pending.push(Stmt::Let { id: lid, local: tmp.clone(), ty: sty.clone(), value });
+                once = Some((tmp, sty));
+            }
             // [qual-predicate] a conjunction of `qualifies` calls.
             let mut acc: Option<Expr> = None;
             for check in checks {
-                let subj = self.expr(subject);
+                let subj = match &once {
+                    Some((tmp, sty)) => Expr {
+                        ty: sty.clone(),
+                        span: subject.span(),
+                        kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume: false, moved: false },
+                    },
+                    None => self.expr(subject),
+                };
                 let call = self.qualifies_call(&check, subj, span);
                 acc = Some(match acc {
                     None => call,
                     Some(prev) => Expr { ty: bool_ty.clone(), span, kind: ExprKind::Op { op: Op::And, args: vec![prev, call] } },
                 });
             }
-            if let (Some(b), Some(place)) = (binding, self.stored_place_of(subject)) {
+            let bind_place = match &once {
+                Some((tmp, _)) => Some(Place { root: tmp.clone(), steps: Vec::new() }),
+                None => self.stored_place_of(subject),
+            };
+            if let (Some(b), Some(place)) = (binding, bind_place) {
                 // The binding is the subject under a claim: an alias.
                 let ty = self.ty_of(b.span);
                 let local = self.bind(&b.name, ty.clone());

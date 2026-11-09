@@ -96,6 +96,9 @@ enum InfixKind {
     Is,
     /// `!is` — the negated check, sugar for `!(x is Q)`.
     IsNot,
+    /// [expr-as-qual] `as!` / `as?` — a value given a qualifier, trapping or
+    /// answering `None` when it does not qualify; handled by `parse_as_tail`.
+    AsQual,
     /// The positional-pick elvis (`?…?:` / `:?…?`), handled by
     /// `parse_elvis_tail`.
     Elvis,
@@ -5918,6 +5921,10 @@ impl<'s> Parser<'s> {
                 lhs = self.parse_is_tail(lhs, matches!(kind, InfixKind::IsNot))?;
                 continue;
             }
+            if matches!(kind, InfixKind::AsQual) {
+                lhs = self.parse_as_tail(lhs)?;
+                continue;
+            }
             // Elvis: the positional pick, with its own `?`-run scan and
             // [elvis-wrap] continuation rule.
             if matches!(kind, InfixKind::Elvis) {
@@ -6014,6 +6021,14 @@ impl<'s> Parser<'s> {
             TokenKind::LtEq => (10, InfixKind::Binary(BinaryOp::LtEq)),
             TokenKind::GtEq => (10, InfixKind::Binary(BinaryOp::GtEq)),
             TokenKind::KwIs => (10, InfixKind::Is),
+            // [expr-as-qual] `as!` and `as?`, the bang or question mark written
+            // against the `as`.
+            TokenKind::KwAs
+                if matches!(self.peek_at(1).kind, TokenKind::Bang | TokenKind::Question)
+                    && self.peek().span.end == self.peek_at(1).span.start =>
+            {
+                (10, InfixKind::AsQual)
+            }
             TokenKind::Bang if matches!(self.peek_at(1).kind, TokenKind::KwIs) => {
                 (10, InfixKind::IsNot)
             }
@@ -6092,6 +6107,69 @@ impl<'s> Parser<'s> {
         }
         let span = lhs.span().to(end);
         Some(Expr::Is { subject: Box::new(lhs), check, binding, span })
+    }
+
+    /// [expr-as-qual] `x as! Q` and `x as? Q` (user decision 2026-11-05): `x`
+    /// given the qualifier `Q`. Written out as the code it stands for, so
+    /// every later phase reads ordinary constructs:
+    ///
+    /// ```text
+    /// x as! Q   ==>  if true { let v = x; assert!(v is Q); v } else { unreachable!() }
+    /// x as? Q   ==>  if x is Q v { v } else { None }
+    /// ```
+    ///
+    /// `x` is evaluated once, `v` is a name no program writes, and the value
+    /// is narrowed to `Q` by the test (`assert!` narrows the rest of its
+    /// scope [assert-narrow]).
+    fn parse_as_tail(&mut self, lhs: Expr) -> Option<Expr> {
+        let as_span = self.bump().span; // `as`
+        let mark = self.bump(); // `!` or `?`
+        let trap = matches!(mark.kind, TokenKind::Bang);
+        let (check, binding) = self.parse_is_check()?;
+        if let Some(b) = &binding {
+            self.error(messages::expr_as_qual_binding(), b.span);
+        }
+        let end = check.last().map(|r| r.span).unwrap_or(mark.span);
+        let span = lhs.span().to(end);
+        let name = format!("as_{}_v", as_span.start);
+        // The name is written three times, and what the later phases record
+        // about a name is keyed by its span: each gets a span of its own, from
+        // the characters of `as` and its mark.
+        let (decl_at, test_at, tail_at) = (
+            as_span.at(as_span.start, as_span.start + 1),
+            as_span.at(as_span.start + 1, as_span.end),
+            mark.span,
+        );
+        let var = |sp: Span| Expr::Ident(Ident { name: name.clone(), span: sp });
+        let block = |stmts: Vec<Stmt>| Block { stmts, span };
+        if trap {
+            let bind = Stmt::Let {
+                pattern: Pattern::Ident(Ident { name: name.clone(), span: decl_at }),
+                ty: None,
+                value: lhs,
+                span,
+            };
+            let test = Expr::Is { subject: Box::new(var(test_at)), check, binding: None, span };
+            let assertion = Stmt::Expr(Expr::Assert { cond: Box::new(test), message: None, span });
+            let then = block(vec![bind, assertion, Stmt::Expr(var(tail_at))]);
+            let never = block(vec![Stmt::Expr(Expr::Unreachable { message: None, span })]);
+            return Some(Expr::If {
+                branches: vec![(Expr::Bool { value: true, span }, then)],
+                else_block: Some(never),
+                span,
+            });
+        }
+        // As if written `x is Q name`: the binding follows the qualifier.
+        let bind_at = end.at(end.end, end.end);
+        let test = Expr::Is {
+            subject: Box::new(lhs),
+            check,
+            binding: Some(Ident { name: name.clone(), span: bind_at }),
+            span,
+        };
+        let then = block(vec![Stmt::Expr(var(tail_at))]);
+        let none = block(vec![Stmt::Expr(Expr::Ident(Ident { name: "None".to_string(), span }))]);
+        Some(Expr::If { branches: vec![(test, then)], else_block: Some(none), span })
     }
 
     /// The type-ref sequence after `is`, with an optional trailing binding.

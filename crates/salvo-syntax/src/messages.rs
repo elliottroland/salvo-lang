@@ -4778,6 +4778,11 @@ messages! {
         "field `{field}` expects `{fty}`, found `{vty}`"
     );
 
+    // [expr-as-qual]
+    /// A binding after `as!`/`as?`'s qualifier.
+    expr_as_qual_binding = "expr-as-qual:binding" () =>
+        "`as!` and `as?` give the value a qualifier and name nothing: drop the name";
+
     // [struct-defaults]
     /// A struct literal missing a field that has no default.
     struct_defaults_missing_field = "struct-defaults:missing-field" (field: &dyn std::fmt::Display, name: &dyn std::fmt::Display) => format!(
