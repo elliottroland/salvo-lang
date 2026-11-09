@@ -52,7 +52,7 @@ built here.
 
 - [x] (a) printer + stability test (`print.rs`, `salvo_core::printed`, `print_tests.rs`; commit "Print a module's tree back as Salvo")
 - [x] (b) resolve dump (`names/dump.rs` on `printed::print_file`; commit "Dump the resolved names of the expanded tree")
-- [ ] (c) type-check dump + round trip
+- [x] (c) type-check dump + round trip (`round_trip.rs` on the printer; commit "Dump the checker's choices in the expanded tree")
 - [ ] (d) IR dump sharing, docs, wiki, records
 
 ## Findings / agent's calls
@@ -75,5 +75,14 @@ built here.
 - A variable's binding position `x#{l:c}` is now the line and column in
   the printed module text (the header line not counted), since an expanded
   node's span is its template's (agent's call).
+- **The round trip cannot write stamped code as source** (found on the
+  examples: `cli` and `collections`). A stamped body's names resolve in its
+  template's file (`std.args`' private `add_one`, `is_command`, …), and its
+  unrolled copies are scopes spliced flat (`let c` twice in one block). So
+  `print_file_as_source` writes a `fn … by x` declaration as its original
+  text and leaves out what an obligation's `by` or a comptime call stamped
+  (the re-expansion makes it again); the dump shows all of it. Recorded as a
+  finding; the stamped code's choices are therefore not round-tripped (as
+  before), only dumped.
 - Notes over generated fns print as `//` lines, so a re-parse reads them as
   docs.

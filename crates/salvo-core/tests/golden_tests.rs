@@ -117,7 +117,7 @@ fn the_type_check_dump_spells_each_kind_of_choice() {
     for want in [
         "let b: Box@main<Int> = Box<Int> { v: 1 }",
         "return cmp@std.core.basic(cmp(a, b), 0) < 0",
-        "= (a: Int) -> Int { return times@std.core.basic(a, 2) }",
+        "= (a: Int) -> Int {\n        return times@std.core.basic(a, 2)\n    }",
         "let s: Int = times@std.core.basic((plus@std.core.basic(2, 3)), b.v)",
         "return k(x#{narrowed from Int?})",
         "for y in range@std.core.range(0, 2) #{next@std.core.range}",
@@ -288,4 +288,31 @@ fn the_resolve_dump_shows_what_the_expansion_produced() {
         assert!(text.contains(want), "missing `{want}` in:\n{text}");
     }
     assert!(!text.contains("comptime fn to_json<"), "the templates are gone: {text}");
+}
+
+/// [dump-type-check] [ast-print] The type-check dump prints the expanded
+/// tree too: in a stamped body and a comptime call's hidden fn, each call
+/// with the overload it chose (the stamp's `to_json@[site]` as `to_json@main`,
+/// the hidden fn by its name), each binding with its inferred type, and the
+/// conversions the checker made.
+#[test]
+fn the_type_check_dump_shows_what_the_expansion_produced() {
+    let program = salvo_testkit::front::clean_program("kt", &[("main.sv", STAMPED)]);
+    let symbols = salvo_core::Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
+    let file = program.files.iter().position(|f| f.name == "main.sv").unwrap();
+    let text = salvo_core::round_trip::dump_file(&program, &symbols, &checked, file, false);
+    for want in [
+        "    // stamped from comptime fn `to_json` (main.sv:8) at `Person`, for the `by` at main.sv:5\n    fn to_json(t: Person) -> Str {\n        let json: Mut Str = Mut Str(\"{\")",
+        "json.append@string(to_json@main(t.name))",
+        "json.append@string(__salvo_comptime_main_to_json_0@main(t.pair))",
+        "return json#{as Str}",
+        "fn __salvo_comptime_main_to_json_0(t: (Str, Int)) -> Str {\n    let json: Mut Str = Mut Str(\"[\")",
+        "json.append@string(to_json@main(t.1))",
+    ] {
+        assert!(text.contains(want), "missing `{want}` in:\n{text}");
+    }
+    let typed = salvo_core::round_trip::dump_file(&program, &symbols, &checked, file, true);
+    assert!(typed.contains("to_json@main(t#{: (Str, Int)}.0#{: Str})#{: Str}"), "{typed}");
 }

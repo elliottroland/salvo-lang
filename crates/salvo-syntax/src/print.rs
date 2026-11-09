@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use crate::ast::*;
+use crate::parser::{EFF_TYPE_NAME, SITE_SELECTOR};
 use crate::span::Span;
 
 /// [ast-print] Where a node was printed: its own text `start..end`, and for
@@ -81,11 +82,26 @@ pub trait Notes {
     fn struct_note(&self, _s: &StructDecl) -> Vec<String> {
         Vec::new()
     }
+    /// How `f` is printed: from its tree, as given text, or not at all.
+    fn fn_source(&self, _f: &FnDecl) -> FnSource {
+        FnSource::Tree
+    }
     /// [comptime-default] The expression a `FieldDefault` stands for, to
     /// print in its place; `None` marks it `#{…}`.
     fn field_default(&self, _owner: &Type, _field: &Ident) -> Option<Expr> {
         None
     }
+}
+
+/// [ast-print] How a fn is printed ([`Notes::fn_source`]).
+pub enum FnSource {
+    /// From its tree.
+    Tree,
+    /// As this text (its docs and `export` printed before it): the source
+    /// it was written as, for a printing that is expanded again.
+    Text(String),
+    /// Not at all: a printing expanded again makes it anew.
+    Omit,
 }
 
 /// No notes.
@@ -1024,6 +1040,25 @@ impl Printer<'_> {
     /// A fn declaration; `exported` says whether its `export` is printed (a
     /// struct's fn takes the struct's).
     fn fn_decl(&mut self, f: &FnDecl, strip: Option<usize>, show_export: bool) {
+        match self.notes.fn_source(f) {
+            FnSource::Tree => {}
+            FnSource::Omit => return,
+            FnSource::Text(text) => {
+                self.comment_lines(&f.docs);
+                if f.exported && show_export {
+                    self.push("export ");
+                }
+                // The text's own lines (indented relative to its first),
+                // at this indentation.
+                for (i, line) in text.lines().enumerate() {
+                    if i > 0 {
+                        self.newline();
+                    }
+                    self.push(line.trim_end());
+                }
+                return;
+            }
+        }
         self.comment_lines(&f.docs);
         let note = self.notes.fn_note(f);
         self.comment_lines(&note);
@@ -2372,5 +2407,3 @@ fn item_name(item: &Item) -> Option<&str> {
 }
 
 const MESSAGE_TYPE: &str = crate::known::MESSAGE_TYPE;
-const EFF_TYPE_NAME: &str = "Eff";
-const SITE_SELECTOR: &str = "[site]";

@@ -1,6 +1,9 @@
 //! [round-trip] [dump-type-check] A checked file printed back as Salvo with
 //! every choice the checker made written out (the pipeline record B4 and D4, §II.7;
-//! user decisions P5 (b) and P24). One writer, two readings:
+//! user decisions P5 (b) and P24). The file is its tree as the checker read
+//! it — expanded and desugared, printed [ast-print] (user decision
+//! 2026-11-09) — and each choice is placed by where the printer put its node.
+//! One writer, two readings:
 //!
 //! * **The round trip** (`write_out`, `compare`): only what Salvo can say,
 //!   so the written-out file is a program. Each call's callee as
@@ -24,12 +27,18 @@
 //! What has no surface spelling is skipped by the round trip: a call through
 //! a local or an implicit of the enclosing fn, sends, a renamed name, a type
 //! with no source form, an operator whose operand widens [op-promote] (a
-//! written call widens nothing), and anything a desugaring or a stamp made.
+//! written call widens nothing), and what a stamp made — which the round
+//! trip writes as the declaration that asked for it (`printed::print_file_as_source`):
+//! a stamped body's names resolve where its template is written
+//! [comptime-hygiene] and its unrolled copies are scopes spliced flat
+//! [comptime-scope], so it is no source of the file it is in. The dump shows
+//! it, and every choice in it.
 
 use std::collections::BTreeMap;
 
 use salvo_syntax::ast::{BinaryOp, Expr, FnDecl, Item, LambdaBody, Module, NamedArg, Pattern, Stmt, StrExprPart, Type};
 use salvo_syntax::visit::{self, Visitor};
+use salvo_syntax::print::{Placed, Printed};
 use salvo_syntax::Span;
 
 use crate::check::{Callee, Checked, ConvertStep, FnValue, ImplicitArg, Key, NarrowBy};
@@ -174,9 +183,6 @@ fn spellable(t: &Ty) -> bool {
     }
 }
 
-fn ident_at(source: &str, span: Span, name: &str) -> bool {
-    source.get(span.start as usize..span.end as usize) == Some(name)
-}
 
 /// What a call's choice is, as the check compares it: the callee (a
 /// declaration's id, or an effect member as `Effect#index`) and the type
@@ -199,7 +205,9 @@ struct Writer<'a, 'p> {
     symbols: &'a Symbols<'p>,
     checked: &'a Checked,
     file: usize,
-    source: &'a str,
+    /// [ast-print] The file's tree printed, and where each node went: what
+    /// the edits are made to.
+    printed: Printed,
     mode: Mode,
     edits: Vec<Edit>,
     expects: Vec<(Anchor, Expect)>,
@@ -207,16 +215,34 @@ struct Writer<'a, 'p> {
 
 impl<'a, 'p> Writer<'a, 'p> {
     fn new(program: &'a Program, symbols: &'a Symbols<'p>, checked: &'a Checked, file: usize, mode: Mode) -> Self {
-        Writer { program, symbols, checked, file, source: program.files[file].content.as_str(), mode, edits: Vec::new(), expects: Vec::new() }
+        let printed = match mode {
+            Mode::Source => crate::printed::print_file_as_source(program, file),
+            Mode::Dump { .. } => crate::printed::print_file(program, file),
+        };
+        Writer { program, symbols, checked, file, printed, mode, edits: Vec::new(), expects: Vec::new() }
+    }
+
+    fn source(&self) -> &str {
+        &self.printed.text
+    }
+
+    /// Where a node was printed.
+    fn at(&self, span: Span) -> Option<Placed> {
+        self.printed.at(span)
+    }
+
+    /// Whether the node `span` holds was printed as `name`.
+    fn ident_at(&self, span: Span, name: &str) -> bool {
+        self.printed.text_of(span) == Some(name)
     }
 
     fn dump(&self) -> bool {
         matches!(self.mode, Mode::Dump { .. })
     }
 
-    /// A node as written in this file, which a fact is kept at.
+    /// A node the printing placed, which a fact is kept at.
     fn here(&self, span: Span) -> bool {
-        span.is_numbered() && span.is_written() && (span.end as usize) <= self.source.len() && span.start < span.end
+        self.at(span).is_some_and(|p| p.start < p.end)
     }
 
     fn key(&self, span: Span) -> Key {
@@ -348,21 +374,23 @@ impl<'a, 'p> Writer<'a, 'p> {
     /// implicits.
     fn call(&mut self, e: &Expr) {
         let Expr::Call { callee, type_args, args, named, span } = e else { return };
-        if !self.here(*span) {
-            return;
-        }
+        let Some(placed) = self.at(*span) else { return };
         // The callee as written: a bare name, or a dot call's field.
         let (name, name_span) = match callee.as_ref() {
             Expr::Ident(id) => (id.name.as_str(), id.span),
             Expr::Field { field, grouped: false, .. } => (field.name.as_str(), field.span),
+            // [comptime-hygiene] A stamped body's `name@[site]`, printed as
+            // the bare name it means.
+            Expr::Scoped { name, module, .. } if matches!(module.as_slice(), [m] if m.name == salvo_syntax::parser::SITE_SELECTOR) => (name.name.as_str(), name.span),
             _ => return,
         };
-        if name_span.is_expanded() || !ident_at(self.source, name_span, name) {
+        if !self.ident_at(name_span, name) {
             return;
         }
+        let Some(name_at) = self.at(name_span) else { return };
         let key = self.key(*span);
         let Some(call) = self.checked.call(key) else { return };
-        if let Expr::Field { .. } = callee.as_ref() {
+        if let Expr::Field { .. } | Expr::Scoped { base: Some(_), .. } = callee.as_ref() {
             if !call.dot {
                 return;
             }
@@ -385,12 +413,12 @@ impl<'a, 'p> Writer<'a, 'p> {
                 text.push_str(&t);
             }
         }
-        self.suffix(name_span.end, name_span.start, text);
-        self.expects.push((Anchor::Orig(span.start), Expect::Call(want)));
+        self.suffix(name_at.end, name_at.start, text);
+        self.expects.push((Anchor::Orig(placed.start), Expect::Call(want)));
         // [implicit-override] Before the closing parenthesis, where the
         // source has one.
-        let close = span.end.saturating_sub(1);
-        if self.source.as_bytes().get(close as usize) != Some(&b')') || args.last().is_some_and(|a| matches!(a, Expr::ReplyTo { .. })) {
+        let close = placed.end.saturating_sub(1);
+        if self.source().as_bytes().get(close as usize) != Some(&b')') || args.last().is_some_and(|a| matches!(a, Expr::ReplyTo { .. })) {
             return;
         }
         let Some((parts, expects)) = self.implicits_text(key, named) else { return };
@@ -398,121 +426,9 @@ impl<'a, 'p> Writer<'a, 'p> {
             return;
         }
         let lead = if args.is_empty() && named.is_empty() { "" } else { ", " };
-        self.closer(close, span.start, format!("{lead}{}", parts.join(", ")));
+        self.closer(close, placed.start, format!("{lead}{}", parts.join(", ")));
         for (n, want) in expects {
-            self.expects.push((Anchor::Orig(span.start), Expect::Implicit(n, want)));
-        }
-    }
-
-    /// The offsets of the `)`s written right after `at` (whitespace between).
-    fn closes_after(&self, at: u32) -> Vec<u32> {
-        let bytes = self.source.as_bytes();
-        let mut out = Vec::new();
-        let mut i = at as usize;
-        while i < bytes.len() {
-            match bytes[i] {
-                b' ' | b'\t' | b'\n' | b'\r' => i += 1,
-                b')' => {
-                    out.push(i as u32);
-                    i += 1;
-                }
-                _ => break,
-            }
-        }
-        out
-    }
-
-    /// The offsets of the `(`s written right before `at`, nearest first.
-    fn opens_before(&self, at: u32) -> Vec<u32> {
-        let bytes = self.source.as_bytes();
-        let mut out = Vec::new();
-        let mut i = at as usize;
-        while i > 0 {
-            match bytes[i - 1] {
-                b' ' | b'\t' | b'\n' | b'\r' => i -= 1,
-                b'(' => {
-                    out.push((i - 1) as u32);
-                    i -= 1;
-                }
-                _ => break,
-            }
-        }
-        out
-    }
-
-    /// The `(` matching the `)` at `close`.
-    fn match_back(&self, close: u32) -> Option<u32> {
-        let bytes = self.source.as_bytes();
-        let mut depth = 0i32;
-        let mut i = close as usize + 1;
-        while i > 0 {
-            i -= 1;
-            match bytes[i] {
-                b')' => depth += 1,
-                b'(' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(i as u32);
-                    }
-                }
-                _ => {}
-            }
-        }
-        None
-    }
-
-    /// The `)` matching the `(` at `open`.
-    fn match_fwd(&self, open: u32) -> Option<u32> {
-        let bytes = self.source.as_bytes();
-        let mut depth = 0i32;
-        for (i, b) in bytes.iter().enumerate().skip(open as usize) {
-            match b {
-                b'(' => depth += 1,
-                b')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(i as u32);
-                    }
-                }
-                _ => {}
-            }
-        }
-        None
-    }
-
-    /// Where an expression's text starts, with the grouping parentheses
-    /// written round its leading operand (the parser keeps a grouped
-    /// expression's own span, so `(a + b) * c` starts at `a`).
-    fn outer_start(&self, e: &Expr) -> Option<u32> {
-        let first = match e {
-            Expr::Binary { lhs, .. } => Some(lhs.as_ref()),
-            Expr::Field { base, .. } | Expr::TupleIndex { base, .. } | Expr::Index { base, .. } => Some(base.as_ref()),
-            Expr::Call { callee, .. } => Some(callee.as_ref()),
-            Expr::Is { subject, .. } | Expr::Retype { subject, .. } | Expr::Elvis { subject, .. } => Some(subject.as_ref()),
-            Expr::SafeNav { base, .. } => Some(base.as_ref()),
-            Expr::Pipe { lhs, .. } | Expr::SafePipe { lhs, .. } => Some(lhs.as_ref()),
-            _ => None,
-        };
-        let Some(first) = first.filter(|c| c.span().start == e.span().start) else { return Some(e.span().start) };
-        match self.closes_after(first.span().end).last() {
-            Some(close) => self.match_back(*close).filter(|o| *o <= first.span().start),
-            None => self.outer_start(first),
-        }
-    }
-
-    /// Where an expression's text ends, with the grouping parentheses
-    /// written round its trailing operand.
-    fn outer_end(&self, e: &Expr) -> Option<u32> {
-        let last = match e {
-            Expr::Binary { rhs, .. } => Some(rhs.as_ref()),
-            Expr::Unary { operand, .. } => Some(operand.as_ref()),
-            Expr::Elvis { rhs, .. } | Expr::Pipe { rhs, .. } | Expr::SafePipe { rhs, .. } => Some(rhs.as_ref()),
-            _ => None,
-        };
-        let Some(last) = last.filter(|c| c.span().end == e.span().end) else { return Some(e.span().end) };
-        match self.opens_before(last.span().start).last() {
-            Some(open) => self.match_fwd(*open).filter(|c| *c >= last.span().end).map(|c| c + 1),
-            None => self.outer_end(last),
+            self.expects.push((Anchor::Orig(placed.start), Expect::Implicit(n, want)));
         }
     }
 
@@ -522,9 +438,7 @@ impl<'a, 'p> Writer<'a, 'p> {
     fn operator(&mut self, e: &Expr) {
         let Expr::Binary { op, lhs, rhs, span } = e else { return };
         let (lspan, rspan) = (lhs.span(), rhs.span());
-        if lspan.is_expanded() || rspan.is_expanded() || lspan.end > rspan.start || rspan.end as usize > self.source.len() {
-            return;
-        }
+        let (Some(lat), Some(rat), Some(whole)) = (self.at(lspan), self.at(rspan), self.at(*span)) else { return };
         let compare = matches!(op, BinaryOp::Lt | BinaryOp::Gt | BinaryOp::LtEq | BinaryOp::GtEq);
         if !(compare || matches!(op, BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Pow)) {
             return;
@@ -546,20 +460,13 @@ impl<'a, 'p> Writer<'a, 'p> {
         if !self.dump() && (promoted(lspan) || promoted(rspan)) {
             return;
         }
-        // The operator's own text between its operands: the grouping
-        // parentheses, and the symbol.
+        // The operator's own text between its operands (with their
+        // parentheses): ` + `, which the comma replaces.
         let sym = crate::check::op_symbol(*op);
-        let gap = &self.source[lspan.end as usize..rspan.start as usize];
-        let trimmed: String = gap.chars().filter(|c| !c.is_whitespace() && *c != '(' && *c != ')').collect();
-        if trimmed != sym {
+        if self.source().get(lat.outer_end as usize..rat.outer_start as usize).map(str::trim) != Some(sym) {
             return;
         }
-        let Some(at) = gap.find(sym) else { return };
-        let sym_at = lspan.end + at as u32;
-        // The comma takes the symbol's place and the space before it.
-        let ws = gap[..at].len() - gap[..at].trim_end().len();
-        let from = sym_at - ws as u32;
-        let (Some(start), Some(end)) = (self.outer_start(e), self.outer_end(e)) else { return };
+        let (start, end) = (whole.start, whole.end);
         let mut type_args = String::new();
         if let Some(t) = self.type_args_text(&call.callee) {
             type_args = t;
@@ -567,7 +474,7 @@ impl<'a, 'p> Writer<'a, 'p> {
         let implicits = self.implicits_text(key, &[]);
         let bang = if matches!(op, BinaryOp::NotEq) { "!" } else { "" };
         let opener = self.opener(start, end, format!("{bang}{spelled}{type_args}("));
-        self.edit(from, sym_at + sym.len() as u32, ",".to_string(), REPLACES, 0);
+        self.edit(lat.outer_end, rat.outer_start, ", ".to_string(), REPLACES, 0);
         let mut close = String::new();
         if let Some((parts, _)) = &implicits {
             for p in parts {
@@ -592,14 +499,12 @@ impl<'a, 'p> Writer<'a, 'p> {
     /// [interp-to-str] An interpolated part as its `to_str` call.
     fn interpolated(&mut self, part: &Expr) {
         let span = part.span();
-        if !self.here(span) {
-            return;
-        }
+        let Some(placed) = self.at(span) else { return };
         let key = self.key(span).synthetic(Key::INTERP_TEXT);
         let Some(call) = self.checked.call(key) else { return };
         let Some(want) = choice_at(self.checked, key) else { return };
         let Some(spelled) = self.callee_text(&call.callee) else { return };
-        let (Some(start), Some(end)) = (self.outer_start(part), self.outer_end(part)) else { return };
+        let (start, end) = (placed.outer_start, placed.outer_end);
         let type_args = self.type_args_text(&call.callee).unwrap_or_default();
         let implicits = self.implicits_text(key, &[]);
         // Round the part, outside anything the part's own node writes there
@@ -623,19 +528,20 @@ impl<'a, 'p> Writer<'a, 'p> {
 
     /// The next non-whitespace byte at or after `at`.
     fn next_byte(&self, at: u32) -> Option<u8> {
-        self.source.as_bytes()[at as usize..].iter().copied().find(|b| !b.is_ascii_whitespace())
+        self.source().as_bytes()[at as usize..].iter().copied().find(|b| !b.is_ascii_whitespace())
     }
 
     /// [var-let-infer] An unannotated `let x = e`'s type, written `let x: T`.
     fn let_type(&mut self, s: &Stmt) {
         let Stmt::Let { pattern: Pattern::Ident(id), ty: None, .. } = s else { return };
-        if !self.here(id.span) || !ident_at(self.source, id.span, &id.name) || self.next_byte(id.span.end) != Some(b'=') {
+        let Some(at) = self.at(id.span) else { return };
+        if !self.ident_at(id.span, &id.name) || self.next_byte(at.end) != Some(b'=') {
             return;
         }
         let Some(ty) = self.checked.expr_ty.get(&self.key(id.span)).cloned() else { return };
         let Some(text) = self.ty_text(&ty) else { return };
-        self.suffix(id.span.end, id.span.start, format!(": {text}"));
-        self.expects.push((Anchor::Orig(id.span.start), Expect::Type(ty.to_string())));
+        self.suffix(at.end, at.start, format!(": {text}"));
+        self.expects.push((Anchor::Orig(at.start), Expect::Type(ty.to_string())));
     }
 
     /// [fn-lambda] A lambda's inferred parameter types, and a block body's
@@ -646,37 +552,40 @@ impl<'a, 'p> Writer<'a, 'p> {
             return;
         }
         for p in params {
-            if p.ty.is_some() || !self.here(p.name.span) || !ident_at(self.source, p.name.span, &p.name.name) {
+            let Some(at) = self.at(p.name.span) else { continue };
+            if p.ty.is_some() || !self.ident_at(p.name.span, &p.name.name) {
                 continue;
             }
-            if !matches!(self.next_byte(p.name.span.end), Some(b',') | Some(b')')) {
+            if !matches!(self.next_byte(at.end), Some(b',') | Some(b')')) {
                 continue;
             }
             let Some(ty) = self.checked.expr_ty.get(&self.key(p.name.span)).cloned() else { continue };
             let Some(text) = self.ty_text(&ty) else { continue };
-            self.suffix(p.name.span.end, p.name.span.start, format!(": {text}"));
-            self.expects.push((Anchor::Orig(p.name.span.start), Expect::Type(ty.to_string())));
+            self.suffix(at.end, at.start, format!(": {text}"));
+            self.expects.push((Anchor::Orig(at.start), Expect::Type(ty.to_string())));
         }
         if ret.is_some() {
             return;
         }
         let LambdaBody::Block(block) = body else { return };
-        if !block.span.is_written() || self.source.as_bytes().get(block.span.start as usize) != Some(&b'{') {
+        let Some(bat) = self.at(block.span) else { return };
+        if self.source().as_bytes().get(bat.start as usize) != Some(&b'{') {
             return;
         }
         let Some(Ty::Fn { ret, .. }) = self.checked.expr_ty.get(&self.key(*span)).map(|t| t.strip_quals().clone()) else { return };
         let Some(text) = self.ty_text(&ret) else { return };
-        self.opener(block.span.start, block.span.end, format!("{text} "));
+        self.opener(bat.start, bat.end, format!("{text} "));
     }
 
     /// [struct-lit] A generic struct literal's inferred type arguments,
     /// where it wrote none: `Box { v: 1 }` as `Box<Int> { v: 1 }`.
     fn struct_lit(&mut self, e: &Expr) {
         let Expr::StructLit { ty: Some(Type::Named { base, .. }), span, .. } = e else { return };
-        if !self.here(*span) || !base.args.is_empty() || !base.name.span.is_written() || !ident_at(self.source, base.name.span, &base.name.name) {
+        let (Some(lit), Some(name_at)) = (self.at(*span), self.at(base.name.span)) else { return };
+        if !base.args.is_empty() || !self.ident_at(base.name.span, &base.name.name) {
             return;
         }
-        if self.next_byte(base.name.span.end) != Some(b'{') {
+        if self.next_byte(name_at.end) != Some(b'{') {
             return;
         }
         let Some(ty) = self.checked.expr_ty.get(&self.key(*span)).cloned() else { return };
@@ -686,16 +595,14 @@ impl<'a, 'p> Writer<'a, 'p> {
         }
         let texts: Option<Vec<String>> = args.iter().map(|t| self.ty_text(t)).collect();
         let Some(texts) = texts else { return };
-        self.suffix(base.name.span.end, base.name.span.start, format!("<{}>", texts.join(", ")));
-        self.expects.push((Anchor::Orig(span.start), Expect::Type(ty.to_string())));
+        self.suffix(name_at.end, name_at.start, format!("<{}>", texts.join(", ")));
+        self.expects.push((Anchor::Orig(lit.start), Expect::Type(ty.to_string())));
     }
 
     /// [iter-for] The dump's mark of the calls a `for` names.
     fn for_marks(&mut self, iterable: &Expr) {
         let span = iterable.span();
-        if !self.here(span) {
-            return;
-        }
+        let Some(placed) = self.at(span) else { return };
         let key = self.key(span);
         let mut names = Vec::new();
         for k in [Key::FOR_ITER, Key::FOR_NEXT] {
@@ -710,8 +617,7 @@ impl<'a, 'p> Writer<'a, 'p> {
             }
         }
         if !names.is_empty() {
-            let end = self.outer_end(iterable).unwrap_or(span.end);
-            self.suffix(end, span.start, format!(" #{{{}}}", names.join(", ")));
+            self.suffix(placed.outer_end, placed.start, format!(" #{{{}}}", names.join(", ")));
         }
     }
 
@@ -719,13 +625,11 @@ impl<'a, 'p> Writer<'a, 'p> {
     /// with `--expr-types` its type.
     fn marks(&mut self, e: &Expr) {
         let span = e.span();
-        if !self.here(span) {
-            return;
-        }
+        let Some(placed) = self.at(span) else { return };
         let key = self.key(span);
         let at = match e {
-            Expr::Binary { .. } => self.outer_end(e).unwrap_or(span.end),
-            _ => span.end,
+            Expr::Binary { .. } => placed.outer_end,
+            _ => placed.end,
         };
         let mut text = String::new();
         if let Some(n) = self.checked.narrowed_reads.get(&key) {
@@ -746,7 +650,7 @@ impl<'a, 'p> Writer<'a, 'p> {
             }
         }
         if !text.is_empty() {
-            self.suffix(at, span.start, text);
+            self.suffix(at, placed.start, text);
         }
     }
 
@@ -756,7 +660,7 @@ impl<'a, 'p> Writer<'a, 'p> {
             let e = &self.edits[i];
             (e.at, e.class, e.rank, i)
         });
-        let source = self.source;
+        let source = self.printed.text.as_str();
         let mut text = String::with_capacity(source.len() + self.edits.iter().map(|e| e.text.len()).sum::<usize>());
         let mut out_at: Vec<u32> = vec![0; self.edits.len()];
         let mut last = 0usize;

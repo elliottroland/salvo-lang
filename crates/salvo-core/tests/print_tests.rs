@@ -229,7 +229,7 @@ fn expanded_tree_differences(program: &salvo_core::Program, wanted: impl Fn(&sal
             continue;
         }
         let mut module: salvo_syntax::ast::Module = (*program.modules[i]).clone();
-        let printed = salvo_core::printed::print_file_as_source(program, i).text;
+        let printed = salvo_core::printed::print_file_expanded_source(program, i).text;
         inline_field_defaults(program, &mut module);
         let (mut again, diags) = salvo_syntax::parse_module(&printed);
         if let Some(d) = diags.iter().find(|d| d.is_error()) {
