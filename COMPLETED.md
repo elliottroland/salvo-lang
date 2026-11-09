@@ -119,7 +119,7 @@ rustc --edition 2021 out_rs/main.rs -o program && ./program
 crates/
 ├── salvo-cli/            # binary "salvo": clap CLI, backend registry, embeds lib/ via include_dir,
 │                         #   analysis pipeline (analysis.rs), LSP server (lsp.rs), tm-grammar (lang.rs)
-├── salvo-syntax/         # lexer, parser, AST, spans, diagnostics (no deps)
+├── salvo-syntax/         # lexer, parser, AST, AST printer (print.rs), spans, diagnostics (no deps)
 │   └── tests/corpus/     # language-docs-example .sv files + insta snapshots
 ├── salvo-core/           # SourceSet, Program, Symbols + resolve.rs/types.rs/check.rs/deduce.rs/reach.rs;
 │                         #   ir/ — the IR (IR record): nodes, builder from Program+Checked, dump
@@ -148,6 +148,74 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-11-09 — The resolve and type-check dumps print the expanded program ([ast-print] [dump-resolve] [dump-type-check] [round-trip])
+
+User decision 2026-11-09: a dump shows what its step produced, so
+`salvo dump --phase resolve` and `--phase type-check` print the tree the
+resolver and the checker read — after comptime stamping, the test, `iter
+fn`, `as!`/`as?`, pick and struct-fn desugarings — not the file's text. The
+user's note: "this means we essentially have to generate source code as
+well as parse it".
+
+- **An AST printer** (`salvo_syntax::print`, [ast-print]): any `Module` to
+  Salvo source, recording where every numbered node went (`Printed::nodes`,
+  keyed by `(Span::file, Span::node)`, with an expression's range inside and
+  outside the parentheses precedence made it add — the parser keeps none).
+  The dumps place their annotations by that map, so code an expansion wrote
+  (whose spans are its template's) is annotated like written code.
+  `salvo_core::printed` adds what only the program knows: a comment over a
+  stamped fn (`stamped from comptime fn `cmp` from `auto`
+  (std/core/auto.sv:73) at `Point`, for the `by` at main.sv:1`), a comptime
+  call's hidden fn, a test's fn, an undocumented `iter fn` expansion.
+- **The resolve dump** (`names/dump.rs`) and **the typed dump**
+  (`round_trip.rs`) keep their vocabulary; their edits are made to the
+  printed text. The writer's source scanning for grouping parentheses
+  (`closes_after`, `match_back`, `outer_start`, …) is gone: the printer's
+  outer range is the answer. A variable's `#{l:c}` is its binding's line and
+  column in the printed module. A stamped body's `name@[site]` call now gets
+  its selector like a bare call (`to_json@main`).
+- **The round trip could not take stamped code as source.** Written into
+  the site's file, a stamped body's names resolve there rather than where
+  its template is written (`std.args`' private `add_one`, `is_command`, … in
+  the `cli` example) [comptime-hygiene], and its unrolled copies are scopes
+  spliced flat, so two copies' `let c` collide (`collections`)
+  [comptime-scope]. `printed::print_file_as_source` therefore writes a `fn …
+  by x` declaration as the text it was written as and leaves out what an
+  obligation's `by` or a comptime call stamped; the re-check stamps them
+  again. Everything else an expansion wrote (an `iter fn`'s struct and fns,
+  lowered picks, `as!`, a field default inlined) is written out and
+  re-checked. The examples' counts are unchanged (1,146 calls, 153 types).
+- **Shared spelling**: `binary_symbol` is the one operator spelling
+  (`check::op_symbol` and the IR dump's binary ops call it); the IR dump's
+  string, char and float literals go through `quote_str`, `quote_char` and
+  `float_text`, Salvo's spelling (no golden changed).
+- **Agent's calls, to confirm:** (a) a lowered `?:`, `?.` and `?>` print
+  as their operators (the `when` they lower to has arm holes no `is` can
+  spell); (b) `name@[site]` in a stamped body prints as the bare name;
+  (c) `as!`/`as?` print as the desugared `if`, its block opening with a
+  `// desugared from …` comment (told apart by the `as_N_v` name — the
+  only desugaring the tree still identifies by a name); (d) a message-arm
+  struct prints as a one-line comment (the expansion declares it again);
+  (e) binding positions are the printed module's, the header line not
+  counted; (f) a `FieldDefault` prints `#{the default of T.f}` in a dump;
+  (g) the `iter fn` minter's explicit-empty deduction list (all-scalar
+  parameters) prints as no clause, having no spelling.
+- **No trace in the tree**, so not marked: a compound assignment `x += e`
+  (it is `x = x + e`), a pair argument `Map("a": 1)` (a tuple), `x !is Q`
+  (`!(x is Q)`), a `use H() on P` (a `use` of a `spawn`), a terminal `...`
+  body, a struct-literal shorthand, an implicit-group spread's place among
+  the implicits.
+- Tests: `print_tests.rs` (every std module expanded, every example's
+  modules and every source file print back to their own trees; std and the
+  corpus print stably), `the_resolve_dump_shows_what_the_expansion_produced`
+  and `the_type_check_dump_shows_what_the_expansion_produced` (a template
+  stamped by a `by` at a struct with a tuple field, whose comptime call
+  stamps a hidden fn). The two dump snapshots changed in form (layout,
+  comments in bodies, the `iter fn`s now their expansion).
+- 758 tests under nextest, all green (2m35); the dumps of every std module
+  (`--all`) take 0.7s; no backend's output changed. DUMPS.md, the working
+  document of the change, is retired into this entry and ROADMAP §0av.
 
 ### 2026-11-09 — A kind is its type's: `field.type.kind` ([comptime-kind])
 
@@ -41510,6 +41578,16 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A stamped body is no source of the file it is in** (2026-11-09, dumps).
+  Printed into the site's file and parsed back, its names resolve there, not
+  in the template's file, and its unrolled copies' bindings collide (the
+  copies are scopes spliced flat, `Stamp::scopes`). Anything that writes
+  expanded code out to be read again has to write the `by` instead.
+- **The parser keeps no grouping parentheses** (2026-11-09, printer). A
+  printer adds them by the parser's binding powers; three contexts need more:
+  a struct literal in a condition, a re-typing `x: -Ok` at the top of a call
+  argument (its `:` is a pair's there), and a block inside `${…}` (one line).
 
 - **`Expr::Placeholder` is `_`, not error recovery** (2026-11-09, comptime
   call). A construct reported and left behind as a `Placeholder` gets a

@@ -101,7 +101,7 @@ The two decisive facts about the design:
 
 | crate | lines | what it is |
 |---|---|---|
-| `salvo-syntax` | ~15k | lexer, parser (6.7k), `desugar.rs` (iter fn, etc.), AST, `visit`/`visit_mut`, spans, diagnostics. No dependencies. |
+| `salvo-syntax` | ~15k | lexer, parser (6.7k), `desugar.rs` (iter fn, etc.), AST, `print.rs` (the tree back to Salvo, with where each node went: what the resolve and type-check dumps print [ast-print]), `visit`/`visit_mut`, spans, diagnostics. No dependencies. |
 | `salvo-core` | ~42k | everything between the parse and the emitters. `check.rs` alone is 30k. |
 | `salvo-backend` | ~1.4k | what the emitters share: `driver.rs` (check/erase/resolve/reach), `emit_util.rs` (walkers, `EmittedFile`, ABI stamping, literal desugaring, `checker_refs`). |
 | `salvo-backend-rust` | ~19k | `emit.rs` (17k), `imports.rs`, `intrinsics.rs`, runtime `.rs` files. |

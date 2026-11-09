@@ -438,21 +438,15 @@ impl<'a> Dumper<'a> {
             ExprKind::Long(v) => {
                 let _ = write!(self.out, "{v}L");
             }
-            ExprKind::Float(v) => {
-                let _ = write!(self.out, "{v:?}f");
-            }
-            ExprKind::Double(v) => {
-                let _ = write!(self.out, "{v:?}");
-            }
+            // [dump-spelling] Literals as Salvo writes them, the printer's
+            // spelling [ast-print].
+            ExprKind::Float(v) => self.out.push_str(&salvo_syntax::print::float_text(*v, true)),
+            ExprKind::Double(v) => self.out.push_str(&salvo_syntax::print::float_text(*v, false)),
             ExprKind::Bool(v) => {
                 let _ = write!(self.out, "{v}");
             }
-            ExprKind::Char(c) => {
-                let _ = write!(self.out, "{c:?}");
-            }
-            ExprKind::Str(s) => {
-                let _ = write!(self.out, "{s:?}");
-            }
+            ExprKind::Char(c) => self.out.push_str(&salvo_syntax::print::quote_char(*c)),
+            ExprKind::Str(s) => self.out.push_str(&salvo_syntax::print::quote_str(s)),
             ExprKind::Unit => self.out.push_str("unit"),
             ExprKind::MakeNone => {
                 let _ = write!(self.out, "none[{}]", e.ty);
@@ -501,22 +495,25 @@ impl<'a> Dumper<'a> {
             // is parenthesized, and a unary operand always is, so `!(read x)`
             // never reads as the consuming `!read x`.
             ExprKind::Op { op, args } => {
+                // [ast-print] A binary operation's symbol is the printer's.
+                use salvo_syntax::ast::BinaryOp as B;
+                let binary = |b: B| salvo_syntax::print::binary_symbol(b);
                 let sym = match op {
-                    Op::Add => "+",
-                    Op::Sub => "-",
-                    Op::Mul => "*",
-                    Op::Div => "/",
-                    Op::Rem => "%",
-                    Op::And => "&&",
-                    Op::Or => "||",
+                    Op::Add => binary(B::Add),
+                    Op::Sub => binary(B::Sub),
+                    Op::Mul => binary(B::Mul),
+                    Op::Div => binary(B::Div),
+                    Op::Rem => binary(B::Rem),
+                    Op::And => binary(B::And),
+                    Op::Or => binary(B::Or),
+                    Op::Lt => binary(B::Lt),
+                    Op::Gt => binary(B::Gt),
+                    Op::LtEq => binary(B::LtEq),
+                    Op::GtEq => binary(B::GtEq),
+                    Op::Eq => binary(B::Eq),
+                    Op::NotEq => binary(B::NotEq),
                     Op::Not => "!",
                     Op::Neg => "-",
-                    Op::Lt => "<",
-                    Op::Gt => ">",
-                    Op::LtEq => "<=",
-                    Op::GtEq => ">=",
-                    Op::Eq => "==",
-                    Op::NotEq => "!=",
                 };
                 match args.as_slice() {
                     [x] => {

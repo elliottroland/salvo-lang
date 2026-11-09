@@ -12670,8 +12670,9 @@ replaced the working document TESTING.md).
   their own trees and print stably.
 * [round-trip] **Every choice survives being written out** (the pipeline record B4
   and D4, §II.7; user decisions P5 (b): the examples and the corpus, and
-  P24). `salvo_core::round_trip` prints a checked file back with each
-  choice spelled out as the typed dump does [dump-type-check], Salvo only:
+  P24). `salvo_core::round_trip` prints a checked file's expanded tree back
+  [ast-print] with each choice spelled out as the typed dump does
+  [dump-type-check], Salvo only:
   the callee as `name@module` (`name@Effect` for a member), the inferred
   type arguments where each has a source form (a type the program declares
   as `Name@module`), the implicit arguments by name (`cmp = cmp@main`), an
@@ -12683,7 +12684,14 @@ replaced the working document TESTING.md).
   through a local or a field, sends and mints, a renamed name, `throw`, a
   forwarded implicit, an operator whose operand widens [op-promote] (a
   written call widens nothing), a qualified type other than `Mut T`, and
-  what a desugaring or stamp made. Examples with `[dependencies]` need the
+  what a stamp made: a stamped body is no source of its file (its names
+  resolve where the template is written [comptime-hygiene], its copies are
+  scopes spliced flat [comptime-scope]), so the written-out file has the
+  `fn … by x` declaration as it was written and leaves out what an
+  obligation's `by` or a comptime call stamped
+  (`printed::print_file_as_source`), and the re-check stamps them again.
+  Every other expansion's output — an `iter fn`'s struct and fns, a lowered
+  `?:`, an `as!` — is written out and re-checked. Examples with `[dependencies]` need the
   CLI's loader and are not run; the corpus is a parser corpus, and only the
   files that check clean are.
 * [test-cli-stamp] **A test of the `salvo` binary is stamped on the binary
@@ -13948,7 +13956,9 @@ replaced the working document TESTING.md).
   `Op` [ir-op] is written inline (`(read i < 4)`, `!(read a)`): every binary
   operation parenthesized, and a unary operand too unless it is a binary
   operation, so `!(read x)` never reads as `!read x` (user request
-  2026-10-06). Names are spelled as every dump spells them [dump-spelling].
+  2026-10-06). Names are spelled as every dump spells them [dump-spelling],
+  and an operator's symbol and a literal as the AST printer writes them
+  [ast-print] (`binary_symbol`, `quote_str`, `quote_char`, `float_text`).
 * [dump-spelling] **How a dump names a declaration** (the pipeline record §II.10 P22,
   user decisions 2026-10-29): Salvo's own spelling where Salvo has one,
   `#{…}` where it has not.
@@ -15060,23 +15070,34 @@ replaced the working document TESTING.md).
   `parse-ast` [dump-parse-ast], `resolve` [dump-resolve], `type-check`
   [dump-type-check] (with `--expr-types`, and `--rows` [dump-rows]) and
   `generate-ir` [dump-generate-ir]; they replaced `salvo compile
-  --emit-ast`, `salvo facts` and `salvo ir` (the pipeline record D4). `--expr-types`
+  --emit-ast`, `salvo facts` and `salvo ir` (the pipeline record D4). The
+  resolve and type-check dumps print the program each phase reads, after
+  the expansions and desugarings [ast-print] (user decision 2026-11-09);
+  each file starts with a header line `// main.sv — module main`. `--expr-types`
   and `--rows` with another phase are an error. A program's errors in the dumped modules go to stderr; the dump
   is printed regardless.
 * [dump-resolve] The **resolve dump** (`names::dump::dump_file`) is each
-  file's own text with what resolution bound every written name to spelled
-  in place [dump-spelling] [name-table]: `Point@app.shapes` for a declaration
+  file's tree as resolution reads it — expanded and desugared, printed back
+  as Salvo [ast-print], what an expansion wrote under a comment saying what
+  produced it (user decision 2026-11-09) — with what resolution bound every
+  name to spelled in place, placed by the printer's node map
+  [dump-spelling] [name-table]: `Point@app.shapes` for a declaration
   (an import alias as the declaration's own name), `show@app.svc` or
   `greet@Greeter` for a callee with one selector, `#{@a, @b}` for several,
-  `p#{12:9}` for a variable (an implicit group's member at its spread, a
-  `?cmp` binder at the parameter writing it), `#{???}` for nothing. std's own
-  names, generics, built-ins, declarations' own names, a value block's
-  constants and anything an expansion wrote are left as they are. A place
+  `p#{12:9}` for a variable — the line and column of its binding in the
+  printed module, the header not counted (an implicit group's member at
+  its spread, a `?cmp` binder at the parameter writing it) — `#{???}` for
+  nothing. std's own names, generics, built-ins, declarations' own names
+  and a value block's constants are left as they are; a name an expansion
+  wrote (a stamped body's, a comptime call's hidden fn's) is spelled like
+  any other. A place
   in a value block (`Idx(xs)`) is a variable [qual-depend]; an effect
   member the body has from its written effects reads `now@Clock`
   [effect-available]; a name nothing answers where a type decides what is
   available (a `use` of a handle, a lambda) reads `#{deferred}`. `the_resolve_dump_spells_each_kind_of_name` pins the
-  spellings; `example_resolve_dump_is_stable` snapshots one example.
+  spellings, `the_resolve_dump_shows_what_the_expansion_produced` a stamped
+  body and a hidden fn; `example_resolve_dump_is_stable` snapshots one
+  example.
 * [dump-parse-ast] `salvo dump --phase parse-ast` prints each module's tree
   as the parser built it, after the comptime expansion and the desugarings,
   in Rust's debug form of the AST; `--module` selects one, std's included.
@@ -15087,9 +15108,11 @@ replaced the working document TESTING.md).
   with errors that keep the IR from being built has none (exit 1), while an
   IR-reliant error is inlined as `!!! …` [ir-linear-check].
 * [dump-type-check] The **typed dump** (`salvo dump --phase type-check`,
-  `round_trip::dump_file`, the pipeline record D4, user decision P24) is each file's
-  own text with every choice the checker made written out by the writer the
-  round trip uses [round-trip]: a callee as `name@module` (`name@Effect`),
+  `round_trip::dump_file`, the pipeline record D4, user decisions P24 and
+  2026-11-09) is each file's tree as the checker reads it, printed as the
+  resolve dump prints it [ast-print] [dump-resolve], with every choice the
+  checker made written out by the writer the round trip uses [round-trip]
+  — in a stamped body and a hidden fn too: a callee as `name@module` (`name@Effect`),
   its inferred type arguments, its implicit arguments by name; an operator
   as the call it resolved to (`plus@std.core.basic(a, b)`, `eq@…(a, b)`,
   `!eq@…(a, b)` for `!=`, `cmp@…(a, b) < 0` for a comparison; grouping
@@ -15102,8 +15125,10 @@ replaced the working document TESTING.md).
   coercion [ir-coerce], `#{narrowed from T}` / `#{claimed from T}` a
   narrowing, `#{next@…}` (`#{iter@…, next@…}`) the calls a `for` names
   [iter-for]; `--expr-types` adds every expression's type, `#{: T}`.
-  `the_type_check_dump_spells_each_kind_of_choice` pins the spellings;
-  `example_type_check_dump_is_stable` snapshots one example.
+  `the_type_check_dump_spells_each_kind_of_choice` pins the spellings,
+  `the_type_check_dump_shows_what_the_expansion_produced` the choices in a
+  stamped body and a hidden fn; `example_type_check_dump_is_stable`
+  snapshots one example.
 * [dump-rows] `salvo dump --phase type-check --rows` prints the
   checker's facts before the IR is built (the pipeline record D1, the pre-IR), by
   declaration [decl-rows]: each declaration of a file in declaration order,

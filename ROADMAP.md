@@ -777,7 +777,20 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
   whose last argument is a `replyto`; a renamed name; `throw`; a forwarded
   implicit; a type with no source form (qualified other than `Mut T`, a
   borrow, a fn type); an operator whose operand widens [op-promote], since a
-  written call widens nothing (P11); desugared or stamped spans.
+  written call widens nothing (P11); stamped code, which the round trip
+  writes as the `by` that asked for it (2026-11-09: a stamped body is no
+  source of its file — its names resolve in its template's, its copies are
+  scopes spliced flat — so its choices are dumped but not round-tripped; a
+  fix would print each copy as a scope of its own and every template name
+  with a selector that reaches it, private ones included, which Salvo
+  cannot spell).
+- **The dumps' printer** (2026-11-09, [ast-print]): a comptime statement
+  (`[for …]`, `[if …]`) prints as `#{a comptime statement}` and a
+  `[...for]` entry as `#{[...for x …]}`. No dump meets one today (a
+  template is gone after the expansion); a `salvo fmt` over unexpanded
+  files would need them, and comments kept (the user's direction,
+  2026-11-09: a formatter is the printer over the parsed tree, with the
+  lexer's comments attached to nodes).
 - **Where it does not run**: 5 of
   the corpus's 6 files do not check (it is the parser's corpus of
   language-page examples: unknown effects, missing type arguments, an

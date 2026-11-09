@@ -24,9 +24,10 @@ fn main() [use] {
 }
 ```
 
-The resolve dump is the file's own text with the decision resolution made
-next to every name: `twice` is the one declared in module `main`, and each
-`n` is the variable bound at line 1, column 10, or line 7, column 9:
+The resolve dump is the file as the compiler reads it, printed back as
+Salvo, with the decision resolution made next to every name: `twice` is the
+one declared in module `main`, and each `n` is the variable bound at line 1,
+column 10, or line 7, column 9:
 
 ```sh
 salvo dump --phase resolve --src ./my_project
@@ -85,12 +86,14 @@ fn main@main() -> None {
 | Phase | What it prints |
 |---|---|
 | `parse-ast` | the syntax tree, in the compiler's own (Rust) debug form, for working on the compiler itself |
-| `resolve` | your text, with what every name refers to ([The resolve phase](#the-resolve-phase)) |
-| `type-check` | your text, with every choice the checker made written out ([The type-check phase](#the-type-check-phase)) |
+| `resolve` | your program as resolution reads it, with what every name refers to ([The resolve phase](#the-resolve-phase)) |
+| `type-check` | your program as the checker reads it, with every choice it made written out ([The type-check phase](#the-type-check-phase)) |
 | `generate-ir` | the IR, which has its own page: [The IR](The-IR.md) |
 
 The rest of this page covers which modules a dump prints, how every dump
-spells names, and each phase in turn. For where these phases live in the
+spells names, what the resolve and type-check dumps print (the program after
+the compiler's expansions, not the text of your file), and each phase in
+turn. For where these phases live in the
 compiler's source, see the [tour of the compiler](../../TOUR.md).
 
 ## Choosing what to dump
@@ -133,6 +136,108 @@ Salvo has one.
 * **`#{…}` marks what Salvo has no spelling for.** What goes inside depends on
   the phase. Each phase's marks are described in its section below.
 
+## What a dump prints: the program after expansion
+
+Before names are resolved, the compiler rewrites parts of your program into
+plain Salvo. A `by` clause or an obligation's `by auto` is **stamped**: the
+comptime fn it names is instantiated at your type, and its body becomes the
+body of a fn of your module. A comptime call `[to_json(t.[field])]` stamps a
+**hidden fn** and calls it. An `iter fn` becomes a struct and two fns, a
+`test` block a fn, `x as! Q` an `if`, and a struct's fns move out of its body.
+Resolution and type checking work on the result, so that is what the
+resolve and type-check dumps print: each file's expanded tree, written back
+as Salvo, with the phase's decisions in it. The code an expansion wrote gets
+its decisions shown like any other code.
+
+Take a struct whose comparison is stamped:
+
+```salvo
+struct Point : Ordered<self> by auto {
+    x: Int
+    y: Int
+}
+
+fn main() [use] {
+    use StdConsole()
+    let a = Point { x: 1, y: 2 }
+    println("${a < Point { x: 1, y: 3 }}")
+}
+```
+
+Its resolve dump shows the `cmp` that `by auto` stamped, back in the
+struct's body, under a comment saying where it came from: the comptime fn
+`cmp` of module `std.core.auto` (written at line 73 of `std/core/auto.sv`),
+stamped at `Point` for the `by` on line 1:
+
+```text
+// main.sv — module main
+struct Point : Ordered<self> by auto {
+    x: Int
+    y: Int
+
+    // The `cmp` of [Point], stamped from `auto`'s `compfn` [obligation-by].
+    // stamped from comptime fn `cmp` from `auto` (std/core/auto.sv:73) at `Point`, for the `by` at main.sv:1
+    fn cmp(a: Point@main, b: Point@main) -> Int {
+        let c = cmp#{@main, @std.core.basic, @std.core.list, … 1 more}(a#{7:12}.x, b#{7:22}.x)
+        if c#{8:13} != 0 {
+            return c#{8:13}
+        }
+        let c = cmp#{@main, @std.core.basic, @std.core.list, … 1 more}(a#{7:12}.y, b#{7:22}.y)
+        if c#{12:13} != 0 {
+            return c#{12:13}
+        }
+        return 0
+    }
+}
+
+fn main() [use] {
+    use StdConsole()
+    let a = Point@main { x: 1, y: 2 }
+    println("${a#{22:9} < Point@main { x: 1, y: 3 }}")
+}
+```
+
+The type-check dump shows which `cmp` each field's comparison chose, and
+that `a < …` calls the stamped one:
+
+```text
+    fn cmp(a: Point, b: Point) -> Int {
+        let c: Int = cmp@std.core.basic(a.x, b.x)
+        if !eq@std.core.basic(c, 0) {
+            return c
+        }
+        ...
+    println@std.core.console("${to_str@std.core.basic(cmp@main(a, Point { x: 1, y: 3 }) < 0)}")
+```
+
+The two `let c` are two bindings (`c#{8:13}` and `c#{12:13}`): each field's
+copy of the template's loop body is a scope of its own, spliced into the
+fn's body.
+
+Because the dump is printed from the tree rather than copied from your
+file:
+- **The layout is the printer's.** Four-space indentation, one blank line
+  between declarations, the imports first, a struct's fns in its body.
+  Comments inside bodies are gone; doc comments stay.
+- **Positions are the dump's.** `p#{15:9}` is line 15, column 9 of the
+  printed module, counting from the line after the `// main.sv — module
+  main` header. For code you wrote in the usual layout that is where it is
+  in your file too; code an expansion wrote has no place in your file.
+- **Generated code says what made it**, in a `//` comment above it:
+  `stamped from comptime fn …` for a stamped fn, `hidden fn for a comptime
+  call …` for the fn a comptime call stamped, `the fn a test block is
+  expanded into`; an `iter fn`'s struct and fns carry the docs the
+  expansion gives them. A comptime fn itself is gone: once stamped, it has
+  nothing left to say.
+- **Sugar comes back where the tree remembers it.** A `?:`, `?.` or `?>` is
+  printed as the operator, though the compiler reads it as a `when` whose
+  arms have no spelling. `x as! Q` and `x as? Q` are printed as the `if`
+  they are, its block opening with a comment naming the operator. A
+  stamped body's `name@[site]` is printed as the bare name, which is what
+  it means in the file it is printed into.
+- **`#{…}` marks what has no spelling**: a field's default a stamp placed
+  (`#{the default of Serve.port}`), and nothing else in a checked program.
+
 ## The parse-ast phase
 
 `salvo dump --phase parse-ast` prints each module's syntax tree as the
@@ -142,10 +247,10 @@ checking a program.
 
 ## The resolve phase
 
-Resolution decides what each name you wrote refers to. It doesn't decide
-types, and it doesn't choose between overloads; that is the type phase's job.
-The resolve dump is your file's own text, with that decision written next to
-every name.
+Resolution decides what each name refers to. It doesn't decide types, and
+it doesn't choose between overloads; that is the type phase's job. The
+resolve dump is your file as resolution reads it ([above](#what-a-dump-prints-the-program-after-expansion)),
+with that decision written next to every name.
 
 Here module `shapes` declares a struct and two functions:
 
@@ -218,7 +323,7 @@ Here is how each kind of name reads:
 | `P` (an import alias) | `Point@shapes` | the declaration it imports, under its own name |
 | `show` | `show@shapes` | the one module whose `show` the call can mean |
 | `describe` | `describe#{@main, @shapes}` | both modules declare one, and the type phase picks between them by the arguments; past three the list ends `… N more`, and `--all` prints it in full |
-| `p` | `p#{15:9}` | the variable bound at line 15, column 9 |
+| `p` | `p#{15:9}` | the variable bound at line 15, column 9 of the dump |
 | `cmp` | `cmp#{9:26}` | a member of the `?Ordered<T>` written at line 9, column 26 |
 | `Pont` | `Pont#{???}` | nothing of that name is visible here |
 | `.Int` | `.Int#{deferred}` | a leading-dot name, which only the type phase can resolve |
@@ -230,9 +335,7 @@ These names are left exactly as written:
 - generics (`T`);
 - the compiler's own names (`None`, `Mut`, `proj`);
 - declarations' own names;
-- a name you selected yourself, such as `describe@main`;
-- anything the compiler wrote for you, such as the body an `iter fn` expands
-  into.
+- a name you selected yourself, such as `describe@main`.
 
 ### Where an effect member comes from
 
@@ -255,9 +358,10 @@ there reads `#{deferred}`.
 Type checking decides everything resolution left open: which overload each
 call means, the type arguments it was called at, what fills each implicit
 parameter, what each operator and interpolated value calls, and the type of
-everything you left unannotated. The type-check dump is your file's own text
-with each of those decisions written out as Salvo, so it reads as the program
-you would have written had you spelled everything yourself:
+everything you left unannotated. The type-check dump is your file as the
+checker reads it ([above](#what-a-dump-prints-the-program-after-expansion)),
+with each of those decisions written out as Salvo, so it reads as the
+program you would have written had you spelled everything yourself:
 
 ```sh
 salvo dump --phase type-check --src ./my_project                 # the decisions
@@ -368,7 +472,11 @@ The compiler checks that this dump says what it means: for the examples, it
 writes each program out this way (marks left out), checks the result again,
 and requires the same decisions and the same types. A rule that decided
 differently on the spelled-out form than on what you wrote would show up
-there.
+there. Code a stamp made is the exception: its names are resolved where its
+template is written, and its copies are scopes spliced together, so it is
+no source of the file it is in. The written-out program has the
+declaration that asked for the stamp instead, as you wrote it, and checking
+it again stamps it again.
 
 ### The checker's facts: `--rows`
 
