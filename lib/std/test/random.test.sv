@@ -125,7 +125,7 @@ test "doubles include the special values" {
 
 test "combinators" {
     let doubled: Gen<Int> = map(ints_in(0, 4), (n) -> n * 2)
-    let evens: Gen<Int> = filter_map(ints_in(0, 4), (n) -> if n % 2 == 0 { n } else { None })
+    let evens: Gen<Int> = map_not_null(ints_in(0, 4), (n) -> if n % 2 == 0 { n } else { None })
     let either = one_of(ints_in(0, 4), ints_in(100, 104))
     let mostly: Gen<Int> = weighted((9, ints_in(0, 4)), (1, ints_in(100, 104)))
     let rng = live_rng(4L)

@@ -204,7 +204,7 @@ export fn map<T, U>(g: Gen<T>, f: (value: T) -> U) [] -> Gen<U> => !g, !f {
 // is the constructor. A generator [f] refuses 100 times in a row traps,
 // since it cannot make values; draw closer to what [f] accepts.
 // @compilerrules [prop-gen]
-export fn filter_map<T, U>(g: Gen<T>, f: (value: T) -> U?) [] -> Gen<U> => !g, !f {
+export fn map_not_null<T, U>(g: Gen<T>, f: (value: T) -> U?) [] -> Gen<U> => !g, !f {
     return Gen<U> { run: (rng: Mut Rng) -> {
         let tries = 0
         while tries < 100 {
