@@ -320,7 +320,16 @@ impl Server<'_> {
                         .find(|f| f.params.len() == params.split(',').filter(|p| !p.trim().is_empty()).count())
                         .or(candidates.first());
                     if let Some(f) = pick {
-                        stub = Some(span_text(&file.content, f.span).trim().to_string());
+                        // The header as the effect writes it, from the name to the
+                        // end of its line, without the deduction clause (a
+                        // handler's member has none): the parameters, effects
+                        // and return type.
+                        let from = f.name.span.start as usize;
+                        let line_end = file.content[from..].find('\n').map(|i| from + i).unwrap_or(file.content.len());
+                        let line = &file.content[from..line_end];
+                        let line = line.split(" =>").next().unwrap_or(line).split(" {").next().unwrap_or(line).trim();
+                        let modifier = if f.is_send { "send " } else { "" };
+                        stub = Some(format!("{modifier}fn {line}"));
                     }
                 }
             }
@@ -343,8 +352,17 @@ impl Server<'_> {
             if !text[line_start..close].trim().is_empty() {
                 continue;
             }
+            // A blank line between a member and the entry before it, unless
+            // it opens the body.
+            let previous = text[..line_start].lines().last().map(str::trim).unwrap_or("");
             let mut new_text = String::new();
-            for stub in &stubs {
+            if !(previous.is_empty() || previous.ends_with('{')) {
+                new_text.push('\n');
+            }
+            for (i, stub) in stubs.iter().enumerate() {
+                if i > 0 {
+                    new_text.push('\n');
+                }
                 new_text.push_str(&format!("{base}    {stub} {{\n{base}        todo!()\n{base}    }}\n"));
             }
             let at = offset_to_position(text, line_start as u32);

@@ -113,8 +113,8 @@
 // in nobody's signature. The one-shots are ordinary Salvo over `Fs` and
 // `Streams` members, so a double that fakes both fakes them too.
 
-import std.stream
 import std.fs.path
+import std.stream
 
 // ===== errors =====
 

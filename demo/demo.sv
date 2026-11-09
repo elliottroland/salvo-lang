@@ -4,17 +4,15 @@ actor effect Counter {
     send fn next_value(reply: Reply<Int>) => !reply
 }
 
-handler BasicCounter of Counter {
+handler BasicCounter for Counter {
     mailbox {
         capacity: 16
     }
     state {
         count: Int = 0
     }
-
-    send fn next_value(reply: Reply<Int>) => !reply {
-        count++
-        reply.send(count)
+    fn next_value {
+        todo!()
     }
 }
 

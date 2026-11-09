@@ -4114,7 +4114,7 @@ fn quickfixes_answer_the_diagnostics_they_are_keyed_on() {
     for (message, title, result) in [
         ("missing field `y`", "Add the missing field `y`", "Point { x: 1, y: todo!() }"),
         ("non-exhaustive `when`", "Add the 2 missing arms", "is \"b\" {\n            todo!()"),
-        ("does not implement `Beeper.boop()`", "Implement the 1 missing member of `Loud`", "fn boop() -> Str {\n        todo!()"),
+        ("does not implement `Beeper.boop()`", "Implement the 1 missing member of `Loud`", "    }\n\n    fn boop() -> Str {\n        todo!()"),
         ("`xs` is kept by default", "Declare the move", "-> List<Int> => !xs {"),
         ("no matching overload for `to_str(Point)`", "Add `: ToStr<self> by auto`", "struct Point : ToStr<self> by auto {"),
     ] {
@@ -4388,4 +4388,29 @@ fn renaming_a_module_renames_its_files() {
     set_text(&mut plain, &uri, 1, text);
     let refused = rename_at(&mut plain, 2, &uri, 0, 9, "figures");
     assert!(refused["error"].is_object(), "{refused}");
+}
+
+// [lsp-stub] A handler's stub for a send member keeps its parameters and the
+// `send`, drops the deduction clause, and sits a blank line below the
+// previous entry.
+#[test]
+fn a_missing_send_member_is_stubbed_with_its_parameters() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_stub_send");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    let text = "actor effect Counter {\n    send fn next_value(reply: Reply<Int>) => !reply\n    send fn add(n: Int, by: Int)\n}\n\nhandler Tally for Counter {\n    mailbox {\n        capacity: 16\n    }\n    state {\n        count: Int = 0\n    }\n}\n";
+    let diags = set_text(&mut lsp, &uri, 1, text);
+    let missing: Vec<Value> = diags.into_iter().filter(|d| d["message"].as_str().unwrap().contains("does not implement")).collect();
+    assert_eq!(missing.len(), 2, "{missing:?}");
+    let actions = code_actions(&mut lsp, 2, &uri, &missing, None);
+    let action = actions.iter().find(|a| a["title"].as_str().unwrap().starts_with("Implement the 2 missing members")).unwrap_or_else(|| panic!("{actions:?}"));
+    let fixed = apply_edits(text, action["edit"]["changes"][&uri].as_array().unwrap());
+    assert!(
+        fixed.contains("    }\n\n    send fn next_value(reply: Reply<Int>) {\n        todo!()\n    }\n\n    send fn add(n: Int, by: Int) {\n        todo!()\n    }\n}\n"),
+        "{fixed}"
+    );
+    let after = set_text(&mut lsp, &uri, 2, &fixed);
+    assert!(after.iter().all(|d| d["severity"] != json!(1)), "the stubbed handler checks: {after:?}\n{fixed}");
 }
