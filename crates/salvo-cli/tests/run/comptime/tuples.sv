@@ -65,3 +65,112 @@ fn main() [use] -> None {
 //= {"name": "Roland", "pair": ["age", 36]}
 //= [1, "two", 3]
 //= ["outer", ["inner", 2]]
+
+//--- comptime_at_a_generic_tuple
+// [comptime-generic] [comptime-tuple] [fn-by] A declaration at a tuple of its
+// own type parameters is stamped generically, with the implicits its copies
+// call written in the declaration: an element of type `A` is printed by the
+// `?to_json: (A) -> Str` the call fills. One declaration per arity. A
+// concrete stamp beside them is the more specific overload, and a generic
+// struct written at its own parameters is stamped the same way.
+comptime fn to_json<T is Struct>(t: T) -> Str {
+    let json = Mut Str("{")
+    [for field in T.fields] {
+        json.append@string("\"${field.name}\": ")
+        json.append@string(to_json@[site](t.[field]))
+        [if !field.last] {
+            json.append@string(", ")
+        }
+    }
+    json.append@string("}")
+    return json
+}
+
+comptime fn to_json<T is Tuple>(t: T) -> Str {
+    let json = Mut Str("[")
+    [for index in T.indices] {
+        // `Opaque` covers an element of a type parameter (kind `Generic`);
+        // only a concrete stamp sees a `Str` element.
+        [when index.kind] {
+            is Opaque {
+                [if index.type is Str] {
+                    json.append@string("'${t.[index]}'")
+                } else {
+                    json.append@string(to_json@[site](t.[index]))
+                }
+            }
+            is Struct { json.append@string(to_json@[site](t.[index])) }
+            is Union { json.append@string("?") }
+            is Tuple { json.append@string(to_json@[site](t.[index])) }
+            is FnType { json.append@string("?") }
+        }
+        [if !index.last] {
+            json.append@string(", ")
+        }
+    }
+    json.append@string("]")
+    return json
+}
+
+fn to_json(str: Str) -> Str {
+    return "\"${str}\""
+}
+
+fn to_json(num: Int) -> Str {
+    return num.to_str()
+}
+
+fn to_json<T>(list: List<T>, ?to_json: (T) -> Str) -> Str {
+    let out = Mut Str("<")
+    for x in list {
+        out.append(to_json(x))
+    }
+    out.append(">")
+    return out
+}
+
+fn to_json<A, B>(t: (A, B), ?to_json: (A) -> Str, ?to_json: (B) -> Str) -> Str by to_json
+
+fn to_json<A, B, C>(t: (A, B, C), ?to_json: (A) -> Str, ?to_json: (B) -> Str, ?to_json: (C) -> Str) -> Str by to_json
+
+// A concrete stamp: chosen over the generic one for `(Str, Str)`.
+fn to_json(t: (Str, Str)) -> Str by to_json
+
+struct Wrapper<T> {
+    value: T,
+    n: Int
+}
+
+fn to_json<T>(t: Wrapper<T>, ?to_json: (T) -> Str) -> Str by to_json
+
+// …and at a concrete instance, an ordinary stamp.
+fn to_json(t: Wrapper<Str>) -> Str by to_json
+
+// A generic fn forwarding its own implicit to the generic stamp.
+fn tagged<X>(x: X, ?to_json: (X) -> Str) -> Str
+=> !x {
+    return to_json(("tag", x))
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    println(to_json(("a", 1)))
+    println(to_json(("a", 1, "c")))
+    println(to_json(("a", (1, "b"))))
+    println(to_json((1, List(2, 3))))
+    println(tagged(7))
+    println(tagged((1, 2)))
+    println(to_json(("x", "y")))
+    println(to_json(Wrapper { value: ("w", 5), n: 2 }))
+    println(to_json(Wrapper { value: "s", n: 3 }))
+}
+//= stdout
+//= ["a", 1]
+//= ["a", 1, "c"]
+//= ["a", [1, "b"]]
+//= [1, <23>]
+//= ["tag", 7]
+//= ["tag", [1, 2]]
+//= ['x', 'y']
+//= {"value": ["w", 5], "n": 2}
+//= {"value": "s", "n": 3}

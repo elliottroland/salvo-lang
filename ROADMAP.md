@@ -1242,9 +1242,14 @@ ladder); these stay open:
   signatures in 02-resolve-03, bodies stamped in 02-resolve-04) waits on step
   8's stable ids and declaration-relative spans; a stamped member already has
   the signature it is declared with (built 2026-10-14, COMPLETED.md). Left
-  beside it: a written `fn … by X` at a generic type is
-  still refused (it would have to spell the [comptime-generic] additions
-  itself), while the clause stamps one; and `Stamper::member_decl` clears a
+  beside it: a written `fn … by X` at a generic **`type`** (a union, or an
+  alias of a tuple: `fn to_json<A>(t: Opt<A>, ?to_json: (A) -> Str) by
+  to_json`) is still refused, `comptime-generic:generic-type-target`, since
+  `arms_of_type` reads a union's arms off its declaration without
+  substituting the written arguments (a generic struct's fields are
+  substituted; a written tuple at the declaration's own parameters and a
+  generic struct stamp since 2026-11-09, with the implicits the declaration
+  writes, COMPLETED.md); and `Stamper::member_decl` clears a
   group member's own type parameters (no std group has a generic member, and
   no template for one could be written yet).
 

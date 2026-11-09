@@ -447,13 +447,15 @@ fn run<M: crate::expand::ModuleSlot>(
                     let mut scratch = Vec::new();
                     let (tmpl, _, _) = world.pick_with_module(&f.name.name, &by, kind, &mut scratch)?;
                     let bound = tmpl.compfn.as_ref()?.bound.as_ref()?.1.name.clone();
-                    if tmpl.params.len() != f.params.len() {
+                    // [comptime-generic] The declaration's implicits are its
+                    // own, not the template's: the match is over the rest.
+                    let (tps, fps) = (explicit_params(&tmpl.params), explicit_params(&f.params));
+                    if tps.len() != fps.len() {
                         return None;
                     }
-                    let found = tmpl
-                        .params
+                    let found = tps
                         .iter()
-                        .zip(&f.params)
+                        .zip(&fps)
                         .find_map(|(a, b)| bound_match(&a.ty, &b.ty, &bound))
                         .or_else(|| match (&tmpl.return_type, &f.return_type) {
                             (Some(a), Some(b)) => bound_match(a, b, &bound),
@@ -462,7 +464,7 @@ fn run<M: crate::expand::ModuleSlot>(
                     let t = world.target_of_type(&found)?;
                     (t.kind == kind).then_some(found)
                 });
-                let target_ty: Type = match (unified, f.params.first()) {
+                let target_ty: Type = match (unified, f.params.iter().find(|p| !p.implicit)) {
                     (Some(t), _) => t,
                     (None, Some(first)) => first.ty.clone(),
                     (None, None) => {
@@ -505,15 +507,28 @@ fn run<M: crate::expand::ModuleSlot>(
                     fallback_body(f);
                     continue;
                 };
-                // [comptime-generic] A written tuple type that mentions the
-                // fn's own type parameters (`fn f<T, S>(t: (T, S)) … by f`) is
-                // a generic target, as `Wrapper<T>` is: refused below rather
-                // than stamped with the parameter it would substitute into
-                // itself.
+                // [comptime-generic] A written declaration carries its own
+                // generics (user decision 2026-11-09): at a written tuple
+                // type (`fn f<A, B>(t: (A, B), ?f: (A) -> Str, ?f: (B) -> Str)
+                // … by f`) or a struct applied to written arguments
+                // (`Wrapper<A>`), the target is the type as written, its type
+                // parameters are the declaration's that it mentions — opaque
+                // in the copies, kind `Generic` — and what a copy calls at one
+                // is the declaration's implicit, resolved as in any generic
+                // fn. A generic `type` (a union, or an alias of a tuple) has
+                // no instance its arms are read at, and stays refused below.
                 let mut target = target;
-                if target.kind == CompKind::Tuple && target.generics.is_empty() && !f.generics.is_empty() {
+                let carried = match first {
+                    Type::Tuple { .. } => target.kind == CompKind::Tuple,
+                    Type::Named { base, .. } => {
+                        target.kind == CompKind::Struct && !target.generics.is_empty() && base.args.len() == target.generics.len()
+                    }
+                    _ => false,
+                };
+                if carried {
                     let mut named = Vec::new();
                     collect_type_names(first, &mut named);
+                    target.ty = first.clone();
                     target.generics = f.generics.iter().filter(|g| named.iter().any(|n| n.name == g.name)).map(|g| g.name.clone()).collect();
                 }
                 let Some((template, module, template_file)) = world.pick_with_module(&f.name.name, &by, target.kind, &mut diags) else {
@@ -528,9 +543,17 @@ fn run<M: crate::expand::ModuleSlot>(
                     doc_of: None,
                 });
                 let stamper = Stamper::new(&world, &target, &template, &by, &mut next_expn).at(template_file);
-                // [comptime-generic] A written declaration at a generic type
-                // would have to spell the generic additions itself; not yet.
-                if let Some(d) = stamper.generic_refused(by.span) {
+                // [comptime-generic] A generic `type` target: not yet. (A
+                // generic struct named without its arguments is refused as a
+                // clause's member of no group is.)
+                let refused = match (carried, target.kind) {
+                    (true, _) => None,
+                    (false, CompKind::Struct) => stamper.generic_refused(by.span),
+                    (false, _) => (!target.generics.is_empty()).then(|| {
+                        Diagnostic::error(messages::comptime_generic_generic_type_target(&target.name, &template.name.name), by.span)
+                    }),
+                };
+                if let Some(d) = refused {
                     diags.push(d);
                     fallback_body(f);
                     continue;
@@ -2819,8 +2842,8 @@ impl<'w> Stamper<'w> {
         let template_expn = whole.expn;
         visit_mut::walk_fn(&mut whole, &mut inst);
         let mut param = self.template.compfn.as_ref().and_then(|c| c.bound.as_ref()).map(|(_, id)| id.name.clone());
-        // [comptime-generic] At a generic target (a clause's: a written
-        // declaration there is refused) the template's own parameter is
+        // [comptime-generic] At a generic target (a clause's, or a written
+        // declaration's own type parameters) the template's own parameter is
         // renamed out of the way of the target's (`cmp<T is Struct>` stamped
         // at `Wrapper<T>`): the substitution `T` → `Wrapper<T>` would
         // otherwise meet its own `T`.
@@ -2840,7 +2863,9 @@ impl<'w> Stamper<'w> {
                 param = Some(fresh);
             }
         }
-        if !self.target.generics.is_empty() {
+        // A clause's generic target is applied to its own parameters; a
+        // written declaration's is the type as written [comptime-generic].
+        if !self.target.generics.is_empty() && matches!(declared, Declared::Member { .. }) {
             if let Type::Named { base, .. } = &mut target.ty {
                 base.args = self.target.generics.iter().map(|g| World::simple_named(g, site)).collect();
             }
@@ -2864,20 +2889,24 @@ impl<'w> Stamper<'w> {
         };
         let at = |s: Span| if written { s } else { site };
         let mut errs = Vec::new();
-        if inst.params.len() != f.params.len() {
+        // [comptime-generic] The declaration's implicits are its own: kept in
+        // its signature, for the body's calls to resolve through, and not
+        // matched against the template's parameters.
+        let (inst_params, f_params) = (explicit_params(&inst.params), explicit_params(&f.params));
+        if inst_params.len() != f_params.len() {
             errs.push(Diagnostic::error(
                 messages::fn_by_param_count(
                     &what,
-                    f.params.len(),
+                    f_params.len(),
                     &self.by.text(),
                     &self.template.name.name,
                     &self.target.name,
-                    inst.params.len(),
+                    inst_params.len(),
                 ),
                 site,
             ));
         } else {
-            for (w, i) in f.params.iter().zip(&inst.params) {
+            for (w, i) in f_params.iter().zip(&inst_params) {
                 if self.world.normalized(&w.ty) != self.world.normalized(&i.ty) {
                     errs.push(Diagnostic::error(
                         messages::fn_by_param_type(&what, &w.name.name, &w.ty, &self.template.name.name, &i.ty),
@@ -2889,7 +2918,7 @@ impl<'w> Stamper<'w> {
             // names (user decision 2026-10-30): the body is copied as written,
             // nothing in it is renamed, and nothing a declared name could
             // capture. A clause's member is named once, at the clause.
-            for (w, i) in f.params.iter().zip(&inst.params) {
+            for (w, i) in f_params.iter().zip(&inst_params) {
                 if w.name.name != i.name.name {
                     errs.push(Diagnostic::error(
                         messages::fn_by_param_name(&what, &w.name.name, &self.by.text(), &self.template.name.name, &i.name.name, !written),
@@ -5759,6 +5788,12 @@ impl Expander<'_> {
 }
 
 /// Every named type's name in `ty`, at its written span.
+/// [fn-by] [comptime-generic] A signature's parameters less its implicits:
+/// what a stamp matches positionally against the template's.
+fn explicit_params(params: &[Param]) -> Vec<&Param> {
+    params.iter().filter(|p| !p.implicit).collect()
+}
+
 fn collect_type_names(ty: &Type, out: &mut Vec<Ident>) {
     match ty {
         Type::Named { base, .. } => {

@@ -603,6 +603,34 @@ element has no name, so there is no `index.name`, and `T` has no `.name`
 either. A call with a tuple argument does not stamp anything by itself: as
 for structs, only a `by` declaration does.
 
+A declaration can also stamp at a tuple of its own type parameters, for every
+pair at once. The copy for an element of type `A` has nothing to call but
+what the caller hands in, so the declaration writes those implicits itself,
+one per element, as a hand-written generic function would:
+
+```salvo
+fn to_json<A, B>(t: (A, B), ?to_json: (A) -> Str, ?to_json: (B) -> Str) -> Str by to_json
+
+fn to_json<A, B, C>(t: (A, B, C), ?to_json: (A) -> Str, ?to_json: (B) -> Str, ?to_json: (C) -> Str) -> Str by to_json
+```
+
+The template's `to_json@[site](t.[index])` for the element of type `A` then
+calls the `?to_json: (A) -> Str` the declaration takes, and a call such as
+`to_json(("a", (1, "b")))` fills both implicits where it is made, the inner
+`(Int, Str)` through the same declaration (see
+[Implicit Parameters](Implicit-Parameters.md#one-name-may-stand-for-two-implicits-at-different-types)
+for two implicits of one name). Each arity needs its own one-line
+declaration. In these copies an element's kind is `Generic`, which an `is
+Opaque` arm covers, and `index.type` is the type parameter itself. A concrete
+declaration beside them, such as `fn to_json(t: (Str, Int)) -> Str by
+to_json`, is the more specific overload and is chosen for its type.
+
+The implicits are part of the declaration's signature and are not matched
+against the template's parameters. Nothing checks them separately: leave one
+out and the copy that needed it reports the ordinary error at its element,
+`no matching overload for to_json(A)`, as any stamped body's errors are
+reported.
+
 ### The model: `std.core.comptime`
 
 Everything a comptime fn may know about a type is declared, as compile-time
@@ -972,6 +1000,27 @@ function's, and so does passing such a function as a *value*: `takes(eq)`
 with `eq` stamped for `Wrapper<T>` is a function of two `Wrapper<Str>`s, its
 `?Eq<Str>` filled where it is passed, as a `Set<Wrapper<Str>>` needs for its
 `hash`.
+
+A clause can only add the groups `std.core.auto` knows. A written `fn … by`
+declaration at a generic struct works for any template, because it names the
+implicits itself, as a declaration at a generic tuple does:
+
+```salvo
+struct Wrapper<T> {
+    value: T,
+    n: Int
+}
+
+fn to_json<T>(t: Wrapper<T>, ?to_json: (T) -> Str) -> Str by to_json
+```
+
+The struct is written at the declaration's own parameters, and the copy for
+`value` calls the `?to_json: (T) -> Str` the declaration takes. Written at
+concrete arguments, as in `fn to_json(t: Wrapper<Int>) -> Str by to_json`, it
+is an ordinary stamp at that instance. A written declaration at a generic
+`type`, a union or an alias of a tuple, is not supported yet: its arms are
+not read at the declaration's arguments, so its fulfilment is written by
+hand.
 
 ## Not there yet: stamping at a call
 

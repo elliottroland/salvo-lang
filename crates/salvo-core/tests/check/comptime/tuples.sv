@@ -165,15 +165,72 @@ comptime fn f<T is Tupel>(t: T) [] -> Int => t {
 
 //--- a_tuple_of_the_fns_own_type_parameters
 // [comptime-tuple] [comptime-generic] A written tuple that mentions the fn's
-// own type parameters is a generic target, refused like `Wrapper<T>` — it
-// used to substitute the template's `T` into `(T, S)` without end, and
-// overflow the stack.
+// own type parameters is stamped generically: the declaration supplies, by
+// hand, the implicits the copies call, and the copy for an element of type
+// `A` calls the declaration's `?show: (A) -> Str`. (It used to substitute
+// the template's `T` into `(T, S)` without end, and overflow the stack; then
+// it was refused.) The template's `T` is renamed out of the way of the
+// declaration's own `T`.
 comptime fn show<T is Tuple>(t: T) [] -> Str => t {
-    return "x"
+    let out: Mut Str = Mut Str("")
+    [for index in T.indices] {
+        [when index.kind] {
+            is Opaque { append@string(out, show@[site](t.[index])) }
+            is Struct {}
+            is Union {}
+            is Tuple {}
+            is FnType {}
+        }
+    }
+    return out
 }
 
-//~ error[comptime-generic:generic-target]
-fn show<T, S>(t: (T, S)) [] -> Str by show
+fn show(n: Int) [] -> Str {
+    return "${n}"
+}
+
+fn show<T, S>(t: (T, S), ?show: (T) -> Str, ?show: (S) -> Str) [] -> Str by show
+
+fn show<A>(t: (A, Int, A), ?show: (A) -> Str) [] -> Str by show
+
+// …the implicits are filled at the call, as any generic fn's are.
+fn uses() [] -> Str {
+    return "${show((1, 2))} ${show((1, 2, 3))}"
+}
+
+//--- a_generic_stamp_without_its_implicits
+// [comptime-generic] A declaration that leaves out the implicits its copies
+// call is the ordinary overload error, once per element, at the element's
+// type: there is no check of its own for a missing implicit.
+comptime fn show<T is Tuple>(t: T) [] -> Str => t {
+    let out: Mut Str = Mut Str("")
+    [for index in T.indices] {
+        append@string(out, show@[site](t.[index]))
+    }
+    return out
+}
+
+fn show(n: Int) [] -> Str {
+    return "${n}"
+}
+
+//~ error[call-resolve:no-overload]
+//~ error[call-resolve:no-overload]
+fn show<A, B>(t: (A, B)) [] -> Str by show
+
+//--- a_generic_type_target
+// [comptime-generic] A written declaration at a generic `type` is still
+// refused: the arms of `Opt<A>` are not read at the declaration's arguments.
+struct Box<T> { v: T }
+
+type Opt<T> = Box<T> | None
+
+comptime fn show<T is Union>(t: T) [] -> Str => t {
+    return "u"
+}
+
+//~ error[comptime-generic:generic-type-target]
+fn show<A>(t: Opt<A>) [] -> Str by show
 
 //--- a_target_that_names_the_templates_parameter
 // [comptime-tuple] A program's own struct called `T`, in a tuple the template

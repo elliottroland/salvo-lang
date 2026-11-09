@@ -1311,6 +1311,16 @@ messages! {
          for it — write the fulfilment by hand, with `?{group}<{param}>` (ROADMAP §2c)"
     );
 
+    /// A written `fn … by` at a generic `type` (a union, or an alias of a
+    /// tuple), whose arms the stamp has no instance to read at.
+    comptime_generic_generic_type_target = "comptime-generic:generic-type-target" (target: &str, template: &str) => format!(
+        "`{target}` is a generic `type`, and a written `fn … by` stamping `{template}` at one \
+         is not supported yet: its arms are not read at the declaration's type arguments. A \
+         generic struct or a written tuple type can be stamped at, with the implicits the \
+         copies call written in the declaration; for `{target}`, write the fulfilment by hand \
+         (ROADMAP §2c)"
+    );
+
     // [comptime-generic-fn]
     /// A generic struct's fields or arms walked without type arguments.
     comptime_generic_fn_uninstantiated = "comptime-generic-fn:uninstantiated" (name: &str, what: &str, wanted: &str) => format!(

@@ -6048,8 +6048,7 @@ Conventions:
     `cmp`, `?Eq<T>` for `eq`, `?Hashed<T>` for `hash`, `?ToStr<T>` for
     `to_str` — part of the member's signature, so they follow the
     **member's** name (the template's until 2026-10-14). A member of another
-    name is still refused at a generic target, and so is a written `fn … by X`
-    at a generic type, which would have to spell these additions itself. The
+    name is still refused at a generic target through a clause. The
     template's own type parameter is renamed out of the way first
     (`T` → `__Self`) when it shares a name with the target's, and the group's
     (`__Group0`) before `self` is substituted. A concrete field
@@ -6074,6 +6073,32 @@ Conventions:
       2026-10-20: a group's members were counted as explicit parameters in
       the fit, so a `Mut Set<W<Int>>` over a `by auto` generic `W` found no
       `hash`, and the unfilled `(?hash, ?eq)` showed in its type.)
+    * **A written `fn … by X` at a generic target carries its own
+      generics** (user decision 2026-11-09, "option 1"): the declaration
+      supplies, by hand, the implicits the stamped copies call, so `fn
+      to_json<A, B>(t: (A, B), ?to_json: (A) -> Str, ?to_json: (B) -> Str)
+      -> Str by to_json` stamps the `<T is Tuple>` template with `T := (A,
+      B)`, and the copy's `to_json@[site](t.0)` resolves to the declaration's
+      `?to_json: (A) -> Str` exactly as a call in any generic fn does (two
+      same-named implicits at different types [implicit-resolve], as std's
+      hand-written `to_str<A, B>` over a pair). The target is the type **as
+      written** — a written tuple type, or a generic struct applied to written
+      arguments (`fn to_json<T>(t: Wrapper<T>, ?to_json: (T) -> Str)`, whose
+      field types come out at those arguments [comptime-generic-fn]; a struct
+      at concrete arguments, `Wrapper<Int>`, is an ordinary concrete stamp) —
+      and its type parameters are those of the declaration's it mentions:
+      opaque in the copies, kind `Generic` (an `is Opaque` arm covers it), and
+      `index.type` / `field.type` of such an element the variable itself. The
+      implicits are the declaration's: kept in the stamped fn's signature and
+      left out of the positional match against the template's parameters
+      [fn-by]. Nothing checks them as such: a copy calling at a type no
+      implicit or overload fits is the ordinary `call-resolve:no-overload`,
+      reported as any stamped body's errors are [comptime-instantiate]. Each
+      arity is a declaration of its own. Still refused, as
+      `comptime-generic:generic-type-target`: a written declaration at a
+      generic `type` (a union, or an alias of a tuple), whose arms are not
+      read at the declaration's arguments; a generic struct named without its
+      arguments keeps `comptime-generic:generic-target`.
     * Not yet: a generic union whose arm is a generic struct
       (`type Either<A> = Box<A> | Int`), whose stamped body calls `to_str`
       with a `Box<A>` that both the union's and `Box`'s overloads fit, which
@@ -6125,7 +6150,8 @@ Conventions:
   matches, the **first parameter's** type, which was the whole rule until
   then and what every template with `T` first still gives. The written
   parameter types and return type must equal the
-  instantiation's, positionally, and a mismatch names which. A body beside
+  instantiation's, positionally — the declaration's implicit parameters
+  apart, which are its own [comptime-generic] — and a mismatch names which. A body beside
   `by` is a parse error. The declaration attaches as any inner fn or
   fulfilment does [fn-attached]. `by` is contextual: it closes a type
   sequence, since a type or qualifier is uppercase by rule [name-casing].
@@ -6165,7 +6191,7 @@ Conventions:
     the site's function it calls (`cmp@[site](cmp.[field], …)`) reaches the
     function.
   * **An obligation clause is this, once per member** [obligation-by]; a
-    written declaration at a generic type is refused for now
+    written declaration at a generic type spells its implicits itself
     [comptime-generic].
 * [comptime-bound] **`comptime fn` is a compile-time function** (user decision
   2026-09-29: one modifier, `comptime`, for the whole facility — `comptime fn`,
@@ -6389,6 +6415,12 @@ Conventions:
     declaration [comptime-bound]. A struct template meets a tuple field
     through the site's function, `to_json@[site](t.[field])`, which a `fn …
     by` at that tuple type declares.
+  * **A tuple of the declaration's own type parameters** is a generic target
+    (`fn to_json<A, B>(t: (A, B), ?to_json: (A) -> Str, ?to_json: (B) ->
+    Str) -> Str by to_json`), stamped with the implicits the declaration
+    writes [comptime-generic]; one declaration per arity. (It overflowed the
+    stack until 2026-11-09, substituting the template's `T` into `(T, S)`,
+    then was refused.)
 * [comptime-default] **`field.default` is the field's declared default**
   (the CLI design record X1, built 2026-10-20 as engineering under round 2): in a copy
   it is the `= expr` the field declares, evaluated where the struct is

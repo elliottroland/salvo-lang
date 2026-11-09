@@ -149,6 +149,66 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-09 — A `fn … by` at a generic tuple or struct, with the declaration's implicits ([comptime-generic] [fn-by] [comptime-tuple])
+
+User decision 2026-11-09 ("option 1"): a written `fn … by tmpl` at a generic
+target is stamped when the **declaration** supplies, by hand, the implicits
+the copies call — `fn to_json<A, B>(t: (A, B), ?to_json: (A) -> Str,
+?to_json: (B) -> Str) -> Str by to_json`, the stamped counterpart of std's
+hand-written `to_str<A, B>` over a pair. Until now it was refused,
+`comptime-generic:generic-target` (and before 2026-11-05 it overflowed the
+stack). Built in `comptime.rs`'s fn-by branch and `Stamper::stamp_into`:
+
+- **The target is the type as written** when it is a written tuple type or a
+  generic struct applied to as many written arguments as it declares
+  (`Wrapper<T>`), and its generics are the declaration's type parameters it
+  mentions. So the `Expander`'s `generics()` (the bound target's) holds
+  them, `World::classify` gives an element or field of one the `Generic`
+  kind (an `is Opaque` arm covers it), and `index.type` / `field.type` is
+  the variable. A struct's field types already came out at the instance's
+  arguments ([comptime-generic-fn]'s `subst_generics`), so the struct case
+  fell out of the same change, and so did a concrete instance
+  (`fn to_json(t: Wrapper<Str>) by to_json`, no generics left: an ordinary
+  stamp). Only a clause's member re-applies the target to its own
+  parameters now (`Declared::Member`).
+- **The declaration's implicits are its own**: `explicit_params` drops
+  `Param.implicit` from both sides of the positional match (the type
+  `unified` picks, the count, the types, the names), and the stamped fn keeps
+  the declared signature, implicits included, taking only the body. The
+  template's `to_json@[site](t.0)` is then a call in a generic fn and finds
+  `?to_json: (A) -> Str` by [implicit-resolve], as `cmp@[site]` inside a
+  clause's generic stamp already found `?Ordered<T>`.
+- **A missing implicit is not checked as such**: the copy's call is the
+  ordinary `call-resolve:no-overload` ("in `to_json` from `to_json` for `(A,
+  B) element 0: A`: no matching overload for `to_json(A)`"), at the element's
+  type, the attribution every stamped body's checker errors carry. The
+  "(from comptime fn …, file:line:col)" note is the expander's, and an
+  unresolved call is not an expander error.
+- **Still refused**: a written declaration at a generic `type` (a union, an
+  alias of a tuple), now with its own id `comptime-generic:generic-type-target`,
+  since a union's arms are read off its declaration with no substitution
+  (ROADMAP §2c); a generic struct named without its arguments keeps
+  `generic-target`, as does a clause's member of a group `std.core.auto`
+  does not know.
+
+The agent's calls, to confirm: a template's own implicit parameters are left
+out of the match too, symmetrically (no template has any yet); a generic
+struct written at concrete arguments is a concrete stamp rather than refused;
+the declaration's type parameters not mentioned by the target type are not
+generics of the stamp (they would fail the positional match anyway).
+
+Tests: checker data `comptime/tuples.sv` — `a_tuple_of_the_fns_own_type_parameters`
+rewritten from the refusal to two stamps (2- and 3-tuple, one named `T`
+like the template's parameter) called with their implicits filled,
+`a_generic_stamp_without_its_implicits` (two `call-resolve:no-overload`),
+`a_generic_type_target` (`generic-type-target`); run data
+`comptime/tuples.sv` `comptime_at_a_generic_tuple` on both backends: the 2-
+and 3-tuple declarations, a nested `("a", (1, "b"))`, a tuple holding a
+`List<Int>` through `to_json<T>(list: List<T>, ?to_json: (T) -> Str)`, a
+generic fn forwarding its own implicit, a concrete `(Str, Str)` stamp chosen
+over the generic one, and `Wrapper<T>` generic and at `Wrapper<Str>`. The
+suite is 747 tests under `cargo nextest run`, all green.
+
 ### 2026-11-09 — A comptime fn over a tuple type ([comptime-tuple])
 
 The user's experiment (a `to_json<T is Tuple>` beside the struct one) asked
@@ -41302,6 +41362,12 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **An expansion error hides the stamped bodies' checker errors**
+  (2026-11-09, generic stamps). A program with one refused `by` site (a
+  generic `type` target) reports that refusal alone: the checker does not
+  run, so a sibling declaration missing its implicits looks clean. Test a
+  stamp's checker errors in a program of their own.
 
 - **A scratch script's name can already be taken** (2026-11-05). `tmp/` is
   shared across sessions, and a run started in the same batch as the write
