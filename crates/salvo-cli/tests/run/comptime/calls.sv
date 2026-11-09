@@ -1,4 +1,4 @@
-// [comptime-call] A comptime call `[name](…)` in a template stamps another
+// [comptime-call] A comptime call `[name(…)]` in a template stamps another
 // template at the argument's type, as a hidden fn, and calls it: no `fn … by`
 // per tuple type.
 
@@ -25,8 +25,8 @@ comptime fn to_json<T is Struct>(t: T) -> Str {
     [for field in T.fields] {
         json.append@string("\"${field.name}\": ")
         [when field.kind] {
-            is Struct { json.append@string([to_json](t.[field])) }
-            is Tuple { json.append@string([to_json](t.[field])) }
+            is Struct { json.append@string([to_json(t.[field])]) }
+            is Tuple { json.append@string([to_json(t.[field])]) }
             is Opaque { json.append@string(to_json@[site](t.[field])) }
             is Union { json.append@string("?") }
             is FnType { json.append@string("?") }
@@ -45,10 +45,10 @@ comptime fn to_json<T is Tuple>(t: T) -> Str {
         [when index.kind] {
             is Tuple {
                 let x: [index.type] = t.[index]
-                json.append@string([to_json](x))
+                json.append@string([to_json(x)])
             }
             is Opaque { json.append@string(to_json@[site](t.[index])) }
-            is Struct { json.append@string([to_json](t.[index])) }
+            is Struct { json.append@string([to_json(t.[index])]) }
             is Union { json.append@string("?") }
             is FnType { json.append@string("?") }
         }
@@ -106,10 +106,10 @@ comptime fn to_json<T is Struct>(t: T) -> Str {
     [for field in T.fields] {
         json.append@string("\"${field.name}\": ")
         [when field.kind] {
-            is Union { json.append@string([to_json](t.[field])) }
+            is Union { json.append@string([to_json(t.[field])]) }
             is Opaque { json.append@string(to_json@[site](t.[field])) }
-            is Struct { json.append@string([to_json](t.[field])) }
-            is Tuple { json.append@string([to_json](t.[field])) }
+            is Struct { json.append@string([to_json(t.[field])]) }
+            is Tuple { json.append@string([to_json(t.[field])]) }
             is FnType { json.append@string("?") }
         }
         [if !field.last] {
@@ -123,7 +123,7 @@ comptime fn to_json<T is Struct>(t: T) -> Str {
 comptime fn to_json<T is Union>(t: T) -> Str {
     [when t] {
         [arm] {
-            return [to_json](t)
+            return [to_json(t)]
         }
     }
 }
@@ -194,7 +194,7 @@ export comptime fn to_json<T is Struct>(p: T) -> Str {
     [for field in T.fields] {
         json.append@string("\"${field.name}\": ")
         [when field.kind] {
-            is Tuple { json.append@string([to_json@tuples](p.[field])) }
+            is Tuple { json.append@string([to_json@tuples(p.[field])]) }
             is Opaque { json.append@string(to_json@[site](p.[field])) }
             is Struct { json.append@string("?") }
             is Union { json.append@string("?") }

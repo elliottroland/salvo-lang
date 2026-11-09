@@ -6418,7 +6418,7 @@ Conventions:
     A struct template meets a tuple field either through the site's
     function, `to_json@[site](t.[field])`, which a `fn … by` at that tuple
     type declares, or by stamping the tuple template there,
-    `[to_json](t.[field])`, with no declaration per tuple type
+    `[to_json(t.[field])]`, with no declaration per tuple type
     [comptime-call].
   * **A tuple of the declaration's own type parameters** is a generic target
     (`fn to_json<A, B>(t: (A, B), ?to_json: (A) -> Str, ?to_json: (B) ->
@@ -6427,18 +6427,24 @@ Conventions:
     stack until 2026-11-09, substituting the template's `T` into `(T, S)`,
     then was refused.)
 * [comptime-call] **A comptime call expands another template** (user idea
-  and decisions 2026-11-09): inside a comptime fn, `[name](args)` or
-  `[name@module](args)` — the template reference in brackets, then an
-  ordinary argument list on the same line — stamps the `name` template at the
-  type of the **first argument** and becomes an ordinary call of what it
-  stamped, the arguments as written.
-  * **Spelling**: parsed as a call of one identifier named with its brackets
-    and selector (`"[to_json@demo]"`), the splice-call shape of
-    `[test.body](…)` (`parse_comptime_call_name`); the expansion replaces the
-    callee, so no later phase sees it. Outside a comptime fn it is
-    `comptime-inline:outside-compfn`. A bare `[x](…)` whose `x` is a binder
-    stays the binder's splice [comptime-access]. A plain `name(args)` or
+  and decisions 2026-11-09): inside a comptime fn, `[name(args)]` or
+  `[name@module(args)]` — the **whole call** in brackets, the template
+  reference and an ordinary argument list on the same line (user decision
+  2026-11-09: the bracket encloses what is expanded) — stamps the `name`
+  template at the type of the **first argument** and becomes an ordinary call
+  of what it stamped, the arguments as written.
+  * **Spelling**: parsed as a call of one identifier named with its brackets,
+    selector and `()` (`"[to_json@demo()]"`, which no splice name can be;
+    `parse_comptime_call`); the expansion replaces the callee, so no later
+    phase sees it. Outside a comptime fn it is
+    `comptime-inline:outside-compfn`. A plain `name(args)` or
     `name@[site](args)` is unchanged: an ordinary call.
+  * **A bracketed name then arguments is never a comptime call**: `[x](…)`
+    is the splice call of a binder's local or a test's generated fn
+    [comptime-access] [test-kind], and an `x` that is neither is
+    `comptime-access:not-a-binder`, whose text gives the comptime call's
+    spelling; `[f@m](…)`, which no binder can be, is that error at the
+    parser. The two forms do not overlap, so neither wins over the other.
   * **The pick** is `by name@module`'s function reading [fn-by]
     [obligation-by] — no module reading, since a call names a function: the
     comptime fns of that name whose bound kind is the argument type's kind

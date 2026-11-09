@@ -289,39 +289,39 @@ messages! {
     );
 
     // [comptime-call]
-    /// `[name](…)` naming no comptime fn the file can see.
+    /// `[name(…)]` naming no comptime fn the file can see.
     comptime_call_names_nothing = "comptime-call:names-nothing" (call: &str, name: &str, unseen: &str) => format!(
-        "`[{call}](…)` names no binder and no comptime fn the file can see{unseen}: a comptime \
+        "`[{call}(…)]` names no comptime fn the file can see{unseen}: a comptime \
          call expands a template, a `comptime fn {name}<T is …>`"
     );
-    /// `[name](…)` at a type no template stamps: a basic, opaque or fn type.
+    /// `[name(…)]` at a type no template stamps: a basic, opaque or fn type.
     comptime_call_not_stampable = "comptime-call:not-stampable" (call: &str, name: &str, ty: &dyn std::fmt::Display, kind: &str) => format!(
-        "`[{call}](…)` is at `{ty}`, of kind `{kind}`, and only a struct, a union or a tuple is \
+        "`[{call}(…)]` is at `{ty}`, of kind `{kind}`, and only a struct, a union or a tuple is \
          stamped: write an ordinary call `{name}@[site](…)` for it"
     );
-    /// `[name](…)` whose name has no template of the argument's kind.
+    /// `[name(…)]` whose name has no template of the argument's kind.
     comptime_call_no_template = "comptime-call:no-template" (call: &str, name: &str, ty: &dyn std::fmt::Display, kind: &str) => format!(
-        "`[{call}](…)` is at `{ty}`, and no `comptime fn {name}<T is {kind}>` the file can see \
+        "`[{call}(…)]` is at `{ty}`, and no `comptime fn {name}<T is {kind}>` the file can see \
          stamps it: declare one, or write an ordinary call `{name}@[site](…)`"
     );
-    /// `[name](…)` whose name has several templates of the argument's kind.
+    /// `[name(…)]` whose name has several templates of the argument's kind.
     comptime_call_ambiguous = "comptime-call:ambiguous" (call: &str, name: &str, kind: &str, places: &str) => format!(
-        "`[{call}](…)` could be the `comptime fn {name}<T is {kind}>` of {places}: write \
-         `[{name}@module](…)` to say which"
+        "`[{call}(…)]` could be the `comptime fn {name}<T is {kind}>` of {places}: write \
+         `[{name}@module(…)]` to say which"
     );
-    /// `[name]()` with no argument to stamp at.
+    /// `[name()]` with no argument to stamp at.
     comptime_call_no_argument = "comptime-call:no-argument" (call: &str) => format!(
-        "`[{call}](…)` stamps its template at the type of its first argument, and it has none"
+        "`[{call}(…)]` stamps its template at the type of its first argument, and it has none"
     );
-    /// `[name](e)` where the expansion cannot tell `e`'s type.
+    /// `[name(e)]` where the expansion cannot tell `e`'s type.
     comptime_call_unknown_type = "comptime-call:unknown-type" (call: &str) => format!(
-        "the type of the first argument of `[{call}](…)` is not known when the template is \
+        "the type of the first argument of `[{call}(…)]` is not known when the template is \
          expanded: pass a binder's read (`t.[field]`), a parameter of the comptime fn, or a local \
          declared with its type (`let x: [field.type] = …`)"
     );
-    /// `[name](e)` at a type that mentions a type parameter.
+    /// `[name(e)]` at a type that mentions a type parameter.
     comptime_call_generic_type = "comptime-call:generic-type" (call: &str, name: &str, ty: &dyn std::fmt::Display, param: &str) => format!(
-        "`[{call}](…)` is at `{ty}`, which mentions the type parameter `{param}`, and a template \
+        "`[{call}(…)]` is at `{ty}`, which mentions the type parameter `{param}`, and a template \
          is stamped only at a type it knows: write an ordinary call `{name}@[site](…)`, filled by \
          an implicit of the declaration"
     );
@@ -1261,8 +1261,10 @@ messages! {
         "`.[{b}]` reads a field, and `{b}` is an arm binder"
     );
     /// `.[b]` where `b` is no binder of an enclosing `[for …]`.
-    comptime_access_not_a_binder = "comptime-access:not-a-binder" (b: &str) => format!(
-        "`{b}` is not a binder of an enclosing `[for …]`"
+    /// `hint` follows the text: empty, or what a call of the name may have
+    /// meant (`[f](…)`, the old spelling of the comptime call `[f(…)]`).
+    comptime_access_not_a_binder = "comptime-access:not-a-binder" (b: &str, hint: &str) => format!(
+        "`{b}` is not a binder of an enclosing `[for …]`{hint}"
     );
     /// `[b]:` where `b` is no field binder of an enclosing `[for …]`.
     comptime_access_not_a_field_binder = "comptime-access:not-a-field-binder" (b: &str) => format!(

@@ -149,6 +149,39 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-09 — The comptime call puts the whole call in brackets ([comptime-call])
+
+User decision 2026-11-09: the comptime call is spelled `[to_json@demo(t.[field])]`,
+and `[to_json(t.[field])]` without a module — the bracket encloses what is
+expanded, the whole call — replacing `[to_json@demo](t.[field])` of the
+entry below. The bracketed-name-then-arguments shape `[x](…)` keeps only its
+splice-call meaning (a binder's local, `[test.body](…)`, `[test.config]`), so
+the forms no longer overlap and the old rule "a binder named `x` wins over a
+template named `x`" is gone, with ROADMAP's agent's call (b) about it.
+
+- **Parser**: `parse_comptime_call` reads `[` name `@`sel? `(` args `)` `]`
+  (a rollback when the shape is not exactly that) and carries it as before,
+  an `Expr::Call` of one `Expr::Ident`, now named `"[to_json@demo()]"`: the
+  `()` is what no splice name can contain, so the expander's
+  `comptime_call_name` tells the two apart by text and nothing else in the
+  expansion changed. Outside a comptime fn it is still
+  `comptime-inline:outside-compfn` (there are no list literals
+  [col-no-literal], so `[f(x)]` meant nothing there before).
+- **The old spelling is an error**, no shim: `[f@m](…)` is
+  `comptime-access:not-a-binder` at the parser (no binder has an `@`), and a
+  `[f](…)` whose `f` is neither a binder nor a test's generated name is the
+  same error from the expander; both texts say to write the whole call in
+  the brackets. `comptime_access_not_a_binder` gained a `hint` argument for
+  it (one function per id).
+- Rewritten: the check and run data `comptime/calls.sv` (a new case,
+  `the_bracketed_name_is_no_call`), the parser test (now three: the form, the
+  form outside a comptime fn, and `[f](x)` stamping nothing),
+  Compile-Time-Functions.md, [comptime-call] and [comptime-tuple],
+  ROADMAP's "Comptime call: what is left", the `comptime-call:*` texts.
+  `demo/demo.sv` is the user's to update.
+- 750 tests under nextest, all green after `salvo docs` (the wiki page of
+  Compile-Time-Functions.md moved).
+
 ### 2026-11-09 — A comptime call expands another template ([comptime-call])
 
 The user's idea (ROADMAP's "A comptime call: expand another template here")

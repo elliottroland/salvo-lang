@@ -3397,29 +3397,51 @@ fn a_spliced_arm_type_is_a_constructor_call() {
     assert_eq!(args.len(), 1);
 }
 
-/// [comptime-call] `[to_json@demo](t.[field])` / `[to_json](x)`: a comptime
-/// call, carried as a call of one identifier named with its brackets and its
-/// selector — the splice-call shape of `[test.body](…)` — whose arguments are
-/// ordinary. Outside a comptime fn it is reported, and a bracketed name
-/// without an argument list is no comptime call.
+/// [comptime-call] `[to_json@demo(t.[field])]` / `[to_json(x)]`: a comptime
+/// call, the whole call in the brackets, carried as a call of one identifier
+/// named with its brackets, its selector and `()` — which no splice name can
+/// be — whose arguments are ordinary.
 #[test]
-fn a_comptime_call_is_a_bracketed_callee() {
+fn a_comptime_call_is_a_bracketed_call() {
     use salvo_syntax::ast::{Expr, Item, Stmt};
-    let source = "comptime fn f<T is Struct>(t: T) [] -> Str {\n    [for field in T.fields] {\n        let a = [to_json@std.demo](t.[field])\n    }\n    let x: Str = [to_json](t)\n    return x\n}\n";
+    let source = "comptime fn f<T is Struct>(t: T) [] -> Str {\n    [for field in T.fields] {\n        let a = [to_json@std.demo(t.[field])]\n    }\n    let x: Str = [to_json(t)]\n    return x\n}\n";
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
     let Item::Fn(f) = &module.items[0] else { panic!() };
     let stmts = &f.body.as_ref().unwrap().stmts;
     let Stmt::Comp(salvo_syntax::ast::CompStmt::For { body, .. }) = &stmts[0] else { panic!() };
     let Stmt::Let { value: Expr::Call { callee, args, .. }, .. } = &body.stmts[0] else { panic!("{:?}", body.stmts[0]) };
-    assert!(matches!(&**callee, Expr::Ident(id) if id.name == "[to_json@std.demo]"), "{callee:?}");
+    assert!(matches!(&**callee, Expr::Ident(id) if id.name == "[to_json@std.demo()]"), "{callee:?}");
     assert!(matches!(&args[..], [Expr::Field { field, .. }] if field.name == "[field]"), "{args:?}");
     let Stmt::Let { value: Expr::Call { callee, .. }, .. } = &stmts[1] else { panic!("{:?}", stmts[1]) };
+    assert!(matches!(&**callee, Expr::Ident(id) if id.name == "[to_json()]"), "{callee:?}");
+}
+
+/// [comptime-call] Outside a comptime fn the comptime call is comptime
+/// syntax, reported.
+#[test]
+fn a_comptime_call_outside_a_compfn_is_reported() {
+    assert_eq!(ids_of("fn g(p: Int) [] -> Str {\n    return [to_json@demo(p)]\n}\n"), vec!["comptime-inline:outside-compfn"]);
+    assert_eq!(ids_of("fn g(p: Int) [] -> Str {\n    return [to_json(p)]\n}\n"), vec!["comptime-inline:outside-compfn"]);
+}
+
+/// [comptime-call] [comptime-access] A bracketed name and then arguments is a
+/// splice call, never a comptime call: `[f](x)` calls the splice `[f]` (the
+/// expansion's to resolve, a binder's local or a test's generated fn), and
+/// `[f@m](x)`, a name no binder has, is reported with the new spelling.
+#[test]
+fn a_bracketed_name_then_arguments_stamps_no_template() {
+    use salvo_syntax::ast::{Expr, Item, Stmt};
+    let (module, diagnostics) = salvo_syntax::parse_module("comptime fn f<T is Struct>(t: T) [] -> Str {\n    return [to_json](t)\n}\n");
+    assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
+    let Item::Fn(f) = &module.items[0] else { panic!() };
+    let Stmt::Expr(Expr::Return { value: Some(v), .. }) = &f.body.as_ref().unwrap().stmts[0] else { panic!() };
+    let Expr::Call { callee, .. } = &**v else { panic!("{v:?}") };
     assert!(matches!(&**callee, Expr::Ident(id) if id.name == "[to_json]"), "{callee:?}");
-    assert_eq!(
-        ids_of("fn g(p: Int) [] -> Str {\n    return [to_json@demo](p)\n}\n"),
-        vec!["comptime-inline:outside-compfn"]
-    );
+    let (_, diagnostics) = salvo_syntax::parse_module("comptime fn f<T is Struct>(t: T) [] -> Str {\n    return [to_json@demo](t)\n}\n");
+    let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
+    assert_eq!(errors.iter().map(|d| d.id).collect::<Vec<_>>(), vec![Some("comptime-access:not-a-binder")]);
+    assert!(errors[0].message.contains("[to_json@demo(…)]"), "{}", errors[0].message);
 }
 
 /// [is-union] `s is "json" | "text"` is the disjunction of the tests over the

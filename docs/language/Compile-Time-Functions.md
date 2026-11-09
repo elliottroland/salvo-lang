@@ -596,7 +596,7 @@ one, so one module can hold both: a struct's `to_json` reaches a tuple field
 through `to_json@[site](t.[field])`, which finds the declaration above, or,
 with no declaration per tuple type, through a
 [comptime call](#expanding-another-template-a-comptime-call)
-`[to_json](t.[field])`.
+`[to_json(t.[field])]`.
 
 The binder is an [`Index`](../../lib/std/core/comptime.sv#struct-index):
 `index.index` is the position from zero, `index.first` and `index.last` are
@@ -637,10 +637,11 @@ reported.
 
 ### Expanding another template: a comptime call
 
-Inside a comptime fn, a template's name in brackets followed by an argument
-list, `[to_json](t.[field])`, is a **comptime call**: the template named
-`to_json` is stamped at the type of the first argument, and the expression is
-an ordinary call of what it stamped. A struct template can then print a tuple
+Inside a comptime fn, a call written whole in brackets, `[to_json(t.[field])]`,
+is a **comptime call**: the template named `to_json` is stamped at the type of
+the first argument, and the expression is an ordinary call of what it stamped.
+The brackets enclose what is expanded, the whole call, as they enclose a
+binder elsewhere. A struct template can then print a tuple
 field with the tuple template, and a nested tuple with that template again,
 without a `fn … by` for each tuple type:
 
@@ -650,8 +651,8 @@ comptime fn to_json<T is Struct>(t: T) -> Str {
     [for field in T.fields] {
         json.append@string("\"${field.name}\": ")
         [when field.kind] {
-            is Struct { json.append@string([to_json](t.[field])) }
-            is Tuple { json.append@string([to_json](t.[field])) }
+            is Struct { json.append@string([to_json(t.[field])]) }
+            is Tuple { json.append@string([to_json(t.[field])]) }
             is Opaque { json.append@string(to_json@[site](t.[field])) }
             is Union { json.append@string("null") }
             is FnType { json.append@string("null") }
@@ -669,8 +670,8 @@ comptime fn to_json<T is Tuple>(t: T) -> Str {
     [for index in T.indices] {
         let x: [index.type] = t.[index]
         [when index.kind] {
-            is Tuple { json.append@string([to_json](x)) }
-            is Struct { json.append@string([to_json](x)) }
+            is Tuple { json.append@string([to_json(x)]) }
+            is Struct { json.append@string([to_json(x)]) }
             is Opaque { json.append@string(to_json@[site](x)) }
             is Union { json.append@string("null") }
             is FnType { json.append@string("null") }
@@ -695,7 +696,7 @@ Of the comptime fns of that name, the call picks the one whose bound kind is
 the argument's, as `by` does: a struct type stamps the `<T is Struct>` one, a
 named union the `<T is Union>` one, a tuple the `<T is Tuple>` one. An `@`
 narrows the choice to a module's, as `by name@module` does
-(`[to_json@json](t.[field])`); without one, two visible templates of the kind
+(`[to_json@json(t.[field])]`); without one, two visible templates of the kind
 are an error that asks for it. The templates are the ones the file that
 writes the call can see.
 

@@ -1,4 +1,4 @@
-// ===== [comptime-call] a comptime call: `[name](…)` expands another template =====
+// ===== [comptime-call] a comptime call: `[name(…)]` expands another template =====
 // What the stamped copies print is the run data's
 // (crates/salvo-cli/tests/run/comptime/calls.sv).
 
@@ -31,9 +31,9 @@ comptime fn to_json<T is Struct>(t: T) [] -> Str {
     let out = Mut Str("{")
     [for field in T.fields] {
         [when field.kind] {
-            is Struct { append@string(out, [to_json](t.[field])) }
-            is Tuple { append@string(out, [to_json](t.[field])) }
-            is Union { append@string(out, [to_json](t.[field])) }
+            is Struct { append@string(out, [to_json(t.[field])]) }
+            is Tuple { append@string(out, [to_json(t.[field])]) }
+            is Union { append@string(out, [to_json(t.[field])]) }
             is Opaque { append@string(out, to_json@[site](t.[field])) }
             is FnType { append@string(out, "?") }
         }
@@ -48,9 +48,9 @@ comptime fn to_json<T is Tuple>(t: T) [] -> Str {
         [when index.kind] {
             is Tuple {
                 let x: [index.type] = t.[index]
-                append@string(out, [to_json](x))
+                append@string(out, [to_json(x)])
             }
-            is Struct { append@string(out, [to_json](t.[index])) }
+            is Struct { append@string(out, [to_json(t.[index])]) }
             is Union { append@string(out, "?") }
             is Opaque { append@string(out, to_json@[site](t.[index])) }
             is FnType { append@string(out, "?") }
@@ -63,7 +63,7 @@ comptime fn to_json<T is Tuple>(t: T) [] -> Str {
 comptime fn to_json<T is Union>(t: T) [] -> Str {
     [when t] {
         [arm] {
-            return [to_json](t)
+            return [to_json(t)]
         }
     }
 }
@@ -108,9 +108,9 @@ comptime fn show<T is Struct>(t: T) [] -> Str {
     let out = Mut Str("")
     [for field in T.fields] {
         [when field.kind] {
-            is Union { append@string(out, [show](t.[field])) }
+            is Union { append@string(out, [show(t.[field])]) }
             is Opaque { append@string(out, show@[site](t.[field])) }
-            is Struct { append@string(out, [show](t.[field])) }
+            is Struct { append@string(out, [show(t.[field])]) }
             is Tuple { append@string(out, "?") }
             is FnType { append@string(out, "?") }
         }
@@ -121,7 +121,7 @@ comptime fn show<T is Struct>(t: T) [] -> Str {
 comptime fn show<T is Union>(t: T) [] -> Str {
     [when t] {
         [arm] {
-            return [show](t)
+            return [show(t)]
         }
     }
 }
@@ -154,7 +154,7 @@ fn make() [] -> Point {
 // No template of that name at all; a basic type; no union template.
 comptime fn names<T is Struct>(t: T) [] -> Str {
     [for field in T.fields] {
-        return [nothing](t.[field])
+        return [nothing(t.[field])]
     }
     return ""
 }
@@ -165,7 +165,7 @@ fn names(t: Point) [] -> Str by names
 comptime fn plain_kind<T is Struct>(t: T) [] -> Str {
     [for field in T.fields] {
         [if field.name == "x"] {
-            return [plain_kind](t.[field])
+            return [plain_kind(t.[field])]
         }
     }
     return ""
@@ -177,7 +177,7 @@ fn plain_kind(t: Point) [] -> Str by plain_kind
 comptime fn kinds<T is Struct>(t: T) [] -> Str {
     [for field in T.fields] {
         [if field.name == "shape"] {
-            return [kinds](t.[field])
+            return [kinds(t.[field])]
         }
     }
     return ""
@@ -188,14 +188,14 @@ fn kinds(t: Point) [] -> Str by kinds
 
 // An argument whose type the expansion cannot tell; no argument.
 comptime fn unknown<T is Struct>(t: T) [] -> Str {
-    return [unknown](make@main())
+    return [unknown(make@main())]
 }
 
 //~ error[comptime-call:unknown-type]
 fn unknown(t: Point) [] -> Str by unknown
 
 comptime fn empty<T is Struct>(t: T) [] -> Str {
-    return [empty]()
+    return [empty()]
 }
 
 //~ error[comptime-call:no-argument]
@@ -205,7 +205,7 @@ fn empty(t: Point) [] -> Str by empty
 comptime fn nested<T is Struct>(t: T) [] -> Str {
     [for field in T.fields] {
         [if field.name == "pair"] {
-            return [nested](t.[field])
+            return [nested(t.[field])]
         }
     }
     return ""
@@ -221,11 +221,26 @@ comptime fn nested<T is Tuple>(t: T) [] -> Str {
 //~ error[comptime-tuple:unknown-property]
 fn nested(t: Point) [] -> Str by nested
 
-// Outside a comptime fn the form is comptime syntax.
-fn outside(p: Point) [] -> Str {
-    //~ error[comptime-inline:outside-compfn]
-    return [nested](p.pair)
+//--- the_bracketed_name_is_no_call
+// A bracketed name and then arguments is a splice call, of a binder's local
+// or a test's generated fn: `[old](…)` names no binder, and `[old@main](…)`
+// could not, so neither stamps a template (the error says to write the
+// whole call in the brackets).
+struct Point {
+    x: Int
 }
+
+comptime fn old<T is Struct>(t: T) [] -> Str {
+    //~ error[comptime-access:not-a-binder]
+    return [old@main](t)
+}
+
+comptime fn old_bare<T is Struct>(t: T) [] -> Str {
+    return [old_bare](t)
+}
+
+//~ error[comptime-access:not-a-binder]
+fn old_bare(t: Point) [] -> Str by old_bare
 
 //--- a_generic_element
 // A stamp at a tuple of the declaration's own type parameters cannot stamp
@@ -233,7 +248,7 @@ fn outside(p: Point) [] -> Str {
 comptime fn to_json<T is Tuple>(t: T) [] -> Str {
     let out = Mut Str("")
     [for index in T.indices] {
-        append@string(out, [to_json](t.[index]))
+        append@string(out, [to_json(t.[index])])
     }
     return out
 }
@@ -253,7 +268,7 @@ struct Holder {
 comptime fn pick<T is Struct>(t: T) [] -> Str {
     let out = Mut Str("")
     [for field in T.fields] {
-        append@string(out, [show](t.[field]))
+        append@string(out, [show(t.[field])])
     }
     return out
 }
@@ -264,7 +279,7 @@ fn pick(t: Holder) [] -> Str by pick
 comptime fn chosen<T is Struct>(t: T) [] -> Str {
     let out = Mut Str("")
     [for field in T.fields] {
-        append@string(out, [show@two](t.[field]))
+        append@string(out, [show@two(t.[field])])
     }
     return out
 }

@@ -7055,13 +7055,20 @@ impl<'s> Parser<'s> {
         Some(Ident { name: format!("[{path}]"), span: open.to(close) })
     }
 
-    /// [comptime-call] `[to_json@demo](…)` / `[to_json](…)`: a comptime call
-    /// — the bracketed template reference, then an argument list on the same
-    /// line. Carried as one identifier named with its brackets and its
-    /// selector (`"[to_json@demo]"`), the splice-call shape of
-    /// `[test.body](…)`; the expansion replaces it by the hidden fn it
-    /// stamps. `None` (nothing consumed) when what follows is not that shape.
-    fn parse_comptime_call_name(&mut self) -> Option<Ident> {
+    /// [comptime-call] `[to_json@demo(t.[field])]` / `[to_json(x)]`: a
+    /// comptime call — the whole call in the brackets, a template reference
+    /// and an argument list. Carried as an ordinary call whose callee is one
+    /// identifier named with its brackets, its selector and `()`
+    /// (`"[to_json@demo()]"`), which no splice name can be (`[p](…)` and
+    /// `[test.body](…)` stay splice calls); the expansion replaces it by the
+    /// hidden fn it stamps. `None` (nothing consumed) when what follows is
+    /// not that shape. Outside a comptime fn the form is reported, and
+    /// parsed as an error (there are no list literals [col-no-literal]).
+    ///
+    /// `[f@m](…)`, a bracketed name with a selector and then arguments, is
+    /// no splice call either — a binder's name has no `@` — and is reported
+    /// with the spelling it may have meant.
+    fn parse_comptime_call(&mut self) -> Option<Expr> {
         if !(self.at(&TokenKind::LBracket) && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))) {
             return None;
         }
@@ -7070,23 +7077,54 @@ impl<'s> Parser<'s> {
             let open = self.bump().span;
             let name = self.ident()?;
             let mut text = name.name.clone();
+            let mut name_span = name.span;
             if self.at(&TokenKind::At) {
                 self.bump();
+                let m = self.ident()?;
                 text.push('@');
-                text.push_str(&self.ident()?.name);
+                text.push_str(&m.name);
+                name_span = name_span.to(m.span);
                 while self.eat(&TokenKind::Dot).is_some() {
+                    let m = self.ident()?;
                     text.push('.');
-                    text.push_str(&self.ident()?.name);
+                    text.push_str(&m.name);
+                    name_span = name_span.to(m.span);
                 }
             }
-            let close = self.expect(&TokenKind::RBracket)?.span;
-            (self.at(&TokenKind::LParen) && self.same_line()).then(|| Ident { name: format!("[{text}]"), span: open.to(close) })
+            if self.at(&TokenKind::RBracket) && text.contains('@') {
+                // `[f@m](…)`: the bracketed-name shape, which is no comptime call.
+                let close = self.bump().span;
+                if self.at(&TokenKind::LParen) && self.same_line() {
+                    let end = self.parse_call_args().map(|(_, _, end)| end).unwrap_or(close);
+                    let hint = format!(": to expand a template, write the whole call in the brackets, `[{text}(…)]`");
+                    if self.in_compfn {
+                        self.error(messages::comptime_access_not_a_binder(&text, &hint), open.to(close));
+                    } else {
+                        self.require_compfn(open.to(close), "a bracketed name `[name]`");
+                    }
+                    return Some(Expr::Error { span: open.to(end) });
+                }
+                return None;
+            }
+            if !(self.at(&TokenKind::LParen) && self.same_line()) {
+                return None;
+            }
+            let (args, named, _) = self.parse_call_args()?;
+            if !self.at(&TokenKind::RBracket) {
+                return None;
+            }
+            let close = self.bump().span;
+            let span = open.to(close);
+            if !self.in_compfn {
+                // Reported; the call is parsed and left to nothing more.
+                self.require_compfn(span, "a comptime call `[name(…)]`");
+                return Some(Expr::Error { span });
+            }
+            let callee = Expr::Ident(Ident { name: format!("[{text}()]"), span: name_span });
+            Some(Expr::Call { callee: Box::new(callee), type_args: Vec::new(), args, named, span })
         })();
         match parsed {
-            Some(id) => {
-                self.require_compfn(id.span, "a comptime call `[name](…)`");
-                Some(id)
-            }
+            Some(e) => Some(e),
             None => {
                 self.rollback(snap);
                 None
@@ -7095,16 +7133,10 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_primary(&mut self) -> Option<Expr> {
-        // [comptime-call] `[to_json@demo](t.[field])`: expand a template here.
-        // Outside a comptime fn the form is reported (a list literal is never
-        // called), inside one it is the template reference.
-        if let Some(id) = self.parse_comptime_call_name() {
-            if !self.in_compfn {
-                // Reported; the call is parsed and left to nothing more.
-                let end = self.parse_call_args().map(|(_, _, end)| end).unwrap_or(id.span);
-                return Some(Expr::Error { span: id.span.to(end) });
-            }
-            return Some(Expr::Ident(id));
+        // [comptime-call] `[to_json@demo(t.[field])]`: expand a template here.
+        // Outside a comptime fn the form is reported.
+        if let Some(call) = self.parse_comptime_call() {
+            return Some(call);
         }
         // [comptime-access] `[p]` / `[test.body]` as an expression: a name the
         // expansion substitutes (a binder's local, a generated fn). A path

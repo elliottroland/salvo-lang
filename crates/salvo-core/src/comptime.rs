@@ -14,7 +14,7 @@
 //!   [group-obligation] check finds it like a hand-written fulfilment;
 //! - the body of every `fn … by X` declaration, in place;
 //! - [comptime-call] one hidden fn per (template, type) a comptime call
-//!   `[name](…)` in a stamped body reached, in the stamping file;
+//!   `[name(…)]` in a stamped body reached, in the stamping file;
 //! - the body of every **concrete** compfn (no bound), expanded in place;
 //! - no generic compfn at all: they are removed, since nothing downstream
 //!   could type `T.fields`.
@@ -2547,7 +2547,7 @@ impl<'a> World<'a> {
             .collect()
     }
 
-    /// [comptime-call] The template a comptime call `[name@sel](…)` names at
+    /// [comptime-call] The template a comptime call `[name@sel(…)]` names at
     /// a type of `kind`: the function reading of `by name@sel` (a call names
     /// a function, so there is no module reading), with its module and file.
     /// `Err(None)` when the name has no template of that kind.
@@ -5486,11 +5486,19 @@ impl MutVisitor for Expander<'_> {
     }
 
     fn visit_expr(&mut self, expr: &mut Expr) {
-        // [comptime-call] `[to_json@demo](t.[field])`: the template stamped
+        // [comptime-call] `[to_json@demo(t.[field])]`: the template stamped
         // at the argument's type as a hidden fn, and an ordinary call of it.
         // The arguments are walked next, as written.
         if let Expr::Call { callee, args, span, .. } = expr {
             if let Expr::Ident(id) = &mut **callee {
+                if let Some(inner) = self.unknown_splice_callee(&id.name) {
+                    // `[f](…)` naming no binder: the old spelling of a
+                    // comptime call, maybe — say the new one.
+                    let hint = format!(": to expand a template, write the whole call in the brackets, `[{inner}(…)]`");
+                    self.error(id.span, messages::comptime_access_not_a_binder(&inner, &hint));
+                    *expr = Expr::Error { span: *span };
+                    return;
+                }
                 if let Some(call) = self.comptime_call_name(&id.name) {
                     let span = *span;
                     let from = id.span;
@@ -5531,14 +5539,14 @@ impl MutVisitor for Expander<'_> {
                         }
                         Some(SlotVal::Place(path)) => {
                             if path.contains('.') {
-                                self.error(span, messages::comptime_access_not_a_binder(&path));
+                                self.error(span, messages::comptime_access_not_a_binder(&path, ""));
                             } else {
                                 *expr = Expr::Ident(Ident { name: path, span });
                             }
                         }
                         None => id.name = bd.name,
                     },
-                    None => self.error(span, messages::comptime_access_not_a_binder(&inner)),
+                    None => self.error(span, messages::comptime_access_not_a_binder(&inner, "")),
                 }
                 return;
             }
@@ -5674,7 +5682,7 @@ impl MutVisitor for Expander<'_> {
                         }
                         None => {
                             let span = *span;
-                            self.error(span, messages::comptime_access_not_a_binder(&b));
+                            self.error(span, messages::comptime_access_not_a_binder(&b, ""));
                         }
                     }
                     return;
@@ -5873,15 +5881,24 @@ fn is_arg_head(e: &Expr) -> bool {
 
 impl Expander<'_> {
     /// [comptime-call] The template reference a call's callee spells, when it
-    /// is a comptime call: `[to_json@demo]` → `to_json@demo`, or a bare
-    /// `[to_json]` that is neither a binder nor a test's generated name.
+    /// is a comptime call: the parser's `[to_json@demo()]` → `to_json@demo`
+    /// (for `[to_json@demo(…)]`), `[to_json()]` → `to_json`.
     fn comptime_call_name(&self, callee: &str) -> Option<String> {
+        Some(callee.strip_prefix('[')?.strip_suffix("()]")?.to_string())
+    }
+
+    /// [comptime-access] A splice call's bracketed name, `[f](…)`, when it is
+    /// neither a binder nor a test's generated name (the error, with the
+    /// comptime call's spelling as a hint).
+    fn unknown_splice_callee(&self, callee: &str) -> Option<String> {
         let inner = callee.strip_prefix('[')?.strip_suffix(']')?;
-        if inner.contains('@') {
-            return Some(inner.to_string());
-        }
-        if inner.contains('.') || self.binding(inner).is_some() {
+        if inner.ends_with("()") || self.binding(inner).is_some() {
             return None;
+        }
+        if let Some(t) = &self.test {
+            if inner == format!("{}.body", t.binder) || inner == format!("{}.config", t.binder) {
+                return None;
+            }
         }
         Some(inner.to_string())
     }
@@ -5914,7 +5931,7 @@ impl Expander<'_> {
         }
     }
 
-    /// [comptime-call] `[call](args)`: stamps the named template at the first
+    /// [comptime-call] `[call(args)]`: stamps the named template at the first
     /// argument's type as a hidden fn of the file being expanded — once per
     /// (template, type), named before its body is expanded so a type that
     /// reaches itself calls the fn being stamped — and returns its name.

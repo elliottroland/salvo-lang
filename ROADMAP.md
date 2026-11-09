@@ -1704,10 +1704,10 @@ deliberately cut, in the order the decisions put it:
   record is COMPLETED.md's entry of that day). Not built: a hover on the
   bracketed name showing the picked template (the LSP shows nothing there).
   **Agent's calls, to confirm:** (a) the template is stamped at the type of
-  the call's *first* argument; (b) in `[x](…)` a binder named `x` wins over a
-  template named `x` (the splice it was before); (c) the subject of a `[when
+  the call's *first* argument; (b) retired: the call is spelled `[f(…)]`
+  since 2026-11-09, so it no longer overlaps the splice call `[x](…)`; (c) the subject of a `[when
   value]` is the arm's type in that arm's copy, but a runtime `if v is X`
-  narrows nothing the expansion sees, so `[f](v)` there stamps at `v`'s
+  narrows nothing the expansion sees, so `[f(v)]` there stamps at `v`'s
   declared type (in a union template, itself: a run-time loop); (d) the
   hidden fn's name is `__salvo_comptime_<module>_<name>_<n>`, the compiler's
   `__salvo_` prefix, which a program could spell; (e) the templates are the
