@@ -6846,11 +6846,33 @@ impl<'s> Parser<'s> {
         Some((args, named, end))
     }
 
-    /// [comptime-inline] A `[for binder in seq] { arg, … }` head in a call's
+    /// [comptime-list-for] Whether a list position (a call's arguments, a
+    /// struct literal's entries) is at a compile-time head: `[...for` — and
+    /// the old `[for`, to be refused with the spelling that replaces it.
+    fn at_list_for(&self) -> bool {
+        self.at(&TokenKind::LBracket)
+            && (matches!(self.peek_at(1).kind, TokenKind::KwFor)
+                || (matches!(self.peek_at(1).kind, TokenKind::Ellipsis) && matches!(self.peek_at(2).kind, TokenKind::KwFor)))
+    }
+
+    /// [comptime-list-for] The `...` of `[...for`: the head contributes
+    /// entries to the list it is in, as a spread does, rather than repeating
+    /// statements. Its absence is an error naming it; the head is read as if
+    /// it were there.
+    fn eat_list_spread(&mut self, open: Span) {
+        if self.at(&TokenKind::Ellipsis) {
+            self.bump();
+        } else {
+            self.error(messages::comptime_list_for_needs_spread(), open.to(self.peek().span));
+        }
+    }
+
+    /// [comptime-inline] A `[...for binder in seq] { arg, … }` head in a call's
     /// argument list.
     fn parse_arg_head(&mut self) -> Option<Expr> {
         let start = self.bump().span; // `[`
-        self.require_compfn(start, "a `[for …]` head");
+        self.require_compfn(start, "a `[...for …]` head");
+        self.eat_list_spread(start);
         self.bump(); // `for`
         let binder = self.ident_value("binder")?;
         self.expect(&TokenKind::KwIn)?;
@@ -6895,7 +6917,7 @@ impl<'s> Parser<'s> {
             // literal of one `InlineFor` whose entries are named `_arg` (a
             // recorded shortcut: no new `Expr` variant); the expansion unrolls
             // it and splices the values into the call's arguments.
-            if self.at(&TokenKind::LBracket) && matches!(self.peek_at(1).kind, TokenKind::KwFor) {
+            if self.at_list_for() {
                 let Some(head) = self.parse_arg_head() else {
                     self.group_depth -= 1;
                     return None;
@@ -7446,7 +7468,9 @@ impl<'s> Parser<'s> {
             // [col-no-literal].
             TokenKind::LBracket => {
                 self.in_compfn
-                    && (matches!(self.peek_at(2).kind, TokenKind::KwFor)
+                    // [comptime-list-for] `{ [...for … }` fills a literal; a
+                    // plain `{ [for … }` opens a block of statements.
+                    && ((matches!(self.peek_at(2).kind, TokenKind::Ellipsis) && matches!(self.peek_at(3).kind, TokenKind::KwFor))
                         || (matches!(self.peek_at(2).kind, TokenKind::Ident(_))
                             && matches!(self.peek_at(3).kind, TokenKind::RBracket)
                             && matches!(self.peek_at(4).kind, TokenKind::Colon)))
@@ -7499,10 +7523,10 @@ impl<'s> Parser<'s> {
                     kind: StructLitFieldKind::Spread(value),
                     span,
                 });
-            } else if self.at(&TokenKind::LBracket) && matches!(self.peek_at(1).kind, TokenKind::KwFor)
-            {
+            } else if self.at_list_for() {
                 let start = self.bump().span;
-                self.require_compfn(start, "a `[for …]` head");
+                self.require_compfn(start, "a `[...for …]` head");
+                self.eat_list_spread(start);
                 self.bump();
                 let binder = self.ident_value("binder")?;
                 self.expect(&TokenKind::KwIn)?;

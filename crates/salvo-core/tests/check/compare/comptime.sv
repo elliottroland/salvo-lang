@@ -100,7 +100,7 @@ export fns FromStrs<T> {
 }
 
 export comptime fn from_strs<T is Struct>(n: Int) [] -> T => n {
-    return T { [for f in T.fields] { [f]: n } }
+    return T { [...for f in T.fields] { [f]: n } }
 }
 // FILE: main.sv
 import decode
@@ -128,7 +128,7 @@ export fns FromStrs<T> {
 }
 
 export comptime fn from_strs<T is Struct>(n: Int) [] -> T => n {
-    return T { [for f in T.fields] { [f]: n } }
+    return T { [...for f in T.fields] { [f]: n } }
 }
 // FILE: main.sv
 import decode

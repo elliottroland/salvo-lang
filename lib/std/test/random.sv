@@ -527,7 +527,7 @@ export fn gen<T>(list: NonEmpty List<T>) [] -> Gen<Idx(list) Int> => list {
 export comptime fn gen<T is Struct>() [] -> Gen<T> {
     return Gen<T> { run: (rng: Mut Rng) -> {
         return T {
-            [for field in T.fields] {
+            [...for field in T.fields] {
                 [field]: draw@random(rng)
             }
         }

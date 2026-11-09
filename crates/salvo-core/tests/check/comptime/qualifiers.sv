@@ -53,7 +53,7 @@ comptime fn on_an_arm() [] -> Int {
 // ===== [comptime-arm] building a union arm =====
 
 // [comptime-arm] Each arm of a union is built in its copy: a struct arm by
-// `[arm.type] { [for f in arm.type.fields] { [f]: … } }`, a qualified arm by
+// `[arm.type] { [...for f in arm.type.fields] { [f]: … } }`, a qualified arm by
 // `[arm.type](value)` — its claim's constructor, told the subject when the
 // claim is generic — and `None` by `None`; calling a `None` arm is refused.
 struct Two { n: Int, m: Int }
@@ -67,7 +67,7 @@ comptime fn build(i: Int) [] -> Pick => i {
     [for arm in Pick.arms] {
         if i == arm.index {
             [if arm.kind is Struct] {
-                return [arm.type] { [for f in arm.type.fields] { [f]: arm.index } }
+                return [arm.type] { [...for f in arm.type.fields] { [f]: arm.index } }
             }
             [if arm.type is Tag *] {
                 return [arm.type](i)
@@ -84,7 +84,7 @@ comptime fn build_none_by_call(i: Int) [] -> Pick => i {
     [for arm in Pick.arms] {
         if i == arm.index {
             [if arm.kind is Struct] {
-                return [arm.type] { [for f in arm.type.fields] { [f]: arm.index } }
+                return [arm.type] { [...for f in arm.type.fields] { [f]: arm.index } }
             }
             [if arm.type is Tag *] {
                 return [arm.type](i)

@@ -73,7 +73,7 @@ comptime fn build(i: Int) [] -> Pick => i {
     [for arm in Pick.arms] {
         if i == arm.index {
             [if arm.kind is Struct] {
-                return [arm.type] { [for f in arm.type.fields] { [f]: make() } }
+                return [arm.type] { [...for f in arm.type.fields] { [f]: make() } }
             }
             [if arm.type is Ok *] {
                 return [arm.type](make())
@@ -284,7 +284,7 @@ export fns FromStrs<T> {
 }
 
 export comptime fn from_strs<T is Struct>(args: List<Str>) [] -> T => args {
-    return T { [for f in T.fields] { [f]: from_str@[site](get@list(args, f.index) ?: unreachable!()) ?: unreachable!() } }
+    return T { [...for f in T.fields] { [f]: from_str@[site](get@list(args, f.index) ?: unreachable!()) ?: unreachable!() } }
 }
 // FILE: main.sv
 import decode

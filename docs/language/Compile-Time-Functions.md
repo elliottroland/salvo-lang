@@ -323,6 +323,10 @@ Three things in that body are compile-time:
   [Whose names a stamped body sees](#whose-names-a-stamped-body-sees).)
 - **`a.[field]`** reads the field the enclosing `[for …]` is at. Inside a
   struct literal, `[field]: value` is the same entry.
+- **`[...for p in seq] { entry }`** fills a list: in a struct literal's
+  entries or a call's arguments it contributes one entry or one argument per
+  element, the way `...xs` contributes a list's elements, and its body is an
+  entry, not statements. A plain `[for …] { … }` repeats statements.
 - The binder exposes **`field.name`** (a string literal), **`field.type`**
   (the type itself), **`field.kind`** (what kind of type it is),
   **`field.index`**, **`field.first`**, **`field.last`**,
@@ -535,7 +539,7 @@ constructor, and `None` is `None`:
 comptime fn first() [] -> Pick {                 // type Pick = A | Ok Str | None
     [for arm in Pick.arms] {
         [if arm.kind is Struct] {
-            return [arm.type] { [for f in arm.type.fields] { [f]: make() } }
+            return [arm.type] { [...for f in arm.type.fields] { [f]: make() } }
         }
         [if arm.type is Ok *] {
             return [arm.type]("text")            // `Ok<Str>("text")`

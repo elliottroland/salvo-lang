@@ -4792,6 +4792,11 @@ messages! {
         "field `{field}` expects `{fty}`, found `{vty}`"
     );
 
+    // [comptime-list-for]
+    /// A `[for …]` head in a list position, written without the `...`.
+    comptime_list_for_needs_spread = "comptime-list-for:needs-spread" () =>
+        "a `[for …]` that fills a list (a call's arguments, a struct literal's entries) is written `[...for …]`: it contributes entries, as a `...` spread does, rather than repeating statements";
+
     // [expr-as-qual]
     /// A binding after `as!`/`as?`'s qualifier.
     expr_as_qual_binding = "expr-as-qual:binding" () =>

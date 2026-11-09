@@ -211,6 +211,22 @@ written `Inventory.Reserve` is one reference span covering the whole path;
 `expect_response` in the LSP tests panics on an error response, so tests that
 want one read the channel themselves.
 
+### 2026-11-05 — `[...for]` for a head that fills a list; a stamp at `(T, S)` no longer overflows ([comptime-list-for])
+
+User decision: a `[for …] { entry }` in a struct literal or a call's arguments
+is not a statement loop (it contributes entries, with the list's commas), so it
+is spelled `[...for …]`, like the runtime spread `...xs`; `...[for …]` was
+rejected as reading like a runtime spread. The plain spelling in a list
+position is a parse error naming the new one; every use (std's test kinds,
+`args`, `random`, the docs and tests) was rewritten. A side benefit: `{ [for`
+is a block and `{ [...for` a struct literal, where the parser used to treat
+every `{ [for` inside a compfn as a literal. Also fixed: `fn f<T, S>(t: (T,
+S)) … by f` substituted the template's `T` into `(T, S)` without end and
+overflowed the stack (the language server died on it); a tuple naming the
+fn's own type parameters is now a generic target, refused as `Wrapper<T>` is
+(`comptime-generic:generic-target`). Stamping at a generic tuple (an implicit
+per element) is the ROADMAP §2c item that covers generic structs too.
+
 ### 2026-11-05 — `as!`/`as?`, templates checked where declared, the template line at a stamp ([expr-as-qual] [comptime-template-check] [comptime-template-note])
 
 User decisions after trying the JSON demo. (1) Instead of checking literals

@@ -152,7 +152,7 @@ no-check
 [for p in test.params] {
     let [p]: [p.type] = draw_with@std.test.random<[p.type]>(rng, gen@[site]())
 }
-[test.body]([for p in test.params] { [p] })
+[test.body]([...for p in test.params] { [p] })
 ```
 
 The `[for p in test.params] { [p] }` in the call is a head in argument

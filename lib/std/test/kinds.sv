@@ -92,7 +92,7 @@ comptime fn property(test: Test, runs: Int = 100, seed: Long? = None, runtime: S
         let rng = attempt_rng@std.test.property(run)
         begin_property_attempt@std.test.property(long@std.test.random(rng))
         [for p in test.params] {
-            let [p]: [p.type] = draw_with@std.test.random<[p.type]>(rng, gen@[site]([for s in p.type.slots] { [s] }))
+            let [p]: [p.type] = draw_with@std.test.random<[p.type]>(rng, gen@[site]([...for s in p.type.slots] { [s] }))
         }
         let shown: Mut List<Str> = Mut List<Str>()
         if wants_shown@std.test.property(run) {
@@ -102,7 +102,7 @@ comptime fn property(test: Test, runs: Int = 100, seed: Long? = None, runtime: S
         }
         let failure = trapped_by_once@std.test(() -> {
             let outcome = try {
-                [test.body]([for p in test.params] { [p] })
+                [test.body]([...for p in test.params] { [p] })
             }
             return when outcome {
                 is Ok {

@@ -2229,7 +2229,7 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
         return Errs(errors)
     }
     return Ok(T {
-        [for field in T.fields] {
+        [...for field in T.fields] {
             [field]: eval@args<[field.type]>(() -> {
                 [if field is Subcommand] {
                     [if field.kind is Union] {

@@ -2407,11 +2407,11 @@ fn a_test_carries_its_kind_arguments_and_parameters() {
 #[test]
 fn a_for_head_in_a_call_s_arguments_needs_a_comptime_fn() {
     let (_, diagnostics) = salvo_syntax::parse_module(
-        "comptime fn f(test: Test) -> Verdict {\n    return g([for p in test.params] { [p] })\n}\n",
+        "comptime fn f(test: Test) -> Verdict {\n    return g([...for p in test.params] { [p] })\n}\n",
     );
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "{errors:?}");
-    let (_, diagnostics) = salvo_syntax::parse_module("fn f() -> Int {\n    return g([for p in ps] { p })\n}\n");
+    let (_, diagnostics) = salvo_syntax::parse_module("fn f() -> Int {\n    return g([...for p in ps] { p })\n}\n");
     assert!(diagnostics.iter().any(|d| d.is_error()), "outside a comptime fn it is refused");
 }
 
@@ -3437,4 +3437,19 @@ fn as_bang_and_as_question_are_sugar_for_a_test() {
     // A name after the qualifier is refused: nothing is named.
     let (_, diags) = salvo_syntax::parse_module_deferred("fn f() {\n    let a = 36 as! Positive p\n}\n");
     assert!(diags.iter().any(|d| d.id == Some("expr-as-qual:binding")), "{diags:?}");
+}
+
+// [comptime-list-for] A head that fills a list is `[...for`; the plain `[for`
+// there is refused naming it, and `{ [for` opens a block of statements.
+#[test]
+fn a_list_for_head_is_spelled_with_a_spread() {
+    let ok = salvo_syntax::parse_module("comptime fn f<T is Struct>(t: T) -> Int {\n    g([...for p in T.fields] { [p] })\n    return T { [...for f in T.fields] { [f]: 1 } }\n}\n");
+    assert!(ok.1.is_empty(), "{:?}", ok.1);
+    let plain_arg = salvo_syntax::parse_module("comptime fn f<T is Struct>(t: T) -> Int {\n    return g([for p in T.fields] { [p] })\n}\n");
+    assert!(plain_arg.1.iter().any(|d| d.id == Some("comptime-list-for:needs-spread")), "{:?}", plain_arg.1);
+    let plain_entry = salvo_syntax::parse_module("comptime fn f<T is Struct>(t: T) -> Int {\n    return T { a: 1, [for f in T.fields] { [f]: 1 } }\n}\n");
+    assert!(plain_entry.1.iter().any(|d| d.id == Some("comptime-list-for:needs-spread")), "{:?}", plain_entry.1);
+    // A statement head after `{` is a block, not a literal.
+    let block = salvo_syntax::parse_module("comptime fn f<T is Struct>(t: T) -> Int {\n    let g = () -> { [for p in T.fields] { h() }\n        return 1 }\n    return 0\n}\n");
+    assert!(block.1.iter().all(|d| d.id != Some("comptime-list-for:needs-spread")), "{:?}", block.1);
 }

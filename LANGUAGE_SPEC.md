@@ -6328,7 +6328,7 @@ Conventions:
     from outside the branch: the expansion replaces every remaining use of
     the name. Pick a fresh name; nothing checks it yet.
 * [comptime-arm] **A copy over a union's arms can build its arm** (the CLI design record
-  X5, Q6; built 2026-10-20). A struct arm is `[arm.type] { [for f in
+  X5, Q6; built 2026-10-20). A struct arm is `[arm.type] { [...for f in
   arm.type.fields] { [f]: … } }` [comptime-inline]; a qualified arm is
   `[arm.type](value)`, a call to its claim's type-named constructor
   [fn-type-named] — `Ok(value)` for an `Ok Str` arm, as one writes it, with
@@ -6678,10 +6678,19 @@ Conventions:
   named type or a literal: a union or optional is refused naming the type.
 * [comptime-access] **`v.[field]`** reads the field an enclosing `[for …]`
   is at (the binder in brackets), rewritten by the expansion to `v.name`;
-  **`[field]: expr`** is the same entry in a struct literal, and `[for
+  **`[field]: expr`** is the same entry in a struct literal, and `[...for
   field in T.fields] { [field]: … }` inside a literal produces one entry per
   field — how a comptime fn builds a `T`, exhaustively by construction (parsed and
   expanded; its first customer is the codec slice).
+* [comptime-list-for] **A head that fills a list is written `[...for …]`**
+  (user decision 2026-11-05): in a struct literal's entries or a call's
+  arguments, `[...for p in seq] { entry }` contributes one entry (`[f]: value`)
+  or one argument per element, with the commas of the list and no statements,
+  as a `...` spread contributes a list's elements. A statement `[for …]`
+  repeats its statements instead; the `...` is what tells the two apart, and
+  what lets `{ [for …` open a block and `{ [...for …` a struct literal
+  without the parser guessing. The old spelling in a list position is refused
+  naming the new one.
 * [comptime-refuse] **`refuse!("…")`** is an error at the instantiation site
   (the `by`), in the caller's terms: the literal text with `${T.name}`-style
   names substituted, prefixed "`P` refused:". Spelled with the bang and parens
