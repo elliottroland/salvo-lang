@@ -175,3 +175,18 @@ fn lambda_the_overloads_agree_on() -> None {
     let _a: Int = pick((x) -> x, 2)
     let _b: Int = pick((x) -> x, "s")
 }
+
+// A type variable among a union's arms stands for what it could be, so an
+// arm the variable covers is the more specific parameter: `Str` beats `T?`
+// for a `Str`, and a `Str?` — which `Str` does not accept — takes `T?`.
+// [fn-overload-rank]
+fn show(s: Str) [] -> Str { return "s" }
+fn encode<T>(value: T?, ?show: (T) -> Str) [] -> Str => !value { return "maybe" }
+fn encode(value: Str) [] -> Bool { return true }
+
+fn a_variable_in_a_union_ranks_below_its_arm() -> None {
+    let present: Str = "x"
+    let maybe: Str? = "y"
+    let _arm: Bool = encode(present)
+    let _union: Str = encode(maybe)
+}

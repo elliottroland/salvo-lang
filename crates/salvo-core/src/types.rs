@@ -1398,7 +1398,7 @@ pub fn spec_cmp(a: &Ty, b: &Ty) -> Option<std::cmp::Ordering> {
         // is how an arm beats the union it belongs to.
         (Ty::Union(_), _) | (_, Ty::Union(_)) => {
             let (aa, ba) = (a.arms(), b.arms());
-            set_cmp(aa, ba)
+            arms_cmp(aa, ba)
         }
         (Ty::Named { name: na, args: aa }, Ty::Named { name: nb, args: ab })
             if na == nb && aa.len() == ab.len() =>
@@ -1434,6 +1434,26 @@ pub fn spec_cmp(a: &Ty, b: &Ty) -> Option<std::cmp::Ordering> {
 /// sorted, so this is just a projection).
 fn qual_names(ty: &Ty) -> Vec<&str> {
     ty.quals().iter().map(|q| q.name.as_str()).collect()
+}
+
+/// [fn-overload-rank] Union arms as a specificity comparison: like
+/// [`set_cmp`], but an arm is *covered* by a less specific arm as well as by
+/// itself, so a type variable among the arms stands for what it could be.
+/// `Str` is inside `T | None` (the variable covers it) and `T | None` is not
+/// inside `Str`, which makes `Str` the more specific parameter.
+fn arms_cmp(a: &[Ty], b: &[Ty]) -> Option<std::cmp::Ordering> {
+    use std::cmp::Ordering::*;
+    let covered = |x: &Ty, ys: &[Ty]| {
+        ys.iter().any(|y| x == y || matches!(spec_cmp(x, y), Some(Greater) | Some(Equal)))
+    };
+    let a_in_b = a.iter().all(|x| covered(x, b));
+    let b_in_a = b.iter().all(|y| covered(y, a));
+    match (a_in_b, b_in_a) {
+        (true, true) => Some(Equal),
+        (true, false) => Some(Greater),
+        (false, true) => Some(Less),
+        (false, false) => None,
+    }
 }
 
 /// [fn-overload-rank] Set inclusion as a specificity comparison: the

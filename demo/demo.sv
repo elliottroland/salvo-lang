@@ -23,18 +23,10 @@ fn main() [use, spawn] {
     println(person.to_json())
 }
 
-// TODO: No hover for `Struct` here
 comptime fn to_json<T is Struct>(t: T) -> Str {
-    // TODO: Go-to definition should work for contructor-type functions
     let json = Mut Str("{")
-    // TODO: Should get auto-complete when typing `[`
-    // TODO: Should get auto-complete on comptime fields, like `t.`
-    [for field in t.fields] {
-        // TODO: The auto-complete doesn't include the `.append` here? 
+    [for field in T.fields] {
         json.append@string("\"${field.name}\": ")
-        // TODO: No quick-fix for adding the when-arms here
-        // TODO: I originally wrote `field.type` and then switched it to `field.kind`, but I still get a hover for `field.type` here
-        // TODO: The doc for the arms here is outdated. It should fetch this info from the comptime.sv module
         [when field.kind] {
             // TODO: No hover for the arm types here
             is Struct { json.append@string(t.[field]) }
@@ -55,4 +47,27 @@ comptime fn to_json<T is Struct>(t: T) -> Str {
 
 fn to_json<T>(list: List<T>, ?to_json: (T) -> Str) -> Str {
     return "[${list.map(to_json).join(",")}]"
+}
+
+fn to_json(str: Str) -> Str {
+    return "\"${str}\""
+}
+
+fn to_json(none: None) -> Str {
+    return "null"
+}
+
+// TODO: We should support a way of doing a when over a union spread
+// fn to_json<T, S>(value: T | ...S, ?to_json: (T) -> Str) -> Str {
+//     return when value {
+//         is T { value.to_json() }
+//         is ...S { to_json(value) }
+//     }
+// }
+
+fn to_json<T>(value: T?, ?to_json: (T) -> Str) -> Str {
+    return when value {
+        is None { "null" }
+        is T { value.to_json() }
+    }
 }

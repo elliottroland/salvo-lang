@@ -3532,7 +3532,13 @@ Conventions:
      `Int | Str` beats `Int | Str | Bool`, and `Int` beats `Int?`. `Any` is
      the broadest type, so it is always least specific — which is why the
      written `Any` lowers to `Ty::Any` rather than a nominal type
-     [type-any-never];
+     [type-any-never]. An arm is *inside* a union when some arm of it is
+     the same or less specific (rule 1), so a **type variable among the arms
+     stands for what it could be**: `Str` is inside `T?` and `T?` is not
+     inside `Str`, which makes `fn f(s: Str)` the more specific overload for a
+     `Str`, while a `Str?` — which `Str` does not accept — takes `f<T>(v: T?)`
+     (user expectation 2026-11-05; the sets used to compare by equality of
+     arms, which left them unrankable);
   3. **qualifier sets compare by inclusion**: more qualifiers says more, and
      the *kind* never ranks (`Mut List<T>` and `NonEmpty List<T>` are
      unrankable, deliberately — ranking them would ask the caller to know
