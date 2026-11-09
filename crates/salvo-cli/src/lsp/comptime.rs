@@ -414,6 +414,20 @@ impl Server<'_> {
         base_type_name(span_text(text, param.span).split_once(':')?.1)
     }
 
+    /// Where `std.core.comptime` declares `owner` (a model struct or `type`),
+    /// or with a `member` its field.
+    fn model_location(&self, analysis: &Analysis, owner: &str, member: &str) -> Option<lsp_types::Location> {
+        let (idx, item) = self.model_decl(analysis, owner)?;
+        let span = match item {
+            Item::Struct(s) if !member.is_empty() => s.fields.iter().find(|f| f.name.name == member)?.name.span,
+            Item::Struct(s) => s.name.span,
+            Item::Type(t) => t.name.span,
+            _ => return None,
+        };
+        let (uri, range) = self.site_location(analysis, idx, span)?;
+        Some(lsp_types::Location { uri, range })
+    }
+
     /// Go-to-definition for a call in a comptime body: the fns of that name
     /// in scope (`@module` narrowing them), a type-named constructor included.
     pub(super) fn comptime_definition(
@@ -424,7 +438,6 @@ impl Server<'_> {
     ) -> Vec<lsp_types::Location> {
         let text = view.content;
         let Some(f) = compfn_at(text, offset) else { return Vec::new() };
-        let _ = f;
         let bytes = text.as_bytes();
         let at = offset as usize;
         if at >= bytes.len() || !word_char(bytes[at]) {
@@ -437,6 +450,31 @@ impl Server<'_> {
         while end < bytes.len() && word_char(bytes[end]) {
             end += 1;
         }
+        // The compile-time model: a projection (`field.type`, `T.fields`)
+        // goes to the member's declaration in `std.core.comptime`, a model
+        // type (`Struct`, `Kind`, `Field`…) to its own.
+        let member = analysis
+            .comptime_hovers
+            .iter()
+            .filter(|h| h.file == view.file && h.span.holds(offset))
+            .min_by_key(|h| h.span.len())
+            .and_then(|h| h.doc_of.clone());
+        let word = &text[start..end];
+        let own_struct = {
+            let (written, _) = (salvo_syntax::parse_module_deferred(text), ());
+            written.0.items.iter().any(|i| matches!(i, Item::Struct(s) if s.name.name == word))
+        };
+        let model_target = match member {
+            Some((owner, member)) => Some((owner, member)),
+            None if word.starts_with(|c: char| c.is_uppercase()) && !own_struct => Some((word.to_string(), String::new())),
+            None => None,
+        };
+        if let Some((owner, member)) = model_target {
+            if let Some(location) = self.model_location(analysis, &owner, &member) {
+                return vec![location];
+            }
+        }
+        let _ = f;
         let Some(selector) = call_selector(text, end) else { return Vec::new() };
         let Some(by_name) = analysis.overloads.get(view.file) else { return Vec::new() };
         let sites_for = |keys: &[String]| -> Vec<salvo_core::DefSite> { sites_by_keys(analysis, view.file, keys) };

@@ -4532,6 +4532,16 @@ fn comptime_bodies_navigate_complete_and_fix() {
         let result = expect_response(&lsp.rx, id)["result"].clone();
         assert!(!result.is_null(), "no definition for `{needle}`");
     }
+    // The compile-time model: a kind word, an arm's, and a projection go to
+    // their declarations in `std.core.comptime`.
+    for (needle, shift) in [("T is Struct", 5usize), ("is Opaque", 4), ("field.kind", 8), ("T.fields", 3)] {
+        let (line, col) = pos_of(t, needle, 0, shift);
+        id += 1;
+        send(&mut lsp.stdin, json!({"jsonrpc":"2.0","id":id,"method":"textDocument/definition","params":{"textDocument":{"uri":uri},"position":{"line":line,"character":col}}}));
+        let result = expect_response(&lsp.rx, id)["result"].clone();
+        let target = result["uri"].as_str().unwrap_or_else(|| panic!("no definition for `{needle}`: {result}"));
+        assert!(target.ends_with("core/comptime.sv"), "`{needle}` goes to {target}");
+    }
     // Completion: scenarios replace the line `        json.append@string("x")`.
     let mut version = 1;
     let mut complete_after = |lsp: &mut Lsp, typed: &str| -> Vec<String> {
