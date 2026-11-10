@@ -264,3 +264,154 @@ struct P : Shown<self> by auto {
 fn same(p: P, q: P) [] -> Bool => p, q {
     return eq(p, q)
 }
+
+//--- a named union's body declares fns on it
+// [type-union-body] [fn-attached] A named union's body holds fns exactly as a
+// struct body does: ordinary overloads, called bare or with dot notation,
+// named by the union's selector at a call and as a value.
+struct Dot {
+    at: Int
+}
+
+struct Line {
+    from: Int,
+    to: Int
+}
+
+type Mark = Dot | Line {
+    fn cmp(a: Mark, b: Mark) [] -> Int => a, b {
+        return cmp(weight(a), weight(b))
+    }
+
+    fn weight(m: proj Mark) [] -> Int {
+        return when m {
+            is Dot { 1 }
+            is Line { m.to - m.from }
+        }
+    }
+}
+
+fn min_of<T>(a: T, b: T, ?Ordered<T>) [] -> T
+=> !a, !b {
+    if cmp(a, b) <= 0 {
+        return a
+    }
+    return b
+}
+
+fn pick(a: Mark, b: Mark) [] -> Mark => !a, !b {
+    let _bare = weight(a)
+    let _dot = b.weight()
+    let _selected = cmp@Mark(a, b)
+    let _value = weight@Mark
+    return min_of(a, b, cmp = cmp@Mark)
+}
+
+//--- a named union's fns travel with it
+// FILE: marks.sv
+// [type-union-body] [fn-attached] Importing the union imports what its body
+// declares, which takes the union's visibility: an exported union's fns are
+// usable wherever it is, and a private union's are nobody else's.
+export struct Dot {
+    at: Int
+}
+
+export struct Line {
+    from: Int,
+    to: Int
+}
+
+export type Mark = Dot | Line {
+    fn weight(m: proj Mark) [] -> Int {
+        return when m {
+            is Dot { 1 }
+            is Line { m.to - m.from }
+        }
+    }
+}
+
+export struct Tick {}
+
+export struct Tock {}
+
+type Beat = Tick | Tock {
+    fn length(b: proj Beat) [] -> Int {
+        return 1
+    }
+}
+// FILE: main.sv
+import marks.Mark
+import marks.Tick
+
+fn total(a: Mark, b: Mark) [] -> Int => a, b {
+    return weight(a) + b.weight() + weight@Mark(a)
+}
+
+fn beat(t: Tick) [] -> Int => t {
+    //~ error[call-resolve:unknown-fn]
+    return length(t)
+}
+
+//--- a named union's obligations, met by its body
+// [type-union-body] [group-obligation] [fn-by] An obligation on a named union
+// is met as on a struct: a hand-written body fn, a `by` stamp of one body fn
+// keeping its signature, or a `by` on the clause, and a bare promise is
+// checked at the declaration.
+struct Dot {
+    at: Int
+}
+
+struct Line {
+    from: Int,
+    to: Int
+}
+
+struct Tick {}
+
+struct Tock {}
+
+struct Up {}
+
+struct Down {}
+
+type Mark = Dot | Line : Hashed<self>, ToStr<self> {
+    fn hash(m: Mark) [] -> Long => m {
+        return 1
+    }
+
+    fn eq(a: Mark, b: Mark) [] -> Bool => a, b {
+        return true
+    }
+
+    fn to_str(value: Mark) -> Str by auto
+}
+
+type Beat = Tick | Tock : Ordered<self> by auto, Eq<self> by auto
+
+//~ error[group-obligation:no-member]
+type Turn = Up | Down : ToStr<self> {
+    fn other(t: Turn) [] -> Int => t {
+        return 1
+    }
+}
+
+fn probe(m: Mark, b: Beat, c: Beat) [] -> Bool => m, b, c {
+    let _h = hash@Mark(m)
+    let _s = "${m}"
+    let _o = cmp@Beat(b, c)
+    return b < c
+}
+
+//--- a fn inside a named union's body takes the union's visibility
+// [type-union-body] [fn-attached] `export` on one is a parse error, as in a
+// struct body.
+struct Dot {}
+
+struct Line {}
+
+export type Mark = Dot | Line {
+    //~ error[fn-attached:export-inside-body]
+    export fn weight(m: Mark) [] -> Int => m {
+        return 1
+    }
+}

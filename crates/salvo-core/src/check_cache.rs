@@ -1005,6 +1005,7 @@ pub(crate) fn interface_of(content: &str, module: &Module) -> (Vec<(u32, u32)>, 
         match item {
             Item::Fn(f) => push(f),
             Item::Struct(s) => s.fns.iter().for_each(&mut push),
+            Item::Type(t) => t.fns.iter().for_each(&mut push),
             Item::Handler(h) => h.fns.iter().for_each(&mut push),
             Item::Qualifier(q) => q.fns.iter().for_each(&mut push),
             _ => {}
@@ -1363,6 +1364,7 @@ fn walk_item_in<V: Visitor>(c: &mut V, it: &Item) {
             auto_qualifiers,
             alias,
             obligations: obs,
+            fns,
             refns,
             span: _,
         }) => {
@@ -1377,6 +1379,10 @@ fn walk_item_in<V: Visitor>(c: &mut V, it: &Item) {
             obligations(c, obs);
             for r in refns {
                 refn(c, r);
+            }
+            // [type-union-body] Empty once hoisted, as a struct's are.
+            for f in fns {
+                func(c, f);
             }
         }
         Item::Struct(ast::StructDecl {

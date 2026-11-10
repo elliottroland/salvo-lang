@@ -161,6 +161,7 @@ fn collect_fns<'a>(items: &'a [Item], out: &mut Vec<&'a FnDecl>) {
             }
             Item::Qualifier(q) => out.extend(q.fns.iter()),
             Item::Struct(s) => out.extend(s.fns.iter()),
+            Item::Type(t) => out.extend(t.fns.iter()),
             Item::Namespace(n) => collect_fns(&n.items, out),
             _ => {}
         }

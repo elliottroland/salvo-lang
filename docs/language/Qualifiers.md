@@ -772,8 +772,8 @@ into the refinements by opting into the qualifier.
 it refines.** There is no top-level form. A qualifier is entitled to say what
 happens to its claim; and for a claim generic over its subject, like std's
 `NonEmpty`, the type's own author is the one who knows what its functions do.
-So a struct's body, or an opaque type's `{ … }` body, may hold refinements
-about that type:
+So a struct's body, a named union's, or an opaque type's `{ … }` body, may
+hold refinements about that type:
 
 ```salvo
 export iterable platform type List<T canbe linear> canbe Mut : Iter<self, ListIter<T>, T> {

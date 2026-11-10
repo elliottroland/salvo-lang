@@ -458,6 +458,54 @@ unrestricted, because reading one twice costs nothing.
 tests joined with `||`, which narrows the same way, so it is written over a
 variable or a field (bind a call's result first), and it binds nothing.
 
+### A named union's functions
+
+A union with a name, `type Shape = Circle | Square`, is a declaration of its
+own, and it can declare functions in a body after the alias, exactly as a
+struct does in its body:
+
+```salvo
+struct Circle { radius: Int }
+struct Square { side: Int }
+
+type Shape = Circle | Square : ToStr<self> {
+    fn to_str(shape: Shape) -> Str {
+        return when shape {
+            is Circle { "a circle of ${shape.radius}" }
+            is Square { "a square of ${shape.side}" }
+        }
+    }
+
+    fn area(shape: proj Shape) -> Int {
+        return when shape {
+            is Circle { 3 * shape.radius * shape.radius }
+            is Square { shape.side * shape.side }
+        }
+    }
+}
+```
+
+Each one is an ordinary function, called bare or with dot notation
+(`area(s)`, `s.area()`), that is **declared on the union**: it travels with
+the type wherever it is imported, takes the type's visibility (an exported
+union's functions are exported, and writing `export` on one is an error), and
+`area@Shape` names it at a call or as a value. The obligation clause, when
+there is one, stands between the alias and the body, and the body is one way
+of meeting it, as for a struct ([Comparison and
+hashing](Comparison-and-Hashing.md#declaring-them-on-your-own-type)). A
+function on an arm's own type is a separate overload: above, a `Circle`
+passed to `to_str` would still reach `Circle`'s own `to_str` if it had one,
+and a `Shape` reaches the union's.
+
+The body holds functions and [refinements](Qualifiers.md#where-refinements-live)
+only, since a union's data is in its arms. Only a union has one: an alias
+that names one type (`type Id = Int`) is another name for that type, with no
+functions of its own, and a body on it is an error.
+
+The name is still an alias ([Type aliases](Generics-and-Aliases.md#type-aliases)):
+two named unions of the same arms are one type, so a function declared on one
+is a function of the other too.
+
 ### Unions of literals
 
 A literal is a type too: the type whose one value is that literal. A union of

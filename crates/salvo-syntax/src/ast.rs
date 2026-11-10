@@ -413,11 +413,35 @@ pub struct TypeDecl {
     /// declares its canonical one. Written last, after the alias or the
     /// `canbe` list.
     pub obligations: Vec<Obligation>,
-    /// [qual-refn-type] The refinements of an opaque type's optional body
-    /// (`platform type List<T> … { refn add(…) => list: +NonEmpty }`): the
-    /// only thing such a body may hold.
+    /// [type-union-body] [fn-attached] Functions written inside a **named
+    /// union**'s body (`type Json = A | B { fn to_str(json: proj Json) -> Str
+    /// … }`): declared on the type exactly as a struct body's are, hoisted to
+    /// module level by the same desugaring. Always empty on an opaque type,
+    /// whose body holds refinements only.
+    pub fns: Vec<FnDecl>,
+    /// [qual-refn-type] The refinements of the optional body: an opaque
+    /// type's (`platform type List<T> … { refn add(…) => list: +NonEmpty }`),
+    /// where they are all the body may hold, or a named union's
+    /// [type-union-body], beside its fns.
     pub refns: Vec<RefnDecl>,
     pub span: Span,
+}
+
+impl TypeDecl {
+    /// [type-union-body] Whether this declaration names a union — `A | B`, or
+    /// `T?`, which is `T | None` — and so may have a body of fns: the alias
+    /// form that is a type of its own arms rather than another name for one
+    /// type.
+    pub fn is_named_union(&self) -> bool {
+        Self::alias_is_union(self.alias.as_ref())
+    }
+
+    /// [type-union-body] Whether an alias's right-hand side is a union, the
+    /// test [`TypeDecl::is_named_union`] makes, for the parser, which asks
+    /// before the declaration is built.
+    pub fn alias_is_union(alias: Option<&Type>) -> bool {
+        matches!(alias, Some(Type::Union { .. } | Type::Nullable { .. }))
+    }
 }
 
 /// `struct Person canbe Mut { name: Str, ... }`, optionally with an
@@ -463,7 +487,8 @@ pub struct StructDecl {
     /// [fn-attached] Functions written **inside** the body: declared on the
     /// type, so they travel with it wherever it is imported and take their
     /// visibility from it. Hoisted to module level by desugaring, which is
-    /// where they get their attachment.
+    /// where they get their attachment (a named union's body is hoisted the
+    /// same way, `TypeDecl::fns` [type-union-body]).
     pub fns: Vec<FnDecl>,
     /// [qual-refn-type] Refinements written in the body: the type's author
     /// stating what its own functions do to a generic claim
@@ -1245,7 +1270,8 @@ pub struct FnDecl {
     /// named type and is not callable with dot-notation [fn-type-named].
     pub type_name: Option<Type>,
     /// [fn-attached] The type this fn is **declared on**, set when a fn written
-    /// *inside* a struct body was hoisted to module level (user decision
+    /// *inside* a struct body — or a named union's [type-union-body] — was
+    /// hoisted to module level (user decision
     /// 2026-09-26). An ordinary top-level overload with two extra properties —
     /// it *travels with the type* (importing `Person` imports it, so it is in
     /// scope wherever the type is usable) and it is the **default selection**

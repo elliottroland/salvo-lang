@@ -396,13 +396,15 @@ impl Printer<'_> {
             self.newline();
             first = false;
         }
-        // [fn-attached] A struct's fns go back in its body.
+        // [fn-attached] A struct's fns go back in its body, and a named
+        // union's [type-union-body].
         let mut attached: HashMap<&str, Vec<&FnDecl>> = HashMap::new();
         let structs: std::collections::HashSet<&str> = m
             .items
             .iter()
             .filter_map(|i| match i {
                 Item::Struct(s) => Some(s.name.name.as_str()),
+                Item::Type(t) if t.is_named_union() => Some(t.name.name.as_str()),
                 _ => None,
             })
             .collect();
@@ -472,7 +474,10 @@ impl Printer<'_> {
     fn item(&mut self, item: &Item, strip: Option<usize>, attached: &HashMap<&str, Vec<&FnDecl>>) {
         match item {
             Item::Import(i) => self.import(i),
-            Item::Type(t) => self.type_decl(t, strip),
+            Item::Type(t) => {
+                let fns = attached.get(t.name.name.as_str()).cloned().unwrap_or_default();
+                self.type_decl(t, strip, &fns)
+            }
             Item::Struct(s) => {
                 let fns = attached.get(s.name.name.as_str()).cloned().unwrap_or_default();
                 self.struct_decl(s, strip, &fns)
@@ -642,7 +647,7 @@ impl Printer<'_> {
         self.list(quals, ", ", |p, q| p.type_ref(q));
     }
 
-    fn type_decl(&mut self, t: &TypeDecl, strip: Option<usize>) {
+    fn type_decl(&mut self, t: &TypeDecl, strip: Option<usize>, fns: &[&FnDecl]) {
         self.comment_lines(&t.docs);
         let s = self.at();
         if t.exported {
@@ -679,10 +684,23 @@ impl Printer<'_> {
             self.ty(a);
         }
         self.obligations(&t.obligations);
-        if !t.refns.is_empty() {
+        // [type-union-body] A named union's fns, then its refinements, as a
+        // struct body prints them; an opaque type's body is refinements only.
+        let own: Vec<&FnDecl> = t.fns.iter().chain(fns.iter().copied()).collect();
+        if !own.is_empty() || !t.refns.is_empty() {
             self.push(" {");
             self.indent += 1;
-            for r in &t.refns {
+            for (i, f) in own.iter().enumerate() {
+                if i > 0 {
+                    self.newline();
+                }
+                self.newline();
+                self.fn_decl(f, None, false);
+            }
+            for (i, r) in t.refns.iter().enumerate() {
+                if i == 0 && !own.is_empty() {
+                    self.newline();
+                }
                 self.newline();
                 self.refn(r);
             }

@@ -70,10 +70,10 @@ use crate::span::Span;
 /// Diagnostics are returned rather than thrown: an `iter fn` that cannot be
 /// expanded is dropped, so the rest of the module still parses and checks.
 pub fn expand_iter_fns(module: &mut Module) -> Vec<Diagnostic> {
-    // [fn-attached] The struct-body hoist, run here because this is the one
-    // entry point every consumer of a parsed module already calls — so no path
-    // can forget it.
-    hoist_struct_fns(module);
+    // [fn-attached] [type-union-body] The body hoist, run here because this
+    // is the one entry point every consumer of a parsed module already calls
+    // — so no path can forget it.
+    hoist_body_fns(module);
     let mut diags = Vec::new();
     let mut expanded: Vec<Item> = Vec::with_capacity(module.items.len());
     for item in std::mem::take(&mut module.items) {
@@ -1514,11 +1514,6 @@ pub fn lower_module(module: &mut Module) -> Vec<Diagnostic> {
     diags
 }
 
-/// [fn-attached] Hoists every fn written inside a struct body to module level,
-/// attached to the type and carrying its visibility. Hoisted rather than kept
-/// nested because it *is* an ordinary top-level function in every other
-/// respect — it overloads, it is called bare or with dot notation, and it
-/// takes part in ranking. A `by` declaration [fn-by] and a concrete `compfn`
 /// [mod-namespace] Flattens every `namespace X { … }` into dotted top-level
 /// declarations before anything else sees the module. A member `Thing` inside
 /// `namespace X` becomes a top-level declaration named `X.Thing`; nested
@@ -1665,14 +1660,24 @@ fn prefix_item_name(
     }
 }
 
+/// [fn-attached] Hoists every fn written inside a struct body — or a named
+/// union's [type-union-body] — to module level, attached to the type and
+/// carrying its visibility. Hoisted rather than kept nested because it *is*
+/// an ordinary top-level function in every other respect — it overloads, it
+/// is called bare or with dot notation, and it takes part in ranking. A `by`
+/// declaration [fn-by] and a concrete `compfn`
 /// [comptime-bound] in the body travel the same way; the comptime expansion
-/// finds them at module level afterwards.
-pub fn hoist_struct_fns(module: &mut Module) {
+/// finds them at module level afterwards. One hoist for both kinds of body,
+/// so a union's canonical functions are a struct's in every later pass.
+pub fn hoist_body_fns(module: &mut Module) {
     let mut generated: Vec<Item> = Vec::new();
     for item in &mut module.items {
-        let Item::Struct(s) = item else { continue };
-        let (exported, name) = (s.exported, s.name.clone());
-        for mut f in std::mem::take(&mut s.fns) {
+        let (exported, name, fns) = match item {
+            Item::Struct(s) => (s.exported, &s.name, &mut s.fns),
+            Item::Type(t) => (t.exported, &t.name, &mut t.fns),
+            _ => continue,
+        };
+        for mut f in std::mem::take(fns) {
             f.exported = exported;
             f.scoped_to = Some(name.clone());
             generated.push(Item::Fn(f));

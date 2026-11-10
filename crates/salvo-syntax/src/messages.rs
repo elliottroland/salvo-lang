@@ -681,10 +681,10 @@ messages! {
     );
 
     // [fn-attached]
-    /// `export` on a function declared inside a struct.
-    fn_attached_export_inside_struct = "fn-attached:export-inside-struct" () =>
-        "a function declared inside a struct takes the struct's own visibility: drop the \
-         `export` (export the struct instead)";
+    /// `export` on a function declared inside a struct's or a named union's body.
+    fn_attached_export_inside_body = "fn-attached:export-inside-body" () =>
+        "a function declared inside a type's body takes the type's own visibility: drop \
+         the `export` (export the type instead)";
     /// A declaration written with a `@` selector.
     fn_attached_at_selector = "fn-attached:at-selector" (target: &str) => format!(
         "a declaration does not take a `@` selector: write the function inside \
@@ -1002,11 +1002,6 @@ messages! {
     );
 
     // [qual-refn-type]
-    /// A body on a type alias.
-    qual_refn_type_alias_body = "qual-refn-type:alias-body" () => format!(
-        "a type alias has no body: only an opaque type declaration takes one, to hold \
-         its refinements"
-    );
     /// A type's refinement stating about a parameter of another type.
     qual_refn_type_other_subject = "qual-refn-type:other-subject" (ty: &str, param: &str, written: &dyn std::fmt::Display) => format!(
         "a refinement in `{ty}`'s body states what a call does to a `{ty}`, but `{param}` \
@@ -1022,6 +1017,19 @@ messages! {
     qual_refn_type_only_refns = "qual-refn-type:only-refns" (found: &str) => format!(
         "expected `refn` or `}}` in a type's body, found {found}: an opaque type's body \
          holds refinements only"
+    );
+
+    // [type-union-body]
+    /// A body on an alias that does not name a union.
+    type_union_body_not_a_union = "type-union-body:not-a-union" (name: &str) => format!(
+        "`{name}` is another name for one type, and an alias like that has no body: a \
+         body is for a named union (`type {name} = A | B {{ … }}`), an opaque type or a \
+         struct. Declare the functions at top level"
+    );
+    /// Something other than a `fn` or a `refn` in a named union's body.
+    type_union_body_only_fns = "type-union-body:only-fns" (found: &str) => format!(
+        "expected `fn`, `refn` or `}}` in a named union's body, found {found}: the body \
+         holds the union's functions and refinements, and its data is in its arms"
     );
 
     // [qual-value-arg]

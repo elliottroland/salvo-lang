@@ -30,3 +30,28 @@ fn mutate(person: Mut Person) {
 fn interpolate(person: Person) -> Str {
     return "Surname is ${person.surname ?: unreachable!()}"
 }
+
+struct Circle {
+    radius: Int
+
+    fn area(circle: Circle) -> Int {
+        return 3 * circle.radius * circle.radius
+    }
+}
+
+struct Square {
+    side: Int
+}
+
+type Shape = Circle | Square : ToStr<self> {
+    fn to_str(shape: Shape) -> Str {
+        return when shape {
+            is Circle { "circle" }
+            is Square { "square" }
+        }
+    }
+
+    fn area(shape: Shape) -> Int by measure
+
+    refn grow(shape: Mut Shape) => shape: +Grown
+}

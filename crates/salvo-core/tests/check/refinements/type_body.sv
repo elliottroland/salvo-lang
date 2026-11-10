@@ -131,3 +131,93 @@ export fn size(t: Text) [] -> Int => t {
 export fn add(t: Mut Text, more: Str) [] -> None => t: Mut, more {
     t.chars.append(more)
 }
+
+//--- a named union's body holds refinements beside its fns
+// [type-union-body] [qual-refn-type] The same rules as a struct's: about its
+// own type, and only a claim its author is trusted with — generic, or
+// declared in its file.
+struct Dot {}
+
+struct Line {}
+
+qualifier Seen<T> for T
+
+type Mark = Dot | Line {
+    refn see(m: Mark) => m: +Seen
+
+    fn see(m: Mark) [] -> None => m {}
+}
+
+fn needs_seen(m: Seen Mark) [] -> Int => m {
+    return 1
+}
+
+fn probe(m: Mark, n: Mark) [] -> Int => m, n {
+    see(m)
+    let _ok = needs_seen(m)
+    //~ error[call-resolve:no-overload]
+    return needs_seen(n)
+}
+
+//--- a named union speaks only about its own values
+struct Dot {}
+
+struct Held<T> {
+    value: T
+}
+
+type Mark<T> = Dot | Held<T> {
+    //~ error[qual-refn-type:other-subject]
+    refn add(list: Mut List<T>, elem: T) => list: +NonEmpty
+}
+
+//--- nor about a claim declared elsewhere about another type
+import q.Filled
+
+struct Dot {}
+
+struct Line {}
+
+type Mark = Dot | Line {
+    //~ error[qual-refn-type:foreign-qualifier]
+    refn see(m: Mark) => m: +Filled
+
+    fn see(m: Mark) [] -> None => m {}
+}
+
+// FILE: q.sv
+export qualifier Filled<T> for List<T> {
+    fn qualifies(list: List<T>) -> Bool {
+        return list.size() > 0
+    }
+}
+
+//--- a named union's body holds fns and refns only
+// [type-union-body] Its data is in its arms. (A parse error.) The members
+// after the mistake are still read, so the call below reports nothing.
+struct Dot {}
+
+struct Line {}
+
+type Mark = Dot | Line {
+    //~ error[type-union-body:only-fns]
+    at: Int
+
+    fn weight(m: Mark) [] -> Int => m {
+        return 1
+    }
+}
+
+fn probe(m: Mark) [] -> Int => m {
+    return weight(m)
+}
+
+//--- an alias of one type has no body
+// [type-union-body] A body is for a named union, an opaque type or a struct;
+// `Id` is another name for `Int`. The body is skipped whole: one diagnostic.
+//~ error[type-union-body:not-a-union]
+type Id = Int {
+    fn next(id: Id) -> Id => id {
+        return id + 1
+    }
+}

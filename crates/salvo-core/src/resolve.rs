@@ -2572,6 +2572,7 @@ pub fn qual_ref_keys<'p>(
             match item {
                 Item::Fn(f) => keys.fn_decl(f),
                 Item::Struct(st) => st.fns.iter().for_each(|f| keys.fn_decl(f)),
+                Item::Type(t) => t.fns.iter().for_each(|f| keys.fn_decl(f)),
                 Item::Effect(e) => e.fns.iter().for_each(|f| keys.fn_decl(f)),
                 Item::Handler(h) => h.fns.iter().for_each(|f| keys.fn_decl(f)),
                 Item::Qualifier(q) => q.fns.iter().for_each(|f| keys.fn_decl(f)),

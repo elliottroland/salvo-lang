@@ -345,6 +345,48 @@ fn a_struct_declares_obligations_before_canbe() {
     assert_eq!(g.fns.len(), 1);
 }
 
+// [type-union-body] [fn-attached] A named union's body holds fns and refns,
+// the obligation clause before it; lowering hoists the fns as a struct
+// body's are, declared on the union and taking its visibility.
+#[test]
+fn a_named_union_body_holds_fns_and_refns_and_hoists_them() {
+    let source = "export type Shape = Circle | Square : ToStr<self> {\n    \
+                  fn to_str(shape: Shape) -> Str {\n        return \"s\"\n    }\n    \
+                  fn area(shape: Shape) -> Int by measure\n    \
+                  refn grow(shape: Mut Shape) => shape: +Grown\n}\n";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    assert!(!diagnostics.iter().any(|d| d.is_error()), "{diagnostics:?}");
+    let salvo_syntax::ast::Item::Type(t) = &module.items[0] else { panic!("expected a type") };
+    assert!(t.is_named_union());
+    assert_eq!(t.obligations.len(), 1);
+    let fns: Vec<&str> = t.fns.iter().map(|f| f.name.name.as_str()).collect();
+    assert_eq!(fns, ["to_str", "area"]);
+    assert!(t.fns[1].by.is_some(), "a `by` declaration is a body fn too [fn-by]");
+    assert_eq!(t.refns.len(), 1);
+    let (lowered, diagnostics) = common::lowered(source);
+    assert!(!diagnostics.iter().any(|d| d.is_error()), "{diagnostics:?}");
+    let salvo_syntax::ast::Item::Type(t) = &lowered.items[0] else { panic!("expected a type") };
+    assert!(t.fns.is_empty(), "hoisted out of the body");
+    let hoisted: Vec<(&str, Option<&str>, bool)> = lowered
+        .items
+        .iter()
+        .filter_map(|i| match i {
+            salvo_syntax::ast::Item::Fn(f) => Some((f.name.name.as_str(), f.scoped_to.as_ref().map(|s| s.name.as_str()), f.exported)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(hoisted, [("to_str", Some("Shape"), true), ("area", Some("Shape"), true)]);
+    // Something a union body cannot hold is one error, and the members after
+    // it are still read.
+    let (module, diagnostics) = salvo_syntax::parse_module(
+        "type Mark = Dot | Line {\n    at: Int\n    { nested }\n    fn weight(m: Mark) -> Int => m {\n        return 1\n    }\n}\n",
+    );
+    let ids: Vec<&str> = diagnostics.iter().filter(|d| d.is_error()).filter_map(|d| d.id).collect();
+    assert_eq!(ids, ["type-union-body:only-fns"], "{diagnostics:?}");
+    let salvo_syntax::ast::Item::Type(t) = &module.items[0] else { panic!("expected a type") };
+    assert_eq!(t.fns.len(), 1, "{t:?}");
+}
+
 // [group-obligation] The clause is optional in both halves: obligations
 // without `canbe`, and neither.
 #[test]

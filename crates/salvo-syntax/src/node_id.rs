@@ -459,6 +459,7 @@ fn type_decl<V: MutVisitor>(n: &mut V, t: &mut TypeDecl) {
         auto_qualifiers,
         alias,
         obligations: obls,
+        fns,
         refns,
         span,
     } = t;
@@ -474,6 +475,10 @@ fn type_decl<V: MutVisitor>(n: &mut V, t: &mut TypeDecl) {
         vm::walk_type(n, a);
     }
     obligations(n, obls);
+    // [type-union-body] Hoisted as a struct body's are [fn-attached].
+    for f in fns {
+        fn_decl(n, f);
+    }
     for r in refns {
         refn(n, r);
     }

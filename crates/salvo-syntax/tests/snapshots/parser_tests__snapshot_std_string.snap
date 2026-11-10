@@ -185,6 +185,7 @@ Module {
                         },
                     },
                 ],
+                fns: [],
                 refns: [
                     RefnDecl {
                         docs: [

@@ -1447,6 +1447,36 @@ Conventions:
   * Aliases expand *structurally* at use sites (with generic
     substitution), in both the checker (`lower_base_ref`) and the
     emitters; no nominal identity.
+* [type-union-body] **A named union may have a body of `fn`s and `refn`s**
+  (user decision 2026-11-10): `type Json = Json.Object | Json.Array : ToStr<self>
+  { fn to_str(json: Json) -> Str { … } }`. The body comes after the alias and
+  the obligation clause, and is the struct body's in every respect that
+  applies to a union [fn-attached]:
+  * **One path.** The parser reads its fns with the struct body's reader
+    (`Parser::parse_body_fn`: `export` refused, `compfn`, `fn … by X`), and
+    `desugar::hoist_body_fns` hoists both kinds of body, setting
+    `scoped_to` and the type's `export`. Everything after the parse — the
+    attachment, `name@Json` at a call and as a value, travelling with the
+    type, obligations [group-obligation], [fn-by], [op-unique-shape], docs,
+    the LSP — reads the hoisted fn as it reads a struct's. The printer puts
+    the fns back in the body (`TypeDecl::is_named_union`).
+  * **Obligations** are met as on a struct: a body fn, a `by` stamp on the
+    clause [obligation-by], or `by` on one body fn keeping its signature
+    [fn-by]; a bare promise is checked at the declaration
+    (`group-obligation:no-member`).
+  * **Refinements** follow [qual-refn-type]: about the union's own values,
+    for a generic claim or one declared in its file.
+  * **Visibility** is the union's: `export` on a body fn is
+    `fn-attached:export-inside-body`, as in a struct body.
+  * **What is a named union**: an alias whose right-hand side is a union,
+    `T?` included (`T | None`). Any other alias (`type Id = Int`) is another
+    name for one type and has no body: `type-union-body:not-a-union`, the
+    body skipped whole. Anything but `fn` or `refn` in the body is
+    `type-union-body:only-fns` (its data is in its arms), the parse resuming
+    at the next `fn` or `refn`. An opaque type's
+    body stays refinements only [qual-refn-type].
+  * Aliases being structural [type-alias], two named unions of the same arms
+    are one type, so a fn on one is a fn of both.
 * [type-unknown-lenient] A type the checker cannot *infer* is
   `Ty::Unknown`, compatible in both directions, and never an error by
   itself: one mistake yields one diagnostic instead of a cascade of
@@ -2438,11 +2468,12 @@ Conventions:
   }
   ```
 
-  * A **struct** body takes `refn` beside its fields and fns; an **opaque**
+  * A **struct** body takes `refn` beside its fields and fns, and a **named
+    union**'s beside its fns [type-union-body]; an **opaque**
     (`platform`/`intrinsic`) type declaration takes an optional `{ … }` body
     after its obligations that holds refinements **only**
-    (`qual-refn-type:only-refns`). An alias has no body
-    (`qual-refn-type:alias-body`).
+    (`qual-refn-type:only-refns`). Any other alias has no body
+    (`type-union-body:not-a-union`).
   * The refinement's signature is written over the type's own parameters, as
     one inside a qualifier is over the qualifier's [qual-refn-match].
   * **About its own type.** Each parameter it states something about has that
@@ -5973,7 +6004,8 @@ Conventions:
   1. **inside the struct's body**: `struct Person { name: Str, fn cmp(a: Person,
      b: Person) -> Int { … } }`. The fn is hoisted to module level and is
      ordinary in every other respect (it overloads, it is called bare or with
-     dot notation, it takes part in ranking);
+     dot notation, it takes part in ranking). A named union's body is the
+     same route [type-union-body];
   2. **the file's fulfilment of one of the type's obligations**
      [group-obligation]: `struct Person : Ordered<self>` plus a `cmp(Person,
      Person)` in the same file. Nothing moves; the obligation is what declares
@@ -5995,7 +6027,7 @@ Conventions:
     declaring file's to write in, and an obligation is fulfilled by its own
     file. No third module can mint a capability for someone else's type.
   * **`export`**: an inner fn takes the struct's own visibility, and writing
-    `export` on one is a parse error (it is contained in the struct, and would
+    `export` on one is a parse error (`fn-attached:export-inside-body`; it is contained in the struct, and would
     be claiming to say something the language does not let it say). A
     **detached** fulfilment is its own declaration, so an exported type's
     fulfilment must `export` too — otherwise the capability would be

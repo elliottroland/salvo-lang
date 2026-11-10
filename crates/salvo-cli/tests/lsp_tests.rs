@@ -4332,6 +4332,47 @@ fn renaming_from_an_import_line_renames_the_declaration() {
     assert!(changes[&shapes].is_array(), "the declaration moves too: {result}");
 }
 
+// [type-union-body] [fn-attached] A fn in a named union's body is reached
+// as a struct body's is: go-to-definition from a call lands on it, hover
+// shows it, and a rename moves the declaration, the calls and the
+// `name@Union` selector together.
+#[test]
+fn a_named_union_body_fn_is_reached_hovered_and_renamed() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_union_body");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    // Lines (0-based):
+    // 0 struct Dot {}
+    // 1 struct Line { len: Int }
+    // 2
+    // 3 type Mark = Dot | Line {
+    // 4     fn weight(m: proj Mark) -> Int {
+    // 5         return 1
+    // 6     }
+    // 7 }
+    // 8
+    // 9 fn total(m: Mark) -> Int => m {
+    // 10     return weight(m) + m.weight() + weight@Mark(m)
+    // 11 }
+    let text = "struct Dot {}\nstruct Line { len: Int }\n\ntype Mark = Dot | Line {\n    fn weight(m: proj Mark) -> Int {\n        return 1\n    }\n}\n\nfn total(m: Mark) -> Int => m {\n    return weight(m) + m.weight() + weight@Mark(m)\n}\n";
+    let diags = set_text(&mut lsp, &uri, 1, text);
+    assert!(diags.is_empty(), "{diags:?}");
+    let loc = definition(&mut lsp, 2, &uri, 10, 12);
+    assert_eq!(loc["range"]["start"], json!({"line": 4, "character": 7}), "{loc}");
+    let loc = definition(&mut lsp, 3, &uri, 10, 39);
+    assert_eq!(loc["range"]["start"], json!({"line": 4, "character": 7}), "the selector: {loc}");
+    let value = hover(&mut lsp, 4, &uri, 10, 12);
+    assert!(value.contains("fn weight(m: proj Mark) -> Int"), "{value}");
+    let result = rename_at(&mut lsp, 5, &uri, 4, 8, "heft");
+    let renamed = apply_edits(text, result["result"]["changes"][&uri].as_array().unwrap_or_else(|| panic!("{result}")));
+    assert!(renamed.contains("    fn heft(m: proj Mark) -> Int {"), "{renamed}");
+    assert!(renamed.contains("return heft(m) + m.heft() + heft@Mark(m)"), "{renamed}");
+    let diags = set_text(&mut lsp, &uri, 2, &renamed);
+    assert!(diags.is_empty(), "the renamed program checks: {diags:?}\n{renamed}");
+}
+
 // [lsp-rename-more] A test's name is renamed in place.
 #[test]
 fn renaming_a_test_changes_its_name() {

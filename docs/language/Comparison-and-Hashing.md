@@ -212,6 +212,10 @@ Arms order by their declared position, and two values in one arm by that
 arm's own `cmp`, so each arm has to have one (and an `eq` and a `hash` for
 `Hashed`).
 
+A named union also has a body, after the clause, in which its functions are
+declared on it as a struct's are: a hand-written member there meets the
+obligation, and so does a single `fn … by auto`, as below.
+
 **One function at a time.** `by` also works on one function, keeping its
 full signature, which is how a type mixes stamped and hand-written members.
 Suppose `Person` should be equal by all its fields, but hash by its name

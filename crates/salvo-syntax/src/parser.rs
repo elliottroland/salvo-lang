@@ -1264,35 +1264,47 @@ impl<'s> Parser<'s> {
             self.error(messages::type_alias_linear_alias(), name.span);
         }
         // [qual-refn-type] An opaque type's optional body: its refinements,
-        // nothing else.
+        // nothing else. [type-union-body] A named union's: its fns, as a
+        // struct body's, and its refinements. Any other alias has none.
+        let mut fns = Vec::new();
         let mut refns = Vec::new();
         let mut body_end = None;
         if self.at(&TokenKind::LBrace) && self.same_line() {
             let open = self.bump().span;
-            if alias.is_some() {
-                self.error(messages::qual_refn_type_alias_body(), open);
+            let named_union = TypeDecl::alias_is_union(alias.as_ref());
+            if alias.is_some() && !named_union {
+                // One mistake, one diagnostic: the body is skipped whole.
+                self.error(messages::type_union_body_not_a_union(&name.name), open);
+                self.skip_to_body_end();
             }
             while !self.at(&TokenKind::RBrace) && !self.at_eof() {
                 if self.at(&TokenKind::KwRefn) {
                     refns.push(self.parse_refn()?);
-                } else {
-                    let found = self.kind().describe();
-                    let span = self.peek().span;
-                    self.error(messages::qual_refn_type_only_refns(&found), span);
-                    // Skip to the body's own `}`: one mistake, one diagnostic.
-                    let mut depth = 0usize;
-                    while !self.at_eof() {
-                        if self.at(&TokenKind::LBrace) {
-                            depth += 1;
-                        } else if self.at(&TokenKind::RBrace) {
-                            if depth == 0 {
-                                break;
-                            }
-                            depth -= 1;
-                        }
-                        self.bump();
+                    continue;
+                }
+                if named_union {
+                    if let Some(f) = self.parse_body_fn()? {
+                        fns.push(f);
+                        continue;
                     }
                 }
+                let found = self.kind().describe();
+                let span = self.peek().span;
+                if named_union {
+                    self.error(messages::type_union_body_only_fns(&found), span);
+                    // Skip to the next member, so the fns after the mistake
+                    // are still declared: one mistake, one diagnostic. A `{`
+                    // is counted by the skip, so that its `}` is not taken
+                    // for the body's.
+                    if !self.at(&TokenKind::LBrace) {
+                        self.bump();
+                    }
+                    self.skip_to_body_member();
+                    continue;
+                }
+                self.error(messages::qual_refn_type_only_refns(&found), span);
+                // Skip to the body's own `}`: one mistake, one diagnostic.
+                self.skip_to_body_end();
             }
             body_end = Some(self.expect(&TokenKind::RBrace)?.span);
         }
@@ -1321,9 +1333,47 @@ impl<'s> Parser<'s> {
             auto_qualifiers,
             alias,
             obligations,
+            fns,
             refns,
             span: start.to(end),
         })
+    }
+
+    /// Skips to the `}` closing the body the parser is in, leaving it next:
+    /// the recovery after a body member that cannot be read.
+    fn skip_to_body_end(&mut self) {
+        let mut depth = 0usize;
+        while !self.at_eof() {
+            if self.at(&TokenKind::LBrace) {
+                depth += 1;
+            } else if self.at(&TokenKind::RBrace) {
+                if depth == 0 {
+                    break;
+                }
+                depth -= 1;
+            }
+            self.bump();
+        }
+    }
+
+    /// Skips to the next `fn` or `refn` of the body the parser is in, or to
+    /// its closing `}`, leaving it next: the recovery after something a named
+    /// union's body cannot hold [type-union-body].
+    fn skip_to_body_member(&mut self) {
+        let mut depth = 0usize;
+        while !self.at_eof() {
+            if self.at(&TokenKind::LBrace) {
+                depth += 1;
+            } else if self.at(&TokenKind::RBrace) {
+                if depth == 0 {
+                    break;
+                }
+                depth -= 1;
+            } else if depth == 0 && (self.at(&TokenKind::KwFn) || self.at(&TokenKind::KwRefn)) {
+                break;
+            }
+            self.bump();
+        }
     }
 
     /// `<A, B, C>` — declaration-site generic parameters.
@@ -1633,31 +1683,9 @@ impl<'s> Parser<'s> {
         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
             // [fn-attached] A `fn` inside the body is **declared on** the
             // struct: it travels with the type, and its visibility is the
-            // type's. `auto fn` is the generated form of the same thing.
-            // [fn-attached] An inner fn's visibility *is* the type's, so
-            // writing `export` on one says something the language does not let
-            // it say.
-            if self.at_word(EXPORT_MODIFIER)
-                && matches!(self.peek_at(1).kind, TokenKind::KwFn)
-            {
-                let sp = self.peek().span;
-                self.error(messages::fn_attached_export_inside_struct(), sp);
-                self.bump();
-            }
-            // [comptime-bound] A concrete `compfn` inside the body: its own
-            // single instantiation, declared on the type like any inner fn
-            // (comptime round 2, 12.1).
-            if self.at_word(COMPTIME_WORD) && matches!(self.peek_at(1).kind, TokenKind::KwFn) {
-                fns.push(self.parse_compfn()?);
-                continue;
-            }
-            if self.at_word("auto") && matches!(self.peek_at(1).kind, TokenKind::KwFn) {
-                let sp = self.peek().span;
-                self.error(messages::fn_by_auto_fn(), sp);
-                self.bump();
-            }
-            if self.at(&TokenKind::KwFn) {
-                fns.push(self.parse_fn(false)?);
+            // type's.
+            if let Some(f) = self.parse_body_fn()? {
+                fns.push(f);
                 continue;
             }
             // [qual-refn-type] The type's author refining its own functions
@@ -1696,6 +1724,36 @@ impl<'s> Parser<'s> {
             message_arm: None,
             span: start.to(end),
         })
+    }
+
+    /// [fn-attached] [type-union-body] A function written inside a struct's or
+    /// a named union's body: `Some(fn)` when one starts here, `None` when the
+    /// body goes on with something else. The two bodies take the same fns
+    /// because they are the same declaration — a function declared on its type.
+    fn parse_body_fn(&mut self) -> Option<Option<FnDecl>> {
+        // [fn-attached] An inner fn's visibility *is* the type's, so writing
+        // `export` on one says something the language does not let it say.
+        if self.at_word(EXPORT_MODIFIER) && matches!(self.peek_at(1).kind, TokenKind::KwFn) {
+            let sp = self.peek().span;
+            self.error(messages::fn_attached_export_inside_body(), sp);
+            self.bump();
+        }
+        // [comptime-bound] A concrete `compfn` inside the body: its own single
+        // instantiation, declared on the type like any inner fn (comptime
+        // round 2, 12.1).
+        if self.at_word(COMPTIME_WORD) && matches!(self.peek_at(1).kind, TokenKind::KwFn) {
+            return Some(Some(self.parse_compfn()?));
+        }
+        // `auto fn` is the old spelling of the generated form, `fn … by auto`.
+        if self.at_word("auto") && matches!(self.peek_at(1).kind, TokenKind::KwFn) {
+            let sp = self.peek().span;
+            self.error(messages::fn_by_auto_fn(), sp);
+            self.bump();
+        }
+        if self.at(&TokenKind::KwFn) {
+            return Some(Some(self.parse_fn(false)?));
+        }
+        Some(None)
     }
 
     /// `: Next<self, Str>, Ordered<self> by auto` — the obligation clause a

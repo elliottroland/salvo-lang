@@ -114,6 +114,11 @@ pub fn module_clashes(module: &salvo_syntax::ast::Module) -> Vec<(salvo_syntax::
                     fn_scope(f, &[], &mut report);
                 }
             }
+            Item::Type(t) => {
+                for f in &t.fns {
+                    fn_scope(f, &[], &mut report);
+                }
+            }
             Item::Effect(e) => {
                 // [actor-message] Two send members of an actor effect that
                 // share a spelling also share a `Message<E>` arm, which the

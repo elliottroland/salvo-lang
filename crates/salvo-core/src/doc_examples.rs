@@ -159,7 +159,10 @@ pub fn extract(file: &SourceFile, host: usize, module: &Module) -> Vec<SourceFil
                     }
                     fns(&s.name.name, &s.fns, s.exported, &mut add);
                 }
-                Item::Type(t) => add(t.name.span, t.name.name.clone(), t.exported),
+                Item::Type(t) => {
+                    add(t.name.span, t.name.name.clone(), t.exported);
+                    fns(&t.name.name, &t.fns, t.exported, &mut add);
+                }
                 Item::Qualifier(q) => {
                     add(q.name.span, q.name.name.clone(), q.exported);
                     fns(&q.name.name, &q.fns, q.exported, &mut add);

@@ -480,6 +480,46 @@ Smaller leftovers of the doc examples, recorded:
 - A standalone HTML site with a search box, as a second `salvo docs` format
   beside the wiki (rejected for the wiki, which serves no HTML).
 
+### 0bf — What named-union bodies left (2026-11-10)
+
+Found building [type-union-body] (COMPLETED.md); none is new with the body
+— each reproduces with the fn at top level, or on a struct.
+
+- **Open defect: a stamped `to_str` of a union whose arm has none calls
+  itself** (silently wrong code). `struct Circle { r: Int }` `struct Square
+  { side: Int }` `type Shape = Circle | Square : ToStr<self> by auto`, then
+  `println("${a}")` with `let a: Shape = Circle { r: 2 }` — a stack overflow
+  on both backends: the template's per-arm `to_str(value_1)` finds no
+  `to_str(Circle)` and widens the arm back to `Shape`, reaching the stamped
+  fn itself. The stamp should report the arm with no `to_str`, as a struct
+  field with none is reported [comptime-instantiate]; the same likely holds
+  for `cmp`, `eq` and `hash` over an arm without its own.
+- **Open defect: a fn value with a `proj` union parameter, called with an
+  arm**, does not widen the argument. `struct A { x: Int }` `struct B {}`
+  `type AB = A | B` `fn name(v: proj AB) -> Str { … }`, then `let f = name`
+  and `f(B {})`: rustc "expected `&Union2<…>`, found `&B`", kotlinc
+  "argument type mismatch". With `v: AB` (owned) it runs.
+- **Open defect: a temporary passed to a `proj` union parameter.** `type SI
+  = Str | Int` `fn describe(v: proj SI) -> Str { … }`, `describe("a")`:
+  rustc E0716 (`{ let __v = &(String::from("a")); Union2::U1(__v) }` — the
+  borrow outlives the block), kotlinc "argument type mismatch" (no union
+  wrap). A `let w: SI = "a"` then `describe(w)` runs.
+- **A `proj T` parameter does not meet an obligation member** (`fn
+  to_str(p: proj P) -> Str` for `: ToStr<self>` is
+  `group-obligation:no-member`, on a struct and on a named union alike),
+  though a `proj` reader is what such a member wants to be. Probably a
+  **DECISION**: whether a member `to_str(value: T)` is met by a fn taking
+  `proj T`, or the group should say `proj`.
+- **Naming a type's fn that does not exist** (`nothing@P(p)`, `nothing@Mark`)
+  reports "no effect named `P`" (or, as a value, the effect-member
+  diagnostic), where [fn-attached] says it should say where such a fn would
+  live.
+- **A private type's body fn used from another module** is
+  `call-resolve:unknown-fn` with "write `export` in front of that
+  declaration", which for a body fn is a parse error
+  (`fn-attached:export-inside-body`): the note should say to export the type
+  (`Resolution::export_note`).
+
 ### 0bd — Defects the std documentation rewrite found (2026-10-30)
 
 Writing and checking an example for every std module ([doc-example]) turned

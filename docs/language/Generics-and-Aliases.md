@@ -171,5 +171,10 @@ An alias is a name for the type it stands for, not a new type: it expands
 where it is used, with its type arguments substituted, so `Result<Int, Str>`
 and `Ok Int | Err Str` are the same type.
 
+An alias of a **union** is also a declaration of its own: it may state
+obligations and have a body of functions declared on it
+([A named union's functions](Data-and-Types.md#a-named-unions-functions)).
+An alias of any other type has no body.
+
 Type aliases need to be imported like everything else
 ([Modules](Modules.md)).

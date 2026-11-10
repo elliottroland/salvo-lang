@@ -69,6 +69,81 @@ fn main() [use] {
 //= stdout
 //= {a: "x", b: 3, c: [true, null]}
 
+//--- the_json_printer_in_the_alias_body
+// [type-union-body] The same printer with the union's `to_str` written in
+// its body: the body fn and the arms' top-level overloads rank as before —
+// the entry's `proj Json` value and the whole `Json` reach the body fn, a
+// `Json.Object` and the narrowed `json` inside `is .Object` reach the arm's.
+namespace Json {
+    struct Object { value: Map<Str, Json> }
+    struct Array { value: List<Json> }
+    struct Str { value: Str }
+    struct Number { value: Int }
+    struct Bool { value: Bool }
+    struct Null {}
+}
+
+type Json = Json.Object | Json.Array | Json.Str | Json.Number | Json.Bool | Json.Null {
+    fn to_str(json: proj Json) -> Str {
+        return when json {
+            is .Object { json.to_str() }
+            is .Array { json.to_str() }
+            is .Str { "\"${json.value}\"" }
+            is .Number { "${json.value}" }
+            is .Bool { "${json.value}" }
+            is .Null { "null" }
+        }
+    }
+}
+
+fn to_str(json: Json.Object) -> Str {
+    let str = Mut Str("{")
+    let remaining_entries = json.value.size()
+    for entry in json.value.entries() {
+        str.append("${entry.key}: ")
+        str.append(entry.value.to_str())
+        if remaining_entries-- > 1 {
+            str.append(", ")
+        }
+    }
+    str.append("}")
+    return str
+}
+
+fn to_str(json: Json.Array) -> Str {
+    let str = Mut Str("[")
+    let remaining = json.value.size()
+    for elem in json.value {
+        str.append(elem.to_str())
+        if remaining-- > 1 {
+            str.append(", ")
+        }
+    }
+    str.append("]")
+    return str
+}
+
+fn main() [use] {
+    use StdConsole()
+    let m = Mut Map<Str, Json>()
+    m.put("a", Json.Str { value: "x" })
+    m.put("b", Json.Number { value: 3 })
+    m.put("c", Json.Array { value: List<Json>(Json.Bool { value: true }, Json.Null {}) })
+    let j: Json = Json.Object { value: m }
+    println(to_str(j))
+    println(to_str(Json.Object { value: Map<Str, Json>() }))
+    println(to_str@Json(j))
+    let f = to_str@Json
+    println(f(j))
+    println("${j}")
+}
+//= stdout
+//= {a: "x", b: 3, c: [true, null]}
+//= {}
+//= {a: "x", b: 3, c: [true, null]}
+//= {a: "x", b: 3, c: [true, null]}
+//= {a: "x", b: 3, c: [true, null]}
+
 //--- heads_bindings_and_guards
 struct A { x: Int, name: Str }
 struct B { s: Str }

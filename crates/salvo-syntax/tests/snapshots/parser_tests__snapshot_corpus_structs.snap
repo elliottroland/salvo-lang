@@ -1052,6 +1052,715 @@ Module {
                 span: 666..767,
             },
         ),
+        Struct(
+            StructDecl {
+                docs: [],
+                annotations: [],
+                exported: false,
+                name: Ident {
+                    name: "Circle",
+                    span: 776..782,
+                },
+                generics: [],
+                generic_canbe: [],
+                fn_slots: [],
+                effect_generics: [],
+                obligations: [],
+                auto_qualifiers: [],
+                fields: [
+                    FieldDecl {
+                        docs: [],
+                        annotations: [],
+                        name: Ident {
+                            name: "radius",
+                            span: 789..795,
+                        },
+                        ty: Some(
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Int",
+                                        span: 797..800,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 797..800,
+                                },
+                            },
+                        ),
+                        canbe_mut: false,
+                        default: None,
+                        span: 789..800,
+                    },
+                ],
+                fns: [
+                    FnDecl {
+                        docs: [],
+                        exported: false,
+                        intrinsic: false,
+                        platform: false,
+                        is_iter: false,
+                        iter_state: [],
+                        iter_state_name: None,
+                        is_send: false,
+                        name: Ident {
+                            name: "area",
+                            span: 809..813,
+                        },
+                        type_name: None,
+                        scoped_to: None,
+                        compfn: None,
+                        by: None,
+                        stamped: None,
+                        generics: [],
+                        generic_canbe: [],
+                        effect_generics: [],
+                        derived_return: None,
+                        params: [
+                            Param {
+                                annotations: [],
+                                name: Ident {
+                                    name: "circle",
+                                    span: 814..820,
+                                },
+                                ty: Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Circle",
+                                            span: 822..828,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 822..828,
+                                    },
+                                },
+                                variadic: false,
+                                implicit: false,
+                                default: None,
+                                span: 814..828,
+                            },
+                        ],
+                        implicit_groups: [],
+                        effects: None,
+                        deductions: None,
+                        return_type: Some(
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Int",
+                                        span: 833..836,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 833..836,
+                                },
+                            },
+                        ),
+                        response: None,
+                        constructs: None,
+                        body: Some(
+                            Block {
+                                stmts: [
+                                    Expr(
+                                        Return {
+                                            value: Some(
+                                                Binary {
+                                                    op: Mul,
+                                                    lhs: Binary {
+                                                        op: Mul,
+                                                        lhs: Int {
+                                                            value: 3,
+                                                            long: false,
+                                                            span: 854..855,
+                                                        },
+                                                        rhs: Field {
+                                                            base: Ident(
+                                                                Ident {
+                                                                    name: "circle",
+                                                                    span: 858..864,
+                                                                },
+                                                            ),
+                                                            field: Ident {
+                                                                name: "radius",
+                                                                span: 865..871,
+                                                            },
+                                                            span: 858..871,
+                                                            grouped: false,
+                                                        },
+                                                        span: 854..871,
+                                                    },
+                                                    rhs: Field {
+                                                        base: Ident(
+                                                            Ident {
+                                                                name: "circle",
+                                                                span: 874..880,
+                                                            },
+                                                        ),
+                                                        field: Ident {
+                                                            name: "radius",
+                                                            span: 881..887,
+                                                        },
+                                                        span: 874..887,
+                                                        grouped: false,
+                                                    },
+                                                    span: 854..887,
+                                                },
+                                            ),
+                                            span: 847..887,
+                                        },
+                                    ),
+                                ],
+                                span: 837..893,
+                                terminal: false,
+                            },
+                        ),
+                        span: 806..893,
+                    },
+                ],
+                refns: [],
+                linear: false,
+                opaque: false,
+                noremote: false,
+                comptime: false,
+                message_arm: None,
+                span: 769..895,
+            },
+        ),
+        Struct(
+            StructDecl {
+                docs: [],
+                annotations: [],
+                exported: false,
+                name: Ident {
+                    name: "Square",
+                    span: 904..910,
+                },
+                generics: [],
+                generic_canbe: [],
+                fn_slots: [],
+                effect_generics: [],
+                obligations: [],
+                auto_qualifiers: [],
+                fields: [
+                    FieldDecl {
+                        docs: [],
+                        annotations: [],
+                        name: Ident {
+                            name: "side",
+                            span: 917..921,
+                        },
+                        ty: Some(
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Int",
+                                        span: 923..926,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 923..926,
+                                },
+                            },
+                        ),
+                        canbe_mut: false,
+                        default: None,
+                        span: 917..926,
+                    },
+                ],
+                fns: [],
+                refns: [],
+                linear: false,
+                opaque: false,
+                noremote: false,
+                comptime: false,
+                message_arm: None,
+                span: 897..928,
+            },
+        ),
+        Type(
+            TypeDecl {
+                docs: [],
+                exported: false,
+                intrinsic: false,
+                linear: false,
+                noremote: false,
+                comptime: false,
+                platform: false,
+                threadsafe: false,
+                iterable: false,
+                name: Ident {
+                    name: "Shape",
+                    span: 935..940,
+                },
+                generics: [],
+                generic_canbe: [],
+                fn_slots: [],
+                auto_qualifiers: [],
+                alias: Some(
+                    Union {
+                        arms: [
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Circle",
+                                        span: 943..949,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 943..949,
+                                },
+                            },
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Square",
+                                        span: 952..958,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 952..958,
+                                },
+                            },
+                        ],
+                        span: 943..958,
+                    },
+                ),
+                obligations: [
+                    Obligation {
+                        by: None,
+                        group: TypeRef {
+                            name: Ident {
+                                name: "ToStr",
+                                span: 961..966,
+                            },
+                            args: [
+                                Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "self",
+                                            span: 967..971,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 967..971,
+                                    },
+                                },
+                            ],
+                            value_args: [],
+                            from: [],
+                            at: None,
+                            binder: false,
+                            established: false,
+                            alias: None,
+                            span: 961..972,
+                        },
+                    },
+                ],
+                fns: [
+                    FnDecl {
+                        docs: [],
+                        exported: false,
+                        intrinsic: false,
+                        platform: false,
+                        is_iter: false,
+                        iter_state: [],
+                        iter_state_name: None,
+                        is_send: false,
+                        name: Ident {
+                            name: "to_str",
+                            span: 982..988,
+                        },
+                        type_name: None,
+                        scoped_to: None,
+                        compfn: None,
+                        by: None,
+                        stamped: None,
+                        generics: [],
+                        generic_canbe: [],
+                        effect_generics: [],
+                        derived_return: None,
+                        params: [
+                            Param {
+                                annotations: [],
+                                name: Ident {
+                                    name: "shape",
+                                    span: 989..994,
+                                },
+                                ty: Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Shape",
+                                            span: 996..1001,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 996..1001,
+                                    },
+                                },
+                                variadic: false,
+                                implicit: false,
+                                default: None,
+                                span: 989..1001,
+                            },
+                        ],
+                        implicit_groups: [],
+                        effects: None,
+                        deductions: None,
+                        return_type: Some(
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Str",
+                                        span: 1006..1009,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 1006..1009,
+                                },
+                            },
+                        ),
+                        response: None,
+                        constructs: None,
+                        body: Some(
+                            Block {
+                                stmts: [
+                                    Expr(
+                                        Return {
+                                            value: Some(
+                                                When {
+                                                    binding: None,
+                                                    subject: Ident(
+                                                        Ident {
+                                                            name: "shape",
+                                                            span: 1032..1037,
+                                                        },
+                                                    ),
+                                                    branches: [
+                                                        WhenBranch {
+                                                            check: [
+                                                                TypeRef {
+                                                                    name: Ident {
+                                                                        name: "Circle",
+                                                                        span: 1055..1061,
+                                                                    },
+                                                                    args: [],
+                                                                    value_args: [],
+                                                                    from: [],
+                                                                    at: None,
+                                                                    binder: false,
+                                                                    established: false,
+                                                                    alias: None,
+                                                                    span: 1055..1061,
+                                                                },
+                                                            ],
+                                                            or: [],
+                                                            hole: None,
+                                                            binding: None,
+                                                            body: Block {
+                                                                stmts: [
+                                                                    Expr(
+                                                                        Str {
+                                                                            parts: [
+                                                                                Text(
+                                                                                    "circle",
+                                                                                ),
+                                                                            ],
+                                                                            span: 1064..1072,
+                                                                        },
+                                                                    ),
+                                                                ],
+                                                                span: 1062..1074,
+                                                                terminal: false,
+                                                            },
+                                                            span: 1052..1074,
+                                                        },
+                                                        WhenBranch {
+                                                            check: [
+                                                                TypeRef {
+                                                                    name: Ident {
+                                                                        name: "Square",
+                                                                        span: 1090..1096,
+                                                                    },
+                                                                    args: [],
+                                                                    value_args: [],
+                                                                    from: [],
+                                                                    at: None,
+                                                                    binder: false,
+                                                                    established: false,
+                                                                    alias: None,
+                                                                    span: 1090..1096,
+                                                                },
+                                                            ],
+                                                            or: [],
+                                                            hole: None,
+                                                            binding: None,
+                                                            body: Block {
+                                                                stmts: [
+                                                                    Expr(
+                                                                        Str {
+                                                                            parts: [
+                                                                                Text(
+                                                                                    "square",
+                                                                                ),
+                                                                            ],
+                                                                            span: 1099..1107,
+                                                                        },
+                                                                    ),
+                                                                ],
+                                                                span: 1097..1109,
+                                                                terminal: false,
+                                                            },
+                                                            span: 1087..1109,
+                                                        },
+                                                    ],
+                                                    origin: None,
+                                                    span: 1027..1119,
+                                                },
+                                            ),
+                                            span: 1020..1119,
+                                        },
+                                    ),
+                                ],
+                                span: 1010..1125,
+                                terminal: false,
+                            },
+                        ),
+                        span: 979..1125,
+                    },
+                    FnDecl {
+                        docs: [],
+                        exported: false,
+                        intrinsic: false,
+                        platform: false,
+                        is_iter: false,
+                        iter_state: [],
+                        iter_state_name: None,
+                        is_send: false,
+                        name: Ident {
+                            name: "area",
+                            span: 1134..1138,
+                        },
+                        type_name: None,
+                        scoped_to: None,
+                        compfn: None,
+                        by: Some(
+                            ByRef {
+                                path: [
+                                    Ident {
+                                        name: "measure",
+                                        span: 1163..1170,
+                                    },
+                                ],
+                                at: None,
+                                span: 1160..1170,
+                            },
+                        ),
+                        stamped: None,
+                        generics: [],
+                        generic_canbe: [],
+                        effect_generics: [],
+                        derived_return: None,
+                        params: [
+                            Param {
+                                annotations: [],
+                                name: Ident {
+                                    name: "shape",
+                                    span: 1139..1144,
+                                },
+                                ty: Named {
+                                    qualifiers: [],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Shape",
+                                            span: 1146..1151,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 1146..1151,
+                                    },
+                                },
+                                variadic: false,
+                                implicit: false,
+                                default: None,
+                                span: 1139..1151,
+                            },
+                        ],
+                        implicit_groups: [],
+                        effects: None,
+                        deductions: None,
+                        return_type: Some(
+                            Named {
+                                qualifiers: [],
+                                base: TypeRef {
+                                    name: Ident {
+                                        name: "Int",
+                                        span: 1156..1159,
+                                    },
+                                    args: [],
+                                    value_args: [],
+                                    from: [],
+                                    at: None,
+                                    binder: false,
+                                    established: false,
+                                    alias: None,
+                                    span: 1156..1159,
+                                },
+                            },
+                        ),
+                        response: None,
+                        constructs: None,
+                        body: None,
+                        span: 1131..1170,
+                    },
+                ],
+                refns: [
+                    RefnDecl {
+                        docs: [],
+                        name: Ident {
+                            name: "grow",
+                            span: 1181..1185,
+                        },
+                        at: None,
+                        generics: [],
+                        params: [
+                            Param {
+                                annotations: [],
+                                name: Ident {
+                                    name: "shape",
+                                    span: 1186..1191,
+                                },
+                                ty: Named {
+                                    qualifiers: [
+                                        TypeRef {
+                                            name: Ident {
+                                                name: "Mut",
+                                                span: 1193..1196,
+                                            },
+                                            args: [],
+                                            value_args: [],
+                                            from: [],
+                                            at: None,
+                                            binder: false,
+                                            established: false,
+                                            alias: None,
+                                            span: 1193..1196,
+                                        },
+                                    ],
+                                    base: TypeRef {
+                                        name: Ident {
+                                            name: "Shape",
+                                            span: 1197..1202,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 1197..1202,
+                                    },
+                                },
+                                variadic: false,
+                                implicit: false,
+                                default: None,
+                                span: 1186..1202,
+                            },
+                        ],
+                        wildcard: false,
+                        deductions: [
+                            RefnDeduction {
+                                param: Ident {
+                                    name: "shape",
+                                    span: 1207..1212,
+                                },
+                                add: [
+                                    TypeRef {
+                                        name: Ident {
+                                            name: "Grown",
+                                            span: 1215..1220,
+                                        },
+                                        args: [],
+                                        value_args: [],
+                                        from: [],
+                                        at: None,
+                                        binder: false,
+                                        established: false,
+                                        alias: None,
+                                        span: 1215..1220,
+                                    },
+                                ],
+                                remove: [],
+                                preserve: [],
+                                span: 1207..1220,
+                            },
+                        ],
+                        response: None,
+                        span: 1176..1220,
+                    },
+                ],
+                span: 930..1222,
+            },
+        ),
     ],
     uses: [],
     namespaces: [],

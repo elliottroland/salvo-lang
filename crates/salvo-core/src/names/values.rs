@@ -287,6 +287,11 @@ impl<'b, 'p> Binder<'b, 'p> {
                     self.func(f, &[], &[], &[]);
                 }
             }
+            Item::Type(t) => {
+                for f in &t.fns {
+                    self.func(f, &[], &[], &[]);
+                }
+            }
             Item::Effect(e) => {
                 for f in &e.fns {
                     self.func(f, &[], &[], &[]);
@@ -316,7 +321,7 @@ impl<'b, 'p> Binder<'b, 'p> {
                 self.block(&t.body);
                 self.pop();
             }
-            Item::Type(_) | Item::Import(_) | Item::Refn(_) | Item::Rename(_) | Item::EffectAlias(_) => {}
+            Item::Import(_) | Item::Refn(_) | Item::Rename(_) | Item::EffectAlias(_) => {}
         }
     }
 

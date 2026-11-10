@@ -149,6 +149,84 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-10 — A named union has a body of functions and refinements, as a struct does ([type-union-body])
+
+User decisions 2026-11-10 (from the user's `demo/`, whose `Json` union wanted
+its `to_str` written with it): (1) a named union alias (`type Json = A | B |
+C`) may have a `{ … }` body holding `fn` members that behave **the same** as
+a struct body's — declared on the type, named `name@Json` at a call and as a
+value, exported exactly when the type is, counting for obligations — by
+giving unions the struct's path rather than a parallel one; (2) the
+obligation clause stays between the alias and the body (`type Json = … :
+ToStr<self> by auto { fn … }`), met as on a struct; (3) the body also takes
+`refn`s under [qual-refn-type]'s rules, beside the fns; (4) not in scope:
+platform/intrinsic types keep refinement-only bodies, an alias of one type
+(`type Id = Int`) has no body, and there is no `self` shorthand.
+
+- **One path** (`Parser::parse_body_fn`, `desugar::hoist_body_fns`, renamed
+  from `hoist_struct_fns`): the parser reads a union body's fns with the
+  struct body's reader (the `export` refusal, `compfn`, `fn … by X`), and the
+  hoist sets `scoped_to` and the union's `export` on both kinds of body. So
+  attachment, selection, travelling with the type, obligations
+  [group-obligation] [fn-by] [obligation-by], [op-unique-shape], the wiki,
+  hover, go-to-definition and rename all needed nothing: they already read
+  the hoisted fn. What did need the union: `TypeDecl::fns` beside `refns`,
+  the AST walkers that visit a declaration's fns before the hoist
+  (`node_id`, `case::module_clashes`, `check_cache::interface_of` and its
+  visitor, `doc_examples`, `names::values`, `resolve::qual_ref_keys`,
+  `round_trip::collect_fns`), and the printer, which puts a union's attached
+  fns back in its body (`TypeDecl::is_named_union`: an alias whose right side
+  is a union, `T?` included). The LSP has no document-symbol provider, so
+  there was none to change.
+- **Diagnostics**: `qual-refn-type:alias-body` ("a type alias has no body:
+  only an opaque type declaration takes one") is gone. A body on an alias of
+  one type is `type-union-body:not-a-union`, naming the three things that
+  take a body (a named union, an opaque type, a struct), the body skipped
+  whole; anything but `fn`/`refn` in a union body is
+  `type-union-body:only-fns`; `fn-attached:export-inside-struct` became
+  `fn-attached:export-inside-body`, worded for either body.
+- **Ranking** with the arms' own overloads (the demo's shape: the union's
+  `to_str(json: proj Json)` in the body, `to_str(json: Json.Object)` and
+  `to_str(json: Json.Array)` at top level) is unchanged by where the union's
+  fn is written: `entry.value.to_str()` on a `proj Json`, `to_str(j)` and
+  `to_str@Json(j)` reach the body fn, `to_str(Json.Object { … })` and
+  `json.to_str()` inside `is .Object` the arm's — identical output on both
+  backends.
+- **Starting state**: an earlier attempt, cut off by a network error, had
+  left the parser, AST, desugaring, printer, messages and the walkers above
+  edited, building clean. All of it was this feature and was kept; the
+  changes on top are the rename of the hoist, its comments, the tests, the
+  spec and the docs.
+- **Tests**: `tests/check/compare/attached.sv` (four programs: body fns as
+  overloads, bare, dot, `cmp@Mark` and `weight@Mark` as a value; imported
+  with the union, a private union's not; obligations met by a body fn, by
+  `fn … by auto` in the body, by the clause, and `group-obligation:no-member`
+  when not; `export` refused), `tests/check/refinements/type_body.sv` (five:
+  a generic claim's refinement applied; `other-subject`;
+  `foreign-qualifier`; `only-fns`; `not-a-union`), a parser test
+  (`a_named_union_body_holds_fns_and_refns_and_hoists_them`, with the
+  recovery after a mistake in the body: the skip stops at the next `fn` or
+  `refn`, so the members after it are still declared, where an opaque body's
+  skips to its `}`), a union body
+  in the corpus's `structs.sv` (its parser snapshot, the printer and
+  round-trip checks; the other snapshots gained `fns: []`), an LSP test
+  (`a_named_union_body_fn_is_reached_hovered_and_renamed`), and run data
+  on both backends: `deductions/a_when_over_a_borrowed_union.sv`'s
+  `the_json_printer_in_the_alias_body`, and
+  `types/named_union_bodies.sv` (across modules with `by auto` members and
+  `Ordered`; a generic union, `A?`, `Str | Int` and a namespaced union).
+  The suite: 767 tests under `cargo nextest run`, all green, run in a
+  worktree of HEAD plus this change (the user's uncommitted
+  `lib/std/core/console.sv` edit does not check, so the suite cannot run
+  over the working tree as it is): 5m02 wall, every stamp missing in the
+  fresh worktree.
+- **Found, not fixed** (ROADMAP 0bf; each reproduces without a body): a
+  stamped union `to_str` whose arm has none recursing into itself at run
+  time; a fn value with a `proj` union parameter called with an arm, and a
+  temporary passed to a `proj` union parameter, both failing the toolchains;
+  a `proj T` parameter not meeting an obligation member; `nothing@P` saying
+  "no effect named"; the export note for a private type's body fn.
+
 ### 2026-11-10 — `when` over a borrowed union narrows to borrowed arms; an explicit type argument widens the arguments ([when-proj-subject] [call-type-args])
 
 User decision 2026-11-10 (agreed from the user's `demo/`, whose `to_str(json:
@@ -37240,7 +37318,7 @@ index; **(C)** needs a design change; **(D)** inherently whole-program.
 
 | sweep | today | plan | rating |
 |---|---|---|---|
-| `hoist_struct_fns`, `expand_tests` | per file, in `expand` | move into 01-parse | A |
+| `hoist_body_fns`, `expand_tests` | per file, in `expand` | move into 01-parse | A |
 | `hoist_iter_types` | needs every `fns` group (one bit: does a member mention `iter T`), by plain name | removed with `iter T` (R3) | — |
 | `iter fn` expansion | needs the subject struct's fields from any file (plain name, first match), for per-field snapshots | expand per file; if a named state holds every parameter (4.1), the snapshot and its lookup go — done: per file, and it looks no name up (C4) | B |
 | comptime | flat `World` of every struct, type, compfn, group, qualifier; writes stamps into the site's module | the `by` clause declares the member signatures (group members with `self` substituted) at 02-resolve-01; bodies stamped per site in 02-resolve-04 from resolved declarations — done otherwise in C4 B: stamping between the interfaces (scopes by id) and the bodies, members added by building again the scopes that see them | C |
@@ -41885,6 +41963,19 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **An uncommitted edit under `lib/` is in every test and every `salvo`
+  binary** (2026-11-10, [type-union-body]): std is embedded at build time
+  (`include_dir!`) and read from disk by the tests, so a half-written std
+  function on the user's side fails every program as
+  `diag-std-hidden:std-errors`. Do not touch the user's edit: test in a
+  worktree of HEAD (`git worktree add --detach tmp/wt HEAD`, the task's
+  files copied in, `wiki` symlinked to the real one) with its own `target/`,
+  whose first suite run is a cold one.
+- **Union aliases are structural, so test them with distinct arms**
+  (2026-11-10): `type AB = A | B` and `type CD = A | B` are one type, so a
+  `to_str` on one meets the other's `: ToStr<self>`, and a test program that
+  reuses the arms for several cases hides the case it is about.
 
 - **A borrowed union is not a `Ty::Union`** (2026-11-10,
   [when-proj-subject]): `proj (A | B)` is a `Ty::Qualified` over the union,
