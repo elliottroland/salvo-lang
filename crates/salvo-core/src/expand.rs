@@ -1,7 +1,7 @@
 //! The pre-resolution expansions.
 //!
-//! Per file ([`expand_file`]): the sugar lowering [syntax-lowered], the
-//! struct-body hoist, the `iter fn`
+//! Per file ([`expand_file`]): the namespace flattening, the sugar lowering
+//! [syntax-lowered], the struct-body hoist, the `iter fn`
 //! expansion [iter-fn] and the `test` expansion [test-decl], which needs to
 //! know whether a file is a test annex [test-file]. Per program
 //! ([`expand_program`]): comptime stamping. Effect aliases and
@@ -71,16 +71,20 @@ pub struct FileTest {
 }
 
 /// The expansions one file needs and nothing else (the pipeline record step 6): the
-/// sugar the parser kept as written [syntax-lowered], the
-/// struct-body hoist [fn-attached], every `iter fn` [iter-fn], and the `test`
+/// namespaces flattened [mod-namespace], the sugar the parser kept as
+/// written [syntax-lowered], the struct-body hoist [fn-attached], every `iter fn` [iter-fn], and the `test`
 /// blocks [test-decl] — expanded in a test annex, refused and dropped in a
 /// production file [test-file]. A function of the file's text, its module path
 /// and whether it is an annex, so a driver may cache its result with the parse.
 pub fn expand_file(file: &SourceFile, module: &mut Module) -> (Vec<FileTest>, Vec<salvo_syntax::Diagnostic>) {
+    // [mod-namespace] Flatten `namespace X { … }` into dotted top-level
+    // declarations before any other pass (the struct-fn hoist, the `iter fn`
+    // expansion, resolve, check, the emitters) sees the module.
+    let mut diags = salvo_syntax::desugar::flatten_namespaces(module);
     // [syntax-lowered] The sugar the parser kept as written, as the code it
-    // stands for: first, so every expansion after it reads only that.
+    // stands for: before every expansion after it, so they read only that.
     salvo_syntax::desugar::lower_sugar(module);
-    let mut diags = salvo_syntax::desugar::expand_iter_fns(module);
+    diags.extend(salvo_syntax::desugar::expand_iter_fns(module));
     let mut found = Vec::new();
     if file.is_test {
         let mangled = file.module.0.join("_");

@@ -489,6 +489,17 @@ impl Printer<'_> {
                 }
                 self.push("namespace ");
                 self.ident(&n.name);
+                // [expr-terminal-scope] `namespace X ...`: its items follow,
+                // to the end of the list it is in.
+                if n.terminal {
+                    self.push(" ...");
+                    for it in &n.items {
+                        self.newline();
+                        self.newline();
+                        self.item(it, None, attached);
+                    }
+                    return;
+                }
                 self.push(" {");
                 self.indent += 1;
                 for (i, it) in n.items.iter().enumerate() {

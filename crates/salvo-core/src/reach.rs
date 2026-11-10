@@ -443,7 +443,7 @@ pub fn used_names(module: &Module) -> HashSet<&str> {
             // counted anyway, so the refusal and this agree about what the
             // module depends on.
             Item::Test(t) => block_names(&t.body, &mut used),
-            // [mod-namespace] Flattened away in `parse_module_deferred`; never
+            // [mod-namespace] Flattened away by the per-file expansion; never
             // reaches here.
             Item::Namespace(_) => {}
             // [effect-alias] An alias's members are its module's to reach,

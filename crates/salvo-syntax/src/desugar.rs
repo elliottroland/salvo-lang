@@ -1504,9 +1504,11 @@ fn rename_value_arg_root(ty: &mut Type, old: &str, new: &str) {
 /// namespaces compose (`X.Y.Thing`) [name-dot]. `export namespace X`
 /// distributes `export` to every member (D6/D7).
 ///
-/// Runs in `parse_module_deferred`, the chokepoint every parse goes through,
-/// so the inline `iter fn`/test/struct-hoist passes and all of resolve, check
-/// and the emitters only ever see the dotted names they already understand.
+/// The first of the per-file expansions (`salvo_core::expand::expand_file`,
+/// and `parse_module`), so the `iter fn`/test/struct-hoist passes and all of
+/// resolve, check and the emitters only ever see the dotted names they
+/// already understand; the tree as written keeps its namespaces, for the
+/// printer [syntax-lowered].
 pub fn flatten_namespaces(module: &mut Module) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     let mut out = Vec::with_capacity(module.items.len());

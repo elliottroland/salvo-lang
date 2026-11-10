@@ -128,3 +128,24 @@ send fn trailing(n: Int) [spawn] {
 fn plural<T>(xs: List<T>, ?a: (T) -> Bool, ?b: (T) -> Bool, ?c: (T) -> Bool, ?d: (T) -> Bool) -> None => a|b|c with d, xs {}
 
 fn plural_and_one<T>(xs: List<T>, ?a: (T) -> Bool, ?b: (T) -> Bool, ?c: (T) -> Bool) -> None => a with c, b with c {}
+
+// A namespace keeps its items, and its docs.
+export namespace Shapes {
+    struct Circle {
+        r: Int
+    }
+
+    namespace Inner {
+        fn area(c: Circle) -> Int {
+            return c.r * c.r
+        }
+    }
+}
+
+namespace Rest ...
+
+fn last() -> None {}
+
+namespace Deeper ...
+
+struct Leaf {}

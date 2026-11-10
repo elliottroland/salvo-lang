@@ -43,6 +43,8 @@ pub fn is_copy_scalar_type(ty: &ast::Type) -> bool {
 /// is an error.
 pub fn parse_module(source: &str) -> (ast::Module, Vec<Diagnostic>) {
     let (mut module, mut diagnostics) = parse_module_deferred(source);
+    // [mod-namespace] Dotted top-level declarations for the namespaces.
+    diagnostics.extend(desugar::flatten_namespaces(&mut module));
     // [syntax-lowered] The sugar the parser kept, as the code it stands for.
     desugar::lower_sugar(&mut module);
     // [iter-fn] An `iter fn` is expanded into ordinary declarations here, so
@@ -57,26 +59,23 @@ pub fn parse_module(source: &str) -> (ast::Module, Vec<Diagnostic>) {
 }
 
 /// The module **as written** [syntax-lowered]: `parse_module` without the
-/// sugar lowering, the `iter fn` expansion or the `?:` lowering
-/// [when-lowered] — what a printer writes back as the source, and what a
-/// *program*'s driver expands with the test expansion
-/// (`salvo_core::expand`). Such a caller **must** run
-/// `desugar::lower_sugar`, `desugar::expand_iter_fns` and
-/// `desugar::lower_picks` on the module before resolution
-/// (`salvo_core::expand::expand_file` runs them all) — an unexpanded `iter fn`
-/// is a shape no later stage supports, and resolve reports one loudly rather
-/// than checking it as an ordinary fn; unlowered sugar or `?:` is a checker
-/// error.
+/// namespace flattening [mod-namespace], the sugar lowering, the `iter fn`
+/// expansion or the `?:` lowering [when-lowered] — what a printer writes back
+/// as the source, and what a *program*'s driver expands with the test
+/// expansion (`salvo_core::expand`). Such a caller **must** run
+/// `desugar::flatten_namespaces`, `desugar::lower_sugar`,
+/// `desugar::expand_iter_fns` and `desugar::lower_picks` on the module before
+/// resolution (`salvo_core::expand::expand_file` runs them all) — an
+/// unexpanded `iter fn` is a shape no later stage supports, and resolve
+/// reports one loudly rather than checking it as an ordinary fn; unlowered
+/// sugar or `?:` is a checker error, and a namespace's declarations are
+/// found by no one.
 pub fn parse_module_deferred(source: &str) -> (ast::Module, Vec<Diagnostic>) {
     let lexed = lexer::lex(source);
     let mut diagnostics = lexed.diagnostics;
     let mut parser = parser::Parser::new(source, lexed.tokens, lexed.comments);
-    let mut module = parser.parse_module();
+    let module = parser.parse_module();
     diagnostics.extend(parser.into_diagnostics());
-    // [mod-namespace] Flatten `namespace X { … }` into dotted top-level
-    // declarations before any other pass (iter-fn expansion in `parse_module`,
-    // the struct-fn hoist, resolve, check, the emitters) sees the module.
-    diagnostics.extend(desugar::flatten_namespaces(&mut module));
     (module, diagnostics)
 }
 

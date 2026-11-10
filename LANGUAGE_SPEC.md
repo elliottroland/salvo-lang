@@ -3218,6 +3218,10 @@ Conventions:
   * `send(a) replyto k(c)` [expr-replyto-flat] (`Sugar::TrailingReply`):
     `send(a, replyto k(c))`, the call (or, in a chain, the mint) ending
     where its last argument does, with no `)` after it.
+  * The namespaces [mod-namespace]: `parse_module_deferred` keeps each
+    `namespace X { … }` an `Item::Namespace`, and `flatten_namespaces`, the
+    expansion's first step, makes its members dotted top-level declarations
+    (`Module::namespaces` records the paths).
   * Not lowered, since the tree keeps the spelling: the struct-literal
     shorthand `{ x }` [struct-lit-shorthand] (as a struct pattern's `{ x }`
     is), a plural `with` subject `a|b with h` [implicit-with] (one entry per
@@ -12335,7 +12339,9 @@ between endpoints and delivers what arrives into the scheduler.
   refinement 2026-10-17). It is the only way to write a dotted name: a
   member `Thing` of `namespace X`
   is a top-level declaration named `X.Thing`, flattened to that dotted name
-  before anything else sees it (in `parse_module_deferred`), so the rest of
+  before anything else sees it (the first of the per-file expansions,
+  `desugar::flatten_namespaces`; the tree as written keeps the namespace
+  [syntax-lowered], and its `...` [expr-terminal-scope]), so the rest of
   the compiler handles it as one name [name-dot]. Namespaces nest to
   any depth (`Outer.Inner.Thing`).
   * A namespace is a **separate facet**: it may share its name with a type at

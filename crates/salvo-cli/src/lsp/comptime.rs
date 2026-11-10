@@ -18,7 +18,9 @@ use crate::analysis::Analysis;
 
 /// The comptime fn whose text holds `offset`, read from the buffer.
 pub(super) fn compfn_at(content: &str, offset: u32) -> Option<FnDecl> {
-    let (module, _) = salvo_syntax::parse_module_deferred(content);
+    let (mut module, _) = salvo_syntax::parse_module_deferred(content);
+    // [mod-namespace] A namespace's declarations, at top level.
+    salvo_syntax::desugar::flatten_namespaces(&mut module);
     module.items.into_iter().find_map(|item| match item {
         Item::Fn(f) if f.compfn.is_some() && f.span.start <= offset && offset <= f.span.end => Some(f),
         _ => None,
@@ -461,8 +463,10 @@ impl Server<'_> {
             .and_then(|h| h.doc_of.clone());
         let word = &text[start..end];
         let own_struct = {
-            let (written, _) = (salvo_syntax::parse_module_deferred(text), ());
-            written.0.items.iter().any(|i| matches!(i, Item::Struct(s) if s.name.name == word))
+            let (mut written, _) = salvo_syntax::parse_module_deferred(text);
+            // [mod-namespace] A namespace's declarations, at top level.
+            salvo_syntax::desugar::flatten_namespaces(&mut written);
+            written.items.iter().any(|i| matches!(i, Item::Struct(s) if s.name.name == word))
         };
         let model_target = match member {
             Some((owner, member)) => Some((owner, member)),

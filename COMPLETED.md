@@ -187,6 +187,13 @@ tree a formatter would print was not what the user wrote.
   (`Sugar::TrailingReply`: the mint after the call, or after the previous
   mint in a chain; the parser still refuses one after anything that is not
   a call or a mint).
+- **Namespaces** are flattened in the per-file expansion too, its first
+  step (`flatten_namespaces` ran in `parse_module_deferred`, which every
+  parse goes through), so the tree as written keeps `Item::Namespace` with
+  its `...` (`NamespaceDecl::terminal`), which the printer writes back. The
+  language server's readers of the deferred parse that look for a
+  declaration (the comptime fn under the cursor, the file's own structs, a
+  test's name) flatten it themselves, as before.
 - **Not moved**: the struct-literal shorthand `{ x }`. The parser reads it
   as `x: x` with the one identifier as name and value, the two spans the
   same, which no written `x: x` has: the spelling is in the tree already,
