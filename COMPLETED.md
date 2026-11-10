@@ -149,6 +149,108 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-10 — A struct field's claim about a sibling field; claims told apart by field ([qual-depend-field] [var-drop-assign] [lsp-completion])
+
+From the user's `demo/demo.sv` (a JSON parser over `struct ParsingJson canbe
+Mut { str: proj Str, pos: Idx(str) Int }`), four reports: `parsing.str.char_at(pos)`
+and `str.char_at(pos)` after `let { str, pos } = parsing` chose the platform
+`char_at -> Char?` over the user's total `char_at(str, Idx(str) Int)`; the hover
+on `pos` read `proj Idx(str) Idx(str) Int`; `char_at` did not complete in a
+`while` condition. The user stated the meaning (problem 1): a read or a
+destructuring gives `pos` the type `Idx(<the str obtained the same way>) Int`.
+
+- **Root causes.** (1) A struct field type's place template (`Idx(str)`) was
+  returned unrooted by every read, and a root-free claim satisfies nothing, so
+  the total overload never matched. (2) The hover's doubled claim was that
+  template beside the rooted claim the loop's `assert!(pos is Idx(str))` added:
+  two `ValueRef`s that compare unequal. (3) Completion analyses the buffer with
+  the word cut out; a `while` header with no `{` yet does not parse, the parse
+  error drops the whole fn, and the receiver has no type (only the
+  type-parameter fns were offered).
+- **Found on the way, sound fixes the change needed:** claims were identified by
+  fate roots alone, so `assert!(i is Idx(p.a))` made a call demanding an index of
+  `p.b` total, and so did two locals destructured or bound from one struct — a
+  checked out-of-range read; `i++` kept `i`'s own claims (`let i = 0 as! Idx(xs);
+  i++; get(xs, i)` read past the end at run time on Rust); a struct literal
+  checked its fields' claims against the unrooted template, so any index fitted;
+  and once reads root the claim, assigning the depended-on field would have left
+  the stored claim false.
+- **What changed.** `Ty::ValueRef` gained `at`, the projection of each root the
+  claim is about (`same_identity`, `same_claim`; `claim_identity` and
+  `identity_from_links` compute it, every site that computed roots by hand now
+  goes through them). Field reads, destructuring and literals root a field's
+  sibling claims (`root_sibling_claims`, `root_field_read`); a destructured
+  binding links at its field (`links_into`, for fate too, and a Copy scalar not
+  at all), and `FateLink::claim` keeps the claim path where it differs.
+  `Ty::qualify` dedups claims by identity. Assigning a depended-on field, a
+  claim naming no other field, a depended-on field mutable in place, and a
+  literal replacing the sibling of a field its spread supplies are refused
+  (`qual-depend-field:*`); a field read from a temporary carries no claim.
+  `i++` drops the variable's claims as `i = i + 1` would, `++i`'s value has
+  none, a guard that gives the declared type back is kept as a fact
+  (`join_path_facts` compared with the declared type only, so the claim never
+  came back after a step), a branch that steps, assigns or weakens the tested
+  variable hands on what it stored (`facts_still_held`, `with_narrows_in`), a
+  join keeps a dependent claim only as the same fact (`join_narrowed` compared
+  names), a `when` arm and a `while` body hand on what they left, a reset to
+  the declared type does not bring its claims back, a claimed field written
+  through a base with no identity still demands the claim
+  (`assign_target_ty`), a write anywhere along a claim's path is refused, a
+  sibling a type argument makes mutable is not trusted, a lending call's
+  result claims no projection for its fields, and `p.f++` on a claimed field
+  is refused. A
+  claim is about a value's ultimate roots (`ultimate_links`), and a
+  derivation with no spellable path is a value of its own (its root marked
+  with the binding that made it). The language server closes an open block
+  header in its probe (`close_open_header`).
+- **Review.** The first agent's run was interrupted before it reported; a
+  second run reviewed its diff, and a gpu-reviewer pass over it found five
+  more holes, each confirmed with `salvo analyze` and fixed: two elements of
+  one list (nested `for`s over it) shared a claim identity (a `for` binding
+  now carries a *marked* claim path, `claim_marked`); two fields bound out of
+  a value holding a borrow were one value (the marker keeps the steps below
+  it, in `links_into` and the transitive composition); a `continue` path
+  skipped the back-edge join (`join_continue_states`); a `for` that may run
+  no times kept what its body asserted (joined with the entry state, as a
+  `while` is); and a mutation kept a claim on a union's arm or on a place's
+  narrowing (`strip_quals_where`). The duplicated place-template walks became
+  `value_ref_paths`. The per-iteration identity of a loop-local derivation
+  is recorded in ROADMAP §0bg.
+- **Agent's calls, to confirm** (recorded in ROADMAP §0bg as **DECISION**s):
+  refusing the assignment of a depended-on field and a `Mut`/`canbe Mut`
+  sibling is the minimal sound rule; so are the step rule for every
+  droppable qualifier, the spread-pair and not-a-sibling refusals, and no
+  claim on a temporary's field. The alternatives are listed there.
+- **Tests**: `tests/check/dependent/sibling_fields.sv` (reads, destructuring
+  both ways, literals and spreads, assignment, the step, a temporary, a prefix
+  step, branches that step, mutate or end with another claim, a join of two
+  claims, a write through an element, a `while` and a `when` that step, an
+  arm step, a path sibling, a generic sibling, an `Int` sibling stepped, a
+  named pass, a cursor built locally, two unplaced views, two fields of one
+  value, another cursor's destructured index, a literal's index used
+  elsewhere, the cursor reassigned or mutated by a call, two elements of one
+  list, fields beside a held borrow and of an element, `continue` in a `for`
+  and a `while`, a `for` that may not run, a mutation under an arm and a
+  place claim, the declaration refusals); run data
+  `qualifiers/sibling_field_claims.sv` (a tokenizer reading every character
+  of a `Cursor` through the total overload, identical on both backends); LSP
+  tests `hover_shows_a_sibling_field_claim_once` and
+  `completion_in_an_open_block_header`. Each was run against HEAD in a
+  worktree first: the checker file, the run program and both LSP tests fail
+  there (the hover read `proj Idx(str) Idx(str) Int`, the completion offered
+  only the generic fns). 769 tests under nextest, all green in the worktree
+  (2m12 after a `salvo-core` rebuild, the machine loaded).
+  The suite ran in a worktree of HEAD plus this change: the user's uncommitted
+  `lib/std/core/string.sv` and `console.sv` edits change every golden that
+  prints std (`println` gains an overload, so its calls are mangled), which the
+  working tree's suite fails on for that reason alone.
+- **The demo, after the change** (a copy, `tmp/demo_copy`): the reads and the
+  destructured `str.char_at(pos)` take the total overload. What is left is the
+  user's: `todo!()`, `next_number`'s missing return, and `append(Mut Str, Char)`,
+  which std does not declare (`"${c}"` is the text). `while ++pos is Idx(str)`
+  does not narrow `pos` — the subject of the `is` is the step's value, not the
+  place (ROADMAP §0bg).
+
 ### 2026-11-10 — A named union has a body of functions and refinements, as a struct does ([type-union-body])
 
 User decisions 2026-11-10 (from the user's `demo/`, whose `Json` union wanted
@@ -41963,6 +42065,28 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A claim's identity is roots *and* projections** (2026-11-10,
+  [qual-depend-field]): compare `ValueRef`s with `types::same_identity`, never
+  by their roots alone or by `==` (the `path` is a spelling: `Idx(str)` and
+  `Idx(parsing.str)` are one claim), and compute one with `claim_identity`, not
+  from `var.links` by hand — a hand-rolled roots list is how `Idx(p.a)` came to
+  index `p.b`. A value that *holds* a borrow has no projection in its link's
+  fate path; its `claim` is the root's projection its one `proj` field
+  stores, or `None`, and a claim is about the ultimate roots only
+  (`ultimate_links`), or `cursor.str` and a `str` destructured from it differ.
+- **A narrowing back to the declared type is still a narrowing** (2026-11-10,
+  [var-drop-assign]): a variable may read *below* its declaration after a step
+  or an assignment dropped a claim, so a fact that restores the declared type
+  must not be discarded as a no-op; `join_path_facts` compares with the current
+  reading.
+- **A loop has more paths than its body's end** (2026-11-10,
+  [is-narrow-assign-reset]): the back edge is reached from every `continue`
+  too (`join_continue_states`), and what follows a `for` or a `while` from
+  the entry state (the loop may run no times). Join the entry state's
+  *facts* only (`entry_facts`): joining its fate links as well made `let acc
+  = init; for … { acc = f(acc, x) }; return acc` in std's `reduce` a return
+  of `init`'s view.
 
 - **An uncommitted edit under `lib/` is in every test and every `salvo`
   binary** (2026-11-10, [type-union-body]): std is embedded at build time

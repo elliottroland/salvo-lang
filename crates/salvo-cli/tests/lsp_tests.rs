@@ -2539,6 +2539,142 @@ fn run() [Both] -> Int {
     lsp.child.wait().expect("failed to wait for salvo lsp");
 }
 
+/// [qual-depend-field] The JSON-parser demo's cursor: a string and an index
+/// proven for it, with an optional and a total read ranked by the claim.
+/// Lines 0–13 of each source below.
+const SIBLING_CURSOR: &str = "\
+struct Cursor canbe Mut {
+    str: proj Str
+    pos: Idx(str) Int
+}
+
+fn read_char(str: Str, index: Int) [] -> Char? => str, index {
+    return char_at(str, index)
+}
+
+fn read_char(str: Str, index: Idx(str) Int) [] -> Char => str, index {
+    let c = read_char(str, (index: Int))
+    assert!(c is Char)
+    return c
+}
+";
+
+/// [qual-depend-field] The claim of a struct field about a sibling field
+/// shows once on hover, rooted at the sibling read beside it — in the demo's
+/// loop shape too, where the loop head joins the destructured claim with the
+/// one the body's `is` test gives back. Before, the field's unrooted
+/// template and the test's rooted claim showed side by side (`Idx(str)
+/// Idx(str) Int`).
+#[test]
+fn hover_shows_a_sibling_field_claim_once() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_sibling_claim_hover");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let source = format!(
+        "{SIBLING_CURSOR}
+fn count(cursor: Mut Cursor) [] -> Int => cursor {{
+    let {{ str, pos }} = cursor
+    let n = 0
+    while pos < size(str) - 1 {{
+        let c: Char = cursor.str.read_char(pos)
+        if c == ' ' {{
+            n = n + 1
+        }}
+        pos++
+        assert!(pos is Idx(str))
+    }}
+    return n
+}}
+"
+    );
+    std::fs::write(root.join("main.sv"), &source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let diagnostics = expect_diagnostics(&lsp.rx);
+    // Clean: `cursor.str.read_char(pos)` went to the total overload.
+    assert_eq!(diagnostics["diagnostics"], json!([]), "the source checks clean");
+    // The destructured `pos`: an index of the `str` beside it.
+    let at_binding = hover(&mut lsp, 2, &uri, 16, 16);
+    assert!(at_binding.starts_with("```salvo\nIdx(str) Int\n```"), "{at_binding}");
+    // In the loop, read through the field's string, and at the step.
+    let at_read = hover(&mut lsp, 3, &uri, 19, 44);
+    assert!(at_read.starts_with("```salvo\nIdx(str) Int\n```"), "{at_read}");
+    let at_step = hover(&mut lsp, 4, &uri, 23, 9);
+    assert!(at_step.starts_with("```salvo\nIdx(str) Int\n```"), "{at_step}");
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
+/// [lsp-completion] A block header still being typed — `while … && x.re`
+/// with no `{` yet — completes like any other position: the probe closes the
+/// header so the fn is still checked (before, the parse error dropped the
+/// fn and the receiver had no type, so only the generic fns were offered).
+#[test]
+fn completion_in_an_open_block_header() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_completion_open_header");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let source = format!(
+        "{SIBLING_CURSOR}
+fn walk(cursor: Mut Cursor) [] -> None => cursor {{
+    let {{ str, pos }} = cursor
+    while pos < size(str) - 1 && cursor.str.re
+}}
+"
+    );
+    std::fs::write(root.join("main.sv"), &source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {
+                "uri": uri, "languageId": "salvo", "version": 1, "text": source
+            }}
+        }),
+    );
+    let _ = expect_diagnostics(&lsp.rx);
+    let complete = |lsp: &mut Lsp, id: i64, line: u32, character: u32| -> Vec<String> {
+        send(
+            &mut lsp.stdin,
+            json!({
+                "jsonrpc": "2.0", "id": id, "method": "textDocument/completion",
+                "params": {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}
+            }),
+        );
+        let response = expect_response(&lsp.rx, id);
+        response["result"]
+            .as_array()
+            .unwrap_or_else(|| panic!("no completion list: {response}"))
+            .iter()
+            .map(|i| i["label"].as_str().unwrap().to_string())
+            .collect()
+    };
+    // `while pos < size(str) - 1 && cursor.str.re|` with no `{`: Str's
+    // functions, both `read_char` overloads (the total one's first parameter
+    // takes the receiver too) and std's `char_at`.
+    let items = complete(&mut lsp, 2, 17, 46);
+    assert_eq!(items.iter().filter(|l| *l == "read_char").count(), 2, "both overloads: {items:?}");
+    assert!(items.contains(&"char_at".to_string()), "expected `char_at`: {items:?}");
+    assert!(items.contains(&"trim".to_string()), "expected Str's fns: {items:?}");
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
+    expect_response(&lsp.rx, 99);
+    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
+    lsp.child.wait().expect("failed to wait for salvo lsp");
+}
+
 /// [lsp-completion] Completion offers the functions in scope; after
 /// `receiver.`, the ones whose first parameter the receiver fills, before
 /// those taking any type, and none taking something else.

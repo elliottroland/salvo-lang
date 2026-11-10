@@ -4601,6 +4601,30 @@ messages! {
         "a dependent qualifier's argument is a place: a variable or a field chain out of \
          one";
 
+    // [qual-depend-field]
+    /// A struct field's claim naming something other than a sibling field.
+    qual_depend_field_not_a_sibling = "qual-depend-field:not-a-sibling" (path: &dyn std::fmt::Display, field: &dyn std::fmt::Display, owner: &dyn std::fmt::Display) => format!(
+        "`{path}` is not another field of `{owner}`: a claim in the type of field `{field}` \
+         is about a sibling field of the same value"
+    );
+    /// A struct field's claim about a sibling whose contents can change in place.
+    qual_depend_field_mutable_sibling = "qual-depend-field:mutable-sibling" (field: &dyn std::fmt::Display, sibling: &dyn std::fmt::Display) => format!(
+        "field `{field}` claims something about field `{sibling}`, so `{sibling}` cannot be \
+         mutable in place (`Mut` or `canbe Mut`): a change to it would leave the stored \
+         claim false"
+    );
+    /// Assigning a field another field's stored claim is about.
+    qual_depend_field_assign_depended = "qual-depend-field:assign-depended" (sibling: &dyn std::fmt::Display, field: &dyn std::fmt::Display, owner: &dyn std::fmt::Display) => format!(
+        "cannot assign field `{sibling}` of `{owner}`: field `{field}` holds a claim about \
+         it that the new value would not satisfy; build a new `{owner}` with both fields \
+         instead"
+    );
+    /// A literal replacing a field that a field taken from its spread holds a claim about.
+    qual_depend_field_spread_pair = "qual-depend-field:spread-pair" (sibling: &dyn std::fmt::Display, field: &dyn std::fmt::Display) => format!(
+        "this replaces `{sibling}`, but `{field}` comes from the spread and holds a claim \
+         about the spread's `{sibling}`: write `{field}` here too"
+    );
+
     // [qual-field-override]
     /// A field override that is not a subtype of the field.
     qual_field_override_not_subtype = "qual-field-override:not-subtype" (field: &dyn std::fmt::Display, override_ty: &dyn std::fmt::Display, orig: &dyn std::fmt::Display) => format!(

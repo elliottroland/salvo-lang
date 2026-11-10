@@ -306,9 +306,13 @@ pub enum Ty {
     /// which map a `KeyOf(m)` is about. `path` is the source spelling
     /// (`m`, `state.cache`); `roots` the fate roots the claim is bound to
     /// [fate-link] — filled where the claim attaches to a value in flow,
-    /// empty in a signature or annotation template. Two claims are the
-    /// same fact only when their roots agree.
-    ValueRef { path: String, roots: Vec<u32> },
+    /// empty in a signature or annotation template. `at` runs parallel to
+    /// `roots` [qual-depend-field]: the projection of each root the claim
+    /// is about, dotted (`""` the whole root, `"str"` its field, `"?"` a
+    /// derivation the analysis cannot spell as a path), so `Idx(p.a)` and
+    /// `Idx(p.b)` are different facts. Two claims are the same fact only
+    /// when their roots and projections agree ([`same_identity`]).
+    ValueRef { path: String, roots: Vec<u32>, at: Vec<String> },
     /// [qual-const] A **constant** in a qualifier's value-argument block —
     /// the third slot kind: `InRange(0, 65535) Int`. Compile-time known,
     /// so it needs no flow tracking and no invalidation; two claims agree
@@ -638,7 +642,15 @@ impl Ty {
             quals.retain(|q| !is_proj_name(&q.name));
         }
         quals.sort_by(|a, b| a.name.cmp(&b.name));
-        quals.dedup();
+        // [qual-depend-field] One claim per fact: a dependent claim rooted to
+        // the same identity under another spelling is the same claim.
+        let mut unique: Vec<Qual> = Vec::with_capacity(quals.len());
+        for q in quals {
+            if !unique.iter().any(|u| same_claim(u, &q)) {
+                unique.push(q);
+            }
+        }
+        let quals = unique;
         if quals.is_empty() {
             return base;
         }
@@ -817,6 +829,44 @@ pub fn read_arm_map(from: &Ty, to: &Ty) -> Option<Vec<(Option<Ty>, Ty)>> {
     Some(tv.iter().map(|t| (fv.iter().find(|f| key(f) == key(t)).cloned(), t.clone())).collect())
 }
 
+/// [qual-depend] [qual-depend-field] Whether two rooted place identities
+/// (a `ValueRef`'s `roots` with their parallel `at` projections) name the
+/// same value: the same set of (root, projection) pairs. An empty side is
+/// no identity and agrees with nothing.
+pub fn same_identity(ra: &[u32], aa: &[String], rb: &[u32], ab: &[String]) -> bool {
+    fn pairs(r: &[u32], a: &[String]) -> Vec<(u32, String)> {
+        debug_assert_eq!(r.len(), a.len(), "a claim identity's roots and projections run parallel");
+        let mut out: Vec<(u32, String)> = r
+            .iter()
+            .enumerate()
+            // A missing projection is unknown, never the whole root.
+            .map(|(i, id)| (*id, a.get(i).cloned().unwrap_or_else(|| "?".to_string())))
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+    !ra.is_empty() && pairs(ra, aa) == pairs(rb, ab)
+}
+
+/// [qual-depend-field] Whether two qualifiers state the same fact: the same
+/// name and arguments, where two *rooted* place arguments agree by identity
+/// whatever their spelling — the `Idx(str)` a destructured local reads and the
+/// `Idx(parsing.str)` a field read gives are one claim, not two.
+pub fn same_claim(a: &Qual, b: &Qual) -> bool {
+    a.name == b.name
+        && a.effect == b.effect
+        && a.args.len() == b.args.len()
+        && a.args.iter().zip(&b.args).all(|(x, y)| match (x, y) {
+            (Ty::ValueRef { roots: ra, at: aa, .. }, Ty::ValueRef { roots: rb, at: ab, .. })
+                if !ra.is_empty() && !rb.is_empty() =>
+            {
+                same_identity(ra, aa, rb, ab)
+            }
+            _ => x == y,
+        })
+}
+
 /// The subtype relation. `Unknown` is compatible in both directions so that
 /// unchecked code never produces cascading errors.
 pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
@@ -829,14 +879,8 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
         // [qual-depend] Place identities inside qualifier arguments: rooted
         // against rooted requires agreement; a root-free side is a template
         // and stays lenient (an annotation cannot resolve roots).
-        (Ty::ValueRef { roots: ra, .. }, Ty::ValueRef { roots: rb, .. }) => {
-            ra.is_empty() || rb.is_empty() || {
-                let mut x = ra.clone();
-                let mut y = rb.clone();
-                x.sort_unstable();
-                y.sort_unstable();
-                x == y
-            }
+        (Ty::ValueRef { roots: ra, at: aa, .. }, Ty::ValueRef { roots: rb, at: ab, .. }) => {
+            ra.is_empty() || rb.is_empty() || same_identity(ra, aa, rb, ab)
         }
         // [qual-const] Constants agree exactly or not at all; range
         // containment would need the qualifier's own semantics, which is

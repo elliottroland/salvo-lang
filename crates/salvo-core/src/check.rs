@@ -2071,14 +2071,16 @@ fn join_narrowed(states: &[&Ty]) -> Ty {
     } else if states.iter().any(|t| matches!(t, Ty::Never)) {
         Ty::Never
     } else {
-        // Keep only qualifiers every path preserves.
-        let mut common: HashSet<String> = states[0].quals().iter().map(|q| q.name.clone()).collect();
-        for t in &states[1..] {
-            let names: HashSet<String> = t.quals().iter().map(|q| q.name.clone()).collect();
-            common.retain(|q| names.contains(q));
-        }
-        let removed: HashSet<String> =
-            states[0].quals().iter().map(|q| q.name.clone()).filter(|q| !common.contains(q)).collect();
+        // Keep only qualifiers every path preserves. [qual-depend-field] A
+        // dependent claim is preserved only as the same fact: `Idx(t)` on one
+        // path and `Idx(u)` on another share a name, not a claim.
+        let dependent = |q: &Qual| q.args.iter().any(|a| matches!(a, Ty::ValueRef { .. } | Ty::Const(_)));
+        let kept = |q: &Qual| {
+            states[1..].iter().all(|t| {
+                t.quals().iter().any(|o| if dependent(q) { crate::types::same_claim(q, o) } else { o.name == q.name })
+            })
+        };
+        let removed: HashSet<String> = states[0].quals().iter().filter(|q| !kept(q)).map(|q| q.name.clone()).collect();
         states[0].clone().remove_quals(&removed)
     }
 }
@@ -2918,6 +2920,98 @@ struct PlaceNarrow {
     declared: Ty,
 }
 
+/// [qual-depend-field] A claim's identity: its fate roots with, parallel to
+/// them, the projection of each root it is about (see `Ty::ValueRef`).
+type Identity = (Vec<u32>, Vec<String>);
+
+/// [qual-depend-field] The identity of `base`'s field `field`: each of
+/// `base`'s projections, one field further.
+fn identity_below(base: &Identity, field: &str) -> Identity {
+    let (roots, at) = base;
+    let at = at
+        .iter()
+        .map(|a| if a.is_empty() { field.to_string() } else { format!("{a}.{field}") })
+        .collect();
+    (roots.clone(), at)
+}
+
+/// [qual-depend-field] `ty` without any dependent claim (one with a place or
+/// a constant in its value block), at its top level and on its union arms:
+/// what a variable is still known to be after a branch that may have broken
+/// the claims it had.
+fn strip_dependent_deep(ty: &Ty) -> Ty {
+    let dependent: HashSet<String> = ty
+        .quals()
+        .iter()
+        .filter(|q| q.args.iter().any(|a| matches!(a, Ty::ValueRef { .. } | Ty::Const(_))))
+        .map(|q| q.name.clone())
+        .collect();
+    let base = match ty.strip_quals() {
+        Ty::Union(arms) => Ty::Union(arms.iter().map(strip_dependent_deep).collect()),
+        other => other.clone(),
+    };
+    let kept: Vec<Qual> = ty.quals().iter().filter(|q| !dependent.contains(&q.name)).cloned().collect();
+    base.qualify(kept)
+}
+
+/// [qual-depend-field] Every root-free place template in `t`, as written
+/// (`str` for `Idx(str) Int`, `inner.text` for `Idx(inner.text) Int`): the
+/// places a declared type's claims are about.
+fn value_ref_paths(t: &Ty, out: &mut Vec<String>) {
+    match t {
+        Ty::ValueRef { path, roots, .. } if roots.is_empty() => out.push(path.clone()),
+        Ty::Qualified { quals, base } => {
+            quals.iter().for_each(|q| q.args.iter().for_each(|a| value_ref_paths(a, out)));
+            value_ref_paths(base, out);
+        }
+        Ty::Named { args, .. } | Ty::Union(args) | Ty::Tuple(args) => args.iter().for_each(|a| value_ref_paths(a, out)),
+        Ty::Array(e) => value_ref_paths(e, out),
+        _ => {}
+    }
+}
+
+/// [qual-depend-field] Whether a fate link's claim path is **marked**: it
+/// opens with `Step::Element`, standing for a derivation the analysis cannot
+/// spell from the root (an element, a value a held borrow is stored beside),
+/// made at the link's binding, and the steps after it are spelled below that
+/// value. `identity_from_links` renders the marker as the binding, so two
+/// fields of one such value are still two values.
+fn claim_marked(claim: &[Step]) -> bool {
+    matches!(claim.first(), Some(Step::Element))
+}
+
+/// [qual-depend] `ty` without the qualifiers `stale` picks, at its top level
+/// and on its union arms (in place: no arm moves, so arm identity is kept).
+fn strip_quals_where(ty: &Ty, stale: &dyn Fn(&Qual) -> bool) -> Ty {
+    match ty {
+        Ty::Qualified { quals, base } => {
+            let base = strip_quals_where(base, stale);
+            let quals: Vec<Qual> = quals.iter().filter(|q| !stale(q)).cloned().collect();
+            if quals.is_empty() {
+                base
+            } else {
+                Ty::Qualified { quals, base: Box::new(base) }
+            }
+        }
+        Ty::Union(arms) => Ty::Union(arms.iter().map(|a| strip_quals_where(a, stale)).collect()),
+        other => other.clone(),
+    }
+}
+
+/// [qual-depend-field] The first segment of every root-free place template in
+/// `t` (`str` for `Idx(str) Int`, `self` for `Idx(self.items)`): what a
+/// declared type's claims are about.
+fn value_ref_bases(t: &Ty, out: &mut Vec<String>) {
+    let mut paths = Vec::new();
+    value_ref_paths(t, &mut paths);
+    for path in paths {
+        let base = path.split('.').next().unwrap_or(&path).to_string();
+        if !out.contains(&base) {
+            out.push(base);
+        }
+    }
+}
+
 /// One fate link [fate-link]: the derived variable was bound from (a
 /// projection of) the root variable at `bind_span`.
 #[derive(Clone, Debug, PartialEq)]
@@ -2973,6 +3067,13 @@ struct FateLink {
     /// derivation: may-alias, today's conservative rule
     /// [fate-field-disjoint].
     elem_idx: Option<u32>,
+    /// [qual-depend-field] The projection of the root a **claim** about
+    /// this value is about: `path`, except where the binding is more precise
+    /// than its fate link — a destructured field keeps the source's
+    /// whole-variable link for fate, but a claim about it is about that
+    /// field (`let { str } = parsing` is `parsing.str` to an `Idx`).
+    /// `None` when the derivation is not a projection chain.
+    claim: Option<Vec<Step>>,
 }
 
 impl FateLink {
@@ -5283,6 +5384,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                             self.validate_type(written);
                             self.record_written_type(written);
                             self.check_canbe_mut_field(s, field);
+                            // [qual-depend-field] A claim about a sibling.
+                            self.check_sibling_claim_field(s, field);
                             // [proj-field] Any struct may hold a borrow through a
                             // `proj` field; it is then a *view*, tied to whatever
                             // its literal stored there [proj-infer].
@@ -10818,52 +10921,12 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// (collect, then write) over the top frame.
     fn root_declared_claims(&mut self) {
         let Some(frame) = self.locals.last() else { return };
-        // name -> ultimate roots, for path-base resolution.
-        let roots_of: HashMap<String, Vec<u32>> = frame
+        // name -> identity, for path-base resolution.
+        let roots_of: HashMap<String, Identity> = frame
             .iter()
-            .map(|(name, var)| {
-                let mut roots: Vec<u32> = var.links.iter().map(|l| l.root_id).collect();
-                roots.sort_unstable();
-                roots.dedup();
-                if roots.is_empty() {
-                    roots.push(var.id);
-                }
-                (name.clone(), roots)
-            })
+            .filter_map(|(name, var)| Some((name.clone(), Self::identity_from_links(var.id, &var.links, &[])?)))
             .collect();
-        fn fill(ty: &Ty, roots_of: &HashMap<String, Vec<u32>>) -> Ty {
-            match ty {
-                Ty::ValueRef { path, roots } if roots.is_empty() => {
-                    let base = path.split('.').next().unwrap_or(path);
-                    match roots_of.get(base) {
-                        Some(r) => Ty::ValueRef {
-                            path: path.clone(),
-                            roots: r.clone(),
-                        },
-                        None => ty.clone(),
-                    }
-                }
-                Ty::Qualified { quals, base } => Ty::Qualified {
-                    quals: quals
-                        .iter()
-                        .map(|q| Qual {
-                            effect: q.effect,
-                            name: q.name.clone(),
-                            args: q.args.iter().map(|a| fill(a, roots_of)).collect(),
-                        })
-                        .collect(),
-                    base: Box::new(fill(base, roots_of)),
-                },
-                Ty::Named { name, args } => Ty::Named {
-                    name: name.clone(),
-                    args: args.iter().map(|a| fill(a, roots_of)).collect(),
-                },
-                Ty::Union(arms) => Ty::Union(arms.iter().map(|a| fill(a, roots_of)).collect()),
-                Ty::Tuple(elems) => Ty::Tuple(elems.iter().map(|e| fill(e, roots_of)).collect()),
-                Ty::Array(elem) => Ty::Array(Box::new(fill(elem, roots_of))),
-                other => other.clone(),
-            }
-        }
+        let fill = |ty: &Ty, roots_of: &HashMap<String, Identity>| Self::substitute_value_refs(ty, roots_of);
         let updates: Vec<(String, Ty, Ty)> = frame
             .iter()
             .filter(|(_, var)| Self::ty_has_value_ref(&var.declared))
@@ -12724,6 +12787,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     // a borrow of that value's roots.
                                     for mut l in self.links_for_value(value, bind_span) {
                                         l.borrowed = true;
+                                        // [qual-depend-field] A held link's
+                                        // claim path is the root's projection
+                                        // the holder's `proj` field stores.
+                                        if l.held {
+                                            l.claim = None;
+                                        }
                                         l.held = true;
                                         push(l, &mut links);
                                     }
@@ -12733,16 +12802,26 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     // an owned field storing owned data (or
                                     // a plain alias, which is a move) adds
                                     // nothing.
-                                    for l in self.links_for_value(value, bind_span) {
+                                    for mut l in self.links_for_value(value, bind_span) {
                                         if l.held {
+                                            // [qual-depend-field] Not through
+                                            // a `proj` field: no projection.
+                                            l.claim = None;
                                             push(l, &mut links);
                                         }
                                     }
                                 }
                             }
                             StructLitFieldKind::Spread(inner) => {
-                                for l in self.links_for_value(inner, bind_span) {
+                                // [qual-depend-field] The spread's `proj`
+                                // field is this literal's only if no `proj`
+                                // field is written here.
+                                let proj_written = fields.iter().any(|g| matches!(&g.kind, StructLitFieldKind::Named { name, .. } if proj_fields.contains(&name.name)));
+                                for mut l in self.links_for_value(inner, bind_span) {
                                     if l.held {
+                                        if proj_written {
+                                            l.claim = None;
+                                        }
                                         push(l, &mut links);
                                     }
                                 }
@@ -12811,7 +12890,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                             // [proj-infer] The result of a lending call holds
                             // borrows of the lent arguments: an owned value (a
                             // pass) tied to them.
-                            BorrowKind::Held => l.held = true,
+                            BorrowKind::Held => {
+                                // [qual-depend-field] What the pass keeps of
+                                // the lent argument — the whole of it or a
+                                // part — is the callee's business, so no
+                                // projection is claimed for its fields (a
+                                // `for` over it still binds the source:
+                                // `pass_source_roots` reads the lent path).
+                                l.claim = None;
+                                l.held = true;
+                            }
                             // [proj-readonly] A wholesale projection: the
                             // result *is* the argument's data — of every named
                             // source. [deduce-field] A lend handed back by a
@@ -12819,10 +12907,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                             // trace of it in the path (`first(h.tags)` records
                             // `[.tags]`), so it is conservative — this is the
                             // fact that makes the bit necessary rather than
-                            // inferable.
+                            // inferable. [qual-depend-field] So a claim about
+                            // it is about no projection the analysis knows.
                             BorrowKind::View => {
                                 l.held = false;
                                 l.crosses = true;
+                                l.claim = None;
                             }
                         }
                         if !links.iter().any(|e| e.root_id == l.root_id) {
@@ -12847,6 +12937,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                             root_name: l.root_name.clone(),
                             bind_span,
                             path: l.path.clone(),
+                            claim: l.claim.clone(),
                             borrowed: l.borrowed,
                             held: l.held,
                             elem_idx: l.elem_idx,
@@ -12892,6 +12983,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     root_name: src.name.clone(),
                     bind_span,
                     path: extra.clone(),
+                    claim: extra.clone(),
                     borrowed: src_borrowed,
                     held: false,
                     elem_idx: None,
@@ -12924,9 +13016,29 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let step_inline = extra
                     .as_deref()
                     .is_some_and(|p| p.iter().all(|s| matches!(s, Step::Field(_))));
+                // [qual-depend-field] The claim path composes the same way,
+                // from the link's own (possibly more precise) claim path —
+                // but a held link's claim is in the root's namespace, so a
+                // projection on the holder's side is spelled after a marker
+                // for the holder (`claim_marked`), as a read of the
+                // holder's field is (`identity_from_links`).
+                let claim = match (&l.claim, &extra) {
+                    (_, None) => None,
+                    (Some(base), Some(more)) if !l.held || more.is_empty() || claim_marked(base) => {
+                        let mut path = base.clone();
+                        path.extend(more.iter().cloned());
+                        Some(path)
+                    }
+                    (_, Some(more)) => {
+                        let mut path = vec![Step::Element];
+                        path.extend(more.iter().cloned());
+                        Some(path)
+                    }
+                };
                 push(
                     FateLink {
                         path: composed,
+                        claim,
                         // [deduce-field] Crossing is inherited: a field of
                         // something already reached through contents is
                         // still through contents.
@@ -18280,7 +18392,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// each `.field` step follows the declared field type. Roots are the
     /// base variable's ultimate fate roots [fate-link] — itself, when it is
     /// a root.
-    fn place_ty_and_roots(&mut self, path: &str) -> Option<(Ty, Vec<u32>)> {
+    fn place_ty_and_roots(&mut self, path: &str) -> Option<(Ty, Identity)> {
         let mut parts = path.split('.');
         let base = parts.next()?;
         // Reading a place through a filled block is a use of its base.
@@ -18288,16 +18400,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             var.used = true;
         }
         let var = self.lookup(base)?;
-        let mut roots: Vec<u32> = var.links.iter().map(|l| l.root_id).collect();
-        if roots.is_empty() {
-            roots.push(var.id);
-        }
         let mut ty = var.narrowed.clone();
+        // [qual-depend-field] The claim is about this projection of the
+        // base: `Idx(p.a)` and `Idx(p.b)` are different facts.
+        let identity = self.claim_identity_of_path(path)?;
         for field in parts {
             let next = self.declared_field_ty(&ty.strip_quals(), field)?;
             ty = next;
         }
-        Some((ty, roots))
+        Some((ty, identity))
     }
 
     /// [qual-depend] Mutating a value invalidates every **dependent claim**
@@ -18314,31 +18425,58 @@ impl<'p, 'r> Checker<'p, 'r> {
         // identity, or a place under it) fall, not an `Idx` of its container.
         let handle = has_ref_arm(&var.narrowed).then_some(var.id);
         let name = name.to_string();
+        // [qual-depend] Stale: a claim bound to the mutated value. On a
+        // union's arms too: `(Idx(xs) Int)?` holds its claim on the `Int` arm,
+        // and an `is Int` after the mutation must not give it back.
+        let stale = |q: &Qual| {
+            // [qual-preserve] A preserved claim survives the
+            // mutation: the call said so (a refinement by the
+            // claim's owner, or the callee's own checked entry).
+            !preserve.contains(&q.name)
+                && q.args.iter().any(|a| match a {
+                    Ty::ValueRef { roots, path, .. } => match handle {
+                        Some(id) => roots.contains(&id) || path.split('.').next() == Some(name.as_str()),
+                        None => roots.iter().any(|r| mutated.contains(r)),
+                    },
+                    _ => false,
+                })
+        };
         for scope in self.locals.iter_mut() {
             for v in scope.values_mut() {
-                let Ty::Qualified { quals, .. } = &v.narrowed else { continue };
-                let stale: HashSet<String> = quals
-                    .iter()
-                    .filter(|q| {
-                        // [qual-preserve] A preserved claim survives the
-                        // mutation: the call said so (a refinement by the
-                        // claim's owner, or the callee's own checked entry).
-                        !preserve.contains(&q.name)
-                            && q.args.iter().any(|a| match a {
-                                Ty::ValueRef { roots, path } => match handle {
-                                    Some(id) => roots.contains(&id) || path.split('.').next() == Some(name.as_str()),
-                                    None => roots.iter().any(|r| mutated.contains(r)),
-                                },
-                                _ => false,
-                            })
-                    })
-                    .map(|q| q.name.clone())
-                    .collect();
-                if !stale.is_empty() {
-                    v.narrowed = v.narrowed.clone().remove_quals(&stale);
+                let stripped = strip_quals_where(&v.narrowed, &stale);
+                if stripped != v.narrowed {
+                    v.narrowed = stripped;
+                }
+                // [flow-place] A place's narrowing holds claims too
+                // (`p.i is Idx(xs)`).
+                for n in v.place_narrows.iter_mut() {
+                    let stripped = strip_quals_where(&n.narrowed, &stale);
+                    if stripped != n.narrowed {
+                        n.narrowed = stripped;
+                    }
                 }
             }
         }
+    }
+
+    /// [is-narrow-guard] [is-narrow-assign-reset] The condition facts still
+    /// true where a branch ends: none the branch overwrote — by assigning or
+    /// stepping the variable, a write to the place, or a mutation that
+    /// stripped a claim — since the place no longer reads as the condition
+    /// left it.
+    fn facts_still_held(&self, facts: &[Narrow]) -> Vec<Narrow> {
+        facts
+            .iter()
+            .filter(|n| {
+                let now = if n.place.is_root() {
+                    self.lookup(&n.place.root).map(|v| &v.narrowed)
+                } else {
+                    self.place_narrow(&n.place)
+                };
+                now.is_some_and(|t| is_subtype(t, &n.narrowed))
+            })
+            .cloned()
+            .collect()
     }
 
     /// Runs `f` with the given narrowings applied, restoring afterwards.
@@ -18367,7 +18505,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             if everywhere {
                 let narrowed = self.mk_union(tys);
-                if narrowed != n.declared {
+                // [var-drop-assign] A variable may read below its declared
+                // type (a step or an assignment dropped a claim): a fact
+                // that gives the declared type back is still a fact.
+                let current = if n.place.is_root() {
+                    self.lookup(&n.place.root).map(|v| v.narrowed.clone())
+                } else {
+                    self.place_narrow(&n.place).cloned()
+                };
+                if narrowed != n.declared || current.is_some_and(|c| c != narrowed) {
                     out.push(Narrow { place: n.place.clone(), narrowed, declared: n.declared.clone() });
                 }
             }
@@ -18471,6 +18617,17 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     fn with_narrows<T>(&mut self, narrows: &[Narrow], f: impl FnOnce(&mut Self) -> T) -> T {
+        self.with_narrows_in(narrows, false, f)
+    }
+
+    /// `with_narrows`, told whether the walk is an `if` branch whose end state
+    /// is one path into the join (`keep_writes`): a variable the branch
+    /// rewrote — assigned, stepped, or weakened by a mutation, ending over the
+    /// same base with other qualifiers than the condition gave — keeps what
+    /// the branch left, since that, not the pre-branch type, is its state at
+    /// the end of this path [is-narrow-assign-reset] [var-drop-assign]. A
+    /// loop body's end is not a path out of the loop, so it restores.
+    fn with_narrows_in<T>(&mut self, narrows: &[Narrow], keep_writes: bool, f: impl FnOnce(&mut Self) -> T) -> T {
         let mut saved: Vec<(String, Ty)> = Vec::new();
         // Applied place facts, with the fact each one displaced
         // [flow-place].
@@ -18501,6 +18658,21 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         for (name, ty) in saved.into_iter().rev() {
             if let Some(var) = self.lookup_mut(&name) {
+                // [is-narrow-assign-reset] [var-drop-assign] A branch that
+                // assigned or stepped the variable leaves what it stored, not
+                // the fact the condition gave: restoring the pre-branch type
+                // over a stepped `i` would hand the old `Idx` claim on.
+                let applied = narrows.iter().rev().find(|n| n.place.is_root() && n.place.root == name).map(|n| &n.narrowed);
+                if keep_writes && applied.is_some_and(|a| *a != var.narrowed) {
+                    // Over the same base, what the branch left is the
+                    // variable's state on this path. Over another (the
+                    // condition picked an arm), the pre-branch type comes
+                    // back without the claims the branch may have broken.
+                    if var.narrowed.strip_quals() != ty.strip_quals() {
+                        var.narrowed = strip_dependent_deep(&ty);
+                    }
+                    continue;
+                }
                 var.narrowed = ty;
             }
         }
@@ -18541,7 +18713,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // the paths agree on the base. A narrowing to an arm does not
                 // survive an assignment that may have replaced it.
                 if var.narrowed.strip_quals() != var.declared.strip_quals() {
-                    var.narrowed = var.declared.clone();
+                    // [qual-depend-field] The declaration's dependent claims
+                    // do not come back with it: the assignment may have
+                    // dropped them [var-drop-assign].
+                    var.narrowed = strip_dependent_deep(&var.declared);
                 }
                 var.widened = None;
                 var.place_narrows.clear();
@@ -18606,8 +18781,28 @@ impl<'p, 'r> Checker<'p, 'r> {
         narrows: &[Narrow],
         bindings: Vec<Binding>,
     ) -> (Ty, Option<TailInfo>) {
+        self.check_loop_body_in(body, narrows, bindings, false, None)
+    }
+
+    /// `check_loop_body`, told whether the body's end state is kept
+    /// (`keep_writes`, [`Self::with_narrows_in`]): for a `while`, whose body
+    /// end is the state the condition is tested in again — and, when that
+    /// test fails, the state after the loop, joined with the state the loop
+    /// was entered in (`Expr::While`).
+    fn check_loop_body_in(
+        &mut self,
+        body: &'p Block,
+        narrows: &[Narrow],
+        bindings: Vec<Binding>,
+        keep_writes: bool,
+        cond: Option<&'p Expr>,
+    ) -> (Ty, Option<TailInfo>) {
         let entry = self.snapshot_narrows();
-        let result = self.with_narrows(narrows, |c| c.check_branch_block(body, bindings.clone()));
+        let result = self.with_narrows_in(narrows, keep_writes, |c| {
+            let r = c.check_branch_block(body, bindings.clone());
+            c.join_continue_states();
+            r
+        });
         if self.snapshot_narrows() != entry {
             let seen: HashSet<(usize, Span, String)> = self
                 .out
@@ -18616,7 +18811,22 @@ impl<'p, 'r> Checker<'p, 'r> {
                 .map(|e| (e.file, e.span, e.message.clone()))
                 .collect();
             let before = self.out.errors.len();
-            let _ = self.with_narrows(narrows, |c| c.check_branch_block(body, bindings));
+            // [qual-depend-field] A `while`'s condition is tested again in the
+            // back-edge state: what it narrows to there, not what it narrowed
+            // the entry state to (a claim the entry type carried on an arm
+            // and the body stepped away is not given back).
+            let (narrows, bindings) = match cond {
+                Some(cond) => {
+                    let info = self.analyze_cond(cond);
+                    (info.then_narrows, info.bindings)
+                }
+                None => (narrows.to_vec(), bindings),
+            };
+            let _ = self.with_narrows_in(&narrows, keep_writes, |c| {
+                let r = c.check_branch_block(body, bindings);
+                c.join_continue_states();
+                r
+            });
             let second_pass: Vec<FileDiagnostic> = self.out.errors.split_off(before);
             for e in second_pass {
                 if !seen.contains(&(e.file, e.span, e.message.clone())) {
@@ -18625,6 +18835,41 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         }
         result
+    }
+
+    /// [is-narrow-assign-reset] Joins the states the loop body's `continue`s
+    /// recorded into the state at the body's end: the back edge — the next
+    /// test of the condition, and the next iteration — is reached from
+    /// every one of them, so a claim a `continue` path stepped away does not
+    /// come back.
+    fn join_continue_states(&mut self) {
+        let Some(ctx) = self.loop_stack.last_mut() else { return };
+        let continues = std::mem::take(&mut ctx.continue_states);
+        if continues.is_empty() {
+            return;
+        }
+        let mut states = vec![self.snapshot_narrows()];
+        states.extend(continues);
+        self.merge_fallthrough(&states);
+    }
+
+    /// [is-narrow-assign-reset] A loop's entry state as one more path into
+    /// what follows the loop (the loop may run no times), for its **facts**
+    /// only: what each variable reads as and its place narrowings join with
+    /// the body's end, while its fate links and storage view stay the body
+    /// end's, as before entry states were joined — ownership across a loop
+    /// is the IR flow pass's [flow-use-after-move].
+    fn entry_facts(&self, mut entry: NarrowSnapshot) -> NarrowSnapshot {
+        let now = self.snapshot_narrows();
+        for (frame, then) in entry.iter_mut().zip(&now) {
+            for (name, state) in frame.iter_mut() {
+                if let Some(cur) = then.get(name) {
+                    state.links = cur.links.clone();
+                    state.widened = cur.widened.clone();
+                }
+            }
+        }
+        entry
     }
 
     /// Merges the fall-through branch states of a branching construct
@@ -19943,6 +20188,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                         None => Some(Ty::ValueRef {
                                             path: base.name.name.clone(),
                                             roots: Vec::new(),
+                                            at: Vec::new(),
                                         }),
                                     }
                                 }
@@ -21953,6 +22199,87 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
     }
 
+    /// [qual-depend-field] Assigning a field that another field's stored
+    /// claim is about is refused: the claim lives in the struct's declared
+    /// field type, so nothing could strip it, and the new value would not be
+    /// what it describes. Rebuilding the value — a literal or a spread that
+    /// gives both fields — is checked like any literal.
+    fn check_depended_field_assign(&mut self, target: &Expr) {
+        // Each struct the write passes through, with the path written below
+        // it: `h.inner.xs = …` writes `xs` of `h.inner` and `inner.xs` of `h`.
+        let mut written: Vec<String> = Vec::new();
+        let mut cur = target;
+        while let Expr::Field { base, field, .. } = cur {
+            written.insert(0, field.name.clone());
+            let rel = written.join(".");
+            let Some(base_ty) = self.out.ty_of(self.file_idx, base.span()).cloned() else { break };
+            if let Ty::Named { name, .. } = base_ty.strip_quals() {
+                if let Some(decl) = self.symbols.structs.get(name.as_str()).copied() {
+                    for other in decl.fields.iter().filter(|f| f.name.name != written[0]) {
+                        let Some(ty) = self.declared_field_ty(&base_ty, &other.name.name) else { continue };
+                        let mut claimed = Vec::new();
+                        value_ref_paths(&ty, &mut claimed);
+                        let overlaps = claimed.iter().any(|p| *p == rel || p.starts_with(&format!("{rel}.")) || rel.starts_with(&format!("{p}.")));
+                        if overlaps {
+                            self.error(
+                                field.span,
+                                messages::qual_depend_field_assign_depended(&rel, &other.name.name, &decl.name.name),
+                            );
+                            return;
+                        }
+                    }
+                }
+            }
+            cur = base;
+        }
+    }
+
+    /// [qual-depend-field] A place in a struct field's claim names a
+    /// **sibling field** (`pos: Idx(str) Int`): the claim is about that field
+    /// of the same value, rooted wherever the field is read. The sibling must
+    /// not be mutable in place — a stored claim cannot be stripped the way a
+    /// local's is, so a change that could falsify it is ruled out at the
+    /// declaration (in-place) or at the assignment
+    /// (`check_depended_field_assign`).
+    fn check_sibling_claim_field(&mut self, s: &'p StructDecl, field: &'p ast::FieldDecl) {
+        let saved = self.enter_generics(&s.generics);
+        let ty = self.lower_type(field.written_ty());
+        self.generics = saved;
+        let mut named = Vec::new();
+        value_ref_bases(&ty, &mut named);
+        let span = field.written_ty().span();
+        for sib in named {
+            let Some(sibling) = s.fields.iter().find(|f| f.name.name == sib && f.name.name != field.name.name) else {
+                self.error(span, messages::qual_depend_field_not_a_sibling(&sib, &field.name.name, &s.name.name));
+                continue;
+            };
+            let saved = self.enter_generics(&s.generics);
+            let sty = sibling.ty.as_ref().map(|t| self.lower_type(t));
+            self.generics = saved;
+            if sibling.canbe_mut || sty.as_ref().is_some_and(Self::carries_mut) {
+                self.error(span, messages::qual_depend_field_mutable_sibling(&field.name.name, &sib));
+                continue;
+            }
+            // A path into the sibling (`Idx(inner.xs)`) must not reach a
+            // `Mut` value either.
+            let mut deeper = Vec::new();
+            value_ref_paths(&ty, &mut deeper);
+            for path in deeper.iter().filter(|p| p.split('.').next() == Some(sib.as_str())) {
+                let Some(mut at) = sty.clone() else { break };
+                for seg in path.split('.').skip(1) {
+                    match self.declared_field_ty(&at, seg) {
+                        Some(next) if Self::carries_mut(&next) => {
+                            self.error(span, messages::qual_depend_field_mutable_sibling(&field.name.name, path));
+                            break;
+                        }
+                        Some(next) => at = next,
+                        None => break,
+                    }
+                }
+            }
+        }
+    }
+
     /// [struct-field-canbe-mut] `name: T canbe Mut` is legal in a `canbe Mut` struct
     /// only (elsewhere the struct value is never `Mut`, so the field never
     /// would be), over a `T` whose declaration says `canbe Mut`, written
@@ -23439,6 +23766,10 @@ struct LoopCtx {
     /// with the fall-through exit state, so a value consumed on a break
     /// path stays consumed after the loop [deduce-consume].
     break_states: Vec<NarrowSnapshot>,
+    /// [is-narrow-assign-reset] Flow-state snapshot at each `continue`: the
+    /// back edge joins these with the body's end, since the condition (and
+    /// the next iteration) is reached from both.
+    continue_states: Vec<NarrowSnapshot>,
 }
 
 /// A parsed `is` check: qualifiers + optional base type (or `None`).
@@ -23899,6 +24230,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                         let declared = Place::of_expr(other).and_then(|p| self.place_narrow_entry(&p)).map(|e| e.declared.clone());
                         let ty = self.check_expr(other, None);
                         let ty = declared.unwrap_or(ty);
+                        // [qual-depend-field] A claimed field written through a
+                        // base with no identity keeps the claim as a demand
+                        // nothing meets, rather than reading as plain.
+                        let ty = self.assign_target_ty(other, ty);
                         // A target that is not a place has been reported:
                         // what it would mutate is nothing, so no permission
                         // or fate check applies (one mistake, one
@@ -23928,6 +24263,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                                         &base_ty,
                                     ),
                                 );
+                            } else if is_struct {
+                                self.check_depended_field_assign(other);
                             }
                         }
                         // [expr-tuple-index] A tuple element is never
@@ -23966,7 +24303,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                     self.record_into_mut(value.span(), &target_ty);
                 }
                 // [var-no-widen] assignments must fit the declared type.
-                if !drops_fit && !is_subtype(&value_ty, &target_ty) {
+                // [qual-depend-field] A claim the target demands must be
+                // carried as the same fact, which leniency cannot assume.
+                let claim_missing = !matches!(target, Expr::Ident(_)) && Self::ty_has_value_ref(&target_ty) && !value_ty.is_unknown() && !Self::dependent_demands_met(&target_ty, &value_ty);
+                if !drops_fit && (!is_subtype(&value_ty, &target_ty) || claim_missing) {
                     self.error(
                         value.span(),
                         messages::var_no_widen_assign_mismatch(&value_ty, &target_ty),
@@ -24142,7 +24482,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 elems
                     .iter()
                     .zip(elem_tys)
-                    .flat_map(|(p, t)| self.pattern_bindings(p, t, links.clone(), for_origin))
+                    .enumerate()
+                    .flat_map(|(i, (p, t))| {
+                        let links = Self::links_into(&links, Step::Index(i), false);
+                        self.pattern_bindings(p, t, links, for_origin)
+                    })
                     .collect()
             }
             Pattern::Struct { fields, span } => {
@@ -24152,6 +24496,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .or_insert_with(|| ty.clone());
                 // [struct-opaque] Destructuring reads every named field.
                 self.refuse_opaque(&ty, "destructuring it", *span);
+                // [qual-depend-field] A sibling-field claim in a destructured
+                // field's type is about the sibling of the same value: the
+                // local bound from it when the pattern binds one, else the
+                // source's field.
+                let bound: HashMap<String, String> = fields.iter().map(|f| (f.field.name.clone(), f.binding.name.clone())).collect();
+                let source_name = links.first().map(|l| {
+                    let mut place = Place::root(l.root_name.clone());
+                    place.path = l.claim.clone().unwrap_or_default();
+                    place.to_string()
+                });
+                let proj = self.proj_fields_of(&ty);
+                let the_proj_field = |name: &str| proj.len() == 1 && proj[0] == name;
+                let ultimate = self.ultimate_links(&links);
                 fields
                 .iter()
                 .map(|f| {
@@ -24161,13 +24518,197 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let fty = self
                         .declared_field_ty(&ty, &f.field.name)
                         .unwrap_or(Ty::Unknown);
-                    // Each destructured binding is a projection of the
-                    // source: it shares the source's fate [fate-link].
-                    (f.binding.clone(), fty, links.clone(), for_origin)
+                    let fty = if Self::ty_has_value_ref(&fty) {
+                        let mutable = self.mutable_claim_siblings(&ty, &fty);
+                        self.root_sibling_claims(&ty, &fty, true, &|sib| {
+                            if mutable.contains(sib) {
+                                return None;
+                            }
+                            let sib_links = Self::links_into(&ultimate, Step::Field(sib.to_string()), the_proj_field(sib));
+                            if sib_links.is_empty() {
+                                return None;
+                            }
+                            let identity = Self::identity_from_links(0, &sib_links, &[])?;
+                            let spelled = match bound.get(sib) {
+                                Some(local) => local.clone(),
+                                None => format!("{}.{sib}", source_name.clone().unwrap_or_default()),
+                            };
+                            Some((spelled, identity))
+                        })
+                    } else {
+                        fty
+                    };
+                    // [qual-depend-field] [fate-field-disjoint] A destructured
+                    // binding is a projection of the source at its field, for
+                    // fate as for claims.
+                    // [copy-scalar-free] A Copy scalar is a value of its
+                    // own, as `let n = p.n` is: it shares no fate.
+                    let flinks = if crate::types::is_copy_scalar(fty.strip_quals()) {
+                        Vec::new()
+                    } else {
+                        Self::links_into(&links, Step::Field(f.field.name.clone()), the_proj_field(&f.field.name))
+                    };
+                    (f.binding.clone(), fty, flinks, for_origin)
                 })
                 .collect()
             }
         }
+    }
+
+    /// [qual-depend-field] [fate-field-disjoint] The links of a binding
+    /// destructured out of a value with `links`, at `step`. A link of the
+    /// value's own projection is extended by the step; a link the value
+    /// *holds* (a borrow in its fields) stays in the root's namespace, and
+    /// is the root itself only for the value's one `proj` field
+    /// (`the_proj_field`) — that binding is a view of the root, at the
+    /// projection stored there.
+    fn links_into(links: &[FateLink], step: Step, the_proj_field: bool) -> Vec<FateLink> {
+        let extend = |p: &Option<Vec<Step>>| {
+            p.as_ref().map(|c| {
+                let mut c = c.clone();
+                c.push(step.clone());
+                c
+            })
+        };
+        // [qual-depend-field] A claim path the analysis cannot spell from the
+        // root still takes the step, after a marker (`claim_marked`): `a`
+        // and `b` destructured from one such value are its two fields, not
+        // one unknown value.
+        let marked = |c: &Option<Vec<Step>>, held: bool| match c {
+            Some(c) if claim_marked(c) || !held => extend(&Some(c.clone())),
+            _ => Some(vec![Step::Element, step.clone()]),
+        };
+        links
+            .iter()
+            .map(|l| {
+                if !l.held {
+                    FateLink { path: extend(&l.path), claim: marked(&l.claim, false), ..l.clone() }
+                } else if the_proj_field && l.claim.as_deref().is_some_and(|c| !claim_marked(c)) {
+                    FateLink { held: false, ..l.clone() }
+                } else {
+                    FateLink { claim: marked(&l.claim, true), ..l.clone() }
+                }
+            })
+            .collect()
+    }
+
+    /// [qual-depend-field] Roots a struct field type's **sibling-field
+    /// claims** where the field is read: `pos: Idx(str) Int` in `struct
+    /// ParsingJson` is a claim about the `str` of the *same* value, so a read
+    /// of `parsing.pos` is an `Idx(parsing.str) Int`, and a `pos`
+    /// destructured beside `str` an `Idx(str) Int` about that local.
+    /// `sibling` answers a field's spelling and identity for the read at
+    /// hand, or `None` when the value has no identity (a temporary). A value
+    /// read then carries no claim at all (`drop_unknown`: nothing could ever
+    /// be known about a temporary's sibling, and a template would pass for
+    /// any claim where the subtype relation is lenient); a literal's target
+    /// keeps the template, which nothing satisfies.
+    fn root_sibling_claims(&self, struct_ty: &Ty, fty: &Ty, drop_unknown: bool, sibling: &dyn Fn(&str) -> Option<(String, Identity)>) -> Ty {
+        let Ty::Named { name, .. } = struct_ty.strip_quals() else { return fty.clone() };
+        let Some(decl) = self.symbols.structs.get(name.as_str()).copied() else { return fty.clone() };
+        // `None`: a sibling ref with no identity, under `drop_unknown`.
+        fn go(ty: &Ty, decl: &StructDecl, drop_unknown: bool, sibling: &dyn Fn(&str) -> Option<(String, Identity)>) -> Option<Ty> {
+            Some(match ty {
+                Ty::ValueRef { path, roots, .. } if roots.is_empty() => {
+                    let mut parts = path.split('.');
+                    let first = parts.next().unwrap_or(path);
+                    if !decl.fields.iter().any(|f| f.name.name == first) {
+                        return Some(ty.clone());
+                    }
+                    let Some((spelled, identity)) = sibling(first) else {
+                        return if drop_unknown { None } else { Some(ty.clone()) };
+                    };
+                    let rest: Vec<&str> = parts.collect();
+                    let (roots, at) = rest.iter().fold(identity, |id, f| identity_below(&id, f));
+                    let path = std::iter::once(spelled.as_str()).chain(rest.iter().copied()).collect::<Vec<_>>().join(".");
+                    Ty::ValueRef { path, roots, at }
+                }
+                Ty::Qualified { quals, base } => {
+                    let quals: Vec<Qual> = quals
+                        .iter()
+                        .filter_map(|q| {
+                            let args: Option<Vec<Ty>> = q.args.iter().map(|a| go(a, decl, drop_unknown, sibling)).collect();
+                            args.map(|args| Qual { effect: q.effect, name: q.name.clone(), args })
+                        })
+                        .collect();
+                    go(base, decl, drop_unknown, sibling)?.qualify(quals)
+                }
+                Ty::Named { name, args } => Ty::Named { name: name.clone(), args: args.iter().map(|a| go(a, decl, drop_unknown, sibling)).collect::<Option<_>>()? },
+                Ty::Union(arms) => Ty::Union(arms.iter().map(|a| go(a, decl, drop_unknown, sibling)).collect::<Option<_>>()?),
+                Ty::Tuple(elems) => Ty::Tuple(elems.iter().map(|e| go(e, decl, drop_unknown, sibling)).collect::<Option<_>>()?),
+                Ty::Array(elem) => Ty::Array(Box::new(go(elem, decl, drop_unknown, sibling)?)),
+                other => other.clone(),
+            })
+        }
+        go(fty, decl, drop_unknown, sibling).unwrap_or_else(|| fty.clone())
+    }
+
+    /// [qual-depend-field] The type a write to `target` must fit: for a field
+    /// whose declared type holds a sibling claim, that claim rooted at the
+    /// sibling of the same value — and, where the value has no identity (an
+    /// element at an unknown index, a temporary), still demanded, as a
+    /// template nothing satisfies. A read drops such a claim; a write must not.
+    fn assign_target_ty(&mut self, target: &Expr, ty: Ty) -> Ty {
+        let Expr::Field { base, field, .. } = target else { return ty };
+        let Some(base_ty) = self.out.ty_of(self.file_idx, base.span()).cloned() else { return ty };
+        let Some(declared) = self.declared_field_ty(&base_ty, &field.name) else { return ty };
+        if !Self::ty_has_value_ref(&declared) {
+            return ty;
+        }
+        let place = Place::of_expr(base);
+        let mutable = self.mutable_claim_siblings(&base_ty, &declared);
+        self.root_sibling_claims(&base_ty, &declared, false, &|sib| {
+            if mutable.contains(sib) {
+                return None;
+            }
+            let mut at = place.clone()?;
+            at.path.push(Step::Field(sib.to_string()));
+            Some((at.to_string(), self.claim_identity(&at)?))
+        })
+    }
+
+    /// [qual-depend-field] The siblings (by first segment) of `fty`'s claims
+    /// whose path, read out of a value of `struct_ty`, reaches a value that
+    /// is `Mut` or not known (a type parameter): such a sibling can change in
+    /// place under the stored claim — a nested `Mut` the declaration did not
+    /// see (`Idx(inner.xs)`), or a type argument (`H<Mut List<Int>>`) — so
+    /// nothing may trust the claim.
+    fn mutable_claim_siblings(&mut self, struct_ty: &Ty, fty: &Ty) -> HashSet<String> {
+        let mut all = Vec::new();
+        value_ref_paths(fty, &mut all);
+        let mut out = HashSet::new();
+        for path in all {
+            let first = path.split('.').next().unwrap_or(&path).to_string();
+            let mut ty = struct_ty.clone();
+            for seg in path.split('.') {
+                let Some(next) = self.declared_field_ty(&ty, seg) else { break };
+                if Self::carries_mut(&next) || matches!(next.strip_quals(), Ty::Var(_)) {
+                    out.insert(first.clone());
+                    break;
+                }
+                ty = next;
+            }
+        }
+        out
+    }
+
+    /// [qual-depend-field] `root_sibling_claims` for a read of a field out
+    /// of the place `base`: a sibling is `base.<sibling>`. A base that is no
+    /// place (a temporary) has no identity, so the read carries no claim.
+    fn root_field_read(&mut self, struct_ty: &Ty, fty: Ty, base: &Expr) -> Ty {
+        if !Self::ty_has_value_ref(&fty) {
+            return fty;
+        }
+        let mutable = self.mutable_claim_siblings(struct_ty, &fty);
+        let place = Place::of_expr(base);
+        self.root_sibling_claims(struct_ty, &fty, true, &|sib| {
+            if mutable.contains(sib) {
+                return None;
+            }
+            let mut at = place.clone()?;
+            at.path.push(Step::Field(sib.to_string()));
+            Some((at.to_string(), self.claim_identity(&at)?))
+        })
     }
 
     /// Handles a move-position value — `return x`, `break x`, `yield x`,
@@ -24663,7 +25204,10 @@ impl<'p, 'r> Checker<'p, 'r> {
                         return narrowed;
                     }
                 }
-                self.field_ty_or_error(&base_ty, field)
+                // [qual-depend-field] A claim about a sibling field is about
+                // the sibling of *this* value.
+                let fty = self.field_ty_or_error(&base_ty, field);
+                self.root_field_read(&base_ty, fty, base)
             }
             Expr::TupleIndex { base, index, span } => {
                 let base_ty = self.check_expr(base, None);
@@ -24916,7 +25460,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::IncDec {
                 operand,
                 down: _,
-                prefix: _,
+                prefix,
                 span,
             } => {
                 let ty = self.check_expr(operand, None);
@@ -24947,12 +25491,45 @@ impl<'p, 'r> Checker<'p, 'r> {
                             // parts fall [flow-place-invalidate].
                             var.place_narrows.clear();
                         }
+                        // [var-drop-assign] [qual-depend-field] And the new
+                        // value is `i + 1`, which carries none of the claims
+                        // the old one did (`Idx(xs)` least of all): the
+                        // variable reads without them until a value gives
+                        // them back, as after `i = i + 1`.
+                        let stepped = self.lookup(&id.name).map(|v| v.narrowed.clone()).map(|t| {
+                            let claims = self.step_claims(&t);
+                            t.remove_quals(&claims)
+                        });
+                        if let (Some(stepped), Some(var)) = (stepped, self.lookup_mut(&id.name)) {
+                            var.narrowed = stepped;
+                        }
                     }
                     other => {
+                        // [var-no-widen] [qual-depend-field] A place keeps its
+                        // declared type, claims included, so a step that
+                        // cannot keep them is refused as `= x + 1` would be.
+                        let declared = Place::of_expr(other).and_then(|p| self.place_narrow_entry(&p)).map(|e| e.declared.clone()).unwrap_or_else(|| ty.clone());
+                        let declared = self.assign_target_ty(other, declared);
+                        let claims = self.step_claims(&declared);
+                        if !claims.is_empty() {
+                            let stepped = declared.clone().remove_quals(&claims);
+                            self.error(*span, messages::var_no_widen_assign_mismatch(&stepped, &declared));
+                        }
+                        // [qual-depend-field] Stepping a field another field's
+                        // claim is about is a write to it.
+                        self.check_depended_field_assign(other);
                         self.fate_mutation_through(other, *span);
                     }
                 }
-                ty
+                // [var-drop-assign] A prefix step's value is the new one, which
+                // carries none of the old one's claims; a postfix step's is
+                // the old value, claims and all.
+                if *prefix {
+                    let claims = self.step_claims(&ty);
+                    ty.remove_quals(&claims)
+                } else {
+                    ty
+                }
             }
             Expr::If {
                 branches,
@@ -25250,8 +25827,14 @@ impl<'p, 'r> Checker<'p, 'r> {
                 Ty::Never
             }
             Expr::Continue { span } => {
+                // [is-narrow-assign-reset] The back edge is reached from here
+                // too: record this path's state for the loop body's join.
+                let snap = self.snapshot_narrows();
                 match self.loop_stack.last_mut() {
-                    Some(ctx) => ctx.may_skip_value = true,
+                    Some(ctx) => {
+                        ctx.may_skip_value = true;
+                        ctx.continue_states.push(snap);
+                    }
                     None => self.error(*span, messages::expr_escape_continue_outside_loop()),
                 }
                 // [ir-analyze] The continue-path linear leak check moved to
@@ -25505,17 +26088,26 @@ impl<'p, 'r> Checker<'p, 'r> {
                     entry_depth: self.locals.len(),
                     ..LoopCtx::default()
                 });
+                // [is-narrow-assign-reset] [qual-depend-field] The loop may
+                // run no times, and when it runs, it leaves from where the
+                // body ends: what follows it is the join of the two. (A
+                // `while true` always runs its body.)
+                let before = self.snapshot_narrows();
                 let (body_ty, body_tail) =
-                    self.check_loop_body(body, &info.then_narrows.clone(), info.bindings.clone());
+                    self.check_loop_body_in(body, &info.then_narrows.clone(), info.bindings.clone(), true, Some(&**cond));
                 let mut ctx = self.loop_stack.pop().expect("loop ctx pushed above");
                 // The code after the loop is reached from the fall-through
                 // exit *and* from every `break`: merge the break-path
                 // states in, so a value consumed on a break path stays
                 // consumed after the loop [deduce-consume].
                 let break_states = std::mem::take(&mut ctx.break_states);
-                if !break_states.is_empty() {
-                    let mut states = vec![self.snapshot_narrows()];
-                    states.extend(break_states);
+                let mut states = vec![self.snapshot_narrows()];
+                if !matches!(cond.as_ref(), Expr::Bool { value: true, .. }) {
+                    let before = self.entry_facts(before);
+                    states.push(before);
+                }
+                states.extend(break_states);
+                if states.len() > 1 {
                     self.merge_fallthrough(&states);
                 }
                 // `else` runs only when the loop never ran, i.e. the
@@ -25573,7 +26165,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // lives [proj-infer].
                 let elem = if Self::ty_has_value_ref(&elem) {
                     let roots = self.pass_source_roots(iterable);
-                    if roots.is_empty() {
+                    if roots.0.is_empty() {
                         elem
                     } else {
                         Self::fill_value_ref_roots(&elem, &roots)
@@ -25683,6 +26275,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // each iteration binds a new element [deduce-consume].
                     self.links_for_value(iterable, iterable.span())
                 };
+                // [qual-depend-field] An element is not what the loop walks:
+                // a claim about the binding is about this element, marked
+                // with the binding (`claim_marked`), so an index proven for
+                // one element serves neither the collection nor another
+                // loop's element.
+                let links: Vec<FateLink> = links.into_iter().map(|l| FateLink { claim: Some(vec![Step::Element]), ..l }).collect();
                 // [proj-type] Elements are projections of what the loop walks
                 // — unless the loop *owns* what it walks: a temporary
                 // (`for s in List("x", "y")`) or a pass moved into the loop
@@ -25717,17 +26315,20 @@ impl<'p, 'r> Checker<'p, 'r> {
                     entry_depth: self.locals.len(),
                     ..LoopCtx::default()
                 });
+                // [is-narrow-assign-reset] The loop may run no times: what
+                // follows it joins the entry state with where the body ends
+                // (a fact the body asserted holds only if it ran).
+                let before = self.snapshot_narrows();
                 let (body_ty, body_tail) = self.check_loop_body(body, &[], bindings);
                 let mut ctx = self.loop_stack.pop().expect("loop ctx pushed above");
                 // Merge break-path states into the after-loop state (the
                 // loop-binding frame is popped first, so the snapshots'
                 // shared outer frames align) [deduce-consume].
                 let break_states = std::mem::take(&mut ctx.break_states);
-                if !break_states.is_empty() {
-                    let mut states = vec![self.snapshot_narrows()];
-                    states.extend(break_states);
-                    self.merge_fallthrough(&states);
-                }
+                let before = self.entry_facts(before);
+                let mut states = vec![self.snapshot_narrows(), before];
+                states.extend(break_states);
+                self.merge_fallthrough(&states);
                 let (else_ty, else_tail) = match else_block {
                     Some(b) => {
                         let (t, tail) = self.check_branch_block(b, Vec::new());
@@ -27047,6 +27648,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     // records the variable, not a projection, so the
                     // link stays whole-variable.
                     path: Some(Vec::new()),
+                    // [qual-depend-field] A closure is no projection.
+                    claim: None,
                     borrowed: true,
                 });
             }
@@ -27056,6 +27659,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         links.push(FateLink {
                             held: true,
                             borrowed: true,
+                            claim: None,
                             ..l
                         });
                     }
@@ -27218,6 +27822,14 @@ impl<'p, 'r> Checker<'p, 'r> {
         // values; a plain one, plain values.
         let lit_mut = struct_ty.quals().iter().any(|q| q.name == "Mut");
         let mut spreads: Vec<&'p Expr> = Vec::new();
+        // [qual-depend-field] Where an unwritten sibling field comes from.
+        let spread_sources: Vec<&'p Expr> = fields
+            .iter()
+            .filter_map(|f| match &f.kind {
+                StructLitFieldKind::Spread(e) => Some(e),
+                _ => None,
+            })
+            .collect();
         for f in fields {
             match &f.kind {
                 StructLitFieldKind::Named { name, value } => {
@@ -27261,8 +27873,39 @@ impl<'p, 'r> Checker<'p, 'r> {
                                 .map(|g| g.name.clone())
                                 .collect();
                             let fty = if open_vars.is_empty() { fty } else { substitute_vars(&fty, &HashMap::new(), &open_vars) };
+                            // [qual-depend-field] A sibling-field claim is
+                            // about the value this literal stores in the
+                            // sibling: `pos: Idx(str) Int` needs an index of
+                            // the string given for `str`.
+                            let fty = if Self::ty_has_value_ref(&fty) {
+                                let sibling_value = |sib: &str| -> Option<Place> {
+                                    for g in fields {
+                                        match &g.kind {
+                                            StructLitFieldKind::Named { name, value } if name.name == sib => return Place::of_expr(value),
+                                            _ => {}
+                                        }
+                                    }
+                                    // Not written: the spread supplies it.
+                                    spread_sources.iter().rev().find_map(|e| {
+                                        let mut place = Place::of_expr(e)?;
+                                        place.path.push(Step::Field(sib.to_string()));
+                                        Some(place)
+                                    })
+                                };
+                                let mutable = self.mutable_claim_siblings(&struct_ty, &fty);
+                                self.root_sibling_claims(&struct_ty, &fty, false, &|sib| {
+                                    if mutable.contains(sib) {
+                                        return None;
+                                    }
+                                    let place = sibling_value(sib)?;
+                                    Some((place.to_string(), self.claim_identity(&place)?))
+                                })
+                            } else {
+                                fty
+                            };
                             self.check_expr(value, Some(&fty));
                             let vty = self.out.expr_ty[&self.key(value.span())].clone();
+                            let claim_missing = Self::ty_has_value_ref(&fty) && !vty.is_unknown() && !Self::dependent_demands_met(&fty, &vty);
                             // [struct-literal-arg] What this field says about an
                             // **undetermined** type argument. `Box { value: 7 }`
                             // written bare has nothing to take `T` from — no
@@ -27295,7 +27938,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                                     format!("stored in field `{}.{}`", decl.name.name, name.name),
                                 );
                             }
-                            if !is_subtype(&vty, &fty) {
+                            if !is_subtype(&vty, &fty) || claim_missing {
                                 self.error(
                                     value.span(),
                                     messages::struct_decl_field_mismatch(&name.name, &fty, &vty),
@@ -27322,6 +27965,23 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 // [comptime-inline] Gone before this runs.
                 StructLitFieldKind::InlineFor { .. } => {}
+            }
+        }
+        // [qual-depend-field] A field taken from the spread keeps the claim it
+        // has about the spread's sibling, so the literal may not replace that
+        // sibling without giving the claimed field too.
+        if has_spread {
+            for df in decl.fields.iter().filter(|df| !provided.contains(df.name.name.as_str())) {
+                let Some(fty) = self.declared_field_ty(&struct_ty, &df.name.name) else { continue };
+                let mut named = Vec::new();
+                value_ref_bases(&fty, &mut named);
+                for f in fields {
+                    if let StructLitFieldKind::Named { name, value } = &f.kind {
+                        if named.contains(&name.name) {
+                            self.error(value.span(), messages::qual_depend_field_spread_pair(&name.name, &df.name.name));
+                        }
+                    }
+                }
             }
         }
         // [struct-field-canbe-mut] A `Mut` literal must not take a `canbe Mut` field
@@ -27766,7 +28426,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             let mut rendered = Vec::new();
-            let mut roots: Vec<u32> = Vec::new();
+            let mut roots: Vec<(u32, String)> = Vec::new();
             // [col-idx] What the slots bind the qualifier's own type
             // parameters to (`C` ↦ `List<Int>`), for the `qualifies` call's
             // implicits.
@@ -27817,7 +28477,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // handle's own identity.
                 let place_roots = if q == NOT_SAME {
                     let base = path.split('.').next().unwrap_or(path);
-                    self.lookup(base).map(|v| vec![v.id]).unwrap_or(place_roots)
+                    self.lookup(base).map(|v| (vec![v.id], vec![String::new()])).unwrap_or(place_roots)
                 } else {
                     place_roots
                 };
@@ -27849,15 +28509,16 @@ impl<'p, 'r> Checker<'p, 'r> {
                         ),
                     );
                 }
-                roots.extend(place_roots);
+                roots.extend(place_roots.0.into_iter().zip(place_roots.1));
                 rendered.push(PredicateArg {
                     path: path.clone(),
                     copy: crate::types::moves_for_free(&place_ty),
                 });
             }
-            roots.sort_unstable();
+            roots.sort();
             roots.dedup();
             if !args.is_empty() {
+                let (root_ids, root_at): (Vec<u32>, Vec<String>) = roots.iter().cloned().unzip();
                 dependent_args.insert(
                     q.clone(),
                     args.iter()
@@ -27866,7 +28527,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                             Some(c) => Ty::Const(c),
                             None => Ty::ValueRef {
                                 path: path.clone(),
-                                roots: roots.clone(),
+                                roots: root_ids.clone(),
+                                at: root_at.clone(),
                             },
                         })
                         .collect::<Vec<Ty>>(),
@@ -28490,14 +29152,15 @@ impl<'p, 'r> Checker<'p, 'r> {
             let entry = self.snapshot_narrows();
             let mut narrows = acc_else.clone();
             narrows.extend(info.then_narrows.iter().cloned());
-            let (ty, tail) = self.with_narrows(&narrows, |c| {
+            let (ty, tail, surviving) = self.with_narrows_in(&narrows, true, |c| {
                 c.tail_hint = c.value_expected.clone();
                 c.value_tail = true;
-                c.check_branch_block(block, info.bindings.clone())
+                let (ty, tail) = c.check_branch_block(block, info.bindings.clone());
+                (ty, tail, c.facts_still_held(&narrows))
             });
             if !self.block_exits(block) {
                 fallthrough.push(self.snapshot_narrows());
-                through_facts.push(narrows.clone());
+                through_facts.push(surviving);
             } else {
                 some_exit = true;
             }
@@ -28509,14 +29172,15 @@ impl<'p, 'r> Checker<'p, 'r> {
         match else_block {
             Some(block) => {
                 let entry = self.snapshot_narrows();
-                let (ty, tail) = self.with_narrows(&acc_else.clone(), |c| {
+                let (ty, tail, surviving) = self.with_narrows_in(&acc_else.clone(), true, |c| {
                     c.tail_hint = c.value_expected.clone();
                     c.value_tail = true;
-                    c.check_branch_block(block, Vec::new())
+                    let (ty, tail) = c.check_branch_block(block, Vec::new());
+                    (ty, tail, c.facts_still_held(&acc_else))
                 });
                 if !self.block_exits(block) {
                     fallthrough.push(self.snapshot_narrows());
-                    through_facts.push(acc_else.clone());
+                    through_facts.push(surviving);
                 } else {
                     some_exit = true;
                 }
@@ -28820,6 +29484,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let links = self.links_for_value(subject, b.span);
                 bindings.push((b.clone(), narrow_ty.clone(), links, None));
             }
+            let narrow_ty_now = narrow_ty.clone();
             let narrows = vec![Narrow {
                 place: subject_place.clone(),
                 narrowed: narrow_ty,
@@ -28829,15 +29494,26 @@ impl<'p, 'r> Checker<'p, 'r> {
             // fall-through branches reach the code after the `when`
             // [deduce-consume].
             let entry = self.snapshot_narrows();
-            let (ty, tail) =
-                self.with_narrows(&narrows, |c| {
+            let (ty, tail, end) =
+                self.with_narrows_in(&narrows, true, |c| {
                     c.tail_hint = c.value_expected.clone();
                     c.value_tail = true;
-                    c.check_branch_block(&branch.body, bindings)
+                    let (ty, tail) = c.check_branch_block(&branch.body, bindings);
+                    // [is-narrow-guard] [qual-depend-field] What the subject
+                    // reads as where the branch ends: a branch that stepped,
+                    // assigned or weakened it hands that on, not its arms.
+                    let end = match &subject_place {
+                        p if p.is_root() => c.lookup(&p.root).map(|v| v.narrowed.clone()),
+                        p => c.place_narrow(p).cloned(),
+                    };
+                    (ty, tail, end)
                 });
             if !self.block_exits(&branch.body) {
                 fallthrough.push(self.snapshot_narrows());
-                through_arms.extend(matched.iter().cloned());
+                match end {
+                    Some(end) if !is_subtype(&end, &narrow_ty_now) => through_arms.push(end),
+                    _ => through_arms.extend(matched.iter().cloned()),
+                }
             } else {
                 some_exit = true;
             }
@@ -29041,6 +29717,17 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Whether a type carries the `Mut` qualifier at its top level.
     fn carries_mut(ty: &Ty) -> bool {
         ty.quals().iter().any(|q| q.name == "Mut")
+    }
+
+    /// [var-drop-assign] The qualifiers a step (`i++`) cannot keep: every
+    /// claim about the value's contents the stepped value would not carry —
+    /// all but `Mut`, the projection marks and what may not be removed.
+    fn step_claims(&self, ty: &Ty) -> HashSet<String> {
+        ty.quals()
+            .iter()
+            .filter(|q| q.name != "Mut" && !crate::types::is_proj_name(&q.name) && self.removal_block(&q.name).is_none())
+            .map(|q| q.name.clone())
+            .collect()
     }
 
     /// [var-drop-assign] Whether `value` fits a variable declared `declared`
@@ -29689,16 +30376,10 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
         // `KeyOf(m2)` position. A root-free side is a template (an
         // annotation, an unsubstituted signature) and stays lenient.
         (
-            Ty::ValueRef { roots: pr, .. },
-            Ty::ValueRef { roots: ar, .. },
+            Ty::ValueRef { roots: pr, at: pa, .. },
+            Ty::ValueRef { roots: ar, at: aa, .. },
         ) => {
-            pr.is_empty() || ar.is_empty() || {
-                let mut a = pr.clone();
-                let mut b = ar.clone();
-                a.sort_unstable();
-                b.sort_unstable();
-                a == b
-            }
+            pr.is_empty() || ar.is_empty() || crate::types::same_identity(pr, pa, ar, aa)
         }
         (Ty::ValueRef { .. }, _) | (_, Ty::ValueRef { .. }) => false,
         // [qual-const] Two constants match by value, and a constant never
@@ -31289,20 +31970,118 @@ impl<'p, 'r> Checker<'p, 'r> {
         &self,
         fixed: &[&'p ast::Param],
         args: &[&'p Expr],
-    ) -> HashMap<String, Vec<u32>> {
+    ) -> HashMap<String, Identity> {
         let mut out = HashMap::new();
         for (p, a) in fixed.iter().zip(args) {
             let Some(place) = Place::of_expr(a) else { continue };
-            let Some(var) = self.lookup(&place.root) else { continue };
-            let mut roots: Vec<u32> = var.links.iter().map(|l| l.root_id).collect();
-            if roots.is_empty() {
-                roots.push(var.id);
-            }
-            roots.sort_unstable();
-            roots.dedup();
-            out.insert(p.name.name.clone(), roots);
+            let Some(identity) = self.claim_identity(&place) else { continue };
+            out.insert(p.name.name.clone(), identity);
         }
         out
+    }
+
+    /// [qual-depend-field] The identity a claim about `place` binds to: each
+    /// fate root of its base variable [fate-link] with the projection of
+    /// that root the place reads (`parsing.str` is `parsing` at `str`; a
+    /// local destructured from it is too). The base itself, at the place's
+    /// path, when it is a root. `None` when the place reaches an element at
+    /// an unknown index (`xs[i]`): no claim can tell which element it named.
+    fn claim_identity(&self, place: &Place) -> Option<Identity> {
+        let var = self.lookup(&place.root)?;
+        let links = self.ultimate_links(&var.links);
+        // [qual-depend-field] A value that holds a borrow in its one `proj`
+        // field (a pass over `xs`, a `Cursor { str: s, … }`): that field *is*
+        // the borrowed value, so a claim about it is a claim about the root
+        // the borrow was made of (`it.items` is `xs`).
+        if let Some(Step::Field(f)) = place.path.first() {
+            // Every link came in through a `proj` field (its claim is the
+            // root's projection stored there), and there is one such field.
+            if !links.is_empty() && links.iter().all(|l| l.held && l.claim.as_deref().is_some_and(|c| !claim_marked(c))) {
+                let proj = self.proj_fields_of(&var.narrowed);
+                if proj.len() == 1 && proj[0] == *f {
+                    let rest = &place.path[1..];
+                    let direct: Vec<FateLink> = links.iter().map(|l| FateLink { held: false, ..l.clone() }).collect();
+                    return Self::identity_from_links(var.id, &direct, rest);
+                }
+            }
+        }
+        Self::identity_from_links(var.id, &links, &place.path)
+    }
+
+    /// [qual-depend-field] The links to a value's **ultimate** roots: a
+    /// variable's links name every binding of its derivation chain
+    /// (`str` from `cursor` from `s` links to both), and a claim is about the
+    /// root at the end of it, however it was reached. An intermediate is
+    /// dropped only where a root remains.
+    fn ultimate_links(&self, links: &[FateLink]) -> Vec<FateLink> {
+        let ultimate: Vec<FateLink> = links
+            .iter()
+            .filter(|l| !self.var_by_id(l.root_id).is_some_and(|v| !v.links.is_empty()))
+            .cloned()
+            .collect();
+        if ultimate.is_empty() {
+            links.to_vec()
+        } else {
+            ultimate
+        }
+    }
+
+    /// [qual-depend-field] `claim_identity` for a written dotted path
+    /// (`parsing.str`), as a value block spells a place.
+    fn claim_identity_of_path(&self, path: &str) -> Option<Identity> {
+        let mut parts = path.split('.');
+        let root = parts.next()?.to_string();
+        let place = Place { root, path: parts.map(|f| Step::Field(f.to_string())).collect() };
+        self.claim_identity(&place)
+    }
+
+    /// [qual-depend-field] The identity of a value whose own binding is
+    /// `own_id` with fate links `links`, read at `suffix` below it.
+    fn identity_from_links(own_id: u32, links: &[FateLink], suffix: &[Step]) -> Option<Identity> {
+        fn text(steps: &[Step]) -> Option<Vec<String>> {
+            steps
+                .iter()
+                .map(|s| match s {
+                    Step::Field(f) => Some(f.clone()),
+                    Step::Index(i) => Some(i.to_string()),
+                    Step::Element => None,
+                })
+                .collect()
+        }
+        let suffix = text(suffix)?;
+        let mut pairs: Vec<(u32, String)> = if links.is_empty() {
+            vec![(own_id, suffix.join("."))]
+        } else {
+            links
+                .iter()
+                .map(|l| {
+                    // A derivation the analysis cannot spell as a path — an
+                    // unwrap, a view a call handed back, a value that
+                    // *holds* a borrow of the root in its fields — is a
+                    // value of its own as far as a claim can tell: its root,
+                    // marked with the binding that made it, so two such
+                    // values of one root never agree. A marked claim path
+                    // (`claim_marked`) spells the steps below that value.
+                    let mark = format!("?{}:{}", l.bind_span.start, l.bind_span.end);
+                    let claim: Vec<String> = match l.claim.as_deref() {
+                        Some(steps) if claim_marked(steps) || !l.held => steps
+                            .iter()
+                            .map(|s| match s {
+                                Step::Field(f) => f.clone(),
+                                Step::Index(i) => i.to_string(),
+                                Step::Element => mark.clone(),
+                            })
+                            .collect(),
+                        _ => vec![mark],
+                    };
+                    let at = claim.into_iter().chain(suffix.iter().cloned()).collect::<Vec<_>>().join(".");
+                    (l.root_id, at)
+                })
+                .collect()
+        };
+        pairs.sort();
+        pairs.dedup();
+        Some(pairs.into_iter().unzip())
     }
 
     /// [qual-depend] Fills an annotation's root-free `ValueRef`s naming a
@@ -31310,7 +32089,7 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn root_annotation(&self, ty: &Ty) -> Ty {
         fn paths(t: &Ty, out: &mut Vec<String>) {
             match t {
-                Ty::ValueRef { path, roots } if roots.is_empty() => out.push(path.split('.').next().unwrap_or(path).to_string()),
+                Ty::ValueRef { path, roots, .. } if roots.is_empty() => out.push(path.split('.').next().unwrap_or(path).to_string()),
                 Ty::Qualified { quals, base } => {
                     for q in quals {
                         for a in &q.args {
@@ -31330,16 +32109,10 @@ impl<'p, 'r> Checker<'p, 'r> {
         }
         let mut names = Vec::new();
         paths(ty, &mut names);
-        let mut map: HashMap<String, Vec<u32>> = HashMap::new();
+        let mut map: HashMap<String, Identity> = HashMap::new();
         for n in names {
-            let Some(var) = self.lookup(&n) else { continue };
-            let mut roots: Vec<u32> = var.links.iter().map(|l| l.root_id).collect();
-            if roots.is_empty() {
-                roots.push(var.id);
-            }
-            roots.sort_unstable();
-            roots.dedup();
-            map.insert(n, roots);
+            let Some(identity) = self.claim_identity(&Place::root(n.clone())) else { continue };
+            map.insert(n, identity);
         }
         Self::substitute_value_refs(ty, &map)
     }
@@ -31386,7 +32159,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             return ty.clone();
         }
         match ty {
-            Ty::ValueRef { path, roots } if roots.is_empty() && !path.contains('.') => match map.get(path) {
+            Ty::ValueRef { path, roots, .. } if roots.is_empty() && !path.contains('.') => match map.get(path) {
                 Some(c) => Ty::Const(c.clone()),
                 None => ty.clone(),
             },
@@ -31408,15 +32181,22 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [qual-depend] Fills the root-free `ValueRef` templates of a
     /// signature type with the roots the call's arguments bring: the
     /// parameter type `KeyOf(map) K` becomes `KeyOf` of *this call's* map.
-    fn substitute_value_refs(ty: &Ty, map: &HashMap<String, Vec<u32>>) -> Ty {
+    fn substitute_value_refs(ty: &Ty, map: &HashMap<String, Identity>) -> Ty {
         match ty {
-            Ty::ValueRef { path, roots } if roots.is_empty() => {
-                let base = path.split('.').next().unwrap_or(path);
+            Ty::ValueRef { path, roots, .. } if roots.is_empty() => {
+                let mut parts = path.split('.');
+                let base = parts.next().unwrap_or(path);
                 match map.get(base) {
-                    Some(r) => Ty::ValueRef {
-                        path: path.clone(),
-                        roots: r.clone(),
-                    },
+                    Some(identity) => {
+                        // [qual-depend-field] `Idx(p.items)` over an
+                        // argument `q` is about `q`'s `items`.
+                        let (roots, at) = parts.fold(identity.clone(), |id, f| identity_below(&id, f));
+                        Ty::ValueRef {
+                            path: path.clone(),
+                            roots,
+                            at,
+                        }
+                    }
                     None => ty.clone(),
                 }
             }
@@ -31503,8 +32283,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     .iter()
                     .any(|have| have.name == want.name && have.args == want.args);
             }
-            let Some(want_roots) = want.args.iter().find_map(|x| match x {
-                Ty::ValueRef { roots, .. } if !roots.is_empty() => Some(roots),
+            let Some((want_roots, want_at)) = want.args.iter().find_map(|x| match x {
+                Ty::ValueRef { roots, at, .. } if !roots.is_empty() => Some((roots, at)),
                 _ => None,
             }) else {
                 // The sibling brought no identity (a temporary): nothing
@@ -31514,13 +32294,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             arg.quals().iter().any(|have| {
                 have.name == want.name
                     && have.args.iter().any(|x| match x {
-                        Ty::ValueRef { roots, .. } => {
-                            let mut a = roots.clone();
-                            let mut b = want_roots.clone();
-                            a.sort_unstable();
-                            b.sort_unstable();
-                            !a.is_empty() && a == b
-                        }
+                        // [qual-depend-field] Roots *and* projections: an
+                        // `Idx(p.a)` does not index `p.b`.
+                        Ty::ValueRef { roots, at, .. } => crate::types::same_identity(roots, at, want_roots, want_at),
                         _ => false,
                     })
             })
@@ -31530,14 +32306,38 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// [qual-depend] The fate roots of a driven pass's **source** — the
     /// value the pass borrows [proj-field]: a named pass's own links, or a
     /// minting call's lent arguments ([proj-infer], via `borrows`).
-    fn pass_source_roots(&mut self, iterable: &'p Expr) -> Vec<u32> {
-        let mut roots: Vec<u32> = Vec::new();
+    fn pass_source_roots(&mut self, iterable: &'p Expr) -> Identity {
+        // [qual-depend-field] The source is the borrowed root itself, at the
+        // projection the borrow was made of (`indices(p.list)` lends
+        // `p.list`): each held link's own claim path, not a field of the pass.
+        fn source_of(var: &LocalVar, out: &mut Vec<(u32, String)>) {
+            if var.links.is_empty() {
+                out.push((var.id, String::new()));
+            }
+            for l in &var.links {
+                // A pass's link is held: what it lends from is the lent
+                // place, which its fate path records.
+                let steps = if l.held { l.path.as_deref() } else { l.claim.as_deref() };
+                let at = match steps {
+                    Some(steps) if steps.iter().all(|s| !matches!(s, Step::Element)) => steps
+                        .iter()
+                        .map(|s| match s {
+                            Step::Field(f) => f.clone(),
+                            Step::Index(i) => i.to_string(),
+                            Step::Element => String::new(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join("."),
+                    _ => format!("?{}:{}", l.bind_span.start, l.bind_span.end),
+                };
+                out.push((l.root_id, at));
+            }
+        }
+        let mut pairs: Vec<(u32, String)> = Vec::new();
         if let Some(place) = Place::of_expr(iterable) {
             if let Some(var) = self.lookup(&place.root) {
-                roots.extend(var.links.iter().map(|l| l.root_id));
-                if roots.is_empty() {
-                    roots.push(var.id);
-                }
+                let ultimate = LocalVar { links: self.ultimate_links(&var.links), ..var.clone() };
+                source_of(&ultimate, &mut pairs);
             }
         } else if let Expr::Call { callee, args, span, .. } = iterable {
             let lent = match self.out.borrows.get(&self.key(*span)) {
@@ -31548,63 +32348,43 @@ impl<'p, 'r> Checker<'p, 'r> {
             for i in lent {
                 let Some(arg) = call_args.get(i).copied() else { continue };
                 let Some(place) = Place::of_expr(arg) else { continue };
-                let Some(var) = self.lookup(&place.root) else { continue };
-                let linked: Vec<u32> = var.links.iter().map(|l| l.root_id).collect();
-                if linked.is_empty() {
-                    roots.push(var.id);
-                } else {
-                    roots.extend(linked);
-                }
+                let Some((roots, at)) = self.claim_identity(&place) else { continue };
+                pairs.extend(roots.into_iter().zip(at));
             }
         }
-        roots.sort_unstable();
-        roots.dedup();
-        roots
+        pairs.sort();
+        pairs.dedup();
+        pairs.into_iter().unzip()
     }
 
-    /// [qual-depend] Fills every root-free `ValueRef` in `ty` with `roots` —
-    /// the element-type half of `substitute_value_refs`, where the roots
-    /// come from the pass's source rather than a sibling argument.
-    fn fill_value_ref_roots(ty: &Ty, roots: &[u32]) -> Ty {
-        let mut map: HashMap<String, Vec<u32>> = HashMap::new();
-        let mut collect = |t: &Ty| {
-            fn go(t: &Ty, map: &mut HashMap<String, Vec<u32>>, roots: &[u32]) {
-                match t {
-                    Ty::ValueRef { path, roots: r } if r.is_empty() => {
-                        let base = path.split('.').next().unwrap_or(path).to_string();
-                        map.insert(base, roots.to_vec());
-                    }
-                    Ty::Qualified { quals, base } => {
-                        for q in quals {
-                            for a in &q.args {
-                                go(a, map, roots);
-                            }
-                        }
-                        go(base, map, roots);
-                    }
-                    Ty::Named { args, .. } => {
-                        for a in args {
-                            go(a, map, roots);
-                        }
-                    }
-                    Ty::Union(arms) => {
-                        for a in arms {
-                            go(a, map, roots);
-                        }
-                    }
-                    Ty::Tuple(elems) => {
-                        for e in elems {
-                            go(e, map, roots);
-                        }
-                    }
-                    Ty::Array(elem) => go(elem, map, roots),
-                    _ => {}
-                }
-            }
-            go(t, &mut map, roots);
-        };
-        collect(ty);
-        Self::substitute_value_refs(ty, &map)
+    /// [qual-depend] Fills every root-free `ValueRef` in `ty` with the
+    /// identity `source` — the element-type half of `substitute_value_refs`,
+    /// where the identity is the pass's source rather than a sibling
+    /// argument: `Idx(self.items)` *is* a claim about the source, whatever
+    /// the field is called.
+    fn fill_value_ref_roots(ty: &Ty, source: &Identity) -> Ty {
+        if source.0.is_empty() {
+            return ty.clone();
+        }
+        match ty {
+            Ty::ValueRef { path, roots, .. } if roots.is_empty() => Ty::ValueRef {
+                path: path.clone(),
+                roots: source.0.clone(),
+                at: source.1.clone(),
+            },
+            Ty::Qualified { quals, base } => Ty::Qualified {
+                quals: quals
+                    .iter()
+                    .map(|q| Qual { effect: q.effect, name: q.name.clone(), args: q.args.iter().map(|a| Self::fill_value_ref_roots(a, source)).collect() })
+                    .collect(),
+                base: Box::new(Self::fill_value_ref_roots(base, source)),
+            },
+            Ty::Named { name, args } => Ty::Named { name: name.clone(), args: args.iter().map(|a| Self::fill_value_ref_roots(a, source)).collect() },
+            Ty::Union(arms) => Ty::Union(arms.iter().map(|a| Self::fill_value_ref_roots(a, source)).collect()),
+            Ty::Tuple(elems) => Ty::Tuple(elems.iter().map(|e| Self::fill_value_ref_roots(e, source)).collect()),
+            Ty::Array(elem) => Ty::Array(Box::new(Self::fill_value_ref_roots(elem, source))),
+            other => other.clone(),
+        }
     }
 
     /// [struct-opaque] The declaration of struct `key` when it is `opaque`
@@ -31718,18 +32498,12 @@ impl<'p, 'r> Checker<'p, 'r> {
         // (`(xs: List<Int>, i: Idx(xs) Int) -> …`) is about *this call's*
         // argument there, as at a declared call (`call_value_roots`): the
         // names come from the fn type's contract.
-        let mut roots_by_name: HashMap<String, Vec<u32>> = HashMap::new();
+        let mut roots_by_name: HashMap<String, Identity> = HashMap::new();
         for (i, a) in args.iter().enumerate() {
             let Some(name) = contract.and_then(|c| c.get(i)).and_then(|e| e.name.clone()) else { continue };
             let Some(place) = Place::of_expr(a) else { continue };
-            let Some(var) = self.lookup(&place.root) else { continue };
-            let mut roots: Vec<u32> = var.links.iter().map(|l| l.root_id).collect();
-            if roots.is_empty() {
-                roots.push(var.id);
-            }
-            roots.sort_unstable();
-            roots.dedup();
-            roots_by_name.insert(name, roots);
+            let Some(identity) = self.claim_identity(&place) else { continue };
+            roots_by_name.insert(name, identity);
         }
         for (i, a) in args.iter().enumerate() {
             let aty = match &typed {
@@ -33233,6 +34007,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                     for mut l in self.links_for_value(src_arg, span) {
                         l.borrowed = true;
                         l.held = true;
+                        // [qual-depend-field] Stored into an unknown field.
+                        l.claim = None;
                         new_links.push(l);
                     }
                 }

@@ -1532,6 +1532,27 @@ Conventions:
     reverse of [str-drop-mut]: Kotlin's `StringBuilder(s)`, `toMutableList()`),
     a copy nobody can observe, since the variable is not `Mut` until a `Mut`
     value is assigned again.
+  * **A step is an assignment** (2026-11-10): `i++` stores `i + 1`, so the
+    variable reads without the qualifiers the old value had that a step
+    cannot keep (claims such as `Idx(xs)` among them; before, `i++` kept the
+    claim and a total `get` read past the end), as after `i = i + 1`; the
+    value of a prefix step (`++i`) is the new one, without them too. A
+    guard or an `is` test that gives them back counts as a narrowing even
+    where it only restores the declared type (`join_path_facts` compares
+    with the current reading), and a branch that assigns, steps or weakens
+    the variable hands on what it stored rather than the condition's fact
+    (`facts_still_held`; an `if` branch's `with_narrows_in` keeps what the
+    branch left, a `when` arm hands on what it left of the subject, and
+    what follows a `while` or a `for` joins the loop's entry state with its
+    body's end (its facts only, `entry_facts`: fate links stay the body
+    end's); the back edge joins the body's end with the state at every
+    `continue`, `join_continue_states`). A reset to the declared type after such a branch does not bring
+    the declaration's dependent claims back (`strip_dependent_deep`). A join
+    keeps a dependent claim only where every path has
+    the same fact, not only the same name (`join_narrowed`). A
+    field or other place keeps its declared type, so a step that cannot
+    keep its qualifiers is refused there ([var-no-widen], as `p.pos = p.pos
+    + 1`).
 * [var-block-scope] Every block (`if`, `while`, `for`, `when` branches) is
   its own scope; declarations do not escape.
 * [var-let-infer] `let` without an annotation takes the value's logical type
@@ -2006,7 +2027,10 @@ Conventions:
     ([fate-link]'s provenance domain) — and the claim binds to the place's
     **fate roots**, so `let m2 = m` does not orphan it, and `KeyOf(m1)`
     and `KeyOf(m2)` are different facts (`Ty::ValueRef` carries the
-    roots; a signature or annotation lowers a root-free template).
+    roots; a signature or annotation lowers a root-free template). Each
+    root carries the **projection** of it the place reads
+    [qual-depend-field], so `Idx(p.a)` and `Idx(p.b)` are different facts
+    too.
   * **Any mutation of the depended-on value strips the claim**, from every
     value holding it — the conservative direction: a `KeyOf` is a fact
     about the *map's* contents, and stripping is per-parameter only for
@@ -2016,7 +2040,9 @@ Conventions:
     too** — the old value is gone, so a claim bound to it describes
     nothing (defect fixed 2026-09-24: an `Idx(xs)` claim held across
     `xs = [9]` kept resolving the total `get` — a checked out-of-bounds
-    read at runtime).
+    read at runtime). Every value holding it includes a claim on a union's
+    arm (`(Idx(xs) Int)?`) and on a place's narrowing (`p.i is Idx(xs)`)
+    (defect fixed 2026-11-10: both kept the claim across the mutation).
   * One kind of slot per qualifier for now: fn slots [cmp-carry] or value
     slots, not both (nothing in std or the design's catalog mixes them).
   * **Signatures consume the claims** (step 3): a parameter type may fill
@@ -2061,6 +2087,70 @@ Conventions:
   * Erased like everything about a qualifier [qual-erasure]: the places
     reach the backends only as the extra arguments of a lowered
     `qualifies` call.
+* [qual-depend-field] **A struct field's claim may be about a sibling
+  field** (2026-11-10, the user's JSON-parser demo: `struct ParsingJson
+  canbe Mut { str: proj Str, pos: Idx(str) Int }`): the slot names another
+  field of the same struct, and the claim is about *that field of the same
+  value*, wherever the field is read.
+  * **Claims are about projections, not only roots.** A claim's identity is
+    each fate root with the path of it the place reads (`Ty::ValueRef`'s
+    `at`, parallel to `roots`; `same_identity`): `parsing.str` is `parsing`
+    at `str`, and so is a local bound from it, by `let s = parsing.str` or
+    by destructuring (whose binding's link now carries the field, for fate
+    as well — [fate-field-disjoint] — and `FateLink::claim` for the claim).
+    Before, the identity was the roots alone, so `assert!(i is Idx(p.a))`
+    made `get(p.b, i)`-style calls total — an out-of-range read. A claim is
+    about a value's **ultimate** roots (`ultimate_links`: an intermediate
+    binding of the derivation chain is set aside). A derivation the
+    analysis cannot spell as a path (an unwrap, a view a call handed back,
+    a value that holds a borrow in its fields) is a value of its own: its
+    root marked with the binding that made it, so two such values of one
+    root never agree; the steps below such a value are still spelled after
+    the mark (a *marked* claim path, `claim_marked`), so two fields of it
+    are two values. A `for` binding is such a value: an index proven for an
+    element serves neither the collection nor another loop's element. A
+    place read through an element at an unknown index (`xs[i].str`) has no
+    identity at all.
+  * **A held borrow in one `proj` field is the root**: a value whose links
+    all came in through its one `proj` field from a struct literal (`Cursor
+    { str: s, … }`) has that field's claims about the root itself, at the
+    projection stored there (`FateLink::claim` of a held link), so
+    `cursor.str` is `s`, and so is a `str` destructured from it. A value a
+    lending call returned holds what the callee chose to keep — the lent
+    argument or a part of it — so its fields claim no projection; a `for`
+    over it still binds its claims to the lent place (`pass_source_roots`).
+  * **Rooted where read**: `parsing.pos` is an `Idx(parsing.str) Int`
+    (`root_field_read`); `let { str, pos } = parsing` gives `pos` an
+    `Idx(str) Int` about the local `str` beside it, or about `parsing.str`
+    when the pattern does not bind it (`root_sibling_claims`). The two are
+    one identity, so either index serves either string. A temporary has no
+    identity, so its field reads with no claim at all (`make().pos` is an
+    `Int`).
+  * **One claim per fact**: `Ty::qualify` dedups dependent claims by
+    identity, whatever their spelling (`same_claim`), so a re-established
+    claim does not stack beside the read one (the demo's hover showed
+    `Idx(str) Idx(str) Int`: the field's unrooted template beside the `is`
+    test's rooted claim).
+  * **A literal checks the pair**: the field's claim is about the value the
+    literal gives the sibling (or, unwritten, the spread's field), and the
+    value must carry it — `Cursor { str: s, pos: 0 as! Idx(t) }` is refused,
+    as is a sibling with no identity. A literal that replaces the sibling
+    while the claimed field comes from the spread is refused
+    (`qual-depend-field:spread-pair`). A field assignment checks the rooted
+    type the same way (`p.pos = q.pos` is refused), and a write through a
+    base with no identity (`cs[0].pos = j`) still demands the claim, which
+    nothing meets (`assign_target_ty`): a read drops such a claim, a write
+    may not.
+  * **The sibling cannot change under the stored claim** (agent's call, to
+    confirm): a claim in a field's declared type cannot be stripped as a
+    local's is, so a write to the depended-on field, or to anything along
+    the claim's path (`h.inner = …` under `Idx(inner.text)`, a step of an
+    `Int` sibling), is refused (`qual-depend-field:assign-depended`; rebuild
+    the value instead), and nothing along the path may be mutable in place
+    (`Mut` or `canbe Mut`) at the declaration. Where a type argument makes
+    it so (`Pair<Mut List<Int>>`, or an unknown `C` in generic code), a read
+    trusts no claim about it (`mutable_claim_siblings`). A claim naming no
+    other field is refused at the declaration too.
 * [qual-const] A qualifier's value slot may be filled with a **constant**
   — the third slot kind, after fn identities [cmp-carry] and places
   [qual-depend] (user decisions 2026-09-23; the refinement-types sequence,
@@ -10605,6 +10695,15 @@ between endpoints and delivers what arrives into the scheduler.
     not been earned.
   * Transitive links compose paths: with `let p = q.inner` then
     `let n = p.name`, `n`'s link to `q` is `[.inner, .name]`.
+  * **A destructured binding links at its field** (2026-11-10,
+    [qual-depend-field]): `let { str, pos } = parsing` is `let str =
+    parsing.str` and `let pos = parsing.pos`, so `str` links with `[.str]`
+    (it linked with the whole variable's `[]` before, and a write of
+    `parsing.pos` poisoned it), and `pos`, a Copy scalar, links not at all
+    [copy-scalar-free]. A tuple pattern's element links at its index. A
+    link the source *holds* (a borrow in its fields) keeps its path, which
+    is in the root's namespace; the binding of the source's one `proj` field
+    is a view of that root.
   * **The move half is [fate-partial-move]**: a move of a projection
     records it as *moved out* of its root rather than consuming the whole
     variable.
@@ -14877,6 +14976,12 @@ replaced the working document TESTING.md).
     drops the whole `when` from the parse. With a client's snippet support
     the cursor lands in the inserted body; otherwise the arms are inserted
     empty.
+  * **An open block header** (2026-11-10, the JSON-parser demo): a `while`,
+    `if`, `elif`, `for` or `when` line with no `{` yet (`while pos <
+    parsing.str.ch`) gets ` {}` at its end in the probe buffer
+    (`close_open_header`). Without it the parse error dropped the whole fn,
+    so the receiver had no type and only the type-parameter fns were
+    offered.
 * [effect-member-completion] **Completion offers effect members in scope**
   (2026-10-14, the salvo-noticeboard disk.sv TODOs): where a value is written,
   the members of every effect *available* in the enclosing fn/handler-member

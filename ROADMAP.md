@@ -480,6 +480,76 @@ Smaller leftovers of the doc examples, recorded:
 - A standalone HTML site with a search box, as a second `salvo docs` format
   beside the wiki (rejected for the wiki, which serves no HTML).
 
+### 0bg — What sibling-field claims left (2026-11-10)
+
+Found building [qual-depend-field] (COMPLETED.md).
+
+- **DECISION: what may change a field another field's claim is about.** The
+  agent's call, built and to confirm: assigning it is refused
+  (`qual-depend-field:assign-depended`) and it may not be `Mut` or `canbe
+  Mut`, because a stored claim cannot be stripped. Alternatives: (a) allow
+  the assignment when the same statement block assigns the claimed field
+  before any read (a flow obligation, like a linear value's); (b) let the
+  assignment *demote* the claimed field until it is reassigned (a typestate
+  on the struct value — new semantics); (c) allow a `Mut` sibling with only
+  the calls that `preserve` the claim ([qual-preserve]: a list's `add` keeps
+  every `Idx`), which needs per-field preserve tracking. Recommendation: keep
+  the refusal; (c) is the useful one when a parser over a growing buffer
+  wants it.
+- **DECISION: the smaller calls built with it, to confirm.** (a) A step is an
+  assignment for *every* droppable qualifier, not only a claim: `n++` on a
+  `Positive Int` local leaves it an `Int`, as `n = n + 1` does, and `p.n++`
+  on a qualified field is refused as `p.n = p.n + 1` is (before, `p.n--`
+  kept `Positive` on a field that could reach 0). (b) A literal that
+  replaces the sibling while the claimed field comes from the spread is
+  refused (`qual-depend-field:spread-pair`) rather than re-checked. (c) A
+  struct field's claim that names no other field is refused at the
+  declaration (`qual-depend-field:not-a-sibling`). (d) A field read from a
+  temporary (`make().pos`) carries no claim. Each is the minimal sound rule;
+  the alternatives are a narrower step rule (drop only dependent claims, and
+  keep `Positive` on `n++`, which would need the qualifier's own semantics to
+  be sound) and checking the spread's field against the new sibling.
+- **DECISION: narrowing through a prefix step.** `while ++pos is Idx(str)`
+  (the demo's `next_str`) tests the step's *value*, so `pos` is not narrowed
+  and `str.char_at(pos)` in the body is the optional read. Narrowing the
+  place a prefix step names would be a new narrowing rule [is-narrow]; today
+  the spelling is `pos++` then `pos is Idx(str)`.
+- **Coarse spots left in claim identity**: a value that holds a borrow in
+  more than one `proj` field (a zip over two lists), or through an owned
+  field storing a view, has no projection the analysis knows, so its fields'
+  claims serve only that value; a struct destructured from a temporary has
+  no identity, so its fields carry no claims; an iterable named by a field
+  path (`for i in p.it`) takes `p`'s whole identity (`pass_source_roots`).
+- **A derivation's marker is per binding, not per run of a loop**: an
+  un-spellable derivation (`let a = get(xs, k) ?: …` in a loop body) is
+  marked with its binding's span, so a claim about one iteration's `a`,
+  stored in a variable outside the loop, still matches the next
+  iteration's — as every claim about a loop-local did when identities were
+  roots alone. A per-iteration identity (a fresh id per walk of the body, or
+  stripping claims about a loop-local at the back edge) would close it.
+- **Not probed**: a qualifier field override ([qual-field-override]) whose
+  type holds a place template is returned by a field read unrooted
+  (`field_override_ty`), and an unrooted claim satisfies any rooted one
+  where the relation is lenient. No override can spell a sibling place
+  today as far as the review found, but nothing refuses one.
+- **A `while`'s second body pass re-analyses the condition** in the back-edge
+  state (`check_loop_body_in`), which rewrites the condition's span-keyed
+  tables (`expr_ty`, the `is` tests) with what it reads there; correct for
+  the claims, but any table a later phase reads off the condition now
+  reflects the back edge, not the entry.
+- **Smaller leftovers**: no test yet for a user lending fn whose pass keeps a
+  part of the lent argument (the rule is built: such a pass's fields claim no
+  projection); a tuple pattern still links a Copy-scalar element
+  (the struct pattern no longer does, [copy-scalar-free]); the language
+  server closes only a one-line open header, so a cursor on the continuation
+  line of a header that spans lines still gets the generic list.
+- **A fn parameter's place claim naming no parameter is accepted**: `fn f(s:
+  Str, i: Idx(nothing) Int)` checks clean, the claim satisfiable by nothing;
+  the struct-field form is refused (`qual-depend-field:not-a-sibling`), the
+  signature form should be too.
+- **`append(Mut Str, Char)` is not declared** (the demo's
+  `number_str.append(char)`); `append(s, "${c}")` is the spelling today.
+
 ### 0bf — What named-union bodies left (2026-11-10)
 
 Found building [type-union-body] (COMPLETED.md); none is new with the body

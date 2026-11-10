@@ -2286,6 +2286,11 @@ impl Server<'_> {
         } else {
             format!("{}{}", &text[..word], &text[patch_end..])
         };
+        // [lsp-completion] A block header still being typed — `while pos <
+        // parsing.str.ch` with no `{` yet — leaves the probe without a body,
+        // and the parse error drops the whole fn, receiver and locals with
+        // it: close the header with an empty block, in the probe only.
+        let patched = close_open_header(patched, line_start);
         let mut overlay = self.overlay.clone();
         overlay.insert(path.clone(), patched);
         let analysis = self.analysis_with(&path, &overlay)?;
@@ -3207,6 +3212,22 @@ fn doc_ref_completions(analysis: &Analysis, view_file: usize, cursor: u32) -> Ve
         }
     }
     out
+}
+
+/// [lsp-completion] Closes a block header the cursor's line leaves open: a
+/// line of the probe buffer starting at `line_start` that opens a `while`,
+/// `if`, `elif`, `for` or `when` and has no `{` gets ` {}` at its end, so the
+/// probe parses and the enclosing fn is still checked. Any other line is
+/// left as written.
+fn close_open_header(mut probe: String, line_start: usize) -> String {
+    let line_end = probe[line_start..].find('\n').map(|i| line_start + i).unwrap_or(probe.len());
+    let line = &probe[line_start..line_end];
+    let head = line.trim_start().trim_start_matches("} ");
+    let opens = ["while ", "if ", "elif ", "for ", "when "].iter().any(|k| head.starts_with(k));
+    if opens && !line.contains('{') && !line.trim_end().ends_with("&&") && !line.trim_end().ends_with("||") {
+        probe.insert_str(line_end, " {}");
+    }
+    probe
 }
 
 /// [lsp-completion] The type name a receiver of type [ty] matches a first

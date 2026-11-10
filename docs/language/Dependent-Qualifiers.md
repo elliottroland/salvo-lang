@@ -43,7 +43,8 @@ it depends on take it away.
 
 The rest of this page shows how such a qualifier is declared, how the claim
 is tied to the value it depends on, how signatures demand it, how a claim
-survives mutations that cannot break it, and what std declares.
+survives mutations that cannot break it, how a struct keeps a claim about
+one of its own fields, and what std declares.
 
 ## Declaring one
 
@@ -80,7 +81,8 @@ form. std's declaration is [`KeyOf`](../../lib/std/core/map.sv#qualifier-keyof).
 its fate roots (see
 [Shared fate](Deductions-and-Ownership.md#shared-fate-and-copy)). So an alias of `m`
 is still `m`, but a different map is a different claim, and the compiler says
-so.
+so. A field is a value of its own here: a claim about `p.a`, or about a local
+bound from `p.a`, says nothing about `p.b`.
 
 Because the claim is about the **map's** contents rather than the key's, it
 is invalidated from the other side: any mutation of `m` strips `KeyOf(m)` from
@@ -221,6 +223,58 @@ let p = port(clamp(70000, 1, 65535))     // clamp(…) is an InRange(1, 65535) I
 ```
 
 A negative constant is written with its sign: `InRange(-5, 5) Int`.
+
+## A claim about a sibling field
+
+A struct can keep a value together with a claim about another of its
+fields. The slot names the sibling field:
+
+```salvo
+struct Cursor canbe Mut {
+    items: List<Int>
+    at: Idx(items) Int       // an index of *this* cursor's `items`
+}
+```
+
+The claim is about the sibling of the same value, wherever the field is
+read. `cursor.at` is an `Idx(cursor.items) Int`, and destructuring keeps the
+pair together: after `let { items, at } = cursor`, `at` is an index of the
+local `items`, which is `cursor.items`. A total operation takes either:
+
+```salvo
+fn current(cursor: Cursor) -> Int {
+    return get(cursor.items, cursor.at)       // the total `get`: no `?`
+}
+
+fn twice(cursor: Cursor) -> Int {
+    let { items, at } = cursor
+    return get(items, at) + get(cursor.items, at)
+}
+```
+
+The claim is about one value's own field, so an index read from one cursor
+says nothing about another cursor's list, or about any other list.
+
+Building the value checks the pair: `Cursor { items: xs, at: i }` needs `i`
+to be an index of `xs`, a spread supplies the sibling when it is not
+written, and a literal that replaces `items` while taking `at` from the
+spread is refused. Because the claim is stored in the field's declared type, nothing
+can take it away again the way a mutation strips a local's claim. So the
+field the claim is about cannot be assigned on its own (build a new value
+with both fields instead), and it cannot be mutable in place: a `Mut` or
+`canbe Mut` sibling is refused at the declaration. Assigning the claimed
+field itself needs a value with the claim about this value's sibling, so
+`cursor.at++` is refused: a step of one cannot keep an index claim. On a
+local, `at++` is allowed and leaves the claim behind, as `at = at + 1`
+would; an `is Idx(items)` test gives it back.
+
+A field read from a temporary (`make_cursor().at`) carries no claim: there
+is no value its sibling could be known as.
+
+Two fields of one value are two values. An index proven for `p.a`, or for a
+local bound from it, is not an index of `p.b`. Likewise each element a `for`
+loop binds is a value of its own: an index proven for one element is an
+index of neither the list nor another element.
 
 ## What std declares
 
