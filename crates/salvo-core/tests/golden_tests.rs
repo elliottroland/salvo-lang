@@ -380,6 +380,7 @@ fn g(x: Int) -> Int {
     let s = \"json\"
     let t = s !is \"text\" && s is \"json\" | \"yaml\"
     let u = s !is \"json\" | \"text\"
+    let m = Map(\"a\": 1, s: n)
     return n
 }
 ";
@@ -402,6 +403,7 @@ fn the_resolve_dump_names_the_sugar_each_lowering_came_from() {
         "#{desugared from `s !is \"text\"`}",
         "#{desugared from `s is \"json\" | \"yaml\"`}",
         "#{desugared from `s !is \"json\" | \"text\"`}",
+        "#{desugared from `\"a\": 1`}",
     ] {
         assert!(text.contains(want), "missing `{want}` in:\n{text}");
     }

@@ -46,3 +46,14 @@ fn is_forms(s: Str, x: Int | Str | None, xs: List<Int | Str>) -> Bool {
     assert!(x as? NonNegative !is None)
     return !(x !is Str) || x is Int | None
 }
+
+fn pairs(m: Map<Str, Int>) -> None {
+    let a = Map("a": 1, "b": 2 + 3)
+    let b = Mut Map<Str, Int>("x" + "y": m.size(), "z": -1)
+    f(g("k": (x: -Ok)), h((1, 2)))
+    if Map("a": 1).size() > 0 {
+        print(List(("a", 1)))
+    }
+    let c = (k) -> Map(k: k as! Positive, "n": n !is Int)
+    m?.merge("a": 1)
+}

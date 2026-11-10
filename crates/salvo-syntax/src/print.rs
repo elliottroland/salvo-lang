@@ -1794,6 +1794,7 @@ impl Printer<'_> {
             Expr::Is { .. } => COMPARE,
             Expr::Sugar(sugar) => match **sugar {
                 Sugar::AsQual { .. } | Sugar::Is { .. } => COMPARE,
+                Sugar::Pair { .. } => 0,
             },
             Expr::Elvis { .. } => ELVIS,
             Expr::When { origin: Some(WhenOrigin::Pick), .. } if self.reading == Reading::Source => ELVIS,
@@ -1828,9 +1829,7 @@ impl Printer<'_> {
     fn args(&mut self, args: &[Expr], named: &[NamedArg]) {
         let saved = std::mem::replace(&mut self.no_struct, false);
         self.push("(");
-        // [col-pairs] At the top of an argument a `:` is a pair's, so a
-        // re-typing there is parenthesized.
-        let arg = |p: &mut Self, a: &Expr| p.expr(a, if matches!(a, Expr::Retype { .. }) { 1 } else { 0 });
+        let arg = |p: &mut Self, a: &Expr| p.arg(a);
         self.list(args, ", ", arg);
         for (i, n) in named.iter().enumerate() {
             if i > 0 || !args.is_empty() {
@@ -1845,6 +1844,13 @@ impl Printer<'_> {
         }
         self.push(")");
         self.no_struct = saved;
+    }
+
+    /// A call argument, or either side of a pair.
+    fn arg(&mut self, a: &Expr) {
+        // [col-pairs] At the top of an argument a `:` is a pair's, so a
+        // re-typing there is parenthesized.
+        self.expr(a, if matches!(a, Expr::Retype { .. }) { 1 } else { 0 })
     }
 
     fn type_args(&mut self, targs: &[Type]) {
@@ -2283,6 +2289,11 @@ impl Printer<'_> {
                     }
                 }
             }
+            Sugar::Pair { key, value, .. } => {
+                self.arg(key);
+                self.push(": ");
+                self.arg(value);
+            }
         }
     }
 
@@ -2525,7 +2536,8 @@ fn as_qual_name(branches: &[(Expr, Block)]) -> Option<String> {
 /// [syntax-lowered] The sugar an expression the lowering wrote came from,
 /// by the trace the tree keeps of it: for `x !is Q`, a `!` whose operand
 /// starts before it; for `x is A | B`, an `||` whose right test starts where
-/// it does (a written test starts at its own subject).
+/// it does (a written test starts at its own subject); for a pair `k: v`, a
+/// 2-tuple that starts where its key does (a written one starts at `(`).
 fn sugar_origin(e: &Expr) -> Option<Sugar> {
     match e {
         Expr::Unary { op: UnaryOp::Not, operand, span } if span.start > operand.span().start => {
@@ -2541,6 +2553,10 @@ fn sugar_origin(e: &Expr) -> Option<Sugar> {
         Expr::Binary { op: BinaryOp::Or, span, .. } => {
             let (subject, checks) = union_tests(e)?;
             Some(Sugar::Is { subject, checks, binding: None, not: None, span: *span })
+        }
+        // [col-pairs] A pair's tuple spans its two sides only.
+        Expr::Tuple { elems, span } if elems.len() == 2 && elems[0].span().start == span.start => {
+            Some(Sugar::Pair { key: elems[0].clone(), value: elems[1].clone(), span: *span })
         }
         _ => None,
     }

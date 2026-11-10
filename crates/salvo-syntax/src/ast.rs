@@ -2527,12 +2527,15 @@ pub enum Sugar {
     /// `Expr::Is`. `binding` is the one written after the first check, which
     /// the parser refuses for all three; `span` runs from the subject.
     Is { subject: Expr, checks: Vec<Vec<TypeRef>>, binding: Option<Ident>, not: Option<Span>, span: Span },
+    /// [col-pairs] A `key: value` call argument (`Map("a": 1)`): the 2-tuple
+    /// `(key, value)` filling a `...pairs: (K, V)[]` variadic.
+    Pair { key: Expr, value: Expr, span: Span },
 }
 
 impl Sugar {
     pub fn span(&self) -> Span {
         match self {
-            Sugar::AsQual { span, .. } | Sugar::Is { span, .. } => *span,
+            Sugar::AsQual { span, .. } | Sugar::Is { span, .. } | Sugar::Pair { span, .. } => *span,
         }
     }
 }

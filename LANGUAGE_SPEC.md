@@ -3197,12 +3197,15 @@ Conventions:
     tells it from a written `x = x + e`.
   * `x !is Q` [is-not], `x is A | B` and `x !is A | B` [is-union]
     (`Sugar::Is`; a plain `x is Q` is an `Expr::Is`).
+  * A pair argument `k: v` [col-pairs] (`Sugar::Pair`), the 2-tuple `(k,
+    v)` spanning its two sides only.
   * In a dump (`Reading::Dump`) an expression the lowering wrote is followed
     by `#{desugared from `x !is Q`}`, and a statement it wrote is preceded by
     the comment `// desugared from `x += e``; for source, it prints as the
     code it became. The tree keeps a trace of each, which the printer reads
     (`print::sugar_origin`): the `!` of a `!is` starts after its operand
-    does, and the second test of a union `is` starts where the `||` does.
+    does, the second test of a union `is` starts where the `||` does, and a
+    pair's tuple starts where its key does (a written one at its `(`).
 * [when-lowered] **`?:`, `?.` and `?>` are sugar for a `when`** (user decision 2026-10-30,
   option (a) of the pipeline record D2's Convert write-up), lowered after parsing
   and before resolution, since it needs no names (`desugar::lower_picks`):
@@ -3439,6 +3442,8 @@ Conventions:
   a `k: v` argument may not be mixed with a positional or `=`-named argument
   (Q6). Each key is an expression (unlike a map *literal*, there is no
   struct-literal ambiguity in call position, so an identifier key is allowed).
+  The parser keeps a pair as written (`Sugar::Pair`); the 2-tuple is written
+  before resolution [syntax-lowered].
 * [fn-syntax] `fn name<G>(params) [effects] -> ReturnType`; => deductions
   no implicit returns from functions (unlike blocks); omitted return type
   means `None`; omitted effect list means pure (`[]`).

@@ -1148,10 +1148,14 @@ fn a_named_argument_parses() {
 
 /// [col-pairs] `k: v` arguments at a call site each become a 2-tuple `(k,
 /// v)`, filling a `...pairs: (K, V)[]` variadic — the sugar behind `Map("a":
-/// 1)`.
+/// 1)`. Kept as written by the parser [syntax-lowered].
 #[test]
 fn key_value_pair_arguments_parse_as_tuples() {
     let source = "fn f() {\n    let m = Mut Map(\"a\": 1, \"b\": 2)\n}\n";
+    let (written, _) = salvo_syntax::parse_module_deferred(source);
+    let salvo_syntax::ast::Item::Fn(f) = &written.items[0] else { panic!() };
+    let Some(salvo_syntax::ast::Stmt::Let { value: salvo_syntax::ast::Expr::Call { args, .. }, .. }) = f.body.as_ref().unwrap().stmts.first() else { panic!() };
+    assert!(args.iter().all(|a| matches!(a, salvo_syntax::ast::Expr::Sugar(s) if matches!(**s, salvo_syntax::ast::Sugar::Pair { .. }))), "{args:?}");
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),

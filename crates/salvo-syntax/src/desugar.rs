@@ -1728,6 +1728,10 @@ fn lower_one(sugar: Sugar) -> Expr {
     match sugar {
         Sugar::AsQual { subject, check, trap, op, mark, span } => lower_as_qual(subject, check, trap, op, mark, span),
         Sugar::Is { subject, checks, binding, not, span } => lower_is(subject, checks, binding, not, span),
+        // [col-pairs] The 2-tuple, spanning the key and the value only: a
+        // written tuple's span starts at its `(`, which is how a printing
+        // tells the two apart.
+        Sugar::Pair { key, value, span } => Expr::Tuple { elems: vec![key, value], span },
     }
 }
 

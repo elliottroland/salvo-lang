@@ -970,5 +970,10 @@ pub fn walk_sugar<V: Visitor>(v: &mut V, sugar: &Sugar) {
                 v.visit_span(n);
             }
         }
+        Sugar::Pair { key, value, span } => {
+            v.visit_span(span);
+            walk_expr(v, key);
+            walk_expr(v, value);
+        }
     }
 }

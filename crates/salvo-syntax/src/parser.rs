@@ -6763,7 +6763,7 @@ impl<'s> Parser<'s> {
         let mut args = Vec::new();
         let mut named: Vec<NamedArg> = Vec::new();
         // [col-pairs] Whether this call uses the `k: v` pair sugar. Each pair
-        // becomes a 2-tuple `(k, v)` filling a `...pairs: (K, V)[]` variadic
+        // is a 2-tuple `(k, v)` filling a `...pairs: (K, V)[]` variadic
         // (so `Map("a": 1)` is `Map(("a", 1))`). Pairs are all-or-nothing
         // in one call (user decision 2026-10-12, Q6): no mixing with
         // positional or `=`-named arguments.
@@ -6876,10 +6876,9 @@ impl<'s> Parser<'s> {
                 };
                 saw_pair = true;
                 let span = arg.span().to(value.span());
-                args.push(Expr::Tuple {
-                    elems: vec![arg, value],
-                    span,
-                });
+                // As written [syntax-lowered]: the 2-tuple is written before
+                // resolution.
+                args.push(Expr::Sugar(Box::new(Sugar::Pair { key: arg, value, span })));
             } else if self.at(&TokenKind::Eq) {
                 self.bump();
                 let Expr::Ident(name) = arg else {
