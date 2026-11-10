@@ -287,11 +287,17 @@ struct Printer<'n> {
     /// [syntax-lowered] Inside an expression a dump has marked with the sugar
     /// it came from: its parts are not marked again.
     quiet_origin: bool,
+    /// [expr-terminal-scope] The blocks the module wrote as a terminal `...`
+    /// (`Module::terminal_bodies`).
+    terminal: std::collections::HashSet<Span>,
+    /// [expr-terminal-scope] The terminal body the statement being printed
+    /// holds, printed after it.
+    pending_rest: Option<Block>,
 }
 
 impl<'n> Printer<'n> {
     fn new(notes: &'n dyn Notes, reading: Reading) -> Self {
-        Printer { out: String::new(), nodes: HashMap::new(), indent: 0, notes, no_struct: false, holes: Vec::new(), inline: false, reading, quiet_origin: false }
+        Printer { out: String::new(), nodes: HashMap::new(), indent: 0, notes, no_struct: false, holes: Vec::new(), inline: false, reading, quiet_origin: false, terminal: Default::default(), pending_rest: None }
     }
 }
 
@@ -360,6 +366,7 @@ impl Printer<'_> {
     // --- Module and items ---
 
     fn module(&mut self, m: &Module) {
+        self.terminal = m.terminal_bodies.iter().copied().collect();
         if !m.docs.is_empty() {
             self.comment_lines(&m.docs);
             self.newline();
@@ -1222,10 +1229,7 @@ impl Printer<'_> {
             }
             self.push("}");
             if let Some(b) = &f.body {
-                for st in &b.stmts {
-                    self.newline();
-                    self.stmt(st);
-                }
+                self.stmts(&b.stmts);
             }
             self.indent -= 1;
             self.newline();
@@ -1583,6 +1587,15 @@ impl Printer<'_> {
 
     fn block(&mut self, b: &Block) {
         let s = self.at();
+        // [expr-terminal-scope] Written `...`: its statements follow the
+        // statement that holds it (`stmts`).
+        if self.terminal.contains(&b.span) && !self.inline {
+            self.push("...");
+            let e = self.at();
+            self.record(b.span, s, e, s, e);
+            self.pending_rest = Some(b.clone());
+            return;
+        }
         let saved = std::mem::replace(&mut self.no_struct, false);
         if b.stmts.is_empty() {
             self.push("{}");
@@ -1593,10 +1606,7 @@ impl Printer<'_> {
         } else {
             self.push("{");
             self.indent += 1;
-            for st in &b.stmts {
-                self.newline();
-                self.stmt(st);
-            }
+            self.stmts(&b.stmts);
             self.indent -= 1;
             self.newline();
             self.push("}");
@@ -1604,6 +1614,24 @@ impl Printer<'_> {
         self.no_struct = saved;
         let e = self.at();
         self.record(b.span, s, e, s, e);
+    }
+
+    /// The statements of a block, each on a line of its own, and after one
+    /// whose construct took a terminal `...` body, that body's.
+    fn stmts(&mut self, stmts: &[Stmt]) {
+        // A body printed inside a statement (the `else` after `if c ...`)
+        // leaves the statement's own terminal body to the statement.
+        let outer = self.pending_rest.take();
+        for st in stmts {
+            self.newline();
+            self.stmt(st);
+            // [expr-terminal-scope] The rest of the block a terminal `...`
+            // in the statement stands for: the statements after it.
+            if let Some(rest) = self.pending_rest.take() {
+                self.stmts(&rest.stmts);
+            }
+        }
+        self.pending_rest = outer;
     }
 
     fn stmt(&mut self, st: &Stmt) {
@@ -2382,10 +2410,7 @@ impl Printer<'_> {
         self.newline();
         self.push("// ");
         self.push(note);
-        for st in &b.stmts {
-            self.newline();
-            self.stmt(st);
-        }
+        self.stmts(&b.stmts);
         self.indent -= 1;
         self.newline();
         self.push("}");

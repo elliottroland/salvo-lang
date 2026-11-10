@@ -38,6 +38,13 @@ pub struct Module {
     /// namespace may share its name with a type, so it is not enough to look
     /// for a declaration [mod-namespace].
     pub namespaces: Vec<String>,
+    /// [expr-terminal-scope] [syntax-lowered] The span of every block written
+    /// as a terminal `...` — the rest of the enclosing block, which the tree
+    /// holds as the construct's body like a braced one. A spelling: no phase
+    /// reads it but the printer [ast-print], which writes such a body back as
+    /// `...` and its statements after the construct. Not in the tree's debug
+    /// form.
+    pub terminal_bodies: Vec<Span>,
     /// [node-id] Every declaration's run of node ordinals, in numbering
     /// order (`node_id::number`): the file's own nodes (its imports,
     /// renames, refinements and module-level `use`s) first, then each
@@ -57,6 +64,7 @@ impl Default for Module {
             items: Vec::new(),
             uses: Vec::new(),
             namespaces: Vec::new(),
+            terminal_bodies: Vec::new(),
             node_ranges: Vec::new(),
             file_tag: crate::span::NO_FILE,
         }
@@ -66,7 +74,7 @@ impl Default for Module {
 /// The tree, without the numbering (`node_ranges`): what the parser made.
 impl fmt::Debug for Module {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Module { docs, items, uses, namespaces, node_ranges: _, file_tag: _ } = self;
+        let Module { docs, items, uses, namespaces, terminal_bodies: _, node_ranges: _, file_tag: _ } = self;
         f.debug_struct("Module").field("docs", docs).field("items", items).field("uses", uses).field("namespaces", namespaces).finish()
     }
 }

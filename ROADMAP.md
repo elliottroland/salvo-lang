@@ -791,6 +791,13 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
   files would need them, and comments kept (the user's direction,
   2026-11-09: a formatter is the printer over the parsed tree, with the
   lexer's comments attached to nodes).
+- **Open defect: two statements on one line parse** (found 2026-11-09, by
+  the sugar fixture): `let a = 1 let b = 2` and `print(a) print(b)` are
+  accepted as two statements each, with no diagnostic, so a slip can read
+  as something else (`waitfor out ...` read as three statements until its
+  tell was fixed). A statement should end at a newline, a `}` or a `;`-less
+  end of the line; deciding whether to refuse it is the user's call
+  (nothing in std or the examples writes it).
 - **Where it does not run**: 5 of
   the corpus's 6 files do not check (it is the parser's corpus of
   language-page examples: unknown effects, missing type arguments, an

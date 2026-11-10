@@ -2924,7 +2924,15 @@ Conventions:
   * **`while cond ...` / `for x in e ...`** make the rest of the block the loop
     body; no `else` can follow (nothing follows a terminal scope).
   * **`try ...` / `waitfor out ...`** make the rest of the block the
-    throw-delimited body / the async continuation.
+    throw-delimited body / the async continuation. `waitfor out ...` with
+    no type is recognized by the name and then `...` after `waitfor`, as by
+    a `:` or a `{` (fixed 2026-11-09: it read as three statements on one
+    line, `waitfor`, `out` and a spread).
+  * **The tree holds the rest as the construct's body**, a block like a
+    braced one; the spelling is kept beside it, the block's span in
+    `Module::terminal_bodies` [syntax-lowered], which only the printer reads:
+    it writes such a body as `...` and its statements after the statement
+    holding it [ast-print].
   * **`[for …] ...` / `[if …] ...`** in a comptime fn (user request
     2026-10-20) [comptime-inline]: the rest of the block is unrolled once per
     field, or kept when the condition holds — with an optional inline braced
@@ -3205,7 +3213,9 @@ Conventions:
     v)` spanning its two sides only.
   * Not lowered, since the tree keeps the spelling: the struct-literal
     shorthand `{ x }` [struct-lit-shorthand] (as a struct pattern's `{ x }`
-    is), and `x++` [op-inc-dec] (`Expr::IncDec`).
+    is), `x++` [op-inc-dec] (`Expr::IncDec`), and a terminal `...` body
+    [expr-terminal-scope] [expr-terminal-lambda], a block whose span the
+    module lists in `terminal_bodies`.
   * In a dump (`Reading::Dump`) an expression the lowering wrote is followed
     by `#{desugared from `x !is Q`}`, and a statement it wrote is preceded by
     the comment `// desugared from `x += e``; for source, it prints as the

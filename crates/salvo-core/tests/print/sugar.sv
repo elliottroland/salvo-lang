@@ -69,3 +69,37 @@ fn shorthand(x: Int, y: Int) -> Point {
     let g = (x) -> (Point { x, y: 0 })
     return { x: x, y }
 }
+
+fn terminal(xs: List<Int>, c: Bool) -> Int {
+    for x in xs ...
+    while c ...
+    if c ... else {
+        return 0
+    }
+    try ...
+    let n = 1
+    n += 1
+    xs.each((y) -> ...)
+    if y !is Int ...
+    return n
+}
+
+fn terminal_empty(xs: List<Int>) -> None {
+    for x in xs ...
+}
+
+fn terminal_nested(xs: List<Int>) -> None {
+    for x in xs {
+        if x > 0 ...
+        print(x)
+    }
+    let f = (y) -> {
+        while y > 0 ...
+        y -= 1
+    }
+}
+
+fn main() [use] {
+    waitfor out ...
+    out.send(1)
+}

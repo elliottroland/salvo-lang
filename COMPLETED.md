@@ -190,6 +190,24 @@ tree a formatter would print was not what the user wrote.
   the iteration example's dump snapshots stay as they were). An
   `ast::StructLitFieldKind` variant would have cost a match arm in a dozen
   places for nothing a printing needs (agent's call, to confirm).
+- **Terminal `...` bodies** (`for x in xs ...`, `if c ... else { … }`,
+  `while`, `try`, `waitfor`, a trailing lambda's `(e) -> ...`, `[for]`,
+  `[if]`) were never a different tree: the rest of the block is the
+  construct's body either way. What the tree lost is the spelling, now kept
+  beside it: `Module::terminal_bodies`, the span of every block
+  `parse_terminal_rest` read, left out of the tree's debug form (so no
+  snapshot changed). The printer writes such a block as `...` and its
+  statements after the statement that holds it (a statement's `else` block
+  printed in between keeps its own statements to itself). Agent's call, to
+  confirm: a side list rather than a field on `Block`, which a hundred
+  constructions and every parse-AST snapshot would have carried for the one
+  reader.
+- **A parser defect the fixture found**: `waitfor out ...`, the terminal
+  `waitfor` with its type inferred, was not recognized (the tell was a name
+  then `:` or `{`), and read as three statements on one line: `waitfor`,
+  `out`, and a spread of the next line. `...` is part of the tell now. That
+  three statements on one line parsed at all is an open defect (ROADMAP
+  §0av).
 - **A printer defect the fixture found**: a typed struct literal as a
   lambda's expression body, `(x) -> (Point { x: 1 })`, printed without its
   parentheses, and so read back as a lambda returning `Point` with a block

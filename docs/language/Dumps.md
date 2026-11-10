@@ -232,11 +232,19 @@ file:
 - **Sugar is printed as what it became.** A `?:`, `?.` or `?>` is printed
   as the `when` the compiler reads it as ([below](#a--or--is-a-when)), and
   `x as! Q` and `x as? Q` as the `if` they are; each opens with a comment
-  naming the operator. A stamped body's `name@[site]` is printed as the
-  bare name, which is what it means in the file it is printed into.
+  giving the code as you wrote it, `// desugared from `x as! Positive``.
+  `n += 1` is printed as `n = n + 1` under a line `// desugared from `n +=
+  1``. An expression gets the same note as a mark after it:
+  `!(s is "text")#{desugared from `s !is "text"`}` for `!is`, and likewise
+  for `s is "a" | "b"` (the `||` of two tests) and a `"k": v` argument (the
+  tuple `("k", v)`). The shorthand `Point { x }` is printed `Point { x: x
+  }`, so that the value can show what it resolved to. A stamped body's
+  `name@[site]` is printed as the bare name, which is what it means in the
+  file it is printed into.
 - **`#{…}` marks what has no spelling**: a field's default a stamp placed
   (`#{the default of Serve.port}`), the arms a lowered `?:`, `?.` or `?>`
-  matches (`#{first arm}`, `#{rest}`), and nothing else in a checked
+  matches (`#{first arm}`, `#{rest}`), the sugar an expression was written
+  as (`#{desugared from `s !is "text"`}`), and nothing else in a checked
   program.
 
 ### A `?:`, `?.` or `?>` is a `when`
