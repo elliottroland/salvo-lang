@@ -1246,6 +1246,11 @@ pub struct Checked {
     /// than have each backend re-derive it; the language server offers the
     /// rest as the arms still to write.
     pub when_missing: KeyMap<Vec<String>>,
+    /// [when-lowered] [dump-type-check] For each arm hole of a lowered `?:`,
+    /// `?.` or `?>` (keyed by its branch): the arms it took, as one type —
+    /// what `#{first arm}` and `#{rest}` resolved to, which the typed dump
+    /// writes in the hole (`#{first arm: Int}`).
+    pub hole_arms: KeyMap<Ty>,
     /// [call-resolve] What each call resolved to, by the call (the pipeline record D2,
     /// calls): one [`Callee`] — a declared fn at its type arguments, an
     /// effect's member, a qualifier's fn, a fn value (a local, a field, a
@@ -28742,6 +28747,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.out.tests.insert(self.key(branch.span), Test::Arms(test));
             }
             let narrow_ty = self.mk_union(matched.clone());
+            if branch.hole.is_some() {
+                self.out.hole_arms.insert(self.key(branch.span), narrow_ty.clone());
+            }
             let mut bindings = Vec::new();
             if let Some(b) = &branch.binding {
                 if matches!(narrow_ty, Ty::Union(_)) {

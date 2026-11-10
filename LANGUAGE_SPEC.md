@@ -3197,7 +3197,9 @@ Conventions:
     `expr-safe-pipe:single-arm` on a one-arm
     subject, a field-place subject the written `when` would refuse, the
     leniency of an unknown subject, and the call-return hint
-    [fn-overload-return]. Nothing else consults it, except the IR: the
+    [fn-overload-return]; and the printer [ast-print], which writes the
+    operator back for source and the `when`, under a comment naming the
+    operator, for a dump. Nothing else consults it, except the IR: the
     picked value moves out of a `__pickN` temporary, the `#{rest}` arm is
     the switch's `else`, and a `?.`'s first arm narrows under
     `Justification::SafeNav`. A local narrowed to `None` (the rest arm of a
@@ -12655,13 +12657,22 @@ replaced the working document TESTING.md).
   [fn-attached], a flattened declaration back in its `namespace`
   [mod-namespace]); comments in bodies are not kept, doc comments are.
   What the tree holds with no spelling is written as the surface it came
-  from where the tree says so — a lowered `?:`, `?.` or `?>` as its
-  operator [when-lowered], a type-named call `Mut_List(…)` as `Mut
+  from where the tree says so — a type-named call `Mut_List(…)` as `Mut
   List(…)` [fn-type-named], `name@[site]` in a stamped body as the bare
   name it means where it is printed [comptime-hygiene] — and otherwise
-  marked `#{…}` (an arm hole, a comptime statement, a field default a
-  stamp placed, which `salvo_core::printed::print_file_as_source` writes
-  as the default's expression). The parser's `as!`/`as?` [expr-as-qual]
+  marked `#{…}` (a comptime statement, a field default a stamp placed,
+  which `salvo_core::printed::print_file_as_source` writes as the
+  default's expression). A printing has a `Reading` (user decision
+  2026-11-09: "I would rather be able to use the dumps to inspect the
+  decisions made at each step"): for `Source` (the round trip, the print
+  tests, `expr_text`) a lowered `?:`, `?.` or `?>` [when-lowered] is
+  written as its operator, the temporary it bound read as `_`; for `Dump`
+  (`printed::print_file`, both dumps) as the `when` it became — the
+  binding temporary, both arms, the reads of the temporary or the place
+  where the operator had `_`, the heads marked `#{first arm}` and
+  `#{rest}` (`print::hole_mark`), and a first line `// desugared from
+  `f() ?: 0`` (the operator as `Source` writes it, on one line). Nothing
+  else differs between the two. The parser's `as!`/`as?` [expr-as-qual]
   prints as the `if` it is, its block opening with a comment saying so.
   `salvo_core::printed` adds what only the program knows: a comment over
   each declaration an expansion wrote (a stamped fn, a comptime call's
@@ -12691,7 +12702,9 @@ replaced the working document TESTING.md).
   obligation's `by` or a comptime call stamped
   (`printed::print_file_as_source`), and the re-check stamps them again.
   Every other expansion's output — an `iter fn`'s struct and fns, a lowered
-  `?:`, an `as!` — is written out and re-checked. Examples with `[dependencies]` need the
+  `?:`, `?.` or `?>` (as its operator: the round trip prints for
+  `Reading::Source` [ast-print], where the dumps print the `when`), an
+  `as!` — is written out and re-checked. Examples with `[dependencies]` need the
   CLI's loader and are not run; the corpus is a parser corpus, and only the
   files that check clean are.
 * [test-cli-stamp] **A test of the `salvo` binary is stamped on the binary
@@ -15087,7 +15100,10 @@ replaced the working document TESTING.md).
   `p#{12:9}` for a variable — the line and column of its binding in the
   printed module, the header not counted (an implicit group's member at
   its spread, a `?cmp` binder at the parameter writing it) — `#{???}` for
-  nothing. std's own names, generics, built-ins, declarations' own names
+  nothing. A lowered `?:`, `?.` or `?>` is printed as its `when`
+  [ast-print] [when-lowered], its temporary a variable like any other
+  (`__pick1#{10:18}`) and its heads the unresolved `#{first arm}` and
+  `#{rest}`. std's own names, generics, built-ins, declarations' own names
   and a value block's constants are left as they are; a name an expansion
   wrote (a stamped body's, a comptime call's hidden fn's) is spelled like
   any other. A place
@@ -15110,7 +15126,8 @@ replaced the working document TESTING.md).
 * [dump-type-check] The **typed dump** (`salvo dump --phase type-check`,
   `round_trip::dump_file`, the pipeline record D4, user decisions P24 and
   2026-11-09) is each file's tree as the checker reads it, printed as the
-  resolve dump prints it [ast-print] [dump-resolve], with every choice the
+  resolve dump prints it [ast-print] [dump-resolve] (a lowered `?:`, `?.`
+  or `?>` as its `when`), with every choice the
   checker made written out by the writer the round trip uses [round-trip]
   — in a stamped body and a hidden fn too: a callee as `name@module` (`name@Effect`),
   its inferred type arguments, its implicit arguments by name; an operator
@@ -15124,10 +15141,16 @@ replaced the working document TESTING.md).
   What Salvo cannot spell is marked after its expression: `#{as T}` a
   coercion [ir-coerce], `#{narrowed from T}` / `#{claimed from T}` a
   narrowing, `#{next@…}` (`#{iter@…, next@…}`) the calls a `for` names
-  [iter-for]; `--expr-types` adds every expression's type, `#{: T}`.
+  [iter-for], `#{first arm: T}` / `#{rest: T}` the arms a lowered `?:`,
+  `?.` or `?>`'s hole took, as one type (`Checked::hole_arms`, by the
+  branch) [when-lowered]; `--expr-types` adds every expression's type,
+  `#{: T}`.
   `the_type_check_dump_spells_each_kind_of_choice` pins the spellings,
   `the_type_check_dump_shows_what_the_expansion_produced` the choices in a
-  stamped body and a hidden fn; `example_type_check_dump_is_stable`
+  stamped body and a hidden fn, `the_resolve_dump_shows_a_lowered_pick_as_its_when`
+  and `the_type_check_dump_shows_a_lowered_pick_as_its_when` the three
+  operators (over a temporary and over a place) in both dumps and the
+  round trip's operator; `example_type_check_dump_is_stable`
   snapshots one example.
 * [dump-rows] `salvo dump --phase type-check --rows` prints the
   checker's facts before the IR is built (the pipeline record D1, the pre-IR), by

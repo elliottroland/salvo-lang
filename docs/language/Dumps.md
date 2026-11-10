@@ -229,14 +229,77 @@ file:
   expanded into`; an `iter fn`'s struct and fns carry the docs the
   expansion gives them. A comptime fn itself is gone: once stamped, it has
   nothing left to say.
-- **Sugar comes back where the tree remembers it.** A `?:`, `?.` or `?>` is
-  printed as the operator, though the compiler reads it as a `when` whose
-  arms have no spelling. `x as! Q` and `x as? Q` are printed as the `if`
-  they are, its block opening with a comment naming the operator. A
-  stamped body's `name@[site]` is printed as the bare name, which is what
-  it means in the file it is printed into.
+- **Sugar is printed as what it became.** A `?:`, `?.` or `?>` is printed
+  as the `when` the compiler reads it as ([below](#a--or--is-a-when)), and
+  `x as! Q` and `x as? Q` as the `if` they are; each opens with a comment
+  naming the operator. A stamped body's `name@[site]` is printed as the
+  bare name, which is what it means in the file it is printed into.
 - **`#{…}` marks what has no spelling**: a field's default a stamp placed
-  (`#{the default of Serve.port}`), and nothing else in a checked program.
+  (`#{the default of Serve.port}`), the arms a lowered `?:`, `?.` or `?>`
+  matches (`#{first arm}`, `#{rest}`), and nothing else in a checked
+  program.
+
+### A `?:`, `?.` or `?>` is a `when`
+
+The compiler reads `s ?: rhs` as a `when` on `s` with two arms: the first
+arm of `s`'s union, and the rest. `p?.name` and `x ?> f(_)` are read the
+same way, with the field read or the pipe on the first arm and the value
+passed through on the rest. The dumps print that `when`, so you can see
+what each step made of it. These arms have no Salvo spelling (no `is` says
+"the first arm"), so they are marked `#{first arm}` and `#{rest}`.
+
+A subject that is a variable or a field path is matched where it is; any
+other subject is first bound to a temporary (`__pick1`, `__nav2`,
+`__safe3`), and `_` on the right reads it. For
+
+```salvo
+fn f() -> Int? {
+    return 1
+}
+
+fn g() -> Int {
+    let a = f() ?: 0
+    return a
+}
+```
+
+the resolve dump of `g` reads:
+
+```text
+fn g() -> Int {
+    let a = when __pick1 = f@main() {
+        // desugared from `f() ?: 0`
+        is #{first arm} {
+            __pick1#{6:18}
+        }
+        is #{rest} {
+            0
+        }
+    }
+    return a#{6:9}
+}
+```
+
+Resolution has not looked at types yet, so the marks are open. The
+type-check dump fills each one with the arms the checker took for it:
+
+```text
+fn g() -> Int {
+    let a: Int = when __pick1 = f@main() {
+        // desugared from `f() ?: 0`
+        is #{first arm: Int} {
+            __pick1#{narrowed from Int?}
+        }
+        is #{rest: None} {
+            0
+        }
+    }
+    return a
+}
+```
+
+The [check](#the-dump-is-checked) writes the operator back instead, since
+Salvo can spell `f() ?: 0` but not its arms.
 
 ## The parse-ast phase
 
@@ -456,6 +519,7 @@ they are about:
 | `#{narrowed from T}` | the read sees a narrower type than its variable is stored at (`T`), because a test said so |
 | `#{claimed from T}` | a field read at the type a qualifier's claim refines it to |
 | `#{next@…}` | the calls a `for` makes (`#{iter@…, next@…}` for a source) |
+| `#{first arm: T}`, `#{rest: T}` | the arms a `?:`, `?.` or `?>` matches on each side, as one type ([above](#a--or--is-a-when)) |
 | `#{: T}` | with `--expr-types`: the expression's type |
 
 With `--expr-types`, every expression carries its type. Two lines of `f`

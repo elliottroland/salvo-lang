@@ -20,8 +20,10 @@
 //! * **The typed dump** (`salvo dump --phase type-check`, `dump_file`): the
 //!   same, plus what has no surface spelling, marked `#{…}`: a coercion
 //!   (`#{as T}`), a narrowing (`#{narrowed from T}`), the calls a `for`
-//!   names (`#{next@std.core.list}`), and with `--expr-types` every
-//!   expression's type (`#{: T}`). Types are spelled as the dumps spell
+//!   names (`#{next@std.core.list}`), the arms a lowered `?:`, `?.` or `?>`
+//!   took in each hole (`is #{first arm: Int}`, `is #{rest: None}`: the dump
+//!   prints the `when` it became, the round trip the operator), and with
+//!   `--expr-types` every expression's type (`#{: T}`). Types are spelled as the dumps spell
 //!   them (`Point@app.shapes`) [dump-spelling].
 //!
 //! What has no surface spelling is skipped by the round trip: a call through
@@ -36,7 +38,7 @@
 
 use std::collections::BTreeMap;
 
-use salvo_syntax::ast::{BinaryOp, Expr, FnDecl, Item, LambdaBody, Module, NamedArg, Pattern, Stmt, StrExprPart, Type};
+use salvo_syntax::ast::{BinaryOp, Expr, FnDecl, Item, LambdaBody, Module, NamedArg, Pattern, Stmt, StrExprPart, Type, WhenBranch};
 use salvo_syntax::visit::{self, Visitor};
 use salvo_syntax::print::{Placed, Printed};
 use salvo_syntax::Span;
@@ -300,6 +302,7 @@ impl<'a, 'p> Writer<'a, 'p> {
                 Expr::Lambda { .. } => self.lambda(e),
                 Expr::StructLit { .. } => self.struct_lit(e),
                 Expr::For { iterable, .. } if self.dump() => self.for_marks(iterable),
+                Expr::When { branches, origin: Some(_), .. } if self.dump() => self.hole_marks(branches),
                 _ => {}
             }
             if self.dump() {
@@ -618,6 +621,22 @@ impl<'a, 'p> Writer<'a, 'p> {
         }
         if !names.is_empty() {
             self.suffix(placed.outer_end, placed.start, format!(" #{{{}}}", names.join(", ")));
+        }
+    }
+
+    /// [when-lowered] The arms each hole of a lowered `?:`, `?.` or `?>`
+    /// took, written in its mark: `is #{first arm: Int}`, `is #{rest: None}`.
+    fn hole_marks(&mut self, branches: &[WhenBranch]) {
+        for br in branches {
+            let Some(hole) = br.hole else { continue };
+            let Some(placed) = self.at(br.span) else { continue };
+            let head = format!("is #{{{}", salvo_syntax::print::hole_mark(hole));
+            if !self.source()[placed.start as usize..].starts_with(&head) {
+                continue;
+            }
+            let Some(ty) = self.checked.hole_arms.get(&self.key(br.span)) else { continue };
+            let at = placed.start + head.len() as u32;
+            self.suffix(at, placed.start, format!(": {ty}"));
         }
     }
 

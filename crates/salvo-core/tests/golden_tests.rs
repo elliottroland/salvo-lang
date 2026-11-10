@@ -316,3 +316,88 @@ fn the_type_check_dump_shows_what_the_expansion_produced() {
     let typed = salvo_core::round_trip::dump_file(&program, &symbols, &checked, file, true);
     assert!(typed.contains("to_json@main(t#{: (Str, Int)}.0#{: Str})#{: Str}"), "{typed}");
 }
+
+/// A program with each lowered operator [when-lowered]: a pick over a call
+/// (bound to a temporary) and over places (matched where they are), a `?.`
+/// and a `?>`.
+const PICKS: &str = "struct P {
+    name: Str?
+}
+
+fn f() -> Int? {
+    return 1
+}
+
+fn g(x: Int?, y: Int?, p: P) -> Int {
+    let a = f() ?: 0
+    let n = p.name?.size()
+    let c = y ?> _ + 1
+    let s = p.name ?: \"none\"
+    let b = x ?: return 2
+    return a + b
+}
+";
+
+/// [dump-resolve] [when-lowered] [ast-print] The resolve dump prints a
+/// lowered `?:`, `?.` and `?>` as the `when` it became (user decision
+/// 2026-11-09): the temporary the lowering bound, if any, the reads of it
+/// where the operator had `_`, and the arm holes unresolved, under a
+/// comment naming the operator.
+#[test]
+fn the_resolve_dump_shows_a_lowered_pick_as_its_when() {
+    let program = salvo_testkit::front::clean_program("kt", &[("main.sv", PICKS)]);
+    let symbols = salvo_core::Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let file = program.files.iter().position(|f| f.name == "main.sv").unwrap();
+    let text = salvo_core::names::dump::dump_file(&program, &resolution, &symbols, file, false);
+    for want in [
+        "    let a = when __pick1 = f@main() {\n        // desugared from `f() ?: 0`\n        is #{first arm} {\n            __pick1#{10:18}\n        }\n        is #{rest} {\n            0\n        }\n    }",
+        "    let n = when __nav2 = p#{9:24}.name {\n        // desugared from `p.name?.size()`\n        is #{first arm} {\n            __nav2#{19:18}.size()\n        }\n        is #{rest} {\n            __nav2#{19:18}\n        }\n    }",
+        "    let c = when __safe3 = y#{9:15} {\n        // desugared from `y ?> _ + 1`\n        is #{first arm} {\n            __safe3#{28:18} + 1\n        }\n        is #{rest} {\n            __safe3#{28:18}\n        }\n    }",
+        // A place is matched where it is: no temporary.
+        "    let s = when p#{9:24}.name {\n        // desugared from `p.name ?: \"none\"`\n        is #{first arm} {\n            p#{9:24}.name\n        }",
+        "    let b = when x#{9:6} {\n        // desugared from `x ?: (return 2)`\n        is #{first arm} {\n            x#{9:6}\n        }\n        is #{rest} {\n            return 2\n        }\n    }",
+    ] {
+        assert!(text.contains(want), "missing `{want}` in:\n{text}");
+    }
+    assert!(!text.lines().any(|l| l.contains("?:") && !l.trim_start().starts_with("//")), "only the comments name the operator:\n{text}");
+}
+
+/// [dump-type-check] [when-lowered] [round-trip] The type-check dump prints
+/// a lowered `?:`, `?.` and `?>` as the `when` it became, each hole with the
+/// arms the checker took for it (`#{first arm: Int}`, `#{rest: None}`) and
+/// the temporary's reads with their narrowing; the round trip still writes
+/// the operator, and checks it again to the same choices.
+#[test]
+fn the_type_check_dump_shows_a_lowered_pick_as_its_when() {
+    let program = salvo_testkit::front::clean_program("kt", &[("main.sv", PICKS)]);
+    let symbols = salvo_core::Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
+    let errors: Vec<String> = checked.errors.iter().filter(|d| d.is_error()).map(|d| d.render(&program.files)).collect();
+    assert!(errors.is_empty(), "{errors:?}");
+    let file = program.files.iter().position(|f| f.name == "main.sv").unwrap();
+    let text = salvo_core::round_trip::dump_file(&program, &symbols, &checked, file, false);
+    for want in [
+        "    let a: Int = when __pick1 = f@main() {\n        // desugared from `f() ?: 0`\n        is #{first arm: Int} {\n            __pick1#{narrowed from Int?}\n        }\n        is #{rest: None} {\n            0\n        }\n    }",
+        "    let n: Int? = when __nav2 = p.name {\n        // desugared from `p.name?.size()`\n        is #{first arm: Str} {\n            __nav2#{narrowed from Str?}.size@std.core.string()#{as Int?}\n        }\n        is #{rest: None} {\n            __nav2#{narrowed from Str?}\n        }\n    }",
+        "    let c: Int? = when __safe3 = y {\n        // desugared from `y ?> _ + 1`\n        is #{first arm: Int} {\n            plus@std.core.basic(__safe3#{narrowed from Int?}, 1)#{as Int?}\n        }\n        is #{rest: None} {\n            __safe3#{narrowed from Int?}\n        }\n    }",
+        "    let s: Str = when p.name {\n        // desugared from `p.name ?: \"none\"`\n        is #{first arm: Str} {\n            p.name#{narrowed from Str?}\n        }\n        is #{rest: None} {\n            \"none\"\n        }\n    }",
+        "    let b: Int = when x {\n        // desugared from `x ?: (return 2)`\n        is #{first arm: Int} {\n            x#{narrowed from Int?}\n        }\n        is #{rest: None} {\n            return 2\n        }\n    }",
+    ] {
+        assert!(text.contains(want), "missing `{want}` in:\n{text}");
+    }
+    let typed = salvo_core::round_trip::dump_file(&program, &symbols, &checked, file, true);
+    assert!(typed.contains("is #{first arm: Int} {\n            __pick1#{narrowed from Int?}#{: Int}\n        }"), "{typed}");
+    // The round trip writes the operators, which parse and check back.
+    let source = salvo_core::round_trip::write_out(&program, &symbols, &checked, file).text;
+    for want in ["let a: Int = f@main() ?: 0", "let n: Int? = p.name?.size()", "y ?> plus@std.core.basic(_, 1)", "p.name ?: \"none\"", "x ?: (return 2)"] {
+        assert!(source.contains(want), "missing `{want}` in:\n{source}");
+    }
+    assert!(!source.contains("#{") && !source.contains("__pick"), "{source}");
+    let again = salvo_testkit::front::clean_program("kt", &[("main.sv", source.as_str())]);
+    let symbols = salvo_core::Symbols::collect(&again);
+    let resolution = salvo_core::resolve(&again);
+    let rechecked = salvo_testkit::front::check_with("kt", &again, &resolution, &symbols);
+    assert!(!rechecked.errors.iter().any(|d| d.is_error()), "{source}");
+}

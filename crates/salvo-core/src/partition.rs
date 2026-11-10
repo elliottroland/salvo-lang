@@ -234,7 +234,7 @@ impl Checked {
     pub(crate) fn route(&self, owners: &Owners, scope: Scope, sink: &mut dyn Sink) {
         let all = scope == Scope::All;
         let hint = std::cell::Cell::new(0);
-        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, refinements, handles, constructions, parking_handlers, protocol_hashes, replyto_targets, waitfor_sites, handler_constructs, moves, fate_mutations, bind_facts, derived_uses, actor_gates, actor_sends, task_sends, task_mints, written_types, effects_taken, effects_passed, effect_packs, effect_slots, effect_adapted, handler_deps, handler_shapes, effect_prereqs, deductions, param_modes, primitives, fn_refs, refs, local_decls, type_ref_span_keys, value_span_keys, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors, discharges } = self;
+        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, hole_arms, calls, for_drivers, refinements, handles, constructions, parking_handlers, protocol_hashes, replyto_targets, waitfor_sites, handler_constructs, moves, fate_mutations, bind_facts, derived_uses, actor_gates, actor_sends, task_sends, task_mints, written_types, effects_taken, effects_passed, effect_packs, effect_slots, effect_adapted, handler_deps, handler_shapes, effect_prereqs, deductions, param_modes, primitives, fn_refs, refs, local_decls, type_ref_span_keys, value_span_keys, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors, discharges } = self;
         // A node-keyed map, by its key's declaration.
         macro_rules! by_key {
             ($($t:ident),* $(,)?) => {$(
@@ -278,7 +278,7 @@ impl Checked {
             )*};
         }
         by_key!(
-            expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing,
+            expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, hole_arms,
             calls, for_drivers, handles, constructions,
             replyto_targets, 
             fate_mutations, bind_facts, derived_uses,
@@ -343,7 +343,7 @@ impl Checked {
     /// `split_files`, or a declaration's, `split_decls`): the keyed tables;
     /// what `Scope::Keyed` leaves out is the caller's.
     pub(crate) fn insert_rows(&mut self, rows: &Checked) {
-        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, refinements, handles, constructions, parking_handlers, protocol_hashes, replyto_targets, waitfor_sites, handler_constructs, moves, fate_mutations, bind_facts, derived_uses, actor_gates, actor_sends, task_sends, task_mints, written_types, effects_taken, effects_passed, effect_packs, effect_slots, effect_adapted, handler_deps, handler_shapes, effect_prereqs, deductions, param_modes, primitives, fn_refs, refs, local_decls, type_ref_span_keys, value_span_keys, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors, discharges } = rows;
+        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, hole_arms, calls, for_drivers, refinements, handles, constructions, parking_handlers, protocol_hashes, replyto_targets, waitfor_sites, handler_constructs, moves, fate_mutations, bind_facts, derived_uses, actor_gates, actor_sends, task_sends, task_mints, written_types, effects_taken, effects_passed, effect_packs, effect_slots, effect_adapted, handler_deps, handler_shapes, effect_prereqs, deductions, param_modes, primitives, fn_refs, refs, local_decls, type_ref_span_keys, value_span_keys, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors, discharges } = rows;
         macro_rules! map {
             ($($t:ident),* $(,)?) => {$(
                 self.$t.extend($t.iter().map(|(k, v)| (k.clone(), v.clone())));
@@ -355,7 +355,7 @@ impl Checked {
             )*};
         }
         map!(
-            expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing,
+            expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, hole_arms,
             calls, for_drivers, handles, constructions,
             replyto_targets, 
             fate_mutations, bind_facts, derived_uses,
@@ -389,7 +389,7 @@ impl Checked {
             ($($t:ident),* $(,)?) => {$( out.$t = self.$t.clone(); )*};
         }
         copy!(
-            expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing,
+            expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, hole_arms,
             calls, for_drivers, handles, constructions,
             replyto_targets, fate_mutations, bind_facts, derived_uses,
             effects_taken, effects_passed, effect_packs, effect_slots, effect_adapted,
@@ -408,7 +408,7 @@ impl Checked {
             ($($t:ident),* $(,)?) => {$( self.$t = keyed.$t; )*};
         }
         take!(
-            expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing,
+            expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, hole_arms,
             calls, for_drivers, handles, constructions,
             replyto_targets, fate_mutations, bind_facts, derived_uses,
             effects_taken, effects_passed, effect_packs, effect_slots, effect_adapted,
@@ -426,7 +426,7 @@ impl Checked {
             ($($t:ident),* $(,)?) => {$( for k in rows.$t.keys() { self.$t.remove(k); } )*};
         }
         remove!(
-            expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing,
+            expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, hole_arms,
             calls, for_drivers, handles, constructions,
             replyto_targets, fate_mutations, bind_facts, derived_uses,
             effects_taken, effects_passed, effect_packs, effect_slots, effect_adapted,
@@ -447,7 +447,7 @@ impl Checked {
     /// file, the diagnostics. False when a row is placed in a file that is
     /// gone. Exhaustive by construction, like `route`.
     pub(crate) fn remap_files(&mut self, map: &dyn Fn(usize) -> Option<usize>) -> bool {
-        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, refinements: _, handles, constructions, parking_handlers: _, protocol_hashes: _, replyto_targets, waitfor_sites, handler_constructs, moves, fate_mutations, bind_facts, derived_uses, actor_gates, actor_sends, task_sends, task_mints, written_types: _, effects_taken, effects_passed, effect_packs, effect_slots, effect_adapted, handler_deps, handler_shapes, effect_prereqs, deductions, param_modes, primitives, fn_refs, refs, local_decls, type_ref_span_keys: _, value_span_keys: _, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors, discharges } = self;
+        let Checked { decls: _, expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, hole_arms, calls, for_drivers, refinements: _, handles, constructions, parking_handlers: _, protocol_hashes: _, replyto_targets, waitfor_sites, handler_constructs, moves, fate_mutations, bind_facts, derived_uses, actor_gates, actor_sends, task_sends, task_mints, written_types: _, effects_taken, effects_passed, effect_packs, effect_slots, effect_adapted, handler_deps, handler_shapes, effect_prereqs, deductions, param_modes, primitives, fn_refs, refs, local_decls, type_ref_span_keys: _, value_span_keys: _, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures, implicit_params, established_quals, carried_identities, implicit_args, fn_values, errors, discharges } = self;
         let mut ok = true;
         let mut at = |f: usize| -> usize {
             match map(f) {
@@ -464,7 +464,7 @@ impl Checked {
             )*};
         }
         keyed!(
-            expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, calls, for_drivers, handles, constructions,
+            expr_ty, arm_compares, narrowed_reads, converts, tests, when_missing, hole_arms, calls, for_drivers, handles, constructions,
             replyto_targets, moves, fate_mutations, bind_facts, derived_uses, effects_taken, effects_passed, effect_packs,
             effect_slots, effect_adapted, handler_deps, handler_shapes, effect_prereqs, deductions, param_modes, primitives,
             fn_refs, refs, fate_reads, interp_union, borrows, fn_lends, param_mutations, boundaries, lambda_captures,

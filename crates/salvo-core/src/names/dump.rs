@@ -18,7 +18,10 @@
 //!   answers, `#{???}`.
 //!
 //! Generics and built-ins are left as they are; a name an expansion wrote
-//! (a stamped body's, a hidden fn's) is spelled like any other.
+//! (a stamped body's, a hidden fn's) is spelled like any other. A lowered
+//! `?:`, `?.` or `?>` is printed as the `when` it became [when-lowered], its
+//! temporary a variable (`__pick1#{10:18}`) and its arm heads the holes
+//! nothing has resolved yet, `#{first arm}` and `#{rest}`.
 
 use std::collections::HashSet;
 

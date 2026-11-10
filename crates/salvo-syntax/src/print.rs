@@ -19,9 +19,11 @@
 //! recorded `outer` range includes them.
 //!
 //! What the tree holds with no surface spelling of its own is printed as the
-//! surface it came from where the tree says so (a lowered `?:`, `?.` or `?>`
-//! goes back to its operator, a type-named call `Mut_List(…)` to `Mut
-//! List(…)`), and otherwise marked `#{…}`.
+//! surface it came from where the tree says so (a type-named call
+//! `Mut_List(…)` to `Mut List(…)`), and otherwise marked `#{…}`. A lowered
+//! `?:`, `?.` or `?>` is printed by the [`Reading`] the printing is for: as
+//! its operator for source that parses back, as the `when` it became for a
+//! dump (user decision 2026-11-09).
 
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -108,14 +110,28 @@ pub enum FnSource {
 pub struct NoNotes;
 impl Notes for NoNotes {}
 
-/// [ast-print] `module` as source, with every node's place recorded.
-pub fn print_module(module: &Module) -> Printed {
-    print_module_with(module, &NoNotes)
+/// [ast-print] What a printing is for, which decides how a lowered `?:`,
+/// `?.` or `?>` [when-lowered] is written (user decision 2026-11-09).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reading {
+    /// Source that parses back to the same tree [round-trip]: the operator,
+    /// its temporary read as `_` (or not written at all).
+    Source,
+    /// A dump, for reading what each step decided [dump-resolve]
+    /// [dump-type-check]: the `when` the operator became, its binding
+    /// temporary, both arms with their heads marked `#{first arm}` and
+    /// `#{rest}`, and a comment naming the operator.
+    Dump,
 }
 
-/// [ast-print] [`print_module`] with `notes` adding comments.
-pub fn print_module_with(module: &Module, notes: &dyn Notes) -> Printed {
-    let mut p = Printer { out: String::new(), nodes: HashMap::new(), indent: 0, notes, no_struct: false, holes: Vec::new(), inline: false };
+/// [ast-print] `module` as source, with every node's place recorded.
+pub fn print_module(module: &Module) -> Printed {
+    print_module_with(module, &NoNotes, Reading::Source)
+}
+
+/// [ast-print] [`print_module`] with `notes` adding comments, for `reading`.
+pub fn print_module_with(module: &Module, notes: &dyn Notes, reading: Reading) -> Printed {
+    let mut p = Printer::new(notes, reading);
     p.module(module);
     Printed { text: p.out, nodes: p.nodes }
 }
@@ -123,16 +139,25 @@ pub fn print_module_with(module: &Module, notes: &dyn Notes) -> Printed {
 /// [ast-print] One expression as source (no node map): for messages and
 /// tests.
 pub fn expr_text(e: &Expr) -> String {
-    let mut p = Printer { out: String::new(), nodes: HashMap::new(), indent: 0, notes: &NoNotes, no_struct: false, holes: Vec::new(), inline: false };
+    let mut p = Printer::new(&NoNotes, Reading::Source);
     p.expr(e, 0);
     p.out
 }
 
 /// [ast-print] One type as source.
 pub fn type_text(t: &Type) -> String {
-    let mut p = Printer { out: String::new(), nodes: HashMap::new(), indent: 0, notes: &NoNotes, no_struct: false, holes: Vec::new(), inline: false };
+    let mut p = Printer::new(&NoNotes, Reading::Source);
     p.ty(t);
     p.out
+}
+
+/// [when-lowered] The mark a dump prints for an arm hole: `first arm`,
+/// `rest` (inside `#{…}`).
+pub fn hole_mark(hole: ArmHole) -> &'static str {
+    match hole {
+        ArmHole::First => "first arm",
+        ArmHole::Rest => "rest",
+    }
 }
 
 /// [ast-print] A string literal's text, quoted and escaped as Salvo reads it:
@@ -257,6 +282,14 @@ struct Printer<'n> {
     /// [interp-nested-str] Inside a `${…}`, which is one line: a block is
     /// written on it.
     inline: bool,
+    /// What the printing is for.
+    reading: Reading,
+}
+
+impl<'n> Printer<'n> {
+    fn new(notes: &'n dyn Notes, reading: Reading) -> Self {
+        Printer { out: String::new(), nodes: HashMap::new(), indent: 0, notes, no_struct: false, holes: Vec::new(), inline: false, reading }
+    }
 }
 
 impl Printer<'_> {
@@ -1711,10 +1744,11 @@ impl Printer<'_> {
         match e {
             Expr::Lambda { .. } | Expr::Retype { .. } => 0,
             Expr::Pipe { .. } | Expr::SafePipe { .. } => PIPE,
-            Expr::When { origin: Some(WhenOrigin::SafePipe { .. }), .. } => PIPE,
+            Expr::When { origin: Some(WhenOrigin::SafePipe { .. }), .. } if self.reading == Reading::Source => PIPE,
             Expr::Binary { op, .. } => binary_level(*op),
             Expr::Is { .. } => COMPARE,
-            Expr::Elvis { .. } | Expr::When { origin: Some(WhenOrigin::Pick), .. } => ELVIS,
+            Expr::Elvis { .. } => ELVIS,
+            Expr::When { origin: Some(WhenOrigin::Pick), .. } if self.reading == Reading::Source => ELVIS,
             Expr::Unary { .. } | Expr::Spread { .. } => PREFIX,
             Expr::IncDec { prefix: true, .. } => PREFIX,
             Expr::Int { value, .. } if *value < 0 => PREFIX,
@@ -1733,8 +1767,8 @@ impl Printer<'_> {
             | Expr::Project { .. }
             | Expr::IncDec { .. }
             | Expr::SelfScoped { .. }
-            | Expr::SelfAddr { .. }
-            | Expr::When { origin: Some(WhenOrigin::SafeNav), .. } => POSTFIX,
+            | Expr::SelfAddr { .. } => POSTFIX,
+            Expr::When { origin: Some(WhenOrigin::SafeNav), .. } if self.reading == Reading::Source => POSTFIX,
             // A block-bodied expression is a primary, but one followed by
             // an operator on its closing line reads fine; as a postfix base
             // it needs parentheses (`(if c { a } else { b }).f`).
@@ -2268,9 +2302,15 @@ impl Printer<'_> {
     }
 
     fn when(&mut self, binding: &Option<Ident>, subject: &Expr, branches: &[WhenBranch], origin: Option<WhenOrigin>) {
-        // [when-lowered] A lowered `?:`, `?.` or `?>` is written as the
-        // operator it was: its arms are holes no `is` can spell.
-        if let ([first, rest], Some(origin)) = (branches, origin) {
+        // [when-lowered] For source, a lowered `?:`, `?.` or `?>` is written
+        // as the operator it was: its arms are holes no `is` can spell. A
+        // dump writes the `when`, to show what the lowering made of it.
+        let source = self.reading == Reading::Source;
+        let note = match origin {
+            Some(_) if !source => self.operator_text(binding, subject, branches, origin),
+            _ => None,
+        };
+        if let ([first, rest], Some(origin), true) = (branches, origin, source) {
             fn value(b: &WhenBranch) -> Option<&Expr> {
                 match b.body.stmts.as_slice() {
                     [Stmt::Expr(e)] => Some(e),
@@ -2335,13 +2375,22 @@ impl Printer<'_> {
         self.condition(subject);
         self.push(" {");
         self.indent += 1;
+        if let Some(text) = note {
+            self.newline();
+            self.push("// desugared from `");
+            self.push(&text);
+            self.push("`");
+        }
         for br in branches {
             self.newline();
             let s = self.at();
             self.push("is ");
             match br.hole {
-                Some(ArmHole::First) => self.push("#{the first arm}"),
-                Some(ArmHole::Rest) => self.push("#{the other arms}"),
+                Some(hole) => {
+                    self.push("#{");
+                    self.push(hole_mark(hole));
+                    self.push("}");
+                }
                 None => self.list(&br.check, " ", |p, r| p.type_ref(r)),
             }
             if let Some(b) = &br.binding {
@@ -2360,6 +2409,20 @@ impl Printer<'_> {
         self.indent -= 1;
         self.newline();
         self.push("}");
+    }
+}
+
+impl Printer<'_> {
+    /// [when-lowered] The operator a lowered `when` was written as, on one
+    /// line, for a dump's comment over it: the `when` printed for source by
+    /// a printer of its own (its places are not this printing's). `None`
+    /// when the source printing could not write the operator either.
+    fn operator_text(&self, binding: &Option<Ident>, subject: &Expr, branches: &[WhenBranch], origin: Option<WhenOrigin>) -> Option<String> {
+        let mut p = Printer::new(self.notes, Reading::Source);
+        p.inline = true;
+        p.when(binding, subject, branches, origin);
+        // A block in it the source printing wrote across lines, as one.
+        (!p.out.starts_with("when ")).then(|| p.out.lines().map(str::trim).collect::<Vec<_>>().join(" "))
     }
 }
 

@@ -149,6 +149,52 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-09 — The dumps print a lowered `?:`, `?.` or `?>` as its `when` ([ast-print] [dump-resolve] [dump-type-check] [when-lowered])
+
+User decision 2026-11-09, overturning the agent's call (a) of the entry
+below: "I'm ok with a divergence here. I would rather be able to use the
+dumps to inspect the decisions made at each step." The round trip keeps
+writing the operator (it must parse and check back); the resolve and
+type-check dumps print the `when` the operator became.
+
+- **A mode on the one printer**, not a second printer:
+  `print::Reading::{Source, Dump}`, passed to `print_module_with`.
+  `printed::print_file` (both dumps) prints for `Dump`;
+  `print_file_as_source`, `print_file_expanded_source`, `print_module` and
+  `expr_text` (messages) for `Source`. Only the lowered `when` differs: for
+  `Dump` its precedence is a block's, its binding temporary (`__pick1`,
+  `__nav2`, `__safe3`) is printed, `_` reads as the temporary or the place,
+  and its heads are `#{first arm}` / `#{rest}` (`print::hole_mark`; the
+  printer's old fallback spelling, `#{the first arm}` / `#{the other
+  arms}`, is gone with it). The block opens with `// desugared from `f() ?:
+  0``: the `when` printed again by a `Source` printer of its own, its lines
+  joined into one.
+- **The checker records what each hole took**: `Checked::hole_arms`, by the
+  hole's branch, the arms it matched as one type (the `narrow_ty` the
+  branch already computed). The typed dump writes it in the mark, `is
+  #{first arm: Int}`, `is #{rest: None}`. `tests` holds the same arms as
+  runtime-arm indices, which the dump would have had to map back through
+  the literal collapse; a table of the type is the checker's own fact.
+  It is routed with the other keyed tables in `partition.rs`, and `--rows`
+  does not print it (its rows are unchanged).
+- The resolve dump needed nothing of its own: the temporary's reads are
+  variables like any other (`__pick1#{10:18}`), and the subject's names are
+  spelled where they are.
+- Tests: `the_resolve_dump_shows_a_lowered_pick_as_its_when` and
+  `the_type_check_dump_shows_a_lowered_pick_as_its_when` (a pick over a
+  call and over two places, a `?.`, a `?>`; the second also writes the
+  file out for the round trip, finds the operators, and checks it again).
+  No snapshot changed: the iteration example has no pick. No backend's
+  output changed.
+- 760 tests under nextest, all green (2m49 wall, the machine loaded).
+- **Agent's calls, to confirm:** (a) the origin comment is the first line
+  inside the `when`'s braces (a comment above it would land mid-statement,
+  after `let a =`); (b) the comment's operator text is the `Source`
+  printing, so a place pick reads `x ?: (return 2)` with the printer's
+  parentheses, and a long right side is written in full on one line; (c)
+  the hole's type is the arms it matched as one union (`#{rest: Str |
+  None}` for several), not a list.
+
 ### 2026-11-09 — The resolve and type-check dumps print the expanded program ([ast-print] [dump-resolve] [dump-type-check] [round-trip])
 
 User decision 2026-11-09: a dump shows what its step produced, so
@@ -192,7 +238,8 @@ well as parse it".
   `float_text`, Salvo's spelling (no golden changed).
 - **Agent's calls, to confirm:** (a) a lowered `?:`, `?.` and `?>` print
   as their operators (the `when` they lower to has arm holes no `is` can
-  spell); (b) `name@[site]` in a stamped body prints as the bare name;
+  spell) — the user kept this for the round trip only; the dumps print the
+  `when` (the entry above); (b) `name@[site]` in a stamped body prints as the bare name;
   (c) `as!`/`as?` print as the desugared `if`, its block opening with a
   `// desugared from …` comment (told apart by the `as_N_v` name — the
   only desugaring the tree still identifies by a name); (d) a message-arm

@@ -8,14 +8,15 @@
 //! through here, so they show the same text for the same tree.
 
 use salvo_syntax::ast::{Expr, ExpansionKind, FnDecl, Ident, Item, StructDecl, Type};
-use salvo_syntax::print::{self, FnSource, Notes, Printed};
+use salvo_syntax::print::{self, FnSource, Notes, Printed, Reading};
 
 use crate::Program;
 
-/// [ast-print] File `file` of `program`, its tree printed: the dumps' form,
-/// with what has no spelling marked `#{…}`.
+/// [ast-print] File `file` of `program`, its tree printed: the dumps' form
+/// ([`Reading::Dump`]), with what has no spelling marked `#{…}` and a
+/// lowered `?:`, `?.` or `?>` as the `when` it became [when-lowered].
 pub fn print_file(program: &Program, file: usize) -> Printed {
-    print::print_module_with(&program.modules[file], &ProgramNotes { program, file, inline_defaults: false, restamp: false, verbatim: Default::default() })
+    print::print_module_with(&program.modules[file], &ProgramNotes { program, file, inline_defaults: false, restamp: false, verbatim: Default::default() }, Reading::Dump)
 }
 
 /// [round-trip] File `file` of `program` printed so it parses back and
@@ -24,7 +25,7 @@ pub fn print_file(program: &Program, file: usize) -> Printed {
 /// left out, the expansion making it again), and a field default a comptime
 /// copy reads as its expression.
 pub fn print_file_as_source(program: &Program, file: usize) -> Printed {
-    print::print_module_with(&program.modules[file], &ProgramNotes { program, file, inline_defaults: true, restamp: true, verbatim: Default::default() })
+    print::print_module_with(&program.modules[file], &ProgramNotes { program, file, inline_defaults: true, restamp: true, verbatim: Default::default() }, Reading::Source)
 }
 
 /// [ast-print] File `file` of `program`, its expanded tree printed as source
@@ -32,7 +33,7 @@ pub fn print_file_as_source(program: &Program, file: usize) -> Printed {
 /// expression), stamped code included: what a test of the printer reads
 /// back.
 pub fn print_file_expanded_source(program: &Program, file: usize) -> Printed {
-    print::print_module_with(&program.modules[file], &ProgramNotes { program, file, inline_defaults: true, restamp: false, verbatim: Default::default() })
+    print::print_module_with(&program.modules[file], &ProgramNotes { program, file, inline_defaults: true, restamp: false, verbatim: Default::default() }, Reading::Source)
 }
 
 struct ProgramNotes<'a> {
