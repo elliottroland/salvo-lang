@@ -1,6 +1,6 @@
 ---
 source: crates/salvo-syntax/tests/parser_tests.rs
-expression: "lowered_clean(&corpus(\"structs.sv\"))"
+expression: "parse_clean(&corpus(\"structs.sv\"))"
 ---
 Module {
     docs: [],
@@ -1015,8 +1015,7 @@ Module {
                                                     "Surname is ",
                                                 ),
                                                 Interp(
-                                                    When {
-                                                        binding: None,
+                                                    Elvis {
                                                         subject: Field {
                                                             base: Ident(
                                                                 Ident {
@@ -1031,63 +1030,10 @@ Module {
                                                             span: 731..745,
                                                             grouped: false,
                                                         },
-                                                        branches: [
-                                                            WhenBranch {
-                                                                check: [],
-                                                                or: [],
-                                                                hole: Some(
-                                                                    First,
-                                                                ),
-                                                                binding: None,
-                                                                body: Block {
-                                                                    stmts: [
-                                                                        Expr(
-                                                                            Field {
-                                                                                base: Ident(
-                                                                                    Ident {
-                                                                                        name: "person",
-                                                                                        span: 731..737,
-                                                                                    },
-                                                                                ),
-                                                                                field: Ident {
-                                                                                    name: "surname",
-                                                                                    span: 738..745,
-                                                                                },
-                                                                                span: 731..745,
-                                                                                grouped: false,
-                                                                            },
-                                                                        ),
-                                                                    ],
-                                                                    span: 731..745,
-                                                                    terminal: false,
-                                                                },
-                                                                span: 731..745,
-                                                            },
-                                                            WhenBranch {
-                                                                check: [],
-                                                                or: [],
-                                                                hole: Some(
-                                                                    Rest,
-                                                                ),
-                                                                binding: None,
-                                                                body: Block {
-                                                                    stmts: [
-                                                                        Expr(
-                                                                            Unreachable {
-                                                                                message: None,
-                                                                                span: 749..763,
-                                                                            },
-                                                                        ),
-                                                                    ],
-                                                                    span: 749..763,
-                                                                    terminal: false,
-                                                                },
-                                                                span: 749..763,
-                                                            },
-                                                        ],
-                                                        origin: Some(
-                                                            Pick,
-                                                        ),
+                                                        rhs: Unreachable {
+                                                            message: None,
+                                                            span: 749..763,
+                                                        },
                                                         span: 731..763,
                                                     },
                                                 ),

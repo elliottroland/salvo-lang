@@ -1,6 +1,6 @@
 ---
 source: crates/salvo-syntax/tests/parser_tests.rs
-expression: "lowered_clean(&std_core(\"string.sv\"))"
+expression: "parse_clean(&std_core(\"string.sv\"))"
 ---
 Module {
     docs: [
@@ -4731,13 +4731,7 @@ Module {
                             Expr(
                                 Return {
                                     value: Some(
-                                        When {
-                                            binding: Some(
-                                                Ident {
-                                                    name: "__pick1",
-                                                    span: 12428..12457,
-                                                },
-                                            ),
+                                        Elvis {
                                             subject: Call {
                                                 callee: Ident(
                                                     Ident {
@@ -4785,55 +4779,10 @@ Module {
                                                 named: [],
                                                 span: 12428..12457,
                                             },
-                                            branches: [
-                                                WhenBranch {
-                                                    check: [],
-                                                    or: [],
-                                                    hole: Some(
-                                                        First,
-                                                    ),
-                                                    binding: None,
-                                                    body: Block {
-                                                        stmts: [
-                                                            Expr(
-                                                                Ident(
-                                                                    Ident {
-                                                                        name: "__pick1",
-                                                                        span: 12428..12457,
-                                                                    },
-                                                                ),
-                                                            ),
-                                                        ],
-                                                        span: 12428..12457,
-                                                        terminal: false,
-                                                    },
-                                                    span: 12428..12457,
-                                                },
-                                                WhenBranch {
-                                                    check: [],
-                                                    or: [],
-                                                    hole: Some(
-                                                        Rest,
-                                                    ),
-                                                    binding: None,
-                                                    body: Block {
-                                                        stmts: [
-                                                            Expr(
-                                                                Unreachable {
-                                                                    message: None,
-                                                                    span: 12461..12475,
-                                                                },
-                                                            ),
-                                                        ],
-                                                        span: 12461..12475,
-                                                        terminal: false,
-                                                    },
-                                                    span: 12461..12475,
-                                                },
-                                            ],
-                                            origin: Some(
-                                                Pick,
-                                            ),
+                                            rhs: Unreachable {
+                                                message: None,
+                                                span: 12461..12475,
+                                            },
                                             span: 12428..12475,
                                         },
                                     ),
@@ -8170,13 +8119,7 @@ Module {
                                                             },
                                                         ),
                                                         ty: None,
-                                                        value: When {
-                                                            binding: Some(
-                                                                Ident {
-                                                                    name: "__pick2",
-                                                                    span: 18896..18919,
-                                                                },
-                                                            ),
+                                                        value: Elvis {
                                                             subject: Call {
                                                                 callee: Ident(
                                                                     Ident {
@@ -8220,59 +8163,14 @@ Module {
                                                                 named: [],
                                                                 span: 18896..18919,
                                                             },
-                                                            branches: [
-                                                                WhenBranch {
-                                                                    check: [],
-                                                                    or: [],
-                                                                    hole: Some(
-                                                                        First,
+                                                            rhs: Str {
+                                                                parts: [
+                                                                    Text(
+                                                                        "",
                                                                     ),
-                                                                    binding: None,
-                                                                    body: Block {
-                                                                        stmts: [
-                                                                            Expr(
-                                                                                Ident(
-                                                                                    Ident {
-                                                                                        name: "__pick2",
-                                                                                        span: 18896..18919,
-                                                                                    },
-                                                                                ),
-                                                                            ),
-                                                                        ],
-                                                                        span: 18896..18919,
-                                                                        terminal: false,
-                                                                    },
-                                                                    span: 18896..18919,
-                                                                },
-                                                                WhenBranch {
-                                                                    check: [],
-                                                                    or: [],
-                                                                    hole: Some(
-                                                                        Rest,
-                                                                    ),
-                                                                    binding: None,
-                                                                    body: Block {
-                                                                        stmts: [
-                                                                            Expr(
-                                                                                Str {
-                                                                                    parts: [
-                                                                                        Text(
-                                                                                            "",
-                                                                                        ),
-                                                                                    ],
-                                                                                    span: 18923..18925,
-                                                                                },
-                                                                            ),
-                                                                        ],
-                                                                        span: 18923..18925,
-                                                                        terminal: false,
-                                                                    },
-                                                                    span: 18923..18925,
-                                                                },
-                                                            ],
-                                                            origin: Some(
-                                                                Pick,
-                                                            ),
+                                                                ],
+                                                                span: 18923..18925,
+                                                            },
                                                             span: 18896..18925,
                                                         },
                                                         span: 18883..18925,
@@ -8285,13 +8183,7 @@ Module {
                                                             },
                                                         ),
                                                         ty: None,
-                                                        value: When {
-                                                            binding: Some(
-                                                                Ident {
-                                                                    name: "__pick3",
-                                                                    span: 18946..18983,
-                                                                },
-                                                            ),
+                                                        value: Elvis {
                                                             subject: Call {
                                                                 callee: Ident(
                                                                     Ident {
@@ -8359,59 +8251,14 @@ Module {
                                                                 named: [],
                                                                 span: 18946..18983,
                                                             },
-                                                            branches: [
-                                                                WhenBranch {
-                                                                    check: [],
-                                                                    or: [],
-                                                                    hole: Some(
-                                                                        First,
+                                                            rhs: Str {
+                                                                parts: [
+                                                                    Text(
+                                                                        "",
                                                                     ),
-                                                                    binding: None,
-                                                                    body: Block {
-                                                                        stmts: [
-                                                                            Expr(
-                                                                                Ident(
-                                                                                    Ident {
-                                                                                        name: "__pick3",
-                                                                                        span: 18946..18983,
-                                                                                    },
-                                                                                ),
-                                                                            ),
-                                                                        ],
-                                                                        span: 18946..18983,
-                                                                        terminal: false,
-                                                                    },
-                                                                    span: 18946..18983,
-                                                                },
-                                                                WhenBranch {
-                                                                    check: [],
-                                                                    or: [],
-                                                                    hole: Some(
-                                                                        Rest,
-                                                                    ),
-                                                                    binding: None,
-                                                                    body: Block {
-                                                                        stmts: [
-                                                                            Expr(
-                                                                                Str {
-                                                                                    parts: [
-                                                                                        Text(
-                                                                                            "",
-                                                                                        ),
-                                                                                    ],
-                                                                                    span: 18987..18989,
-                                                                                },
-                                                                            ),
-                                                                        ],
-                                                                        span: 18987..18989,
-                                                                        terminal: false,
-                                                                    },
-                                                                    span: 18987..18989,
-                                                                },
-                                                            ],
-                                                            origin: Some(
-                                                                Pick,
-                                                            ),
+                                                                ],
+                                                                span: 18987..18989,
+                                                            },
                                                             span: 18946..18989,
                                                         },
                                                         span: 18934..18989,
@@ -8719,13 +8566,7 @@ Module {
                                                             },
                                                         ),
                                                         ty: None,
-                                                        value: When {
-                                                            binding: Some(
-                                                                Ident {
-                                                                    name: "__pick4",
-                                                                    span: 19443..19466,
-                                                                },
-                                                            ),
+                                                        value: Elvis {
                                                             subject: Call {
                                                                 callee: Ident(
                                                                     Ident {
@@ -8769,59 +8610,14 @@ Module {
                                                                 named: [],
                                                                 span: 19443..19466,
                                                             },
-                                                            branches: [
-                                                                WhenBranch {
-                                                                    check: [],
-                                                                    or: [],
-                                                                    hole: Some(
-                                                                        First,
+                                                            rhs: Str {
+                                                                parts: [
+                                                                    Text(
+                                                                        "",
                                                                     ),
-                                                                    binding: None,
-                                                                    body: Block {
-                                                                        stmts: [
-                                                                            Expr(
-                                                                                Ident(
-                                                                                    Ident {
-                                                                                        name: "__pick4",
-                                                                                        span: 19443..19466,
-                                                                                    },
-                                                                                ),
-                                                                            ),
-                                                                        ],
-                                                                        span: 19443..19466,
-                                                                        terminal: false,
-                                                                    },
-                                                                    span: 19443..19466,
-                                                                },
-                                                                WhenBranch {
-                                                                    check: [],
-                                                                    or: [],
-                                                                    hole: Some(
-                                                                        Rest,
-                                                                    ),
-                                                                    binding: None,
-                                                                    body: Block {
-                                                                        stmts: [
-                                                                            Expr(
-                                                                                Str {
-                                                                                    parts: [
-                                                                                        Text(
-                                                                                            "",
-                                                                                        ),
-                                                                                    ],
-                                                                                    span: 19470..19472,
-                                                                                },
-                                                                            ),
-                                                                        ],
-                                                                        span: 19470..19472,
-                                                                        terminal: false,
-                                                                    },
-                                                                    span: 19470..19472,
-                                                                },
-                                                            ],
-                                                            origin: Some(
-                                                                Pick,
-                                                            ),
+                                                                ],
+                                                                span: 19470..19472,
+                                                            },
                                                             span: 19443..19472,
                                                         },
                                                         span: 19430..19472,
@@ -8834,13 +8630,7 @@ Module {
                                                             },
                                                         ),
                                                         ty: None,
-                                                        value: When {
-                                                            binding: Some(
-                                                                Ident {
-                                                                    name: "__pick5",
-                                                                    span: 19493..19530,
-                                                                },
-                                                            ),
+                                                        value: Elvis {
                                                             subject: Call {
                                                                 callee: Ident(
                                                                     Ident {
@@ -8908,59 +8698,14 @@ Module {
                                                                 named: [],
                                                                 span: 19493..19530,
                                                             },
-                                                            branches: [
-                                                                WhenBranch {
-                                                                    check: [],
-                                                                    or: [],
-                                                                    hole: Some(
-                                                                        First,
+                                                            rhs: Str {
+                                                                parts: [
+                                                                    Text(
+                                                                        "",
                                                                     ),
-                                                                    binding: None,
-                                                                    body: Block {
-                                                                        stmts: [
-                                                                            Expr(
-                                                                                Ident(
-                                                                                    Ident {
-                                                                                        name: "__pick5",
-                                                                                        span: 19493..19530,
-                                                                                    },
-                                                                                ),
-                                                                            ),
-                                                                        ],
-                                                                        span: 19493..19530,
-                                                                        terminal: false,
-                                                                    },
-                                                                    span: 19493..19530,
-                                                                },
-                                                                WhenBranch {
-                                                                    check: [],
-                                                                    or: [],
-                                                                    hole: Some(
-                                                                        Rest,
-                                                                    ),
-                                                                    binding: None,
-                                                                    body: Block {
-                                                                        stmts: [
-                                                                            Expr(
-                                                                                Str {
-                                                                                    parts: [
-                                                                                        Text(
-                                                                                            "",
-                                                                                        ),
-                                                                                    ],
-                                                                                    span: 19534..19536,
-                                                                                },
-                                                                            ),
-                                                                        ],
-                                                                        span: 19534..19536,
-                                                                        terminal: false,
-                                                                    },
-                                                                    span: 19534..19536,
-                                                                },
-                                                            ],
-                                                            origin: Some(
-                                                                Pick,
-                                                            ),
+                                                                ],
+                                                                span: 19534..19536,
+                                                            },
                                                             span: 19493..19536,
                                                         },
                                                         span: 19481..19536,

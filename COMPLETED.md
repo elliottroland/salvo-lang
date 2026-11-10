@@ -178,12 +178,18 @@ entirely in the parse phase, and not work with lowerings."
   `salvo_core::expand` after the parse, which used to lower a lowered tree.
   `site.rs` (a comptime fn read as written) and the `case.rs` unit test
   read the pure parse.
-- **Agent's calls, to confirm**: (a) the parser snapshots of
-  `string.sv`, `list.sv`, `structs.sv` and `functions.sv` stay lowered
-  (`lowered_clean`), so no snapshot changed; as-written snapshots of them
-  would be a snapshot change, and is the user's call. (b) `lowered` numbers
-  the nodes too, as the old `parse_module` did, so a test never meets an
-  unnumbered lowered tree.
+- **Every parser snapshot records the tree as written** (user decision
+  2026-11-09, overturning the agent's first call). The snapshots of
+  `string.sv`, `list.sv`, `structs.sv` and `functions.sv` had been switched
+  to a lowered parse so that no snapshot changed — which made four of the
+  parser's contracts record the parser *plus* the lowering, chosen by which
+  files happened to hold a `?:` or an `iter fn`. They are back on the pure
+  parse and re-recorded: the only differences are 17 `Elvis` nodes where
+  the lowered `when`s (`__pickN`, arm holes) were, and the `iter fn range`
+  written as itself instead of its minter and `next`. What a construct
+  lowers to stays covered by the lowering tests (`snapshot_iter_fn_expansion`
+  and the `common::lowered` tests). `lowered` numbers the nodes too, as the
+  old `parse_module` did, so a test never meets an unnumbered lowered tree.
 - **The terminal `...` is a field of its block** (on (d): the user agreed
   it belongs on the node, like `NamespaceDecl::terminal` and
   `LambdaBody::Terminal`): `ast::Block::terminal`, set by the parser's

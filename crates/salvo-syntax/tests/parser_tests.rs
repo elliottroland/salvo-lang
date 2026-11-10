@@ -5,21 +5,13 @@ mod common;
 
 use std::path::{Path, PathBuf};
 
-/// The module as written, which must parse without errors.
+/// The module as written [syntax-lowered], which must parse without errors:
+/// what the parser's snapshots record. What a construct lowers to is the
+/// lowering tests' (`snapshot_iter_fn_expansion`, `common::lowered`).
 fn parse_clean(path: &Path) -> salvo_syntax::ast::Module {
-    clean(path, salvo_syntax::parse_module)
-}
-
-/// [`parse_clean`], lowered [syntax-lowered]: for a snapshot that records
-/// what the source lowers to.
-fn lowered_clean(path: &Path) -> salvo_syntax::ast::Module {
-    clean(path, common::lowered)
-}
-
-fn clean(path: &Path, parse: fn(&str) -> (salvo_syntax::ast::Module, Vec<salvo_syntax::Diagnostic>)) -> salvo_syntax::ast::Module {
     let source = std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
-    let (module, diagnostics) = parse(&source);
+    let (module, diagnostics) = salvo_syntax::parse_module(&source);
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(
         errors.is_empty(),
@@ -76,7 +68,7 @@ fn snapshot_std_basic() {
 
 #[test]
 fn snapshot_std_string() {
-    insta::assert_debug_snapshot!(lowered_clean(&std_core("string.sv")));
+    insta::assert_debug_snapshot!(parse_clean(&std_core("string.sv")));
 }
 
 /// [type-bytes] The byte buffer's surface: an `intrinsic type` that opts into
@@ -93,7 +85,7 @@ fn snapshot_std_result() {
 
 #[test]
 fn snapshot_std_list() {
-    insta::assert_debug_snapshot!(lowered_clean(&std_core("list.sv")));
+    insta::assert_debug_snapshot!(parse_clean(&std_core("list.sv")));
 }
 
 #[test]
@@ -128,7 +120,7 @@ fn snapshot_std_seq() {
 
 #[test]
 fn snapshot_corpus_structs() {
-    insta::assert_debug_snapshot!(lowered_clean(&corpus("structs.sv")));
+    insta::assert_debug_snapshot!(parse_clean(&corpus("structs.sv")));
 }
 
 #[test]
@@ -138,7 +130,7 @@ fn snapshot_corpus_control_flow() {
 
 #[test]
 fn snapshot_corpus_functions() {
-    insta::assert_debug_snapshot!(lowered_clean(&corpus("functions.sv")));
+    insta::assert_debug_snapshot!(parse_clean(&corpus("functions.sv")));
 }
 
 #[test]
