@@ -1727,6 +1727,36 @@ impl crate::visit_mut::MutVisitor for LowerSugar {
 fn lower_one(sugar: Sugar) -> Expr {
     match sugar {
         Sugar::AsQual { subject, check, trap, op, mark, span } => lower_as_qual(subject, check, trap, op, mark, span),
+        Sugar::Is { subject, checks, binding, not, span } => lower_is(subject, checks, binding, not, span),
+    }
+}
+
+/// [is-check] [is-union] `x !is Q` is `!(x is Q)`, and `x is A | B` is `x is
+/// A || x is B` (each test spanning from the subject to its last name, so
+/// the second starts where the `||` does: how a printing tells it from a
+/// written one), `!is` negating the whole. The binding is kept on a single
+/// test, refused by the parser on a negated one, and dropped from a union.
+fn lower_is(subject: Expr, mut checks: Vec<Vec<TypeRef>>, binding: Option<Ident>, not: Option<Span>, span: Span) -> Expr {
+    let union = checks.len() > 1;
+    let mut end = checks[0].last().map(|r| r.span).unwrap_or_else(|| subject.span());
+    for c in &checks[1..] {
+        end = c.last().map(|r| r.span).unwrap_or(end);
+    }
+    let test = if union {
+        let at = subject.span();
+        let mut tests = checks.into_iter().map(|c| {
+            let s = c.last().map(|r| at.to(r.span)).unwrap_or(span);
+            Expr::Is { subject: Box::new(subject.clone()), check: c, binding: None, span: s }
+        });
+        let first = tests.next().expect("a union has tests");
+        tests.fold(first, |out, t| Expr::Binary { op: BinaryOp::Or, lhs: Box::new(out), rhs: Box::new(t), span })
+    } else {
+        end = binding.as_ref().map(|b| b.span).unwrap_or(end);
+        Expr::Is { subject: Box::new(subject), check: checks.pop().unwrap_or_default(), binding, span }
+    };
+    match not {
+        Some(n) => Expr::Unary { op: UnaryOp::Not, operand: Box::new(test), span: n.to(end) },
+        None => test,
     }
 }
 

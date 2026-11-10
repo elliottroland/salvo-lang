@@ -31,3 +31,18 @@ fn compound(p: Mut Point, xs: List<Int>) -> None {
         n += y
     })
 }
+
+fn is_forms(s: Str, x: Int | Str | None, xs: List<Int | Str>) -> Bool {
+    let a = x !is Str
+    let b = s is "json" | "text"
+    let c = x !is Int | Str
+    if x !is None && s is "a" | "b" | "c" {
+        print(x !is Int, s !is "a" | "b")
+    }
+    while x !is Int {
+        return false
+    }
+    let f = (y) -> y !is Int | Str
+    assert!(x as? NonNegative !is None)
+    return !(x !is Str) || x is Int | None
+}

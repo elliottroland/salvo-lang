@@ -177,14 +177,21 @@ tree a formatter would print was not what the user wrote.
   `as` and its mark, out of which the lowering makes the three distinct
   spans of its `as_N_v`); `x += e` and the other compound assignments
   (`Stmt::CompoundAssign`: a statement of its own, since it is no
-  expression; `x++` was never lowered, `Expr::IncDec` is its node).
+  expression; `x++` was never lowered, `Expr::IncDec` is its node); `x !is
+  Q`, `x is A | B` and `x !is A | B` (`Sugar::Is`: one node for the
+  negation and the union, since `!is A | B` is both; a plain `x is Q` stays
+  an `Expr::Is`).
 - **The dumps** give each lowered piece the sugar it was written as:
   `// desugared from `x as! NonNegative`` (it was a fixed sentence per
   form), and a line `// desugared from `n += a`` above an assignment a
   compound one became. The printer finds them by the tree's own trace: the
   `as_N_v` name; an assignment whose `Binary` spans the whole statement and
   reads the target itself (a written `x = x + e`'s value starts after the
-  `=`).
+  `=`); a `!` whose operand starts before it; an `||` whose right test
+  starts where it does. An expression gets a mark after it, in a dump only
+  (`Reading::Dump`): `!(s is "text")#{desugared from `s !is "text"`}`. It is
+  the one place the two readings differ besides the lowered `when`; a source
+  printing writes the lowered code, which parses back to the same tree.
 - **Tests**: `every_source_file_as_written_prints_to_its_own_tree`
   (print_tests.rs): every std source, every example's, the corpus and a
   fixture holding each moved sugar in each position

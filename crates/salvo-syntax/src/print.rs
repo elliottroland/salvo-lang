@@ -284,11 +284,14 @@ struct Printer<'n> {
     inline: bool,
     /// What the printing is for.
     reading: Reading,
+    /// [syntax-lowered] Inside an expression a dump has marked with the sugar
+    /// it came from: its parts are not marked again.
+    quiet_origin: bool,
 }
 
 impl<'n> Printer<'n> {
     fn new(notes: &'n dyn Notes, reading: Reading) -> Self {
-        Printer { out: String::new(), nodes: HashMap::new(), indent: 0, notes, no_struct: false, holes: Vec::new(), inline: false, reading }
+        Printer { out: String::new(), nodes: HashMap::new(), indent: 0, notes, no_struct: false, holes: Vec::new(), inline: false, reading, quiet_origin: false }
     }
 }
 
@@ -1742,7 +1745,16 @@ impl Printer<'_> {
             self.no_struct = false;
         }
         let start = self.at();
+        // [syntax-lowered] What the sugar lowering wrote, for a dump: marked
+        // with the sugar it was written as, once (not again inside it).
+        let origin = match self.reading {
+            Reading::Dump if !self.quiet_origin => sugar_origin(e),
+            _ => None,
+        };
+        let quiet = self.quiet_origin || origin.is_some();
+        let was_quiet = std::mem::replace(&mut self.quiet_origin, quiet);
         self.expr_inner(e);
+        self.quiet_origin = was_quiet;
         let end = self.at();
         if paren {
             self.push(")");
@@ -1750,6 +1762,12 @@ impl Printer<'_> {
         self.no_struct = saved;
         let outer_end = self.at();
         self.record(e.span(), start, end, outer_start, outer_end);
+        if let Some(sugar) = origin {
+            let text = self.source_text(|p| p.sugar(&sugar));
+            self.push("#{desugared from `");
+            self.push(&text);
+            self.push("`}");
+        }
     }
 
     /// Whether `e`'s text begins (or ends) with a struct literal a condition
@@ -1775,7 +1793,7 @@ impl Printer<'_> {
             Expr::Binary { op, .. } => binary_level(*op),
             Expr::Is { .. } => COMPARE,
             Expr::Sugar(sugar) => match **sugar {
-                Sugar::AsQual { .. } => COMPARE,
+                Sugar::AsQual { .. } | Sugar::Is { .. } => COMPARE,
             },
             Expr::Elvis { .. } => ELVIS,
             Expr::When { origin: Some(WhenOrigin::Pick), .. } if self.reading == Reading::Source => ELVIS,
@@ -2251,6 +2269,20 @@ impl Printer<'_> {
                 self.push(if *trap { " as! " } else { " as? " });
                 self.list(check, " ", |p, r| p.type_ref(r));
             }
+            Sugar::Is { subject, checks, binding, not, .. } => {
+                self.expr(subject, COMPARE);
+                self.push(if not.is_some() { " !is " } else { " is " });
+                for (i, check) in checks.iter().enumerate() {
+                    if i > 0 {
+                        self.push(" | ");
+                    }
+                    self.list(check, " ", |p, r| p.type_ref(r));
+                    if let (0, Some(b)) = (i, binding) {
+                        self.push(" ");
+                        self.ident(b);
+                    }
+                }
+            }
         }
     }
 
@@ -2488,6 +2520,49 @@ fn as_qual_name(branches: &[(Expr, Block)]) -> Option<String> {
     p.inline = true;
     p.expr(&written, 0);
     Some(format!("desugared from `{}`", p.out))
+}
+
+/// [syntax-lowered] The sugar an expression the lowering wrote came from,
+/// by the trace the tree keeps of it: for `x !is Q`, a `!` whose operand
+/// starts before it; for `x is A | B`, an `||` whose right test starts where
+/// it does (a written test starts at its own subject).
+fn sugar_origin(e: &Expr) -> Option<Sugar> {
+    match e {
+        Expr::Unary { op: UnaryOp::Not, operand, span } if span.start > operand.span().start => {
+            let (subject, checks, binding) = match operand.as_ref() {
+                Expr::Is { subject, check, binding, .. } => ((**subject).clone(), vec![check.clone()], binding.clone()),
+                other => {
+                    let (subject, checks) = union_tests(other)?;
+                    (subject, checks, None)
+                }
+            };
+            Some(Sugar::Is { subject, checks, binding, not: Some(*span), span: *span })
+        }
+        Expr::Binary { op: BinaryOp::Or, span, .. } => {
+            let (subject, checks) = union_tests(e)?;
+            Some(Sugar::Is { subject, checks, binding: None, not: None, span: *span })
+        }
+        _ => None,
+    }
+}
+
+/// [is-union] The subject and the tests of an `||` chain a union `is` was
+/// lowered to.
+fn union_tests(e: &Expr) -> Option<(Expr, Vec<Vec<TypeRef>>)> {
+    let Expr::Binary { op: BinaryOp::Or, lhs, rhs, span } = e else { return None };
+    let Expr::Is { subject: last, check, binding: None, span: at } = rhs.as_ref() else { return None };
+    if at.start != span.start {
+        return None;
+    }
+    let (subject, mut checks) = match lhs.as_ref() {
+        Expr::Is { subject, check, binding: None, .. } => ((**subject).clone(), vec![check.clone()]),
+        other => union_tests(other)?,
+    };
+    if subject != **last {
+        return None;
+    }
+    checks.push(check.clone());
+    Some((subject, checks))
 }
 
 /// [op-compound] [syntax-lowered] The `x += e` an assignment the sugar

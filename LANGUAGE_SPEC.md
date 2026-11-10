@@ -2972,9 +2972,10 @@ Conventions:
   built 2026-10-20), and **`||` narrows** a place both of its sides narrow,
   to the union of the two: `s is "json" | "text"` makes a `Str` a `"json" |
   "text"`, `x is Int | Str` makes an `Int | Str | Bool` an `Int | Str`. The
-  parser builds the disjunction over clones of the subject, so the subject
+  parser keeps it as written (`Sugar::Is`) and the sugar lowering builds the
+  disjunction over clones of the subject [syntax-lowered], so the subject
   must be a place (a variable or a field chain), read once per test; a
-  binding is refused, and `!is A | B` negates the whole.
+  binding is refused (by the parser), and `!is A | B` negates the whole.
   * A place only one side narrows is not narrowed [flow-or-not]; `&&` and
     the `else` of `||` are as before.
   * **A literal test on a plain base compares the value** (fixed
@@ -2998,7 +2999,8 @@ Conventions:
     (a `Str` narrowed to `"json" | "text"`) is read as its literal type where
     a literal union is expected (`coerce_repr`).
 * [is-not] `x !is Q` is **sugar for `!(x is Q)`** (user decision 2026-09-22,
-  the heap plan's item 5): the parser builds one `Expr::Is` under a `Not`, so
+  the heap plan's item 5): kept as written by the parser (`Sugar::Is`), it is
+  lowered to one `Expr::Is` under a `Not` [syntax-lowered], so
   narrowing, `when` heads and [is-narrow-guard]'s fall-through all reach it
   without knowing the spelling exists — `analyze_cond`'s `Not` arm already swaps
   the two narrow sets, which is what makes `if x !is Q { return }` narrow the
@@ -3193,6 +3195,14 @@ Conventions:
     (`Stmt::CompoundAssign`, a statement: it is not an expression). The
     lowered `Binary` spans the whole statement, which is how a printing
     tells it from a written `x = x + e`.
+  * `x !is Q` [is-not], `x is A | B` and `x !is A | B` [is-union]
+    (`Sugar::Is`; a plain `x is Q` is an `Expr::Is`).
+  * In a dump (`Reading::Dump`) an expression the lowering wrote is followed
+    by `#{desugared from `x !is Q`}`, and a statement it wrote is preceded by
+    the comment `// desugared from `x += e``; for source, it prints as the
+    code it became. The tree keeps a trace of each, which the printer reads
+    (`print::sugar_origin`): the `!` of a `!is` starts after its operand
+    does, and the second test of a union `is` starts where the `||` does.
 * [when-lowered] **`?:`, `?.` and `?>` are sugar for a `when`** (user decision 2026-10-30,
   option (a) of the pipeline record D2's Convert write-up), lowered after parsing
   and before resolution, since it needs no names (`desugar::lower_picks`):
@@ -12693,7 +12703,8 @@ replaced the working document TESTING.md).
   where the operator had `_`, the heads marked `#{first arm}` and
   `#{rest}` (`print::hole_mark`), and a first line `// desugared from
   `f() ?: 0`` (the operator as `Source` writes it, on one line). Nothing
-  else differs between the two. Sugar the tree keeps as written
+  else differs between the two, but for the mark a dump puts after an
+  expression the sugar lowering wrote [syntax-lowered]. Sugar the tree keeps as written
   [syntax-lowered] (a module as parsed) prints as written; once lowered, it
   prints as the code it became, under a comment giving the sugar as it was
   written: a lowered `as!`/`as?` [expr-as-qual] is the `if` it is, its block

@@ -377,6 +377,9 @@ fn g(x: Int) -> Int {
     let n = 1
     n += a
     n **= 2
+    let s = \"json\"
+    let t = s !is \"text\" && s is \"json\" | \"yaml\"
+    let u = s !is \"json\" | \"text\"
     return n
 }
 ";
@@ -396,6 +399,9 @@ fn the_resolve_dump_names_the_sugar_each_lowering_came_from() {
         "// desugared from `x as? NonNegative`",
         "    // desugared from `n += a`\n    n#{",
         "    // desugared from `n **= 2`\n    n#{",
+        "#{desugared from `s !is \"text\"`}",
+        "#{desugared from `s is \"json\" | \"yaml\"`}",
+        "#{desugared from `s !is \"json\" | \"text\"`}",
     ] {
         assert!(text.contains(want), "missing `{want}` in:\n{text}");
     }

@@ -2521,12 +2521,18 @@ pub enum Sugar {
     /// qualifier `Q`. `op` is the `as` and `mark` the `!` or `?`: the lowering
     /// gives the names it writes spans of their own out of them.
     AsQual { subject: Expr, check: Vec<TypeRef>, trap: bool, op: Span, mark: Span, span: Span },
+    /// [is-check] [is-union] `x !is Q` (`not`, the span of its `!`), `x is A |
+    /// B` and `x !is A | B` (`checks`, one per alternative): `!(x is Q)`,
+    /// `x is A || x is B`, `!(x is A || x is B)`. A plain `x is Q` is an
+    /// `Expr::Is`. `binding` is the one written after the first check, which
+    /// the parser refuses for all three; `span` runs from the subject.
+    Is { subject: Expr, checks: Vec<Vec<TypeRef>>, binding: Option<Ident>, not: Option<Span>, span: Span },
 }
 
 impl Sugar {
     pub fn span(&self) -> Span {
         match self {
-            Sugar::AsQual { span, .. } => *span,
+            Sugar::AsQual { span, .. } | Sugar::Is { span, .. } => *span,
         }
     }
 }

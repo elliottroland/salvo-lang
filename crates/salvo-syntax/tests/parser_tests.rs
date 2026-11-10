@@ -146,10 +146,20 @@ fn snapshot_corpus_imports() {
 // --- Tuple indexing [expr-tuple-index] ---
 
 /// Parses one expression statement out of a function body, as the parser
-/// wrote it: before `?:` is lowered [when-lowered].
+/// wrote it: before the sugar [syntax-lowered] and `?:` are lowered
+/// [when-lowered].
 fn parse_expr_stmt(src: &str) -> salvo_syntax::ast::Expr {
+    parse_expr_stmt_with(src, salvo_syntax::parse_module_deferred)
+}
+
+/// [`parse_expr_stmt`], with its sugar lowered [syntax-lowered] (and `?:`).
+fn parse_expr_stmt_lowered(src: &str) -> salvo_syntax::ast::Expr {
+    parse_expr_stmt_with(src, salvo_syntax::parse_module)
+}
+
+fn parse_expr_stmt_with(src: &str, parse: fn(&str) -> (salvo_syntax::ast::Module, Vec<salvo_syntax::Diagnostic>)) -> salvo_syntax::ast::Expr {
     let source = format!("fn f() -> None {{\n    let x = {src}\n}}\n");
-    let (module, diagnostics) = salvo_syntax::parse_module_deferred(&source);
+    let (module, diagnostics) = parse(&source);
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "parse errors in `{src}`: {errors:?}");
     let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else {
@@ -2264,12 +2274,14 @@ fn a_waitfor_without_a_written_type_parses() {
 
 // ===== [is-not] `x !is Q` =====
 
-/// Sugar for `!(x is Q)` (user decision 2026-09-22): one `Expr::Is` under a
-/// `Not`, so everything downstream — narrowing, `when` heads, the guard rule —
-/// reaches it without knowing the spelling exists.
+/// Sugar for `!(x is Q)` (user decision 2026-09-22), kept as written
+/// [syntax-lowered]: lowered, one `Expr::Is` under a `Not`, so everything
+/// downstream — narrowing, `when` heads, the guard rule — reaches it without
+/// knowing the spelling exists.
 #[test]
 fn not_is_parses_as_a_negated_check() {
-    let expr = parse_expr_stmt("value !is Str");
+    assert!(matches!(parse_expr_stmt("value !is Str"), salvo_syntax::ast::Expr::Sugar(_)));
+    let expr = parse_expr_stmt_lowered("value !is Str");
     match expr {
         salvo_syntax::ast::Expr::Unary { op, operand, .. } => {
             assert!(matches!(op, salvo_syntax::ast::UnaryOp::Not), "got {op:?}");
@@ -2945,7 +2957,7 @@ fn elvis_is_left_associative() {
 /// `x !is Str` is `!(x is Str)` — one `Is` under a `Not`.
 #[test]
 fn is_not_is_sugar_for_not_is() {
-    let e = parse_expr_stmt("x !is Str");
+    let e = parse_expr_stmt_lowered("x !is Str");
     let Expr::Unary { op, operand, .. } = &e else {
         panic!("expected a Not, got {e:?}");
     };
@@ -3500,6 +3512,7 @@ fn as_bang_and_as_question_are_sugar_for_a_test() {
     let traps: Vec<bool> = f.body.as_ref().unwrap().stmts.iter().map(|s| match s {
         Stmt::Let { value: Expr::Sugar(sugar), .. } => match sugar.as_ref() {
             Sugar::AsQual { trap, .. } => *trap,
+            other => panic!("{other:?}"),
         },
         other => panic!("as written: {other:?}"),
     }).collect();

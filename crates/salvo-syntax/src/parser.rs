@@ -6041,21 +6041,22 @@ impl<'s> Parser<'s> {
     }
 
     /// [is-check] An `is`/`!is` tail, folded onto `lhs` as the subject. `not`
-    /// is the `!is` form, sugar for `!(x is Q)` (user decision 2026-09-22):
-    /// one `Expr::Is` under a `Not`, so narrowing, `when` heads and the guard
-    /// rule all reach it unchanged.
+    /// is the `!is` form, sugar for `!(x is Q)` (user decision 2026-09-22),
+    /// kept as written with the union form (`Sugar::Is`) [syntax-lowered]:
+    /// one `Expr::Is` under a `Not` once lowered, so narrowing, `when` heads
+    /// and the guard rule all reach it unchanged.
     fn parse_is_tail(&mut self, lhs: Expr, not: bool) -> Option<Expr> {
-        let start = if not { self.bump().span } else { lhs.span() };
+        let not = not.then(|| self.bump().span);
         self.bump(); // `is`
         let (check, binding) = self.parse_is_check()?;
+        let mut checks = vec![check];
         // [is-union] `s is "json" | "text"`, `x is Int | Str`: the
         // disjunction of the tests, which narrows to the union of what they
         // test (the CLI design record X4, Q9). Written over a place, read once per
         // test as `s is "json" || s is "text"` is; a value with a binding or
         // a lift has nothing single to name.
+        let mut end = checks[0].last().map(|r| r.span).unwrap_or_else(|| lhs.span());
         if self.at(&TokenKind::Pipe) && self.same_line() {
-            let mut checks = vec![check];
-            let mut end = checks[0].last().map(|r| r.span).unwrap_or_else(|| lhs.span());
             while self.at(&TokenKind::Pipe) && self.same_line() {
                 self.bump();
                 let (more, b) = self.parse_is_check()?;
@@ -6065,47 +6066,26 @@ impl<'s> Parser<'s> {
                 end = more.last().map(|r| r.span).unwrap_or(end);
                 checks.push(more);
             }
-            let span = lhs.span().to(end);
             if let Some(b) = &binding {
                 self.error(messages::is_union_binding(), b.span);
             }
             if !is_place_expr(&lhs) {
                 self.error(messages::is_union_subject_not_place(), lhs.span());
             }
-            let mut tests = checks.into_iter().map(|c| {
-                let s = c.last().map(|r| lhs.span().to(r.span)).unwrap_or(span);
-                Expr::Is { subject: Box::new(lhs.clone()), check: c, binding: None, span: s }
-            });
-            let mut out = tests.next()?;
-            for t in tests {
-                out = Expr::Binary { op: BinaryOp::Or, lhs: Box::new(out), rhs: Box::new(t), span };
-            }
-            if not {
-                return Some(Expr::Unary { op: UnaryOp::Not, operand: Box::new(out), span: start.to(end) });
-            }
-            return Some(out);
-        }
-        let end = binding
-            .as_ref()
-            .map(|b| b.span)
-            .or_else(|| check.last().map(|r| r.span))
-            .unwrap_or_else(|| lhs.span());
-        if not {
-            // A negated test narrows nothing in its *then* branch, so there is
-            // no value for a binding to name.
-            if let Some(b) = &binding {
+        } else {
+            end = binding.as_ref().map(|b| b.span).unwrap_or(end);
+            // A negated test narrows nothing in its *then* branch, so there
+            // is no value for a binding to name.
+            if let (Some(b), Some(_)) = (&binding, not) {
                 self.error(messages::is_not_binding(), b.span);
             }
-            let span = lhs.span().to(end);
-            let inner = Expr::Is { subject: Box::new(lhs), check, binding, span };
-            return Some(Expr::Unary {
-                op: UnaryOp::Not,
-                operand: Box::new(inner),
-                span: start.to(end),
-            });
         }
         let span = lhs.span().to(end);
-        Some(Expr::Is { subject: Box::new(lhs), check, binding, span })
+        if checks.len() == 1 && not.is_none() {
+            let check = checks.pop()?;
+            return Some(Expr::Is { subject: Box::new(lhs), check, binding, span });
+        }
+        Some(Expr::Sugar(Box::new(Sugar::Is { subject: lhs, checks, binding, not, span })))
     }
 
     /// [expr-as-qual] `x as! Q` and `x as? Q` (user decision 2026-11-05): `x`

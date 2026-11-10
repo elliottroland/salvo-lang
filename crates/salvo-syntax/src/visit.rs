@@ -957,5 +957,18 @@ pub fn walk_sugar<V: Visitor>(v: &mut V, sugar: &Sugar) {
             v.visit_span(op);
             v.visit_span(mark);
         }
+        Sugar::Is { subject, checks, binding, not, span } => {
+            v.visit_span(span);
+            walk_expr(v, subject);
+            for c in checks.iter().flatten() {
+                walk_type_ref(v, c);
+            }
+            if let Some(b) = binding {
+                v.visit_ident(b);
+            }
+            if let Some(n) = not {
+                v.visit_span(n);
+            }
+        }
     }
 }
