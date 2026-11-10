@@ -1074,6 +1074,8 @@ impl HoverRecorder<'_> {
             Stmt::Use { handler, .. } => self.expr(handler),
             Stmt::Rename(_) => {}
             Stmt::Expr(e) => self.expr(e),
+            // [syntax-lowered] Lowered before the stamping.
+            Stmt::CompoundAssign { .. } => {}
         }
     }
 

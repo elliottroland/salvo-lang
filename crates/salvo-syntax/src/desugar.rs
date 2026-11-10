@@ -872,6 +872,8 @@ impl Rewrite {
             // [comptime-inline] Gone before this walk runs (a compfn is
             // never an `iter fn`).
             Stmt::Comp(_) => {}
+            // [syntax-lowered] Lowered before the `iter fn` expansion.
+            Stmt::CompoundAssign { .. } => {}
         }
     }
 
@@ -1162,6 +1164,8 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                 Stmt::Rename(_) => {}
                 Stmt::Expr(expr) => walk_expr(expr, reserved, out),
                 Stmt::Comp(_) => {}
+                // [syntax-lowered] Lowered before the `iter fn` expansion.
+                Stmt::CompoundAssign { .. } => {}
             }
         }
     }
@@ -1675,6 +1679,11 @@ pub fn written_sugar(module: &mut Module) -> Option<Span> {
                 self.0 = Some(s.span());
             }
         }
+        fn visit_stmt(&mut self, stmt: &mut Stmt) {
+            if let (None, Stmt::CompoundAssign { span, .. }) = (&self.0, &*stmt) {
+                self.0 = Some(*span);
+            }
+        }
     }
     let mut f = Find(None);
     crate::node_id::walk_module(&mut f, module);
@@ -1692,6 +1701,24 @@ impl crate::visit_mut::MutVisitor for LowerSugar {
                 unreachable!()
             };
             *expr = lower_one(*sugar);
+        }
+    }
+
+    fn visit_stmt(&mut self, stmt: &mut Stmt) {
+        // [op-compound] `x += e` is `x = x + e`: the arithmetic rules
+        // [op-arith], the place rules and the narrowing reset all come from
+        // the two forms it is made of, so no checker or emitter knows this
+        // spelling exists. Safe to duplicate the target because a Salvo place
+        // is an identifier or a field path — there is nothing in one to
+        // evaluate twice. The `Binary` spans the whole statement, which is
+        // how a printing tells it from a written `x = x + e`
+        // (`print::compound_origin`).
+        if let Stmt::CompoundAssign { .. } = stmt {
+            let Stmt::CompoundAssign { target, op, op_span, value, span } = std::mem::replace(stmt, Stmt::Expr(Expr::Placeholder { span: Span::default() })) else {
+                unreachable!()
+            };
+            let value = Expr::Binary { op, lhs: Box::new(target.clone()), rhs: Box::new(value), span: op_span.to(span) };
+            *stmt = Stmt::Assign { target, value, span };
         }
     }
 }

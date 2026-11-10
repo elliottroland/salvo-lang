@@ -374,7 +374,10 @@ const SUGAR: &str = "qualifier NonNegative for Int {
 fn g(x: Int) -> Int {
     let a = x as! NonNegative
     let b = x as? NonNegative
-    return a
+    let n = 1
+    n += a
+    n **= 2
+    return n
 }
 ";
 
@@ -388,7 +391,12 @@ fn the_resolve_dump_names_the_sugar_each_lowering_came_from() {
     let resolution = salvo_core::resolve(&program);
     let file = program.files.iter().position(|f| f.name == "main.sv").unwrap();
     let text = salvo_core::names::dump::dump_file(&program, &resolution, &symbols, file, false);
-    for want in ["// desugared from `x as! NonNegative`", "// desugared from `x as? NonNegative`"] {
+    for want in [
+        "// desugared from `x as! NonNegative`",
+        "// desugared from `x as? NonNegative`",
+        "    // desugared from `n += a`\n    n#{",
+        "    // desugared from `n **= 2`\n    n#{",
+    ] {
         assert!(text.contains(want), "missing `{want}` in:\n{text}");
     }
 }

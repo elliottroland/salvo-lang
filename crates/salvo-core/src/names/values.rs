@@ -687,6 +687,8 @@ impl<'b, 'p> Binder<'b, 'p> {
             Stmt::Expr(e) => self.expr(e),
             // Expanded before resolution.
             Stmt::Comp(_) => {}
+            // [syntax-lowered] Lowered before resolution.
+            Stmt::CompoundAssign { .. } => {}
         }
     }
 

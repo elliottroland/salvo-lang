@@ -1967,6 +1967,16 @@ pub enum Stmt {
         retype: Retype,
         span: Span,
     },
+    /// [op-compound] [syntax-lowered] `target op= value` (`+=`, `-=`, `*=`,
+    /// `/=`, `**=`) as written; lowered before resolution to `target = target
+    /// op value`. `op_span` is the operator's.
+    CompoundAssign {
+        target: Expr,
+        op: BinaryOp,
+        op_span: Span,
+        value: Expr,
+        span: Span,
+    },
 }
 
 /// [qual-retype] The qualifier list a re-typing writes after `:` or `:=`:
@@ -2002,6 +2012,7 @@ impl Stmt {
             Stmt::Let { span, .. }
             | Stmt::Assign { span, .. }
             | Stmt::Retype { span, .. }
+            | Stmt::CompoundAssign { span, .. }
             | Stmt::Use { span, .. } => *span,
             Stmt::Rename(decl) => decl.span,
             Stmt::Expr(e) => e.span(),

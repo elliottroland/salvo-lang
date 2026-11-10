@@ -335,6 +335,12 @@ pub fn walk_stmt<V: Visitor>(v: &mut V, s: &Stmt) {
             walk_expr(v, target);
             walk_retype(v, retype);
         }
+        Stmt::CompoundAssign { target, op_span, value, span, .. } => {
+            v.visit_span(span);
+            walk_expr(v, target);
+            v.visit_span(op_span);
+            walk_expr(v, value);
+        }
         Stmt::Use {
             handler,
             with_items,

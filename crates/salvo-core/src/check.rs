@@ -23003,6 +23003,8 @@ fn collect_binder_arg_sites<'p>(
                 Stmt::Rename(_) | Stmt::Retype { .. } => {}
                 // [comptime-inline] Gone before this runs.
                 Stmt::Comp(_) => {}
+                // [syntax-lowered] Lowered before resolution.
+                Stmt::CompoundAssign { .. } => {}
             }
         }
     }
@@ -23785,6 +23787,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             // means the expansion did not run, which every driver arranges.
             Stmt::Comp(c) => {
                 self.error(c.span(), messages::comptime_inline_not_expanded());
+                Ty::none()
+            }
+            // [syntax-lowered] Lowered before resolution
+            // (`desugar::lower_sugar`), which every driver runs.
+            Stmt::CompoundAssign { span, .. } => {
+                self.error(*span, messages::syntax_lowered_not_lowered());
                 Ty::none()
             }
             Stmt::Let {

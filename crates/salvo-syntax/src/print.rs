@@ -1604,6 +1604,15 @@ impl Printer<'_> {
     }
 
     fn stmt(&mut self, st: &Stmt) {
+        // [syntax-lowered] A statement the sugar lowering wrote, under the
+        // sugar it was written as.
+        if let (Some(written), false) = (compound_origin(st), self.inline) {
+            let text = self.source_text(|p| p.stmt(&written));
+            self.push("// desugared from `");
+            self.push(&text);
+            self.push("`");
+            self.newline();
+        }
         let s = self.at();
         match st {
             Stmt::Let { pattern, ty, value, span } => {
@@ -1647,7 +1656,25 @@ impl Printer<'_> {
                 let e = self.at();
                 self.record(*span, s, e, s, e);
             }
+            Stmt::CompoundAssign { target, op, value, span, .. } => {
+                self.expr(target, 1);
+                self.push(" ");
+                self.push(binary_symbol(*op));
+                self.push("= ");
+                self.expr(value, 0);
+                let e = self.at();
+                self.record(*span, s, e, s, e);
+            }
         }
+    }
+
+    /// What `f` prints for source on one line, by a printer of its own (its
+    /// places are not this printing's): the sugar a comment names.
+    fn source_text(&self, f: impl FnOnce(&mut Printer<'_>)) -> String {
+        let mut p = Printer::new(self.notes, Reading::Source);
+        p.inline = true;
+        f(&mut p);
+        p.out.lines().map(str::trim).collect::<Vec<_>>().join(" ")
     }
 
     fn with_items(&mut self, items: &[Expr]) {
@@ -2461,6 +2488,15 @@ fn as_qual_name(branches: &[(Expr, Block)]) -> Option<String> {
     p.inline = true;
     p.expr(&written, 0);
     Some(format!("desugared from `{}`", p.out))
+}
+
+/// [op-compound] [syntax-lowered] The `x += e` an assignment the sugar
+/// lowering wrote came from: its `Binary` spans the whole statement and its
+/// left operand is the target itself, which no written `x = x + e` has (its
+/// value starts after the `=`).
+fn compound_origin(st: &Stmt) -> Option<Stmt> {
+    let Stmt::Assign { target, value: Expr::Binary { op, lhs, rhs, span: bspan }, span } = st else { return None };
+    (bspan == span && **lhs == *target).then(|| Stmt::CompoundAssign { target: target.clone(), op: *op, op_span: *span, value: (**rhs).clone(), span: *span })
 }
 
 fn starts_with_minus(e: &Expr) -> bool {

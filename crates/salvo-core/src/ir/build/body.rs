@@ -421,6 +421,9 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
             AStmt::Use { handler, with_items, span, .. } => self.use_stmt(handler, with_items, *span),
             AStmt::Rename(_) | AStmt::Comp(_) => Vec::new(),
+            // [syntax-lowered] Lowered before resolution; the checker
+            // refused one that was not.
+            AStmt::CompoundAssign { .. } => Vec::new(),
             AStmt::Expr(e) => self.expr_stmt(e),
         }
     }

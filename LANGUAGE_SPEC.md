@@ -151,7 +151,8 @@ Conventions:
     reads (`arr[i]`) do not narrow, so those still need the
     `is Str name` binding form.
 * [op-compound] `x += e`, `-=`, `*=`, `/=`, `**=`: **pure desugar** to
-  `x = x op e`, in the parser (user decision 2026-09-22, the heap plan's item 6;
+  `x = x op e`, before resolution [syntax-lowered] (the parser keeps it as
+  `Stmt::CompoundAssign`) (user decision 2026-09-22, the heap plan's item 6;
   `**=` user decision 2026-10-30, so the numeric operators are consistent).
   One per two-operand arithmetic operator and `**`; `%=` is deliberately
   absent, since a remainder-in-place has no reading a reader would guess.
@@ -3188,6 +3189,10 @@ Conventions:
   `syntax-lowered:not-lowered`. A diagnostic about how a piece of sugar is
   written stays the parser's, with its id. The sugar it lowers:
   * `x as! Q`, `x as? Q` [expr-as-qual] (`Sugar::AsQual`).
+  * `x += e` and the other compound assignments [op-compound]
+    (`Stmt::CompoundAssign`, a statement: it is not an expression). The
+    lowered `Binary` spans the whole statement, which is how a printing
+    tells it from a written `x = x + e`.
 * [when-lowered] **`?:`, `?.` and `?>` are sugar for a `when`** (user decision 2026-10-30,
   option (a) of the pipeline record D2's Convert write-up), lowered after parsing
   and before resolution, since it needs no names (`desugar::lower_picks`):

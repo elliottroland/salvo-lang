@@ -15,3 +15,19 @@ fn as_qual(x: Int, xs: List<Int>) -> None {
         let c = y as? Positive NonZero
     })
 }
+
+fn compound(p: Mut Point, xs: List<Int>) -> None {
+    let n = 1
+    n += 2
+    n -= 1 + 2
+    n *= -3
+    n /= n as! Positive
+    n **= 2
+    p.x += 1
+    if n > 0 {
+        p.y -= n
+    }
+    xs.each((y) -> {
+        n += y
+    })
+}

@@ -4835,28 +4835,14 @@ impl<'s> Parser<'s> {
                         span,
                     });
                 }
-                // [op-compound] `x += e` is `x = x + e`, desugared here: the
-                // arithmetic rules [op-arith], the place rules and the
-                // narrowing reset all come from the two forms it is made of,
-                // so no checker or emitter knows this spelling exists. Safe to
-                // duplicate the target because a Salvo place is an identifier
-                // or a field path — there is nothing in one to evaluate twice.
+                // [op-compound] `x += e`, kept as written [syntax-lowered]:
+                // `x = x + e` is written before resolution.
                 if let Some(op) = compound_op(self.kind()) {
                     if self.same_line() {
                         let op_span = self.bump().span;
-                        let rhs = self.sub_expr(|p| p.parse_expr())?;
-                        let span = expr.span().to(rhs.span());
-                        let value = Expr::Binary {
-                            op,
-                            lhs: Box::new(expr.clone()),
-                            rhs: Box::new(rhs),
-                            span: op_span.to(span),
-                        };
-                        return Some(Stmt::Assign {
-                            target: expr,
-                            value,
-                            span,
-                        });
+                        let value = self.sub_expr(|p| p.parse_expr())?;
+                        let span = expr.span().to(value.span());
+                        return Some(Stmt::CompoundAssign { target: expr, op, op_span, value, span });
                     }
                 }
                 Some(Stmt::Expr(expr))

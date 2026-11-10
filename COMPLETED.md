@@ -175,10 +175,16 @@ tree a formatter would print was not what the user wrote.
   (`expr-as-qual:binding`).
 - **Moved**: `x as! Q` / `x as? Q` (`Sugar::AsQual`, keeping the spans of
   `as` and its mark, out of which the lowering makes the three distinct
-  spans of its `as_N_v`).
+  spans of its `as_N_v`); `x += e` and the other compound assignments
+  (`Stmt::CompoundAssign`: a statement of its own, since it is no
+  expression; `x++` was never lowered, `Expr::IncDec` is its node).
 - **The dumps** give each lowered piece the sugar it was written as:
   `// desugared from `x as! NonNegative`` (it was a fixed sentence per
-  form).
+  form), and a line `// desugared from `n += a`` above an assignment a
+  compound one became. The printer finds them by the tree's own trace: the
+  `as_N_v` name; an assignment whose `Binary` spans the whole statement and
+  reads the target itself (a written `x = x + e`'s value starts after the
+  `=`).
 - **Tests**: `every_source_file_as_written_prints_to_its_own_tree`
   (print_tests.rs): every std source, every example's, the corpus and a
   fixture holding each moved sugar in each position

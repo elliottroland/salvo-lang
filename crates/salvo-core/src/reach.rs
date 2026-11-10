@@ -562,6 +562,8 @@ fn block_names<'p>(block: &'p Block, used: &mut HashSet<&'p str>) {
             Stmt::Expr(e) => expr_names(e, used),
             // [comptime-inline] Gone before this runs.
             Stmt::Comp(_) => {}
+            // [syntax-lowered] Lowered before resolution.
+            Stmt::CompoundAssign { .. } => {}
         }
     }
 }

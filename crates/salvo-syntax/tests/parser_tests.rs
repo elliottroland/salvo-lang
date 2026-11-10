@@ -2300,13 +2300,21 @@ fn todo_parses_to_its_own_node() {
 
 // ===== [op-compound] `x += e` =====
 
-/// Pure desugar (user decision 2026-09-22): the AST holds an ordinary
-/// assignment whose value is the binary operation, so nothing downstream knows
-/// the spelling exists. Duplicating the target is safe because a place is an
-/// identifier or a field path — there is nothing in one to evaluate twice.
+/// Pure desugar (user decision 2026-09-22): kept as written by the parser
+/// [syntax-lowered], it is lowered to an ordinary assignment whose value is the
+/// binary operation, so nothing downstream knows the spelling exists.
+/// Duplicating the target is safe because a place is an identifier or a field
+/// path — there is nothing in one to evaluate twice.
 #[test]
 fn compound_assignment_desugars_to_assignment() {
-    let source = "fn f() -> None {\n    let n = 1\n    n += 2\n}\n";
+    let source = "fn f() -> None {\n    let n = 1\n    n **= 2\n    n += 2\n}\n";
+    let (written, _) = salvo_syntax::parse_module_deferred(source);
+    let salvo_syntax::ast::Item::Fn(f) = &written.items[0] else { panic!("expected a fn") };
+    let ops: Vec<_> = f.body.as_ref().unwrap().stmts[1..].iter().map(|s| match s {
+        salvo_syntax::ast::Stmt::CompoundAssign { op, .. } => *op,
+        other => panic!("as written: {other:?}"),
+    }).collect();
+    assert_eq!(ops, [salvo_syntax::ast::BinaryOp::Pow, salvo_syntax::ast::BinaryOp::Add]);
     let (module, diagnostics) = salvo_syntax::parse_module(source);
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "parse errors: {errors:?}");
@@ -2314,7 +2322,7 @@ fn compound_assignment_desugars_to_assignment() {
         panic!("expected a fn");
     };
     let stmts = &f.body.as_ref().unwrap().stmts;
-    match &stmts[1] {
+    match &stmts[2] {
         salvo_syntax::ast::Stmt::Assign { target, value, .. } => {
             assert!(matches!(target, salvo_syntax::ast::Expr::Ident(_)));
             match value {
