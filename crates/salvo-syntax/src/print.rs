@@ -966,7 +966,7 @@ impl Printer<'_> {
         self.generics(&g.generics, &[], &g.effect_generics);
         if !g.deductions.is_empty() {
             self.push(" => ");
-            self.list(&g.deductions, ", ", |p, d| p.deduction(d));
+            self.deductions(&g.deductions.iter().collect::<Vec<_>>());
         }
         self.push(" {");
         self.indent += 1;
@@ -1184,7 +1184,7 @@ impl Printer<'_> {
         let own: Vec<&Deduction> = f.deductions.iter().flatten().filter(|d| !matches!(d.target, DeductionTarget::Opaque)).collect();
         if !own.is_empty() {
             self.push(" => ");
-            self.list(&own, ", ", |p, d| p.deduction(d));
+            self.deductions(&own);
         } else if f.deductions.as_ref().is_some_and(|d| d.is_empty()) {
             // `=> ` with nothing is no clause: an explicit empty list has no
             // spelling, and means what none does.
@@ -1201,7 +1201,7 @@ impl Printer<'_> {
                     self.push(" =>[");
                     self.push(&param.name.name);
                     self.push("] ");
-                    self.list(&written, ", ", |p, d| p.deduction(d));
+                    self.deductions(&written);
                 }
             }
         }
@@ -1341,6 +1341,49 @@ impl Printer<'_> {
                 }
                 self.type_ref(effect);
             }
+        }
+    }
+
+    /// A deduction clause's entries. [implicit-with] A plural subject, `a|b
+    /// with hash`, is read as one entry per subject sharing the entry's span
+    /// (written separately, each would have its own): such a run is written
+    /// back as the one entry.
+    fn deductions(&mut self, ds: &[&Deduction]) {
+        let mut i = 0;
+        while i < ds.len() {
+            if i > 0 {
+                self.push(", ");
+            }
+            let d = ds[i];
+            let mut run = 1;
+            if let (DeductionKind::With { others }, DeductionTarget::Param { path, .. }) = (&d.kind, &d.target) {
+                while path.is_empty()
+                    && ds.get(i + run).is_some_and(|n| n.span == d.span && matches!((&n.kind, &n.target), (DeductionKind::With { others: o }, DeductionTarget::Param { path: p, .. }) if o == others && p.is_empty()))
+                {
+                    run += 1;
+                }
+                if run > 1 {
+                    let s = self.at();
+                    for (k, e) in ds[i..i + run].iter().enumerate() {
+                        if k > 0 {
+                            self.push("|");
+                        }
+                        if let DeductionTarget::Param { name, .. } = &e.target {
+                            self.ident(name);
+                        }
+                    }
+                    for o in others {
+                        self.push(" with ");
+                        self.ident(o);
+                    }
+                    let e = self.at();
+                    self.record(d.span, s, e, s, e);
+                }
+            }
+            if run == 1 {
+                self.deduction(d);
+            }
+            i += run;
         }
     }
 
@@ -2154,7 +2197,7 @@ impl Printer<'_> {
                 if let Some(ds) = deductions {
                     if !ds.is_empty() {
                         self.push(" => ");
-                        self.list(ds, ", ", |p, d| p.deduction(d));
+                        self.deductions(&ds.iter().collect::<Vec<_>>());
                     }
                 }
                 self.push(" -> ");

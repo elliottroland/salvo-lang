@@ -195,7 +195,10 @@ tree a formatter would print was not what the user wrote.
   to: the `iter fn` minters' `{ start: start }` are built the same way, and
   the iteration example's dump snapshots stay as they were). An
   `ast::StructLitFieldKind` variant would have cost a match arm in a dozen
-  places for nothing a printing needs (agent's call, to confirm).
+  places for nothing a printing needs (agent's call, to confirm). Likewise
+  a plural `with` subject, `=> a|b with h`: its entries, one per subject,
+  share the written entry's span, so the printer writes a run of them back
+  as the one entry.
 - **Terminal `...` bodies** (`for x in xs ...`, `if c ... else { … }`,
   `while`, `try`, `waitfor`, a trailing lambda's `(e) -> ...`, `[for]`,
   `[if]`) were never a different tree: the rest of the block is the

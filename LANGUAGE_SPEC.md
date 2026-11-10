@@ -3220,7 +3220,9 @@ Conventions:
     where its last argument does, with no `)` after it.
   * Not lowered, since the tree keeps the spelling: the struct-literal
     shorthand `{ x }` [struct-lit-shorthand] (as a struct pattern's `{ x }`
-    is), `x++` [op-inc-dec] (`Expr::IncDec`), and a terminal `...` body
+    is), a plural `with` subject `a|b with h` [implicit-with] (one entry per
+    subject, sharing a span), `x++` [op-inc-dec] (`Expr::IncDec`), and a
+    terminal `...` body
     [expr-terminal-scope] [expr-terminal-lambda], a block whose span the
     module lists in `terminal_bodies`.
   * In a dump (`Reading::Dump`) an expression the lowering wrote is followed
@@ -4838,6 +4840,11 @@ Conventions:
     "never remove" cost nothing.
   * A `with` naming something that is not an implicit parameter of the signature
     is an error: only a `?name` position is *filled*.
+  * **A plural subject**, `=> a|b with c`, is one entry per subject: `a with
+    c, b with c`. The parser reads it so, every entry with the written
+    entry's span, which is how the printer writes such a run back as the one
+    entry [ast-print]: the spelling is in the tree, so there is nothing to
+    lower [syntax-lowered].
 
 * [implicit-resolve]'s candidate test is **parameter-contravariant**: a
   visible `size(list: List<T>) -> Int` fills a position wanting
