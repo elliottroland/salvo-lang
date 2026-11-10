@@ -149,9 +149,10 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-11-09 — `parse_module` is the parse alone; one lowering sequence ([syntax-lowered])
+### 2026-11-09 — `parse_module` is the parse alone; one lowering sequence; the terminal `...` on its block ([syntax-lowered] [ast-print])
 
-User decision 2026-11-09, closing agent's call (a) of the entry below:
+User decisions 2026-11-09, closing agent's calls (a) and (d) of the entry
+below. On (a):
 "Based on the name, I would expect the output of `parse_module` to simply
 be the AST(s) in a given module. I would therefore expect this to work
 entirely in the parse phase, and not work with lowerings."
@@ -183,6 +184,20 @@ entirely in the parse phase, and not work with lowerings."
   would be a snapshot change, and is the user's call. (b) `lowered` numbers
   the nodes too, as the old `parse_module` did, so a test never meets an
   unnumbered lowered tree.
+- **The terminal `...` is a field of its block** (on (d): the user agreed
+  it belongs on the node, like `NamespaceDecl::terminal` and
+  `LambdaBody::Terminal`): `ast::Block::terminal`, set by the parser's
+  terminal rest and `false` everywhere else a block is built (the parser's
+  braced block, nine lowering and comptime sites); clones carry it. It
+  replaces `Module::terminal_bodies`, the side list of spans the printer
+  turned into a set per module. It takes part in `PartialEq` and `Debug`:
+  it is a spelling, so the as-written round trip has to keep it, and the
+  print test's own count of terminal bodies went (the tree comparison
+  sees the flag). The parse-ast snapshots gained a `terminal: false` line
+  per block and nothing else (none of their sources writes a terminal
+  body). The printer's `pending_rest` stays: the block is printed from
+  inside its statement, and the rest has to follow the statement, so it is
+  handed over either way; only the lookup went.
 
 ### 2026-11-09 — The parser keeps the sugar as written; it is lowered before resolution ([syntax-lowered] [ast-print])
 

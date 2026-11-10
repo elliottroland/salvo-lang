@@ -118,8 +118,8 @@ with expression blocks would care; if not, it is not a Salvo fact
 
 The parser's tree is the source as written (user decision 2026-11-09,
 [syntax-lowered]): a piece of sugar is a node of its own (`ast::Sugar`,
-`Stmt::CompoundAssign`), or a spelling the tree keeps beside the node
-(`Module::terminal_bodies`), or a trace in the spans (the struct-literal
+`Stmt::CompoundAssign`), or a spelling kept on the node it is about
+(`Block::terminal`, `NamespaceDecl::terminal`), or a trace in the spans (the struct-literal
 shorthand, a plural `with` subject). A lowering that needs no name belongs
 in the per-file expansion (`desugar::lower_module`, run from `expand_file`
 before anything else), not in the parser: a printer, and so a formatter, prints the

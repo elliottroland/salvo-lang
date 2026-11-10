@@ -1,6 +1,6 @@
 ---
 source: crates/salvo-syntax/tests/parser_tests.rs
-expression: "parse_clean(&corpus(\"structs.sv\"))"
+expression: "lowered_clean(&corpus(\"structs.sv\"))"
 ---
 Module {
     docs: [],
@@ -810,6 +810,7 @@ Module {
                             ),
                         ],
                         span: 155..596,
+                        terminal: false,
                     },
                 ),
                 span: 134..596,
@@ -919,6 +920,7 @@ Module {
                             },
                         ],
                         span: 628..664,
+                        terminal: false,
                     },
                 ),
                 span: 598..664,
@@ -1057,6 +1059,7 @@ Module {
                                                                         ),
                                                                     ],
                                                                     span: 731..745,
+                                                                    terminal: false,
                                                                 },
                                                                 span: 731..745,
                                                             },
@@ -1077,6 +1080,7 @@ Module {
                                                                         ),
                                                                     ],
                                                                     span: 749..763,
+                                                                    terminal: false,
                                                                 },
                                                                 span: 749..763,
                                                             },
@@ -1096,6 +1100,7 @@ Module {
                             ),
                         ],
                         span: 704..767,
+                        terminal: false,
                     },
                 ),
                 span: 666..767,

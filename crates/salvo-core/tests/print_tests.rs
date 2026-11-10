@@ -343,10 +343,6 @@ fn written_difference(name: &str, text: &str) -> Option<String> {
         Ok(m) => m,
         Err(why) => return Some(format!("{name}: printed, it does not parse: {why}")),
     };
-    // [expr-terminal-scope] The spelling the tree's debug form leaves out.
-    if written.terminal_bodies.len() != again.terminal_bodies.len() {
-        return Some(format!("{name}: {} terminal `...` bodies written, {} printed", written.terminal_bodies.len(), again.terminal_bodies.len()));
-    }
     let (a, b) = (shape(&written), shape(&again));
     if a != b {
         let (la, lb): (Vec<&str>, Vec<&str>) = (a.lines().collect(), b.lines().collect());

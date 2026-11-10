@@ -73,9 +73,6 @@ pub struct Parser<'s> {
     /// parsed in the current statement; its body is filled with the rest of the
     /// block once the statement closes. At most one per statement.
     pending_terminal_lambda: bool,
-    /// [expr-terminal-scope] The spans of the blocks written as a terminal
-    /// `...` (`Module::terminal_bodies`).
-    terminal_bodies: Vec<Span>,
     /// [elvis-wrap] Suppresses the forward `?:`'s line-wrap: set while parsing
     /// a nested right side (a `return`/escape value) so a next-line `?:` is
     /// left for the *enclosing* elvis chain to pick up, bracketing everything
@@ -274,7 +271,6 @@ impl<'s> Parser<'s> {
             allow_terminal: false,
             in_stmt_expr: false,
             pending_terminal_lambda: false,
-            terminal_bodies: Vec::new(),
             elvis_no_wrap: false,
         }
     }
@@ -514,8 +510,7 @@ impl<'s> Parser<'s> {
                 self.bump();
             }
         }
-        let terminal_bodies = std::mem::take(&mut self.terminal_bodies);
-        Module { docs, items, uses, namespaces: Vec::new(), terminal_bodies, node_ranges: Vec::new(), file_tag: crate::span::NO_FILE }
+        Module { docs, items, uses, namespaces: Vec::new(), node_ranges: Vec::new(), file_tag: crate::span::NO_FILE }
     }
 
     /// Skips tokens until something that can plausibly start a top-level item.
@@ -4623,6 +4618,7 @@ impl<'s> Parser<'s> {
         Some(Block {
             stmts,
             span: start.to(end),
+            terminal: false,
         })
     }
 
@@ -4659,9 +4655,8 @@ impl<'s> Parser<'s> {
         self.no_struct = saved_no_struct;
         let end = self.peek().span;
         let span = start.to(end);
-        // [syntax-lowered] The spelling, which the tree's block does not keep.
-        self.terminal_bodies.push(span);
-        Block { stmts, span }
+        // [syntax-lowered] The spelling, kept on the block.
+        Block { stmts, span, terminal: true }
     }
 
     /// [expr-terminal-scope] Parses a body-taking construct's body for the simple
@@ -4711,6 +4706,7 @@ impl<'s> Parser<'s> {
         Some(Block {
             stmts,
             span: start.to(end),
+            terminal: false,
         })
     }
 

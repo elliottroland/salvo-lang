@@ -2929,10 +2929,12 @@ Conventions:
     a `:` or a `{` (fixed 2026-11-09: it read as three statements on one
     line, `waitfor`, `out` and a spread).
   * **The tree holds the rest as the construct's body**, a block like a
-    braced one; the spelling is kept beside it, the block's span in
-    `Module::terminal_bodies` [syntax-lowered], which only the printer reads:
+    braced one; the spelling is kept on it, `Block::terminal`
+    [syntax-lowered] (user decision 2026-11-09, as `NamespaceDecl::terminal`
+    and `LambdaBody::Terminal` keep theirs), which only the printer reads:
     it writes such a body as `...` and its statements after the statement
-    holding it [ast-print].
+    holding it [ast-print]. The flag is part of the tree's equality and its
+    debug form, so a round trip that lost it is a different tree.
   * **`[for …] ...` / `[if …] ...`** in a comptime fn (user request
     2026-10-20) [comptime-inline]: the rest of the block is unrolled once per
     field, or kept when the condition holds — with an optional inline braced
@@ -3232,8 +3234,8 @@ Conventions:
     is), a plural `with` subject `a|b with h` [implicit-with] (one entry per
     subject, sharing a span), `x++` [op-inc-dec] (`Expr::IncDec`), and a
     terminal `...` body
-    [expr-terminal-scope] [expr-terminal-lambda], a block whose span the
-    module lists in `terminal_bodies`.
+    [expr-terminal-scope] [expr-terminal-lambda] (`Block::terminal`,
+    `LambdaBody::Terminal`).
   * In a dump (`Reading::Dump`) an expression the lowering wrote is followed
     by `#{desugared from `x !is Q`}`, and a statement it wrote is preceded by
     the comment `// desugared from `x += e``; for source, it prints as the

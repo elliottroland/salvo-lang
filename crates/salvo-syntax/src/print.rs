@@ -20,7 +20,7 @@
 //!
 //! A module as the parser wrote it (`parse_module`) prints as
 //! written [syntax-lowered]: its sugar (`ast::Sugar`, `x += e`), its terminal
-//! `...` bodies (`Module::terminal_bodies`), its namespaces and its comptime
+//! `...` bodies (`Block::terminal`), its namespaces and its comptime
 //! forms, so the text parses back to the same tree — the formatter's half
 //! of the work. Once lowered, a piece of sugar prints as what it became, with
 //! a comment (or, for an expression in a dump, a mark) giving it as written,
@@ -296,9 +296,6 @@ struct Printer<'n> {
     /// [syntax-lowered] Inside an expression a dump has marked with the sugar
     /// it came from: its parts are not marked again.
     quiet_origin: bool,
-    /// [expr-terminal-scope] The blocks the module wrote as a terminal `...`
-    /// (`Module::terminal_bodies`).
-    terminal: std::collections::HashSet<Span>,
     /// [expr-terminal-scope] The terminal body the statement being printed
     /// holds, printed after it.
     pending_rest: Option<Block>,
@@ -306,7 +303,7 @@ struct Printer<'n> {
 
 impl<'n> Printer<'n> {
     fn new(notes: &'n dyn Notes, reading: Reading) -> Self {
-        Printer { out: String::new(), nodes: HashMap::new(), indent: 0, notes, no_struct: false, holes: Vec::new(), inline: false, reading, quiet_origin: false, terminal: Default::default(), pending_rest: None }
+        Printer { out: String::new(), nodes: HashMap::new(), indent: 0, notes, no_struct: false, holes: Vec::new(), inline: false, reading, quiet_origin: false, pending_rest: None }
     }
 }
 
@@ -375,7 +372,6 @@ impl Printer<'_> {
     // --- Module and items ---
 
     fn module(&mut self, m: &Module) {
-        self.terminal = m.terminal_bodies.iter().copied().collect();
         if !m.docs.is_empty() {
             self.comment_lines(&m.docs);
             self.newline();
@@ -1661,7 +1657,7 @@ impl Printer<'_> {
         let s = self.at();
         // [expr-terminal-scope] Written `...`: its statements follow the
         // statement that holds it (`stmts`).
-        if self.terminal.contains(&b.span) && !self.inline {
+        if b.terminal && !self.inline {
             self.push("...");
             let e = self.at();
             self.record(b.span, s, e, s, e);

@@ -484,6 +484,7 @@ fn expand(f: &FnDecl, diags: &mut Vec<Diagnostic>) -> Option<Vec<Item>> {
                 span: ret_span,
             })],
             span: mint_span,
+            terminal: false,
         }),
         span: mint_span,
     };
@@ -1834,7 +1835,7 @@ fn lower_as_qual(lhs: Expr, check: Vec<TypeRef>, trap: bool, as_span: Span, mark
     // the characters of `as` and its mark.
     let (decl_at, test_at, tail_at) = (as_span.at(as_span.start, as_span.start + 1), as_span.at(as_span.start + 1, as_span.end), mark);
     let var = |sp: Span| Expr::Ident(Ident { name: name.clone(), span: sp });
-    let block = |stmts: Vec<Stmt>| Block { stmts, span };
+    let block = |stmts: Vec<Stmt>| Block { stmts, span, terminal: false };
     if trap {
         let bind = Stmt::Let { pattern: Pattern::Ident(Ident { name: name.clone(), span: decl_at }), ty: None, value: lhs, span };
         let test = Expr::Is { subject: Box::new(var(test_at)), check, binding: None, span };
@@ -1911,7 +1912,7 @@ impl crate::visit_mut::MutVisitor for LowerPicks {
             or: Vec::new(),
             hole: Some(hole),
             binding: None,
-            body: Block { stmts: vec![Stmt::Expr(value)], span },
+            body: Block { stmts: vec![Stmt::Expr(value)], span, terminal: false },
             span,
         };
         *expr = Expr::When {
@@ -1945,7 +1946,7 @@ impl LowerPicks {
             or: Vec::new(),
             hole: Some(hole),
             binding: None,
-            body: Block { stmts: vec![Stmt::Expr(value)], span },
+            body: Block { stmts: vec![Stmt::Expr(value)], span, terminal: false },
             span,
         };
         let (rhs_span, lhs_span) = (rhs.span(), lhs.span());
@@ -1996,7 +1997,7 @@ impl LowerPicks {
             or: Vec::new(),
             hole: Some(hole),
             binding: None,
-            body: Block { stmts: vec![Stmt::Expr(value)], span },
+            body: Block { stmts: vec![Stmt::Expr(value)], span, terminal: false },
             span,
         };
         let base_span = base.span();

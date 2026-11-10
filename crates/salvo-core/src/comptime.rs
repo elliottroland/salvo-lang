@@ -1623,6 +1623,7 @@ fn fallback_body(f: &mut FnDecl) {
             span,
         })],
         span,
+        terminal: false,
     });
     f.by = None;
     f.compfn = None;
@@ -1826,7 +1827,7 @@ fn stamp_test<'w>(
     let mut ex = Expander::new(world, None, site, next_expn);
     ex.current = template_expn;
     ex.test = Some(info);
-    let mut body = inst.body.take().unwrap_or(Block { stmts: Vec::new(), span: site });
+    let mut body = inst.body.take().unwrap_or(Block { stmts: Vec::new(), span: site, terminal: false });
     ex.expand_block(&mut body);
     let (expansions, scopes, mut errs) = ex.finish();
     errs.retain(|d| d.is_error());
@@ -1856,7 +1857,7 @@ fn stamp_test<'w>(
         span: site,
     }];
     run.deductions = None;
-    run.body = Some(Block { stmts, span: body.span });
+    run.body = Some(Block { stmts, span: body.span, terminal: false });
     let mut all = vec![
         ExpansionRecord { id: made, parent: 0, kind: ExpansionKind::Made },
         ExpansionRecord { id: template_expn, parent: 0, kind: ExpansionKind::Template },
@@ -6155,6 +6156,7 @@ impl Expander<'_> {
                                 span: entry.span,
                             })],
                             span: entry.span,
+                            terminal: false,
                         };
                         let copy = self.copy(&block, &binder.name, b);
                         block = copy;
