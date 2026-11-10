@@ -149,3 +149,49 @@ fn last() -> None {}
 namespace Deeper ...
 
 struct Leaf {}
+
+// The comptime forms, which a formatter meets in a template as written.
+comptime fn describe<T is Struct>(t: T) -> Str {
+    [let keys = filter(T.fields, (f) -> f.name !is "id" && f.type is <E> List<E>)]
+    let out = Mut List<Str>()
+    [for field in keys] {
+        let [field]: [field.type] = t.[field]
+        [if field.default !is None && field.index > 1 + 2 * 3] {
+            add(out, "${field.name}")
+        } else {
+            refuse!("no default for ${field.name}")
+        }
+        [when field.type.kind] {
+            is Struct {
+                add(out, [describe@main(t.[field])])
+            }
+            is Union {
+                [when t.[field]] {
+                    [arm] {
+                        add(out, "${arm.name}")
+                    }
+                }
+            }
+            is Tuple {}
+            is FnType {}
+            is Opaque {}
+        }
+        [when field.type] {
+            is <E> List<E> {
+                f([...for e in E.fields] { 1, 2 })
+            }
+            is * {}
+        }
+        [when field.name] {
+            is "a" | "b" {
+                let r = [field.type] { [...for g in T.fields] { [g]: 0 } }
+            }
+            is "c" {}
+        }
+    }
+    [for field in T.fields] ...
+    [if T.fields is None] ... else {
+        return "none"
+    }
+    return show@[site](out)
+}

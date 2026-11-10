@@ -784,20 +784,48 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
   fix would print each copy as a scope of its own and every template name
   with a selector that reaches it, private ones included, which Salvo
   cannot spell).
-- **The dumps' printer** (2026-11-09, [ast-print]): a comptime statement
-  (`[for …]`, `[if …]`) prints as `#{a comptime statement}` and a
-  `[...for]` entry as `#{[...for x …]}`. No dump meets one today (a
-  template is gone after the expansion); a `salvo fmt` over unexpanded
-  files would need them, and comments kept (the user's direction,
-  2026-11-09: a formatter is the printer over the parsed tree, with the
-  lexer's comments attached to nodes).
+- **What `salvo fmt` still needs** (user direction 2026-11-09: a formatter
+  is the printer over the parsed tree, as Go's is). Built: the parser's
+  tree is the source as written [syntax-lowered], and the printer writes it
+  back [ast-print] — every std source, every example, the corpus and
+  `crates/salvo-core/tests/print/sugar.sv` parse back to the same tree and
+  print the same again, and the fixture prints back to its own text. Left:
+  * **Comments in bodies.** The lexer keeps own-line comments by line
+    (`Parser::comments`) only to attach doc runs; every other comment,
+    and every end-of-line comment, is dropped. Attach each to a node
+    (leading own-line runs, trailing end-of-line ones, a run before a
+    closing `}`), keep them through the print, and add comments to the
+    round-trip test (the text test's fixture with comments in it).
+  * **Blank lines.** Blank lines inside a body, which separate a body's
+    paragraphs, are not in the tree: the printer writes none. Keep one where
+    one or more was written (a statement's leading-blank flag, or a span
+    gap the printer reads off the source). Between declarations the
+    printer writes one.
+  * **Line breaking and a width.** Every expression is printed on one line.
+    Needs a width (100?) and the break rules: call arguments and parameter
+    lists one per line, a method chain or a trailing `replyto` or `?:` on
+    continuation lines [expr-wrap], a long struct literal one field per
+    line, a long `is A | B` union. A user decision what the width is and
+    whether a break the author wrote is kept when the line would fit.
+  * **Grouping parentheses** are not in the tree: the printer writes the
+    ones precedence needs, so redundant ones go and a condition holding a
+    struct literal is parenthesized whole (`if (p == Point { x })`, written
+    `if p == (Point { x })`). Decide whether to keep written groups.
+  * **Literal spellings**: digit separators (`1_000` prints `1000`), and
+    escapes in strings and chars, print in the printer's own spelling.
+  * **The command**: `salvo fmt [paths]` writing files in place, `--check`
+    (exit non-zero and name the files that would change), `-` / stdin to
+    stdout for editors, the language server's formatting request; a file
+    that does not parse is left alone and its errors reported. The
+    guarantees it inherits, each tested over every source file: the
+    formatted text parses to the same tree (spans aside), formatting it
+    again changes nothing, and (once attached) no comment is lost.
 - **Open defect: two statements on one line parse** (found 2026-11-09, by
   the sugar fixture): `let a = 1 let b = 2` and `print(a) print(b)` are
   accepted as two statements each, with no diagnostic, so a slip can read
   as something else (`waitfor out ...` read as three statements until its
-  tell was fixed). A statement should end at a newline, a `}` or a `;`-less
-  end of the line; deciding whether to refuse it is the user's call
-  (nothing in std or the examples writes it).
+  tell was fixed). Whether to refuse it is the user's call (nothing in std
+  or the examples writes it); a formatter writes each on its own line.
 - **Where it does not run**: 5 of
   the corpus's 6 files do not check (it is the parser's corpus of
   language-page examples: unknown effects, missing type arguments, an

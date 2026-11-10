@@ -18,6 +18,15 @@
 //! precedence needs them (the parser's binding powers); an expression's
 //! recorded `outer` range includes them.
 //!
+//! A module as the parser wrote it (`parse_module_deferred`) prints as
+//! written [syntax-lowered]: its sugar (`ast::Sugar`, `x += e`), its terminal
+//! `...` bodies (`Module::terminal_bodies`), its namespaces and its comptime
+//! forms, so the text parses back to the same tree — the formatter's half
+//! of the work. Once lowered, a piece of sugar prints as what it became, with
+//! a comment (or, for an expression in a dump, a mark) giving it as written,
+//! found by the trace the lowering leaves (`sugar_origin`,
+//! `compound_origin`, `as_qual_name`).
+//!
 //! What the tree holds with no surface spelling of its own is printed as the
 //! surface it came from where the tree says so (a type-named call
 //! `Mut_List(…)` to `Mut List(…)`), and otherwise marked `#{…}`. A lowered
@@ -372,8 +381,10 @@ impl Printer<'_> {
             self.newline();
         }
         let mut first = true;
-        // The imports, as one paragraph.
-        for item in &m.items {
+        // The imports the file opens with, as one paragraph; one written
+        // later stays where it is (a printing keeps the items' order).
+        let leading = m.items.iter().take_while(|i| matches!(i, Item::Import(_))).count();
+        for item in &m.items[..leading] {
             if let Item::Import(i) = item {
                 self.import(i);
                 self.newline();
@@ -408,15 +419,18 @@ impl Printer<'_> {
                 }
             }
         }
-        for item in &m.items {
+        let mut after_import = false;
+        for item in &m.items[leading..] {
             match item {
-                Item::Import(_) => continue,
                 Item::Fn(f) if f.scoped_to.as_ref().is_some_and(|o| structs.contains(o.name.as_str())) => continue,
                 _ => {}
             }
-            if !first {
+            // Consecutive imports are one paragraph.
+            let import = matches!(item, Item::Import(_));
+            if !first && !(import && after_import) {
                 self.newline();
             }
+            after_import = import;
             first = false;
             self.namespaced(item, &m.namespaces, &attached);
             self.newline();
@@ -1608,7 +1622,11 @@ impl Printer<'_> {
             self.ty(&r.args[0]);
             self.push("]");
         } else {
-            self.ident(&r.name);
+            match type_splice_text(&r.name.name) {
+                // [comptime-inline] `[field.type]`, a ref named `field.type`.
+                Some(splice) => self.ident_as(&r.name, &splice),
+                None => self.ident(&r.name),
+            }
             if let Some(alias) = &r.alias {
                 self.push(": ");
                 self.ident(alias);
@@ -1730,7 +1748,7 @@ impl Printer<'_> {
             Stmt::Expr(e) => self.expr(e, 0),
             Stmt::Comp(c) => {
                 let s = self.at();
-                self.push("#{a comptime statement}");
+                self.comp_stmt(c);
                 let e = self.at();
                 self.record(c.span(), s, e, s, e);
             }
@@ -1988,6 +2006,9 @@ impl Printer<'_> {
             Expr::Ident(id) => {
                 if self.holes.iter().any(|h| *h == id.name) {
                     self.ident_as(id, "_");
+                } else if let Some(splice) = type_splice_text(&id.name) {
+                    // [comptime-arm] `[arm.type](value)`'s callee.
+                    self.ident_as(id, &splice);
                 } else {
                     self.ident(id);
                 }
@@ -2015,10 +2036,19 @@ impl Printer<'_> {
                 self.ident(name);
                 // [comptime-hygiene] `name@[site]` in a stamped body is the
                 // stamping site's `name`: the file it is printed in, where a
-                // bare name means just that.
-                if !matches!(module.as_slice(), [m] if m.name == SITE_SELECTOR) {
-                    self.push("@");
-                    self.list(module, ".", |p, m| p.ident(m));
+                // bare name means just that. In the template, as written, it
+                // is written.
+                match module.as_slice() {
+                    [m] if m.name == SITE_SELECTOR => {
+                        if e.span().is_written() {
+                            self.push("@");
+                            self.ident_as(m, "[site]");
+                        }
+                    }
+                    _ => {
+                        self.push("@");
+                        self.list(module, ".", |p, m| p.ident(m));
+                    }
                 }
             }
             Expr::EffectScoped { base, name, effect, .. } => {
@@ -2031,6 +2061,19 @@ impl Printer<'_> {
                 self.ident(effect);
             }
             Expr::Call { callee, type_args, args, named, .. } => {
+                // [comptime-call] `[to_json@demo(x)]`: the whole call in the
+                // brackets, its callee named `[to_json@demo()]`.
+                if let Expr::Ident(id) = callee.as_ref() {
+                    if let Some(text) = id.name.strip_prefix('[').and_then(|n| n.strip_suffix("()]")) {
+                        self.push("[");
+                        let text = text.to_string();
+                        self.ident_as(id, &text);
+                        self.type_args(type_args);
+                        self.args(args, named);
+                        self.push("]");
+                        return;
+                    }
+                }
                 match callee.as_ref() {
                     Expr::Ident(id) if type_fn_callee(&id.name).is_some() => {
                         let s = self.at();
@@ -2057,7 +2100,24 @@ impl Printer<'_> {
                 self.push(")");
                 self.no_struct = saved;
             }
-            Expr::StructLit { ty, fields, .. } => {
+            Expr::StructLit { ty, fields, span } => {
+                // [comptime-list-for] A `[...for p in s] { a, b }` head in a
+                // call's arguments, carried as a struct literal of the one
+                // entry, its values named `_arg`, spanning the head alone.
+                if let (None, [StructLitField { kind: StructLitFieldKind::InlineFor { binder, seq, entries }, span: at }]) = (ty, fields.as_slice()) {
+                    if at == span {
+                        self.list_for_head(binder, seq);
+                        let saved = std::mem::replace(&mut self.no_struct, false);
+                        self.push("{ ");
+                        self.list(entries, ", ", |p, f| match &f.kind {
+                            StructLitFieldKind::Named { value, .. } => p.arg(value),
+                            _ => p.push("#{an entry}"),
+                        });
+                        self.push(" }");
+                        self.no_struct = saved;
+                        return;
+                    }
+                }
                 if let Some(t) = ty {
                     self.ty(t);
                     // `.S` alone is the fieldless literal of a dot-type.
@@ -2398,6 +2458,253 @@ impl Printer<'_> {
         }
     }
 
+    /// [comptime-list-for] `[...for binder in seq] `.
+    fn list_for_head(&mut self, binder: &Ident, seq: &CompExpr) {
+        self.push("[...for ");
+        self.ident(binder);
+        self.push(" in ");
+        self.comp_expr(seq, 0);
+        self.push("] ");
+    }
+
+    /// [comptime-inline] A comptime statement, as written.
+    fn comp_stmt(&mut self, c: &CompStmt) {
+        match c {
+            CompStmt::Let { name, value, .. } => {
+                self.push("[let ");
+                self.ident(name);
+                self.push(" = ");
+                self.comp_expr(value, 0);
+                self.push("]");
+            }
+            CompStmt::For { binder, seq, body, .. } => {
+                self.push("[for ");
+                self.ident(binder);
+                self.push(" in ");
+                self.comp_expr(seq, 0);
+                self.push("] ");
+                self.block(body);
+            }
+            CompStmt::If { cond, then, else_, .. } => {
+                self.push("[if ");
+                self.comp_expr(cond, 0);
+                self.push("] ");
+                self.block(then);
+                if let Some(b) = else_ {
+                    self.push(" else ");
+                    self.block(b);
+                }
+            }
+            CompStmt::WhenKind { ty, arms, .. } => {
+                self.push("[when ");
+                self.comp_ty(ty);
+                self.push(".kind] {");
+                self.indent += 1;
+                for arm in arms {
+                    self.newline();
+                    let s = self.at();
+                    self.push("is ");
+                    self.push(arm.kind.word());
+                    self.push(" ");
+                    self.block(&arm.body);
+                    let e = self.at();
+                    self.record(arm.span, s, e, s, e);
+                }
+                self.indent -= 1;
+                self.newline();
+                self.push("}");
+            }
+            CompStmt::WhenType { ty, arms, .. } => {
+                self.push("[when ");
+                self.comp_ty(ty);
+                self.push("] {");
+                self.indent += 1;
+                for arm in arms {
+                    self.newline();
+                    let s = self.at();
+                    self.push("is ");
+                    self.comp_binders(&arm.binders);
+                    self.in_comp_pattern(&arm.pattern);
+                    self.push(" ");
+                    self.block(&arm.body);
+                    let e = self.at();
+                    self.record(arm.span, s, e, s, e);
+                }
+                self.indent -= 1;
+                self.newline();
+                self.push("}");
+            }
+            CompStmt::WhenName { binder, arms, .. } => {
+                self.push("[when ");
+                self.ident(binder);
+                self.push(".name] {");
+                self.indent += 1;
+                for arm in arms {
+                    self.newline();
+                    let s = self.at();
+                    self.push("is ");
+                    self.list(&arm.lits, " | ", |p, (lit, _)| p.push(&quote_str(lit)));
+                    self.push(" ");
+                    self.block(&arm.body);
+                    let e = self.at();
+                    self.record(arm.span, s, e, s, e);
+                }
+                self.indent -= 1;
+                self.newline();
+                self.push("}");
+            }
+            CompStmt::WhenArms { value, binder, body, .. } => {
+                self.push("[when ");
+                self.condition(value);
+                self.push("] {");
+                self.indent += 1;
+                self.newline();
+                self.push("[");
+                self.ident(binder);
+                self.push("] ");
+                self.block(body);
+                self.indent -= 1;
+                self.newline();
+                self.push("}");
+            }
+            CompStmt::Refuse { message, .. } => {
+                self.push("refuse!(");
+                self.expr(message, 0);
+                self.push(")");
+            }
+        }
+    }
+
+    /// [comptime-kind] The type a `[when …]` dispatches over: `T`, `Arg<T>`,
+    /// `field.type`.
+    fn comp_ty(&mut self, t: &CompTy) {
+        let s = self.at();
+        self.ident(&t.root);
+        self.type_args(&t.args);
+        if t.via_type {
+            self.push(".type");
+        }
+        let e = self.at();
+        self.record(t.span, s, e, s, e);
+    }
+
+    /// [comptime-pattern] `<E, k> ` before a pattern.
+    fn comp_binders(&mut self, binders: &[Ident]) {
+        if binders.is_empty() {
+            return;
+        }
+        self.push("<");
+        self.list(binders, ", ", |p, b| p.ident(b));
+        self.push("> ");
+    }
+
+    /// [comptime-pattern] A type pattern, where `*` is any type.
+    fn in_comp_pattern(&mut self, t: &Type) {
+        self.ty(t);
+    }
+
+    /// [comptime-eval] A compile-time expression in a context accepting
+    /// precedence `min` and tighter (the levels of `parse_comp_expr`: `||`
+    /// 4, `&&` 6, a comparison or `is` 8, `+ -` 14, `* / %` 16, prefix 18,
+    /// a projection or a primary 20; a lambda 0).
+    fn comp_expr(&mut self, e: &CompExpr, min: u8) {
+        let level = match e {
+            CompExpr::Lambda { .. } => 0,
+            CompExpr::Binary { op: BinaryOp::Or, .. } => 4,
+            CompExpr::Binary { op: BinaryOp::And, .. } => 6,
+            CompExpr::Binary { op: BinaryOp::Add | BinaryOp::Sub, .. } => 14,
+            CompExpr::Binary { op: BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem, .. } => 16,
+            CompExpr::Binary { .. } | CompExpr::Is { .. } => 8,
+            // [comptime-eval] `x !is P` is a `Not` of the test spanning it.
+            CompExpr::Not(inner, span) if matches!(**inner, CompExpr::Is { .. }) && inner.span() == *span => 8,
+            CompExpr::Not(..) | CompExpr::Neg(..) => 18,
+            CompExpr::Int { value, .. } if *value < 0 => 18,
+            _ => 20,
+        };
+        let paren = level < min;
+        if paren {
+            self.push("(");
+        }
+        let s = self.at();
+        match e {
+            CompExpr::Bool(b, _) => self.push(if *b { "true" } else { "false" }),
+            CompExpr::Int { value, long, .. } => {
+                let _ = write!(self.out, "{value}{}", if *long { "L" } else { "" });
+            }
+            CompExpr::Char(c, _) => self.push(&quote_char(*c)),
+            CompExpr::Str(t, _) => self.push(&quote_str(t)),
+            CompExpr::None(_) => self.push("None"),
+            CompExpr::Name { id, args, .. } => {
+                self.ident(id);
+                self.type_args(args);
+            }
+            CompExpr::Proj { base, field, .. } => {
+                self.comp_expr(base, 20);
+                self.push(".");
+                self.ident(field);
+            }
+            CompExpr::Call { callee, args, .. } => {
+                self.ident(callee);
+                self.push("(");
+                self.list(args, ", ", |p, a| p.comp_expr(a, 0));
+                self.push(")");
+            }
+            CompExpr::Lambda { params, body, .. } => {
+                self.push("(");
+                self.list(params, ", ", |p, id| p.ident(id));
+                self.push(") -> ");
+                self.comp_expr(body, 0);
+            }
+            CompExpr::Not(inner, span) if matches!(**inner, CompExpr::Is { .. }) && inner.span() == *span => {
+                self.comp_is(inner, true);
+            }
+            CompExpr::Not(inner, _) => {
+                self.push("!");
+                self.comp_expr(inner, 18);
+            }
+            CompExpr::Neg(inner, _) => {
+                self.push("-");
+                if matches!(**inner, CompExpr::Neg(..)) {
+                    self.push(" ");
+                }
+                self.comp_expr(inner, 18);
+            }
+            CompExpr::Binary { op, lhs, rhs, .. } => {
+                let (l, r) = match op {
+                    BinaryOp::Or => (4, 6),
+                    BinaryOp::And => (6, 8),
+                    BinaryOp::Add | BinaryOp::Sub => (14, 16),
+                    BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => (16, 18),
+                    // A comparison does not chain: both sides are sums.
+                    _ => (14, 14),
+                };
+                self.comp_expr(lhs, l);
+                self.push(" ");
+                self.push(binary_symbol(*op));
+                self.push(" ");
+                self.comp_expr(rhs, r);
+            }
+            CompExpr::Is { .. } => self.comp_is(e, false),
+        }
+        let end = self.at();
+        if paren {
+            self.push(")");
+        }
+        self.record(e.span(), s, end, s, end);
+    }
+
+    /// [comptime-eval] `subject is <B> pattern` / `subject !is "a" | "b"`.
+    fn comp_is(&mut self, e: &CompExpr, negated: bool) {
+        let CompExpr::Is { subject, binders, pattern, .. } = e else { return };
+        self.comp_expr(subject, 14);
+        self.push(if negated { " !is " } else { " is " });
+        self.comp_binders(binders);
+        match pattern {
+            CompPattern::Type(t) => self.in_comp_pattern(t),
+            CompPattern::Strs(lits) => self.list(lits, " | ", |p, (lit, _)| p.push(&quote_str(lit))),
+        }
+    }
+
     fn safe_access(&mut self, access: &SafeAccess) {
         match access {
             SafeAccess::Field(f) => self.ident(f),
@@ -2434,10 +2741,9 @@ impl Printer<'_> {
                         p.push("...");
                         p.expr(v, 0);
                     }
-                    StructLitFieldKind::InlineFor { binder, .. } => {
-                        p.push("#{[...for ");
-                        p.push(&binder.name);
-                        p.push(" …]}");
+                    StructLitFieldKind::InlineFor { binder, seq, entries } => {
+                        p.list_for_head(binder, seq);
+                        p.struct_fields(entries);
                     }
                 }
                 let e = p.at();
@@ -2725,6 +3031,13 @@ fn union_tests(e: &Expr) -> Option<(Expr, Vec<Vec<TypeRef>>)> {
 fn compound_origin(st: &Stmt) -> Option<Stmt> {
     let Stmt::Assign { target, value: Expr::Binary { op, lhs, rhs, span: bspan }, span } = st else { return None };
     (bspan == span && **lhs == *target).then(|| Stmt::CompoundAssign { target: target.clone(), op: *op, op_span: *span, value: (**rhs).clone(), span: *span })
+}
+
+/// [comptime-inline] `[field.type]` for a name the parser gave a type splice
+/// (`field.type`, which no written name can be); `None` for any other.
+fn type_splice_text(name: &str) -> Option<String> {
+    let binder = name.strip_suffix(".type")?;
+    (binder.starts_with(|c: char| c.is_lowercase()) && !binder.contains('.') && !binder.contains('[')).then(|| format!("[{name}]"))
 }
 
 fn starts_with_minus(e: &Expr) -> bool {

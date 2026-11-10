@@ -244,15 +244,46 @@ tree a formatter would print was not what the user wrote.
   (`Reading::Dump`): `!(s is "text")#{desugared from `s !is "text"`}`. It is
   the one place the two readings differ besides the lowered `when`; a source
   printing writes the lowered code, which parses back to the same tree.
+- **The comptime forms print as written**, so a template prints back too:
+  `[for …]`, `[if …] … else { … }` (and their `...`), the four `[when …]`
+  dispatches, `[let …]`, `refuse!(…)`, a `[...for …] { … }` head in a call's
+  arguments or a struct literal, a comptime call `[name@m(…)]`, the
+  splices `[field.type]` (a type ref named `field.type`) and `[arm.type](v)`,
+  `name@[site]` (written where the span is written; a stamped copy's still
+  prints bare), and compile-time expressions with their precedence (`x !is
+  P` is a `Not` spanning the same text as its `Is`). `#{a comptime
+  statement}` and `#{[...for x …]}` are gone.
+- **The items keep their order**: the imports a file opens with are one
+  paragraph, and one written later (`std.args` imports two at line 1282)
+  stays where it is; consecutive imports stay one paragraph. The printer
+  had put every import first, which changed a file's item order (agent's
+  call, to confirm: a formatter keeps the order, as `gofmt` does; sorting
+  is the language server's organize-imports).
 - **Tests**: `every_source_file_as_written_prints_to_its_own_tree`
   (print_tests.rs): every std source, every example's, the corpus and a
-  fixture holding each moved sugar in each position
+  fixture holding each moved sugar in each position and the comptime forms
   (`tests/print/sugar.sv`), parsed as written, print to source that parses
-  to the same tree and prints the same again; a file that does not parse
-  fails. The files holding comptime statements, which the printer still
-  marks `#{…}`, are named in `NOT_YET_PRINTED` and must keep failing until
-  taken off. `the_resolve_dump_names_the_sugar_each_lowering_came_from`
-  (golden_tests.rs).
+  to the same tree (spans aside; the terminal bodies counted, since the
+  tree's debug form leaves them out) and prints the same again; a file that
+  does not parse fails, and a file the printer could not write would have
+  to be named in `NOT_YET_PRINTED` (empty). The lowered-tree test
+  (`every_source_file_prints_to_its_own_tree`) no longer leaves out the
+  files with a comptime fn. `the_sugar_fixture_prints_as_written`,
+  `a_lowered_use_on_is_marked_in_a_dump`,
+  `a_lowered_trailing_replyto_is_marked_in_a_dump` (print_tests.rs),
+  `the_resolve_dump_names_the_sugar_each_lowering_came_from`
+  (golden_tests.rs). 765 tests under nextest, all green (2m35, the machine
+  loaded); std analyze clean; no snapshot and no generated code changed.
+- **Agent's calls, to confirm**: (a) `parse_module` stays the one-call
+  parse that lowers (namespaces, sugar, `iter fn`s, `?:`), as its ~140
+  callers in tests expect, and `parse_module_deferred` is the tree as
+  written (the deferred work is the expansion's); (b) one `Expr::Sugar`
+  node over a `Sugar` enum, and `Stmt::CompoundAssign` for the one
+  statement; (c) the struct-literal shorthand and a plural `with` subject
+  are printed from the spans rather than given nodes; (d) the terminal
+  `...` spelling is a side list in the module; (e) a dump marks a lowered
+  expression `#{desugared from `…`}` after it, and a lowered statement with
+  a comment line above it; (f) the printer keeps the items' order.
 
 ### 2026-11-09 — The dumps print a lowered `?:`, `?.` or `?>` as its `when` ([ast-print] [dump-resolve] [dump-type-check] [when-lowered])
 
@@ -41730,6 +41761,16 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A dump finds lowered sugar by the spans the lowering wrote**
+  (2026-11-09, [syntax-lowered]): the `!` of a lowered `!is` starts after
+  its operand, a pair's tuple starts at its key, a compound assignment's
+  `Binary` spans the statement, a flattened `replyto`'s call ends at the
+  mint (`print::sugar_origin`, `compound_origin`). A lowering that changes
+  one of those spans loses the dump's `desugared from` note silently, and a
+  written form that happened to match one would gain one: the tests that
+  pin them are `the_resolve_dump_names_the_sugar_each_lowering_came_from`
+  and the two `a_lowered_*_is_marked_in_a_dump`.
 
 - **A stamped body is no source of the file it is in** (2026-11-09, dumps).
   Printed into the site's file and parsed back, its names resolve there, not

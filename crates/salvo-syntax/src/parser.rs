@@ -7787,9 +7787,9 @@ impl<'s> Parser<'s> {
 
     /// [effect-eff-handle] `use H(args) [with …] [on POOL]` as an **expression**:
     /// the `use` keyword is already consumed; `start` is its span. Registers
-    /// the handler and yields its handle. The `on POOL` form keeps its old
-    /// sugar — a `spawn` bound as an addr — so the `pool` field is passed
-    /// through and the checker/IR handle it as they did for the statement.
+    /// the handler and yields its handle. The `on POOL` form is the sugar for
+    /// a `spawn` bound as an addr (`Sugar::UseOn`, lowered before resolution),
+    /// so the checker/IR handle it as they do for the statement.
     /// [effect-eff-handle] `eff[a, b]` / `eff[*]` — the merge constructor in value
     /// position: `eff` then `[`, with value operands (or a lone `*` for every
     /// in-scope handle). Distinct from the type former by context (this is

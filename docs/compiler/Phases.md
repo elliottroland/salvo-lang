@@ -114,6 +114,23 @@ Before putting something in core, ask whether a garbage-collected backend
 with expression blocks would care; if not, it is not a Salvo fact
 ([core-layers]).
 
+### The parser writes what was written
+
+The parser's tree is the source as written (user decision 2026-11-09,
+[syntax-lowered]): a piece of sugar is a node of its own (`ast::Sugar`,
+`Stmt::CompoundAssign`), or a spelling the tree keeps beside the node
+(`Module::terminal_bodies`), or a trace in the spans (the struct-literal
+shorthand, a plural `with` subject). A lowering that needs no name belongs
+in the per-file expansion (`desugar.rs`, run from `expand_file` before
+anything else), not in the parser: a printer, and so a formatter, prints the
+parsed tree, and the language server reads the written file. Two rules keep
+the move invisible to everything after it: the lowering writes exactly the
+tree the parser wrote (spans included: a name a lowering writes several
+times gets a span of its own each time, since what later phases record
+about a name is keyed by its span), and it runs before numbering. A
+diagnostic about how the sugar is written stays the parser's, where it is
+cheapest to raise, with its id.
+
 ### Interfaces before bodies
 
 An interface reads its own declaration's text and other declarations'

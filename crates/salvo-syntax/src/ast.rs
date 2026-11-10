@@ -2452,9 +2452,10 @@ pub enum Expr {
     /// `use e` over a handle value is the existing `use addr` path.
     Use {
         /// The handler construction (or an `eff[…]`/addr value to re-bind),
-        /// the same shape `spawn` takes. The `use H() on POOL` sugar is
-        /// lowered here to a `spawn` handler exactly as the statement form
-        /// does, so `handler` already carries the placement.
+        /// the same shape `spawn` takes. In `use H() on POOL` it is the
+        /// sugar as written (`Sugar::UseOn`), lowered before resolution to
+        /// the `spawn` handler [syntax-lowered], exactly as the statement
+        /// form's, so once lowered `handler` carries the placement.
         handler: Box<Expr>,
         /// [effect-with-clause] The `with` clause, as on a `spawn`.
         with_items: Vec<Expr>,

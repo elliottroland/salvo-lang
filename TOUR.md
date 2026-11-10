@@ -70,10 +70,13 @@ The pipeline, in the order the code runs it:
 
 ```
  .sv text
-    │  salvo-syntax: lexer → parser → desugar (iter fn → struct + minter + next)
+    │  salvo-syntax: lexer → parser: the tree as written, sugar kept
+    │                (`ast::Sugar`) — what `print.rs` writes back
     ▼
  Module ASTs ──► Program (source.rs, program.rs): all files, flat symbol tables
-    │  salvo-core: expand (per file), interfaces (scopes by id), comptime
+    │  salvo-core: expand (per file: namespaces flattened, the sugar lowered
+    │              [syntax-lowered], iter fn → struct + minter + next, tests,
+    │              `?:`, numbering), interfaces (scopes by id), comptime
     │              stamping (by-auto), resolve (the stamped program's scopes)
     ▼
  check_program ──► Checked        ← the whole output of the front half:
@@ -101,7 +104,7 @@ The two decisive facts about the design:
 
 | crate | lines | what it is |
 |---|---|---|
-| `salvo-syntax` | ~15k | lexer, parser (6.7k), `desugar.rs` (iter fn, etc.), AST, `print.rs` (the tree back to Salvo, with where each node went: what the resolve and type-check dumps print [ast-print]), `visit`/`visit_mut`, spans, diagnostics. No dependencies. |
+| `salvo-syntax` | ~15k | lexer, parser (6.7k; it builds the tree as written, its sugar an `Expr::Sugar` or a `Stmt::CompoundAssign`), `desugar.rs` (the per-file lowerings the expansion runs: namespaces, the sugar [syntax-lowered], iter fn, tests, `?:`), AST, `print.rs` (the tree back to Salvo, as written or as lowered, with where each node went: what the resolve and type-check dumps print [ast-print]), `visit`/`visit_mut`, spans, diagnostics. No dependencies. |
 | `salvo-core` | ~42k | everything between the parse and the emitters. `check.rs` alone is 30k. |
 | `salvo-backend` | ~1.4k | what the emitters share: `driver.rs` (check/erase/resolve/reach), `emit_util.rs` (walkers, `EmittedFile`, ABI stamping, literal desugaring, `checker_refs`). |
 | `salvo-backend-rust` | ~19k | `emit.rs` (17k), `imports.rs`, `intrinsics.rs`, runtime `.rs` files. |
@@ -127,7 +130,9 @@ By what you would come looking for.
   `intrinsic_types`, `effect_of_fn`, …). Names that several modules declare
   get a *key* (`Node§main`); `typekey.rs` is that scheme [type-identity].
 * `expand.rs`, `comptime.rs`: the expansions. `expand.rs` runs the per-file
-  ones before resolution; `comptime.rs` runs between the program's interfaces
+  ones before resolution (`expand_file`: the namespace flattening and the
+  sugar lowering first, then the struct-body hoist, `iter fn`s, tests and
+  `?:`; the parse it starts from is the source as written); `comptime.rs` runs between the program's interfaces
   (`resolve::interfaces`: every file's scope by id) and its bodies, reading
   names off the interfaces. It stamps a `comptime fn` at a concrete type and
   unrolls `[for]`/`[when]`/`[if]` into an ordinary fn. Every stamped node keeps its span in the template and

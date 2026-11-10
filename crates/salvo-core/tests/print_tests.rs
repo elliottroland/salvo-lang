@@ -142,8 +142,7 @@ fn shape_of(node: &impl std::fmt::Debug) -> String {
 }
 
 /// The source files a tree comparison runs over: the corpus, std's own
-/// files and the examples' — those with no comptime fn, whose bodies hold
-/// comptime statements the printer marks rather than writes.
+/// files and the examples'.
 fn source_files() -> Vec<std::path::PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else { return };
@@ -161,7 +160,6 @@ fn source_files() -> Vec<std::path::PathBuf> {
     for dir in ["crates/salvo-syntax/tests/corpus", "lib/std", "examples"] {
         walk(&root.join(dir), &mut out);
     }
-    out.retain(|p| !std::fs::read_to_string(p).unwrap_or_default().contains("comptime fn"));
     out.sort();
     out
 }
@@ -402,7 +400,7 @@ fn every_source_file_as_written_prints_to_its_own_tree() {
 
 /// The files holding what the printer cannot write as written yet: comptime
 /// statements and heads (ROADMAP §0av).
-const NOT_YET_PRINTED: &[&str] = &["lib/std/args.sv", "lib/std/core/auto.sv", "lib/std/net/shard.sv", "lib/std/test/kinds.sv", "lib/std/test/random.sv"];
+const NOT_YET_PRINTED: &[&str] = &[];
 
 /// [ast-print] [syntax-lowered] The sugar fixture, written in the printer's
 /// layout, prints back to its own text: each piece of sugar as it was
