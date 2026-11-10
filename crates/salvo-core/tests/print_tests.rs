@@ -419,3 +419,19 @@ fn the_sugar_fixture_prints_as_written() {
     let at = a.iter().zip(&b).position(|(x, y)| x != y);
     assert!(at.is_none() && a.len() == b.len(), "line {}:\n  written: {}\n  printed: {}\n\n{printed}", at.unwrap_or(a.len().min(b.len())) + 1, a.get(at.unwrap_or(0)).unwrap_or(&"<end>"), b.get(at.unwrap_or(0)).unwrap_or(&"<end>"));
 }
+
+/// [ast-print] [syntax-lowered] [actor-use-addr] A dump marks the spawn a
+/// `use … on` was lowered to with the `use` as written; a source printing
+/// writes the spawn, which parses back to the same tree.
+#[test]
+fn a_lowered_use_on_is_marked_in_a_dump() {
+    use salvo_syntax::print::{print_module_with, NoNotes, Reading};
+    let (module, diags) = salvo_syntax::parse_module("use Logging() on pool(1)\n\nfn f() [use, spawn] {\n    use Counting(0) with Db() on pool(2)\n}\n");
+    assert!(!diags.iter().any(|d| d.is_error()), "{diags:?}");
+    let dump = print_module_with(&module, &NoNotes, Reading::Dump).text;
+    for want in ["use spawn Logging() on pool(1)#{desugared from `use Logging() on pool(1)`}", "use spawn Counting(0) with Db() on pool(2)#{desugared from `use Counting(0) with Db() on pool(2)`}"] {
+        assert!(dump.contains(want), "missing `{want}` in:\n{dump}");
+    }
+    let source = print_module(&module).text;
+    assert!(source.contains("    use spawn Counting(0) with Db() on pool(2)\n") && !source.contains("desugared"), "{source}");
+}

@@ -489,19 +489,14 @@ impl<'s> Parser<'s> {
                 let start = self.bump().span;
                 if let Some(mut handler) = self.parse_expr() {
                     let mut span = start.to(handler.span());
-                    // `use H() on POOL`, the spawn sugar a `use` statement has.
+                    // `use H() on POOL`, the spawn sugar a `use` statement has,
+                    // as written [syntax-lowered].
                     if self.at_word("on") && self.same_line() {
                         self.bump();
                         if let Some(pool) = self.parse_expr() {
                             span = start.to(pool.span());
                             let spawn_span = handler.span().to(pool.span());
-                            handler = Expr::Spawn {
-                                handler: Box::new(handler),
-                                with_items: Vec::new(),
-                                pool: Some(Box::new(pool)),
-                                join: None,
-                                span: spawn_span,
-                            };
+                            handler = Expr::Sugar(Box::new(Sugar::UseOn { handler, with_items: Vec::new(), pool, span: spawn_span }));
                         }
                     }
                     uses.push(ModuleUse { handler, span });
@@ -7831,22 +7826,16 @@ impl<'s> Parser<'s> {
     fn parse_use_expr(&mut self, start: Span) -> Option<Expr> {
         let handler = self.parse_expr()?;
         let with_items = self.parse_with_clause()?;
-        // [actor-use-addr] `use H(args) on POOL` — the sugar: lower to a
-        // `spawn` handler bound as an addr, exactly as the statement form
-        // does, so one code path serves both. The clause belongs to the
-        // spawn (the instance is the child's).
+        // [actor-use-addr] `use H(args) on POOL` — the sugar, as written
+        // [syntax-lowered]: a `spawn` handler bound as an addr, exactly as the
+        // statement form does, so one code path serves both. The clause
+        // belongs to the spawn (the instance is the child's).
         if self.at_word("on") && self.same_line() {
             self.bump();
             let pool = self.parse_expr()?;
             let span = start.to(pool.span());
             let spawn_span = handler.span().to(pool.span());
-            let handler = Expr::Spawn {
-                handler: Box::new(handler),
-                with_items,
-                pool: Some(Box::new(pool)),
-                join: None,
-                span: spawn_span,
-            };
+            let handler = Expr::Sugar(Box::new(Sugar::UseOn { handler, with_items, pool, span: spawn_span }));
             return Some(Expr::Use {
                 handler: Box::new(handler),
                 with_items: Vec::new(),

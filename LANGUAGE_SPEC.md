@@ -3211,6 +3211,10 @@ Conventions:
     (`Sugar::Is`; a plain `x is Q` is an `Expr::Is`).
   * A pair argument `k: v` [col-pairs] (`Sugar::Pair`), the 2-tuple `(k,
     v)` spanning its two sides only.
+  * `use H(args) with D on POOL` [actor-use-addr] — a statement, an
+    expression or a module-level `use` — whose handler is `Sugar::UseOn`:
+    `spawn H(args) with D on POOL`, starting at `H` rather than at a
+    `spawn`.
   * Not lowered, since the tree keeps the spelling: the struct-literal
     shorthand `{ x }` [struct-lit-shorthand] (as a struct pattern's `{ x }`
     is), `x++` [op-inc-dec] (`Expr::IncDec`), and a terminal `...` body
@@ -3221,8 +3225,9 @@ Conventions:
     the comment `// desugared from `x += e``; for source, it prints as the
     code it became. The tree keeps a trace of each, which the printer reads
     (`print::sugar_origin`): the `!` of a `!is` starts after its operand
-    does, the second test of a union `is` starts where the `||` does, and a
-    pair's tuple starts where its key does (a written one at its `(`).
+    does, the second test of a union `is` starts where the `||` does, a
+    pair's tuple starts where its key does (a written one at its `(`), and a
+    `use … on`'s spawn starts where its handler does.
 * [when-lowered] **`?:`, `?.` and `?>` are sugar for a `when`** (user decision 2026-10-30,
   option (a) of the pipeline record D2's Convert write-up), lowered after parsing
   and before resolution, since it needs no names (`desugar::lower_picks`):
@@ -8367,9 +8372,11 @@ docs/language/ remains the source of truth for everything that does.
     lowering fills them (ROADMAP 0au).
   * **`use H(args) on POOL` is the spawn-and-bind sugar** (SH-7, user
     decision 2026-09-19; built the same day): one shared instance serving an
-    effect in a scope, in one line — parsed as a `use` whose handler is a
-    spawn expression, so the spawn machinery and the addr binding each do
-    their own half and the emitters need nothing new. The `on` clause is the
+    effect in a scope, in one line — a `use` whose handler is a spawn
+    expression (kept as written by the parser, `Sugar::UseOn`, and lowered
+    to the spawn before resolution [syntax-lowered]), so the spawn machinery
+    and the addr binding each do their own half and the emitters need
+    nothing new. The `on` clause is the
     marker (without it, `use H(args)` is the in-scope handle binding); a
     multi-face handler is refused by name (one binding cannot split the
     tuple); and a dependency clause does not fit the sugar yet — it arrives

@@ -180,7 +180,10 @@ tree a formatter would print was not what the user wrote.
   expression; `x++` was never lowered, `Expr::IncDec` is its node); `x !is
   Q`, `x is A | B` and `x !is A | B` (`Sugar::Is`: one node for the
   negation and the union, since `!is A | B` is both; a plain `x is Q` stays
-  an `Expr::Is`); a pair argument `k: v` (`Sugar::Pair`).
+  an `Expr::Is`); a pair argument `k: v` (`Sugar::Pair`); the handler of
+  `use H() with D on P` (`Sugar::UseOn`, in a statement, an expression and
+  a module-level `use`: the spawn the `use` binds, with the `with` clause
+  that belongs to it).
 - **Not moved**: the struct-literal shorthand `{ x }`. The parser reads it
   as `x: x` with the one identifier as name and value, the two spans the
   same, which no written `x: x` has: the spelling is in the tree already,
@@ -222,7 +225,8 @@ tree a formatter would print was not what the user wrote.
   `as_N_v` name; an assignment whose `Binary` spans the whole statement and
   reads the target itself (a written `x = x + e`'s value starts after the
   `=`); a `!` whose operand starts before it; an `||` whose right test
-  starts where it does; a 2-tuple that starts where its first element does. An expression gets a mark after it, in a dump only
+  starts where it does; a 2-tuple that starts where its first element does;
+  a spawn that starts where its handler does. An expression gets a mark after it, in a dump only
   (`Reading::Dump`): `!(s is "text")#{desugared from `s !is "text"`}`. It is
   the one place the two readings differ besides the lowered `when`; a source
   printing writes the lowered code, which parses back to the same tree.

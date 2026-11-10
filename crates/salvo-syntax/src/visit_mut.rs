@@ -966,5 +966,13 @@ pub fn walk_sugar<V: MutVisitor>(v: &mut V, sugar: &mut Sugar) {
             walk_expr(v, key);
             walk_expr(v, value);
         }
+        Sugar::UseOn { handler, with_items, pool, span } => {
+            v.visit_span(span);
+            walk_expr(v, handler);
+            for w in with_items {
+                walk_expr(v, w);
+            }
+            walk_expr(v, pool);
+        }
     }
 }

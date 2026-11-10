@@ -236,8 +236,8 @@ file:
   `n += 1` is printed as `n = n + 1` under a line `// desugared from `n +=
   1``. An expression gets the same note as a mark after it:
   `!(s is "text")#{desugared from `s !is "text"`}` for `!is`, and likewise
-  for `s is "a" | "b"` (the `||` of two tests) and a `"k": v` argument (the
-  tuple `("k", v)`). The shorthand `Point { x }` is printed `Point { x: x
+  for `s is "a" | "b"` (the `||` of two tests), a `"k": v` argument (the
+  tuple `("k", v)`) and `use H() on p` (`use spawn H() on p`). The shorthand `Point { x }` is printed `Point { x: x
   }`, so that the value can show what it resolved to. A stamped body's
   `name@[site]` is printed as the bare name, which is what it means in the
   file it is printed into.

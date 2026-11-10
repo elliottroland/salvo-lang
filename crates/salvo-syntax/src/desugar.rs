@@ -1732,6 +1732,12 @@ fn lower_one(sugar: Sugar) -> Expr {
         // written tuple's span starts at its `(`, which is how a printing
         // tells the two apart.
         Sugar::Pair { key, value, span } => Expr::Tuple { elems: vec![key, value], span },
+        // [actor-use-addr] The spawn the `use` binds as an address. It starts
+        // where its handler does (a written `spawn` starts at the word), which
+        // is how a printing tells the two apart.
+        Sugar::UseOn { handler, with_items, pool, span } => {
+            Expr::Spawn { handler: Box::new(handler), with_items, pool: Some(Box::new(pool)), join: None, span }
+        }
     }
 }
 

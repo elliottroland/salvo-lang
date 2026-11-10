@@ -1791,7 +1791,10 @@ impl Printer<'_> {
         let outer_end = self.at();
         self.record(e.span(), start, end, outer_start, outer_end);
         if let Some(sugar) = origin {
-            let text = self.source_text(|p| p.sugar(&sugar));
+            let mut text = self.source_text(|p| p.sugar(&sugar));
+            if let Sugar::UseOn { .. } = sugar {
+                text.insert_str(0, "use ");
+            }
             self.push("#{desugared from `");
             self.push(&text);
             self.push("`}");
@@ -1823,6 +1826,8 @@ impl Printer<'_> {
             Expr::Sugar(sugar) => match **sugar {
                 Sugar::AsQual { .. } | Sugar::Is { .. } => COMPARE,
                 Sugar::Pair { .. } => 0,
+                // As a spawn: its clauses read greedily.
+                Sugar::UseOn { .. } => 1,
             },
             Expr::Elvis { .. } => ELVIS,
             Expr::When { origin: Some(WhenOrigin::Pick), .. } if self.reading == Reading::Source => ELVIS,
@@ -2323,6 +2328,12 @@ impl Printer<'_> {
                 self.push(": ");
                 self.arg(value);
             }
+            Sugar::UseOn { handler, with_items, pool, .. } => {
+                self.expr(handler, 1);
+                self.with_items(with_items);
+                self.push(" on ");
+                self.expr(pool, 1);
+            }
         }
     }
 
@@ -2570,7 +2581,9 @@ fn as_qual_name(branches: &[(Expr, Block)]) -> Option<String> {
 /// by the trace the tree keeps of it: for `x !is Q`, a `!` whose operand
 /// starts before it; for `x is A | B`, an `||` whose right test starts where
 /// it does (a written test starts at its own subject); for a pair `k: v`, a
-/// 2-tuple that starts where its key does (a written one starts at `(`).
+/// 2-tuple that starts where its key does (a written one starts at `(`); for
+/// `use H() on P`, a spawn that starts where its handler does (a written one
+/// starts at `spawn`).
 fn sugar_origin(e: &Expr) -> Option<Sugar> {
     match e {
         Expr::Unary { op: UnaryOp::Not, operand, span } if span.start > operand.span().start => {
@@ -2590,6 +2603,10 @@ fn sugar_origin(e: &Expr) -> Option<Sugar> {
         // [col-pairs] A pair's tuple spans its two sides only.
         Expr::Tuple { elems, span } if elems.len() == 2 && elems[0].span().start == span.start => {
             Some(Sugar::Pair { key: elems[0].clone(), value: elems[1].clone(), span: *span })
+        }
+        // [actor-use-addr] A `use … on`'s spawn starts at its handler.
+        Expr::Spawn { handler, with_items, pool: Some(pool), join: None, span } if handler.span().start == span.start => {
+            Some(Sugar::UseOn { handler: (**handler).clone(), with_items: with_items.clone(), pool: (**pool).clone(), span: *span })
         }
         _ => None,
     }

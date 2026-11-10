@@ -3,6 +3,8 @@
 // a statement, a condition, a call argument, a lambda body. Parsed only
 // (`print_tests.rs`), never checked.
 
+use Logging() on pool(1)
+
 // A doc comment survives the printing.
 fn as_qual(x: Int, xs: List<Int>) -> None {
     let a = x as! Positive
@@ -102,4 +104,13 @@ fn terminal_nested(xs: List<Int>) -> None {
 fn main() [use] {
     waitfor out ...
     out.send(1)
+}
+
+fn use_on(n: Int) [use, spawn] {
+    use Counting(0) on pool(2)
+    use Counting(n) with Db(), log on pool(n + 1)
+    let c = use Counting(0) on pool(1)
+    let d = use Counting(0) with Db() on main_pool()
+    use Counting(0)
+    f(use Counting(1) on pool(1))
 }

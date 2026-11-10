@@ -2538,12 +2538,18 @@ pub enum Sugar {
     /// [col-pairs] A `key: value` call argument (`Map("a": 1)`): the 2-tuple
     /// `(key, value)` filling a `...pairs: (K, V)[]` variadic.
     Pair { key: Expr, value: Expr, span: Span },
+    /// [actor-use-addr] The handler of `use H(args) with D on POOL` (a `use`
+    /// statement, expression or module-level `use`), as written: `H(args)
+    /// with D on POOL`, which is the `spawn H(args) with D on POOL` the `use`
+    /// binds as an address. The `use` itself has no `with` clause then: it
+    /// belongs to the spawn. `span` runs from the handler to the pool.
+    UseOn { handler: Expr, with_items: Vec<Expr>, pool: Expr, span: Span },
 }
 
 impl Sugar {
     pub fn span(&self) -> Span {
         match self {
-            Sugar::AsQual { span, .. } | Sugar::Is { span, .. } | Sugar::Pair { span, .. } => *span,
+            Sugar::AsQual { span, .. } | Sugar::Is { span, .. } | Sugar::Pair { span, .. } | Sugar::UseOn { span, .. } => *span,
         }
     }
 }
