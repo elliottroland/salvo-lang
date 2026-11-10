@@ -2492,8 +2492,32 @@ pub enum Expr {
     /// declared and lowered in that file's scope, as every applied default is
     /// [struct-defaults].
     FieldDefault { owner: Type, field: Ident, ty: Type, span: Span },
+    /// [syntax-lowered] A piece of surface syntax as written, which the
+    /// parser keeps so a printer can write it back (`salvo fmt`), and which
+    /// `desugar::lower_sugar` lowers to the constructs it stands for before
+    /// resolution: nothing after the per-file expansion meets one.
+    Sugar(Box<Sugar>),
     /// Placeholder produced on parse errors so parsing can continue.
     Error { span: Span },
+}
+
+/// [syntax-lowered] The surface sugar an [`Expr::Sugar`] holds: each as
+/// written, lowered before resolution to the code it stands for
+/// (`desugar::lower_sugar`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Sugar {
+    /// [expr-as-qual] `x as! Q` (`trap`) and `x as? Q`: `x` given the
+    /// qualifier `Q`. `op` is the `as` and `mark` the `!` or `?`: the lowering
+    /// gives the names it writes spans of their own out of them.
+    AsQual { subject: Expr, check: Vec<TypeRef>, trap: bool, op: Span, mark: Span, span: Span },
+}
+
+impl Sugar {
+    pub fn span(&self) -> Span {
+        match self {
+            Sugar::AsQual { span, .. } => *span,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2718,6 +2742,7 @@ impl Expr {
             | Expr::FieldDefault { span, .. }
             | Expr::Error { span } => *span,
             Expr::Ident(ident) => ident.span,
+            Expr::Sugar(s) => s.span(),
         }
     }
 }

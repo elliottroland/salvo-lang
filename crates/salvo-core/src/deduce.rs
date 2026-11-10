@@ -1294,6 +1294,8 @@ impl<'p> Walk<'_, 'p> {
             | Expr::Bool { .. }
             | Expr::Char { .. }
             | Expr::FieldDefault { .. } | Expr::Error { .. } => {}
+            // [syntax-lowered] Lowered before resolution.
+            Expr::Sugar(_) => {}
         }
     }
 

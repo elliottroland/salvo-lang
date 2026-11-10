@@ -887,6 +887,8 @@ impl Rewrite {
             | Expr::Bool { .. }
             | Expr::Char { .. }
             | Expr::FieldDefault { .. } | Expr::Error { .. } => {}
+            // [syntax-lowered] Lowered before the `iter fn` expansion.
+            Expr::Sugar(_) => {}
             Expr::Str { parts, .. } => {
                 for part in parts {
                     match part {
@@ -1363,6 +1365,8 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
             | Expr::Char { .. }
             | Expr::Ident(_)
             | Expr::FieldDefault { .. } | Expr::Error { .. } => {}
+            // [syntax-lowered] Lowered before the `iter fn` expansion.
+            Expr::Sugar(_) => {}
         }
     }
 
@@ -1649,6 +1653,90 @@ pub fn hoist_struct_fns(module: &mut Module) {
         }
     }
     module.items.extend(generated);
+}
+
+/// [syntax-lowered] Lowers the surface sugar the parser keeps as written
+/// ([`Sugar`]) to the code each piece stands for, over every node of the
+/// file: the first of the per-file expansions, before the `iter fn`s, the
+/// tests and numbering, so nothing after it meets a [`Sugar`]
+/// ([`written_sugar`] is the check). The trees it writes are the ones the
+/// parser wrote before it kept the sugar (user decision 2026-11-09).
+pub fn lower_sugar(module: &mut Module) {
+    crate::node_id::walk_module(&mut LowerSugar, module);
+}
+
+/// [syntax-lowered] The span of the first piece of sugar `module` still
+/// holds: `None` once [`lower_sugar`] has run.
+pub fn written_sugar(module: &mut Module) -> Option<Span> {
+    struct Find(Option<Span>);
+    impl crate::visit_mut::MutVisitor for Find {
+        fn visit_expr(&mut self, expr: &mut Expr) {
+            if let (None, Expr::Sugar(s)) = (&self.0, &*expr) {
+                self.0 = Some(s.span());
+            }
+        }
+    }
+    let mut f = Find(None);
+    crate::node_id::walk_module(&mut f, module);
+    f.0
+}
+
+struct LowerSugar;
+
+impl crate::visit_mut::MutVisitor for LowerSugar {
+    fn visit_expr(&mut self, expr: &mut Expr) {
+        // The walk goes on into what replaced the sugar, so sugar inside it
+        // is lowered in turn.
+        if let Expr::Sugar(_) = expr {
+            let Expr::Sugar(sugar) = std::mem::replace(expr, Expr::Placeholder { span: Span::default() }) else {
+                unreachable!()
+            };
+            *expr = lower_one(*sugar);
+        }
+    }
+}
+
+/// [syntax-lowered] What one piece of sugar stands for.
+fn lower_one(sugar: Sugar) -> Expr {
+    match sugar {
+        Sugar::AsQual { subject, check, trap, op, mark, span } => lower_as_qual(subject, check, trap, op, mark, span),
+    }
+}
+
+/// [expr-as-qual] `x as! Q` and `x as? Q`, written out as the code they stand
+/// for, so every later phase reads ordinary constructs:
+///
+/// ```text
+/// x as! Q   ==>  if true { let v = x; assert!(v is Q); v } else { unreachable!() }
+/// x as? Q   ==>  if x is Q v { v } else { None }
+/// ```
+///
+/// `x` is evaluated once, `v` is a name no program writes (`as_N_v`, `N` the
+/// offset of the `as`), and the value is narrowed to `Q` by the test
+/// (`assert!` narrows the rest of its scope [assert-narrow]).
+fn lower_as_qual(lhs: Expr, check: Vec<TypeRef>, trap: bool, as_span: Span, mark: Span, span: Span) -> Expr {
+    let name = format!("as_{}_v", as_span.start);
+    // The name is written three times, and what the later phases record
+    // about a name is keyed by its span: each gets a span of its own, from
+    // the characters of `as` and its mark.
+    let (decl_at, test_at, tail_at) = (as_span.at(as_span.start, as_span.start + 1), as_span.at(as_span.start + 1, as_span.end), mark);
+    let var = |sp: Span| Expr::Ident(Ident { name: name.clone(), span: sp });
+    let block = |stmts: Vec<Stmt>| Block { stmts, span };
+    if trap {
+        let bind = Stmt::Let { pattern: Pattern::Ident(Ident { name: name.clone(), span: decl_at }), ty: None, value: lhs, span };
+        let test = Expr::Is { subject: Box::new(var(test_at)), check, binding: None, span };
+        let assertion = Stmt::Expr(Expr::Assert { cond: Box::new(test), message: None, span });
+        let then = block(vec![bind, assertion, Stmt::Expr(var(tail_at))]);
+        let never = block(vec![Stmt::Expr(Expr::Unreachable { message: None, span })]);
+        return Expr::If { branches: vec![(Expr::Bool { value: true, span }, then)], else_block: Some(never), span };
+    }
+    // As if written `x is Q name`: the binding follows the qualifier.
+    let end = check.last().map(|r| r.span).unwrap_or(mark);
+    let bind_at = end.at(end.end, end.end);
+    let test = Expr::Is { subject: Box::new(lhs), check, binding: Some(Ident { name: name.clone(), span: bind_at }), span };
+    let then = block(vec![Stmt::Expr(var(tail_at))]);
+    let none = block(vec![Stmt::Expr(Expr::Ident(Ident { name: "None".to_string(), span }))]);
+    Expr::If { branches: vec![(test, then)], else_block: Some(none), span }
 }
 
 /// [when-lowered] [op-elvis] Lowers every `subject ?: rhs` of `module` to the

@@ -1871,6 +1871,7 @@ fn run_test_pass(
         &format!("{}.sv", salvo_test::HARNESS_MODULE),
         false,
     );
+    salvo_syntax::desugar::lower_sugar(&mut ast);
     salvo_syntax::desugar::lower_picks(&mut ast);
     salvo_syntax::node_id::number(&mut ast);
     if diagnostics.iter().any(|d| d.is_error()) {

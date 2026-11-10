@@ -6123,19 +6123,10 @@ impl<'s> Parser<'s> {
     }
 
     /// [expr-as-qual] `x as! Q` and `x as? Q` (user decision 2026-11-05): `x`
-    /// given the qualifier `Q`. Written out as the code it stands for, so
-    /// every later phase reads ordinary constructs:
-    ///
-    /// ```text
-    /// x as! Q   ==>  if true { let v = x; assert!(v is Q); v } else { unreachable!() }
-    /// x as? Q   ==>  if x is Q v { v } else { None }
-    /// ```
-    ///
-    /// `x` is evaluated once, `v` is a name no program writes, and the value
-    /// is narrowed to `Q` by the test (`assert!` narrows the rest of its
-    /// scope [assert-narrow]).
+    /// given the qualifier `Q`, kept as written [syntax-lowered]; the code it
+    /// stands for is written before resolution (`desugar::lower_sugar`).
     fn parse_as_tail(&mut self, lhs: Expr) -> Option<Expr> {
-        let as_span = self.bump().span; // `as`
+        let op = self.bump().span; // `as`
         let mark = self.bump(); // `!` or `?`
         let trap = matches!(mark.kind, TokenKind::Bang);
         let (check, binding) = self.parse_is_check()?;
@@ -6144,45 +6135,7 @@ impl<'s> Parser<'s> {
         }
         let end = check.last().map(|r| r.span).unwrap_or(mark.span);
         let span = lhs.span().to(end);
-        let name = format!("as_{}_v", as_span.start);
-        // The name is written three times, and what the later phases record
-        // about a name is keyed by its span: each gets a span of its own, from
-        // the characters of `as` and its mark.
-        let (decl_at, test_at, tail_at) = (
-            as_span.at(as_span.start, as_span.start + 1),
-            as_span.at(as_span.start + 1, as_span.end),
-            mark.span,
-        );
-        let var = |sp: Span| Expr::Ident(Ident { name: name.clone(), span: sp });
-        let block = |stmts: Vec<Stmt>| Block { stmts, span };
-        if trap {
-            let bind = Stmt::Let {
-                pattern: Pattern::Ident(Ident { name: name.clone(), span: decl_at }),
-                ty: None,
-                value: lhs,
-                span,
-            };
-            let test = Expr::Is { subject: Box::new(var(test_at)), check, binding: None, span };
-            let assertion = Stmt::Expr(Expr::Assert { cond: Box::new(test), message: None, span });
-            let then = block(vec![bind, assertion, Stmt::Expr(var(tail_at))]);
-            let never = block(vec![Stmt::Expr(Expr::Unreachable { message: None, span })]);
-            return Some(Expr::If {
-                branches: vec![(Expr::Bool { value: true, span }, then)],
-                else_block: Some(never),
-                span,
-            });
-        }
-        // As if written `x is Q name`: the binding follows the qualifier.
-        let bind_at = end.at(end.end, end.end);
-        let test = Expr::Is {
-            subject: Box::new(lhs),
-            check,
-            binding: Some(Ident { name: name.clone(), span: bind_at }),
-            span,
-        };
-        let then = block(vec![Stmt::Expr(var(tail_at))]);
-        let none = block(vec![Stmt::Expr(Expr::Ident(Ident { name: "None".to_string(), span }))]);
-        Some(Expr::If { branches: vec![(test, then)], else_block: Some(none), span })
+        Some(Expr::Sugar(Box::new(Sugar::AsQual { subject: lhs, check, trap, op, mark: mark.span, span })))
     }
 
     /// The type-ref sequence after `is`, with an optional trailing binding.

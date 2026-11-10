@@ -149,6 +149,46 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-09 — The parser keeps the sugar as written; it is lowered before resolution ([syntax-lowered] [ast-print])
+
+User decision 2026-11-09, the first step towards `salvo fmt` (a formatter
+in the Go manner: the parsed tree, printed): "the place to start is moving
+that desugaring to later. The first step of the resolve phase is probably a
+good fit." The parser lowered several pieces of sugar while parsing, so the
+tree a formatter would print was not what the user wrote.
+
+- **One node for all of it**: `Expr::Sugar(Box<ast::Sugar>)`, one variant
+  per piece of sugar, rather than one `Expr` variant each, so a phase after
+  the lowering has a single arm to write (a no-op, or in the checker the
+  internal `syntax-lowered:not-lowered`).
+- **Where it is lowered**: `desugar::lower_sugar`, the first of the
+  per-file expansions (`expand_file`), before the `iter fn`s, the tests and
+  numbering (docs/compiler/Phases.md). `parse_module` runs it too, as it
+  runs the other per-file desugarings, so a test or tool that wants a
+  lowered module still gets one; `parse_module_deferred` is the tree as
+  written. The test harness's driver, which parses its generated source
+  with the deferred parse, runs it as well. A debug assertion
+  (`desugar::written_sugar`) closes the per-file expansion.
+- **The trees are the parser's old ones**, node for node and span for span,
+  so no later phase changed and no generated code did. A diagnostic about
+  how the sugar is written stays the parser's, with its id
+  (`expr-as-qual:binding`).
+- **Moved**: `x as! Q` / `x as? Q` (`Sugar::AsQual`, keeping the spans of
+  `as` and its mark, out of which the lowering makes the three distinct
+  spans of its `as_N_v`).
+- **The dumps** give each lowered piece the sugar it was written as:
+  `// desugared from `x as! NonNegative`` (it was a fixed sentence per
+  form).
+- **Tests**: `every_source_file_as_written_prints_to_its_own_tree`
+  (print_tests.rs): every std source, every example's, the corpus and a
+  fixture holding each moved sugar in each position
+  (`tests/print/sugar.sv`), parsed as written, print to source that parses
+  to the same tree and prints the same again; a file that does not parse
+  fails. The files holding comptime statements, which the printer still
+  marks `#{…}`, are named in `NOT_YET_PRINTED` and must keep failing until
+  taken off. `the_resolve_dump_names_the_sugar_each_lowering_came_from`
+  (golden_tests.rs).
+
 ### 2026-11-09 — The dumps print a lowered `?:`, `?.` or `?>` as its `when` ([ast-print] [dump-resolve] [dump-type-check] [when-lowered])
 
 User decision 2026-11-09, overturning the agent's call (a) of the entry

@@ -443,6 +443,8 @@ impl<'p> Walk<'_, '_, 'p> {
                 Some(out)
             }
             Expr::Scoped { .. } | Expr::EffectScoped { .. } | Expr::FieldDefault { .. } | Expr::Error { .. } => None,
+            // [syntax-lowered] Lowered before resolution.
+            Expr::Sugar(_) => None,
         }
     }
 

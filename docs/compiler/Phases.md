@@ -10,7 +10,8 @@ placement decision teaches something general.
 
 | phase | code | what it is for |
 |---|---|---|
-| parse | `salvo-syntax` (`lexer.rs`, `parser.rs`, `desugar.rs`) | Text to a tree, per file. Syntactic sugar is lowered here, nothing that needs a name resolved. |
+| parse | `salvo-syntax` (`lexer.rs`, `parser.rs`) | Text to a tree, per file: the source **as written**, its sugar kept (`ast::Sugar`), so a printer can write it back. |
+| expand (per file) | `salvo-syntax/src/desugar.rs`, `salvo-core/src/expand.rs` (`expand_file`) | The sugar lowered to the code it stands for (`lower_sugar`, first), the struct-body hoist, `iter fn`s, tests, `?:`/`?.`/`?>`; then numbering. Nothing that needs a name resolved. |
 | resolve | `salvo-core/src/resolve.rs`, `scope_ids.rs` | Which declaration every name means: each file's scope, against the program's declaration headers. |
 | interfaces | `check.rs`, the interface pass | Each declaration's signature as the program means it: types lowered, effect lists expanded, implicits, default deductions. Reads the declaration's own text and other declarations' interfaces, never a body. |
 | comptime | `comptime.rs`, `expand.rs` | Stamps `by` clauses and comptime bodies, between the interfaces (which it reads) and the bodies (which it produces). |

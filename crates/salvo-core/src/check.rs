@@ -17785,6 +17785,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Scoped { .. }
             | Expr::EffectScoped { .. }
             | Expr::FieldDefault { .. } | Expr::Error { .. } => false,
+            // [syntax-lowered] Lowered before resolution.
+            Expr::Sugar(_) => false,
         }
     }
 
@@ -17885,6 +17887,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             | Expr::Scoped { .. }
             | Expr::EffectScoped { .. }
             | Expr::FieldDefault { .. } | Expr::Error { .. } => false,
+            // [syntax-lowered] Lowered before resolution.
+            Expr::Sugar(_) => false,
         }
     }
 
@@ -23219,6 +23223,8 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
         | Expr::Char { .. }
         | Expr::Ident(_)
         | Expr::FieldDefault { .. } | Expr::Error { .. } => {}
+        // [syntax-lowered] Lowered before resolution.
+        Expr::Sugar(_) => {}
     }
 }
 
@@ -23399,6 +23405,8 @@ pub(crate) fn expr_mentions(expr: &Expr, name: &str) -> bool {
         | Expr::Bool { .. }
         | Expr::Char { .. }
         | Expr::FieldDefault { .. } | Expr::Error { .. } => false,
+        // [syntax-lowered] Lowered before resolution.
+        Expr::Sugar(_) => false,
     }
 }
 
@@ -25742,6 +25750,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 self.lower_type(ty)
             }
             Expr::Error { .. } => Ty::Unknown,
+            // [syntax-lowered] Lowered before resolution
+            // (`desugar::lower_sugar`); reaching one means a driver skipped
+            // the lowering, which every driver runs.
+            Expr::Sugar(sugar) => {
+                self.error(sugar.span(), messages::syntax_lowered_not_lowered());
+                Ty::Unknown
+            }
         }
     }
 

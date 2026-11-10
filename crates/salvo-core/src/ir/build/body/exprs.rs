@@ -571,6 +571,8 @@ impl<'a, 'p> Lower<'a, 'p> {
             }
             AExpr::FieldDefault { owner, field, .. } => self.field_default(owner, field, span),
             AExpr::Error { .. } => unsupported(Ty::Unknown, span, "parse error"),
+            // [syntax-lowered] Lowered before resolution.
+            AExpr::Sugar(_) => unsupported(Ty::Unknown, span, "unlowered syntax"),
         }
     }
 

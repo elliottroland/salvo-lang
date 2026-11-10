@@ -4224,6 +4224,12 @@ messages! {
          explicitly (`n != 0`) or test the type with `is`"
     );
 
+    // [syntax-lowered]
+    /// Surface sugar that reached the checker as written: a driver skipped
+    /// `desugar::lower_sugar`, which every driver runs.
+    syntax_lowered_not_lowered = "syntax-lowered:not-lowered" () =>
+        "internal: this syntax was not lowered to the code it stands for before checking";
+
     // [op-elvis]
     /// [when-lowered] A `?:` that reached the checker unlowered: a driver
     /// skipped `desugar::lower_picks`, which every driver runs.

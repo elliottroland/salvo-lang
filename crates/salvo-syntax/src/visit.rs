@@ -935,5 +935,21 @@ pub fn walk_expr<V: Visitor>(v: &mut V, e: &Expr) {
             walk_type(v, ty);
         }
         Expr::Error { span } => v.visit_span(span),
+        Expr::Sugar(sugar) => walk_sugar(v, sugar),
+    }
+}
+
+/// [syntax-lowered] Every node of a piece of sugar as written.
+pub fn walk_sugar<V: Visitor>(v: &mut V, sugar: &Sugar) {
+    match sugar {
+        Sugar::AsQual { subject, check, op, mark, span, .. } => {
+            v.visit_span(span);
+            walk_expr(v, subject);
+            for c in check {
+                walk_type_ref(v, c);
+            }
+            v.visit_span(op);
+            v.visit_span(mark);
+        }
     }
 }

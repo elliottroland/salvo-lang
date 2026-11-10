@@ -3173,6 +3173,21 @@ Conventions:
     backends needed nothing.
   * The lowered `?:` and `?.` use it: the arms a pick leaves behind are
     one head [when-lowered].
+* [syntax-lowered] **The parser's tree is the source as written; its sugar
+  is lowered before resolution** (user decision 2026-11-09: "the place to
+  start is moving that desugaring to later. The first step of the resolve
+  phase is probably a good fit"). `parse_module_deferred` returns the tree a
+  formatter prints back [ast-print]: every piece of surface sugar is a node
+  of its own (`ast::Sugar`, under `Expr::Sugar`), and the code it stands for
+  is written by `desugar::lower_sugar`, the first of the per-file expansions
+  (`salvo_core::expand::expand_file`; `parse_module` runs it too, and so does
+  the test harness's driver). The trees it writes are the ones the parser
+  wrote before, so nothing after it changed; nothing after it meets a piece
+  of sugar (`desugar::written_sugar`, a debug assertion at the end of the
+  per-file expansion), and one that reached the checker would be
+  `syntax-lowered:not-lowered`. A diagnostic about how a piece of sugar is
+  written stays the parser's, with its id. The sugar it lowers:
+  * `x as! Q`, `x as? Q` [expr-as-qual] (`Sugar::AsQual`).
 * [when-lowered] **`?:`, `?.` and `?>` are sugar for a `when`** (user decision 2026-10-30,
   option (a) of the pipeline record D2's Convert write-up), lowered after parsing
   and before resolution, since it needs no names (`desugar::lower_picks`):
@@ -3290,8 +3305,9 @@ Conventions:
   not qualify, with `assert!`'s message, and is the value of type `Q T`; `as?`
   is that value or `None`, `Q T | None`. The `!` or `?` is written against the
   `as`, and the qualifier is a check as after `is`, without a binding. The
-  parser writes each as the code it stands for, so every later phase reads
-  ordinary constructs:
+  parser keeps each as written, and the sugar lowering writes it as the code
+  it stands for [syntax-lowered], so every later phase reads ordinary
+  constructs:
   ```text
   x as! Q   ==>  if true { let v = x; assert!(v is Q); v } else { unreachable!() }
   x as? Q   ==>  if x is Q v { v } else { None }
@@ -12672,8 +12688,11 @@ replaced the working document TESTING.md).
   where the operator had `_`, the heads marked `#{first arm}` and
   `#{rest}` (`print::hole_mark`), and a first line `// desugared from
   `f() ?: 0`` (the operator as `Source` writes it, on one line). Nothing
-  else differs between the two. The parser's `as!`/`as?` [expr-as-qual]
-  prints as the `if` it is, its block opening with a comment saying so.
+  else differs between the two. Sugar the tree keeps as written
+  [syntax-lowered] (a module as parsed) prints as written; once lowered, it
+  prints as the code it became, under a comment giving the sugar as it was
+  written: a lowered `as!`/`as?` [expr-as-qual] is the `if` it is, its block
+  opening with `// desugared from `x as! Q``.
   `salvo_core::printed` adds what only the program knows: a comment over
   each declaration an expansion wrote (a stamped fn, a comptime call's
   hidden fn, an `iter fn`'s, a test's). `print_tests.rs` checks every std

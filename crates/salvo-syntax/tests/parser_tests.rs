@@ -3479,13 +3479,24 @@ fn a_union_is_is_a_disjunction_of_tests() {
     assert!(matches!(&**operand, Expr::Binary { op: BinaryOp::Or, .. }));
 }
 
-// [expr-as-qual] `as!` and `as?` are written out as the constructs they stand
-// for: an `if` around a `let` and an `assert!`, or around an `is` test.
+// [expr-as-qual] [syntax-lowered] `as!` and `as?` are kept as written, and
+// lowered before resolution to the constructs they stand for: an `if` around a
+// `let` and an `assert!`, or around an `is` test.
 #[test]
 fn as_bang_and_as_question_are_sugar_for_a_test() {
-    use salvo_syntax::ast::{Expr, Item, Stmt};
+    use salvo_syntax::ast::{Expr, Item, Stmt, Sugar};
     let source = "fn f() {\n    let a = 36 as! Positive\n    let b = 36 as? Positive\n}\n";
-    let (module, diags) = salvo_syntax::parse_module_deferred(source);
+    let (written, diags) = salvo_syntax::parse_module_deferred(source);
+    assert!(diags.is_empty(), "{diags:?}");
+    let Item::Fn(f) = &written.items[0] else { panic!() };
+    let traps: Vec<bool> = f.body.as_ref().unwrap().stmts.iter().map(|s| match s {
+        Stmt::Let { value: Expr::Sugar(sugar), .. } => match sugar.as_ref() {
+            Sugar::AsQual { trap, .. } => *trap,
+        },
+        other => panic!("as written: {other:?}"),
+    }).collect();
+    assert_eq!(traps, [true, false]);
+    let (module, diags) = salvo_syntax::parse_module(source);
     assert!(diags.is_empty(), "{diags:?}");
     let Item::Fn(f) = &module.items[0] else { panic!() };
     let body = f.body.as_ref().unwrap();

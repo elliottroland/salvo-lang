@@ -43,6 +43,8 @@ pub fn is_copy_scalar_type(ty: &ast::Type) -> bool {
 /// is an error.
 pub fn parse_module(source: &str) -> (ast::Module, Vec<Diagnostic>) {
     let (mut module, mut diagnostics) = parse_module_deferred(source);
+    // [syntax-lowered] The sugar the parser kept, as the code it stands for.
+    desugar::lower_sugar(&mut module);
     // [iter-fn] An `iter fn` is expanded into ordinary declarations here, so
     // every consumer of a parsed module — resolve, the checker, both emitters,
     // the LSP — sees the shape it already supports.
@@ -54,13 +56,17 @@ pub fn parse_module(source: &str) -> (ast::Module, Vec<Diagnostic>) {
     (module, diagnostics)
 }
 
-/// `parse_module` without the `iter fn` expansion or the `?:` lowering
-/// [when-lowered]: for a *program*, whose
-/// driver runs it with the test expansion (`salvo_core::expand`). The caller
-/// **must** run `desugar::expand_iter_fns` and `desugar::lower_picks` on the
-/// module before resolution — an unexpanded `iter fn` is a shape no later
-/// stage supports, and resolve reports one loudly rather than checking it as
-/// an ordinary fn; an unlowered `?:` is a checker error.
+/// The module **as written** [syntax-lowered]: `parse_module` without the
+/// sugar lowering, the `iter fn` expansion or the `?:` lowering
+/// [when-lowered] — what a printer writes back as the source, and what a
+/// *program*'s driver expands with the test expansion
+/// (`salvo_core::expand`). Such a caller **must** run
+/// `desugar::lower_sugar`, `desugar::expand_iter_fns` and
+/// `desugar::lower_picks` on the module before resolution
+/// (`salvo_core::expand::expand_file` runs them all) — an unexpanded `iter fn`
+/// is a shape no later stage supports, and resolve reports one loudly rather
+/// than checking it as an ordinary fn; unlowered sugar or `?:` is a checker
+/// error.
 pub fn parse_module_deferred(source: &str) -> (ast::Module, Vec<Diagnostic>) {
     let lexed = lexer::lex(source);
     let mut diagnostics = lexed.diagnostics;

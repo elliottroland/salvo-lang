@@ -363,6 +363,36 @@ fn the_resolve_dump_shows_a_lowered_pick_as_its_when() {
     assert!(!text.lines().any(|l| l.contains("?:") && !l.trim_start().starts_with("//")), "only the comments name the operator:\n{text}");
 }
 
+/// [dump-resolve] [syntax-lowered] [ast-print] One use of each piece of
+/// sugar the lowering writes out before resolution.
+const SUGAR: &str = "qualifier NonNegative for Int {
+    fn qualifies(int: Int) -> Bool {
+        return int >= 0
+    }
+}
+
+fn g(x: Int) -> Int {
+    let a = x as! NonNegative
+    let b = x as? NonNegative
+    return a
+}
+";
+
+/// [dump-resolve] [syntax-lowered] [ast-print] The resolve dump prints what
+/// the sugar lowering wrote, under a comment giving the sugar as it was
+/// written.
+#[test]
+fn the_resolve_dump_names_the_sugar_each_lowering_came_from() {
+    let program = salvo_testkit::front::clean_program("kt", &[("main.sv", SUGAR)]);
+    let symbols = salvo_core::Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let file = program.files.iter().position(|f| f.name == "main.sv").unwrap();
+    let text = salvo_core::names::dump::dump_file(&program, &resolution, &symbols, file, false);
+    for want in ["// desugared from `x as! NonNegative`", "// desugared from `x as? NonNegative`"] {
+        assert!(text.contains(want), "missing `{want}` in:\n{text}");
+    }
+}
+
 /// [dump-type-check] [when-lowered] [round-trip] The type-check dump prints
 /// a lowered `?:`, `?.` and `?>` as the `when` it became, each hole with the
 /// arms the checker took for it (`#{first arm: Int}`, `#{rest: None}`) and

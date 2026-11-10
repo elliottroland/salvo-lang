@@ -298,3 +298,104 @@ fn every_expanded_example_prints_to_its_own_tree() {
     }
     assert!(failures.is_empty(), "{} files:\n{}", failures.len(), failures.join("\n\n"));
 }
+
+/// Every `.sv` file under `dir` (recursively), sorted.
+fn sv_files(dir: &Path) -> Vec<std::path::PathBuf> {
+    fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, out);
+            } else if p.extension().is_some_and(|x| x == "sv") {
+                out.push(p);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(dir, &mut out);
+    out.sort();
+    out
+}
+
+/// What differs between `text` parsed as written and its printing parsed
+/// as written, or between the printing and its own printing; `None` when
+/// both hold.
+fn written_difference(name: &str, text: &str) -> Option<String> {
+    let parse = |t: &str| {
+        let (m, diags) = salvo_syntax::parse_module_deferred(t);
+        match diags.iter().find(|d| d.is_error()) {
+            Some(d) => {
+                let (line, _) = salvo_syntax::span::line_col(t, d.span.start);
+                Err(format!("{} at\n    {}", d.message, t.lines().nth(line as usize - 1).unwrap_or("")))
+            }
+            None => Ok(m),
+        }
+    };
+    let written = match parse(text) {
+        Ok(m) => m,
+        Err(why) => return Some(format!("{name}: does not parse: {why}")),
+    };
+    let printed = print_module(&written).text;
+    let again = match parse(&printed) {
+        Ok(m) => m,
+        Err(why) => return Some(format!("{name}: printed, it does not parse: {why}")),
+    };
+    let (a, b) = (shape(&written), shape(&again));
+    if a != b {
+        let (la, lb): (Vec<&str>, Vec<&str>) = (a.lines().collect(), b.lines().collect());
+        let at = la.iter().zip(&lb).position(|(x, y)| x != y).unwrap_or(la.len().min(lb.len()));
+        let from = at.saturating_sub(8);
+        return Some(format!(
+            "{name}: the tree differs at line {at}:\n--- written\n{}\n--- printed\n{}",
+            la[from..(at + 3).min(la.len())].join("\n"),
+            lb[from..(at + 3).min(lb.len())].join("\n")
+        ));
+    }
+    let twice = print_module(&again).text;
+    if twice != printed {
+        let (pa, pb): (Vec<&str>, Vec<&str>) = (printed.lines().collect(), twice.lines().collect());
+        let at = pa.iter().zip(&pb).position(|(x, y)| x != y).unwrap_or(pa.len().min(pb.len()));
+        return Some(format!("{name}: printed again, line {} differs:\n  first:  {}\n  second: {}", at + 1, pa.get(at).unwrap_or(&"<end>"), pb.get(at).unwrap_or(&"<end>")));
+    }
+    None
+}
+
+/// [ast-print] [syntax-lowered] Every source file **as written** — the tree
+/// the parser returns, its sugar kept, nothing expanded — prints to source
+/// that parses to the same tree (spans aside) and prints the same again:
+/// what a formatter needs. Over std's sources, every example's, the
+/// language-docs corpus and a fixture holding each piece of sugar in each
+/// position. A file that does not parse is a failure, not a skip.
+#[test]
+fn every_source_file_as_written_prints_to_its_own_tree() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut paths = Vec::new();
+    for dir in ["lib/std", "crates/salvo-syntax/tests/corpus", "crates/salvo-core/tests/print"] {
+        paths.extend(sv_files(&root.join(dir)));
+    }
+    for example in sv_files(&root.join("examples")) {
+        if example.components().any(|c| c.as_os_str() == "salvo") {
+            paths.push(example);
+        }
+    }
+    assert!(paths.len() > 80, "found only {} files", paths.len());
+    let mut failures = Vec::new();
+    for path in &paths {
+        let text = std::fs::read_to_string(path).unwrap();
+        let name = path.strip_prefix(&root).unwrap_or(path).display().to_string();
+        let why = written_difference(&name, &text);
+        // The files the printer cannot write yet are named, and must still
+        // fail: one it can write is taken off the list.
+        match (why, NOT_YET_PRINTED.contains(&name.as_str())) {
+            (Some(why), false) => failures.push(why),
+            (None, true) => failures.push(format!("{name}: prints to its own tree now: take it off `NOT_YET_PRINTED`")),
+            _ => {}
+        }
+    }
+    assert!(failures.is_empty(), "{} of {} files:\n{}", failures.len(), paths.len(), failures.join("\n\n"));
+}
+
+/// The files holding what the printer cannot write as written yet: comptime
+/// statements and heads (ROADMAP §0av).
+const NOT_YET_PRINTED: &[&str] = &["lib/std/args.sv", "lib/std/core/auto.sv", "lib/std/net/shard.sv", "lib/std/test/kinds.sv", "lib/std/test/random.sv"];

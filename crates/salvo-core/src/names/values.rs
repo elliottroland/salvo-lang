@@ -781,6 +781,8 @@ impl<'b, 'p> Binder<'b, 'p> {
             | Expr::FieldDefault { .. }
             | Expr::SelfScoped { .. }
             | Expr::SelfAddr { .. } => {}
+            // [syntax-lowered] Lowered before resolution.
+            Expr::Sugar(_) => {}
             Expr::Str { parts, .. } => {
                 for p in parts {
                     if let StrExprPart::Interp(inner) = p {

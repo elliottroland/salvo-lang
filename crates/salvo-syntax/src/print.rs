@@ -1747,6 +1747,9 @@ impl Printer<'_> {
             Expr::When { origin: Some(WhenOrigin::SafePipe { .. }), .. } if self.reading == Reading::Source => PIPE,
             Expr::Binary { op, .. } => binary_level(*op),
             Expr::Is { .. } => COMPARE,
+            Expr::Sugar(sugar) => match **sugar {
+                Sugar::AsQual { .. } => COMPARE,
+            },
             Expr::Elvis { .. } => ELVIS,
             Expr::When { origin: Some(WhenOrigin::Pick), .. } if self.reading == Reading::Source => ELVIS,
             Expr::Unary { .. } | Expr::Spread { .. } => PREFIX,
@@ -2209,6 +2212,18 @@ impl Printer<'_> {
                 self.push("}");
             }
             Expr::Error { .. } => self.push("#{error}"),
+            Expr::Sugar(sugar) => self.sugar(sugar),
+        }
+    }
+
+    /// [syntax-lowered] A piece of sugar, as written.
+    fn sugar(&mut self, sugar: &Sugar) {
+        match sugar {
+            Sugar::AsQual { subject, check, trap, .. } => {
+                self.expr(subject, COMPARE);
+                self.push(if *trap { " as! " } else { " as? " });
+                self.list(check, " ", |p, r| p.type_ref(r));
+            }
         }
     }
 
@@ -2426,18 +2441,26 @@ impl Printer<'_> {
     }
 }
 
-/// [expr-as-qual] What an `if` the parser wrote for `x as! Q` / `x as? Q`
-/// came from, by the name it binds (`as_N_v`, which no program writes).
+/// [expr-as-qual] What an `if` the lowering wrote for `x as! Q` / `x as? Q`
+/// came from, by the name it binds (`as_N_v`, which no program writes): the
+/// comment over its block, `desugared from `x as! Q``.
 fn as_qual_name(branches: &[(Expr, Block)]) -> Option<String> {
     let is_as = |n: &str| n.strip_prefix("as_").and_then(|r| r.strip_suffix("_v")).is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()));
     let [(cond, body)] = branches else { return None };
-    match (cond, body.stmts.first()) {
-        (Expr::Bool { value: true, .. }, Some(Stmt::Let { pattern: Pattern::Ident(id), .. })) if is_as(&id.name) => {
-            Some("desugared from `as!`: the value, asserted to have the qualifier".to_string())
-        }
-        (Expr::Is { binding: Some(b), .. }, _) if is_as(&b.name) => Some("desugared from `as?`: the value if it has the qualifier, else `None`".to_string()),
-        _ => None,
-    }
+    let (subject, check, trap) = match (cond, body.stmts.as_slice()) {
+        (Expr::Bool { value: true, .. }, [Stmt::Let { pattern: Pattern::Ident(id), value, .. }, Stmt::Expr(Expr::Assert { cond, .. }), ..]) if is_as(&id.name) => match cond.as_ref() {
+            Expr::Is { check, .. } => (value, check, true),
+            _ => return None,
+        },
+        (Expr::Is { binding: Some(b), subject, check, .. }, _) if is_as(&b.name) => (subject.as_ref(), check, false),
+        _ => return None,
+    };
+    let span = subject.span();
+    let written = Expr::Sugar(Box::new(Sugar::AsQual { subject: subject.clone(), check: check.clone(), trap, op: span, mark: span, span }));
+    let mut p = Printer::new(&NoNotes, Reading::Source);
+    p.inline = true;
+    p.expr(&written, 0);
+    Some(format!("desugared from `{}`", p.out))
 }
 
 fn starts_with_minus(e: &Expr) -> bool {
