@@ -130,3 +130,20 @@ fn none_inferred() [] -> Int {
 fn none_last() [] -> Int {
     return late((x: Str) -> x, None)
 }
+
+// An explicit list is the declared type, and each argument widens to it: the
+// written `T` binds before the arguments do, so arms of a union mix, and a
+// `None` joins a `T?`. A mismatch is still one.
+struct WA { x: Int }
+struct WB {}
+type WAB = WA | WB
+
+fn one<T>(first: T) [] -> List<T> => !first { return List<T>(first) }
+
+fn widened_to_the_written_type() -> None {
+    let _mixed = List<WAB>(WA { x: 1 }, WB {}, WA { x: 2 })
+    let _opt = List<Int?>(1, None)
+    let _one = one<WAB>(WB {})
+    //~ error[call-resolve:no-overload]
+    let _wrong = List<WA>(WA { x: 1 }, WB {})
+}

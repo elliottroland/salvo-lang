@@ -149,6 +149,74 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-10 — `when` over a borrowed union narrows to borrowed arms; an explicit type argument widens the arguments ([when-proj-subject] [call-type-args])
+
+User decision 2026-11-10 (agreed from the user's `demo/`, whose `to_str(json:
+proj Json)` wanted to "switch over the arms of this projection"): a `when`
+whose subject is `proj (A | B)` matches the union's arms, and each arm stays
+borrowed — `is .Str` makes the subject a `proj Json.Str`, so `json.value`
+reads as a borrow. `proj (A | B) <: (proj A) | (proj B)`; the reverse stays
+refused. Left open, as the user's call: whether a `proj (A | B)` may fill a
+kept *owned* `A | B` parameter (option (2), ROADMAP's "A `for` element of a
+union-typed list" item).
+
+- **Checker**: `check_when_body` takes the arms from under a borrow (the
+  test `strip_proj_union` already gave `is` [is-narrowing]) and qualifies each
+  branch's narrowing with it, a `None` arm excepted; the after-`when` guard
+  narrowing [is-narrow-guard] too. The lowered `?.`/`?:` accept a borrowed
+  union subject (they refused it as single-armed). The
+  `when-union-subject:qualified-union` diagnostic, with its "drop the claim
+  first (`x := -proj`)" remedy, no longer fires for a borrow; it stays for
+  every other qualifier (`Ok (A | B)`, `Thrown (…)`). A handle to a union
+  (`ref (Mut A | Mut B)`, `at` over a `List<Mut A | Mut B>`) gets its own
+  refusal, `when-proj-subject:mutable`, instead of the "drop the claim"
+  remedy: narrowing it is ROADMAP §8's question, and on Rust it emitted
+  `xs[i].x` on a `Union2` (the `is` path still does: a ROADMAP defect).
+- **Subtyping**: `proj (A | B) <: (proj A) | (proj B)` in `is_subtype`, and
+  `unify` meets a union pattern with the borrow spread onto the arms, so a
+  `for` element passes to a `(proj A) | (proj B)` parameter. The reverse
+  was not touched: a kept `proj (A | B)` parameter (and a `let` of that
+  type) already accepted a union of borrows ([proj-opt-slot]'s
+  `union_proj_fits`), and runs on both backends — reported to the user,
+  who had expected it refused.
+- **IR**: a local narrowed to `None` reads as `MakeNone` when its binding is
+  a borrowed optional too (`spread_union_quals(..).has_none_arm()`); the rest
+  arm of a `?.` over a `proj (A?)` was a `val x: Unit = null` on Kotlin.
+- **Rust**: two emissions the new programs reached were wrong. A borrowed
+  union lent to a union-of-borrows slot (`to_str(elem)` with `elem` a `for`
+  element, an `&UnionN<A, B>`) rendered the per-arm `U1(&**__v)`, which
+  assumes `&UnionN<&A, &B>` — it is `(elem).as_ref()` now (`lend_union`
+  treats the borrow's base as the owned union it refers to). The same
+  program written with `is` failed the same way, so this was a latent
+  defect, not new surface. And a `?.` chain over `&Option<A>` is walked
+  `(o).as_ref().map(…)` (a move out of a borrow, E0507), unless it is a
+  kept parameter, stored as `Option<&A>` already. Kotlin needed nothing.
+- **The type-argument bug**: `List<Json>(Json.Str { … }, Json.Null {})` was
+  "no matching overload". The overload loop started a fn candidate's
+  substitution empty and applied the written type arguments only after
+  unifying, so `T` bound to the first argument (`Json.Str`) and the second
+  was neither its sub- nor supertype; `List<Int?>(1, None)` failed the same
+  way. A fn candidate's substitution now starts from `cand_seed`, as a
+  member's always did, and so does a handler's own member (`Own`); the
+  post-unify pinning, which reuses the seed and now covers `Own` too, stays
+  load-bearing — `unify` widens a bound variable to an argument's
+  supertype — so an argument that does not fit the written type is still
+  refused (`List<A>(A {}, B {})`).
+- **Tests**: `tests/check/when/proj_subjects.sv` (six programs: arms,
+  heads, bindings, guards, a `for` element, the lowered `?.`/`?:`;
+  exhaustiveness; mutation and moves refused; `Ok (A | B)` still refused;
+  a handle refused; the subtyping), a case in
+  `tests/check/type_args/determined.sv`, and
+  `tests/run/deductions/a_when_over_a_borrowed_union.sv` (four programs on
+  both backends: the demo's JSON printer; heads, bindings, guards; a
+  borrowed optional; the subtyping, a guard-narrowed parameter passed on,
+  Copy-scalar arms, a kept `proj (A?)` parameter under `?.`). The suite: 765 tests
+  under `cargo nextest run`, all green (2m40 warm after a `salvo-core` and
+  emitter rebuild, the machine loaded).
+- Not touched: the pick join `proj A | A` (`get(xs, 0) ?: A { … }`) is
+  ROADMAP 9b's defect, and meets a borrowed optional `for` element the same
+  way.
+
 ### 2026-11-09 — `parse_module` is the parse alone; one lowering sequence; the terminal `...` on its block ([syntax-lowered] [ast-print])
 
 User decisions 2026-11-09, closing agent's calls (a) and (d) of the entry
@@ -41817,6 +41885,17 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A borrowed union is not a `Ty::Union`** (2026-11-10,
+  [when-proj-subject]): `proj (A | B)` is a `Ty::Qualified` over the union,
+  so `matches!(t, Ty::Union(_))`, `has_none_arm()` and `value_arms()` all
+  answer as if it had one arm. A site that asks "is this a union?" of a
+  value that may be borrowed (a `for` element, an entry's value, a `proj`
+  parameter) wants `strip_proj_union` (the union under the borrow) or
+  `spread_union_quals` (its arms, each borrowed). On Rust it is `&UnionN<A,
+  B>`, a reference to owned arms, which is not the `UnionN<&A, &B>` a kept
+  union parameter is stored as; a lend that cannot tell them apart
+  dereferences once too often.
 
 - **A dump finds lowered sugar by the spans the lowering wrote**
   (2026-11-09, [syntax-lowered]): the `!` of a lowered `!is` starts after

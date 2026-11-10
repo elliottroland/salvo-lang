@@ -154,6 +154,47 @@ let nanos = when last_updated = meta.last_updated {
 The binding is scoped to the `when`: a `last_updated` after it is an unrelated
 name.
 
+### A borrowed subject
+
+A subject may be a *borrowed* union, `proj (A | B)`: a `proj` parameter, an
+element of a list of unions met in a `for`, a map entry's value (see
+[Projections](Deductions-and-Ownership.md#projections-borrowing-without-copying)).
+The `when` matches the union's arms, and each arm stays borrowed: inside
+`is A` the subject is a `proj A`, so its fields can be read without copying
+anything, and they read as borrows too.
+
+```salvo
+namespace Json {
+    struct Str { value: Str }
+    struct Number { value: Int }
+    struct Null {}
+}
+
+type Json = Json.Str | Json.Number | Json.Null
+
+fn to_str(json: proj Json) -> Str {
+    return when json {
+        is .Str { "\"${json.value}\"" }   // `json` is a `proj Json.Str`
+        is .Number { "${json.value}" }
+        is .Null { "null" }
+    }
+}
+```
+
+The same rules as for any `when` apply: it must cover every arm, an arm may
+cover several (`is .Str | .Null`, a borrowed union of the two), and a binding
+binds the borrowed arm. What a borrow cannot do, a narrowed borrow cannot do
+either: assigning a field of `json` in `is .Str`, or passing it where the
+value is consumed or mutated, needs `copy(json)` first. A borrow of a union is
+a borrow of whichever arm it holds, so `proj (A | B)` is usable as `(proj A) |
+(proj B)`.
+
+Only a read-only borrow reads through to the arms this way. A mutable handle
+to a union (what `at` gives over a `List<Mut A | Mut B>`) cannot be matched
+arm by arm yet. Any other qualifier on a union is a claim *about* the union,
+and `when` refuses it: for `Ok (A | B)`, drop the claim first (`v := -Ok`)
+and match the `A | B` it leaves.
+
 ### Without a subject
 
 **Without a subject**, `when` is a chain of conditions: an `if`-`elif`-`else`

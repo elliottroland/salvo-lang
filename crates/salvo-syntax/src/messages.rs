@@ -5165,6 +5165,14 @@ messages! {
          *about* a union: drop the claim first (`x := -{qual}`) and match the union \
          `{base}` it leaves"
     );
+
+    // [when-proj-subject]
+    /// A `when` subject that is a handle to a union, or a borrow carrying `Mut`.
+    when_proj_subject_mutable = "when-proj-subject:mutable" (subj_ty: &dyn std::fmt::Display, base: &dyn std::fmt::Display) => format!(
+        "`when` cannot match `{subj_ty}` arm by arm: a borrowed union is matched only \
+         when it is a read-only borrow (`proj ({base})`), and narrowing a handle, or a \
+         borrow that carries `Mut`, to its arms is not supported yet"
+    );
     /// A `when` subject that is not a union.
     when_union_subject_not_a_union = "when-union-subject:not-a-union" (subj_ty: &dyn std::fmt::Display) => format!(
         "`when` requires a union-typed subject (found `{subj_ty}`)"

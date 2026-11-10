@@ -28598,7 +28598,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // leaves nothing for the other side — refused like a pointless pick. Asked before
         // the subject's shape: a comptime copy can splice a value where the
         // `?:` was written over a place.
-        if origin.is_some() && !matches!(subj_ty, Ty::Union(_)) {
+        if origin.is_some() && !matches!(subj_ty, Ty::Union(_)) && !Self::is_borrowed_union(&subj_ty) {
             match origin {
                 Some(ast::WhenOrigin::SafeNav) => self.error(span, messages::op_safe_nav_single_arm(&subj_ty)),
                 Some(ast::WhenOrigin::SafePipe { .. }) => self.error(span, messages::expr_safe_pipe_single_arm(&subj_ty)),
@@ -28654,6 +28654,13 @@ impl<'p, 'r> Checker<'p, 'r> {
         result
     }
 
+    /// [when-proj-subject] Whether a type is a union read through a
+    /// read-only borrow (`proj (A | B)`), whose arms are the union's. A `ref`
+    /// handle to a union is not one: its arms would be positions.
+    fn is_borrowed_union(ty: &Ty) -> bool {
+        matches!(ty, Ty::Qualified { quals, base } if matches!(**base, Ty::Union(_)) && quals.iter().all(|q| q.name == "proj"))
+    }
+
     /// [type-unknown-lenient] A `when` refused before its arms are matched:
     /// the arms are still checked, for their own errors, with the binding
     /// form's name in scope.
@@ -28685,31 +28692,61 @@ impl<'p, 'r> Checker<'p, 'r> {
             Some(_) => subj_ty.clone(),
             None => self.repr_of(subject, subj_ty),
         };
-        let Ty::Union(all_arms) = subj_ty else {
-            // [when-union-subject] A *qualified* union (`Ok (A | B)`, or an
-            // `Thrown (Str | Int)` message [throw-try]) is a claim **about** a
-            // union, not a union: its arms belong to the inner type. The
-            // qualifier is droppable ([qual-erasure]'s `Qual T <: T`), so
-            // the remedy is a binding at the inner type — which also keeps
-            // the level change visible to the reader, since the same
-            // qualifier name can appear at both levels.
-            let message = match &subj_ty {
-                Ty::Qualified { quals, base } if matches!(**base, Ty::Union(_)) => {
-                    let qual = quals
-                        .iter()
-                        .map(|q| q.name.clone())
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    messages::when_union_subject_qualified_union(&subj_ty, &qual, &base)
-                }
-                _ => messages::when_union_subject_not_a_union(&subj_ty),
-            };
-            self.error(span, message);
-            for b in branches {
-                self.check_branch_block(&b.body, Vec::new());
+        // [when-proj-subject] A borrowed union (`proj (A | B)`, a `proj(list)`
+        // element of a `List<A | B>`) is matched arm by arm, and each arm
+        // stays borrowed: `is .Str` makes the subject a `proj Json.Str`. The
+        // qualifier says where the value lives, not what it holds, so its
+        // arms are the union's — the reading `is` gives it [is-narrowing].
+        let (all_arms, borrow) = match subj_ty {
+            Ty::Union(arms) => (arms, Vec::new()),
+            Ty::Qualified { quals, base } if Self::is_borrowed_union(subj_ty) => {
+                let Ty::Union(arms) = &**base else { unreachable!() };
+                (arms, quals.clone())
             }
-            return Ty::Unknown;
+            _ => {
+                // [when-union-subject] A *qualified* union (`Ok (A | B)`, or
+                // an `Thrown (Str | Int)` message [throw-try]) is a claim
+                // **about** a union, not a union: its arms belong to the inner
+                // type. The qualifier is droppable ([qual-erasure]'s `Qual T
+                // <: T`), so the remedy is a binding at the inner type —
+                // which also keeps the level change visible to the reader,
+                // since the same qualifier name can appear at both levels.
+                let message = match &subj_ty {
+                    // [when-proj-subject] A borrow is not a claim: dropping it
+                    // is no remedy.
+                    Ty::Qualified { quals, base }
+                        if matches!(**base, Ty::Union(_)) && quals.iter().any(|q| crate::types::is_proj_name(&q.name)) =>
+                    {
+                        messages::when_proj_subject_mutable(&subj_ty, &base)
+                    }
+                    Ty::Qualified { quals, base } if matches!(**base, Ty::Union(_)) => {
+                        let qual = quals
+                            .iter()
+                            .map(|q| q.name.clone())
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        messages::when_union_subject_qualified_union(&subj_ty, &qual, &base)
+                    }
+                    _ => messages::when_union_subject_not_a_union(&subj_ty),
+                };
+                self.error(span, message);
+                for b in branches {
+                    self.check_branch_block(&b.body, Vec::new());
+                }
+                return Ty::Unknown;
+            }
         };
+        // [when-proj-subject] The arms a branch takes, as the subject reads
+        // there: borrowed when the subject is (`None` borrows nothing).
+        let borrowed = |c: &mut Self, arms: Vec<Ty>| -> Ty {
+            let joined = c.mk_union(arms);
+            if borrow.is_empty() || joined.is_none_ty() {
+                joined
+            } else {
+                joined.qualify(borrow.clone())
+            }
+        };
+        let test_repr = strip_proj_union(&repr).clone();
 
         let mut remaining: Vec<Ty> = all_arms.clone();
         let mut branch_tys = Vec::new();
@@ -28749,9 +28786,9 @@ impl<'p, 'r> Checker<'p, 'r> {
             } else if matched.is_empty() {
                 self.error(branch.span, messages::when_exhaustive_dead_branch());
             }
-            let mut test = self.union_test_for(&repr, &pat);
+            let mut test = self.union_test_for(&test_repr, &pat);
             for alt in &alts {
-                let more = self.union_test_for(&repr, alt);
+                let more = self.union_test_for(&test_repr, alt);
                 test = match (test, more) {
                     (Some(a), Some(b)) => match merge_union_tests(a, b) {
                         Some(t) => Some(t),
@@ -28769,13 +28806,13 @@ impl<'p, 'r> Checker<'p, 'r> {
             if let Some(test) = test {
                 self.out.tests.insert(self.key(branch.span), Test::Arms(test));
             }
-            let narrow_ty = self.mk_union(matched.clone());
+            let narrow_ty = borrowed(self, matched.clone());
             if branch.hole.is_some() {
                 self.out.hole_arms.insert(self.key(branch.span), narrow_ty.clone());
             }
             let mut bindings = Vec::new();
             if let Some(b) = &branch.binding {
-                if matches!(narrow_ty, Ty::Union(_)) {
+                if matches!(strip_proj_union(&narrow_ty), Ty::Union(_)) {
                     self.error(b.span, messages::when_bind_several_types());
                 }
                 self.out.expr_ty.insert(self.key(b.span), narrow_ty.clone());
@@ -28820,7 +28857,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         // of the arms whose branches fall through (user decision
         // 2026-10-30): a branch that leaves took its arms with it.
         if some_exit && binding.is_none() && !through_arms.is_empty() && !unresolved_check {
-            let narrowed = self.mk_union(through_arms);
+            let narrowed = borrowed(self, through_arms);
             if narrowed != repr {
                 self.install_narrows(&[Narrow { place: subject_place.clone(), narrowed, declared: repr.clone() }]);
             }
@@ -29751,6 +29788,12 @@ fn unify(param: &Ty, arg: &Ty, subst: &mut HashMap<String, Ty>) -> bool {
         // qualified arm (`Ok Str | Err Str`) [type-union].
         (Ty::Union(parms), _) => match arg {
             Ty::Union(aarms) => unify_union_arms(parms, aarms, subst),
+            // [when-proj-subject] A borrowed union meets a union pattern arm
+            // by arm, each borrowed (`proj (A | B) <: (proj A) | (proj B)`).
+            Ty::Qualified { quals, base } if matches!(**base, Ty::Union(_)) && quals.iter().all(|q| q.name == "proj") => {
+                let Ty::Union(aarms) = crate::types::spread_union_quals(arg) else { unreachable!() };
+                unify_union_arms(parms, &aarms, subst)
+            }
             // [call-type-args] A concrete arm is tried before a bare variable, so a `None`
             // argument meets `Q?`'s `None` and leaves `Q` for a later
             // argument: binding `Q` to `None` first refused `m<Str>(None,
@@ -32139,10 +32182,14 @@ impl<'p, 'r> Checker<'p, 'r> {
             // [effect-disambiguation] A member's effect generics start from its
             // instance (or the written type arguments), so an argument is
             // checked against the effect it will be sent to.
-            let mut subst = match entry {
-                CallCand::Member { .. } => self.cand_seed(entry, type_args),
-                CallCand::Fn(_) | CallCand::Own { .. } => HashMap::new(),
-            };
+            // [call-type-args] A fn's written type arguments pin its generics
+            // before any argument binds them, so each argument is unified
+            // against the declared type and widens to it: `List<Json>(Json.Str
+            // { … }, Json.Null {})` binds `T = Json` and both elements fit,
+            // where binding `T` from the first argument made the second a
+            // mismatch.
+            let seed = self.cand_seed(entry, type_args);
+            let mut subst = seed.clone();
             let ok = patterns
                 .iter()
                 .zip(arg_tys)
@@ -32158,12 +32205,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             let callee_generics: HashSet<String> = entry.generic_names();
-            // Explicit type args pin the substitution.
-            if let CallCand::Fn(_) = entry {
-                for (g, ta) in decl.generics.iter().zip(type_args) {
-                    let lowered = self.lower_type(ta);
-                    subst.insert(g.name.clone(), lowered);
-                }
+            // Explicit type args pin the substitution: unification may have
+            // widened a seeded variable to an argument's supertype, which the
+            // fit below must then refuse.
+            if let CallCand::Fn(_) | CallCand::Own { .. } = entry {
+                subst.extend(seed);
             }
             let mut pairings = Vec::new();
             let mut assignable = true;

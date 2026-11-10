@@ -661,9 +661,10 @@ impl<'a, 'p> Lower<'a, 'p> {
         let ty = self.ty_of(span);
         // [ir-narrow] A local narrowed to `None` reads as the `None` it
         // holds: a binding at `None` is a type no backend declares (the rest
-        // arm of a lowered `?.` on a `T?` [when-lowered]).
+        // arm of a lowered `?.` on a `T?` [when-lowered], or on a borrowed
+        // `proj (T?)` [when-proj-subject]).
         if let AExpr::Ident(id) = e {
-            if ty.is_none_ty() && self.lookup(&id.name).is_some_and(|b| !b.ty.is_none_ty() && b.ty.has_none_arm()) {
+            if ty.is_none_ty() && self.lookup(&id.name).is_some_and(|b| !b.ty.is_none_ty() && crate::types::spread_union_quals(&b.ty).has_none_arm()) {
                 return Expr { ty, span, kind: ExprKind::MakeNone };
             }
         }

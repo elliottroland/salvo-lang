@@ -3147,7 +3147,7 @@ Conventions:
     `^` token are gone; `is ^Ok Int`, which it could not say, is `is Ok Int`
     then `: -Ok`.
 * [when-union-subject] `when` **with a subject** requires a union-typed
-  *variable* subject, and takes no `else`: the arms are the cases and
+  *variable* subject (a borrowed union counts [when-proj-subject]), and takes no `else`: the arms are the cases and
   covering them is what is checked [when-exhaustive]. An `else` here is a
   parse error naming the subject-less form [when-condition]. Field
   subjects stay rejected even though
@@ -3165,6 +3165,51 @@ Conventions:
     multi-qualifier types, which mean a *set* of claims) and a dedicated
     unwrap keyword (it would re-implement the exclusion list the subtype
     rule already has).
+* [when-proj-subject] **A borrowed union is matched arm by arm, each arm
+  borrowed** (user decision 2026-11-10): a subject of type `proj (A | B)` —
+  a `proj Json` parameter, a `for` element of a `List<A | B>`, a map entry's
+  value — is not a claim *about* a union but a borrow *of* one, so `when`
+  matches the union's arms, and inside `is A` the subject is a `proj A`:
+  its fields read as borrows (`json.value` in `is .Str` is a `proj Str`),
+  and what a borrow may not do — be mutated, be moved, fill a `Mut` or
+  consuming position — it may not do narrowed either [proj-readonly]. The
+  same reading `is` gives a borrowed union [is-narrowing].
+  * Subtyping: `proj (A | B) <: (proj A) | (proj B)` — a borrow of a union
+    is a borrow of whichever arm it holds (`is_subtype`, and `unify` against
+    a union pattern, spread the borrow onto the arms). Into a *borrowed*
+    union (`proj (A | B | C)`) it does not widen. The reverse was not built
+    here; what accepts it already — a kept `proj (A | B)` parameter takes a
+    union of borrows (`union_proj_fits`, [proj-opt-slot]), and a `let w:
+    proj (A | B)` takes one — predates this rule, and both backends run it
+    (Rust stores both as the union of borrows).
+  * Exhaustive over the arms like any `when` [when-exhaustive]; an arm
+    head may be a union, whose subject is the borrowed union of its
+    alternatives (`proj (B | C)`); a branch that leaves takes its arms with
+    it [is-narrow-guard]; the binding form [when-bind] and a binding (`is A
+    a`) bind the borrowed arm. A `None` arm is `None` (it borrows nothing).
+    A Copy-scalar arm is the value (`proj Int` is `Int`, [copy-scalar-free]).
+  * The lowered `?.` and `?:` [when-lowered] over a borrowed optional
+    (`proj (A?)`, an element of a `List<A?>`) go through the same path: the
+    rest arm reads as `None` ([ir-narrow]).
+  * **Only a read-only `proj` reads through**: a handle to a union (`ref
+    (Mut A | Mut B)`, what `at` answers over a `List<Mut A | Mut B>`), or a
+    borrow carrying `Mut`, is refused with `when-proj-subject:mutable` —
+    narrowing a mutable borrow to its arms is the open question of
+    ROADMAP §8, and on Rust a handle's arms are positions, not references.
+    `Ok (A | B)` keeps [when-union-subject]'s refusal. Passing a borrowed
+    union to a kept *owned* union parameter (`fn d(x: A | B)` with a `for`
+    element) is not part of this rule and stays refused (an open decision,
+    ROADMAP).
+  * Implementation: `check_when_body` takes the arms from under the borrow
+    (`is_borrowed_union`)
+    and qualifies each branch's narrowing with it; the arm tests are built
+    against the union itself (`strip_proj_union`). Kotlin needs nothing (a
+    reference is a reference). Rust matches the subject wherever it is
+    stored — the union of borrows a kept parameter is [rs-opt-borrow], or
+    the `&UnionN` [rs-proj] — and match ergonomics bind each arm `&A`; a
+    borrowed union lent to a `proj` union parameter is `(v).as_ref()`, and a
+    `?.` over a borrowed optional walks `(o).as_ref()` (unless it is stored
+    as an `Option<&T>` already, a kept parameter).
 * [when-bind] `when name = subject { … }` is the **binding form**: `name`
   is a fresh local, scoped to the `when`, bound to `subject` and then matched
   on. It removes the outer `let` the plain form needs when the subject is an
@@ -3880,6 +3925,15 @@ Conventions:
   a parameter type the result flows into. A type argument that appears in
   the *result* type and that none of these determine is an error naming
   both remedies (user decision 2026-09-04).
+  * **An explicit list is the declared type, and the arguments widen to it**
+    (fixed 2026-11-10): the candidate's substitution starts from the written
+    type arguments, so each argument is unified against `T` already bound,
+    and an argument of a subtype fits — `List<Json>(Json.Str { … },
+    Json.Null {})` binds `T = Json` and wraps both elements into the union,
+    as `List<Int?>(1, None)` does. Before, the written list was applied
+    only after the arguments had bound `T` from the first one (`T =
+    Json.Str`), so the second was "no matching overload". A member's
+    explicit list always started its substitution [effect-disambiguation].
   * *Why an error rather than leniency*: an undetermined argument used to
     leave `Ty::Unknown` in the result, which swallowed later mistakes
     (`add(xs, 1)` then `add(xs, "two")` on the same list, both accepted)

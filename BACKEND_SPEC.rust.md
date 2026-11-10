@@ -1054,6 +1054,14 @@ the blanket rule:
     (`hoist_lend`). `None` is `None`; a wrap into one arm wraps the borrow.
     A mutable binding is reborrowed (`&mut **__v`, `.as_deref_mut()`), an
     optional handle walked mutably.
+  * [when-proj-subject] **A borrowed union** (`proj (A | B)`, an
+    `&UnionN<A, B>` — a `for` element, an entry's value) lends to a union of
+    borrows as the owned union it refers to, `(v).as_ref()`: its arms are
+    owned, so the per-arm `&**__v` (which assumes `&UnionN<&A, &B>`) would
+    dereference an `&A` twice. A `when` or `is` over one matches it in place
+    (`match v { U1(__v) => __v, … }` binds `&A`), and a `?.` over a borrowed
+    optional (`&Option<A>`) walks `(o).as_ref().map(…)` — a kept parameter,
+    stored as `Option<&A>` already, walks `o.map(…)`.
   * **The body**: a read of the parameter is stored as the union of
     borrows even where the IR types it as the owned union (`storage_ty`):
     another name for it copies it, a narrowing takes the borrow its arm

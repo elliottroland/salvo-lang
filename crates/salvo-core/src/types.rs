@@ -861,6 +861,13 @@ pub fn is_subtype(a: &Ty, b: &Ty) -> bool {
                 if arms.iter().any(|arm| a == arm) {
                     return true;
                 }
+                // [when-proj-subject] A borrow of a union is a borrow of
+                // whichever arm it holds: `proj (A | B) <: (proj A) |
+                // (proj B)`. Never the reverse, and never into a borrowed
+                // union (a borrow of a wider union is a different value).
+                if quals.iter().all(|q| q.name == "proj") && is_subtype(&spread_union_quals(a), b) {
+                    return true;
+                }
             }
             // [proj-type] The group may drop its qualifiers only if none is a
             // never-drop one: `proj (A | B)` is a borrow of the union, not

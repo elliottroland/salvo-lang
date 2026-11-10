@@ -477,6 +477,11 @@ the parameter:
 In overloading, an owned position beats a projected one, the way one arm
 beats its union: `proj` accepts more, so it says less.
 
+A projection of a union, `proj (A | B)`, is matched by a `when` arm by arm,
+and each arm is still a projection (`proj A` inside `is A`), so a borrowed
+union is taken apart without copying (see
+[A borrowed subject](Control-Flow.md#a-borrowed-subject)).
+
 ### A view: an owned value that holds borrows
 
 A struct may declare fields as `proj`, written without a source. The struct

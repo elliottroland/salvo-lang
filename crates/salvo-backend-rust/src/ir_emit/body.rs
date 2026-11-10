@@ -1819,6 +1819,13 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         links.reverse(); // base-first
         let mut code = self.value(receiver, indent);
+        // [when-proj-subject] A borrow *of* an optional (`proj (T?)`, an
+        // element of a `List<T?>`) is `&Option<T>`: walked as `Option<&T>`.
+        if matches!(&receiver.ty, Ty::Qualified { quals, base } if quals.iter().any(|q| q.name == "proj") && base.has_none_arm())
+            && !super::is_borrowed_union(&self.storage_ty(receiver))
+        {
+            code = format!("({code}).as_ref()");
+        }
         for (nav, value, already_opt) in links {
             let p = rs_local(&nav.0);
             // The closure parameter is the link's own `nav`, bound owned; the
@@ -2824,6 +2831,21 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
     /// [rs-opt-borrow] `code` — a reference to a value stored as `from` —
     /// as the union of borrows `to`, arm by arm.
     fn lend_union(&mut self, code: &str, from: &Ty, to: &Ty, mutable: bool) -> String {
+        // [when-proj-subject] [rs-proj] A borrowed union (`proj (A | B)`) is
+        // `&UnionN<A, B>`: `code` refers to the owned union itself, whose
+        // arms are owned, so it lends as one (`as_ref`), not as a union of
+        // borrows reborrowed (`&**__v` on an `&A`).
+        let owned_base;
+        let from = match from {
+            Ty::Qualified { quals, base }
+                if matches!(**base, Ty::Union(_)) && quals.iter().any(|q| q.name == "proj") && !quals.iter().any(|q| q.name == "ref") =>
+            {
+                let rest: Vec<_> = quals.iter().filter(|q| q.name != "proj").cloned().collect();
+                owned_base = (**base).clone().qualify(rest);
+                &owned_base
+            }
+            other => other,
+        };
         let fa: Vec<Ty> = salvo_core::types::spread_union_quals(from).value_arms().into_iter().cloned().collect();
         let ta: Vec<Ty> = to.value_arms().into_iter().cloned().collect();
         let (fo, topt) = (from.has_none_arm(), to.has_none_arm());

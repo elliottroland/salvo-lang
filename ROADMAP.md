@@ -2337,15 +2337,38 @@ several are "revisit only if a customer appears".
   at the call (section 2c) is one line, and the missing-identity diagnostic
   should name it.
 
-- **A `for` element of a union-typed list does not fit a parameter of that
-  union** (found 2026-09-29 building §4b item 5, not fixed; unrelated to it).
-  Repro: `struct A {}` `struct B {}` `type AB = A | B` `fn d(x: AB) [] -> Str
-  => x { return "x" }`, then `for c in List<AB>(A {}, B {}) { d(c) }` —
-  "no matching overload for `d(proj (A | B))`". The element is a `proj` view of
-  the union, and the overload fit does not see through `proj` on a union the
-  way it does on a struct. Workaround: bind the element to a typed local
-  first. Likely a small fix in the arg-fits rule; needs its own test on both
-  backends because the Rust borrow of a union arm is what `proj` renders.
+- **A `for` element of a union-typed list does not fit a kept *owned*
+  parameter of that union** (found 2026-09-29 building §4b item 5; narrowed
+  2026-11-10). **DECISION** (option (2) of the borrowed-union round, the
+  user's to make): should a `proj (A | B)` fill a kept `A | B` parameter, as
+  a top-level `proj X` fills a kept `X` [proj-type]? Repro: `struct A {}`
+  `struct B {}` `type AB = A | B` `fn d(x: AB) [] -> Str => x { return "x"
+  }`, then `for c in List<AB>(A {}, B {}) { d(c) }` — "no matching overload
+  for `d(proj (A | B))`". Writing the parameter `proj AB` works on both
+  backends since 2026-11-10 ([when-proj-subject]: the Rust lend of a
+  borrowed union is `(c).as_ref()`), and a `when` over it narrows to
+  borrowed arms. If (2) is taken, the fit is `arg_fits_param`'s kept,
+  non-`Mut` rule extended to a borrowed union, and Rust's lend is the same
+  `as_ref`. A caution the user raised (2026-11-10): taking (2) must not read
+  as `proj (A | B) <: A | B` — it is not a subtype; an `A | B` may hold a
+  `Mut` field that a borrow does not let anyone write. What (2) would extend
+  is the kept, non-`Mut` *call-site* fit [proj-type] (a top-level `proj X`
+  fills a kept `X` because the callee only reads), and that fit checks the
+  parameter's type for `Mut`, not whether the callee mutates through a
+  `Mut`-typed field of it; settle that first (it applies to `proj A → A` on
+  structs today).
+
+- **Open defect: an `is` test on a handle to a union emits wrong Rust**
+  (found 2026-11-10, [when-proj-subject] round, not fixed). Repro: `struct A
+  canbe Mut { x: Int }` `struct B canbe Mut {}`, then `let xs = Mut List<Mut
+  A | Mut B>()`, `xs.add(Mut A { x: 1 })`, `let h = at(xs, 0) ?:
+  unreachable!()`, `if h is A { println("${h.x}") }` — Kotlin prints `1`,
+  rustc: "no field `x` on type `Union2<A, B>`" (`xs[__h1].x`: the handle's
+  path is read without the arm's match). `when` over the same handle is
+  refused (`when-proj-subject:mutable`) for this reason; the `is` path
+  should be refused the same way, or the arm walked [rs-path], with ROADMAP
+  §8. Related: a `List<Mut AB>` over an alias `type AB = A | B` is refused
+  ("`Mut` does not apply to `A | B`").
 
 - **Lock-free scope-local bindings** (2026-09-28, the one item left of the
   lock-free pass the one-shape decision deferred; the stateless half landed
