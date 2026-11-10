@@ -7915,28 +7915,27 @@ impl<'s> Parser<'s> {
     /// `a(replyto b(replyto c()))` — each further `replyto` fills the previous
     /// mint's own reply slot, not the outer call's (user decision 2026-10-20).
     /// `parse_replyto_chain` builds that nested mint; this only appends it.
+    /// Kept as written (`Sugar::TrailingReply`) [syntax-lowered]; the
+    /// appending is the sugar lowering's.
     fn append_replyto(&mut self, base: Expr) -> Option<Expr> {
         let reply = self.parse_replyto_chain()?;
-        match base {
-            Expr::Call { callee, type_args, mut args, named, span } => {
-                let span = span.to(reply.span());
-                args.push(reply);
-                Some(Expr::Call { callee, type_args, args, named, span })
-            }
-            // Nesting a chain: the previous mint's own `Reply<T>` slot is
-            // filled by this one. The mint carries its continuation's args as
-            // `captures`, so the fill is appended there.
-            Expr::ReplyTo { member, module, mut captures, gated, pool, span } => {
-                let span = span.to(reply.span());
-                captures.push(reply);
-                Some(Expr::ReplyTo { member, module, captures, gated, pool, span })
-            }
-            other => {
-                self.error(messages::actor_replyto_not_after_call(), other.span().to(reply.span()));
-                // Recover with the base unchanged; the reply is dropped.
-                Some(other)
+        // A call, or a mint (nesting a chain: the previous mint's own
+        // `Reply<T>` slot is filled by this one), or one of these with a
+        // trailing `replyto` of its own, in parentheses.
+        fn fills(e: &Expr) -> bool {
+            match e {
+                Expr::Call { .. } | Expr::ReplyTo { .. } => true,
+                Expr::Sugar(s) => matches!(&**s, Sugar::TrailingReply { base, .. } if fills(base)),
+                _ => false,
             }
         }
+        if !fills(&base) {
+            self.error(messages::actor_replyto_not_after_call(), base.span().to(reply.span()));
+            // Recover with the base unchanged; the reply is dropped.
+            return Some(base);
+        }
+        let span = base.span().to(reply.span());
+        Some(Expr::Sugar(Box::new(Sugar::TrailingReply { base, reply, span })))
     }
 
     /// [expr-replyto-flat] One mint, with any further trailing `replyto`

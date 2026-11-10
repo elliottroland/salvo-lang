@@ -983,5 +983,10 @@ pub fn walk_sugar<V: Visitor>(v: &mut V, sugar: &Sugar) {
             }
             walk_expr(v, pool);
         }
+        Sugar::TrailingReply { base, reply, span } => {
+            v.visit_span(span);
+            walk_expr(v, base);
+            walk_expr(v, reply);
+        }
     }
 }

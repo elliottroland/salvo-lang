@@ -2544,12 +2544,16 @@ pub enum Sugar {
     /// binds as an address. The `use` itself has no `with` clause then: it
     /// belongs to the spawn. `span` runs from the handler to the pool.
     UseOn { handler: Expr, with_items: Vec<Expr>, pool: Expr, span: Span },
+    /// [expr-replyto-flat] `send(a) replyto k(c)`, as written: the mint
+    /// `reply` after `base`, a call it is the last argument of, or a mint
+    /// whose last capture it is (a chain, `a() replyto b() replyto c()`).
+    TrailingReply { base: Expr, reply: Expr, span: Span },
 }
 
 impl Sugar {
     pub fn span(&self) -> Span {
         match self {
-            Sugar::AsQual { span, .. } | Sugar::Is { span, .. } | Sugar::Pair { span, .. } | Sugar::UseOn { span, .. } => *span,
+            Sugar::AsQual { span, .. } | Sugar::Is { span, .. } | Sugar::Pair { span, .. } | Sugar::UseOn { span, .. } | Sugar::TrailingReply { span, .. } => *span,
         }
     }
 }

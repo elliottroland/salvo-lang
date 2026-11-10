@@ -1826,8 +1826,8 @@ impl Printer<'_> {
             Expr::Sugar(sugar) => match **sugar {
                 Sugar::AsQual { .. } | Sugar::Is { .. } => COMPARE,
                 Sugar::Pair { .. } => 0,
-                // As a spawn: its clauses read greedily.
-                Sugar::UseOn { .. } => 1,
+                // As a spawn or a mint: its clauses read greedily.
+                Sugar::UseOn { .. } | Sugar::TrailingReply { .. } => 1,
             },
             Expr::Elvis { .. } => ELVIS,
             Expr::When { origin: Some(WhenOrigin::Pick), .. } if self.reading == Reading::Source => ELVIS,
@@ -2334,6 +2334,13 @@ impl Printer<'_> {
                 self.push(" on ");
                 self.expr(pool, 1);
             }
+            Sugar::TrailingReply { base, reply, .. } => {
+                // A mint in the base would take the `replyto` as its own.
+                let min = if matches!(base, Expr::ReplyTo { .. }) { 1 } else { POSTFIX };
+                self.expr(base, min);
+                self.push(" ");
+                self.expr(reply, 1);
+            }
         }
     }
 
@@ -2583,7 +2590,9 @@ fn as_qual_name(branches: &[(Expr, Block)]) -> Option<String> {
 /// it does (a written test starts at its own subject); for a pair `k: v`, a
 /// 2-tuple that starts where its key does (a written one starts at `(`); for
 /// `use H() on P`, a spawn that starts where its handler does (a written one
-/// starts at `spawn`).
+/// starts at `spawn`); for `send(a) replyto k()`, a call (or a mint) whose
+/// last argument is a mint that ends where it does (a written one ends at
+/// its `)`).
 fn sugar_origin(e: &Expr) -> Option<Sugar> {
     match e {
         Expr::Unary { op: UnaryOp::Not, operand, span } if span.start > operand.span().start => {
@@ -2603,6 +2612,30 @@ fn sugar_origin(e: &Expr) -> Option<Sugar> {
         // [col-pairs] A pair's tuple spans its two sides only.
         Expr::Tuple { elems, span } if elems.len() == 2 && elems[0].span().start == span.start => {
             Some(Sugar::Pair { key: elems[0].clone(), value: elems[1].clone(), span: *span })
+        }
+        // [expr-replyto-flat] A call or a mint whose last argument is a mint
+        // and ends where it does: no `)` follows it.
+        Expr::Call { callee, type_args, args, named, span } if matches!(args.last(), Some(r @ Expr::ReplyTo { .. }) if r.span().end == span.end) => {
+            let mut args = args.clone();
+            let reply = args.pop()?;
+            // A chain: the mint is itself one, written flat.
+            let reply = match sugar_origin(&reply) {
+                Some(s @ Sugar::TrailingReply { .. }) => Expr::Sugar(Box::new(s)),
+                _ => reply,
+            };
+            let base = Expr::Call { callee: callee.clone(), type_args: type_args.clone(), args, named: named.clone(), span: *span };
+            Some(Sugar::TrailingReply { base, reply, span: *span })
+        }
+        Expr::ReplyTo { member, module, captures, gated, pool: None, span } if matches!(captures.last(), Some(r @ Expr::ReplyTo { .. }) if r.span().end == span.end) => {
+            let mut captures = captures.clone();
+            let reply = captures.pop()?;
+            // A chain: the mint is itself one, written flat.
+            let reply = match sugar_origin(&reply) {
+                Some(s @ Sugar::TrailingReply { .. }) => Expr::Sugar(Box::new(s)),
+                _ => reply,
+            };
+            let base = Expr::ReplyTo { member: member.clone(), module: module.clone(), captures, gated: *gated, pool: None, span: *span };
+            Some(Sugar::TrailingReply { base, reply, span: *span })
         }
         // [actor-use-addr] A `use … on`'s spawn starts at its handler.
         Expr::Spawn { handler, with_items, pool: Some(pool), join: None, span } if handler.span().start == span.start => {

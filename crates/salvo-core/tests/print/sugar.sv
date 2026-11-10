@@ -114,3 +114,13 @@ fn use_on(n: Int) [use, spawn] {
     use Counting(0)
     f(use Counting(1) on pool(1))
 }
+
+send fn trailing(n: Int) [spawn] {
+    counter.total() replyto got(n)
+    counter.total() replyto got(n) replyto done()
+    counter.add(n, n + 1) replyto! got(n) on pool(1)
+    if n > 0 {
+        total(n) replyto got(n)
+    }
+    (a() replyto b()) replyto c()
+}

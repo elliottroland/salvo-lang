@@ -3215,6 +3215,9 @@ Conventions:
     expression or a module-level `use` — whose handler is `Sugar::UseOn`:
     `spawn H(args) with D on POOL`, starting at `H` rather than at a
     `spawn`.
+  * `send(a) replyto k(c)` [expr-replyto-flat] (`Sugar::TrailingReply`):
+    `send(a, replyto k(c))`, the call (or, in a chain, the mint) ending
+    where its last argument does, with no `)` after it.
   * Not lowered, since the tree keeps the spelling: the struct-literal
     shorthand `{ x }` [struct-lit-shorthand] (as a struct pattern's `{ x }`
     is), `x++` [op-inc-dec] (`Expr::IncDec`), and a terminal `...` body
@@ -3226,8 +3229,9 @@ Conventions:
     code it became. The tree keeps a trace of each, which the printer reads
     (`print::sugar_origin`): the `!` of a `!is` starts after its operand
     does, the second test of a union `is` starts where the `||` does, a
-    pair's tuple starts where its key does (a written one at its `(`), and a
-    `use … on`'s spawn starts where its handler does.
+    pair's tuple starts where its key does (a written one at its `(`), a
+    `use … on`'s spawn starts where its handler does, and a call a trailing
+    `replyto` filled ends where that mint does.
 * [when-lowered] **`?:`, `?.` and `?>` are sugar for a `when`** (user decision 2026-10-30,
   option (a) of the pipeline record D2's Convert write-up), lowered after parsing
   and before resolution, since it needs no names (`desugar::lower_picks`):
@@ -8512,9 +8516,11 @@ docs/language/ remains the source of truth for everything that does.
         replyto action_3(true)
     ```
     is `action_1(5, 1, replyto action_2("x", replyto action_3(true)))`. Pure
-    syntax: it produces the same AST the nested spelling does (the mint pushed
-    onto the call's arguments / the outer mint's captures), so every rule above
-    reaches it unchanged. A trailing `replyto` after anything that is not a
+    syntax: kept as written by the parser (`Sugar::TrailingReply`), it is
+    lowered before resolution [syntax-lowered] to the same AST the nested
+    spelling has (the mint pushed onto the call's arguments / the outer
+    mint's captures, the call's span stretched to the mint's end), so every
+    rule above reaches it unchanged. A trailing `replyto` after anything that is not a
     call is an error — there is no argument slot to fill. `replyto!` keeps its
     gate in this position.
 * [actor-types] The three types the forms produce and consume live in

@@ -1738,6 +1738,31 @@ fn lower_one(sugar: Sugar) -> Expr {
         Sugar::UseOn { handler, with_items, pool, span } => {
             Expr::Spawn { handler: Box::new(handler), with_items, pool: Some(Box::new(pool)), join: None, span }
         }
+        // [expr-replyto-flat] `send(a, b) replyto k(c)` is exactly `send(a, b,
+        // replyto k(c))`: the minted continuation is the call's last
+        // positional argument, so no checker or backend rule knows the
+        // flattened spelling exists; after a mint it is the mint's last
+        // capture. A base with a trailing `replyto` of its own is lowered
+        // first (the parser took nothing else).
+        Sugar::TrailingReply { base, reply, .. } => {
+            let base = match base {
+                Expr::Sugar(s) => lower_one(*s),
+                other => other,
+            };
+            match base {
+                Expr::Call { callee, type_args, mut args, named, span } => {
+                    let span = span.to(reply.span());
+                    args.push(reply);
+                    Expr::Call { callee, type_args, args, named, span }
+                }
+                Expr::ReplyTo { member, module, mut captures, gated, pool, span } => {
+                    let span = span.to(reply.span());
+                    captures.push(reply);
+                    Expr::ReplyTo { member, module, captures, gated, pool, span }
+                }
+                other => other,
+            }
+        }
     }
 }
 

@@ -3159,11 +3159,13 @@ fn safe_pipe_is_question_then_gt() {
 
 /// A trailing `replyto k(c)` after a call appends the minted continuation as
 /// the call's final argument — the same AST as the nested
-/// `send(a, replyto k(c))`.
+/// `send(a, replyto k(c))`, once lowered: the parser keeps it as written
+/// [syntax-lowered].
 #[test]
 fn flattened_replyto_equals_nested() {
-    let flat = parse_expr_stmt("send(a) replyto k(c)");
-    let nested = parse_expr_stmt("send(a, replyto k(c))");
+    assert!(matches!(parse_expr_stmt("send(a) replyto k(c)"), Expr::Sugar(_)));
+    let flat = parse_expr_stmt_lowered("send(a) replyto k(c)");
+    let nested = parse_expr_stmt_lowered("send(a, replyto k(c))");
     // Compare the call's argument shapes: both are a Call whose last arg is a
     // ReplyTo targeting `k`.
     let args_of = |e: &Expr| -> Vec<Expr> {
@@ -3194,7 +3196,7 @@ fn flattened_replyto_equals_nested() {
 /// fills `a`'s slot with `replyto b(…)` whose own slot the next line fills.
 #[test]
 fn flattened_replyto_wraps_and_chains() {
-    let e = parse_multiline_expr("outer(1)\n        replyto mid(2)\n        replyto inner(3)");
+    let e = parse_expr_stmt_lowered("outer(1)\n        replyto mid(2)\n        replyto inner(3)");
     let Expr::Call { args, .. } = &e else {
         panic!("expected a Call, got {e:?}");
     };
@@ -3213,7 +3215,7 @@ fn flattened_replyto_wraps_and_chains() {
 /// `replyto!` (the gated mint) works in the flattened position too.
 #[test]
 fn flattened_replyto_keeps_the_gate() {
-    let e = parse_expr_stmt("send(a) replyto! k(c)");
+    let e = parse_expr_stmt_lowered("send(a) replyto! k(c)");
     let Expr::Call { args, .. } = &e else {
         panic!("expected a Call, got {e:?}");
     };

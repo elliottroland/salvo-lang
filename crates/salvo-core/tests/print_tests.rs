@@ -435,3 +435,17 @@ fn a_lowered_use_on_is_marked_in_a_dump() {
     let source = print_module(&module).text;
     assert!(source.contains("    use spawn Counting(0) with Db() on pool(2)\n") && !source.contains("desugared"), "{source}");
 }
+
+/// [ast-print] [syntax-lowered] [expr-replyto-flat] A dump marks the call a
+/// trailing `replyto` was lowered into with the call as written, once for a
+/// chain.
+#[test]
+fn a_lowered_trailing_replyto_is_marked_in_a_dump() {
+    use salvo_syntax::print::{print_module_with, NoNotes, Reading};
+    let (module, diags) = salvo_syntax::parse_module("send fn f(n: Int) [spawn] {\n    total(n) replyto got(n) replyto done()\n    total(n, replyto got(n))\n}\n");
+    assert!(!diags.iter().any(|d| d.is_error()), "{diags:?}");
+    let dump = print_module_with(&module, &NoNotes, Reading::Dump).text;
+    let want = "    total(n, replyto got(n, replyto done()))#{desugared from `total(n) replyto got(n) replyto done()`}\n    total(n, replyto got(n))\n";
+    assert!(dump.contains(want), "missing `{want}` in:\n{dump}");
+    assert_eq!(dump.matches("desugared").count(), 1, "{dump}");
+}
