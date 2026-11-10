@@ -57,7 +57,7 @@ fn errors(src: &str) -> Vec<&'static str> {
     let mut modules = Vec::with_capacity(sources.files.len());
     let mut parse_errors = Vec::new();
     for file in &sources.files {
-        let (ast, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
+        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
         parse_errors.extend(
             diagnostics
                 .iter()
@@ -100,7 +100,7 @@ fn errors(src: &str) -> Vec<&'static str> {
 }
 
 /// [iter-fn] The integration guard: a driver that parses with
-/// `parse_module_deferred` owes the module the program-level expansion
+/// `parse_module` owes the module the program-level expansion
 /// (`salvo_core::expand`) before resolution. A surviving `iter fn` must
 /// never be checked as an ordinary fn (silently different behavior), so
 /// resolve reports it loudly instead.
@@ -129,8 +129,8 @@ fn an_unexpanded_iter_fn_is_a_loud_resolution_error() {
     );
     let mut modules = Vec::with_capacity(sources.files.len());
     for file in &sources.files {
-        // Deliberately deferred, and never expanded: the mistake under test.
-        let (ast, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
+        // Deliberately parsed and never expanded: the mistake under test.
+        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
         assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
         modules.push(ast);
     }

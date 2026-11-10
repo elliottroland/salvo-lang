@@ -149,6 +149,41 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-09 — `parse_module` is the parse alone; one lowering sequence ([syntax-lowered])
+
+User decision 2026-11-09, closing agent's call (a) of the entry below:
+"Based on the name, I would expect the output of `parse_module` to simply
+be the AST(s) in a given module. I would therefore expect this to work
+entirely in the parse phase, and not work with lowerings."
+
+- **`salvo_syntax::parse_module`** is the tree as written: no lowering, no
+  numbering. `parse_module_deferred`, which it was, is gone; the lowering
+  `parse_module` used to run is gone with it, so the sequence is written
+  once.
+- **`desugar::lower_module`** is that sequence: `flatten_namespaces`,
+  `lower_sugar`, `expand_iter_fns`, `lower_picks`, returning the first and
+  third's diagnostics in that order. `expand_file` runs it first, then
+  lists (or drops) the test blocks and declares the message arms, then
+  numbers. `lower_picks` used to run after those two; they move whole items
+  and add structs with no expression in them, so the move changes nothing
+  but the `__pickN` count in a production file whose dropped `test` block
+  held a pick, a file that is an error anyway.
+- **Tests**: a test that asserts a lowered shape, or hands one file
+  straight to resolution, calls `lowered(src)` (parse, `lower_module`,
+  `node_id::number`): `salvo_testkit::lowered` for salvo-core and
+  salvo-cli, `tests/common/mod.rs` in salvo-syntax (a dev-dependency on
+  salvo-testkit there would link a second salvo-syntax). Every other test
+  reads the pure parse. Most core tests needed nothing: they run
+  `salvo_core::expand` after the parse, which used to lower a lowered tree.
+  `site.rs` (a comptime fn read as written) and the `case.rs` unit test
+  read the pure parse.
+- **Agent's calls, to confirm**: (a) the parser snapshots of
+  `string.sv`, `list.sv`, `structs.sv` and `functions.sv` stay lowered
+  (`lowered_clean`), so no snapshot changed; as-written snapshots of them
+  would be a snapshot change, and is the user's call. (b) `lowered` numbers
+  the nodes too, as the old `parse_module` did, so a test never meets an
+  unnumbered lowered tree.
+
 ### 2026-11-09 — The parser keeps the sugar as written; it is lowered before resolution ([syntax-lowered] [ast-print])
 
 User decision 2026-11-09, the first step towards `salvo fmt` (a formatter
@@ -41898,9 +41933,10 @@ snapshot diffs.
   used to hand the subject's obligation *only* to those narrows. Any IR
   pass reasoning per arm about the subject must treat a narrow-less arm as
   holding the arms its test admits (`held_arms` in `ir::check`).
-- **A parser test that checks an operator's shape reads
-  `parse_module_deferred`** (2026-10-30): `parse_module` lowers `?:` to a
-  `when`, so the tree it returns no longer has the operator in it.
+- **A parser test that checks an operator's shape reads `parse_module`**
+  (2026-10-30; the names as of 2026-11-09): the lowering
+  (`desugar::lower_module`) turns `?:` into a `when`, so a lowered tree no
+  longer has the operator in it.
 - **A comptime copy can turn a place into a value** (2026-10-30): a lowered
   form chosen at parse time on the subject's *shape* (a place → the plain
   `when`) may meet a spliced constant after stamping. Ask the operator's
@@ -42987,7 +43023,7 @@ snapshot diffs.
   compiler** (2026-09-27). The codegen tests built their `Program` with
   `parse_module` and no `salvo_core::expand`, so the first `route` case
   failed with "no route stub" while `salvo run` worked. They now do what
-  `salvo compile` does: `parse_module_deferred` + `expand`.
+  `salvo compile` does: `parse_module` + `expand`.
 - **A `deliver` answers when the frame is handed over, not when it is
   read — so a receiver that prints races the sender's own print**
   (2026-09-27). The step-① mem-transport case printed from the receiving

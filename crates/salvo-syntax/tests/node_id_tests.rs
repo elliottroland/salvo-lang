@@ -28,6 +28,7 @@ impl MutVisitor for Collect {
 #[test]
 fn every_node_is_numbered_once_and_each_declaration_is_one_run() {
     let (mut module, diagnostics) = salvo_syntax::parse_module(SRC);
+    salvo_syntax::node_id::number(&mut module);
     assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
     let ranges = module.node_ranges.clone();
     // The file's own nodes first, then the declarations in order, a member

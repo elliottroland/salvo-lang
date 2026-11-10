@@ -25,7 +25,7 @@ pub type Parsed = (Arc<Module>, Vec<Diagnostic>, Vec<FileTest>);
 /// (`expand::expand_file`): what a program's module for it is before the
 /// program-wide expansion.
 pub fn parse_file(file: &SourceFile) -> Parsed {
-    let (mut module, mut diags) = salvo_syntax::parse_module_deferred(&file.content);
+    let (mut module, mut diags) = salvo_syntax::parse_module(&file.content);
     let (tests, more) = crate::expand::expand_file(file, &mut module);
     diags.extend(more);
     (Arc::new(module), diags, tests)

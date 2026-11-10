@@ -10,8 +10,8 @@ placement decision teaches something general.
 
 | phase | code | what it is for |
 |---|---|---|
-| parse | `salvo-syntax` (`lexer.rs`, `parser.rs`) | Text to a tree, per file: the source **as written**, its sugar kept (`ast::Sugar`), so a printer can write it back. |
-| expand (per file) | `salvo-syntax/src/desugar.rs`, `salvo-core/src/expand.rs` (`expand_file`) | The sugar lowered to the code it stands for (`lower_sugar`, first), the struct-body hoist, `iter fn`s, tests, `?:`/`?.`/`?>`; then numbering. Nothing that needs a name resolved. |
+| parse | `salvo-syntax` (`lexer.rs`, `parser.rs`; `parse_module`) | Text to a tree, per file: the source **as written**, its sugar kept (`ast::Sugar`), so a printer can write it back. No lowering and no numbering. |
+| expand (per file) | `salvo-syntax/src/desugar.rs`, `salvo-core/src/expand.rs` (`expand_file`) | The tree as written lowered (`desugar::lower_module`: the namespaces flattened, the sugar as the code it stands for, the struct-body hoist and `iter fn`s, `?:`/`?.`/`?>`), then the tests and the message arms; then numbering. Nothing that needs a name resolved. |
 | resolve | `salvo-core/src/resolve.rs`, `scope_ids.rs` | Which declaration every name means: each file's scope, against the program's declaration headers. |
 | interfaces | `check.rs`, the interface pass | Each declaration's signature as the program means it: types lowered, effect lists expanded, implicits, default deductions. Reads the declaration's own text and other declarations' interfaces, never a body. |
 | comptime | `comptime.rs`, `expand.rs` | Stamps `by` clauses and comptime bodies, between the interfaces (which it reads) and the bodies (which it produces). |
@@ -121,8 +121,8 @@ The parser's tree is the source as written (user decision 2026-11-09,
 `Stmt::CompoundAssign`), or a spelling the tree keeps beside the node
 (`Module::terminal_bodies`), or a trace in the spans (the struct-literal
 shorthand, a plural `with` subject). A lowering that needs no name belongs
-in the per-file expansion (`desugar.rs`, run from `expand_file` before
-anything else), not in the parser: a printer, and so a formatter, prints the
+in the per-file expansion (`desugar::lower_module`, run from `expand_file`
+before anything else), not in the parser: a printer, and so a formatter, prints the
 parsed tree, and the language server reads the written file. Two rules keep
 the move invisible to everything after it: the lowering writes exactly the
 tree the parser wrote (spans included: a name a lowering writes several

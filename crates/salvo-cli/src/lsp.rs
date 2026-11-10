@@ -1777,7 +1777,7 @@ impl Server<'_> {
         // A generic comptime fn is removed from the analysed program once
         // its uses are stamped, so the open file's text is read again: one
         // file, for the one declaration under the cursor.
-        let (mut written, _) = salvo_syntax::parse_module_deferred(view.content);
+        let (mut written, _) = salvo_syntax::parse_module(view.content);
         // [mod-namespace] A namespace's declarations, at top level.
         salvo_syntax::desugar::flatten_namespaces(&mut written);
         let f = written.items.iter().find_map(|item| match item {

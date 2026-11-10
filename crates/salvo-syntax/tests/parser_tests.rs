@@ -1,12 +1,25 @@
 //! Parser integration tests: the standard library and a corpus of docs/language/
 //! examples must parse without errors, with AST snapshots for regressions.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
+/// The module as written, which must parse without errors.
 fn parse_clean(path: &Path) -> salvo_syntax::ast::Module {
+    clean(path, salvo_syntax::parse_module)
+}
+
+/// [`parse_clean`], lowered [syntax-lowered]: for a snapshot that records
+/// what the source lowers to.
+fn lowered_clean(path: &Path) -> salvo_syntax::ast::Module {
+    clean(path, common::lowered)
+}
+
+fn clean(path: &Path, parse: fn(&str) -> (salvo_syntax::ast::Module, Vec<salvo_syntax::Diagnostic>)) -> salvo_syntax::ast::Module {
     let source = std::fs::read_to_string(path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
-    let (module, diagnostics) = salvo_syntax::parse_module(&source);
+    let (module, diagnostics) = parse(&source);
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(
         errors.is_empty(),
@@ -63,7 +76,7 @@ fn snapshot_std_basic() {
 
 #[test]
 fn snapshot_std_string() {
-    insta::assert_debug_snapshot!(parse_clean(&std_core("string.sv")));
+    insta::assert_debug_snapshot!(lowered_clean(&std_core("string.sv")));
 }
 
 /// [type-bytes] The byte buffer's surface: an `intrinsic type` that opts into
@@ -80,7 +93,7 @@ fn snapshot_std_result() {
 
 #[test]
 fn snapshot_std_list() {
-    insta::assert_debug_snapshot!(parse_clean(&std_core("list.sv")));
+    insta::assert_debug_snapshot!(lowered_clean(&std_core("list.sv")));
 }
 
 #[test]
@@ -115,7 +128,7 @@ fn snapshot_std_seq() {
 
 #[test]
 fn snapshot_corpus_structs() {
-    insta::assert_debug_snapshot!(parse_clean(&corpus("structs.sv")));
+    insta::assert_debug_snapshot!(lowered_clean(&corpus("structs.sv")));
 }
 
 #[test]
@@ -125,7 +138,7 @@ fn snapshot_corpus_control_flow() {
 
 #[test]
 fn snapshot_corpus_functions() {
-    insta::assert_debug_snapshot!(parse_clean(&corpus("functions.sv")));
+    insta::assert_debug_snapshot!(lowered_clean(&corpus("functions.sv")));
 }
 
 #[test]
@@ -149,12 +162,12 @@ fn snapshot_corpus_imports() {
 /// wrote it: before the sugar [syntax-lowered] and `?:` are lowered
 /// [when-lowered].
 fn parse_expr_stmt(src: &str) -> salvo_syntax::ast::Expr {
-    parse_expr_stmt_with(src, salvo_syntax::parse_module_deferred)
+    parse_expr_stmt_with(src, salvo_syntax::parse_module)
 }
 
 /// [`parse_expr_stmt`], with its sugar lowered [syntax-lowered] (and `?:`).
 fn parse_expr_stmt_lowered(src: &str) -> salvo_syntax::ast::Expr {
-    parse_expr_stmt_with(src, salvo_syntax::parse_module)
+    parse_expr_stmt_with(src, common::lowered)
 }
 
 fn parse_expr_stmt_with(src: &str, parse: fn(&str) -> (salvo_syntax::ast::Module, Vec<salvo_syntax::Diagnostic>)) -> salvo_syntax::ast::Expr {
@@ -422,7 +435,7 @@ fn namespaced_names_parse_in_declarations_and_types() {
                   namespace Environment {\n    struct Id {\n        value: Str\n    }\n\n    \
                   qualifier Tag for Str\n}\n\n\
                   fn tag(v: Str) -> +Environment.Tag Str {\n    return v\n}\n";
-    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let (module, diagnostics) = common::lowered(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
         "unexpected errors: {:?}",
@@ -702,7 +715,7 @@ fn docs_keep_indentation_after_the_marker() {
 #[test]
 fn a_forward_elvis_may_wrap_to_the_next_line() {
     use salvo_syntax::ast::{Expr, Stmt};
-    let (module, diagnostics) = salvo_syntax::parse_module_deferred(
+    let (module, diagnostics) = salvo_syntax::parse_module(
         "fn f(x: Int?) -> Int {\n    return x\n        ?: 0\n}\n",
     );
     assert!(!diagnostics.iter().any(|d| d.is_error()), "{diagnostics:?}");
@@ -718,7 +731,7 @@ fn a_forward_elvis_may_wrap_to_the_next_line() {
     // Left-associative, with a `return` right side bracketed by the newline:
     // `x ?: return 1\n    ?: 2` is `(x ?: return 1) ?: 2` — the outer node is
     // the second `?:`, whose subject is the first elvis.
-    let (module2, d2) = salvo_syntax::parse_module_deferred(
+    let (module2, d2) = salvo_syntax::parse_module(
         "fn g(x: Int | Str | None) -> Int {\n    return x ?: return 1\n        ?: 2\n}\n",
     );
     assert!(!d2.iter().any(|d| d.is_error()), "{d2:?}");
@@ -735,7 +748,7 @@ fn a_forward_elvis_may_wrap_to_the_next_line() {
     // `x ?: return 1 ?: return 2` is `(x ?: return 1) ?: return 2`, not
     // `x ?: (return 1 ?: return 2)`. The outer node is the second `?:`, its
     // subject the first.
-    let (module_sl, dsl) = salvo_syntax::parse_module_deferred(
+    let (module_sl, dsl) = salvo_syntax::parse_module(
         "fn s(x: Int | Str | None) -> Int {\n    return x ?: return 1 ?: return 2\n}\n",
     );
     assert!(!dsl.iter().any(|d| d.is_error()), "{dsl:?}");
@@ -752,7 +765,7 @@ fn a_forward_elvis_may_wrap_to_the_next_line() {
     // `read()\n    ?: return done()\n    .emit()` is
     // `(read() ?: return done()).emit()`. So the return value is a Call whose
     // callee is a Field whose base is the Elvis (not `done().emit()`).
-    let (module3, d3) = salvo_syntax::parse_module_deferred(
+    let (module3, d3) = salvo_syntax::parse_module(
         "fn h(x: Int?) -> Int {\n    return x\n        ?: return 0\n        .plus_one()\n}\n",
     );
     assert!(!d3.iter().any(|d| d.is_error()), "{d3:?}");
@@ -1152,11 +1165,11 @@ fn a_named_argument_parses() {
 #[test]
 fn key_value_pair_arguments_parse_as_tuples() {
     let source = "fn f() {\n    let m = Mut Map(\"a\": 1, \"b\": 2)\n}\n";
-    let (written, _) = salvo_syntax::parse_module_deferred(source);
+    let (written, _) = salvo_syntax::parse_module(source);
     let salvo_syntax::ast::Item::Fn(f) = &written.items[0] else { panic!() };
     let Some(salvo_syntax::ast::Stmt::Let { value: salvo_syntax::ast::Expr::Call { args, .. }, .. }) = f.body.as_ref().unwrap().stmts.first() else { panic!() };
     assert!(args.iter().all(|a| matches!(a, salvo_syntax::ast::Expr::Sugar(s) if matches!(**s, salvo_syntax::ast::Sugar::Pair { .. }))), "{args:?}");
-    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let (module, diagnostics) = common::lowered(source);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
         "unexpected errors: {:?}",
@@ -1401,7 +1414,7 @@ iter fn iter(c: Countdown) -> Emitted Int | Finished {
     return emitted(at + 1)
 }
 ";
-    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let (module, diagnostics) = common::lowered(source);
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
     insta::assert_debug_snapshot!(module);
@@ -2324,14 +2337,14 @@ fn todo_parses_to_its_own_node() {
 #[test]
 fn compound_assignment_desugars_to_assignment() {
     let source = "fn f() -> None {\n    let n = 1\n    n **= 2\n    n += 2\n}\n";
-    let (written, _) = salvo_syntax::parse_module_deferred(source);
+    let (written, _) = salvo_syntax::parse_module(source);
     let salvo_syntax::ast::Item::Fn(f) = &written.items[0] else { panic!("expected a fn") };
     let ops: Vec<_> = f.body.as_ref().unwrap().stmts[1..].iter().map(|s| match s {
         salvo_syntax::ast::Stmt::CompoundAssign { op, .. } => *op,
         other => panic!("as written: {other:?}"),
     }).collect();
     assert_eq!(ops, [salvo_syntax::ast::BinaryOp::Pow, salvo_syntax::ast::BinaryOp::Add]);
-    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let (module, diagnostics) = common::lowered(source);
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "parse errors: {errors:?}");
     let salvo_syntax::ast::Item::Fn(f) = &module.items[0] else {
@@ -3495,7 +3508,7 @@ fn a_kind_dispatch_is_over_a_type() {
 #[test]
 fn a_union_is_is_a_disjunction_of_tests() {
     use salvo_syntax::ast::{BinaryOp, Expr, Item, Stmt, UnaryOp};
-    let (module, diagnostics) = salvo_syntax::parse_module("fn f(s: Str) {\n    let a = s is \"json\" | \"text\"\n    let b = s !is Int | Str\n}\n");
+    let (module, diagnostics) = common::lowered("fn f(s: Str) {\n    let a = s is \"json\" | \"text\"\n    let b = s !is Int | Str\n}\n");
     assert!(diagnostics.iter().all(|d| !d.is_error()), "{diagnostics:?}");
     let Item::Fn(f) = &module.items[0] else { panic!() };
     let stmts = &f.body.as_ref().unwrap().stmts;
@@ -3512,7 +3525,7 @@ fn a_union_is_is_a_disjunction_of_tests() {
 fn as_bang_and_as_question_are_sugar_for_a_test() {
     use salvo_syntax::ast::{Expr, Item, Stmt, Sugar};
     let source = "fn f() {\n    let a = 36 as! Positive\n    let b = 36 as? Positive\n}\n";
-    let (written, diags) = salvo_syntax::parse_module_deferred(source);
+    let (written, diags) = salvo_syntax::parse_module(source);
     assert!(diags.is_empty(), "{diags:?}");
     let Item::Fn(f) = &written.items[0] else { panic!() };
     let traps: Vec<bool> = f.body.as_ref().unwrap().stmts.iter().map(|s| match s {
@@ -3523,7 +3536,7 @@ fn as_bang_and_as_question_are_sugar_for_a_test() {
         other => panic!("as written: {other:?}"),
     }).collect();
     assert_eq!(traps, [true, false]);
-    let (module, diags) = salvo_syntax::parse_module(source);
+    let (module, diags) = common::lowered(source);
     assert!(diags.is_empty(), "{diags:?}");
     let Item::Fn(f) = &module.items[0] else { panic!() };
     let body = f.body.as_ref().unwrap();
@@ -3538,7 +3551,7 @@ fn as_bang_and_as_question_are_sugar_for_a_test() {
     let Expr::If { branches, .. } = value(1) else { panic!("as? is an if") };
     assert!(matches!(&branches[0].0, Expr::Is { binding: Some(_), .. }));
     // A name after the qualifier is refused: nothing is named.
-    let (_, diags) = salvo_syntax::parse_module_deferred("fn f() {\n    let a = 36 as! Positive p\n}\n");
+    let (_, diags) = salvo_syntax::parse_module("fn f() {\n    let a = 36 as! Positive p\n}\n");
     assert!(diags.iter().any(|d| d.id == Some("expr-as-qual:binding")), "{diags:?}");
 }
 

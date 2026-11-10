@@ -36,41 +36,19 @@ pub fn is_copy_scalar_type(ty: &ast::Type) -> bool {
     matches!(ty, ast::Type::Named { qualifiers, base } if qualifiers.is_empty() && base.args.is_empty() && is_copy_scalar_name(&base.name.name))
 }
 
-/// Parse a single Salvo source file into a module AST.
+/// Parses one Salvo source file into its module **as written**
+/// [syntax-lowered]: the tree the source spells, sugar, namespaces, `iter fn`s
+/// and `?:` included, with no lowering and no node ids — what a printer writes
+/// back as the source.
 ///
 /// Always returns an AST (possibly partial) together with any diagnostics
 /// collected along the way. The parse is considered failed if any diagnostic
-/// is an error.
+/// is an error. A program's driver runs the per-file expansion
+/// (`salvo_core::expand::expand_file`, whose lowering is
+/// [`desugar::lower_module`]) before resolution: an unexpanded `iter fn` is a
+/// shape no later stage supports, unlowered sugar or `?:` is a checker error,
+/// and a namespace's declarations are found by no one.
 pub fn parse_module(source: &str) -> (ast::Module, Vec<Diagnostic>) {
-    let (mut module, mut diagnostics) = parse_module_deferred(source);
-    // [mod-namespace] Dotted top-level declarations for the namespaces.
-    diagnostics.extend(desugar::flatten_namespaces(&mut module));
-    // [syntax-lowered] The sugar the parser kept, as the code it stands for.
-    desugar::lower_sugar(&mut module);
-    // [iter-fn] An `iter fn` is expanded into ordinary declarations here, so
-    // every consumer of a parsed module — resolve, the checker, both emitters,
-    // the LSP — sees the shape it already supports.
-    diagnostics.extend(desugar::expand_iter_fns(&mut module));
-    // [when-lowered] `?:` is the `when` it is.
-    desugar::lower_picks(&mut module);
-    // [node-id] The tree is final for this parse.
-    node_id::number(&mut module);
-    (module, diagnostics)
-}
-
-/// The module **as written** [syntax-lowered]: `parse_module` without the
-/// namespace flattening [mod-namespace], the sugar lowering, the `iter fn`
-/// expansion or the `?:` lowering [when-lowered] — what a printer writes back
-/// as the source, and what a *program*'s driver expands with the test
-/// expansion (`salvo_core::expand`). Such a caller **must** run
-/// `desugar::flatten_namespaces`, `desugar::lower_sugar`,
-/// `desugar::expand_iter_fns` and `desugar::lower_picks` on the module before
-/// resolution (`salvo_core::expand::expand_file` runs them all) — an
-/// unexpanded `iter fn` is a shape no later stage supports, and resolve
-/// reports one loudly rather than checking it as an ordinary fn; unlowered
-/// sugar or `?:` is a checker error, and a namespace's declarations are
-/// found by no one.
-pub fn parse_module_deferred(source: &str) -> (ast::Module, Vec<Diagnostic>) {
     let lexed = lexer::lex(source);
     let mut diagnostics = lexed.diagnostics;
     let mut parser = parser::Parser::new(source, lexed.tokens, lexed.comments);
@@ -78,4 +56,3 @@ pub fn parse_module_deferred(source: &str) -> (ast::Module, Vec<Diagnostic>) {
     diagnostics.extend(parser.into_diagnostics());
     (module, diagnostics)
 }
-

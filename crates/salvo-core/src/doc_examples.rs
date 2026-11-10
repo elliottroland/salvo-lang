@@ -346,7 +346,7 @@ mod tests {
             dependency: None,
             doc_example: None,
         };
-        let (m, _) = salvo_syntax::parse_module_deferred(content);
+        let (m, _) = salvo_syntax::parse_module(content);
         (f, m)
     }
 

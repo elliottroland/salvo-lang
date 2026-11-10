@@ -32,7 +32,7 @@ fn valid_module_name(name: &str) -> bool {
 /// The test whose name is under `offset`, read from the buffer's text — the
 /// analysed program has turned its tests into fns.
 fn test_name_at(content: &str, offset: u32) -> Option<Span> {
-    let (mut module, _) = salvo_syntax::parse_module_deferred(content);
+    let (mut module, _) = salvo_syntax::parse_module(content);
     // [mod-namespace] As the analysed program has them.
     salvo_syntax::desugar::flatten_namespaces(&mut module);
     module.items.iter().find_map(|item| match item {

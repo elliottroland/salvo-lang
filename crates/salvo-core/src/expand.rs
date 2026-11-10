@@ -77,14 +77,11 @@ pub struct FileTest {
 /// production file [test-file]. A function of the file's text, its module path
 /// and whether it is an annex, so a driver may cache its result with the parse.
 pub fn expand_file(file: &SourceFile, module: &mut Module) -> (Vec<FileTest>, Vec<salvo_syntax::Diagnostic>) {
-    // [mod-namespace] Flatten `namespace X { … }` into dotted top-level
-    // declarations before any other pass (the struct-fn hoist, the `iter fn`
-    // expansion, resolve, check, the emitters) sees the module.
-    let mut diags = salvo_syntax::desugar::flatten_namespaces(module);
-    // [syntax-lowered] The sugar the parser kept as written, as the code it
-    // stands for: before every expansion after it, so they read only that.
-    salvo_syntax::desugar::lower_sugar(module);
-    diags.extend(salvo_syntax::desugar::expand_iter_fns(module));
+    // [syntax-lowered] The tree as written, lowered: namespaces flattened
+    // [mod-namespace], sugar, `iter fn`s [iter-fn] and `?:` [when-lowered].
+    // Ahead of the test blocks' listing (or dropping) and the message arms,
+    // which neither read nor write an expression.
+    let mut diags = salvo_syntax::desugar::lower_module(module);
     let mut found = Vec::new();
     if file.is_test {
         let mangled = file.module.0.join("_");
@@ -122,8 +119,6 @@ pub fn expand_file(file: &SourceFile, module: &mut Module) -> (Vec<FileTest>, Ve
     }
     // [actor-message] An actor effect's message arms, beside it.
     crate::message::declare_arms(module);
-    // [when-lowered] `?:` is the `when` it is, from here on.
-    salvo_syntax::desugar::lower_picks(module);
     // [node-id] The file's tree is final until comptime stamps into it.
     // [node-file] Its nodes carry the file's tag from here on.
     module.file_tag = crate::source::file_tag(file);

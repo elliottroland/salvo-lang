@@ -118,7 +118,7 @@ fn a_std_platform_handler_is_supplied_by_a_shipped_companion() {
     );
     let mut modules = Vec::new();
     for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
+        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
         let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
         assert!(errors.is_empty(), "parse errors in {}: {errors:?}", file.name);
         modules.push(module);

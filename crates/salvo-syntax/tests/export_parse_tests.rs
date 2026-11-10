@@ -2,6 +2,8 @@
 //! sets, that it stays an ordinary identifier everywhere else, and the
 //! deduction-list interaction it exposed.
 
+mod common;
+
 use salvo_syntax::ast::{DeductionKind, Item};
 
 // ===================== [mod-export] the `export` modifier =====================
@@ -93,7 +95,8 @@ actor effect Mailer {
     send fn mail(m: Str) => !m
 }
 ";
-    let (module, diagnostics) = salvo_syntax::parse_module(src);
+    // Lowered: the `iter fn` is checked for as what it expands to [iter-fn].
+    let (module, diagnostics) = common::lowered(src);
     assert!(
         !diagnostics.iter().any(|d| d.is_error()),
         "unexpected errors: {diagnostics:?}"

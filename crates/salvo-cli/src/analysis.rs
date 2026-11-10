@@ -163,7 +163,7 @@ pub fn analyze_std() -> Analysis {
     let mut modules = Vec::with_capacity(sources.files.len());
     let mut diagnostics: Vec<FileDiagnostic> = Vec::new();
     for file in &sources.files {
-        let (module, diags) = salvo_syntax::parse_module_deferred(&file.content);
+        let (module, diags) = salvo_syntax::parse_module(&file.content);
         diagnostics.extend(diags.into_iter().map(|d| FileDiagnostic::from_parse(modules.len(), d)));
         modules.push(module);
     }

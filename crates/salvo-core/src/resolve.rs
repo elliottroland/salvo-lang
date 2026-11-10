@@ -804,8 +804,8 @@ fn resolve_impl<'p, M: crate::decl_id::ModuleRef>(
                 // that, so it is ignored here.
                 Item::Test(_) => {}
                 // [iter-fn] An `iter fn` must be expanded before resolution
-                // (`parse_module` does it; `parse_module_deferred` hands the
-                // duty to the program-level `salvo_core::expand`). Checking
+                // (the per-file expansion, `desugar::lower_module`, does
+                // it; `parse_module` leaves the tree as written). Checking
                 // it as an ordinary fn would be silently different behavior,
                 // so a survivor is a loud integration error, never checked.
                 Item::Fn(f) if f.is_iter => {

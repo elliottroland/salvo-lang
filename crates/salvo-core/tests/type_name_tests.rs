@@ -42,7 +42,7 @@ fn errors(src: &str) -> Vec<&'static str> {
     sources.add("main.sv", SourceSet::classify(Path::new("main.sv")).unwrap(), src.to_string(), false);
     let mut modules = Vec::new();
     for file in &sources.files {
-        let (ast, diagnostics) = salvo_syntax::parse_module(&file.content);
+        let (ast, diagnostics) = salvo_testkit::lowered(&file.content);
         let parse_errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
         assert!(parse_errors.is_empty(), "parse errors in {}: {parse_errors:?}", file.name);
         modules.push(ast);

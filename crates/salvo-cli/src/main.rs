@@ -963,7 +963,7 @@ fn assemble(
     // shown; one line says there were some.
     let mut std_errors = 0usize;
     for file in &sources.files {
-        let (module, diagnostics) = salvo_syntax::parse_module_deferred(&file.content);
+        let (module, diagnostics) = salvo_syntax::parse_module(&file.content);
         let hidden = salvo_core::diag::hidden_std_file(file);
         for diag in &diagnostics {
             if !hidden {
@@ -1863,7 +1863,7 @@ fn run_test_pass(
     project: Option<&salvo_core::Project>,
 ) -> Result<TestPass, ExitCode> {
     let source = salvo_test::harness_source(tests, props);
-    let (mut ast, mut diagnostics) = salvo_syntax::parse_module_deferred(&source);
+    let (mut ast, mut diagnostics) = salvo_syntax::parse_module(&source);
     diagnostics.extend(salvo_syntax::desugar::flatten_namespaces(&mut ast));
     // [node-id] The harness joins the program as it parsed: its tree is
     // final, so it is numbered here, under [node-file] its own tag.

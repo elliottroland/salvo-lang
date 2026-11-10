@@ -731,7 +731,7 @@ pub fn test_deductions(params: &[Param]) -> Option<Vec<Deduction>> {
         .collect();
     let decls: Vec<String> = params.iter().map(|p| format!("{}: Int", p.name.name)).collect();
     let text = format!("fn x({}) [] -> None => {} {{\n}}\n", decls.join(", "), entries.join(", "));
-    let (module, _) = crate::parse_module_deferred(&text);
+    let (module, _) = crate::parse_module(&text);
     module.items.into_iter().find_map(|i| match i {
         Item::Fn(f) => f.deductions,
         _ => None,
@@ -1493,6 +1493,26 @@ fn rename_value_arg_root(ty: &mut Type, old: &str, new: &str) {
 
 // ===== [fn-attached] struct-body fns =====
 
+/// [syntax-lowered] The lowering one file's tree as written needs before
+/// resolution, in order: the namespaces flattened [mod-namespace], the sugar
+/// the parser kept as the code it stands for, every `iter fn` expanded
+/// [iter-fn], and every `?:` (and `?.`, `?>`) as the `when` it is
+/// [when-lowered]. What `salvo_core::expand::expand_file` runs, and what a
+/// test that asserts a lowered shape runs after [`crate::parse_module`];
+/// the nodes are not numbered (`node_id::number`). Returns the namespaces'
+/// and the `iter fn` expansion's diagnostics, in that order.
+pub fn lower_module(module: &mut Module) -> Vec<Diagnostic> {
+    // [mod-namespace] Dotted top-level declarations before any other pass
+    // (the struct-fn hoist, the `iter fn` expansion, resolve, check, the
+    // emitters) sees the module.
+    let mut diags = flatten_namespaces(module);
+    // Before every expansion after it, so they read only the code it stands for.
+    lower_sugar(module);
+    diags.extend(expand_iter_fns(module));
+    lower_picks(module);
+    diags
+}
+
 /// [fn-attached] Hoists every fn written inside a struct body to module level,
 /// attached to the type and carrying its visibility. Hoisted rather than kept
 /// nested because it *is* an ordinary top-level function in every other
@@ -1504,8 +1524,7 @@ fn rename_value_arg_root(ty: &mut Type, old: &str, new: &str) {
 /// namespaces compose (`X.Y.Thing`) [name-dot]. `export namespace X`
 /// distributes `export` to every member (D6/D7).
 ///
-/// The first of the per-file expansions (`salvo_core::expand::expand_file`,
-/// and `parse_module`), so the `iter fn`/test/struct-hoist passes and all of
+/// The first of the per-file lowerings ([`lower_module`]), so the `iter fn`/test/struct-hoist passes and all of
 /// resolve, check and the emitters only ever see the dotted names they
 /// already understand; the tree as written keeps its namespaces, for the
 /// printer [syntax-lowered].

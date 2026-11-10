@@ -3191,12 +3191,17 @@ Conventions:
 * [syntax-lowered] **The parser's tree is the source as written; its sugar
   is lowered before resolution** (user decision 2026-11-09: "the place to
   start is moving that desugaring to later. The first step of the resolve
-  phase is probably a good fit"). `parse_module_deferred` returns the tree a
-  formatter prints back [ast-print]: every piece of surface sugar is a node
-  of its own (`ast::Sugar`, under `Expr::Sugar`), and the code it stands for
-  is written by `desugar::lower_sugar`, the first of the per-file expansions
-  (`salvo_core::expand::expand_file`; `parse_module` runs it too, and so does
-  the test harness's driver). The trees it writes are the ones the parser
+  phase is probably a good fit"). `parse_module` returns the tree a
+  formatter prints back [ast-print], and nothing else (user decision
+  2026-11-09: "Based on the name, I would expect the output of
+  `parse_module` to simply be the AST(s) in a given module"): every piece of
+  surface sugar is a node of its own (`ast::Sugar`, under `Expr::Sugar`),
+  and the nodes are not numbered. The one lowering sequence is
+  `desugar::lower_module` — the namespaces flattened, the sugar
+  (`desugar::lower_sugar`, which writes the code it stands for), the `iter
+  fn`s and the picks [when-lowered], in that order — which the per-file
+  expansion (`salvo_core::expand::expand_file`) runs first, and a test that
+  asserts a lowered shape runs after the parse. The trees it writes are the ones the parser
   wrote before, so nothing after it changed; nothing after it meets a piece
   of sugar (`desugar::written_sugar`, a debug assertion at the end of the
   per-file expansion), and one that reached the checker would be
@@ -3218,9 +3223,9 @@ Conventions:
   * `send(a) replyto k(c)` [expr-replyto-flat] (`Sugar::TrailingReply`):
     `send(a, replyto k(c))`, the call (or, in a chain, the mint) ending
     where its last argument does, with no `)` after it.
-  * The namespaces [mod-namespace]: `parse_module_deferred` keeps each
+  * The namespaces [mod-namespace]: `parse_module` keeps each
     `namespace X { … }` an `Item::Namespace`, and `flatten_namespaces`, the
-    expansion's first step, makes its members dotted top-level declarations
+    lowering's first step, makes its members dotted top-level declarations
     (`Module::namespaces` records the paths).
   * Not lowered, since the tree keeps the spelling: the struct-literal
     shorthand `{ x }` [struct-lit-shorthand] (as a struct pattern's `{ x }`
@@ -3270,8 +3275,8 @@ Conventions:
     `Justification::SafeNav`. A local narrowed to `None` (the rest arm of a
     `?.` on a `T?`) reads as `MakeNone`, since a `None`-typed binding is a
     type no backend declares.
-  * A parser test that wants the operator itself uses
-    `parse_module_deferred`, which stops before the lowering; an unlowered
+  * A parser test that wants the operator itself reads `parse_module`'s
+    tree, which the lowering has not touched; an unlowered
     `?:`, `?.` or `?>` reaching the checker is `op-elvis:not-lowered` /
     `op-safe-nav:not-lowered` / `expr-safe-pipe:not-lowered`.
 * [when-exhaustive] `when` must be exhaustive over the subject's arms;
@@ -12736,7 +12741,7 @@ replaced the working document TESTING.md).
   paragraph, a struct's attached fns back in its body [fn-attached], a
   flattened declaration back in its `namespace` [mod-namespace]); comments
   in bodies are not kept, doc comments are. A module **as written**
-  (`parse_module_deferred`) prints as written [syntax-lowered]: its sugar,
+  (`parse_module`) prints as written [syntax-lowered]: its sugar,
   its namespaces and their `...`, its terminal bodies, and its comptime
   statements, heads, calls and splices (`[for …]`, `[if …] … else { … }`,
   `[when …]`, `[let …]`, `refuse!(…)`, `[...for …] { … }`, `[name(…)]`,

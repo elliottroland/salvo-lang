@@ -18,7 +18,7 @@ use crate::analysis::Analysis;
 
 /// The comptime fn whose text holds `offset`, read from the buffer.
 pub(super) fn compfn_at(content: &str, offset: u32) -> Option<FnDecl> {
-    let (mut module, _) = salvo_syntax::parse_module_deferred(content);
+    let (mut module, _) = salvo_syntax::parse_module(content);
     // [mod-namespace] A namespace's declarations, at top level.
     salvo_syntax::desugar::flatten_namespaces(&mut module);
     module.items.into_iter().find_map(|item| match item {
@@ -463,7 +463,7 @@ impl Server<'_> {
             .and_then(|h| h.doc_of.clone());
         let word = &text[start..end];
         let own_struct = {
-            let (mut written, _) = salvo_syntax::parse_module_deferred(text);
+            let (mut written, _) = salvo_syntax::parse_module(text);
             // [mod-namespace] A namespace's declarations, at top level.
             salvo_syntax::desugar::flatten_namespaces(&mut written);
             written.items.iter().any(|i| matches!(i, Item::Struct(s) if s.name.name == word))

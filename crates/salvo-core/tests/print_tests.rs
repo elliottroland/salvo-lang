@@ -10,10 +10,14 @@ use salvo_syntax::print::print_module;
 
 /// Prints `module`, parses the text back and prints that: the first
 /// difference, or the parse errors, or `None` when the printing is stable.
-fn unstable(name: &str, module: &salvo_syntax::ast::Module) -> Option<String> {
+/// `expanded`: `module` is a program's, so the text is parsed back lowered
+/// [syntax-lowered], as `module` was; otherwise it is the tree as written.
+fn unstable(name: &str, module: &salvo_syntax::ast::Module, expanded: bool) -> Option<String> {
     let first = print_module(module).text;
-    let (mut again, diags) = salvo_syntax::parse_module(&first);
-    salvo_core::message::declare_arms(&mut again);
+    let (mut again, diags) = if expanded { salvo_testkit::lowered(&first) } else { salvo_syntax::parse_module(&first) };
+    if expanded {
+        salvo_core::message::declare_arms(&mut again);
+    }
     let errors: Vec<String> = diags
         .iter()
         .filter(|d| d.is_error())
@@ -48,7 +52,7 @@ fn every_std_module_prints_stably() {
     let program = built.program;
     let mut failures = Vec::new();
     for (i, f) in program.files.iter().enumerate() {
-        if let Some(why) = unstable(&f.name, &program.modules[i]) {
+        if let Some(why) = unstable(&f.name, &program.modules[i], true) {
             failures.push(why);
         }
     }
@@ -69,7 +73,7 @@ fn every_corpus_file_prints_stably() {
             continue;
         }
         let name = path.file_name().unwrap().to_string_lossy().to_string();
-        if let Some(why) = unstable(&name, &module) {
+        if let Some(why) = unstable(&name, &module, false) {
             failures.push(why);
         }
     }
@@ -229,7 +233,7 @@ fn expanded_tree_differences(program: &salvo_core::Program, wanted: impl Fn(&sal
         let mut module: salvo_syntax::ast::Module = (*program.modules[i]).clone();
         let printed = salvo_core::printed::print_file_expanded_source(program, i).text;
         inline_field_defaults(program, &mut module);
-        let (mut again, diags) = salvo_syntax::parse_module(&printed);
+        let (mut again, diags) = salvo_testkit::lowered(&printed);
         if let Some(d) = diags.iter().find(|d| d.is_error()) {
             let (line, _) = salvo_syntax::span::line_col(&printed, d.span.start);
             failures.push(format!("{}: printed, it does not parse: {} at\n    {}", f.name, d.message, printed.lines().nth(line as usize - 1).unwrap_or("")));
@@ -321,7 +325,7 @@ fn sv_files(dir: &Path) -> Vec<std::path::PathBuf> {
 /// both hold.
 fn written_difference(name: &str, text: &str) -> Option<String> {
     let parse = |t: &str| {
-        let (m, diags) = salvo_syntax::parse_module_deferred(t);
+        let (m, diags) = salvo_syntax::parse_module(t);
         match diags.iter().find(|d| d.is_error()) {
             Some(d) => {
                 let (line, _) = salvo_syntax::span::line_col(t, d.span.start);
@@ -410,7 +414,7 @@ fn the_sugar_fixture_prints_as_written() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/print/sugar.sv");
     let text = std::fs::read_to_string(&path).unwrap();
     let code = &text;
-    let (module, diags) = salvo_syntax::parse_module_deferred(&text);
+    let (module, diags) = salvo_syntax::parse_module(&text);
     assert!(!diags.iter().any(|d| d.is_error()), "{diags:?}");
     let printed = print_module(&module).text;
     let (a, b): (Vec<&str>, Vec<&str>) = (code.lines().collect(), printed.lines().collect());
@@ -424,7 +428,7 @@ fn the_sugar_fixture_prints_as_written() {
 #[test]
 fn a_lowered_use_on_is_marked_in_a_dump() {
     use salvo_syntax::print::{print_module_with, NoNotes, Reading};
-    let (module, diags) = salvo_syntax::parse_module("use Logging() on pool(1)\n\nfn f() [use, spawn] {\n    use Counting(0) with Db() on pool(2)\n}\n");
+    let (module, diags) = salvo_testkit::lowered("use Logging() on pool(1)\n\nfn f() [use, spawn] {\n    use Counting(0) with Db() on pool(2)\n}\n");
     assert!(!diags.iter().any(|d| d.is_error()), "{diags:?}");
     let dump = print_module_with(&module, &NoNotes, Reading::Dump).text;
     for want in ["use spawn Logging() on pool(1)#{desugared from `use Logging() on pool(1)`}", "use spawn Counting(0) with Db() on pool(2)#{desugared from `use Counting(0) with Db() on pool(2)`}"] {
@@ -440,7 +444,7 @@ fn a_lowered_use_on_is_marked_in_a_dump() {
 #[test]
 fn a_lowered_trailing_replyto_is_marked_in_a_dump() {
     use salvo_syntax::print::{print_module_with, NoNotes, Reading};
-    let (module, diags) = salvo_syntax::parse_module("send fn f(n: Int) [spawn] {\n    total(n) replyto got(n) replyto done()\n    total(n, replyto got(n))\n}\n");
+    let (module, diags) = salvo_testkit::lowered("send fn f(n: Int) [spawn] {\n    total(n) replyto got(n) replyto done()\n    total(n, replyto got(n))\n}\n");
     assert!(!diags.iter().any(|d| d.is_error()), "{diags:?}");
     let dump = print_module_with(&module, &NoNotes, Reading::Dump).text;
     let want = "    total(n, replyto got(n, replyto done()))#{desugared from `total(n) replyto got(n) replyto done()`}\n    total(n, replyto got(n))\n";

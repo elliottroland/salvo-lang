@@ -55,6 +55,17 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 
+/// [syntax-lowered] One file parsed and lowered (`desugar::lower_module`)
+/// with its nodes numbered [node-id], and without the rest of the per-file
+/// expansion: for a test that reads a lowered tree, or hands one file
+/// straight to resolution. The parse's diagnostics come first.
+pub fn lowered(source: &str) -> (salvo_syntax::ast::Module, Vec<salvo_syntax::Diagnostic>) {
+    let (mut module, mut diagnostics) = salvo_syntax::parse_module(source);
+    diagnostics.extend(salvo_syntax::desugar::lower_module(&mut module));
+    salvo_syntax::node_id::number(&mut module);
+    (module, diagnostics)
+}
+
 /// Bumped when the meaning of a stamp changes — a runner that starts
 /// asserting something new must not accept stamps written before it did.
 const HARNESS_VERSION: &str = "1";

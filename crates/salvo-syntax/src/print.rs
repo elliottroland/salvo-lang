@@ -18,7 +18,7 @@
 //! precedence needs them (the parser's binding powers); an expression's
 //! recorded `outer` range includes them.
 //!
-//! A module as the parser wrote it (`parse_module_deferred`) prints as
+//! A module as the parser wrote it (`parse_module`) prints as
 //! written [syntax-lowered]: its sugar (`ast::Sugar`, `x += e`), its terminal
 //! `...` bodies (`Module::terminal_bodies`), its namespaces and its comptime
 //! forms, so the text parses back to the same tree — the formatter's half

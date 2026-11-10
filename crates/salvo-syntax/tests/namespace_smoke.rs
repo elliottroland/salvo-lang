@@ -1,10 +1,12 @@
 //! [mod-namespace] Smoke test: `namespace X { … }` flattens to dotted names.
 
+mod common;
+
+use common::lowered;
 use salvo_syntax::ast::Item;
-use salvo_syntax::parse_module;
 
 fn item_names(src: &str) -> Vec<String> {
-    let (module, diags) = parse_module(src);
+    let (module, diags) = lowered(src);
     let errs: Vec<_> = diags.iter().filter(|d| d.is_error()).collect();
     assert!(errs.is_empty(), "parse errors: {errs:?}");
     module
@@ -105,7 +107,7 @@ fn main() -> None {
     let other = namespace
 }
 ";
-    let (module, diags) = parse_module(src);
+    let (module, diags) = lowered(src);
     let errs: Vec<_> = diags.iter().filter(|d| d.is_error()).collect();
     assert!(errs.is_empty(), "parse errors: {errs:?}");
     // The namespace flattened; the variable `namespace` is untouched.
