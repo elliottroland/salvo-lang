@@ -399,3 +399,19 @@ fn every_source_file_as_written_prints_to_its_own_tree() {
 /// The files holding what the printer cannot write as written yet: comptime
 /// statements and heads (ROADMAP §0av).
 const NOT_YET_PRINTED: &[&str] = &["lib/std/args.sv", "lib/std/core/auto.sv", "lib/std/net/shard.sv", "lib/std/test/kinds.sv", "lib/std/test/random.sv"];
+
+/// [ast-print] [syntax-lowered] The sugar fixture, written in the printer's
+/// layout, prints back to its own text: each piece of sugar as it was
+/// written, not as what it stands for.
+#[test]
+fn the_sugar_fixture_prints_as_written() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/print/sugar.sv");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let code = &text;
+    let (module, diags) = salvo_syntax::parse_module_deferred(&text);
+    assert!(!diags.iter().any(|d| d.is_error()), "{diags:?}");
+    let printed = print_module(&module).text;
+    let (a, b): (Vec<&str>, Vec<&str>) = (code.lines().collect(), printed.lines().collect());
+    let at = a.iter().zip(&b).position(|(x, y)| x != y);
+    assert!(at.is_none() && a.len() == b.len(), "line {}:\n  written: {}\n  printed: {}\n\n{printed}", at.unwrap_or(a.len().min(b.len())) + 1, a.get(at.unwrap_or(0)).unwrap_or(&"<end>"), b.get(at.unwrap_or(0)).unwrap_or(&"<end>"));
+}

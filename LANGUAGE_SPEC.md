@@ -1638,7 +1638,11 @@ Conventions:
   a bare `{ name }` with no type in front is a parse error now that collection
   literals are retired [col-no-literal], and `{ name: … }` still
   needs its colon. The value is an ordinary read of the variable, so it moves
-  as `name: name` would.
+  as `name: name` would. The tree holds `name: name` with the one identifier
+  as both, the value's span the name's — no other spelling has that — so it
+  is no lowering [syntax-lowered]: a printing for source writes `{ name }`
+  back [ast-print], and a dump writes `name: name`, the value with what it
+  resolved to.
 * [struct-lit-infer] The struct literal's type annotation can be dropped
   when the expected type is known (`let p: Person = {name: ...}`).
   * A struct literal with no inferable type is a codegen error, never a
@@ -3199,6 +3203,9 @@ Conventions:
     (`Sugar::Is`; a plain `x is Q` is an `Expr::Is`).
   * A pair argument `k: v` [col-pairs] (`Sugar::Pair`), the 2-tuple `(k,
     v)` spanning its two sides only.
+  * Not lowered, since the tree keeps the spelling: the struct-literal
+    shorthand `{ x }` [struct-lit-shorthand] (as a struct pattern's `{ x }`
+    is), and `x++` [op-inc-dec] (`Expr::IncDec`).
   * In a dump (`Reading::Dump`) an expression the lowering wrote is followed
     by `#{desugared from `x !is Q`}`, and a statement it wrote is preceded by
     the comment `// desugared from `x += e``; for source, it prints as the

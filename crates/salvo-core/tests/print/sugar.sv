@@ -3,7 +3,7 @@
 // a statement, a condition, a call argument, a lambda body. Parsed only
 // (`print_tests.rs`), never checked.
 
-/// A doc comment survives the printing.
+// A doc comment survives the printing.
 fn as_qual(x: Int, xs: List<Int>) -> None {
     let a = x as! Positive
     let b = x as? Positive
@@ -56,4 +56,16 @@ fn pairs(m: Map<Str, Int>) -> None {
     }
     let c = (k) -> Map(k: k as! Positive, "n": n !is Int)
     m?.merge("a": 1)
+}
+
+fn shorthand(x: Int, y: Int) -> Point {
+    let p = Point { x, y }
+    let q = Point { x, y: y + 1, ...p }
+    let r = Mut Point { x: x, y }
+    f(Point { x, y })
+    if (p == Point { x, y }) {
+        print(Point { x })
+    }
+    let g = (x) -> (Point { x, y: 0 })
+    return { x: x, y }
 }

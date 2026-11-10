@@ -2141,8 +2141,9 @@ impl Printer<'_> {
                             self.expr(x, 0);
                             self.push(" }");
                         } else {
-                            // A brace would open a block.
-                            let braced = matches!(**x, Expr::StructLit { ty: None, .. });
+                            // A brace would open a block, and a type before
+                            // one would be the lambda's return type.
+                            let braced = matches!(**x, Expr::StructLit { .. });
                             self.expr(x, if braced { PRIMARY + 1 } else { 0 });
                         }
                     }
@@ -2317,6 +2318,13 @@ impl Printer<'_> {
             self.list(fields, ", ", |p, f| {
                 let s = p.at();
                 match &f.kind {
+                    // [struct-lit-shorthand] `{ x }`: the parser reads it as
+                    // `{ x: x }` with the one identifier as both, so the
+                    // value's span is the name's. A dump writes it out, so
+                    // the value can say what it resolved to.
+                    StructLitFieldKind::Named { name, value: Expr::Ident(v) } if v.name == name.name && v.span == name.span && p.reading == Reading::Source => {
+                        p.ident(name);
+                    }
                     StructLitFieldKind::Named { name, value } => {
                         p.ident(name);
                         p.push(": ");

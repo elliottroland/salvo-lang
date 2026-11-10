@@ -181,6 +181,22 @@ tree a formatter would print was not what the user wrote.
   Q`, `x is A | B` and `x !is A | B` (`Sugar::Is`: one node for the
   negation and the union, since `!is A | B` is both; a plain `x is Q` stays
   an `Expr::Is`); a pair argument `k: v` (`Sugar::Pair`).
+- **Not moved**: the struct-literal shorthand `{ x }`. The parser reads it
+  as `x: x` with the one identifier as name and value, the two spans the
+  same, which no written `x: x` has: the spelling is in the tree already,
+  as a struct pattern's `{ x }` was, so the printer writes it back from that
+  (for `Source`; a dump writes `x: x` so the value shows what it resolved
+  to: the `iter fn` minters' `{ start: start }` are built the same way, and
+  the iteration example's dump snapshots stay as they were). An
+  `ast::StructLitFieldKind` variant would have cost a match arm in a dozen
+  places for nothing a printing needs (agent's call, to confirm).
+- **A printer defect the fixture found**: a typed struct literal as a
+  lambda's expression body, `(x) -> (Point { x: 1 })`, printed without its
+  parentheses, and so read back as a lambda returning `Point` with a block
+  body. Any struct literal there is parenthesized now.
+- `the_sugar_fixture_prints_as_written`: the fixture, written in the
+  printer's layout, prints back to its own text, so each piece of sugar is
+  known to print as written and not just to parse back to the same tree.
 - **The dumps** give each lowered piece the sugar it was written as:
   `// desugared from `x as! NonNegative`` (it was a fixed sentence per
   form), and a line `// desugared from `n += a`` above an assignment a
