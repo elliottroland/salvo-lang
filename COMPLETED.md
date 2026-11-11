@@ -150,6 +150,67 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-11 — A statement starts on its own line ([stmt-line])
+
+**User decision (2026-11-11)**: refuse two statements on one line, closing
+ROADMAP's open defect (found 2026-11-09 by the sugar fixture: `let a = 1 let
+b = 2` and `print(a) print(b)` parsed as two statements with no
+diagnostic, so a slip could read as something else, as `waitfor out ...`
+once read as three statements). Salvo has no separator, and none was added:
+`;` was already an unexpected character.
+
+- **The rule**: a statement that begins on the line of the one before it is
+  `stmt-line:same-line`, at its first token, with a message asking for it on
+  a new line. A statement after a construct's `}` counts (`if c { a } b`);
+  only `elif`/`else` continue a construct on its line. A terminal `...`
+  head ends its line's statement too: the rest-of-block body it takes
+  starts on the next line, so `for x in xs ... println(x)`, a statement
+  after an `if c ... else { … }`, after a `(x) -> ...` argument's call, or
+  after an `iter fn`'s `state { … }` on its line are refused (the agent's
+  reading of the rule, found in review and flagged to the user). What
+  already
+  shares a line is the grammar's own and stays: a block holding one
+  statement, a `when`'s arms, field lists and literals, comptime brackets,
+  a one-line `waitfor`, a one-line `state` block, same-line operators
+  (`?:`, a trailing `replyto`).
+- **Recovery**: the statement is still parsed and kept, so the rest of the
+  block checks as if it began a line, one error per slip. The error is
+  inserted only once that statement has parsed, so a stray token (`let a = 1
+  )`) is the expression error alone. A `;` got its own message
+  (`stmt-line:semicolon`, naming the fix) and is lexed as a line break, so
+  the statement after it is not refused a second time.
+- **Where**: the three statement loops (a block, a terminal `...` body, an
+  `iter fn`'s body) became one, `Parser::parse_stmt_list`; the check is
+  `Parser::end_of_line`, and a terminal body or an `iter fn`'s body after
+  its `state` block seeds it with `Parser::joined_here`.
+- **Top-level declarations** were accepted on one line too (`struct A {}
+  struct B {}`). Refusing them was the same two-line change in the module's
+  and a namespace's item loops, so they are refused alike (the message says
+  "declaration"). A declaration's member lists (an effect's, a handler's,
+  a struct's…) are separate loops, with comma-separated fields that
+  legitimately share a line; they are left, recorded in ROADMAP §0av
+  ("Members on one line").
+- **The sweep**, with the parser error as the detector (std through `salvo
+  analyze` in `lib/`, every example and the demo, every test-data `.sv`
+  under `crates/`, the raw-string sources in Rust files, and every
+  ```` ```salvo ```` fence in the Markdown, each through a parse-only scratch
+  tool, raw and wrapped in a fn body): five sites. Two handlers'
+  `fn now() -> Int { t = t + 1 return t }` (Rust emit data `handles.sv`,
+  run data `actors/spawn_inheritance_and_the_with_clause.sv`); a
+  lambda body in run data `regressions/the_defect_round_of_2026_09_25.sv`,
+  now a multi-line lambda bound before the `println` (same order, same
+  output); and two fences in `docs/language/` (`Files.md`'s `is Err {
+  ignore(got) reading = false }`, and `Concurrency.md`'s arms, which wrote
+  `;`). std, the examples, the corpus and the sugar fixture wrote none.
+- **Tests**: checker data `syntax/statement_lines.sv` (refusals in a fn
+  body, after a `}`, in a one-line fn/arm/lambda/handler-member body, three
+  on a line, after a terminal `...` head (`if … ... else { … }`, `for …
+  ...`, `(e) -> ...`, an `iter fn`'s `state`), a stray token, `;`,
+  declarations at top level and in a namespace; and a program of what
+  shares a line legitimately, checking clean); parser snapshot `statements_sharing_a_line_are_refused_and_kept`
+  (the ids at their positions, and the module printed, every statement
+  kept). 779 tests under nextest.
+
 ### 2026-11-11 — A join never reads its expected type ([qual-depend-field])
 
 **User decision (2026-11-11)**, closing the agent's call the entry two
@@ -42749,6 +42810,16 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **To sweep the repo for a new parse error, parse; do not analyze**
+  (2026-11-11, [stmt-line]): grep cannot tell `{ a } b` from `{ a } else`,
+  so the parser error was the detector. But `salvo analyze` over a heap of
+  test-data files copied into one source tree panicked in the checker's
+  `[name-table]` assertion (a name resolution bound and the checker's
+  scopes did not), so the sweep ran `salvo_syntax::parse_module` alone,
+  from a scratch crate under `tmp/`. Doc fences need two passes, raw and
+  wrapped in a fn body, since a fragment of statements is not a module; the
+  wrapped pass reports false hits for the declarations it wraps.
 
 - **`mk_union` is not a join** (2026-11-11, [qual-depend-field]): a join of
   paths drops the claims not every path holds (`join_union`), which is

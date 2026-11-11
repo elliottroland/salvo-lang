@@ -2845,6 +2845,39 @@ Conventions:
     `(…)`/`[…]` newlines are ignored (`group_depth > 0`), so a chain wrapped
     inside parentheses is one expression regardless of which operators it
     uses — the way to force a grouping the default precedence would not give.
+* [stmt-line] **A statement starts on its own line** (user decision
+  2026-11-11). Salvo has no statement separator: a statement ends at its
+  line's end, and one that begins on the line of the statement before it is
+  a parse error (`stmt-line:same-line`), at its first token — `let a = 1
+  let b = 2`, `print(a) print(b)`, and a statement after a construct's `}`
+  (`if c { a } b`), which only the grammar's own continuations (`elif`,
+  `else`) may follow on the line.
+  * **What shares a line legitimately is the grammar's, not a separator's**:
+    a block holding one statement (`fn f() -> Int { return 1 }`, `if c {
+    return }`, `is A { x }`, a lambda's body), `} else {`, a `when`'s arms,
+    field lists and struct literals, comptime brackets (`[for …] { … }`,
+    `[when …] { … }`), a one-line `waitfor … { … }`, and every same-line
+    operator (`x ?: y`, a trailing `replyto`). The list's closing `}` may
+    follow a statement on its line.
+  * **Recovery**: one error per slip. The statement is still parsed and
+    kept, as if it began a line, so what follows is checked normally; the
+    error waits for that statement to parse, so a stray token (`f(x) )`)
+    reports only the expression error, not a same-line one too.
+  * **`;` is not a separator**: it is an error naming the fix
+    (`stmt-line:semicolon`), and it reads as a line break, so the statement
+    after it is not refused a second time. No separator is accepted.
+  * **Declarations**: the same rule holds for a module's and a namespace's
+    declarations (`struct A {} struct B {}` on one line is refused). It does
+    not reach a declaration's members (an effect's or a handler's `fn`s on
+    one line are still accepted; ROADMAP).
+  * **A terminal `...` head ends its line's statement**: the body it takes
+    (the rest of the block) starts on the next line, so `for x in xs ...
+    println(x)`, a statement after an `if c ... else { … }`'s inline `else`,
+    one after a `(x) -> ...` argument's call, and one after an `iter fn`'s
+    `state { … }` block on its line are refused alike (the list is seeded
+    with the first statement's token, `Parser::joined_here`).
+  * The statement lists are one loop (`Parser::parse_stmt_list`): a block,
+    a terminal `...` body, an `iter fn`'s body.
 * [expr-pipe] **`value |> expr` is the pipe operator** (user decision
   2026-10-14): the left side is evaluated **once** and bound to the
   placeholder `_`, which the right side reads, and the pipe's value and type

@@ -94,7 +94,10 @@ handler TickingClock for Clock {
     state {
         t: Int = 0
     }
-    fn now() -> Int { t = t + 1 return t }
+    fn now() -> Int {
+        t = t + 1
+        return t
+    }
 }
 
 effect Logger {

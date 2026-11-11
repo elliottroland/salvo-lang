@@ -280,7 +280,10 @@ while reading {
     let got = read_to(s, buf, 65536)     // Ok Int | Err Checked<StreamError>
     when got {
         is Ok { if got == 0 { reading = false } else { consume(buf) } }
-        is Err { ignore(got) reading = false }
+        is Err {
+            ignore(got)
+            reading = false
+        }
     }
 }
 ```

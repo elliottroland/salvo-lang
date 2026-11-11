@@ -605,8 +605,14 @@ handler Front(back: eff[Inventory]) for Inventory {
       mailbox { capacity: 32 }
       send fn sent(m: message[Inventory, Payments]) => !m {
           when m {
-              is .Restock | .Report { println("inventory"); send(inv, m) }
-              is .Charge | .Refund { println("payments"); send(pay, m) }
+              is .Restock | .Report {
+                  println("inventory")
+                  send(inv, m)
+              }
+              is .Charge | .Refund {
+                  println("payments")
+                  send(pay, m)
+              }
           }
       }
   }

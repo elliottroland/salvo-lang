@@ -466,6 +466,44 @@ fn canbe_linear_parses_on_a_struct_type_parameter() {
     assert_eq!(s.generic_canbe[0].1.name.name, "linear");
 }
 
+// [stmt-line] Two statements, or two declarations, on one line: one error
+// each, at the second's first token, and the second still parsed — the
+// printed module shows every statement kept, each on its own line. What the
+// grammar continues (`else`, `elif`, arms, a one-statement block) is not
+// refused. The snapshot holds the errors as `line:col id` and the module as
+// printed.
+#[test]
+fn statements_sharing_a_line_are_refused_and_kept() {
+    let source = "\
+struct A { x: Int } struct B { y: Int }
+
+fn f(c: Bool, v: Int | Str) -> Int {
+    let a = 1 let b = 2
+    print(a) print(b) print(a)
+    if c { return 1 } else { return 2 } a = 3
+    if c { return 1 } elif !c { return 2 }
+    when v { is Int { return 1 } is Str { return 0 } }
+    let g = (x: Int) -> Int { print(x) return x }
+    let d = 1; let e = 2
+    return a
+}
+";
+    let (module, diagnostics) = salvo_syntax::parse_module(source);
+    let line_col = |at: u32| {
+        let before = &source[..at as usize];
+        let line = before.matches('\n').count() + 1;
+        let col = before.len() - before.rfind('\n').map_or(0, |n| n + 1) + 1;
+        format!("{line}:{col}")
+    };
+    let errors: Vec<String> = diagnostics
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| format!("{} {}", line_col(d.span.start), d.id.unwrap_or("?")))
+        .collect();
+    let printed = salvo_syntax::print::print_module(&module).text;
+    insta::assert_snapshot!(format!("{}\n\n{printed}", errors.join("\n")));
+}
+
 // --- Names: casing and dot-names [name-casing] [name-dot] ---
 
 fn errors_of(source: &str) -> Vec<String> {

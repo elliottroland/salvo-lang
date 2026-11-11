@@ -587,6 +587,17 @@ impl<'s> Lexer<'s> {
             ('%', _) => TokenKind::Percent,
             // [fn-overload-at] `add@core.list(x)`: which module's overload.
             ('@', _) => TokenKind::At,
+            // [stmt-line] Salvo has no statement separator. The error names
+            // the fix, and the `;` reads as a line break, so the statement
+            // after it is not also refused as sharing a line (a flattening
+            // operator after it, `x; |> f(_)`, then continues `x`: the `;`
+            // is an error either way).
+            (';', _) => {
+                let span = Span::new(start, self.offset());
+                self.error(messages::stmt_line_semicolon(), span);
+                self.newline_pending = true;
+                return;
+            }
             _ => {
                 let span = Span::new(start, self.offset());
                 self.error(messages::syntax_expected_unexpected_character(c), span);

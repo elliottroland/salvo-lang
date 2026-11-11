@@ -1,0 +1,53 @@
+---
+source: crates/salvo-syntax/tests/parser_tests.rs
+expression: "format!(\"{}\\n\\n{printed}\", errors.join(\"\\n\"))"
+---
+10:14 stmt-line:semicolon
+1:21 stmt-line:same-line
+4:15 stmt-line:same-line
+5:14 stmt-line:same-line
+5:23 stmt-line:same-line
+6:41 stmt-line:same-line
+9:40 stmt-line:same-line
+
+struct A {
+    x: Int
+}
+
+struct B {
+    y: Int
+}
+
+fn f(c: Bool, v: Int | Str) -> Int {
+    let a = 1
+    let b = 2
+    print(a)
+    print(b)
+    print(a)
+    if c {
+        return 1
+    } else {
+        return 2
+    }
+    a = 3
+    if c {
+        return 1
+    } elif !c {
+        return 2
+    }
+    when v {
+        is Int {
+            return 1
+        }
+        is Str {
+            return 0
+        }
+    }
+    let g = (x: Int) -> Int {
+        print(x)
+        return x
+    }
+    let d = 1
+    let e = 2
+    return a
+}

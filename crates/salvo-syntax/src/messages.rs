@@ -1082,6 +1082,18 @@ messages! {
         "only `Mut` may follow `canbe` on a field type, found `{name}`"
     );
 
+    // [stmt-line]
+    /// A statement, or a top-level declaration, that begins on the line of
+    /// the one before it.
+    stmt_line_same_line = "stmt-line:same-line" (what: &str) => format!(
+        "a {what} starts on its own line: put this one on a new line (Salvo has no {what} \
+         separator)"
+    );
+    /// A `;`, which Salvo does not have.
+    stmt_line_semicolon = "stmt-line:semicolon" () =>
+        "Salvo has no `;`: a statement ends at the end of its line, so put the next one on a new \
+         line";
+
     // [struct-opaque]
     /// `opaque` before a declaration that is not a `struct`.
     struct_opaque_not_before_struct = "struct-opaque:not-before-struct" () =>

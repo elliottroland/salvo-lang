@@ -477,8 +477,12 @@ impl<'s> Parser<'s> {
         let docs = self.module_docs();
         let mut items = Vec::new();
         let mut uses = Vec::new();
+        // [stmt-line] The first token of a declaration written on the line
+        // of the one before it.
+        let mut joined: Option<Span> = None;
         while !self.at_eof() {
             let before = self.pos;
+            let mark = self.diagnostics.len();
             // [mod-use] A module-level `use H()`; whether this module may
             // have one is the checker's call.
             if self.at(&TokenKind::KwUse) {
@@ -496,14 +500,22 @@ impl<'s> Parser<'s> {
                         }
                     }
                     uses.push(ModuleUse { handler, span });
+                    self.end_of_line(&mut joined, mark, "declaration");
                 } else {
+                    joined = None;
                     self.recover_to_item_start();
                 }
                 continue;
             }
             match self.parse_item() {
-                Some(item) => items.push(item),
-                None => self.recover_to_item_start(),
+                Some(item) => {
+                    items.push(item);
+                    self.end_of_line(&mut joined, mark, "declaration");
+                }
+                None => {
+                    joined = None;
+                    self.recover_to_item_start();
+                }
             }
             if self.pos == before {
                 // Safety net: never loop without progress.
@@ -681,6 +693,8 @@ impl<'s> Parser<'s> {
             self.bump(); // `{`
         }
         let mut items = Vec::new();
+        // [stmt-line] As in the module's own list.
+        let mut joined: Option<Span> = None;
         loop {
             if terminal {
                 // Runs to the end of the enclosing item list: EOF at the top
@@ -696,9 +710,16 @@ impl<'s> Parser<'s> {
                 break;
             }
             let before = self.pos;
+            let mark = self.diagnostics.len();
             match self.parse_item() {
-                Some(item) => items.push(item),
-                None => self.recover_to_item_start(),
+                Some(item) => {
+                    items.push(item);
+                    self.end_of_line(&mut joined, mark, "declaration");
+                }
+                None => {
+                    joined = None;
+                    self.recover_to_item_start();
+                }
             }
             if self.pos == before {
                 self.bump();
@@ -4632,6 +4653,7 @@ impl<'s> Parser<'s> {
         let start = self.expect(&TokenKind::LBrace)?.span;
         let saved_depth = std::mem::replace(&mut self.group_depth, 0);
         let saved_no_struct = std::mem::replace(&mut self.no_struct, false);
+        let mut joined = None;
         if !self.at(&TokenKind::KwState) {
             self.error(messages::iter_fn_missing_state(), self.peek().span);
         } else {
@@ -4663,19 +4685,11 @@ impl<'s> Parser<'s> {
                     self.eat(&TokenKind::Comma);
                 }
                 self.expect(&TokenKind::RBrace)?;
+                // [stmt-line] The `state` block is the body's first line.
+                joined = self.joined_here();
             }
         }
-        let mut stmts = Vec::new();
-        while !self.at(&TokenKind::RBrace) && !self.at_eof() {
-            let before = self.pos;
-            match self.parse_stmt() {
-                Some(stmt) => stmts.push(stmt),
-                None => self.recover_in_block(),
-            }
-            if self.pos == before {
-                self.bump();
-            }
-        }
+        let stmts = self.parse_stmt_list(Self::parse_stmt, joined);
         self.group_depth = saved_depth;
         self.no_struct = saved_no_struct;
         let end = self.expect(&TokenKind::RBrace)?.span;
@@ -4700,21 +4714,15 @@ impl<'s> Parser<'s> {
     /// [expr-terminal-scope] The remaining statements of the enclosing block as a
     /// `Block` — a terminal scope's body. The enclosing `parse_block` loop sees
     /// `}` next and ends, so nothing may follow at the same level.
+    /// [stmt-line] The head (`for x in xs ...`, `if c ... else { … }`, a
+    /// `(x) -> ...` argument) is a statement of its own line, so the body's
+    /// first statement starts on the next one.
     fn parse_terminal_rest(&mut self) -> Block {
         let start = self.peek().span;
         let saved_depth = std::mem::replace(&mut self.group_depth, 0);
         let saved_no_struct = std::mem::replace(&mut self.no_struct, false);
-        let mut stmts = Vec::new();
-        while !self.at(&TokenKind::RBrace) && !self.at_eof() {
-            let before = self.pos;
-            match self.parse_block_stmt() {
-                Some(stmt) => stmts.push(stmt),
-                None => self.recover_in_block(),
-            }
-            if self.pos == before {
-                self.bump();
-            }
-        }
+        let joined = self.joined_here();
+        let stmts = self.parse_stmt_list(Self::parse_block_stmt, joined);
         self.group_depth = saved_depth;
         self.no_struct = saved_no_struct;
         let end = self.peek().span;
@@ -4751,17 +4759,7 @@ impl<'s> Parser<'s> {
         // [expr-terminal-lambda] A nested block is not the enclosing statement's
         // expression tree; `parse_block_stmt` re-arms the flag per statement.
         let saved_in_stmt = std::mem::replace(&mut self.in_stmt_expr, false);
-        let mut stmts = Vec::new();
-        while !self.at(&TokenKind::RBrace) && !self.at_eof() {
-            let before = self.pos;
-            match self.parse_block_stmt() {
-                Some(stmt) => stmts.push(stmt),
-                None => self.recover_in_block(),
-            }
-            if self.pos == before {
-                self.bump();
-            }
-        }
+        let stmts = self.parse_stmt_list(Self::parse_block_stmt, None);
         self.group_depth = saved_depth;
         self.no_struct = saved_no_struct;
         self.in_stmt_expr = saved_in_stmt;
@@ -4800,6 +4798,59 @@ impl<'s> Parser<'s> {
             return stmt;
         }
         stmt
+    }
+
+    /// [stmt-line] A block's statements, up to its `}` (or the end of the
+    /// input), each read by `stmt`. Salvo has no statement separator: a
+    /// statement ends at its line's end, so one that begins on the line of
+    /// the statement before it is refused, once, at its first token. The
+    /// statement is still parsed and kept, so parsing continues as if it had
+    /// been on its own line. The error waits for that statement to parse, so
+    /// a stray token after a statement (`f(x) )`) reports only what it is,
+    /// not also where it sits. `joined` is the first statement's own token
+    /// when what precedes the list ended a line's statement already (a
+    /// terminal `...` head, an `iter fn`'s `state { … }`), else `None`.
+    fn parse_stmt_list(&mut self, stmt: fn(&mut Self) -> Option<Stmt>, mut joined: Option<Span>) -> Vec<Stmt> {
+        let mut stmts = Vec::new();
+        while !self.at(&TokenKind::RBrace) && !self.at_eof() {
+            let before = self.pos;
+            let mark = self.diagnostics.len();
+            match stmt(self) {
+                Some(s) => {
+                    self.end_of_line(&mut joined, mark, "statement");
+                    stmts.push(s);
+                }
+                None => {
+                    joined = None;
+                    self.recover_in_block();
+                }
+            }
+            if self.pos == before {
+                self.bump();
+            }
+        }
+        stmts
+    }
+
+    /// [stmt-line] Called after a statement or declaration parsed, `mark`
+    /// being the diagnostic count before it: refuses it if it began on the
+    /// line of the one before (`joined`), and records whether the next one
+    /// begins on this one's line. The `}` closing the list, or the end of
+    /// the input, may follow on the line.
+    fn end_of_line(&mut self, joined: &mut Option<Span>, mark: usize, what: &str) {
+        if let Some(span) = joined.take() {
+            self.diagnostics
+                .insert(mark, Diagnostic::error(messages::stmt_line_same_line(what), span));
+        }
+        *joined = self.joined_here();
+    }
+
+    /// [stmt-line] The current token's span when it begins a statement or
+    /// declaration on the line of what was just read: not a newline before
+    /// it, and not the `}` closing the list or the end of the input.
+    fn joined_here(&self) -> Option<Span> {
+        (!self.at(&TokenKind::RBrace) && !self.at_eof() && !self.peek().newline_before)
+            .then(|| self.peek().span)
     }
 
     /// Skips to the start of the next statement (a token on a new line) or

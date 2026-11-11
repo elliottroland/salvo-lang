@@ -1298,7 +1298,11 @@ fn both(f: (a: Int, b: Int) [Console] -> Int, x: Int) [Console] -> Int {
 fn main() [use] {
     use StdConsole()
     println("${first_big(List(1, 5)) ?: 0} ${first_big(List(1)) ?: 0}")
-    println("${both((a, b) -> { println("f ${a} ${b}") return a + b }, 10)}")
+    let total = both((a, b) -> {
+        println("f ${a} ${b}")
+        return a + b
+    }, 10)
+    println("${total}")
 }
 //= stdout
 //= 5 0

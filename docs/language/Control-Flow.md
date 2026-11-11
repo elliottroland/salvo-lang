@@ -36,11 +36,51 @@ A few things work differently from the languages you may know:
 * **A body can be the rest of the block.** A trailing `...` instead of `{ … }`
   makes everything after it the body, which keeps guard-then-continue code
   flat ([Terminal `...` scopes](#terminal--scopes)).
+* **One statement per line.** There is no `;`: a statement ends at the end
+  of its line, and the next one starts on a new line
+  ([Statements and lines](#statements-and-lines)).
 
-The sections below take each construct in turn, then the operators that join
-expressions (`|>`, `?:`, `?>`), then re-typing, which drops a qualifier from
-a value, and finally `type?` and `type!`, which show and check what a
-place's type is at a given line.
+The sections below start with how statements are laid out, take each
+construct in turn, then the operators that join expressions (`|>`, `?:`,
+`?>`), then re-typing, which drops a qualifier from a value, and finally
+`type?` and `type!`, which show and check what a place's type is at a given
+line.
+
+## Statements and lines
+
+A statement ends at the end of its line, and Salvo has no separator to put a
+second one after it: `let a = 1 let b = 2` and `print(a) print(b)` are
+errors, each asking for the second statement on a line of its own. The same
+holds after a block's closing `}`: `if c { a } b` is two statements and is
+refused, since nothing continues an `if` but `elif` and `else`. A terminal
+`...` head is a statement of its own line too, so the body it takes starts on
+the next line: `for x in xs ... println(x)` is refused, as is a statement after
+the inline `else { … }` of an `if c ...`. A `;` is an error too, one that names
+the fix.
+
+What the grammar itself continues stays on one line: a one-line block holding
+one statement (`fn one() -> Int { return 1 }`, `if c { return }`, an arm's
+`is Int { 0 }`, a lambda's `(x: Int) -> Int { return x }`), `} else {` and
+`} elif … {`, a `when`'s arms, a struct's fields and a literal's, and an
+operator written on the line it continues.
+
+```salvo
+fn sign(n: Int) -> Int {
+    if n < 0 { return -1 } elif n == 0 { return 0 } else { return 1 }
+}
+
+fn report(n: Int) [Console] -> None {
+    let s = sign(n)
+    println("${n}: ${s}")    // not `let s = sign(n) println(…)`
+}
+```
+
+Top-level declarations follow the same rule: `struct A {} struct B {}` on
+one line is refused. The rule does not reach a declaration's members: two
+`fn`s of an effect or a handler written on one line are still accepted.
+
+Kotlin, Swift and Go accept `;` as an optional separator; Salvo does not, so
+the end of a line is the only thing that ends a statement.
 
 ## If/elif/else blocks
 

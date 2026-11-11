@@ -1031,12 +1031,13 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
     guarantees it inherits, each tested over every source file: the
     formatted text parses to the same tree (spans aside), formatting it
     again changes nothing, and (once attached) no comment is lost.
-- **Open defect: two statements on one line parse** (found 2026-11-09, by
-  the sugar fixture): `let a = 1 let b = 2` and `print(a) print(b)` are
-  accepted as two statements each, with no diagnostic, so a slip can read
-  as something else (`waitfor out ...` read as three statements until its
-  tell was fixed). Whether to refuse it is the user's call (nothing in std
-  or the examples writes it); a formatter writes each on its own line.
+- **Members on one line** (left by [stmt-line], 2026-11-11): a statement,
+  and a module's or a namespace's declaration, now starts on its own line,
+  but a declaration's member lists are separate loops (an effect's, a
+  handler's, a struct's, a qualifier's, a platform type's, a `fns`
+  group's) and still accept `handler H for E { fn a() {…} fn b() {…} }`.
+  Refusing it is `Parser::end_of_line` in each of those loops, minding the
+  comma-separated field lists that legitimately share a line.
 - **Where it does not run**: 5 of
   the corpus's 6 files do not check (it is the parser's corpus of
   language-page examples: unknown effects, missing type arguments, an
